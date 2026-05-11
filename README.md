@@ -1,16 +1,12 @@
 <div align="center">
 
-# 🔱 METALOGOS
+<img src="logo.jpg" alt="Metalogos Logo" width="200"/>
+
+#  METALOGOS
 
 ### Язык Программирования для ИИ
 
 *Первый язык, спроектированный ИИ для ИИ*
-
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
-[![Status](https://img.shields.io/badge/status-Phase%200%20%7C%20Foundation-yellow.svg)](https://github.com/ShkodnikAI/Metalogos-/blob/main/ROADMAP.md)
-
-[Спецификация](SPECIFICATION.md) · [Дорожная карта](ROADMAP.md) · [Контрибьюторам](CONTRIBUTING.md) · [Документация](docs/)
 
 </div>
 

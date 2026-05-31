@@ -28,6 +28,7 @@ pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::forget_decl => declarations.push(parse_forget_decl(inner_pair)),
                 Rule::fluid_decl => declarations.push(parse_fluid_decl(inner_pair)),
                 Rule::adapt_decl => declarations.push(parse_adapt_decl(inner_pair)),
+                Rule::learn_decl => declarations.push(parse_learn_decl(inner_pair)),
                 Rule::learnable_pattern_decl => declarations.push(parse_learnable_pattern_decl(inner_pair)),
                 Rule::pattern_decl => declarations.push(parse_pattern_decl(inner_pair)),
                 Rule::flow_decl => declarations.push(parse_flow_decl(inner_pair)),
@@ -89,6 +90,7 @@ fn parse_literal_to_expr(pair: &Pair<Rule>) -> Expr {
     match inner.as_rule() {
         Rule::STRING_LITERAL => Expr::StringLit(inner.as_str()[1..inner.as_str().len()-1].to_string()),
         Rule::FLOAT_LITERAL => Expr::FloatLit(inner.as_str().parse().unwrap_or(0.0)),
+        Rule::INT => Expr::FloatLit(inner.as_str().parse().unwrap_or(0.0)),
         Rule::IDENT => Expr::Ident(inner.as_str().to_string()),
         _ => Expr::StringLit(pair.as_str().to_string()),
     }
@@ -238,6 +240,31 @@ fn parse_adapt_decl(pair: Pair<Rule>) -> Declaration {
     let output_example = if exprs.len() >= 2 { parse_expression(exprs[1].clone()) } else { Expr::StringLit(String::new()) };
 
     Declaration::Adapt(AdaptDecl { pattern_name, input_example, output_example })
+}
+
+// ── Learn (Phase 2.3) ──────────────────────────────────────────
+
+fn parse_learn_decl(pair: Pair<Rule>) -> Declaration {
+    let children = children_of(&pair);
+    // learn_decl = { LEARN_KW ~ IDENT ~ "with" ~ "{" ~ learn_param_list? ~ COMMA? ~ "}" }
+    // Children: IDENT(pattern_name), [learn_param_list, ...]
+    let pattern_name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+
+    let mut hyperparams: Vec<(String, Expr)> = Vec::new();
+    if let Some(list_pair) = find_child(&children, Rule::learn_param_list) {
+        for child in list_pair.clone().into_inner() {
+            if child.as_rule() == Rule::learn_param {
+                let param_children = children_of(&child);
+                let name = find_child_str(&param_children, Rule::IDENT).unwrap_or_default();
+                if let Some(expr_pair) = find_child(&param_children, Rule::expression) {
+                    let value = parse_expression(expr_pair);
+                    hyperparams.push((name, value));
+                }
+            }
+        }
+    }
+
+    Declaration::Learn(LearnDecl { pattern_name, hyperparams })
 }
 
 // ── Memorize (M4) ──────────────────────────────────────────────────
@@ -504,6 +531,7 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
                 Rule::FLOAT_LITERAL => {
                     Expr::FloatLit(inner.as_str().parse().unwrap_or(0.0))
                 }
+                Rule::INT => Expr::FloatLit(inner.as_str().parse().unwrap_or(0.0)),
                 Rule::IDENT => Expr::Ident(inner.as_str().to_string()),
                 _ => Expr::Ident(inner.as_str().to_string()),
             }

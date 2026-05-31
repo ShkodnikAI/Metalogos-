@@ -406,6 +406,18 @@ impl Context {
                 self.check_expr(&a.input_example, &empty_scope);
                 self.check_expr(&a.output_example, &empty_scope);
             }
+            Declaration::Learn(l) => {
+                if !self.learnables.contains(&l.pattern_name) {
+                    self.errors.push(format!(
+                        "learn target '{}' is not a learnable pattern",
+                        l.pattern_name
+                    ));
+                }
+                // Check hyperparameter expressions
+                for (_name, expr) in &l.hyperparams {
+                    self.check_expr(expr, &empty_scope);
+                }
+            }
         }
     }
 

@@ -21,6 +21,8 @@ pub enum Declaration {
     Fluid(FluidDecl),
     /// `adapt PatternName add_example("input", "output")`
     Adapt(AdaptDecl),
+    /// `learn PatternName with { data: "corpus", epochs: 5 }`
+    Learn(LearnDecl),
     /// `pattern Name(params) -> Type { body }`
     Pattern(PatternDecl),
     /// `learnable pattern Name(params) -> Type { prompt: "..." }`
@@ -132,6 +134,17 @@ pub struct AdaptDecl {
     pub pattern_name: String,
     pub input_example: Expr,
     pub output_example: Expr,
+}
+
+// ── Learn (Phase 2.3) ────────────────────────────────────────
+
+/// `learn PatternName with { data: "corpus", epochs: 5 }`
+/// Triggers fine-tuning of a learnable pattern via the ML backend.
+#[derive(Debug, Clone)]
+pub struct LearnDecl {
+    pub pattern_name: String,
+    /// Hyperparameters: [(param_name, value_expr)]
+    pub hyperparams: Vec<(String, Expr)>,
 }
 
 // ── Memory (M4) ────────────────────────────────────────────────

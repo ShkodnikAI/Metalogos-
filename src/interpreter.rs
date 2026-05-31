@@ -7,9 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::ast::*;
 use crate::builtins::Builtins;
-use crate::embedding;
 use crate::llm;
-use crate::ml;
 
 /// A single variant inside a Fluid value (runtime). Contains a concrete
 /// value, its declared type name, and a confidence score (0.0..1.0).
@@ -140,18 +138,6 @@ struct StructType {
     fields: Vec<FieldDecl>,
 }
 
-/// An entry in the Entity Store: a lightweight index of entity identity by type.
-/// The actual value lives in `self.variables[id]` — the store is just an index
-/// that enables querying by predicate without knowing variable names.
-#[derive(Debug, Clone)]
-struct EntityRecord {
-    /// The variable name (identity) of this entity.
-    id: String,
-    /// The struct type name (e.g. "Message").
-    #[allow(dead_code)] // Used for type-based queries in future phases
-    type_name: String,
-}
-
 /// A memory entry: stored fact with priority and timestamp for decay.
 #[derive(Debug, Clone)]
 struct MemoryEntry {
@@ -194,15 +180,6 @@ pub struct Interpreter {
     branch_defs: HashMap<String, Vec<Branch>>,
     /// Memory store: entries with priority, timestamp, and decay.
     memory: Vec<MemoryEntry>,
-    /// Entity Store: type_name → [entity records] index.
-    /// Enables CRUD-by-id and query-by-predicate. Actual values in `variables`.
-    entity_store: HashMap<String, Vec<EntityRecord>>,
-    /// Embedding backend for semantic similarity in recall.
-    embedding: Box<dyn embedding::EmbeddingBackend>,
-    /// ML backend for fine-tuning learnable patterns.
-    ml_backend: Box<dyn ml::MlBackend>,
-    /// Status messages from `learn` declarations (accumulated during run).
-    learn_log: Vec<String>,
     /// Knowledge graph relations.
     relations: Vec<Relation>,
     /// Sandbox declarations (recorded but not enforced).
@@ -222,19 +199,10 @@ impl Interpreter {
             builtins: Builtins::new(),
             branch_defs: HashMap::new(),
             memory: Vec::new(),
-            entity_store: HashMap::new(),
-            embedding: embedding::create_embedding_backend(),
-            ml_backend: ml::create_ml_backend(),
-            learn_log: Vec::new(),
             relations: Vec::new(),
             sandboxes: HashMap::new(),
             mutate_log: Vec::new(),
         }
-    }
-
-    /// Return accumulated learn status messages and clear the log.
-    pub fn take_learn_log(&mut self) -> Vec<String> {
-        std::mem::take(&mut self.learn_log)
     }
 
     /// Run a complete .mlog program.
@@ -251,13 +219,6 @@ impl Interpreter {
                 }
                 Declaration::EntityRecord(e) => {
                     let value = self.instantiate_struct(&e.type_name, &e.fields)?;
-                    // Register in Entity Store (identity index)
-                    self.entity_store.entry(e.type_name.clone())
-                        .or_default()
-                        .push(EntityRecord {
-                            id: e.name.clone(),
-                            type_name: e.type_name.clone(),
-                        });
                     self.variables.insert(e.name.clone(), value);
                 }
                 Declaration::EntitySimple(e) => {
@@ -330,39 +291,6 @@ impl Interpreter {
                     } else {
                         return Err(format!("adapt: learnable pattern '{}' not found", a.pattern_name));
                     }
-                }
-                Declaration::Learn(l) => {
-                    // Fine-tune the learnable pattern via the ML backend
-                    let learnable = match self.learnable_patterns.get(&l.pattern_name) {
-                        Some(lp) => lp.clone(),
-                        None => return Err(format!("learn: learnable pattern '{}' not found", l.pattern_name)),
-                    };
-
-                    // Evaluate hyperparameters
-                    let mut data_str = String::new();
-                    let mut epochs: i32 = 1;
-                    for (param_name, param_expr) in &l.hyperparams {
-                        let val = self.eval_expr(param_expr)?;
-                        match param_name.as_str() {
-                            "data" => data_str = match val {
-                                Value::String(s) => s,
-                                other => format!("{}", other),
-                            },
-                            "epochs" => epochs = val.as_float()? as i32,
-                            _ => {} // Ignore unknown hyperparams
-                        }
-                    }
-
-                    // Call ML backend for fine-tuning
-                    let result = self.ml_backend.fine_tune(
-                        &l.pattern_name,
-                        &learnable.prompt,
-                        &data_str,
-                        epochs,
-                    )?;
-
-                    // Log the learn status
-                    self.learn_log.push(format!("[LEARN] {}", result.summary));
                 }
                 Declaration::Fluid(fl) => {
                     let mut variants = Vec::new();
@@ -554,14 +482,6 @@ impl Interpreter {
             return self.invoke_recall(args);
         }
 
-        // Check Entity Store operations
-        if name == "find" {
-            return self.invoke_find(&args);
-        }
-        if name == "count" {
-            return self.invoke_count(&args);
-        }
-
         // Check learnable patterns
         if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
             let collapsed_args = self.collapse_args(&learnable.params, &args);
@@ -589,91 +509,9 @@ impl Interpreter {
         }
 
         // Bind parameters with Fluid collapse
-        let (local_env, input_confidence) = self.bind_and_collapse(&pattern.params, &args)?;
+        let local_env = self.bind_and_collapse(&pattern.params, &args)?;
 
-        let result = self.eval_statements(&pattern.body, &local_env)?;
-
-        // Confidence propagation: if any input was Fluid (confidence < 1.0),
-        // wrap the result in a Fluid value with min(input confidences).
-        if input_confidence < 1.0 {
-            Ok(Value::Fluid(vec![FluidValueVariant {
-                type_name: result.type_name().to_string(),
-                value: result,
-                confidence: input_confidence,
-            }]))
-        } else {
-            Ok(result)
-        }
-    }
-
-    /// Query the Entity Store: find the first entity matching (type, field, op, threshold).
-    /// Returns a clone of the entity's current value from `variables`.
-    /// Arguments: [type_name: String, field: String, op: String, threshold: Float]
-    fn invoke_find(&self, args: &[Value]) -> Result<Value, String> {
-        if args.len() < 4 {
-            return Err("find() requires 4 arguments: find(type, field, op, threshold)".to_string());
-        }
-        let type_name = match &args[0] {
-            Value::String(s) => s.clone(),
-            _ => return Err("find() first argument must be String (type name)".to_string()),
-        };
-        let field = match &args[1] {
-            Value::String(s) => s.clone(),
-            _ => return Err("find() second argument must be String (field name)".to_string()),
-        };
-        let op = match &args[2] {
-            Value::String(s) => s.clone(),
-            _ => return Err("find() third argument must be String (operator: gt, lt, ge, le, eq)".to_string()),
-        };
-        let threshold = args[3].as_float()
-            .map_err(|_| "find() fourth argument must be Float (threshold)".to_string())?;
-
-        let records = match self.entity_store.get(&type_name) {
-            Some(r) => r,
-            None => return Ok(Value::Unit), // No entities of this type
-        };
-
-        for record in records {
-            let value = match self.variables.get(&record.id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let field_val = match value.get_field(&field) {
-                Ok(v) => v,
-                Err(_) => continue, // Field not on this entity
-            };
-            let fv = match field_val.as_float() {
-                Ok(f) => f,
-                Err(_) => continue, // Field not numeric
-            };
-            let matches = match op.as_str() {
-                "gt" => fv > threshold,
-                "lt" => fv < threshold,
-                "ge" => fv >= threshold,
-                "le" => fv <= threshold,
-                "eq" => fv == threshold,
-                _ => return Err(format!("find() unknown operator: {}", op)),
-            };
-            if matches {
-                return Ok(value.clone());
-            }
-        }
-
-        Ok(Value::Unit) // No match — soft failure
-    }
-
-    /// Count entities in the Store by type name.
-    /// Arguments: [type_name: String]
-    fn invoke_count(&self, args: &[Value]) -> Result<Value, String> {
-        if args.is_empty() {
-            return Err("count() requires 1 argument (type name)".to_string());
-        }
-        let type_name = match &args[0] {
-            Value::String(s) => s.clone(),
-            _ => return Err("count() argument must be String (type name)".to_string()),
-        };
-        let count = self.entity_store.get(&type_name).map(|r| r.len()).unwrap_or(0);
-        Ok(Value::Float(count as f64))
+        self.eval_statements(&pattern.body, &local_env)
     }
 
     /// Invoke a learnable pattern using pre-collapsed arguments.
@@ -696,10 +534,8 @@ impl Interpreter {
         Ok(Value::String(response))
     }
 
-    /// Recall from memory: find best matching entry by semantic similarity + decay.
-    /// Uses the embedding backend for cosine similarity (Phase 2.2: concept-group vectors,
-    /// Phase 2.3: real embeddings via PyO3).
-    /// Returns the highest-activation entry above min_confidence.
+    /// Recall from memory: find best matching entry by substring similarity + decay.
+    /// Returns the highest-activation entry matching the query.
     fn invoke_recall(&self, args: Vec<Value>) -> Result<Value, String> {
         if args.is_empty() {
             return Err("recall() requires at least 1 argument (query string)".to_string());
@@ -721,14 +557,13 @@ impl Interpreter {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        // Find best matching entry: semantic similarity * activation after decay
+        // Find best matching entry: substring match + highest activation after decay
         let mut best_match: Option<&MemoryEntry> = None;
-        let mut best_score: f64 = 0.0;
+        let mut best_activation: f64 = 0.0;
 
         for entry in &self.memory {
-            // Semantic similarity via embedding backend
-            let similarity = self.embedding.similarity(&query, &entry.value);
-            if similarity <= 0.0 {
+            // Substring similarity check
+            if !entry.value.contains(&query) {
                 continue;
             }
 
@@ -736,11 +571,8 @@ impl Interpreter {
             let age_days = ((now - entry.timestamp).max(0) as f64) / 86400.0;
             let activation = entry.priority * (-entry.decay_rate * age_days).exp();
 
-            // Combined score: geometric mean of similarity and activation
-            let score = similarity * activation;
-
-            if score > best_score && score >= min_confidence {
-                best_score = score;
+            if activation > best_activation && activation >= min_confidence {
+                best_activation = activation;
                 best_match = Some(entry);
             }
         }
@@ -880,14 +712,6 @@ impl Interpreter {
                     return self.invoke_recall(eval_args);
                 }
 
-                // Check Entity Store operations
-                if name == "find" {
-                    return self.invoke_find(&eval_args);
-                }
-                if name == "count" {
-                    return self.invoke_count(&eval_args);
-                }
-
                 // Check learnable patterns first
                 if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
                     let collapsed_args = self.collapse_args(&learnable.params, &eval_args);
@@ -915,19 +739,8 @@ impl Interpreter {
                 }
 
                 // Bind parameters with Fluid collapse
-                let (local_env, input_confidence) = self.bind_and_collapse(&pattern.params, &eval_args)?;
-                let result = self.eval_statements(&pattern.body, &local_env)?;
-
-                // Confidence propagation: wrap result if any input was Fluid
-                if input_confidence < 1.0 {
-                    Ok(Value::Fluid(vec![FluidValueVariant {
-                        type_name: result.type_name().to_string(),
-                        value: result,
-                        confidence: input_confidence,
-                    }]))
-                } else {
-                    Ok(result)
-                }
+                let local_env = self.bind_and_collapse(&pattern.params, &eval_args)?;
+                self.eval_statements(&pattern.body, &local_env)
             }
             Expr::BinaryOp(left, op, right) => {
                 let l = self.eval_expr_with_env(left, env)?;
@@ -949,24 +762,7 @@ impl Interpreter {
     /// Otherwise, returns Unit (soft-failure per soft-failure semantics).
     /// Non-Fluid values pass through unchanged.
     fn maybe_collapse(&self, value: &Value, required_type: &str) -> Result<Value, String> {
-        let (collapsed, _conf) = self.collapse_with_confidence(value, required_type);
-        Ok(collapsed)
-    }
-
-    /// Collapse a Fluid value and also return its confidence score.
-    /// - Fluid with required_type == "Fluid": pass through unchanged, confidence = best variant
-    /// - Fluid with matching variant: collapse to that variant, return its confidence
-    /// - Fluid with no match or below threshold: Unit, confidence = variant's or 0.0
-    /// - Non-Fluid: pass through, confidence = 1.0 (full certainty)
-    fn collapse_with_confidence(&self, value: &Value, required_type: &str) -> (Value, f64) {
         match value {
-            Value::Fluid(variants) if required_type == "Fluid" => {
-                // Pass through Fluid values unchanged; confidence = best variant's
-                let best_conf = variants.iter()
-                    .map(|v| v.confidence)
-                    .fold(0.0_f64, |a, b| a.max(b));
-                (value.clone(), best_conf)
-            }
             Value::Fluid(variants) => {
                 // Find the best matching variant for the required type
                 let best = variants.iter()
@@ -978,41 +774,36 @@ impl Interpreter {
 
                 match best {
                     Some(variant) if variant.confidence >= Self::COLLAPSE_THRESHOLD => {
-                        (variant.value.clone(), variant.confidence)
+                        Ok(variant.value.clone())
                     }
-                    Some(variant) => {
+                    Some(_variant) => {
                         // Confidence below threshold — soft failure
-                        (Value::Unit, variant.confidence)
+                        Ok(Value::Unit)
                     }
                     None => {
                         // No matching variant at all — soft failure
-                        (Value::Unit, 0.0)
+                        Ok(Value::Unit)
                     }
                 }
             }
-            other => (other.clone(), 1.0),
+            other => Ok(other.clone()),
         }
     }
 
     /// Bind arguments to pattern parameters, collapsing Fluid values as needed.
     /// For each (param, arg) pair, if the arg is a Fluid and the param has a
     /// declared type, collapse the Fluid to that type.
-    /// Also returns the minimum confidence across all bound arguments.
     fn bind_and_collapse(
         &self,
         params: &[Param],
         args: &[Value],
-    ) -> Result<(HashMap<String, Value>, f64), String> {
+    ) -> Result<HashMap<String, Value>, String> {
         let mut local_env = HashMap::new();
-        let mut min_confidence = 1.0_f64;
         for (param, arg) in params.iter().zip(args.iter()) {
-            let (collapsed, conf) = self.collapse_with_confidence(arg, &param.type_name);
-            if conf < min_confidence {
-                min_confidence = conf;
-            }
+            let collapsed = self.maybe_collapse(arg, &param.type_name)?;
             local_env.insert(param.name.clone(), collapsed);
         }
-        Ok((local_env, min_confidence))
+        Ok(local_env)
     }
 
     /// Collapse a list of arguments using parameter type annotations.

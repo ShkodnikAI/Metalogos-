@@ -1,13 +1,19 @@
 [package]
 name = "metalogos"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
-description = "METALOGOS — AI-native programming language (M1: entity + pattern + flow)"
+description = "METALOGOS — AI-native programming language"
+
+[[bin]]
+name = "mlog"
+path = "src/main.rs"
 
 [dependencies]
 pest = "2.7"
 pest_derive = "2.7"
 clap = { version = "4.5", features = ["derive"] }
+rustyline = "14"
+libc = "0.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"

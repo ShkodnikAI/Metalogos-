@@ -4,7 +4,7 @@ WHITESPACE  = _{ " " | "\t" | "\n" | "\r" }
 
 program     =  { SOI ~ (declaration ~ WHITESPACE*)* ~ EOI }
 
-declaration = _{ adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl }
+declaration = _{ fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl }
 
 // ── Entity: struct type ───────────────────────────────────────────────
 // Disambiguates from simple entity: IDENT followed by "{" not ":"
@@ -17,6 +17,11 @@ field_init         = { IDENT ~ COLON ~ expression }
 
 // ── Entity: simple (M1) ──────────────────────────────────────────────
 entity_simple_decl = { "entity" ~ IDENT ~ ":" ~ type_name ~ "=" ~ expression }
+
+// ── Fluid Types (Phase 1) ─────────────────────────────────────
+// fluid x = Float[42.0][0.9] or String["answer"][0.1]
+fluid_decl     = { FLUID_KW ~ IDENT ~ "=" ~ fluid_branch ~ ("or" ~ fluid_branch)* }
+fluid_branch   = { type_name ~ LBRACKET ~ expression ~ RBRACKET ~ LBRACKET ~ FLOAT_LITERAL ~ RBRACKET }
 
 // ── Adapt (M5) ──────────────────────────────────────────────────
 // adapt PatternName add_example("input", "output")
@@ -53,7 +58,7 @@ statement    = { "return" ~ expression }
 flow_decl     = { "flow" ~ IDENT ~ "{" ~ flow_pipeline ~ branch_def* ~ "}" }
 flow_pipeline = { "input" ~ ":" ~ type_name ~ "=" ~ expression ~ (ARROW ~ step_ident)* ~ ARROW ~ "output" }
 branch_def    = { step_ident ~ "{" ~ branch* ~ "}" }
-step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "recall" | "adapt" | "add_example" | "If" | "then" | "with" | "return" | "contains" | "after" | "days") ~ IDENT }
+step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "recall" | "adapt" | "add_example" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or") ~ IDENT }
 branch        = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
 branch_condition = { IDENT ~ "." ~ IDENT ~ compare_op ~ expression }
 
@@ -92,6 +97,8 @@ PLUS      = @{ "+" }
 MINUS     = @{ "-" }
 GT        = @{ ">" }
 LT        = @{ "<" }
+LBRACKET  = @{ "[" }
+RBRACKET  = @{ "]" }
 GTE       = @{ ">=" }
 LTE       = @{ "<=" }
 EQ        = @{ "==" }
@@ -101,6 +108,7 @@ DIGIT     = @{ ASCII_DIGIT }
 // ── Keyword tokens ───────────────────────────────────────────────────
 ENTITY      = @{ "entity" }
 RULE        = @{ "rule" }
+FLUID_KW    = @{ "fluid" }
 LEARNABLE_KW = @{ "learnable" }
 IF_KW       = @{ "If" }
 THEN_KW     = @{ "then" }

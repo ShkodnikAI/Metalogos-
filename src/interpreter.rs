@@ -165,6 +165,17 @@ struct MemoryEntry {
     decay_rate: f64,
 }
 
+/// A knowledge graph relation edge.
+#[derive(Debug, Clone)]
+struct Relation {
+    /// The source memory text.
+    from: String,
+    /// The target memory text.
+    to: String,
+    /// The relation type (e.g., "coworker").
+    relation: String,
+}
+
 /// The interpreter holds all runtime state.
 pub struct Interpreter {
     /// Global variable store.
@@ -192,6 +203,12 @@ pub struct Interpreter {
     ml_backend: Box<dyn ml::MlBackend>,
     /// Status messages from `learn` declarations (accumulated during run).
     learn_log: Vec<String>,
+    /// Knowledge graph relations.
+    relations: Vec<Relation>,
+    /// Sandbox declarations (recorded but not enforced).
+    sandboxes: HashMap<String, SandboxDecl>,
+    /// Mutate status log messages.
+    mutate_log: Vec<String>,
 }
 
 impl Interpreter {
@@ -209,6 +226,9 @@ impl Interpreter {
             embedding: embedding::create_embedding_backend(),
             ml_backend: ml::create_ml_backend(),
             learn_log: Vec::new(),
+            relations: Vec::new(),
+            sandboxes: HashMap::new(),
+            mutate_log: Vec::new(),
         }
     }
 
@@ -355,6 +375,28 @@ impl Interpreter {
                         });
                     }
                     self.variables.insert(fl.name.clone(), Value::Fluid(variants));
+                }
+                Declaration::Relate(r) => {
+                    let from_str = match self.eval_expr(&r.from)? {
+                        Value::String(s) => s,
+                        other => format!("{}", other),
+                    };
+                    let to_str = match self.eval_expr(&r.to)? {
+                        Value::String(s) => s,
+                        other => format!("{}", other),
+                    };
+                    self.relations.push(Relation {
+                        from: from_str,
+                        to: to_str,
+                        relation: r.relation.clone(),
+                    });
+                }
+                Declaration::Sandbox(s) => {
+                    self.sandboxes.insert(s.name.clone(), s);
+                }
+                Declaration::Mutate(m) => {
+                    let msg = self.handle_mutate(&m)?;
+                    self.mutate_log.push(msg);
                 }
                 Declaration::Flow(f) => {
                     // Execute rules before flow (they modify entity state)
@@ -704,9 +746,92 @@ impl Interpreter {
         }
 
         match best_match {
-            Some(entry) => Ok(Value::String(entry.value.clone())),
+            Some(entry) => {
+                // Walk the knowledge graph for related memories
+                let mut graph_lines = Vec::new();
+                let matched_value = &entry.value;
+                for rel in &self.relations {
+                    if rel.from == *matched_value {
+                        graph_lines.push(format!("[GRAPH] {} -> {}", rel.relation, rel.to));
+                    } else if rel.to == *matched_value {
+                        graph_lines.push(format!("[GRAPH] {} -> {}", rel.relation, rel.from));
+                    }
+                }
+                if graph_lines.is_empty() {
+                    Ok(Value::String(entry.value.clone()))
+                } else {
+                    let mut result = entry.value.clone();
+                    for line in graph_lines {
+                        result.push_str("\n");
+                        result.push_str(&line);
+                    }
+                    Ok(Value::String(result))
+                }
+            }
             None => Ok(Value::String(String::new())), // No match found — return empty (soft-failure)
         }
+    }
+
+    /// Handle a mutate declaration: replace few-shot examples, compute mock accuracy, decide keep/rollback.
+    fn handle_mutate(&mut self, m: &MutateDecl) -> Result<String, String> {
+        // Evaluate new examples first (before borrowing learnable mutably)
+        let mut evaluated_examples: Vec<(String, String)> = Vec::new();
+        for (input_expr, output_expr) in &m.new_examples {
+            let input_str = match self.eval_expr(input_expr)? {
+                Value::String(s) => s,
+                other => format!("{}", other),
+            };
+            let output_str = match self.eval_expr(output_expr)? {
+                Value::String(s) => s,
+                other => format!("{}", other),
+            };
+            evaluated_examples.push((input_str, output_str));
+        }
+
+        // Now borrow the learnable pattern mutably
+        let learnable = self.learnable_patterns.get_mut(&m.pattern_name)
+            .ok_or_else(|| format!("mutate: learnable pattern '{}' not found", m.pattern_name))?;
+
+        // Save original few-shot for rollback
+        let original_few_shot = std::mem::take(&mut learnable.few_shot);
+
+        // Replace with new examples
+        learnable.few_shot = evaluated_examples;
+
+        // Compute mock accuracy (always 0.95 for MockLlm)
+        let accuracy: f64 = 0.95;
+
+        // Check against threshold
+        let kept = match (&m.rollback_op, &m.rollback_threshold) {
+            (Some(op), Some(threshold)) => {
+                match op {
+                    CompareOp::Lt => accuracy >= *threshold,
+                    CompareOp::Le => accuracy > *threshold,
+                    CompareOp::Gt => false,  // accuracy >= threshold is the "kept" condition
+                    CompareOp::Ge => false,
+                    CompareOp::Eq => (accuracy - threshold).abs() < 1e-9,
+                }
+            }
+            _ => true, // No rollback condition → always keep
+        };
+
+        if kept {
+            // Keep the new examples (already in place)
+            Ok(format!("[MUTATE] {}: accuracy={}, kept (>= {:.1})",
+                m.pattern_name, accuracy,
+                m.rollback_threshold.unwrap_or(0.0)))
+        } else {
+            // Rollback: restore original few-shot
+            learnable.few_shot = original_few_shot;
+            Ok(format!("[MUTATE] {}: accuracy={}, rolled back (below {:.1})",
+                m.pattern_name, accuracy,
+                m.rollback_threshold.unwrap_or(0.0)))
+        }
+    }
+
+    /// Take the mutate log messages (consuming them).
+    pub fn take_mutate_log(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.mutate_log)
     }
 
     fn eval_statements(

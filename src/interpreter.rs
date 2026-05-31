@@ -138,6 +138,18 @@ struct StructType {
     fields: Vec<FieldDecl>,
 }
 
+/// An entry in the Entity Store: a lightweight index of entity identity by type.
+/// The actual value lives in `self.variables[id]` — the store is just an index
+/// that enables querying by predicate without knowing variable names.
+#[derive(Debug, Clone)]
+struct EntityRecord {
+    /// The variable name (identity) of this entity.
+    id: String,
+    /// The struct type name (e.g. "Message").
+    #[allow(dead_code)] // Used for type-based queries in future phases
+    type_name: String,
+}
+
 /// A memory entry: stored fact with priority and timestamp for decay.
 #[derive(Debug, Clone)]
 struct MemoryEntry {
@@ -169,6 +181,9 @@ pub struct Interpreter {
     branch_defs: HashMap<String, Vec<Branch>>,
     /// Memory store: entries with priority, timestamp, and decay.
     memory: Vec<MemoryEntry>,
+    /// Entity Store: type_name → [entity records] index.
+    /// Enables CRUD-by-id and query-by-predicate. Actual values in `variables`.
+    entity_store: HashMap<String, Vec<EntityRecord>>,
 }
 
 impl Interpreter {
@@ -182,6 +197,7 @@ impl Interpreter {
             builtins: Builtins::new(),
             branch_defs: HashMap::new(),
             memory: Vec::new(),
+            entity_store: HashMap::new(),
         }
     }
 
@@ -199,6 +215,13 @@ impl Interpreter {
                 }
                 Declaration::EntityRecord(e) => {
                     let value = self.instantiate_struct(&e.type_name, &e.fields)?;
+                    // Register in Entity Store (identity index)
+                    self.entity_store.entry(e.type_name.clone())
+                        .or_default()
+                        .push(EntityRecord {
+                            id: e.name.clone(),
+                            type_name: e.type_name.clone(),
+                        });
                     self.variables.insert(e.name.clone(), value);
                 }
                 Declaration::EntitySimple(e) => {
@@ -440,6 +463,14 @@ impl Interpreter {
             return self.invoke_recall(args);
         }
 
+        // Check Entity Store operations
+        if name == "find" {
+            return self.invoke_find(&args);
+        }
+        if name == "count" {
+            return self.invoke_count(&args);
+        }
+
         // Check learnable patterns
         if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
             let collapsed_args = self.collapse_args(&learnable.params, &args);
@@ -482,6 +513,76 @@ impl Interpreter {
         } else {
             Ok(result)
         }
+    }
+
+    /// Query the Entity Store: find the first entity matching (type, field, op, threshold).
+    /// Returns a clone of the entity's current value from `variables`.
+    /// Arguments: [type_name: String, field: String, op: String, threshold: Float]
+    fn invoke_find(&self, args: &[Value]) -> Result<Value, String> {
+        if args.len() < 4 {
+            return Err("find() requires 4 arguments: find(type, field, op, threshold)".to_string());
+        }
+        let type_name = match &args[0] {
+            Value::String(s) => s.clone(),
+            _ => return Err("find() first argument must be String (type name)".to_string()),
+        };
+        let field = match &args[1] {
+            Value::String(s) => s.clone(),
+            _ => return Err("find() second argument must be String (field name)".to_string()),
+        };
+        let op = match &args[2] {
+            Value::String(s) => s.clone(),
+            _ => return Err("find() third argument must be String (operator: gt, lt, ge, le, eq)".to_string()),
+        };
+        let threshold = args[3].as_float()
+            .map_err(|_| "find() fourth argument must be Float (threshold)".to_string())?;
+
+        let records = match self.entity_store.get(&type_name) {
+            Some(r) => r,
+            None => return Ok(Value::Unit), // No entities of this type
+        };
+
+        for record in records {
+            let value = match self.variables.get(&record.id) {
+                Some(v) => v,
+                None => continue,
+            };
+            let field_val = match value.get_field(&field) {
+                Ok(v) => v,
+                Err(_) => continue, // Field not on this entity
+            };
+            let fv = match field_val.as_float() {
+                Ok(f) => f,
+                Err(_) => continue, // Field not numeric
+            };
+            let matches = match op.as_str() {
+                "gt" => fv > threshold,
+                "lt" => fv < threshold,
+                "ge" => fv >= threshold,
+                "le" => fv <= threshold,
+                "eq" => fv == threshold,
+                _ => return Err(format!("find() unknown operator: {}", op)),
+            };
+            if matches {
+                return Ok(value.clone());
+            }
+        }
+
+        Ok(Value::Unit) // No match — soft failure
+    }
+
+    /// Count entities in the Store by type name.
+    /// Arguments: [type_name: String]
+    fn invoke_count(&self, args: &[Value]) -> Result<Value, String> {
+        if args.is_empty() {
+            return Err("count() requires 1 argument (type name)".to_string());
+        }
+        let type_name = match &args[0] {
+            Value::String(s) => s.clone(),
+            _ => return Err("count() argument must be String (type name)".to_string()),
+        };
+        let count = self.entity_store.get(&type_name).map(|r| r.len()).unwrap_or(0);
+        Ok(Value::Float(count as f64))
     }
 
     /// Invoke a learnable pattern using pre-collapsed arguments.
@@ -597,6 +698,14 @@ impl Interpreter {
                 // Check recall (memory) first
                 if name == "recall" {
                     return self.invoke_recall(eval_args);
+                }
+
+                // Check Entity Store operations
+                if name == "find" {
+                    return self.invoke_find(&eval_args);
+                }
+                if name == "count" {
+                    return self.invoke_count(&eval_args);
                 }
 
                 // Check learnable patterns first

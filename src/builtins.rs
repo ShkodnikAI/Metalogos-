@@ -1,6 +1,6 @@
 // ── Built-in functions for METALOGOS M1+M2 ────────────────────────────
 
-use crate::interpreter::Value;
+use crate::interpreter::{Value, FluidValueVariant};
 
 pub type BuiltinFn = fn(&[Value]) -> Result<Value, String>;
 
@@ -20,6 +20,7 @@ impl Builtins {
         funcs.insert("print".to_string(), builtin_print as BuiltinFn);
         funcs.insert("contains".to_string(), builtin_contains as BuiltinFn);
         funcs.insert("float".to_string(), builtin_float as BuiltinFn);
+        funcs.insert("confidence".to_string(), builtin_confidence as BuiltinFn);
 
         Builtins { funcs }
     }
@@ -72,6 +73,21 @@ fn builtin_float(args: &[Value]) -> Result<Value, String> {
             .map(Value::Float)
             .map_err(|_| format!("float() cannot parse '{}'", s)),
         _ => Err("float() requires 1 argument".to_string()),
+    }
+}
+
+fn builtin_confidence(args: &[Value]) -> Result<Value, String> {
+    if args.is_empty() {
+        return Err("confidence() requires 1 argument".to_string());
+    }
+    match &args[0] {
+        Value::Fluid(variants) => {
+            let best_conf = variants.iter()
+                .map(|v: &FluidValueVariant| v.confidence)
+                .fold(0.0_f64, |a: f64, b: f64| a.max(b));
+            Ok(Value::Float(best_conf))
+        }
+        _ => Ok(Value::Float(1.0)), // concrete values have full confidence
     }
 }
 

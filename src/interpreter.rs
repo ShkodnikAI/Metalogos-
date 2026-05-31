@@ -467,9 +467,21 @@ impl Interpreter {
         }
 
         // Bind parameters with Fluid collapse
-        let local_env = self.bind_and_collapse(&pattern.params, &args)?;
+        let (local_env, input_confidence) = self.bind_and_collapse(&pattern.params, &args)?;
 
-        self.eval_statements(&pattern.body, &local_env)
+        let result = self.eval_statements(&pattern.body, &local_env)?;
+
+        // Confidence propagation: if any input was Fluid (confidence < 1.0),
+        // wrap the result in a Fluid value with min(input confidences).
+        if input_confidence < 1.0 {
+            Ok(Value::Fluid(vec![FluidValueVariant {
+                type_name: result.type_name().to_string(),
+                value: result,
+                confidence: input_confidence,
+            }]))
+        } else {
+            Ok(result)
+        }
     }
 
     /// Invoke a learnable pattern using pre-collapsed arguments.
@@ -614,8 +626,19 @@ impl Interpreter {
                 }
 
                 // Bind parameters with Fluid collapse
-                let local_env = self.bind_and_collapse(&pattern.params, &eval_args)?;
-                self.eval_statements(&pattern.body, &local_env)
+                let (local_env, input_confidence) = self.bind_and_collapse(&pattern.params, &eval_args)?;
+                let result = self.eval_statements(&pattern.body, &local_env)?;
+
+                // Confidence propagation: wrap result if any input was Fluid
+                if input_confidence < 1.0 {
+                    Ok(Value::Fluid(vec![FluidValueVariant {
+                        type_name: result.type_name().to_string(),
+                        value: result,
+                        confidence: input_confidence,
+                    }]))
+                } else {
+                    Ok(result)
+                }
             }
             Expr::BinaryOp(left, op, right) => {
                 let l = self.eval_expr_with_env(left, env)?;
@@ -637,7 +660,24 @@ impl Interpreter {
     /// Otherwise, returns Unit (soft-failure per soft-failure semantics).
     /// Non-Fluid values pass through unchanged.
     fn maybe_collapse(&self, value: &Value, required_type: &str) -> Result<Value, String> {
+        let (collapsed, _conf) = self.collapse_with_confidence(value, required_type);
+        Ok(collapsed)
+    }
+
+    /// Collapse a Fluid value and also return its confidence score.
+    /// - Fluid with required_type == "Fluid": pass through unchanged, confidence = best variant
+    /// - Fluid with matching variant: collapse to that variant, return its confidence
+    /// - Fluid with no match or below threshold: Unit, confidence = variant's or 0.0
+    /// - Non-Fluid: pass through, confidence = 1.0 (full certainty)
+    fn collapse_with_confidence(&self, value: &Value, required_type: &str) -> (Value, f64) {
         match value {
+            Value::Fluid(variants) if required_type == "Fluid" => {
+                // Pass through Fluid values unchanged; confidence = best variant's
+                let best_conf = variants.iter()
+                    .map(|v| v.confidence)
+                    .fold(0.0_f64, |a, b| a.max(b));
+                (value.clone(), best_conf)
+            }
             Value::Fluid(variants) => {
                 // Find the best matching variant for the required type
                 let best = variants.iter()
@@ -649,36 +689,41 @@ impl Interpreter {
 
                 match best {
                     Some(variant) if variant.confidence >= Self::COLLAPSE_THRESHOLD => {
-                        Ok(variant.value.clone())
+                        (variant.value.clone(), variant.confidence)
                     }
-                    Some(_variant) => {
+                    Some(variant) => {
                         // Confidence below threshold — soft failure
-                        Ok(Value::Unit)
+                        (Value::Unit, variant.confidence)
                     }
                     None => {
                         // No matching variant at all — soft failure
-                        Ok(Value::Unit)
+                        (Value::Unit, 0.0)
                     }
                 }
             }
-            other => Ok(other.clone()),
+            other => (other.clone(), 1.0),
         }
     }
 
     /// Bind arguments to pattern parameters, collapsing Fluid values as needed.
     /// For each (param, arg) pair, if the arg is a Fluid and the param has a
     /// declared type, collapse the Fluid to that type.
+    /// Also returns the minimum confidence across all bound arguments.
     fn bind_and_collapse(
         &self,
         params: &[Param],
         args: &[Value],
-    ) -> Result<HashMap<String, Value>, String> {
+    ) -> Result<(HashMap<String, Value>, f64), String> {
         let mut local_env = HashMap::new();
+        let mut min_confidence = 1.0_f64;
         for (param, arg) in params.iter().zip(args.iter()) {
-            let collapsed = self.maybe_collapse(arg, &param.type_name)?;
+            let (collapsed, conf) = self.collapse_with_confidence(arg, &param.type_name);
+            if conf < min_confidence {
+                min_confidence = conf;
+            }
             local_env.insert(param.name.clone(), collapsed);
         }
-        Ok(local_env)
+        Ok((local_env, min_confidence))
     }
 
     /// Collapse a list of arguments using parameter type annotations.

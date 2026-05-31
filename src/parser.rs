@@ -24,6 +24,7 @@ pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::entity_record_decl => declarations.push(parse_entity_record_decl(inner_pair)),
                 Rule::entity_simple_decl => declarations.push(parse_entity_simple_decl(inner_pair)),
                 Rule::rule_decl => declarations.push(parse_rule_decl(inner_pair)),
+                Rule::learnable_pattern_decl => declarations.push(parse_learnable_pattern_decl(inner_pair)),
                 Rule::pattern_decl => declarations.push(parse_pattern_decl(inner_pair)),
                 Rule::flow_decl => declarations.push(parse_flow_decl(inner_pair)),
                 _ => {}
@@ -177,6 +178,39 @@ fn parse_compare_op(pair: &Pair<Rule>) -> CompareOp {
         "==" => CompareOp::Eq,
         _ => unreachable!("unexpected compare op: {}", pair.as_str()),
     }
+}
+
+// ── Learnable Pattern (M3) ────────────────────────────────────────────
+
+fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
+    let children = children_of(&pair);
+    // Children: IDENT, [params], ARROW, type_name, learnable_body
+    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+    let params = find_child(&children, Rule::params)
+        .map(|p| parse_params(p))
+        .unwrap_or_default();
+    let return_type = find_child_str(&children, Rule::type_name).unwrap_or_default();
+
+    // Extract prompt from learnable_body -> prompt_line -> expression
+    let mut prompt = String::new();
+    if let Some(body_pair) = find_child(&children, Rule::learnable_body) {
+        let body_children = children_of(&body_pair);
+        if let Some(pl_pair) = body_children.iter().find(|c| c.as_rule() == Rule::prompt_line) {
+            let pl_children = children_of(pl_pair);
+            if let Some(expr_pair) = pl_children.iter().find(|c| c.as_rule() == Rule::expression) {
+                if let Expr::StringLit(s) = parse_expression(expr_pair.clone()) {
+                    prompt = s;
+                }
+            }
+        }
+    }
+
+    Declaration::LearnablePattern(LearnablePatternDecl {
+        name,
+        params,
+        return_type,
+        prompt,
+    })
 }
 
 // ── Pattern ──────────────────────────────────────────────────────────

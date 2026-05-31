@@ -17,6 +17,8 @@ pub enum Declaration {
     Memorize(MemorizeDecl),
     /// `forget "query" after 30.days`
     Forget(ForgetDecl),
+        /// `fluid x = Float[42.0][0.9] or String["answer"][0.1]`
+    Fluid(FluidDecl),
     /// `adapt PatternName add_example("input", "output")`
     Adapt(AdaptDecl),
     /// `pattern Name(params) -> Type { body }`
@@ -102,6 +104,24 @@ impl fmt::Display for CompareOp {
             CompareOp::Eq => write!(f, "=="),
         }
     }
+}
+
+// ── Fluid Types (Phase 1) ─────────────────────────────────────
+
+/// `fluid x = Float[42.0][0.9] or String["answer"][0.1]`
+/// A superposition of typed variants with confidence scores.
+#[derive(Debug, Clone)]
+pub struct FluidDecl {
+    pub name: String,
+    pub variants: Vec<FluidVariant>,
+}
+
+/// A single variant in a fluid declaration: type + value + confidence.
+#[derive(Debug, Clone)]
+pub struct FluidVariant {
+    pub type_name: String,
+    pub value: Expr,
+    pub confidence: f64,
 }
 
 // ── Adapt (M5) ────────────────────────────────────────────────

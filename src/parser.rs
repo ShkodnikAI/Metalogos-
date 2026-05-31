@@ -26,6 +26,7 @@ pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::rule_decl => declarations.push(parse_rule_decl(inner_pair)),
                 Rule::memorize_decl => declarations.push(parse_memorize_decl(inner_pair)),
                 Rule::forget_decl => declarations.push(parse_forget_decl(inner_pair)),
+                Rule::fluid_decl => declarations.push(parse_fluid_decl(inner_pair)),
                 Rule::adapt_decl => declarations.push(parse_adapt_decl(inner_pair)),
                 Rule::learnable_pattern_decl => declarations.push(parse_learnable_pattern_decl(inner_pair)),
                 Rule::pattern_decl => declarations.push(parse_pattern_decl(inner_pair)),
@@ -181,6 +182,43 @@ fn parse_compare_op(pair: &Pair<Rule>) -> CompareOp {
         "==" => CompareOp::Eq,
         _ => unreachable!("unexpected compare op: {}", pair.as_str()),
     }
+}
+
+// ── Fluid Types (Phase 1) ──────────────────────────────────────────
+
+fn parse_fluid_decl(pair: Pair<Rule>) -> Declaration {
+    let children = children_of(&pair);
+    // fluid_decl = { FLUID_KW ~ IDENT ~ "=" ~ fluid_branch ~ ("or" ~ fluid_branch)* }
+    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+
+    let variants: Vec<FluidVariant> = children.iter()
+        .filter(|c| c.as_rule() == Rule::fluid_branch)
+        .map(|c| parse_fluid_branch(c.clone()))
+        .collect();
+
+    Declaration::Fluid(FluidDecl { name, variants })
+}
+
+fn parse_fluid_branch(pair: Pair<Rule>) -> FluidVariant {
+    let children = children_of(&pair);
+    // fluid_branch = { type_name ~ LBRACKET ~ expression ~ RBRACKET ~ LBRACKET ~ FLOAT_LITERAL ~ RBRACKET }
+    let type_name = find_child_str(&children, Rule::type_name).unwrap_or_default();
+
+    let exprs: Vec<Pair<Rule>> = children.iter()
+        .filter(|c| c.as_rule() == Rule::expression)
+        .cloned()
+        .collect();
+    let value = if !exprs.is_empty() { parse_expression(exprs[0].clone()) } else { Expr::StringLit(String::new()) };
+
+    let floats: Vec<&Pair<Rule>> = children.iter()
+        .filter(|c| c.as_rule() == Rule::FLOAT_LITERAL)
+        .collect();
+    // The last FLOAT_LITERAL is the confidence (value may also be a float)
+    let confidence = floats.last()
+        .map(|f| f.as_str().parse().unwrap_or(0.0))
+        .unwrap_or(0.0);
+
+    FluidVariant { type_name, value, confidence }
 }
 
 // ── Adapt (M5) ──────────────────────────────────────────────────

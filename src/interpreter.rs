@@ -9,6 +9,15 @@ use crate::ast::*;
 use crate::builtins::Builtins;
 use crate::llm;
 
+/// A single variant inside a Fluid value (runtime). Contains a concrete
+/// value, its declared type name, and a confidence score (0.0..1.0).
+#[derive(Debug, Clone)]
+pub struct FluidValueVariant {
+    pub type_name: String,
+    pub value: Value,
+    pub confidence: f64,
+}
+
 /// Runtime value.
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -18,6 +27,9 @@ pub enum Value {
         type_name: String,
         fields: HashMap<String, Value>,
     },
+    /// Fluid value: superposition of typed variants with confidence scores.
+    /// Collapses lazily at point of use (see `maybe_collapse`).
+    Fluid(Vec<FluidValueVariant>),
     Unit,
 }
 
@@ -35,6 +47,16 @@ impl std::fmt::Display for Value {
                 }
                 write!(f, "}}")
             }
+            Value::Fluid(variants) => {
+                // Display as the highest-confidence variant
+                let best = variants.iter().max_by(|a, b| {
+                    a.confidence.partial_cmp(&b.confidence).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                match best {
+                    Some(v) => write!(f, "{}", v.value),
+                    None => write!(f, "()"),
+                }
+            }
             Value::Unit => write!(f, "()"),
         }
     }
@@ -46,6 +68,7 @@ impl Value {
             Value::String(_) => "String",
             Value::Float(_) => "Float",
             Value::Struct { .. } => "Struct",
+            Value::Fluid(_) => "Fluid",
             Value::Unit => "Unit",
         }
     }
@@ -83,6 +106,11 @@ impl Value {
             _ => Err(format!("cannot convert {} to Float", self.type_name())),
         }
     }
+
+    /// Check if this value is a Fluid superposition.
+    pub fn is_fluid(&self) -> bool {
+        matches!(self, Value::Fluid(_))
+    }
 }
 
 /// A compiled pattern ready for invocation.
@@ -93,6 +121,7 @@ struct CompiledPattern {
 }
 
 /// A learnable pattern that calls an LLM.
+#[derive(Clone)]
 struct CompiledLearnable {
     params: Vec<Param>,
     prompt: String,
@@ -242,6 +271,18 @@ impl Interpreter {
                     } else {
                         return Err(format!("adapt: learnable pattern '{}' not found", a.pattern_name));
                     }
+                }
+                Declaration::Fluid(fl) => {
+                    let mut variants = Vec::new();
+                    for v in &fl.variants {
+                        let val = self.eval_expr(&v.value)?;
+                        variants.push(FluidValueVariant {
+                            type_name: v.type_name.clone(),
+                            value: val,
+                            confidence: v.confidence,
+                        });
+                    }
+                    self.variables.insert(fl.name.clone(), Value::Fluid(variants));
                 }
                 Declaration::Flow(f) => {
                     // Execute rules before flow (they modify entity state)
@@ -400,8 +441,9 @@ impl Interpreter {
         }
 
         // Check learnable patterns
-        if let Some(learnable) = self.learnable_patterns.get(name) {
-            return self.invoke_learnable(learnable, args);
+        if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
+            let collapsed_args = self.collapse_args(&learnable.params, &args);
+            return self.invoke_learnable_with_env(&learnable, &collapsed_args);
         }
 
         // Check builtins
@@ -424,25 +466,14 @@ impl Interpreter {
             ));
         }
 
-        // Bind parameters
-        let mut local_env = HashMap::new();
-        for (param, arg) in pattern.params.iter().zip(args.iter()) {
-            local_env.insert(param.name.clone(), arg.clone());
-        }
+        // Bind parameters with Fluid collapse
+        let local_env = self.bind_and_collapse(&pattern.params, &args)?;
 
         self.eval_statements(&pattern.body, &local_env)
     }
 
-    /// Invoke a learnable pattern: check few-shot examples first, then fall back to LLM.
-    fn invoke_learnable(&self, learnable: &CompiledLearnable, args: Vec<Value>) -> Result<Value, String> {
-        if args.len() != learnable.params.len() {
-            return Err(format!(
-                "learnable pattern expects {} arguments, got {}",
-                learnable.params.len(),
-                args.len()
-            ));
-        }
-
+    /// Invoke a learnable pattern using pre-collapsed arguments.
+    fn invoke_learnable_with_env(&self, learnable: &CompiledLearnable, args: &[Value]) -> Result<Value, String> {
         // Build input string from arguments
         let input_parts: Vec<String> = args.iter().map(|a| format!("{}", a)).collect();
         let input = input_parts.join(", ");
@@ -557,8 +588,9 @@ impl Interpreter {
                 }
 
                 // Check learnable patterns first
-                if let Some(learnable) = self.learnable_patterns.get(name) {
-                    return self.invoke_learnable(learnable, eval_args);
+                if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
+                    let collapsed_args = self.collapse_args(&learnable.params, &eval_args);
+                    return self.invoke_learnable_with_env(&learnable, &collapsed_args);
                 }
 
                 // Check builtins
@@ -581,10 +613,8 @@ impl Interpreter {
                     ));
                 }
 
-                let mut local_env = HashMap::new();
-                for (param, arg) in pattern.params.iter().zip(eval_args.iter()) {
-                    local_env.insert(param.name.clone(), arg.clone());
-                }
+                // Bind parameters with Fluid collapse
+                let local_env = self.bind_and_collapse(&pattern.params, &eval_args)?;
                 self.eval_statements(&pattern.body, &local_env)
             }
             Expr::BinaryOp(left, op, right) => {
@@ -593,6 +623,73 @@ impl Interpreter {
                 self.eval_binop(l, *op, r)
             }
         }
+    }
+
+    /// Collapse threshold for Fluid values (0.0..1.0).
+    /// When a Fluid value is used in a typed context, the matching variant's
+    /// confidence must be >= this threshold to collapse successfully.
+    /// Below threshold → soft-failure (returns Unit).
+    const COLLAPSE_THRESHOLD: f64 = 0.1;
+
+    /// Collapse a Fluid value to a concrete type if needed.
+    /// If the value is Fluid, finds the variant matching `required_type` with the
+    /// highest confidence. If confidence >= threshold, returns the concrete value.
+    /// Otherwise, returns Unit (soft-failure per soft-failure semantics).
+    /// Non-Fluid values pass through unchanged.
+    fn maybe_collapse(&self, value: &Value, required_type: &str) -> Result<Value, String> {
+        match value {
+            Value::Fluid(variants) => {
+                // Find the best matching variant for the required type
+                let best = variants.iter()
+                    .filter(|v| v.type_name == required_type)
+                    .max_by(|a, b| {
+                        a.confidence.partial_cmp(&b.confidence)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    });
+
+                match best {
+                    Some(variant) if variant.confidence >= Self::COLLAPSE_THRESHOLD => {
+                        Ok(variant.value.clone())
+                    }
+                    Some(_variant) => {
+                        // Confidence below threshold — soft failure
+                        Ok(Value::Unit)
+                    }
+                    None => {
+                        // No matching variant at all — soft failure
+                        Ok(Value::Unit)
+                    }
+                }
+            }
+            other => Ok(other.clone()),
+        }
+    }
+
+    /// Bind arguments to pattern parameters, collapsing Fluid values as needed.
+    /// For each (param, arg) pair, if the arg is a Fluid and the param has a
+    /// declared type, collapse the Fluid to that type.
+    fn bind_and_collapse(
+        &self,
+        params: &[Param],
+        args: &[Value],
+    ) -> Result<HashMap<String, Value>, String> {
+        let mut local_env = HashMap::new();
+        for (param, arg) in params.iter().zip(args.iter()) {
+            let collapsed = self.maybe_collapse(arg, &param.type_name)?;
+            local_env.insert(param.name.clone(), collapsed);
+        }
+        Ok(local_env)
+    }
+
+    /// Collapse a list of arguments using parameter type annotations.
+    /// Returns a new Vec of arguments where Fluid values have been collapsed
+    /// to the type required by the corresponding parameter.
+    fn collapse_args(&self, params: &[Param], args: &[Value]) -> Vec<Value> {
+        params.iter().zip(args.iter())
+            .map(|(p, a)| {
+                self.maybe_collapse(a, &p.type_name).unwrap_or_else(|_| a.clone())
+            })
+            .collect()
     }
 
     fn eval_binop(&self, left: Value, op: BinOp, right: Value) -> Result<Value, String> {

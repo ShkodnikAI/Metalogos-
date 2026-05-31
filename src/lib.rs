@@ -4,6 +4,7 @@
 pub mod ast;
 pub mod builtins;
 pub mod codegen;
+pub mod embedding;
 pub mod interpreter;
 pub mod ir;
 pub mod llm;

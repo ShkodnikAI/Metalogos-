@@ -1,0 +1,70 @@
+// ── Built-in functions for METALOGOS M1 ────────────────────────────────
+
+use crate::interpreter::Value;
+
+pub type BuiltinFn = fn(&[Value]) -> Result<Value, String>;
+
+/// Registry of built-in functions.
+pub struct Builtins {
+    funcs: std::collections::HashMap<String, BuiltinFn>,
+}
+
+impl Builtins {
+    pub fn new() -> Self {
+        let mut funcs = std::collections::HashMap::new();
+
+        funcs.insert("upper".to_string(), builtin_upper as BuiltinFn);
+        funcs.insert("lower".to_string(), builtin_lower as BuiltinFn);
+        funcs.insert("len".to_string(), builtin_len as BuiltinFn);
+        funcs.insert("str".to_string(), builtin_str as BuiltinFn);
+        funcs.insert("print".to_string(), builtin_print as BuiltinFn);
+
+        Builtins { funcs }
+    }
+
+    /// Look up a built-in by name.
+    pub fn get(&self, name: &str) -> Option<&BuiltinFn> {
+        self.funcs.get(name)
+    }
+}
+
+fn builtin_upper(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("upper", args, 0)?;
+    Ok(Value::String(s.to_uppercase()))
+}
+
+fn builtin_lower(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("lower", args, 0)?;
+    Ok(Value::String(s.to_lowercase()))
+}
+
+fn builtin_len(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("len", args, 0)?;
+    Ok(Value::Float(s.len() as f64))
+}
+
+fn builtin_str(args: &[Value]) -> Result<Value, String> {
+    if args.is_empty() {
+        return Err("str() requires 1 argument".to_string());
+    }
+    Ok(Value::String(format!("{}", args[0])))
+}
+
+fn builtin_print(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("print", args, 0)?;
+    println!("{}", s);
+    Ok(Value::String(s))
+}
+
+fn expect_string_arg(fn_name: &str, args: &[Value], index: usize) -> Result<String, String> {
+    if args.len() <= index {
+        return Err(format!("{}() requires an argument at position {}", fn_name, index));
+    }
+    match &args[index] {
+        Value::String(s) => Ok(s.clone()),
+        other => Err(format!(
+            "{}() expected String argument, got {}",
+            fn_name, other.type_name()
+        )),
+    }
+}

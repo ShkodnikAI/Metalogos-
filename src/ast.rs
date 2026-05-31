@@ -23,6 +23,12 @@ pub enum Declaration {
     Adapt(AdaptDecl),
     /// `learn PatternName with { data: "corpus", epochs: 5 }`
     Learn(LearnDecl),
+    /// `relate "from" to "to" as "relation"`
+    Relate(RelateDecl),
+    /// `sandbox name { allowed: [...], forbidden: [...], timeout: N }`
+    Sandbox(SandboxDecl),
+    /// `mutate PatternName { add_example(...) rollback_if: accuracy op threshold }`
+    Mutate(MutateDecl),
     /// `pattern Name(params) -> Type { body }`
     Pattern(PatternDecl),
     /// `learnable pattern Name(params) -> Type { prompt: "..." }`
@@ -145,6 +151,38 @@ pub struct LearnDecl {
     pub pattern_name: String,
     /// Hyperparameters: [(param_name, value_expr)]
     pub hyperparams: Vec<(String, Expr)>,
+}
+
+// ── Relate (knowledge graph edge) ──────────────────────────────
+
+/// `relate "from" to "to" as "relation"`
+#[derive(Debug, Clone)]
+pub struct RelateDecl {
+    pub from: Expr,
+    pub to: Expr,
+    pub relation: String,
+}
+
+// ── Sandbox (P2) ────────────────────────────────────────────────
+
+/// `sandbox name { allowed: [...], forbidden: [...], timeout: N }`
+#[derive(Debug, Clone)]
+pub struct SandboxDecl {
+    pub name: String,
+    pub allowed: Vec<String>,
+    pub forbidden: Vec<String>,
+    pub timeout: i64,
+}
+
+// ── Mutate (P2) ─────────────────────────────────────────────────
+
+/// `mutate PatternName { add_example("in", "out") rollback_if: accuracy op threshold }`
+#[derive(Debug, Clone)]
+pub struct MutateDecl {
+    pub pattern_name: String,
+    pub new_examples: Vec<(Expr, Expr)>,
+    pub rollback_threshold: Option<f64>,
+    pub rollback_op: Option<CompareOp>,
 }
 
 // ── Memory (M4) ────────────────────────────────────────────────

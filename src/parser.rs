@@ -29,6 +29,9 @@ pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::fluid_decl => declarations.push(parse_fluid_decl(inner_pair)),
                 Rule::adapt_decl => declarations.push(parse_adapt_decl(inner_pair)),
                 Rule::learn_decl => declarations.push(parse_learn_decl(inner_pair)),
+                Rule::relate_decl => declarations.push(parse_relate_decl(inner_pair)),
+                Rule::sandbox_decl => declarations.push(parse_sandbox_decl(inner_pair)),
+                Rule::mutate_decl => declarations.push(parse_mutate_decl(inner_pair)),
                 Rule::learnable_pattern_decl => declarations.push(parse_learnable_pattern_decl(inner_pair)),
                 Rule::pattern_decl => declarations.push(parse_pattern_decl(inner_pair)),
                 Rule::flow_decl => declarations.push(parse_flow_decl(inner_pair)),
@@ -267,6 +270,121 @@ fn parse_learn_decl(pair: Pair<Rule>) -> Declaration {
     Declaration::Learn(LearnDecl { pattern_name, hyperparams })
 }
 
+// ── Relate (knowledge graph edge) ──────────────────────────────
+
+fn parse_relate_decl(pair: Pair<Rule>) -> Declaration {
+    let children = children_of(&pair);
+    // relate_decl = { RELATE_KW ~ expression ~ "to" ~ expression ~ "as" ~ expression }
+    // Children: expression(from), expression(to), expression(relation)
+    let exprs: Vec<Pair<Rule>> = children.iter()
+        .filter(|c| c.as_rule() == Rule::expression)
+        .cloned()
+        .collect();
+    let from = if exprs.len() >= 1 { parse_expression(exprs[0].clone()) } else { Expr::StringLit(String::new()) };
+    let to = if exprs.len() >= 2 { parse_expression(exprs[1].clone()) } else { Expr::StringLit(String::new()) };
+
+    // Extract relation string from third expression
+    let relation = if exprs.len() >= 3 {
+        match parse_expression(exprs[2].clone()) {
+            Expr::StringLit(s) => s,
+            _ => String::new(),
+        }
+    } else {
+        String::new()
+    };
+
+    Declaration::Relate(RelateDecl { from, to, relation })
+}
+
+// ── Sandbox (P2) ────────────────────────────────────────────────
+
+fn parse_sandbox_decl(pair: Pair<Rule>) -> Declaration {
+    let children = children_of(&pair);
+    // sandbox_decl = { SANDBOX_KW ~ IDENT ~ "{" ~ sandbox_body "}" }
+    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+
+    let mut allowed = Vec::new();
+    let mut forbidden = Vec::new();
+    let mut timeout: i64 = 30;
+
+    if let Some(body_pair) = find_child(&children, Rule::sandbox_body) {
+        let body_children = children_of(&body_pair);
+        // Extract allowed list
+        if let Some(al_pair) = body_children.iter().find(|c| c.as_rule() == Rule::sandbox_allowed) {
+            let al_children = children_of(al_pair);
+            if let Some(il_pair) = al_children.iter().find(|c| c.as_rule() == Rule::ident_list) {
+                allowed = il_pair.clone().into_inner()
+                    .filter(|c| c.as_rule() == Rule::IDENT)
+                    .map(|c| pair_str(&c))
+                    .collect();
+            }
+        }
+        // Extract forbidden list
+        if let Some(fb_pair) = body_children.iter().find(|c| c.as_rule() == Rule::sandbox_forbidden) {
+            let fb_children = children_of(fb_pair);
+            if let Some(il_pair) = fb_children.iter().find(|c| c.as_rule() == Rule::ident_list) {
+                forbidden = il_pair.clone().into_inner()
+                    .filter(|c| c.as_rule() == Rule::IDENT)
+                    .map(|c| pair_str(&c))
+                    .collect();
+            }
+        }
+        // Extract timeout
+        if let Some(to_pair) = body_children.iter().find(|c| c.as_rule() == Rule::sandbox_timeout) {
+            if let Some(int_val) = find_child_str(&children_of(to_pair), Rule::INT) {
+                timeout = int_val.parse().unwrap_or(30);
+            }
+        }
+    }
+
+    Declaration::Sandbox(SandboxDecl { name, allowed, forbidden, timeout })
+}
+
+// ── Mutate (P2) ─────────────────────────────────────────────────
+
+fn parse_mutate_decl(pair: Pair<Rule>) -> Declaration {
+    let children = children_of(&pair);
+    // mutate_decl = { MUTATE_KW ~ IDENT ~ "{" ~ mutate_body "}" }
+    let pattern_name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+
+    let mut new_examples: Vec<(Expr, Expr)> = Vec::new();
+    let mut rollback_threshold: Option<f64> = None;
+    let mut rollback_op: Option<CompareOp> = None;
+
+    if let Some(body_pair) = find_child(&children, Rule::mutate_body) {
+        let body_children = children_of(&body_pair);
+        // Extract add_example pairs
+        for ae_pair in body_children.iter().filter(|c| c.as_rule() == Rule::mutate_add_example) {
+            let ae_children = children_of(ae_pair);
+            let exprs: Vec<Expr> = ae_children.iter()
+                .filter(|c| c.as_rule() == Rule::expression)
+                .map(|c| parse_expression(c.clone()))
+                .collect();
+            if exprs.len() >= 2 {
+                new_examples.push((exprs[0].clone(), exprs[1].clone()));
+            }
+        }
+        // Extract rollback_if condition
+        if let Some(rb_pair) = body_children.iter().find(|c| c.as_rule() == Rule::mutate_rollback) {
+            let rb_children = children_of(rb_pair);
+            // Find compare_op and FLOAT_LITERAL
+            if let Some(op_pair) = rb_children.iter().find(|c| c.as_rule() == Rule::compare_op) {
+                rollback_op = Some(parse_compare_op(op_pair));
+            }
+            if let Some(float_pair) = rb_children.iter().find(|c| c.as_rule() == Rule::FLOAT_LITERAL) {
+                rollback_threshold = Some(float_pair.as_str().parse().unwrap_or(0.0));
+            }
+        }
+    }
+
+    Declaration::Mutate(MutateDecl {
+        pattern_name,
+        new_examples,
+        rollback_threshold,
+        rollback_op,
+    })
+}
+
 // ── Memorize (M4) ──────────────────────────────────────────────────
 
 fn parse_memorize_decl(pair: Pair<Rule>) -> Declaration {
@@ -386,7 +504,7 @@ fn parse_flow_decl(pair: Pair<Rule>) -> Declaration {
     let mut source: Option<Expr> = None;
     let mut pipeline_steps: Vec<String> = Vec::new();
 
-    // Walk pipeline children: type_name, expression, (ARROW, step_ident)*, ARROW
+    // Walk pipeline children: type_name, expression, (ARROW, step_ident)*, final ARROW (-> output)
     let mut i = 0;
     // First: type_name
     if i < pipeline_children.len() && pipeline_children[i].as_rule() == Rule::type_name {

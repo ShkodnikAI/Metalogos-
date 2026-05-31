@@ -4,7 +4,24 @@ WHITESPACE  = _{ " " | "\t" | "\n" | "\r" }
 
 program     =  { SOI ~ (declaration ~ WHITESPACE*)* ~ EOI }
 
-declaration = _{ learn_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl }
+declaration = _{ learn_decl | relate_decl | sandbox_decl | mutate_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl }
+
+// ── Relate (knowledge graph edge) ─────────────────────────────────
+relate_decl = { RELATE_KW ~ expression ~ "to" ~ expression ~ "as" ~ expression }
+
+// ── Sandbox (P2) ────────────────────────────────────────────────────
+sandbox_decl    = { SANDBOX_KW ~ IDENT ~ "{" ~ sandbox_body ~ "}" }
+sandbox_body    = { sandbox_allowed? ~ (COMMA ~ sandbox_forbidden?)? ~ (COMMA ~ sandbox_timeout?)? }
+sandbox_allowed  = { "allowed" ~ ":" ~ "[" ~ ident_list? ~ "]" }
+sandbox_forbidden = { "forbidden" ~ ":" ~ "[" ~ ident_list? ~ "]" }
+sandbox_timeout  = { "timeout" ~ ":" ~ INT }
+ident_list      = { IDENT ~ (COMMA ~ IDENT)* }
+
+// ── Mutate (P2) ─────────────────────────────────────────────────────
+mutate_decl      = { MUTATE_KW ~ IDENT ~ "{" ~ mutate_body ~ "}" }
+mutate_body      = { mutate_add_example* ~ mutate_rollback? }
+mutate_add_example = { "add_example" ~ "(" ~ expression ~ COMMA ~ expression ~ ")" }
+mutate_rollback    = { "rollback_if" ~ ":" ~ "accuracy" ~ compare_op ~ FLOAT_LITERAL }
 
 // ── Entity: struct type ───────────────────────────────────────────────
 // Disambiguates from simple entity: IDENT followed by "{" not ":"
@@ -64,7 +81,7 @@ statement    = { "return" ~ expression }
 flow_decl     = { "flow" ~ IDENT ~ "{" ~ flow_pipeline ~ branch_def* ~ "}" }
 flow_pipeline = { "input" ~ ":" ~ type_name ~ "=" ~ expression ~ (ARROW ~ step_ident)* ~ ARROW ~ "output" }
 branch_def    = { step_ident ~ "{" ~ branch* ~ "}" }
-step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learn" | "learnable" | "prompt" | "memorize" | "forget" | "recall" | "adapt" | "add_example" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or") ~ IDENT }
+step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learn" | "learnable" | "prompt" | "memorize" | "forget" | "recall" | "adapt" | "add_example" | "relate" | "sandbox" | "mutate" | "allowed" | "forbidden" | "timeout" | "rollback_if" | "accuracy" | "to" | "as" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or") ~ IDENT }
 branch        = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
 branch_condition = { IDENT ~ "." ~ IDENT ~ compare_op ~ expression }
 
@@ -122,6 +139,9 @@ THEN_KW     = @{ "then" }
 WITH_KW     = @{ "with" }
 ADAPT_KW       = @{ "adapt" }
 ADD_EXAMPLE_KW = @{ "add_example" }
+RELATE_KW      = @{ "relate" }
+SANDBOX_KW     = @{ "sandbox" }
+MUTATE_KW      = @{ "mutate" }
 MEMORIZE_KW = @{ "memorize" }
 FORGET_KW   = @{ "forget" }
 RECALL_KW   = @{ "recall" }

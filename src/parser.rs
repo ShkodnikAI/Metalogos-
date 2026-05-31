@@ -24,6 +24,8 @@ pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::entity_record_decl => declarations.push(parse_entity_record_decl(inner_pair)),
                 Rule::entity_simple_decl => declarations.push(parse_entity_simple_decl(inner_pair)),
                 Rule::rule_decl => declarations.push(parse_rule_decl(inner_pair)),
+                Rule::memorize_decl => declarations.push(parse_memorize_decl(inner_pair)),
+                Rule::forget_decl => declarations.push(parse_forget_decl(inner_pair)),
                 Rule::learnable_pattern_decl => declarations.push(parse_learnable_pattern_decl(inner_pair)),
                 Rule::pattern_decl => declarations.push(parse_pattern_decl(inner_pair)),
                 Rule::flow_decl => declarations.push(parse_flow_decl(inner_pair)),
@@ -178,6 +180,34 @@ fn parse_compare_op(pair: &Pair<Rule>) -> CompareOp {
         "==" => CompareOp::Eq,
         _ => unreachable!("unexpected compare op: {}", pair.as_str()),
     }
+}
+
+// ── Memorize (M4) ──────────────────────────────────────────────────
+
+fn parse_memorize_decl(pair: Pair<Rule>) -> Declaration {
+    let children = children_of(&pair);
+    // Children: expression, ["with", "priority", "=", FLOAT_LITERAL]
+    let value = find_child(&children, Rule::expression).unwrap();
+    let value = parse_expression(value);
+
+    let priority = find_child(&children, Rule::FLOAT_LITERAL)
+        .map(|f| f.as_str().parse().unwrap_or(0.5))
+        .unwrap_or(0.5);
+
+    Declaration::Memorize(MemorizeDecl { value, priority })
+}
+
+fn parse_forget_decl(pair: Pair<Rule>) -> Declaration {
+    let children = children_of(&pair);
+    // Children: expression, INT, "days"
+    let query = find_child(&children, Rule::expression).unwrap();
+    let query = parse_expression(query);
+
+    let days = find_child(&children, Rule::INT)
+        .map(|i| i.as_str().parse().unwrap_or(30))
+        .unwrap_or(30);
+
+    Declaration::Forget(ForgetDecl { query, days })
 }
 
 // ── Learnable Pattern (M3) ────────────────────────────────────────────

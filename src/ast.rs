@@ -13,6 +13,10 @@ pub enum Declaration {
     EntitySimple(EntitySimpleDecl),
     /// `rule If(...) then ... with priority=N`
     Rule(RuleDecl),
+    /// `memorize "fact" with priority=0.9`
+    Memorize(MemorizeDecl),
+    /// `forget "query" after 30.days`
+    Forget(ForgetDecl),
     /// `pattern Name(params) -> Type { body }`
     Pattern(PatternDecl),
     /// `learnable pattern Name(params) -> Type { prompt: "..." }`
@@ -96,6 +100,22 @@ impl fmt::Display for CompareOp {
             CompareOp::Eq => write!(f, "=="),
         }
     }
+}
+
+// ── Memory (M4) ────────────────────────────────────────────────
+
+/// `memorize "fact" with priority=0.9`
+#[derive(Debug, Clone)]
+pub struct MemorizeDecl {
+    pub value: Expr,
+    pub priority: f64,
+}
+
+/// `forget "query" after 30.days`
+#[derive(Debug, Clone)]
+pub struct ForgetDecl {
+    pub query: Expr,
+    pub days: i64,
 }
 
 // ── Learnable Pattern (M3) ────────────────────────────────────────────

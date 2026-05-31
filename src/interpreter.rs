@@ -96,6 +96,9 @@ struct CompiledPattern {
 struct CompiledLearnable {
     params: Vec<Param>,
     prompt: String,
+    /// Few-shot examples added by `adapt` declarations.
+    /// Each entry: (input_string, output_string).
+    few_shot: Vec<(String, String)>,
 }
 
 /// A registered struct type.
@@ -221,8 +224,24 @@ impl Interpreter {
                         CompiledLearnable {
                             params: lp.params.clone(),
                             prompt: lp.prompt.clone(),
+                            few_shot: Vec::new(),
                         },
                     );
+                }
+                Declaration::Adapt(a) => {
+                    let input_str = match self.eval_expr(&a.input_example)? {
+                        Value::String(s) => s,
+                        other => format!("{}", other),
+                    };
+                    let output_str = match self.eval_expr(&a.output_example)? {
+                        Value::String(s) => s,
+                        other => format!("{}", other),
+                    };
+                    if let Some(learnable) = self.learnable_patterns.get_mut(&a.pattern_name) {
+                        learnable.few_shot.push((input_str, output_str));
+                    } else {
+                        return Err(format!("adapt: learnable pattern '{}' not found", a.pattern_name));
+                    }
                 }
                 Declaration::Flow(f) => {
                     // Execute rules before flow (they modify entity state)
@@ -414,7 +433,7 @@ impl Interpreter {
         self.eval_statements(&pattern.body, &local_env)
     }
 
-    /// Invoke a learnable pattern by calling the LLM backend.
+    /// Invoke a learnable pattern: check few-shot examples first, then fall back to LLM.
     fn invoke_learnable(&self, learnable: &CompiledLearnable, args: Vec<Value>) -> Result<Value, String> {
         if args.len() != learnable.params.len() {
             return Err(format!(
@@ -428,7 +447,14 @@ impl Interpreter {
         let input_parts: Vec<String> = args.iter().map(|a| format!("{}", a)).collect();
         let input = input_parts.join(", ");
 
-        // Call LLM backend
+        // Check few-shot examples first (exact match → cache hit)
+        for (example_input, example_output) in &learnable.few_shot {
+            if input == *example_input {
+                return Ok(Value::String(example_output.clone()));
+            }
+        }
+
+        // No few-shot match — call LLM backend
         let backend = llm::create_llm_backend();
         let response = backend.call(&learnable.prompt, &input)?;
 

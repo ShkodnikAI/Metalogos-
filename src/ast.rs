@@ -17,6 +17,8 @@ pub enum Declaration {
     Memorize(MemorizeDecl),
     /// `forget "query" after 30.days`
     Forget(ForgetDecl),
+    /// `adapt PatternName add_example("input", "output")`
+    Adapt(AdaptDecl),
     /// `pattern Name(params) -> Type { body }`
     Pattern(PatternDecl),
     /// `learnable pattern Name(params) -> Type { prompt: "..." }`
@@ -100,6 +102,16 @@ impl fmt::Display for CompareOp {
             CompareOp::Eq => write!(f, "=="),
         }
     }
+}
+
+// ── Adapt (M5) ────────────────────────────────────────────────
+
+/// `adapt PatternName add_example("input", "output")`
+#[derive(Debug, Clone)]
+pub struct AdaptDecl {
+    pub pattern_name: String,
+    pub input_example: Expr,
+    pub output_example: Expr,
 }
 
 // ── Memory (M4) ────────────────────────────────────────────────

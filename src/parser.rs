@@ -26,6 +26,7 @@ pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::rule_decl => declarations.push(parse_rule_decl(inner_pair)),
                 Rule::memorize_decl => declarations.push(parse_memorize_decl(inner_pair)),
                 Rule::forget_decl => declarations.push(parse_forget_decl(inner_pair)),
+                Rule::adapt_decl => declarations.push(parse_adapt_decl(inner_pair)),
                 Rule::learnable_pattern_decl => declarations.push(parse_learnable_pattern_decl(inner_pair)),
                 Rule::pattern_decl => declarations.push(parse_pattern_decl(inner_pair)),
                 Rule::flow_decl => declarations.push(parse_flow_decl(inner_pair)),
@@ -180,6 +181,25 @@ fn parse_compare_op(pair: &Pair<Rule>) -> CompareOp {
         "==" => CompareOp::Eq,
         _ => unreachable!("unexpected compare op: {}", pair.as_str()),
     }
+}
+
+// ── Adapt (M5) ──────────────────────────────────────────────────
+
+fn parse_adapt_decl(pair: Pair<Rule>) -> Declaration {
+    let children = children_of(&pair);
+    // adapt_decl = { ADAPT_KW ~ IDENT ~ ADD_EXAMPLE_KW ~ "(" ~ expression ~ COMMA ~ expression ~ ")" }
+    // Children: IDENT(pattern_name), "(", expression(input), ",", expression(output), ")"
+    let pattern_name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+
+    let exprs: Vec<Pair<Rule>> = children.iter()
+        .filter(|c| c.as_rule() == Rule::expression)
+        .cloned()
+        .collect();
+
+    let input_example = if exprs.len() >= 1 { parse_expression(exprs[0].clone()) } else { Expr::StringLit(String::new()) };
+    let output_example = if exprs.len() >= 2 { parse_expression(exprs[1].clone()) } else { Expr::StringLit(String::new()) };
+
+    Declaration::Adapt(AdaptDecl { pattern_name, input_example, output_example })
 }
 
 // ── Memorize (M4) ──────────────────────────────────────────────────

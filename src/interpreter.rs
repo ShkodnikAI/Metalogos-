@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::ast::*;
 use crate::builtins::Builtins;
+use crate::embedding;
 use crate::llm;
 
 /// A single variant inside a Fluid value (runtime). Contains a concrete
@@ -184,6 +185,8 @@ pub struct Interpreter {
     /// Entity Store: type_name → [entity records] index.
     /// Enables CRUD-by-id and query-by-predicate. Actual values in `variables`.
     entity_store: HashMap<String, Vec<EntityRecord>>,
+    /// Embedding backend for semantic similarity in recall.
+    embedding: Box<dyn embedding::EmbeddingBackend>,
 }
 
 impl Interpreter {
@@ -198,6 +201,7 @@ impl Interpreter {
             branch_defs: HashMap::new(),
             memory: Vec::new(),
             entity_store: HashMap::new(),
+            embedding: embedding::create_embedding_backend(),
         }
     }
 
@@ -605,8 +609,10 @@ impl Interpreter {
         Ok(Value::String(response))
     }
 
-    /// Recall from memory: find best matching entry by substring similarity + decay.
-    /// Returns the highest-activation entry matching the query.
+    /// Recall from memory: find best matching entry by semantic similarity + decay.
+    /// Uses the embedding backend for cosine similarity (Phase 2.2: concept-group vectors,
+    /// Phase 2.3: real embeddings via PyO3).
+    /// Returns the highest-activation entry above min_confidence.
     fn invoke_recall(&self, args: Vec<Value>) -> Result<Value, String> {
         if args.is_empty() {
             return Err("recall() requires at least 1 argument (query string)".to_string());
@@ -628,13 +634,14 @@ impl Interpreter {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        // Find best matching entry: substring match + highest activation after decay
+        // Find best matching entry: semantic similarity * activation after decay
         let mut best_match: Option<&MemoryEntry> = None;
-        let mut best_activation: f64 = 0.0;
+        let mut best_score: f64 = 0.0;
 
         for entry in &self.memory {
-            // Substring similarity check
-            if !entry.value.contains(&query) {
+            // Semantic similarity via embedding backend
+            let similarity = self.embedding.similarity(&query, &entry.value);
+            if similarity <= 0.0 {
                 continue;
             }
 
@@ -642,8 +649,11 @@ impl Interpreter {
             let age_days = ((now - entry.timestamp).max(0) as f64) / 86400.0;
             let activation = entry.priority * (-entry.decay_rate * age_days).exp();
 
-            if activation > best_activation && activation >= min_confidence {
-                best_activation = activation;
+            // Combined score: geometric mean of similarity and activation
+            let score = similarity * activation;
+
+            if score > best_score && score >= min_confidence {
+                best_score = score;
                 best_match = Some(entry);
             }
         }

@@ -4,7 +4,7 @@ WHITESPACE  = _{ " " | "\t" | "\n" | "\r" }
 
 program     =  { SOI ~ (declaration ~ WHITESPACE*)* ~ EOI }
 
-declaration = _{ entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl }
+declaration = _{ memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl }
 
 // ── Entity: struct type ───────────────────────────────────────────────
 // Disambiguates from simple entity: IDENT followed by "{" not ":"
@@ -17,6 +17,10 @@ field_init         = { IDENT ~ COLON ~ expression }
 
 // ── Entity: simple (M1) ──────────────────────────────────────────────
 entity_simple_decl = { "entity" ~ IDENT ~ ":" ~ type_name ~ "=" ~ expression }
+
+// ── Memory (M4) ──────────────────────────────────────────────────
+memorize_decl = { MEMORIZE_KW ~ expression ~ ("with" ~ "priority" ~ "=" ~ FLOAT_LITERAL)? }
+forget_decl   = { FORGET_KW ~ expression ~ "after" ~ INT ~ DOT_CHAR ~ "days" }
 
 // ── Rule ──────────────────────────────────────────────────────────────
 rule_decl    = { "rule" ~ "If" ~ "(" ~ condition ~ ")" ~ "then" ~ assignment ~ ("with" ~ "priority" ~ "=" ~ INT)? }
@@ -45,7 +49,7 @@ statement    = { "return" ~ expression }
 flow_decl     = { "flow" ~ IDENT ~ "{" ~ flow_pipeline ~ branch_def* ~ "}" }
 flow_pipeline = { "input" ~ ":" ~ type_name ~ "=" ~ expression ~ (ARROW ~ step_ident)* ~ ARROW ~ "output" }
 branch_def    = { step_ident ~ "{" ~ branch* ~ "}" }
-step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "If" | "then" | "with" | "return" | "contains") ~ IDENT }
+step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "recall" | "If" | "then" | "with" | "return" | "contains" | "after" | "days") ~ IDENT }
 branch        = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
 branch_condition = { IDENT ~ "." ~ IDENT ~ compare_op ~ expression }
 
@@ -97,6 +101,11 @@ LEARNABLE_KW = @{ "learnable" }
 IF_KW       = @{ "If" }
 THEN_KW     = @{ "then" }
 WITH_KW     = @{ "with" }
+MEMORIZE_KW = @{ "memorize" }
+FORGET_KW   = @{ "forget" }
+RECALL_KW   = @{ "recall" }
+AFTER_KW    = @{ "after" }
+DAYS_KW     = @{ "days" }
 PRIORITY_KW = @{ "priority" }
 PATTERN_KW  = @{ "pattern" }
 PROMPT_KW   = @{ "prompt" }

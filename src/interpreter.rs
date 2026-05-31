@@ -3,6 +3,7 @@
 // M2: struct entities, rules, branching flow, comparisons
 
 use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::ast::*;
 use crate::builtins::Builtins;
@@ -105,6 +106,19 @@ struct StructType {
     fields: Vec<FieldDecl>,
 }
 
+/// A memory entry: stored fact with priority and timestamp for decay.
+#[derive(Debug, Clone)]
+struct MemoryEntry {
+    /// The stored value (string content of the fact).
+    value: String,
+    /// Priority/confidence at time of memorization (0.0..1.0).
+    priority: f64,
+    /// Unix timestamp (seconds) when memorized.
+    timestamp: i64,
+    /// Decay rate per day (0.0 = no decay, 0.01 = slow, 0.1 = fast).
+    decay_rate: f64,
+}
+
 /// The interpreter holds all runtime state.
 pub struct Interpreter {
     /// Global variable store.
@@ -121,6 +135,8 @@ pub struct Interpreter {
     builtins: Builtins,
     /// Flow branch definitions: step_name -> [Branch]
     branch_defs: HashMap<String, Vec<Branch>>,
+    /// Memory store: entries with priority, timestamp, and decay.
+    memory: Vec<MemoryEntry>,
 }
 
 impl Interpreter {
@@ -133,6 +149,7 @@ impl Interpreter {
             rules: Vec::new(),
             builtins: Builtins::new(),
             branch_defs: HashMap::new(),
+            memory: Vec::new(),
         }
     }
 
@@ -158,6 +175,36 @@ impl Interpreter {
                 }
                 Declaration::Rule(r) => {
                     self.rules.push(r);
+                }
+                Declaration::Memorize(m) => {
+                    let value_str = match self.eval_expr(&m.value)? {
+                        Value::String(s) => s,
+                        other => format!("{}", other),
+                    };
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0);
+                    self.memory.push(MemoryEntry {
+                        value: value_str,
+                        priority: m.priority,
+                        timestamp: now,
+                        decay_rate: 0.01, // Default: slow decay
+                    });
+                }
+                Declaration::Forget(f) => {
+                    let query_str = match self.eval_expr(&f.query)? {
+                        Value::String(s) => s,
+                        other => format!("{}", other),
+                    };
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0);
+                    let cutoff = now - (f.days * 86400);
+                    self.memory.retain(|entry| {
+                        !(entry.value.contains(&query_str) && entry.timestamp < cutoff)
+                    });
                 }
                 Declaration::Pattern(p) => {
                     self.patterns.insert(
@@ -328,7 +375,12 @@ impl Interpreter {
 
     /// Invoke a pattern or built-in by name with given arguments.
     fn invoke(&mut self, name: &str, args: Vec<Value>) -> Result<Value, String> {
-        // Check learnable patterns first
+        // Check recall (memory) first — it's a built-in with memory access
+        if name == "recall" {
+            return self.invoke_recall(args);
+        }
+
+        // Check learnable patterns
         if let Some(learnable) = self.learnable_patterns.get(name) {
             return self.invoke_learnable(learnable, args);
         }
@@ -383,6 +435,55 @@ impl Interpreter {
         Ok(Value::String(response))
     }
 
+    /// Recall from memory: find best matching entry by substring similarity + decay.
+    /// Returns the highest-activation entry matching the query.
+    fn invoke_recall(&self, args: Vec<Value>) -> Result<Value, String> {
+        if args.is_empty() {
+            return Err("recall() requires at least 1 argument (query string)".to_string());
+        }
+
+        let query = match &args[0] {
+            Value::String(s) => s.clone(),
+            other => return Err(format!("recall() expected String argument, got {}", other.type_name())),
+        };
+
+        let min_confidence = if args.len() > 1 {
+            args[1].as_float().unwrap_or(0.0)
+        } else {
+            0.0
+        };
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        // Find best matching entry: substring match + highest activation after decay
+        let mut best_match: Option<&MemoryEntry> = None;
+        let mut best_activation: f64 = 0.0;
+
+        for entry in &self.memory {
+            // Substring similarity check
+            if !entry.value.contains(&query) {
+                continue;
+            }
+
+            // Apply decay: activation = priority * exp(-decay_rate * age_in_days)
+            let age_days = ((now - entry.timestamp).max(0) as f64) / 86400.0;
+            let activation = entry.priority * (-entry.decay_rate * age_days).exp();
+
+            if activation > best_activation && activation >= min_confidence {
+                best_activation = activation;
+                best_match = Some(entry);
+            }
+        }
+
+        match best_match {
+            Some(entry) => Ok(Value::String(entry.value.clone())),
+            None => Ok(Value::String(String::new())), // No match found — return empty (soft-failure)
+        }
+    }
+
     fn eval_statements(
         &self,
         stmts: &[Statement],
@@ -422,6 +523,11 @@ impl Interpreter {
                 let mut eval_args = Vec::new();
                 for arg in args {
                     eval_args.push(self.eval_expr_with_env(arg, env)?);
+                }
+
+                // Check recall (memory) first
+                if name == "recall" {
+                    return self.invoke_recall(eval_args);
                 }
 
                 // Check learnable patterns first

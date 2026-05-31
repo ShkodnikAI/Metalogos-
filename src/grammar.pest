@@ -1,0 +1,44 @@
+// ── METALOGOS M1 Grammar ──────────────────────────────────────────────
+// Covers: entity, pattern (pure), flow (linear pipeline)
+// Grammar-first: this IS the syntax spec for M1.
+
+WHITESPACE  = _{ " " | "\t" | "\n" | "\r" }
+
+program     =  { SOI ~ (declaration ~ WHITESPACE*)* ~ EOI }
+
+declaration = _{ entity_decl | pattern_decl | flow_decl }
+
+// ── Entity ───────────────────────────────────────────────────────────
+entity_decl = { "entity" ~ IDENT ~ ":" ~ type_name ~ "=" ~ expression }
+
+// ── Pattern ──────────────────────────────────────────────────────────
+pattern_decl = { "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ "->" ~ type_name ~ "{" ~ pattern_body ~ "}" }
+params       = { param ~ ("," ~ WHITESPACE? ~ param)* }
+param        = { IDENT ~ ":" ~ type_name }
+pattern_body = { statement* }
+statement    = { "return" ~ expression }
+
+// ── Flow ──────────────────────────────────────────────────────────────
+flow_decl = { "flow" ~ IDENT ~ "{" ~ flow_body ~ "}" }
+flow_body = { "input" ~ ":" ~ type_name ~ "=" ~ expression ~ (ARROW ~ step_ident)* ~ ARROW ~ "output" }
+step_ident = { !"output" ~ IDENT }
+
+// ── Types ──────────────────────────────────────────────────────────────
+type_name = { IDENT }
+
+// ── Multi-char operators (must be atomic to avoid consuming '-') ──
+ARROW = @{ "->" }
+
+// ── Expressions ───────────────────────────────────────────────────────
+expression   = { binary_expr }
+binary_expr  = { unary_expr ~ (binop ~ unary_expr)* }
+binop        = @{ ("+" | "-" | "*" | "/") ~ !">" }
+unary_expr   = { call_expr | primary_expr }
+call_expr    = { IDENT ~ "(" ~ expression_list? ~ ")" }
+expression_list = { expression ~ ("," ~ WHITESPACE? ~ expression)* }
+primary_expr = { STRING_LITERAL | IDENT }
+
+// ── Primitives ─────────────────────────────────────────────────────────
+STRING_LITERAL = @{ "\"" ~ inner_string ~ "\"" }
+inner_string   =  { (!( "\"" | "\\" ) ~ ANY)* }
+IDENT          = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_" | "'")* }

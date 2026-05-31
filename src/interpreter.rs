@@ -9,6 +9,7 @@ use crate::ast::*;
 use crate::builtins::Builtins;
 use crate::embedding;
 use crate::llm;
+use crate::ml;
 
 /// A single variant inside a Fluid value (runtime). Contains a concrete
 /// value, its declared type name, and a confidence score (0.0..1.0).
@@ -187,6 +188,10 @@ pub struct Interpreter {
     entity_store: HashMap<String, Vec<EntityRecord>>,
     /// Embedding backend for semantic similarity in recall.
     embedding: Box<dyn embedding::EmbeddingBackend>,
+    /// ML backend for fine-tuning learnable patterns.
+    ml_backend: Box<dyn ml::MlBackend>,
+    /// Status messages from `learn` declarations (accumulated during run).
+    learn_log: Vec<String>,
 }
 
 impl Interpreter {
@@ -202,7 +207,14 @@ impl Interpreter {
             memory: Vec::new(),
             entity_store: HashMap::new(),
             embedding: embedding::create_embedding_backend(),
+            ml_backend: ml::create_ml_backend(),
+            learn_log: Vec::new(),
         }
+    }
+
+    /// Return accumulated learn status messages and clear the log.
+    pub fn take_learn_log(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.learn_log)
     }
 
     /// Run a complete .mlog program.
@@ -298,6 +310,39 @@ impl Interpreter {
                     } else {
                         return Err(format!("adapt: learnable pattern '{}' not found", a.pattern_name));
                     }
+                }
+                Declaration::Learn(l) => {
+                    // Fine-tune the learnable pattern via the ML backend
+                    let learnable = match self.learnable_patterns.get(&l.pattern_name) {
+                        Some(lp) => lp.clone(),
+                        None => return Err(format!("learn: learnable pattern '{}' not found", l.pattern_name)),
+                    };
+
+                    // Evaluate hyperparameters
+                    let mut data_str = String::new();
+                    let mut epochs: i32 = 1;
+                    for (param_name, param_expr) in &l.hyperparams {
+                        let val = self.eval_expr(param_expr)?;
+                        match param_name.as_str() {
+                            "data" => data_str = match val {
+                                Value::String(s) => s,
+                                other => format!("{}", other),
+                            },
+                            "epochs" => epochs = val.as_float()? as i32,
+                            _ => {} // Ignore unknown hyperparams
+                        }
+                    }
+
+                    // Call ML backend for fine-tuning
+                    let result = self.ml_backend.fine_tune(
+                        &l.pattern_name,
+                        &learnable.prompt,
+                        &data_str,
+                        epochs,
+                    )?;
+
+                    // Log the learn status
+                    self.learn_log.push(format!("[LEARN] {}", result.summary));
                 }
                 Declaration::Fluid(fl) => {
                     let mut variants = Vec::new();

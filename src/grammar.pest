@@ -4,7 +4,7 @@ WHITESPACE  = _{ " " | "\t" | "\n" | "\r" }
 
 program     =  { SOI ~ (declaration ~ WHITESPACE*)* ~ EOI }
 
-declaration = _{ fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl }
+declaration = _{ learn_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl }
 
 // ── Entity: struct type ───────────────────────────────────────────────
 // Disambiguates from simple entity: IDENT followed by "{" not ":"
@@ -26,6 +26,12 @@ fluid_branch   = { type_name ~ LBRACKET ~ expression ~ RBRACKET ~ LBRACKET ~ FLO
 // ── Adapt (M5) ──────────────────────────────────────────────────
 // adapt PatternName add_example("input", "output")
 adapt_decl     = { ADAPT_KW ~ IDENT ~ ADD_EXAMPLE_KW ~ "(" ~ expression ~ COMMA ~ expression ~ ")" }
+
+// ── Learn (Phase 2.3) ──────────────────────────────────────────
+// learn PatternName with { data: "corpus", epochs: 5 }
+learn_decl     = { LEARN_KW ~ IDENT ~ "with" ~ "{" ~ learn_param_list? ~ COMMA? ~ "}" }
+learn_param_list = { learn_param ~ (COMMA ~ learn_param)* }
+learn_param    = { IDENT ~ COLON ~ expression }
 
 // ── Memory (M4) ──────────────────────────────────────────────────
 memorize_decl = { MEMORIZE_KW ~ expression ~ ("with" ~ "priority" ~ "=" ~ FLOAT_LITERAL)? }
@@ -58,7 +64,7 @@ statement    = { "return" ~ expression }
 flow_decl     = { "flow" ~ IDENT ~ "{" ~ flow_pipeline ~ branch_def* ~ "}" }
 flow_pipeline = { "input" ~ ":" ~ type_name ~ "=" ~ expression ~ (ARROW ~ step_ident)* ~ ARROW ~ "output" }
 branch_def    = { step_ident ~ "{" ~ branch* ~ "}" }
-step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "recall" | "adapt" | "add_example" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or") ~ IDENT }
+step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learn" | "learnable" | "prompt" | "memorize" | "forget" | "recall" | "adapt" | "add_example" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or") ~ IDENT }
 branch        = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
 branch_condition = { IDENT ~ "." ~ IDENT ~ compare_op ~ expression }
 
@@ -76,10 +82,10 @@ unary_expr       = { call_expr | field_expr | primary_expr }
 field_expr       = { primary_expr ~ "." ~ IDENT }
 call_expr        = { IDENT ~ "(" ~ expression_list? ~ ")" }
 expression_list  = { expression ~ (COMMA ~ WHITESPACE? ~ expression)* }
-primary_expr     = { FLOAT_LITERAL | STRING_LITERAL | IDENT }
+primary_expr     = { FLOAT_LITERAL | INT | STRING_LITERAL | IDENT }
 
 // ── Literals ─────────────────────────────────────────────────────────
-literal = _{ FLOAT_LITERAL | STRING_LITERAL | IDENT }
+literal = _{ FLOAT_LITERAL | INT | STRING_LITERAL | IDENT }
 
 // ── Primitives ─────────────────────────────────────────────────────────
 STRING_LITERAL = @{ "\"" ~ inner_string ~ "\"" }
@@ -108,6 +114,7 @@ DIGIT     = @{ ASCII_DIGIT }
 // ── Keyword tokens ───────────────────────────────────────────────────
 ENTITY      = @{ "entity" }
 RULE        = @{ "rule" }
+LEARN_KW    = @{ "learn" }
 FLUID_KW    = @{ "fluid" }
 LEARNABLE_KW = @{ "learnable" }
 IF_KW       = @{ "If" }

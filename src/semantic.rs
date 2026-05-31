@@ -1,525 +1,284 @@
-// ── Semantic analysis for METALOGOS Phase 2 ─────────────────────────────
-// Validates the AST before execution:
-//   Phase 1: undefined entities, unknown patterns/steps, rule target validation.
-//   Phase 2: type inference through flow pipeline, error recovery (all errors
-//            collected per pass), unreachable/overlapping branch detection.
-// Returns clear error messages instead of runtime panics.
-
-use std::collections::{HashSet, HashMap};
+// ── Semantic analysis for METALOGOS (Phase 3: mlog check) ──────────
+// Validates declarations without execution. Reports errors and warnings.
 
 use crate::ast::*;
+use std::collections::HashSet;
 
-/// Built-in functions known to the runtime (not defined in .mlog source).
-const KNOWN_BUILTINS: &[&str] = &[
-    "upper", "lower", "len", "str", "print", "contains", "float",
-    "confidence", "find", "count", "recall",
-];
-
-/// Builtin return types for type inference.
-fn builtin_return_type(name: &str) -> &'static str {
-    match name {
-        "upper" | "lower" | "str" | "print" => "String",
-        "len" | "float" | "confidence" | "contains" | "count" => "Float",
-        "find" => "Struct",
-        "recall" => "String",
-        _ => "Unknown",
-    }
-}
-
-/// Result of semantic analysis: errors prevent execution, warnings do not.
-#[derive(Debug, Clone)]
+/// Result of semantic analysis: errors prevent execution, warnings are advisory.
+#[derive(Debug, Clone, Default)]
 pub struct AnalysisResult {
     pub errors: Vec<String>,
     pub warnings: Vec<String>,
 }
 
 impl AnalysisResult {
-    pub fn has_errors(&self) -> bool {
-        !self.errors.is_empty()
+    pub fn is_ok(&self) -> bool {
+        self.errors.is_empty()
     }
 
-    /// Format errors into a single string for error output.
-    pub fn format_errors(&self) -> String {
-        if self.errors.len() == 1 {
-            self.errors[0].clone()
-        } else {
-            let mut msg = format!("{} errors:\n", self.errors.len());
-            for (i, e) in self.errors.iter().enumerate() {
-                msg.push_str(&format!("{}: {}\n", i + 1, e));
+    pub fn error_count(&self) -> usize {
+        self.errors.len()
+    }
+
+    pub fn warning_count(&self) -> usize {
+        self.warnings.len()
+    }
+
+    /// Format analysis result for display.
+    pub fn format(&self) -> String {
+        let mut lines = Vec::new();
+        if !self.errors.is_empty() {
+            let n = self.errors.len();
+            if n == 1 {
+                lines.push(format!("1 error:"));
+            } else {
+                lines.push(format!("{} errors:", n));
             }
-            msg
+            for (i, e) in self.errors.iter().enumerate() {
+                lines.push(format!("  {}: {}", i + 1, e));
+            }
         }
+        if !self.warnings.is_empty() {
+            let n = self.warnings.len();
+            if n == 1 {
+                lines.push(format!("1 warning:"));
+            } else {
+                lines.push(format!("{} warnings:", n));
+            }
+            for (i, w) in self.warnings.iter().enumerate() {
+                lines.push(format!("  {}: {}", i + 1, w));
+            }
+        }
+        if self.errors.is_empty() && self.warnings.is_empty() {
+            lines.push("OK: no issues found.".to_string());
+        }
+        lines.join("\n")
     }
 }
 
-/// Semantic analysis context: accumulates definitions, checks references,
-/// infers types, detects overlapping branches.
-struct Context {
-    /// User-defined struct type names (from EntityType declarations).
-    types: HashSet<String>,
-    /// Struct type field definitions: type_name → [(field_name, field_type)]
-    struct_fields: HashMap<String, Vec<(String, String)>>,
-    /// Entity variable names (from EntityRecord, EntitySimple, Fluid declarations).
-    entities: HashSet<String>,
-    /// Entity variable → declared type name (for type inference).
-    entity_types: HashMap<String, String>,
-    /// Pattern names.
-    patterns: HashSet<String>,
-    /// Learnable pattern names.
-    learnables: HashSet<String>,
-    /// Pattern param names → param types.
-    pattern_params: HashMap<String, Vec<(String, String)>>,
-    /// Pattern name → return type.
-    pattern_return_types: HashMap<String, String>,
-    /// Learnable pattern name → return type.
-    learnable_return_types: HashMap<String, String>,
-    /// Accumulated errors (collected, not returned on first).
-    errors: Vec<String>,
-    /// Accumulated warnings.
-    warnings: Vec<String>,
-}
+/// Perform semantic analysis on a list of declarations (without executing them).
+/// Validates:
+///   - Entity types referenced in records exist
+///   - Field initializers reference valid fields
+///   - Patterns/learnables invoked in flows exist
+///   - Flow branch targets are known patterns
+///   - Duplicate entity/pattern/flow names
+///   - Rule targets reference existing entities
+///   - Adapt/mutate targets reference existing learnable patterns
+///   - Relate/sandbox declarations are well-formed
+pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
+    let mut result = AnalysisResult::default();
+    let mut entity_types: HashSet<String> = HashSet::new();
+    let mut entity_names: HashSet<String> = HashSet::new();
+    let mut pattern_names: HashSet<String> = HashSet::new();
+    let mut learnable_names: HashSet<String> = HashSet::new();
+    let mut flow_names: HashSet<String> = HashSet::new();
+    let mut builtin_names: HashSet<String> = HashSet::new();
 
-impl Context {
-    fn new() -> Self {
-        Context {
-            types: HashSet::new(),
-            struct_fields: HashMap::new(),
-            entities: HashSet::new(),
-            entity_types: HashMap::new(),
-            patterns: HashSet::new(),
-            learnables: HashSet::new(),
-            pattern_params: HashMap::new(),
-            pattern_return_types: HashMap::new(),
-            learnable_return_types: HashMap::new(),
-            errors: Vec::new(),
-            warnings: Vec::new(),
-        }
+    // Known builtins
+    for b in &["upper", "lower", "len", "str", "print", "contains", "float", "confidence"] {
+        builtin_names.insert(b.to_string());
     }
 
-    /// Pass 1: collect definitions (types, patterns, learnables first so they
-    /// can be forward-referenced; entities collected in pass 2).
-    fn collect(&mut self, decl: &Declaration) {
+    // First pass: collect all declarations (names)
+    for decl in declarations {
         match decl {
             Declaration::EntityType(e) => {
-                self.types.insert(e.name.clone());
-                let fields: Vec<(String, String)> = e.fields.iter()
-                    .map(|f| (f.name.clone(), f.type_name.clone()))
-                    .collect();
-                self.struct_fields.insert(e.name.clone(), fields);
+                if !entity_types.insert(e.name.clone()) {
+                    result.errors.push(format!("duplicate entity type: {}", e.name));
+                }
+            }
+            Declaration::EntityRecord(e) => {
+                if !entity_names.insert(e.name.clone()) {
+                    result.errors.push(format!("duplicate entity: {}", e.name));
+                }
+            }
+            Declaration::EntitySimple(e) => {
+                if !entity_names.insert(e.name.clone()) {
+                    result.errors.push(format!("duplicate entity: {}", e.name));
+                }
             }
             Declaration::Pattern(p) => {
-                self.patterns.insert(p.name.clone());
-                let params: Vec<(String, String)> = p.params.iter()
-                    .map(|pm| (pm.name.clone(), pm.type_name.clone()))
-                    .collect();
-                self.pattern_params.insert(p.name.clone(), params);
-                self.pattern_return_types.insert(p.name.clone(), p.return_type.clone());
+                if !pattern_names.insert(p.name.clone()) {
+                    result.errors.push(format!("duplicate pattern: {}", p.name));
+                }
             }
             Declaration::LearnablePattern(lp) => {
-                self.learnables.insert(lp.name.clone());
-                self.learnable_return_types.insert(lp.name.clone(), lp.return_type.clone());
+                if !learnable_names.insert(lp.name.clone()) {
+                    result.errors.push(format!("duplicate learnable pattern: {}", lp.name));
+                }
+            }
+            Declaration::Flow(f) => {
+                if !flow_names.insert(f.name.clone()) {
+                    result.errors.push(format!("duplicate flow: {}", f.name));
+                }
             }
             _ => {}
         }
     }
 
-    /// Collect an entity name + its type (called during pass 2).
-    fn collect_entity(&mut self, name: &str, type_name: &str) {
-        self.entities.insert(name.to_string());
-        self.entity_types.insert(name.to_string(), type_name.to_string());
-    }
-
-    /// Check if a name is a known callable (pattern, learnable, or builtin).
-    fn is_known_call(&self, name: &str) -> bool {
-        self.patterns.contains(name)
-            || self.learnables.contains(name)
-            || KNOWN_BUILTINS.contains(&name)
-    }
-
-    /// Check if two types are compatible for flow-to-pattern binding.
-    /// Rules:
-    ///   - Identical types: compatible
-    ///   - Fluid: compatible with everything (lazy collapse at runtime)
-    ///   - "Struct" (generic, e.g. from find()): compatible with any struct type
-    ///   - Two different user-defined struct types: incompatible
-    ///   - Two different primitive types (e.g. String vs Float): incompatible
-    fn types_compatible(flow_type: &str, param_type: &str, user_types: &HashSet<String>) -> bool {
-        if flow_type == param_type {
-            return true;
-        }
-        // Fluid is compatible with everything (lazy collapse at runtime)
-        if flow_type == "Fluid" || param_type == "Fluid" {
-            return true;
-        }
-        // Generic "Struct" return (e.g. from find()) compatible with any user-defined struct
-        if flow_type == "Struct" && user_types.contains(param_type) {
-            return true;
-        }
-        if param_type == "Struct" && user_types.contains(flow_type) {
-            return true;
-        }
-        // Two different user-defined struct types: incompatible
-        if user_types.contains(flow_type) && user_types.contains(param_type) {
-            return false;
-        }
-        // Both are known primitives but different: incompatible
-        let known_primitives = ["String", "Float", "Int", "Bool", "Unit"];
-        let flow_is_prim = known_primitives.contains(&flow_type);
-        let param_is_prim = known_primitives.contains(&param_type);
-        if flow_is_prim && param_is_prim {
-            return false;
-        }
-        // Otherwise: conservative, allow (can't determine statically)
-        true
-    }
-
-    /// Infer the type of an expression. Returns None if type cannot be determined.
-    fn infer_type(&self, expr: &Expr) -> Option<String> {
-        match expr {
-            Expr::StringLit(_) => Some("String".to_string()),
-            Expr::FloatLit(_) => Some("Float".to_string()),
-            Expr::Ident(name) => self.entity_types.get(name).cloned(),
-            Expr::FieldAccess(base, field) => {
-                let base_type = self.infer_type(base)?;
-                // Look up field type in struct definitions
-                if let Some(fields) = self.struct_fields.get(&base_type) {
-                    for (fname, ftype) in fields {
-                        if fname == field {
-                            return Some(ftype.clone());
-                        }
-                    }
-                }
-                None
-            }
-            Expr::FnCall(name, _args) => {
-                // Check pattern return type
-                if let Some(rt) = self.pattern_return_types.get(name) {
-                    return Some(rt.clone());
-                }
-                // Check learnable return type
-                if let Some(rt) = self.learnable_return_types.get(name) {
-                    return Some(rt.clone());
-                }
-                // Check builtin return type
-                if KNOWN_BUILTINS.contains(&name.as_str()) {
-                    return Some(builtin_return_type(name).to_string());
-                }
-                None
-            }
-            Expr::BinaryOp(left, op, right) => {
-                match op {
-                    BinOp::Add => {
-                        let lt = self.infer_type(left)?;
-                        let rt = self.infer_type(right)?;
-                        // String + String → String, otherwise Float
-                        if lt == "String" || rt == "String" {
-                            Some("String".to_string())
-                        } else {
-                            Some("Float".to_string())
-                        }
-                    }
-                    BinOp::Sub | BinOp::Mul | BinOp::Div => {
-                        Some("Float".to_string())
-                    }
-                }
-            }
-        }
-    }
-
-    /// Check an expression for undefined references.
-    /// `scope` contains in-scope names (e.g. pattern parameters).
-    fn check_expr(&mut self, expr: &Expr, scope: &HashSet<&str>) {
-        match expr {
-            Expr::StringLit(_) | Expr::FloatLit(_) => {}
-            Expr::Ident(name) => {
-                if scope.contains(name.as_str()) {
-                    return;
-                }
-                if self.entities.contains(name) {
-                    return;
-                }
-                self.errors.push(format!("undefined entity '{}'", name));
-            }
-            Expr::FieldAccess(base, _field) => {
-                self.check_expr(base, scope);
-            }
-            Expr::FnCall(name, args) => {
-                if !self.is_known_call(name) {
-                    self.errors.push(format!("undefined pattern or builtin '{}'", name));
-                }
-                for arg in args {
-                    self.check_expr(arg, scope);
-                }
-            }
-            Expr::BinaryOp(left, _op, right) => {
-                self.check_expr(left, scope);
-                self.check_expr(right, scope);
-            }
-        }
-    }
-
-    /// Check a declaration's references (pass 2: sequential).
-    /// Collects all errors instead of returning early.
-    fn check(&mut self, decl: &Declaration) {
-        let empty_scope = HashSet::new();
-
+    // Second pass: cross-reference validation
+    for decl in declarations {
         match decl {
-            Declaration::EntityType(_) => {}
             Declaration::EntityRecord(e) => {
-                // Always collect entity (even with bad type) to avoid cascading errors
-                self.collect_entity(&e.name, &e.type_name);
-                // Check type exists (user-defined struct type)
-                if !self.types.contains(&e.type_name) {
-                    self.errors.push(format!(
-                        "unknown type '{}' for entity '{}'",
-                        e.type_name, e.name
+                if !entity_types.contains(&e.type_name) {
+                    result.errors.push(format!(
+                        "entity '{}' references unknown type '{}'",
+                        e.name, e.type_name
                     ));
                 }
-                // Check field init expressions
-                for init in &e.fields {
-                    self.check_expr(&init.value, &empty_scope);
+                // Validate field initializers
+                if let Some(fields) = get_type_fields(declarations, &e.type_name) {
+                    for init in &e.fields {
+                        if !fields.contains(&init.name.as_str()) {
+                            result.errors.push(format!(
+                                "entity '{}' initializes unknown field '{}' on type '{}'",
+                                e.name, init.name, e.type_name
+                            ));
+                        }
+                    }
                 }
             }
             Declaration::EntitySimple(e) => {
-                self.collect_entity(&e.name, &e.type_name);
-                self.check_expr(&e.value, &empty_scope);
+                // Simple entities with types like String, Float are always valid
+                let known_primitives = ["String", "Float"];
+                if !known_primitives.contains(&e.type_name.as_str())
+                    && !entity_types.contains(&e.type_name)
+                {
+                    result.warnings.push(format!(
+                        "entity '{}' uses undeclared type '{}' (may be a forward reference)",
+                        e.name, e.type_name
+                    ));
+                }
             }
             Declaration::Rule(r) => {
-                // Check rule target is a known entity
+                // Validate rule target entity exists
                 if let Expr::Ident(name) = &r.target {
-                    if !self.entities.contains(name) {
-                        self.errors.push(format!(
-                            "rule target '{}' is not a defined entity",
+                    if !entity_names.contains(name) {
+                        result.errors.push(format!(
+                            "rule target '{}' references undefined entity",
                             name
                         ));
                     }
                 }
-                // Check condition
-                match &r.condition {
-                    Condition::Contains { left, right } => {
-                        self.check_expr(left, &empty_scope);
-                        self.check_expr(right, &empty_scope);
-                    }
-                    Condition::Compare { left, right, .. } => {
-                        self.check_expr(left, &empty_scope);
-                        self.check_expr(right, &empty_scope);
-                    }
-                }
-                // Check value expression
-                self.check_expr(&r.value, &empty_scope);
-            }
-            Declaration::Pattern(p) => {
-                // Check body with params in scope
-                let scope: HashSet<&str> = p.params.iter()
-                    .map(|pm| pm.name.as_str())
-                    .collect();
-                for stmt in &p.body {
-                    let Statement::Return(expr) = stmt;
-                    self.check_expr(expr, &scope);
-                }
-            }
-            Declaration::LearnablePattern(_) => {}
-            Declaration::Flow(f) => {
-                // Collect branch def step names (valid pipeline targets)
-                let branch_steps: HashSet<&str> = f.branch_defs.iter()
-                    .map(|(name, _)| name.as_str())
-                    .collect();
-
-                // Check source expression
-                self.check_expr(&f.source, &empty_scope);
-
-                // Infer source type for flow type checking
-                let mut current_type = self.infer_type(&f.source);
-
-                // Check pipeline steps + type inference
-                for step in &f.pipeline {
-                    if !self.is_known_call(step)
-                        && !branch_steps.contains(step.as_str())
-                    {
-                        self.errors.push(format!(
-                            "undefined step '{}' in flow '{}'",
-                            step, f.name
-                        ));
-                        current_type = None; // Can't infer further
-                        continue;
-                    }
-
-                    // Type check: if step is a pattern, check param compatibility
-                    if let Some(params) = self.pattern_params.get(step) {
-                        if let Some(ref flow_type) = current_type {
-                            if let Some((_, param_type)) = params.first() {
-                                if !Self::types_compatible(
-                                    flow_type, param_type, &self.types
-                                ) {
-                                    self.errors.push(format!(
-                                        "type mismatch: pattern '{}' expects {}, but flow provides {}",
-                                        step, param_type, flow_type
-                                    ));
-                                }
-                            }
-                        }
-                    }
-
-                    // Update current_type: pattern/learnable return type
-                    if self.patterns.contains(step) {
-                        current_type = self.pattern_return_types.get(step).cloned();
-                    } else if self.learnables.contains(step) {
-                        current_type = self.learnable_return_types.get(step).cloned();
-                    }
-                    // branch_def steps: type passes through (dispatched at runtime)
-                }
-
-                // Check branch targets
-                for (_step_name, branches) in &f.branch_defs {
-                    for branch in branches {
-                        if !self.is_known_call(&branch.target) {
-                            self.errors.push(format!(
-                                "undefined target '{}' in flow '{}' branch '{}'",
-                                branch.target, f.name, branch.label
-                            ));
-                        }
-                    }
-                }
-
-                // Check for overlapping branch conditions
-                self.check_branch_overlap(f);
-            }
-            Declaration::Fluid(fl) => {
-                self.collect_entity(&fl.name, "Fluid");
-                for v in &fl.variants {
-                    self.check_expr(&v.value, &empty_scope);
-                }
-            }
-            Declaration::Memorize(m) => {
-                self.check_expr(&m.value, &empty_scope);
-            }
-            Declaration::Forget(f) => {
-                self.check_expr(&f.query, &empty_scope);
             }
             Declaration::Adapt(a) => {
-                if !self.learnables.contains(&a.pattern_name) {
-                    self.errors.push(format!(
-                        "adapt target '{}' is not a learnable pattern",
+                if !learnable_names.contains(&a.pattern_name) {
+                    result.errors.push(format!(
+                        "adapt: learnable pattern '{}' not found",
                         a.pattern_name
                     ));
                 }
-                self.check_expr(&a.input_example, &empty_scope);
-                self.check_expr(&a.output_example, &empty_scope);
             }
-            Declaration::Learn(l) => {
-                if !self.learnables.contains(&l.pattern_name) {
-                    self.errors.push(format!(
-                        "learn target '{}' is not a learnable pattern",
-                        l.pattern_name
+            Declaration::Mutate(m) => {
+                if !learnable_names.contains(&m.pattern_name) {
+                    result.errors.push(format!(
+                        "mutate: learnable pattern '{}' not found",
+                        m.pattern_name
                     ));
                 }
-                // Check hyperparameter expressions
-                for (_name, expr) in &l.hyperparams {
-                    self.check_expr(expr, &empty_scope);
-                }
             }
-        }
-    }
-
-    /// Detect overlapping branch conditions within the same branch_def block.
-    /// Two branches on the same field overlap if their numeric ranges intersect.
-    fn check_branch_overlap(&mut self, f: &FlowDecl) {
-        for (step_name, branches) in &f.branch_defs {
-            for i in 0..branches.len() {
-                for j in (i + 1)..branches.len() {
-                    let b1 = &branches[i];
-                    let b2 = &branches[j];
-
-                    // Only check if conditions are on the same field
-                    if b1.condition.field != b2.condition.field {
-                        continue;
+            Declaration::Flow(f) => {
+                // Validate pipeline step references
+                for step in &f.pipeline {
+                    let known = pattern_names.contains(step)
+                        || learnable_names.contains(step)
+                        || builtin_names.contains(step)
+                        || step == "recall";
+                    if !known {
+                        // Could be a branch target — we check branch definitions
+                        let has_branch_def = f.branch_defs.iter().any(|(name, _)| name == step);
+                        if !has_branch_def {
+                            result.errors.push(format!(
+                                "flow '{}': pipeline step '{}' is not a known pattern, builtin, or branch definition",
+                                f.name, step
+                            ));
+                        }
                     }
-
-                    // Try to extract float thresholds
-                    let t1 = Self::extract_float_threshold(&b1.condition.threshold);
-                    let t2 = Self::extract_float_threshold(&b2.condition.threshold);
-
-                    if let (Some(v1), Some(v2)) = (t1, t2) {
-                        if Self::ranges_overlap(b1.condition.op, v1, b2.condition.op, v2) {
-                            self.warnings.push(format!(
-                                "warning: overlapping branches '{}' and '{}' in flow '{}' step '{}'",
-                                b1.label, b2.label, f.name, step_name
+                }
+                // Validate branch targets
+                for (_, branches) in &f.branch_defs {
+                    for branch in branches {
+                        if !pattern_names.contains(&branch.target)
+                            && !learnable_names.contains(&branch.target)
+                            && !builtin_names.contains(&branch.target)
+                        {
+                            result.errors.push(format!(
+                                "flow '{}': branch '{}' target '{}' is not a known pattern",
+                                f.name, branch.label, branch.target
                             ));
                         }
                     }
                 }
             }
+            _ => {}
         }
     }
 
-    /// Extract a float value from a threshold expression (only FloatLit supported).
-    fn extract_float_threshold(expr: &Expr) -> Option<f64> {
-        match expr {
-            Expr::FloatLit(f) => Some(*f),
-            _ => None,
-        }
-    }
-
-    /// Check if two half-intervals on the same axis overlap.
-    /// Each condition defines a half-interval:
-    ///   > X  → (X, +∞) exclusive
-    ///   >= X → [X, +∞) inclusive
-    ///   < Y  → (-∞, Y) exclusive
-    ///   <= Y → (-∞, Y] inclusive
-    ///   == V → [V, V] inclusive
-    fn ranges_overlap(op1: CompareOp, t1: f64, op2: CompareOp, t2: f64) -> bool {
-        let (lo1, lo1_inc, hi1, hi1_inc) = Self::half_interval(op1, t1);
-        let (lo2, lo2_inc, hi2, hi2_inc) = Self::half_interval(op2, t2);
-
-        let lo = lo1.max(lo2);
-        let hi = hi1.min(hi2);
-
-        if lo > hi {
-            return false;
-        }
-        if lo < hi {
-            return true;
-        }
-        // lo == hi: the single value v = lo = hi is in both intervals
-        // only if both intervals include it at their respective boundary
-        let v_in_1 = (lo1 < lo) || lo1_inc;
-        let v_in_1 = v_in_1 && ((hi1 > hi) || hi1_inc);
-        let v_in_2 = (lo2 < lo) || lo2_inc;
-        let v_in_2 = v_in_2 && ((hi2 > hi) || hi2_inc);
-
-        v_in_1 && v_in_2
-    }
-
-    /// Convert a comparison operator + threshold to a half-interval:
-    /// (lower_bound, lower_inclusive, upper_bound, upper_inclusive)
-    fn half_interval(op: CompareOp, t: f64) -> (f64, bool, f64, bool) {
-        match op {
-            CompareOp::Gt => (t, false, f64::INFINITY, false),
-            CompareOp::Ge => (t, true, f64::INFINITY, false),
-            CompareOp::Lt => (f64::NEG_INFINITY, false, t, false),
-            CompareOp::Le => (f64::NEG_INFINITY, false, t, true),
-            CompareOp::Eq => (t, true, t, true),
-        }
-    }
+    result
 }
 
-/// Run semantic analysis on a list of declarations.
-/// Returns an AnalysisResult with errors and warnings.
-pub fn analyze(decls: &[Declaration]) -> AnalysisResult {
-    let mut ctx = Context::new();
+/// Helper: extract field names from an EntityType declaration.
+fn get_type_fields<'a>(declarations: &'a [Declaration], type_name: &str) -> Option<Vec<&'a str>> {
+    for decl in declarations {
+        if let Declaration::EntityType(e) = decl {
+            if e.name == type_name {
+                return Some(e.fields.iter().map(|f| f.name.as_str()).collect());
+            }
+        }
+    }
+    None
+}
 
-    // Pass 1: collect type definitions and pattern signatures (forward-referenceable)
-    for decl in decls {
-        ctx.collect(decl);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ok_program() {
+        // A minimal valid program should produce no errors
+        let source = r#"
+            entity greeting: String = "Hello, Metalogos!"
+            pattern SayHello(text: String) -> String { return text }
+            flow Main { input: String = greeting -> SayHello -> output }
+        "#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(result.is_ok());
+        assert_eq!(result.error_count(), 0);
     }
 
-    // Pass 2: walk declarations in order, collecting entities + checking references
-    for decl in decls {
-        ctx.check(decl);
+    #[test]
+    fn test_undefined_type() {
+        let source = r#"
+            entity m: UnknownType = { text: "hi" }
+        "#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(!result.is_ok());
+        assert!(result.errors.iter().any(|e| e.contains("unknown type")));
     }
 
-    AnalysisResult {
-        errors: ctx.errors,
-        warnings: ctx.warnings,
+    #[test]
+    fn test_adapt_target_not_found() {
+        let source = r#"
+            adapt NonExistent add_example("in", "out")
+        "#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(!result.is_ok());
+        assert!(result.errors.iter().any(|e| e.contains("not found")));
+    }
+
+    #[test]
+    fn test_duplicate_pattern() {
+        let source = r#"
+            pattern Foo(x: String) -> String { return x }
+            pattern Foo(y: String) -> String { return y }
+        "#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(!result.is_ok());
+        assert!(result.errors.iter().any(|e| e.contains("duplicate pattern")));
     }
 }

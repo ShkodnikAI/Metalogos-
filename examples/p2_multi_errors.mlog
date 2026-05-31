@@ -1,0 +1,5 @@
+entity bad: FakeType = { text: "oops" }
+
+pattern Shout(s: String) -> String { return upper(s) + "!" }
+
+flow Main { input: String = nonexistent -> Shout -> output }

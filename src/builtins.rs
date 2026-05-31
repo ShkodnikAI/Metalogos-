@@ -1,4 +1,4 @@
-// ── Built-in functions for METALOGOS M1 ────────────────────────────────
+// ── Built-in functions for METALOGOS M1+M2 ────────────────────────────
 
 use crate::interpreter::Value;
 
@@ -18,6 +18,8 @@ impl Builtins {
         funcs.insert("len".to_string(), builtin_len as BuiltinFn);
         funcs.insert("str".to_string(), builtin_str as BuiltinFn);
         funcs.insert("print".to_string(), builtin_print as BuiltinFn);
+        funcs.insert("contains".to_string(), builtin_contains as BuiltinFn);
+        funcs.insert("float".to_string(), builtin_float as BuiltinFn);
 
         Builtins { funcs }
     }
@@ -54,6 +56,23 @@ fn builtin_print(args: &[Value]) -> Result<Value, String> {
     let s = expect_string_arg("print", args, 0)?;
     println!("{}", s);
     Ok(Value::String(s))
+}
+
+fn builtin_contains(args: &[Value]) -> Result<Value, String> {
+    let haystack = expect_string_arg("contains", args, 0)?;
+    let needle = expect_string_arg("contains", args, 1)?;
+    let result = if haystack.contains(&needle) { 1.0 } else { 0.0 };
+    Ok(Value::Float(result))
+}
+
+fn builtin_float(args: &[Value]) -> Result<Value, String> {
+    match args.get(0) {
+        Some(Value::Float(f)) => Ok(Value::Float(*f)),
+        Some(Value::String(s)) => s.parse::<f64>()
+            .map(Value::Float)
+            .map_err(|_| format!("float() cannot parse '{}'", s)),
+        _ => Err("float() requires 1 argument".to_string()),
+    }
 }
 
 fn expect_string_arg(fn_name: &str, args: &[Value], index: usize) -> Result<String, String> {

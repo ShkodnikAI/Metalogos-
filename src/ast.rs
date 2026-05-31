@@ -15,6 +15,8 @@ pub enum Declaration {
     Rule(RuleDecl),
     /// `pattern Name(params) -> Type { body }`
     Pattern(PatternDecl),
+    /// `learnable pattern Name(params) -> Type { prompt: "..." }`
+    LearnablePattern(LearnablePatternDecl),
     /// `flow Name { input: Type = expr -> steps -> output }`
     Flow(FlowDecl),
 }
@@ -94,6 +96,19 @@ impl fmt::Display for CompareOp {
             CompareOp::Eq => write!(f, "=="),
         }
     }
+}
+
+// ── Learnable Pattern (M3) ────────────────────────────────────────────
+
+/// `learnable pattern Classify(text: String) -> Category {
+///   prompt: "Классифицируй сообщение: question | complaint | greeting"
+/// }`
+#[derive(Debug, Clone)]
+pub struct LearnablePatternDecl {
+    pub name: String,
+    pub params: Vec<Param>,
+    pub return_type: String,
+    pub prompt: String,
 }
 
 // ── Pattern (M1, unchanged) ─────────────────────────────────────────

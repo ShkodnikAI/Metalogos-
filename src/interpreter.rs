@@ -6,6 +6,7 @@ use std::collections::HashMap;
 
 use crate::ast::*;
 use crate::builtins::Builtins;
+use crate::llm;
 
 /// Runtime value.
 #[derive(Debug, Clone)]
@@ -90,6 +91,12 @@ struct CompiledPattern {
     body: Vec<Statement>,
 }
 
+/// A learnable pattern that calls an LLM.
+struct CompiledLearnable {
+    params: Vec<Param>,
+    prompt: String,
+}
+
 /// A registered struct type.
 #[derive(Clone)]
 struct StructType {
@@ -104,8 +111,10 @@ pub struct Interpreter {
     variables: HashMap<String, Value>,
     /// Struct type registry.
     struct_types: HashMap<String, StructType>,
-    /// Compiled patterns.
+    /// Compiled patterns (pure).
     patterns: HashMap<String, CompiledPattern>,
+    /// Compiled learnable patterns (LLM-backed).
+    learnable_patterns: HashMap<String, CompiledLearnable>,
     /// Rule declarations (stored for later execution).
     rules: Vec<RuleDecl>,
     /// Built-in function registry.
@@ -120,6 +129,7 @@ impl Interpreter {
             variables: HashMap::new(),
             struct_types: HashMap::new(),
             patterns: HashMap::new(),
+            learnable_patterns: HashMap::new(),
             rules: Vec::new(),
             builtins: Builtins::new(),
             branch_defs: HashMap::new(),
@@ -155,6 +165,15 @@ impl Interpreter {
                         CompiledPattern {
                             params: p.params.clone(),
                             body: p.body.clone(),
+                        },
+                    );
+                }
+                Declaration::LearnablePattern(lp) => {
+                    self.learnable_patterns.insert(
+                        lp.name.clone(),
+                        CompiledLearnable {
+                            params: lp.params.clone(),
+                            prompt: lp.prompt.clone(),
                         },
                     );
                 }
@@ -309,7 +328,12 @@ impl Interpreter {
 
     /// Invoke a pattern or built-in by name with given arguments.
     fn invoke(&mut self, name: &str, args: Vec<Value>) -> Result<Value, String> {
-        // Check builtins first
+        // Check learnable patterns first
+        if let Some(learnable) = self.learnable_patterns.get(name) {
+            return self.invoke_learnable(learnable, args);
+        }
+
+        // Check builtins
         if let Some(builtin_fn) = self.builtins.get(name) {
             return builtin_fn(&args);
         }
@@ -336,6 +360,27 @@ impl Interpreter {
         }
 
         self.eval_statements(&pattern.body, &local_env)
+    }
+
+    /// Invoke a learnable pattern by calling the LLM backend.
+    fn invoke_learnable(&self, learnable: &CompiledLearnable, args: Vec<Value>) -> Result<Value, String> {
+        if args.len() != learnable.params.len() {
+            return Err(format!(
+                "learnable pattern expects {} arguments, got {}",
+                learnable.params.len(),
+                args.len()
+            ));
+        }
+
+        // Build input string from arguments
+        let input_parts: Vec<String> = args.iter().map(|a| format!("{}", a)).collect();
+        let input = input_parts.join(", ");
+
+        // Call LLM backend
+        let backend = llm::create_llm_backend();
+        let response = backend.call(&learnable.prompt, &input)?;
+
+        Ok(Value::String(response))
     }
 
     fn eval_statements(
@@ -377,6 +422,11 @@ impl Interpreter {
                 let mut eval_args = Vec::new();
                 for arg in args {
                     eval_args.push(self.eval_expr_with_env(arg, env)?);
+                }
+
+                // Check learnable patterns first
+                if let Some(learnable) = self.learnable_patterns.get(name) {
+                    return self.invoke_learnable(learnable, eval_args);
                 }
 
                 // Check builtins

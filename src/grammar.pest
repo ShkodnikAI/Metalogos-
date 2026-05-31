@@ -4,7 +4,7 @@ WHITESPACE  = _{ " " | "\t" | "\n" | "\r" }
 
 program     =  { SOI ~ (declaration ~ WHITESPACE*)* ~ EOI }
 
-declaration = _{ entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | pattern_decl | flow_decl }
+declaration = _{ entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl }
 
 // ── Entity: struct type ───────────────────────────────────────────────
 // Disambiguates from simple entity: IDENT followed by "{" not ":"
@@ -27,6 +27,11 @@ compare_op   = @{ ">=" | "<=" | GT | LT | EQ }
 CONTAINS_KW  = @{ "contains" }
 assignment   = { IDENT ~ "." ~ IDENT ~ "=" ~ expression }
 
+// ── Learnable Pattern (M3) ──────────────────────────────────────────
+learnable_pattern_decl = { LEARNABLE_KW ~ "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ "{" ~ learnable_body ~ "}" }
+learnable_body = { prompt_line* }
+prompt_line    = { "prompt" ~ COLON ~ expression }
+
 // ── Pattern (M1) ──────────────────────────────────────────────────
 pattern_decl = { "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ "{" ~ pattern_body ~ "}" }
 params       = { param ~ (COMMA ~ WHITESPACE? ~ param)* }
@@ -40,7 +45,7 @@ statement    = { "return" ~ expression }
 flow_decl     = { "flow" ~ IDENT ~ "{" ~ flow_pipeline ~ branch_def* ~ "}" }
 flow_pipeline = { "input" ~ ":" ~ type_name ~ "=" ~ expression ~ (ARROW ~ step_ident)* ~ ARROW ~ "output" }
 branch_def    = { step_ident ~ "{" ~ branch* ~ "}" }
-step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "If" | "then" | "with" | "return" | "contains") ~ IDENT }
+step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "If" | "then" | "with" | "return" | "contains") ~ IDENT }
 branch        = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
 branch_condition = { IDENT ~ "." ~ IDENT ~ compare_op ~ expression }
 
@@ -88,11 +93,13 @@ DIGIT     = @{ ASCII_DIGIT }
 // ── Keyword tokens ───────────────────────────────────────────────────
 ENTITY      = @{ "entity" }
 RULE        = @{ "rule" }
+LEARNABLE_KW = @{ "learnable" }
 IF_KW       = @{ "If" }
 THEN_KW     = @{ "then" }
 WITH_KW     = @{ "with" }
 PRIORITY_KW = @{ "priority" }
 PATTERN_KW  = @{ "pattern" }
+PROMPT_KW   = @{ "prompt" }
 RETURN_KW   = @{ "return" }
 FLOW_KW     = @{ "flow" }
 INPUT_KW    = @{ "input" }

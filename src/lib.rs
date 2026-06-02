@@ -72,7 +72,6 @@ pub fn feed_line(interp: &mut interpreter::Interpreter, line: &str) -> Result<Op
 
 /// Serve a .mlog program as an HTTP server.
 /// Parses the source, finds the mlogserver block, and starts Axum.
-#[cfg(feature = "server")]
 pub async fn serve_program(source: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     server::run_server(source).await
 }

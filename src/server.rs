@@ -9,9 +9,8 @@
 
 use axum::{
     Router,
-    extract::{Request, State},
-    body::Body,
-    http::{HeaderMap, HeaderValue, StatusCode, header},
+    extract::State,
+    http::{HeaderMap, HeaderValue, StatusCode, header, Method},
     response::{Html as AxumHtml, IntoResponse, Response},
     routing::{get, post, put, delete, any},
 };
@@ -201,17 +200,16 @@ fn build_router(state: ServerState) -> Router {
 
 async fn route_handler(
     State(state): State<ServerState>,
-    method: axum::http::Method,
+    method: Method,
     headers: HeaderMap,
     body: bytes::Bytes,
 ) -> Response {
-    let path = headers.get("x-original-uri")
-        .or_else(|| headers.get(header::PATH))
+    let _path = headers.get("x-original-uri")
         .map(|v| v.to_str().unwrap_or("/").to_string())
         .unwrap_or_default();
 
     // 1. CSRF check for mutating methods
-    if matches!(method, axum::http::Method::POST | axum::http::Method::PUT | axum::http::Method::DELETE) {
+    if matches!(method, Method::POST | Method::PUT | Method::DELETE) {
         if state.middleware.contains(&"csrf".to_string()) {
             if let Err(resp) = check_csrf(&state, &headers).await {
                 return resp;
@@ -264,7 +262,8 @@ async fn check_csrf(state: &ServerState, headers: &HeaderMap) -> Result<(), Resp
         (Some(cookie), Some(header)) if cookie == header => Ok(()),
         _ => {
             // Log to audit
-            if let Ok(mut log) = state.audit_log.write().await {
+            {
+                let mut log = state.audit_log.write().await;
                 log.push("[CSRF] Rejected: missing or mismatched CSRF token".to_string());
             }
             Err((StatusCode::FORBIDDEN, "403 Forbidden: CSRF token validation failed").into_response())
@@ -296,7 +295,8 @@ async fn check_roles(state: &ServerState, headers: &HeaderMap, required_roles: &
     let session_id = match session_id {
         Some(id) => id,
         None => {
-            if let Ok(mut log) = state.audit_log.write().await {
+            {
+                let mut log = state.audit_log.write().await;
                 log.push("[AUTH] Rejected: no session cookie".to_string());
             }
             return Err((StatusCode::UNAUTHORIZED, "401 Unauthorized: no session").into_response());
@@ -313,7 +313,8 @@ async fn check_roles(state: &ServerState, headers: &HeaderMap, required_roles: &
         if has_role {
             Ok(())
         } else {
-            if let Ok(mut log) = state.audit_log.write().await {
+            {
+                let mut log = state.audit_log.write().await;
                 log.push(format!("[AUTH] Rejected: insufficient roles (need {:?}, have {:?})",
                     required_roles, entry.roles));
             }
@@ -327,9 +328,9 @@ async fn check_roles(state: &ServerState, headers: &HeaderMap, required_roles: &
 // ── Route Body Execution ────────────────────────────────────────────
 
 async fn execute_route_body(
-    state: &ServerState,
+    _state: &ServerState,
     body_stmts: &[Statement],
-    headers: &HeaderMap,
+    _headers: &HeaderMap,
     raw_body: &bytes::Bytes,
 ) -> Result<Response, String> {
     // Set up interpreter with request context
@@ -491,18 +492,18 @@ fn build_interpreter_with_server(srv: &MlogServerDecl, mut interp: Interpreter) 
 }
 
 fn merge_interpreter(from: Interpreter, mut into: Interpreter) -> Interpreter {
-    // Merge variables
-    for (k, v) in from.variables {
-        into.variables.entry(k).or_insert(v);
+    // Merge variables (borrow, don't move)
+    for (k, v) in &from.variables {
+        into.variables.entry(k.clone()).or_insert(v.clone());
     }
     // Merge templates
     for (k, v) in from.get_templates() {
-        into.templates.entry(k).or_insert(v.clone());
+        into.templates.entry(k.clone()).or_insert(v.clone());
     }
     into
 }
 
-fn merge_templates(srv: &MlogServerDecl, mut interp: Interpreter) -> Interpreter {
+fn merge_templates(_srv: &MlogServerDecl, interp: Interpreter) -> Interpreter {
     // Templates are added during run() already
     interp
 }

@@ -71,8 +71,8 @@ fn find_child<'a>(children: &'a [Pair<'a, Rule>], rule: Rule) -> Option<Pair<'a,
 // ── MlogServer (Phase 6.1) ─────────────────────────────────────
 
 fn parse_mlogserver_decl(pair: Pair<Rule>) -> Declaration {
-    let children = children_of(&pair);
-    let body_children: Vec<Pair<Rule>> = pair.into_inner()
+    let _children = children_of(&pair);
+    let body_children: Vec<Pair<Rule>> = pair.clone().into_inner()
         .filter(|c| c.as_rule() == Rule::mlogserver_body)
         .flat_map(|c| c.into_inner())
         .collect();
@@ -104,7 +104,7 @@ fn parse_mlogserver_decl(pair: Pair<Rule>) -> Declaration {
 }
 
 fn parse_route_decl(pair: Pair<Rule>) -> RouteDecl {
-    let children: Vec<Pair<Rule>> = pair.into_inner().collect();
+    let children: Vec<Pair<Rule>> = pair.clone().into_inner().collect();
     let path = children.iter()
         .find(|c| c.as_rule() == Rule::STRING_LITERAL)
         .map(|c| {
@@ -165,8 +165,10 @@ fn parse_db_decl(pair: Pair<Rule>) -> Declaration {
 
     let url = children.iter()
         .find(|c| c.as_rule() == Rule::db_url)
-        .and_then(|c| find_child(&children_of(c), Rule::expression))
-        .map(|e| parse_expression(e));
+        .and_then(|c| {
+            let c_children = children_of(c);
+            find_child(&c_children, Rule::expression).map(|e| parse_expression(e))
+        });
 
     let pool_size = children.iter()
         .find(|c| c.as_rule() == Rule::db_pool)

@@ -219,7 +219,7 @@ struct Relation {
 /// The interpreter holds all runtime state.
 pub struct Interpreter {
     /// Global variable store.
-    variables: HashMap<String, Value>,
+    pub(crate) variables: HashMap<String, Value>,
     /// Struct type registry.
     struct_types: HashMap<String, StructType>,
     /// Compiled patterns (pure).
@@ -247,7 +247,7 @@ pub struct Interpreter {
     /// Base directory for resolving relative imports (set before run).
     base_dir: std::path::PathBuf,
     /// Template registry (Phase 6.2)
-    templates: HashMap<String, TemplateDecl>,
+    pub(crate) templates: HashMap<String, TemplateDecl>,
     /// DB config (Phase 6.3)
     db_config: Option<DbDecl>,
     /// Mock DB store (Phase 6.3)
@@ -1018,7 +1018,7 @@ impl Interpreter {
     /// Safety limit for while loops (soft-failure on exceed).
     const WHILE_SAFETY_LIMIT: u64 = 100_000;
 
-    fn eval_statements(
+    pub(crate) fn eval_statements(
         &self,
         stmts: &[Statement],
         env: &mut HashMap<String, Value>,
@@ -1082,13 +1082,11 @@ impl Interpreter {
         Ok(Value::Unit)
     }
 
-    /// Evaluate an expression in the global scope.
-    fn eval_expr(&self, expr: &Expr) -> Result<Value, String> {
+    pub(crate) fn eval_expr(&self, expr: &Expr) -> Result<Value, String> {
         self.eval_expr_with_env(expr, &self.variables)
     }
 
-    /// Evaluate an expression with a given environment.
-    fn eval_expr_with_env(
+    pub(crate) fn eval_expr_with_env(
         &self,
         expr: &Expr,
         env: &HashMap<String, Value>,

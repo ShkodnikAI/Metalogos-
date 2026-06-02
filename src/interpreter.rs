@@ -11,7 +11,7 @@ use crate::llm;
 
 /// A single variant inside a Fluid value (runtime). Contains a concrete
 /// value, its declared type name, and a confidence score (0.0..1.0).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FluidValueVariant {
     pub type_name: String,
     pub value: Value,
@@ -19,7 +19,7 @@ pub struct FluidValueVariant {
 }
 
 /// Runtime value.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Value {
     String(String),
     Float(f64),

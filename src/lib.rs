@@ -2,12 +2,15 @@
 // Exposes: parser, interpreter, LLM client, semantic analysis, run_program for binary + tests.
 
 pub mod ast;
+pub mod bytecode;
 pub mod builtins;
+pub mod compiler;
 pub mod interpreter;
 pub mod llm;
 pub mod parser;
 pub mod semantic;
 pub mod server;
+pub mod vm;
 
 /// Parse and execute a .mlog program. Returns the flow output (if any),
 /// with mutate status messages prepended if present.
@@ -74,4 +77,17 @@ pub fn feed_line(interp: &mut interpreter::Interpreter, line: &str) -> Result<Op
 /// Parses the source, finds the mlogserver block, and starts Axum.
 pub async fn serve_program(source: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     server::run_server(source).await
+}
+
+/// Compile a .mlog source to bytecode Program.
+pub fn compile_program(source: &str) -> Result<bytecode::Program, String> {
+    let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+    let mut compiler = compiler::Compiler::new();
+    compiler.compile(declarations)
+}
+
+/// Run a pre-compiled bytecode Program on the VM.
+pub fn run_bytecode(program: bytecode::Program) -> Result<Option<String>, String> {
+    let mut vm = vm::Vm::new();
+    vm.run(program)
 }

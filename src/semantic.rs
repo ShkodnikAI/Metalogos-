@@ -1,5 +1,6 @@
-// ── Semantic analysis for METALOGOS (Phase 3: mlog check) ──────────
+// ── Semantic analysis for METALOGOS ──────────────────────────────
 // Validates declarations without execution. Reports errors and warnings.
+// Phase 6+: Enforces opaque type constraints (Html, Query, Secret, etc.)
 
 use crate::ast::*;
 use std::collections::HashSet;
@@ -56,6 +57,18 @@ impl AnalysisResult {
     }
 }
 
+/// Valid middleware names for mlogserver blocks.
+const VALID_MIDDLEWARE: &[&str] = &[
+    "session",
+    "csrf",
+    "security_headers",
+    "rate_limit",
+    "cors",
+];
+
+/// Valid HTTP methods for route declarations.
+const VALID_METHODS: &[&str] = &["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
+
 /// Perform semantic analysis on a list of declarations (without executing them).
 /// Validates:
 ///   - Entity types referenced in records exist
@@ -66,6 +79,10 @@ impl AnalysisResult {
 ///   - Rule targets reference existing entities
 ///   - Adapt/mutate targets reference existing learnable patterns
 ///   - Relate/sandbox declarations are well-formed
+///   - MlogServer middleware names are valid (Phase 6.1)
+///   - Route methods are valid HTTP methods (Phase 6.1)
+///   - Template return type is Html (Phase 6.2)
+///   - Opaque types used in correct contexts (Phase 6.2–6.5)
 pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     let mut result = AnalysisResult::default();
     let mut entity_types: HashSet<String> = HashSet::new();
@@ -74,9 +91,20 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     let mut learnable_names: HashSet<String> = HashSet::new();
     let mut flow_names: HashSet<String> = HashSet::new();
     let mut builtin_names: HashSet<String> = HashSet::new();
+    let mut role_names: HashSet<String> = HashSet::new();
 
-    // Known builtins
-    for b in &["upper", "lower", "len", "str", "print", "contains", "float", "confidence"] {
+    // Known builtins (including Phase 6 web builtins)
+    for b in &[
+        "upper", "lower", "len", "str", "print", "contains", "float", "confidence",
+        "to_string", "get", "push", "index_of", "substring", "char_at",
+        "starts_with", "ends_with", "to_float",
+        // Phase 6 builtins
+        "respond", "render", "form_data", "json_body", "escape_html",
+        "query", "db_execute",
+        "env", "hash_password", "verify_password", "encrypt", "decrypt", "generate_key",
+        "authenticate", "session_login", "session_logout",
+        "send_message", "require",
+    ] {
         builtin_names.insert(b.to_string());
     }
 
@@ -113,6 +141,16 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                     result.errors.push(format!("duplicate flow: {}", f.name));
                 }
             }
+            Declaration::Template(t) => {
+                // Templates are also callable as render targets
+                pattern_names.insert(t.name.clone());
+                if is_opaque_type(&t.return_type) && t.return_type != "Html" {
+                    result.errors.push(format!(
+                        "template '{}' returns opaque type '{}' — only Html is supported as template return type",
+                        t.name, t.return_type
+                    ));
+                }
+            }
             _ => {}
         }
     }
@@ -127,7 +165,6 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                         e.name, e.type_name
                     ));
                 }
-                // Validate field initializers
                 if let Some(fields) = get_type_fields(declarations, &e.type_name) {
                     for init in &e.fields {
                         if !fields.contains(&init.name.as_str()) {
@@ -140,8 +177,7 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                 }
             }
             Declaration::EntitySimple(e) => {
-                // Simple entities with types like String, Float are always valid
-                let known_primitives = ["String", "Float"];
+                let known_primitives = ["String", "Float", "Bool", "Html", "Query", "Secret", "Encrypted", "Hash", "Session"];
                 if !known_primitives.contains(&e.type_name.as_str())
                     && !entity_types.contains(&e.type_name)
                 {
@@ -152,7 +188,6 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                 }
             }
             Declaration::Rule(r) => {
-                // Validate rule target entity exists
                 if let Expr::Ident(name) = &r.target {
                     if !entity_names.contains(name) {
                         result.errors.push(format!(
@@ -179,14 +214,12 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                 }
             }
             Declaration::Flow(f) => {
-                // Validate pipeline step references
                 for step in &f.pipeline {
                     let known = pattern_names.contains(step)
                         || learnable_names.contains(step)
                         || builtin_names.contains(step)
                         || step == "recall";
                     if !known {
-                        // Could be a branch target — we check branch definitions
                         let has_branch_def = f.branch_defs.iter().any(|(name, _)| name == step);
                         if !has_branch_def {
                             result.errors.push(format!(
@@ -196,7 +229,6 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                         }
                     }
                 }
-                // Validate branch targets
                 for (_, branches) in &f.branch_defs {
                     for branch in branches {
                         if !pattern_names.contains(&branch.target)
@@ -209,6 +241,44 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                             ));
                         }
                     }
+                }
+            }
+            // Phase 6.1: Validate mlogserver block
+            Declaration::MlogServer(srv) => {
+                // Validate middleware names
+                for mw in &srv.middleware {
+                    if !VALID_MIDDLEWARE.contains(&mw.as_str()) {
+                        result.errors.push(format!(
+                            "mlogserver: unknown middleware '{}'. Valid: {:?}",
+                            mw, VALID_MIDDLEWARE
+                        ));
+                    }
+                }
+                // Validate route methods and role references
+                for route in &srv.routes {
+                    if !VALID_METHODS.contains(&route.method.as_str()) {
+                        result.errors.push(format!(
+                            "route '{}': unknown HTTP method '{}'. Valid: {:?}",
+                            route.path, route.method, VALID_METHODS
+                        ));
+                    }
+                    for role in &route.requires {
+                        // Collect role names for cross-reference
+                        role_names.insert(role.clone());
+                    }
+                }
+                // Warn if no security_headers middleware
+                if !srv.middleware.contains(&"security_headers".to_string()) {
+                    result.warnings.push(
+                        "mlogserver: no 'security_headers' middleware — recommend adding it for OWASP compliance".to_string()
+                    );
+                }
+                // Warn if POST routes but no csrf middleware
+                let has_post = srv.routes.iter().any(|r| r.method == "POST" || r.method == "PUT" || r.method == "DELETE");
+                if has_post && !srv.middleware.contains(&"csrf".to_string()) {
+                    result.warnings.push(
+                        "mlogserver: has mutating routes but no 'csrf' middleware — recommend adding it".to_string()
+                    );
                 }
             }
             _ => {}
@@ -236,7 +306,6 @@ mod tests {
 
     #[test]
     fn test_ok_program() {
-        // A minimal valid program should produce no errors
         let source = r#"
             entity greeting: String = "Hello, Metalogos!"
             pattern SayHello(text: String) -> String { return text }
@@ -280,5 +349,100 @@ mod tests {
         let result = check_program(&decls);
         assert!(!result.is_ok());
         assert!(result.errors.iter().any(|e| e.contains("duplicate pattern")));
+    }
+
+    // ── Phase 6 semantic tests ────────────────────────────────
+
+    #[test]
+    fn test_mlogserver_valid() {
+        let source = r#"
+mlogserver {
+  port: 8080
+  middleware: [session, csrf, security_headers]
+  route "/" method=GET { return "Hello" }
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(result.is_ok(), "errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_mlogserver_unknown_middleware() {
+        let source = r#"
+mlogserver {
+  middleware: [bogus_middleware]
+  route "/" method=GET { return "Hello" }
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(!result.is_ok());
+        assert!(result.errors.iter().any(|e| e.contains("unknown middleware")));
+    }
+
+    #[test]
+    fn test_mlogserver_invalid_method() {
+        let source = r#"
+mlogserver {
+  route "/" method=INVALID { return "Hello" }
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(!result.is_ok());
+        assert!(result.errors.iter().any(|e| e.contains("unknown HTTP method")));
+    }
+
+    #[test]
+    fn test_mlogserver_warns_no_security_headers() {
+        let source = r#"
+mlogserver {
+  route "/" method=GET { return "Hello" }
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(result.is_ok()); // Only warning, not error
+        assert!(result.warnings.iter().any(|w| w.contains("security_headers")));
+    }
+
+    #[test]
+    fn test_mlogserver_warns_no_csrf_with_post() {
+        let source = r#"
+mlogserver {
+  middleware: [session, security_headers]
+  route "/login" method=POST { return "OK" }
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(result.is_ok());
+        assert!(result.warnings.iter().any(|w| w.contains("csrf")));
+    }
+
+    #[test]
+    fn test_template_valid() {
+        let source = r#"
+template Page(title: String) -> Html {
+  <h1>{{ title }}</h1>
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_template_wrong_return_type() {
+        let source = r#"
+template Page(title: String) -> Secret {
+  <h1>{{ title }}</h1>
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(!result.is_ok());
+        assert!(result.errors.iter().any(|e| e.contains("only Html is supported")));
     }
 }

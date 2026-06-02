@@ -1,7 +1,8 @@
-// ── METALOGOS CLI — Phase 3 ─────────────────────────────────────────
+// ── METALOGOS CLI ─────────────────────────────────────────────────────
 // `mlog run <file.mlog>`    — execute a .mlog program
 // `mlog repl`               — interactive session with persistent state
 // `mlog check <file.mlog>`  — semantic analysis without execution
+// `mlog serve <file.mlog>`  — start HTTP server from mlogserver block
 
 use clap::Parser;
 use rustyline::error::ReadlineError;
@@ -13,7 +14,7 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(
     name = "mlog",
-    about = "METALOGOS — AI-native programming language",
+    about = "METALOGOS — AI-native programming language with security by design",
     version,
     propagate_version = true
 )]
@@ -36,6 +37,11 @@ enum Commands {
         /// Path to .mlog source file
         file: PathBuf,
     },
+    /// Start HTTP server from mlogserver block (Phase 6)
+    Serve {
+        /// Path to .mlog source file
+        file: PathBuf,
+    },
 }
 
 fn main() {
@@ -45,6 +51,7 @@ fn main() {
         Commands::Run { file } => cmd_run(file),
         Commands::Repl => cmd_repl_stdio(),
         Commands::Check { file } => cmd_check(file),
+        Commands::Serve { file } => cmd_serve(file),
     }
 }
 
@@ -93,6 +100,33 @@ fn cmd_check(file: PathBuf) {
             std::process::exit(1);
         }
     }
+}
+
+/// `mlog serve <file>` — parse + start HTTP server
+fn cmd_serve(file: PathBuf) {
+    let source = match fs::read_to_string(&file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: cannot read {:?}: {}", file, e);
+            std::process::exit(1);
+        }
+    };
+
+    // Use tokio runtime for async server
+    let rt = tokio::runtime::Runtime::new().unwrap_or_else(|e| {
+        eprintln!("error: cannot create tokio runtime: {}", e);
+        std::process::exit(1);
+    });
+
+    rt.block_on(async {
+        match metalogos::server::run_server(&source).await {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            }
+        }
+    });
 }
 
 /// `mlog repl` — interactive session with persistent state.
@@ -201,12 +235,6 @@ fn dirs_home() -> std::path::PathBuf {
 /// Check if stdin is a terminal (tty).
 /// Returns true if stdin is piped/redirected (non-interactive).
 fn stdin_is_piped() -> bool {
-    // Check if TERM is set and stdin fd supports seeking (pipe doesn't).
-    // The simplest portable approach: try to read a single byte as a probe.
-    // But that consumes data — so we use theatty crate logic:
-    // on Unix, isatty(0) tells us.
-    // We avoid external deps by using a small heuristic:
-    // if METALOGOS_FORCE_PIPE=1 is set, always use piped mode (for tests).
     if std::env::var("METALOGOS_FORCE_PIPE").map(|v| v == "1" || v == "true").unwrap_or(false) {
         return true;
     }

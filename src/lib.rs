@@ -7,12 +7,19 @@ pub mod interpreter;
 pub mod llm;
 pub mod parser;
 pub mod semantic;
+pub mod server;
 
 /// Parse and execute a .mlog program. Returns the flow output (if any),
 /// with mutate status messages prepended if present.
 pub fn run_program(source: &str) -> Result<Option<String>, String> {
+    run_program_with_dir(source, std::path::PathBuf::from("."))
+}
+
+/// Parse and execute a .mlog program with an explicit base directory for module resolution.
+pub fn run_program_with_dir(source: &str, base_dir: std::path::PathBuf) -> Result<Option<String>, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
     let mut interp = interpreter::Interpreter::new();
+    interp.set_base_dir(base_dir);
     let output = interp.run(declarations)?;
 
     // Prepend mutate log messages to output
@@ -61,4 +68,11 @@ pub fn feed_line(interp: &mut interpreter::Interpreter, line: &str) -> Result<Op
             None => Ok(Some(mutate_log.join("\n"))),
         }
     }
+}
+
+/// Serve a .mlog program as an HTTP server.
+/// Parses the source, finds the mlogserver block, and starts Axum.
+#[cfg(feature = "server")]
+pub async fn serve_program(source: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    server::run_server(source).await
 }

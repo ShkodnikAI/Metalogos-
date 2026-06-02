@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Metalogos — AI-Native Programming Language</title>
+<meta name="description" content="The first programming language designed by AI, for AI. Security built into the language. OWASP Top 10 closed.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x2B22;</text></svg>">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a28;
+  --text:#e4e4e8;--text2:#8888a0;--text3:#55556a;
+  --accent:#6c5ce7;--accent2:#a29bfe;--green:#00cec9;--red:#ff6b6b;--orange:#f39c12;
+  --code-bg:#0d0d14;--radius:12px;--max:1100px;
+  --font:'Inter','SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --mono:'JetBrains Mono','Fira Code','SF Mono',Cascadia Code,Consolas,'Liberation Mono',monospace;
+}
+html{scroll-behavior:smooth;font-size:16px}
+body{background:var(--bg);color:var(--text);font-family:var(--font);line-height:1.7;overflow-x:hidden}
+a{color:var(--accent2);text-decoration:none;transition:color .2s}
+a:hover{color:var(--accent)}
+::selection{background:var(--accent);color:#fff}
+
+/* ── Nav ── */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;
+  background:rgba(10,10,15,.85);backdrop-filter:blur(20px);border-bottom:1px solid rgba(108,92,231,.1);
+  padding:0 2rem;height:56px;display:flex;align-items:center;justify-content:space-between}
+nav .logo{font-weight:700;font-size:1.1rem;letter-spacing:.04em;color:var(--text)}
+nav .logo span{color:var(--accent2)}
+nav .links{display:flex;gap:1.5rem;font-size:.85rem}
+nav .links a{color:var(--text2);transition:color .2s}
+nav .links a:hover{color:var(--text)}
+
+/* ── Sections ── */
+section{padding:6rem 2rem 4rem;max-width:var(--max);margin:0 auto}
+h2{font-size:2rem;font-weight:700;margin-bottom:.6rem;letter-spacing:-.02em}
+h2 span{color:var(--accent2)}
+.subtitle{color:var(--text2);font-size:1.05rem;margin-bottom:2.5rem;max-width:680px}
+
+/* ── Hero ── */
+.hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding-top:3rem}
+.hero h1{font-size:clamp(2.8rem,6vw,4.5rem);font-weight:800;letter-spacing:-.03em;line-height:1.1;margin-bottom:1rem;
+  background:linear-gradient(135deg,#e4e4e8 0%,#a29bfe 50%,#00cec9 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero .tagline{font-size:clamp(1.1rem,2vw,1.35rem);color:var(--text2);margin-bottom:2.5rem;max-width:600px}
+.hero .badges{display:flex;gap:.6rem;margin-bottom:2rem;flex-wrap:wrap;justify-content:center}
+.hero .badges span{font-size:.75rem;padding:.3rem .7rem;border-radius:20px;border:1px solid var(--text3);color:var(--text2);font-family:var(--mono)}
+.cta{display:inline-flex;align-items:center;gap:.5rem;padding:.85rem 2rem;border-radius:8px;
+  font-weight:600;font-size:1rem;transition:all .25s;cursor:pointer;border:none}
+.cta-primary{background:var(--accent);color:#fff}
+.cta-primary:hover{background:var(--accent2);transform:translateY(-2px);box-shadow:0 8px 30px rgba(108,92,231,.3)}
+.cta-secondary{background:transparent;color:var(--text2);border:1px solid var(--text3);margin-left:.8rem}
+.cta-secondary:hover{border-color:var(--text2);color:var(--text)}
+.hero .ctas{margin-top:1rem}
+
+/* ── Code Block ── */
+.code-section{background:var(--bg2);border-radius:var(--radius);overflow:hidden;
+  border:1px solid rgba(108,92,231,.08);margin:0 auto 6rem;max-width:var(--max)}
+.code-header{padding:.7rem 1.2rem;background:var(--bg3);border-bottom:1px solid rgba(255,255,255,.04);
+  display:flex;align-items:center;gap:.5rem;font-size:.78rem;color:var(--text3);font-family:var(--mono)}
+.code-header .dot{width:10px;height:10px;border-radius:50%}
+.code-header .dot:nth-child(1){background:#ff5f57}
+.code-header .dot:nth-child(2){background:#febc2e}
+.code-header .dot:nth-child(3){background:#28c840}
+.code-header .filename{margin-left:.5rem}
+.code-body{display:grid;grid-template-columns:1fr 1fr;font-family:var(--mono);font-size:.82rem;line-height:1.85;overflow-x:auto}
+.code-pane{padding:1.5rem;white-space:pre}
+.code-pane:first-child{border-right:1px solid rgba(255,255,255,.04);background:rgba(108,92,231,.02)}
+.code-pane .ln{color:var(--text3);user-select:none;display:inline-block;width:2.2rem;text-align:right;margin-right:1.2rem}
+.code-label{position:absolute;top:.7rem;right:1rem;font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--text3);font-family:var(--mono)}
+.code-outer{position:relative}
+
+/* Syntax highlighting */
+.kw{color:#c678dd}.fn{color:#61afef}.str{color:#98c379}.cm{color:#55556a;font-style:italic}
+.entity{color:#e06c75}.flow{color:#e5c07b}.type{color:#56b6c2}.op{color:#56b6c2}
+.builtin{color:#61afef}.num{color:#d19a66}.tag{color:#c678dd}
+
+/* ── Pillars ── */
+.pillars-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1.5rem}
+.pillar-card{background:var(--bg2);border:1px solid rgba(255,255,255,.05);border-radius:var(--radius);padding:2rem;
+  transition:border-color .3s,transform .3s}
+.pillar-card:hover{border-color:var(--accent);transform:translateY(-4px)}
+.pillar-icon{width:48px;height:48px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+  font-size:1.5rem;margin-bottom:1.2rem}
+.pillar-card h3{font-size:1.15rem;margin-bottom:.5rem}
+.pillar-card p{color:var(--text2);font-size:.9rem;line-height:1.6}
+.p1 .pillar-icon{background:rgba(108,92,231,.15);color:var(--accent2)}
+.p2 .pillar-icon{background:rgba(0,206,201,.12);color:var(--green)}
+.p3 .pillar-icon{background:rgba(243,156,18,.12);color:var(--orange)}
+
+/* ── OWASP Table ── */
+.owasp-table{width:100%;border-collapse:collapse;font-size:.88rem}
+.owasp-table thead th{text-align:left;padding:.8rem 1rem;color:var(--text3);font-weight:600;font-size:.75rem;
+  text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid rgba(255,255,255,.06)}
+.owasp-table tbody tr{border-bottom:1px solid rgba(255,255,255,.03);transition:background .2s}
+.owasp-table tbody tr:hover{background:rgba(108,92,231,.04)}
+.owasp-table td{padding:.7rem 1rem;vertical-align:top}
+.owasp-table .num{font-family:var(--mono);color:var(--accent2);font-weight:600;white-space:nowrap}
+.owasp-table .threat{color:var(--red);font-weight:500}
+.owasp-table .fix{color:var(--text)}
+.owasp-table .fix code{font-family:var(--mono);background:var(--bg3);padding:.1rem .35rem;border-radius:4px;font-size:.8rem;color:var(--accent2)}
+
+/* ── Architecture SVG ── */
+.arch-wrap{display:flex;justify-content:center;margin:2rem 0}
+.arch-wrap svg{max-width:100%;height:auto}
+
+/* ── Get Started ── */
+.install-block{background:var(--bg2);border:1px solid rgba(255,255,255,.05);border-radius:var(--radius);
+  padding:2rem;font-family:var(--mono);font-size:.85rem;line-height:2}
+.install-block .comment{color:var(--text3)}
+.install-block .cmd{color:var(--green)}
+.install-block .flag{color:var(--orange)}
+.install-block .output{color:var(--text2);opacity:.7}
+
+/* ── Features row ── */
+.features-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem;margin-top:2rem}
+.feat{display:flex;align-items:flex-start;gap:.8rem;font-size:.9rem;color:var(--text2)}
+.feat-dot{width:6px;height:6px;border-radius:50%;background:var(--accent2);margin-top:.55rem;flex-shrink:0}
+
+/* ── Footer ── */
+footer{border-top:1px solid rgba(255,255,255,.05);padding:3rem 2rem;text-align:center;color:var(--text3);font-size:.85rem;max-width:var(--max);margin:0 auto}
+footer .footer-links{display:flex;justify-content:center;gap:1.5rem;margin-bottom:1rem}
+footer a{color:var(--text2)}
+footer a:hover{color:var(--accent2)}
+
+/* ── Responsive ── */
+@media(max-width:768px){
+  .code-body{grid-template-columns:1fr}
+  .code-pane:first-child{border-right:none;border-bottom:1px solid rgba(255,255,255,.04)}
+  nav .links{display:none}
+  section{padding:4rem 1.2rem 3rem}
+  .pillars-grid{grid-template-columns:1fr}
+  .hero h1{font-size:2.4rem}
+}
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <div class="logo">meta<span>logos</span></div>
+  <div class="links">
+    <a href="#pillars">Features</a>
+    <a href="#security">Security</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#get-started">Get Started</a>
+    <a href="https://github.com/ShkodnikAI/Metalogos-" target="_blank">GitHub</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="badges">
+    <span>Rust 1.80+</span>
+    <span>v0.4.0</span>
+    <span>MIT / Apache 2.0</span>
+  </div>
+  <h1>Metalogos</h1>
+  <p class="tagline">The first programming language designed by AI, for AI.<br>Security built into the language.</p>
+  <div class="ctas">
+    <a href="#get-started" class="cta cta-primary">Get Started</a>
+    <a href="https://github.com/ShkodnikAI/Metalogos-" target="_blank" class="cta cta-secondary">GitHub &rarr;</a>
+  </div>
+</section>
+
+<!-- Code Example -->
+<div class="code-section">
+  <div class="code-header">
+    <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    <span class="filename">triage.mlog</span>
+  </div>
+  <div class="code-body">
+    <div class="code-pane"><span class="cm">// ── Seven pillars in one program ──</span>
+
+<span class="kw">entity</span> <span class="entity">Message</span> {
+  <span class="fn">text</span>: String,
+  <span class="fn">urgency</span>: Float = <span class="num">0.0</span>
+}
+
+<span class="kw">entity</span> <span class="entity">m</span>: Message = {
+  <span class="fn">text</span>: <span class="str">"urgent help needed"</span>,
+  <span class="fn">urgency</span>: <span class="num">0.0</span>
+}
+
+<span class="cm">// Rule: probabilistic, priority-based</span>
+<span class="kw">rule</span> <span class="kw">If</span>(m.text <span class="op">contains</span> <span class="str">"urgent"</span>)
+  <span class="kw">then</span> m.urgency = <span class="num">0.9</span> <span class="flow">with</span> priority=<span class="num">10</span>
+
+<span class="cm">// Learnable pattern: LLM as first-class op</span>
+<span class="kw">learnable pattern</span> <span class="fn">Classify</span>(msg: String) -> String {
+  <span class="fn">prompt</span>: <span class="str">"question | complaint | greeting | urgent"</span>
+}
+
+<span class="cm">// Memory: semantic recall with decay</span>
+<span class="kw">memorize</span> <span class="str">"user prefers email over chat"</span>
+  <span class="flow">with</span> priority=<span class="num">0.9</span></div>
+    <div class="code-pane"><span class="cm">// Adapt: runtime self-improvement</span>
+<span class="kw">adapt</span> <span class="fn">Classify</span> <span class="flow">add_example</span>(
+  <span class="str">"where is my order?"</span>,
+  <span class="str">"complaint"</span>
+)
+
+<span class="cm">// Flow: confidence-based branching</span>
+<span class="kw">flow</span> <span class="fn">Triage</span> {
+  <span class="flow">input</span>: String = m.text
+    -> <span class="fn">Classify</span> -> <span class="flow">output</span>
+
+  <span class="fn">Classify</span> {
+    <span class="flow">high</span>  (m.urgency > <span class="num">0.8</span>) -> <span class="fn">Escalate</span>
+    <span class="flow">medium</span> (m.urgency < <span class="num">0.8</span>) -> <span class="fn">Queue</span>
+    <span class="flow">low</span>   (m.urgency < <span class="num">0.4</span>) -> <span class="fn">Ignore</span>
+  }
+}
+
+<span class="cm">// No frameworks. No boilerplate.</span>
+<span class="cm">// The language IS the AI infrastructure.</span></div>
+  </div>
+</div>
+
+<!-- Pillars -->
+<section id="pillars">
+  <h2>Why <span>Metalogos</span></h2>
+  <p class="subtitle">Most languages give you functions and classes. Metalogos gives you seven semantic primitives that map to how AI systems actually reason.</p>
+  <div class="pillars-grid">
+    <div class="pillar-card p1">
+      <div class="pillar-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      </div>
+      <h3>Security by Design</h3>
+      <p>XSS, SQL injection, and plaintext secrets are <strong>syntactically impossible</strong> &mdash; not just discouraged. Opaque types (<code>Html</code>, <code>Query</code>, <code>Secret</code>) enforce safety at the language level. Like Rust's ownership model applied to web security.</p>
+    </div>
+    <div class="pillar-card p2">
+      <div class="pillar-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+      </div>
+      <h3>AI-Native</h3>
+      <p>Learnable patterns are a <strong>language construct</strong>, not a library call. LLM invocation is as natural as calling a function &mdash; with automatic prompt engineering, few-shot caching, sandboxed execution, and runtime adaptation.</p>
+    </div>
+    <div class="pillar-card p3">
+      <div class="pillar-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+      </div>
+      <h3>Full-Stack in One File</h3>
+      <p>A single <code>.mlog</code> file defines data models, AI logic, HTTP routes, templates, database queries, authentication, and bot webhooks. From prototype to production without leaving the language.</p>
+    </div>
+  </div>
+  <div class="features-row">
+    <div class="feat"><span class="feat-dot"></span><span>7 pillars: Entity, Pattern, Flow, Memory, Rule, Learn, Adapt</span></div>
+    <div class="feat"><span class="feat-dot"></span><span>40+ built-in functions (string, math, web, crypto, auth)</span></div>
+    <div class="feat"><span class="feat-dot"></span><span>Fluid types: probabilistic superposition</span></div>
+    <div class="feat"><span class="feat-dot"></span><span>Confidence propagation through pipelines</span></div>
+  </div>
+</section>
+
+<!-- OWASP -->
+<section id="security">
+  <h2>OWASP <span>Top 10</span></h2>
+  <p class="subtitle">Every threat addressed at the language level, not through middleware or best practices.</p>
+  <table class="owasp-table">
+    <thead>
+      <tr><th>#</th><th>Threat</th><th>How Metalogos Prevents It</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">A01</td><td class="threat">Broken Access Control</td><td class="fix"><code>requires=[role]</code> on routes, <code>require</code> assertions in patterns</td></tr>
+      <tr><td class="num">A02</td><td class="threat">Cryptographic Failures</td><td class="fix"><code>Secret</code> opaque type &mdash; no print, no to_string; AES-256-GCM encryption</td></tr>
+      <tr><td class="num">A03</td><td class="threat">Injection</td><td class="fix"><code>Query</code> opaque type &mdash; parameterized only, SQL is a literal not a variable</td></tr>
+      <tr><td class="num">A04</td><td class="threat">Insecure Design</td><td class="fix">Security by design &mdash; unsafe operations are syntactically impossible</td></tr>
+      <tr><td class="num">A05</td><td class="threat">Security Misconfiguration</td><td class="fix">Security headers (CSP, HSTS, X-Frame-Options) enabled by default</td></tr>
+      <tr><td class="num">A06</td><td class="threat">Vulnerable Components</td><td class="fix">Minimal dependency tree; lockfile enforcement</td></tr>
+      <tr><td class="num">A07</td><td class="threat">Auth Failures</td><td class="fix"><code>hash_password</code> / <code>verify_password</code>; HMAC-SHA256 signed sessions</td></tr>
+      <tr><td class="num">A08</td><td class="threat">Data Integrity Failures</td><td class="fix">CSRF double-submit on all mutating routes; signed cookies</td></tr>
+      <tr><td class="num">A09</td><td class="threat">Logging Failures</td><td class="fix">Audit log for <code>require</code> failures, <code>adapt</code> mutations, <code>unsafe_html</code></td></tr>
+      <tr><td class="num">A10</td><td class="threat">SSRF</td><td class="fix">LLM calls in sandbox with <code>forbidden: [network]</code>; outbound HTTP restricted</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- Architecture -->
+<section id="architecture">
+  <h2><span>Architecture</span></h2>
+  <p class="subtitle">From source to effects in five stages. Pest PEG grammar, hand-written AST, semantic analysis, and a tree-walking interpreter &mdash; all in Rust.</p>
+  <div class="arch-wrap">
+    <svg width="960" height="260" viewBox="0 0 960 260" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- Stage boxes -->
+      <rect x="20" y="60" width="140" height="140" rx="12" fill="#12121a" stroke="#6c5ce7" stroke-width="1.5"/>
+      <text x="90" y="108" text-anchor="middle" fill="#a29bfe" font-family="monospace" font-size="13" font-weight="600">.mlog</text>
+      <text x="90" y="128" text-anchor="middle" fill="#55556a" font-family="monospace" font-size="11">source</text>
+      <text x="90" y="150" text-anchor="middle" fill="#8888a0" font-family="monospace" font-size="9">entity</text>
+      <text x="90" y="164" text-anchor="middle" fill="#8888a0" font-family="monospace" font-size="9">pattern</text>
+      <text x="90" y="178" text-anchor="middle" fill="#8888a0" font-family="monospace" font-size="9">flow</text>
+
+      <!-- Arrow 1 -->
+      <line x1="160" y1="130" x2="200" y2="130" stroke="#6c5ce7" stroke-width="1.5"/>
+      <polygon points="198,125 208,130 198,135" fill="#6c5ce7"/>
+
+      <rect x="208" y="60" width="140" height="140" rx="12" fill="#12121a" stroke="#6c5ce7" stroke-width="1.5"/>
+      <text x="278" y="108" text-anchor="middle" fill="#a29bfe" font-family="monospace" font-size="13" font-weight="600">Pest PEG</text>
+      <text x="278" y="128" text-anchor="middle" fill="#55556a" font-family="monospace" font-size="11">parser</text>
+      <text x="278" y="150" text-anchor="middle" fill="#8888a0" font-family="monospace" font-size="9">tokens</text>
+      <text x="278" y="164" text-anchor="middle" fill="#8888a0" font-family="monospace" font-size="9">syntax rules</text>
+      <text x="278" y="178" text-anchor="middle" fill="#8888a0" font-family="monospace" font-size="9">grammar.pest</text>
+
+      <!-- Arrow 2 -->
+      <line x1="348" y1="130" x2="388" y2="130" stroke="#6c5ce7" stroke-width="1.5"/>
+      <polygon points="386,125 396,130 386,135" fill="#6c5ce7"/>
+
+      <rect x="396" y="60" width="140" height="140" rx="12" fill="#12121a" stroke="#6c5ce7" stroke-width="1.5"/>
+      <text x="466" y="108" text-anchor="middle" fill="#a29bfe" font-family="monospace" font-size="13" font-weight="600">AST</text>
+      <text x="466" y="128" text-anchor="middle" fill="#55556a" font-family="monospace" font-size="11">17 declarations</text>
+      <text x="466" y="150" text-anchor="middle" fill="#8888a0" font-family="monospace" font-size="9">Expr variants</text>
+      <text x="466" y="164" text-anchor="middle" fill="#8888a0" font-family="monospace" font-size="9">Statement</text>
+      <text x="466" y="178" text-anchor="middle" fill="#8888a0" font-family="monospace" font-size="9">Value</text>
+
+      <!-- Arrow 3 -->
+      <line x1="536" y1="130" x2="576" y2="130" stroke="#6c5ce7" stroke-width="1.5"/>
+      <polygon points="574,125 584,130 574,135" fill="#6c5ce7"/>
+
+      <rect x="584" y="60" width="140" height="140" rx="12" fill="#12121a" stroke="#6c5ce7" stroke-width="1.5"/>
+      <text x="654" y="108" text-anchor="middle" fill="#a29bfe" font-family="monospace" font-size="13" font-weight="600">Semantic</text>
+      <text x="654" y="128" text-anchor="middle" fill="#55556a" font-family="monospace" font-size="11">analysis</text>
+      <text x="654" y="150" text-anchor="middle" fill="#8888a0" font-family="monospace" font-size="9">cross-ref</text>
+      <text x="654" y="164" text-anchor="middle" fill="#8888a0" font-family="monospace" font-size="9">opaque types</text>
+      <text x="654" y="178" text-anchor="middle" fill="#8888a0" font-family="monospace" font-size="9">middleware</text>
+
+      <!-- Arrow 4 -->
+      <line x1="724" y1="130" x2="764" y2="130" stroke="#6c5ce7" stroke-width="1.5"/>
+      <polygon points="762,125 772,130 762,135" fill="#6c5ce7"/>
+
+      <rect x="772" y="60" width="168" height="140" rx="12" fill="#12121a" stroke="#00cec9" stroke-width="1.5"/>
+      <text x="856" y="108" text-anchor="middle" fill="#00cec9" font-family="monospace" font-size="13" font-weight="600">Interpreter</text>
+      <text x="856" y="128" text-anchor="middle" fill="#55556a" font-family="monospace" font-size="11">tree-walking</text>
+      <text x="856" y="150" text-anchor="middle" fill="#8888a0" font-family="monospace" font-size="9">40+ builtins</text>
+      <text x="856" y="164" text-anchor="middle" fill="#8888a0" font-family="monospace" font-size="9">Axum server</text>
+      <text x="856" y="178" text-anchor="middle" fill="#8888a0" font-family="monospace" font-size="9">effects</text>
+
+      <!-- Labels -->
+      <text x="90" y="230" text-anchor="middle" fill="#55556a" font-family="monospace" font-size="10">~200 loc</text>
+      <text x="278" y="230" text-anchor="middle" fill="#55556a" font-family="monospace" font-size="10">grammar.pest</text>
+      <text x="466" y="230" text-anchor="middle" fill="#55556a" font-family="monospace" font-size="10">ast.rs</text>
+      <text x="654" y="230" text-anchor="middle" fill="#55556a" font-family="monospace" font-size="10">semantic.rs</text>
+      <text x="856" y="230" text-anchor="middle" fill="#55556a" font-family="monospace" font-size="10">interpreter.rs</text>
+    </svg>
+  </div>
+</section>
+
+<!-- Get Started -->
+<section id="get-started">
+  <h2>Get <span>Started</span></h2>
+  <p class="subtitle">Build from source. Run your first program in under a minute.</p>
+  <div class="install-block">
+    <span class="comment"># Clone the repository</span><br>
+    <span class="cmd">git clone</span> https://github.com/ShkodnikAI/Metalogos-.git<br>
+    <span class="cmd">cd</span> Metalogos-<br>
+    <br>
+    <span class="comment"># Build and install the CLI</span><br>
+    <span class="cmd">cargo install</span> <span class="flag">--path</span> .<br>
+    <br>
+    <span class="comment"># Run a program</span><br>
+    <span class="cmd">mlog run</span> examples/m1_hello.mlog<br>
+    <span class="output">HELLO, METALOGOS!!</span><br>
+    <br>
+    <span class="comment"># Interactive REPL</span><br>
+    <span class="cmd">mlog repl</span><br>
+    <br>
+    <span class="comment"># Semantic check (no execution)</span><br>
+    <span class="cmd">mlog check</span> examples/p6_full_app.mlog<br>
+    <br>
+    <span class="comment"># Serve a web application</span><br>
+    <span class="cmd">mlog serve</span> examples/p6_full_app.mlog<br>
+    <span class="output">Listening on 0.0.0.0:8080</span>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="footer-links">
+    <a href="https://github.com/ShkodnikAI/Metalogos-" target="_blank">GitHub</a>
+    <a href="https://github.com/ShkodnikAI/Metalogos-/blob/main/README.md" target="_blank">README</a>
+    <a href="https://github.com/ShkodnikAI/Metalogos-/tree/main/examples" target="_blank">Examples</a>
+  </div>
+  <p>Licensed under MIT / Apache 2.0</p>
+  <p style="margin-top:.5rem;color:var(--text3);font-size:.78rem">Built with Rust. Designed by AI. For AI.</p>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,169 @@
+// ── METALOGOS Full Application Example (Phase 6.7) ──────────────────
+// Demonstrates ALL 6 security levels working together:
+// Level 1: Type-safe HTML (XSS prevention)
+// Level 2: Parameterized queries (SQL injection prevention)
+// Level 3: Encryption (plaintext secrets prevention)
+// Level 4: Authentication (session + roles)
+// Level 5: CSRF + security headers
+// Level 6: Sandbox for LLM + bot integration
+
+// ── Data Model ────────────────────────────────────────────────────────
+
+entity User {
+  id: String,
+  email: String,
+  name: String,
+  role: String
+}
+
+entity Message {
+  text: String,
+  category: String,
+  confidence: Float = 0.0
+}
+
+// ── Database ───────────────────────────────────────────────────────────
+
+db {
+  pool_size: 10
+  migrate: "./migrations"
+}
+
+// ── Templates (Level 1: XSS Prevention) ────────────────────────────────
+
+template Layout(title: String, content: String) -> Html {
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <title>{{ title }}</title>
+    <meta charset="utf-8">
+  </head>
+  <body>{{ content }}</body>
+  </html>
+}
+
+template Home(content: String) -> Html {
+  <h1>Welcome to Metalogos</h1>
+  <p>{{ content }}</p>
+}
+
+template AdminPanel(users: String) -> Html {
+  <h1>Admin Panel</h1>
+  <div>{{ users }}</div>
+}
+
+template LoginFailed(reason: String) -> Html {
+  <h1>Login Failed</h1>
+  <p>{{ reason }}</p>
+}
+
+template UserCard(user: String) -> Html {
+  <div class="card">
+    <h2>{{ user }}</h2>
+  </div>
+}
+
+// ── Encryption (Level 3: No Plaintext Secrets) ────────────────────────
+
+entity db_url: Secret = env("DATABASE_URL")
+entity telegram_token: Secret = env("TELEGRAM_TOKEN")
+entity session_key: Secret = generate_key()
+
+// ── Patterns ──────────────────────────────────────────────────────────
+
+// CRUD: Create user (Level 2: parameterized query)
+pattern CreateUser(email: String, name: String, password: String) -> String {
+  let hash = hash_password(password)
+  let id = to_string(len("users"))
+  let user = { id: id, email: email, name: name, role: "viewer", password: hash }
+  return "User created"
+}
+
+// CRUD: Read user
+pattern GetUser(id: String) -> String {
+  let user = query("SELECT id, email, name, role FROM users WHERE id = $1", [id])
+  return "User found"
+}
+
+// CRUD: Delete user (Level 4: role check)
+pattern DeleteUser(id: String, actor: Session) -> String {
+  require actor.role == "admin"
+  let result = query("DELETE FROM users WHERE id = $1", [id])
+  return "User deleted"
+}
+
+// AI Classification (Level 6: sandbox for LLM)
+learnable pattern Classify(text: String) -> Message {
+  prompt: "Classify this message as one of: question | complaint | greeting | urgent. Return JSON: {category, confidence}"
+}
+
+// ── Flow: Message Processing Pipeline ──────────────────────────────────
+
+flow ProcessMessage {
+  input: String = "Hello world"
+  -> Classify -> output
+}
+
+// ── HTTP Server ────────────────────────────────────────────────────────
+// All 6 security levels active:
+
+mlogserver {
+  port: 8080
+  middleware: [session, csrf, security_headers]
+
+  // Public home page (Level 1: auto-escaped HTML)
+  route "/" method=GET {
+    let page = render(Home, "Welcome to the Metalogos platform")
+    return page
+  }
+
+  // Login handler (Level 5: CSRF protection on POST)
+  route "/login" method=POST {
+    let creds = form_data()
+    let user = authenticate(creds.email, creds.password)
+    if user then session_login(user) else return "403 Forbidden"
+  }
+
+  // Admin panel (Level 4: role-based access)
+  route "/admin" method=GET requires=[admin] {
+    let users = query("SELECT id, email, name, role FROM users", [])
+    let page = render(AdminPanel, users)
+    return page
+  }
+
+  // User CRUD: Create (Level 2: parameterized query)
+  route "/api/users" method=POST requires=[admin] {
+    let data = json_body()
+    let result = CreateUser(data.email, data.name, data.password)
+    respond("201 Created")
+  }
+
+  // User CRUD: Delete (Level 4: role check + Level 2: parameterized)
+  route "/api/users/delete" method=POST requires=[admin] {
+    let data = json_body()
+    let result = DeleteUser(data.id, session)
+    respond("200 OK")
+  }
+
+  // AI Classification endpoint (Level 6: sandboxed LLM)
+  route "/api/classify" method=POST {
+    let data = json_body()
+    let result = Classify(data.text)
+    respond("200 OK")
+  }
+
+  // Telegram Bot webhook (Level 6: bot integration + Level 3: Secret token)
+  route "/webhook/telegram" method=POST {
+    let msg = json_body()
+    let reply = Classify(msg.text)
+    send_message(msg.chat_id, reply)
+    respond("200 OK")
+  }
+
+  // Discord webhook
+  route "/webhook/discord" method=POST {
+    let msg = json_body()
+    let reply = Classify(msg.text)
+    respond("200 OK")
+  }
+}

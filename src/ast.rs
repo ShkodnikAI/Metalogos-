@@ -1,10 +1,18 @@
-// ── AST types for METALOGOS M2 ────────────────────────────────────────
+// ── AST types for METALOGOS ────────────────────────────────────────
 
 use std::fmt;
 
 /// Top-level declaration in a .mlog program.
 #[derive(Debug, Clone)]
 pub enum Declaration {
+    /// `mlogserver { port: 8080, middleware: [...], route ... }` (Phase 6.1)
+    MlogServer(MlogServerDecl),
+    /// `template Name(params) -> Html { <html>...</html> }` (Phase 6.2)
+    Template(TemplateDecl),
+    /// `db { url: ..., pool_size: 10 }` (Phase 6.3)
+    Db(DbDecl),
+    /// `import std/string as str` or `import ./my_utils`
+    Import(ImportDecl),
     /// `entity TypeName { field: Type = default, ... }`
     EntityType(EntityTypeDecl),
     /// `entity name: TypeName = { field: value, ... }`
@@ -33,6 +41,57 @@ pub enum Declaration {
     LearnablePattern(LearnablePatternDecl),
     /// `flow Name { input: Type = expr -> steps -> output }`
     Flow(FlowDecl),
+}
+
+// ── MlogServer (Phase 6.1) ──────────────────────────────────────
+
+/// `mlogserver { port: 8080, middleware: [...], route ... { body } }`
+#[derive(Debug, Clone)]
+pub struct MlogServerDecl {
+    pub port: u16,
+    pub middleware: Vec<String>,
+    pub routes: Vec<RouteDecl>,
+}
+
+/// `route "/path" method=GET requires=[admin] { body }`
+#[derive(Debug, Clone)]
+pub struct RouteDecl {
+    pub path: String,
+    pub method: String,       // "GET", "POST", "PUT", "DELETE"
+    pub requires: Vec<String>, // role names
+    pub body: Vec<Statement>,
+}
+
+// ── Template (Phase 6.2) ──────────────────────────────────────
+
+/// `template Page(title: String, body: String) -> Html { <html>...</html> }`
+#[derive(Debug, Clone)]
+pub struct TemplateDecl {
+    pub name: String,
+    pub params: Vec<Param>,
+    pub return_type: String,
+    pub body: String, // Raw template body with {{ var }} placeholders
+}
+
+// ── DB (Phase 6.3) ──────────────────────────────────────
+
+/// `db { url: expr, pool_size: 10, migrate: "./migrations" }`
+#[derive(Debug, Clone)]
+pub struct DbDecl {
+    pub url: Option<Expr>,
+    pub pool_size: Option<u32>,
+    pub migrate: Option<String>,
+}
+
+// ── Import (Phase 5.4) ─────────────────────────────────────
+
+/// `import std/string as str` or `import ./my_utils`
+#[derive(Debug, Clone)]
+pub struct ImportDecl {
+    /// Module path: "std/string", "./my_utils", "pkg/utils"
+    pub path: String,
+    /// Optional alias: `as str` → Some("str"). Without `as` → None (global merge).
+    pub alias: Option<String>,
 }
 
 // ── Entity types ────────────────────────────────────────────────────
@@ -219,6 +278,10 @@ pub struct Param {
 
 #[derive(Debug, Clone)]
 pub enum Statement {
+    LetBinding { name: String, value: Expr },
+    Assign { name: String, value: Expr },
+    Each { variable: String, iterable: Expr, body: Vec<Statement> },
+    While { condition: Expr, body: Vec<Statement> },
     Return(Expr),
 }
 
@@ -259,10 +322,15 @@ pub struct BranchCondition {
 pub enum Expr {
     StringLit(String),
     FloatLit(f64),
+    BoolLit(bool),
     Ident(String),
     FieldAccess(Box<Expr>, String),
     FnCall(String, Vec<Expr>),
+    /// Qualified call: `module.function(args)` — resolved through namespace imports.
+    QualifiedCall { module: String, function: String, args: Vec<Expr> },
     BinaryOp(Box<Expr>, BinOp, Box<Expr>),
+    IfElse(Box<Expr>, Box<Expr>, Box<Expr>),
+    List(Vec<Expr>),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -271,6 +339,11 @@ pub enum BinOp {
     Sub,
     Mul,
     Div,
+    Gt,
+    Lt,
+    Ge,
+    Le,
+    Eq,
 }
 
 impl fmt::Display for BinOp {
@@ -280,6 +353,29 @@ impl fmt::Display for BinOp {
             BinOp::Sub => write!(f, "-"),
             BinOp::Mul => write!(f, "*"),
             BinOp::Div => write!(f, "/"),
+            BinOp::Gt => write!(f, ">"),
+            BinOp::Lt => write!(f, "<"),
+            BinOp::Ge => write!(f, ">="),
+            BinOp::Le => write!(f, "<="),
+            BinOp::Eq => write!(f, "=="),
         }
     }
+}
+
+// ── Opaque type markers (used by semantic analysis) ──────────────────
+
+/// Types that are opaque: cannot be printed, concatenated, or converted to String.
+/// Used by semantic analysis to enforce security constraints.
+pub const OPAQUE_TYPES: &[&str] = &[
+    "Html",      // Phase 6.2: type-safe HTML, XSS prevention
+    "Query",     // Phase 6.3: parameterized SQL, injection prevention
+    "Secret",    // Phase 6.4: opaque secret (env vars, passwords)
+    "Encrypted", // Phase 6.4: encrypted data
+    "Hash",      // Phase 6.4: password hash (argon2)
+    "Session",   // Phase 6.5: server session data
+];
+
+/// Check if a type name is an opaque type.
+pub fn is_opaque_type(type_name: &str) -> bool {
+    OPAQUE_TYPES.contains(&type_name)
 }

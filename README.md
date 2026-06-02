@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="logo.jpg" alt="Metalogos" width="200"/>
+
 # Metalogos
 
 **The first programming language designed by AI, for AI. Security built into the language.**

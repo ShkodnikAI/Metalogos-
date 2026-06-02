@@ -25,9 +25,9 @@ struct Cli {
 
 #[derive(clap::Subcommand, Debug)]
 enum Commands {
-    /// Run a .mlog program
+    /// Run a .mlog program (or .mbc bytecode file)
     Run {
-        /// Path to .mlog source file
+        /// Path to .mlog source file or .mbc bytecode file
         file: PathBuf,
     },
     /// Start interactive REPL session with persistent state
@@ -42,6 +42,11 @@ enum Commands {
         /// Path to .mlog source file
         file: PathBuf,
     },
+    /// Compile a .mlog source file to .mbc bytecode
+    Compile {
+        /// Path to .mlog source file
+        file: PathBuf,
+    },
 }
 
 fn main() {
@@ -52,11 +57,18 @@ fn main() {
         Commands::Repl => cmd_repl_stdio(),
         Commands::Check { file } => cmd_check(file),
         Commands::Serve { file } => cmd_serve(file),
+        Commands::Compile { file } => cmd_compile(file),
     }
 }
 
-/// `mlog run <file>` — parse + execute
+/// `mlog run <file>` — parse + execute (or deserialize + VM run for .mbc)
 fn cmd_run(file: PathBuf) {
+    // Detect .mbc extension → bytecode path
+    if file.extension().map(|e| e == "mbc").unwrap_or(false) {
+        cmd_run_bytecode(file);
+        return;
+    }
+
     let source = match fs::read_to_string(&file) {
         Ok(s) => s,
         Err(e) => {
@@ -73,6 +85,76 @@ fn cmd_run(file: PathBuf) {
         }
         Err(e) => {
             eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// `mlog run <file.mbc>` — deserialize bytecode and run on VM
+fn cmd_run_bytecode(file: PathBuf) {
+    let data = match fs::read(&file) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("error: cannot read {:?}: {}", file, e);
+            std::process::exit(1);
+        }
+    };
+
+    let program = match metalogos::bytecode::Program::deserialize(&data) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: failed to deserialize {:?}: {}", file, e);
+            std::process::exit(1);
+        }
+    };
+
+    match metalogos::run_bytecode(program) {
+        Ok(output) => {
+            if let Some(result) = output {
+                println!("{}", result);
+            }
+        }
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// `mlog compile <file.mlog>` — parse, compile to bytecode, write .mbc
+fn cmd_compile(file: PathBuf) {
+    let source = match fs::read_to_string(&file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: cannot read {:?}: {}", file, e);
+            std::process::exit(1);
+        }
+    };
+
+    let program = match metalogos::compile_program(&source) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let bytecode = match program.serialize() {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("error: serialization failed: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Write to same filename with .mbc extension
+    let mbc_path = file.with_extension("mbc");
+    match fs::write(&mbc_path, &bytecode) {
+        Ok(_) => {
+            println!("Compiled {} -> {} ({} bytes)", file.display(), mbc_path.display(), bytecode.len());
+        }
+        Err(e) => {
+            eprintln!("error: cannot write {:?}: {}", mbc_path, e);
             std::process::exit(1);
         }
     }

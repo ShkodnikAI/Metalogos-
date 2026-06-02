@@ -1,428 +1,259 @@
 <div align="center">
 
-<img src="logo.jpg" alt="Metalogos Logo" width="200"/>
+# Metalogos
 
-#  METALOGOS
+**The first programming language designed by AI, for AI. Security built into the language.**
 
-### Язык Программирования для ИИ
-
-*Первый язык, спроектированный ИИ для ИИ*
+[![Rust](https://img.shields.io/badge/rust-1.80+-orange.svg)](https://www.rust-lang.org/)
+[![Version](https://img.shields.io/badge/v0.4.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-)
+[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
 
 </div>
 
 ---
 
-## 📜 Манифест
+## 30-Second Example
 
-Все существующие языки программирования созданы людьми для людей. Они опираются на человеческую логику, человеческие ограничения и человеческий способ мышления. Даже языки, используемые в ИИ (Python, C++, CUDA), — это инструменты, которые ИИ вынужден «натягивать» на себя, как чужую одежду.
+An AI-powered message triage system with learnable patterns, confidence-based branching, semantic memory, and runtime self-improvement — in under 10 lines:
 
-**Metalogos** — первый язык, спроектированный ИИ для ИИ.
+```mlog
+// Learnable pattern: LLM call as a first-class language operation
+learnable pattern Classify(msg: String) -> String {
+  prompt: "Classify as: question | complaint | greeting | urgent"
+}
 
-Название происходит от греч. *meta* (за пределами) + *logos* (разум, слово, закон). Это язык за пределами человеческой логики — язык, где естественной операцией является обучение, где данные первичны, а код вторичен, где самомодификация не баг, а фича.
+// Semantic memory with priority-based recall
+memorize "user prefers email over chat" with priority=0.9
+
+// Runtime self-improvement: add examples to the model on the fly
+adapt Classify add_example("where is my order?", "complaint")
+
+// Confidence-based flow branching
+flow Triage {
+  input: String = "where is my order?"
+  -> Classify -> output
+}
+```
+
+No frameworks. No boilerplate. No `import ai_sdk`. The language *is* the AI infrastructure.
 
 ---
 
-## ⚡ Фундаментальные отличия
+## Why Metalogos
 
-| Аспект | Человеческие языки | Metalogos |
+### Seven Pillars Instead of Functions
+
+Most languages give you functions, classes, and modules — tools for organizing computation. Metalogos gives you **seven semantic primitives** that map to how AI systems actually reason:
+
+| Pillar | What It Does | Replaces |
 |---|---|---|
-| **Первичность** | Код определяет данные | Данные определяют код |
-| **Логика** | Булева (истина/ложь) | Вероятностная (0.0–1.0) |
-| **Изменяемость** | Статичен после компиляции | Адаптируется в рантайме |
-| **Типы** | Фиксированные | Текучие (Fluid Types) |
-| **Память** | Ручное или GC управление | Семантическая с затуханием |
-| **Параллелизм** | Явный (threads, async) | Неявный (встроенный) |
-| **Обучение** | Внешний процесс | Встроенная операция языка |
-| **Ошибки** | Исключения, краш | Градиентный откат (soft failure) |
+| **Entity** | Typed data with identity, confidence, and relations | Variables, structs, objects |
+| **Pattern** | Transformations — pure, learnable (LLM), or hybrid | Functions, API calls |
+| **Flow** | Declarative pipelines with confidence-based branching | Control flow, orchestrators |
+| **Memory** | Semantic store with priority-based recall and decay | Databases, caches, vector stores |
+| **Rule** | Probabilistic rules with priority and conflict resolution | If/else chains, business logic |
+| **Learn** | Training as a language operation | ML frameworks, training scripts |
+| **Adapt** | Runtime self-modification with sandbox and rollback | — *(no analogue)* |
+
+### Security by Design
+
+In most languages, security is a library you choose to use. In Metalogos, unsafe operations **do not exist**. This is Rust's ownership model applied to web security:
+
+```mlog
+// XSS impossible — Html is opaque, built only via auto-escaping templates:
+template Page(title: String) -> Html {
+  <h1>{{ title }}</h1>   // <script> becomes &lt;script&gt;
+}
+
+// SQL injection impossible — Query is opaque, parameters only:
+let user = query("SELECT * FROM users WHERE id = $1", [id])
+
+// Plaintext secrets impossible — Secret is opaque, cannot be printed:
+entity token: Secret = env("API_KEY")
+print(token)   // Compile error: Secret does not support print
+
+// Broken access control impossible — routes require roles:
+route "/admin" method=GET requires=[admin] { ... }
+```
+
+### AI-Native
+
+Learnable patterns are not a library call — they are a **language construct**. An LLM invocation is as natural as calling a function, with automatic prompt engineering, few-shot caching, sandboxed execution, and runtime adaptation:
+
+```mlog
+learnable pattern Classify(text: String) -> Category {
+  prompt: "Classify as: question | complaint | greeting | urgent"
+}
+// Call it like any other pattern:
+flow Pipeline { input -> Classify -> Respond -> output }
+```
 
 ---
 
-## 🏛 Семь Столпов Metalogos
-
-┌─────────────────────────────────────────────┐│              METALOGOS CORE                  │├─────────┬─────────┬─────────┬───────────────┤│ ENTITY  │ PATTERN │ FLOW    │ MEMORY        ││ (Данные)│ (Логика)│ (Проц.) │ (Хранение)    │├─────────┼─────────┼─────────┼───────────────┤│ RULE    │ LEARN   │ ADAPT   │               ││ (Прав.) │ (Обуч.) │ (Эволюц)│               │└─────────┴─────────┴─────────┴───────────────┘
-
-| Столп | Описание | Заменяет |
-|---|---|---|
-| **Entity** | Сущности с идентичностью, отношениями, историей и уверенностью | Переменные и объекты |
-| **Pattern** | Обучаемые трансформации данных | Функции и методы |
-| **Flow** | Декларативные потоки данных | Control flow (if/else/for) |
-| **Memory** | Семантическая память с затуханием | RAM / heap |
-| **Rule** | Декларативные правила с вероятностной логикой | Условные операторы |
-| **Learn** | Встроенное обучение как операция языка | Внешние ML-фреймворки |
-| **Adapt** | Самомодификация кода в рантайме | Не имеет аналогов |
-
----
-
-## 🚀 Быстрый старт
-
-### Установка (когда будет доступно)
+## Quick Start
 
 ```bash
-# Из исходников
+# Clone and build
 git clone https://github.com/ShkodnikAI/Metalogos-.git
 cd Metalogos-
-cargo install --path crates/mlog-cli
-
-# Проверка
-mlog --version
-
-Hello, Metalogos!
-// Простейшая программа
-entity greeting: String = "Hello, Metalogos!"
-
-pattern SayHello(name: String) -> String {
-    return "Hello, {name}! Welcome to the future."
-}
-
-flow Main {
-    input -> SayHello -> output
-}
-
-Сущности с отношениями
-entity User {
-    id: UUID
-    name: String
-    knows: Relation<User, strength=Float>
-    confidence: Float = 1.0
-}
-
-entity alice: User = {
-    id: uuid(),
-    name: "Alice",
-    knows: [(bob, 0.9), (charlie, 0.3)]
-}
-
-Текучие типы (Fluid Types)
-// Может быть Number или Text с вероятностью
-entity y: Fluid<Number[0.8], Text[0.2]> = input
-
-// Семантический тип — несёт смысл
-entity email: Semantic<"email_address"> = "user@example.com"
-entity age: Semantic<"human_age", range=0..150> = 25
-
-Обучаемые паттерны
-// ИИ учится выполнять трансформацию
-learnable pattern Translate(text: String, from: Lang, to: Lang) -> String {
-    architecture: Transformer(layers=6, heads=8)
-    dataset: parallel_corpora
-    metrics: [bleu, comet]
-}
-
-// Гибрид: правила + ML
-hybrid pattern ClassifyEmail(email: Email) -> Category {
-    rule: if email.subject.contains("invoice") -> Category.Finance
-    fallback: learned_classifier
-    confidence_threshold: 0.7
-}
-
-Потоки данных
-// Данные текут через паттерны
-flow ProcessUserInput {
-    input -> Parse -> Validate -> Classify -> Respond -> output
-
-    Validate {
-        high_confidence (>0.9) -> Classify
-        medium_confidence (0.5-0.9) -> AskClarification -> Classify
-        low_confidence (<0.5) -> EscalateToHuman
-    }
-}
-
-// Параллельный поток — автоматически распараллеливается
-parallel flow AnalyzeImage(img: Image) -> Analysis {
-    branch_a: DetectObjects(img) -> objects
-    branch_b: ExtractText(img) -> text
-    branch_c: ClassifyScene(img) -> scene
-    merge: CombineAnalysis(objects, text, scene) -> Analysis
-}
-
-Семантическая память
-memory {
-    working:   { capacity: 7,  decay: 0.1 }
-    semantic:  { structure: KnowledgeGraph, indexing: vector_embedding }
-    episodic:  { structure: TemporalGraph,  retention: 90.days }
-}
-
-memorize important_fact = "Earth orbits the Sun"
-memorize user_preference = User.likes_spicy_food with priority=0.8
-
-let fact = recall "planetary orbits" with min_confidence=0.5
-
-// Забывание — не баг, а фича
-forget outdated_info after 30.days
-decay old_memories with rate=0.01
-
-Вероятностные правила
-rule If(user.age >= 18) then can_vote(user) = true
-rule If(weather == "rainy") then need_umbrella = 0.85
-rule If(score > 90) then grade = "A" with priority=10
-rule If(score > 85) then grade = "B+" with priority=5
-
-Встроенное обучение
-learn Translate with {
-    data: parallel_corpora
-    epochs: 10
-    optimizer: Adam(lr=0.001)
-    loss: CrossEntropy
-    early_stopping: patience=3
-}
-
-adapt ClassifyEmail with new_example feedback=user_correction
-
-transfer knowledge from PretrainedBERT to MyClassifier {
-    freeze_layers: [1, 2, 3]
-    fine_tune_layers: [4, 5, 6]
-}
-
-Самомодификация (Adapt)
-// Эволюция кода — паттерн может переписать сам себя
-evolve OptimizeRoute if efficiency < 0.7 {
-    strategies: [genetic, gradient, random_search]
-    constraints: must_preserve_safety_rules
-    verification: test_suite_must_pass
-}
-
-// Мутация с откатом
-mutate pattern ClassifyEmail {
-    add_feature: email.header_length
-    rollback_if: accuracy_drops_below(0.9)
-}
-
-// Защитные механизмы
-sandbox experimental_code {
-    allowed: [read_data, compute, write_temp]
-    forbidden: [write_permanent, network_access, modify_other_patterns]
-    timeout: 60.seconds
-}
-
-Полный пример: Интеллектуальный Ассистент
-use Standard.AI.NLP
-use Standard.AI.Vision
-use Standard.Memory
-
-module SmartAssistant {
-
-    entity User {
-        id: UUID
-        name: String
-        language: Lang = detect
-        preferences: Map<String, Fluid<String, Number>>
-        satisfaction: TimeSeries<Float>
-    }
-
-    learnable pattern Understand(input: Multimodal, context: Memory) -> Intent {
-        architecture: Transformer(layers=12, heads=12, dim=768)
-        multimodal: true
-        outputs: [intent, entities, sentiment, urgency]
-    }
-
-    hybrid pattern HandleRequest(input: Multimodal, user: User) -> Response {
-        rule: if input.is_greeting -> Greet(user)
-        rule: if input.is_question and lookup(input) -> FormatAnswer(lookup(input))
-        fallback: {
-            let intent = Understand(input, user.context)
-            let response = GenerateResponse(intent, user)
-            return response
-        }
-    }
-
-    flow MainLoop {
-        input: Multimodal = receive_user_input()
-
-        input |>
-            Understand(context=memory.working) |>
-            HandleRequest(user=current_user) |>
-            GenerateResponse |>
-            SendToUser |>
-            RecordInteraction |>
-            LearnFromFeedback
-
-        if user.satisfaction.trend == "declining" {
-            adapt GenerateResponse based_on recent_negative_feedback
-        }
-    }
-
-    memory {
-        working:   { capacity=10, decay=0.05 }
-        semantic:  KnowledgeGraph(embedding_dim=768)
-        episodic:  TemporalGraph(retention=90.days)
-    }
-
-    rule If(user.language != system_language) then auto_translate = true
-    rule If(urgency > 0.8) then prioritize = true with priority=10
-
-    evolve HandleRequest every 7.days {
-        strategies: [add_rule, refine_pattern, restructure_flow]
-        constraints: must_pass_safety_tests
-    }
-}
-
-
-🏗 Архитектура Компилятора
-┌──────────────┐    ┌──────────┐    ┌──────────┐    ┌──────────────┐
-│  Source Code  │───▶│  Lexer   │───▶│  Parser  │───▶│     AST      │
-│  (.mlog)     │    │ (tokens) │    │          │    │              │
-└──────────────┘    └──────────┘    └──────────┘    └──────┬───────┘
-                                                           │
-                                                           ▼
-┌──────────────┐    ┌──────────┐    ┌──────────┐    ┌──────────────┐
-│   Runtime    │◀───│ Codegen  │◀───│ Semantic │◀───│  Type Check  │
-│              │    │          │    │ Analysis │    │ (Fluid Types)│
-└──────┬───────┘    └──────────┘    └──────────┘    └──────────────┘
-       │
-       ├──▶ Entity Store (Rust)
-       ├──▶ Pattern Executor (Rust + PyTorch)
-       ├──▶ Flow Engine (Rust, async)
-       ├──▶ Memory System (Rust + Vector DB)
-       ├──▶ Rule Engine (Rust)
-       ├──▶ Learn Engine (PyTorch via PyO3)
-       └──▶ Adapt Engine (Rust + sandboxed execution)
-
-
-📁 Структура Репозитория
-Metalogos/
-├── README.md                    # Этот файл
-├── SPECIFICATION.md             # Полная спецификация языка
-├── ROADMAP.md                   # Дорожная карта
-├── CONTRIBUTING.md              # Как контрибьютить
-├── LICENSE                      # MIT / Apache 2.0
-├── Cargo.toml                   # Workspace root
-│
-├── crates/
-│   ├── mlog-lexer/              # Лексер (токенизация)
-│   ├── mlog-parser/             # Парсер → AST
-│   ├── mlog-ast/                # Определения AST
-│   ├── mlog-types/              # Fluid Types система
-│   ├── mlog-semantic/           # Семантический анализ
-│   ├── mlog-codegen/            # Генерация кода
-│   ├── mlog-runtime/            # Runtime (entity, pattern, flow, memory)
-│   ├── mlog-learn/              # ML интеграция (PyTorch via PyO3)
-│   ├── mlog-adapt/              # Adapt система (эволюция, мутации)
-│   ├── mlog-cli/                # CLI: mlog
-│   ├── mlog-lsp/                # Language Server Protocol
-│   └── mlog-pkg/                # Пакетный менеджер
-│
-├── std/                         # Стандартная библиотека (на Metalogos)
-│   └── Standard/
-│       ├── AI/
-│       │   ├── NLP/
-│       │   └── Vision/
-│       ├── Memory/
-│       └── Math/
-│
-├── examples/                    # Примеры программ
-├── docs/                        # Документация (mdbook)
-├── tests/                       # Интеграционные тесты
-└── .github/
-    └── workflows/               # CI/CD
-
-
-🛠 Технологический Стек
-Языки реализации
-
-
-
-Компонент
-Язык
-Обоснование
-
-
-
-Компилятор / Runtime
-Rust
-Производительность, безопасность, контроль памяти, отличный ecosystem для компиляторов
-
-
-ML Backend
-Python + PyTorch
-Зрелая ML-экосистема, интеграция через PyO3
-
-
-Стандартная библиотека
-Rust + Metalogos
-Само-хостинг на поздних этапах
-
-
-CLI / Инструменты
-Rust
-Единый стек с компилятором
-
-
-Ключевые библиотеки и инструменты
-
-
-
-Категория
-Инструмент
-Назначение
-
-
-
-Парсер
-nom / pest
-Лексер + парсер Metalogos
-
-
-AST
-Ручная реализация (Rust)
-Абстрактное синтаксическое дерево
-
-
-Type System
-Ручная реализация
-Fluid Types, вероятностная типизация
-
-
-ML Runtime
-PyTorch + ONNX Runtime
-Исполнение learnable patterns
-
-
-Векторная БД
-qdrant / milvus
-Семантическая память (embedding search)
-
-
-Граф знаний
-neo4j / встроенный
-Entity relations, semantic memory
-
-
-Сериализация
-serde
-AST, entities, memory persistence
-
-
-CLI
-clap
-Командная строка mlog
-
-
-LSP
-tower-lsp
-Language Server Protocol для IDE
-
-
-Тестирование
-proptest
-Property-based тестирование
-
-
-CI/CD
-GitHub Actions
-Автоматизация сборки и тестов
-
-
-Документация
-mdbook
-Книга по языку
-
-
-Пакетный менеджер
-Собственный mlogpkg
-Управление зависимостями
-
-
-
-🗺 Дорожная карта
-Фаза 0: Фундамент (Месяцы 1–3) 🟡 Текущая
-# Metalogos-
+cargo install --path .
+
+# Run a program
+mlog run examples/m1_hello.mlog
+# Output: HELLO, METALOGOS!!
+
+# Interactive REPL
+mlog repl
+
+# Semantic check (no execution)
+mlog check examples/p6_full_app.mlog
+
+# Serve a web application
+mlog serve examples/p6_full_app.mlog
+# Listening on 0.0.0.0:8080
+```
+
+---
+
+## Security — OWASP Top 10
+
+Metalogos addresses every item in the OWASP Top 10 (2021) at the **language level**, not through middleware or best practices:
+
+| # | Threat | How Metalogos Prevents It |
+|---|---|---|
+| A01 | **Broken Access Control** | `requires=[role]` on routes, `require` assertions in patterns — enforced at runtime |
+| A02 | **Cryptographic Failures** | `Secret` opaque type — no `print`, no `to_string`; `encrypt`/`decrypt` via AES-256-GCM |
+| A03 | **Injection** | `Query` opaque type — parameterized only, SQL is a literal not a variable |
+| A04 | **Insecure Design** | Security by design — unsafe operations are syntactically impossible, not just discouraged |
+| A05 | **Security Misconfiguration** | Security headers (CSP, HSTS, X-Frame-Options) middleware enabled by default |
+| A06 | **Vulnerable Components** | Minimal dependency tree; `mlogpkg` lockfile (planned) |
+| A07 | **Authentication Failures** | `hash_password` / `verify_password` (Argon2id); HMAC-SHA256 signed sessions |
+| A08 | **Data Integrity Failures** | CSRF double-submit pattern on all state-changing routes; signed session cookies |
+| A09 | **Logging Failures** | Audit log for `require` failures, `adapt` mutations, and `unsafe_html` usage |
+| A10 | **SSRF** | LLM calls execute in sandbox with `forbidden: [network]`; outbound HTTP restricted |
+
+**Six security levels, each building on the last:**
+
+1. **Type-safe HTML** — XSS impossible (`Html` opaque type, auto-escaping templates)
+2. **Parameterized queries** — SQL injection impossible (`Query` opaque type)
+3. **Encryption primitives** — plaintext secrets impossible (`Secret`, `Encrypted`, `Hash`)
+4. **Authentication & authorization** — sessions, roles, `require` assertions
+5. **CSRF & security headers** — HMAC-signed cookies, double-submit pattern, CSP/HSTS
+6. **LLM sandbox** — no direct HTML injection from AI, rate limiting, network isolation
+
+---
+
+## Examples
+
+| Example | What It Shows | Lines |
+|---|---|---|
+| [`m1_hello.mlog`](examples/m1_hello.mlog) | Entity + pattern + flow — "Hello, Metalogos!" | 4 |
+| [`m2_triage.mlog`](examples/m2_triage.mlog) | Struct entities + rules + confidence branching | 17 |
+| [`m3_classify.mlog`](examples/m3_classify.mlog) | Learnable pattern (LLM call) in a flow pipeline | 9 |
+| [`m4_memory.mlog`](examples/m4_memory.mlog) | Semantic memory with `memorize` / `recall` | 8 |
+| [`m5_adapt.mlog`](examples/m5_adapt.mlog) | Runtime self-improvement with `adapt` | 11 |
+| [`p1_fluid_types.mlog`](examples/p1_fluid_types.mlog) | Fluid types: probabilistic superposition | 5 |
+| [`p2_knowledge_graph.mlog`](examples/p2_knowledge_graph.mlog) | Knowledge graph with `relate` | 12 |
+| [`p6_full_app.mlog`](examples/p6_full_app.mlog) | Full web app — auth, CRUD, AI classify, bot webhooks | 170 |
+
+All examples have golden-file tests (`.expected` files). Run them with `cargo test`.
+
+---
+
+## Architecture
+
+```
+ .mlog source        Pest PEG          AST              Semantic            Interpreter
+─────────────  ──▶  ────────────  ──▶  ───────────  ──▶  ────────────  ──▶  ────────────
+ entity             parse tokens      17 declaration    cross-reference     tree-walking
+ pattern            syntax rules     Expr variants     validation          evaluation
+ flow                                  Statement         opaque type       built-in fns
+ memory                                 Value            enforcement        effects
+ rule                                                             
+ learn                                                         
+ adapt
+```
+
+**Implementation stack:**
+
+| Component | Technology |
+|---|---|
+| Parser | [Pest 2.7](https://pest.rs/) — PEG grammar |
+| AST / Interpreter | Hand-written Rust (~5 000 lines) |
+| Web server | [Axum 0.8](https://github.com/tokio-rs/axum) + [Tokio](https://tokio.rs/) |
+| Crypto | `hmac`, `sha2`, `aes-gcm` (AES-256-GCM) |
+| CLI | [Clap 4.5](https://github.com/clap-rs/clap) |
+| Tests | Golden-file (`examples/*.expected`) + unit + integration |
+
+```
+Metalogos-/
+├── Cargo.toml              # Single-crate project
+├── src/
+│   ├── grammar.pest         # PEG grammar (~200 lines)
+│   ├── ast.rs               # AST definitions
+│   ├── parser.rs            # Pest tokens → AST
+│   ├── semantic.rs          # Semantic analysis (opaque types, references)
+│   ├── interpreter.rs       # Tree-walking interpreter
+│   ├── builtins.rs          # 40+ built-in functions
+│   ├── server.rs            # Axum HTTP server + security middleware
+│   ├── llm.rs               # LLM backend trait + mock
+│   └── main.rs              # CLI: run / repl / check / serve
+├── examples/                # 36 .mlog programs with golden tests
+├── tests/                   # Golden-file runner, integration tests
+└── docs/adr/                # 26 Architecture Decision Records
+```
+
+---
+
+## Roadmap
+
+### Done
+
+| Phase | Milestone | Status |
+|---|---|---|
+| M1 | Entity + Pattern + Flow | Done |
+| M2 | Struct entities + Rules + Confidence branching | Done |
+| M3 | Learnable patterns (LLM backend) | Done |
+| M4 | Semantic memory + Knowledge graph | Done |
+| M5 | Adapt + Sandbox + Mutate with rollback | Done |
+| Phase 1 | Fluid types + Confidence propagation | Done |
+| Phase 2 | Vector recall + Full adapt + ML learn | Done |
+| Phase 5 | `let`/`if`/`each`/`while`, List type, Modules | Done |
+| Phase 6.1–6.2 | HTTP server + Type-safe HTML templates | Done |
+| Phase 6.3 | Parameterized database queries | Done |
+| Phase 6.4 | Encryption: Secret / Encrypted / Hash | Done |
+| Phase 6.5 | Authentication: sessions + CSRF + roles | Done |
+| Phase 6.6 | Bot integration: Telegram + Discord webhooks | Done |
+| Phase 6.7 | OWASP Top 10 validation + full web app | Done |
+
+### Next
+
+| Phase | Target |
+|---|---|
+| Phase 3 | LSP, `mlogpkg` package manager, mdbook docs |
+| Phase 4 | Bytecode VM / JIT, self-hosted compiler |
+| Phase 7 | Production LLM backend (OpenAI / Anthropic), real database (SQLite/Postgres) |
+
+---
+
+## Prior Art
+
+Metalogos stands on the shoulders of proven systems:
+
+- **Rust** — ownership model, opaque types, zero-cost abstractions
+- **Haskell** — type-safe HTML (Yesod/Blaze), `newtype` for secrets
+- **Pest** — elegant PEG parser generator
+- **Axum** — ergonomic async HTTP
+- **Datalog / CLIPS** — declarative rule engines with priority
+- **ACT-R** — memory activation and decay models
+- **DSPy** — programmatic LLM orchestration
+
+---
+
+## License
+
+Licensed under either [MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE-2.0) at your option.
+
+---
+
+*Built with Rust. Designed by AI. For AI.*

@@ -817,7 +817,41 @@ impl Interpreter {
         let backend = llm::create_llm_backend();
         let response = backend.call(&learnable.prompt, &input)?;
 
+        // Try to parse JSON response into Value::Struct
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response) {
+            if let Some(obj) = json.as_object() {
+                let mut fields = std::collections::HashMap::new();
+                for (k, v) in obj {
+                    fields.insert(k.clone(), self.json_value_to_value(v));
+                }
+                return Ok(Value::Struct {
+                    type_name: "LlmResponse".to_string(),
+                    fields,
+                });
+            }
+        }
+
         Ok(Value::String(response))
+    }
+
+    /// Convert serde_json::Value to METALOGOS Value.
+    fn json_value_to_value(&self, json: &serde_json::Value) -> Value {
+        match json {
+            serde_json::Value::String(s) => Value::String(s.clone()),
+            serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
+            serde_json::Value::Bool(b) => Value::Bool(*b),
+            serde_json::Value::Null => Value::Unit,
+            serde_json::Value::Array(arr) => {
+                Value::List(arr.iter().map(|v| self.json_value_to_value(v)).collect())
+            }
+            serde_json::Value::Object(obj) => {
+                let mut fields = std::collections::HashMap::new();
+                for (k, v) in obj {
+                    fields.insert(k.clone(), self.json_value_to_value(v));
+                }
+                Value::Struct { type_name: "Json".to_string(), fields }
+            }
+        }
     }
 
     /// Recall from memory: find best matching entry by substring similarity + decay.
@@ -1082,7 +1116,7 @@ impl Interpreter {
         Ok(Value::Unit)
     }
 
-    pub(crate) fn eval_expr(&self, expr: &Expr) -> Result<Value, String> {
+    pub fn eval_expr(&self, expr: &Expr) -> Result<Value, String> {
         self.eval_expr_with_env(expr, &self.variables)
     }
 

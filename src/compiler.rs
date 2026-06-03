@@ -156,7 +156,7 @@ impl Compiler {
                 Declaration::Adapt(_) | Declaration::Relate(_) | Declaration::Mutate(_) | Declaration::Forget(_) => {
                     // Handled in pass2
                 }
-                Declaration::MlogServer(_) | Declaration::Template(_) | Declaration::Db(_) => {
+                Declaration::MlogServer(_) | Declaration::Template(_) | Declaration::Db(_) | Declaration::Memory(_) => {
                     // Phase 6: handled elsewhere
                 }
                 _ => {}
@@ -334,7 +334,7 @@ impl Compiler {
                 Declaration::Import(_) => {
                     // Already resolved in import preprocessing
                 }
-                Declaration::MlogServer(_) | Declaration::Template(_) | Declaration::Db(_) => {
+                Declaration::MlogServer(_) | Declaration::Template(_) | Declaration::Db(_) | Declaration::Memory(_) => {
                     // Phase 6: no bytecode instruction needed
                 }
             }

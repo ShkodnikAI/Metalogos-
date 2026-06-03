@@ -55,3 +55,33 @@ Stage Summary:
 - Zeroize: Value::Secret wraps SecretString(Zeroizing<String>), memory zeroed on drop
 - Serde safety: Secret serializes as "[SECRET]", never persists actual value
 - Files changed: Cargo.toml, src/interpreter.rs, src/builtins.rs, src/server.rs, tests/phase6_contract.rs, docs/adr/0038-real-encryption.md
+
+---
+Task ID: 3
+Agent: main
+Task: Phase 7.4 — Real Sessions, CSRF, Rate Limiting
+
+Work Log:
+- Read current server.rs: in-memory HashMap sessions, HMAC cookie signing, CSRF stub
+- Added rusqlite = "0.31" (bundled) to Cargo.toml
+- Discovered: std::sync::Mutex<rusqlite::Connection> breaks axum Handler trait
+- Solution: use tokio::sync::Mutex<Connection> for async-safe access
+- Added SQLite session store: sessions table (id TEXT PK, user_id TEXT, data TEXT, created_at INT, expires_at INT)
+- Implemented create_session_db, validate_session_in_db, delete_session_db, clean_expired_sessions_db (all async)
+- CSRF: generate_csrf_token() (16 random bytes → 32 hex), cookie _mlog_csrf, X-CSRF-Token header
+- GET requests with csrf middleware auto-generate token and Set-Cookie header
+- Rate limiting: sliding window per IP, HashMap<IpAddr, Vec<Instant>>, 100 req/min default
+- Client IP extraction from X-Forwarded-For / X-Real-IP headers
+- Session cookie: _mlog_session with HttpOnly, Secure, SameSite=Strict, Max-Age=86400
+- Wrote 16 contract tests: CSRF (4), sessions (5), rate limiting (3), utilities (4)
+- All 16 Phase 7.4 tests pass, 8 Phase 7.3 tests pass, all LLM tests pass
+- Created ADR-0039: docs/adr/0039-real-auth.md
+- Committed as 2e3522e, pushed to origin/main
+
+Stage Summary:
+- SQLite in-memory session store with 24h expiry and index on expires_at
+- CSRF double-submit: random token on GET, cookie+header match on POST/PUT/DELETE
+- Rate limiting: per-IP sliding window (100 req/min), 429 response
+- Key discovery: rusqlite::Connection must use tokio::sync::Mutex (not std::sync::Mutex) for axum Handler
+- Files changed: Cargo.toml, src/server.rs, docs/adr/0039-real-auth.md
+- Total: 631 insertions, 125 deletions

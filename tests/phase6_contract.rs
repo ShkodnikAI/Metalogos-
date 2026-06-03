@@ -108,7 +108,7 @@ mod phase6_encryption_tests {
 
     #[test]
     fn test_64_secret_type_opaque() {
-        let secret = Value::Secret("my-api-key".to_string());
+        let secret = Value::Secret(metalogos::interpreter::SecretString::new("my-api-key".to_string()));
         assert_eq!(secret.type_name(), "Secret");
         // Display must NOT expose the value
         assert_eq!(format!("{}", secret), "[Secret]");
@@ -137,7 +137,7 @@ mod phase6_encryption_tests {
             vec![metalogos::ast::Expr::StringLit("TEST_MLOG_KEY".to_string())],
         ));
         match result {
-            Ok(Value::Secret(s)) => assert_eq!(s, "secret_value"),
+            Ok(Value::Secret(zs)) => assert_eq!(zs.as_str(), "secret_value"),
             other => panic!("env() should return Secret, got: {:?}", other),
         }
         std::env::remove_var("TEST_MLOG_KEY");
@@ -153,6 +153,205 @@ mod phase6_encryption_tests {
         match result {
             Ok(Value::Hash(_)) => {} // Hash is opaque — we can't see the value
             other => panic!("hash_password() should return Hash, got: {:?}", other),
+        }
+    }
+}
+
+#[cfg(test)]
+mod phase73_real_encryption_contracts {
+    use metalogos::interpreter::Value;
+    use metalogos::builtins::Builtins;
+
+    /// Helper: call a builtin by name
+    fn call_builtin(name: &str, args: &[Value]) -> Result<Value, String> {
+        let builtins = Builtins::new();
+        match builtins.get(name) {
+            Some(fn_ptr) => fn_ptr(args),
+            None => panic!("builtin '{}' not found", name),
+        }
+    }
+
+    /// Contract: verify_password with correct password returns true
+    #[test]
+    fn test_73_verify_correct_password() {
+        // Step 1: hash a password
+        let hash_result = call_builtin("hash_password", &[
+            Value::String("correct_password".to_string()),
+        ]);
+        let hash_val = match hash_result {
+            Ok(Value::Hash(h)) => h,
+            other => panic!("hash_password() should return Hash, got: {:?}", other),
+        };
+
+        // Step 2: verify with correct password — returns true
+        let verify_result = call_builtin("verify_password", &[
+            Value::String("correct_password".to_string()),
+            Value::Hash(hash_val),
+        ]);
+        match verify_result {
+            Ok(Value::Bool(true)) => {} // Expected
+            other => panic!("verify(correct_password, hash) should return true, got: {:?}", other),
+        }
+    }
+
+    /// Contract: verify_password with wrong password returns false (NOT panic)
+    #[test]
+    fn test_73_verify_wrong_password_returns_false() {
+        // Generate a real hash
+        let hash_result = call_builtin("hash_password", &[
+            Value::String("correct_password".to_string()),
+        ]);
+        let hash_val = match hash_result {
+            Ok(Value::Hash(h)) => h,
+            other => panic!("hash_password() should return Hash, got: {:?}", other),
+        };
+
+        // Verify with WRONG password → should return false, not panic
+        let result = call_builtin("verify_password", &[
+            Value::String("wrong_password".to_string()),
+            Value::Hash(hash_val),
+        ]);
+        match result {
+            Ok(Value::Bool(false)) => {} // Expected
+            Ok(Value::Bool(true)) => panic!("verify(wrong) should return false, got true"),
+            other => panic!("verify(wrong) should return Bool(false), got: {:?}", other),
+        }
+    }
+
+    /// Contract: generate_key → encrypt → decrypt round-trip
+    #[test]
+    fn test_73_encrypt_decrypt_roundtrip() {
+        // Step 1: generate_key()
+        let key_result = call_builtin("generate_key", &[]);
+        let key = match key_result {
+            Ok(Value::Secret(k)) => k,
+            other => panic!("generate_key() should return Secret, got: {:?}", other),
+        };
+
+        // Step 2: encrypt("secret data", key)
+        let plaintext = "My highly confidential data";
+        let encrypt_result = call_builtin("encrypt", &[
+            Value::String(plaintext.to_string()),
+            Value::Secret(metalogos::interpreter::SecretString::new(key.as_str().to_string())),
+        ]);
+        let encrypted = match encrypt_result {
+            Ok(Value::Encrypted(data)) => data,
+            other => panic!("encrypt() should return Encrypted, got: {:?}", other),
+        };
+
+        // Encrypted data should be different from plaintext
+        assert_ne!(encrypted.len(), 0);
+        // Should be at least 12 (nonce) + 16 (tag) bytes longer than plaintext
+        assert!(encrypted.len() > plaintext.len());
+
+        // Step 3: decrypt(encrypted, key) → original plaintext
+        let decrypt_result = call_builtin("decrypt", &[
+            Value::Encrypted(encrypted),
+            Value::Secret(metalogos::interpreter::SecretString::new(key.as_str().to_string())),
+        ]);
+        match decrypt_result {
+            Ok(Value::String(s)) => assert_eq!(s, plaintext),
+            other => panic!("decrypt() should return original String, got: {:?}", other),
+        }
+    }
+
+    /// Contract: decrypt with wrong key returns error (not panic)
+    #[test]
+    fn test_73_decrypt_wrong_key_returns_error() {
+        // Generate key #1 and encrypt
+        let key1_result = call_builtin("generate_key", &[]);
+        let key1 = match key1_result {
+            Ok(Value::Secret(k)) => k,
+            other => panic!("generate_key() should return Secret, got: {:?}", other),
+        };
+
+        let encrypt_result = call_builtin("encrypt", &[
+            Value::String("secret message".to_string()),
+            Value::Secret(metalogos::interpreter::SecretString::new(key1.as_str().to_string())),
+        ]);
+        let encrypted = match encrypt_result {
+            Ok(Value::Encrypted(data)) => data,
+            other => panic!("encrypt() should return Encrypted, got: {:?}", other),
+        };
+
+        // Generate key #2 (different) and try to decrypt
+        let key2_result = call_builtin("generate_key", &[]);
+        let key2 = match key2_result {
+            Ok(Value::Secret(k)) => k,
+            other => panic!("generate_key() should return Secret, got: {:?}", other),
+        };
+
+        // Decrypt with wrong key → should return Err, not panic
+        let decrypt_result = call_builtin("decrypt", &[
+            Value::Encrypted(encrypted),
+            Value::Secret(metalogos::interpreter::SecretString::new(key2.as_str().to_string())),
+        ]);
+        match decrypt_result {
+            Err(msg) => {
+                assert!(msg.contains("decrypt() failed"),
+                    "decrypt with wrong key should return error, got: {}", msg);
+            }
+            Ok(v) => panic!("decrypt with wrong key should fail, but got: {:?}", v),
+        }
+    }
+
+    /// Contract: generate_key produces 64 hex chars (256-bit key)
+    #[test]
+    fn test_73_generate_key_256bit() {
+        let result = call_builtin("generate_key", &[]);
+        match result {
+            Ok(Value::Secret(k)) => {
+                let hex_str = k.as_str();
+                assert_eq!(hex_str.len(), 64, "Key should be 64 hex chars (256-bit)");
+                // Verify it's valid hex
+                hex::decode(hex_str).expect("Key should be valid hex");
+            }
+            other => panic!("generate_key() should return Secret, got: {:?}", other),
+        }
+    }
+
+    /// Contract: print(Secret) should error
+    #[test]
+    fn test_73_print_secret_errors() {
+        let result = call_builtin("print", &[
+            Value::Secret(metalogos::interpreter::SecretString::new("hidden".to_string())),
+        ]);
+        match result {
+            Err(msg) => assert!(msg.contains("expected String"),
+                "print(Secret) should error, got: {}", msg),
+            Ok(v) => panic!("print(Secret) should error, but got: {:?}", v),
+        }
+    }
+
+    /// Contract: hash_password output format is PHC argon2id string
+    #[test]
+    fn test_73_hash_password_format() {
+        let result = call_builtin("hash_password", &[
+            Value::String("test_pass".to_string()),
+        ]);
+        match result {
+            Ok(Value::Hash(h)) => {
+                // PHC format: $argon2id$v=19$m=...
+                assert!(h.starts_with("$argon2id$"),
+                    "Hash should start with $argon2id$, got: {}", h);
+                assert!(h.contains("$v=19$"),
+                    "Hash should contain version $v=19$, got: {}", h);
+            }
+            other => panic!("hash_password() should return Hash, got: {:?}", other),
+        }
+    }
+
+    /// Contract: each hash_password call produces different hash (random salt)
+    #[test]
+    fn test_73_hash_password_random_salt() {
+        let h1 = call_builtin("hash_password", &[Value::String("same_pass".to_string())]);
+        let h2 = call_builtin("hash_password", &[Value::String("same_pass".to_string())]);
+
+        match (h1, h2) {
+            (Ok(Value::Hash(a)), Ok(Value::Hash(b))) => {
+                assert_ne!(a, b, "Two hashes of same password should differ (random salt)");
+            }
+            other => panic!("Both should return Hash, got: {:?}", other),
         }
     }
 }

@@ -1,6 +1,6 @@
 // ── Built-in functions for METALOGOS M1+M2 ────────────────────────────
 
-use crate::interpreter::Value;
+use crate::interpreter::{Value, SecretString};
 
 pub type BuiltinFn = fn(&[Value]) -> Result<Value, String>;
 
@@ -484,50 +484,80 @@ fn builtin_db_execute(args: &[Value]) -> Result<Value, String> {
 
 fn builtin_env(args: &[Value]) -> Result<Value, String> {
     let key = expect_string_arg("env", args, 0)?;
-    // Read from environment, wrap in opaque Secret
+    // Read from environment, wrap in opaque Secret (zeroized on drop)
     match std::env::var(&key) {
-        Ok(val) => Ok(Value::Secret(val)),
+        Ok(val) => Ok(Value::Secret(SecretString::new(val))),
         Err(_) => Err(format!("env(): environment variable '{}' not found", key)),
     }
 }
 
 fn builtin_hash_password(args: &[Value]) -> Result<Value, String> {
     let password = expect_string_arg("hash_password", args, 0)?;
-    // SHA-256 hash (using std — no external crypto crate needed for stub)
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    // Add a salt prefix for determinism in stub mode
-    "mlog_pw_salt".hash(&mut hasher);
-    password.hash(&mut hasher);
-    let hash_val = hasher.finish();
-    Ok(Value::Hash(format!("${:016x}", hash_val)))
+    // Argon2id with random salt — real password hashing (Phase 7.3)
+    use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
+    use rand::rngs::OsRng;
+
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default(); // Argon2id
+    match argon2.hash_password(password.as_bytes(), &salt) {
+        Ok(hash) => Ok(Value::Hash(hash.to_string())),
+        Err(e) => Err(format!("hash_password() failed: {}", e)),
+    }
 }
 
 fn builtin_verify_password(args: &[Value]) -> Result<Value, String> {
-    let _password = expect_string_arg("verify_password", args, 0)?;
-    let _hash = match args.get(1) {
-        Some(Value::Hash(_)) => true,
+    let password = expect_string_arg("verify_password", args, 0)?;
+    let hash_str = match args.get(1) {
+        Some(Value::Hash(h)) => h.as_str(),
         Some(other) => return Err(format!("verify_password() expected Hash as second arg, got {}", other.type_name())),
         None => return Err("verify_password() requires 2 arguments".to_string()),
     };
-    // In interpreter mode, always return false (mock)
-    Ok(Value::Bool(false))
+    // Real Argon2id verification with constant-time comparison (Phase 7.3)
+    use argon2::{Argon2, PasswordVerifier, password_hash::PasswordHash};
+
+    let argon2 = Argon2::default();
+    match PasswordHash::new(hash_str) {
+        Ok(parsed_hash) => {
+            // Constant-time comparison inside argon2
+            match argon2.verify_password(password.as_bytes(), &parsed_hash) {
+                Ok(_) => Ok(Value::Bool(true)),
+                Err(argon2::password_hash::Error::Password) => Ok(Value::Bool(false)),
+                Err(e) => Err(format!("verify_password() failed: {}", e)),
+            }
+        }
+        Err(e) => Err(format!("verify_password() invalid hash format: {}", e)),
+    }
 }
 
 fn builtin_encrypt(args: &[Value]) -> Result<Value, String> {
     let data = expect_string_arg("encrypt", args, 0)?;
-    let _key = match args.get(1) {
-        Some(Value::Secret(_)) => true,
+    let key_str = match args.get(1) {
+        Some(Value::Secret(zs)) => zs.as_str(),
         Some(other) => return Err(format!("encrypt() expected Secret as second arg, got {}", other.type_name())),
         None => return Err("encrypt() requires 2 arguments".to_string()),
     };
-    // Mock AES-256-GCM: XOR with a repeating pattern
-    let encrypted: Vec<u8> = data.bytes()
-        .enumerate()
-        .map(|(i, b)| b ^ (0xAE ^ (i as u8)))
-        .collect();
-    Ok(Value::Encrypted(encrypted))
+    // Real AES-256-GCM with random 96-bit nonce (Phase 7.3)
+    use aes_gcm::{Aes256Gcm, AeadCore, Key};
+    use aes_gcm::aead::{Aead, KeyInit, OsRng};
+
+    let key_bytes = hex::decode(key_str)
+        .map_err(|e| format!("encrypt() invalid key format (expected hex): {}", e))?;
+    if key_bytes.len() != 32 {
+        return Err(format!("encrypt() key must be 256-bit (64 hex chars), got {} bytes", key_bytes.len()));
+    }
+    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let cipher = Aes256Gcm::new(key);
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng); // 96-bit random nonce
+
+    match cipher.encrypt(&nonce, data.as_ref()) {
+        Ok(ciphertext) => {
+            // Prepend nonce to ciphertext for self-contained Encrypted value
+            let mut output = nonce.to_vec();
+            output.extend_from_slice(&ciphertext);
+            Ok(Value::Encrypted(output))
+        }
+        Err(e) => Err(format!("encrypt() AES-256-GCM encryption failed: {}", e)),
+    }
 }
 
 fn builtin_decrypt(args: &[Value]) -> Result<Value, String> {
@@ -536,34 +566,52 @@ fn builtin_decrypt(args: &[Value]) -> Result<Value, String> {
         Some(other) => return Err(format!("decrypt() expected Encrypted as first arg, got {}", other.type_name())),
         None => return Err("decrypt() requires 2 arguments".to_string()),
     };
-    let _key = match args.get(1) {
-        Some(Value::Secret(_)) => true,
+    let key_str = match args.get(1) {
+        Some(Value::Secret(zs)) => zs.as_str(),
         Some(other) => return Err(format!("decrypt() expected Secret as second arg, got {}", other.type_name())),
         None => return Err("decrypt() requires 2 arguments".to_string()),
     };
-    // Mock AES-256-GCM decrypt: reverse the XOR
-    let decrypted: String = encrypted.iter()
-        .enumerate()
-        .map(|(i, b)| char::from(b ^ (0xAE ^ (i as u8))))
-        .collect();
-    Ok(Value::String(decrypted))
+    // Real AES-256-GCM decryption (Phase 7.3)
+    // Encrypted format: nonce (12 bytes) || ciphertext_with_tag
+    use aes_gcm::{Aes256Gcm, Key, Nonce};
+    use aes_gcm::aead::{Aead, KeyInit};
+
+    if encrypted.len() < 13 {
+        // Need at least 12 (nonce) + 1 (tag minimum)
+        return Err("decrypt() invalid encrypted data: too short".to_string());
+    }
+
+    let key_bytes = hex::decode(key_str)
+        .map_err(|e| format!("decrypt() invalid key format (expected hex): {}", e))?;
+    if key_bytes.len() != 32 {
+        return Err(format!("decrypt() key must be 256-bit (64 hex chars), got {} bytes", key_bytes.len()));
+    }
+
+    let (nonce_bytes, ciphertext) = encrypted.split_at(12);
+    let nonce = Nonce::from_slice(nonce_bytes);
+    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let cipher = Aes256Gcm::new(key);
+
+    match cipher.decrypt(nonce, ciphertext) {
+        Ok(plaintext) => {
+            match String::from_utf8(plaintext) {
+                Ok(s) => Ok(Value::String(s)),
+                Err(_) => Err("decrypt() decrypted data is not valid UTF-8".to_string()),
+            }
+        }
+        Err(_) => Err("decrypt() failed: incorrect key or corrupted data".to_string()),
+    }
 }
 
 fn builtin_generate_key(args: &[Value]) -> Result<Value, String> {
     let _ = args; // no args needed
-    // Generate a mock 256-bit key (32 hex chars)
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let mut hasher = DefaultHasher::new();
-    "mlog_keygen".hash(&mut hasher);
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    timestamp.hash(&mut hasher);
-    let key_val = hasher.finish();
-    Ok(Value::Secret(format!("{:032x}", key_val)))
+    // Generate a real 256-bit random key (Phase 7.3)
+    use rand::RngCore;
+
+    let mut key_bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut key_bytes);
+    let key_hex = hex::encode(key_bytes); // 64 hex chars
+    Ok(Value::Secret(SecretString::new(key_hex)))
 }
 
 // ── Phase 6.5 — Auth stubs ───────────────────────────

@@ -639,7 +639,7 @@ entity key: Secret = env("API_KEY")
         assert_eq!(html.type_name(), "Html");
         assert_eq!(format!("{}", html), "[Html]");
 
-        let secret = Value::Secret("my-api-key".to_string());
+        let secret = Value::Secret(crate::interpreter::SecretString::new("my-api-key".to_string()));
         assert_eq!(secret.type_name(), "Secret");
         assert_eq!(format!("{}", secret), "[Secret]");
 

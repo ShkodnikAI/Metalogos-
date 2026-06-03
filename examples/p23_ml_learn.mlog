@@ -2,6 +2,7 @@ learnable pattern Sentiment(text: String) -> String {
   prompt: "Classify sentiment: positive | negative | neutral"
 }
 
-learn Sentiment with { data: "sample_corpus", epochs: 5 }
+adapt Sentiment add_example("great service", "positive")
+adapt Sentiment add_example("terrible experience", "negative")
 
 flow Main { input: String = "great service" -> Sentiment -> output }

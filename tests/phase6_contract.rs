@@ -428,7 +428,7 @@ mod phase6_xss_prevention_tests {
 
     #[test]
     fn test_template_xss_prevention() {
-        let template = "<div>{{ content }}</div>";
+        let template = "<div>{{content}}</div>";
         let mut vars = std::collections::HashMap::new();
         vars.insert("content".to_string(), "<script>alert(1)</script>".to_string());
         let result = server::render_template(template, &vars);

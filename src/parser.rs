@@ -4,6 +4,8 @@ use pest::iterators::Pair;
 use pest::Parser as _;
 use pest_derive::Parser;
 
+use std::collections::HashMap;
+
 #[derive(Parser)]
 #[grammar = "grammar.pest"]
 pub struct MlogParser;
@@ -13,15 +15,22 @@ pub type ParseError = pest::error::Error<Rule>;
 use crate::ast::*;
 
 /// Parse a .mlog source string into a list of declarations.
+/// Templates with `}` in their body (HTML, CSS, JS) are handled via
+/// pre-processing: template bodies are extracted with balanced brace counting,
+/// replaced with placeholders for Pest parsing, then restored.
 pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
-    let pairs = MlogParser::parse(Rule::program, source)?;
+    // Pre-process: extract template bodies that contain } characters.
+    // Replace with unique placeholders to avoid Pest's "stop at first }" limitation.
+    let (preprocessed, template_bodies) = preprocess_templates(source);
+
+    let pairs = MlogParser::parse(Rule::program, &preprocessed)?;
     let mut declarations = Vec::new();
 
     for pair in pairs {
         for inner_pair in pair.into_inner() {
             match inner_pair.as_rule() {
                 Rule::mlogserver_decl => declarations.push(parse_mlogserver_decl(inner_pair)),
-                Rule::template_decl => declarations.push(parse_template_decl(inner_pair)),
+                Rule::template_decl => declarations.push(parse_template_decl_with_body(inner_pair, &template_bodies)),
                 Rule::db_decl => declarations.push(parse_db_decl(inner_pair)),
                 Rule::memory_decl => declarations.push(parse_memory_decl(inner_pair)),
                 Rule::import_decl => declarations.push(parse_import_decl(inner_pair)),
@@ -117,7 +126,7 @@ fn parse_route_decl(pair: Pair<Rule>) -> RouteDecl {
     let method = children.iter()
         .filter(|c| c.as_rule() == Rule::IDENT)
         .map(|c| pair_str(c))
-        .nth(1) // first IDENT after STRING_LITERAL
+        .next() // first IDENT after STRING_LITERAL is the HTTP method
         .unwrap_or_else(|| "GET".to_string());
 
     let mut requires = Vec::new();
@@ -142,18 +151,125 @@ fn parse_route_decl(pair: Pair<Rule>) -> RouteDecl {
 
 // ── Template (Phase 6.2) ─────────────────────────────────────
 
-fn parse_template_decl(pair: Pair<Rule>) -> Declaration {
+/// Pre-process source to handle template bodies containing `}` (HTML, CSS, JS).
+/// Extracts template bodies using balanced brace counting, replaces with safe placeholders,
+/// and returns a mapping of placeholder -> actual body content.
+fn preprocess_templates(source: &str) -> (String, HashMap<String, String>) {
+    let mut result = source.to_string();
+    let mut bodies = HashMap::new();
+    let mut counter = 0u32;
+
+    // Find template declarations and extract balanced brace bodies
+    let mut search_from = 0;
+    while search_from < result.len() {
+        // Find "template" keyword
+        if let Some(start) = result[search_from..].find("template") {
+            let abs_start = search_from + start;
+            // Skip if this is part of a longer identifier
+            if abs_start > 0 && result.as_bytes().get(abs_start - 1).map(|&b| b.is_ascii_alphanumeric()).unwrap_or(false) {
+                search_from = abs_start + 1;
+                continue;
+            }
+
+            // Find the opening { of the template body (after type_name)
+            if let Some(brace_pos) = result[abs_start..].find('{') {
+                let abs_brace = abs_start + brace_pos;
+                // Find the matching closing } using balanced brace counting
+                let chars: Vec<char> = result[abs_brace..].chars().collect();
+                let mut depth = 0;
+                let mut end_pos = None;
+                for (i, &ch) in chars.iter().enumerate() {
+                    match ch {
+                        '{' => depth += 1,
+                        '}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                end_pos = Some(abs_brace + i);
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                if let Some(close_pos) = end_pos {
+                    // Extract the body between the braces
+                    let body = result[abs_brace + 1..close_pos].to_string();
+                    let placeholder = format!("__TEMPLATE_BODY_{}__", counter);
+                    counter += 1;
+
+                    // Replace the body content with a safe placeholder (no })
+                    let replacement = format!("{{{}}}", placeholder);
+                    result.replace_range(abs_brace..=close_pos, &replacement);
+                    bodies.insert(placeholder, body);
+
+                    search_from = abs_brace + replacement.len();
+                    continue;
+                }
+            }
+            search_from = abs_start + 1;
+        } else {
+            break;
+        }
+    }
+
+    (result, bodies)
+}
+
+/// Parse a template declaration, restoring the pre-processed body.
+fn parse_template_decl_with_body(pair: Pair<Rule>, bodies: &HashMap<String, String>) -> Declaration {
     let children = children_of(&pair);
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
     let params = find_child(&children, Rule::params)
         .map(|p| parse_params(p))
         .unwrap_or_default();
     let return_type = find_child_str(&children, Rule::type_name).unwrap_or_default();
+
+    // The grammar captured the placeholder in template_body_raw
     let body = pair.clone().into_inner()
         .find(|c| c.as_rule() == Rule::template_body_raw)
-        .map(|c| c.as_str().to_string())
+        .map(|c| {
+            let placeholder = c.as_str().trim().to_string();
+            // Look up the placeholder in our pre-processed bodies map
+            if let Some(actual_body) = bodies.get(&placeholder) {
+                actual_body.clone()
+            } else {
+                // Fallback: use the raw text (for templates without } in body)
+                placeholder
+            }
+        })
         .unwrap_or_default();
+
     Declaration::Template(TemplateDecl { name, params, return_type, body })
+}
+
+/// Extract content between balanced braces from a string like "{ content } }".
+/// Handles nested braces by counting depth.
+fn extract_balanced_braces(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    if chars.is_empty() || chars[0] != '{' {
+        return String::new();
+    }
+    let mut depth = 0;
+    let mut end = 0;
+    for (i, &ch) in chars.iter().enumerate() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = i;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    if end > 0 {
+        chars[1..end].iter().collect()
+    } else {
+        String::new()
+    }
 }
 
 // ── DB (Phase 6.3) ─────────────────────────────────────

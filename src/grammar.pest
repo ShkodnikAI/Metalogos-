@@ -15,9 +15,11 @@ mlogserver_middleware = { "middleware" ~ COLON ~ "[" ~ ident_list? ~ "]" }
 route_decl         = { "route" ~ STRING_LITERAL ~ "method" ~ ASSIGN ~ IDENT ~ route_requires? ~ "{" ~ statement* ~ "}" }
 route_requires     = { "requires" ~ ASSIGN ~ "[" ~ ident_list? ~ "]" }
 
-// ── Template (Phase 6.2) ──────────────────────────────────────
+// -- Template (Phase 6.2) ----------------------------------------
 // template Page(title: String, body: String) -> Html { <html>{{ title }}</html> }
-template_decl  = { "template" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ "{" ~ template_body_raw ~ "}" }
+// Grammar accepts empty template body. The parser does balanced-brace extraction
+// from the ORIGINAL source string using the pair's span position.
+template_decl = { "template" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ "{" ~ template_body_raw ~ "}" }
 template_body_raw = { (!"}" ~ ANY)* }
 
 // ── DB (Phase 6.3) ──────────────────────────────────────

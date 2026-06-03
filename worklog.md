@@ -112,3 +112,28 @@ Stage Summary:
 - Recall uses cosine similarity (score = sim × priority × decay, threshold 0.3)
 - Grammar change: recall usable as flow step
 
+
+---
+Task ID: 1
+Agent: Main Agent
+Task: Phase 7.6 — Memory Persistence via SQLite (Наряд №5)
+
+Work Log:
+- Read full codebase: Cargo.toml, memory_store.rs, interpreter.rs, ast.rs, server.rs, lib.rs
+- Found Phase 7.6 was already substantially implemented (memory_store.rs with MemoryStore/KgStore traits, SqliteStore/SqliteKg, InMemoryStore/InMemoryKg)
+- Fixed KG migration stub in interpreter.rs: replaced `let _ = existing_edges;` with actual SqliteKg migration via `SqliteKg::open(&db_path)` and edge transfer
+- Added `SqliteKg` to interpreter.rs imports
+- Fixed SQLite `decay()` method: replaced broken `exp()` SQL function (not available in bundled SQLite) with Rust-based decay computation
+- Added `id: Option<i64>` field to MemoryEntry struct for database row tracking
+- Fixed critical deadlock in SqliteKg::walk_recursive: restructured to collect neighbors in scoped block, drop Mutex lock, then recurse (std::sync::Mutex is not reentrant)
+- Created ADR-0041: docs/adr/0041-memory-persistence.md
+- Created 8 contract tests in tests/phase76_contract.rs covering: SQLite memorize+recall, persistence across restart, in-memory default, decay formula, forget, KG persist+walk, embedding BLOB roundtrip, no-persist data loss
+- All 8 contract tests pass
+- Full test suite: 97 passed, 4 failed (pre-existing template parsing issues, not related to Phase 7.6)
+- Committed as f8891fc and pushed to origin/main
+
+Stage Summary:
+- Phase 7.6 Memory Persistence is COMPLETE
+- Key fixes: KG migration, decay computation, walk deadlock, MemoryEntry id field
+- Commit: f8891fc "Phase 7.6: Memory persistence via SQLite"
+- Push: https://github.com/ShkodnikAI/Metalogos-.git (main branch, pushed)

@@ -23,6 +23,7 @@ pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::mlogserver_decl => declarations.push(parse_mlogserver_decl(inner_pair)),
                 Rule::template_decl => declarations.push(parse_template_decl(inner_pair)),
                 Rule::db_decl => declarations.push(parse_db_decl(inner_pair)),
+                Rule::memory_decl => declarations.push(parse_memory_decl(inner_pair)),
                 Rule::import_decl => declarations.push(parse_import_decl(inner_pair)),
                 Rule::entity_type_decl => declarations.push(parse_entity_type_decl(inner_pair)),
                 Rule::entity_record_decl => declarations.push(parse_entity_record_decl(inner_pair)),
@@ -181,6 +182,22 @@ fn parse_db_decl(pair: Pair<Rule>) -> Declaration {
         .map(|s| s[1..s.len()-1].to_string());
 
     Declaration::Db(DbDecl { url, pool_size, migrate })
+}
+
+// ── Memory Config (Phase 7.6) ──────────────────────────────────────
+
+fn parse_memory_decl(pair: Pair<Rule>) -> Declaration {
+    let children: Vec<Pair<Rule>> = pair.into_inner()
+        .filter(|c| c.as_rule() == Rule::memory_body)
+        .flat_map(|c| c.into_inner())
+        .collect();
+
+    let persist = children.iter()
+        .find(|c| c.as_rule() == Rule::memory_persist)
+        .and_then(|c| find_child_str(&children_of(c), Rule::STRING_LITERAL))
+        .map(|s| s[1..s.len()-1].to_string());
+
+    Declaration::Memory(MemoryDecl { persist })
 }
 
 // ── Import (Phase 5.4) ─────────────────────────────────────

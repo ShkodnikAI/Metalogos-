@@ -1,0 +1,1109 @@
+// ── Memory Store for METALOGOS (Phase 7.6) ──────────────────────────
+// Provides persistent memory storage via SQLite and in-memory fallback.
+//
+// Architecture:
+//   MemoryStore trait  — abstracts memorize/recall/forget/decay operations
+//   InMemoryStore      — Vec-backed (backward compatible, no persistence)
+//   SqliteStore        — SQLite-backed (persists across restarts)
+//
+//   KgStore trait      — abstracts knowledge graph (relate operations)
+//   InMemoryKg         — Vec-backed (backward compatible)
+//   SqliteKg           — SQLite-backed (persists across restarts)
+//
+// Configuration via `memory { persist: "./data/memory.db" }` in .mlog.
+// Without persist → in-memory stores (old behavior, all tests pass unchanged).
+
+use std::path::Path;
+
+// ── Memory Entry (shared between all store implementations) ──────────
+
+/// A single memory entry: stored fact with priority, timestamp, decay, and embedding.
+#[derive(Debug, Clone)]
+pub struct MemoryEntry {
+    /// The stored value (string content of the fact).
+    pub value: String,
+    /// Priority/confidence at time of memorization (0.0..1.0).
+    pub priority: f64,
+    /// Unix timestamp (seconds) when memorized.
+    pub timestamp: i64,
+    /// Decay rate per day (0.0 = no decay, 0.01 = slow, 0.1 = fast).
+    pub decay_rate: f64,
+    /// Confidence score (computed or stored).
+    pub confidence: f64,
+    /// Embedding vector for semantic recall (Phase 7.2).
+    /// Serialized as BLOB in SQLite, stored as Vec<f32> in memory.
+    pub embedding: Vec<f32>,
+}
+
+// ── Knowledge Graph Entry ──────────────────────────────────────────
+
+/// A knowledge graph node.
+#[derive(Debug, Clone)]
+pub struct KgNode {
+    pub id: i64,
+    pub value: String,
+    pub node_type: String,
+}
+
+/// A knowledge graph edge.
+#[derive(Debug, Clone)]
+pub struct KgEdge {
+    pub from_id: i64,
+    pub to_id: i64,
+    pub relation: String,
+    pub weight: f64,
+}
+
+// ── MemoryStore Trait ────────────────────────────────────────────────
+
+/// Trait for memory storage backends.
+/// Implementations: InMemoryStore (default), SqliteStore (persistent).
+pub trait MemoryStore: Send + Sync {
+    /// Insert a new memory entry. Returns the assigned ID.
+    fn memorize(&mut self, entry: MemoryEntry) -> Result<i64, String>;
+
+    /// Recall: find best matching entry using semantic similarity or substring fallback.
+    /// Returns (entry, score) for the best match above min_confidence, or None.
+    fn recall(&self, query: &str, query_embedding: &[f32], min_confidence: f32) -> Option<(MemoryEntry, f32)>;
+
+    /// Delete entries matching query string that are older than cutoff timestamp.
+    fn forget(&mut self, query: &str, cutoff: i64);
+
+    /// Apply exponential decay to all entries: priority *= exp(-decay_rate * age_days).
+    /// Returns the number of entries updated.
+    fn decay(&mut self) -> usize;
+
+    /// Return all entries (for graph walk + export).
+    fn all_entries(&self) -> Vec<MemoryEntry>;
+
+    /// Count of stored memories.
+    fn count(&self) -> usize;
+}
+
+// ── KgStore Trait ──────────────────────────────────────────────────
+
+/// Trait for knowledge graph storage backends.
+pub trait KgStore: Send + Sync {
+    /// Insert a relation edge between two values.
+    fn relate(&mut self, from: &str, to: &str, relation: &str, weight: f64) -> Result<(), String>;
+
+    /// Find all edges connected to a value. Returns (relation, other_value, weight) tuples.
+    fn edges_for(&self, value: &str) -> Vec<(String, String, f64)>;
+
+    /// Graph walk: find all nodes reachable from a starting value via edges.
+    /// Returns (relation, other_value, weight) tuples including transitive connections.
+    fn walk(&self, value: &str, max_depth: usize) -> Vec<(String, String, f64)>;
+
+    /// Count of stored edges.
+    fn edge_count(&self) -> usize;
+
+    /// Return all edges (for export).
+    fn all_edges(&self) -> Vec<(String, String, String, f64)>;
+}
+
+// ── InMemoryStore ─────────────────────────────────────────────────
+
+/// In-memory memory store (default, backward compatible).
+/// Uses Vec<MemoryEntry> — identical to pre-7.6 behavior.
+pub struct InMemoryStore {
+    entries: Vec<MemoryEntry>,
+}
+
+impl InMemoryStore {
+    pub fn new() -> Self {
+        InMemoryStore { entries: Vec::new() }
+    }
+}
+
+impl MemoryStore for InMemoryStore {
+    fn memorize(&mut self, entry: MemoryEntry) -> Result<i64, String> {
+        let id = self.entries.len() as i64;
+        self.entries.push(entry);
+        Ok(id)
+    }
+
+    fn recall(&self, query: &str, query_embedding: &[f32], min_confidence: f32) -> Option<(MemoryEntry, f32)> {
+        use crate::embeddings::cosine_similarity;
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        let mut best_match: Option<&MemoryEntry> = None;
+        let mut best_score: f32 = 0.0;
+
+        for entry in &self.entries {
+            let semantic_sim = if !query_embedding.is_empty() && !entry.embedding.is_empty() {
+                cosine_similarity(query_embedding, &entry.embedding)
+            } else {
+                // Fallback: substring match
+                if entry.value.contains(query) {
+                    1.0
+                } else {
+                    continue;
+                }
+            };
+
+            let age_days = ((now - entry.timestamp).max(0) as f64) / 86400.0;
+            let decay = (-entry.decay_rate * age_days).exp() as f32;
+            let score = semantic_sim * (entry.priority as f32) * decay;
+
+            if score > best_score && score >= min_confidence {
+                best_score = score;
+                best_match = Some(entry);
+            }
+        }
+
+        best_match.map(|e| (e.clone(), best_score))
+    }
+
+    fn forget(&mut self, query: &str, cutoff: i64) {
+        self.entries.retain(|e| {
+            !(e.value.contains(query) && e.timestamp < cutoff)
+        });
+    }
+
+    fn decay(&mut self) -> usize {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        let mut count = 0;
+        for entry in &mut self.entries {
+            let age_days = ((now - entry.timestamp).max(0) as f64) / 86400.0;
+            let new_priority = entry.priority * (-entry.decay_rate * age_days).exp();
+            if (new_priority - entry.priority).abs() > 1e-10 {
+                entry.priority = new_priority;
+                count += 1;
+            }
+        }
+        count
+    }
+
+    fn all_entries(&self) -> Vec<MemoryEntry> {
+        self.entries.clone()
+    }
+
+    fn count(&self) -> usize {
+        self.entries.len()
+    }
+}
+
+// ── InMemoryKg ─────────────────────────────────────────────────────
+
+/// In-memory knowledge graph store (default, backward compatible).
+pub struct InMemoryKg {
+    edges: Vec<(String, String, String, f64)>, // (from, to, relation, weight)
+}
+
+impl InMemoryKg {
+    pub fn new() -> Self {
+        InMemoryKg { edges: Vec::new() }
+    }
+}
+
+impl KgStore for InMemoryKg {
+    fn relate(&mut self, from: &str, to: &str, relation: &str, weight: f64) -> Result<(), String> {
+        self.edges.push((from.to_string(), to.to_string(), relation.to_string(), weight));
+        Ok(())
+    }
+
+    fn edges_for(&self, value: &str) -> Vec<(String, String, f64)> {
+        let mut result = Vec::new();
+        for (from, to, relation, weight) in &self.edges {
+            if from == value {
+                result.push((relation.clone(), to.clone(), *weight));
+            } else if to == value {
+                result.push((relation.clone(), from.clone(), *weight));
+            }
+        }
+        result
+    }
+
+    fn walk(&self, value: &str, max_depth: usize) -> Vec<(String, String, f64)> {
+        let mut result = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(value.to_string());
+        self.walk_recursive(value, max_depth, 0, &mut visited, &mut result);
+        result
+    }
+
+    fn edge_count(&self) -> usize {
+        self.edges.len()
+    }
+
+    fn all_edges(&self) -> Vec<(String, String, String, f64)> {
+        self.edges.clone()
+    }
+}
+
+impl InMemoryKg {
+    fn walk_recursive(
+        &self,
+        current: &str,
+        max_depth: usize,
+        depth: usize,
+        visited: &mut std::collections::HashSet<String>,
+        result: &mut Vec<(String, String, f64)>,
+    ) {
+        if depth >= max_depth {
+            return;
+        }
+        for (from, to, relation, weight) in &self.edges {
+            let (neighbor, direction) = if from == current {
+                (to.as_str(), "outgoing")
+            } else if to == current {
+                (from.as_str(), "incoming")
+            } else {
+                continue;
+            };
+            if !visited.contains(neighbor) {
+                visited.insert(neighbor.to_string());
+                result.push((relation.clone(), neighbor.to_string(), *weight));
+                self.walk_recursive(neighbor, max_depth, depth + 1, visited, result);
+            }
+        }
+    }
+}
+
+// ── SqliteStore ─────────────────────────────────────────────────────
+
+/// SQLite-backed memory store for persistence across restarts.
+pub struct SqliteStore {
+    conn: std::sync::Mutex<rusqlite::Connection>,
+}
+
+impl SqliteStore {
+    /// Open a SQLite memory store from a file path. Creates tables if needed.
+    pub fn open(path: &Path) -> Result<Self, String> {
+        // Create parent directories if needed
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create memory db directory: {}", e))?;
+        }
+
+        let conn = rusqlite::Connection::open(path)
+            .map_err(|e| format!("Failed to open memory database '{}': {}", path.display(), e))?;
+
+        // Initialize schema
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS memories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key TEXT,
+                value TEXT NOT NULL,
+                priority REAL NOT NULL DEFAULT 1.0,
+                confidence REAL NOT NULL DEFAULT 1.0,
+                decay_rate REAL NOT NULL DEFAULT 0.01,
+                created_at INTEGER NOT NULL,
+                embedding BLOB
+            );
+            CREATE INDEX IF NOT EXISTS idx_memories_value ON memories(value);
+            CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at);"
+        ).map_err(|e| format!("Failed to create memories table: {}", e))?;
+
+        Ok(SqliteStore { conn: std::sync::Mutex::new(conn) })
+    }
+
+    /// Convert embedding Vec<f32> to BLOB bytes.
+    fn embedding_to_blob(embedding: &[f32]) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(embedding.len() * 4);
+        for &val in embedding {
+            bytes.extend_from_slice(&val.to_le_bytes());
+        }
+        bytes
+    }
+
+    /// Convert BLOB bytes back to Vec<f32>.
+    fn blob_to_embedding(blob: &[u8]) -> Vec<f32> {
+        let mut result = Vec::with_capacity(blob.len() / 4);
+        for chunk in blob.chunks_exact(4) {
+            let val = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+            result.push(val);
+        }
+        result
+    }
+}
+
+impl MemoryStore for SqliteStore {
+    fn memorize(&mut self, entry: MemoryEntry) -> Result<i64, String> {
+        let blob = Self::embedding_to_blob(&entry.embedding);
+        let conn = self.conn.lock().map_err(|e| format!("Lock error: {}", e))?;
+        conn.execute(
+            "INSERT INTO memories (value, priority, confidence, decay_rate, created_at, embedding) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![entry.value, entry.priority, entry.confidence, entry.decay_rate, entry.timestamp, blob],
+        ).map_err(|e| format!("Failed to memorize: {}", e))?;
+
+        Ok(conn.last_insert_rowid())
+    }
+
+    fn recall(&self, query: &str, query_embedding: &[f32], min_confidence: f32) -> Option<(MemoryEntry, f32)> {
+        use crate::embeddings::cosine_similarity;
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        let conn = match self.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return None,
+        };
+
+        let mut stmt = match conn.prepare(
+            "SELECT id, value, priority, confidence, decay_rate, created_at, embedding FROM memories"
+        ) {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+
+        let rows = match stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, f64>(2)?,
+                row.get::<_, f64>(3)?,
+                row.get::<_, f64>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, Vec<u8>>(6).unwrap_or_default(),
+            ))
+        }) {
+            Ok(rows) => rows,
+            Err(_) => return None,
+        };
+
+        let mut best_match: Option<MemoryEntry> = None;
+        let mut best_score: f32 = 0.0;
+
+        for row in rows {
+            let (_id, value, priority, confidence, decay_rate, timestamp, blob) = match row {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+
+            let entry_embedding = Self::blob_to_embedding(&blob);
+
+            let semantic_sim = if !query_embedding.is_empty() && !entry_embedding.is_empty() {
+                cosine_similarity(query_embedding, &entry_embedding)
+            } else {
+                if value.contains(query) {
+                    1.0
+                } else {
+                    continue;
+                }
+            };
+
+            let age_days = ((now - timestamp).max(0) as f64) / 86400.0;
+            let decay = (-decay_rate * age_days).exp() as f32;
+            let score = semantic_sim * (priority as f32) * decay;
+
+            if score > best_score && score >= min_confidence {
+                best_score = score;
+                best_match = Some(MemoryEntry {
+                    value,
+                    priority,
+                    timestamp,
+                    decay_rate,
+                    confidence,
+                    embedding: entry_embedding,
+                });
+            }
+        }
+
+        best_match.map(|e| (e, best_score))
+    }
+
+    fn forget(&mut self, query: &str, cutoff: i64) {
+        let conn = match self.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let _ = conn.execute(
+            "DELETE FROM memories WHERE value LIKE '%' || ?1 || '%' AND created_at < ?2",
+            rusqlite::params![query, cutoff],
+        );
+    }
+
+    fn decay(&mut self) -> usize {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        let conn = match self.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return 0,
+        };
+
+        conn.execute(
+            "UPDATE memories SET priority = priority * exp(-decay_rate * ((?1 - created_at) / 86400.0))",
+            rusqlite::params![now],
+        ).unwrap_or(0)
+    }
+
+    fn all_entries(&self) -> Vec<MemoryEntry> {
+        let conn = match self.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+
+        let mut stmt = match conn.prepare(
+            "SELECT value, priority, confidence, decay_rate, created_at, embedding FROM memories"
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+
+        let mut entries = Vec::new();
+        match stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, f64>(1)?,
+                row.get::<_, f64>(2)?,
+                row.get::<_, f64>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, Vec<u8>>(5).unwrap_or_default(),
+            ))
+        }) {
+            Ok(mapped_rows) => {
+                for row_result in mapped_rows {
+                    match row_result {
+                        Ok((value, priority, confidence, decay_rate, timestamp, blob)) => {
+                            entries.push(MemoryEntry {
+                                value,
+                                priority,
+                                timestamp,
+                                decay_rate,
+                                confidence,
+                                embedding: Self::blob_to_embedding(&blob),
+                            });
+                        }
+                        Err(_) => continue,
+                    }
+                }
+            }
+            Err(_) => {}
+        }
+        entries
+    }
+
+    fn count(&self) -> usize {
+        let conn = match self.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return 0,
+        };
+        conn.query_row(
+            "SELECT COUNT(*) FROM memories",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0)
+    }
+}
+
+// ── SqliteKg ───────────────────────────────────────────────────────
+
+/// SQLite-backed knowledge graph store for persistence across restarts.
+pub struct SqliteKg {
+    conn: std::sync::Mutex<rusqlite::Connection>,
+}
+
+impl SqliteKg {
+    /// Open KG tables in a SQLite database file. Creates tables if needed.
+    pub fn open(path: &Path) -> Result<Self, String> {
+        let conn = rusqlite::Connection::open(path)
+            .map_err(|e| format!("Failed to open KG database '{}': {}", path.display(), e))?;
+
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS kg_nodes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                value TEXT NOT NULL UNIQUE,
+                type TEXT NOT NULL DEFAULT 'fact'
+            );
+            CREATE TABLE IF NOT EXISTS kg_edges (
+                from_id INTEGER NOT NULL REFERENCES kg_nodes(id),
+                to_id INTEGER NOT NULL REFERENCES kg_nodes(id),
+                relation TEXT NOT NULL,
+                weight REAL NOT NULL DEFAULT 1.0
+            );
+            CREATE INDEX IF NOT EXISTS idx_kg_nodes_value ON kg_nodes(value);
+            CREATE INDEX IF NOT EXISTS idx_kg_edges_from ON kg_edges(from_id);
+            CREATE INDEX IF NOT EXISTS idx_kg_edges_to ON kg_edges(to_id);
+            CREATE INDEX IF NOT EXISTS idx_kg_edges_rel ON kg_edges(relation);"
+        ).map_err(|e| format!("Failed to create KG tables: {}", e))?;
+
+        Ok(SqliteKg { conn: std::sync::Mutex::new(conn) })
+    }
+
+    /// Get or create a node ID for a given value.
+    fn get_or_create_node(&self, value: &str) -> Result<i64, String> {
+        let conn = self.conn.lock().map_err(|e| format!("Lock error: {}", e))?;
+
+        // Try to find existing node
+        if let Ok(id) = conn.query_row(
+            "SELECT id FROM kg_nodes WHERE value = ?1",
+            rusqlite::params![value],
+            |row| row.get(0),
+        ) {
+            return Ok(id);
+        }
+
+        // Insert new node
+        conn.execute(
+            "INSERT INTO kg_nodes (value, type) VALUES (?1, 'fact')",
+            rusqlite::params![value],
+        ).map_err(|e| format!("Failed to create KG node: {}", e))?;
+
+        Ok(conn.last_insert_rowid())
+    }
+}
+
+impl KgStore for SqliteKg {
+    fn relate(&mut self, from: &str, to: &str, relation: &str, weight: f64) -> Result<(), String> {
+        let from_id = self.get_or_create_node(from)?;
+        let to_id = self.get_or_create_node(to)?;
+
+        let conn = self.conn.lock().map_err(|e| format!("Lock error: {}", e))?;
+        conn.execute(
+            "INSERT INTO kg_edges (from_id, to_id, relation, weight) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![from_id, to_id, relation, weight],
+        ).map_err(|e| format!("Failed to create KG edge: {}", e))?;
+
+        Ok(())
+    }
+
+    fn edges_for(&self, value: &str) -> Vec<(String, String, f64)> {
+        let conn = match self.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+
+        let node_id = match conn.query_row(
+            "SELECT id FROM kg_nodes WHERE value = ?1",
+            rusqlite::params![value],
+            |row| row.get::<_, i64>(0),
+        ) {
+            Ok(id) => id,
+            Err(_) => return Vec::new(),
+        };
+
+        let mut result = Vec::new();
+
+        // Outgoing edges
+        let mut stmt = match conn.prepare(
+            "SELECT relation, kg_nodes.value, weight FROM kg_edges
+             JOIN kg_nodes ON kg_edges.to_id = kg_nodes.id
+             WHERE kg_edges.from_id = ?1"
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+
+        match stmt.query_map(rusqlite::params![node_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, f64>(2)?))
+        }) {
+            Ok(mapped_rows) => {
+                for row_result in mapped_rows {
+                    match row_result {
+                        Ok((rel, val, w)) => { result.push((rel, val, w)); }
+                        Err(_) => continue,
+                    }
+                }
+            }
+            Err(_) => {}
+        }
+
+        // Incoming edges
+        let mut stmt = match conn.prepare(
+            "SELECT relation, kg_nodes.value, weight FROM kg_edges
+             JOIN kg_nodes ON kg_edges.from_id = kg_nodes.id
+             WHERE kg_edges.to_id = ?1"
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+
+        match stmt.query_map(rusqlite::params![node_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, f64>(2)?))
+        }) {
+            Ok(mapped_rows) => {
+                for row_result in mapped_rows {
+                    match row_result {
+                        Ok((rel, val, w)) => { result.push((rel, val, w)); }
+                        Err(_) => continue,
+                    }
+                }
+            }
+            Err(_) => {}
+        }
+
+        result
+    }
+
+    fn walk(&self, value: &str, max_depth: usize) -> Vec<(String, String, f64)> {
+        let mut result = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(value.to_string());
+        self.walk_recursive(value, max_depth, 0, &mut visited, &mut result);
+        result
+    }
+
+    fn edge_count(&self) -> usize {
+        let conn = match self.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return 0,
+        };
+        conn.query_row(
+            "SELECT COUNT(*) FROM kg_edges",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0)
+    }
+
+    fn all_edges(&self) -> Vec<(String, String, String, f64)> {
+        let conn = match self.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+
+        let mut stmt = match conn.prepare(
+            "SELECT n1.value, n2.value, e.relation, e.weight
+             FROM kg_edges e
+             JOIN kg_nodes n1 ON e.from_id = n1.id
+             JOIN kg_nodes n2 ON e.to_id = n2.id"
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+
+        let mut entries = Vec::new();
+        match stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, f64>(3)?,
+            ))
+        }) {
+            Ok(mapped_rows) => {
+                for row_result in mapped_rows {
+                    match row_result {
+                        Ok(row) => { entries.push(row); }
+                        Err(_) => continue,
+                    }
+                }
+            }
+            Err(_) => {}
+        }
+        entries
+    }
+}
+
+impl SqliteKg {
+    fn walk_recursive(
+        &self,
+        current: &str,
+        max_depth: usize,
+        depth: usize,
+        visited: &mut std::collections::HashSet<String>,
+        result: &mut Vec<(String, String, f64)>,
+    ) {
+        if depth >= max_depth {
+            return;
+        }
+
+        let conn = match self.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+
+        let node_id = match conn.query_row(
+            "SELECT id FROM kg_nodes WHERE value = ?1",
+            rusqlite::params![current],
+            |row| row.get::<_, i64>(0),
+        ) {
+            Ok(id) => id,
+            Err(_) => return,
+        };
+
+        // Collect neighbors from edges
+        let mut neighbors: Vec<(String, f64, String)> = Vec::new();
+
+        let mut stmt_out = match conn.prepare(
+            "SELECT e.relation, e.weight, n.value FROM kg_edges e
+             JOIN kg_nodes n ON e.to_id = n.id WHERE e.from_id = ?1"
+        ) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+
+        match stmt_out.query_map(rusqlite::params![node_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?, row.get::<_, String>(2)?))
+        }) {
+            Ok(mapped_rows) => {
+                for row_result in mapped_rows {
+                    match row_result {
+                        Ok(r) => { neighbors.push(r); }
+                        Err(_) => continue,
+                    }
+                }
+            }
+            Err(_) => {}
+        }
+
+        let mut stmt_in = match conn.prepare(
+            "SELECT e.relation, e.weight, n.value FROM kg_edges e
+             JOIN kg_nodes n ON e.from_id = n.id WHERE e.to_id = ?1"
+        ) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+
+        match stmt_in.query_map(rusqlite::params![node_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?, row.get::<_, String>(2)?))
+        }) {
+            Ok(mapped_rows) => {
+                for row_result in mapped_rows {
+                    match row_result {
+                        Ok(r) => { neighbors.push(r); }
+                        Err(_) => continue,
+                    }
+                }
+            }
+            Err(_) => {}
+        }
+
+        for (relation, weight, neighbor) in neighbors {
+            if !visited.contains(&neighbor) {
+                visited.insert(neighbor.clone());
+                result.push((relation, neighbor.clone(), weight));
+                self.walk_recursive(&neighbor, max_depth, depth + 1, visited, result);
+            }
+        }
+    }
+}
+
+// ── Tests ───────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    // ── InMemoryStore ───────────────────────────────────────────────
+
+    #[test]
+    fn test_inmemory_memorize_and_recall() {
+        let mut store = InMemoryStore::new();
+        store.memorize(MemoryEntry {
+            value: "the cat sat on the mat".to_string(),
+            priority: 1.0,
+            timestamp: now(),
+            decay_rate: 0.01,
+            confidence: 1.0,
+            embedding: Vec::new(),
+        }).unwrap();
+
+        let result = store.recall("the cat sat", &[], 0.3);
+        assert!(result.is_some());
+        let (entry, score) = result.unwrap();
+        assert!(entry.value.contains("cat sat"), "Should find cat sat, got: {}", entry.value);
+        assert!(score >= 0.3, "Score should exceed threshold");
+    }
+
+    #[test]
+    fn test_inmemory_recall_empty() {
+        let store = InMemoryStore::new();
+        let result = store.recall("anything", &[], 0.3);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_inmemory_forget() {
+        let mut store = InMemoryStore::new();
+        let old_ts = now() - 100000; // old entry
+        store.memorize(MemoryEntry {
+            value: "old fact".to_string(),
+            priority: 1.0,
+            timestamp: old_ts,
+            decay_rate: 0.01,
+            confidence: 1.0,
+            embedding: Vec::new(),
+        }).unwrap();
+
+        assert_eq!(store.count(), 1);
+        store.forget("old fact", now()); // cutoff = now, old_ts < now
+        assert_eq!(store.count(), 0);
+    }
+
+    #[test]
+    fn test_inmemory_decay() {
+        let mut store = InMemoryStore::new();
+        store.memorize(MemoryEntry {
+            value: "test".to_string(),
+            priority: 1.0,
+            timestamp: now() - 86400, // 1 day ago
+            decay_rate: 0.1,
+            confidence: 1.0,
+            embedding: Vec::new(),
+        }).unwrap();
+
+        let count = store.decay();
+        assert!(count > 0, "At least one entry should be decayed");
+
+        let entry = &store.all_entries()[0];
+        assert!(entry.priority < 1.0, "Priority should decrease after decay, got {}", entry.priority);
+    }
+
+    #[test]
+    fn test_inmemory_count() {
+        let mut store = InMemoryStore::new();
+        assert_eq!(store.count(), 0);
+        store.memorize(MemoryEntry {
+            value: "a".to_string(),
+            priority: 1.0, timestamp: now(), decay_rate: 0.01, confidence: 1.0, embedding: Vec::new(),
+        }).unwrap();
+        store.memorize(MemoryEntry {
+            value: "b".to_string(),
+            priority: 1.0, timestamp: now(), decay_rate: 0.01, confidence: 1.0, embedding: Vec::new(),
+        }).unwrap();
+        assert_eq!(store.count(), 2);
+    }
+
+    // ── InMemoryKg ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_inmemory_kg_relate_and_edges() {
+        let mut kg = InMemoryKg::new();
+        kg.relate("alice", "bob", "coworker", 1.0).unwrap();
+
+        let edges = kg.edges_for("alice");
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].0, "coworker");
+        assert_eq!(edges[0].1, "bob");
+    }
+
+    #[test]
+    fn test_inmemory_kg_bidirectional() {
+        let mut kg = InMemoryKg::new();
+        kg.relate("alice", "bob", "coworker", 1.0).unwrap();
+
+        let edges_bob = kg.edges_for("bob");
+        assert_eq!(edges_bob.len(), 1);
+        assert_eq!(edges_bob[0].1, "alice");
+    }
+
+    #[test]
+    fn test_inmemory_kg_walk() {
+        let mut kg = InMemoryKg::new();
+        kg.relate("alice", "bob", "coworker", 1.0).unwrap();
+        kg.relate("bob", "charlie", "friend", 0.8).unwrap();
+
+        let walk = kg.walk("alice", 3);
+        assert!(walk.iter().any(|(_, v, _)| v == "bob"), "Should reach bob");
+        assert!(walk.iter().any(|(_, v, _)| v == "charlie"), "Should reach charlie");
+    }
+
+    #[test]
+    fn test_inmemory_kg_walk_depth_limit() {
+        let mut kg = InMemoryKg::new();
+        kg.relate("alice", "bob", "coworker", 1.0).unwrap();
+        kg.relate("bob", "charlie", "friend", 0.8).unwrap();
+
+        let walk = kg.walk("alice", 1); // depth 1 — only direct neighbors
+        assert!(walk.iter().any(|(_, v, _)| v == "bob"));
+        assert!(!walk.iter().any(|(_, v, _)| v == "charlie"), "Should NOT reach charlie at depth 1");
+    }
+
+    #[test]
+    fn test_inmemory_kg_edge_count() {
+        let mut kg = InMemoryKg::new();
+        assert_eq!(kg.edge_count(), 0);
+        kg.relate("a", "b", "rel", 1.0).unwrap();
+        kg.relate("b", "c", "rel2", 1.0).unwrap();
+        assert_eq!(kg.edge_count(), 2);
+    }
+
+    // ── SqliteStore ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_sqlite_memorize_and_recall() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_path_buf();
+        let mut store = SqliteStore::open(&path).unwrap();
+
+        store.memorize(MemoryEntry {
+            value: "hello world from sqlite".to_string(),
+            priority: 1.0,
+            timestamp: now(),
+            decay_rate: 0.01,
+            confidence: 1.0,
+            embedding: Vec::new(),
+        }).unwrap();
+
+        assert_eq!(store.count(), 1);
+
+        let result = store.recall("hello world", &[], 0.3);
+        assert!(result.is_some());
+        let (entry, _score) = result.unwrap();
+        assert_eq!(entry.value, "hello world from sqlite");
+    }
+
+    #[test]
+    fn test_sqlite_recall_empty() {
+        let tmp = NamedTempFile::new().unwrap();
+        let store = SqliteStore::open(tmp.path()).unwrap();
+        let result = store.recall("anything", &[], 0.3);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_sqlite_forget() {
+        let tmp = NamedTempFile::new().unwrap();
+        let mut store = SqliteStore::open(tmp.path()).unwrap();
+
+        let old_ts = now() - 100000;
+        store.memorize(MemoryEntry {
+            value: "old fact".to_string(),
+            priority: 1.0, timestamp: old_ts, decay_rate: 0.01, confidence: 1.0, embedding: Vec::new(),
+        }).unwrap();
+        store.memorize(MemoryEntry {
+            value: "new fact".to_string(),
+            priority: 1.0, timestamp: now(), decay_rate: 0.01, confidence: 1.0, embedding: Vec::new(),
+        }).unwrap();
+
+        assert_eq!(store.count(), 2);
+        store.forget("old fact", now());
+        assert_eq!(store.count(), 1);
+
+        let entries = store.all_entries();
+        assert_eq!(entries[0].value, "new fact");
+    }
+
+    #[test]
+    fn test_sqlite_decay() {
+        let tmp = NamedTempFile::new().unwrap();
+        let mut store = SqliteStore::open(tmp.path()).unwrap();
+
+        store.memorize(MemoryEntry {
+            value: "decaying fact".to_string(),
+            priority: 1.0,
+            timestamp: now() - 86400,
+            decay_rate: 0.1,
+            confidence: 1.0,
+            embedding: Vec::new(),
+        }).unwrap();
+
+        let count = store.decay();
+        assert!(count > 0);
+
+        let entries = store.all_entries();
+        assert!(entries[0].priority < 1.0);
+    }
+
+    #[test]
+    fn test_sqlite_embedding_roundtrip() {
+        let tmp = NamedTempFile::new().unwrap();
+        let mut store = SqliteStore::open(tmp.path()).unwrap();
+
+        let embedding = vec![0.1_f32, 0.2, 0.3, 0.4, 0.5];
+        store.memorize(MemoryEntry {
+            value: "embedded fact".to_string(),
+            priority: 1.0, timestamp: now(), decay_rate: 0.01, confidence: 1.0,
+            embedding: embedding.clone(),
+        }).unwrap();
+
+        let entries = store.all_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].embedding, embedding);
+    }
+
+    #[test]
+    fn test_sqlite_persistence_across_reopen() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_path_buf();
+
+        // First session: memorize
+        {
+            let mut store = SqliteStore::open(&path).unwrap();
+            store.memorize(MemoryEntry {
+                value: "persistent fact".to_string(),
+                priority: 0.9, timestamp: now(), decay_rate: 0.01, confidence: 0.9,
+                embedding: Vec::new(),
+            }).unwrap();
+            assert_eq!(store.count(), 1);
+        }
+
+        // Second session (simulates restart): recall
+        {
+            let store = SqliteStore::open(&path).unwrap();
+            assert_eq!(store.count(), 1, "Memory should persist across reopen");
+            let result = store.recall("persistent fact", &[], 0.3);
+            assert!(result.is_some(), "Should recall persisted fact after reopen");
+            let (entry, _) = result.unwrap();
+            assert_eq!(entry.value, "persistent fact");
+        }
+    }
+
+    // ── SqliteKg ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_sqlite_kg_relate_and_recall() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_path_buf();
+
+        let mut kg = SqliteKg::open(&path).unwrap();
+        kg.relate("alice", "bob", "coworker", 1.0).unwrap();
+
+        assert_eq!(kg.edge_count(), 1);
+        let edges = kg.edges_for("alice");
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].1, "bob");
+    }
+
+    #[test]
+    fn test_sqlite_kg_persistence_across_reopen() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_path_buf();
+
+        // First session: relate
+        {
+            let mut kg = SqliteKg::open(&path).unwrap();
+            kg.relate("node_a", "node_b", "related", 0.9).unwrap();
+            assert_eq!(kg.edge_count(), 1);
+        }
+
+        // Second session: recall relation
+        {
+            let kg = SqliteKg::open(&path).unwrap();
+            assert_eq!(kg.edge_count(), 1, "KG should persist across reopen");
+            let edges = kg.edges_for("node_a");
+            assert_eq!(edges.len(), 1);
+            assert_eq!(edges[0].0, "related");
+            assert_eq!(edges[0].1, "node_b");
+        }
+    }
+
+    #[test]
+    fn test_sqlite_kg_walk() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_path_buf();
+
+        let mut kg = SqliteKg::open(&path).unwrap();
+        kg.relate("alice", "bob", "coworker", 1.0).unwrap();
+        kg.relate("bob", "charlie", "friend", 0.8).unwrap();
+
+        let walk = kg.walk("alice", 3);
+        assert!(walk.iter().any(|(_, v, _)| v == "bob"));
+        assert!(walk.iter().any(|(_, v, _)| v == "charlie"));
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────
+
+    fn now() -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0)
+    }
+}

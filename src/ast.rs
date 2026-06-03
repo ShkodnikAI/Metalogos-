@@ -11,6 +11,8 @@ pub enum Declaration {
     Template(TemplateDecl),
     /// `db { url: ..., pool_size: 10 }` (Phase 6.3)
     Db(DbDecl),
+    /// `memory { persist: "./data/memory.db" }` (Phase 7.6)
+    Memory(MemoryDecl),
     /// `import std/string as str` or `import ./my_utils`
     Import(ImportDecl),
     /// `entity TypeName { field: Type = default, ... }`
@@ -81,6 +83,17 @@ pub struct DbDecl {
     pub url: Option<Expr>,
     pub pool_size: Option<u32>,
     pub migrate: Option<String>,
+}
+
+// ── Memory Config (Phase 7.6) ──────────────────────────────
+
+/// `memory { persist: "./data/memory.db" }`
+/// Without persist → in-memory stores (backward compatible).
+/// With persist → SQLite, auto-creates file and directories.
+#[derive(Debug, Clone)]
+pub struct MemoryDecl {
+    /// Path to SQLite database file. If None, uses in-memory stores.
+    pub persist: Option<String>,
 }
 
 // ── Import (Phase 5.4) ─────────────────────────────────────

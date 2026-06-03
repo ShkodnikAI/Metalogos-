@@ -42,3 +42,6 @@ zeroize = "1"
 
 # Phase 7.4: Real sessions & CSRF
 rusqlite = { version = "0.31", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile = "3"

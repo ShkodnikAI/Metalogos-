@@ -9,7 +9,7 @@ use zeroize::Zeroizing;
 use crate::ast::*;
 use crate::builtins::Builtins;
 use crate::embeddings::EmbeddingManager;
-use crate::memory_store::{MemoryEntry, MemoryStore, KgStore, InMemoryStore, InMemoryKg, SqliteStore};
+use crate::memory_store::{MemoryEntry, MemoryStore, KgStore, InMemoryStore, InMemoryKg, SqliteStore, SqliteKg};
 use crate::llm;
 
 /// A single variant inside a Fluid value (runtime). Contains a concrete
@@ -326,16 +326,17 @@ impl Interpreter {
                     self.memory = new_store;
 
                     // Migrate KG edges to SQLite (sharing the same DB file)
-                    // We open a separate connection for KG since we don't store the raw Connection
                     let existing_edges: Vec<(String, String, String, f64)> =
                         self.kg.all_edges();
-                    // Create a new InMemoryKg (we can't share SQLite connection easily)
-                    // In practice, for modules loaded after memory config, new relates will go to InMemoryKg
-                    // The initial migration of edges is handled here
-                    let _ = existing_edges; // edges are preserved in memory for the session
-                    // Note: Full SQLite KG requires connection sharing, which is handled
-                    // by the server.rs init path. For interpreter-only mode, KG stays in-memory
-                    // while memories go to SQLite.
+                    if let Ok(sqlite_kg) = SqliteKg::open(&db_path) {
+                        let mut new_kg: Box<dyn KgStore> = Box::new(sqlite_kg);
+                        for (from, to, relation, weight) in existing_edges {
+                            let _ = new_kg.relate(&from, &to, &relation, weight);
+                        }
+                        self.kg = new_kg;
+                    } else {
+                        eprintln!("[memory] KG migration to SQLite failed; keeping in-memory KG");
+                    }
                     eprintln!("[memory] Persistence enabled: {}", path);
                 }
                 Err(e) => {
@@ -383,6 +384,7 @@ impl Interpreter {
                         .unwrap_or(0);
                     let embedding = self.embedding_manager.embed(&value_str).unwrap_or_default();
                     let _ = self.memory.memorize(MemoryEntry {
+                        id: None,
                         value: value_str,
                         priority: m.priority,
                         timestamp: now,
@@ -620,6 +622,7 @@ impl Interpreter {
                         .unwrap_or(0);
                     let embedding = self.embedding_manager.embed(&value_str).unwrap_or_default();
                     let _ = self.memory.memorize(MemoryEntry {
+                        id: None,
                         value: value_str,
                         priority: m.priority,
                         timestamp: now,

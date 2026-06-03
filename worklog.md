@@ -85,3 +85,30 @@ Stage Summary:
 - Key discovery: rusqlite::Connection must use tokio::sync::Mutex (not std::sync::Mutex) for axum Handler
 - Files changed: Cargo.toml, src/server.rs, docs/adr/0039-real-auth.md
 - Total: 631 insertions, 125 deletions
+---
+Task ID: 1
+Agent: main
+Task: Phase 7.2 — Real embeddings and vector recall
+
+Work Log:
+- Read existing codebase: interpreter.rs, builtins.rs, server.rs, llm.rs, Cargo.toml, grammar.pest
+- Created src/embeddings.rs with EmbeddingBackend trait, OpenAI implementation, TF-IDF fallback
+- Added embeddings module to lib.rs
+- Updated MemoryEntry to include embedding: Vec<f32> field
+- Updated Interpreter struct with embedding_manager: EmbeddingManager
+- Updated both Memorize handlers (run() and load_module_inner()) to compute embeddings during memorize
+- Rewrote invoke_recall to use cosine similarity on embedding vectors with fallback to substring match
+- Fixed TF-IDF IDF formula to use smooth IDF: log((N+1)/(df+1)) + 1 (never zero)
+- Made TfidfEmbedding thread-safe via Mutex<TfidfInner> interior mutability
+- Removed "recall" from step_ident blacklist in grammar.pest
+- Created 17 contract tests in tests/phase72_contract.rs (all passing)
+- Created ADR docs/adr/0040-real-embeddings.md
+- Committed as dddf2bd, pushed to origin/main
+
+Stage Summary:
+- 17/17 Phase 7.2 contract tests passing
+- 78 total tests passing (4 pre-existing semantic failures unchanged)
+- EmbeddingBackend trait with OpenAI + TF-IDF fallback
+- Recall uses cosine similarity (score = sim × priority × decay, threshold 0.3)
+- Grammar change: recall usable as flow step
+

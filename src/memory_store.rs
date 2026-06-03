@@ -20,6 +20,8 @@ use std::path::Path;
 /// A single memory entry: stored fact with priority, timestamp, decay, and embedding.
 #[derive(Debug, Clone)]
 pub struct MemoryEntry {
+    /// Database row ID (None for in-memory entries).
+    pub id: Option<i64>,
     /// The stored value (string content of the fact).
     pub value: String,
     /// Priority/confidence at time of memorization (0.0..1.0).
@@ -276,6 +278,34 @@ pub struct SqliteStore {
 }
 
 impl SqliteStore {
+    /// Load all entries with their row IDs (for decay update).
+    fn load_all(conn: &rusqlite::Connection) -> Result<Vec<MemoryEntry>, String> {
+        let mut stmt = conn.prepare(
+            "SELECT id, value, priority, confidence, decay_rate, created_at, embedding FROM memories"
+        ).map_err(|e| format!("Load all failed: {}", e))?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(MemoryEntry {
+                id: Some(row.get(0)?),
+                value: row.get(1)?,
+                priority: row.get(2)?,
+                confidence: row.get(3)?,
+                decay_rate: row.get(4)?,
+                timestamp: row.get(5)?,
+                embedding: Self::blob_to_embedding(&row.get::<_, Vec<u8>>(6).unwrap_or_default()),
+            })
+        }).map_err(|e| format!("Load all query failed: {}", e))?;
+
+        let mut entries = Vec::new();
+        for row in rows {
+            match row {
+                Ok(e) => entries.push(e),
+                Err(_) => continue,
+            }
+        }
+        Ok(entries)
+    }
+
     /// Open a SQLite memory store from a file path. Creates tables if needed.
     pub fn open(path: &Path) -> Result<Self, String> {
         // Create parent directories if needed
@@ -401,6 +431,7 @@ impl MemoryStore for SqliteStore {
             if score > best_score && score >= min_confidence {
                 best_score = score;
                 best_match = Some(MemoryEntry {
+                    id: None,
                     value,
                     priority,
                     timestamp,
@@ -436,10 +467,27 @@ impl MemoryStore for SqliteStore {
             Err(_) => return 0,
         };
 
-        conn.execute(
-            "UPDATE memories SET priority = priority * exp(-decay_rate * ((?1 - created_at) / 86400.0))",
-            rusqlite::params![now],
-        ).unwrap_or(0)
+        // Load all entries, compute decay in Rust, UPDATE individually.
+        // We avoid relying on SQLite's exp() which may not be compiled in.
+        let entries = match Self::load_all(&conn) {
+            Ok(e) => e,
+            Err(_) => return 0,
+        };
+
+        let mut count = 0;
+        for mut entry in entries {
+            let age_days = ((now - entry.timestamp).max(0) as f64) / 86400.0;
+            let new_priority = entry.priority * (-entry.decay_rate * age_days).exp();
+            if (new_priority - entry.priority).abs() > 1e-10 {
+                entry.priority = new_priority;
+                let _ = conn.execute(
+                    "UPDATE memories SET priority = ?1 WHERE id = ?2",
+                    rusqlite::params![new_priority, entry.id],
+                );
+                count += 1;
+            }
+        }
+        count
     }
 
     fn all_entries(&self) -> Vec<MemoryEntry> {
@@ -471,6 +519,7 @@ impl MemoryStore for SqliteStore {
                     match row_result {
                         Ok((value, priority, confidence, decay_rate, timestamp, blob)) => {
                             entries.push(MemoryEntry {
+                                id: None,
                                 value,
                                 priority,
                                 timestamp,
@@ -712,73 +761,77 @@ impl SqliteKg {
             return;
         }
 
-        let conn = match self.conn.lock() {
-            Ok(c) => c,
-            Err(_) => return,
-        };
+        // Collect neighbors in a scoped block so the Mutex lock is released before recursing.
+        // std::sync::Mutex is not reentrant — holding the lock while recursing causes deadlock.
+        let to_visit: Vec<(String, String, f64)> = {
+            let conn = match self.conn.lock() {
+                Ok(c) => c,
+                Err(_) => return,
+            };
 
-        let node_id = match conn.query_row(
-            "SELECT id FROM kg_nodes WHERE value = ?1",
-            rusqlite::params![current],
-            |row| row.get::<_, i64>(0),
-        ) {
-            Ok(id) => id,
-            Err(_) => return,
-        };
+            let node_id = match conn.query_row(
+                "SELECT id FROM kg_nodes WHERE value = ?1",
+                rusqlite::params![current],
+                |row| row.get::<_, i64>(0),
+            ) {
+                Ok(id) => id,
+                Err(_) => return,
+            };
 
-        // Collect neighbors from edges
-        let mut neighbors: Vec<(String, f64, String)> = Vec::new();
+            let mut neighbors: Vec<(String, f64, String)> = Vec::new();
 
-        let mut stmt_out = match conn.prepare(
-            "SELECT e.relation, e.weight, n.value FROM kg_edges e
-             JOIN kg_nodes n ON e.to_id = n.id WHERE e.from_id = ?1"
-        ) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-
-        match stmt_out.query_map(rusqlite::params![node_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?, row.get::<_, String>(2)?))
-        }) {
-            Ok(mapped_rows) => {
-                for row_result in mapped_rows {
-                    match row_result {
-                        Ok(r) => { neighbors.push(r); }
-                        Err(_) => continue,
+            // Outgoing edges
+            {
+                let mut stmt = match conn.prepare(
+                    "SELECT e.relation, e.weight, n.value FROM kg_edges e
+                     JOIN kg_nodes n ON e.to_id = n.id WHERE e.from_id = ?1"
+                ) {
+                    Ok(s) => s,
+                    Err(_) => return,
+                };
+                let _ = stmt.query_map(rusqlite::params![node_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?, row.get::<_, String>(2)?))
+                }).map(|rows| {
+                    for row_result in rows {
+                        if let Ok(r) = row_result { neighbors.push(r); }
                     }
+                });
+            } // stmt dropped here
+
+            // Incoming edges
+            {
+                let mut stmt = match conn.prepare(
+                    "SELECT e.relation, e.weight, n.value FROM kg_edges e
+                     JOIN kg_nodes n ON e.from_id = n.id WHERE e.to_id = ?1"
+                ) {
+                    Ok(s) => s,
+                    Err(_) => return,
+                };
+                let _ = stmt.query_map(rusqlite::params![node_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?, row.get::<_, String>(2)?))
+                }).map(|rows| {
+                    for row_result in rows {
+                        if let Ok(r) = row_result { neighbors.push(r); }
+                    }
+                });
+            } // stmt dropped here
+
+            // conn (MutexGuard) dropped here when this block ends
+
+            let mut to_visit = Vec::new();
+            for (relation, weight, neighbor) in neighbors {
+                if !visited.contains(&neighbor) {
+                    visited.insert(neighbor.clone());
+                    result.push((relation.clone(), neighbor.clone(), weight));
+                    to_visit.push((relation, neighbor, weight));
                 }
             }
-            Err(_) => {}
-        }
+            to_visit
+        }; // conn lock released here
 
-        let mut stmt_in = match conn.prepare(
-            "SELECT e.relation, e.weight, n.value FROM kg_edges e
-             JOIN kg_nodes n ON e.from_id = n.id WHERE e.to_id = ?1"
-        ) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-
-        match stmt_in.query_map(rusqlite::params![node_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?, row.get::<_, String>(2)?))
-        }) {
-            Ok(mapped_rows) => {
-                for row_result in mapped_rows {
-                    match row_result {
-                        Ok(r) => { neighbors.push(r); }
-                        Err(_) => continue,
-                    }
-                }
-            }
-            Err(_) => {}
-        }
-
-        for (relation, weight, neighbor) in neighbors {
-            if !visited.contains(&neighbor) {
-                visited.insert(neighbor.clone());
-                result.push((relation, neighbor.clone(), weight));
-                self.walk_recursive(&neighbor, max_depth, depth + 1, visited, result);
-            }
+        // Recurse after lock is released
+        for (_, neighbor, _) in to_visit {
+            self.walk_recursive(&neighbor, max_depth, depth + 1, visited, result);
         }
     }
 }
@@ -796,6 +849,7 @@ mod tests {
     fn test_inmemory_memorize_and_recall() {
         let mut store = InMemoryStore::new();
         store.memorize(MemoryEntry {
+            id: None,
             value: "the cat sat on the mat".to_string(),
             priority: 1.0,
             timestamp: now(),
@@ -823,6 +877,7 @@ mod tests {
         let mut store = InMemoryStore::new();
         let old_ts = now() - 100000; // old entry
         store.memorize(MemoryEntry {
+            id: None,
             value: "old fact".to_string(),
             priority: 1.0,
             timestamp: old_ts,
@@ -840,6 +895,7 @@ mod tests {
     fn test_inmemory_decay() {
         let mut store = InMemoryStore::new();
         store.memorize(MemoryEntry {
+            id: None,
             value: "test".to_string(),
             priority: 1.0,
             timestamp: now() - 86400, // 1 day ago
@@ -860,10 +916,12 @@ mod tests {
         let mut store = InMemoryStore::new();
         assert_eq!(store.count(), 0);
         store.memorize(MemoryEntry {
+            id: None,
             value: "a".to_string(),
             priority: 1.0, timestamp: now(), decay_rate: 0.01, confidence: 1.0, embedding: Vec::new(),
         }).unwrap();
         store.memorize(MemoryEntry {
+            id: None,
             value: "b".to_string(),
             priority: 1.0, timestamp: now(), decay_rate: 0.01, confidence: 1.0, embedding: Vec::new(),
         }).unwrap();
@@ -933,6 +991,7 @@ mod tests {
         let mut store = SqliteStore::open(&path).unwrap();
 
         store.memorize(MemoryEntry {
+            id: None,
             value: "hello world from sqlite".to_string(),
             priority: 1.0,
             timestamp: now(),
@@ -964,10 +1023,12 @@ mod tests {
 
         let old_ts = now() - 100000;
         store.memorize(MemoryEntry {
+            id: None,
             value: "old fact".to_string(),
             priority: 1.0, timestamp: old_ts, decay_rate: 0.01, confidence: 1.0, embedding: Vec::new(),
         }).unwrap();
         store.memorize(MemoryEntry {
+            id: None,
             value: "new fact".to_string(),
             priority: 1.0, timestamp: now(), decay_rate: 0.01, confidence: 1.0, embedding: Vec::new(),
         }).unwrap();
@@ -986,6 +1047,7 @@ mod tests {
         let mut store = SqliteStore::open(tmp.path()).unwrap();
 
         store.memorize(MemoryEntry {
+            id: None,
             value: "decaying fact".to_string(),
             priority: 1.0,
             timestamp: now() - 86400,
@@ -1008,6 +1070,7 @@ mod tests {
 
         let embedding = vec![0.1_f32, 0.2, 0.3, 0.4, 0.5];
         store.memorize(MemoryEntry {
+            id: None,
             value: "embedded fact".to_string(),
             priority: 1.0, timestamp: now(), decay_rate: 0.01, confidence: 1.0,
             embedding: embedding.clone(),
@@ -1027,6 +1090,7 @@ mod tests {
         {
             let mut store = SqliteStore::open(&path).unwrap();
             store.memorize(MemoryEntry {
+                id: None,
                 value: "persistent fact".to_string(),
                 priority: 0.9, timestamp: now(), decay_rate: 0.01, confidence: 0.9,
                 embedding: Vec::new(),

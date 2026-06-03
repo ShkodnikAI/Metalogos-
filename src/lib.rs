@@ -5,6 +5,7 @@ pub mod ast;
 pub mod bytecode;
 pub mod builtins;
 pub mod compiler;
+pub mod embeddings;
 pub mod interpreter;
 pub mod llm;
 pub mod parser;

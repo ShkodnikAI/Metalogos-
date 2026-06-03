@@ -8,6 +8,7 @@ use zeroize::Zeroizing;
 
 use crate::ast::*;
 use crate::builtins::Builtins;
+use crate::embeddings::{EmbeddingManager, cosine_similarity};
 use crate::llm;
 
 /// A single variant inside a Fluid value (runtime). Contains a concrete
@@ -229,7 +230,7 @@ struct StructType {
     fields: Vec<FieldDecl>,
 }
 
-/// A memory entry: stored fact with priority and timestamp for decay.
+/// A memory entry: stored fact with priority, timestamp, decay, and embedding vector.
 #[derive(Debug, Clone)]
 struct MemoryEntry {
     /// The stored value (string content of the fact).
@@ -240,6 +241,9 @@ struct MemoryEntry {
     timestamp: i64,
     /// Decay rate per day (0.0 = no decay, 0.01 = slow, 0.1 = fast).
     decay_rate: f64,
+    /// Embedding vector for semantic recall (Phase 7.2).
+    /// Populated during memorize for cosine similarity search.
+    embedding: Vec<f32>,
 }
 
 /// A knowledge graph relation edge.
@@ -293,6 +297,8 @@ pub struct Interpreter {
     audit_log: Vec<String>,
     /// Server config (Phase 6.1)
     server_config: Option<MlogServerDecl>,
+    /// Embedding manager for semantic recall (Phase 7.2).
+    embedding_manager: EmbeddingManager,
 }
 
 impl Interpreter {
@@ -317,6 +323,7 @@ impl Interpreter {
             db_store: Vec::new(),
             audit_log: Vec::new(),
             server_config: None,
+            embedding_manager: EmbeddingManager::new(),
         }
     }
 
@@ -360,11 +367,14 @@ impl Interpreter {
                         .duration_since(UNIX_EPOCH)
                         .map(|d| d.as_secs() as i64)
                         .unwrap_or(0);
+                    // Phase 7.2: compute embedding for semantic recall
+                    let embedding = self.embedding_manager.embed(&value_str).unwrap_or_default();
                     self.memory.push(MemoryEntry {
                         value: value_str,
                         priority: m.priority,
                         timestamp: now,
                         decay_rate: 0.01, // Default: slow decay
+                        embedding,
                     });
                 }
                 Declaration::Forget(f) => {
@@ -597,11 +607,13 @@ impl Interpreter {
                         .duration_since(UNIX_EPOCH)
                         .map(|d| d.as_secs() as i64)
                         .unwrap_or(0);
+                    let embedding = self.embedding_manager.embed(&value_str).unwrap_or_default();
                     self.memory.push(MemoryEntry {
                         value: value_str,
                         priority: m.priority,
                         timestamp: now,
                         decay_rate: 0.01,
+                        embedding,
                     });
                 }
                 Declaration::Forget(f) => {
@@ -891,8 +903,10 @@ impl Interpreter {
         }
     }
 
-    /// Recall from memory: find best matching entry by substring similarity + decay.
-    /// Returns the highest-activation entry matching the query.
+    /// Recall from memory: find best matching entry using embeddings + decay.
+    /// Phase 7.2: Uses cosine similarity on embedding vectors (semantic search).
+    /// Falls back to substring match if embeddings are unavailable (empty vectors).
+    /// Returns the highest-activation entry above the min_confidence threshold.
     fn invoke_recall(&self, args: Vec<Value>) -> Result<Value, String> {
         if args.is_empty() {
             return Err("recall() requires at least 1 argument (query string)".to_string());
@@ -904,9 +918,9 @@ impl Interpreter {
         };
 
         let min_confidence = if args.len() > 1 {
-            args[1].as_float().unwrap_or(0.0)
+            args[1].as_float().unwrap_or(0.3) as f32 // Phase 7.2: default 0.3
         } else {
-            0.0
+            0.3 // Phase 7.2: default threshold raised from 0.0 to 0.3
         };
 
         let now = SystemTime::now()
@@ -914,22 +928,34 @@ impl Interpreter {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        // Find best matching entry: substring match + highest activation after decay
+        // Embed the query for semantic search
+        let query_embedding = self.embedding_manager.embed(&query).unwrap_or_default();
+
+        // Find best matching entry using cosine similarity + decay
         let mut best_match: Option<&MemoryEntry> = None;
-        let mut best_activation: f64 = 0.0;
+        let mut best_score: f32 = 0.0;
 
         for entry in &self.memory {
-            // Substring similarity check
-            if !entry.value.contains(&query) {
-                continue;
-            }
+            let semantic_sim = if !query_embedding.is_empty() && !entry.embedding.is_empty() {
+                cosine_similarity(&query_embedding, &entry.embedding)
+            } else {
+                // Fallback: substring match (Phase 7.1 behavior)
+                if entry.value.contains(&query) {
+                    1.0 // Exact substring match → full similarity
+                } else {
+                    continue; // No match at all, skip
+                }
+            };
 
             // Apply decay: activation = priority * exp(-decay_rate * age_in_days)
             let age_days = ((now - entry.timestamp).max(0) as f64) / 86400.0;
-            let activation = entry.priority * (-entry.decay_rate * age_days).exp();
+            let decay = (-entry.decay_rate * age_days).exp() as f32;
 
-            if activation > best_activation && activation >= min_confidence {
-                best_activation = activation;
+            // Final score = semantic similarity * priority * decay
+            let score = semantic_sim * (entry.priority as f32) * decay;
+
+            if score > best_score && score >= min_confidence {
+                best_score = score;
                 best_match = Some(entry);
             }
         }

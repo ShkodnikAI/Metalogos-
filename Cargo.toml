@@ -39,3 +39,6 @@ reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"], def
 # Phase 7.3: Real encryption
 argon2 = "0.5"
 zeroize = "1"
+
+# Phase 7.4: Real sessions & CSRF
+rusqlite = { version = "0.31", features = ["bundled"] }

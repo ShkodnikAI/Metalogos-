@@ -474,7 +474,17 @@ pub fn init_session_db(conn: &rusqlite::Connection) -> Result<(), rusqlite::Erro
             created_at INTEGER NOT NULL,
             expires_at INTEGER NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);"
+        CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+        -- Phase 7.5: Audit log table for interpreter audit entries
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            pattern TEXT,
+            result TEXT,
+            sandbox TEXT
+        );"
     )?;
     Ok(())
 }
@@ -571,7 +581,7 @@ pub fn make_session_cookie_value(session_id: &str, signed: bool, hmac_key: &[u8]
 // ── Route Body Execution ────────────────────────────────────────────
 
 async fn execute_route_body(
-    _state: &ServerState,
+    state: &ServerState,
     body_stmts: &[Statement],
     _headers: &HeaderMap,
     raw_body: &bytes::Bytes,
@@ -627,6 +637,8 @@ async fn execute_route_body(
             }
             Statement::Return(expr) => {
                 let val = interp.eval_expr_with_env(expr, &env)?;
+                // Phase 7.5: Flush interpreter audit entries to SQLite
+                flush_audit_to_db(state, &mut interp).await;
                 return Ok(value_to_response(val));
             }
             _ => {
@@ -635,7 +647,73 @@ async fn execute_route_body(
         }
     }
 
+    // Phase 7.5: Flush interpreter audit entries to SQLite before response
+    flush_audit_to_db(state, &mut interp).await;
+
     Ok((StatusCode::OK, "OK").into_response())
+}
+
+/// Phase 7.5: Write interpreter audit entries to the SQLite audit_log table.
+async fn flush_audit_to_db(state: &ServerState, interp: &mut Interpreter) {
+    let entries = interp.take_audit_log();
+    if entries.is_empty() {
+        return;
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    // Get active sandbox name for context
+    let sandbox_name = interp.get_active_sandbox().map(|sb| sb.name.clone());
+
+    let conn = state.db.lock().await;
+    for entry in &entries {
+        // Parse entry to extract action and pattern name
+        let (action, pattern, result) = parse_audit_entry(entry);
+        let _ = conn.execute(
+            "INSERT INTO audit_log (timestamp, action, pattern, result, sandbox) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![now, action, pattern, result, sandbox_name.as_deref().unwrap_or("")],
+        );
+    }
+    // Also append to in-memory audit log for backward compatibility
+    {
+        let mut log = state.audit_log.write().await;
+        for entry in &entries {
+            log.push(entry.clone());
+        }
+    }
+}
+
+/// Parse an audit entry string into (action, pattern, result) components.
+/// Format: "[AUDIT] adapt PatternName: input -> output"
+///         "[AUDIT] mutate PatternName: N examples, accuracy=X"
+///         "[AUDIT] unsafe_html: rendered template 'name'"
+fn parse_audit_entry(entry: &str) -> (String, Option<String>, Option<String>) {
+    if let Some(rest) = entry.strip_prefix("[AUDIT] ") {
+        let parts: Vec<&str> = rest.splitn(2, ' ').collect();
+        let action = parts[0].to_string();
+        let detail = if parts.len() > 1 { Some(parts[1].to_string()) } else { None };
+
+        match action.as_str() {
+            "adapt" | "mutate" => {
+                // Extract pattern name (first word of detail)
+                let pattern = detail.as_ref().and_then(|d| d.split(':').next()).map(|s| s.trim().to_string());
+                let result = detail.as_ref().and_then(|d| {
+                    d.splitn(2, ':').nth(1).map(|s| s.trim().to_string())
+                });
+                (action, pattern, result)
+            }
+            "unsafe_html" => {
+                let pattern = detail.as_ref().and_then(|d| d.split('\'').nth(1)).map(|s| s.to_string());
+                (action, pattern, None)
+            }
+            _ => (action, None, None),
+        }
+    } else {
+        ("unknown".to_string(), None, None)
+    }
 }
 
 fn value_to_response(val: Value) -> Response {

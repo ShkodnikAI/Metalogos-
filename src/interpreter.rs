@@ -3,6 +3,7 @@
 // M2: struct entities, rules, branching flow, comparisons
 
 use std::collections::HashMap;
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zeroize::Zeroizing;
 
@@ -255,6 +256,9 @@ pub struct Interpreter {
     kg: Box<dyn KgStore>,
     /// Sandbox declarations (recorded but not enforced).
     sandboxes: HashMap<String, SandboxDecl>,
+    /// Active sandbox enforcement (Phase 7.5): clone of the current sandbox config.
+    /// When Some, iteration limits are reduced and network/timeout checks apply.
+    active_sandbox: Option<SandboxDecl>,
     /// Mutate status log messages.
     mutate_log: Vec<String>,
     /// Module namespaces: alias -> path (for qualified call resolution).
@@ -269,8 +273,8 @@ pub struct Interpreter {
     db_config: Option<DbDecl>,
     /// Mock DB store (Phase 6.3)
     db_store: Vec<HashMap<String, Value>>,
-    /// Audit log (Phase 6.5)
-    audit_log: Vec<String>,
+    /// Audit log (Phase 7.5): uses Mutex for interior mutability + Send/Sync.
+    audit_log: Mutex<Vec<String>>,
     /// Server config (Phase 6.1)
     server_config: Option<MlogServerDecl>,
     /// Embedding manager for semantic recall (Phase 7.2).
@@ -290,6 +294,7 @@ impl Interpreter {
             memory: Box::new(InMemoryStore::new()),
             kg: Box::new(InMemoryKg::new()),
             sandboxes: HashMap::new(),
+            active_sandbox: None,
             mutate_log: Vec::new(),
             module_namespaces: HashMap::new(),
             loading_stack: Vec::new(),
@@ -297,7 +302,7 @@ impl Interpreter {
             templates: HashMap::new(),
             db_config: None,
             db_store: Vec::new(),
-            audit_log: Vec::new(),
+            audit_log: Mutex::new(Vec::new()),
             server_config: None,
             embedding_manager: EmbeddingManager::new(),
         }
@@ -306,6 +311,30 @@ impl Interpreter {
     /// Set the base directory for resolving relative imports.
     pub fn set_base_dir(&mut self, dir: std::path::PathBuf) {
         self.base_dir = dir;
+    }
+
+    /// Activate a sandbox for enforcement (Phase 7.5).
+    /// When a sandbox is active, iteration limits are reduced to 10,000,
+    /// network access is blocked if "network" is in the forbidden list,
+    /// and LLM calls are subject to the sandbox timeout.
+    pub fn set_active_sandbox(&mut self, sandbox: SandboxDecl) {
+        self.active_sandbox = Some(sandbox);
+    }
+
+    /// Deactivate the current sandbox, restoring normal limits.
+    pub fn clear_active_sandbox(&mut self) {
+        self.active_sandbox = None;
+    }
+
+    /// Get a reference to the active sandbox (if any).
+    pub fn get_active_sandbox(&self) -> Option<&SandboxDecl> {
+        self.active_sandbox.as_ref()
+    }
+
+    /// Push an audit log entry (Phase 7.5).
+    /// Uses Mutex for interior mutability so it can be called from `&self` methods.
+    pub fn push_audit(&self, entry: String) {
+        self.audit_log.lock().unwrap().push(entry);
     }
 
     /// Configure memory persistence (Phase 7.6).
@@ -434,10 +463,15 @@ impl Interpreter {
                         other => format!("{}", other),
                     };
                     if let Some(learnable) = self.learnable_patterns.get_mut(&a.pattern_name) {
-                        learnable.few_shot.push((input_str, output_str));
+                        learnable.few_shot.push((input_str.clone(), output_str.clone()));
                     } else {
                         return Err(format!("adapt: learnable pattern '{}' not found", a.pattern_name));
                     }
+                    // Phase 7.5: Audit log for adapt operations
+                    self.push_audit(format!(
+                        "[AUDIT] adapt {}: {} -> {}",
+                        a.pattern_name, input_str, output_str
+                    ));
                 }
                 Declaration::Fluid(fl) => {
                     let mut variants = Vec::new();
@@ -874,9 +908,31 @@ impl Interpreter {
             }
         }
 
+        // Phase 7.5: Sandbox enforcement — network isolation
+        if let Some(ref sb) = self.active_sandbox {
+            if sb.forbidden.iter().any(|f| f == "network") {
+                return Err(format!(
+                    "network access forbidden in sandbox '{}'",
+                    sb.name
+                ));
+            }
+        }
+
         // No few-shot match — call LLM backend
+        let start = SystemTime::now();
         let backend = llm::create_llm_backend();
         let response = backend.call(&learnable.prompt, &input)?;
+
+        // Phase 7.5: Sandbox enforcement — timeout check
+        if let Some(ref sb) = self.active_sandbox {
+            let elapsed = start.elapsed().unwrap_or_default();
+            if sb.timeout > 0 && elapsed.as_secs() >= sb.timeout as u64 {
+                return Err(format!(
+                    "operation timed out in sandbox '{}'",
+                    sb.name
+                ));
+            }
+        }
 
         // Try to parse JSON response into Value::Struct
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response) {
@@ -1022,6 +1078,8 @@ impl Interpreter {
             evaluated_examples.push((input_str, output_str));
         }
 
+        let num_examples = evaluated_examples.len();
+
         // Now borrow the learnable pattern mutably
         let learnable = self.learnable_patterns.get_mut(&m.pattern_name)
             .ok_or_else(|| format!("mutate: learnable pattern '{}' not found", m.pattern_name))?;
@@ -1051,15 +1109,29 @@ impl Interpreter {
 
         if kept {
             // Keep the new examples (already in place)
-            Ok(format!("[MUTATE] {}: accuracy={}, kept (>= {:.1})",
+            let msg = Ok(format!("[MUTATE] {}: accuracy={}, kept (>= {:.1})",
                 m.pattern_name, accuracy,
-                m.rollback_threshold.unwrap_or(0.0)))
+                m.rollback_threshold.unwrap_or(0.0)));
+            // Phase 7.5: Audit log for mutate operations (after releasing mutable borrow)
+            self.push_audit(format!(
+                "[AUDIT] mutate {}: {} examples, accuracy={}",
+                m.pattern_name, num_examples, accuracy
+            ));
+            msg
         } else {
             // Rollback: restore original few-shot
+            let learnable = self.learnable_patterns.get_mut(&m.pattern_name)
+                .ok_or_else(|| format!("mutate: learnable pattern '{}' not found", m.pattern_name))?;
             learnable.few_shot = original_few_shot;
-            Ok(format!("[MUTATE] {}: accuracy={}, rolled back (below {:.1})",
+            let msg = Ok(format!("[MUTATE] {}: accuracy={}, rolled back (below {:.1})",
                 m.pattern_name, accuracy,
-                m.rollback_threshold.unwrap_or(0.0)))
+                m.rollback_threshold.unwrap_or(0.0)));
+            // Phase 7.5: Audit log for mutate operations (rolled back)
+            self.push_audit(format!(
+                "[AUDIT] mutate {}: {} examples, accuracy={} (rolled back)",
+                m.pattern_name, num_examples, accuracy
+            ));
+            msg
         }
     }
 
@@ -1070,7 +1142,7 @@ impl Interpreter {
 
     /// Take the audit log messages (consuming them).
     pub fn take_audit_log(&mut self) -> Vec<String> {
-        std::mem::take(&mut self.audit_log)
+        self.audit_log.get_mut().unwrap().drain(..).collect()
     }
 
     /// Get the server configuration (Phase 6.1).
@@ -1085,12 +1157,21 @@ impl Interpreter {
 
     /// Safety limit for while loops (soft-failure on exceed).
     const WHILE_SAFETY_LIMIT: u64 = 100_000;
+    /// Phase 7.5: Sandbox iteration limit (10,000 for both while and each).
+    const SANDBOX_ITER_LIMIT: u64 = 10_000;
 
     pub(crate) fn eval_statements(
         &self,
         stmts: &[Statement],
         env: &mut HashMap<String, Value>,
     ) -> Result<Value, String> {
+        // Phase 7.5: Determine iteration limit based on active sandbox
+        let iter_limit = if self.active_sandbox.is_some() {
+            Self::SANDBOX_ITER_LIMIT
+        } else {
+            Self::WHILE_SAFETY_LIMIT
+        };
+
         for stmt in stmts {
             match stmt {
                 Statement::LetBinding { name, value } => {
@@ -1114,7 +1195,21 @@ impl Interpreter {
                             other.type_name()
                         )),
                     };
-                    for item in items {
+                    // Phase 7.5: Enforce sandbox iteration limit for each loops
+                    if self.active_sandbox.is_some() && (items.len() as u64) > iter_limit {
+                        return Err(format!(
+                            "iteration limit exceeded in sandbox: each loop has {} items (limit {})",
+                            items.len(), iter_limit
+                        ));
+                    }
+                    for (idx, item) in items.into_iter().enumerate() {
+                        // Phase 7.5: Check sandbox iteration limit during each
+                        if self.active_sandbox.is_some() && (idx as u64) >= iter_limit {
+                            return Err(format!(
+                                "iteration limit exceeded in sandbox: each loop exceeded {} iterations",
+                                iter_limit
+                            ));
+                        }
                         env.insert(variable.clone(), item);
                         let result = self.eval_statements(body, env)?;
                         // If body returned a non-Unit value, propagate as early return
@@ -1126,11 +1221,19 @@ impl Interpreter {
                 Statement::While { condition, body } => {
                     let mut iterations: u64 = 0;
                     loop {
-                        if iterations >= Self::WHILE_SAFETY_LIMIT {
-                            return Err(format!(
-                                "while loop exceeded safety limit of {} iterations",
-                                Self::WHILE_SAFETY_LIMIT
-                            ));
+                        // Phase 7.5: Use sandbox-aware iteration limit
+                        if iterations >= iter_limit {
+                            if self.active_sandbox.is_some() {
+                                return Err(format!(
+                                    "iteration limit exceeded in sandbox: while loop exceeded {} iterations",
+                                    iter_limit
+                                ));
+                            } else {
+                                return Err(format!(
+                                    "while loop exceeded safety limit of {} iterations",
+                                    Self::WHILE_SAFETY_LIMIT
+                                ));
+                            }
                         }
                         let cond_val = self.eval_expr_with_env(condition, env)?;
                         if !cond_val.as_bool()? {
@@ -1239,7 +1342,20 @@ impl Interpreter {
 
                 // Check builtins
                 if let Some(builtin_fn) = self.builtins.get(name) {
-                    return builtin_fn(&eval_args);
+                    let result = builtin_fn(&eval_args);
+                    // Phase 7.5: Audit log for unsafe_html rendering
+                    if name == "render" {
+                        if let Ok(Value::Html(_)) = &result {
+                            let template_name = eval_args.first()
+                                .map(|a| format!("{}", a))
+                                .unwrap_or_else(|| "unknown".to_string());
+                            self.push_audit(format!(
+                                "[AUDIT] unsafe_html: rendered template '{}'",
+                                template_name
+                            ));
+                        }
+                    }
+                    return result;
                 }
 
                 // Look up compiled pattern

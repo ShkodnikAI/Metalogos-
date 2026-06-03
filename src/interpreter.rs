@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
+use zeroize::Zeroizing;
 
 use crate::ast::*;
 use crate::builtins::Builtins;
@@ -16,6 +17,41 @@ pub struct FluidValueVariant {
     pub type_name: String,
     pub value: Value,
     pub confidence: f64,
+}
+
+/// Opaque secret string with automatic memory zeroing on drop (Phase 7.3).
+/// Implements serde by serializing as "[SECRET]" marker — actual value is NEVER persisted.
+#[derive(Clone, Debug)]
+pub struct SecretString(pub Zeroizing<String>);
+
+impl serde::Serialize for SecretString {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        // Never serialize the actual secret — emit a safe marker
+        s.serialize_str("[SECRET]")
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for SecretString {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let inner = String::deserialize(d)?;
+        Ok(SecretString(Zeroizing::new(inner)))
+    }
+}
+
+impl std::ops::Deref for SecretString {
+    type Target = String;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl SecretString {
+    pub fn new(s: String) -> Self {
+        SecretString(Zeroizing::new(s))
+    }
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
 }
 
 /// Runtime value.
@@ -38,8 +74,9 @@ pub enum Value {
     Html(String),
     /// Opaque SQL query (Phase 6.3) — only created via query() builtin
     Query(String),
-    /// Opaque secret value (Phase 6.4) — cannot be printed or converted to String
-    Secret(String),
+    /// Opaque secret value (Phase 6.4) — cannot be printed or converted to String.
+    /// Phase 7.3: Internally uses SecretString (Zeroizing<String>) — memory is zeroed on drop.
+    Secret(SecretString),
     /// Opaque encrypted data (Phase 6.4)
     Encrypted(Vec<u8>),
     /// Opaque password hash (Phase 6.4)

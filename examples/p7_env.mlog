@@ -1,0 +1,3 @@
+entity port: String = env("TEST_PORT")
+entity name: String = env("TEST_NAME")
+flow Main { input: String = "Port=" + port + " Name=" + name -> output }

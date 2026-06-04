@@ -279,6 +279,9 @@ pub struct Interpreter {
     server_config: Option<MlogServerDecl>,
     /// Embedding manager for semantic recall (Phase 7.2).
     embedding_manager: EmbeddingManager,
+    /// Server context: parsed JSON request body (Наряд №3).
+    /// Set by execute_route_body, returned by json_body() builtin.
+    server_json_body: Option<Value>,
 }
 
 impl Interpreter {
@@ -305,12 +308,24 @@ impl Interpreter {
             audit_log: Mutex::new(Vec::new()),
             server_config: None,
             embedding_manager: EmbeddingManager::new(),
+            server_json_body: None,
         }
     }
 
     /// Set the base directory for resolving relative imports.
     pub fn set_base_dir(&mut self, dir: std::path::PathBuf) {
         self.base_dir = dir;
+    }
+
+    /// Set the parsed JSON body for server context (Наряд №3).
+    /// Used by execute_route_body; returned by json_body() builtin.
+    pub fn set_server_json_body(&mut self, val: Value) {
+        self.server_json_body = Some(val);
+    }
+
+    /// Get the parsed JSON body in server context.
+    pub fn get_server_json_body(&self) -> Option<&Value> {
+        self.server_json_body.as_ref()
     }
 
     /// Activate a sandbox for enforcement (Phase 7.5).
@@ -1332,6 +1347,19 @@ impl Interpreter {
                 // Check find (entity store query)
                 if name == "find" {
                     return self.invoke_find(eval_args);
+                }
+
+                // Check json_body() — server context builtin (Наряд №3)
+                // Returns the parsed JSON request body set by execute_route_body.
+                if name == "json_body" {
+                    if let Some(body) = self.server_json_body.clone() {
+                        return Ok(body);
+                    }
+                    // Fallback: empty struct (non-server context)
+                    return Ok(Value::Struct {
+                        type_name: "JsonBody".to_string(),
+                        fields: std::collections::HashMap::new(),
+                    });
                 }
 
                 // Check learnable patterns first

@@ -1,0 +1,9 @@
+template Card(name: String) -> Html {
+  <div>{{ name }}</div>
+}
+server {
+  port: 8081
+  route "/card" method=GET {
+    render(Card, "<script>alert(1)</script>")
+  }
+}

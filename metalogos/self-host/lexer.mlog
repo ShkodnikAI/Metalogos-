@@ -1,0 +1,87 @@
+memorize "entity" with priority=1.0
+memorize "pattern" with priority=1.0
+memorize "flow" with priority=1.0
+memorize "rule" with priority=1.0
+memorize "return" with priority=1.0
+memorize "import" with priority=1.0
+memorize "memorize" with priority=1.0
+memorize "forget" with priority=1.0
+memorize "recall" with priority=1.0
+memorize "adapt" with priority=1.0
+memorize "relate" with priority=1.0
+memorize "sandbox" with priority=1.0
+memorize "mutate" with priority=1.0
+memorize "fluid" with priority=1.0
+memorize "learnable" with priority=1.0
+memorize "If" with priority=1.0
+memorize "then" with priority=1.0
+memorize "with" with priority=1.0
+memorize "contains" with priority=1.0
+memorize "after" with priority=1.0
+memorize "days" with priority=1.0
+memorize "or" with priority=1.0
+memorize "prompt" with priority=1.0
+memorize "input" with priority=1.0
+memorize "output" with priority=1.0
+memorize "to" with priority=1.0
+memorize "as" with priority=1.0
+memorize "priority" with priority=1.0
+memorize "add_example" with priority=1.0
+memorize "rollback_if" with priority=1.0
+memorize "accuracy" with priority=1.0
+memorize "allowed" with priority=1.0
+memorize "forbidden" with priority=1.0
+memorize "timeout" with priority=1.0
+
+pattern IsKeyword(tok: String) -> Float {
+  return if_eq(len(recall(tok)), 0.0, 0.0, 1.0)
+}
+
+pattern IsFloatLit(tok: String) -> Float {
+  return if_eq(len(__split(tok, ".")), 2.0, contains(tok, "."), 0.0)
+}
+
+pattern IsOperator(tok: String) -> Float {
+  return if_eq(
+    if_eq(tok, ":", 1.0, 0.0) + if_eq(tok, "=", 1.0, 0.0)
+    + if_eq(tok, "+", 1.0, 0.0) + if_eq(tok, "-", 1.0, 0.0)
+    + if_eq(tok, ">", 1.0, 0.0) + if_eq(tok, "<", 1.0, 0.0)
+    + if_eq(tok, "{", 1.0, 0.0) + if_eq(tok, "}", 1.0, 0.0)
+    + if_eq(tok, "(", 1.0, 0.0) + if_eq(tok, ")", 1.0, 0.0)
+    + if_eq(tok, "[", 1.0, 0.0) + if_eq(tok, "]", 1.0, 0.0)
+    + if_eq(tok, ",", 1.0, 0.0) + if_eq(tok, ".", 1.0, 0.0)
+    + if_eq(tok, "!", 1.0, 0.0) + if_eq(tok, "->", 1.0, 0.0)
+    + if_eq(tok, "==", 1.0, 0.0) + if_eq(tok, ">=", 1.0, 0.0)
+    + if_eq(tok, "<=", 1.0, 0.0),
+    0.0, 0.0, 1.0
+  )
+}
+
+pattern ClassifyToken(tok: String) -> String {
+  return if_eq(
+    len(tok), 0.0, "",
+    if_eq(IsKeyword(tok), 1.0, "KEYWORD: " + tok,
+    if_eq(is_string_token(tok), 1.0, "STRING: " + tok,
+    if_eq(IsFloatLit(tok), 1.0, "NUMBER: " + tok,
+    if_eq(IsOperator(tok), 1.0, "OPERATOR: " + tok,
+    "IDENT: " + tok))))
+  )
+}
+
+pattern Tokenize(source: String) -> List {
+  return split_tokens(source)
+}
+
+pattern Classify(tokens: List) -> List {
+  return map(tokens, "ClassifyToken")
+}
+
+pattern Format(classified: List) -> String {
+  return __join(classified, newline())
+}
+
+entity source: String = stdin()
+
+flow Lexer {
+  input: String = source -> Tokenize -> Classify -> Format -> output
+}

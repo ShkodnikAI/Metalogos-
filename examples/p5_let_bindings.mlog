@@ -1,0 +1,10 @@
+entity val: Float = 3.0
+
+pattern ThreeLets(a: Float) -> Float {
+    let doubled = a + a
+    let quadrupled = doubled + doubled
+    let result = quadrupled + 1.0
+    return result
+}
+
+flow Main { input: Float = val -> ThreeLets -> output }

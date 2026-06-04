@@ -1,0 +1,12 @@
+// Наряд №5 — Persistent Memory E2E contract
+// Two sequential runs with the same SQLite file
+
+// ── Session 1: memorize ──
+memory { persist: "./test_memory.db" }
+memorize "user likes spicy food" with priority=0.8
+
+// ── Session 2 (after restart): recall ──
+// memory { persist: "./test_memory.db" }
+// entity result: String = recall("spicy food")
+// flow Main { input: String = result -> output }
+// → "user likes spicy food"

@@ -1077,6 +1077,63 @@ impl Interpreter {
         Ok(Value::Unit)
     }
 
+    /// Callable form of memorize() — usable inside patterns and route handlers.
+    /// Usage: memorize("user likes spicy food", 0.5) or memorize("fact")
+    /// Differs from declaration `memorize "text" with priority=0.5` (top-level only).
+    fn invoke_memorize_fn(&mut self, args: Vec<Value>) -> Result<Value, String> {
+        if args.is_empty() {
+            return Err("memorize() requires at least 1 argument (text)".to_string());
+        }
+        let value_str = match &args[0] {
+            Value::String(s) => s.clone(),
+            other => return Err(format!("memorize() expected String as first arg, got {}", other.type_name())),
+        };
+        let priority = if args.len() > 1 {
+            args[1].as_float().unwrap_or(1.0)
+        } else {
+            1.0
+        };
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let embedding = self.embedding_manager.embed(&value_str).unwrap_or_default();
+        let _ = self.memory.memorize(MemoryEntry {
+            id: None,
+            value: value_str,
+            priority,
+            timestamp: now,
+            decay_rate: 0.01,
+            confidence: priority,
+            embedding,
+        });
+        Ok(Value::Unit)
+    }
+
+    /// Callable form of forget() — usable inside patterns and route handlers.
+    /// Usage: forget("query", 30) — forget entries matching "query" older than 30 days.
+    fn invoke_forget_fn(&mut self, args: Vec<Value>) -> Result<Value, String> {
+        if args.is_empty() {
+            return Err("forget() requires at least 1 argument (query)".to_string());
+        }
+        let query_str = match &args[0] {
+            Value::String(s) => s.clone(),
+            other => return Err(format!("forget() expected String as first arg, got {}", other.type_name())),
+        };
+        let days = if args.len() > 1 {
+            args[1].as_float().unwrap_or(30.0) as i64
+        } else {
+            30
+        };
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let cutoff = now - (days * 86400);
+        self.memory.forget(&query_str, cutoff);
+        Ok(Value::Unit)
+    }
+
     /// Handle a mutate declaration: replace few-shot examples, compute mock accuracy, decide keep/rollback.
     fn handle_mutate(&mut self, m: &MutateDecl) -> Result<String, String> {
         // Evaluate new examples first (before borrowing learnable mutably)
@@ -1360,6 +1417,19 @@ impl Interpreter {
                         type_name: "JsonBody".to_string(),
                         fields: std::collections::HashMap::new(),
                     });
+                }
+
+                // Check memorize() — callable form (Definition of Done)
+                // Usage: let _ = memorize("text", 0.5) or memorize("text")
+                // Differs from declaration: memorize "text" with priority=0.5
+                if name == "memorize" {
+                    return self.invoke_memorize_fn(eval_args);
+                }
+
+                // Check forget() — callable form (Definition of Done)
+                // Usage: forget("query", 30)
+                if name == "forget" {
+                    return self.invoke_forget_fn(eval_args);
                 }
 
                 // Check learnable patterns first

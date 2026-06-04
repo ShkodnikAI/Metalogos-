@@ -1,0 +1,25 @@
+// ── Definition of Done: Final integration test ──────────────────
+// Combines all 6 Наряды: env(), POST routes, json_body(), persistent memory, Dockerfile
+// + http_post() for outgoing Telegram API calls
+
+memory { persist: "./bot_memory.db" }
+
+pattern HandleWebhook(text: String, chat_id: String) -> String {
+  let _ = memorize(text, 0.5)
+  let token = env("TELEGRAM_BOT_TOKEN")
+  let url = "https://api.telegram.org/bot" + token + "/sendMessage"
+  let body = "{\"chat_id\":" + chat_id + ",\"text\":\"Echo: " + text + "\"}"
+  let result = http_post(url, body, "application/json")
+  return "sent"
+}
+
+mlogserver {
+  port: 8080
+  route "/webhook" method=POST {
+    let data = json_body()
+    let text = data.message.text
+    let chat_id = to_string(data.message.chat.id)
+    let _ = HandleWebhook(text, chat_id)
+    respond("ok")
+  }
+}

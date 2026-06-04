@@ -1,0 +1,9 @@
+entity val: Float = 0.6
+
+pattern Classify(score: Float) -> String {
+    let level = if score > 0.8 then "high" else if score > 0.5 then "medium" else "low"
+    let prefix = "grade:"
+    return prefix + " " + level
+}
+
+flow Main { input: Float = val -> Classify -> output }

@@ -1,0 +1,11 @@
+pattern Countdown(n: Float) -> String {
+  let result = ""
+  let i = n
+  while i > 0.0 {
+    result = if result == "" then to_string(i) else result + " " + to_string(i)
+    i = i - 1.0
+  }
+  return result
+}
+entity start: Float = 5.0
+flow Main { input: Float = start -> Countdown -> output }

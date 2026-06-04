@@ -1,0 +1,5 @@
+entity greeting: Float = 42.0
+
+pattern Shout(s: String) -> String { return upper(s) + "!" }
+
+flow Main { input: Float = greeting -> Shout -> output }

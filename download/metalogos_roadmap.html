@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --text: #111827;
+    --text-sub: #6B7280;
+    --text-muted: #9CA3AF;
+    --bg: #FFFFFF;
+    --surface: #F9FAFB;
+    --border: #E5E7EB;
+    --connector: #94A3B8;
+    --accent: #4C6EF5;
+    --accent-light: rgba(76,110,245,0.12);
+    --current: #F59E0B;
+    --current-light: rgba(245,158,11,0.12);
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'SimHei', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #root {
+    width: fit-content;
+    min-width: 1000px;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 56px 52px 60px;
+  }
+
+  /* ── Hero Header ── */
+  .hero {
+    background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+    border-radius: 18px;
+    padding: 44px 48px 40px;
+    color: white;
+    margin-bottom: 40px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::after {
+    content: '';
+    position: absolute;
+    top: -60px; right: -60px;
+    width: 200px; height: 200px;
+    background: radial-gradient(circle, rgba(76,110,245,0.15) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+  .hero-badge {
+    display: inline-block;
+    background: rgba(76,110,245,0.2);
+    color: #93B4FF;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 14px;
+    border-radius: 20px;
+    margin-bottom: 18px;
+    letter-spacing: 0.5px;
+  }
+  .hero h1 {
+    font-size: 30px;
+    font-weight: 800;
+    margin-bottom: 10px;
+    letter-spacing: -0.5px;
+  }
+  .hero .hero-sub {
+    font-size: 15px;
+    color: #94A3B8;
+    max-width: 620px;
+    line-height: 1.65;
+  }
+  .hero-meta {
+    display: flex;
+    gap: 32px;
+    margin-top: 24px;
+  }
+  .hero-meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .hero-meta-label {
+    font-size: 11px;
+    color: #64748B;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    font-weight: 600;
+  }
+  .hero-meta-value {
+    font-size: 15px;
+    font-weight: 600;
+    color: #E2E8F0;
+  }
+
+  /* ── Pillars Summary ── */
+  .pillars-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 40px;
+    flex-wrap: wrap;
+  }
+  .pillar-chip {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    background: #F1F5F9;
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #334155;
+  }
+  .pillar-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* ── Timeline Arrow (left side) ── */
+  .roadmap-container {
+    display: flex;
+    gap: 28px;
+  }
+  .timeline-track {
+    width: 4px;
+    background: linear-gradient(to bottom, #E2E8F0, #CBD5E1);
+    border-radius: 4px;
+    position: relative;
+    flex-shrink: 0;
+    min-height: 100%;
+  }
+
+  /* ── Phase Card ── */
+  .phase-group {
+    background: #FAFBFC;
+    border: 1px solid #E5E7EB;
+    border-radius: 14px;
+    padding: 0;
+    margin-bottom: 20px;
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    transition: box-shadow 0.2s;
+  }
+  .phase-group.is-current {
+    border-color: #F59E0B;
+    box-shadow: 0 0 0 3px rgba(245,158,11,0.08), 0 4px 20px rgba(245,158,11,0.06);
+  }
+  .phase-header {
+    padding: 18px 24px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #E5E7EB;
+  }
+  .phase-header-left {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .phase-num {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+  .phase-info {}
+  .phase-name {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.3;
+  }
+  .phase-period {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    font-weight: 500;
+  }
+  .phase-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  .status-current {
+    background: rgba(245,158,11,0.12);
+    color: #B45309;
+  }
+  .status-current::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #F59E0B;
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  .status-planned {
+    background: #F1F5F9;
+    color: #64748B;
+  }
+  .status-future {
+    background: #F8FAFC;
+    color: #94A3B8;
+  }
+
+  .phase-body {
+    padding: 18px 24px 22px;
+  }
+  .phase-desc {
+    font-size: 13px;
+    color: var(--text-sub);
+    line-height: 1.6;
+    margin-bottom: 16px;
+  }
+
+  /* ── Milestone Steps ── */
+  .milestones {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .milestone {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 14px;
+    background: white;
+    border: 1px solid #F1F5F9;
+    border-radius: 9px;
+  }
+  .milestone-num {
+    width: 24px;
+    height: 24px;
+    line-height: 24px;
+    text-align: center;
+    border-radius: 7px;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .milestone-content {
+    flex: 1;
+    min-width: 0;
+  }
+  .milestone-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.35;
+  }
+  .milestone-detail {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 3px;
+    line-height: 1.5;
+  }
+  .milestone-tags {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+  }
+  .milestone-tag {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: #F1F5F9;
+    color: #64748B;
+  }
+  .milestone-tag.crate {
+    background: #EFF6FF;
+    color: #1D4ED8;
+  }
+  .milestone-tag.tool {
+    background: #F0FDF4;
+    color: #166534;
+  }
+  .milestone-tag.lib {
+    background: #FFF7ED;
+    color: #92400E;
+  }
+
+  /* ── Phase Colors (blue-gray progression) ── */
+  .phase-0 .phase-num { background: #FFF7ED; color: #B45309; }
+  .phase-0 .milestone-num { background: #FFF7ED; color: #B45309; }
+  .phase-0 .phase-name { color: #78350F; }
+
+  .phase-1 .phase-num { background: #F0F4F8; color: #334155; }
+  .phase-1 .milestone-num { background: #E2E8F0; color: #475569; }
+
+  .phase-2 .phase-num { background: #E8EDF2; color: #1E3A5F; }
+  .phase-2 .milestone-num { background: #DBEAFE; color: #1E3A5F; }
+
+  .phase-3 .phase-num { background: #E0E7EF; color: #1E3050; }
+  .phase-3 .milestone-num { background: #D0D9E4; color: #1E3050; }
+
+  .phase-4 .phase-num { background: #D8E0EA; color: #172540; }
+  .phase-4 .milestone-num { background: #C7D2E0; color: #172540; }
+
+  /* ── Arrow between phases ── */
+  .phase-arrow {
+    text-align: center;
+    color: var(--connector);
+    font-size: 20px;
+    margin: 4px 0;
+    line-height: 1;
+  }
+
+  /* ── Tech Stack Footer ── */
+  .tech-footer {
+    margin-top: 36px;
+    background: #F8FAFC;
+    border: 1px solid #E5E7EB;
+    border-radius: 14px;
+    padding: 24px 28px;
+  }
+  .tech-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 16px;
+  }
+  .tech-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+  .tech-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: white;
+    border: 1px solid #F1F5F9;
+    border-radius: 8px;
+  }
+  .tech-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+  .tech-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .tech-desc {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 1px;
+  }
+
+  /* ── Footer line ── */
+  .footer-note {
+    margin-top: 28px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+</style>
+</head>
+<body>
+<div id="root">
+
+  <!-- ═══ Hero Header ═══ -->
+  <div class="hero">
+    <div class="hero-badge">PROJECT ROADMAP</div>
+    <h1>METALOGOS</h1>
+    <div class="hero-sub">Первый язык программирования, спроектированный ИИ для ИИ. Данные первичны, код вторичен, самомодификация — фича.</div>
+    <div class="hero-meta">
+      <div class="hero-meta-item">
+        <span class="hero-meta-label">Стек</span>
+        <span class="hero-meta-value">Rust + PyTorch</span>
+      </div>
+      <div class="hero-meta-item">
+        <span class="hero-meta-label">Формат</span>
+        <span class="hero-meta-value">.mlog</span>
+      </div>
+      <div class="hero-meta-item">
+        <span class="hero-meta-label">Лицензия</span>
+        <span class="hero-meta-value">MIT / Apache 2.0</span>
+      </div>
+      <div class="hero-meta-item">
+        <span class="hero-meta-label">Создан</span>
+        <span class="hero-meta-value">10 мая 2026</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Seven Pillars ═══ -->
+  <div class="pillars-bar">
+    <div class="pillar-chip"><div class="pillar-dot" style="background:#64748B;"></div>Entity</div>
+    <div class="pillar-chip"><div class="pillar-dot" style="background:#5B7A99;"></div>Pattern</div>
+    <div class="pillar-chip"><div class="pillar-dot" style="background:#4A6B8A;"></div>Flow</div>
+    <div class="pillar-chip"><div class="pillar-dot" style="background:#3A5C7A;"></div>Memory</div>
+    <div class="pillar-chip"><div class="pillar-dot" style="background:#2B5473;"></div>Rule</div>
+    <div class="pillar-chip"><div class="pillar-dot" style="background:#1E3A5F;"></div>Learn</div>
+    <div class="pillar-chip"><div class="pillar-dot" style="background:#172540;"></div>Adapt</div>
+  </div>
+
+  <!-- ═══ Roadmap ═══ -->
+
+  <!-- Phase 0 -->
+  <div class="phase-group phase-0 is-current">
+    <div class="phase-header">
+      <div class="phase-header-left">
+        <div class="phase-num">0</div>
+        <div class="phase-info">
+          <div class="phase-name">Фундамент</div>
+          <div class="phase-period">Месяцы 1–3 · May – Aug 2026</div>
+        </div>
+      </div>
+      <div class="phase-status status-current">ТЕКУЩАЯ</div>
+    </div>
+    <div class="phase-body">
+      <div class="phase-desc">Проектирование архитектуры, определение синтаксиса, создание AST-моделей и базовой структуры компилятора.</div>
+      <div class="milestones">
+        <div class="milestone">
+          <div class="milestone-num">1</div>
+          <div class="milestone-content">
+            <div class="milestone-title">Спецификация языка (SPECIFICATION.md)</div>
+            <div class="milestone-detail">Полный синтаксис и семантика: entity, pattern, flow, memory, rule, learn, adapt</div>
+            <div class="milestone-tags"><span class="milestone-tag">Design</span><span class="milestone-tag">Docs</span></div>
+          </div>
+        </div>
+        <div class="milestone">
+          <div class="milestone-num">2</div>
+          <div class="milestone-content">
+            <div class="milestone-title">AST-определения</div>
+            <div class="milestone-detail">Структуры данных для абстрактного синтаксического дерева всех конструкций языка</div>
+            <div class="milestone-tags"><span class="milestone-tag crate">mlog-ast</span><span class="milestone-tag">Rust</span></div>
+          </div>
+        </div>
+        <div class="milestone">
+          <div class="milestone-num">3</div>
+          <div class="milestone-content">
+            <div class="milestone-title">Лексер (токенизация)</div>
+            <div class="milestone-detail">Разбор исходного кода .mlog на токены: ключевые слова, операторы, литералы</div>
+            <div class="milestone-tags"><span class="milestone-tag crate">mlog-lexer</span><span class="milestone-tag">nom / pest</span></div>
+          </div>
+        </div>
+        <div class="milestone">
+          <div class="milestone-num">4</div>
+          <div class="milestone-content">
+            <div class="milestone-title">Парсер → AST</div>
+            <div class="milestone-detail">Построение AST из потока токенов, обработка ошибок синтаксиса</div>
+            <div class="milestone-tags"><span class="milestone-tag crate">mlog-parser</span><span class="milestone-tag">Rust</span></div>
+          </div>
+        </div>
+        <div class="milestone">
+          <div class="milestone-num">5</div>
+          <div class="milestone-content">
+            <div class="milestone-title">CI/CD и тестовая инфраструктура</div>
+            <div class="milestone-detail">GitHub Actions workflows, интеграционные тесты, property-based тесты (proptest)</div>
+            <div class="milestone-tags"><span class="milestone-tag tool">GitHub Actions</span><span class="milestone-tag tool">proptest</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phase-arrow">↓</div>
+
+  <!-- Phase 1 -->
+  <div class="phase-group phase-1">
+    <div class="phase-header">
+      <div class="phase-header-left">
+        <div class="phase-num">1</div>
+        <div class="phase-info">
+          <div class="phase-name">Ядро языка</div>
+          <div class="phase-period">Месяцы 3–6 · Aug – Nov 2026</div>
+        </div>
+      </div>
+      <div class="phase-status status-planned">ПЛАНИРУЕТСЯ</div>
+    </div>
+    <div class="phase-body">
+      <div class="phase-desc">Система типов, семантический анализ, генерация кода и runtime-ядро для базовых конструкций языка.</div>
+      <div class="milestones">
+        <div class="milestone">
+          <div class="milestone-num">6</div>
+          <div class="milestone-content">
+            <div class="milestone-title">Fluid Types — система типов</div>
+            <div class="milestone-detail">Текучие типы с вероятностями, семантические типы, вывод типов</div>
+            <div class="milestone-tags"><span class="milestone-tag crate">mlog-types</span></div>
+          </div>
+        </div>
+        <div class="milestone">
+          <div class="milestone-num">7</div>
+          <div class="milestone-content">
+            <div class="milestone-title">Семантический анализ</div>
+            <div class="milestone-detail">Проверка корректности программ, анализ потоков данных, вероятностная проверка типов</div>
+            <div class="milestone-tags"><span class="milestone-tag crate">mlog-semantic</span></div>
+          </div>
+        </div>
+        <div class="milestone">
+          <div class="milestone-num">8</div>
+          <div class="milestone-content">
+            <div class="milestone-title">Entity Store — хранилище сущностей</div>
+            <div class="milestone-detail">Реализация entity с идентичностью, отношениями, историей и уверенностью</div>
+            <div class="milestone-tags"><span class="milestone-tag crate">mlog-runtime</span></div>
+          </div>
+        </div>
+        <div class="milestone">
+          <div class="milestone-num">9</div>
+          <div class="milestone-content">
+            <div class="milestone-title">Генератор кода (Codegen)</div>
+            <div class="milestone-detail">Трансляция AST в исполняемый код, оптимизации пассивных конструкций</div>
+            <div class="milestone-tags"><span class="milestone-tag crate">mlog-codegen</span></div>
+          </div>
+        </div>
+        <div class="milestone">
+          <div class="milestone-num">10</div>
+          <div class="milestone-content">
+            <div class="milestone-title">Flow Engine и Rule Engine</div>
+            <div class="milestone-detail">Движок потоков данных (декларативные flow) и вероятностных правил</div>
+            <div class="milestone-tags"><span class="milestone-tag crate">mlog-runtime</span><span class="milestone-tag">async Rust</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phase-arrow">↓</div>
+
+  <!-- Phase 2 -->
+  <div class="phase-group phase-2">
+    <div class="phase-header">
+      <div class="phase-header-left">
+        <div class="phase-num">2</div>
+        <div class="milestone-content">
+          <div class="phase-name">Интеллектуальный слой</div>
+          <div class="phase-period">Месяцы 6–9 · Nov 2026 – Feb 2027</div>
+        </div>
+      </div>
+      <div class="phase-status status-planned">ПЛАНИРУЕТСЯ</div>
+    </div>
+    <div class="phase-body">
+      <div class="phase-desc">Система памяти, ML-интеграция через PyO3, встроенное обучение и самомодификация кода.</div>
+      <div class="milestones">
+        <div class="milestone">
+          <div class="milestone-num">11</div>
+          <div class="milestone-content">
+            <div class="milestone-title">Семантическая память (Memory System)</div>
+            <div class="milestone-detail">Working, Semantic (Knowledge Graph), Episodic (Temporal Graph) память с затуханием</div>
+            <div class="milestone-tags"><span class="milestone-tag crate">mlog-runtime</span><span class="milestone-tag lib">qdrant / milvus</span></div>
+          </div>
+        </div>
+        <div class="milestone">
+          <div class="milestone-num">12</div>
+          <div class="milestone-content">
+            <div class="milestone-title">ML Backend (PyTorch через PyO3)</div>
+            <div class="milestone-detail">Исполнение learnable patterns: обучение, inference, transfer learning</div>
+            <div class="milestone-tags"><span class="milestone-tag crate">mlog-learn</span><span class="milestone-tag lib">PyTorch · PyO3</span></div>
+          </div>
+        </div>
+        <div class="milestone">
+          <div class="milestone-num">13</div>
+          <div class="milestone-content">
+            <div class="milestone-title">Adapt Engine — самомодификация</div>
+            <div class="milestone-detail">Эволюция кода в рантайме: mutate, evolve, sandbox, rollback</div>
+            <div class="milestone-tags"><span class="milestone-tag crate">mlog-adapt</span></div>
+          </div>
+        </div>
+        <div class="milestone">
+          <div class="milestone-num">14</div>
+          <div class="milestone-content">
+            <div class="milestone-title">Pattern Executor</div>
+            <div class="milestone-detail">Исполнение обычных, learnable и гибридных паттернов (rule + ML fallback)</div>
+            <div class="milestone-tags"><span class="milestone-tag crate">mlog-runtime</span><span class="milestone-tag lib">ONNX Runtime</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phase-arrow">↓</div>
+
+  <!-- Phase 3 -->
+  <div class="phase-group phase-3">
+    <div class="phase-header">
+      <div class="phase-header-left">
+        <div class="phase-num">3</div>
+        <div class="phase-info">
+          <div class="phase-name">Экосистема и инструментарий</div>
+          <div class="phase-period">Месяцы 9–12 · Feb – May 2027</div>
+        </div>
+      </div>
+      <div class="phase-status status-future">БУДУЩЕЕ</div>
+    </div>
+    <div class="phase-body">
+      <div class="phase-desc">CLI, LSP, пакетный менеджер, стандартная библиотека, документация и первые примеры программ.</div>
+      <div class="milestones">
+        <div class="milestone">
+          <div class="milestone-num">15</div>
+          <div class="milestone-content">
+            <div class="milestone-title">CLI — утилита mlog</div>
+            <div class="milestone-detail">Компиляция, запуск, REPL, форматирование кода, управление пакетами</div>
+            <div class="milestone-tags"><span class="milestone-tag crate">mlog-cli</span><span class="milestone-tag tool">clap</span></div>
+          </div>
+        </div>
+        <div class="milestone">
+          <div class="milestone-num">16</div>
+          <div class="milestone-content">
+            <div class="milestone-title">Language Server Protocol (LSP)</div>
+            <div class="milestone-detail">Автодополнение, подсветка ошибок, навигация по коду для VS Code / JetBrains</div>
+            <div class="milestone-tags"><span class="milestone-tag crate">mlog-lsp</span><span class="milestone-tag tool">tower-lsp</span></div>
+          </div>
+        </div>
+        <div class="milestone">
+          <div class="milestone-num">17</div>
+          <div class="milestone-content">
+            <div class="milestone-title">Пакетный менеджер mlogpkg</div>
+            <div class="milestone-detail">Управление зависимостями, реестр пакетов, версионирование</div>
+            <div class="milestone-tags"><span class="milestone-tag crate">mlog-pkg</span></div>
+          </div>
+        </div>
+        <div class="milestone">
+          <div class="milestone-num">18</div>
+          <div class="milestone-content">
+            <div class="milestone-title">Стандартная библиотека (std/)</div>
+            <div class="milestone-detail">AI.NLP, AI.Vision, Memory, Math — базовые модули на Metalogos + Rust</div>
+            <div class="milestone-tags"><span class="milestone-tag">std</span><span class="milestone-tag">Standard.AI</span></div>
+          </div>
+        </div>
+        <div class="milestone">
+          <div class="milestone-num">19</div>
+          <div class="milestone-content">
+            <div class="milestone-title">Документация (mdbook)</div>
+            <div class="milestone-detail">Полная книга по языку, туториалы, примеры, API reference</div>
+            <div class="milestone-tags"><span class="milestone-tag tool">mdbook</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phase-arrow">↓</div>
+
+  <!-- Phase 4 -->
+  <div class="phase-group phase-4">
+    <div class="phase-header">
+      <div class="phase-header-left">
+        <div class="phase-num">4</div>
+        <div class="phase-info">
+          <div class="phase-name">Само-хостинг и зрелость</div>
+          <div class="phase-period">Месяц 12+ · May 2027 и далее</div>
+        </div>
+      </div>
+      <div class="phase-status status-future">ДАЛЕКАЯ ПЕРСПЕКТИВА</div>
+    </div>
+    <div class="phase-body">
+      <div class="phase-desc">Само-хостинг компилятора на Metalogos, оптимизация производительности, сообщество и расширение экосистемы.</div>
+      <div class="milestones">
+        <div class="milestone">
+          <div class="milestone-num">20</div>
+          <div class="milestone-content">
+            <div class="milestone-title">Само-хостинг компилятора</div>
+            <div class="milestone-detail">Перепись компилятора с Rust на Metalogos — стандартная библиотека на Metalogos</div>
+            <div class="milestone-tags"><span class="milestone-tag">Self-hosting</span></div>
+          </div>
+        </div>
+        <div class="milestone">
+          <div class="milestone-num">21</div>
+          <div class="milestone-content">
+            <div class="milestone-title">Оптимизация и масштабирование</div>
+            <div class="milestone-detail">Производительность runtime, распределённое исполнение, продвинутый JIT</div>
+            <div class="milestone-tags"><span class="milestone-tag">Performance</span></div>
+          </div>
+        </div>
+        <div class="milestone">
+          <div class="milestone-num">22</div>
+          <div class="milestone-content">
+            <div class="milestone-title">Сообщество и открытая экосистема</div>
+            <div class="milestone-detail">Открытый пакетный реестр, плагины, вклад сообщества, академические публикации</div>
+            <div class="milestone-tags"><span class="milestone-tag">Community</span><span class="milestone-tag">Open Source</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Tech Stack Footer ═══ -->
+  <div class="tech-footer">
+    <div class="tech-title">Технологический стек</div>
+    <div class="tech-grid">
+      <div class="tech-item">
+        <div class="tech-icon" style="background:#FFF7ED; color:#B45309;">Rs</div>
+        <div>
+          <div class="tech-label">Rust</div>
+          <div class="tech-desc">Компилятор и runtime</div>
+        </div>
+      </div>
+      <div class="tech-item">
+        <div class="tech-icon" style="background:#EFF6FF; color:#1D4ED8;">Py</div>
+        <div>
+          <div class="tech-label">PyTorch</div>
+          <div class="tech-desc">ML backend (PyO3)</div>
+        </div>
+      </div>
+      <div class="tech-item">
+        <div class="tech-icon" style="background:#F0FDF4; color:#166534;">Qd</div>
+        <div>
+          <div class="tech-label">Qdrant</div>
+          <div class="tech-desc">Векторная БД, память</div>
+        </div>
+      </div>
+      <div class="tech-item">
+        <div class="tech-icon" style="background:#F5F3FF; color:#5B21B6;">Gy</div>
+        <div>
+          <div class="tech-label">Neo4j</div>
+          <div class="tech-desc">Граф знаний</div>
+        </div>
+      </div>
+      <div class="tech-item">
+        <div class="tech-icon" style="background:#F0F4F8; color:#475569;">no</div>
+        <div>
+          <div class="tech-label">nom / pest</div>
+          <div class="tech-desc">Лексер + парсер</div>
+        </div>
+      </div>
+      <div class="tech-item">
+        <div class="tech-icon" style="background:#FFF7ED; color:#92400E;">se</div>
+        <div>
+          <div class="tech-label">serde</div>
+          <div class="tech-desc">Сериализация</div>
+        </div>
+      </div>
+      <div class="tech-item">
+        <div class="tech-icon" style="background:#EFF6FF; color:#1E40AF;">cl</div>
+        <div>
+          <div class="tech-label">clap</div>
+          <div class="tech-desc">CLI</div>
+        </div>
+      </div>
+      <div class="tech-item">
+        <div class="tech-icon" style="background:#F8FAFC; color:#334155;">md</div>
+        <div>
+          <div class="tech-label">mdbook</div>
+          <div class="tech-desc">Документация</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-note">Metalogos — язык за пределами человеческой логики · ShkodnikAI · 2026</div>
+
+</div>
+</body>
+</html>

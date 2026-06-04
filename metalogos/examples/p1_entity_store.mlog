@@ -1,0 +1,11 @@
+entity Message { text: String, urgency: Float = 0.0 }
+
+entity m1: Message = { text: "срочно нужна помощь", urgency: 0.0 }
+entity m2: Message = { text: "обычный вопрос", urgency: 0.0 }
+entity m3: Message = { text: "срочно нужна консультация", urgency: 0.0 }
+
+rule If(m1.text contains "срочно") then m1.urgency = 0.9 with priority=10
+
+pattern GetUrgency(msg: Message) -> Float { return msg.urgency }
+
+flow Main { input: Message = find("Message", "urgency", "gt", 0.5) -> GetUrgency -> output }

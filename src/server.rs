@@ -12,7 +12,7 @@
 use axum::{
     Router,
     extract::State,
-    http::{HeaderMap, HeaderValue, StatusCode, header, Method},
+    http::{HeaderMap, HeaderValue, StatusCode, Uri, header, Method},
     response::{Html as AxumHtml, IntoResponse, Response},
     routing::{get, post, put, delete, any},
 };
@@ -223,6 +223,7 @@ fn build_router(state: ServerState) -> Router {
 
 async fn route_handler(
     State(state): State<ServerState>,
+    uri: Uri,
     method: Method,
     headers: HeaderMap,
     body: bytes::Bytes,
@@ -259,10 +260,9 @@ async fn route_handler(
         }
     }
 
-    // 4. Find matching route and check roles
+    // 4. Find matching route by path AND method
     let matched_route = state.routes.iter().find(|r| {
-        // Simple path matching (exact match for now)
-        r.method == method.as_str()
+        r.path == uri.path() && r.method == method.as_str()
     });
 
     if let Some(route) = matched_route {

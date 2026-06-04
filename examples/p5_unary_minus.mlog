@@ -1,0 +1,7 @@
+entity x: Float = -42.0
+pattern Double(n: Float) -> Float {
+  return n + n
+}
+flow Main {
+  input: Float = x -> Double -> output
+}

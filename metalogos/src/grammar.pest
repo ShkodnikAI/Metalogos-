@@ -1,0 +1,193 @@
+// ── METALOGOS Grammar ──────────────────────────────────────────────
+
+WHITESPACE  = _{ " " | "\t" | "\n" | "\r" }
+
+program     =  { SOI ~ (declaration ~ WHITESPACE*)* ~ EOI }
+
+declaration = _{ mlogserver_decl | template_decl | db_decl | import_decl | relate_decl | sandbox_decl | mutate_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl }
+
+// ── MlogServer (Phase 6.1) ──────────────────────────────────────
+// mlogserver { port: 8080  middleware: [session, csrf, security_headers]  route "/path" method=GET requires=[role] { body } }
+mlogserver_decl    = { "mlogserver" ~ "{" ~ mlogserver_body ~ "}" }
+mlogserver_body    = { mlogserver_port? ~ mlogserver_middleware? ~ route_decl* ~ WHITESPACE* }
+mlogserver_port    = { "port" ~ COLON ~ INT }
+mlogserver_middleware = { "middleware" ~ COLON ~ "[" ~ ident_list? ~ "]" }
+route_decl         = { "route" ~ STRING_LITERAL ~ "method" ~ ASSIGN ~ IDENT ~ route_requires? ~ "{" ~ statement* ~ "}" }
+route_requires     = { "requires" ~ ASSIGN ~ "[" ~ ident_list? ~ "]" }
+
+// ── Template (Phase 6.2) ──────────────────────────────────────
+// template Page(title: String, body: String) -> Html { <html>{{ title }}</html> }
+template_decl  = { "template" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ "{" ~ template_body_raw ~ "}" }
+template_body_raw = { (!"}" ~ ANY)* }
+
+// ── DB (Phase 6.3) ──────────────────────────────────────
+// db { url: env("DATABASE_URL")  pool_size: 10  migrate: "./migrations" }
+db_decl      = { "db" ~ "{" ~ db_body ~ "}" }
+db_body      = { db_url? ~ db_pool? ~ db_migrate? }
+db_url       = { "url" ~ COLON ~ expression }
+db_pool      = { "pool_size" ~ COLON ~ INT }
+db_migrate   = { "migrate" ~ COLON ~ STRING_LITERAL }
+
+// ── Import (Phase 5.4) ─────────────────────────────────────────
+// import std/string as str
+// import ./my_utils
+// import pkg/utils as u
+import_decl = { IMPORT_KW ~ import_path ~ (AS_KW ~ IDENT)? }
+import_path  = { ("./" ~ import_path_segments) | import_path_segments }
+import_path_segments = { IDENT ~ (SLASH ~ IDENT)* }
+
+// ── Relate (knowledge graph edge) ─────────────────────────────────
+relate_decl = { RELATE_KW ~ expression ~ "to" ~ expression ~ "as" ~ expression }
+
+// ── Sandbox (P2) ────────────────────────────────────────────────────
+sandbox_decl    = { SANDBOX_KW ~ IDENT ~ "{" ~ sandbox_body ~ "}" }
+sandbox_body    = { sandbox_allowed? ~ (COMMA ~ sandbox_forbidden?)? ~ (COMMA ~ sandbox_timeout?)? }
+sandbox_allowed  = { "allowed" ~ ":" ~ "[" ~ ident_list? ~ "]" }
+sandbox_forbidden = { "forbidden" ~ ":" ~ "[" ~ ident_list? ~ "]" }
+sandbox_timeout  = { "timeout" ~ ":" ~ INT }
+ident_list      = { IDENT ~ (COMMA ~ IDENT)* }
+
+// ── Mutate (P2) ─────────────────────────────────────────────────────
+mutate_decl      = { MUTATE_KW ~ IDENT ~ "{" ~ mutate_body ~ "}" }
+mutate_body      = { mutate_add_example* ~ mutate_rollback? }
+mutate_add_example = { "add_example" ~ "(" ~ expression ~ COMMA ~ expression ~ ")" }
+mutate_rollback    = { "rollback_if" ~ ":" ~ "accuracy" ~ compare_op ~ FLOAT_LITERAL }
+
+// ── Entity: struct type ───────────────────────────────────────────────
+// Disambiguates from simple entity: IDENT followed by "{" not ":"
+entity_type_decl = { "entity" ~ IDENT ~ !":" ~ "{" ~ field_decl ~ (COMMA ~ field_decl)* ~ COMMA? ~ "}" }
+field_decl        = { IDENT ~ COLON ~ type_name ~ (ASSIGN ~ literal)? }
+
+// ── Entity: struct instance ─────────────────────────────────────────
+entity_record_decl = { "entity" ~ IDENT ~ ":" ~ type_name ~ "=" ~ "{" ~ field_init ~ (COMMA ~ field_init)* ~ COMMA? ~ "}" }
+field_init         = { IDENT ~ COLON ~ expression }
+
+// ── Entity: simple (M1) ──────────────────────────────────────────────
+entity_simple_decl = { "entity" ~ IDENT ~ ":" ~ type_name ~ "=" ~ expression }
+
+// ── Fluid Types (Phase 1) ─────────────────────────────────────
+// fluid x = Float[42.0][0.9] or String["answer"][0.1]
+fluid_decl     = { FLUID_KW ~ IDENT ~ "=" ~ fluid_branch ~ ("or" ~ fluid_branch)* }
+fluid_branch   = { type_name ~ LBRACKET ~ expression ~ RBRACKET ~ LBRACKET ~ FLOAT_LITERAL ~ RBRACKET }
+
+// ── Adapt (M5) ──────────────────────────────────────────────────
+// adapt PatternName add_example("input", "output")
+adapt_decl     = { ADAPT_KW ~ IDENT ~ ADD_EXAMPLE_KW ~ "(" ~ expression ~ COMMA ~ expression ~ ")" }
+
+// ── Memory (M4) ──────────────────────────────────────────────────
+memorize_decl = { MEMORIZE_KW ~ expression ~ ("with" ~ "priority" ~ "=" ~ FLOAT_LITERAL)? }
+forget_decl   = { FORGET_KW ~ expression ~ "after" ~ INT ~ DOT_CHAR ~ "days" }
+
+// ── Rule ──────────────────────────────────────────────────────────────
+rule_decl    = { "rule" ~ "If" ~ "(" ~ condition ~ ")" ~ "then" ~ assignment ~ ("with" ~ "priority" ~ "=" ~ INT)? }
+condition    = _{ contains_condition | compare_condition }
+contains_condition = { expression ~ CONTAINS_KW ~ expression }
+compare_condition  = { expression ~ compare_op ~ expression }
+compare_op   = @{ ">=" | "<=" | GT | LT | EQ }
+CONTAINS_KW  = @{ "contains" }
+assignment   = { IDENT ~ "." ~ IDENT ~ "=" ~ expression }
+
+// ── Learnable Pattern (M3) ──────────────────────────────────────────
+learnable_pattern_decl = { LEARNABLE_KW ~ "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ "{" ~ learnable_body ~ "}" }
+learnable_body = { prompt_line* }
+prompt_line    = { "prompt" ~ COLON ~ expression }
+
+// ── Pattern (M1) ──────────────────────────────────────────────────
+pattern_decl = { "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ "{" ~ pattern_body ~ "}" }
+params       = { param ~ (COMMA ~ WHITESPACE? ~ param)* }
+param        = { IDENT ~ ":" ~ type_name }
+pattern_body = { statement* }
+statement    = { each_stmt | while_stmt | let_binding | assign_stmt | return_stmt }
+each_stmt    = { "each" ~ IDENT ~ "in" ~ expression ~ "{" ~ statement* ~ "}" }
+while_stmt   = { "while" ~ expression ~ "{" ~ statement* ~ "}" }
+let_binding  = { "let" ~ IDENT ~ "=" ~ expression }
+assign_stmt  = { IDENT ~ ASSIGN ~ expression }
+return_stmt  = { "return" ~ expression }
+
+// ── Flow ──────────────────────────────────────────────────────────────
+// Pipeline and branch definitions are separate: pipeline comes first,
+// then zero or more named branch_def blocks after the pipeline line.
+flow_decl     = { "flow" ~ IDENT ~ "{" ~ flow_pipeline ~ branch_def* ~ "}" }
+flow_pipeline = { "input" ~ ":" ~ type_name ~ "=" ~ expression ~ (ARROW ~ step_ident)* ~ ARROW ~ "output" }
+branch_def    = { step_ident ~ "{" ~ branch* ~ "}" }
+step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "recall" | "adapt" | "add_example" | "relate" | "sandbox" | "mutate" | "allowed" | "forbidden" | "timeout" | "rollback_if" | "accuracy" | "to" | "as" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or" | "each" | "while" | "mlogserver" | "template" | "route" | "middleware" | "port" | "method" | "requires" | "db" | "migrate" | "pool_size") ~ IDENT }
+branch        = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
+branch_condition = { IDENT ~ "." ~ IDENT ~ compare_op ~ expression }
+
+// ── Types ──────────────────────────────────────────────────────────────
+type_name = { IDENT }
+
+// ── Multi-char operators ──────────────────────────────────────────────
+ARROW = @{ "->" }
+
+// ── Expressions ───────────────────────────────────────────────────────
+expression       = { binary_expr }
+binary_expr      = { unary_expr ~ (binop ~ unary_expr)* }
+binop            = @{ STAR | SLASH | PLUS | MINUS | GTE | LTE | GT | LT | EQ }
+unary_expr       = { if_else_expr | qualified_call_expr | call_expr | unary_minus | field_expr | primary_expr }
+unary_minus     = @{ MINUS ~ unary_expr }
+if_else_expr     = { "if" ~ expression ~ "then" ~ expression ~ "else" ~ expression }
+field_expr       = { primary_expr ~ "." ~ IDENT }
+qualified_call_expr = { IDENT ~ DOT_CHAR ~ IDENT ~ "(" ~ expression_list? ~ ")" }
+call_expr        = { IDENT ~ "(" ~ expression_list? ~ ")" }
+expression_list  = { expression ~ (COMMA ~ WHITESPACE? ~ expression)* }
+primary_expr     = { list_literal | BOOL_LITERAL | FLOAT_LITERAL | STRING_LITERAL | IDENT }
+list_literal     = { LBRACKET ~ expression_list? ~ RBRACKET }
+
+// ── Literals ─────────────────────────────────────────────────────────
+literal = _{ FLOAT_LITERAL | STRING_LITERAL | IDENT }
+
+// ── Primitives ─────────────────────────────────────────────────────────
+STRING_LITERAL = @{ "\"" ~ inner_string ~ "\"" }
+inner_string   =  { (!( "\"" | "\\" ) ~ ANY)* }
+FLOAT_LITERAL  = @{ DIGIT+ ~ DOT_CHAR ~ DIGIT+ }
+INT            = @{ DIGIT+ }
+IDENT          = @{ !("true" | "false" | "if" | "then" | "else" | "let" | "return" | "each" | "while" | "import" | "as") ~ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_" | APOSTROPHE)* }
+
+// ── Single-char tokens (only those NOT used as rule delimiters!) ────────
+COLON     = @{ ":" }
+COMMA     = @{ "," }
+DOT_CHAR  = @{ "." }
+ASSIGN    = @{ "=" }
+PLUS      = @{ "+" }
+MINUS     = @{ "-" }
+STAR      = @{ "*" }
+SLASH     = @{ "/" }
+GT        = @{ ">" }
+LT        = @{ "<" }
+LBRACKET  = @{ "[" }
+RBRACKET  = @{ "]" }
+GTE       = @{ ">=" }
+LTE       = @{ "<=" }
+EQ        = @{ "==" }
+BOOL_LITERAL = @{ "true" | "false" }
+APOSTROPHE = @{ "'" }
+DIGIT     = @{ ASCII_DIGIT }
+
+// ── Keyword tokens ───────────────────────────────────────────────────
+ENTITY      = @{ "entity" }
+RULE        = @{ "rule" }
+FLUID_KW    = @{ "fluid" }
+LEARNABLE_KW = @{ "learnable" }
+IF_KW       = @{ "If" }
+THEN_KW     = @{ "then" }
+WITH_KW     = @{ "with" }
+ADAPT_KW       = @{ "adapt" }
+ADD_EXAMPLE_KW = @{ "add_example" }
+RELATE_KW      = @{ "relate" }
+SANDBOX_KW     = @{ "sandbox" }
+MUTATE_KW      = @{ "mutate" }
+MEMORIZE_KW = @{ "memorize" }
+FORGET_KW   = @{ "forget" }
+RECALL_KW   = @{ "recall" }
+AFTER_KW    = @{ "after" }
+DAYS_KW     = @{ "days" }
+PRIORITY_KW = @{ "priority" }
+PATTERN_KW  = @{ "pattern" }
+PROMPT_KW   = @{ "prompt" }
+RETURN_KW   = @{ "return" }
+FLOW_KW     = @{ "flow" }
+INPUT_KW    = @{ "input" }
+OUTPUT_KW   = @{ "output" }
+IMPORT_KW   = @{ "import" }
+AS_KW       = @{ "as" }

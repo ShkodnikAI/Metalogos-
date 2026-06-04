@@ -1,0 +1,10 @@
+entity counter: Float = 0.0
+
+pattern Increment(n: Float) -> Float { return n + 1.0 }
+
+flow Main {
+  input: Float = counter
+  -> Increment -> Increment -> Increment -> Increment -> Increment
+  -> Increment -> Increment -> Increment -> Increment -> Increment
+  -> output
+}

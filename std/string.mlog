@@ -1,0 +1,7 @@
+pattern trim(s: String) -> String { return __trim(s) }
+
+pattern replace(s: String, old: String, new: String) -> String { return __replace(s, old, new) }
+
+pattern split(s: String, sep: String) -> List { return __split(s, sep) }
+
+pattern join(items: List, sep: String) -> String { return __join(items, sep) }

@@ -24,6 +24,9 @@ impl Builtins {
         funcs.insert("get".to_string(), builtin_get as BuiltinFn);
         funcs.insert("push".to_string(), builtin_push as BuiltinFn);
 
+        // Phase 7 — environment variable access
+        funcs.insert("env".to_string(), builtin_env as BuiltinFn);
+
         // Phase 5.3 — string operations
         funcs.insert("index_of".to_string(), builtin_index_of as BuiltinFn);
         funcs.insert("substring".to_string(), builtin_substring as BuiltinFn);
@@ -243,6 +246,14 @@ fn builtin_confidence(args: &[Value]) -> Result<Value, String> {
         }
         Some(_) => Ok(Value::Float(1.0)), // concrete values are fully confident
         None => Err("confidence() requires 1 argument".to_string()),
+    }
+}
+
+fn builtin_env(args: &[Value]) -> Result<Value, String> {
+    let key = expect_string_arg("env", args, 0)?;
+    match std::env::var(&key) {
+        Ok(val) => Ok(Value::String(val)),
+        Err(_) => Ok(Value::String(String::new())), // soft-failure: empty string if not found
     }
 }
 

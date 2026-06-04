@@ -81,6 +81,9 @@ impl Builtins {
         funcs.insert("send_message".to_string(), builtin_send_message as BuiltinFn);
         funcs.insert("require".to_string(), builtin_require as BuiltinFn);
 
+        // Definition of Done — outgoing HTTP
+        funcs.insert("http_post".to_string(), builtin_http_post as BuiltinFn);
+
         Builtins { funcs }
     }
 
@@ -670,6 +673,55 @@ fn builtin_send_message(args: &[Value]) -> Result<Value, String> {
     // In interpreter mode, log to audit and return Unit
     eprintln!("[AUDIT] send_message: {}", text);
     Ok(Value::Unit)
+}
+
+// ── Outgoing HTTP (Definition of Done: http_post) ─────────────────
+
+/// Send an HTTP POST request. Returns the response body as String.
+/// Usage: http_post(url, body, content_type)
+fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
+    let url = match args.get(0) {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => return Err(format!("http_post() expected String as url, got {}", other.type_name())),
+        None => return Err("http_post() requires at least 1 argument (url)".to_string()),
+    };
+
+    let body = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => return Err(format!("http_post() expected String as body, got {}", other.type_name())),
+        None => return Err("http_post() requires at least 2 arguments (url, body)".to_string()),
+    };
+
+    let content_type = match args.get(2) {
+        Some(Value::String(s)) => s.clone(),
+        _ => "application/json".to_string(),
+    };
+
+    // Check sandbox network restriction
+    // (If active sandbox has "network" in forbidden, block the request)
+    // Note: sandbox check is done in interpreter's FnCall handling for builtins
+    // via the normal sandbox enforcement path. Here we just make the call.
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("http_post(): failed to create client: {}", e))?;
+
+    let resp = client
+        .post(&url)
+        .header("Content-Type", &content_type)
+        .body(body)
+        .send()
+        .map_err(|e| format!("http_post() request failed: {}", e))?;
+
+    let status = resp.status().as_u16();
+    let resp_body = resp.text().unwrap_or_default();
+
+    if status >= 400 {
+        return Err(format!("http_post() returned status {}: {}", status, resp_body));
+    }
+
+    Ok(Value::String(resp_body))
 }
 
 fn builtin_require(args: &[Value]) -> Result<Value, String> {

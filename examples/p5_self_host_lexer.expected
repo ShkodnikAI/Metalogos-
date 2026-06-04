@@ -1,0 +1,6 @@
+KEYWORD: entity
+IDENT: count
+OPERATOR: :
+IDENT: Float
+OPERATOR: =
+NUMBER: 42.0

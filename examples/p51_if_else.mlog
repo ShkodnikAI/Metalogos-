@@ -1,0 +1,12 @@
+entity score: Float = 0.9
+
+pattern Evaluate(score: Float) -> String {
+    let result = if score > 0.8 then "good" else "bad"
+    return result
+}
+
+flow Main {
+    input: Float = score
+    -> Evaluate
+    -> output
+}

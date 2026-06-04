@@ -1,0 +1,8 @@
+pattern ParsePair(s: String) -> String {
+  let colon = index_of(s, ":")
+  let key = substring(s, 0.0, colon)
+  let value = substring(s, colon + 1.0, len(s))
+  return key + " = " + value
+}
+entity pair: String = "name:Alice"
+flow Main { input: String = pair -> ParsePair -> output }

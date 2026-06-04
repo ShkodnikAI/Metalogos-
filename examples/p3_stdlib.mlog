@@ -1,0 +1,5 @@
+import std/string
+entity raw: String = "  hello world  "
+entity cleaned: String = trim(raw)
+entity result: String = replace(cleaned, "world", "METALOGOS")
+flow Main { input: String = result -> output }

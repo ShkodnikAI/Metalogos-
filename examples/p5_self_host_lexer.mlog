@@ -1,0 +1,60 @@
+pattern Tokenize(src: String) -> String {
+  let nl = "
+"
+  let abc = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  let d09 = "0123456789"
+  let ops = ":=+-*/!(){}[],<>"
+  let kws = "entity,pattern,flow,let,return,if,then,else,while,each,in,import,rule"
+
+  let r = ""
+  let sl = len(src)
+  let i = 0.0
+
+  while i < sl {
+    let ch = char_at(src, i)
+    let sp = if ch == " " then 1.0 else 0.0
+    let lt = if index_of(abc, ch) > -1.0 then 1.0 else 0.0
+    let dg = if index_of(d09, ch) > -1.0 then 1.0 else 0.0
+    let in_ops = if index_of(ops, ch) > -1.0 then 1.0 else 0.0
+    let is_qt = if sp == 0.0 then if lt == 0.0 then if dg == 0.0 then if in_ops == 0.0 then 1.0 else 0.0 else 0.0 else 0.0 else 0.0
+
+    let j = i
+    let tok = ""
+    let kind = ""
+
+    while if sp == 0.0 then if lt == 1.0 then if j < sl then if index_of(abc, char_at(src, j)) > -1.0 then 1.0 else 0.0 else 0.0 else 0.0 else 0.0 {
+      j = j + 1.0
+    }
+    tok = if sp == 0.0 then if lt == 1.0 then substring(src, i, j) else tok else tok
+    kind = if sp == 0.0 then if lt == 1.0 then if index_of(kws, tok) > -1.0 then "KEYWORD" else "IDENT" else kind else kind
+
+    while if sp == 0.0 then if lt == 0.0 then if dg == 1.0 then if j < sl then if index_of(d09, char_at(src, j)) > -1.0 then 1.0 else if char_at(src, j) == "." then 1.0 else 0.0 else 0.0 else 0.0 else 0.0 else 0.0 {
+      j = j + 1.0
+    }
+    tok = if sp == 0.0 then if lt == 0.0 then if dg == 1.0 then substring(src, i, j) else tok else tok else tok
+    kind = if sp == 0.0 then if lt == 0.0 then if dg == 1.0 then "NUMBER" else kind else kind else kind
+
+    j = if is_qt == 1.0 then i + 1.0 else j
+    while if is_qt == 1.0 then if j < sl then if char_at(src, j) == ch then 0.0 else 1.0 else 0.0 else 0.0 {
+      j = j + 1.0
+    }
+    tok = if is_qt == 1.0 then substring(src, i, j + 1.0) else tok
+    kind = if is_qt == 1.0 then "STRING" else kind
+
+    let is_op = if sp == 0.0 then if lt == 0.0 then if dg == 0.0 then if is_qt == 0.0 then 1.0 else 0.0 else 0.0 else 0.0 else 0.0
+    let is_arrow = if is_op == 1.0 then if ch == "-" then if i + 1.0 < sl then if char_at(src, i + 1.0) == ">" then 1.0 else 0.0 else 0.0 else 0.0 else 0.0
+    tok = if is_arrow == 1.0 then "->" else if is_op == 1.0 then ch else tok
+    kind = if is_arrow == 1.0 then "OPERATOR" else if is_op == 1.0 then "OPERATOR" else kind
+
+    let line = kind + ": " + tok + nl
+    r = if is_arrow == 1.0 then r + line else if is_op == 1.0 then r + line else if is_qt == 1.0 then r + line else if dg == 1.0 then r + line else if lt == 1.0 then r + line else r
+
+    i = if is_arrow == 1.0 then i + 2.0 else if is_op == 1.0 then i + 1.0 else if is_qt == 1.0 then j + 1.0 else if dg == 1.0 then j else if lt == 1.0 then j else i + 1.0
+  }
+
+  return substring(r, 0.0, len(r) - 1.0)
+}
+
+entity src: String = "entity count: Float = 42.0"
+
+flow Main { input: String = src -> Tokenize -> output }

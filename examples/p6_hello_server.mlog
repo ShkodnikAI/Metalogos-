@@ -1,0 +1,6 @@
+server {
+  port: 8080
+  route "/" method=GET {
+    respond("Hello from Metalogos!")
+  }
+}

@@ -1,0 +1,17 @@
+entity Message { text: String, urgency: Float = 0.0 }
+entity m: Message = { text: "срочно нужна помощь", urgency: 0.0 }
+
+rule If(m.text contains "срочно") then m.urgency = 0.9 with priority=10
+
+pattern Escalate(msg: Message) -> String { return "ESCALATE" }
+pattern Queue(msg: Message) -> String { return "QUEUE" }
+pattern Ignore(msg: Message) -> String { return "IGNORE" }
+
+flow Main {
+  input: Message = m -> Classify -> output
+  Classify {
+    high (m.urgency > 0.8)        -> Escalate
+    medium (m.urgency < 0.8)       -> Queue
+    low  (m.urgency < 0.4)        -> Ignore
+  }
+}

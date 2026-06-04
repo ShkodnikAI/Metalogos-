@@ -1,0 +1,11 @@
+learnable pattern Sentiment(text: String) -> String {
+  prompt: "Classify sentiment"
+}
+
+adapt Sentiment add_example("great service", "positive")
+
+sandbox test_sandbox { allowed: [compute], forbidden: [network, write_permanent], timeout: 10 }
+
+mutate Sentiment { add_example("terrible experience", "negative") rollback_if: accuracy < 0.9 }
+
+flow Main { input: String = "great service" -> Sentiment -> output }

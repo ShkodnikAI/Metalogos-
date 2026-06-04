@@ -1,0 +1,9 @@
+// Наряд №2 — POST/PUT/DELETE route contract
+// Telegram webhook pattern: GET for health check, POST for webhook
+mlogserver {
+  port: 8090
+  route "/" method=GET { return "GET works" }
+  route "/hook" method=POST { return "POST works" }
+  route "/update" method=PUT { return "PUT works" }
+  route "/remove" method=DELETE { return "DELETE works" }
+}

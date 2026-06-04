@@ -578,6 +578,32 @@ pub fn make_session_cookie_value(session_id: &str, signed: bool, hmac_key: &[u8]
     )
 }
 
+// ── JSON → Value Conversion (Наряд №3) ──────────────────────────
+
+/// Recursively convert serde_json::Value → metalogos Value.
+/// Supports nested objects (→ Value::Struct), arrays, strings, numbers, bools, null.
+pub fn json_value_to_value(val: &serde_json::Value) -> Value {
+    match val {
+        serde_json::Value::String(s) => Value::String(s.clone()),
+        serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
+        serde_json::Value::Bool(b) => Value::Bool(*b),
+        serde_json::Value::Null => Value::Unit,
+        serde_json::Value::Array(arr) => {
+            Value::List(arr.iter().map(json_value_to_value).collect())
+        }
+        serde_json::Value::Object(map) => {
+            let fields: HashMap<String, Value> = map
+                .iter()
+                .map(|(k, v)| (k.clone(), json_value_to_value(v)))
+                .collect();
+            Value::Struct {
+                type_name: "JsonObject".to_string(),
+                fields,
+            }
+        }
+    }
+}
+
 // ── Route Body Execution ────────────────────────────────────────────
 
 async fn execute_route_body(
@@ -589,34 +615,12 @@ async fn execute_route_body(
     // Set up interpreter with request context
     let mut interp = Interpreter::new();
 
-    // Inject request data as variables
+    // Parse JSON body recursively and inject as json_body() server builtin (Наряд №3)
     if let Ok(body_str) = std::str::from_utf8(raw_body) {
         if !body_str.is_empty() {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(body_str) {
-                let mut fields = HashMap::new();
-                if let serde_json::Value::Object(map) = json {
-                    for (k, v) in map {
-                        let val = match v {
-                            serde_json::Value::String(s) => Value::String(s),
-                            serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
-                            serde_json::Value::Bool(b) => Value::Bool(b),
-                            serde_json::Value::Array(arr) => {
-                                Value::List(arr.iter().map(|item| match item {
-                                    serde_json::Value::String(s) => Value::String(s.clone()),
-                                    serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
-                                    serde_json::Value::Bool(b) => Value::Bool(*b),
-                                    _ => Value::Unit,
-                                }).collect())
-                            }
-                            _ => Value::Unit,
-                        };
-                        fields.insert(k, val);
-                    }
-                }
-                interp.variables.insert("json_body".to_string(), Value::Struct {
-                    type_name: "JsonBody".to_string(),
-                    fields,
-                });
+                let value = json_value_to_value(&json);
+                interp.set_server_json_body(value);
             }
         }
     }

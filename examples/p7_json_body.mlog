@@ -1,0 +1,12 @@
+// Наряд №3 — json_body() contract
+// Telegram webhook pattern: read JSON from POST body, extract nested fields
+
+mlogserver {
+  port: 8091
+  route "/webhook" method=POST {
+    let data = json_body()
+    let text = data.message.text
+    let chat_id = data.message.chat.id
+    respond("Got: " + text + " from " + to_string(chat_id))
+  }
+}

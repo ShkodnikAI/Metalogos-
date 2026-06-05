@@ -295,6 +295,7 @@ pub enum Statement {
     Assign { name: String, value: Expr },
     Each { variable: String, iterable: Expr, body: Vec<Statement> },
     While { condition: Expr, body: Vec<Statement> },
+    IfThen(Box<Expr>, Vec<Statement>),
     Return(Expr),
 }
 
@@ -357,6 +358,7 @@ pub enum BinOp {
     Ge,
     Le,
     Eq,
+    Ne,
 }
 
 impl fmt::Display for BinOp {
@@ -371,6 +373,7 @@ impl fmt::Display for BinOp {
             BinOp::Ge => write!(f, ">="),
             BinOp::Le => write!(f, "<="),
             BinOp::Eq => write!(f, "=="),
+            BinOp::Ne => write!(f, "!="),
         }
     }
 }

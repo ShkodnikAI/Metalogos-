@@ -348,11 +348,33 @@ fn parse_field_decl(pair: Pair<Rule>) -> FieldDecl {
     FieldDecl { name, type_name, default }
 }
 
+/// Process escape sequences in a string literal (without outer quotes).
+fn unescape_string(s: &str) -> String {
+    let trimmed = &s[1..s.len()-1]; // strip outer quotes
+    let mut result = String::with_capacity(trimmed.len());
+    let mut chars = trimmed.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.peek() {
+                Some('\"') => { result.push('\"'); chars.next(); }
+                Some('\\') => { result.push('\\'); chars.next(); }
+                Some('n')  => { result.push('\n'); chars.next(); }
+                Some('t')  => { result.push('\t'); chars.next(); }
+                Some('r')  => { result.push('\r'); chars.next(); }
+                _ => { result.push(c); }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 /// Convert a literal pair (STRING_LITERAL, FLOAT_LITERAL, or IDENT) to an Expr.
 fn parse_literal_to_expr(pair: &Pair<Rule>) -> Expr {
     let inner = pair.clone().into_inner().next().unwrap();
     match inner.as_rule() {
-        Rule::STRING_LITERAL => Expr::StringLit(inner.as_str()[1..inner.as_str().len()-1].to_string()),
+        Rule::STRING_LITERAL => Expr::StringLit(unescape_string(inner.as_str())),
         Rule::FLOAT_LITERAL => Expr::FloatLit(inner.as_str().parse().unwrap_or(0.0)),
         Rule::IDENT => Expr::Ident(inner.as_str().to_string()),
         _ => Expr::StringLit(pair.as_str().to_string()),
@@ -755,6 +777,15 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
         let rs_children = children_of(rs_pair);
         let expr = find_child(&rs_children, Rule::expression).unwrap();
         Statement::Return(parse_expression(expr))
+    } else if let Some(it_pair) = children.iter().find(|c| c.as_rule() == Rule::if_then_stmt) {
+        let it_children: Vec<Pair<Rule>> = it_pair.clone().into_inner().collect();
+        // if_then_stmt = { "if" ~ expression ~ "then" ~ "{" ~ statement* ~ "}" }
+        let condition = parse_expression(it_children.iter().find(|c| c.as_rule() == Rule::expression).cloned().unwrap());
+        let body: Vec<Statement> = it_children.iter()
+            .filter(|c| c.as_rule() == Rule::statement)
+            .map(|c| parse_single_statement(c.clone()))
+            .collect();
+        Statement::IfThen(Box::new(condition), body)
     } else {
         // Fallback: direct expression child (legacy)
         let expr = find_child(&children, Rule::expression).unwrap();
@@ -866,6 +897,7 @@ fn parse_binop(pair: &Pair<Rule>) -> BinOp {
         ">" => BinOp::Gt,
         "<" => BinOp::Lt,
         "==" => BinOp::Eq,
+        "!=" => BinOp::Ne,
         _ => unreachable!("unexpected binop: {}", pair.as_str()),
     }
 }
@@ -1000,10 +1032,12 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
                     Expr::BoolLit(inner.as_str() == "true")
                 }
                 Rule::STRING_LITERAL => {
-                    let s = inner.as_str();
-                    Expr::StringLit(s[1..s.len()-1].to_string())
+                    Expr::StringLit(unescape_string(inner.as_str()))
                 }
                 Rule::FLOAT_LITERAL => {
+                    Expr::FloatLit(inner.as_str().parse().unwrap_or(0.0))
+                }
+                Rule::INT => {
                     Expr::FloatLit(inner.as_str().parse().unwrap_or(0.0))
                 }
                 Rule::IDENT => Expr::Ident(inner.as_str().to_string()),

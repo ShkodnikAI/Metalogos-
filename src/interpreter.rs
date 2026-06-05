@@ -251,14 +251,16 @@ pub struct Interpreter {
     /// Flow branch definitions: step_name -> [Branch]
     branch_defs: HashMap<String, Vec<Branch>>,
     /// Memory store backend (Phase 7.6): InMemoryStore or SqliteStore.
-    memory: Box<dyn MemoryStore>,
+    memory: std::sync::Mutex<Box<dyn MemoryStore>>,
     /// Knowledge graph store backend (Phase 7.6): InMemoryKg or SqliteKg.
-    kg: Box<dyn KgStore>,
+    kg: std::sync::Mutex<Box<dyn KgStore>>,
     /// Sandbox declarations (recorded but not enforced).
     sandboxes: HashMap<String, SandboxDecl>,
     /// Active sandbox enforcement (Phase 7.5): clone of the current sandbox config.
     /// When Some, iteration limits are reduced and network/timeout checks apply.
     active_sandbox: Option<SandboxDecl>,
+    /// Memory persist path (Phase 7.6).
+    memory_persist_path: Option<String>,
     /// Mutate status log messages.
     mutate_log: Vec<String>,
     /// Module namespaces: alias -> path (for qualified call resolution).
@@ -294,10 +296,11 @@ impl Interpreter {
             rules: Vec::new(),
             builtins: Builtins::new(),
             branch_defs: HashMap::new(),
-            memory: Box::new(InMemoryStore::new()),
-            kg: Box::new(InMemoryKg::new()),
+            memory: std::sync::Mutex::new(Box::new(InMemoryStore::new())),
+            kg: std::sync::Mutex::new(Box::new(InMemoryKg::new())),
             sandboxes: HashMap::new(),
             active_sandbox: None,
+            memory_persist_path: None,
             mutate_log: Vec::new(),
             module_namespaces: HashMap::new(),
             loading_stack: Vec::new(),
@@ -362,26 +365,27 @@ impl Interpreter {
             match SqliteStore::open(&db_path) {
                 Ok(sqlite_store) => {
                     // Migrate existing in-memory data to SQLite
-                    let existing = self.memory.all_entries();
+                    let existing = self.memory.lock().unwrap().all_entries();
                     let mut new_store: Box<dyn MemoryStore> = Box::new(sqlite_store);
                     for entry in existing {
                         let _ = new_store.memorize(entry);
                     }
-                    self.memory = new_store;
+                    self.memory = std::sync::Mutex::new(new_store);
 
                     // Migrate KG edges to SQLite (sharing the same DB file)
                     let existing_edges: Vec<(String, String, String, f64)> =
-                        self.kg.all_edges();
+                        self.kg.lock().unwrap().all_edges();
                     if let Ok(sqlite_kg) = SqliteKg::open(&db_path) {
                         let mut new_kg: Box<dyn KgStore> = Box::new(sqlite_kg);
                         for (from, to, relation, weight) in existing_edges {
                             let _ = new_kg.relate(&from, &to, &relation, weight);
                         }
-                        self.kg = new_kg;
+                        self.kg = std::sync::Mutex::new(new_kg);
                     } else {
                         eprintln!("[memory] KG migration to SQLite failed; keeping in-memory KG");
                     }
                     eprintln!("[memory] Persistence enabled: {}", path);
+                    self.memory_persist_path = Some(path.clone());
                 }
                 Err(e) => {
                     eprintln!("[memory] Failed to open persistent store '{}': {}. Using in-memory.", path, e);
@@ -427,7 +431,7 @@ impl Interpreter {
                         .map(|d| d.as_secs() as i64)
                         .unwrap_or(0);
                     let embedding = self.embedding_manager.embed(&value_str).unwrap_or_default();
-                    let _ = self.memory.memorize(MemoryEntry {
+                    let _ = self.memory.lock().unwrap().memorize(MemoryEntry {
                         id: None,
                         value: value_str,
                         priority: m.priority,
@@ -447,7 +451,7 @@ impl Interpreter {
                         .map(|d| d.as_secs() as i64)
                         .unwrap_or(0);
                     let cutoff = now - (f.days * 86400);
-                    self.memory.forget(&query_str, cutoff);
+                    self.memory.lock().unwrap().forget(&query_str, cutoff);
                 }
                 Declaration::Pattern(p) => {
                     self.patterns.insert(
@@ -509,7 +513,7 @@ impl Interpreter {
                         Value::String(s) => s,
                         other => format!("{}", other),
                     };
-                    let _ = self.kg.relate(&from_str, &to_str, &r.relation, 1.0);
+                    let _ = self.kg.lock().unwrap().relate(&from_str, &to_str, &r.relation, 1.0);
                 }
                 Declaration::Sandbox(s) => {
                     self.sandboxes.insert(s.name.clone(), s);
@@ -670,7 +674,7 @@ impl Interpreter {
                         .map(|d| d.as_secs() as i64)
                         .unwrap_or(0);
                     let embedding = self.embedding_manager.embed(&value_str).unwrap_or_default();
-                    let _ = self.memory.memorize(MemoryEntry {
+                    let _ = self.memory.lock().unwrap().memorize(MemoryEntry {
                         id: None,
                         value: value_str,
                         priority: m.priority,
@@ -690,7 +694,7 @@ impl Interpreter {
                         .map(|d| d.as_secs() as i64)
                         .unwrap_or(0);
                     let cutoff = now - (f.days * 86400);
-                    self.memory.forget(&query_str, cutoff);
+                    self.memory.lock().unwrap().forget(&query_str, cutoff);
                 }
                 Declaration::Fluid(fl) => {
                     let mut variants = Vec::new();
@@ -713,7 +717,7 @@ impl Interpreter {
                         Value::String(s) => s,
                         other => format!("{}", other),
                     };
-                    let _ = self.kg.relate(&from_str, &to_str, &r.relation, 1.0);
+                    let _ = self.kg.lock().unwrap().relate(&from_str, &to_str, &r.relation, 1.0);
                 }
                 Declaration::Adapt(a) => {
                     let input_str = match self.eval_expr(&a.input_example)? {
@@ -1010,10 +1014,10 @@ impl Interpreter {
         let query_embedding = self.embedding_manager.embed(&query).unwrap_or_default();
 
         // Use MemoryStore trait for recall (handles both InMemory and SQLite)
-        match self.memory.recall(&query, &query_embedding, min_confidence) {
+        match self.memory.lock().unwrap().recall(&query, &query_embedding, min_confidence) {
             Some((entry, _score)) => {
                 // Walk the knowledge graph for related memories
-                let edges = self.kg.edges_for(&entry.value);
+                let edges = self.kg.lock().unwrap().edges_for(&entry.value);
                 if edges.is_empty() {
                     Ok(Value::String(entry.value.clone()))
                 } else {
@@ -1080,7 +1084,7 @@ impl Interpreter {
     /// Callable form of memorize() — usable inside patterns and route handlers.
     /// Usage: memorize("user likes spicy food", 0.5) or memorize("fact")
     /// Differs from declaration `memorize "text" with priority=0.5` (top-level only).
-    fn invoke_memorize_fn(&mut self, args: Vec<Value>) -> Result<Value, String> {
+    fn invoke_memorize_fn(&self, args: Vec<Value>) -> Result<Value, String> {
         if args.is_empty() {
             return Err("memorize() requires at least 1 argument (text)".to_string());
         }
@@ -1098,21 +1102,24 @@ impl Interpreter {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
         let embedding = self.embedding_manager.embed(&value_str).unwrap_or_default();
-        let _ = self.memory.memorize(MemoryEntry {
+        match self.memory.lock().unwrap().memorize(MemoryEntry {
             id: None,
-            value: value_str,
+            value: value_str.clone(),
             priority,
             timestamp: now,
             decay_rate: 0.01,
             confidence: priority,
             embedding,
-        });
+        }) {
+            Ok(id) => eprintln!("[memorize] stored id={} value={}", id, value_str),
+            Err(e) => eprintln!("[memorize] ERROR: {}", e),
+        }
         Ok(Value::Unit)
     }
 
     /// Callable form of forget() — usable inside patterns and route handlers.
     /// Usage: forget("query", 30) — forget entries matching "query" older than 30 days.
-    fn invoke_forget_fn(&mut self, args: Vec<Value>) -> Result<Value, String> {
+    fn invoke_forget_fn(&self, args: Vec<Value>) -> Result<Value, String> {
         if args.is_empty() {
             return Err("forget() requires at least 1 argument (query)".to_string());
         }
@@ -1130,7 +1137,7 @@ impl Interpreter {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
         let cutoff = now - (days * 86400);
-        self.memory.forget(&query_str, cutoff);
+        self.memory.lock().unwrap().forget(&query_str, cutoff);
         Ok(Value::Unit)
     }
 
@@ -1227,6 +1234,14 @@ impl Interpreter {
         &self.templates
     }
 
+    pub fn get_memory_persist_path(&self) -> Option<String> {
+        self.memory_persist_path.clone()
+    }
+
+    pub fn set_memory_persist_path(&mut self, path: Option<String>) {
+        self.memory_persist_path = path;
+    }
+
     /// Safety limit for while loops (soft-failure on exceed).
     const WHILE_SAFETY_LIMIT: u64 = 100_000;
     /// Phase 7.5: Sandbox iteration limit (10,000 for both while and each).
@@ -1320,6 +1335,15 @@ impl Interpreter {
                     }
                 }
                 Statement::Return(expr) => return self.eval_expr_with_env(expr, env),
+                Statement::IfThen(cond, body) => {
+                    let cond_val = self.eval_expr_with_env(cond, env)?;
+                    if cond_val.as_bool()? {
+                        let result = self.eval_statements(body, env)?;
+                        if !matches!(result, Value::Unit) {
+                            return Ok(result);
+                        }
+                    }
+                }
             }
         }
         Ok(Value::Unit)
@@ -1598,6 +1622,9 @@ impl Interpreter {
             (BinOp::Eq, Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a == b)),
             (BinOp::Eq, Value::String(a), Value::String(b)) => Ok(Value::Bool(a == b)),
             (BinOp::Eq, Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a == b)),
+            (BinOp::Ne, Value::String(a), Value::String(b)) => Ok(Value::Bool(a != b)),
+            (BinOp::Ne, Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a != b)),
+            (BinOp::Ne, Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a != b)),
             (_, l, r) => Err(format!(
                 "type mismatch in binary operation: {} {:?} {}",
                 l.type_name(),

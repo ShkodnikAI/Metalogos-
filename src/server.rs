@@ -51,6 +51,8 @@ pub struct ServerState {
     pub templates: Arc<RwLock<HashMap<String, TemplateDecl>>>,
     /// Mock DB store.
     pub db_store: Arc<RwLock<Vec<HashMap<String, Value>>>>,
+    /// Memory persist path (if configured).
+    pub memory_persist: Option<String>,
     /// Interpreter (for running route handlers).
     pub interpreter: Arc<RwLock<Interpreter>>,
     /// Route definitions from mlogserver block.
@@ -176,6 +178,7 @@ async fn build_state(config: MlogServerDecl, interp: Interpreter) -> ServerState
         audit_log: Arc::new(RwLock::new(Vec::new())),
         templates: Arc::new(RwLock::new(templates_map)),
         db_store: Arc::new(RwLock::new(Vec::new())),
+        memory_persist: interp.get_memory_persist_path(),
         interpreter: Arc::new(RwLock::new(interp)),
         routes: config.routes.clone(),
         middleware: config.middleware.clone(),
@@ -614,6 +617,9 @@ async fn execute_route_body(
 ) -> Result<Response, String> {
     // Set up interpreter with request context
     let mut interp = Interpreter::new();
+    if let Some(ref persist_path) = state.memory_persist {
+        interp.configure_memory(&MemoryDecl { persist: Some(persist_path.clone()) });
+    }
 
     // Parse JSON body recursively and inject as json_body() server builtin (Наряд №3)
     if let Ok(body_str) = std::str::from_utf8(raw_body) {
@@ -644,6 +650,16 @@ async fn execute_route_body(
                 // Phase 7.5: Flush interpreter audit entries to SQLite
                 flush_audit_to_db(state, &mut interp).await;
                 return Ok(value_to_response(val));
+            }
+            Statement::IfThen(cond, body) => {
+                let cond_val = interp.eval_expr_with_env(cond, &env)?;
+                if cond_val.as_bool().unwrap_or(false) {
+                    let result = interp.eval_statements(body, &mut env)?;
+                    if !matches!(result, Value::Unit) {
+                        flush_audit_to_db(state, &mut interp).await;
+                        return Ok(value_to_response(result));
+                    }
+                }
             }
             _ => {
                 interp.eval_statements(&[stmt.clone()], &mut env)?;
@@ -821,6 +837,10 @@ fn merge_interpreter(from: Interpreter, mut into: Interpreter) -> Interpreter {
     // Merge templates
     for (k, v) in from.get_templates() {
         into.templates.entry(k.clone()).or_insert(v.clone());
+    }
+    // Propagate memory persist path
+    if let Some(path) = from.get_memory_persist_path() {
+        into.set_memory_persist_path(Some(path));
     }
     into
 }

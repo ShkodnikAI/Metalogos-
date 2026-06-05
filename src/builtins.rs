@@ -252,13 +252,7 @@ fn builtin_confidence(args: &[Value]) -> Result<Value, String> {
     }
 }
 
-fn builtin_env(args: &[Value]) -> Result<Value, String> {
-    let key = expect_string_arg("env", args, 0)?;
-    match std::env::var(&key) {
-        Ok(val) => Ok(Value::String(val)),
-        Err(_) => Ok(Value::String(String::new())), // soft-failure: empty string if not found
-    }
-}
+// builtin_env moved to Phase 6.4 section below
 
 fn expect_float_arg(fn_name: &str, args: &[Value], index: usize) -> Result<f64, String> {
     if args.len() <= index {
@@ -498,10 +492,9 @@ fn builtin_db_execute(args: &[Value]) -> Result<Value, String> {
 
 fn builtin_env(args: &[Value]) -> Result<Value, String> {
     let key = expect_string_arg("env", args, 0)?;
-    // Read from environment, wrap in opaque Secret (zeroized on drop)
     match std::env::var(&key) {
-        Ok(val) => Ok(Value::Secret(SecretString::new(val))),
-        Err(_) => Err(format!("env(): environment variable '{}' not found", key)),
+        Ok(val) => Ok(Value::String(val)),
+        Err(_) => Ok(Value::String(String::new())), // soft-failure: empty string if not found
     }
 }
 

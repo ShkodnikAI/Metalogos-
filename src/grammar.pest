@@ -106,12 +106,13 @@ pattern_decl = { "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ "
 params       = { param ~ (COMMA ~ WHITESPACE? ~ param)* }
 param        = { IDENT ~ ":" ~ type_name }
 pattern_body = { statement* }
-statement    = { each_stmt | while_stmt | let_binding | assign_stmt | return_stmt }
+statement    = { each_stmt | while_stmt | if_then_stmt | let_binding | assign_stmt | return_stmt }
 each_stmt    = { "each" ~ IDENT ~ "in" ~ expression ~ "{" ~ statement* ~ "}" }
 while_stmt   = { "while" ~ expression ~ "{" ~ statement* ~ "}" }
 let_binding  = { "let" ~ IDENT ~ "=" ~ expression }
 assign_stmt  = { IDENT ~ ASSIGN ~ expression }
 return_stmt  = { "return" ~ expression }
+if_then_stmt = { "if" ~ expression ~ "then" ~ "{" ~ statement* ~ "}" }
 
 // ── Flow ──────────────────────────────────────────────────────────────
 // Pipeline and branch definitions are separate: pipeline comes first,
@@ -132,7 +133,7 @@ ARROW = @{ "->" }
 // ── Expressions ───────────────────────────────────────────────────────
 expression       = { binary_expr }
 binary_expr      = { unary_expr ~ (binop ~ unary_expr)* }
-binop            = @{ STAR | SLASH | PLUS | MINUS | GTE | LTE | GT | LT | EQ }
+binop            = @{ STAR | SLASH | PLUS | MINUS | GTE | LTE | GT | LT | EQ | NEQ }
 unary_expr       = { if_else_expr | qualified_call_expr | call_expr | unary_minus | field_expr | primary_expr }
 unary_minus     = @{ MINUS ~ unary_expr }
 if_else_expr     = { "if" ~ expression ~ "then" ~ expression ~ "else" ~ expression }
@@ -140,7 +141,7 @@ field_expr       = { primary_expr ~ "." ~ IDENT }
 qualified_call_expr = { IDENT ~ DOT_CHAR ~ IDENT ~ "(" ~ expression_list? ~ ")" }
 call_expr        = { IDENT ~ "(" ~ expression_list? ~ ")" }
 expression_list  = { expression ~ (COMMA ~ WHITESPACE? ~ expression)* }
-primary_expr     = { list_literal | BOOL_LITERAL | FLOAT_LITERAL | STRING_LITERAL | IDENT }
+primary_expr     = { list_literal | BOOL_LITERAL | FLOAT_LITERAL | INT | STRING_LITERAL | IDENT }
 list_literal     = { LBRACKET ~ expression_list? ~ RBRACKET }
 
 // ── Literals ─────────────────────────────────────────────────────────
@@ -148,7 +149,8 @@ literal = _{ FLOAT_LITERAL | STRING_LITERAL | IDENT }
 
 // ── Primitives ─────────────────────────────────────────────────────────
 STRING_LITERAL = @{ "\"" ~ inner_string ~ "\"" }
-inner_string   =  { (!( "\"" | "\\" ) ~ ANY)* }
+inner_string   =  { (ESCAPE_SEQ | (!( "\"" | "\\") ~ ANY))* }
+ESCAPE_SEQ     = @{ "\\" ~ ("\"" | "\\" | "n" | "t" | "r") }
 FLOAT_LITERAL  = @{ DIGIT+ ~ DOT_CHAR ~ DIGIT+ }
 INT            = @{ DIGIT+ }
 IDENT          = @{ !("true" | "false" | "if" | "then" | "else" | "let" | "return" | "each" | "while" | "import" | "as") ~ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_" | APOSTROPHE)* }
@@ -169,6 +171,7 @@ RBRACKET  = @{ "]" }
 GTE       = @{ ">=" }
 LTE       = @{ "<=" }
 EQ        = @{ "==" }
+NEQ       = @{ "!=" }
 BOOL_LITERAL = @{ "true" | "false" }
 APOSTROPHE = @{ "'" }
 DIGIT     = @{ ASCII_DIGIT }

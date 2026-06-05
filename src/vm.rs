@@ -314,6 +314,16 @@ impl Vm {
                     stack.push(self.eval_cmp(left, right, AstCompareOp::Eq));
                     ip += 1;
                 }
+                Instruction::CmpNe => {
+                    let right = stack.pop().unwrap_or(Value::Unit);
+                    let left = stack.pop().unwrap_or(Value::Unit);
+                    let eq_result = self.eval_cmp(left, right, AstCompareOp::Eq);
+                    match eq_result {
+                        Value::Float(f) => stack.push(Value::Float(if f == 1.0 { 0.0 } else { 1.0 })),
+                        _ => stack.push(eq_result),
+                    }
+                    ip += 1;
+                }
 
                 // ── Struct Operations ─────────────────────────
                 Instruction::MakeStruct(type_name, field_names) => {
@@ -726,6 +736,16 @@ impl Vm {
                     stack.push(self.eval_cmp(left, right, AstCompareOp::Eq));
                     ip += 1;
                 }
+                Instruction::CmpNe => {
+                    let right = stack.pop().unwrap_or(Value::Unit);
+                    let left = stack.pop().unwrap_or(Value::Unit);
+                    let eq_result = self.eval_cmp(left, right, AstCompareOp::Eq);
+                    match eq_result {
+                        Value::Float(f) => stack.push(Value::Float(if f == 1.0 { 0.0 } else { 1.0 })),
+                        _ => stack.push(eq_result),
+                    }
+                    ip += 1;
+                }
                 Instruction::GetField(field) => {
                     let val = stack.pop().unwrap_or(Value::Unit);
                     let result = val.get_field(field).cloned().unwrap_or(Value::Unit);
@@ -1127,6 +1147,7 @@ impl Vm {
             (Value::String(a), Value::String(b)) => match op {
                 crate::ast::BinOp::Add => Ok(Value::String(format!("{}{}", a, b))),
                 crate::ast::BinOp::Eq => Ok(Value::Float(if a == b { 1.0 } else { 0.0 })),
+                crate::ast::BinOp::Ne => Ok(Value::Float(if a != b { 1.0 } else { 0.0 })),
                 _ => Err(format!("cannot apply {:?} to two Strings", op)),
             },
             (Value::Float(a), Value::Float(b)) => match op {
@@ -1145,6 +1166,7 @@ impl Vm {
                 crate::ast::BinOp::Ge => Ok(Value::Float(if a >= b { 1.0 } else { 0.0 })),
                 crate::ast::BinOp::Le => Ok(Value::Float(if a <= b { 1.0 } else { 0.0 })),
                 crate::ast::BinOp::Eq => Ok(Value::Float(if a == b { 1.0 } else { 0.0 })),
+                crate::ast::BinOp::Ne => Ok(Value::Float(if a != b { 1.0 } else { 0.0 })),
             },
             (l, r) => Err(format!(
                 "type mismatch: {} {:?} {}",

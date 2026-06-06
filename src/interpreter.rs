@@ -1319,6 +1319,36 @@ impl Interpreter {
                         iterations += 1;
                     }
                 }
+                Statement::IfElseBlock { condition, then_body, else_ifs, else_body } => {
+                    let cond_val = self.eval_expr_with_env(condition, env)?;
+                    if cond_val.as_bool()? {
+                        let result = self.eval_statements(then_body, env)?;
+                        if !matches!(result, Value::Unit) {
+                            return Ok(result);
+                        }
+                    } else {
+                        let mut matched = false;
+                        for (ei_cond, ei_body) in else_ifs {
+                            let ei_val = self.eval_expr_with_env(ei_cond, env)?;
+                            if ei_val.as_bool()? {
+                                let result = self.eval_statements(ei_body, env)?;
+                                if !matches!(result, Value::Unit) {
+                                    return Ok(result);
+                                }
+                                matched = true;
+                                break;
+                            }
+                        }
+                        if !matched {
+                            if let Some(eb) = else_body {
+                                let result = self.eval_statements(eb, env)?;
+                                if !matches!(result, Value::Unit) {
+                                    return Ok(result);
+                                }
+                            }
+                        }
+                    }
+                }
                 Statement::Return(expr) => return self.eval_expr_with_env(expr, env),
             }
         }
@@ -1360,6 +1390,40 @@ impl Interpreter {
             Expr::FieldAccess(base, field) => {
                 let base_val = self.eval_expr_with_env(base, env)?;
                 base_val.get_field(field).cloned()
+            }
+            Expr::IndexAccess(base, index) => {
+                let base_val = self.eval_expr_with_env(base, env)?;
+                let idx_val = self.eval_expr_with_env(index, env)?;
+                match (&base_val, &idx_val) {
+                    (Value::List(items), Value::Float(f)) => {
+                        let idx = *f as isize;
+                        if idx < 0 {
+                            let idx = items.len().wrapping_sub((-idx) as usize);
+                            items.get(idx).cloned()
+                                .ok_or_else(|| format!("list index out of bounds: {}", idx))
+                        } else {
+                            items.get(idx as usize).cloned()
+                                .ok_or_else(|| format!("list index out of bounds: {}", idx))
+                        }
+                    }
+                    (Value::Struct { fields, .. }, Value::String(key)) => {
+                        fields.get(key).cloned()
+                            .ok_or_else(|| format!("struct has no field '{}'", key))
+                    }
+                    (Value::String(s), Value::Float(f)) => {
+                        let idx = *f as isize;
+                        if idx < 0 {
+                            let abs_idx = s.len().wrapping_sub((-idx) as usize);
+                            Ok(Value::String(s.chars().nth(abs_idx).unwrap_or('\0').to_string()))
+                        } else {
+                            Ok(Value::String(s.chars().nth(idx as usize).unwrap_or('\0').to_string()))
+                        }
+                    }
+                    _ => Err(format!(
+                        "index access: expected List[Int] or Struct[String], got {}[{}]",
+                        base_val.type_name(), idx_val.type_name()
+                    )),
+                }
             }
             Expr::QualifiedCall { module, function, args } => {
                 let mut eval_args = Vec::new();

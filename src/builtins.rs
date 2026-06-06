@@ -93,6 +93,11 @@ impl Builtins {
         // File I/O
         funcs.insert("read_file".to_string(), builtin_read_file as BuiltinFn);
 
+        // Phase 7.7 — new builtins for department modularity
+        funcs.insert("parse_json".to_string(), builtin_parse_json as BuiltinFn);
+        funcs.insert("http_get".to_string(), builtin_http_get as BuiltinFn);
+        funcs.insert("now".to_string(), builtin_now as BuiltinFn);
+
         Builtins { funcs }
     }
 
@@ -800,6 +805,77 @@ fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
     let content = std::fs::read_to_string(&path)
         .map_err(|e| format!("read_file() error for '{}': {}", path, e))?;
     Ok(Value::String(content))
+}
+
+// ── Phase 7.7 — parse_json, http_get, now ────────────────────────────
+
+/// Parse a JSON string into a Value (Struct or List).
+/// Usage: parse_json(text) -> Struct|List|String|Float|Bool|Unit
+fn builtin_parse_json(args: &[Value]) -> Result<Value, String> {
+    let text = expect_string_arg("parse_json", args, 0)?;
+    let parsed: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| format!("parse_json() error: {}", e))?;
+    Ok(json_value_to_mlog_value(&parsed))
+}
+
+/// Convert serde_json::Value to METALOGOS Value (same logic as interpreter's method).
+fn json_value_to_mlog_value(json: &serde_json::Value) -> Value {
+    match json {
+        serde_json::Value::String(s) => Value::String(s.clone()),
+        serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
+        serde_json::Value::Bool(b) => Value::Bool(*b),
+        serde_json::Value::Null => Value::Unit,
+        serde_json::Value::Array(arr) => {
+            Value::List(arr.iter().map(|v| json_value_to_mlog_value(v)).collect())
+        }
+        serde_json::Value::Object(obj) => {
+            let mut fields = std::collections::HashMap::new();
+            for (k, v) in obj {
+                fields.insert(k.clone(), json_value_to_mlog_value(v));
+            }
+            Value::Struct { type_name: "Json".to_string(), fields }
+        }
+    }
+}
+
+/// Send an HTTP GET request. Returns the response body as String.
+/// Usage: http_get(url) -> String
+fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
+    let url = match args.get(0) {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => return Err(format!("http_get() expected String as url, got {}", other.type_name())),
+        None => return Err("http_get() requires 1 argument (url)".to_string()),
+    };
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("http_get(): failed to create client: {}", e))?;
+
+    let resp = client
+        .get(&url)
+        .send()
+        .map_err(|e| format!("http_get() request failed: {}", e))?;
+
+    let status = resp.status().as_u16();
+    let resp_body = resp.text().unwrap_or_default();
+
+    if status >= 400 {
+        return Err(format!("http_get() returned status {}: {}", status, resp_body));
+    }
+
+    Ok(Value::String(resp_body))
+}
+
+/// Return current Unix timestamp as Float (seconds since epoch).
+/// Usage: now() -> Float
+fn builtin_now(args: &[Value]) -> Result<Value, String> {
+    let _ = args;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+    Ok(Value::Float(now))
 }
 
 fn builtin_require(args: &[Value]) -> Result<Value, String> {

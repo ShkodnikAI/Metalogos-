@@ -1,0 +1,10 @@
+pattern Calculate(x: Float) -> String {
+  let doubled = x * 2.0
+  let label = "Result"
+  let final = label + ": " + to_string(doubled)
+  return final
+}
+
+flow Main {
+  input: Float = 21.0 -> Calculate -> output
+}

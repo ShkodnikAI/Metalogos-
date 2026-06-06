@@ -741,7 +741,7 @@ fn builtin_call_claude(args: &[Value]) -> Result<Value, String> {
 
     let body = serde_json::json!({
         "model": model,
-        "max_tokens": 500,
+        "max_tokens": 4096,
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_message}]
     });

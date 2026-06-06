@@ -90,6 +90,9 @@ impl Builtins {
         // JSON escape utility
         funcs.insert("escape_json".to_string(), builtin_escape_json as BuiltinFn);
 
+        // File I/O
+        funcs.insert("read_file".to_string(), builtin_read_file as BuiltinFn);
+
         Builtins { funcs }
     }
 
@@ -788,6 +791,15 @@ fn builtin_escape_json(args: &[Value]) -> Result<Value, String> {
         }
     }
     Ok(Value::String(out))
+}
+
+/// Read a text file and return its contents as a String.
+/// Usage: read_file(path) -> String
+fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
+    let path = expect_string_arg("read_file", args, 0)?;
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("read_file() error for '{}': {}", path, e))?;
+    Ok(Value::String(content))
 }
 
 fn builtin_require(args: &[Value]) -> Result<Value, String> {

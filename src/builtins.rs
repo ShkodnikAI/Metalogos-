@@ -84,6 +84,33 @@ impl Builtins {
         // Definition of Done — outgoing HTTP
         funcs.insert("http_post".to_string(), builtin_http_post as BuiltinFn);
 
+        // v0.5.0 — top-level string builtins (aliases for __* + new)
+        funcs.insert("trim".to_string(), builtin_trim as BuiltinFn);
+        funcs.insert("replace".to_string(), builtin_replace as BuiltinFn);
+        funcs.insert("split".to_string(), builtin_split as BuiltinFn);
+        funcs.insert("join".to_string(), builtin_join as BuiltinFn);
+        funcs.insert("length".to_string(), builtin_length as BuiltinFn);
+        funcs.insert("to_int".to_string(), builtin_to_int as BuiltinFn);
+        funcs.insert("reverse".to_string(), builtin_reverse as BuiltinFn);
+
+        // v0.5.0 — LLM call builtin
+        funcs.insert("call_llm".to_string(), builtin_call_llm as BuiltinFn);
+
+        // v0.5.0 — KV memory builtins
+        funcs.insert("kv_set".to_string(), builtin_kv_set as BuiltinFn);
+        funcs.insert("kv_get".to_string(), builtin_kv_get as BuiltinFn);
+        funcs.insert("kv_delete".to_string(), builtin_kv_delete as BuiltinFn);
+        funcs.insert("kv_exists".to_string(), builtin_kv_exists as BuiltinFn);
+        funcs.insert("kv_list".to_string(), builtin_kv_list as BuiltinFn);
+
+        // v0.5.0 — File I/O builtins
+        funcs.insert("read_file".to_string(), builtin_read_file as BuiltinFn);
+        funcs.insert("write_file".to_string(), builtin_write_file as BuiltinFn);
+        funcs.insert("append_file".to_string(), builtin_append_file as BuiltinFn);
+        funcs.insert("delete_file".to_string(), builtin_delete_file as BuiltinFn);
+        funcs.insert("file_exists".to_string(), builtin_file_exists as BuiltinFn);
+        funcs.insert("list_dir".to_string(), builtin_list_dir as BuiltinFn);
+
         Builtins { funcs }
     }
 
@@ -743,4 +770,248 @@ fn builtin_require(args: &[Value]) -> Result<Value, String> {
         }
         other => Err(format!("require() expected Bool, got {}", other.type_name())),
     }
+}
+
+// ── v0.5.0 — New string builtins ──────────────────────────
+
+/// `length(s)` — returns the length of a string or list as Float.
+fn builtin_length(args: &[Value]) -> Result<Value, String> {
+    match args.get(0) {
+        Some(Value::String(s)) => Ok(Value::Float(s.chars().count() as f64)),
+        Some(Value::List(items)) => Ok(Value::Float(items.len() as f64)),
+        other => Err(format!("length() requires String or List, got {}", other.as_ref().map(|v| v.type_name()).unwrap_or("none"))),
+    }
+}
+
+/// `to_int(s)` — parse a string to an integer Float (truncates towards zero).
+fn builtin_to_int(args: &[Value]) -> Result<Value, String> {
+    match args.get(0) {
+        Some(Value::Float(f)) => Ok(Value::Float(f.trunc())),
+        Some(Value::String(s)) => {
+            // Try integer parse first, then float truncation
+            if let Ok(i) = s.parse::<i64>() {
+                Ok(Value::Float(i as f64))
+            } else if let Ok(f) = s.parse::<f64>() {
+                Ok(Value::Float(f.trunc()))
+            } else {
+                Ok(Value::Float(0.0)) // soft-failure
+            }
+        }
+        Some(Value::Bool(b)) => Ok(Value::Float(if *b { 1.0 } else { 0.0 })),
+        _ => Ok(Value::Float(0.0)), // soft-failure
+    }
+}
+
+/// `reverse(s)` — reverse a string or list.
+fn builtin_reverse(args: &[Value]) -> Result<Value, String> {
+    match args.get(0) {
+        Some(Value::String(s)) => {
+            Ok(Value::String(s.chars().rev().collect()))
+        }
+        Some(Value::List(items)) => {
+            let mut rev = items.clone();
+            rev.reverse();
+            Ok(Value::List(rev))
+        }
+        other => Err(format!("reverse() requires String or List, got {}", other.as_ref().map(|v| v.type_name()).unwrap_or("none"))),
+    }
+}
+
+// ── v0.5.0 — LLM call builtin ──────────────────────────────
+
+/// `call_llm(prompt, input)` — call the LLM backend with a prompt and input.
+/// When METALOGOS_LLM_MOCK=true (default), returns "[MOCK: <prompt> | <input>]".
+/// When METALOGOS_LLM_MOCK=false, calls the real LLM backend (30s timeout).
+fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
+    let prompt = match args.get(0) {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => return Err(format!("call_llm() expected String as prompt, got {}", other.type_name())),
+        None => return Err("call_llm() requires at least 1 argument (prompt)".to_string()),
+    };
+    let input = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => format!("{}", other),
+        None => String::new(),
+    };
+
+    // Check mock mode
+    let mock_mode = std::env::var("METALOGOS_LLM_MOCK")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(true); // Default: mock mode ON
+
+    if mock_mode {
+        Ok(Value::String(format!("[MOCK: {} | {}]", prompt, input)))
+    } else {
+        // Real LLM call
+        let backend = crate::llm::create_llm_backend();
+        backend.call(&prompt, &input)
+            .map(Value::String)
+            .map_err(|e| format!("call_llm() failed: {}", e))
+    }
+}
+
+// ── v0.5.0 — KV memory builtins ────────────────────────────
+// These use a thread-local KV store (in-memory by default).
+// When memory { persist: "..." } is configured, they would use SQLite kv_store table.
+// For now, they use a simple global HashMap behind a Mutex.
+
+use std::sync::Mutex as StdMutex;
+
+/// Global KV store — lazy_static pattern using std::sync::OnceLock (Rust 1.70+).
+/// For older Rust, we use a mutable static with Mutex.
+static KV_STORE: std::sync::OnceLock<StdMutex<std::collections::HashMap<String, String>>> = std::sync::OnceLock::new();
+
+fn kv_store() -> &'static StdMutex<std::collections::HashMap<String, String>> {
+    KV_STORE.get_or_init(|| StdMutex::new(std::collections::HashMap::new()))
+}
+
+/// `kv_set(key, value)` — store a key-value pair.
+fn builtin_kv_set(args: &[Value]) -> Result<Value, String> {
+    let key = expect_string_arg("kv_set", args, 0)?;
+    let value = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => format!("{}", other),
+        None => return Err("kv_set() requires 2 arguments (key, value)".to_string()),
+    };
+    let mut store = kv_store().lock().map_err(|e| format!("kv_set() lock error: {}", e))?;
+    store.insert(key, value);
+    Ok(Value::Unit)
+}
+
+/// `kv_get(key)` — retrieve a value by key. Returns empty string if not found.
+fn builtin_kv_get(args: &[Value]) -> Result<Value, String> {
+    let key = expect_string_arg("kv_get", args, 0)?;
+    let store = kv_store().lock().map_err(|e| format!("kv_get() lock error: {}", e))?;
+    Ok(Value::String(store.get(&key).cloned().unwrap_or_default()))
+}
+
+/// `kv_delete(key)` — remove a key-value pair.
+fn builtin_kv_delete(args: &[Value]) -> Result<Value, String> {
+    let key = expect_string_arg("kv_delete", args, 0)?;
+    let mut store = kv_store().lock().map_err(|e| format!("kv_delete() lock error: {}", e))?;
+    store.remove(&key);
+    Ok(Value::Unit)
+}
+
+/// `kv_exists(key)` — check if a key exists. Returns Bool.
+fn builtin_kv_exists(args: &[Value]) -> Result<Value, String> {
+    let key = expect_string_arg("kv_exists", args, 0)?;
+    let store = kv_store().lock().map_err(|e| format!("kv_exists() lock error: {}", e))?;
+    Ok(Value::Bool(store.contains_key(&key)))
+}
+
+/// `kv_list()` — list all keys. Returns List of Strings.
+fn builtin_kv_list(args: &[Value]) -> Result<Value, String> {
+    let _ = args;
+    let store = kv_store().lock().map_err(|e| format!("kv_list() lock error: {}", e))?;
+    let keys: Vec<Value> = store.keys().cloned().map(Value::String).collect();
+    Ok(Value::List(keys))
+}
+
+// ── v0.5.0 — File I/O builtins (sandboxed) ──────────────────
+// All file operations are restricted to the working directory.
+// Paths containing ".." or absolute paths are rejected (sandbox).
+
+/// Validate that a path is safe (within working directory, no traversal).
+fn sandbox_path(path: &str) -> Result<std::path::PathBuf, String> {
+    let p = std::path::Path::new(path);
+    // Reject absolute paths
+    if p.is_absolute() {
+        return Err(format!("file I/O sandbox: absolute paths not allowed: '{}'", path));
+    }
+    // Reject path traversal
+    for component in p.components() {
+        if let std::path::Component::ParentDir = component {
+            return Err(format!("file I/O sandbox: path traversal ('..') not allowed: '{}'", path));
+        }
+    }
+    Ok(std::path::PathBuf::from(path))
+}
+
+/// `read_file(path)` — read file contents as String.
+fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
+    let path = expect_string_arg("read_file", args, 0)?;
+    let safe_path = sandbox_path(&path)?;
+    std::fs::read_to_string(&safe_path)
+        .map(Value::String)
+        .map_err(|e| format!("read_file('{}'): {}", path, e))
+}
+
+/// `write_file(path, content)` — write string to file (overwrite).
+fn builtin_write_file(args: &[Value]) -> Result<Value, String> {
+    let path = expect_string_arg("write_file", args, 0)?;
+    let content = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => format!("{}", other),
+        None => return Err("write_file() requires 2 arguments (path, content)".to_string()),
+    };
+    let safe_path = sandbox_path(&path)?;
+    // Create parent directories if needed
+    if let Some(parent) = safe_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("write_file(): cannot create directory: {}", e))?;
+    }
+    std::fs::write(&safe_path, &content)
+        .map(|_| Value::Unit)
+        .map_err(|e| format!("write_file('{}'): {}", path, e))
+}
+
+/// `append_file(path, content)` — append string to file.
+fn builtin_append_file(args: &[Value]) -> Result<Value, String> {
+    let path = expect_string_arg("append_file", args, 0)?;
+    let content = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => format!("{}", other),
+        None => return Err("append_file() requires 2 arguments (path, content)".to_string()),
+    };
+    use std::io::Write;
+    let safe_path = sandbox_path(&path)?;
+    // Create parent directories if needed
+    if let Some(parent) = safe_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("append_file(): cannot create directory: {}", e))?;
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&safe_path)
+        .map_err(|e| format!("append_file('{}'): {}", path, e))?;
+    file.write_all(content.as_bytes())
+        .map_err(|e| format!("append_file('{}'): write error: {}", path, e))?;
+    Ok(Value::Unit)
+}
+
+/// `delete_file(path)` — delete a file.
+fn builtin_delete_file(args: &[Value]) -> Result<Value, String> {
+    let path = expect_string_arg("delete_file", args, 0)?;
+    let safe_path = sandbox_path(&path)?;
+    std::fs::remove_file(&safe_path)
+        .map(|_| Value::Unit)
+        .map_err(|e| format!("delete_file('{}'): {}", path, e))
+}
+
+/// `file_exists(path)` — check if a file exists. Returns Bool.
+fn builtin_file_exists(args: &[Value]) -> Result<Value, String> {
+    let path = expect_string_arg("file_exists", args, 0)?;
+    let safe_path = sandbox_path(&path)?;
+    Ok(Value::Bool(safe_path.exists()))
+}
+
+/// `list_dir(path)` — list files in a directory. Returns List of Strings.
+fn builtin_list_dir(args: &[Value]) -> Result<Value, String> {
+    let path = if args.is_empty() {
+        ".".to_string()
+    } else {
+        expect_string_arg("list_dir", args, 0)?
+    };
+    let safe_path = sandbox_path(&path)?;
+    let entries: Vec<Value> = std::fs::read_dir(&safe_path)
+        .map_err(|e| format!("list_dir('{}'): {}", path, e))?
+        .filter_map(|entry| {
+            entry.ok().map(|e| {
+                Value::String(e.file_name().to_string_lossy().to_string())
+            })
+        })
+        .collect();
+    Ok(Value::List(entries))
 }

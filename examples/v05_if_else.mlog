@@ -1,0 +1,17 @@
+entity temp: Float = 38.0
+
+pattern Diagnose(temp: Float) -> String {
+  if temp > 39.0 {
+    return "высокая температура — вызвать врача"
+  }
+  else if temp > 37.5 {
+    return "повышенная — наблюдать"
+  }
+  else {
+    return "норма"
+  }
+}
+
+flow Main {
+  input: Float = temp -> Diagnose -> output
+}

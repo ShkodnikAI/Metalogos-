@@ -1,0 +1,13 @@
+entity message: String = "hello world"
+
+pattern Shout(s: String) -> String {
+  return upper(s) + "!"
+}
+
+pattern Reverse(s: String) -> String {
+  return reverse(s)
+}
+
+flow Main {
+  input: String = message -> Shout -> Reverse -> output
+}

@@ -1242,6 +1242,41 @@ impl Interpreter {
         self.memory_persist_path = path;
     }
 
+    /// Clone pattern definitions, struct types, learnable patterns, rules,
+    /// sandboxes, module namespaces, templates, and variables from this interpreter
+    /// into another interpreter. MERGES (does not replace) into target, so
+    /// definitions accumulate correctly across multiple calls.
+    /// Used to propagate program definitions into per-request interpreters in server mode.
+    pub fn clone_definitions_into(&self, target: &mut Interpreter) {
+        for (k, v) in &self.struct_types {
+            target.struct_types.entry(k.clone()).or_insert(v.clone());
+        }
+        for (k, v) in &self.patterns {
+            target.patterns.entry(k.clone()).or_insert(v.clone());
+        }
+        for (k, v) in &self.learnable_patterns {
+            target.learnable_patterns.entry(k.clone()).or_insert(v.clone());
+        }
+        for r in &self.rules {
+            target.rules.push(r.clone());
+        }
+        for (k, v) in &self.sandboxes {
+            target.sandboxes.entry(k.clone()).or_insert(v.clone());
+        }
+        for (k, v) in &self.module_namespaces {
+            target.module_namespaces.entry(k.clone()).or_insert(v.clone());
+        }
+        for (k, v) in &self.templates {
+            target.templates.entry(k.clone()).or_insert(v.clone());
+        }
+        for (k, v) in &self.variables {
+            target.variables.entry(k.clone()).or_insert(v.clone());
+        }
+        if let Some(ref db) = self.db_config {
+            target.db_config = Some(db.clone());
+        }
+    }
+
     /// Safety limit for while loops (soft-failure on exceed).
     const WHILE_SAFETY_LIMIT: u64 = 100_000;
     /// Phase 7.5: Sandbox iteration limit (10,000 for both while and each).

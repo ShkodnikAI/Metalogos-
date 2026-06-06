@@ -170,6 +170,7 @@ pub enum CompareOp {
     Ge,
     Le,
     Eq,
+    Ne,
 }
 
 impl fmt::Display for CompareOp {
@@ -180,6 +181,7 @@ impl fmt::Display for CompareOp {
             CompareOp::Ge => write!(f, ">="),
             CompareOp::Le => write!(f, "<="),
             CompareOp::Eq => write!(f, "=="),
+            CompareOp::Ne => write!(f, "!="),
         }
     }
 }
@@ -295,6 +297,13 @@ pub enum Statement {
     Assign { name: String, value: Expr },
     Each { variable: String, iterable: Expr, body: Vec<Statement> },
     While { condition: Expr, body: Vec<Statement> },
+    /// Block-style if: `if expr { stmts } else if expr { stmts } else { stmts }` (v0.5.0)
+    IfElseBlock {
+        condition: Expr,
+        then_body: Vec<Statement>,
+        else_ifs: Vec<(Expr, Vec<Statement>)>,
+        else_body: Option<Vec<Statement>>,
+    },
     Return(Expr),
 }
 
@@ -344,6 +353,8 @@ pub enum Expr {
     BinaryOp(Box<Expr>, BinOp, Box<Expr>),
     IfElse(Box<Expr>, Box<Expr>, Box<Expr>),
     List(Vec<Expr>),
+    /// Index access: `list[index]` or `struct["field"]` (v0.5.0)
+    IndexAccess(Box<Expr>, Box<Expr>),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -357,6 +368,7 @@ pub enum BinOp {
     Ge,
     Le,
     Eq,
+    Ne,
 }
 
 impl fmt::Display for BinOp {
@@ -371,6 +383,7 @@ impl fmt::Display for BinOp {
             BinOp::Ge => write!(f, ">="),
             BinOp::Le => write!(f, "<="),
             BinOp::Eq => write!(f, "=="),
+            BinOp::Ne => write!(f, "!="),
         }
     }
 }

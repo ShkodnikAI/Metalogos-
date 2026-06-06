@@ -16,7 +16,7 @@ fn run_vm(source: &str, base_dir: &Path) -> Result<Option<String>, String> {
 
 /// Execute a .mlog source via tree-walking interpreter.
 fn run_tw(source: &str, base_dir: &Path) -> Result<Option<String>, String> {
-    metalogos::run_program_with_base(source, base_dir)
+    metalogos::run_program_with_dir(source, base_dir.to_path_buf())
 }
 
 /// Find all .mlog files with .expected files.

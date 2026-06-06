@@ -617,6 +617,12 @@ async fn execute_route_body(
 ) -> Result<Response, String> {
     // Set up interpreter with request context
     let mut interp = Interpreter::new();
+    // Copy program definitions (patterns, struct types, etc.) from shared interpreter
+    {
+        let shared = state.interpreter.read().await;
+        shared.clone_definitions_into(&mut interp);
+    }
+    interp.set_base_dir(std::path::PathBuf::from("."));
     if let Some(ref persist_path) = state.memory_persist {
         interp.configure_memory(&MemoryDecl { persist: Some(persist_path.clone()) });
     }
@@ -842,6 +848,8 @@ fn merge_interpreter(from: Interpreter, mut into: Interpreter) -> Interpreter {
     if let Some(path) = from.get_memory_persist_path() {
         into.set_memory_persist_path(Some(path));
     }
+    // Merge patterns, struct types, learnable patterns, rules, sandboxes, module namespaces
+    from.clone_definitions_into(&mut into);
     into
 }
 
@@ -1164,6 +1172,7 @@ mod tests {
             audit_log: Arc::new(RwLock::new(Vec::new())),
             templates: Arc::new(RwLock::new(HashMap::new())),
             db_store: Arc::new(RwLock::new(Vec::new())),
+            memory_persist: None,
             interpreter: Arc::new(RwLock::new(Interpreter::new())),
             routes: Vec::new(),
             middleware: vec!["session".to_string(), "csrf".to_string(), "rate_limit".to_string()],

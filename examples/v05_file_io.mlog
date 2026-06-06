@@ -1,0 +1,10 @@
+pattern WriteAndRead(content: String) -> String {
+  write_file("v05_test.txt", content)
+  let read_back = read_file("v05_test.txt")
+  delete_file("v05_test.txt")
+  return read_back
+}
+
+flow Main {
+  input: String = "file I/O works!" -> WriteAndRead -> output
+}

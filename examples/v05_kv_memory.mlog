@@ -1,0 +1,15 @@
+pattern StoreAndRetrieve(trigger: String) -> String {
+  kv_set("test_key", "test_value")
+  let exists = kv_exists("test_key")
+  if exists {
+    let val = kv_get("test_key")
+    return val
+  }
+  else {
+    return "not found"
+  }
+}
+
+flow Main {
+  input: String = "go" -> StoreAndRetrieve -> output
+}

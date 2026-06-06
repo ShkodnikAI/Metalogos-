@@ -1,0 +1,13 @@
+pattern ProcessText(raw: String) -> String {
+  let trimmed = trim(raw)
+  let replaced = replace(trimmed, "  ", " ")
+  let parts = split(replaced, " ")
+  let count = length(parts)
+  let first = parts[0]
+  let result = first + " (из " + to_string(count) + " частей)"
+  return result
+}
+
+flow Main {
+  input: String = "  Hi  from  Metalogos  " -> ProcessText -> output
+}

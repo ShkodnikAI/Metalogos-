@@ -28,9 +28,13 @@ db_decl      = { "db" ~ "{" ~ db_body ~ "}" }
 
 // ── Memory config (Phase 7.6) ──────────────────────────────
 // memory { persist: "./data/memory.db" }
+// memory { kv: { type: key_value, persist: true } }
 // Without persist → in-memory (backward compatible)
 memory_decl   = { MEMORY_KW ~ "{" ~ memory_body ~ "}" }
-memory_body   = { memory_persist? }
+memory_body   = { memory_kv_config? ~ memory_persist? }
+memory_kv_config = { "kv" ~ ":" ~ "{" ~ kv_type_field? ~ kv_persist_field? ~ "}" }
+kv_type_field    = { "type" ~ ":" ~ IDENT }
+kv_persist_field  = { "persist" ~ ":" ~ BOOL_LITERAL }
 memory_persist = { "persist" ~ COLON ~ STRING_LITERAL }
 db_body      = { db_url? ~ db_pool? ~ db_migrate? }
 db_url       = { "url" ~ COLON ~ expression }
@@ -92,7 +96,7 @@ rule_decl    = { "rule" ~ "If" ~ "(" ~ condition ~ ")" ~ "then" ~ assignment ~ (
 condition    = _{ contains_condition | compare_condition }
 contains_condition = { expression ~ CONTAINS_KW ~ expression }
 compare_condition  = { expression ~ compare_op ~ expression }
-compare_op   = @{ ">=" | "<=" | GT | LT | EQ }
+compare_op   = @{ ">=" | "<=" | NEQ | GT | LT | EQ }
 CONTAINS_KW  = @{ "contains" }
 assignment   = { IDENT ~ "." ~ IDENT ~ "=" ~ expression }
 
@@ -106,7 +110,11 @@ pattern_decl = { "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ "
 params       = { param ~ (COMMA ~ WHITESPACE? ~ param)* }
 param        = { IDENT ~ ":" ~ type_name }
 pattern_body = { statement* }
-statement    = { each_stmt | while_stmt | let_binding | assign_stmt | return_stmt }
+
+// ── Statements (v0.5.0: block if-else added) ────────────────────────
+statement    = { if_block_stmt | each_stmt | while_stmt | let_binding | assign_stmt | return_stmt }
+if_block_stmt = { "if" ~ expression "{" ~ statement* ~ "}" ~ else_if_block* ~ ("else" "{" ~ statement* ~ "}")? }
+else_if_block = { "else" "if" ~ expression "{" ~ statement* ~ "}" }
 each_stmt    = { "each" ~ IDENT ~ "in" ~ expression ~ "{" ~ statement* ~ "}" }
 while_stmt   = { "while" ~ expression ~ "{" ~ statement* ~ "}" }
 let_binding  = { "let" ~ IDENT ~ "=" ~ expression }
@@ -119,7 +127,7 @@ return_stmt  = { "return" ~ expression }
 flow_decl     = { "flow" ~ IDENT ~ "{" ~ flow_pipeline ~ branch_def* ~ "}" }
 flow_pipeline = { "input" ~ ":" ~ type_name ~ "=" ~ expression ~ (ARROW ~ step_ident)* ~ ARROW ~ "output" }
 branch_def    = { step_ident ~ "{" ~ branch* ~ "}" }
-step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "adapt" | "add_example" | "relate" | "sandbox" | "mutate" | "allowed" | "forbidden" | "timeout" | "rollback_if" | "accuracy" | "to" | "as" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or" | "each" | "while" | "mlogserver" | "template" | "route" | "middleware" | "port" | "method" | "requires" | "db" | "migrate" | "pool_size" | "memory" | "persist") ~ IDENT }
+step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "adapt" | "add_example" | "relate" | "sandbox" | "mutate" | "allowed" | "forbidden" | "timeout" | "rollback_if" | "accuracy" | "to" | "as" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or" | "each" | "while" | "mlogserver" | "template" | "route" | "middleware" | "port" | "method" | "requires" | "db" | "migrate" | "pool_size" | "memory" | "persist" | "kv" | "type" | "else") ~ IDENT }
 branch        = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
 branch_condition = { IDENT ~ "." ~ IDENT ~ compare_op ~ expression }
 
@@ -129,18 +137,19 @@ type_name = { IDENT }
 // ── Multi-char operators ──────────────────────────────────────────────
 ARROW = @{ "->" }
 
-// ── Expressions ───────────────────────────────────────────────────────
+// ── Expressions (v0.5.0: access_expr replaces field_expr, INT in primary_expr) ──
 expression       = { binary_expr }
 binary_expr      = { unary_expr ~ (binop ~ unary_expr)* }
-binop            = @{ STAR | SLASH | PLUS | MINUS | GTE | LTE | GT | LT | EQ }
-unary_expr       = { if_else_expr | qualified_call_expr | call_expr | unary_minus | field_expr | primary_expr }
+binop            = @{ STAR | SLASH | PLUS | MINUS | GTE | LTE | NEQ | GT | LT | EQ }
+unary_expr       = { if_else_expr | qualified_call_expr | call_expr | unary_minus | access_expr | primary_expr }
 unary_minus     = @{ MINUS ~ unary_expr }
 if_else_expr     = { "if" ~ expression ~ "then" ~ expression ~ "else" ~ expression }
-field_expr       = { primary_expr ~ "." ~ IDENT }
+access_expr      = { primary_expr ~ postfix_op* }
+postfix_op       = _{ "." ~ IDENT | "[" ~ expression "]" }
 qualified_call_expr = { IDENT ~ DOT_CHAR ~ IDENT ~ "(" ~ expression_list? ~ ")" }
 call_expr        = { IDENT ~ "(" ~ expression_list? ~ ")" }
 expression_list  = { expression ~ (COMMA ~ WHITESPACE? ~ expression)* }
-primary_expr     = { list_literal | BOOL_LITERAL | FLOAT_LITERAL | STRING_LITERAL | IDENT }
+primary_expr     = { list_literal | BOOL_LITERAL | FLOAT_LITERAL | STRING_LITERAL | INT | IDENT }
 list_literal     = { LBRACKET ~ expression_list? ~ RBRACKET }
 
 // ── Literals ─────────────────────────────────────────────────────────
@@ -168,6 +177,7 @@ LBRACKET  = @{ "[" }
 RBRACKET  = @{ "]" }
 GTE       = @{ ">=" }
 LTE       = @{ "<=" }
+NEQ       = @{ "!=" }
 EQ        = @{ "==" }
 BOOL_LITERAL = @{ "true" | "false" }
 APOSTROPHE = @{ "'" }

@@ -103,13 +103,23 @@ impl Builtins {
         funcs.insert("kv_exists".to_string(), builtin_kv_exists as BuiltinFn);
         funcs.insert("kv_list".to_string(), builtin_kv_list as BuiltinFn);
 
-        // v0.5.0 — File I/O builtins
-        funcs.insert("read_file".to_string(), builtin_read_file as BuiltinFn);
+        // v0.5.0 — File I/O builtins (full set)
         funcs.insert("write_file".to_string(), builtin_write_file as BuiltinFn);
         funcs.insert("append_file".to_string(), builtin_append_file as BuiltinFn);
         funcs.insert("delete_file".to_string(), builtin_delete_file as BuiltinFn);
         funcs.insert("file_exists".to_string(), builtin_file_exists as BuiltinFn);
         funcs.insert("list_dir".to_string(), builtin_list_dir as BuiltinFn);
+
+        // Anthropic Claude LLM integration (Phase 7.7)
+        funcs.insert("call_claude".to_string(), builtin_call_claude as BuiltinFn);
+
+        // JSON escape utility (Phase 7.7)
+        funcs.insert("escape_json".to_string(), builtin_escape_json as BuiltinFn);
+
+        // Phase 7.7 — new builtins for department modularity
+        funcs.insert("parse_json".to_string(), builtin_parse_json as BuiltinFn);
+        funcs.insert("http_get".to_string(), builtin_http_get as BuiltinFn);
+        funcs.insert("now".to_string(), builtin_now as BuiltinFn);
 
         Builtins { funcs }
     }
@@ -279,13 +289,7 @@ fn builtin_confidence(args: &[Value]) -> Result<Value, String> {
     }
 }
 
-fn builtin_env(args: &[Value]) -> Result<Value, String> {
-    let key = expect_string_arg("env", args, 0)?;
-    match std::env::var(&key) {
-        Ok(val) => Ok(Value::String(val)),
-        Err(_) => Ok(Value::String(String::new())), // soft-failure: empty string if not found
-    }
-}
+// builtin_env moved to Phase 6.4 section below
 
 fn expect_float_arg(fn_name: &str, args: &[Value], index: usize) -> Result<f64, String> {
     if args.len() <= index {
@@ -525,10 +529,9 @@ fn builtin_db_execute(args: &[Value]) -> Result<Value, String> {
 
 fn builtin_env(args: &[Value]) -> Result<Value, String> {
     let key = expect_string_arg("env", args, 0)?;
-    // Read from environment, wrap in opaque Secret (zeroized on drop)
     match std::env::var(&key) {
-        Ok(val) => Ok(Value::Secret(SecretString::new(val))),
-        Err(_) => Err(format!("env(): environment variable '{}' not found", key)),
+        Ok(val) => Ok(Value::String(val)),
+        Err(_) => Ok(Value::String(String::new())), // soft-failure: empty string if not found
     }
 }
 
@@ -749,6 +752,153 @@ fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
     }
 
     Ok(Value::String(resp_body))
+}
+
+/// Send a request to Anthropic Claude Messages API.
+/// Usage: call_claude(api_key, model, system_prompt, user_message) -> String
+fn builtin_call_claude(args: &[Value]) -> Result<Value, String> {
+    let api_key = expect_string_arg("call_claude", args, 0)?;
+    let model = expect_string_arg("call_claude", args, 1)?;
+    let system_prompt = expect_string_arg("call_claude", args, 2)?;
+    let user_message = expect_string_arg("call_claude", args, 3)?;
+
+    let body = serde_json::json!({
+        "model": model,
+        "max_tokens": 4096,
+        "system": system_prompt,
+        "messages": [{"role": "user", "content": user_message}]
+    });
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("call_claude(): failed to create client: {}", e))?;
+
+    let resp = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", &api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .body(body.to_string())
+        .send()
+        .map_err(|e| format!("call_claude(): request failed: {}", e))?;
+
+    let status = resp.status().as_u16();
+    let resp_body = resp.text().unwrap_or_default();
+
+    if status >= 400 {
+        return Err(format!("call_claude() returned status {}: {}", status, resp_body));
+    }
+
+    // Parse response and extract content[0].text
+    let parsed: serde_json::Value = serde_json::from_str(&resp_body)
+        .map_err(|e| format!("call_claude(): JSON parse error: {}", e))?;
+
+    let content = parsed["content"][0]["text"]
+        .as_str()
+        .unwrap_or("Claude API returned an unexpected response format")
+        .to_string();
+
+    Ok(Value::String(content))
+}
+
+/// Escape a string for safe embedding inside a JSON string value.
+/// Replaces: " -> \" , \ -> \\ , newline -> \n , tab -> \t , carriage return -> \r
+/// Usage: escape_json(text) -> String
+fn builtin_escape_json(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("escape_json", args, 0)?;
+    let mut out = String::with_capacity(s.len() + 8);
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            '\r' => out.push_str("\\r"),
+            _ => out.push(ch),
+        }
+    }
+    Ok(Value::String(out))
+}
+
+/// Read a text file and return its contents as a String.
+/// Usage: read_file(path) -> String
+fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
+    let path = expect_string_arg("read_file", args, 0)?;
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("read_file() error for '{}': {}", path, e))?;
+    Ok(Value::String(content))
+}
+
+// ── Phase 7.7 — parse_json, http_get, now ────────────────────────────
+
+/// Parse a JSON string into a Value (Struct or List).
+/// Usage: parse_json(text) -> Struct|List|String|Float|Bool|Unit
+fn builtin_parse_json(args: &[Value]) -> Result<Value, String> {
+    let text = expect_string_arg("parse_json", args, 0)?;
+    let parsed: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| format!("parse_json() error: {}", e))?;
+    Ok(json_value_to_mlog_value(&parsed))
+}
+
+/// Convert serde_json::Value to METALOGOS Value (same logic as interpreter's method).
+fn json_value_to_mlog_value(json: &serde_json::Value) -> Value {
+    match json {
+        serde_json::Value::String(s) => Value::String(s.clone()),
+        serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
+        serde_json::Value::Bool(b) => Value::Bool(*b),
+        serde_json::Value::Null => Value::Unit,
+        serde_json::Value::Array(arr) => {
+            Value::List(arr.iter().map(|v| json_value_to_mlog_value(v)).collect())
+        }
+        serde_json::Value::Object(obj) => {
+            let mut fields = std::collections::HashMap::new();
+            for (k, v) in obj {
+                fields.insert(k.clone(), json_value_to_mlog_value(v));
+            }
+            Value::Struct { type_name: "Json".to_string(), fields }
+        }
+    }
+}
+
+/// Send an HTTP GET request. Returns the response body as String.
+/// Usage: http_get(url) -> String
+fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
+    let url = match args.get(0) {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => return Err(format!("http_get() expected String as url, got {}", other.type_name())),
+        None => return Err("http_get() requires 1 argument (url)".to_string()),
+    };
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("http_get(): failed to create client: {}", e))?;
+
+    let resp = client
+        .get(&url)
+        .send()
+        .map_err(|e| format!("http_get() request failed: {}", e))?;
+
+    let status = resp.status().as_u16();
+    let resp_body = resp.text().unwrap_or_default();
+
+    if status >= 400 {
+        return Err(format!("http_get() returned status {}: {}", status, resp_body));
+    }
+
+    Ok(Value::String(resp_body))
+}
+
+/// Return current Unix timestamp as Float (seconds since epoch).
+/// Usage: now() -> Float
+fn builtin_now(args: &[Value]) -> Result<Value, String> {
+    let _ = args;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+    Ok(Value::Float(now))
 }
 
 fn builtin_require(args: &[Value]) -> Result<Value, String> {

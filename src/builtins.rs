@@ -84,6 +84,12 @@ impl Builtins {
         // Definition of Done — outgoing HTTP
         funcs.insert("http_post".to_string(), builtin_http_post as BuiltinFn);
 
+        // Anthropic Claude LLM integration
+        funcs.insert("call_claude".to_string(), builtin_call_claude as BuiltinFn);
+
+        // JSON escape utility
+        funcs.insert("escape_json".to_string(), builtin_escape_json as BuiltinFn);
+
         Builtins { funcs }
     }
 
@@ -715,6 +721,73 @@ fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
     }
 
     Ok(Value::String(resp_body))
+}
+
+/// Send a request to Anthropic Claude Messages API.
+/// Usage: call_claude(api_key, model, system_prompt, user_message) -> String
+fn builtin_call_claude(args: &[Value]) -> Result<Value, String> {
+    let api_key = expect_string_arg("call_claude", args, 0)?;
+    let model = expect_string_arg("call_claude", args, 1)?;
+    let system_prompt = expect_string_arg("call_claude", args, 2)?;
+    let user_message = expect_string_arg("call_claude", args, 3)?;
+
+    let body = serde_json::json!({
+        "model": model,
+        "max_tokens": 500,
+        "system": system_prompt,
+        "messages": [{"role": "user", "content": user_message}]
+    });
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("call_claude(): failed to create client: {}", e))?;
+
+    let resp = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", &api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .body(body.to_string())
+        .send()
+        .map_err(|e| format!("call_claude(): request failed: {}", e))?;
+
+    let status = resp.status().as_u16();
+    let resp_body = resp.text().unwrap_or_default();
+
+    if status >= 400 {
+        return Err(format!("call_claude() returned status {}: {}", status, resp_body));
+    }
+
+    // Parse response and extract content[0].text
+    let parsed: serde_json::Value = serde_json::from_str(&resp_body)
+        .map_err(|e| format!("call_claude(): JSON parse error: {}", e))?;
+
+    let content = parsed["content"][0]["text"]
+        .as_str()
+        .unwrap_or("Claude API returned an unexpected response format")
+        .to_string();
+
+    Ok(Value::String(content))
+}
+
+/// Escape a string for safe embedding inside a JSON string value.
+/// Replaces: " -> \" , \ -> \\ , newline -> \n , tab -> \t , carriage return -> \r
+/// Usage: escape_json(text) -> String
+fn builtin_escape_json(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("escape_json", args, 0)?;
+    let mut out = String::with_capacity(s.len() + 8);
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            '\r' => out.push_str("\\r"),
+            _ => out.push(ch),
+        }
+    }
+    Ok(Value::String(out))
 }
 
 fn builtin_require(args: &[Value]) -> Result<Value, String> {

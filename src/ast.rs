@@ -304,6 +304,8 @@ pub enum Statement {
         else_ifs: Vec<(Expr, Vec<Statement>)>,
         else_body: Option<Vec<Statement>>,
     },
+    /// Single-branch if-then (no else): `if expr then { stmts }` (Phase 7.7)
+    IfThen(Box<Expr>, Vec<Statement>),
     Return(Expr),
 }
 

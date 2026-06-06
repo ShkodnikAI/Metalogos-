@@ -55,6 +55,7 @@ pub enum Instruction {
     CmpGe,
     CmpLe,
     CmpEq,
+    CmpNe,
 
     // ── Struct Operations ─────────────────────────────────────
     /// Pop N field values (in reverse order), create a Struct with the given type name

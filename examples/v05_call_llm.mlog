@@ -1,0 +1,8 @@
+pattern AskLLM(question: String) -> String {
+  let response = call_llm("Answer in one sentence:", question)
+  return response
+}
+
+flow Main {
+  input: String = "What is Metalogos?" -> AskLLM -> output
+}

@@ -1,0 +1,19 @@
+pattern Analyze(text: String) -> String {
+  let cleaned = trim(text)
+  let upper_text = upper(cleaned)
+  let reversed = reverse(upper_text)
+  let parts = split(reversed, " ")
+  let count = length(parts)
+
+  if count >= 3.0 {
+    let result = reversed + " (из " + to_string(count) + " слов)"
+    return result
+  }
+  else {
+    return "too short"
+  }
+}
+
+flow Main {
+  input: String = "  hello metalogos world  " -> Analyze -> output
+}

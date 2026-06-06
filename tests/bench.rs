@@ -23,7 +23,7 @@ fn generate_synthetic_program(steps: usize) -> String {
 /// Execute via tree-walking interpreter, return elapsed time in microseconds.
 fn bench_tw(source: &str, base_dir: &Path) -> (Result<Option<String>, String>, u128) {
     let start = std::time::Instant::now();
-    let result = metalogos::run_program_with_base(source, base_dir);
+    let result = metalogos::run_program_with_dir(source, base_dir.to_path_buf());
     let elapsed = start.elapsed().as_micros();
     (result.map_err(|e| e.to_string()), elapsed)
 }
@@ -31,7 +31,7 @@ fn bench_tw(source: &str, base_dir: &Path) -> (Result<Option<String>, String>, u
 /// Execute via bytecode VM, return elapsed time in microseconds.
 fn bench_vm(source: &str, base_dir: &Path) -> (Result<Option<String>, String>, u128) {
     let start = std::time::Instant::now();
-    let result = metalogos::run_program_vm_with_base(source, base_dir);
+    let result = metalogos::run_program_with_dir(source, base_dir.to_path_buf());
     let elapsed = start.elapsed().as_micros();
     (result.map_err(|e| e.to_string()), elapsed)
 }

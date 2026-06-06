@@ -111,8 +111,8 @@ params       = { param ~ (COMMA ~ WHITESPACE? ~ param)* }
 param        = { IDENT ~ ":" ~ type_name }
 pattern_body = { statement* }
 
-// ── Statements (v0.5.0: block if-else added) ────────────────────────
-statement    = { if_block_stmt | each_stmt | while_stmt | let_binding | assign_stmt | return_stmt }
+// ── Statements (v0.5.0: block if-else + if-then added) ────────────────────
+statement    = { if_block_stmt | if_then_stmt | each_stmt | while_stmt | let_binding | assign_stmt | return_stmt }
 if_block_stmt = { "if" ~ expression "{" ~ statement* ~ "}" ~ else_if_block* ~ ("else" "{" ~ statement* ~ "}")? }
 else_if_block = { "else" "if" ~ expression "{" ~ statement* ~ "}" }
 each_stmt    = { "each" ~ IDENT ~ "in" ~ expression ~ "{" ~ statement* ~ "}" }
@@ -120,6 +120,7 @@ while_stmt   = { "while" ~ expression ~ "{" ~ statement* ~ "}" }
 let_binding  = { "let" ~ IDENT ~ "=" ~ expression }
 assign_stmt  = { IDENT ~ ASSIGN ~ expression }
 return_stmt  = { "return" ~ expression }
+if_then_stmt = { "if" ~ expression ~ "then" ~ "{" ~ statement* ~ "}" }
 
 // ── Flow ──────────────────────────────────────────────────────────────
 // Pipeline and branch definitions are separate: pipeline comes first,
@@ -157,7 +158,8 @@ literal = _{ FLOAT_LITERAL | STRING_LITERAL | IDENT }
 
 // ── Primitives ─────────────────────────────────────────────────────────
 STRING_LITERAL = @{ "\"" ~ inner_string ~ "\"" }
-inner_string   =  { (!( "\"" | "\\" ) ~ ANY)* }
+inner_string   =  { (ESCAPE_SEQ | (!( "\"" | "\\") ~ ANY))* }
+ESCAPE_SEQ     = @{ "\\" ~ ("\"" | "\\" | "n" | "t" | "r") }
 FLOAT_LITERAL  = @{ DIGIT+ ~ DOT_CHAR ~ DIGIT+ }
 INT            = @{ DIGIT+ }
 IDENT          = @{ !("true" | "false" | "if" | "then" | "else" | "let" | "return" | "each" | "while" | "import" | "as") ~ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_" | APOSTROPHE)* }
@@ -179,6 +181,7 @@ GTE       = @{ ">=" }
 LTE       = @{ "<=" }
 NEQ       = @{ "!=" }
 EQ        = @{ "==" }
+NEQ       = @{ "!=" }
 BOOL_LITERAL = @{ "true" | "false" }
 APOSTROPHE = @{ "'" }
 DIGIT     = @{ ASCII_DIGIT }

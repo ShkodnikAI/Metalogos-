@@ -402,6 +402,7 @@ impl Compiler {
                     BinOp::Ge => code.push(Instruction::CmpGe),
                     BinOp::Le => code.push(Instruction::CmpLe),
                     BinOp::Eq => code.push(Instruction::CmpEq),
+                    BinOp::Ne => code.push(Instruction::CmpNe),
                 }
             }
             Expr::IfElse(cond, then_expr, else_expr) => {
@@ -581,6 +582,7 @@ impl Compiler {
                 Instruction::CmpGe |
                 Instruction::CmpLe |
                 Instruction::CmpEq |
+                Instruction::CmpNe |
                 Instruction::Return => {}
                 _ => return false,
             }

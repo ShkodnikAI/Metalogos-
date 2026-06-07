@@ -305,3 +305,31 @@ Stage Summary:
 - 6 files changed: grammar.pest, ast.rs, parser.rs, interpreter.rs, server.rs, v05_final_integration.mlog
 - All Наряди №2-№7 features verified and working together
 - Metalogos ready for Fosved Office integration
+---
+Task ID: n-unicode
+Agent: main
+Task: Починка парсера — кириллица в многострочных строковых литералах (BLOCKER)
+
+Work Log:
+- Created bug reproduction: examples/bug_cyrillic.mlog
+- Created contract test: examples/p7_cyrillic.mlog (6 contracts)
+- Exhaustively searched all .rs files for byte-level string indexing
+- No hand-rolled lex() function found — Pest is sole parser
+- Fixed 4 confirmed Unicode bugs:
+  1. builtins.rs:151 — len(): s.len() → s.chars().count()
+  2. builtins.rs:224-231 — index_of(): haystack.find() → char_indices() based
+  3. interpreter.rs:1633 — negative index: s.len() → s.chars().count()
+  4. parser.rs:179-188 — preprocess_templates: chars().enumerate() → char_indices()
+- Verified safe areas: substring, char_at, length, reverse, trim, replace, split, join,
+  starts_with, ends_with, escape_html, escape_json — all already char-based
+- Verified grammar: Pest ANY is Unicode-aware, STRING_LITERAL handles UTF-8
+- Created ADR-0043: docs/adr/0043-unicode-fix.md
+- Commit df8ef66 pushed to origin/main
+
+Stage Summary:
+- 4 byte-level indexing bugs fixed across 3 files
+- len("Привет") now returns 6.0 (chars), not 12.0 (bytes)
+- index_of("Привет, мир", "мир") returns 8 (chars), not 12 (bytes)
+- s[-1] on Unicode strings now returns last character
+- Templates with Cyrillic content parse without panic
+- Files changed: builtins.rs, interpreter.rs, parser.rs + 3 test/docs files

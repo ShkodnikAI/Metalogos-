@@ -36,6 +36,14 @@ impl Builtins {
         funcs.insert("confidence".to_string(), builtin_confidence as BuiltinFn);
 
         // Phase 5.4 — stdlib backing builtins (double-underscore prefix)
+        // String builtins (primary names)
+        funcs.insert("trim".to_string(), builtin_trim as BuiltinFn);
+        funcs.insert("replace".to_string(), builtin_replace as BuiltinFn);
+        funcs.insert("split".to_string(), builtin_split as BuiltinFn);
+        funcs.insert("join".to_string(), builtin_join as BuiltinFn);
+        funcs.insert("to_upper".to_string(), builtin_upper as BuiltinFn);
+        funcs.insert("to_lower".to_string(), builtin_lower as BuiltinFn);
+        // Backward-compat double-underscore aliases
         funcs.insert("__trim".to_string(), builtin_trim as BuiltinFn);
         funcs.insert("__replace".to_string(), builtin_replace as BuiltinFn);
         funcs.insert("__split".to_string(), builtin_split as BuiltinFn);
@@ -276,20 +284,20 @@ fn expect_string_arg(fn_name: &str, args: &[Value], index: usize) -> Result<Stri
 // These implement the primitives used by std/*.mlog pattern wrappers.
 
 fn builtin_trim(args: &[Value]) -> Result<Value, String> {
-    let s = expect_string_arg("__trim", args, 0)?;
+    let s = expect_string_arg("trim", args, 0)?;
     Ok(Value::String(s.trim().to_string()))
 }
 
 fn builtin_replace(args: &[Value]) -> Result<Value, String> {
-    let s = expect_string_arg("__replace", args, 0)?;
-    let old = expect_string_arg("__replace", args, 1)?;
-    let new = expect_string_arg("__replace", args, 2)?;
+    let s = expect_string_arg("replace", args, 0)?;
+    let old = expect_string_arg("replace", args, 1)?;
+    let new = expect_string_arg("replace", args, 2)?;
     Ok(Value::String(s.replace(&old, &new)))
 }
 
 fn builtin_split(args: &[Value]) -> Result<Value, String> {
-    let s = expect_string_arg("__split", args, 0)?;
-    let sep = expect_string_arg("__split", args, 1)?;
+    let s = expect_string_arg("split", args, 0)?;
+    let sep = expect_string_arg("split", args, 1)?;
     let items: Vec<Value> = if sep.is_empty() {
         s.chars().map(|c| Value::String(c.to_string())).collect()
     } else {
@@ -301,7 +309,7 @@ fn builtin_split(args: &[Value]) -> Result<Value, String> {
 fn builtin_join(args: &[Value]) -> Result<Value, String> {
     let list = match args.get(0) {
         Some(Value::List(items)) => items,
-        _ => return Err("__join() requires List as first argument".to_string()),
+        _ => return Err("join() requires List as first argument".to_string()),
     };
     let sep = if args.len() > 1 {
         match &args[1] {

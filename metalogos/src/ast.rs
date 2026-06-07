@@ -280,8 +280,12 @@ pub struct Param {
 pub enum Statement {
     LetBinding { name: String, value: Expr },
     Assign { name: String, value: Expr },
+    /// Block-level if/else: `if cond then { ... } else { ... }`
+    If { condition: Expr, then_body: Vec<Statement>, else_body: Option<Vec<Statement>> },
     Each { variable: String, iterable: Expr, body: Vec<Statement> },
     While { condition: Expr, body: Vec<Statement> },
+    /// Inline memorize inside a pattern body: `memorize "fact" with priority=0.9`
+    Memorize { value: Expr, priority: f64 },
     Return(Expr),
 }
 

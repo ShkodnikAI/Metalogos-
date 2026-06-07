@@ -97,12 +97,15 @@ pattern_decl = { "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ "
 params       = { param ~ (COMMA ~ WHITESPACE? ~ param)* }
 param        = { IDENT ~ ":" ~ type_name }
 pattern_body = { statement* }
-statement    = { each_stmt | while_stmt | let_binding | assign_stmt | return_stmt }
-each_stmt    = { "each" ~ IDENT ~ "in" ~ expression ~ "{" ~ statement* ~ "}" }
-while_stmt   = { "while" ~ expression ~ "{" ~ statement* ~ "}" }
-let_binding  = { "let" ~ IDENT ~ "=" ~ expression }
-assign_stmt  = { IDENT ~ ASSIGN ~ expression }
-return_stmt  = { "return" ~ expression }
+statement     = { if_stmt | each_stmt | while_stmt | memorize_stmt | let_binding | assign_stmt | return_stmt }
+if_stmt       = { "if" ~ expression ~ "then" ~ "{" ~ statement* ~ "}" ~ ("else" ~ else_tail)? }
+else_tail     = { if_stmt | "{" ~ statement* ~ "}" }
+each_stmt     = { "each" ~ IDENT ~ "in" ~ expression ~ "{" ~ statement* ~ "}" }
+while_stmt    = { "while" ~ expression ~ "{" ~ statement* ~ "}" }
+memorize_stmt = { "memorize" ~ expression ~ ("with" ~ "priority" ~ "=" ~ FLOAT_LITERAL)? }
+let_binding   = { "let" ~ IDENT ~ "=" ~ expression }
+assign_stmt   = { IDENT ~ ASSIGN ~ expression }
+return_stmt   = { "return" ~ expression }
 
 // ── Flow ──────────────────────────────────────────────────────────────
 // Pipeline and branch definitions are separate: pipeline comes first,
@@ -142,7 +145,7 @@ STRING_LITERAL = @{ "\"" ~ inner_string ~ "\"" }
 inner_string   =  { (!( "\"" | "\\" ) ~ ANY)* }
 FLOAT_LITERAL  = @{ DIGIT+ ~ DOT_CHAR ~ DIGIT+ }
 INT            = @{ DIGIT+ }
-IDENT          = @{ !("true" | "false" | "if" | "then" | "else" | "let" | "return" | "each" | "while" | "import" | "as") ~ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_" | APOSTROPHE)* }
+IDENT          = @{ !("true" | "false" | "if" | "then" | "else" | "let" | "return" | "each" | "while" | "import" | "as" | "memorize") ~ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_" | APOSTROPHE)* }
 
 // ── Single-char tokens (only those NOT used as rule delimiters!) ────────
 COLON     = @{ ":" }

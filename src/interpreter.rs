@@ -386,6 +386,11 @@ impl Interpreter {
                     }
                     eprintln!("[memory] Persistence enabled: {}", path);
                     self.memory_persist_path = Some(path.clone());
+
+                    // Наряд №6 — also enable KV store SQLite persistence
+                    if let Err(e) = crate::builtins::init_kv_persist(path) {
+                        eprintln!("[kv_store] Failed to enable KV persistence: {}. KV will be in-memory only.", e);
+                    }
                 }
                 Err(e) => {
                     eprintln!("[memory] Failed to open persistent store '{}': {}. Using in-memory.", path, e);

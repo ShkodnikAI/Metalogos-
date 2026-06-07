@@ -890,6 +890,20 @@ impl Interpreter {
 
         // Check builtins
         if let Some(builtin_fn) = self.builtins.get(name) {
+            // Phase 7.5: Sandbox enforcement — filesystem isolation
+            if let Some(ref sb) = self.active_sandbox {
+                if sb.forbidden.iter().any(|f| f == "filesystem") {
+                    if matches!(name,
+                        "read_file" | "write_file" | "append_file"
+                        | "delete_file" | "file_exists" | "list_dir"
+                    ) {
+                        return Err(format!(
+                            "filesystem access forbidden in sandbox '{}'",
+                            sb.name
+                        ));
+                    }
+                }
+            }
             return builtin_fn(&args);
         }
 
@@ -1497,6 +1511,20 @@ impl Interpreter {
                 // Resolve as if it were a regular FnCall with the function name.
                 // Check builtins first
                 if let Some(builtin_fn) = self.builtins.get(function) {
+                    // Phase 7.5: Sandbox enforcement — filesystem isolation
+                    if let Some(ref sb) = self.active_sandbox {
+                        if sb.forbidden.iter().any(|f| f == "filesystem") {
+                            if matches!(function,
+                                "read_file" | "write_file" | "append_file"
+                                | "delete_file" | "file_exists" | "list_dir"
+                            ) {
+                                return Err(format!(
+                                    "filesystem access forbidden in sandbox '{}'",
+                                    sb.name
+                                ));
+                            }
+                        }
+                    }
                     return builtin_fn(&eval_args);
                 }
                 // Look up compiled pattern

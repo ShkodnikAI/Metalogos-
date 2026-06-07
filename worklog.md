@@ -251,3 +251,32 @@ Stage Summary:
 - SQLite persistence: kv_store(key TEXT PK, value TEXT) in shared memory.db
 - Write-through cache: HashMap is always fast path, SQLite mirrors for durability
 - Files changed: src/builtins.rs (+122/-4), src/interpreter.rs (+5), examples/p6_kv_memory.mlog (new)
+---
+Task ID: n7
+Agent: main
+Task: Наряд №7 — query() returns readable data from SQLite
+
+Work Log:
+- Read builtins.rs: query() was a stub returning Value::Query(sql) (opaque)
+- Read interpreter.rs: DbDecl stores url expression, db_config field, no actual connection
+- Added db_conn: Mutex<Option<rusqlite::Connection>> to Interpreter struct
+- Added init_db_connection() method: evaluates url expr, opens SQLite
+  Supports "sqlite::memory:" (in-memory) and "sqlite:path.db" (file)
+  Enables WAL mode for better concurrent read performance
+- Added invoke_query(): real SQL execution with readable results:
+  SELECT/PRAGMA → List of Struct (each row = Row { col: val, ... })
+  INSERT/UPDATE/DELETE/CREATE → String with affected row count
+  Column type mapping: Integer→Float, Text→String, Real→Float, Blob→hex, Null→Unit
+- Added invoke_db_execute(): executes raw SQL, returns affected count as String
+- Intercepted query/db_execute in both eval_expr paths:
+  FnCall (line ~1730) and QualifiedCall (line ~1655)
+  Before generic builtin dispatch, to access &self.db_conn
+- Value::Query type kept (backward compat / safety for opaque SQL literal)
+- Created 5 contract tests in examples/p7_query_readable.mlog
+- Commit 60ad92c pushed to origin/main
+
+Stage Summary:
+- query() now returns readable data: List of Struct for SELECT, row count for mutations
+- db {} block opens real SQLite connection
+- Dot access works: get(rows, 0).name
+- Files changed: src/interpreter.rs (+157/-2), examples/p7_query_readable.mlog (new)

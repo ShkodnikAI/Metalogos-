@@ -137,3 +137,31 @@ Stage Summary:
 - Key fixes: KG migration, decay computation, walk deadlock, MemoryEntry id field
 - Commit: f8891fc "Phase 7.6: Memory persistence via SQLite"
 - Push: https://github.com/ShkodnikAI/Metalogos-.git (main branch, pushed)
+---
+Task ID: n2
+Agent: main
+Task: Наряд №2 — if/else как блочный statement (не только тернарный)
+
+Work Log:
+- Read grammar.pest, ast.rs, parser.rs, interpreter.rs to understand current if/else implementation
+- Current state: only ternary expression `if cond then expr else expr` (Expr::IfElse)
+- No block-level if/else statement, no memorize inside pattern bodies
+- Added `if_stmt`, `else_tail`, `memorize_stmt` rules to grammar.pest
+- Added `"memorize"` to IDENT exclusion list
+- Added `Statement::If { condition, then_body, else_body }` and `Statement::Memorize { value, priority }` to ast.rs
+- Added `parse_if_stmt()` function in parser.rs with recursive else-if support
+- Added `memorize_stmt` parsing in `parse_single_statement()`
+- Changed `eval_statements`, `eval_expr_with_env`, `eval_expr`, `eval_condition`, `eval_branch_condition`, `instantiate_struct` from `&self` to `&mut self` to support memorize side-effects
+- Added `Statement::If` handler in eval_statements (condition check, block execution, return propagation)
+- Added `Statement::Memorize` handler in eval_statements (memory push with priority/timestamp/decay)
+- Created contract tests: p5_if_block.mlog and p5_if_else_chain.mlog
+- Committed and pushed to main
+
+Stage Summary:
+- Block-level if/else now works: `if cond then { stmts } else { stmts }`
+- else-if chains work via recursive grammar
+- memorize works inside pattern bodies: `memorize "fact" with priority=0.9`
+- Ternary form `let x = if ... then ... else ...` unchanged (backward compat)
+- 4 files modified: grammar.pest, ast.rs, parser.rs, interpreter.rs
+- 2 test files created: examples/p5_if_block.mlog, examples/p5_if_else_chain.mlog
+- Commit: f05eb37 "feat(n2): block-level if/else as statement + memorize inside patterns"

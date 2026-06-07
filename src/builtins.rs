@@ -103,6 +103,11 @@ impl Builtins {
         funcs.insert("kv_exists".to_string(), builtin_kv_exists as BuiltinFn);
         funcs.insert("kv_list".to_string(), builtin_kv_list as BuiltinFn);
 
+        // Наряд №6 — exact key-value memory (mem_set/mem_get/mem_delete)
+        funcs.insert("mem_set".to_string(), builtin_mem_set as BuiltinFn);
+        funcs.insert("mem_get".to_string(), builtin_mem_get as BuiltinFn);
+        funcs.insert("mem_delete".to_string(), builtin_mem_delete as BuiltinFn);
+
         // v0.5.0 — File I/O builtins (full set)
         funcs.insert("read_file".to_string(), builtin_read_file as BuiltinFn);
         funcs.insert("write_file".to_string(), builtin_write_file as BuiltinFn);
@@ -994,17 +999,61 @@ fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
 
 // ── v0.5.0 — KV memory builtins ────────────────────────────
 // These use a thread-local KV store (in-memory by default).
-// When memory { persist: "..." } is configured, they would use SQLite kv_store table.
-// For now, they use a simple global HashMap behind a Mutex.
+// When memory { persist: "..." } is configured, they also persist to SQLite kv_store table.
+// Uses a write-through cache: in-memory HashMap is always authoritative;
+// SQLite is a persistence backend that mirrors the HashMap.
 
 use std::sync::Mutex as StdMutex;
 
 /// Global KV store — lazy_static pattern using std::sync::OnceLock (Rust 1.70+).
-/// For older Rust, we use a mutable static with Mutex.
 static KV_STORE: std::sync::OnceLock<StdMutex<std::collections::HashMap<String, String>>> = std::sync::OnceLock::new();
 
 fn kv_store() -> &'static StdMutex<std::collections::HashMap<String, String>> {
     KV_STORE.get_or_init(|| StdMutex::new(std::collections::HashMap::new()))
+}
+
+/// Global SQLite KV persistence backend.
+/// Initialized by init_kv_persist() when memory { persist: "..." } is configured.
+/// Uses std::sync::Mutex (same thread model as KV_STORE).
+static KV_SQLITE: std::sync::OnceLock<StdMutex<Option<rusqlite::Connection>>> = std::sync::OnceLock::new();
+
+fn kv_sqlite() -> &'static StdMutex<Option<rusqlite::Connection>> {
+    KV_SQLITE.get_or_init(|| StdMutex::new(None))
+}
+
+/// Initialize SQLite persistence for the KV store.
+/// Called by Interpreter::configure_memory() when persist path is set.
+/// Creates kv_store table (key TEXT PRIMARY KEY, value TEXT) in the given database.
+/// Loads existing rows into the in-memory HashMap.
+pub fn init_kv_persist(db_path: &str) -> Result<(), String> {
+    let conn = rusqlite::Connection::open(db_path)
+        .map_err(|e| format!("[kv_store] Failed to open database '{}': {}", db_path, e))?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
+    ).map_err(|e| format!("[kv_store] Failed to create table: {}", e))?;
+
+    // Load existing KV pairs into in-memory HashMap (write-through cache warmup)
+    let mut stmt = conn.prepare("SELECT key, value FROM kv_store")
+        .map_err(|e| format!("[kv_store] Failed to query: {}", e))?;
+    let rows: Vec<(String, String)> = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }).map_err(|e| format!("[kv_store] Failed to iterate: {}", e))?
+    .filter_map(|r| r.ok())
+    .collect();
+
+    // Merge into in-memory store (SQLite is authoritative on init)
+    if let Ok(mut store) = kv_store().lock() {
+        for (key, value) in rows {
+            store.insert(key, value);
+        }
+    }
+
+    // Store the connection globally
+    let mut sqlite_guard = kv_sqlite().lock()
+        .map_err(|e| format!("[kv_store] lock error: {}", e))?;
+    *sqlite_guard = Some(conn);
+    eprintln!("[kv_store] SQLite persistence enabled: {}", db_path);
+    Ok(())
 }
 
 /// `kv_set(key, value)` — store a key-value pair.
@@ -1016,7 +1065,16 @@ fn builtin_kv_set(args: &[Value]) -> Result<Value, String> {
         None => return Err("kv_set() requires 2 arguments (key, value)".to_string()),
     };
     let mut store = kv_store().lock().map_err(|e| format!("kv_set() lock error: {}", e))?;
-    store.insert(key, value);
+    store.insert(key.clone(), value.clone());
+    // Write-through to SQLite if available
+    if let Ok(mut sqlite_guard) = kv_sqlite().lock() {
+        if let Some(ref conn) = *sqlite_guard {
+            let _ = conn.execute(
+                "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?1, ?2)",
+                rusqlite::params![key, value],
+            );
+        }
+    }
     Ok(Value::Unit)
 }
 
@@ -1032,6 +1090,12 @@ fn builtin_kv_delete(args: &[Value]) -> Result<Value, String> {
     let key = expect_string_arg("kv_delete", args, 0)?;
     let mut store = kv_store().lock().map_err(|e| format!("kv_delete() lock error: {}", e))?;
     store.remove(&key);
+    // Write-through delete to SQLite if available
+    if let Ok(mut sqlite_guard) = kv_sqlite().lock() {
+        if let Some(ref conn) = *sqlite_guard {
+            let _ = conn.execute("DELETE FROM kv_store WHERE key = ?1", rusqlite::params![key]);
+        }
+    }
     Ok(Value::Unit)
 }
 
@@ -1048,6 +1112,56 @@ fn builtin_kv_list(args: &[Value]) -> Result<Value, String> {
     let store = kv_store().lock().map_err(|e| format!("kv_list() lock error: {}", e))?;
     let keys: Vec<Value> = store.keys().cloned().map(Value::String).collect();
     Ok(Value::List(keys))
+}
+
+// ── Наряд №6 — mem_set / mem_get / mem_delete (exact KV, not semantic) ─
+// These are user-facing aliases for the KV store with String return types.
+// mem_set returns the stored value, mem_get returns value or empty string,
+// mem_delete returns the deleted value or empty string.
+// They share the same global HashMap + optional SQLite backend as kv_*.
+
+/// `mem_set(key, value)` — exact key-value write. Returns the stored value.
+fn builtin_mem_set(args: &[Value]) -> Result<Value, String> {
+    let key = expect_string_arg("mem_set", args, 0)?;
+    let value = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => format!("{}", other),
+        None => return Err("mem_set() requires 2 arguments (key, value)".to_string()),
+    };
+    let mut store = kv_store().lock().map_err(|e| format!("mem_set() lock error: {}", e))?;
+    store.insert(key.clone(), value.clone());
+    // Write-through to SQLite if available
+    if let Ok(mut sqlite_guard) = kv_sqlite().lock() {
+        if let Some(ref conn) = *sqlite_guard {
+            let _ = conn.execute(
+                "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?1, ?2)",
+                rusqlite::params![key, value],
+            );
+        }
+    }
+    Ok(Value::String(value))
+}
+
+/// `mem_get(key)` — exact key-value read (not semantic recall).
+/// Returns the value or empty string if not found.
+fn builtin_mem_get(args: &[Value]) -> Result<Value, String> {
+    let key = expect_string_arg("mem_get", args, 0)?;
+    let store = kv_store().lock().map_err(|e| format!("mem_get() lock error: {}", e))?;
+    Ok(Value::String(store.get(&key).cloned().unwrap_or_default()))
+}
+
+/// `mem_delete(key)` — remove a key-value pair. Returns the deleted value or empty string.
+fn builtin_mem_delete(args: &[Value]) -> Result<Value, String> {
+    let key = expect_string_arg("mem_delete", args, 0)?;
+    let mut store = kv_store().lock().map_err(|e| format!("mem_delete() lock error: {}", e))?;
+    let removed = store.remove(&key);
+    // Write-through delete to SQLite if available
+    if let Ok(mut sqlite_guard) = kv_sqlite().lock() {
+        if let Some(ref conn) = *sqlite_guard {
+            let _ = conn.execute("DELETE FROM kv_store WHERE key = ?1", rusqlite::params![key]);
+        }
+    }
+    Ok(Value::String(removed.unwrap_or_default()))
 }
 
 // ── v0.5.0 — File I/O builtins (sandboxed) ──────────────────

@@ -1,0 +1,58 @@
+// Наряд №6 — Contract: mem_set / mem_get / mem_delete (exact KV memory)
+// These are NOT semantic recall — they are exact key-value operations.
+
+// ── Contract 1: set + get roundtrip ──────────────────────────
+// mem_set stores a value, mem_get retrieves it exactly.
+pattern KvRoundtrip(trigger: String) -> String {
+  mem_set("bot_mode", "production")
+  let mode = mem_get("bot_mode")
+  return mode
+}
+
+// ── Contract 2: overwrite ───────────────────────────────────
+// mem_set with same key overwrites the previous value.
+pattern KvOverwrite(trigger: String) -> String {
+  mem_set("bot_mode", "production")
+  mem_set("bot_mode", "debug")
+  let mode2 = mem_get("bot_mode")
+  return mode2
+}
+
+// ── Contract 3: delete ───────────────────────────────────────
+// mem_delete removes the key; subsequent mem_get returns empty string.
+pattern KvDelete(trigger: String) -> String {
+  mem_set("temp_key", "temp_value")
+  let deleted = mem_delete("temp_key")
+  let after = mem_get("temp_key")
+  // deleted should be "temp_value", after should be ""
+  return deleted
+}
+
+// ── Contract 4: mem_get missing key ────────────────────────
+// mem_get on non-existent key returns empty string (soft-failure).
+pattern KvMissingKey(trigger: String) -> String {
+  let val = mem_get("nonexistent_key_xyz")
+  return val
+}
+
+// ── Contract 5: mem_set returns stored value ─────────────────
+// mem_set returns the value that was stored.
+pattern KvSetReturns(trigger: String) -> String {
+  let result = mem_set("config", "active")
+  return result
+}
+
+// ── Contract 6: kv_* and mem_* share same store ─────────────
+// kv_set/kv_get and mem_set/mem_get operate on the same underlying KV store.
+pattern KvInterop(trigger: String) -> String {
+  kv_set("shared_key", "from_kv")
+  let via_mem = mem_get("shared_key")
+  mem_set("shared_key2", "from_mem")
+  let via_kv = kv_get("shared_key2")
+  // via_mem should be "from_kv", via_kv should be "from_mem"
+  return via_mem
+}
+
+flow Main {
+  input: String = "go" -> KvRoundtrip -> output
+}

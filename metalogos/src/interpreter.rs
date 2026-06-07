@@ -433,7 +433,7 @@ impl Interpreter {
     }
 
     /// Instantiate a struct from a type name and field initializers.
-    fn instantiate_struct(&self, type_name: &str, inits: &[FieldInit]) -> Result<Value, String> {
+    fn instantiate_struct(&mut self, type_name: &str, inits: &[FieldInit]) -> Result<Value, String> {
         let struct_type = self.struct_types.get(type_name)
             .ok_or_else(|| format!("unknown struct type: {}", type_name))?
             .clone();
@@ -674,7 +674,7 @@ impl Interpreter {
     }
 
     /// Evaluate a rule condition.
-    fn eval_condition(&self, cond: &Condition, env: &HashMap<String, Value>) -> Result<bool, String> {
+    fn eval_condition(&mut self, cond: &Condition, env: &HashMap<String, Value>) -> Result<bool, String> {
         match cond {
             Condition::Contains { left, right } => {
                 let lv = self.eval_expr_with_env(left, env)?;
@@ -739,7 +739,7 @@ impl Interpreter {
     }
 
     /// Evaluate a branch condition: `target.field op threshold`
-    fn eval_branch_condition(&self, cond: &BranchCondition, current: &Value) -> Result<bool, String> {
+    fn eval_branch_condition(&mut self, cond: &BranchCondition, current: &Value) -> Result<bool, String> {
         // The target in branch_condition is the flow input value (current)
         let field_val = current.get_field(&cond.field)
             .map_err(|e| format!("branch condition: {}", e))?
@@ -1019,7 +1019,7 @@ impl Interpreter {
     const WHILE_SAFETY_LIMIT: u64 = 100_000;
 
     fn eval_statements(
-        &self,
+        &mut self,
         stmts: &[Statement],
         env: &mut HashMap<String, Value>,
     ) -> Result<Value, String> {
@@ -1036,6 +1036,36 @@ impl Interpreter {
                     } else {
                         return Err(format!("cannot assign to undeclared variable: {}", name));
                     }
+                }
+                Statement::If { condition, then_body, else_body } => {
+                    let cond_val = self.eval_expr_with_env(condition, env)?;
+                    if cond_val.as_bool()? {
+                        let result = self.eval_statements(then_body, env)?;
+                        if !matches!(result, Value::Unit) {
+                            return Ok(result);
+                        }
+                    } else if let Some(else_body) = else_body {
+                        let result = self.eval_statements(else_body, env)?;
+                        if !matches!(result, Value::Unit) {
+                            return Ok(result);
+                        }
+                    }
+                }
+                Statement::Memorize { value, priority } => {
+                    let value_str = match self.eval_expr_with_env(value, env)? {
+                        Value::String(s) => s,
+                        other => format!("{}", other),
+                    };
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0);
+                    self.memory.push(MemoryEntry {
+                        value: value_str,
+                        priority: *priority,
+                        timestamp: now,
+                        decay_rate: 0.01,
+                    });
                 }
                 Statement::Each { variable, iterable, body } => {
                     let iter_val = self.eval_expr_with_env(iterable, env)?;
@@ -1083,13 +1113,13 @@ impl Interpreter {
     }
 
     /// Evaluate an expression in the global scope.
-    fn eval_expr(&self, expr: &Expr) -> Result<Value, String> {
+    fn eval_expr(&mut self, expr: &Expr) -> Result<Value, String> {
         self.eval_expr_with_env(expr, &self.variables)
     }
 
     /// Evaluate an expression with a given environment.
     fn eval_expr_with_env(
-        &self,
+        &mut self,
         expr: &Expr,
         env: &HashMap<String, Value>,
     ) -> Result<Value, String> {

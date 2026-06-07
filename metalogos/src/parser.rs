@@ -585,8 +585,10 @@ fn parse_pattern_body(pair: Pair<Rule>) -> Vec<Statement> {
 /// Parse a single statement from its rule pair.
 fn parse_single_statement(pair: Pair<Rule>) -> Statement {
     let children = children_of(&pair);
-    // statement = { each_stmt | while_stmt | let_binding | assign_stmt | return_stmt }
-    if let Some(each_pair) = children.iter().find(|c| c.as_rule() == Rule::each_stmt) {
+    // statement = { if_stmt | each_stmt | while_stmt | memorize_stmt | let_binding | assign_stmt | return_stmt }
+    if let Some(if_pair) = children.iter().find(|c| c.as_rule() == Rule::if_stmt) {
+        return parse_if_stmt(if_pair.clone());
+    } else if let Some(each_pair) = children.iter().find(|c| c.as_rule() == Rule::each_stmt) {
         let each_children: Vec<Pair<Rule>> = each_pair.clone().into_inner().collect();
         // children: IDENT(variable), expression(iterable), statement*(body)
         let variable = pair_str(&each_children[0]);
@@ -610,6 +612,13 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
         let name = find_child_str(&lb_children, Rule::IDENT).unwrap_or_default();
         let expr = find_child(&lb_children, Rule::expression).unwrap();
         Statement::LetBinding { name, value: parse_expression(expr) }
+    } else if let Some(mem_pair) = children.iter().find(|c| c.as_rule() == Rule::memorize_stmt) {
+        let mem_children = children_of(mem_pair);
+        let value = find_child(&mem_children, Rule::expression).unwrap();
+        let priority = find_child_str(&mem_children, Rule::FLOAT_LITERAL)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0.5);
+        Statement::Memorize { value: parse_expression(value), priority }
     } else if let Some(as_pair) = children.iter().find(|c| c.as_rule() == Rule::assign_stmt) {
         let as_children = children_of(as_pair);
         // assign_stmt = { IDENT ~ ASSIGN ~ expression }
@@ -625,6 +634,40 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
         let expr = find_child(&children, Rule::expression).unwrap();
         Statement::Return(parse_expression(expr))
     }
+}
+
+// ── If statement (block-level) ──────────────────────────────────────
+// if_stmt = { "if" ~ expression ~ "then" ~ "{" ~ statement* ~ "}" ~ ("else" ~ else_tail)? }
+// else_tail = { if_stmt | "{" ~ statement* ~ "}" }
+
+fn parse_if_stmt(pair: Pair<Rule>) -> Statement {
+    let children: Vec<Pair<Rule>> = pair.into_inner().collect();
+    // Children: expression(condition), statement*(then_body), [else_tail]
+    let condition = parse_expression(
+        children.iter().find(|c| c.as_rule() == Rule::expression).unwrap().clone()
+    );
+    let then_body: Vec<Statement> = children.iter()
+        .filter(|c| c.as_rule() == Rule::statement)
+        .map(|c| parse_single_statement(c.clone()))
+        .collect();
+
+    let else_body = children.iter()
+        .find(|c| c.as_rule() == Rule::else_tail)
+        .map(|tail| {
+            let tail_children: Vec<Pair<Rule>> = tail.clone().into_inner().collect();
+            // If the else_tail contains an if_stmt, parse it as a single statement
+            if let Some(if_pair) = tail_children.iter().find(|c| c.as_rule() == Rule::if_stmt) {
+                vec![parse_if_stmt(if_pair.clone())]
+            } else {
+                // Otherwise it's a block: "{" ~ statement* ~ "}"
+                tail_children.iter()
+                    .filter(|c| c.as_rule() == Rule::statement)
+                    .map(|c| parse_single_statement(c.clone()))
+                    .collect()
+            }
+        });
+
+    Statement::If { condition, then_body, else_body }
 }
 
 // ── Flow ──────────────────────────────────────────────────────────────

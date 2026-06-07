@@ -280,3 +280,28 @@ Stage Summary:
 - db {} block opens real SQLite connection
 - Dot access works: get(rows, 0).name
 - Files changed: src/interpreter.rs (+157/-2), examples/p7_query_readable.mlog (new)
+---
+Task ID: n-final
+Agent: main
+Task: Финальная проверка — все Наряди №2-№7 вместе (Telegram webhook bot)
+
+Work Log:
+- Verified grammar: escape sequences work, + operator exists for string concat
+- Verified interpreter: chained dot-access (data.message.text) works via recursive FieldAccess
+- Verified BinOp::Add handles String+String concatenation (line 1890)
+- CRITICAL BUG: "server" keyword not recognized — grammar only had "mlogserver"
+  Fix: added "server" as alias in mlogserver_decl rule, added to step_ident exclusion list
+- CRITICAL BUG: respond("ok") not parseable as statement — no expr_stmt rule
+  Fix: added expr_stmt = { expression } to grammar, Statement::ExprStmt to AST,
+  parser handling, interpreter eval_statements handling, server route body handling
+- Statement::IfElseBlock not handled in server route body executor
+  Fix: added full IfElseBlock handling with else-if chain, return, and ExprStmt support
+- respond("ok") now properly terminates route with HTTP 200 response
+- Created 7-contract integration test: v05_final_integration.mlog
+- Commit fe0fdee pushed to origin/main
+
+Stage Summary:
+- 3 critical fixes: server alias, expr_stmt, route body if/else + respond
+- 6 files changed: grammar.pest, ast.rs, parser.rs, interpreter.rs, server.rs, v05_final_integration.mlog
+- All Наряди №2-№7 features verified and working together
+- Metalogos ready for Fosved Office integration

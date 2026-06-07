@@ -1,0 +1,24 @@
+// ── Наряд №3: Строковые builtins как встроенные функции ──────────
+// Контракт: все 8 функций доступны без import std/string
+
+pattern TestStrings() -> String {
+  // trim
+  let clean = trim("  hello  ")
+  // split → List
+  let parts = split("a,b,c", ",")
+  let first = get(parts, 0.0)
+  // replace
+  let fixed = replace("hello world", "world", "mlog")
+  // join (list literal as arg)
+  let joined = join(["a", "b", "c"], "-")
+  // starts_with / ends_with
+  let has_hello = starts_with("hello world", "hello")
+  let has_earth = ends_with("hello world", "earth")
+  // to_upper / to_lower
+  let loud = to_upper("metalogos")
+  let quiet = to_lower("METALOGOS")
+
+  return clean
+}
+
+flow Main { input: String = "run" -> TestStrings -> output }

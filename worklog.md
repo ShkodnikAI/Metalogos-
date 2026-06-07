@@ -203,3 +203,25 @@ Stage Summary:
 - Mock: returns user_message (echo) — matches Наряд contract
 - Real: calls same LLM backend as learnable patterns
 - Commit: db2addb, pushed to main
+---
+Task ID: 5
+Agent: main
+Task: Наряд №5 — read_file / write_file / append_file файловый I/O
+
+Work Log:
+- Analyzed existing builtins.rs: found read_file registered but WITHOUT sandboxed impl; duplicate non-sandboxed builtin_read_file at line 826
+- Fixed: registered read_file in Builtins::new(), removed duplicate non-sandboxed version
+- Changed write_file to return "ok" (String) instead of Unit
+- Changed append_file to return "ok" (String) instead of Unit  
+- Changed all file I/O to soft-failure: empty string on error (file not found, permission denied, sandbox violation)
+- Changed delete_file to soft-failure + return "ok" on success
+- sandbox_path(): rejects absolute paths and path traversal (..) — existing code, kept intact
+- Added sandbox forbidden:[filesystem] check in interpreter.rs at BOTH builtin dispatch points (FnCall + QualifiedCall)
+- Created contract test: examples/p5_file_io.mlog with 4 contracts (roundtrip, append, soft-failure, sandbox)
+
+Stage Summary:
+- Commit d793d9f pushed to main
+- All 3 file I/O builtins (read_file, write_file, append_file) functional with soft-failure
+- Sandbox security enforced via forbidden:[filesystem] in both call paths
+- No grammar/AST/parser changes needed (builtins are function calls)
+

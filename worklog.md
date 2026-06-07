@@ -165,3 +165,23 @@ Stage Summary:
 - 4 files modified: grammar.pest, ast.rs, parser.rs, interpreter.rs
 - 2 test files created: examples/p5_if_block.mlog, examples/p5_if_else_chain.mlog
 - Commit: f05eb37 "feat(n2): block-level if/else as statement + memorize inside patterns"
+---
+Task ID: n3
+Agent: main
+Task: Наряд №3 — Строковые builtins как встроенные функции
+
+Work Log:
+- Read builtins.rs — found __trim, __replace, __split, __join already implemented
+- Registered trim, replace, split, join as primary builtin names
+- Added to_upper/to_lower aliases for upper/lower
+- Updated error messages in builtin implementations to use unprefixed names
+- Kept __ prefixed versions as backward-compat aliases
+- starts_with, ends_with already existed as direct builtins (verified)
+- Created contract test examples/p5_string_builtins.mlog
+
+Stage Summary:
+- All 8 string builtins now available without import:
+  trim(s), replace(s,old,new), split(s,delim), join(list,delim),
+  starts_with(s,prefix), ends_with(s,suffix), to_upper(s), to_lower(s)
+- __ prefixed versions retained for backward compatibility
+- Commit: f9e1a78, pushed to main

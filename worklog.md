@@ -225,3 +225,29 @@ Stage Summary:
 - Sandbox security enforced via forbidden:[filesystem] in both call paths
 - No grammar/AST/parser changes needed (builtins are function calls)
 
+---
+Task ID: n6
+Agent: main
+Task: Наряд №6 — mem_set / mem_get / mem_delete (exact KV memory)
+
+Work Log:
+- Read builtins.rs: found existing kv_set/kv_get/kv_delete/kv_exists/kv_list on global HashMap
+- User wants mem_set/mem_get/mem_delete as String-returning exact KV operations
+- Added mem_set(key, value) -> String (returns stored value)
+- Added mem_get(key) -> String (returns value or empty string, NOT semantic recall)
+- Added mem_delete(key) -> String (returns deleted value or empty string)
+- Both mem_* and kv_* share same global HashMap (OnceLock<Mutex<HashMap>>)
+- Added KV_SQLITE global (OnceLock<Mutex<Option<Connection>>>) for SQLite persistence
+- Added init_kv_persist(db_path): creates kv_store table, loads existing rows into HashMap
+- Modified kv_set/kv_delete to write-through to SQLite when available
+- Modified mem_set/mem_delete to write-through to SQLite when available
+- Wired init_kv_persist() call in interpreter.rs configure_memory() when persist is enabled
+- Created 6 contract tests in examples/p6_kv_memory.mlog
+- Commit 5224657 pushed to origin/main
+
+Stage Summary:
+- mem_set/mem_get/mem_delete available as builtins, returning String (not Unit)
+- kv_* and mem_* interoperate (shared global store)
+- SQLite persistence: kv_store(key TEXT PK, value TEXT) in shared memory.db
+- Write-through cache: HashMap is always fast path, SQLite mirrors for durability
+- Files changed: src/builtins.rs (+122/-4), src/interpreter.rs (+5), examples/p6_kv_memory.mlog (new)

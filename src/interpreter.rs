@@ -275,6 +275,9 @@ pub struct Interpreter {
     db_config: Option<DbDecl>,
     /// Mock DB store (Phase 6.3)
     db_store: Vec<HashMap<String, Value>>,
+    /// SQLite connection for db {} block (Наряд №7).
+    /// Opened when db { url: "sqlite::memory:" } or similar is declared.
+    db_conn: std::sync::Mutex<Option<rusqlite::Connection>>,
     /// Audit log (Phase 7.5): uses Mutex for interior mutability + Send/Sync.
     audit_log: Mutex<Vec<String>>,
     /// Server config (Phase 6.1)
@@ -308,6 +311,7 @@ impl Interpreter {
             templates: HashMap::new(),
             db_config: None,
             db_store: Vec::new(),
+            db_conn: std::sync::Mutex::new(None),
             audit_log: Mutex::new(Vec::new()),
             server_config: None,
             embedding_manager: EmbeddingManager::new(),
@@ -398,6 +402,137 @@ impl Interpreter {
             }
         }
         // If persist is None, keep the default InMemoryStore (already set in new())
+    }
+
+    /// Initialize SQLite connection for db { url: "..." } block (Наряд №7).
+    /// Supports "sqlite::memory:" for in-memory databases and file paths.
+    fn init_db_connection(&mut self, db: &DbDecl) {
+        let url_expr = match &db.url {
+            Some(expr) => expr,
+            None => {
+                eprintln!("[db] No url specified in db {{}} block — query() will be unavailable");
+                return;
+            }
+        };
+        // Evaluate the url expression (must be a string literal or variable)
+        let url = match self.eval_expr(url_expr) {
+            Ok(Value::String(s)) => s,
+            Ok(other) => {
+                eprintln!("[db] url must be a String, got {}", other.type_name());
+                return;
+            }
+            Err(e) => {
+                eprintln!("[db] Failed to evaluate url: {}", e);
+                return;
+            }
+        };
+        // Parse the URL: "sqlite::memory:" → in-memory, "sqlite:path.db" → file
+        let conn = if url == "sqlite::memory:" {
+            rusqlite::Connection::open_in_memory()
+        } else if url.starts_with("sqlite:") {
+            let path = url.trim_start_matches("sqlite:");
+            rusqlite::Connection::open(path)
+        } else {
+            eprintln!("[db] Unsupported URL scheme: '{}'. Use 'sqlite::memory:' or 'sqlite:path.db'", url);
+            return;
+        };
+        match conn {
+            Ok(c) => {
+                // Enable WAL mode for better concurrent read performance
+                let _ = c.execute_batch("PRAGMA journal_mode=WAL;");
+                let mut guard = self.db_conn.lock().unwrap();
+                *guard = Some(c);
+                eprintln!("[db] Connected: {}", url);
+            }
+            Err(e) => {
+                eprintln!("[db] Failed to connect to '{}': {}", url, e);
+            }
+        }
+    }
+
+    /// Execute a SQL query and return readable results (Наряд №7).
+    /// - SELECT → List of Struct (each row = struct with column names as fields)
+    /// - INSERT/UPDATE/DELETE → String with affected row count
+    /// - PRAGMA/CREATE/etc. → String "ok"
+    fn invoke_query(&self, args: &[Value]) -> Result<Value, String> {
+        let sql = match args.first() {
+            Some(Value::String(s)) => s.clone(),
+            Some(other) => return Err(format!("query() expected String SQL, got {}", other.type_name())),
+            None => return Err("query() requires at least 1 argument (SQL string)".to_string()),
+        };
+        let params: Vec<String> = if args.len() > 1 {
+            match &args[1] {
+                Value::List(items) => items.iter().filter_map(|v| match v {
+                    Value::String(s) => Some(s.clone()),
+                    Value::Float(n) => Some(format!("{}", n)),
+                    Value::Bool(b) => Some(format!("{}", b)),
+                    _ => None,
+                }).collect(),
+                _ => Vec::new(),
+            }
+        } else {
+            Vec::new()
+        };
+
+        let guard = self.db_conn.lock().map_err(|e| format!("db lock error: {}", e))?;
+        let conn = guard.as_ref().ok_or_else(|| {
+            "query() error: no database connection. Declare db { url: \"sqlite::memory:\" } first.".to_string()
+        })?;
+
+        let sql_upper = sql.trim().to_uppercase();
+        if sql_upper.starts_with("SELECT") || sql_upper.starts_with("PRAGMA") {
+            // SELECT/PRAGMA → List of Struct
+            let mut stmt = conn.prepare(&sql)
+                .map_err(|e| format!("query() SQL error: {}", e))?;
+            let col_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+            let rows: Vec<Value> = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
+                let mut fields = std::collections::HashMap::new();
+                for (i, col) in col_names.iter().enumerate() {
+                    let val: Value = match row.get_ref(i) {
+                        Ok(rusqlite::types::ValueRef::Null) => Value::Unit,
+                        Ok(rusqlite::types::ValueRef::Integer(n)) => {
+                            // Heuristic: if the column name suggests it's an ID or count, keep as Float
+                            Value::Float(n as f64)
+                        }
+                        Ok(rusqlite::types::ValueRef::Real(f)) => Value::Float(f),
+                        Ok(rusqlite::types::ValueRef::Text(s)) => {
+                            Value::String(String::from_utf8_lossy(s).to_string())
+                        }
+                        Ok(rusqlite::types::ValueRef::Blob(b)) => {
+                            // Encode blobs as hex strings
+                            Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
+                        }
+                        Err(_) => Value::Unit,
+                    };
+                    fields.insert(col.clone(), val);
+                }
+                Ok(Value::Struct { type_name: "Row".to_string(), fields })
+            }).map_err(|e| format!("query() execution error: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+            Ok(Value::List(rows))
+        } else {
+            // INSERT/UPDATE/DELETE/CREATE/ALTER/etc. → affected row count as String
+            let affected = conn.execute(&sql, rusqlite::params_from_iter(params.iter()))
+                .map_err(|e| format!("query() SQL error: {}", e))?;
+            Ok(Value::String(affected.to_string()))
+        }
+    }
+
+    /// Execute a SQL statement via db_execute() — returns affected row count (Наряд №7).
+    fn invoke_db_execute(&self, args: &[Value]) -> Result<Value, String> {
+        let sql = match args.first() {
+            Some(Value::String(s)) => s.clone(),
+            Some(other) => return Err(format!("db_execute() expected String SQL, got {}", other.type_name())),
+            None => return Err("db_execute() requires at least 1 argument (SQL string)".to_string()),
+        };
+        let guard = self.db_conn.lock().map_err(|e| format!("db lock error: {}", e))?;
+        let conn = guard.as_ref().ok_or_else(|| {
+            "db_execute() error: no database connection. Declare db { url: \"sqlite::memory:\" } first.".to_string()
+        })?;
+        let affected = conn.execute(&sql, [])
+            .map_err(|e| format!("db_execute() SQL error: {}", e))?;
+        Ok(Value::String(affected.to_string()))
     }
 
     /// Run a complete .mlog program.
@@ -542,7 +677,8 @@ impl Interpreter {
                     self.configure_memory(&m);
                 }
                 Declaration::Db(db) => {
-                    self.db_config = Some(db);
+                    self.db_config = Some(db.clone());
+                    self.init_db_connection(&db);
                 }
             }
         }
@@ -759,7 +895,8 @@ impl Interpreter {
                     self.configure_memory(&m);
                 }
                 Declaration::Db(db) => {
-                    self.db_config = Some(db);
+                    self.db_config = Some(db.clone());
+                    self.init_db_connection(&db);
                 }
             }
         }
@@ -1515,6 +1652,13 @@ impl Interpreter {
                 // Patterns from imported modules are merged into self.patterns.
                 // Resolve as if it were a regular FnCall with the function name.
                 // Check builtins first
+                // Наряд №7 — query/db_execute need db_conn (intercept before generic builtin)
+                if function == "query" {
+                    return self.invoke_query(&eval_args);
+                }
+                if function == "db_execute" {
+                    return self.invoke_db_execute(&eval_args);
+                }
                 if let Some(builtin_fn) = self.builtins.get(function) {
                     // Phase 7.5: Sandbox enforcement — filesystem isolation
                     if let Some(ref sb) = self.active_sandbox {
@@ -1586,6 +1730,15 @@ impl Interpreter {
                 // Usage: forget("query", 30)
                 if name == "forget" {
                     return self.invoke_forget_fn(eval_args);
+                }
+
+                // Наряд №7 — query() / db_execute() need access to db_conn
+                // Intercept before generic builtin dispatch
+                if name == "query" {
+                    return self.invoke_query(&eval_args);
+                }
+                if name == "db_execute" {
+                    return self.invoke_db_execute(&eval_args);
                 }
 
                 // Check learnable patterns first

@@ -1,0 +1,19 @@
+// ── Наряд №2: if/else как блочный statement ──────────────────────
+// Контракт: pattern Process(score: Float) -> String
+//   - score > 90 → "excellent" + memorize
+//   - else → "needs work"
+
+entity score: Float = 95.0
+
+pattern Process(s: Float) -> String {
+  let result = ""
+  if s > 90.0 then {
+    result = "excellent"
+    memorize "high scorer" with priority=0.9
+  } else {
+    result = "needs work"
+  }
+  return result
+}
+
+flow Main { input: Float = score -> Process -> output }

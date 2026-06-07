@@ -104,6 +104,7 @@ impl Builtins {
         funcs.insert("kv_list".to_string(), builtin_kv_list as BuiltinFn);
 
         // v0.5.0 — File I/O builtins (full set)
+        funcs.insert("read_file".to_string(), builtin_read_file as BuiltinFn);
         funcs.insert("write_file".to_string(), builtin_write_file as BuiltinFn);
         funcs.insert("append_file".to_string(), builtin_append_file as BuiltinFn);
         funcs.insert("delete_file".to_string(), builtin_delete_file as BuiltinFn);
@@ -821,15 +822,6 @@ fn builtin_escape_json(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(out))
 }
 
-/// Read a text file and return its contents as a String.
-/// Usage: read_file(path) -> String
-fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
-    let path = expect_string_arg("read_file", args, 0)?;
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("read_file() error for '{}': {}", path, e))?;
-    Ok(Value::String(content))
-}
-
 // ── Phase 7.7 — parse_json, http_get, now ────────────────────────────
 
 /// Parse a JSON string into a Value (Struct or List).
@@ -1079,65 +1071,85 @@ fn sandbox_path(path: &str) -> Result<std::path::PathBuf, String> {
 }
 
 /// `read_file(path)` — read file contents as String.
+/// Soft-failure: returns empty string on error (file not found, permission denied, etc.).
 fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("read_file", args, 0)?;
-    let safe_path = sandbox_path(&path)?;
-    std::fs::read_to_string(&safe_path)
-        .map(Value::String)
-        .map_err(|e| format!("read_file('{}'): {}", path, e))
+    let safe_path = match sandbox_path(&path) {
+        Ok(p) => p,
+        Err(_) => return Ok(Value::String(String::new())), // soft-failure on sandbox violation
+    };
+    match std::fs::read_to_string(&safe_path) {
+        Ok(content) => Ok(Value::String(content)),
+        Err(_) => Ok(Value::String(String::new())), // soft-failure
+    }
 }
 
 /// `write_file(path, content)` — write string to file (overwrite).
+/// Returns "ok" on success, empty string on soft-failure.
 fn builtin_write_file(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("write_file", args, 0)?;
     let content = match args.get(1) {
         Some(Value::String(s)) => s.clone(),
         Some(other) => format!("{}", other),
-        None => return Err("write_file() requires 2 arguments (path, content)".to_string()),
+        None => return Ok(Value::String(String::new())), // soft-failure
     };
-    let safe_path = sandbox_path(&path)?;
+    let safe_path = match sandbox_path(&path) {
+        Ok(p) => p,
+        Err(_) => return Ok(Value::String(String::new())), // soft-failure on sandbox violation
+    };
     // Create parent directories if needed
     if let Some(parent) = safe_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("write_file(): cannot create directory: {}", e))?;
+        let _ = std::fs::create_dir_all(parent); // best-effort
     }
-    std::fs::write(&safe_path, &content)
-        .map(|_| Value::Unit)
-        .map_err(|e| format!("write_file('{}'): {}", path, e))
+    match std::fs::write(&safe_path, &content) {
+        Ok(_) => Ok(Value::String("ok".to_string())),
+        Err(_) => Ok(Value::String(String::new())), // soft-failure
+    }
 }
 
 /// `append_file(path, content)` — append string to file.
+/// Returns "ok" on success, empty string on soft-failure.
 fn builtin_append_file(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("append_file", args, 0)?;
     let content = match args.get(1) {
         Some(Value::String(s)) => s.clone(),
         Some(other) => format!("{}", other),
-        None => return Err("append_file() requires 2 arguments (path, content)".to_string()),
+        None => return Ok(Value::String(String::new())), // soft-failure
     };
-    use std::io::Write;
-    let safe_path = sandbox_path(&path)?;
+    let safe_path = match sandbox_path(&path) {
+        Ok(p) => p,
+        Err(_) => return Ok(Value::String(String::new())), // soft-failure on sandbox violation
+    };
     // Create parent directories if needed
     if let Some(parent) = safe_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("append_file(): cannot create directory: {}", e))?;
+        let _ = std::fs::create_dir_all(parent); // best-effort
     }
-    let mut file = std::fs::OpenOptions::new()
+    use std::io::Write;
+    match std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&safe_path)
-        .map_err(|e| format!("append_file('{}'): {}", path, e))?;
-    file.write_all(content.as_bytes())
-        .map_err(|e| format!("append_file('{}'): write error: {}", path, e))?;
-    Ok(Value::Unit)
+    {
+        Ok(mut file) => match file.write_all(content.as_bytes()) {
+            Ok(_) => Ok(Value::String("ok".to_string())),
+            Err(_) => Ok(Value::String(String::new())), // soft-failure
+        },
+        Err(_) => Ok(Value::String(String::new())), // soft-failure
+    }
 }
 
 /// `delete_file(path)` — delete a file.
+/// Soft-failure: returns empty string on error.
 fn builtin_delete_file(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("delete_file", args, 0)?;
-    let safe_path = sandbox_path(&path)?;
-    std::fs::remove_file(&safe_path)
-        .map(|_| Value::Unit)
-        .map_err(|e| format!("delete_file('{}'): {}", path, e))
+    let safe_path = match sandbox_path(&path) {
+        Ok(p) => p,
+        Err(_) => return Ok(Value::String(String::new())), // soft-failure
+    };
+    match std::fs::remove_file(&safe_path) {
+        Ok(_) => Ok(Value::String("ok".to_string())),
+        Err(_) => Ok(Value::String(String::new())), // soft-failure
+    }
 }
 
 /// `file_exists(path)` — check if a file exists. Returns Bool.

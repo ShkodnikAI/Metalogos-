@@ -667,8 +667,64 @@ async fn execute_route_body(
                     }
                 }
             }
+            // Block-level if/else (Наряд №2 + final integration)
+            Statement::IfElseBlock { condition, then_body, else_ifs, else_body } => {
+                let cond_val = interp.eval_expr_with_env(condition, &env)?;
+                let branch = if cond_val.as_bool().unwrap_or(false) {
+                    Some(then_body.as_slice())
+                } else {
+                    // Check else-if chain
+                    let mut matched = None;
+                    for (ei_cond, ei_body) in else_ifs {
+                        let ei_val = interp.eval_expr_with_env(ei_cond, &env)?;
+                        if ei_val.as_bool().unwrap_or(false) {
+                            matched = Some(ei_body.as_slice());
+                            break;
+                        }
+                    }
+                    matched.or_else(|| else_body.as_deref())
+                };
+                if let Some(stmts) = branch {
+                    for s in stmts {
+                        match s {
+                            Statement::Return(expr) => {
+                                let val = interp.eval_expr_with_env(expr, &env)?;
+                                flush_audit_to_db(state, &mut interp).await;
+                                return Ok(value_to_response(val));
+                            }
+                            Statement::LetBinding { name, value } => {
+                                let val = interp.eval_expr_with_env(value, &env)?;
+                                env.insert(name.clone(), val);
+                            }
+                            Statement::ExprStmt(expr) => {
+                                let val = interp.eval_expr_with_env(expr, &env)?;
+                                if let Value::HttpResponse { .. } = val {
+                                    flush_audit_to_db(state, &mut interp).await;
+                                    return Ok(value_to_response(val));
+                                }
+                            }
+                            _ => { interp.eval_statements(&[s.clone()], &mut env)?; }
+                        }
+                    }
+                }
+            }
+            // Bare expression statement — evaluate for side effects
+            Statement::ExprStmt(expr) => {
+                let val = interp.eval_expr_with_env(expr, &env)?;
+                // If expression is respond("ok") or similar HttpResponse, use as route response
+                if let Value::HttpResponse { .. } = val {
+                    flush_audit_to_db(state, &mut interp).await;
+                    return Ok(value_to_response(val));
+                }
+            }
             _ => {
-                interp.eval_statements(&[stmt.clone()], &mut env)?;
+                let result = interp.eval_statements(&[stmt.clone()], &mut env)?;
+                // If the statement produced an HttpResponse (e.g., respond("ok")),
+                // use it as the route response (final integration)
+                if let Value::HttpResponse { .. } = result {
+                    flush_audit_to_db(state, &mut interp).await;
+                    return Ok(value_to_response(result));
+                }
             }
         }
     }

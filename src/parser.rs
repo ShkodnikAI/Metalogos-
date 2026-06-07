@@ -789,6 +789,10 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
             .map(|c| parse_single_statement(c.clone()))
             .collect();
         Statement::IfThen(Box::new(condition), body)
+    } else if let Some(_) = children.iter().find(|c| c.as_rule() == Rule::expr_stmt) {
+        // Bare expression statement: respond("ok"), http_post(...), etc.
+        let expr = find_child(&children, Rule::expression).unwrap();
+        Statement::ExprStmt(parse_expression(expr))
     } else {
         // Fallback: direct expression child (legacy)
         let expr = find_child(&children, Rule::expression).unwrap();

@@ -1,0 +1,59 @@
+// Наряд №7 — Contract: query() returns readable data from SQLite
+
+db { url: "sqlite::memory:" }
+
+// ── Contract 1: SELECT returns List of Struct ─────────────
+// query() for SELECT returns Value::List of Value::Struct.
+// Each struct has column names as field keys.
+pattern QuerySelect(trigger: String) -> String {
+  query("CREATE TABLE t (id INTEGER, name TEXT)", [])
+  query("INSERT INTO t VALUES (1, 'Alice')", [])
+  query("INSERT INTO t VALUES (2, 'Bob')", [])
+  let rows = query("SELECT name FROM t ORDER BY id", [])
+  let first_name = get(rows, 0).name
+  return first_name
+}
+
+// ── Contract 2: INSERT/UPDATE/DELETE returns affected count ──
+// Mutating queries return the number of affected rows as String.
+pattern QueryMutating(trigger: String) -> String {
+  query("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)", [])
+  let count = query("INSERT INTO users (name) VALUES ('Charlie')", [])
+  return count
+}
+
+// ── Contract 3: get() on rows with dot access ────────────────
+// Access struct fields via dot notation after get().
+pattern QueryDotAccess(trigger: String) -> String {
+  query("CREATE TABLE products (id INTEGER, name TEXT, price REAL)", [])
+  query("INSERT INTO products VALUES (1, 'Widget', 9.99)", [])
+  query("INSERT INTO products VALUES (2, 'Gadget', 19.99)", [])
+  let products = query("SELECT name, price FROM products ORDER BY price", [])
+  // First row: cheapest product
+  let first = get(products, 0)
+  return first.name
+}
+
+// ── Contract 4: Multiple columns in result ─────────────────
+// All columns from SELECT are accessible as struct fields.
+pattern QueryMultiColumn(trigger: String) -> String {
+  query("CREATE TABLE kv (key TEXT, value TEXT)", [])
+  query("INSERT INTO kv VALUES ('host', 'localhost')", [])
+  query("INSERT INTO kv VALUES ('port', '8080')", [])
+  let rows = query("SELECT key, value FROM kv ORDER BY key", [])
+  let second = get(rows, 1)
+  return second.value
+}
+
+// ── Contract 5: Empty result set ──────────────────────────────
+// SELECT with no matches returns empty List.
+pattern QueryEmpty(trigger: String) -> String {
+  query("CREATE TABLE empty_test (id INTEGER, name TEXT)", [])
+  let rows = query("SELECT name FROM empty_test WHERE id = 999", [])
+  let size = len(rows)
+  return str(size)
+}
+
+flow Main {
+  input: String = "go" -> QuerySelect -> output
+}

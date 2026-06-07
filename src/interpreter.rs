@@ -1630,7 +1630,9 @@ impl Interpreter {
                     (Value::String(s), Value::Float(f)) => {
                         let idx = *f as isize;
                         if idx < 0 {
-                            let abs_idx = s.len().wrapping_sub((-idx) as usize);
+                            // Unicode-aware: use chars().count() for character length, not s.len() (bytes)
+                            let char_len = s.chars().count();
+                            let abs_idx = char_len.wrapping_sub((-idx) as usize);
                             Ok(Value::String(s.chars().nth(abs_idx).unwrap_or('\0').to_string()))
                         } else {
                             Ok(Value::String(s.chars().nth(idx as usize).unwrap_or('\0').to_string()))

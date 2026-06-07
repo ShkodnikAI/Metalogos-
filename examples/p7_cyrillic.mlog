@@ -1,0 +1,49 @@
+// ═══════════════════════════════════════════════════════════════
+// Наряд: Починка парсера — кириллица в строковых литералах
+// Контракт: len() возвращает длину в СИМВОЛАХ, не байтах
+// ═══════════════════════════════════════════════════════════════
+
+entity ru: String = "Привет, Металогос! Это тест кириллицы."
+entity long_ru: String = "Юридический анализ: договор №123 от 01.01.2025 между ООО Альфа и ООО Бета предусматривает ответственность сторон в размере 10% от суммы контракта."
+
+pattern GetLength(s: String) -> String {
+  return to_string(len(s))
+}
+
+pattern TestCharAt(s: String) -> String {
+  // "Привет" → char_at 0 = "П", char_at 5 = "т"
+  let first = char_at(s, 0)
+  return first
+}
+
+pattern TestSubstring(s: String) -> String {
+  // "Привет, мир" → substring 0 6 = "Привет"
+  let sub = substring(s, 0, 6)
+  return sub
+}
+
+pattern TestIndexOf(s: String) -> String {
+  // "Привет, мир" → index_of "мир" = 8 (символов, не байтов)
+  let pos = index_of(s, "мир")
+  return to_string(pos)
+}
+
+pattern TestNegativeIndex(s: String) -> String {
+  // "Привет" → s[-1] = "т" (последний символ)
+  let last = char_at(s, -1)
+  return last
+}
+
+pattern TestLongString(s: String) -> String {
+  // Длинная строка с кириллицей и спецсимволами не должна крашить парсер
+  return s
+}
+
+pattern TestEscaped(s: String) -> String {
+  // Экранированные кавычки внутри кириллицы
+  return s
+}
+
+flow Main {
+  input: String = ru -> GetLength -> output
+}

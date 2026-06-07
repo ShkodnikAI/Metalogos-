@@ -148,7 +148,9 @@ fn builtin_lower(args: &[Value]) -> Result<Value, String> {
 
 fn builtin_len(args: &[Value]) -> Result<Value, String> {
     match args.get(0) {
-        Some(Value::String(s)) => Ok(Value::Float(s.len() as f64)),
+        // Unicode-aware: chars().count() returns character count, not byte count.
+        // "Привет" (6 chars, 12 bytes) → 6.0, not 12.0.
+        Some(Value::String(s)) => Ok(Value::Float(s.chars().count() as f64)),
         Some(Value::List(items)) => Ok(Value::Float(items.len() as f64)),
         _ => Err("len() requires String or List argument".to_string()),
     }
@@ -224,7 +226,14 @@ fn builtin_push(args: &[Value]) -> Result<Value, String> {
 fn builtin_index_of(args: &[Value]) -> Result<Value, String> {
     let haystack = expect_string_arg("index_of", args, 0)?;
     let needle = expect_string_arg("index_of", args, 1)?;
-    match haystack.find(&needle) {
+    // Unicode-aware: return CHARACTER position, not byte offset.
+    // "Привет, мир".find("мир") byte offset = 12, char offset = 8.
+    // Must be consistent with substring()/char_at() which use char indices.
+    let char_pos = haystack
+        .char_indices()
+        .find(|(byte_idx, _)| haystack[byte_idx..].starts_with(&needle))
+        .map(|(byte_idx, _)| haystack[..byte_idx].chars().count());
+    match char_pos {
         Some(pos) => Ok(Value::Float(pos as f64)),
         None => Ok(Value::Float(-1.0)),
     }

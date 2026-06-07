@@ -86,6 +86,9 @@ impl Builtins {
         funcs.insert("send_message".to_string(), builtin_send_message as BuiltinFn);
         funcs.insert("require".to_string(), builtin_require as BuiltinFn);
 
+        // Direct LLM call — imperative (vs learnable pattern declarative)
+        funcs.insert("call_llm".to_string(), builtin_call_llm as BuiltinFn);
+
         Builtins { funcs }
     }
 
@@ -639,5 +642,27 @@ fn builtin_require(args: &[Value]) -> Result<Value, String> {
             Err(format!("require assertion failed: {}", msg))
         }
         other => Err(format!("require() expected Bool, got {}", other.type_name())),
+    }
+}
+
+// ── Direct LLM call ──────────────────────────────────────
+// call_llm(system_prompt, user_message) -> String
+// Mock mode: returns user_message (echo). Real mode: calls LLM backend.
+
+fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
+    let system_prompt = expect_string_arg("call_llm", args, 0)?;
+    let user_message = expect_string_arg("call_llm", args, 1)?;
+    // In mock mode (METALOGOS_MOCK_LLM=1, default), echo back user_message
+    // so that tests can assert on deterministic output.
+    // In real mode, delegate to the LLM backend.
+    let is_mock = std::env::var("METALOGOS_MOCK_LLM")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(true);
+    if is_mock {
+        Ok(Value::String(user_message))
+    } else {
+        let backend = crate::llm::create_llm_backend();
+        let response = backend.call(&system_prompt, &user_message)?;
+        Ok(Value::String(response))
     }
 }

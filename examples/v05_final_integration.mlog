@@ -1,0 +1,89 @@
+// ═══════════════════════════════════════════════════════════════
+// ФИНАЛЬНАЯ ПРОВЕРКА — Наряди №2–№7 всё вместе
+// Telegram webhook bot: string ops, LLM, memory, if/else, server
+// ═══════════════════════════════════════════════════════════════
+
+// ── Contract 1: BuildJson — string ops (Наряд №3) ─────────
+// Uses: replace(), string concatenation (+)
+pattern BuildJson(chat_id: String, text: String) -> String {
+  let escaped = replace(text, "\"", "\\\"")
+  let body = "{\"chat_id\":" + chat_id + ",\"text\":\"" + escaped + "\"}"
+  return body
+}
+
+// ── Contract 2: HandleMessage — all builtins together ───────
+// Uses: call_llm() (№4), trim() (№3), mem_set() (№6),
+//       recall(), block if/else (№2), string concat (+)
+pattern HandleMessage(text: String) -> String {
+  let classification = call_llm("Classify: greeting|question|complaint", text)
+  let trimmed = trim(classification)
+
+  if trimmed == "greeting" then {
+    mem_set("last_greeting", text)
+    return "Hello!"
+  } else {
+    let context = recall(text)
+    let response = call_llm("Answer using context: " + context, text)
+    return response
+  }
+}
+
+// ── Contract 3: HandleMessage with block if (Наряд №2) ─────
+// Same logic but using block-level if/else instead of ternary
+pattern HandleMessageBlock(text: String) -> String {
+  let classification = call_llm("Classify: greeting|question|complaint", text)
+  let trimmed = trim(classification)
+
+  if trimmed == "greeting" {
+    mem_set("last_greeting", text)
+    return "Hello!"
+  } else {
+    return "default response"
+  }
+}
+
+// ── Contract 4: KV memory roundtrip (Наряд №6) ────────────
+// Uses: mem_set(), mem_get(), mem_delete()
+pattern KvRoundtrip(trigger: String) -> String {
+  mem_set("bot_mode", "production")
+  let mode = mem_get("bot_mode")
+  mem_set("bot_mode", "debug")
+  let mode2 = mem_get("bot_mode")
+  let deleted = mem_delete("bot_mode")
+  let after = mem_get("bot_mode")
+  // mode="production", mode2="debug", deleted="debug", after=""
+  return mode
+}
+
+// ── Contract 5: Query readable results (Наряд №7) ─────────
+// Uses: query(), get(), dot access on Row struct
+db { url: "sqlite::memory:" }
+
+pattern QueryTest(trigger: String) -> String {
+  query("CREATE TABLE users (id INTEGER, name TEXT, role TEXT)", [])
+  query("INSERT INTO users VALUES (1, 'Alice', 'admin')", [])
+  query("INSERT INTO users VALUES (2, 'Bob', 'viewer')", [])
+  let users = query("SELECT name, role FROM users ORDER BY id", [])
+  let first = get(users, 0)
+  return first.name
+}
+
+// ── Contract 6: If-else chain (Наряд №2) ───────────────────
+pattern ClassifyIntent(text: String) -> String {
+  let length = len(text)
+  if length > 100 {
+    return "long_message"
+  } else {
+    return "short_message"
+  }
+}
+
+// ── Contract 7: BuildJson with test data ────────────────────
+pattern BuildJsonTest(trigger: String) -> String {
+  let json = BuildJson("42", "Hello world!")
+  return json
+}
+
+flow Main {
+  input: String = "go" -> BuildJsonTest -> output
+}

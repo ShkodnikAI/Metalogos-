@@ -1565,6 +1565,8 @@ impl Interpreter {
                         }
                     }
                 }
+                // Bare expression statement: evaluate for side effects, discard result
+                Statement::ExprStmt(expr) => { self.eval_expr_with_env(expr, env)?; }
             }
         }
         Ok(Value::Unit)

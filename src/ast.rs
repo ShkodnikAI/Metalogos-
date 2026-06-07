@@ -307,6 +307,9 @@ pub enum Statement {
     /// Single-branch if-then (no else): `if expr then { stmts }` (Phase 7.7)
     IfThen(Box<Expr>, Vec<Statement>),
     Return(Expr),
+    /// Bare expression statement: `respond("ok")`, `http_post(...)` etc.
+    /// The expression is evaluated for side effects; result is discarded unless in route context.
+    ExprStmt(Expr),
 }
 
 // ── Flow (M1 + M2 branching) ────────────────────────────────────────

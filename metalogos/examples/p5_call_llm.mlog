@@ -1,0 +1,9 @@
+// ── Наряд №4: call_llm() — прямой вызов LLM из кода ────────────
+// Контракт: mock-режим → response == user_message (echo)
+
+pattern AskLLM() -> String {
+  let response = call_llm("You are a classifier", "Is this a question?")
+  return response
+}
+
+flow Main { input: String = "test" -> AskLLM -> output }

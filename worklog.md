@@ -185,3 +185,21 @@ Stage Summary:
   starts_with(s,prefix), ends_with(s,suffix), to_upper(s), to_lower(s)
 - __ prefixed versions retained for backward compatibility
 - Commit: f9e1a78, pushed to main
+---
+Task ID: n4
+Agent: main
+Task: Наряд №4 — call_llm() прямой вызов LLM из кода
+
+Work Log:
+- Read llm.rs: LlmBackend trait, MockLlm (returns prompt), RealLlm (curl HTTP POST)
+- Added builtin_call_llm to builtins.rs
+- Mock mode (METALOGOS_MOCK_LLM=true, default): echoes user_message for deterministic tests
+- Real mode: delegates to create_llm_backend() → RealLlm with curl
+- Did NOT modify MockLlm (used by learnable patterns, returns prompt for their contract)
+- Created contract test examples/p5_call_llm.mlog
+
+Stage Summary:
+- call_llm(system_prompt, user_message) -> String available as builtin
+- Mock: returns user_message (echo) — matches Наряд contract
+- Real: calls same LLM backend as learnable patterns
+- Commit: db2addb, pushed to main

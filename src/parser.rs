@@ -155,6 +155,7 @@ fn parse_route_decl(pair: Pair<Rule>) -> RouteDecl {
 /// Pre-process source to handle template bodies containing `}` (HTML, CSS, JS).
 /// Extracts template bodies using balanced brace counting, replaces with safe placeholders,
 /// and returns a mapping of placeholder -> actual body content.
+/// Uses char_indices() for Unicode-safe byte positioning.
 fn preprocess_templates(source: &str) -> (String, HashMap<String, String>) {
     let mut result = source.to_string();
     let mut bodies = HashMap::new();
@@ -163,29 +164,30 @@ fn preprocess_templates(source: &str) -> (String, HashMap<String, String>) {
     // Find template declarations and extract balanced brace bodies
     let mut search_from = 0;
     while search_from < result.len() {
-        // Find "template" keyword
+        // Find "template" keyword (ASCII-only, find() is safe)
         if let Some(start) = result[search_from..].find("template") {
             let abs_start = search_from + start;
-            // Skip if this is part of a longer identifier
+            // Skip if this is part of a longer identifier (check preceding char)
             if abs_start > 0 && result.as_bytes().get(abs_start - 1).map(|&b| b.is_ascii_alphanumeric()).unwrap_or(false) {
                 search_from = abs_start + 1;
                 continue;
             }
 
             // Find the opening { of the template body (after type_name)
+            // '{' is ASCII, find() on ASCII patterns is char-boundary-safe
             if let Some(brace_pos) = result[abs_start..].find('{') {
                 let abs_brace = abs_start + brace_pos;
-                // Find the matching closing } using balanced brace counting
-                let chars: Vec<char> = result[abs_brace..].chars().collect();
+                // Find the matching closing } using balanced brace counting.
+                // MUST use char_indices() to get correct BYTE offsets for Unicode-safe slicing.
                 let mut depth = 0;
-                let mut end_pos = None;
-                for (i, &ch) in chars.iter().enumerate() {
+                let mut end_byte_pos = None;
+                for (byte_offset, ch) in result[abs_brace..].char_indices() {
                     match ch {
                         '{' => depth += 1,
                         '}' => {
                             depth -= 1;
                             if depth == 0 {
-                                end_pos = Some(abs_brace + i);
+                                end_byte_pos = Some(abs_brace + byte_offset);
                                 break;
                             }
                         }
@@ -193,8 +195,8 @@ fn preprocess_templates(source: &str) -> (String, HashMap<String, String>) {
                     }
                 }
 
-                if let Some(close_pos) = end_pos {
-                    // Extract the body between the braces
+                if let Some(close_pos) = end_byte_pos {
+                    // Extract the body between the braces (byte offsets are char-boundary-safe)
                     let body = result[abs_brace + 1..close_pos].to_string();
                     let placeholder = format!("__TEMPLATE_BODY_{}__", counter);
                     counter += 1;

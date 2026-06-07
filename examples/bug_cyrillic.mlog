@@ -1,0 +1,3 @@
+// Bug reproduction: Cyrillic in string literals
+entity text: String = "Привет, мир! Это длинная строка на русском языке, которая содержит несколько слов и должна парситься без ошибок"
+flow Main { input: String = text -> output }

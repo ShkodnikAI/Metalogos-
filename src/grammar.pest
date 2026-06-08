@@ -5,7 +5,7 @@ COMMENT      = _{ "//" ~ (!("\n" | "\r") ~ ANY)* }
 
 program     =  { SOI ~ (declaration ~ WHITESPACE*)* ~ EOI }
 
-declaration = _{ mlogserver_decl | template_decl | db_decl | memory_decl | import_decl | hook_decl | relate_decl | sandbox_decl | mutate_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl }
+declaration = _{ mlogserver_decl | template_decl | db_decl | memory_decl | import_decl | hook_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl }
 
 // ── Hook (ADR-0045): before_pattern / after_pattern ──────────────────────
 // hook before_pattern { <statements> }
@@ -72,6 +72,17 @@ sandbox_allowed  = { "allowed" ~ ":" ~ "[" ~ ident_list? ~ "]" }
 sandbox_forbidden = { "forbidden" ~ ":" ~ "[" ~ ident_list? ~ "]" }
 sandbox_timeout  = { "timeout" ~ ":" ~ INT }
 ident_list      = { IDENT ~ (COMMA ~ IDENT)* }
+
+// ── Eval Harness (ADR-0050) ──────────────────────────────────────────────
+// eval PatternName { dataset: [("input", "expected"), ...] metric: accuracy threshold: 0.8 }
+eval_decl        = { EVAL_KW ~ IDENT ~ "{" ~ eval_body ~ "}" }
+eval_body        = { eval_dataset ~ eval_metric? ~ eval_threshold? }
+eval_dataset      = { "dataset" ~ COLON ~ "[" ~ eval_example_list? ~ "]" }
+eval_example_list = { eval_example ~ (COMMA ~ eval_example)* }
+eval_example     = { "(" ~ STRING_LITERAL ~ COMMA ~ STRING_LITERAL ~ ")" }
+eval_metric      = { "metric" ~ COLON ~ IDENT }
+eval_threshold   = { "threshold" ~ COLON ~ FLOAT_LITERAL }
+EVAL_KW          = @{ "eval" }
 
 // ── Mutate (P2) ─────────────────────────────────────────────────────
 mutate_decl      = { MUTATE_KW ~ IDENT ~ "{" ~ mutate_body ~ "}" }
@@ -147,7 +158,7 @@ if_then_stmt = { "if" ~ expression ~ "then" ~ "{" ~ statement* ~ "}" }
 flow_decl     = { "flow" ~ IDENT ~ "{" ~ flow_pipeline ~ branch_def* ~ "}" }
 flow_pipeline = { "input" ~ ":" ~ type_name ~ "=" ~ expression ~ (ARROW ~ step_ident)* ~ ARROW ~ "output" }
 branch_def    = { step_ident ~ "{" ~ branch* ~ "}" }
-step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "adapt" | "add_example" | "relate" | "sandbox" | "mutate" | "allowed" | "forbidden" | "timeout" | "rollback_if" | "accuracy" | "to" | "as" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or" | "each" | "while" | "server" | "mlogserver" | "template" | "route" | "middleware" | "port" | "method" | "requires" | "db" | "migrate" | "pool_size" | "memory" | "persist" | "kv" | "type" | "else" | "hook" | "before_pattern" | "after_pattern") ~ IDENT }
+step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "adapt" | "add_example" | "relate" | "sandbox" | "mutate" | "eval" | "dataset" | "metric" | "threshold" | "allowed" | "forbidden" | "timeout" | "rollback_if" | "accuracy" | "to" | "as" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or" | "each" | "while" | "server" | "mlogserver" | "template" | "route" | "middleware" | "port" | "method" | "requires" | "db" | "migrate" | "pool_size" | "memory" | "persist" | "kv" | "type" | "else" | "hook" | "before_pattern" | "after_pattern") ~ IDENT }
 branch        = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
 branch_condition = { IDENT ~ "." ~ IDENT ~ compare_op ~ expression }
 

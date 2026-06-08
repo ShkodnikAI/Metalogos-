@@ -1,0 +1,22 @@
+// Наряд №2 / ADR-0046: Context auto-loading in learnable pattern
+// Contract: memorize 3 facts → learnable pattern with context:recall →
+//          MockLlm returns the effective prompt (with context prepended)
+
+// Memorize 3 facts about Metalogos
+memorize "Metalogos is an AI-native programming language" with priority=0.9
+memorize "Metalogos uses Pest parser for grammar definitions" with priority=0.8
+memorize "Metalogos supports fluid types with confidence propagation" with priority=0.7
+
+// Learnable pattern WITH context auto-loading
+// When called, the system prompt should include "Relevant context:" block
+// with the memorized facts prepended before the base prompt.
+learnable pattern Ask(text: String) -> String {
+  prompt: "Answer the question about Metalogos."
+  context: recall(text, limit=3)
+  max_tokens: 4000
+}
+
+// In MockLlm mode, the response IS the effective prompt.
+// So calling Ask("What is Metalogos?") should return a string
+// that starts with "Relevant context:" and includes the base prompt.
+let result = Ask("Tell me about Metalogos")

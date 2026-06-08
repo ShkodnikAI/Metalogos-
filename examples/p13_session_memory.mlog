@@ -1,0 +1,41 @@
+// ── ADR-0049: Session Memory — Contract Program ────────────────────────
+// Tests session_set, session_get, session_clear builtins.
+// Run: mlog run examples/p13_session_memory.mlog
+// Expected: all print statements output correct values.
+
+// Contract 1: session_set → session_get roundtrip
+let v = session_set("chat-001", "username", "alice")
+require(v == "alice") print("PASS: set returns value")
+
+let fetched = session_get("chat-001", "username")
+require(fetched == "alice") print("PASS: get returns same value")
+
+// Contract 2: session isolation — different sessions don't interfere
+session_set("session-A", "secret", "data-A")
+session_set("session-B", "secret", "data-B")
+let a = session_get("session-A", "secret")
+let b = session_get("session-B", "secret")
+require(a == "data-A") print("PASS: session A isolated")
+require(b == "data-B") print("PASS: session B isolated")
+
+// Contract 3: missing key → empty string
+let missing = session_get("chat-001", "nonexistent")
+require(missing == "") print("PASS: missing key returns empty")
+
+// Contract 4: session_clear removes all keys
+session_set("temp-session", "k1", "v1")
+session_set("temp-session", "k2", "v2")
+session_clear("temp-session")
+let gone = session_get("temp-session", "k1")
+require(gone == "") print("PASS: session_clear works")
+
+// Contract 5: multiple keys coexist
+session_set("multi", "name", "bob")
+session_set("multi", "age", "30")
+session_set("multi", "role", "admin")
+let n = session_get("multi", "name")
+let a = session_get("multi", "age")
+let r = session_get("multi", "role")
+require(n + " " + a + " " + r == "bob 30 admin") print("PASS: multiple keys")
+
+print("ALL SESSION MEMORY CONTRACTS PASSED")

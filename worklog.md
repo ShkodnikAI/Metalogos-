@@ -522,3 +522,33 @@ Stage Summary:
 - 10 contract tests: roundtrip, return value, missing key, missing session, isolation,
   clear, restart empties, multiple keys, overwrite, no persistence
 - 4 files changed: builtins.rs (+95), 3 new files
+---
+Task ID: 1
+Agent: main
+Task: Наряд №6 — eval harness (автоматическая оценка learnable patterns)
+
+Work Log:
+- Read full codebase: grammar.pest, ast.rs, parser.rs, interpreter.rs, lib.rs, main.rs, semantic.rs
+- Added eval_decl grammar rules (eval_body, eval_dataset, eval_example, eval_metric, eval_threshold) to grammar.pest
+- Added "eval", "dataset", "metric", "threshold" to step_ident exclusion list
+- Added EvalDecl struct to ast.rs with pattern_name, dataset, metric, threshold fields
+- Added Declaration::Eval(EvalDecl) variant to Declaration enum
+- Added parse_eval_decl() to parser.rs with dataset tuple extraction
+- Added EvalResult struct to interpreter.rs with format_report() method (confusion matrix, adapt suggestions)
+- Added eval_blocks: Vec<EvalDecl> field to Interpreter
+- Added run_eval_blocks() and run_single_eval() methods to Interpreter
+- Handled Declaration::Eval in run() and load_module_inner()
+- Added eval_program() and eval_program_with_dir() to lib.rs
+- Added mlog eval CLI command (Eval subcommand, cmd_eval function)
+- Added semantic analysis for eval blocks (pattern existence check, empty dataset warning)
+- Wrote 9 contract tests in tests/eval_harness_contract.rs
+- Wrote ADR-0050-eval-harness.md
+- Created examples/p_eval_harness.mlog
+- Committed and pushed to origin/main
+
+Stage Summary:
+- Eval harness fully implemented across grammar/AST/parser/interpreter/CLI/semantic/tests
+- ADR-0050 written
+- 9 contract tests covering: accuracy computation, pass/fail, threshold, empty dataset, nonexistent pattern, few-shot boost, confusion matrix, format_report, multiple eval blocks
+- Commit: aacf295, pushed to origin/main
+

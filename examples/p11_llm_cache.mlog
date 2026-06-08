@@ -1,0 +1,31 @@
+// Наряд №3 / ADR-0047: LLM Response Caching
+// Contract: two identical calls to a cached learnable pattern should
+// produce the same result (in MockLlm mode, the effective prompt).
+// The second call should hit the cache without re-invoking the LLM.
+
+// Learnable pattern WITH caching enabled
+learnable pattern Translate(text: String) -> String {
+  prompt: "Translate the following text to French."
+  cache: true
+  cache_ttl: 60.minutes
+}
+
+// First call — LLM is invoked, response is cached
+// In MockLlm mode, the response IS the effective system prompt
+let result1 = Translate("Hello world")
+
+// Second call with IDENTICAL input — should hit cache
+// Result should be identical to result1
+let result2 = Translate("Hello world")
+
+// Third call with DIFFERENT input — cache miss, LLM called again
+let result3 = Translate("Goodbye world")
+
+// Learnable pattern WITHOUT caching (default behavior)
+learnable pattern Summarize(text: String) -> String {
+  prompt: "Summarize the following text."
+}
+
+// These calls are NOT cached — each invokes the LLM
+let s1 = Summarize("Long text about Metalogos")
+let s2 = Summarize("Long text about Metalogos")

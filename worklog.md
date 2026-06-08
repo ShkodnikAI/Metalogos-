@@ -418,3 +418,31 @@ Stage Summary:
 - 6 files changed: grammar.pest, ast.rs, parser.rs, interpreter.rs, 2 new files
 - Hook fires for ALL pattern/learnable invocations (4 call sites wrapped)
 - Builtins excluded from hook wrapping (by design)
+
+---
+Task ID: n11-utf8
+Agent: main
+Task: Наряд №11 — Full UTF-8 audit of Metalogos runtime (ADR-0046)
+
+Work Log:
+- Full audit of all 19 .rs files in src/ for byte-indexed string operations
+- Launched Explore agent for exhaustive search across builtins.rs, parser.rs, interpreter.rs, vm.rs, server.rs, embeddings.rs, llm.rs
+- RESULT: All 16 user-facing string builtins already Unicode-safe (fixed in ADR-0043 commit df8ef66 + Cyrillic support commit 30be466)
+  - len(): chars().count() ✓
+  - substring(): Vec<char> indexing ✓
+  - char_at(): Vec<char>.get() ✓
+  - index_of(): char_indices() + chars().count() ✓
+  - upper/lower/trim/replace/split/contains/starts_with/ends_with/reverse: Unicode-aware by design ✓
+  - Parser quote-stripping: ASCII delimiters guarantee char boundaries ✓
+- Found 1 remaining bug: embeddings.rs:185 — .filter(|w| w.len() > 1) should be .chars().count() > 1
+  Impact: Single Cyrillic chars (2 bytes) passed the single-char filter, inflating TF-IDF vocabulary
+- Fixed embeddings.rs:185
+- Created comprehensive contract test: examples/p11_utf8_full.mlog (14 string operation categories)
+- Created ADR: docs/adr/0046-utf8-audit.md
+- Commit 473f1ed pushed to origin/main
+
+Stage Summary:
+- Наряд №11 COMPLETE: Cyrillic fully supported in all string operations
+- Only 1 code change needed (embeddings.rs tokenizer) — all critical builtins were already fixed
+- 3 files changed: embeddings.rs (1 line), 2 new files (test + ADR)
+- Commit: 473f1ed

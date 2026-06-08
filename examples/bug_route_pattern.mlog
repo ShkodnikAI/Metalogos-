@@ -1,0 +1,12 @@
+// Bug reproduction: Route handler calling user-defined pattern
+pattern Greet(name: String) -> String {
+  return "Hello, " + name + "!"
+}
+
+server {
+  port: 8090
+  route "/test" method=GET {
+    let result = Greet("World")
+    respond(result)
+  }
+}

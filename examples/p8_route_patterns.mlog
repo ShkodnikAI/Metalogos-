@@ -1,0 +1,57 @@
+// Наряд №8 — Contract: Route handlers call user-defined patterns
+// All 5 contracts must pass.
+
+// ── Contract 1: Simple pattern from route ─────────────────────
+pattern Add(a: String, b: String) -> String {
+  return a + " " + b
+}
+
+// ── Contract 2: Nested pattern calls from route ──────────────
+pattern Inner(s: String) -> String {
+  return upper(s)
+}
+pattern Outer(s: String) -> String {
+  let x = Inner(s)
+  return "Result: " + x
+}
+
+// ── Contract 3: Pattern with memory from route ─────────────
+pattern Remember(fact: String) -> String {
+  memorize fact with priority=0.8
+  return "ok"
+}
+
+// ── Contract 4: Pattern with call_llm from route ──────────
+pattern SmartReply(text: String) -> String {
+  let answer = call_llm("You are helpful", text)
+  return answer
+}
+
+// ── Contract 5: Pattern calling pattern from route ──────────
+pattern BuildGreeting(name: String) -> String {
+  return "Hello, " + name + "!"
+}
+
+server {
+  port: 8080
+  route "/test" method=GET {
+    let r = Add("hello", "world")
+    respond(r)
+  }
+  route "/nested" method=GET {
+    respond(Outer("test"))
+  }
+  route "/remember" method=POST {
+    let data = json_body()
+    Remember(data.text)
+    respond("remembered")
+  }
+  route "/ask" method=POST {
+    let data = json_body()
+    let reply = SmartReply(data.text)
+    respond(reply)
+  }
+  route "/greet" method=GET {
+    respond(BuildGreeting("Metalogos"))
+  }
+}

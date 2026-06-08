@@ -39,6 +39,9 @@ pub enum Declaration {
     Hook(HookDecl),
     /// `mutate PatternName { add_example(...) rollback_if: accuracy op threshold }`
     Mutate(MutateDecl),
+    /// `eval PatternName { dataset: [("input", "expected"), ...] metric: accuracy threshold: 0.8 }`
+    /// (ADR-0050: eval harness)
+    Eval(EvalDecl),
     /// `pattern Name(params) -> Type { body }`
     Pattern(PatternDecl),
     /// `learnable pattern Name(params) -> Type { prompt: "..." }`
@@ -266,6 +269,22 @@ pub struct MutateDecl {
     pub new_examples: Vec<(Expr, Expr)>,
     pub rollback_threshold: Option<f64>,
     pub rollback_op: Option<CompareOp>,
+}
+
+// ── Eval Harness (ADR-0050) ────────────────────────────────────────
+
+/// `eval PatternName { dataset: [("input", "expected"), ...] metric: accuracy threshold: 0.8 }`
+/// Evaluates a learnable pattern against a labeled dataset and reports accuracy.
+#[derive(Debug, Clone)]
+pub struct EvalDecl {
+    /// Name of the learnable pattern to evaluate.
+    pub pattern_name: String,
+    /// Test dataset: list of (input_string, expected_label) pairs.
+    pub dataset: Vec<(String, String)>,
+    /// Evaluation metric. Currently only "accuracy" is supported.
+    pub metric: String,
+    /// Minimum acceptable accuracy (0.0..1.0). Eval fails if accuracy < threshold.
+    pub threshold: f64,
 }
 
 // ── Memory (M4) ────────────────────────────────────────────────

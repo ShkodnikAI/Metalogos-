@@ -360,3 +360,31 @@ Stage Summary:
 - kv_store: shared via global static + SQLite write-through
 - 5 contracts: simple pattern, nested patterns, memorize, call_llm, pattern-chain
 - Files changed: src/interpreter.rs (+37), src/server.rs (+11/-2), 3 new files
+---
+Task ID: u1
+Agent: main
+Task: Full Cyrillic/Unicode support for Metalogos
+
+Work Log:
+- Comprehensive audit of all .rs files for Unicode/byte-level indexing bugs
+- Found 3 critical issues preventing Cyrillic from working:
+  1. grammar.pest: NO COMMENT rule — // comments not handled, all files with comments fail to parse
+  2. grammar.pest:167: IDENT uses ASCII_ALPHA/ASCII_ALPHANUMERIC — Cyrillic identifiers impossible
+  3. embeddings.rs:368: truncate_response() uses byte-level &s[..max_len] — panics on Cyrillic
+- Fixed grammar.pest WHITESPACE: added COMMENT = _{ "//" ~ (!(newline) ~ ANY)* }
+- Fixed grammar.pest IDENT: new ident_start rule with Unicode ranges
+  - U+0410-U+044F (all basic Cyrillic А-я)
+  - U+0401, U+0451 (Ё, ё)
+  - U+00C0-U+024F (Latin Extended for accents)
+  - APOSTROPHE preserved for backward compatibility
+- Fixed embeddings.rs: truncate_response now uses char_indices() for char-boundary-safe slicing
+- Created p9_cyrillic_full.mlog (ASCII, tests comment parsing + all constructs)
+- Created p9_cyrillic_unicode.mlog (real Cyrillic strings, 122 non-ASCII bytes)
+- Synced metalogos/ copies
+- Committed as 30be466, pushed to origin/main
+
+Stage Summary:
+- Cyrillic now fully supported: strings, comments, identifiers
+- All .mlog files with // comments parse correctly (was completely broken before)
+- No more byte-level panics on Unicode strings in embeddings
+- Files changed: src/grammar.pest, src/embeddings.rs, 2 new test files

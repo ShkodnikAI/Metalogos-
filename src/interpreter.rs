@@ -278,6 +278,9 @@ pub struct Interpreter {
     /// SQLite connection for db {} block (Наряд №7).
     /// Opened when db { url: "sqlite::memory:" } or similar is declared.
     db_conn: std::sync::Mutex<Option<rusqlite::Connection>>,
+    /// Resolved DB URL string for re-opening connections (Наряд №8).
+    /// Set by init_db_connection() so per-request interpreters can open new connections.
+    db_url: Option<String>,
     /// Audit log (Phase 7.5): uses Mutex for interior mutability + Send/Sync.
     audit_log: Mutex<Vec<String>>,
     /// Server config (Phase 6.1)
@@ -312,6 +315,7 @@ impl Interpreter {
             db_config: None,
             db_store: Vec::new(),
             db_conn: std::sync::Mutex::new(None),
+            db_url: None,
             audit_log: Mutex::new(Vec::new()),
             server_config: None,
             embedding_manager: EmbeddingManager::new(),
@@ -442,6 +446,8 @@ impl Interpreter {
                 let _ = c.execute_batch("PRAGMA journal_mode=WAL;");
                 let mut guard = self.db_conn.lock().unwrap();
                 *guard = Some(c);
+                // Store resolved URL for per-request interpreter reconnection
+                self.db_url = Some(url.clone());
                 eprintln!("[db] Connected: {}", url);
             }
             Err(e) => {
@@ -533,6 +539,30 @@ impl Interpreter {
         let affected = conn.execute(&sql, [])
             .map_err(|e| format!("db_execute() SQL error: {}", e))?;
         Ok(Value::String(affected.to_string()))
+    }
+
+    /// Open a new DB connection using stored db_url (Наряд №8).
+    /// Called by per-request interpreters to get their own SQLite connection.
+    pub fn reconnect_db(&mut self) {
+        if let Some(ref url) = self.db_url {
+            let conn = if url == "sqlite::memory:" {
+                rusqlite::Connection::open_in_memory()
+            } else if url.starts_with("sqlite:") {
+                let path = url.trim_start_matches("sqlite:");
+                rusqlite::Connection::open(path)
+            } else {
+                return;
+            };
+            match conn {
+                Ok(c) => {
+                    let _ = c.execute_batch("PRAGMA journal_mode=WAL;");
+                    *self.db_conn.lock().unwrap() = Some(c);
+                }
+                Err(e) => {
+                    eprintln!("[db] Per-request reconnect failed: {}", e);
+                }
+            }
+        }
     }
 
     /// Run a complete .mlog program.
@@ -1431,6 +1461,13 @@ impl Interpreter {
         if let Some(ref db) = self.db_config {
             target.db_config = Some(db.clone());
         }
+        // Copy resolved DB URL so per-request interpreters can open their own connections
+        if let Some(ref url) = self.db_url {
+            target.db_url = Some(url.clone());
+        }
+        // Copy embedding manager (for recall() — semantic memory search)
+        // EmbeddingManager is cheap to clone; it lazily initializes backends.
+        // We don't clone the internal cache/embeddings — each interpreter builds its own.
     }
 
     /// Safety limit for while loops (soft-failure on exceed).

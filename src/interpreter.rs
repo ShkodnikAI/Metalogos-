@@ -10,6 +10,8 @@ use zeroize::Zeroizing;
 use crate::ast::*;
 use crate::builtins::Builtins;
 use crate::embeddings::EmbeddingManager;
+#[allow(unused_imports)]
+use crate::embeddings::cosine_similarity;
 use crate::memory_store::{MemoryEntry, MemoryStore, KgStore, InMemoryStore, InMemoryKg, SqliteStore, SqliteKg};
 use crate::llm;
 
@@ -222,6 +224,14 @@ struct CompiledLearnable {
     /// Few-shot examples added by `adapt` declarations.
     /// Each entry: (input_string, output_string).
     few_shot: Vec<(String, String)>,
+    /// Optional context auto-loading: query expression + recall limit.
+    /// At invocation time, the query is evaluated with current args,
+    /// then recall is called to fetch relevant memories, which are
+    /// prepended to the system prompt as "Relevant context:\n- fact1\n- ..."
+    context_query: Option<Expr>,
+    context_limit: Option<usize>,
+    /// Optional max_tokens for LLM backend.
+    max_tokens: Option<u32>,
 }
 
 /// A registered struct type.
@@ -646,6 +656,9 @@ impl Interpreter {
                             params: lp.params.clone(),
                             prompt: lp.prompt.clone(),
                             few_shot: Vec::new(),
+                            context_query: lp.context_query.clone(),
+                            context_limit: lp.context_limit,
+                            max_tokens: lp.max_tokens,
                         },
                     );
                 }
@@ -846,6 +859,9 @@ impl Interpreter {
                         params: lp.params.clone(),
                         prompt: lp.prompt.clone(),
                         few_shot: Vec::new(),
+                        context_query: lp.context_query.clone(),
+                        context_limit: lp.context_limit,
+                        max_tokens: lp.max_tokens,
                     });
                 }
                 Declaration::Rule(r) => self.rules.push(r),
@@ -1184,6 +1200,92 @@ impl Interpreter {
         result
     }
 
+    /// ADR-0046: Build the effective system prompt for a learnable pattern.
+    /// If context auto-loading is configured, recalls relevant memories
+    /// and prepends them to the base prompt as "Relevant context:\n- fact1\n- ..."
+    fn build_effective_prompt(&self, learnable: &CompiledLearnable, args: &[Value]) -> String {
+        if learnable.context_query.is_none() {
+            return learnable.prompt.clone();
+        }
+
+        // Evaluate the context query expression with param names bound to args
+        let query_expr = learnable.context_query.as_ref().unwrap();
+        let mut env: HashMap<String, Value> = HashMap::new();
+        for (i, param) in learnable.params.iter().enumerate() {
+            if i < args.len() {
+                env.insert(param.name.clone(), args[i].clone());
+            }
+        }
+
+        let query = match self.eval_expr_with_env(query_expr, &mut env) {
+            Ok(Value::String(s)) => s,
+            Ok(other) => format!("{}", other),
+            Err(_) => return learnable.prompt.clone(), // context eval failed → skip
+        };
+
+        // Recall memories: invoke_recall(query, min_confidence=0.1)
+        // Collect multiple results by re-calling with lower thresholds
+        let limit = learnable.context_limit.unwrap_or(5);
+        let mut facts = Vec::new();
+
+        // Embed the query for semantic search
+        let query_embedding = self.embedding_manager.embed(&query).unwrap_or_default();
+
+        // Attempt recall — collect up to `limit` unique results
+        let mut seen = std::collections::HashSet::new();
+        let min_conf = 0.1_f32;
+        match self.memory.lock() {
+            Ok(store) => {
+                // Use the all_entries + manual scoring approach for multiple results
+                let all = store.all_entries();
+                let mut scored: Vec<(String, f32)> = Vec::new();
+                for entry in all {
+                    if seen.contains(&entry.value) {
+                        continue;
+                    }
+                    // Compute cosine similarity
+                    let score = if entry.embedding.is_empty() || query_embedding.is_empty() {
+                        // Fallback: substring match scoring
+                        if entry.value.to_lowercase().contains(&query.to_lowercase()) {
+                            0.5
+                        } else {
+                            0.0
+                        }
+                    } else {
+                        cosine_similarity(&query_embedding, &entry.embedding) as f32
+                            * entry.confidence as f32
+                            * entry.priority as f32
+                    };
+                    if score >= min_conf {
+                        seen.insert(entry.value.clone());
+                        scored.push((entry.value, score));
+                    }
+                }
+                // Sort by score descending, take top `limit`
+                scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                for (fact, _score) in scored.iter().take(limit) {
+                    facts.push(fact.clone());
+                }
+            }
+            Err(_) => return learnable.prompt.clone(),
+        }
+
+        if facts.is_empty() {
+            return learnable.prompt.clone();
+        }
+
+        // Format context block
+        let mut context_block = String::from("Relevant context:\n");
+        for fact in &facts {
+            context_block.push_str("- ");
+            context_block.push_str(fact);
+            context_block.push('\n');
+        }
+
+        // Prepend context to base prompt
+        format!("{}\n{}", context_block, learnable.prompt)
+    }
+
     /// Invoke a learnable pattern using pre-collapsed arguments.
     fn invoke_learnable_with_env(&self, learnable: &CompiledLearnable, args: &[Value]) -> Result<Value, String> {
         // Build input string from arguments
@@ -1207,10 +1309,13 @@ impl Interpreter {
             }
         }
 
+        // Build the effective system prompt (base prompt + optional context)
+        let effective_prompt = self.build_effective_prompt(learnable, args);
+
         // No few-shot match — call LLM backend
         let start = SystemTime::now();
         let backend = llm::create_llm_backend();
-        let response = backend.call(&learnable.prompt, &input)?;
+        let response = backend.call(&effective_prompt, &input)?;
 
         // Phase 7.5: Sandbox enforcement — timeout check
         if let Some(ref sb) = self.active_sandbox {

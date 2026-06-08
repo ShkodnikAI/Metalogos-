@@ -286,6 +286,44 @@ pub struct EvalResult {
     pub failures: Vec<(String, String, String)>,
 }
 
+/// Per-pattern runtime statistics (ADR-0051).
+/// Tracked automatically during pattern invocation and adapt operations.
+/// Returned by the `inspect()` builtin.
+#[derive(Debug, Clone)]
+pub struct PatternStats {
+    /// Total number of invocations of this learnable pattern.
+    pub calls: u64,
+    /// Sum of confidence values from each invocation (for computing average).
+    pub confidence_sum: f64,
+    /// Number of cache hits (responses served from LLM cache, not LLM backend).
+    pub cache_hits: u64,
+    /// Timestamp of the last adapt operation (Unix seconds), or 0 if never adapted.
+    pub last_adapt: i64,
+    /// Current count of few-shot examples added via adapt.
+    pub examples_count: u64,
+}
+
+impl PatternStats {
+    pub fn new() -> Self {
+        PatternStats {
+            calls: 0,
+            confidence_sum: 0.0,
+            cache_hits: 0,
+            last_adapt: 0,
+            examples_count: 0,
+        }
+    }
+
+    /// Average confidence across all invocations.
+    pub fn avg_confidence(&self) -> f64 {
+        if self.calls == 0 {
+            0.0
+        } else {
+            self.confidence_sum / self.calls as f64
+        }
+    }
+}
+
 impl EvalResult {
     /// Format the eval result as a human-readable report.
     pub fn format_report(&self) -> String {
@@ -414,6 +452,9 @@ pub struct Interpreter {
     hooks_after: Vec<HookDecl>,
     /// Eval blocks (ADR-0050): collected during run(), executed by run_eval_blocks().
     eval_blocks: Vec<EvalDecl>,
+    /// Per-pattern runtime statistics (ADR-0051): calls, confidence, cache hits, adapt info.
+    /// Key = pattern name. Used by the `inspect()` builtin.
+    pattern_stats: std::sync::Mutex<std::collections::HashMap<String, PatternStats>>,
 }
 
 impl Interpreter {
@@ -448,6 +489,7 @@ impl Interpreter {
             hooks_before: Vec::new(),
             hooks_after: Vec::new(),
             eval_blocks: Vec::new(),
+            pattern_stats: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -790,6 +832,17 @@ impl Interpreter {
                     } else {
                         return Err(format!("adapt: learnable pattern '{}' not found", a.pattern_name));
                     }
+                    // ADR-0051: update pattern stats for inspect()
+                    {
+                        let now = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .map(|d| d.as_secs() as i64)
+                            .unwrap_or(0);
+                        let mut stats = self.pattern_stats.lock().unwrap();
+                        let entry = stats.entry(a.pattern_name.clone()).or_insert_with(PatternStats::new);
+                        entry.last_adapt = now;
+                        entry.examples_count += 1;
+                    }
                     // Phase 7.5: Audit log for adapt operations
                     self.push_audit(format!(
                         "[AUDIT] adapt {}: {} -> {}",
@@ -1053,6 +1106,17 @@ impl Interpreter {
                     if let Some(learnable) = self.learnable_patterns.get_mut(&a.pattern_name) {
                         learnable.few_shot.push((input_str, output_str));
                     }
+                    // ADR-0051: track stats
+                    {
+                        let now = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .map(|d| d.as_secs() as i64)
+                            .unwrap_or(0);
+                        let mut stats = self.pattern_stats.lock().unwrap();
+                        let entry = stats.entry(a.pattern_name.clone()).or_insert_with(PatternStats::new);
+                        entry.last_adapt = now;
+                        entry.examples_count += 1;
+                    }
                 }
                 Declaration::Mutate(m) => {
                     let msg = self.handle_mutate(&m)?;
@@ -1220,7 +1284,7 @@ impl Interpreter {
         if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
             let collapsed_args = self.collapse_args(&learnable.params, &args);
             return self.invoke_pattern_with_hooks(name, &collapsed_args, || {
-                self.invoke_learnable_with_env(&learnable, &collapsed_args)
+                self.invoke_learnable_with_env(name, &learnable, &collapsed_args)
             });
         }
 
@@ -1411,14 +1475,16 @@ impl Interpreter {
     }
 
     /// Invoke a learnable pattern using pre-collapsed arguments.
-    fn invoke_learnable_with_env(&self, learnable: &CompiledLearnable, args: &[Value]) -> Result<Value, String> {
+    fn invoke_learnable_with_env(&self, pattern_name: &str, learnable: &CompiledLearnable, args: &[Value]) -> Result<Value, String> {
         // Build input string from arguments
         let input_parts: Vec<String> = args.iter().map(|a| format!("{}", a)).collect();
         let input = input_parts.join(", ");
 
-        // Check few-shot examples first (exact match → cache hit)
+        // Check few-shot examples first (exact match → effectively a cache hit)
         for (example_input, example_output) in &learnable.few_shot {
             if input == *example_input {
+                // ADR-0051: record stats — few-shot match counts as cache hit
+                self.record_pattern_call(pattern_name, true);
                 return Ok(Value::String(example_output.clone()));
             }
         }
@@ -1441,6 +1507,8 @@ impl Interpreter {
             let cache_key = self.compute_cache_key(&effective_prompt, &input);
             if let Some(cached) = self.llm_cache_get(&cache_key, learnable.cache_ttl) {
                 // Cache hit — return cached response without calling LLM
+                // ADR-0051: record stats — cache hit
+                self.record_pattern_call(pattern_name, true);
                 return cached;
             }
         }
@@ -1481,6 +1549,9 @@ impl Interpreter {
         }
 
         // Try to parse JSON response into Value::Struct
+        // ADR-0051: record stats — normal LLM call (not a cache hit)
+        self.record_pattern_call(pattern_name, false);
+
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response) {
             if let Some(obj) = json.as_object() {
                 let mut fields = std::collections::HashMap::new();
@@ -1847,7 +1918,7 @@ impl Interpreter {
             let args = vec![Value::String(input_str.clone())];
 
             // Invoke the learnable pattern
-            let actual_value = self.invoke_learnable_with_env(learnable, &args)?;
+            let actual_value = self.invoke_learnable_with_env(&eval_decl.pattern_name, learnable, &args)?;
             let actual_label = match actual_value {
                 Value::String(s) => s.trim().to_string(),
                 other => format!("{}", other),
@@ -1890,6 +1961,56 @@ impl Interpreter {
     /// Get a reference to the registered learnable patterns (for eval).
     pub fn get_learnable_patterns(&self) -> &HashMap<String, CompiledLearnable> {
         &self.learnable_patterns
+    }
+
+    // ── inspect() builtin support (ADR-0051) ─────────────────────────────
+
+    /// Record a learnable pattern invocation for stats tracking.
+    /// Called by invoke_learnable_with_env() on every invocation.
+    fn record_pattern_call(&self, name: &str, cache_hit: bool) {
+        if let Ok(mut stats) = self.pattern_stats.lock() {
+            let entry = stats.entry(name.to_string()).or_insert_with(PatternStats::new);
+            entry.calls += 1;
+            entry.confidence_sum += 1.0; // Default confidence for non-Fluid results
+            if cache_hit {
+                entry.cache_hits += 1;
+            }
+        }
+    }
+
+    /// Invoke the `inspect()` builtin (ADR-0051).
+    /// Returns a Struct with pattern metadata: calls, avg_confidence, cache_hits,
+    /// last_adapt, examples_count.
+    fn invoke_inspect(&self, args: &[Value]) -> Result<Value, String> {
+        let pattern_name = match args.first() {
+            Some(Value::String(s)) => s.clone(),
+            Some(other) => return Err(format!("inspect() expected String pattern name, got {}", other.type_name())),
+            None => return Err("inspect() requires 1 argument (pattern name)".to_string()),
+        };
+
+        // Look up stats
+        let stats = match self.pattern_stats.lock() {
+            Ok(stats) => stats.get(&pattern_name).cloned().unwrap_or_else(PatternStats::new),
+            Err(_) => PatternStats::new(),
+        };
+
+        // If the pattern exists in learnable_patterns, get its current few_shot count
+        // (which may differ from examples_count if few-shot was added outside adapt)
+        let actual_examples = self.learnable_patterns.get(&pattern_name)
+            .map(|lp| lp.few_shot.len() as u64)
+            .unwrap_or(stats.examples_count);
+
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("calls".to_string(), Value::Float(stats.calls as f64));
+        fields.insert("avg_confidence".to_string(), Value::Float(stats.avg_confidence()));
+        fields.insert("cache_hits".to_string(), Value::Float(stats.cache_hits as f64));
+        fields.insert("last_adapt".to_string(), Value::Float(stats.last_adapt as f64));
+        fields.insert("examples_count".to_string(), Value::Float(actual_examples as f64));
+
+        Ok(Value::Struct {
+            type_name: "PatternStats".to_string(),
+            fields,
+        })
     }
 
     /// Get the server configuration (Phase 6.1).
@@ -2182,6 +2303,10 @@ impl Interpreter {
                 if function == "db_execute" {
                     return self.invoke_db_execute(&eval_args);
                 }
+                // ADR-0051: inspect() needs interpreter state
+                if function == "inspect" {
+                    return self.invoke_inspect(&eval_args);
+                }
                 if let Some(builtin_fn) = self.builtins.get(function) {
                     // Phase 7.5: Sandbox enforcement — filesystem isolation
                     if let Some(ref sb) = self.active_sandbox {
@@ -2232,6 +2357,11 @@ impl Interpreter {
                     return self.invoke_find(eval_args);
                 }
 
+                // ADR-0051: inspect() — needs interpreter state (pattern_stats)
+                if name == "inspect" {
+                    return self.invoke_inspect(&eval_args);
+                }
+
                 // Check json_body() — server context builtin (Наряд №3)
                 // Returns the parsed JSON request body set by execute_route_body.
                 if name == "json_body" {
@@ -2271,7 +2401,7 @@ impl Interpreter {
                 if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
                     let collapsed_args = self.collapse_args(&learnable.params, &eval_args);
                     return self.invoke_pattern_with_hooks(name, &collapsed_args, || {
-                        self.invoke_learnable_with_env(&learnable, &collapsed_args)
+                        self.invoke_learnable_with_env(name, &learnable, &collapsed_args)
                     });
                 }
 

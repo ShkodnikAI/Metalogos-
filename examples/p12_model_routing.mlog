@@ -1,0 +1,29 @@
+// Наряд №4 / ADR-0048: Cost-Aware Model Routing
+// Contract: two learnable patterns with different model overrides.
+// In MockLlm mode, the model names are recorded and can be verified.
+// Run with: METALOGOS_MOCK_LLM=true
+
+// Cheap model for simple classification
+learnable pattern QuickClassify(text: String) -> String {
+  prompt: "Classify as: positive | negative | neutral."
+  model: "haiku"
+}
+
+// Premium model for deep analysis
+learnable pattern DeepAnalysis(text: String) -> String {
+  prompt: "Perform deep sentiment and intent analysis."
+  model: "opus"
+}
+
+// Default model (no override — uses global METALOGOS_LLM_MODEL)
+learnable pattern DefaultSummarize(text: String) -> String {
+  prompt: "Summarize the following text in one sentence."
+}
+
+// Call each pattern — MockLlm records the model override
+let q = QuickClassify("great weather today")
+let d = DeepAnalysis("the service was terrible and I want a refund")
+let s = DefaultSummarize("Metalogos is an AI-native programming language")
+
+// All three produce responses (MockLlm returns the effective prompt)
+// Model routing is verified in Rust integration tests via MockLlm::last_model()

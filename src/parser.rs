@@ -45,6 +45,7 @@ pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::adapt_decl => declarations.push(parse_adapt_decl(inner_pair)),
                 Rule::relate_decl => declarations.push(parse_relate_decl(inner_pair)),
                 Rule::sandbox_decl => declarations.push(parse_sandbox_decl(inner_pair)),
+                Rule::hook_decl => declarations.push(parse_hook_decl(inner_pair)),
                 Rule::mutate_decl => declarations.push(parse_mutate_decl(inner_pair)),
                 Rule::learnable_pattern_decl => declarations.push(parse_learnable_pattern_decl(inner_pair)),
                 Rule::pattern_decl => declarations.push(parse_pattern_decl(inner_pair)),
@@ -554,6 +555,31 @@ fn parse_relate_decl(pair: Pair<Rule>) -> Declaration {
     };
 
     Declaration::Relate(RelateDecl { from, to, relation })
+}
+
+// ── Hook (ADR-0045) ──────────────────────────────────────────────────
+
+fn parse_hook_decl(pair: Pair<Rule>) -> Declaration {
+    let children = children_of(&pair);
+    // hook_decl = { HOOK_KW ~ hook_kind ~ "{" ~ statement* ~ "}" }
+    let phase = children.iter()
+        .find(|c| c.as_rule() == Rule::hook_kind)
+        .map(|c| {
+            let kind_children = children_of(c);
+            if kind_children.iter().any(|kc| kc.as_rule() == Rule::BEFORE_PATTERN_KW) {
+                HookPhase::BeforePattern
+            } else {
+                HookPhase::AfterPattern
+            }
+        })
+        .unwrap_or(HookPhase::BeforePattern);
+
+    let body: Vec<Statement> = children.iter()
+        .filter(|c| c.as_rule() == Rule::statement)
+        .map(|c| parse_single_statement(c.clone()))
+        .collect();
+
+    Declaration::Hook(HookDecl { phase, body })
 }
 
 // ── Sandbox (P2) ────────────────────────────────────────────────

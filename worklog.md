@@ -468,3 +468,30 @@ Stage Summary:
 - Implementation was already complete; only MockLlm counter + integration tests were missing
 - 7 contract tests cover: cache hit, cache miss, uncached, TTL expiry, few-shot bypass, counter reset, prompt-in-key
 - Files changed: src/llm.rs (22 lines), tests/llm_cache_contract.rs (new, 201 lines)
+
+---
+Task ID: 4
+Agent: main
+Task: Наряд №4 — Cost-Aware Model Routing (ADR-0048)
+
+Work Log:
+- Added `model_line` rule to grammar.pest learnable_body
+- Added `model: Option<String>` to LearnablePatternDecl in ast.rs
+- Added model extraction in parse_learnable_pattern_decl (parser.rs)
+- Added `call_with_model()` to LlmBackend trait with default impl (backward compat)
+- MockLlm: added static Mutex<String> last_model tracker + call_with_model override
+- RealLlm: derived Clone, implemented call_with_model via clone-with-model-override
+- CompiledLearnable: added model field, updated both registration sites
+- invoke_learnable_with_env: changed backend.call() → backend.call_with_model()
+- Created tests/model_routing_contract.rs with 6 contract tests
+- Created examples/p12_model_routing.mlog contract program
+- Created docs/adr/0048-model-routing.md
+- Commit e06f2de, pushed to origin/main
+
+Stage Summary:
+- Full-stack: grammar → AST → parser → LLM trait → interpreter
+- LlmBackend::call_with_model() is backward compatible (default impl delegates to call())
+- MockLlm records last model in static Mutex for contract test verification
+- RealLlm clones self with overridden model for per-call routing
+- 6 contracts: model recorded, two patterns, no override, cache+model, cache key, sequence
+- 8 files changed, 385 insertions

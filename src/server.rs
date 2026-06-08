@@ -615,17 +615,24 @@ async fn execute_route_body(
     _headers: &HeaderMap,
     raw_body: &bytes::Bytes,
 ) -> Result<Response, String> {
-    // Set up interpreter with request context
+    // Set up interpreter with request context (Наряд №8: route pattern invocation fix)
     let mut interp = Interpreter::new();
-    // Copy program definitions (patterns, struct types, etc.) from shared interpreter
+    // Copy ALL program definitions (patterns, learnables, templates, struct types,
+    // rules, sandboxes, namespaces, variables, db_config, db_url) from shared interpreter.
     {
         let shared = state.interpreter.read().await;
         shared.clone_definitions_into(&mut interp);
     }
     interp.set_base_dir(std::path::PathBuf::from("."));
+
+    // Initialize memory persistence (per-request SQLite connection to shared DB)
     if let Some(ref persist_path) = state.memory_persist {
         interp.configure_memory(&MemoryDecl { persist: Some(persist_path.clone()) });
     }
+
+    // Initialize DB connection for per-request interpreter (query() / db_execute())
+    // Opens a NEW connection to the same database, so concurrent requests are safe.
+    interp.reconnect_db();
 
     // Parse JSON body recursively and inject as json_body() server builtin (Наряд №3)
     if let Ok(body_str) = std::str::from_utf8(raw_body) {

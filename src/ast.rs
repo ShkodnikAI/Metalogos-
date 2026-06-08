@@ -288,6 +288,8 @@ pub struct ForgetDecl {
 
 /// `learnable pattern Classify(text: String) -> Category {
 ///   prompt: "Классифицируй сообщение: question | complaint | greeting"
+///   context: recall(text, limit=5)   // optional
+///   max_tokens: 4000                 // optional
 /// }`
 #[derive(Debug, Clone)]
 pub struct LearnablePatternDecl {
@@ -295,6 +297,13 @@ pub struct LearnablePatternDecl {
     pub params: Vec<Param>,
     pub return_type: String,
     pub prompt: String,
+    /// Optional context auto-loading: `recall(query_expr, limit=N)`.
+    /// At invocation time, the query expression (evaluated with args) is used
+    /// to recall memories, which are prepended to the system prompt.
+    pub context_query: Option<Expr>,
+    pub context_limit: Option<usize>,
+    /// Optional max_tokens for LLM backend (stored but not yet wired to trait).
+    pub max_tokens: Option<u32>,
 }
 
 // ── Pattern (M1, unchanged) ─────────────────────────────────────────

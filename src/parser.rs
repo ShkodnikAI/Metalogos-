@@ -710,15 +710,51 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
         .unwrap_or_default();
     let return_type = find_child_str(&children, Rule::type_name).unwrap_or_default();
 
-    // Extract prompt from learnable_body -> prompt_line -> expression
+    // Extract prompt, context, max_tokens from learnable_body
     let mut prompt = String::new();
+    let mut context_query: Option<Expr> = None;
+    let mut context_limit: Option<usize> = None;
+    let mut max_tokens: Option<u32> = None;
+
     if let Some(body_pair) = find_child(&children, Rule::learnable_body) {
         let body_children = children_of(&body_pair);
+
+        // Extract prompt from prompt_line -> expression
         if let Some(pl_pair) = body_children.iter().find(|c| c.as_rule() == Rule::prompt_line) {
             let pl_children = children_of(pl_pair);
             if let Some(expr_pair) = pl_children.iter().find(|c| c.as_rule() == Rule::expression) {
                 if let Expr::StringLit(s) = parse_expression(expr_pair.clone()) {
                     prompt = s;
+                }
+            }
+        }
+
+        // Extract context: recall(query_expr, limit=N)
+        if let Some(ctx_pair) = body_children.iter().find(|c| c.as_rule() == Rule::context_line) {
+            let ctx_children = children_of(ctx_pair);
+            // context_line = { "context" ~ ":" ~ "recall" ~ "(" ~ expression ~ ("," ~ "limit" ~ "=" ~ expression)? ~ ")" }
+            let exprs: Vec<Expr> = ctx_children.iter()
+                .filter(|c| c.as_rule() == Rule::expression)
+                .cloned()
+                .collect();
+            // The first expression is the query; the second (if present) is the limit
+            if !exprs.is_empty() {
+                context_query = Some(exprs[0].clone());
+            }
+            if exprs.len() >= 2 {
+                // Evaluate limit at parse time if it's a literal, otherwise store None
+                if let Expr::FloatLit(n) = exprs[1].clone() {
+                    context_limit = Some(n as usize);
+                }
+            }
+        }
+
+        // Extract max_tokens: N
+        if let Some(mt_pair) = body_children.iter().find(|c| c.as_rule() == Rule::max_tokens_line) {
+            let mt_children = children_of(mt_pair);
+            if let Some(expr_pair) = mt_children.iter().find(|c| c.as_rule() == Rule::expression) {
+                if let Expr::FloatLit(n) = parse_expression(expr_pair.clone()) {
+                    max_tokens = Some(n as u32);
                 }
             }
         }
@@ -729,6 +765,9 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
         params,
         return_type,
         prompt,
+        context_query,
+        context_limit,
+        max_tokens,
     })
 }
 

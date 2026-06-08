@@ -446,3 +446,25 @@ Stage Summary:
 - Only 1 code change needed (embeddings.rs tokenizer) — all critical builtins were already fixed
 - 3 files changed: embeddings.rs (1 line), 2 new files (test + ADR)
 - Commit: 473f1ed
+
+---
+Task ID: 3
+Agent: main
+Task: Наряд №3 — LLM Response Caching (ADR-0047)
+
+Work Log:
+- RECON: discovered full implementation already existed in stack (grammar, AST, parser, interpreter)
+- Grammar: cache_line + cache_ttl_line rules in learnable_body (already present)
+- AST: LearnablePatternDecl.cache (bool) + cache_ttl (u64) fields (already present)
+- Parser: parse cache: true/false + cache_ttl: N.minutes with unit conversion (already present)
+- Interpreter: LlmCacheEntry struct, llm_cache HashMap, compute_cache_key, llm_cache_get (TTL check), llm_cache_persist (SQLite), invoke_learnable_with_env cache check/store (already present)
+- Added MockLlm::call_count() via static AtomicU64 counter in src/llm.rs
+- Created tests/llm_cache_contract.rs with 7 contract tests verifying cache behavior
+- ADR 0047 already existed at docs/adr/0047-llm-cache.md
+- Contract test p11_llm_cache.mlog already existed in examples/
+- Git commit 03e2f36, pushed to origin/main
+
+Stage Summary:
+- Implementation was already complete; only MockLlm counter + integration tests were missing
+- 7 contract tests cover: cache hit, cache miss, uncached, TTL expiry, few-shot bypass, counter reset, prompt-in-key
+- Files changed: src/llm.rs (22 lines), tests/llm_cache_contract.rs (new, 201 lines)

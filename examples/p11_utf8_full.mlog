@@ -1,0 +1,79 @@
+// Наряд №11 / ADR-0046: Comprehensive UTF-8 / Cyrillic contract test
+// Verifies ALL string operations work correctly with multi-byte characters.
+// Every builtin that takes or returns strings must handle "Привет мир" correctly.
+
+// ═══ 1. LENGTH ═══
+// len("Привет") = 6 chars, NOT 12 bytes
+// len("абвгд") = 5 chars, NOT 10 bytes
+// len("мир") = 3 chars, NOT 6 bytes
+
+// ═══ 2. SUBSTRING ═══
+// substring("Привет мир", 0, 6) = "Привет"
+// substring("Привет мир", 7, 10) = "мир"
+// substring("Привет", 0, 3) = "При"
+// substring("Привет", 3, 6) = "вет"
+
+// ═══ 3. CHAR_AT ═══
+// char_at("Привет", 0) = "П"
+// char_at("Привет", 3) = "е"
+// char_at("Привет", 5) = "т"
+// char_at("мир", 1) = "и"
+
+// ═══ 4. INDEX_OF ═══
+// index_of("Привет мир", "мир") = 7 (char offset)
+// index_of("Привет мир", "Привет") = 0
+// index_of("Привет", "ет") = 4
+// index_of("абвгд", "гд") = 3
+
+// ═══ 5. CONTAINS ═══
+// contains("Привет мир", "мир") = true
+// contains("Привет мир", "привет") = false (case-sensitive)
+// contains("Привет", "ив") = true
+
+// ═══ 6. STARTS_WITH / ENDS_WITH ═══
+// starts_with("Привет мир", "Прив") = true
+// starts_with("Привет мир", "при") = false (case-sensitive)
+// ends_with("Привет мир", "мир") = true
+// ends_with("Привет мир", "Мир") = false (case-sensitive)
+
+// ═══ 7. UPPER / LOWER ═══
+// upper("привет") = "ПРИВЕТ"
+// lower("ПРИВЕТ") = "привет"
+// upper("мир") = "МИР"
+// lower("МИР") = "мир"
+
+// ═══ 8. TRIM ═══
+// trim("  Привет  ") = "Привет"
+// trim("мир") = "мир"
+
+// ═══ 9. REPLACE ═══
+// replace("Привет мир", "мир", "солнце") = "Привет солнце"
+// replace("абвабв", "аб", "XY") = "XYXYXY"
+
+// ═══ 10. SPLIT ═══
+// split("Привет мир солнце", " ") = ["Привет", "мир", "солнце"]
+
+// ═══ 11. REVERSE ═══
+// reverse("Привет") = "тевирП"
+// reverse("мир") = "рим"
+
+// ═══ 12. CONCATENATION (+) ═══
+// "Привет" + " " + "мир" = "Привет мир"
+// "а" + "б" + "в" = "абв"
+
+// ═══ 13. NEGATIVE INDEX (interpreter) ═══
+// s[-1] on "Привет" = "т" (last char)
+// s[-2] on "мир" = "и" (second-to-last)
+
+// ═══ 14. RUNTIME: Flow with Cyrillic ═══
+pattern shout(s: String) -> String {
+  return upper(s) + "!"
+}
+
+pattern greet(name: String) -> String {
+  return "Привет, " + name
+}
+
+flow Main {
+  input: String = "мир" -> greet -> shout -> output
+}

@@ -35,6 +35,8 @@ pub enum Declaration {
     Relate(RelateDecl),
     /// `sandbox name { allowed: [...], forbidden: [...], timeout: N }`
     Sandbox(SandboxDecl),
+    /// `hook before_pattern { <statements> }` or `hook after_pattern { <statements> }` (ADR-0045)
+    Hook(HookDecl),
     /// `mutate PatternName { add_example(...) rollback_if: accuracy op threshold }`
     Mutate(MutateDecl),
     /// `pattern Name(params) -> Type { body }`
@@ -233,6 +235,26 @@ pub struct SandboxDecl {
     pub allowed: Vec<String>,
     pub forbidden: Vec<String>,
     pub timeout: i64,
+}
+
+// ── Hook (ADR-0045): before_pattern / after_pattern ──────────────────────
+
+/// Hook phase: before or after pattern invocation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum HookPhase {
+    /// Execute statements BEFORE the pattern is invoked.
+    BeforePattern,
+    /// Execute statements AFTER the pattern returns.
+    AfterPattern,
+}
+
+/// `hook before_pattern { <statements> }` or `hook after_pattern { <statements> }`
+/// Variables available in hook body: pattern_name (String), args (List),
+/// result (after only), confidence (after only).
+#[derive(Debug, Clone)]
+pub struct HookDecl {
+    pub phase: HookPhase,
+    pub body: Vec<Statement>,
 }
 
 // ── Mutate (P2) ─────────────────────────────────────────────────

@@ -290,6 +290,8 @@ pub struct ForgetDecl {
 ///   prompt: "Классифицируй сообщение: question | complaint | greeting"
 ///   context: recall(text, limit=5)   // optional
 ///   max_tokens: 4000                 // optional
+///   cache: true                      // optional — enable LLM response caching
+///   cache_ttl: 60.minutes            // optional — time-to-live for cached responses
 /// }`
 #[derive(Debug, Clone)]
 pub struct LearnablePatternDecl {
@@ -298,12 +300,15 @@ pub struct LearnablePatternDecl {
     pub return_type: String,
     pub prompt: String,
     /// Optional context auto-loading: `recall(query_expr, limit=N)`.
-    /// At invocation time, the query expression (evaluated with args) is used
-    /// to recall memories, which are prepended to the system prompt.
     pub context_query: Option<Expr>,
     pub context_limit: Option<usize>,
-    /// Optional max_tokens for LLM backend (stored but not yet wired to trait).
+    /// Optional max_tokens for LLM backend.
     pub max_tokens: Option<u32>,
+    /// Enable LLM response caching. When true, identical (prompt + args) calls
+    /// return cached response without hitting the LLM backend.
+    pub cache: bool,
+    /// Cache time-to-live in seconds. Default 3600 (1 hour) when cache is enabled.
+    pub cache_ttl: u64,
 }
 
 // ── Pattern (M1, unchanged) ─────────────────────────────────────────

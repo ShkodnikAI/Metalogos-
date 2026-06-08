@@ -290,6 +290,11 @@ pub struct Interpreter {
     /// Server context: parsed JSON request body (Наряд №3).
     /// Set by execute_route_body, returned by json_body() builtin.
     server_json_body: Option<Value>,
+    /// Registered hooks (ADR-0045): before_pattern and after_pattern.
+    /// Stored in declaration order; all before hooks fire before every pattern invocation,
+    /// all after hooks fire after every pattern invocation.
+    hooks_before: Vec<HookDecl>,
+    hooks_after: Vec<HookDecl>,
 }
 
 impl Interpreter {
@@ -320,6 +325,8 @@ impl Interpreter {
             server_config: None,
             embedding_manager: EmbeddingManager::new(),
             server_json_body: None,
+            hooks_before: Vec::new(),
+            hooks_after: Vec::new(),
         }
     }
 
@@ -688,6 +695,13 @@ impl Interpreter {
                 Declaration::Sandbox(s) => {
                     self.sandboxes.insert(s.name.clone(), s);
                 }
+                Declaration::Hook(h) => {
+                    // ADR-0045: register hooks in declaration order
+                    match h.phase {
+                        HookPhase::BeforePattern => self.hooks_before.push(h),
+                        HookPhase::AfterPattern => self.hooks_after.push(h),
+                    }
+                }
                 Declaration::Mutate(m) => {
                     let msg = self.handle_mutate(&m)?;
                     self.mutate_log.push(msg);
@@ -915,6 +929,12 @@ impl Interpreter {
                 Declaration::Sandbox(s) => {
                     self.sandboxes.insert(s.name.clone(), s);
                 }
+                Declaration::Hook(h) => {
+                    match h.phase {
+                        HookPhase::BeforePattern => self.hooks_before.push(h),
+                        HookPhase::AfterPattern => self.hooks_after.push(h),
+                    }
+                }
                 Declaration::MlogServer(srv) => {
                     self.server_config = Some(srv);
                 }
@@ -1043,6 +1063,8 @@ impl Interpreter {
     }
 
     /// Invoke a pattern or built-in by name with given arguments.
+    /// ADR-0045: Hooks (before_pattern / after_pattern) fire around pattern
+    /// and learnable pattern invocations, but NOT around builtin calls.
     fn invoke(&mut self, name: &str, args: Vec<Value>) -> Result<Value, String> {
         // Check recall (memory) first — it's a built-in with memory access
         if name == "recall" {
@@ -1057,7 +1079,9 @@ impl Interpreter {
         // Check learnable patterns
         if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
             let collapsed_args = self.collapse_args(&learnable.params, &args);
-            return self.invoke_learnable_with_env(&learnable, &collapsed_args);
+            return self.invoke_pattern_with_hooks(name, &collapsed_args, || {
+                self.invoke_learnable_with_env(&learnable, &collapsed_args)
+            });
         }
 
         // Check builtins
@@ -1097,7 +1121,67 @@ impl Interpreter {
         // Bind parameters with Fluid collapse
         let mut local_env = self.bind_and_collapse(&pattern.params, &args)?;
 
-        self.eval_statements(&pattern.body, &mut local_env)
+        self.invoke_pattern_with_hooks(name, &args, || {
+            self.eval_statements(&pattern.body, &mut local_env)
+        })
+    }
+
+    /// ADR-0045: Execute a pattern invocation wrapped with before/after hooks.
+    /// Injects hook variables: pattern_name (String), args (List),
+    /// result (after only), confidence (after only).
+    /// Builtins are NOT wrapped — only user-defined patterns and learnable patterns.
+    fn invoke_pattern_with_hooks<F>(
+        &mut self,
+        name: &str,
+        args: &[Value],
+        f: F,
+    ) -> Result<Value, String>
+    where
+        F: FnOnce() -> Result<Value, String>,
+    {
+        // Execute all before_pattern hooks
+        if !self.hooks_before.is_empty() {
+            let mut hook_env = HashMap::new();
+            hook_env.insert("pattern_name".to_string(), Value::String(name.to_string()));
+            hook_env.insert("args".to_string(), Value::List(args.to_vec()));
+            for hook in &self.hooks_before {
+                // Ignore hook errors — hooks are advisory, not blocking
+                let _ = self.eval_statements(&hook.body, &mut hook_env);
+            }
+        }
+
+        // Execute the actual pattern
+        let result = f();
+
+        // Execute all after_pattern hooks
+        if !self.hooks_after.is_empty() {
+            let mut hook_env = HashMap::new();
+            hook_env.insert("pattern_name".to_string(), Value::String(name.to_string()));
+            hook_env.insert("args".to_string(), Value::List(args.to_vec()));
+            match &result {
+                Ok(val) => {
+                    hook_env.insert("result".to_string(), val.clone());
+                    // Extract confidence for Fluid results, default 1.0
+                    let conf = match val {
+                        Value::Fluid(variants) => {
+                            variants.iter().map(|v| v.confidence).fold(0.0_f64, f64::max)
+                        }
+                        _ => 1.0,
+                    };
+                    hook_env.insert("confidence".to_string(), Value::Float(conf));
+                }
+                Err(e) => {
+                    hook_env.insert("result".to_string(), Value::String(e.clone()));
+                    hook_env.insert("confidence".to_string(), Value::Float(0.0));
+                }
+            }
+            for hook in &self.hooks_after {
+                // Ignore hook errors — hooks are advisory, not blocking
+                let _ = self.eval_statements(&hook.body, &mut hook_env);
+            }
+        }
+
+        result
     }
 
     /// Invoke a learnable pattern using pre-collapsed arguments.
@@ -1729,7 +1813,10 @@ impl Interpreter {
                     ));
                 }
                 let mut local_env = self.bind_and_collapse(&pattern.params, &eval_args)?;
-                self.eval_statements(&pattern.body, &mut local_env)
+                let args_clone = eval_args.clone();
+                self.invoke_pattern_with_hooks(function, &args_clone, || {
+                    self.eval_statements(&pattern.body, &mut local_env)
+                })
             }
             Expr::FnCall(name, args) => {
                 let mut eval_args = Vec::new();
@@ -1785,7 +1872,9 @@ impl Interpreter {
                 // Check learnable patterns first
                 if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
                     let collapsed_args = self.collapse_args(&learnable.params, &eval_args);
-                    return self.invoke_learnable_with_env(&learnable, &collapsed_args);
+                    return self.invoke_pattern_with_hooks(name, &collapsed_args, || {
+                        self.invoke_learnable_with_env(&learnable, &collapsed_args)
+                    });
                 }
 
                 // Check builtins
@@ -1823,7 +1912,10 @@ impl Interpreter {
 
                 // Bind parameters with Fluid collapse
                 let mut local_env = self.bind_and_collapse(&pattern.params, &eval_args)?;
-                self.eval_statements(&pattern.body, &mut local_env)
+                let args_clone = eval_args.clone();
+                self.invoke_pattern_with_hooks(name, &args_clone, || {
+                    self.eval_statements(&pattern.body, &mut local_env)
+                })
             }
             Expr::BinaryOp(left, op, right) => {
                 let l = self.eval_expr_with_env(left, env)?;

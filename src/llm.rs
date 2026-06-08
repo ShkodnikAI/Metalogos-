@@ -4,6 +4,7 @@
 // Retry with exponential backoff (3 retries, 1s/2s/4s). Timeout 30s.
 
 use std::env;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 /// A trait for LLM backends — allows swapping between real and mock.
@@ -14,10 +15,31 @@ pub trait LlmBackend: Send + Sync {
 
 /// Mock LLM backend for testing. Returns the prompt string as-is (deterministic).
 /// This is what golden tests use — the "prompt" field IS the expected response.
+///
+/// ADR-0047: includes a static call counter for cache contract tests.
 pub struct MockLlm;
+
+/// Global call counter for MockLlm. Used by cache contract tests to verify
+/// that identical LLM calls are served from cache (counter stays at 1 after
+/// two identical invocations).
+static MOCK_LLM_CALL_COUNT: AtomicU64 = AtomicU64::new(0);
+
+impl MockLlm {
+    /// Reset the global call counter to zero.
+    /// Call this before each test that verifies call counts.
+    pub fn reset_call_count() {
+        MOCK_LLM_CALL_COUNT.store(0, Ordering::SeqCst);
+    }
+
+    /// Get the current global call count.
+    pub fn call_count() -> u64 {
+        MOCK_LLM_CALL_COUNT.load(Ordering::SeqCst)
+    }
+}
 
 impl LlmBackend for MockLlm {
     fn call(&self, prompt: &str, _input: &str) -> Result<String, String> {
+        MOCK_LLM_CALL_COUNT.fetch_add(1, Ordering::SeqCst);
         Ok(prompt.to_string())
     }
 }

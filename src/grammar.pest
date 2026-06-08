@@ -115,10 +115,12 @@ assignment   = { IDENT ~ "." ~ IDENT ~ "=" ~ expression }
 
 // ── Learnable Pattern (M3) ──────────────────────────────────────────
 learnable_pattern_decl = { LEARNABLE_KW ~ "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ "{" ~ learnable_body ~ "}" }
-learnable_body = { prompt_line* ~ context_line? ~ max_tokens_line? }
+learnable_body = { prompt_line* ~ context_line? ~ max_tokens_line? ~ cache_line? ~ cache_ttl_line? }
 prompt_line    = { "prompt" ~ COLON ~ expression }
 context_line   = { "context" ~ COLON ~ "recall" ~ "(" ~ expression ~ (COMMA ~ "limit" ~ ASSIGN ~ expression)? ~ ")" }
 max_tokens_line = { "max_tokens" ~ COLON ~ expression }
+cache_line    = { "cache" ~ COLON ~ BOOL_LITERAL }
+cache_ttl_line = { "cache_ttl" ~ COLON ~ expression ~ DOT_CHAR ~ IDENT }
 
 // ── Pattern (M1) ──────────────────────────────────────────────────
 pattern_decl = { "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ "{" ~ pattern_body ~ "}" }

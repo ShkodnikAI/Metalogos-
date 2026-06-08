@@ -127,6 +127,11 @@ impl Builtins {
         funcs.insert("http_get".to_string(), builtin_http_get as BuiltinFn);
         funcs.insert("now".to_string(), builtin_now as BuiltinFn);
 
+        // ADR-0049 — session memory (temporary per-session KV store)
+        funcs.insert("session_set".to_string(), builtin_session_set as BuiltinFn);
+        funcs.insert("session_get".to_string(), builtin_session_get as BuiltinFn);
+        funcs.insert("session_clear".to_string(), builtin_session_clear as BuiltinFn);
+
         Builtins { funcs }
     }
 
@@ -1171,6 +1176,80 @@ fn builtin_mem_delete(args: &[Value]) -> Result<Value, String> {
         }
     }
     Ok(Value::String(removed.unwrap_or_default()))
+}
+
+// ── ADR-0049 — session memory (temporary per-session KV store) ──
+// In-memory HashMap<String, HashMap<String, String>> — NOT persistent.
+// Resets when mlog serve restarts (by design: session data is ephemeral).
+// Unlike mem_set/mem_get (global), session_* is scoped to a specific session_id.
+//
+// Usage:
+//   session_set(session_id, key, value)   -> String (stored value)
+//   session_get(session_id, key)             -> String (value or "")
+//   session_clear(session_id)                -> Unit
+
+/// Global session store — lazy_static pattern using std::sync::OnceLock.
+/// Outer key = session_id, inner key = data key, inner value = data value.
+static SESSION_STORE: std::sync::OnceLock<StdMutex<std::collections::HashMap<String, std::collections::HashMap<String, String>>>> = std::sync::OnceLock::new();
+
+fn session_store() -> &'static StdMutex<std::collections::HashMap<String, std::collections::HashMap<String, String>>> {
+    SESSION_STORE.get_or_init(|| StdMutex::new(std::collections::HashMap::new()))
+}
+
+/// Reset the entire session store. Used by contract tests to verify restart behavior.
+pub fn reset_session_store() {
+    if let Ok(mut store) = session_store().lock() {
+        store.clear();
+    }
+}
+
+/// Get the number of sessions in the store. Used by contract tests.
+pub fn session_store_count() -> usize {
+    session_store().lock().map(|s| s.len()).unwrap_or(0)
+}
+
+/// Get the number of keys in a specific session. Used by contract tests.
+pub fn session_key_count(session_id: &str) -> usize {
+    session_store().lock()
+        .ok()
+        .and_then(|s| s.get(session_id).map(|m| m.len()))
+        .unwrap_or(0)
+}
+
+/// `session_set(session_id, key, value)` — store a value scoped to a session.
+/// Returns the stored value. Creates session bucket if it doesn't exist.
+fn builtin_session_set(args: &[Value]) -> Result<Value, String> {
+    let session_id = expect_string_arg("session_set", args, 0)?;
+    let key = expect_string_arg("session_set", args, 1)?;
+    let value = match args.get(2) {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => format!("{}", other),
+        None => return Err("session_set() requires 3 arguments (session_id, key, value)".to_string()),
+    };
+    let mut store = session_store().lock().map_err(|e| format!("session_set() lock error: {}", e))?;
+    store.entry(session_id).or_default().insert(key.clone(), value.clone());
+    Ok(Value::String(value))
+}
+
+/// `session_get(session_id, key)` — retrieve a value from a session.
+/// Returns empty string if session or key not found.
+fn builtin_session_get(args: &[Value]) -> Result<Value, String> {
+    let session_id = expect_string_arg("session_get", args, 0)?;
+    let key = expect_string_arg("session_get", args, 1)?;
+    let store = session_store().lock().map_err(|e| format!("session_get() lock error: {}", e))?;
+    let value = store.get(&session_id)
+        .and_then(|session| session.get(&key).cloned())
+        .unwrap_or_default();
+    Ok(Value::String(value))
+}
+
+/// `session_clear(session_id)` — remove all keys for a session.
+/// Returns Unit. No-op if session doesn't exist.
+fn builtin_session_clear(args: &[Value]) -> Result<Value, String> {
+    let session_id = expect_string_arg("session_clear", args, 0)?;
+    let mut store = session_store().lock().map_err(|e| format!("session_clear() lock error: {}", e))?;
+    store.remove(&session_id);
+    Ok(Value::Unit)
 }
 
 // ── v0.5.0 — File I/O builtins (sandboxed) ──────────────────

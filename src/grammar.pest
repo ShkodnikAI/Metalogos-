@@ -1,6 +1,7 @@
 // ── METALOGOS Grammar ──────────────────────────────────────────────
 
-WHITESPACE  = _{ " " | "\t" | "\n" | "\r" }
+WHITESPACE  = _{ " " | "\t" | "\n" | "\r" | COMMENT }
+COMMENT      = _{ "//" ~ (!("\n" | "\r") ~ ANY)* }
 
 program     =  { SOI ~ (declaration ~ WHITESPACE*)* ~ EOI }
 
@@ -164,7 +165,9 @@ inner_string   =  { (ESCAPE_SEQ | (!( "\"" | "\\") ~ ANY))* }
 ESCAPE_SEQ     = @{ "\\" ~ ("\"" | "\\" | "n" | "t" | "r") }
 FLOAT_LITERAL  = @{ DIGIT+ ~ DOT_CHAR ~ DIGIT+ }
 INT            = @{ DIGIT+ }
-IDENT          = @{ !("true" | "false" | "if" | "then" | "else" | "let" | "return" | "each" | "while" | "import" | "as") ~ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_" | APOSTROPHE)* }
+// IDENT supports ASCII + Cyrillic (U+0410-U+044F) + Latin Extended (U+00C0-U+024F)
+IDENT          = @{ !("true" | "false" | "if" | "then" | "else" | "let" | "return" | "each" | "while" | "import" | "as") ~ ident_start ~ (ident_start | ASCII_DIGIT | APOSTROPHE)* }
+ident_start   = _{ ASCII_ALPHA | "_" | "\u{0410}".."\u{044f}" | "\u{0401}" | "\u{0451}" | "\u{00C0}".."\u{024F}" }
 
 // ── Single-char tokens (only those NOT used as rule delimiters!) ────────
 COLON     = @{ ":" }

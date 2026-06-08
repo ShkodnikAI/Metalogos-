@@ -1,0 +1,52 @@
+// Cyrillic Unicode Test - real Cyrillic characters
+// Comment with Cyrillic should be skipped by COMMENT rule
+
+pattern hello() -> String {
+  let msg = "Привет мир"
+  return msg
+}
+
+pattern test_len() -> String {
+  let s = "АБВ"
+  let n = len(s)
+  return s
+}
+
+pattern test_index_of() -> String {
+  let s = "Привет мир"
+  let pos = index_of(s, "мир")
+  return s
+}
+
+pattern test_substring() -> String {
+  let s = "Привет"
+  let sub = substring(s, 0, 3)
+  return sub
+}
+
+pattern test_char_at() -> String {
+  let s = "АБВГ"
+  let ch = char_at(s, 2)
+  return ch
+}
+
+pattern test_concat() -> String {
+  let a = "Привет"
+  let b = " "
+  let c = "мир"
+  let result = a + b + c
+  return result
+}
+
+pattern test_contains() -> String {
+  let s = "Привет мир"
+  let found = contains(s, "мир")
+  return s
+}
+
+// Test: Cyrillic string in entity
+entity greeting: String = "Привет"
+
+pattern test_entity() -> String {
+  return greeting
+}

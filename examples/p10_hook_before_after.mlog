@@ -1,0 +1,37 @@
+// ADR-0045: Contract test for hooks (before_pattern / after_pattern)
+// Hook records every pattern invocation into mem_set counter.
+// mem_get after call shows correct count.
+
+// Define simple patterns
+pattern greet(name: String) -> String {
+  return "Hello, " + name
+}
+
+pattern add(a: Float, b: Float) -> Float {
+  return a + b
+}
+
+// before_pattern hook: increment counter on every pattern call
+hook before_pattern {
+  let count = to_float(mem_get("call_count"))
+  mem_set("call_count", to_string(count + 1.0))
+}
+
+// after_pattern hook: log the pattern name
+hook after_pattern {
+  mem_set("log", mem_get("log") + " | " + pattern_name)
+}
+
+// Initialize counter
+mem_set("call_count", "0")
+mem_set("log", "")
+
+// Call greet twice
+let _ = greet("Alice")
+let _ = greet("Bob")
+
+// Call add once
+let _ = add(1.0, 2.0)
+
+// Verify: call_count should be 3
+let count = to_float(mem_get("call_count"))

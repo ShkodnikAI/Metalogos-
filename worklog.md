@@ -495,3 +495,30 @@ Stage Summary:
 - RealLlm clones self with overridden model for per-call routing
 - 6 contracts: model recorded, two patterns, no override, cache+model, cache key, sequence
 - 8 files changed, 385 insertions
+
+---
+Task ID: n5-session
+Agent: main
+Task: Наряд №5 — Session Memory (ADR-0049)
+
+Work Log:
+- Read current builtins.rs: understood KV_STORE pattern (OnceLock<Mutex<HashMap>>)
+- Identified session memory as purely builtin addition (no grammar/AST/parser changes)
+- Added SESSION_STORE static: OnceLock<Mutex<HashMap<String, HashMap<String, String>>>>
+- Implemented session_set(session_id, key, value) -> String (returns stored value)
+- Implemented session_get(session_id, key) -> String (returns value or empty)
+- Implemented session_clear(session_id) -> Unit (removes all session keys)
+- Added public helpers: reset_session_store(), session_store_count(), session_key_count()
+- Registered 3 new builtins in Builtins::new()
+- Created tests/session_memory_contract.rs with 10 contract tests
+- Created examples/p13_session_memory.mlog contract program (5 contracts)
+- Created docs/adr/0049-session-memory.md
+- Commit 56f5254, pushed to origin/main
+
+Stage Summary:
+- ADR-0049 COMPLETE: session_set/session_get/session_clear implemented
+- In-memory only, NOT persistent (by design: session data resets on restart)
+- Session isolation: data scoped to session_id, different sessions don't interfere
+- 10 contract tests: roundtrip, return value, missing key, missing session, isolation,
+  clear, restart empties, multiple keys, overwrite, no persistence
+- 4 files changed: builtins.rs (+95), 3 new files

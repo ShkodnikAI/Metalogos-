@@ -236,6 +236,9 @@ struct CompiledLearnable {
     cache: bool,
     /// Cache time-to-live in seconds. Default 3600 (1 hour).
     cache_ttl: u64,
+    /// Optional per-pattern model override (ADR-0048).
+    /// When set, passed to the LLM backend instead of the global model.
+    model: Option<String>,
 }
 
 /// A cached LLM response (ADR-0047).
@@ -681,6 +684,7 @@ impl Interpreter {
                             max_tokens: lp.max_tokens,
                             cache: lp.cache,
                             cache_ttl: lp.cache_ttl,
+                            model: lp.model.clone(),
                         },
                     );
                 }
@@ -886,6 +890,7 @@ impl Interpreter {
                         max_tokens: lp.max_tokens,
                         cache: lp.cache,
                         cache_ttl: lp.cache_ttl,
+                        model: lp.model.clone(),
                     });
                 }
                 Declaration::Rule(r) => self.rules.push(r),
@@ -1348,7 +1353,8 @@ impl Interpreter {
         // No few-shot match — call LLM backend
         let start = SystemTime::now();
         let backend = llm::create_llm_backend();
-        let response = backend.call(&effective_prompt, &input)?;
+        // ADR-0048: pass per-pattern model override if set
+        let response = backend.call_with_model(&effective_prompt, &input, learnable.model.as_deref())?;
 
         // Phase 7.5: Sandbox enforcement — timeout check
         if let Some(ref sb) = self.active_sandbox {

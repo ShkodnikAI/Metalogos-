@@ -292,6 +292,7 @@ pub struct ForgetDecl {
 ///   max_tokens: 4000                 // optional
 ///   cache: true                      // optional — enable LLM response caching
 ///   cache_ttl: 60.minutes            // optional — time-to-live for cached responses
+///   model: "haiku"                   // optional — per-pattern model override (ADR-0048)
 /// }`
 #[derive(Debug, Clone)]
 pub struct LearnablePatternDecl {
@@ -309,6 +310,10 @@ pub struct LearnablePatternDecl {
     pub cache: bool,
     /// Cache time-to-live in seconds. Default 3600 (1 hour) when cache is enabled.
     pub cache_ttl: u64,
+    /// Optional per-pattern model override (ADR-0048).
+    /// When set, this model name is passed to the LLM backend instead of
+    /// the global METALOGOS_LLM_MODEL. Used for cost-aware routing.
+    pub model: Option<String>,
 }
 
 // ── Pattern (M1, unchanged) ─────────────────────────────────────────

@@ -5,24 +5,38 @@
 
 use std::env;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::time::Duration;
 
 /// A trait for LLM backends — allows swapping between real and mock.
 pub trait LlmBackend: Send + Sync {
     /// Call the LLM with a prompt + input text. Returns the model's text response.
     fn call(&self, prompt: &str, input: &str) -> Result<String, String>;
+
+    /// Call the LLM with an optional per-call model override (ADR-0048).
+    /// Default implementation ignores the override and delegates to `call()`.
+    /// Real backends use the override model in the API JSON body;
+    /// MockLlm records it for contract tests.
+    fn call_with_model(&self, prompt: &str, input: &str, _model: Option<&str>) -> Result<String, String> {
+        self.call(prompt, input)
+    }
 }
 
 /// Mock LLM backend for testing. Returns the prompt string as-is (deterministic).
 /// This is what golden tests use — the "prompt" field IS the expected response.
 ///
 /// ADR-0047: includes a static call counter for cache contract tests.
+/// ADR-0048: records last model override for model-routing contract tests.
 pub struct MockLlm;
 
 /// Global call counter for MockLlm. Used by cache contract tests to verify
 /// that identical LLM calls are served from cache (counter stays at 1 after
 /// two identical invocations).
 static MOCK_LLM_CALL_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// Global last-model tracker for MockLlm (ADR-0048).
+/// Records the model name passed to call_with_model().
+static MOCK_LLM_LAST_MODEL: Mutex<String> = Mutex::new(String::new());
 
 impl MockLlm {
     /// Reset the global call counter to zero.
@@ -35,11 +49,33 @@ impl MockLlm {
     pub fn call_count() -> u64 {
         MOCK_LLM_CALL_COUNT.load(Ordering::SeqCst)
     }
+
+    /// Reset the last-model tracker to empty.
+    pub fn reset_last_model() {
+        *MOCK_LLM_LAST_MODEL.lock().unwrap() = String::new();
+    }
+
+    /// Get the last model override passed to call_with_model().
+    /// Empty string if no override was used or call() was called directly.
+    pub fn last_model() -> String {
+        MOCK_LLM_LAST_MODEL.lock().unwrap().clone()
+    }
 }
 
 impl LlmBackend for MockLlm {
     fn call(&self, prompt: &str, _input: &str) -> Result<String, String> {
         MOCK_LLM_CALL_COUNT.fetch_add(1, Ordering::SeqCst);
+        Ok(prompt.to_string())
+    }
+
+    fn call_with_model(&self, prompt: &str, input: &str, model: Option<&str>) -> Result<String, String> {
+        MOCK_LLM_CALL_COUNT.fetch_add(1, Ordering::SeqCst);
+        // Record model for contract tests
+        if let Some(m) = model {
+            *MOCK_LLM_LAST_MODEL.lock().unwrap() = m.to_string();
+        } else {
+            *MOCK_LLM_LAST_MODEL.lock().unwrap() = String::new();
+        }
         Ok(prompt.to_string())
     }
 }
@@ -105,6 +141,8 @@ const MAX_RETRIES: u32 = 3;
 /// - 30-second timeout per attempt, 10-second connect timeout
 /// - JSON response parsing per provider format
 /// - No retry on fatal client errors (400/401/403/404)
+/// - ADR-0048: per-call model override via call_with_model()
+#[derive(Clone)]
 pub struct RealLlm {
     provider: Provider,
     model: String,
@@ -179,6 +217,20 @@ impl LlmBackend for RealLlm {
             "LLM call failed after {} retries: {}",
             MAX_RETRIES, last_error
         ))
+    }
+
+    /// ADR-0048: Call with per-pattern model override.
+    /// If a model override is provided and differs from the global model,
+    /// clone self with the overridden model and call through that.
+    fn call_with_model(&self, prompt: &str, input: &str, model: Option<&str>) -> Result<String, String> {
+        match model {
+            Some(m) if m != self.model => {
+                let mut backend = self.clone();
+                backend.model = m.to_string();
+                backend.call(prompt, input)
+            }
+            _ => self.call(prompt, input),
+        }
     }
 }
 

@@ -710,10 +710,11 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
         .unwrap_or_default();
     let return_type = find_child_str(&children, Rule::type_name).unwrap_or_default();
 
-    // Extract prompt, context, max_tokens, cache, cache_ttl from learnable_body
+    // Extract prompt, context, model, max_tokens, cache, cache_ttl from learnable_body
     let mut prompt = String::new();
     let mut context_query: Option<Expr> = None;
     let mut context_limit: Option<usize> = None;
+    let mut model: Option<String> = None;
     let mut max_tokens: Option<u32> = None;
     let mut cache = false;
     let mut cache_ttl: u64 = 3600; // default 1 hour
@@ -747,6 +748,16 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
                 // Evaluate limit at parse time if it's a literal, otherwise store None
                 if let Expr::FloatLit(n) = exprs[1].clone() {
                     context_limit = Some(n as usize);
+                }
+            }
+        }
+
+        // Extract model: "haiku" (ADR-0048)
+        if let Some(m_pair) = body_children.iter().find(|c| c.as_rule() == Rule::model_line) {
+            let m_children = children_of(m_pair);
+            if let Some(expr_pair) = m_children.iter().find(|c| c.as_rule() == Rule::expression) {
+                if let Expr::StringLit(s) = parse_expression(expr_pair.clone()) {
+                    model = Some(s);
                 }
             }
         }
@@ -805,6 +816,7 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
         prompt,
         context_query,
         context_limit,
+        model,
         max_tokens,
         cache,
         cache_ttl,

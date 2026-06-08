@@ -388,3 +388,33 @@ Stage Summary:
 - All .mlog files with // comments parse correctly (was completely broken before)
 - No more byte-level panics on Unicode strings in embeddings
 - Files changed: src/grammar.pest, src/embeddings.rs, 2 new test files
+
+---
+Task ID: n1-hooks
+Agent: main
+Task: Наряд №1 — hooks before_pattern / after_pattern (ADR-0045)
+
+Work Log:
+- Read full codebase: grammar.pest, ast.rs, parser.rs, interpreter.rs
+- Added hook_decl rule to grammar.pest (hook before_pattern { stmts } / hook after_pattern { stmts })
+- Added BEFORE_PATTERN_KW, AFTER_PATTERN_KW, HOOK_KW keyword tokens
+- Added hook, before_pattern, after_pattern to step_ident negative lookahead
+- Added HookDecl struct + HookPhase enum to ast.rs
+- Added Declaration::Hook variant to ast.rs Declaration enum
+- Added parse_hook_decl() to parser.rs
+- Added hooks_before: Vec<HookDecl> and hooks_after: Vec<HookDecl> to Interpreter struct
+- Added Hook registration in run() and load_module_inner()
+- Created invoke_pattern_with_hooks() generic method wrapping pattern calls
+- Wrapped ALL 4 pattern call sites: invoke() (regular+learnable), FnCall (regular+learnable), QualifiedCall
+- Hook variables: pattern_name (String), args (List), result (after), confidence (after)
+- Hook errors silently ignored (advisory, not blocking)
+- Builtins NOT wrapped — only user-defined patterns and learnable patterns
+- Created contract test: examples/p10_hook_before_after.mlog
+- Created ADR: docs/adr/0045-hooks.md
+- Commit 520d7d4 pushed to origin/main
+
+Stage Summary:
+- ADR-0045 COMPLETE: before_pattern / after_pattern hooks implemented
+- 6 files changed: grammar.pest, ast.rs, parser.rs, interpreter.rs, 2 new files
+- Hook fires for ALL pattern/learnable invocations (4 call sites wrapped)
+- Builtins excluded from hook wrapping (by design)

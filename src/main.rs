@@ -47,6 +47,11 @@ enum Commands {
         /// Path to .mlog source file
         file: PathBuf,
     },
+    /// Run eval blocks: test learnable patterns against datasets (ADR-0050)
+    Eval {
+        /// Path to .mlog source file
+        file: PathBuf,
+    },
 }
 
 fn main() {
@@ -58,6 +63,7 @@ fn main() {
         Commands::Check { file } => cmd_check(file),
         Commands::Serve { file } => cmd_serve(file),
         Commands::Compile { file } => cmd_compile(file),
+        Commands::Eval { file } => cmd_eval(file),
     }
 }
 
@@ -155,6 +161,37 @@ fn cmd_compile(file: PathBuf) {
         }
         Err(e) => {
             eprintln!("error: cannot write {:?}: {}", mbc_path, e);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// `mlog eval <file>` — parse + execute declarations + run eval blocks (ADR-0050)
+fn cmd_eval(file: PathBuf) {
+    let source = match fs::read_to_string(&file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: cannot read {:?}: {}", file, e);
+            std::process::exit(1);
+        }
+    };
+
+    match metalogos::eval_program(&source) {
+        Ok(results) => {
+            let mut any_failed = false;
+            for result in &results {
+                println!("{}", result.format_report());
+                println!();
+                if !result.passed {
+                    any_failed = true;
+                }
+            }
+            if any_failed {
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("error: {}", e);
             std::process::exit(1);
         }
     }

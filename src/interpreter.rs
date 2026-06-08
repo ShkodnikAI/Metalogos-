@@ -262,6 +262,91 @@ struct StructType {
 
 // MemoryEntry and KgStore types are now in memory_store module (Phase 7.6).
 
+/// Result of running an eval block (ADR-0050).
+/// Contains accuracy, confusion matrix, and failure details.
+#[derive(Debug, Clone)]
+pub struct EvalResult {
+    /// Name of the evaluated learnable pattern.
+    pub pattern_name: String,
+    /// Metric used (currently only "accuracy").
+    pub metric: String,
+    /// Total number of test examples.
+    pub total: usize,
+    /// Number of correctly predicted examples.
+    pub correct: usize,
+    /// Fraction of correct predictions (correct / total).
+    pub accuracy: f64,
+    /// Minimum acceptable accuracy threshold.
+    pub threshold: f64,
+    /// Whether accuracy >= threshold (eval passes).
+    pub passed: bool,
+    /// Confusion matrix: expected_label -> predicted_label -> count.
+    pub confusion: std::collections::HashMap<String, std::collections::HashMap<String, usize>>,
+    /// Failing examples: (input, expected, actual).
+    pub failures: Vec<(String, String, String)>,
+}
+
+impl EvalResult {
+    /// Format the eval result as a human-readable report.
+    pub fn format_report(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push(format!("Eval: {}", self.pattern_name));
+        lines.push(format!("  Dataset: {} examples", self.total));
+        lines.push(format!("  Accuracy: {:.1}% ({}/{})", self.accuracy * 100.0, self.correct, self.total));
+        lines.push(format!("  Threshold: {}", self.threshold));
+        lines.push(format!("  Result: {}", if self.passed { "PASS" } else { "FAIL (below threshold)" }));
+
+        // Confusion matrix
+        if !self.confusion.is_empty() {
+            // Collect all unique labels
+            let mut all_labels: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+            for (expected, predictions) in &self.confusion {
+                all_labels.insert(expected.clone());
+                for pred in predictions.keys() {
+                    all_labels.insert(pred.clone());
+                }
+            }
+
+            let labels: Vec<&String> = all_labels.iter().collect();
+
+            // Header row
+            let header = format!("  {:12} {}", "", labels.iter().map(|l| format!("{:>12}", l)).collect::<Vec<_>>().join(" "));
+            lines.push(header);
+
+            // Data rows
+            for expected in &labels {
+                let row = format!("  {:12} {}", expected,
+                    labels.iter().map(|pred| {
+                        let count = self.confusion.get(*expected)
+                            .and_then(|m| m.get(*pred))
+                            .copied()
+                            .unwrap_or(0);
+                        format!("{:>12}", count)
+                    }).collect::<Vec<_>>().join(" ")
+                );
+                lines.push(row);
+            }
+        }
+
+        // Failing examples with adapt suggestions
+        if !self.failures.is_empty() {
+            lines.push(String::new());
+            lines.push("  Failing examples (suggest adapt):".to_string());
+            for (input, expected, actual) in &self.failures {
+                lines.push(format!("    - {:?} -> expected {:?}, got {:?}", input, expected, actual));
+            }
+            // Generate adapt suggestions
+            lines.push(String::new());
+            lines.push("  Suggested adapt commands:".to_string());
+            for (input, expected, _actual) in &self.failures {
+                lines.push(format!("    adapt {} add_example({:?}, {:?})", self.pattern_name, input, expected));
+            }
+        }
+
+        lines.join("\n")
+    }
+}
+
 /// The interpreter holds all runtime state.
 pub struct Interpreter {
     /// Global variable store.
@@ -327,6 +412,8 @@ pub struct Interpreter {
     /// all after hooks fire after every pattern invocation.
     hooks_before: Vec<HookDecl>,
     hooks_after: Vec<HookDecl>,
+    /// Eval blocks (ADR-0050): collected during run(), executed by run_eval_blocks().
+    eval_blocks: Vec<EvalDecl>,
 }
 
 impl Interpreter {
@@ -360,6 +447,7 @@ impl Interpreter {
             llm_cache: std::sync::Mutex::new(HashMap::new()),
             hooks_before: Vec::new(),
             hooks_after: Vec::new(),
+            eval_blocks: Vec::new(),
         }
     }
 
@@ -745,6 +833,10 @@ impl Interpreter {
                     let msg = self.handle_mutate(&m)?;
                     self.mutate_log.push(msg);
                 }
+                Declaration::Eval(e) => {
+                    // ADR-0050: store eval block for later execution by run_eval_blocks()
+                    self.eval_blocks.push(e);
+                }
                 Declaration::Flow(f) => {
                     // Execute rules before flow (they modify entity state)
                     self.execute_rules()?;
@@ -965,6 +1057,9 @@ impl Interpreter {
                 Declaration::Mutate(m) => {
                     let msg = self.handle_mutate(&m)?;
                     self.mutate_log.push(msg);
+                }
+                Declaration::Eval(e) => {
+                    self.eval_blocks.push(e);
                 }
                 Declaration::Flow(f) => {
                     self.execute_rules()?;
@@ -1719,6 +1814,82 @@ impl Interpreter {
     /// Take the audit log messages (consuming them).
     pub fn take_audit_log(&mut self) -> Vec<String> {
         self.audit_log.get_mut().unwrap().drain(..).collect()
+    }
+
+    // ── Eval Harness (ADR-0050) ──────────────────────────────────────────
+
+    /// Run all collected eval blocks and return results.
+    /// Called after `run()` has registered learnable patterns (and adapt examples).
+    pub fn run_eval_blocks(&self) -> Result<Vec<EvalResult>, String> {
+        let mut results = Vec::new();
+        for eval_decl in &self.eval_blocks {
+            let result = self.run_single_eval(eval_decl)?;
+            results.push(result);
+        }
+        Ok(results)
+    }
+
+    /// Run a single eval block: invoke learnable pattern on each dataset example,
+    /// compare with expected, compute accuracy and confusion matrix.
+    fn run_single_eval(&self, eval_decl: &EvalDecl) -> Result<EvalResult, String> {
+        let learnable = self.learnable_patterns.get(&eval_decl.pattern_name)
+            .ok_or_else(|| format!(
+                "eval: learnable pattern '{}' not found",
+                eval_decl.pattern_name
+            ))?;
+
+        let mut correct = 0usize;
+        let mut confusion: HashMap<String, HashMap<String, usize>> = HashMap::new();
+        let mut failures: Vec<(String, String, String)> = Vec::new(); // (input, expected, actual)
+
+        for (input_str, expected_label) in &eval_decl.dataset {
+            // Build args from dataset input (single String argument)
+            let args = vec![Value::String(input_str.clone())];
+
+            // Invoke the learnable pattern
+            let actual_value = self.invoke_learnable_with_env(learnable, &args)?;
+            let actual_label = match actual_value {
+                Value::String(s) => s.trim().to_string(),
+                other => format!("{}", other),
+            };
+
+            // Record in confusion matrix
+            let pred_entry = confusion.entry(expected_label.clone())
+                .or_default()
+                .entry(actual_label.clone())
+                .or_insert(0);
+            *pred_entry += 1;
+
+            if actual_label == *expected_label {
+                correct += 1;
+            } else {
+                failures.push((input_str.clone(), expected_label.clone(), actual_label));
+            }
+        }
+
+        let total = eval_decl.dataset.len();
+        let accuracy = if total > 0 {
+            correct as f64 / total as f64
+        } else {
+            1.0 // empty dataset → perfect by convention
+        };
+
+        Ok(EvalResult {
+            pattern_name: eval_decl.pattern_name.clone(),
+            metric: eval_decl.metric.clone(),
+            total,
+            correct,
+            accuracy,
+            threshold: eval_decl.threshold,
+            passed: accuracy >= eval_decl.threshold,
+            confusion,
+            failures,
+        })
+    }
+
+    /// Get a reference to the registered learnable patterns (for eval).
+    pub fn get_learnable_patterns(&self) -> &HashMap<String, CompiledLearnable> {
+        &self.learnable_patterns
     }
 
     /// Get the server configuration (Phase 6.1).

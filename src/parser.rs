@@ -710,11 +710,13 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
         .unwrap_or_default();
     let return_type = find_child_str(&children, Rule::type_name).unwrap_or_default();
 
-    // Extract prompt, context, max_tokens from learnable_body
+    // Extract prompt, context, max_tokens, cache, cache_ttl from learnable_body
     let mut prompt = String::new();
     let mut context_query: Option<Expr> = None;
     let mut context_limit: Option<usize> = None;
     let mut max_tokens: Option<u32> = None;
+    let mut cache = false;
+    let mut cache_ttl: u64 = 3600; // default 1 hour
 
     if let Some(body_pair) = find_child(&children, Rule::learnable_body) {
         let body_children = children_of(&body_pair);
@@ -758,6 +760,42 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
                 }
             }
         }
+
+        // Extract cache: true/false
+        if let Some(c_pair) = body_children.iter().find(|c| c.as_rule() == Rule::cache_line) {
+            let c_str = c_pair.as_str().trim();
+            // cache_line = { "cache" ~ ":" ~ BOOL_LITERAL }
+            // Extract the boolean value after the colon
+            if let Some(colon_pos) = c_str.find(':') {
+                let val_str = c_str[colon_pos + 1..].trim();
+                cache = val_str == "true";
+            }
+        }
+
+        // Extract cache_ttl: N.minutes
+        if let Some(ttl_pair) = body_children.iter().find(|c| c.as_rule() == Rule::cache_ttl_line) {
+            let ttl_children = children_of(ttl_pair);
+            // cache_ttl_line = { "cache_ttl" ~ ":" ~ expression ~ "." ~ IDENT }
+            let exprs: Vec<Expr> = ttl_children.iter()
+                .filter(|c| c.as_rule() == Rule::expression)
+                .cloned()
+                .collect();
+            let unit_ident = ttl_children.iter()
+                .filter(|c| c.as_rule() == Rule::IDENT)
+                .map(|c| pair_str(c))
+                .next()
+                .unwrap_or_default();
+            if let Some(Expr::FloatLit(n)) = exprs.first() {
+                let n_val = *n as u64;
+                cache_ttl = match unit_ident.as_str() {
+                    "seconds" | "second" => n_val,
+                    "minutes" | "minute" => n_val * 60,
+                    "hours" | "hour" => n_val * 3600,
+                    "days" | "day" => n_val * 86400,
+                    _ => n_val * 60, // default to minutes
+                };
+            }
+        }
     }
 
     Declaration::LearnablePattern(LearnablePatternDecl {
@@ -768,6 +806,8 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
         context_query,
         context_limit,
         max_tokens,
+        cache,
+        cache_ttl,
     })
 }
 

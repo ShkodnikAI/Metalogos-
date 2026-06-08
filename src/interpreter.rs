@@ -232,6 +232,21 @@ struct CompiledLearnable {
     context_limit: Option<usize>,
     /// Optional max_tokens for LLM backend.
     max_tokens: Option<u32>,
+    /// Enable LLM response caching (ADR-0047).
+    cache: bool,
+    /// Cache time-to-live in seconds. Default 3600 (1 hour).
+    cache_ttl: u64,
+}
+
+/// A cached LLM response (ADR-0047).
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct LlmCacheEntry {
+    /// The response string from the LLM.
+    response: String,
+    /// Unix timestamp when the entry was created.
+    created_at: i64,
+    /// Time-to-live in seconds.
+    ttl: u64,
 }
 
 /// A registered struct type.
@@ -300,6 +315,10 @@ pub struct Interpreter {
     /// Server context: parsed JSON request body (Наряд №3).
     /// Set by execute_route_body, returned by json_body() builtin.
     server_json_body: Option<Value>,
+    /// LLM response cache (ADR-0047): HashMap<hash, (response, created_at)>
+    /// Key = hash(effective_prompt + input), Value = cached response + timestamp.
+    /// Checked before every LLM call for learnable patterns with cache: true.
+    llm_cache: std::sync::Mutex<HashMap<u64, LlmCacheEntry>>,
     /// Registered hooks (ADR-0045): before_pattern and after_pattern.
     /// Stored in declaration order; all before hooks fire before every pattern invocation,
     /// all after hooks fire after every pattern invocation.
@@ -335,6 +354,7 @@ impl Interpreter {
             server_config: None,
             embedding_manager: EmbeddingManager::new(),
             server_json_body: None,
+            llm_cache: std::sync::Mutex::new(HashMap::new()),
             hooks_before: Vec::new(),
             hooks_after: Vec::new(),
         }
@@ -659,6 +679,8 @@ impl Interpreter {
                             context_query: lp.context_query.clone(),
                             context_limit: lp.context_limit,
                             max_tokens: lp.max_tokens,
+                            cache: lp.cache,
+                            cache_ttl: lp.cache_ttl,
                         },
                     );
                 }
@@ -862,6 +884,8 @@ impl Interpreter {
                         context_query: lp.context_query.clone(),
                         context_limit: lp.context_limit,
                         max_tokens: lp.max_tokens,
+                        cache: lp.cache,
+                        cache_ttl: lp.cache_ttl,
                     });
                 }
                 Declaration::Rule(r) => self.rules.push(r),
@@ -1312,6 +1336,15 @@ impl Interpreter {
         // Build the effective system prompt (base prompt + optional context)
         let effective_prompt = self.build_effective_prompt(learnable, args);
 
+        // ADR-0047: Check LLM response cache
+        if learnable.cache {
+            let cache_key = self.compute_cache_key(&effective_prompt, &input);
+            if let Some(cached) = self.llm_cache_get(&cache_key, learnable.cache_ttl) {
+                // Cache hit — return cached response without calling LLM
+                return cached;
+            }
+        }
+
         // No few-shot match — call LLM backend
         let start = SystemTime::now();
         let backend = llm::create_llm_backend();
@@ -1326,6 +1359,24 @@ impl Interpreter {
                     sb.name
                 ));
             }
+        }
+
+        // ADR-0047: Store response in cache
+        if learnable.cache {
+            let cache_key = self.compute_cache_key(&effective_prompt, &input);
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let entry = LlmCacheEntry {
+                response: response.clone(),
+                created_at: now,
+                ttl: learnable.cache_ttl,
+            };
+            let mut cache = self.llm_cache.lock().map_err(|e| format!("llm_cache lock error: {}", e))?;
+            cache.insert(cache_key, entry);
+            // If persist is enabled, also write to SQLite
+            self.llm_cache_persist(&cache_key, &entry);
         }
 
         // Try to parse JSON response into Value::Struct
@@ -1343,6 +1394,71 @@ impl Interpreter {
         }
 
         Ok(Value::String(response))
+    }
+
+    /// ADR-0047: Compute a cache key from prompt + input using simple SipHash.
+    fn compute_cache_key(&self, prompt: &str, input: &str) -> u64 {
+        use std::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+        let mut hasher = DefaultHasher::new();
+        prompt.hash(&mut hasher);
+        input.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// ADR-0047: Look up a cached response. Checks TTL expiry.
+    /// Returns None on miss or expired entry (also removes expired entry).
+    fn llm_cache_get(&self, key: &u64, ttl: u64) -> Option<Result<Value, String>> {
+        let mut cache = self.llm_cache.lock().ok()?;
+        let entry = cache.get(key)?;
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        // Check TTL — use the entry's own TTL if set, otherwise use the provided default
+        let effective_ttl = if entry.ttl > 0 { entry.ttl as i64 } else { ttl as i64 };
+        if now - entry.created_at > effective_ttl {
+            cache.remove(key); // expired — evict
+            return None;
+        }
+
+        // Try to parse cached JSON response
+        let response = &entry.response;
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(response) {
+            if let Some(obj) = json.as_object() {
+                let mut fields = std::collections::HashMap::new();
+                for (k, v) in obj {
+                    fields.insert(k.clone(), self.json_value_to_value(v));
+                }
+                return Some(Ok(Value::Struct {
+                    type_name: "LlmResponse".to_string(),
+                    fields,
+                }));
+            }
+        }
+
+        Some(Ok(Value::String(response.clone())))
+    }
+
+    /// ADR-0047: Persist a cache entry to SQLite if persist is enabled.
+    fn llm_cache_persist(&self, key: &u64, entry: &LlmCacheEntry) {
+        if self.memory_persist_path.is_none() {
+            return;
+        }
+        if let Some(ref path) = self.memory_persist_path {
+            let db_path = std::path::PathBuf::from(path);
+            if let Ok(conn) = rusqlite::Connection::open(&db_path) {
+                let _ = conn.execute_batch(
+                    "CREATE TABLE IF NOT EXISTS llm_cache (hash INTEGER PRIMARY KEY, response TEXT NOT NULL, created_at INTEGER NOT NULL, ttl INTEGER NOT NULL);"
+                );
+                let _ = conn.execute(
+                    "INSERT OR REPLACE INTO llm_cache (hash, response, created_at, ttl) VALUES (?1, ?2, ?3, ?4)",
+                    rusqlite::params![(*key) as i64, &entry.response, entry.created_at, entry.ttl as i64],
+                );
+            }
+        }
     }
 
     /// Convert serde_json::Value to METALOGOS Value.

@@ -1,0 +1,64 @@
+// Cyrillic Full Support Test
+// Tests: Cyrillic in comments, string literals, identifiers, patterns
+// All must parse and execute without panic.
+
+// Contract 1: Cyrillic string literals
+entity greeting: String = "Privet, Metallagos!"
+entity cyrillic_text: String = "hello world"
+
+// Contract 2: Cyrillic variable names (identifiers)
+pattern test_cyrillic_id() -> String {
+  let result = greeting + " OK"
+  return result
+}
+
+// Contract 3: Cyrillic in pattern + string concatenation
+pattern build_response(name: String, action: String) -> String {
+  let msg = name + " performed " + action
+  return msg
+}
+
+// Contract 4: Comments everywhere (Cyrillic comments must not break parsing)
+// This is a comment with text
+// Another comment line
+pattern test_comments() -> String {
+  // Comment inside pattern body
+  let x = "test"
+  // Comment after statement
+  return x
+}
+
+// Contract 5: Cyrillic strings with len/index_of/substring
+pattern test_string_ops() -> String {
+  let s = "hello world"
+  let l = len(s)
+  let pos = index_of(s, "world")
+  let sub = substring(s, 0, 5)
+  let ch = char_at(s, 0)
+  return sub
+}
+
+// Contract 6: Pattern call with Cyrillic string argument
+pattern test_call_chain() -> String {
+  let r1 = build_response("User", "action")
+  let r2 = test_cyrillic_id()
+  return r1
+}
+
+// Contract 7: Cyrillic in entity with dot access
+entity Msg: { text: String, status: String } = { text: "hello", status: "ok" }
+
+pattern test_struct_access() -> String {
+  let t = Msg.text
+  let s = Msg.status
+  return t + " " + s
+}
+
+// Contract 8: If-else with Cyrillic strings
+pattern test_if_else(text: String) -> String {
+  if len(text) > 3.0 then {
+    return "long"
+  } else {
+    return "short"
+  }
+}

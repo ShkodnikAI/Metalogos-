@@ -182,7 +182,7 @@ impl TfidfEmbedding {
             .map(|c| if c.is_alphanumeric() { c } else { ' ' })
             .collect::<String>()
             .split_whitespace()
-            .filter(|w| w.len() > 1)  // ignore single-char tokens
+            .filter(|w| w.chars().count() > 1)  // ignore single-char tokens (char-count, not byte-count)
             .map(|w| w.to_string())
             .collect()
     }

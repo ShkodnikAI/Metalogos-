@@ -213,6 +213,20 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                     ));
                 }
             }
+            Declaration::Eval(e) => {
+                if !learnable_names.contains(&e.pattern_name) {
+                    result.errors.push(format!(
+                        "eval: learnable pattern '{}' not found",
+                        e.pattern_name
+                    ));
+                }
+                if e.dataset.is_empty() {
+                    result.warnings.push(format!(
+                        "eval '{}': dataset is empty — eval will trivially pass",
+                        e.pattern_name
+                    ));
+                }
+            }
             Declaration::Flow(f) => {
                 for step in &f.pipeline {
                     let known = pattern_names.contains(step)

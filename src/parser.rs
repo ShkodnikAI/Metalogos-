@@ -47,6 +47,7 @@ pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::sandbox_decl => declarations.push(parse_sandbox_decl(inner_pair)),
                 Rule::hook_decl => declarations.push(parse_hook_decl(inner_pair)),
                 Rule::mutate_decl => declarations.push(parse_mutate_decl(inner_pair)),
+                Rule::eval_decl => declarations.push(parse_eval_decl(inner_pair)),
                 Rule::learnable_pattern_decl => declarations.push(parse_learnable_pattern_decl(inner_pair)),
                 Rule::pattern_decl => declarations.push(parse_pattern_decl(inner_pair)),
                 Rule::flow_decl => declarations.push(parse_flow_decl(inner_pair)),
@@ -668,6 +669,67 @@ fn parse_mutate_decl(pair: Pair<Rule>) -> Declaration {
         new_examples,
         rollback_threshold,
         rollback_op,
+    })
+}
+
+// ── Eval Harness (ADR-0050) ──────────────────────────────────────────
+
+fn parse_eval_decl(pair: Pair<Rule>) -> Declaration {
+    let children = children_of(&pair);
+    // eval_decl = { EVAL_KW ~ IDENT ~ "{" ~ eval_body ~ "}" }
+    let pattern_name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+
+    let mut dataset: Vec<(String, String)> = Vec::new();
+    let mut metric = "accuracy".to_string();
+    let mut threshold: f64 = 0.8;
+
+    if let Some(body_pair) = find_child(&children, Rule::eval_body) {
+        let body_children = children_of(&body_pair);
+
+        // Extract dataset: [("input", "expected"), ...]
+        if let Some(ds_pair) = body_children.iter().find(|c| c.as_rule() == Rule::eval_dataset) {
+            // Collect all eval_example pairs
+            let examples: Vec<Pair<Rule>> = ds_pair.clone().into_inner()
+                .filter(|c| c.as_rule() == Rule::eval_example)
+                .collect();
+            for ex_pair in examples {
+                let strings: Vec<&Pair<Rule>> = ex_pair.clone().into_inner()
+                    .filter(|c| c.as_rule() == Rule::STRING_LITERAL)
+                    .collect();
+                let input = if strings.len() >= 1 {
+                    unescape_string(strings[0].as_str())
+                } else {
+                    String::new()
+                };
+                let expected = if strings.len() >= 2 {
+                    unescape_string(strings[1].as_str())
+                } else {
+                    String::new()
+                };
+                dataset.push((input, expected));
+            }
+        }
+
+        // Extract metric: accuracy (or future metrics)
+        if let Some(m_pair) = body_children.iter().find(|c| c.as_rule() == Rule::eval_metric) {
+            let m_children = children_of(m_pair);
+            metric = find_child_str(&m_children, Rule::IDENT).unwrap_or_else(|| "accuracy".to_string());
+        }
+
+        // Extract threshold: 0.8
+        if let Some(t_pair) = body_children.iter().find(|c| c.as_rule() == Rule::eval_threshold) {
+            let t_children = children_of(t_pair);
+            threshold = find_child_str(&t_children, Rule::FLOAT_LITERAL)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0.8);
+        }
+    }
+
+    Declaration::Eval(EvalDecl {
+        pattern_name,
+        dataset,
+        metric,
+        threshold,
     })
 }
 

@@ -1,0 +1,31 @@
+// ── Eval Harness contract program (ADR-0050) ──────────────────────────
+// Contract: eval block with 3 examples → mlog eval → report with accuracy.
+//
+// Usage: mlog eval examples/p_eval_harness.mlog
+//
+// Expected output with MockLlm (METALOGOS_MOCK_LLM=true):
+//   Eval: Classify
+//   Dataset: 3 examples
+//   Accuracy: 33.3% (1/3)  -- MockLlm returns the prompt, which is set to "question"
+//   Threshold: 0.8
+//   Result: FAIL (below threshold)
+//   Confusion Matrix: shows 1 correct (question→question), 2 wrong
+//   Failing examples with adapt suggestions
+
+learnable pattern Classify(text: String) -> Category {
+    prompt: "question"
+}
+
+// Few-shot examples to boost accuracy for specific inputs
+adapt Classify add_example("ужасный сервис", "complaint")
+adapt Classify add_example("спасибо", "greeting")
+
+eval Classify {
+    dataset: [
+        ("ужасный сервис", "complaint"),
+        ("спасибо", "greeting"),
+        ("когда?", "question")
+    ]
+    metric: accuracy
+    threshold: 0.8
+}

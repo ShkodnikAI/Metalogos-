@@ -552,3 +552,28 @@ Stage Summary:
 - 9 contract tests covering: accuracy computation, pass/fail, threshold, empty dataset, nonexistent pattern, few-shot boost, confusion matrix, format_report, multiple eval blocks
 - Commit: aacf295, pushed to origin/main
 
+---
+Task ID: 2
+Agent: main
+Task: Наряд №7 — inspect() builtin (метаданные паттернов)
+
+Work Log:
+- Read builtins.rs to understand builtin registration and special-case patterns (query, json_body)
+- Added PatternStats struct to interpreter.rs: calls, confidence_sum, cache_hits, last_adapt, examples_count
+- Added pattern_stats: Mutex<HashMap<String, PatternStats>> field on Interpreter
+- Modified invoke_learnable_with_env() to accept pattern_name parameter
+- Added record_pattern_call() method — called on every learnable invocation
+- Added invoke_inspect() method — returns Struct with 5 Float fields
+- Special-cased inspect() in FnCall and QualifiedCall dispatch paths
+- Updated adapt handling in run() and load_module_inner() to track last_adapt and examples_count
+- Updated all invoke_learnable_with_env() call sites (4 total)
+- Wrote 6 contract tests in tests/inspect_builtin_contract.rs
+- Wrote ADR-0051-inspect.md
+
+Stage Summary:
+- inspect() builtin fully implemented
+- Returns Struct { calls, avg_confidence, cache_hits, last_adapt, examples_count }
+- Few-shot matches count as cache hits
+- Non-persistent by design (resets on restart)
+- Commit: acf5a47, pushed to origin/main
+

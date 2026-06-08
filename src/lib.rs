@@ -93,3 +93,18 @@ pub fn run_bytecode(program: bytecode::Program) -> Result<Option<String>, String
     let mut vm = vm::Vm::new();
     vm.run(program)
 }
+
+/// Parse a .mlog program, execute declarations, then run all eval blocks (ADR-0050).
+/// Returns a list of EvalResult structs with accuracy, confusion matrix, and failure details.
+pub fn eval_program(source: &str) -> Result<Vec<interpreter::EvalResult>, String> {
+    eval_program_with_dir(source, std::path::PathBuf::from("."))
+}
+
+/// Parse a .mlog program with an explicit base directory, execute declarations, then run eval blocks.
+pub fn eval_program_with_dir(source: &str, base_dir: std::path::PathBuf) -> Result<Vec<interpreter::EvalResult>, String> {
+    let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+    let mut interp = interpreter::Interpreter::new();
+    interp.set_base_dir(base_dir);
+    interp.run(declarations)?;
+    interp.run_eval_blocks()
+}

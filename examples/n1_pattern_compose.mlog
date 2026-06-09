@@ -1,0 +1,7 @@
+pattern Inner(s: String) -> String { return upper(s) }
+pattern Outer(s: String) -> String {
+  let result = Inner(s)
+  return "Result: " + result
+}
+entity msg: String = "hello"
+flow Main { input: String = msg -> Outer -> output }

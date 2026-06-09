@@ -1,0 +1,7 @@
+pattern Classify(score: Float) -> String {
+  let grade = if score > 90.0 then "A" else "B"
+  let msg = "Grade: " + grade
+  return msg
+}
+entity score: Float = 95.0
+flow Main { input: Float = score -> Classify -> output }

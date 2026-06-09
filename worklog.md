@@ -577,3 +577,24 @@ Stage Summary:
 - Non-persistent by design (resets on restart)
 - Commit: acf5a47, pushed to origin/main
 
+---
+Task ID: 12
+Agent: main
+Task: Наряд №12 — Metalogos Runtime Fixes (4 bugs)
+
+Work Log:
+- Analyzed codebase: full source available in src/ (no decompilation needed)
+- Bug 1: Fixed clone_definitions_into() to copy hooks_before, hooks_after, llm_cache, pattern_stats into per-request interpreters
+- Bug 2: Added optional 4th parameter to http_post() for authorization headers (JSON string or Value::Struct)
+- Bug 3: Verified __replace() is UTF-8 safe (uses Rust String::replace on &str). Added 5 Cyrillic/emoji contract tests
+- Bug 4: Added METALOGOS_OPENAI_BASE_URL env var support. RealLlm gains base_url field + resolve_endpoint() method
+- Wrote 12 Rust contract tests in tests/naryad_12_runtime_fixes.rs
+- Wrote integration test examples/test_naryad12.mlog
+- Wrote ADR-0052 (docs/adr/0052-runtime-fixes.md)
+- Committed and pushed to fix/metalogos-runtime branch
+
+Stage Summary:
+- Branch: fix/metalogos-runtime (pushed to origin)
+- PR URL: https://github.com/ShkodnikAI/Metalogos-/pull/new/fix/metalogos-runtime
+- Files changed: src/interpreter.rs, src/builtins.rs, src/llm.rs, tests/naryad_12_runtime_fixes.rs, examples/test_naryad12.mlog, docs/adr/0052-runtime-fixes.md
+

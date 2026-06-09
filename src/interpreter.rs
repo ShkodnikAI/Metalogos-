@@ -2071,6 +2071,32 @@ impl Interpreter {
         // Copy embedding manager (for recall() — semantic memory search)
         // EmbeddingManager is cheap to clone; it lazily initializes backends.
         // We don't clone the internal cache/embeddings — each interpreter builds its own.
+
+        // Наряд №12 Bug 1: Copy hooks so they work in route handlers
+        for h in &self.hooks_before {
+            target.hooks_before.push(h.clone());
+        }
+        for h in &self.hooks_after {
+            target.hooks_after.push(h.clone());
+        }
+
+        // Copy LLM cache so route handlers benefit from cached LLM responses
+        if let Ok(mut target_cache) = target.llm_cache.lock() {
+            if let Ok(src_cache) = self.llm_cache.lock() {
+                for (k, v) in src_cache.iter() {
+                    target_cache.entry(*k).or_insert(v.clone());
+                }
+            }
+        }
+
+        // Copy pattern stats so inspect() works in route handlers
+        if let Ok(mut target_stats) = target.pattern_stats.lock() {
+            if let Ok(src_stats) = self.pattern_stats.lock() {
+                for (k, v) in src_stats.iter() {
+                    target_stats.entry(k.clone()).or_insert(v.clone());
+                }
+            }
+        }
     }
 
     /// Safety limit for while loops (soft-failure on exceed).

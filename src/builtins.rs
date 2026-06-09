@@ -728,7 +728,9 @@ fn builtin_send_message(args: &[Value]) -> Result<Value, String> {
 // ── Outgoing HTTP (Definition of Done: http_post) ─────────────────
 
 /// Send an HTTP POST request. Returns the response body as String.
-/// Usage: http_post(url, body, content_type)
+/// Usage: http_post(url, body, content_type, headers_json)
+///   headers_json is optional — a JSON object string like '{"Authorization": "Bearer sk-xxx"}'
+/// Наряд №12 Bug 2: Added 4th parameter for authorization headers.
 fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
     let url = match args.get(0) {
         Some(Value::String(s)) => s.clone(),
@@ -747,6 +749,29 @@ fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
         _ => "application/json".to_string(),
     };
 
+    // Наряд №12 Bug 2: Parse optional 4th argument as headers JSON object.
+    // Example: http_post(url, body, "application/json", "{\"Authorization\": \"Bearer sk-xxx\"}")
+    let extra_headers: std::collections::HashMap<String, String> = if args.len() > 3 {
+        match &args[3] {
+            Value::String(s) => {
+                serde_json::from_str(s).map_err(|e| {
+                    format!("http_post() 4th arg must be a JSON object string: {}", e)
+                })?
+            }
+            Value::Struct { fields, .. } => {
+                fields.iter()
+                    .map(|(k, v)| Ok((k.clone(), format!("{}", v))))
+                    .collect::<Result<_, String>>()?
+            }
+            other => return Err(format!(
+                "http_post() 4th arg must be String (JSON) or Struct, got {}",
+                other.type_name()
+            )),
+        }
+    } else {
+        std::collections::HashMap::new()
+    };
+
     // Check sandbox network restriction
     // (If active sandbox has "network" in forbidden, block the request)
     // Note: sandbox check is done in interpreter's FnCall handling for builtins
@@ -757,10 +782,18 @@ fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
         .build()
         .map_err(|e| format!("http_post(): failed to create client: {}", e))?;
 
-    let resp = client
+    // Build request with Content-Type and optional extra headers
+    let mut req = client
         .post(&url)
         .header("Content-Type", &content_type)
-        .body(body)
+        .body(body);
+
+    // Apply extra headers (e.g., Authorization)
+    for (key, val) in &extra_headers {
+        req = req.header(key.as_str(), val.as_str());
+    }
+
+    let resp = req
         .send()
         .map_err(|e| format!("http_post() request failed: {}", e))?;
 

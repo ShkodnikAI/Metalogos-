@@ -142,11 +142,16 @@ const MAX_RETRIES: u32 = 3;
 /// - JSON response parsing per provider format
 /// - No retry on fatal client errors (400/401/403/404)
 /// - ADR-0048: per-call model override via call_with_model()
+/// - Наряд №12 Bug 4: METALOGOS_OPENAI_BASE_URL for custom base URL
 #[derive(Clone)]
 pub struct RealLlm {
     provider: Provider,
     model: String,
     api_key: Option<String>,
+    /// Custom base URL override (Наряд №12 Bug 4).
+    /// When set, replaces the provider's default endpoint base.
+    /// For OpenAI: "https://api.openai.com/v1/chat/completions" becomes "{base_url}/chat/completions"
+    pub base_url: Option<String>,
 }
 
 impl RealLlm {
@@ -156,16 +161,21 @@ impl RealLlm {
     /// - `METALOGOS_LLM_PROVIDER`: "anthropic" | "openai" | "ollama" (default: anthropic)
     /// - `METALOGOS_LLM_MODEL`: model name (default: provider's default model)
     /// - `METALOGOS_API_KEY`: API key for Anthropic/OpenAI (required for those providers)
+    /// - `METALOGOS_OPENAI_BASE_URL`: custom base URL for OpenAI (Наряд №12 Bug 4)
+    ///   e.g. "https://my-proxy.example.com/v1" — the path "/chat/completions" is appended automatically
     pub fn new() -> Self {
         let provider = Provider::from_env();
         let model = env::var("METALOGOS_LLM_MODEL")
             .unwrap_or_else(|_| provider.default_model().to_string());
         let api_key = env::var("METALOGOS_API_KEY").ok();
+        // Наряд №12 Bug 4: Read custom base URL from env
+        let base_url = env::var("METALOGOS_OPENAI_BASE_URL").ok();
 
         RealLlm {
             provider,
             model,
             api_key,
+            base_url,
         }
     }
 
@@ -175,6 +185,7 @@ impl RealLlm {
             provider,
             model,
             api_key,
+            base_url: None,
         }
     }
 }
@@ -246,6 +257,28 @@ impl RealLlm {
             Provider::Anthropic => self.call_anthropic(client, prompt, input),
             Provider::OpenAI => self.call_openai(client, prompt, input),
             Provider::Ollama => self.call_ollama(client, prompt, input),
+        }
+    }
+
+    /// Resolve the effective endpoint URL, applying custom base_url override if set.
+    /// Наряд №12 Bug 4: METALOGOS_OPENAI_BASE_URL support.
+    pub fn resolve_endpoint(&self) -> String {
+        if let Some(ref base) = self.base_url {
+            // Extract the path suffix from the default endpoint
+            // e.g., "https://api.openai.com/v1/chat/completions" → "/chat/completions"
+            let default = self.provider.endpoint();
+            if let Some(idx) = default.find("://") {
+                if let Some(slash_idx) = default[idx + 3..].find('/') {
+                    let path = &default[idx + 3 + slash_idx..];
+                    format!("{}{}", base.trim_end_matches('/'), path)
+                } else {
+                    base.clone()
+                }
+            } else {
+                base.clone()
+            }
+        } else {
+            self.provider.endpoint().to_string()
         }
     }
 
@@ -328,7 +361,7 @@ impl RealLlm {
         });
 
         let response = client
-            .post(Provider::OpenAI.endpoint())
+            .post(self.resolve_endpoint())
             .header("Authorization", format!("Bearer {}", api_key))
             .header("content-type", "application/json")
             .json(&body)

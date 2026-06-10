@@ -598,3 +598,28 @@ Stage Summary:
 - PR URL: https://github.com/ShkodnikAI/Metalogos-/pull/new/fix/metalogos-runtime
 - Files changed: src/interpreter.rs, src/builtins.rs, src/llm.rs, tests/naryad_12_runtime_fixes.rs, examples/test_naryad12.mlog, docs/adr/0052-runtime-fixes.md
 
+
+---
+Task ID: n12-phase4
+Agent: main
+Task: Наряд №12 Phase 4 — Remove LLM proxy, deploy built-in call_llm()
+
+Work Log:
+- Cloned FOSVED-office-v2 repo (branch fix/metalogos-runtime) using GitHub PAT
+- Analyzed current architecture: llm_proxy.py has 5-provider fallback (GLM 4.6 → GLM 5.1 → DeepSeek → Groq → Claude)
+- Identified that ONLY Yana fallback handler (app.mlog:499) used the proxy
+- All 12 departments already use ask_llm() → call_llm() directly (no proxy)
+- Updated app.mlog: Replaced http_post("http://localhost:4000/chat", ...) with call_llm() + inline Yana system prompt
+- Updated app.mlog: /test-llm endpoint now checks METALOGOS_* env vars instead of proxy health
+- Updated entrypoint.sh: Removed llm_proxy.py startup
+- Updated Dockerfile: Removed python3 dependency
+- llm_proxy.py kept as .disabled for reference
+- Pushed to origin/fix/metalogos-runtime as commit 6e756a4
+
+Stage Summary:
+- Phase 4 COMPLETE: LLM proxy removed, Yana uses built-in call_llm()
+- ENV VARS needed on Render: METALOGOS_LLM_PROVIDER, METALOGOS_API_KEY, METALOGOS_LLM_MODEL
+- Optional: METALOGOS_OPENAI_BASE_URL for custom proxy/self-hosted
+- Files changed: app.mlog, entrypoint.sh, Dockerfile (3 files, +34/-45)
+- Trade-off: Lost multi-provider fallback. call_llm() uses single provider via env vars.
+- If fallback needed, use METALOGOS_OPENAI_BASE_URL to point to a load balancer or gateway

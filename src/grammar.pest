@@ -5,7 +5,18 @@ COMMENT      = _{ "//" ~ (!("\n" | "\r") ~ ANY)* }
 
 program     =  { SOI ~ (declaration ~ WHITESPACE*)* ~ EOI }
 
-declaration = _{ mlogserver_decl | template_decl | db_decl | memory_decl | import_decl | hook_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl | conversation_decl }
+declaration = _{ mlogserver_decl | template_decl | db_decl | memory_decl | import_decl | hook_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl | conversation_decl | tool_decl }
+
+// ── Tool Abstraction (ADR-0054) ──────────────────────────────────────
+// tool telegram {
+//   send(chat_id: String, text: String) -> String { <statements> }
+//   get_updates(offset: String) -> String { <statements> }
+// }
+// Tool methods are compiled as namespace-isolated patterns.
+// tool.method(args) resolves via QualifiedCall same as module.pattern().
+tool_decl     = { TOOL_KW ~ IDENT ~ LBRACE ~ tool_method* ~ RBRACE }
+tool_method  = { IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ LBRACE ~ statement* ~ RBRACE }
+TOOL_KW      = @{ "tool" }
 
 // ── Hook (ADR-0045): before_pattern / after_pattern ──────────────────────
 // hook before_pattern { <statements> }
@@ -191,7 +202,7 @@ return_stmt  = { "return" ~ expression }
 flow_decl     = { "flow" ~ IDENT ~ LBRACE ~ flow_pipeline ~ branch_def* ~ RBRACE }
 flow_pipeline = { "input" ~ ":" ~ type_name ~ "=" ~ expression ~ (ARROW ~ step_ident)* ~ ARROW ~ "output" }
 branch_def    = { step_ident ~ LBRACE ~ branch* ~ RBRACE }
-step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "adapt" | "add_example" | "relate" | "sandbox" | "mutate" | "eval" | "dataset" | "metric" | "threshold" | "allowed" | "forbidden" | "timeout" | "rollback_if" | "accuracy" | "to" | "as" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or" | "each" | "while" | "server" | "mlogserver" | "template" | "route" | "middleware" | "port" | "method" | "requires" | "db" | "migrate" | "pool_size" | "memory" | "persist" | "kv" | "type" | "else" | "hook" | "before_pattern" | "after_pattern" | "match" | "starts_with" | "conversation") ~ IDENT }
+step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "adapt" | "add_example" | "relate" | "sandbox" | "mutate" | "eval" | "dataset" | "metric" | "threshold" | "allowed" | "forbidden" | "timeout" | "rollback_if" | "accuracy" | "to" | "as" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or" | "each" | "while" | "server" | "mlogserver" | "template" | "route" | "middleware" | "port" | "method" | "requires" | "db" | "migrate" | "pool_size" | "memory" | "persist" | "kv" | "type" | "else" | "hook" | "before_pattern" | "after_pattern" | "match" | "starts_with" | "conversation" | "tool") ~ IDENT }
 branch        = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
 branch_condition = { IDENT ~ "." ~ IDENT ~ compare_op ~ expression }
 

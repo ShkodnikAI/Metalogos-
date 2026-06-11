@@ -1904,6 +1904,11 @@ impl Interpreter {
         self.audit_log.get_mut().unwrap().drain(..).collect()
     }
 
+    /// Get a variable value by name (for testing).
+    pub fn get_variable(&self, name: &str) -> Option<Value> {
+        self.variables.get(name).cloned()
+    }
+
     // ── Eval Harness (ADR-0050) ──────────────────────────────────────────
 
     /// Run all collected eval blocks and return results.

@@ -286,6 +286,7 @@ impl Compiler {
                         AstCompareOp::Ge => ConditionOp::Ge,
                         AstCompareOp::Le => ConditionOp::Le,
                         AstCompareOp::Eq => ConditionOp::Eq,
+                        _ => ConditionOp::Eq, // Ne and others fall back to Eq
                     });
                     code.push(Instruction::Mutate {
                         pattern_name: m.pattern_name.clone(),
@@ -311,6 +312,7 @@ impl Compiler {
                                     AstCompareOp::Ge => ConditionOp::Ge,
                                     AstCompareOp::Le => ConditionOp::Le,
                                     AstCompareOp::Eq => ConditionOp::Eq,
+                                    _ => ConditionOp::Eq, // Ne and others fall back to Eq
                                 };
                                 // Compile the threshold expression to a constant if possible
                                 let threshold_val = self.eval_const_expr(&b.condition.threshold);
@@ -334,8 +336,9 @@ impl Compiler {
                 Declaration::Import(_) => {
                     // Already resolved in import preprocessing
                 }
-                Declaration::MlogServer(_) | Declaration::Template(_) | Declaration::Db(_) | Declaration::Memory(_) => {
-                    // Phase 6: no bytecode instruction needed
+                Declaration::MlogServer(_) | Declaration::Template(_) | Declaration::Db(_) | Declaration::Memory(_)
+                | Declaration::Hook(_) | Declaration::Eval(_) => {
+                    // Phase 6+: no bytecode instruction needed
                 }
             }
         }
@@ -446,6 +449,11 @@ impl Compiler {
                 // For now, lists are pushed as individual values
                 code.push(Instruction::Const(Value::Float(items.len() as f64)));
             }
+            Expr::IndexAccess(base, index) => {
+                self.compile_expr_with_locals(base, code, locals)?;
+                self.compile_expr_with_locals(index, code, locals)?;
+                code.push(Instruction::IndexAccess);
+            }
         }
         Ok(())
     }
@@ -518,6 +526,7 @@ impl Compiler {
                         AstCompareOp::Ge => ConditionOp::Ge,
                         AstCompareOp::Le => ConditionOp::Le,
                         AstCompareOp::Eq => ConditionOp::Eq,
+                        _ => ConditionOp::Eq, // Ne and others fall back to Eq
                     },
                     right: self.rule_value_expr(right),
                 }

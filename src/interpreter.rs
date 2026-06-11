@@ -224,12 +224,12 @@ struct CompiledLearnable {
     /// Few-shot examples added by `adapt` declarations.
     /// Each entry: (input_string, output_string).
     few_shot: Vec<(String, String)>,
-    /// Optional context auto-loading: query expression + recall limit.
-    /// At invocation time, the query is evaluated with current args,
-    /// then recall is called to fetch relevant memories, which are
-    /// prepended to the system prompt as "Relevant context:\n- fact1\n- ..."
-    context_query: Option<Expr>,
-    context_limit: Option<usize>,
+    /// Optional context auto-loading mode (ADR-0046).
+    /// - None: no context (default, backward compatible)
+    /// - Auto: recall(first_param, limit=5)
+    /// - Recall(query_expr, limit): explicit recall
+    /// - Literal(string): static text prepended to prompt
+    context: Option<ContextMode>,
     /// Optional max_tokens for LLM backend.
     max_tokens: Option<u32>,
     /// Enable LLM response caching (ADR-0047).
@@ -809,8 +809,7 @@ impl Interpreter {
                             params: lp.params.clone(),
                             prompt: lp.prompt.clone(),
                             few_shot: Vec::new(),
-                            context_query: lp.context_query.clone(),
-                            context_limit: lp.context_limit,
+                            context: lp.context.clone(),
                             max_tokens: lp.max_tokens,
                             cache: lp.cache,
                             cache_ttl: lp.cache_ttl,
@@ -1030,8 +1029,7 @@ impl Interpreter {
                         params: lp.params.clone(),
                         prompt: lp.prompt.clone(),
                         few_shot: Vec::new(),
-                        context_query: lp.context_query.clone(),
-                        context_limit: lp.context_limit,
+                        context: lp.context.clone(),
                         max_tokens: lp.max_tokens,
                         cache: lp.cache,
                         cache_ttl: lp.cache_ttl,
@@ -1210,6 +1208,7 @@ impl Interpreter {
                     CompareOp::Ge => lf >= rf,
                     CompareOp::Le => lf <= rf,
                     CompareOp::Eq => lf == rf,
+                    CompareOp::Ne => lf != rf,
                 })
             }
         }
@@ -1263,6 +1262,7 @@ impl Interpreter {
             CompareOp::Ge => fv >= tv,
             CompareOp::Le => fv <= tv,
             CompareOp::Eq => fv == tv,
+            CompareOp::Ne => fv != tv,
         })
     }
 
@@ -1283,9 +1283,7 @@ impl Interpreter {
         // Check learnable patterns
         if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
             let collapsed_args = self.collapse_args(&learnable.params, &args);
-            return self.invoke_pattern_with_hooks(name, &collapsed_args, || {
-                self.invoke_learnable_with_env(name, &learnable, &collapsed_args)
-            });
+            return self.invoke_learnable_with_env(name, &learnable, &collapsed_args);
         }
 
         // Check builtins
@@ -1325,9 +1323,7 @@ impl Interpreter {
         // Bind parameters with Fluid collapse
         let mut local_env = self.bind_and_collapse(&pattern.params, &args)?;
 
-        self.invoke_pattern_with_hooks(name, &args, || {
-            self.eval_statements(&pattern.body, &mut local_env)
-        })
+        self.eval_statements(&pattern.body, &mut local_env)
     }
 
     /// ADR-0045: Execute a pattern invocation wrapped with before/after hooks.
@@ -1389,89 +1385,109 @@ impl Interpreter {
     }
 
     /// ADR-0046: Build the effective system prompt for a learnable pattern.
-    /// If context auto-loading is configured, recalls relevant memories
-    /// and prepends them to the base prompt as "Relevant context:\n- fact1\n- ..."
+    /// Handles all ContextMode variants:
+    /// - None → return base prompt unchanged
+    /// - Auto → recall(first_param_value, limit=5) + prepend context
+    /// - Recall(query_expr, limit) → evaluate query, recall, prepend context
+    /// - Literal(string) → prepend static text as context
     fn build_effective_prompt(&self, learnable: &CompiledLearnable, args: &[Value]) -> String {
-        if learnable.context_query.is_none() {
-            return learnable.prompt.clone();
-        }
-
-        // Evaluate the context query expression with param names bound to args
-        let query_expr = learnable.context_query.as_ref().unwrap();
-        let mut env: HashMap<String, Value> = HashMap::new();
-        for (i, param) in learnable.params.iter().enumerate() {
-            if i < args.len() {
-                env.insert(param.name.clone(), args[i].clone());
-            }
-        }
-
-        let query = match self.eval_expr_with_env(query_expr, &mut env) {
-            Ok(Value::String(s)) => s,
-            Ok(other) => format!("{}", other),
-            Err(_) => return learnable.prompt.clone(), // context eval failed → skip
+        let context_mode = match &learnable.context {
+            None => return learnable.prompt.clone(),
+            Some(ContextMode::None) => return learnable.prompt.clone(),
+            Some(mode) => mode.clone(),
         };
 
-        // Recall memories: invoke_recall(query, min_confidence=0.1)
-        // Collect multiple results by re-calling with lower thresholds
-        let limit = learnable.context_limit.unwrap_or(5);
-        let mut facts = Vec::new();
-
-        // Embed the query for semantic search
-        let query_embedding = self.embedding_manager.embed(&query).unwrap_or_default();
-
-        // Attempt recall — collect up to `limit` unique results
-        let mut seen = std::collections::HashSet::new();
-        let min_conf = 0.1_f32;
-        match self.memory.lock() {
-            Ok(store) => {
-                // Use the all_entries + manual scoring approach for multiple results
-                let all = store.all_entries();
-                let mut scored: Vec<(String, f32)> = Vec::new();
-                for entry in all {
-                    if seen.contains(&entry.value) {
-                        continue;
-                    }
-                    // Compute cosine similarity
-                    let score = if entry.embedding.is_empty() || query_embedding.is_empty() {
-                        // Fallback: substring match scoring
-                        if entry.value.to_lowercase().contains(&query.to_lowercase()) {
-                            0.5
+        match context_mode {
+            ContextMode::None | ContextMode::Auto | ContextMode::Recall(_, _) => {
+                // Determine the query string and limit for recall
+                let (query, limit) = match &learnable.context {
+                    Some(ContextMode::Auto) => {
+                        // Use first parameter's runtime value as query
+                        let query_str = if !args.is_empty() {
+                            match &args[0] {
+                                Value::String(s) => s.clone(),
+                                other => format!("{}", other),
+                            }
                         } else {
-                            0.0
-                        }
-                    } else {
-                        cosine_similarity(&query_embedding, &entry.embedding) as f32
-                            * entry.confidence as f32
-                            * entry.priority as f32
-                    };
-                    if score >= min_conf {
-                        seen.insert(entry.value.clone());
-                        scored.push((entry.value, score));
+                            return learnable.prompt.clone();
+                        };
+                        (query_str, 5)
                     }
+                    Some(ContextMode::Recall(query_expr, limit_opt)) => {
+                        // Evaluate the context query expression with param names bound to args
+                        let mut env: HashMap<String, Value> = HashMap::new();
+                        for (i, param) in learnable.params.iter().enumerate() {
+                            if i < args.len() {
+                                env.insert(param.name.clone(), args[i].clone());
+                            }
+                        }
+                        let query = match self.eval_expr_with_env(query_expr, &mut env) {
+                            Ok(Value::String(s)) => s,
+                            Ok(other) => format!("{}", other),
+                            Err(_) => return learnable.prompt.clone(), // context eval failed → skip
+                        };
+                        (query, limit_opt.unwrap_or(5))
+                    }
+                    _ => unreachable!(),
+                };
+
+                // Recall memories: collect up to `limit` unique results
+                let mut facts = Vec::new();
+                let query_embedding = self.embedding_manager.embed(&query).unwrap_or_default();
+                let mut seen = std::collections::HashSet::new();
+                let min_conf = 0.1_f32;
+
+                match self.memory.lock() {
+                    Ok(store) => {
+                        let all = store.all_entries();
+                        let mut scored: Vec<(String, f32)> = Vec::new();
+                        for entry in all {
+                            if seen.contains(&entry.value) {
+                                continue;
+                            }
+                            let score = if entry.embedding.is_empty() || query_embedding.is_empty() {
+                                if entry.value.to_lowercase().contains(&query.to_lowercase()) {
+                                    0.5
+                                } else {
+                                    0.0
+                                }
+                            } else {
+                                cosine_similarity(&query_embedding, &entry.embedding) as f32
+                                    * entry.confidence as f32
+                                    * entry.priority as f32
+                            };
+                            if score >= min_conf {
+                                seen.insert(entry.value.clone());
+                                scored.push((entry.value, score));
+                            }
+                        }
+                        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                        for (fact, _score) in scored.iter().take(limit) {
+                            facts.push(fact.clone());
+                        }
+                    }
+                    Err(_) => return learnable.prompt.clone(),
                 }
-                // Sort by score descending, take top `limit`
-                scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-                for (fact, _score) in scored.iter().take(limit) {
-                    facts.push(fact.clone());
+
+                if facts.is_empty() {
+                    return learnable.prompt.clone();
                 }
+
+                // Format context block
+                let mut context_block = String::from("Relevant context:\n");
+                for fact in &facts {
+                    context_block.push_str("- ");
+                    context_block.push_str(fact);
+                    context_block.push('\n');
+                }
+
+                format!("{}\n{}", context_block, learnable.prompt)
             }
-            Err(_) => return learnable.prompt.clone(),
+            ContextMode::Literal(literal_text) => {
+                // Prepend static literal text as context
+                format!("{}\n{}", literal_text, learnable.prompt)
+            }
         }
-
-        if facts.is_empty() {
-            return learnable.prompt.clone();
-        }
-
-        // Format context block
-        let mut context_block = String::from("Relevant context:\n");
-        for fact in &facts {
-            context_block.push_str("- ");
-            context_block.push_str(fact);
-            context_block.push('\n');
-        }
-
-        // Prepend context to base prompt
-        format!("{}\n{}", context_block, learnable.prompt)
     }
 
     /// Invoke a learnable pattern using pre-collapsed arguments.
@@ -1543,9 +1559,9 @@ impl Interpreter {
                 ttl: learnable.cache_ttl,
             };
             let mut cache = self.llm_cache.lock().map_err(|e| format!("llm_cache lock error: {}", e))?;
-            cache.insert(cache_key, entry);
-            // If persist is enabled, also write to SQLite
+            // Persist before inserting (entry is moved into cache.insert)
             self.llm_cache_persist(&cache_key, &entry);
+            cache.insert(cache_key, entry);
         }
 
         // Try to parse JSON response into Value::Struct
@@ -1844,6 +1860,7 @@ impl Interpreter {
                     CompareOp::Gt => false,  // accuracy >= threshold is the "kept" condition
                     CompareOp::Ge => false,
                     CompareOp::Eq => (accuracy - threshold).abs() < 1e-9,
+                    CompareOp::Ne => (accuracy - threshold).abs() >= 1e-9,
                 }
             }
             _ => true, // No rollback condition → always keep
@@ -2333,11 +2350,11 @@ impl Interpreter {
                 if function == "inspect" {
                     return self.invoke_inspect(&eval_args);
                 }
-                if let Some(builtin_fn) = self.builtins.get(function) {
+                if let Some(builtin_fn) = self.builtins.get(&function) {
                     // Phase 7.5: Sandbox enforcement — filesystem isolation
                     if let Some(ref sb) = self.active_sandbox {
                         if sb.forbidden.iter().any(|f| f == "filesystem") {
-                            if matches!(function,
+                            if matches!(function.as_str(),
                                 "read_file" | "write_file" | "append_file"
                                 | "delete_file" | "file_exists" | "list_dir"
                             ) {
@@ -2362,10 +2379,7 @@ impl Interpreter {
                     ));
                 }
                 let mut local_env = self.bind_and_collapse(&pattern.params, &eval_args)?;
-                let args_clone = eval_args.clone();
-                self.invoke_pattern_with_hooks(function, &args_clone, || {
-                    self.eval_statements(&pattern.body, &mut local_env)
-                })
+                self.eval_statements(&pattern.body, &mut local_env)
             }
             Expr::FnCall(name, args) => {
                 let mut eval_args = Vec::new();
@@ -2426,9 +2440,7 @@ impl Interpreter {
                 // Check learnable patterns first
                 if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
                     let collapsed_args = self.collapse_args(&learnable.params, &eval_args);
-                    return self.invoke_pattern_with_hooks(name, &collapsed_args, || {
-                        self.invoke_learnable_with_env(name, &learnable, &collapsed_args)
-                    });
+                    return self.invoke_learnable_with_env(name, &learnable, &collapsed_args);
                 }
 
                 // Check builtins
@@ -2466,10 +2478,7 @@ impl Interpreter {
 
                 // Bind parameters with Fluid collapse
                 let mut local_env = self.bind_and_collapse(&pattern.params, &eval_args)?;
-                let args_clone = eval_args.clone();
-                self.invoke_pattern_with_hooks(name, &args_clone, || {
-                    self.eval_statements(&pattern.body, &mut local_env)
-                })
+                self.eval_statements(&pattern.body, &mut local_env)
             }
             Expr::BinaryOp(left, op, right) => {
                 let l = self.eval_expr_with_env(left, env)?;

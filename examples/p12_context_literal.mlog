@@ -1,0 +1,11 @@
+// ADR-0046 extension: context:"literal" in learnable pattern
+// Contract: context:"literal" prepends static text to the prompt.
+// MockLlm returns the effective prompt = "You are helpful.\nGreet the user."
+
+learnable pattern Greet(name: String) -> String {
+  prompt: "Greet the user."
+  context: "You are helpful."
+}
+
+entity user_name: String = "Alice"
+flow Main { input: String = user_name -> Greet -> output }

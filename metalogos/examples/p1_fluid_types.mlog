@@ -1,5 +1,0 @@
-fluid x = Float[42.0][0.9] or String["answer"][0.1]
-
-pattern Double(n: Float) -> Float { return n + n }
-
-flow Main { input: Float = x -> Double -> output }

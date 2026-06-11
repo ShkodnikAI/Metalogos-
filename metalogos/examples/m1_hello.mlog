@@ -1,5 +1,0 @@
-entity greeting: String = "Hello, Metalogos!"
-
-pattern Shout(s: String) -> String { return upper(s) + "!" }
-
-flow Main { input: String = greeting -> Shout -> output }

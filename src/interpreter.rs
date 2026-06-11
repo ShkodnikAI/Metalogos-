@@ -218,26 +218,26 @@ struct CompiledPattern {
 
 /// A learnable pattern that calls an LLM.
 #[derive(Clone)]
-struct CompiledLearnable {
-    params: Vec<Param>,
-    prompt: String,
+pub struct CompiledLearnable {
+    pub params: Vec<Param>,
+    pub prompt: String,
     /// Few-shot examples added by `adapt` declarations.
     /// Each entry: (input_string, output_string).
-    few_shot: Vec<(String, String)>,
+    pub few_shot: Vec<(String, String)>,
     /// Optional context auto-loading mode (ADR-0046).
     /// - None: no context (default, backward compatible)
     /// - Auto: recall(first_param, limit=5)
     /// - Recall(query_expr, limit): explicit recall
     /// - Literal(string): static text prepended to prompt
-    context: Option<ContextMode>,
+    pub context: Option<ContextMode>,
     /// Optional context compression strategy (ADR-0055).
     /// - None: no compression (default)
     /// - Auto: inject as-is
     /// - Compress: compress via LLM if exceeds max_context_tokens
-    context_strategy: ContextStrategy,
+    pub context_strategy: ContextStrategy,
     /// Max estimated tokens for context before compression (ADR-0055).
     /// Default: 2000.
-    max_context_tokens: usize,
+    pub max_context_tokens: usize,
     /// Optional max_tokens for LLM backend.
     max_tokens: Option<u32>,
     /// Enable LLM response caching (ADR-0047).

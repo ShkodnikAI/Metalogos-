@@ -108,3 +108,33 @@ pub fn eval_program_with_dir(source: &str, base_dir: std::path::PathBuf) -> Resu
     interp.run(declarations)?;
     interp.run_eval_blocks()
 }
+
+/// ADR-0056: Resume a flow from a checkpoint.
+/// Parses the source, sets resume target, then runs — the flow skips to the checkpoint.
+pub fn resume_program(source: &str, flow_name: &str, checkpoint_name: &str) -> Result<Option<String>, String> {
+    resume_program_with_dir(source, flow_name, checkpoint_name, std::path::PathBuf::from("."))
+}
+
+/// ADR-0056: Resume a flow from a checkpoint with explicit base directory.
+pub fn resume_program_with_dir(source: &str, flow_name: &str, checkpoint_name: &str, base_dir: std::path::PathBuf) -> Result<Option<String>, String> {
+    let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+    let mut interp = interpreter::Interpreter::new();
+    interp.set_base_dir(base_dir);
+    interp.set_resume_target(flow_name, checkpoint_name);
+    let output = interp.run(declarations)?;
+
+    let mutate_log = interp.take_mutate_log();
+    if mutate_log.is_empty() {
+        Ok(output)
+    } else {
+        match output {
+            Some(flow_output) => {
+                let mut result = mutate_log.join("\n");
+                result.push_str("\n");
+                result.push_str(&flow_output);
+                Ok(Some(result))
+            }
+            None => Ok(Some(mutate_log.join("\n"))),
+        }
+    }
+}

@@ -263,6 +263,24 @@ struct LlmCacheEntry {
     ttl: u64,
 }
 
+/// ADR-0056: Serialized checkpoint data for flow lifecycle control.
+/// Stores the complete state needed to resume a flow from a checkpoint.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct CheckpointData {
+    /// Name of the flow being checkpointed.
+    flow_name: String,
+    /// Checkpoint name (e.g., "mid", "sources").
+    checkpoint_name: String,
+    /// Pipeline step index at which the checkpoint was taken (0-based).
+    step_index: usize,
+    /// Serialized current value at this point in the pipeline.
+    current_value: Value,
+    /// Serialized variable scope at checkpoint time.
+    variables: HashMap<String, Value>,
+    /// Unix timestamp (milliseconds) when checkpoint was created.
+    created_at: i64,
+}
+
 /// A registered struct type.
 #[derive(Clone)]
 struct StructType {
@@ -547,6 +565,15 @@ pub struct Interpreter {
     /// Conversation configuration (ADR-0053).
     /// Set by `conversation { ttl: N max_messages: N compress_after: N }`.
     conversation_config: ConversationConfig,
+    /// ADR-0056: Path to checkpoint SQLite database (for lifecycle control).
+    /// Set by `memory { persist: "path" }` — checkpoints use same directory.
+    /// None = in-memory only (checkpoints stored in HashMap, lost on restart).
+    checkpoint_db: std::sync::Mutex<Option<rusqlite::Connection>>,
+    /// In-memory checkpoint fallback when no persist path is configured.
+    checkpoint_mem: std::sync::Mutex<HashMap<String, CheckpointData>>,
+    /// Resume target: if Some((flow_name, checkpoint_name)), the flow should
+    /// skip steps until reaching the step after this checkpoint.
+    resume_target: Option<(String, String)>,
 }
 
 impl Interpreter {
@@ -586,6 +613,9 @@ impl Interpreter {
             event_next_id: std::sync::atomic::AtomicU64::new(1),
             conversations: std::sync::Mutex::new(HashMap::new()),
             conversation_config: ConversationConfig::default(),
+            checkpoint_db: std::sync::Mutex::new(None),
+            checkpoint_mem: std::sync::Mutex::new(HashMap::new()),
+            resume_target: None,
         }
     }
 
@@ -726,6 +756,22 @@ impl Interpreter {
                     // Наряд №6 — also enable KV store SQLite persistence
                     if let Err(e) = crate::builtins::init_kv_persist(path) {
                         eprintln!("[kv_store] Failed to enable KV persistence: {}. KV will be in-memory only.", e);
+                    }
+
+                    // ADR-0056: initialize checkpoint SQLite (same DB directory)
+                    let cp_path = std::path::PathBuf::from(path).with_file_name("checkpoints.db");
+                    if let Ok(conn) = rusqlite::Connection::open(&cp_path) {
+                        let _ = conn.execute_batch(
+                            "CREATE TABLE IF NOT EXISTS checkpoints (
+                                flow_name TEXT NOT NULL,
+                                checkpoint_name TEXT NOT NULL,
+                                step_index INTEGER NOT NULL,
+                                state_json TEXT NOT NULL,
+                                created_at INTEGER NOT NULL,
+                                PRIMARY KEY (flow_name, checkpoint_name)
+                            )"
+                        );
+                        *self.checkpoint_db.lock().unwrap() = Some(conn);
                     }
                 }
                 Err(e) => {
@@ -1447,7 +1493,133 @@ impl Interpreter {
         }
     }
 
+    /// ADR-0056: Save a checkpoint for a flow at a given pipeline step.
+    fn save_checkpoint(
+        &self,
+        flow_name: &str,
+        checkpoint_name: &str,
+        step_index: usize,
+        current_value: &Value,
+    ) -> Result<(), String> {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+
+        let data = CheckpointData {
+            flow_name: flow_name.to_string(),
+            checkpoint_name: checkpoint_name.to_string(),
+            step_index,
+            current_value: current_value.clone(),
+            variables: self.variables.clone(),
+            created_at: ts,
+        };
+
+        let state_json = serde_json::to_string(&data)
+            .map_err(|e| format!("checkpoint serialization error: {}", e))?;
+
+        // Try SQLite first
+        if let Some(ref conn) = *self.checkpoint_db.lock().map_err(|e| format!("checkpoint lock: {}", e))? {
+            conn.execute(
+                "INSERT OR REPLACE INTO checkpoints (flow_name, checkpoint_name, step_index, state_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![flow_name, checkpoint_name, step_index as i64, state_json, ts],
+            ).map_err(|e| format!("checkpoint save error: {}", e))?;
+        } else {
+            // Fallback: in-memory
+            let key = format!("{}:{}", flow_name, checkpoint_name);
+            self.checkpoint_mem.lock().map_err(|e| format!("checkpoint lock: {}", e))?.insert(key, data);
+        }
+
+        Ok(())
+    }
+
+    /// ADR-0056: Load a checkpoint for a flow. Returns None if not found.
+    fn load_checkpoint(&self, flow_name: &str, checkpoint_name: &str) -> Result<Option<CheckpointData>, String> {
+        // Try SQLite first
+        if let Some(ref conn) = *self.checkpoint_db.lock().map_err(|e| format!("checkpoint lock: {}", e))? {
+            let mut stmt = conn.prepare(
+                "SELECT state_json FROM checkpoints WHERE flow_name = ?1 AND checkpoint_name = ?2"
+            ).map_err(|e| format!("checkpoint load error: {}", e))?;
+
+            let result: Result<String, _> = stmt.query_row(
+                rusqlite::params![flow_name, checkpoint_name],
+                |row| row.get(0),
+            );
+
+            match result {
+                Ok(state_json) => {
+                    let data: CheckpointData = serde_json::from_str(&state_json)
+                        .map_err(|e| format!("checkpoint deserialization error: {}", e))?;
+                    Ok(Some(data))
+                }
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(e) => Err(format!("checkpoint load error: {}", e)),
+            }
+        } else {
+            // Fallback: in-memory
+            let key = format!("{}:{}", flow_name, checkpoint_name);
+            Ok(self.checkpoint_mem.lock().map_err(|e| format!("checkpoint lock: {}", e))?.get(&key).cloned())
+        }
+    }
+
+    /// ADR-0056: Set the resume target for a specific flow and checkpoint.
+    /// Must be called before `run()` to take effect.
+    pub fn set_resume_target(&mut self, flow_name: &str, checkpoint_name: &str) {
+        self.resume_target = Some((flow_name.to_string(), checkpoint_name.to_string()));
+    }
+
+    /// ADR-0056: List all checkpoints for a flow (public for tests and CLI).
+    /// Returns Vec of (checkpoint_name, step_index, created_at).
+    pub fn list_checkpoints(&self, flow_name: &str) -> Result<Vec<(String, usize, i64)>, String> {
+        if let Some(ref conn) = *self.checkpoint_db.lock().map_err(|e| format!("checkpoint lock: {}", e))? {
+            let mut stmt = conn.prepare(
+                "SELECT checkpoint_name, step_index, created_at FROM checkpoints WHERE flow_name = ?1 ORDER BY step_index"
+            ).map_err(|e| format!("checkpoint list error: {}", e))?;
+
+            let rows = stmt.query_map(rusqlite::params![flow_name], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize, row.get::<_, i64>(2)?))
+            }).map_err(|e| format!("checkpoint list error: {}", e))?
+              .collect::<Result<Vec<_>, _>>()
+              .map_err(|e| format!("checkpoint list error: {}", e))?;
+
+            Ok(rows)
+        } else {
+            // In-memory fallback
+            let mem = self.checkpoint_mem.lock().map_err(|e| format!("checkpoint lock: {}", e))?;
+            let prefix = format!("{}:", flow_name);
+            let mut results: Vec<(String, usize, i64)> = mem.iter()
+                .filter(|(k, _)| k.starts_with(&prefix))
+                .map(|(_k, v)| (v.checkpoint_name.clone(), v.step_index, v.created_at))
+                .collect();
+            results.sort_by_key(|(_, idx, _)| *idx);
+            Ok(results)
+        }
+    }
+
+    /// ADR-0056: Delete a specific checkpoint (public for tests and cleanup).
+    pub fn delete_checkpoint(&self, flow_name: &str, checkpoint_name: &str) -> Result<(), String> {
+        if let Some(ref conn) = *self.checkpoint_db.lock().map_err(|e| format!("checkpoint lock: {}", e))? {
+            conn.execute(
+                "DELETE FROM checkpoints WHERE flow_name = ?1 AND checkpoint_name = ?2",
+                rusqlite::params![flow_name, checkpoint_name],
+            ).map_err(|e| format!("checkpoint delete error: {}", e))?;
+        } else {
+            let key = format!("{}:{}", flow_name, checkpoint_name);
+            self.checkpoint_mem.lock().map_err(|e| format!("checkpoint lock: {}", e))?.remove(&key);
+        }
+        Ok(())
+    }
+
+    /// ADR-0056: Reset all in-memory checkpoints (for test isolation).
+    pub fn reset_checkpoints(&self) {
+        if let Ok(mut mem) = self.checkpoint_mem.lock() {
+            mem.clear();
+        }
+    }
+
     /// Execute a flow: evaluate source, thread through pipeline steps.
+    /// ADR-0056: After each step, check if a checkpoint follows. If so, save state.
+    /// If resume_target is set, skip steps until we reach the checkpoint, then resume.
     fn run_flow(&mut self, flow: &FlowDecl) -> Result<String, String> {
         // Register branch definitions for this flow
         self.branch_defs.clear();
@@ -1455,10 +1627,51 @@ impl Interpreter {
             self.branch_defs.insert(step_name.clone(), branches.clone());
         }
 
-        let mut current = self.eval_expr(&flow.source)?;
+        // ADR-0056: Determine resume start position
+        let mut start_idx: usize = 0;
+        let mut current: Option<Value> = None;
 
-        for step_name in &flow.pipeline {
+        if let Some((ref target_flow, ref target_cp)) = self.resume_target {
+            if target_flow == &flow.name {
+                // Try to load checkpoint
+                if let Some(data) = self.load_checkpoint(&flow.name, target_cp)? {
+                    // Restore variables from checkpoint
+                    for (k, v) in data.variables {
+                        self.variables.insert(k, v);
+                    }
+                    // Start from the step AFTER the checkpoint
+                    start_idx = data.step_index + 1;
+                    current = Some(data.current_value);
+                } else {
+                    return Err(format!("checkpoint '{}' not found for flow '{}'", target_cp, flow.name));
+                }
+                // Clear resume target (one-shot)
+                self.resume_target = None;
+            }
+        }
+
+        // If no resume, evaluate the source expression
+        let mut current = current.unwrap_or_else(|| self.eval_expr(&flow.source).unwrap_or(Value::Unit));
+
+        // ADR-0056: Build reverse map: step_index -> checkpoint names at that position
+        let mut checkpoint_at: HashMap<usize, Vec<String>> = HashMap::new();
+        for (cp_name, &step_idx) in &flow.checkpoints {
+            checkpoint_at.entry(step_idx).or_default().push(cp_name.clone());
+        }
+
+        // Execute pipeline steps, starting from start_idx (0 for fresh run)
+        for (i, step_name) in flow.pipeline.iter().enumerate() {
+            if i < start_idx {
+                continue; // Skip steps before resume point
+            }
             current = self.run_flow_step(step_name, current)?;
+
+            // Check if a checkpoint follows this step
+            if let Some(cp_names) = checkpoint_at.get(&i) {
+                for cp_name in cp_names {
+                    self.save_checkpoint(&flow.name, cp_name, i, &current)?;
+                }
+            }
         }
 
         Ok(format!("{}", current))

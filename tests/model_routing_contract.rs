@@ -24,6 +24,7 @@ fn make_model_learnable_decl(name: &str, prompt: &str, model: Option<&str>) -> D
         cache: false,
         cache_ttl: 3600,
         model: model.map(String::from),
+        conversation: None,
     })
 }
 

@@ -73,3 +73,27 @@
 ## Build Result
 
 **9 warnings** (pre-existing: unused variables, unused functions, dead code, private type leak) — **0 errors**. Project compiles successfully.
+---
+Task ID: 6
+Agent: main
+Task: Наряд №6 — eval harness: fix parser bug and verify contract tests
+
+Work Log:
+- Discovered eval harness already fully implemented across grammar, AST, parser, interpreter, CLI, lib, semantic analysis
+- Ran 9 contract tests — 6 failed, 3 passed
+- Debugged: run_single_eval was called but dataset was always empty (total=0)
+- Root cause: parser's parse_eval_decl() searched for eval_example as direct children of eval_dataset, but grammar wraps examples in eval_example_list intermediate rule
+- Fixed parser: flat_map over ds_pair children, handling both eval_example (direct) and eval_example_list (nested)
+- Fixed test_eval_accuracy_computed: MockLlm returns prompt verbatim, so prompt must equal expected label
+- Fixed memory_persist_e2e.rs: double .unwrap() on Option<String> → single .unwrap_or_default()
+- Removed unused import metalogos::ast::* in eval_harness_contract.rs
+- Verified CLI: mlog eval returns exit 0 on PASS, exit 1 on FAIL, with confusion matrix and adapt suggestions
+- All 9 eval contract tests pass
+- Updated ADR-0050 date
+- Committed and pushed: 1614b82
+
+Stage Summary:
+- Key bug: parser nesting — eval_example inside eval_example_list wasn't being found
+- 9/9 eval contract tests now pass
+- CLI mlog eval <file> works correctly with proper exit codes and formatted output
+- Files changed: src/parser.rs, tests/eval_harness_contract.rs, tests/memory_persist_e2e.rs, docs/adr/0050-eval-harness.md

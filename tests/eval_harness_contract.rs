@@ -11,7 +11,6 @@
 
 use metalogos::interpreter::{Interpreter, EvalResult};
 use metalogos::parser;
-use metalogos::ast::*;
 
 /// Helper: parse + run declarations, then run eval blocks.
 fn run_eval(source: &str) -> Result<Vec<EvalResult>, String> {
@@ -25,9 +24,11 @@ fn run_eval(source: &str) -> Result<Vec<EvalResult>, String> {
 
 #[test]
 fn test_eval_accuracy_computed() {
+    // MockLlm returns the prompt verbatim. Set prompt to the expected label
+    // so that all examples match.
     let source = r#"
         learnable pattern Classify(text: String) -> String {
-            prompt: "Return exactly: complaint"
+            prompt: "complaint"
         }
         eval Classify {
             dataset: [

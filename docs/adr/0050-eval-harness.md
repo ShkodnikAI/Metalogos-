@@ -1,7 +1,7 @@
 # ADR-0050: Eval Harness — Automatic Evaluation of Learnable Patterns
 
 **Status:** Implemented
-**Date:** 2026-06-09
+**Date:** 2026-06-09 (fixed: 2026-06-11)
 
 ## Context
 

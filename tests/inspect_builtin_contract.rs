@@ -30,7 +30,7 @@ fn eval_expr(source: &str, expr: &str) -> Result<metalogos::interpreter::Value, 
         &format!("let __result = {}", expr)
     ).map_err(|e| format!("parse error: {}", e))?;
     interp.run(decls)?;
-    interp.variables.get("__result").cloned()
+    interp.get_variable("__result")
         .ok_or_else(|| "no result".to_string())
 }
 
@@ -53,12 +53,12 @@ fn eval_inspect(source: &str) -> Result<metalogos::interpreter::Value, String> {
             // Parse the string representation back — or get from variables
             let return_decls = parser::parse("let __r = inspect(\"Classify\")").unwrap();
             interp.run(return_decls).unwrap();
-            Ok(interp.variables.get("__r").cloned().unwrap())
+            Ok(interp.get_variable("__r").unwrap())
         }
         None => {
             let return_decls = parser::parse("let __r = inspect(\"Classify\")").unwrap();
             interp.run(return_decls).unwrap();
-            interp.variables.get("__r").cloned().ok_or_else(|| "no __r".to_string())
+            interp.get_variable("__r").ok_or_else(|| "no __r".to_string())
         }
     }
 }
@@ -81,7 +81,7 @@ fn test_inspect_calls_count() {
     let decls = parser::parse(r#"let stats = inspect("Classify")"#).unwrap();
     interp.run(decls).unwrap();
 
-    let stats = interp.variables.get("stats").unwrap();
+    let stats = interp.get_variable("stats").unwrap();
     let calls = stats.get_field("calls").unwrap();
     assert_eq!(calls.as_float().unwrap(), 3.0);
 }
@@ -100,7 +100,7 @@ fn test_inspect_non_invoked() {
     let decls = parser::parse(r#"let stats = inspect("Unused")"#).unwrap();
     interp.run(decls).unwrap();
 
-    let stats = interp.variables.get("stats").unwrap();
+    let stats = interp.get_variable("stats").unwrap();
     assert_eq!(stats.get_field("calls").unwrap().as_float().unwrap(), 0.0);
     assert_eq!(stats.get_field("avg_confidence").unwrap().as_float().unwrap(), 0.0);
     assert_eq!(stats.get_field("cache_hits").unwrap().as_float().unwrap(), 0.0);
@@ -121,7 +121,7 @@ fn test_inspect_field_names() {
     let decls = parser::parse(r#"let stats = inspect("X")"#).unwrap();
     interp.run(decls).unwrap();
 
-    let stats = interp.variables.get("stats").unwrap();
+    let stats = interp.get_variable("stats").unwrap();
     // Should be a Struct
     assert_eq!(stats.type_name(), "Struct");
     // Should have all 5 fields
@@ -149,7 +149,7 @@ fn test_inspect_adapt_examples_count() {
     let decls = parser::parse(r#"let stats = inspect("Sentiment")"#).unwrap();
     interp.run(decls).unwrap();
 
-    let stats = interp.variables.get("stats").unwrap();
+    let stats = interp.get_variable("stats").unwrap();
     assert_eq!(stats.get_field("examples_count").unwrap().as_float().unwrap(), 2.0);
     // last_adapt should be non-zero
     let last_adapt = stats.get_field("last_adapt").unwrap().as_float().unwrap();
@@ -177,7 +177,7 @@ fn test_inspect_few_shot_cache_hit() {
     let decls = parser::parse(r#"let stats = inspect("Route")"#).unwrap();
     interp.run(decls).unwrap();
 
-    let stats = interp.variables.get("stats").unwrap();
+    let stats = interp.get_variable("stats").unwrap();
     assert_eq!(stats.get_field("calls").unwrap().as_float().unwrap(), 3.0);
     assert_eq!(stats.get_field("cache_hits").unwrap().as_float().unwrap(), 2.0);
 }
@@ -207,8 +207,8 @@ fn test_inspect_multiple_patterns() {
     ).unwrap();
     interp.run(decls).unwrap();
 
-    let stats_a = interp.variables.get("stats_a").unwrap();
-    let stats_b = interp.variables.get("stats_b").unwrap();
+    let stats_a = interp.get_variable("stats_a").unwrap();
+    let stats_b = interp.get_variable("stats_b").unwrap();
 
     assert_eq!(stats_a.get_field("calls").unwrap().as_float().unwrap(), 2.0);
     assert_eq!(stats_b.get_field("calls").unwrap().as_float().unwrap(), 1.0);

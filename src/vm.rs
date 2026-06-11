@@ -351,6 +351,27 @@ impl Vm {
                     stack.push(result);
                     ip += 1;
                 }
+                Instruction::IndexAccess => {
+                    let idx = stack.pop().unwrap_or(Value::Unit);
+                    let base = stack.pop().unwrap_or(Value::Unit);
+                    let result = match (&base, &idx) {
+                        (Value::List(items), Value::Float(f)) => {
+                            let i = *f as isize;
+                            if i < 0 {
+                                let abs_i = items.len().wrapping_sub((-i) as usize);
+                                items.get(abs_i).cloned().unwrap_or(Value::Unit)
+                            } else {
+                                items.get(i as usize).cloned().unwrap_or(Value::Unit)
+                            }
+                        }
+                        (Value::Struct { fields, .. }, Value::String(key)) => {
+                            fields.get(key).cloned().unwrap_or(Value::Unit)
+                        }
+                        _ => Value::Unit,
+                    };
+                    stack.push(result);
+                    ip += 1;
+                }
 
                 // ── Fluid Types ───────────────────────────────
                 Instruction::MakeFluid(count) => {
@@ -1197,6 +1218,7 @@ impl Vm {
                 AstCompareOp::Ge => lf >= rf,
                 AstCompareOp::Le => lf <= rf,
                 AstCompareOp::Eq => lf == rf,
+                _ => false,
             },
             _ => false,
         };

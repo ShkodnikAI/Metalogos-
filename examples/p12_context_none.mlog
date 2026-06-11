@@ -1,0 +1,8 @@
+// ADR-0046: context:none — explicitly no context (same as no field)
+learnable pattern Simple(text: String) -> String {
+  prompt: "Just echo."
+  context: none
+}
+
+entity msg: String = "hello"
+flow Main { input: String = msg -> Simple -> output }

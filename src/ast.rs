@@ -305,9 +305,29 @@ pub struct ForgetDecl {
 
 // ── Learnable Pattern (M3) ────────────────────────────────────────────
 
+/// Context mode for learnable pattern context auto-loading (ADR-0046).
+/// Controls how relevant memories are injected into the system prompt.
+#[derive(Debug, Clone)]
+pub enum ContextMode {
+    /// No context loading — default for backward compatibility.
+    None,
+    /// Auto mode: recall(first_param_value, limit=5).
+    /// Uses the first parameter's runtime value as the recall query.
+    Auto,
+    /// Explicit recall with query expression and optional limit.
+    /// `context: recall(text, limit=5)` → Recall(Expr::Ident("text"), Some(5))
+    Recall(Expr, Option<usize>),
+    /// Static string literal: prepended as-is to the prompt.
+    /// `context: "Always respond in Russian"` → Literal("Always respond in Russian")
+    Literal(String),
+}
+
 /// `learnable pattern Classify(text: String) -> Category {
 ///   prompt: "Классифицируй сообщение: question | complaint | greeting"
 ///   context: recall(text, limit=5)   // optional
+///   context: auto                    // optional — recall(first_param, limit=5)
+///   context: none                    // optional — explicit no context (default)
+///   context: "Always respond in Russian"  // optional — static context literal
 ///   max_tokens: 4000                 // optional
 ///   cache: true                      // optional — enable LLM response caching
 ///   cache_ttl: 60.minutes            // optional — time-to-live for cached responses
@@ -319,9 +339,12 @@ pub struct LearnablePatternDecl {
     pub params: Vec<Param>,
     pub return_type: String,
     pub prompt: String,
-    /// Optional context auto-loading: `recall(query_expr, limit=N)`.
-    pub context_query: Option<Expr>,
-    pub context_limit: Option<usize>,
+    /// Optional context auto-loading mode.
+    /// - None: no context (default, backward compatible)
+    /// - Auto: recall(first_param, limit=5)
+    /// - Recall(query_expr, limit): explicit recall
+    /// - Literal(string): static text prepended to prompt
+    pub context: Option<ContextMode>,
     /// Optional max_tokens for LLM backend.
     pub max_tokens: Option<u32>,
     /// Enable LLM response caching. When true, identical (prompt + args) calls

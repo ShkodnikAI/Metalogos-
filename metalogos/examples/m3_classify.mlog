@@ -1,9 +1,0 @@
-entity text: String = "ваш сервис ужасен"
-
-learnable pattern Classify(msg: String) -> String {
-  prompt: "complaint"
-}
-
-pattern Respond(category: String) -> String { return "Response: " + category }
-
-flow Main { input: String = text -> Classify -> Respond -> output }

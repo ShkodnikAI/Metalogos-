@@ -2837,6 +2837,57 @@ impl Interpreter {
         self.memory_persist_path = path;
     }
 
+    /// Collect all known declarations from this interpreter into a Vec.
+    /// Used by `check_program_with_root` to build a merged declaration list
+    /// for semantic analysis.
+    pub fn collect_declarations(&self) -> Vec<crate::ast::Declaration> {
+        use crate::ast::*;
+        let mut decls = Vec::new();
+        for (name, st) in &self.struct_types {
+            decls.push(Declaration::EntityType(EntityTypeDecl {
+                name: name.clone(),
+                fields: st.fields.clone(),
+            }));
+        }
+        for (name, cp) in &self.patterns {
+            decls.push(Declaration::Pattern(PatternDecl {
+                name: name.clone(),
+                params: cp.params.clone(),
+                return_type: "String".to_string(),
+                body: cp.body.clone(),
+            }));
+        }
+        for (name, lp) in &self.learnable_patterns {
+            decls.push(Declaration::LearnablePattern(LearnablePatternDecl {
+                name: name.clone(),
+                params: lp.params.clone(),
+                return_type: "String".to_string(),
+                prompt: lp.prompt.clone(),
+                context: None,
+                context_strategy: crate::ast::ContextStrategy::None,
+                max_context_tokens: 2000,
+                max_tokens: None,
+                cache: false,
+                cache_ttl: 3600,
+                model: None,
+                conversation: None,
+            }));
+        }
+        for r in &self.rules {
+            decls.push(Declaration::Rule(r.clone()));
+        }
+        for t in self.templates.values() {
+            decls.push(Declaration::Template(t.clone()));
+        }
+        for h in &self.hooks_before {
+            decls.push(Declaration::Hook(h.clone()));
+        }
+        for h in &self.hooks_after {
+            decls.push(Declaration::Hook(h.clone()));
+        }
+        decls
+    }
+
     /// Clone pattern definitions, struct types, learnable patterns, rules,
     /// sandboxes, module namespaces, templates, and variables from this interpreter
     /// into another interpreter. MERGES (does not replace) into target, so

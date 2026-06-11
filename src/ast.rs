@@ -371,6 +371,19 @@ pub enum ContextMode {
     Literal(String),
 }
 
+/// Context strategy for learnable pattern context compression (ADR-0055).
+/// Controls how recalled context is processed before injection.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ContextStrategy {
+    /// No context modification — default for backward compatibility.
+    None,
+    /// Recall and inject top-N results as-is (existing behavior).
+    Auto,
+    /// Recall top-N results; if total size exceeds max_context_tokens,
+    /// call LLM to compress/summarize the context before injection.
+    Compress,
+}
+
 /// `learnable pattern Classify(text: String) -> Category {
 ///   prompt: "Классифицируй сообщение: question | complaint | greeting"
 ///   context: recall(text, limit=5)   // optional
@@ -381,6 +394,9 @@ pub enum ContextMode {
 ///   cache: true                      // optional — enable LLM response caching
 ///   cache_ttl: 60.minutes            // optional — time-to-live for cached responses
 ///   model: "haiku"                   // optional — per-pattern model override (ADR-0048)
+///   context_strategy: compress        // optional — context compression mode (ADR-0055)
+///   max_context_tokens: 2000          // optional — max tokens for context before compression
+///   conversation: current            // optional — conversation binding (ADR-0053)
 /// }`
 #[derive(Debug, Clone)]
 pub struct LearnablePatternDecl {
@@ -394,6 +410,16 @@ pub struct LearnablePatternDecl {
     /// - Recall(query_expr, limit): explicit recall
     /// - Literal(string): static text prepended to prompt
     pub context: Option<ContextMode>,
+    /// Optional context compression strategy (ADR-0055).
+    /// - None: no compression (default, backward compatible)
+    /// - Auto: inject recalled facts as-is
+    /// - Compress: compress facts via LLM if they exceed max_context_tokens
+    pub context_strategy: ContextStrategy,
+    /// Optional max context tokens for compression threshold (ADR-0055).
+    /// When context_strategy is Compress and the recalled context exceeds
+    /// this many estimated tokens, the context is compressed via LLM.
+    /// Default: 2000.
+    pub max_context_tokens: usize,
     /// Optional max_tokens for LLM backend.
     pub max_tokens: Option<u32>,
     /// Enable LLM response caching. When true, identical (prompt + args) calls

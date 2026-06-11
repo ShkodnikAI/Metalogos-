@@ -854,6 +854,8 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
     let mut cache = false;
     let mut cache_ttl: u64 = 3600; // default 1 hour
     let mut conversation: Option<String> = None;
+    let mut context_strategy: ContextStrategy = ContextStrategy::None;
+    let mut max_context_tokens: usize = 2000; // default 2000
 
     if let Some(body_pair) = find_child(&children, Rule::learnable_body) {
         let body_children = children_of(&body_pair);
@@ -988,6 +990,27 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
                 };
             }
         }
+
+        // Extract context_strategy: none | auto | compress (ADR-0055)
+        if let Some(cs_pair) = body_children.iter().find(|c| c.as_rule() == Rule::context_strategy_line) {
+            let cs_str = cs_pair.as_str().trim();
+            // context_strategy_line = { "context_strategy" ~ ":" ~ context_strategy_value }
+            if let Some(colon_pos) = cs_str.find(':') {
+                let val_str = cs_str[colon_pos + 1..].trim();
+                context_strategy = match val_str {
+                    "auto" => ContextStrategy::Auto,
+                    "compress" => ContextStrategy::Compress,
+                    _ => ContextStrategy::None,
+                };
+            }
+        }
+
+        // Extract max_context_tokens: N (ADR-0055)
+        if let Some(mct_pair) = body_children.iter().find(|c| c.as_rule() == Rule::max_context_tokens_line) {
+            if let Some(int_val) = find_child_str(&children_of(mct_pair), Rule::INT) {
+                max_context_tokens = int_val.parse().unwrap_or(2000);
+            }
+        }
     }
 
     Declaration::LearnablePattern(LearnablePatternDecl {
@@ -996,6 +1019,8 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
         return_type,
         prompt,
         context,
+        context_strategy,
+        max_context_tokens,
         model,
         max_tokens,
         cache,

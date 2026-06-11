@@ -230,6 +230,14 @@ struct CompiledLearnable {
     /// - Recall(query_expr, limit): explicit recall
     /// - Literal(string): static text prepended to prompt
     context: Option<ContextMode>,
+    /// Optional context compression strategy (ADR-0055).
+    /// - None: no compression (default)
+    /// - Auto: inject as-is
+    /// - Compress: compress via LLM if exceeds max_context_tokens
+    context_strategy: ContextStrategy,
+    /// Max estimated tokens for context before compression (ADR-0055).
+    /// Default: 2000.
+    max_context_tokens: usize,
     /// Optional max_tokens for LLM backend.
     max_tokens: Option<u32>,
     /// Enable LLM response caching (ADR-0047).
@@ -966,6 +974,8 @@ impl Interpreter {
                             prompt: lp.prompt.clone(),
                             few_shot: Vec::new(),
                             context: lp.context.clone(),
+                            context_strategy: lp.context_strategy.clone(),
+                            max_context_tokens: lp.max_context_tokens,
                             max_tokens: lp.max_tokens,
                             cache: lp.cache,
                             cache_ttl: lp.cache_ttl,
@@ -1222,6 +1232,8 @@ impl Interpreter {
                         prompt: lp.prompt.clone(),
                         few_shot: Vec::new(),
                         context: lp.context.clone(),
+                        context_strategy: lp.context_strategy.clone(),
+                        max_context_tokens: lp.max_context_tokens,
                         max_tokens: lp.max_tokens,
                         cache: lp.cache,
                         cache_ttl: lp.cache_ttl,
@@ -1622,6 +1634,11 @@ impl Interpreter {
     /// - Auto → recall(first_param_value, limit=5) + prepend context
     /// - Recall(query_expr, limit) → evaluate query, recall, prepend context
     /// - Literal(string) → prepend static text as context
+    ///
+    /// ADR-0055: Context compression.
+    /// When context_strategy is Compress and the recalled context exceeds
+    /// max_context_tokens estimated tokens, the facts are compressed via LLM
+    /// summarization before being prepended to the prompt.
     fn build_effective_prompt(&self, learnable: &CompiledLearnable, args: &[Value]) -> String {
         let context_mode = match &learnable.context {
             None => return learnable.prompt.clone(),
@@ -1706,18 +1723,71 @@ impl Interpreter {
                 }
 
                 // Format context block
-                let mut context_block = String::from("Relevant context:\n");
-                for fact in &facts {
-                    context_block.push_str("- ");
-                    context_block.push_str(fact);
-                    context_block.push('\n');
+                let context_block = self.format_context_block(&facts);
+
+                // ADR-0055: Apply compression strategy
+                if learnable.context_strategy == ContextStrategy::Compress {
+                    let estimated_tokens = Self::estimate_tokens(&context_block);
+                    if estimated_tokens > learnable.max_context_tokens {
+                        // Compress: call LLM to summarize the context
+                        let compressed = self.compress_context(&context_block);
+                        return format!("{}\n{}", compressed, learnable.prompt);
+                    }
                 }
 
+                // No compression needed — inject as-is
                 format!("{}\n{}", context_block, learnable.prompt)
             }
             ContextMode::Literal(literal_text) => {
                 // Prepend static literal text as context
                 format!("{}\n{}", literal_text, learnable.prompt)
+            }
+        }
+    }
+
+    /// ADR-0055: Format recalled facts into a context block string.
+    /// Format: "Relevant context:\n- fact1\n- fact2\n..."
+    fn format_context_block(&self, facts: &[String]) -> String {
+        let mut block = String::from("Relevant context:\n");
+        for fact in facts {
+            block.push_str("- ");
+            block.push_str(fact);
+            block.push('\n');
+        }
+        block
+    }
+
+    /// ADR-0055: Estimate token count for a string.
+    /// Uses a rough approximation:
+    /// - English text: ~4 chars per token
+    /// - Cyrillic text: ~2 chars per token
+    /// - Mixed: detect Cyrillic ratio and blend
+    fn estimate_tokens(text: &str) -> usize {
+        Self::estimate_tokens_static(text)
+    }
+
+    /// ADR-0055: Compress a context block via LLM summarization.
+    /// Calls the LLM with a summarization prompt and returns the compressed text.
+    /// If the LLM call fails, returns the original context block (graceful degradation).
+    fn compress_context(&self, context_block: &str) -> String {
+        let backend = llm::create_llm_backend();
+        let summary_prompt = format!(
+            "Summarize the following facts concisely. Retain key information. \
+             Output a single paragraph.\n\n{}",
+            context_block
+        );
+        match backend.call(&summary_prompt, "") {
+            Ok(summary) => {
+                let trimmed = summary.trim().to_string();
+                if trimmed.is_empty() {
+                    context_block.to_string()
+                } else {
+                    format!("Compressed context:\n{}", trimmed)
+                }
+            }
+            Err(_) => {
+                // Graceful degradation: use original context if compression fails
+                context_block.to_string()
             }
         }
     }
@@ -2216,6 +2286,21 @@ impl Interpreter {
     /// Get a reference to the registered learnable patterns (for eval).
     pub fn get_learnable_patterns(&self) -> &HashMap<String, CompiledLearnable> {
         &self.learnable_patterns
+    }
+
+    /// ADR-0055: Public token estimation (static, no interpreter state needed).
+    /// Exposed for contract tests.
+    pub fn estimate_tokens_static(text: &str) -> usize {
+        let total_chars = text.chars().count();
+        if total_chars == 0 {
+            return 0;
+        }
+        let cyrillic_count = text.chars()
+            .filter(|c| *c >= '\u{0400}' && *c <= '\u{04FF}')
+            .count();
+        let cyrillic_ratio = cyrillic_count as f64 / total_chars as f64;
+        let chars_per_token = 4.0 * (1.0 - cyrillic_ratio) + 2.0 * cyrillic_ratio;
+        (total_chars as f64 / chars_per_token).ceil() as usize
     }
 
     // ── inspect() builtin support (ADR-0051) ─────────────────────────────

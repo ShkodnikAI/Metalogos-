@@ -48,6 +48,7 @@ pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::hook_decl => declarations.push(parse_hook_decl(inner_pair)),
                 Rule::mutate_decl => declarations.push(parse_mutate_decl(inner_pair)),
                 Rule::eval_decl => declarations.push(parse_eval_decl(inner_pair)),
+                Rule::conversation_decl => declarations.push(parse_conversation_decl(inner_pair)),
                 Rule::learnable_pattern_decl => declarations.push(parse_learnable_pattern_decl(inner_pair)),
                 Rule::pattern_decl => declarations.push(parse_pattern_decl(inner_pair)),
                 Rule::flow_decl => declarations.push(parse_flow_decl(inner_pair)),
@@ -672,6 +673,35 @@ fn parse_mutate_decl(pair: Pair<Rule>) -> Declaration {
     })
 }
 
+// ── Conversation Config (ADR-0053) ──────────────────────────────────
+
+fn parse_conversation_decl(pair: Pair<Rule>) -> Declaration {
+    let children: Vec<Pair<Rule>> = pair.into_inner()
+        .filter(|c| c.as_rule() == Rule::conversation_body)
+        .flat_map(|c| c.into_inner())
+        .collect();
+
+    let ttl = children.iter()
+        .find(|c| c.as_rule() == Rule::conversation_ttl)
+        .and_then(|c| find_child_str(&children_of(c), Rule::INT))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1800);
+
+    let max_messages = children.iter()
+        .find(|c| c.as_rule() == Rule::conversation_max_messages)
+        .and_then(|c| find_child_str(&children_of(c), Rule::INT))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(50);
+
+    let compress_after = children.iter()
+        .find(|c| c.as_rule() == Rule::conversation_compress_after)
+        .and_then(|c| find_child_str(&children_of(c), Rule::INT))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(20);
+
+    Declaration::Conversation(ConversationDecl { ttl, max_messages, compress_after })
+}
+
 // ── Eval Harness (ADR-0050) ──────────────────────────────────────────
 
 fn parse_eval_decl(pair: Pair<Rule>) -> Declaration {
@@ -791,6 +821,7 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
     let mut max_tokens: Option<u32> = None;
     let mut cache = false;
     let mut cache_ttl: u64 = 3600; // default 1 hour
+    let mut conversation: Option<String> = None;
 
     if let Some(body_pair) = find_child(&children, Rule::learnable_body) {
         let body_children = children_of(&body_pair);
@@ -856,6 +887,16 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
                     }
                 }
                 _ => {}
+            }
+        }
+
+        // Extract conversation: "current" or conversation: <expr> (ADR-0053)
+        if let Some(conv_pair) = body_children.iter().find(|c| c.as_rule() == Rule::conversation_line) {
+            let conv_children = children_of(conv_pair);
+            if let Some(expr_pair) = conv_children.iter().find(|c| c.as_rule() == Rule::expression) {
+                if let Expr::StringLit(s) = parse_expression(expr_pair.clone()) {
+                    conversation = Some(s);
+                }
             }
         }
 
@@ -927,6 +968,7 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
         max_tokens,
         cache,
         cache_ttl,
+        conversation,
     })
 }
 

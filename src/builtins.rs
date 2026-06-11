@@ -53,8 +53,10 @@ impl Builtins {
 
         // Phase 6.1 — HTTP server stubs
         funcs.insert("respond".to_string(), builtin_respond as BuiltinFn);
+        funcs.insert("respond_html".to_string(), builtin_respond_html as BuiltinFn);
         funcs.insert("form_data".to_string(), builtin_form_data as BuiltinFn);
         funcs.insert("json_body".to_string(), builtin_json_body as BuiltinFn);
+        funcs.insert("query_param".to_string(), builtin_query_param as BuiltinFn);
 
         // Phase 6.2 — Template stubs
         funcs.insert("render".to_string(), builtin_render as BuiltinFn);
@@ -124,6 +126,7 @@ impl Builtins {
 
         // Phase 7.7 — new builtins for department modularity
         funcs.insert("parse_json".to_string(), builtin_parse_json as BuiltinFn);
+        funcs.insert("json_encode".to_string(), builtin_json_encode as BuiltinFn);
         funcs.insert("http_get".to_string(), builtin_http_get as BuiltinFn);
         funcs.insert("now".to_string(), builtin_now as BuiltinFn);
 
@@ -236,7 +239,7 @@ fn builtin_index_of(args: &[Value]) -> Result<Value, String> {
     // Must be consistent with substring()/char_at() which use char indices.
     let char_pos = haystack
         .char_indices()
-        .find(|(byte_idx, _)| haystack[byte_idx..].starts_with(&needle))
+        .find(|(byte_idx, _)| haystack[*byte_idx..].starts_with(&needle))
         .map(|(byte_idx, _)| haystack[..byte_idx].chars().count());
     match char_pos {
         Some(pos) => Ok(Value::Float(pos as f64)),
@@ -442,6 +445,17 @@ fn builtin_respond(args: &[Value]) -> Result<Value, String> {
     Ok(Value::HttpResponse { status, body })
 }
 
+/// respond_html(status, html) — respond with HTML content.
+/// In server context, value_to_response converts HttpResponse to Axum response.
+/// The Html variant would auto-set Content-Type, but FOSVED uses respond_html("200", ...)
+/// with return, so HttpResponse is the correct type here — the server sets Content-Type.
+fn builtin_respond_html(args: &[Value]) -> Result<Value, String> {
+    let status_str = expect_string_arg("respond_html", args, 0)?;
+    let html = expect_string_arg("respond_html", args, 1)?;
+    let (status, _) = parse_status_line(&status_str);
+    Ok(Value::HtmlResponse { status, body: html })
+}
+
 fn builtin_form_data(args: &[Value]) -> Result<Value, String> {
     let _ = args; // no args needed
     // In non-server context, return empty form data struct
@@ -458,6 +472,22 @@ fn builtin_json_body(args: &[Value]) -> Result<Value, String> {
         type_name: "JsonBody".to_string(),
         fields: std::collections::HashMap::new(),
     })
+}
+
+/// query_param(name) — stub that returns empty string.
+/// Real implementation is handled in interpreter.rs FnCall dispatch
+/// (needs access to server_query_params HashMap on the interpreter).
+fn builtin_query_param(args: &[Value]) -> Result<Value, String> {
+    let _name = if args.is_empty() {
+        return Err("query_param() requires 1 argument (param name)".to_string());
+    } else {
+        match &args[0] {
+            Value::String(s) => s.clone(),
+            other => return Err(format!("query_param() expected String, got {}", other.type_name())),
+        }
+    };
+    // Stub — real implementation is special-cased in interpreter FnCall dispatch
+    Ok(Value::String(String::new()))
 }
 
 // ── Phase 6.2 — Template stubs ───────────────────────────
@@ -728,8 +758,9 @@ fn builtin_send_message(args: &[Value]) -> Result<Value, String> {
 // ── Outgoing HTTP (Definition of Done: http_post) ─────────────────
 
 /// Send an HTTP POST request. Returns the response body as String.
-/// Usage: http_post(url, body, content_type, headers_json)
-///   headers_json is optional — a JSON object string like '{"Authorization": "Bearer sk-xxx"}'
+/// Usage: http_post(url, body, content_type)
+/// Usage: http_post(url, body, content_type, auth_token)        — sets Authorization: Bearer <auth_token>
+/// Usage: http_post(url, body, content_type, headers_struct)    — sets headers from Struct fields
 /// Наряд №12 Bug 2: Added 4th parameter for authorization headers.
 fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
     let url = match args.get(0) {
@@ -749,48 +780,36 @@ fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
         _ => "application/json".to_string(),
     };
 
-    // Наряд №12 Bug 2: Parse optional 4th argument as headers JSON object.
-    // Example: http_post(url, body, "application/json", "{\"Authorization\": \"Bearer sk-xxx\"}")
-    let extra_headers: std::collections::HashMap<String, String> = if args.len() > 3 {
-        match &args[3] {
-            Value::String(s) => {
-                serde_json::from_str(s).map_err(|e| {
-                    format!("http_post() 4th arg must be a JSON object string: {}", e)
-                })?
-            }
-            Value::Struct { fields, .. } => {
-                fields.iter()
-                    .map(|(k, v)| Ok((k.clone(), format!("{}", v))))
-                    .collect::<Result<_, String>>()?
-            }
-            other => return Err(format!(
-                "http_post() 4th arg must be String (JSON) or Struct, got {}",
-                other.type_name()
-            )),
-        }
-    } else {
-        std::collections::HashMap::new()
-    };
-
-    // Check sandbox network restriction
-    // (If active sandbox has "network" in forbidden, block the request)
-    // Note: sandbox check is done in interpreter's FnCall handling for builtins
-    // via the normal sandbox enforcement path. Here we just make the call.
 
     let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| format!("http_post(): failed to create client: {}", e))?;
 
-    // Build request with Content-Type and optional extra headers
+
     let mut req = client
         .post(&url)
         .header("Content-Type", &content_type)
         .body(body);
 
-    // Apply extra headers (e.g., Authorization)
-    for (key, val) in &extra_headers {
-        req = req.header(key.as_str(), val.as_str());
+    // Optional 4th argument: headers (Наряд №12 Bug 2)
+    // String: treat as Bearer token; Struct: set headers from fields
+    if let Some(headers_arg) = args.get(3) {
+        match headers_arg {
+            Value::String(auth_token) => {
+                if !auth_token.is_empty() {
+                    req = req.header("Authorization", format!("Bearer {}", auth_token));
+                }
+            }
+            Value::Struct { fields, .. } => {
+                for (key, val) in fields {
+                    if let Value::String(v) = val {
+                        req = req.header(key.as_str(), v.as_str());
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     let resp = req
@@ -903,6 +922,41 @@ fn json_value_to_mlog_value(json: &serde_json::Value) -> Value {
             Value::Struct { type_name: "Json".to_string(), fields }
         }
     }
+}
+
+/// Convert METALOGOS Value to serde_json::Value (reverse of json_value_to_mlog_value).
+fn mlog_value_to_json(val: &Value) -> serde_json::Value {
+    match val {
+        Value::String(s) => serde_json::Value::String(s.clone()),
+        Value::Float(f) => serde_json::json!(*f),
+        Value::Bool(b) => serde_json::Value::Bool(*b),
+        Value::Unit => serde_json::Value::Null,
+        Value::List(items) => {
+            serde_json::Value::Array(items.iter().map(|v| mlog_value_to_json(v)).collect())
+        }
+        Value::Struct { fields, .. } => {
+            let mut map = serde_json::Map::new();
+            for (k, v) in fields {
+                map.insert(k.clone(), mlog_value_to_json(v));
+            }
+            serde_json::Value::Object(map)
+        }
+        // Opaque/internal types: convert to string representation
+        other => serde_json::Value::String(format!("{}", other)),
+    }
+}
+
+/// Serialize a Value to a JSON string.
+/// Usage: json_encode(value) -> String
+/// Supports: String, Float, Bool, Unit->null, List->array, Struct->object
+fn builtin_json_encode(args: &[Value]) -> Result<Value, String> {
+    if args.is_empty() {
+        return Err("json_encode() requires 1 argument".to_string());
+    }
+    let json = mlog_value_to_json(&args[0]);
+    let serialized = serde_json::to_string(&json)
+        .map_err(|e| format!("json_encode() serialization error: {}", e))?;
+    Ok(Value::String(serialized))
 }
 
 /// Send an HTTP GET request. Returns the response body as String.
@@ -1080,20 +1134,22 @@ pub fn init_kv_persist(db_path: &str) -> Result<(), String> {
     ).map_err(|e| format!("[kv_store] Failed to create table: {}", e))?;
 
     // Load existing KV pairs into in-memory HashMap (write-through cache warmup)
-    let mut stmt = conn.prepare("SELECT key, value FROM kv_store")
-        .map_err(|e| format!("[kv_store] Failed to query: {}", e))?;
-    let rows: Vec<(String, String)> = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-    }).map_err(|e| format!("[kv_store] Failed to iterate: {}", e))?
-    .filter_map(|r| r.ok())
-    .collect();
+    {
+        let mut stmt = conn.prepare("SELECT key, value FROM kv_store")
+            .map_err(|e| format!("[kv_store] Failed to query: {}", e))?;
+        let rows: Vec<(String, String)> = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }).map_err(|e| format!("[kv_store] Failed to iterate: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
 
-    // Merge into in-memory store (SQLite is authoritative on init)
-    if let Ok(mut store) = kv_store().lock() {
-        for (key, value) in rows {
-            store.insert(key, value);
+        // Merge into in-memory store (SQLite is authoritative on init)
+        if let Ok(mut store) = kv_store().lock() {
+            for (key, value) in rows {
+                store.insert(key, value);
+            }
         }
-    }
+    } // stmt is dropped here, releasing borrow on conn
 
     // Store the connection globally
     let mut sqlite_guard = kv_sqlite().lock()
@@ -1114,7 +1170,7 @@ fn builtin_kv_set(args: &[Value]) -> Result<Value, String> {
     let mut store = kv_store().lock().map_err(|e| format!("kv_set() lock error: {}", e))?;
     store.insert(key.clone(), value.clone());
     // Write-through to SQLite if available
-    if let Ok(mut sqlite_guard) = kv_sqlite().lock() {
+    if let Ok(sqlite_guard) = kv_sqlite().lock() {
         if let Some(ref conn) = *sqlite_guard {
             let _ = conn.execute(
                 "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?1, ?2)",
@@ -1138,7 +1194,7 @@ fn builtin_kv_delete(args: &[Value]) -> Result<Value, String> {
     let mut store = kv_store().lock().map_err(|e| format!("kv_delete() lock error: {}", e))?;
     store.remove(&key);
     // Write-through delete to SQLite if available
-    if let Ok(mut sqlite_guard) = kv_sqlite().lock() {
+    if let Ok(sqlite_guard) = kv_sqlite().lock() {
         if let Some(ref conn) = *sqlite_guard {
             let _ = conn.execute("DELETE FROM kv_store WHERE key = ?1", rusqlite::params![key]);
         }
@@ -1178,7 +1234,7 @@ fn builtin_mem_set(args: &[Value]) -> Result<Value, String> {
     let mut store = kv_store().lock().map_err(|e| format!("mem_set() lock error: {}", e))?;
     store.insert(key.clone(), value.clone());
     // Write-through to SQLite if available
-    if let Ok(mut sqlite_guard) = kv_sqlite().lock() {
+    if let Ok(sqlite_guard) = kv_sqlite().lock() {
         if let Some(ref conn) = *sqlite_guard {
             let _ = conn.execute(
                 "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?1, ?2)",
@@ -1203,7 +1259,7 @@ fn builtin_mem_delete(args: &[Value]) -> Result<Value, String> {
     let mut store = kv_store().lock().map_err(|e| format!("mem_delete() lock error: {}", e))?;
     let removed = store.remove(&key);
     // Write-through delete to SQLite if available
-    if let Ok(mut sqlite_guard) = kv_sqlite().lock() {
+    if let Ok(sqlite_guard) = kv_sqlite().lock() {
         if let Some(ref conn) = *sqlite_guard {
             let _ = conn.execute("DELETE FROM kv_store WHERE key = ?1", rusqlite::params![key]);
         }
@@ -1277,12 +1333,12 @@ fn builtin_session_get(args: &[Value]) -> Result<Value, String> {
 }
 
 /// `session_clear(session_id)` — remove all keys for a session.
-/// Returns Unit. No-op if session doesn't exist.
+/// Returns "ok". No-op if session doesn't exist.
 fn builtin_session_clear(args: &[Value]) -> Result<Value, String> {
     let session_id = expect_string_arg("session_clear", args, 0)?;
     let mut store = session_store().lock().map_err(|e| format!("session_clear() lock error: {}", e))?;
     store.remove(&session_id);
-    Ok(Value::Unit)
+    Ok(Value::String("ok".to_string()))
 }
 
 // ── v0.5.0 — File I/O builtins (sandboxed) ──────────────────

@@ -693,7 +693,7 @@ fn parse_eval_decl(pair: Pair<Rule>) -> Declaration {
                 .filter(|c| c.as_rule() == Rule::eval_example)
                 .collect();
             for ex_pair in examples {
-                let strings: Vec<&Pair<Rule>> = ex_pair.clone().into_inner()
+                let strings: Vec<Pair<Rule>> = ex_pair.clone().into_inner()
                     .filter(|c| c.as_rule() == Rule::STRING_LITERAL)
                     .collect();
                 let input = if strings.len() >= 1 {
@@ -801,6 +801,7 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
             let exprs: Vec<Expr> = ctx_children.iter()
                 .filter(|c| c.as_rule() == Rule::expression)
                 .cloned()
+                .map(|p| parse_expression(p))
                 .collect();
             // The first expression is the query; the second (if present) is the limit
             if !exprs.is_empty() {
@@ -852,6 +853,7 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
             let exprs: Vec<Expr> = ttl_children.iter()
                 .filter(|c| c.as_rule() == Rule::expression)
                 .cloned()
+                .map(|p| parse_expression(p))
                 .collect();
             let unit_ident = ttl_children.iter()
                 .filter(|c| c.as_rule() == Rule::IDENT)
@@ -924,8 +926,10 @@ fn parse_pattern_body(pair: Pair<Rule>) -> Vec<Statement> {
 /// Parse a single statement from its rule pair.
 fn parse_single_statement(pair: Pair<Rule>) -> Statement {
     let children = children_of(&pair);
-    // statement = { if_block_stmt | each_stmt | while_stmt | let_binding | assign_stmt | return_stmt }
-    if let Some(ib_pair) = children.iter().find(|c| c.as_rule() == Rule::if_block_stmt) {
+    // statement = { match_stmt | if_block_stmt | each_stmt | while_stmt | let_binding | assign_or_expr | return_stmt }
+    if let Some(m_pair) = children.iter().find(|c| c.as_rule() == Rule::match_stmt) {
+        return parse_match_stmt(m_pair.clone());
+    } else if let Some(ib_pair) = children.iter().find(|c| c.as_rule() == Rule::if_block_stmt) {
         parse_if_block_stmt(ib_pair.clone())
     } else if let Some(each_pair) = children.iter().find(|c| c.as_rule() == Rule::each_stmt) {
         let each_children: Vec<Pair<Rule>> = each_pair.clone().into_inner().collect();
@@ -951,34 +955,176 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
         let name = find_child_str(&lb_children, Rule::IDENT).unwrap_or_default();
         let expr = find_child(&lb_children, Rule::expression).unwrap();
         Statement::LetBinding { name, value: parse_expression(expr) }
-    } else if let Some(as_pair) = children.iter().find(|c| c.as_rule() == Rule::assign_stmt) {
-        let as_children = children_of(as_pair);
-        // assign_stmt = { IDENT ~ ASSIGN ~ expression }
-        let name = find_child_str(&as_children, Rule::IDENT).unwrap_or_default();
-        let expr = find_child(&as_children, Rule::expression).unwrap();
-        Statement::Assign { name, value: parse_expression(expr) }
+    } else if let Some(ae_pair) = children.iter().find(|c| c.as_rule() == Rule::assign_or_expr) {
+        // assign_or_expr = { IDENT ~ ASSIGN ~ expression | expression }
+        let ae_children: Vec<Pair<Rule>> = ae_pair.clone().into_inner().collect();
+        // Check if this is an assignment (has IDENT + expression) or expression
+        let has_assign = ae_children.iter().any(|c| c.as_rule() == Rule::ASSIGN);
+        if has_assign {
+            let name = pair_str(&ae_children[0]); // IDENT is first
+            let expr = ae_children.iter().find(|c| c.as_rule() == Rule::expression)
+                .cloned().expect("assign_or_expr assignment must have expression");
+            Statement::Assign { name, value: parse_expression(expr) }
+        } else {
+            // Expression statement (function call, etc.)
+            let expr = ae_children.iter().find(|c| c.as_rule() == Rule::expression)
+                .cloned().expect("assign_or_expr expression must have expression");
+            Statement::ExprStmt(parse_expression(expr))
+        }
     } else if let Some(rs_pair) = children.iter().find(|c| c.as_rule() == Rule::return_stmt) {
         let rs_children = children_of(rs_pair);
         let expr = find_child(&rs_children, Rule::expression).unwrap();
         Statement::Return(parse_expression(expr))
     } else if let Some(it_pair) = children.iter().find(|c| c.as_rule() == Rule::if_then_stmt) {
+        // if_then_stmt with optional else: "if expr then { ... } [else if expr then { ... }]* [else { ... }]"
         let it_children: Vec<Pair<Rule>> = it_pair.clone().into_inner().collect();
-        // if_then_stmt = { "if" ~ expression ~ "then" ~ "{" ~ statement* ~ "}" }
         let condition = parse_expression(it_children.iter().find(|c| c.as_rule() == Rule::expression).cloned().unwrap());
         let body: Vec<Statement> = it_children.iter()
             .filter(|c| c.as_rule() == Rule::statement)
             .map(|c| parse_single_statement(c.clone()))
             .collect();
-        Statement::IfThen(Box::new(condition), body)
-    } else if let Some(_) = children.iter().find(|c| c.as_rule() == Rule::expr_stmt) {
-        // Bare expression statement: respond("ok"), http_post(...), etc.
-        let expr = find_child(&children, Rule::expression).unwrap();
+
+        // Check for else_if_then_block and else blocks
+        let mut else_ifs = Vec::new();
+        let mut else_body: Option<Vec<Statement>> = None;
+        let mut in_else = false;
+
+        for child in &it_children {
+            match child.as_rule() {
+                Rule::else_if_then_block => {
+                    let ei_children = children_of(child);
+                    let ei_condition = ei_children.iter()
+                        .find(|c| c.as_rule() == Rule::expression)
+                        .map(|c| parse_expression(c.clone()))
+                        .unwrap_or_else(|| Expr::BoolLit(true));
+                    let ei_body: Vec<Statement> = ei_children.iter()
+                        .filter(|c| c.as_rule() == Rule::statement)
+                        .map(|c| parse_single_statement(c.clone()))
+                        .collect();
+                    else_ifs.push((ei_condition, ei_body));
+                }
+                Rule::statement => {
+                    if in_else {
+                        if else_body.is_none() {
+                            else_body = Some(Vec::new());
+                        }
+                        if let Some(ref mut eb) = else_body {
+                            eb.push(parse_single_statement(child.clone()));
+                        }
+                    }
+                }
+                _ => {
+                    if child.as_str().trim() == "else" {
+                        in_else = true;
+                    }
+                }
+            }
+        }
+
+        if else_ifs.is_empty() && else_body.is_none() {
+            Statement::IfThen(Box::new(condition), body)
+        } else {
+            Statement::IfElseBlock { condition, then_body: body, else_ifs, else_body }
+        }
+    } else if let Some(es_pair) = children.iter().find(|c| c.as_rule() == Rule::expr_stmt) {
+        // Legacy expr_stmt fallback (shouldn't normally be reached with assign_or_expr)
+        let expr = es_pair.clone().into_inner().find(|c| c.as_rule() == Rule::expression)
+            .expect("expr_stmt must contain expression");
         Statement::ExprStmt(parse_expression(expr))
+    } else if let Some(as_pair) = children.iter().find(|c| c.as_rule() == Rule::assign_stmt) {
+        // Legacy assign_stmt fallback
+        let as_children = children_of(as_pair);
+        let name = find_child_str(&as_children, Rule::IDENT).unwrap_or_default();
+        let expr = find_child(&as_children, Rule::expression).unwrap();
+        Statement::Assign { name, value: parse_expression(expr) }
     } else {
         // Fallback: direct expression child (legacy)
-        let expr = find_child(&children, Rule::expression).unwrap();
+        let expr = find_child(&children, Rule::expression)
+            .expect(&format!("unrecognized statement: '{}'", pair.as_str()));
         Statement::Return(parse_expression(expr))
     }
+}
+
+/// Parse a match statement: `match expr { "val" then { stmts } else { stmts } }`
+/// Extended P1-1: supports exact, starts_with, contains, and comparison arms.
+fn parse_match_stmt(pair: Pair<Rule>) -> Statement {
+    let children: Vec<Pair<Rule>> = pair.clone().into_inner().collect();
+    // children: expression, match_arm*, match_else?
+    let target = children.iter()
+        .find(|c| c.as_rule() == Rule::expression)
+        .map(|c| parse_expression(c.clone()))
+        .unwrap_or_else(|| Expr::StringLit(String::new()));
+
+    let mut arms: Vec<(MatchArm, Vec<Statement>)> = Vec::new();
+    let mut else_body: Option<Vec<Statement>> = None;
+
+    for child in &children {
+        match child.as_rule() {
+            Rule::match_arm_exact => {
+                let arm_children: Vec<Pair<Rule>> = child.clone().into_inner().collect();
+                let value = arm_children.iter()
+                    .find(|c| c.as_rule() == Rule::STRING_LITERAL)
+                    .map(|c| unescape_string(c.as_str()))
+                    .unwrap_or_default();
+                let body: Vec<Statement> = arm_children.iter()
+                    .filter(|c| c.as_rule() == Rule::statement)
+                    .map(|c| parse_single_statement(c.clone()))
+                    .collect();
+                arms.push((MatchArm::Exact(value), body));
+            }
+            Rule::match_arm_starts => {
+                let arm_children: Vec<Pair<Rule>> = child.clone().into_inner().collect();
+                let prefix = arm_children.iter()
+                    .find(|c| c.as_rule() == Rule::STRING_LITERAL)
+                    .map(|c| unescape_string(c.as_str()))
+                    .unwrap_or_default();
+                let body: Vec<Statement> = arm_children.iter()
+                    .filter(|c| c.as_rule() == Rule::statement)
+                    .map(|c| parse_single_statement(c.clone()))
+                    .collect();
+                arms.push((MatchArm::StartsWith(prefix), body));
+            }
+            Rule::match_arm_contains => {
+                let arm_children: Vec<Pair<Rule>> = child.clone().into_inner().collect();
+                let substr = arm_children.iter()
+                    .find(|c| c.as_rule() == Rule::STRING_LITERAL)
+                    .map(|c| unescape_string(c.as_str()))
+                    .unwrap_or_default();
+                let body: Vec<Statement> = arm_children.iter()
+                    .filter(|c| c.as_rule() == Rule::statement)
+                    .map(|c| parse_single_statement(c.clone()))
+                    .collect();
+                arms.push((MatchArm::Contains(substr), body));
+            }
+            Rule::match_arm_compare => {
+                let arm_children: Vec<Pair<Rule>> = child.clone().into_inner().collect();
+                let op_pair = arm_children.iter()
+                    .find(|c| c.as_rule() == Rule::compare_op)
+                    .cloned();
+                let expr_pair = arm_children.iter()
+                    .find(|c| c.as_rule() == Rule::expression)
+                    .cloned();
+                let op = op_pair.map(|p| parse_compare_op(&p)).unwrap_or(CompareOp::Gt);
+                let expr = expr_pair.map(|p| parse_expression(p)).unwrap_or(Expr::FloatLit(0.0));
+                let body: Vec<Statement> = arm_children.iter()
+                    .filter(|c| c.as_rule() == Rule::statement)
+                    .map(|c| parse_single_statement(c.clone()))
+                    .collect();
+                arms.push((MatchArm::Compare(op, expr), body));
+            }
+            Rule::match_else => {
+                let else_children: Vec<Pair<Rule>> = child.clone().into_inner().collect();
+                let body: Vec<Statement> = else_children.iter()
+                    .filter(|c| c.as_rule() == Rule::statement)
+                    .map(|c| parse_single_statement(c.clone()))
+                    .collect();
+                else_body = Some(body);
+            }
+            _ => {}
+        }
+    }
+
+    Statement::Match { target, arms, else_body }
 }
 
 /// Parse a block-style if statement: `if expr { stmts } else if expr { stmts } else { stmts }`
@@ -1215,14 +1361,6 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
                 i += 1;
             }
             base
-        }
-        // Legacy: field_expr still matched by Pest as access_expr in some cases
-        Rule::field_expr => {
-            let children = children_of(&pair);
-            Expr::FieldAccess(
-                Box::new(parse_expression(children[0].clone())),
-                pair_str(&children[1]),
-            )
         }
         Rule::qualified_call_expr => {
             let children = children_of(&pair);

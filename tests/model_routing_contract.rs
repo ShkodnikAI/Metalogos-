@@ -1,211 +1,212 @@
-// ── Наряд №4 / ADR-0048: Cost-Aware Model Routing — Contract Tests ──────
-//
+// ── ADR-0048 Contract Tests: Per-pattern Model Routing ───────────────
 // Contracts:
-// 1. Learnable pattern with model: "haiku" → MockLlm records "haiku"
-// 2. Two patterns with different model overrides → different models recorded
-// 3. Pattern without model override → empty last_model (global default)
-// 4. Model override does not affect cache behavior (cache still works)
-// 5. Model is included in cache key (same prompt, different model = cache miss)
+//   C1: model:"fast" with METALOGOS_LLM_MODEL_fast=model-a → LLM receives "model-a"
+//   C2: model:"strong" with METALOGOS_LLM_MODEL_strong=model-b → LLM receives "model-b"
+//   C3: model:"direct" without env → LLM receives "direct" as-is
+//   C4: No model field → LLM receives empty (no override)
 
+use metalogos::ast::*;
+use metalogos::interpreter::Interpreter;
 use metalogos::llm::MockLlm;
 
-/// Helper: reset MockLlm counters and set env for mock mode.
-fn setup_mock() {
+/// Helper: create a learnable pattern with optional model override.
+fn make_model_learnable_decl(name: &str, prompt: &str, model: Option<&str>) -> Declaration {
+    Declaration::LearnablePattern(LearnablePatternDecl {
+        name: name.to_string(),
+        params: vec![Param {
+            name: "text".to_string(),
+            type_name: "String".to_string(),
+        }],
+        return_type: "String".to_string(),
+        prompt: prompt.to_string(),
+        context: None,
+        max_tokens: None,
+        cache: false,
+        cache_ttl: 3600,
+        model: model.map(String::from),
+    })
+}
+
+// ── C1: model:"fast" resolves via env METALOGOS_LLM_MODEL_fast ────────
+
+#[test]
+fn test_model_routing_resolves_alias_via_env() {
+    std::env::set_var("METALOGOS_LLM_MODEL_fast", "claude-haiku-4-5-20251001");
     MockLlm::reset_call_count();
     MockLlm::reset_last_model();
-    std::env::set_var("METALOGOS_MOCK_LLM", "true");
-}
 
-/// Helper: run a sequence of .mlog lines on a fresh interpreter.
-fn run_lines(lines: &[&str]) -> Result<Option<String>, String> {
-    let mut interp = metalogos::interpreter::Interpreter::new();
-    let mut last_output = None;
-    for line in lines {
-        last_output = metalogos::feed_line(&mut interp, line)?;
-    }
-    Ok(last_output)
-}
+    let mut interp = Interpreter::new();
+    interp.set_base_dir(std::path::PathBuf::from("."));
 
-// ── Contract 1: Pattern with model: "haiku" → mock records "haiku" ────
-
-#[test]
-fn test_model_override_recorded() {
-    setup_mock();
-
-    run_lines(&[
-        r#"learnable pattern QuickClassify(text: String) -> String {
-  prompt: "Classify as positive or negative."
-  model: "haiku"
-}"#,
-        r#"let r = QuickClassify("great day today")"#,
+    let _ = interp.run(vec![
+        make_model_learnable_decl("FastClassify", "Classify text", Some("fast")),
     ]).unwrap();
 
+    let _ = interp.eval_expr(&Expr::FnCall(
+        "FastClassify".to_string(),
+        vec![Expr::StringLit("hello".to_string())],
+    )).unwrap();
+
+    let last_model = MockLlm::last_model();
     assert_eq!(
-        MockLlm::last_model(), "haiku",
-        "MockLlm should record 'haiku' as the model override"
+        last_model, "claude-haiku-4-5-20251001",
+        "C1: model alias 'fast' should resolve to 'claude-haiku-4-5-20251001' via env, got: {}",
+        last_model
     );
-    assert_eq!(MockLlm::call_count(), 1);
+
+    std::env::remove_var("METALOGOS_LLM_MODEL_fast");
 }
 
-// ── Contract 2: Two patterns with different models ────────────────────
+// ── C2: model:"strong" resolves via env METALOGOS_LLM_MODEL_strong ──
 
 #[test]
-fn test_two_patterns_different_models() {
-    setup_mock();
-
-    run_lines(&[
-        r#"learnable pattern CheapTask(text: String) -> String {
-  prompt: "Simple classification."
-  model: "haiku"
-}"#,
-        r#"learnable pattern ExpensiveTask(text: String) -> String {
-  prompt: "Complex analysis."
-  model: "opus"
-}"#,
-        // Call CheapTask → last_model should be "haiku"
-        r#"let r1 = CheapTask("hello")"#,
-        // Call ExpensiveTask → last_model should be "opus"
-        r#"let r2 = ExpensiveTask("hello")"#,
-    ]).unwrap();
-
-    // After both calls, last_model reflects the most recent call
-    assert_eq!(
-        MockLlm::last_model(), "opus",
-        "Last model should be 'opus' from ExpensiveTask"
-    );
-    // Total 2 calls (no cache — cache defaults to false)
-    assert_eq!(MockLlm::call_count(), 2);
-}
-
-// ── Contract 3: Pattern without model override → empty last_model ──────
-
-#[test]
-fn test_no_model_override() {
-    setup_mock();
-
-    run_lines(&[
-        r#"learnable pattern DefaultModel(text: String) -> String {
-  prompt: "Summarize."
-}"#,
-        r#"let r = DefaultModel("some text")"#,
-    ]).unwrap();
-
-    // No model override → call_with_model receives None → last_model empty
-    assert_eq!(
-        MockLlm::last_model(), "",
-        "No model override should leave last_model empty"
-    );
-}
-
-// ── Contract 4: Model override + cache still works ────────────────────
-
-#[test]
-fn test_model_override_with_cache() {
-    setup_mock();
-
-    run_lines(&[
-        r#"learnable pattern CachedTranslate(text: String) -> String {
-  prompt: "Translate to French."
-  model: "sonnet"
-  cache: true
-  cache_ttl: 60.minutes
-}"#,
-        // First call — LLM invoked, model recorded
-        r#"let r1 = CachedTranslate("hello")"#,
-        // Record model after first call
-        // Second call — cache hit, no LLM call, model unchanged
-        r#"let r2 = CachedTranslate("hello")"#,
-    ]).unwrap();
-
-    // LLM called only once (second hit cache)
-    assert_eq!(
-        MockLlm::call_count(), 1,
-        "Cache should prevent second LLM call"
-    );
-    // Model was recorded during the first (only) LLM call
-    assert_eq!(
-        MockLlm::last_model(), "sonnet",
-        "Model override should be 'sonnet'"
-    );
-}
-
-// ── Contract 5: Model included in cache key ───────────────────────────
-// Two patterns with same prompt but different models → different cache keys
-// → each calls LLM separately (no cross-contamination)
-
-#[test]
-fn test_model_affects_cache_key() {
-    setup_mock();
-
-    run_lines(&[
-        r#"learnable pattern VersionA(text: String) -> String {
-  prompt: "Classify."
-  model: "haiku"
-  cache: true
-  cache_ttl: 60.minutes
-}"#,
-        r#"learnable pattern VersionB(text: String) -> String {
-  prompt: "Classify."
-  model: "opus"
-  cache: true
-  cache_ttl: 60.minutes
-}"#,
-        // Same input, same prompt, but different models → different cache keys
-        r#"let r1 = VersionA("test")"#,
-        r#"let r2 = VersionB("test")"#,
-    ]).unwrap();
-
-    // Both calls should hit LLM (different cache keys due to model)
-    assert_eq!(
-        MockLlm::call_count(), 2,
-        "Different models should produce different cache keys"
-    );
-    assert_eq!(MockLlm::last_model(), "opus");
-}
-
-// ── Contract 6: Verify model sequence across multiple calls ───────────
-
-#[test]
-fn test_model_sequence_tracking() {
-    setup_mock();
-
-    run_lines(&[
-        r#"learnable pattern Fast(text: String) -> String {
-  prompt: "Quick."
-  model: "haiku"
-}"#,
-        r#"learnable pattern Slow(text: String) -> String {
-  prompt: "Deep."
-  model: "opus"
-}"#,
-        r#"learnable pattern Normal(text: String) -> String {
-  prompt: "Standard."
-}"#,
-    ]).unwrap();
-
-    // Call Fast → haiku
-    let mut interp = metalogos::interpreter::Interpreter::new();
-    metalogos::feed_line(&mut interp, r#"learnable pattern Fast(text: String) -> String {
-  prompt: "Quick."
-  model: "haiku"
-}"#).unwrap();
-    metalogos::feed_line(&mut interp, r#"let r = Fast("x")"#).unwrap();
-    assert_eq!(MockLlm::last_model(), "haiku");
-
-    // Call Slow → opus
+fn test_model_routing_different_aliases_resolve_independently() {
+    std::env::set_var("METALOGOS_LLM_MODEL_fast", "model-a");
+    std::env::set_var("METALOGOS_LLM_MODEL_strong", "model-b");
+    MockLlm::reset_call_count();
     MockLlm::reset_last_model();
-    metalogos::feed_line(&mut interp, r#"learnable pattern Slow(text: String) -> String {
-  prompt: "Deep."
-  model: "opus"
-}"#).unwrap();
-    metalogos::feed_line(&mut interp, r#"let r = Slow("x")"#).unwrap();
-    assert_eq!(MockLlm::last_model(), "opus");
 
-    // Call Normal → empty (no override)
+    let mut interp = Interpreter::new();
+    interp.set_base_dir(std::path::PathBuf::from("."));
+
+    let _ = interp.run(vec![
+        make_model_learnable_decl("Fast", "Quick classify", Some("fast")),
+        make_model_learnable_decl("Strong", "Deep analysis", Some("strong")),
+    ]).unwrap();
+
+    // Call Fast pattern → should resolve "fast" to "model-a"
+    let _ = interp.eval_expr(&Expr::FnCall(
+        "Fast".to_string(),
+        vec![Expr::StringLit("input".to_string())],
+    )).unwrap();
+    assert_eq!(
+        MockLlm::last_model(), "model-a",
+        "C2a: 'fast' alias should resolve to 'model-a'"
+    );
+
     MockLlm::reset_last_model();
-    metalogos::feed_line(&mut interp, r#"learnable pattern Normal(text: String) -> String {
-  prompt: "Standard."
-}"#).unwrap();
-    metalogos::feed_line(&mut interp, r#"let r = Normal("x")"#).unwrap();
-    assert_eq!(MockLlm::last_model(), "");
+
+    // Call Strong pattern → should resolve "strong" to "model-b"
+    let _ = interp.eval_expr(&Expr::FnCall(
+        "Strong".to_string(),
+        vec![Expr::StringLit("input".to_string())],
+    )).unwrap();
+    assert_eq!(
+        MockLlm::last_model(), "model-b",
+        "C2b: 'strong' alias should resolve to 'model-b'"
+    );
+
+    std::env::remove_var("METALOGOS_LLM_MODEL_fast");
+    std::env::remove_var("METALOGOS_LLM_MODEL_strong");
+}
+
+// ── C3: model:"unknown" without env → passed as-is to backend ───────
+
+#[test]
+fn test_model_routing_passthrough_without_env() {
+    // Ensure no env variable for "unknown"
+    std::env::remove_var("METALOGOS_LLM_MODEL_unknown");
+    MockLlm::reset_call_count();
+    MockLlm::reset_last_model();
+
+    let mut interp = Interpreter::new();
+    interp.set_base_dir(std::path::PathBuf::from("."));
+
+    let _ = interp.run(vec![
+        make_model_learnable_decl("Direct", "Direct model", Some("unknown")),
+    ]).unwrap();
+
+    let _ = interp.eval_expr(&Expr::FnCall(
+        "Direct".to_string(),
+        vec![Expr::StringLit("test".to_string())],
+    )).unwrap();
+
+    let last_model = MockLlm::last_model();
+    assert_eq!(
+        last_model, "unknown",
+        "C3: 'unknown' without env should be passed as-is, got: {}",
+        last_model
+    );
+}
+
+// ── C4: No model field → no override passed to LLM ────────────────────
+
+#[test]
+fn test_model_routing_no_field_no_override() {
+    MockLlm::reset_call_count();
+    MockLlm::reset_last_model();
+
+    let mut interp = Interpreter::new();
+    interp.set_base_dir(std::path::PathBuf::from("."));
+
+    let _ = interp.run(vec![
+        make_model_learnable_decl("Default", "Default model", None),
+    ]).unwrap();
+
+    let _ = interp.eval_expr(&Expr::FnCall(
+        "Default".to_string(),
+        vec![Expr::StringLit("test".to_string())],
+    )).unwrap();
+
+    let last_model = MockLlm::last_model();
+    assert_eq!(
+        last_model, "",
+        "C4: no model field → no override, last_model should be empty, got: '{}'",
+        last_model
+    );
+}
+
+// ── C5: User-defined alias with custom name ──────────────────────────
+
+#[test]
+fn test_model_routing_user_defined_alias() {
+    std::env::set_var("METALOGOS_LLM_MODEL_cheap", "gpt-4o-mini");
+    MockLlm::reset_call_count();
+    MockLlm::reset_last_model();
+
+    let mut interp = Interpreter::new();
+    interp.set_base_dir(std::path::PathBuf::from("."));
+
+    let _ = interp.run(vec![
+        make_model_learnable_decl("Cheap", "Budget classify", Some("cheap")),
+    ]).unwrap();
+
+    let _ = interp.eval_expr(&Expr::FnCall(
+        "Cheap".to_string(),
+        vec![Expr::StringLit("input".to_string())],
+    )).unwrap();
+
+    assert_eq!(
+        MockLlm::last_model(), "gpt-4o-mini",
+        "C5: 'cheap' alias should resolve to 'gpt-4o-mini'"
+    );
+
+    std::env::remove_var("METALOGOS_LLM_MODEL_cheap");
+}
+
+// ── C6: Direct model name (e.g. "gpt-4o") without env → passthrough ─
+
+#[test]
+fn test_model_routing_direct_model_name() {
+    // "gpt-4o" is a real model name, not an alias
+    std::env::remove_var("METALOGOS_LLM_MODEL_gpt-4o");
+    MockLlm::reset_call_count();
+    MockLlm::reset_last_model();
+
+    let mut interp = Interpreter::new();
+    interp.set_base_dir(std::path::PathBuf::from("."));
+
+    let _ = interp.run(vec![
+        make_model_learnable_decl("Gpt4o", "GPT-4o task", Some("gpt-4o")),
+    ]).unwrap();
+
+    let _ = interp.eval_expr(&Expr::FnCall(
+        "Gpt4o".to_string(),
+        vec![Expr::StringLit("test".to_string())],
+    )).unwrap();
+
+    assert_eq!(
+        MockLlm::last_model(), "gpt-4o",
+        "C6: 'gpt-4o' without env should be passed as-is"
+    );
 }

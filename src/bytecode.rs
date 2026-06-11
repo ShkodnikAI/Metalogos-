@@ -63,6 +63,8 @@ pub enum Instruction {
     MakeStruct(String, Vec<String>),
     /// Get a field from the struct on TOS. Pushes the field value.
     GetField(String),
+    /// Pop index and base; push base[index] (list/struct/string index access).
+    IndexAccess,
 
     // ── Fluid Types ──────────────────────────────────────────
     /// Pop 2*N values (N value-confidence pairs), create a Fluid value.

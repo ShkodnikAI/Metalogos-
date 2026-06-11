@@ -128,7 +128,11 @@ assignment   = { IDENT ~ "." ~ IDENT ~ "=" ~ expression }
 learnable_pattern_decl = { LEARNABLE_KW ~ "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ LBRACE ~ learnable_body ~ RBRACE }
 learnable_body = { prompt_line* ~ context_line? ~ model_line? ~ max_tokens_line? ~ cache_line? ~ cache_ttl_line? }
 prompt_line    = { "prompt" ~ COLON ~ expression }
-context_line   = { "context" ~ COLON ~ "recall" ~ "(" ~ expression ~ (COMMA ~ "limit" ~ ASSIGN ~ expression)? ~ ")" }
+context_line   = _{ context_recall_line | context_auto_line | context_none_line | context_literal_line }
+context_recall_line = { "context" ~ COLON ~ "recall" ~ "(" ~ expression ~ (COMMA ~ "limit" ~ ASSIGN ~ expression)? ~ ")" }
+context_auto_line  = { "context" ~ COLON ~ "auto" }
+context_none_line  = { "context" ~ COLON ~ "none" }
+context_literal_line = { "context" ~ COLON ~ expression }
 model_line    = { "model" ~ COLON ~ expression }
 max_tokens_line = { "max_tokens" ~ COLON ~ expression }
 cache_line    = { "cache" ~ COLON ~ BOOL_LITERAL }

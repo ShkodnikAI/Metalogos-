@@ -1,0 +1,12 @@
+// ADR-0046: backward compat - context: recall(text, limit=3)
+memorize "Metalogos is an AI-native programming language" with priority=0.9
+memorize "Metalogos uses Pest parser for grammar definitions" with priority=0.8
+memorize "Metalogos supports fluid types with confidence propagation" with priority=0.7
+
+learnable pattern Ask(text: String) -> String {
+  prompt: "Answer the question about Metalogos."
+  context: recall(text, limit=3)
+}
+
+entity question: String = "Metalogos"
+flow Main { input: String = question -> Ask -> output }

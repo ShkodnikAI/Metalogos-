@@ -1532,8 +1532,9 @@ impl Interpreter {
         // No few-shot match — call LLM backend
         let start = SystemTime::now();
         let backend = llm::create_llm_backend();
-        // ADR-0048: pass per-pattern model override if set
-        let response = backend.call_with_model(&effective_prompt, &input, learnable.model.as_deref())?;
+        // ADR-0048: resolve model alias via env, then pass to backend
+        let resolved_model = learnable.model.as_ref().map(|alias| llm::resolve_model(alias));
+        let response = backend.call_with_model(&effective_prompt, &input, resolved_model.as_deref())?;
 
         // Phase 7.5: Sandbox enforcement — timeout check
         if let Some(ref sb) = self.active_sandbox {

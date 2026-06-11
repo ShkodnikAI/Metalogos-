@@ -63,6 +63,11 @@ enum Commands {
         #[arg(long)]
         from: String,
     },
+    /// Static security analysis without execution (ADR-0057)
+    Audit {
+        /// Path to .mlog source file
+        file: PathBuf,
+    },
 }
 
 fn main() {
@@ -76,6 +81,7 @@ fn main() {
         Commands::Compile { file } => cmd_compile(file),
         Commands::Eval { file } => cmd_eval(file),
         Commands::Resume { file, flow, from } => cmd_resume(file, &flow, &from),
+        Commands::Audit { file } => cmd_audit(file),
     }
 }
 
@@ -224,6 +230,28 @@ fn cmd_resume(file: PathBuf, flow_name: &str, checkpoint_name: &str) {
             if let Some(result) = output {
                 println!("{}", result);
             }
+        }
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// `mlog audit <file>` — static security analysis without execution (ADR-0057)
+fn cmd_audit(file: PathBuf) {
+    let source = match fs::read_to_string(&file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: cannot read {:?}: {}", file, e);
+            std::process::exit(1);
+        }
+    };
+
+    match metalogos::audit_program(&source) {
+        Ok(result) => {
+            println!("{}", result.format());
+            std::process::exit(result.exit_code());
         }
         Err(e) => {
             eprintln!("error: {}", e);

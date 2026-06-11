@@ -219,3 +219,31 @@ Stage Summary:
 - 72/72 contract tests pass (9 eval + 8 inspect + 6 hooks + 9 event + 10 conversation + 9 tool + 10 session + 11 context)
 - Files changed: src/interpreter.rs, tests/phase75_contract.rs, tests/context_compression_contract.rs
 - Commit: fad3ff4 "fix: make CompiledLearnable pub + fix test AST drift"
+---
+Task ID: 12
+Agent: Super Z (main)
+Task: Наряд №12 — Lifecycle control — checkpoint/resume (ADR-0056)
+
+Work Log:
+- Extended grammar.pest: new flow_step rule with checkpoint_call alternative; CHECKPOINT_KW token; "checkpoint" added to step_ident negative lookahead
+- Extended ast.rs: FlowDecl gains checkpoints: HashMap<String, usize> field; added HashMap import
+- Extended parser.rs: parse_flow_decl now handles flow_step children (checkpoint_call | step_ident), extracts checkpoint name from quoted string in span
+- Fixed unescape_string bug: function strips outer quotes, must not be called on already-unquoted strings. Used direct span extraction instead
+- Added CheckpointData struct (serde serializable) to interpreter.rs with flow_name, checkpoint_name, step_index, current_value, variables, created_at
+- Added checkpoint_db (SQLite) and checkpoint_mem (HashMap) storage backends to Interpreter
+- Implemented save_checkpoint(): JSON-serialize state, INSERT OR REPLACE into SQLite or fallback to memory
+- Implemented load_checkpoint(): query SQLite or memory, deserialize JSON
+- Modified run_flow(): after each step, check checkpoint_at map, save if checkpoint follows; on resume, skip steps before start_idx
+- Added public API: set_resume_target(), list_checkpoints(), delete_checkpoint(), reset_checkpoints()
+- Added checkpoint SQLite initialization in configure_memory() (creates checkpoints.db alongside memory.db)
+- Added CLI subcommand: mlog resume <file> --flow=<name> --from=<cp>
+- Added lib.rs: resume_program() and resume_program_with_dir() public API
+- Wrote 10 contract tests covering: save, resume, multi-cp, list, delete, error, backward compat, value capture, variable restore, reset
+- Wrote ADR-0056 documentation
+
+Stage Summary:
+- 8 files changed, 696 insertions(+), 14 deletions(-)
+- 10/10 lifecycle contract tests pass
+- 82/82 total contract tests pass (no regressions)
+- Commit: ba17171 "feat(ADR-0056): lifecycle control — checkpoint/resume for long-running flows"
+- Push: main -> origin/main

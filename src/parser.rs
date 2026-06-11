@@ -49,6 +49,7 @@ pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::mutate_decl => declarations.push(parse_mutate_decl(inner_pair)),
                 Rule::eval_decl => declarations.push(parse_eval_decl(inner_pair)),
                 Rule::conversation_decl => declarations.push(parse_conversation_decl(inner_pair)),
+                Rule::llm_decl => declarations.push(parse_llm_decl(inner_pair)),
                 Rule::tool_decl => declarations.push(parse_tool_decl(inner_pair)),
                 Rule::learnable_pattern_decl => declarations.push(parse_learnable_pattern_decl(inner_pair)),
                 Rule::pattern_decl => declarations.push(parse_pattern_decl(inner_pair)),
@@ -701,6 +702,101 @@ fn parse_conversation_decl(pair: Pair<Rule>) -> Declaration {
         .unwrap_or(20);
 
     Declaration::Conversation(ConversationDecl { ttl, max_messages, compress_after })
+}
+
+// ── LLM Config (Наряд №4: Smart LLM Routing) ──────────────────────────
+
+fn parse_llm_decl(pair: Pair<Rule>) -> Declaration {
+    let children: Vec<Pair<Rule>> = pair.into_inner()
+        .filter(|c| c.as_rule() == Rule::llm_body)
+        .flat_map(|c| c.into_inner())
+        .collect();
+
+    // Parse providers list
+    let mut providers = Vec::new();
+    if let Some(pl_pair) = children.iter().find(|c| c.as_rule() == Rule::llm_providers) {
+        // Flatten: llm_provider_list -> llm_provider_entry*
+        let entries: Vec<Pair<Rule>> = pl_pair.clone().into_inner()
+            .flat_map(|c| {
+                if c.as_rule() == Rule::llm_provider_entry {
+                    vec![c]
+                } else if c.as_rule() == Rule::llm_provider_list {
+                    c.into_inner()
+                        .filter(|inner| inner.as_rule() == Rule::llm_provider_entry)
+                        .collect()
+                } else {
+                    vec![]
+                }
+            })
+            .collect();
+
+        for entry_pair in entries {
+            let entry_children = children_of(&entry_pair);
+
+            let alias = entry_children.iter()
+                .find(|c| c.as_rule() == Rule::llm_provider_alias)
+                .and_then(|c| find_child_str(&children_of(c), Rule::IDENT))
+                .unwrap_or_default();
+
+            let provider = entry_children.iter()
+                .find(|c| c.as_rule() == Rule::llm_provider_name)
+                .and_then(|c| find_child_str(&children_of(c), Rule::IDENT))
+                .unwrap_or_default();
+
+            let key = entry_children.iter()
+                .find(|c| c.as_rule() == Rule::llm_provider_key)
+                .and_then(|c| {
+                    find_child(&children_of(c), Rule::expression).map(|e| parse_expression(e))
+                });
+
+            let url = entry_children.iter()
+                .find(|c| c.as_rule() == Rule::llm_provider_url)
+                .and_then(|c| find_child_str(&children_of(c), Rule::STRING_LITERAL))
+                .map(|s| s[1..s.len()-1].to_string());
+
+            providers.push(LlmProviderEntry { alias, provider, key, url });
+        }
+    }
+
+    // Parse default_model
+    let default_model = children.iter()
+        .find(|c| c.as_rule() == Rule::llm_default_model)
+        .and_then(|c| {
+            find_child(&children_of(c), Rule::expression).and_then(|e| {
+                if let Expr::StringLit(s) = parse_expression(e) {
+                    Some(s)
+                } else {
+                    None
+                }
+            })
+        });
+
+    // Parse failover mode
+    let failover = children.iter()
+        .find(|c| c.as_rule() == Rule::llm_failover)
+        .and_then(|c| find_child_str(&children_of(c), Rule::IDENT));
+
+    // Parse circuit_breaker
+    let circuit_breaker = children.iter()
+        .find(|c| c.as_rule() == Rule::llm_circuit_breaker)
+        .and_then(|c| find_child_str(&children_of(c), Rule::INT))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3);
+
+    // Parse timeout
+    let timeout = children.iter()
+        .find(|c| c.as_rule() == Rule::llm_timeout)
+        .and_then(|c| find_child_str(&children_of(c), Rule::INT))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30);
+
+    Declaration::LlmConfig(LlmConfigDecl {
+        providers,
+        default_model,
+        failover,
+        circuit_breaker,
+        timeout,
+    })
 }
 
 // ── Tool Abstraction (ADR-0054) ──────────────────────────────────────

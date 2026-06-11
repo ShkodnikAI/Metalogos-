@@ -55,6 +55,41 @@ pub enum Declaration {
     /// Groups related operations under a namespace.
     /// tool.method(args) resolves via QualifiedCall.
     Tool(ToolDecl),
+    /// `llm { providers: [...], default_model: "...", failover: auto, circuit_breaker: 3, timeout: 30 }`
+    /// (Наряд №4: Smart LLM Routing)
+    LlmConfig(LlmConfigDecl),
+}
+
+// ── LLM Config (Наряд №4: Smart LLM Routing) ──────────────────────────────
+
+/// A single provider entry in the `llm { providers: [...] }` list.
+#[derive(Debug, Clone)]
+pub struct LlmProviderEntry {
+    /// User-chosen alias for this provider (e.g. "primary", "fast", "fallback").
+    pub alias: String,
+    /// Provider type: "anthropic", "openai", "ollama", "groq", "cerebras", etc.
+    pub provider: String,
+    /// API key: either a literal string or env("KEY") expression.
+    pub key: Option<Expr>,
+    /// Custom base URL (for "custom" provider or proxy overrides).
+    pub url: Option<String>,
+}
+
+/// `llm { providers: [...], default_model: "...", failover: auto, circuit_breaker: 3, timeout: 30 }`
+/// Configures smart LLM routing with failover and circuit breaker.
+/// If absent → backward compatible (env vars, single provider via create_llm_backend()).
+#[derive(Debug, Clone)]
+pub struct LlmConfigDecl {
+    /// Ordered list of provider entries (priority = order).
+    pub providers: Vec<LlmProviderEntry>,
+    /// Default model name/alias.
+    pub default_model: Option<String>,
+    /// Failover mode: "auto" or "manual".
+    pub failover: Option<String>,
+    /// Number of consecutive failures before circuit breaker opens.
+    pub circuit_breaker: u32,
+    /// Timeout in seconds per provider call.
+    pub timeout: u32,
 }
 
 // ── MlogServer (Phase 6.1) ──────────────────────────────────────

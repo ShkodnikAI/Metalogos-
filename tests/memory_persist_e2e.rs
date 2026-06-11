@@ -293,7 +293,7 @@ flow Main {{ input: String = r -> output }}
         db_str
     );
     let result2 = metalogos::run_program(&source2).unwrap();
-    let output = result2.unwrap().unwrap_or_default();
+    let output = result2.unwrap_or_default();
     assert!(
         output.contains("alice") || output.contains("[GRAPH]"),
         "E2E-8: KG recall should return alice or graph edges, got: '{}'",

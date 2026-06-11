@@ -453,7 +453,7 @@ fn builtin_respond_html(args: &[Value]) -> Result<Value, String> {
     let status_str = expect_string_arg("respond_html", args, 0)?;
     let html = expect_string_arg("respond_html", args, 1)?;
     let (status, _) = parse_status_line(&status_str);
-    Ok(Value::HtmlResponse { status, body: html })
+    Ok(Value::HttpResponse { status, body: html })
 }
 
 fn builtin_form_data(args: &[Value]) -> Result<Value, String> {

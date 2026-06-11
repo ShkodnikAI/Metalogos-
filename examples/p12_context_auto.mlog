@@ -1,0 +1,14 @@
+// ADR-0046: context:auto — uses first param value as recall query
+// Memorize facts, then learnable pattern with context:auto should
+// find relevant facts and prepend them to the prompt.
+
+memorize "Metalogos is an AI-native programming language" with priority=1.0
+memorize "Metalogos uses Pest parser for grammar definitions" with priority=0.9
+
+learnable pattern Ask(text: String) -> String {
+  prompt: "Answer the question."
+  context: auto
+}
+
+entity question: String = "Metalogos"
+flow Main { input: String = question -> Ask -> output }

@@ -1,9 +1,0 @@
-pattern abs(n: Float) -> Float { return __abs(n) }
-
-pattern min(a: Float, b: Float) -> Float { return __min(a, b) }
-
-pattern max(a: Float, b: Float) -> Float { return __max(a, b) }
-
-pattern clamp(val: Float, lo: Float, hi: Float) -> Float { return __clamp(val, lo, hi) }
-
-pattern round(n: Float) -> Float { return __round(n) }

@@ -1,8 +1,0 @@
-memorize "user likes spicy food" with priority=0.9
-memorize "user hates cold soup" with priority=0.7
-
-pattern FindFood(query: String) -> String {
-  return recall(query)
-}
-
-flow Main { input: String = "spicy" -> FindFood -> output }

@@ -199,3 +199,23 @@ Stage Summary:
 - Pre-existing failures unchanged: definition_of_done.rs (3 tests with invalid top-level let), golden.rs (m2_triage.mlog), template_integration.rs (compile errors)
 - Commit: 6cf9dcf "feat(ADR-0054): tool abstraction — external services as language constructs"
 - Push: main -> origin/main
+---
+Task ID: 11
+Agent: Super Z (main)
+Task: Verify Наряды №5 (Hooks), №1 (Session memory), №2 (Context auto-loading); fix remaining test AST drift
+
+Work Log:
+- Verified Наряд №5 (Hooks, ADR-0045): 6/6 contract tests pass, implementation complete
+- Verified Наряд №1 (Session memory, ADR-0049): 10/10 contract tests pass, builtins session_set/session_get/session_clear fully implemented
+- Verified Наряд №2 (Context auto-loading, ADR-0046 + ADR-0055): context compression tests had compilation errors
+- Fixed CompiledLearnable struct: made pub with pub fields for test access
+- Fixed phase75_contract.rs: added missing context_strategy/max_context_tokens to LearnablePatternDecl (AST drift from ADR-0055)
+- Fixed context_compression_contract.rs: removed invalid `memory { persist: false }` (BOOL_LITERAL not accepted, grammar expects STRING_LITERAL)
+- All 72 contract tests now pass across 8 test suites
+- Committed and pushed: fad3ff4
+
+Stage Summary:
+- All Наряды №1, №2, №5 verified as fully implemented
+- 72/72 contract tests pass (9 eval + 8 inspect + 6 hooks + 9 event + 10 conversation + 9 tool + 10 session + 11 context)
+- Files changed: src/interpreter.rs, tests/phase75_contract.rs, tests/context_compression_contract.rs
+- Commit: fad3ff4 "fix: make CompiledLearnable pub + fix test AST drift"

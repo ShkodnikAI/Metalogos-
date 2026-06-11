@@ -36,6 +36,11 @@ enum Commands {
     Check {
         /// Path to .mlog source file
         file: PathBuf,
+        /// Optional root .mlog file for resolving imports.
+        /// When checking an isolated file (e.g. dept/utils.mlog),
+        /// specify the main file so its declarations are available.
+        #[arg(long)]
+        root: Option<PathBuf>,
     },
     /// Start HTTP server from mlogserver block (Phase 6)
     Serve {
@@ -76,7 +81,7 @@ fn main() {
     match cli.command {
         Commands::Run { file } => cmd_run(file),
         Commands::Repl => cmd_repl_stdio(),
-        Commands::Check { file } => cmd_check(file),
+        Commands::Check { file, root } => cmd_check(file, root),
         Commands::Serve { file } => cmd_serve(file),
         Commands::Compile { file } => cmd_compile(file),
         Commands::Eval { file } => cmd_eval(file),
@@ -260,8 +265,10 @@ fn cmd_audit(file: PathBuf) {
     }
 }
 
-/// `mlog check <file>` — parse + semantic analysis, no execution
-fn cmd_check(file: PathBuf) {
+/// `mlog check <file> [--root <main.mlog>]` — parse + semantic analysis, no execution.
+/// When --root is provided, imports in `file` are resolved against the
+/// declarations in the root file (same as `mlog serve` would do).
+fn cmd_check(file: PathBuf, root: Option<PathBuf>) {
     let source = match fs::read_to_string(&file) {
         Ok(s) => s,
         Err(e) => {
@@ -270,7 +277,7 @@ fn cmd_check(file: PathBuf) {
         }
     };
 
-    match metalogos::check_program(&source) {
+    match metalogos::check_program_with_root(&source, root.as_deref()) {
         Ok(result) => {
             println!("{}", result.format());
             if !result.is_ok() {

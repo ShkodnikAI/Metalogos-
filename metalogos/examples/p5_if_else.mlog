@@ -1,8 +1,0 @@
-entity val: Float = 0.9
-
-pattern Grade(score: Float) -> String {
-    let result = if score > 0.8 then "good" else "bad"
-    return result
-}
-
-flow Main { input: Float = val -> Grade -> output }

@@ -60,6 +60,44 @@ pub fn check_program(source: &str) -> Result<semantic::AnalysisResult, String> {
     Ok(semantic::check_program(&declarations))
 }
 
+/// Parse and check a .mlog program, resolving imports against an optional
+/// root file.  When `root` is Some(path), the root file is parsed and
+/// executed (without running flows), then the target file's declarations
+/// are checked against the merged symbol table.  This allows `mlog check
+/// dept/utils.mlog --root app.mlog` to see patterns imported from std/.
+pub fn check_program_with_root(
+    source: &str,
+    root: Option<&std::path::Path>,
+) -> Result<semantic::AnalysisResult, String> {
+    let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+
+    // If no root file, just check the file in isolation
+    let root_decls = match root {
+        Some(root_path) => {
+            let root_source = std::fs::read_to_string(root_path)
+                .map_err(|e| format!("cannot read root file {:?}: {}", root_path, e))?;
+            let root_dir = root_path.parent()
+                .unwrap_or(std::path::Path::new("."))
+                .to_path_buf();
+            let root_decls = parser::parse(&root_source)
+                .map_err(|e| format!("parse error in root file: {}", e))?;
+            // Execute root declarations into an interpreter to resolve imports
+            let mut interp = interpreter::Interpreter::new();
+            interp.set_base_dir(root_dir);
+            interp.run(root_decls)?;
+            // Collect all declarations known to the interpreter (merged from imports)
+            interp.collect_declarations()
+        }
+        None => vec![],
+    };
+
+    // Merge: root declarations first, then the file being checked
+    let mut all_decls = root_decls;
+    all_decls.extend(declarations);
+
+    Ok(semantic::check_program(&all_decls))
+}
+
 /// Parse a single line and feed it to a reusable interpreter.
 /// Used by REPL for incremental evaluation with persistent state.
 /// Returns the output (if any) from processing the declaration.

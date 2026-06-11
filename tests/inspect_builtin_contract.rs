@@ -1,92 +1,45 @@
 // ── Contract tests for inspect() builtin (ADR-0051) ─────────────────────
 //
 // Tests:
-// 1. Call learnable pattern 3 times → inspect().calls == 3.0
-// 2. inspect() on non-invoked pattern → all zeros
-// 3. inspect() returns correct field names and types
-// 4. adapt increments examples_count
-// 5. Few-shot match counts as cache hit
+// 1. Call regular pattern 3 times via flow -> inspect().calls == 3.0
+// 2. inspect() on non-invoked learnable pattern -> all zeros, is_learnable==1
+// 3. inspect() returns correct field names (8 fields) and types
+// 4. adapt increments examples_count, last_adapt > 0
+// 5. Few-shot match counts as cache hit, cache_misses computed
 // 6. Multiple patterns tracked independently
+// 7. inspect("nonexistent") -> Value::Unit (soft-failure)
+// 8. Regular pattern: is_learnable == 0.0
 
 use metalogos::interpreter::Interpreter;
 use metalogos::parser;
 
-/// Helper: parse + run declarations, then eval an expression.
-fn run_source(source: &str) -> Result<metalogos::interpreter::Interpreter, String> {
+/// Helper: parse + run declarations, return interpreter.
+fn run_source(source: &str) -> Result<Interpreter, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
     let mut interp = Interpreter::new();
     interp.run(declarations)?;
     Ok(interp)
 }
 
-/// Helper: parse + run + eval single expression.
-fn eval_expr(source: &str, expr: &str) -> Result<metalogos::interpreter::Value, String> {
-    let mut interp = run_source(source)?;
-    let declarations = parser::parse(expr).map_err(|e| format!("parse error: {}", e))?;
-    interp.run(declarations)?;
-    // The expression should produce output via let binding → return
-    // Use feed_line approach
-    let decls = parser::parse(
-        &format!("let __result = {}", expr)
-    ).map_err(|e| format!("parse error: {}", e))?;
-    interp.run(decls)?;
-    interp.get_variable("__result")
-        .ok_or_else(|| "no result".to_string())
-}
-
-/// Helper: eval an expression by wrapping in a pattern that returns it.
-fn eval_inspect(source: &str) -> Result<metalogos::interpreter::Value, String> {
-    let mut interp = run_source(source)?;
-    // Call inspect via a flow that invokes it
-    // Simpler: use feed_line approach
-    let full = format!(
-        r#"
-            let stats = inspect("Classify")
-            return stats
-        "#
-    );
-    let decls = parser::parse(&full).map_err(|e| format!("parse error: {}", e))?;
-    let result = interp.run(decls)?;
-    // Result should be the returned struct
-    match result {
-        Some(s) => {
-            // Parse the string representation back — or get from variables
-            let return_decls = parser::parse("let __r = inspect(\"Classify\")").unwrap();
-            interp.run(return_decls).unwrap();
-            Ok(interp.get_variable("__r").unwrap())
-        }
-        None => {
-            let return_decls = parser::parse("let __r = inspect(\"Classify\")").unwrap();
-            interp.run(return_decls).unwrap();
-            interp.get_variable("__r").ok_or_else(|| "no __r".to_string())
-        }
-    }
-}
-
-// ── Test 1: Call Classify 3 times → inspect("Classify").calls == 3.0 ─────
+// ── Test 1: Call regular pattern 3 times via flow -> inspect().calls == 3 ──
 
 #[test]
 fn test_inspect_calls_count() {
     let source = r#"
-        learnable pattern Classify(text: String) -> String {
-            prompt: "complaint"
+        pattern Hello(name: String) -> String {
+            return "Hi " + name
         }
-        let _ = Classify("first")
-        let _ = Classify("second")
-        let _ = Classify("third")
+        entity a: String = "World"
+        flow Setup { input: String = a -> Hello -> Hello -> Hello -> output }
     "#;
 
-    let mut interp = run_source(source).unwrap();
-    // Now call inspect
-    let decls = parser::parse(r#"let stats = inspect("Classify")"#).unwrap();
-    interp.run(decls).unwrap();
-
-    let stats = interp.get_variable("stats").unwrap();
-    let calls = stats.get_field("calls").unwrap();
-    assert_eq!(calls.as_float().unwrap(), 3.0);
+    let interp = run_source(source).unwrap();
+    let stats = interp.inspect_pattern("Hello");
+    assert_eq!(stats.get_field("calls").unwrap().as_float().unwrap(), 3.0);
+    assert_eq!(stats.get_field("is_learnable").unwrap().as_float().unwrap(), 0.0);
 }
 
-// ── Test 2: inspect() on non-invoked pattern → all zeros ───────────────
+// ── Test 2: inspect() on non-invoked learnable pattern -> all zeros ───────
 
 #[test]
 fn test_inspect_non_invoked() {
@@ -96,15 +49,16 @@ fn test_inspect_non_invoked() {
         }
     "#;
 
-    let mut interp = run_source(source).unwrap();
-    let decls = parser::parse(r#"let stats = inspect("Unused")"#).unwrap();
-    interp.run(decls).unwrap();
-
-    let stats = interp.get_variable("stats").unwrap();
+    let interp = run_source(source).unwrap();
+    let stats = interp.inspect_pattern("Unused");
     assert_eq!(stats.get_field("calls").unwrap().as_float().unwrap(), 0.0);
     assert_eq!(stats.get_field("avg_confidence").unwrap().as_float().unwrap(), 0.0);
     assert_eq!(stats.get_field("cache_hits").unwrap().as_float().unwrap(), 0.0);
+    assert_eq!(stats.get_field("cache_misses").unwrap().as_float().unwrap(), 0.0);
+    assert_eq!(stats.get_field("last_adapt").unwrap().as_float().unwrap(), 0.0);
+    assert_eq!(stats.get_field("last_call").unwrap().as_float().unwrap(), 0.0);
     assert_eq!(stats.get_field("examples_count").unwrap().as_float().unwrap(), 0.0);
+    assert_eq!(stats.get_field("is_learnable").unwrap().as_float().unwrap(), 1.0);
 }
 
 // ── Test 3: inspect() returns correct field names and type ────────────
@@ -117,15 +71,15 @@ fn test_inspect_field_names() {
         }
     "#;
 
-    let mut interp = run_source(source).unwrap();
-    let decls = parser::parse(r#"let stats = inspect("X")"#).unwrap();
-    interp.run(decls).unwrap();
-
-    let stats = interp.get_variable("stats").unwrap();
+    let interp = run_source(source).unwrap();
+    let stats = interp.inspect_pattern("X");
     // Should be a Struct
     assert_eq!(stats.type_name(), "Struct");
-    // Should have all 5 fields
-    let fields = ["calls", "avg_confidence", "cache_hits", "last_adapt", "examples_count"];
+    // Should have all 8 fields
+    let fields = [
+        "calls", "avg_confidence", "cache_hits", "cache_misses",
+        "last_adapt", "last_call", "examples_count", "is_learnable",
+    ];
     for field in &fields {
         assert!(stats.get_field(field).is_ok(), "missing field: {}", field);
         // All fields should be Float
@@ -145,15 +99,12 @@ fn test_inspect_adapt_examples_count() {
         adapt Sentiment add_example("bad", "negative")
     "#;
 
-    let mut interp = run_source(source).unwrap();
-    let decls = parser::parse(r#"let stats = inspect("Sentiment")"#).unwrap();
-    interp.run(decls).unwrap();
-
-    let stats = interp.get_variable("stats").unwrap();
+    let interp = run_source(source).unwrap();
+    let stats = interp.inspect_pattern("Sentiment");
     assert_eq!(stats.get_field("examples_count").unwrap().as_float().unwrap(), 2.0);
-    // last_adapt should be non-zero
+    // last_adapt should be non-zero (recent timestamp)
     let last_adapt = stats.get_field("last_adapt").unwrap().as_float().unwrap();
-    assert!(last_adapt > 0.0);
+    assert!(last_adapt > 0.0, "last_adapt should be > 0, got {}", last_adapt);
 }
 
 // ── Test 5: Few-shot match counts as cache hit ──────────────────────────
@@ -166,20 +117,19 @@ fn test_inspect_few_shot_cache_hit() {
         }
         adapt Route add_example("reset password", "support")
         adapt Route add_example("pricing", "sales")
-        // These calls match few-shot examples → cache hits
-        let _ = Route("reset password")
-        let _ = Route("pricing")
-        // This call doesn't match → goes to LLM → not cache hit
-        let _ = Route("unknown query")
+        entity e1: String = "reset password"
+        entity e2: String = "pricing"
+        entity e3: String = "unknown query"
+        flow F1 { input: String = e1 -> Route -> output }
+        flow F2 { input: String = e2 -> Route -> output }
+        flow F3 { input: String = e3 -> Route -> output }
     "#;
 
-    let mut interp = run_source(source).unwrap();
-    let decls = parser::parse(r#"let stats = inspect("Route")"#).unwrap();
-    interp.run(decls).unwrap();
-
-    let stats = interp.get_variable("stats").unwrap();
+    let interp = run_source(source).unwrap();
+    let stats = interp.inspect_pattern("Route");
     assert_eq!(stats.get_field("calls").unwrap().as_float().unwrap(), 3.0);
     assert_eq!(stats.get_field("cache_hits").unwrap().as_float().unwrap(), 2.0);
+    assert_eq!(stats.get_field("cache_misses").unwrap().as_float().unwrap(), 1.0);
 }
 
 // ── Test 6: Multiple patterns tracked independently ─────────────────────
@@ -187,29 +137,49 @@ fn test_inspect_few_shot_cache_hit() {
 #[test]
 fn test_inspect_multiple_patterns() {
     let source = r#"
-        learnable pattern A(text: String) -> String {
-            prompt: "a"
-        }
-        learnable pattern B(text: String) -> String {
-            prompt: "b"
-        }
-        let _ = A("input")
-        let _ = A("input2")
-        let _ = B("input")
+        learnable pattern A(text: String) -> String { prompt: "a" }
+        learnable pattern B(text: String) -> String { prompt: "b" }
+        entity x: String = "input"
+        flow FA { input: String = x -> A -> output }
+        flow FA2 { input: String = x -> A -> output }
+        flow FB { input: String = x -> B -> output }
     "#;
 
-    let mut interp = run_source(source).unwrap();
-    let decls = parser::parse(
-        r#"
-            let stats_a = inspect("A")
-            let stats_b = inspect("B")
-        "#
-    ).unwrap();
-    interp.run(decls).unwrap();
-
-    let stats_a = interp.get_variable("stats_a").unwrap();
-    let stats_b = interp.get_variable("stats_b").unwrap();
+    let interp = run_source(source).unwrap();
+    let stats_a = interp.inspect_pattern("A");
+    let stats_b = interp.inspect_pattern("B");
 
     assert_eq!(stats_a.get_field("calls").unwrap().as_float().unwrap(), 2.0);
     assert_eq!(stats_b.get_field("calls").unwrap().as_float().unwrap(), 1.0);
+}
+
+// ── Test 7: inspect("nonexistent") -> Value::Unit (soft-failure) ───────
+
+#[test]
+fn test_inspect_nonexistent_returns_unit() {
+    let source = r#"
+        learnable pattern X(text: String) -> String { prompt: "p" }
+    "#;
+
+    let interp = run_source(source).unwrap();
+    let result = interp.inspect_pattern("nonexistent_pattern");
+    assert_eq!(result.type_name(), "Unit");
+}
+
+// ── Test 8: Regular pattern has is_learnable == 0.0 ────────────────────
+
+#[test]
+fn test_inspect_regular_pattern_is_learnable() {
+    let source = r#"
+        pattern Greet(name: String) -> String {
+            return "Hello " + name
+        }
+        entity w: String = "World"
+        flow F { input: String = w -> Greet -> output }
+    "#;
+
+    let interp = run_source(source).unwrap();
+    let stats = interp.inspect_pattern("Greet");
+    assert_eq!(stats.get_field("is_learnable").unwrap().as_float().unwrap(), 0.0);
+    assert_eq!(stats.get_field("calls").unwrap().as_float().unwrap(), 1.0);
 }

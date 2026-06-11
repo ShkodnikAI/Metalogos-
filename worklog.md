@@ -623,3 +623,37 @@ Stage Summary:
 - Files changed: app.mlog, entrypoint.sh, Dockerfile (3 files, +34/-45)
 - Trade-off: Lost multi-provider fallback. call_llm() uses single provider via env vars.
 - If fallback needed, use METALOGOS_OPENAI_BASE_URL to point to a load balancer or gateway
+
+---
+Task ID: naryad-1-session
+Agent: main
+Task: Наряд #1 — Session Memory (временная память разговора)
+
+Work Log:
+- Обнаружено: session_set/session_get/session_clear УЖЕ реализованы (ADR-0049, коммит 56f5254)
+- 3 билтина в builtins.rs: session_set, session_get, session_clear
+- SESSION_STORE: OnceLock<Mutex<HashMap<String, HashMap<String, String>>>
+- 10 Rust-тестов в tests/session_memory_contract.rs
+- 5 mlog-контрактов в examples/p13_session_memory.mlog
+- Исправлен баг: session_clear теперь возвращает "ok" (был Unit)
+- Создан examples/p8_session_memory.mlog по спецификации Наряд #1
+- ОБНАРУЖЕН И ИСПРАВЛЕН КРИТИЧЕСКИЙ БАГ PARSER:
+  - assign_stmt = { IDENT ~ ASSIGN ~ expression } — PEG атомарность
+  - Когда Pest матчит IDENT (например session_set), затем не находит ASSIGN (=),
+    атомарное правило фейлит, но expr_stmt НЕ пробуется как fallback
+  - Это блокировало ВСЕ function calls как standalone statements в pattern body
+  - Решение: assign_or_expr = { IDENT ~ ASSIGN ~ expression | expression }
+  - Парсер обновлён: определяет наличие ASSIGN для distinguish assign vs expr
+  - Также исправлен: find_child искал expression в statement children,
+    но expression был внутри expr_stmt pair (нужно clone().into_inner())
+- Добавлен reset_session_store() в run_mlog helper для изоляции тестов
+- cargo test --lib: 97 passed, 4 failed (pre-existing semantic), 3 ignored
+- cargo test --test session_memory_contract: 10/10 passed
+- Контракт p8_session_memory.mlog: Alice is happy missing= ✓
+- Коммит: 78ad75e, force-push origin/main
+
+Stage Summary:
+- Наряд #1 ВЫПОЛНЕН
+- Бонус: исправлен критический баг парсера (function calls как statements)
+- Файлы: grammar.pest, parser.rs, builtins.rs, p8_session_memory.mlog,
+  session_memory_contract.rs, ADR-0049

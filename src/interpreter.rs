@@ -327,6 +327,25 @@ impl PatternStats {
     }
 }
 
+/// A single event in the event stream (ADR-0052).
+/// Represents a discrete operation that occurred during interpretation.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Event {
+    /// Auto-incrementing event ID.
+    pub id: u64,
+    /// Unix timestamp in milliseconds.
+    pub timestamp: u64,
+    /// Event type: "pattern_call", "llm_call", "memory_store", "memory_recall",
+    /// "rule_fire", "adapt", "error", etc.
+    pub event_type: String,
+    /// Source: pattern name, "system", or "builtin".
+    pub source: String,
+    /// Arbitrary key-value data attached to the event.
+    pub data: HashMap<String, String>,
+    /// Duration of the operation in milliseconds, if measurable.
+    pub duration_ms: Option<u64>,
+}
+
 impl EvalResult {
     /// Format the eval result as a human-readable report.
     pub fn format_report(&self) -> String {
@@ -458,6 +477,11 @@ pub struct Interpreter {
     /// Per-pattern runtime statistics (ADR-0051): calls, confidence, cache hits, adapt info.
     /// Key = pattern name. Used by the `inspect()` builtin.
     pattern_stats: std::sync::Mutex<std::collections::HashMap<String, PatternStats>>,
+    /// Event stream (ADR-0052): in-memory log of all operations.
+    /// Each event has id, timestamp, type, source, data, duration.
+    event_log: std::sync::Mutex<Vec<Event>>,
+    /// Next event ID (ADR-0052): auto-incrementing counter for event IDs.
+    event_next_id: std::sync::atomic::AtomicU64,
 }
 
 impl Interpreter {
@@ -493,6 +517,8 @@ impl Interpreter {
             hooks_after: Vec::new(),
             eval_blocks: Vec::new(),
             pattern_stats: std::sync::Mutex::new(std::collections::HashMap::new()),
+            event_log: std::sync::Mutex::new(Vec::new()),
+            event_next_id: std::sync::atomic::AtomicU64::new(1),
         }
     }
 
@@ -534,6 +560,68 @@ impl Interpreter {
     /// Uses Mutex for interior mutability so it can be called from `&self` methods.
     pub fn push_audit(&self, entry: String) {
         self.audit_log.lock().unwrap().push(entry);
+    }
+
+    /// ADR-0052: Emit an event to the event stream.
+    /// Thread-safe: appends to event_log behind Mutex, auto-increments ID.
+    fn emit_event(&self, event_type: &str, source: &str, data: HashMap<String, String>, duration_ms: Option<u64>) {
+        let id = self.event_next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let event = Event {
+            id,
+            timestamp,
+            event_type: event_type.to_string(),
+            source: source.to_string(),
+            data,
+            duration_ms,
+        };
+        if let Ok(mut log) = self.event_log.lock() {
+            log.push(event);
+        }
+    }
+
+    /// ADR-0052: Get total number of events, optionally filtered by type.
+    pub fn event_count(&self, event_type: Option<&str>) -> usize {
+        if let Ok(log) = self.event_log.lock() {
+            match event_type {
+                Some(t) => log.iter().filter(|e| e.event_type == t).count(),
+                None => log.len(),
+            }
+        } else {
+            0
+        }
+    }
+
+    /// ADR-0052: Get events since a given Unix timestamp (seconds).
+    /// Returns events with timestamp >= since_ms (milliseconds).
+    pub fn events_since_ms(&self, since_ms: u64) -> Vec<Event> {
+        if let Ok(log) = self.event_log.lock() {
+            log.iter().filter(|e| e.timestamp >= since_ms).cloned().collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// ADR-0052: Get a reference to the full event log (for test access).
+    pub fn get_events(&self) -> Vec<Event> {
+        self.event_log.lock().map(|log| log.clone()).unwrap_or_default()
+    }
+
+    /// ADR-0052: Sum a numeric field across events of a given type.
+    /// Parses field values as f64 and sums them.
+    pub fn event_sum(&self, event_type: &str, field: &str) -> f64 {
+        if let Ok(log) = self.event_log.lock() {
+            log.iter()
+                .filter(|e| e.event_type == event_type)
+                .filter_map(|e| e.data.get(field))
+                .filter_map(|v| v.parse::<f64>().ok())
+                .sum()
+        } else {
+            0.0
+        }
     }
 
     /// Configure memory persistence (Phase 7.6).
@@ -776,13 +864,19 @@ impl Interpreter {
                     let embedding = self.embedding_manager.embed(&value_str).unwrap_or_default();
                     let _ = self.memory.lock().unwrap().memorize(MemoryEntry {
                         id: None,
-                        value: value_str,
+                        value: value_str.clone(),
                         priority: m.priority,
                         timestamp: now,
                         decay_rate: 0.01,
                         confidence: m.priority,
                         embedding,
                     });
+                    // ADR-0052: emit memory_store event
+                    let preview = if value_str.len() > 30 { &value_str[..30] } else { &value_str };
+                    let mut data = HashMap::new();
+                    data.insert("key_preview".to_string(), preview.to_string());
+                    data.insert("priority".to_string(), m.priority.to_string());
+                    self.emit_event("memory_store", "system", data, None);
                 }
                 Declaration::Forget(f) => {
                     let query_str = match self.eval_expr(&f.query)? {
@@ -850,6 +944,15 @@ impl Interpreter {
                         "[AUDIT] adapt {}: {} -> {}",
                         a.pattern_name, input_str, output_str
                     ));
+                    // ADR-0052: emit adapt event
+                    let examples_count = self.learnable_patterns.get(&a.pattern_name)
+                        .map(|lp| lp.few_shot.len())
+                        .unwrap_or(0);
+                    let mut data = HashMap::new();
+                    data.insert("pattern".to_string(), a.pattern_name.clone());
+                    data.insert("action".to_string(), "add_example".to_string());
+                    data.insert("examples_count".to_string(), examples_count.to_string());
+                    self.emit_event("adapt", &a.pattern_name, data, None);
                 }
                 Declaration::Fluid(fl) => {
                     let mut variants = Vec::new();
@@ -1052,13 +1155,19 @@ impl Interpreter {
                     let embedding = self.embedding_manager.embed(&value_str).unwrap_or_default();
                     let _ = self.memory.lock().unwrap().memorize(MemoryEntry {
                         id: None,
-                        value: value_str,
+                        value: value_str.clone(),
                         priority: m.priority,
                         timestamp: now,
                         decay_rate: 0.01,
                         confidence: m.priority,
                         embedding,
                     });
+                    // ADR-0052: emit memory_store event
+                    let preview = if value_str.len() > 30 { &value_str[..30] } else { &value_str };
+                    let mut data = HashMap::new();
+                    data.insert("key_preview".to_string(), preview.to_string());
+                    data.insert("priority".to_string(), m.priority.to_string());
+                    self.emit_event("memory_store", "system", data, None);
                 }
                 Declaration::Forget(f) => {
                     let query_str = match self.eval_expr(&f.query)? {
@@ -2018,6 +2127,11 @@ impl Interpreter {
             }
             entry.last_call = now;
         }
+        // ADR-0052: emit pattern_call event
+        let mut data = HashMap::new();
+        data.insert("name".to_string(), name.to_string());
+        data.insert("cache_hit".to_string(), if cache_hit { "true".to_string() } else { "false".to_string() });
+        self.emit_event("pattern_call", name, data, None);
     }
 
     /// Invoke the `inspect()` builtin (ADR-0051).
@@ -2447,6 +2561,52 @@ impl Interpreter {
                 // ADR-0051: inspect() — needs interpreter state (pattern_stats)
                 if name == "inspect" {
                     return self.invoke_inspect(&eval_args);
+                }
+
+                // ADR-0052: event_count() — read event stream
+                if name == "event_count" {
+                    let etype = eval_args.first().map(|a| format!("{}", a));
+                    let count = self.event_count(etype.as_deref());
+                    return Ok(Value::Float(count as f64));
+                }
+
+                // ADR-0052: events_since(seconds) — get events since N seconds ago
+                if name == "events_since" {
+                    let seconds = match eval_args.first() {
+                        Some(Value::Float(s)) => *s,
+                        Some(other) => return Err(format!("events_since() expected Float, got {}", other.type_name())),
+                        None => return Err("events_since() requires 1 argument (seconds)".to_string()),
+                    };
+                    let now_ms = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0);
+                    let since_ms = now_ms.saturating_sub((seconds * 1000.0) as u64);
+                    let events = self.events_since_ms(since_ms);
+                    let mut list = Vec::new();
+                    for ev in events {
+                        let mut fields = HashMap::new();
+                        fields.insert("id".to_string(), Value::Float(ev.id as f64));
+                        fields.insert("timestamp".to_string(), Value::Float(ev.timestamp as f64));
+                        fields.insert("event_type".to_string(), Value::String(ev.event_type));
+                        fields.insert("source".to_string(), Value::String(ev.source));
+                        fields.insert("data_json".to_string(), Value::String(format!("{:?}", ev.data)));
+                        if let Some(dur) = ev.duration_ms {
+                            fields.insert("duration_ms".to_string(), Value::Float(dur as f64));
+                        }
+                        list.push(Value::Struct { type_name: "Event".to_string(), fields });
+                    }
+                    return Ok(Value::List(list));
+                }
+
+                // ADR-0052: event_sum(type, field) — sum numeric field across events
+                if name == "event_sum" {
+                    if eval_args.len() < 2 {
+                        return Err("event_sum() requires 2 arguments (type, field)".to_string());
+                    }
+                    let etype = format!("{}", eval_args[0]);
+                    let field = format!("{}", eval_args[1]);
+                    return Ok(Value::Float(self.event_sum(&etype, &field)));
                 }
 
                 // Check json_body() — server context builtin (Наряд №3)

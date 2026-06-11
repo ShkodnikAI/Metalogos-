@@ -49,6 +49,7 @@ pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::mutate_decl => declarations.push(parse_mutate_decl(inner_pair)),
                 Rule::eval_decl => declarations.push(parse_eval_decl(inner_pair)),
                 Rule::conversation_decl => declarations.push(parse_conversation_decl(inner_pair)),
+                Rule::tool_decl => declarations.push(parse_tool_decl(inner_pair)),
                 Rule::learnable_pattern_decl => declarations.push(parse_learnable_pattern_decl(inner_pair)),
                 Rule::pattern_decl => declarations.push(parse_pattern_decl(inner_pair)),
                 Rule::flow_decl => declarations.push(parse_flow_decl(inner_pair)),
@@ -700,6 +701,37 @@ fn parse_conversation_decl(pair: Pair<Rule>) -> Declaration {
         .unwrap_or(20);
 
     Declaration::Conversation(ConversationDecl { ttl, max_messages, compress_after })
+}
+
+// ── Tool Abstraction (ADR-0054) ──────────────────────────────────────
+
+fn parse_tool_decl(pair: Pair<Rule>) -> Declaration {
+    let children = children_of(&pair);
+    // tool_decl = { TOOL_KW ~ IDENT ~ "{" ~ tool_method* ~ "}" }
+    // First IDENT is the tool name; subsequent children are tool_method nodes.
+    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+
+    let methods: Vec<ToolMethod> = children.iter()
+        .filter(|c| c.as_rule() == Rule::tool_method)
+        .map(|c| parse_tool_method(c.clone()))
+        .collect();
+
+    Declaration::Tool(ToolDecl { name, methods })
+}
+
+fn parse_tool_method(pair: Pair<Rule>) -> ToolMethod {
+    let children = children_of(&pair);
+    // tool_method = { IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ LBRACE ~ statement* ~ RBRACE }
+    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+    let params = find_child(&children, Rule::params)
+        .map(|p| parse_params(p))
+        .unwrap_or_default();
+    let return_type = find_child_str(&children, Rule::type_name).unwrap_or_default();
+    let body: Vec<Statement> = children.iter()
+        .filter(|c| c.as_rule() == Rule::statement)
+        .map(|c| parse_single_statement(c.clone()))
+        .collect();
+    ToolMethod { name, params, return_type, body }
 }
 
 // ── Eval Harness (ADR-0050) ──────────────────────────────────────────

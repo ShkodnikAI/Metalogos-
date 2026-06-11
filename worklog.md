@@ -175,3 +175,27 @@ Stage Summary:
 - 10 contract tests, all green
 - All 63 existing tests pass (no regressions)
 - Commit 235e94e pushed to main
+---
+Task ID: 10
+Agent: Super Z (main)
+Task: Наряд №10 — Tool abstraction (ADR-0054): external services as language constructs
+
+Work Log:
+- Read grammar.pest, ast.rs, parser.rs, interpreter.rs to understand existing patterns
+- Added grammar rules: tool_decl, tool_method, TOOL_KW; "tool" excluded from step_ident
+- Added AST: Declaration::Tool variant, ToolDecl and ToolMethod structs
+- Added parser: parse_tool_decl and parse_tool_method functions
+- Updated compiler.rs: Declaration::Tool handled in both match arms (pass1/pass2)
+- Updated interpreter.rs: Declaration::Tool registers tool as module namespace + compiles methods as qualified patterns (toolname.methodname keys) to prevent namespace collisions
+- Updated QualifiedCall handler to distinguish tool namespaces (prefix "tool:") from import namespaces, using qualified key for pattern lookup
+- Fixed IDENT exclusion: removed "tool" from IDENT exclusion list (context-sensitive handling via PEG ordering in declaration rule)
+- Fixed namespace isolation bug: initially stored tool methods under unqualified names, causing collisions between tools with same method names. Switched to qualified keys (e.g., "calc_a.compute", "calc_b.compute")
+- Wrote 9 contract tests covering: basic double/square (spec contract), string ops, namespace isolation, empty tool, cross-pattern calls, multi-param, flow pipeline, undefined tool error, inter-method calls
+- Created ADR-0054 documentation
+
+Stage Summary:
+- All 9 contract tests pass (9/9)
+- No regressions in existing tests (ADR-0050 eval harness, ADR-0051 inspect, ADR-0045 hooks, ADR-0052 event stream, ADR-0053 conversation state all green)
+- Pre-existing failures unchanged: definition_of_done.rs (3 tests with invalid top-level let), golden.rs (m2_triage.mlog), template_integration.rs (compile errors)
+- Commit: 6cf9dcf "feat(ADR-0054): tool abstraction — external services as language constructs"
+- Push: main -> origin/main

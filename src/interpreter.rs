@@ -239,6 +239,9 @@ struct CompiledLearnable {
     /// Optional per-pattern model override (ADR-0048).
     /// When set, passed to the LLM backend instead of the global model.
     model: Option<String>,
+    /// Optional conversation binding (ADR-0053).
+    /// When set (e.g., "current"), the learnable pattern injects conversation history.
+    conversation: Option<String>,
 }
 
 /// A cached LLM response (ADR-0047).
@@ -323,6 +326,54 @@ impl PatternStats {
             0.0
         } else {
             self.confidence_sum / self.calls as f64
+        }
+    }
+}
+
+/// A single message within a conversation (ADR-0053).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ConvMessage {
+    /// Message role: "user", "assistant", or "system".
+    pub role: String,
+    /// Message text content.
+    pub text: String,
+    /// Unix timestamp when the message was added.
+    pub timestamp: i64,
+}
+
+/// A conversation with its messages and metadata (ADR-0053).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Conversation {
+    /// Conversation identifier.
+    pub id: String,
+    /// Ordered list of messages in this conversation.
+    pub messages: Vec<ConvMessage>,
+    /// Unix timestamp when the conversation was created.
+    pub created_at: i64,
+    /// Unix timestamp of last activity (message added/removed).
+    pub last_active: i64,
+    /// Additional metadata (key-value pairs).
+    pub metadata: HashMap<String, String>,
+}
+
+/// Conversation configuration (ADR-0053).
+/// Set by `conversation { ttl: N max_messages: N compress_after: N }`.
+#[derive(Debug, Clone)]
+pub struct ConversationConfig {
+    /// Time-to-live in seconds. Default: 1800 (30 minutes).
+    pub ttl: u64,
+    /// Maximum messages per conversation. Default: 50.
+    pub max_messages: usize,
+    /// Compress older messages via LLM summarization after this count. Default: 20.
+    pub compress_after: usize,
+}
+
+impl Default for ConversationConfig {
+    fn default() -> Self {
+        ConversationConfig {
+            ttl: 1800,
+            max_messages: 50,
+            compress_after: 20,
         }
     }
 }
@@ -482,6 +533,12 @@ pub struct Interpreter {
     event_log: std::sync::Mutex<Vec<Event>>,
     /// Next event ID (ADR-0052): auto-incrementing counter for event IDs.
     event_next_id: std::sync::atomic::AtomicU64,
+    /// Conversations storage (ADR-0053): HashMap<id, Conversation>.
+    /// Thread-safe via Mutex for interior mutability.
+    conversations: std::sync::Mutex<HashMap<String, Conversation>>,
+    /// Conversation configuration (ADR-0053).
+    /// Set by `conversation { ttl: N max_messages: N compress_after: N }`.
+    conversation_config: ConversationConfig,
 }
 
 impl Interpreter {
@@ -519,6 +576,8 @@ impl Interpreter {
             pattern_stats: std::sync::Mutex::new(std::collections::HashMap::new()),
             event_log: std::sync::Mutex::new(Vec::new()),
             event_next_id: std::sync::atomic::AtomicU64::new(1),
+            conversations: std::sync::Mutex::new(HashMap::new()),
+            conversation_config: ConversationConfig::default(),
         }
     }
 
@@ -911,6 +970,7 @@ impl Interpreter {
                             cache: lp.cache,
                             cache_ttl: lp.cache_ttl,
                             model: lp.model.clone(),
+                            conversation: lp.conversation.clone(),
                         },
                     );
                 }
@@ -1008,6 +1068,14 @@ impl Interpreter {
                 }
                 Declaration::Memory(m) => {
                     self.configure_memory(&m);
+                }
+                Declaration::Conversation(c) => {
+                    // ADR-0053: store conversation configuration
+                    self.conversation_config = ConversationConfig {
+                        ttl: c.ttl,
+                        max_messages: c.max_messages,
+                        compress_after: c.compress_after,
+                    };
                 }
                 Declaration::Db(db) => {
                     self.db_config = Some(db.clone());
@@ -1140,6 +1208,7 @@ impl Interpreter {
                         cache: lp.cache,
                         cache_ttl: lp.cache_ttl,
                         model: lp.model.clone(),
+                        conversation: lp.conversation.clone(),
                     });
                 }
                 Declaration::Rule(r) => self.rules.push(r),
@@ -1257,6 +1326,14 @@ impl Interpreter {
                 }
                 Declaration::Memory(m) => {
                     self.configure_memory(&m);
+                }
+                Declaration::Conversation(c) => {
+                    // ADR-0053: store conversation configuration (merge)
+                    self.conversation_config = ConversationConfig {
+                        ttl: c.ttl,
+                        max_messages: c.max_messages,
+                        compress_after: c.compress_after,
+                    };
                 }
                 Declaration::Db(db) => {
                     self.db_config = Some(db.clone());
@@ -2189,6 +2266,192 @@ impl Interpreter {
             .unwrap_or(Value::Unit)
     }
 
+    // ── ADR-0053: Conversation builtins ──────────────────────────────────
+
+    /// `conv_start(id)` — create or open a conversation. Returns the conversation id.
+    fn invoke_conv_start(&self, args: &[Value]) -> Result<Value, String> {
+        let id = match args.get(0) {
+            Some(Value::String(s)) => s.clone(),
+            _ => return Err("conv_start() requires 1 argument (id: String)".to_string()),
+        };
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let mut convs = self.conversations.lock()
+            .map_err(|e| format!("conv_start() lock error: {}", e))?;
+        convs.entry(id.clone()).or_insert_with(|| Conversation {
+            id: id.clone(),
+            messages: Vec::new(),
+            created_at: now,
+            last_active: now,
+            metadata: HashMap::new(),
+        });
+        Ok(Value::String(id))
+    }
+
+    /// `conv_add(id, role, text)` — add a message to a conversation.
+    fn invoke_conv_add(&self, args: &[Value]) -> Result<Value, String> {
+        let id = match args.get(0) {
+            Some(Value::String(s)) => s.clone(),
+            _ => return Err("conv_add() requires 3 arguments (id, role, text)".to_string()),
+        };
+        let role = match args.get(1) {
+            Some(Value::String(s)) => s.clone(),
+            _ => return Err("conv_add() requires 3 arguments (id, role, text)".to_string()),
+        };
+        let text = match args.get(2) {
+            Some(Value::String(s)) => s.clone(),
+            Some(other) => format!("{}", other),
+            None => return Err("conv_add() requires 3 arguments (id, role, text)".to_string()),
+        };
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        let mut convs = self.conversations.lock()
+            .map_err(|e| format!("conv_add() lock error: {}", e))?;
+        let conv = convs.get_mut(&id)
+            .ok_or_else(|| format!("conv_add() conversation '{}' not found", id))?;
+
+        // Enforce max_messages: if at limit, remove oldest message
+        if conv.messages.len() >= self.conversation_config.max_messages {
+            conv.messages.remove(0);
+        }
+
+        conv.messages.push(ConvMessage {
+            role,
+            text: text.clone(),
+            timestamp: now,
+        });
+        conv.last_active = now;
+
+        // ADR-0053: auto-compress when message count exceeds compress_after
+        if conv.messages.len() > self.conversation_config.compress_after {
+            self.compress_conversation(conv);
+        }
+
+        Ok(Value::String(text))
+    }
+
+    /// `conv_history(id)` — return the full message history as a List of Structs.
+    fn invoke_conv_history(&self, args: &[Value]) -> Result<Value, String> {
+        let id = match args.get(0) {
+            Some(Value::String(s)) => s.clone(),
+            _ => return Err("conv_history() requires 1 argument (id: String)".to_string()),
+        };
+        let convs = self.conversations.lock()
+            .map_err(|e| format!("conv_history() lock error: {}", e))?;
+        let conv = convs.get(&id)
+            .ok_or_else(|| format!("conv_history() conversation '{}' not found", id))?;
+
+        let mut list = Vec::new();
+        for msg in &conv.messages {
+            let mut fields = HashMap::new();
+            fields.insert("role".to_string(), Value::String(msg.role.clone()));
+            fields.insert("text".to_string(), Value::String(msg.text.clone()));
+            fields.insert("timestamp".to_string(), Value::Float(msg.timestamp as f64));
+            list.push(Value::Struct { type_name: "Message".to_string(), fields });
+        }
+        Ok(Value::List(list))
+    }
+
+    /// `conv_context(id)` — return a formatted string of conversation history for LLM injection.
+    fn invoke_conv_context(&self, args: &[Value]) -> Result<Value, String> {
+        let id = match args.get(0) {
+            Some(Value::String(s)) => s.clone(),
+            _ => return Err("conv_context() requires 1 argument (id: String)".to_string()),
+        };
+        let convs = self.conversations.lock()
+            .map_err(|e| format!("conv_context() lock error: {}", e))?;
+        let conv = convs.get(&id)
+            .ok_or_else(|| format!("conv_context() conversation '{}' not found", id))?;
+
+        let mut parts = Vec::new();
+        for msg in &conv.messages {
+            parts.push(format!("{}: {}", msg.role, msg.text));
+        }
+        Ok(Value::String(parts.join("\n")))
+    }
+
+    /// `conv_end(id)` — terminate a conversation. Returns "ok".
+    fn invoke_conv_end(&self, args: &[Value]) -> Result<Value, String> {
+        let id = match args.get(0) {
+            Some(Value::String(s)) => s.clone(),
+            _ => return Err("conv_end() requires 1 argument (id: String)".to_string()),
+        };
+        let mut convs = self.conversations.lock()
+            .map_err(|e| format!("conv_end() lock error: {}", e))?;
+        convs.remove(&id);
+        Ok(Value::String("ok".to_string()))
+    }
+
+    /// Get a reference to the conversations store (for testing).
+    pub fn get_conversations(&self) -> &std::sync::Mutex<HashMap<String, Conversation>> {
+        &self.conversations
+    }
+
+    /// Get conversation config (for testing).
+    pub fn get_conversation_config(&self) -> &ConversationConfig {
+        &self.conversation_config
+    }
+
+    /// Compress older messages in a conversation by summarizing them via LLM.
+    /// Replaces messages beyond compress_after with a single system summary message.
+    fn compress_conversation(&self, conv: &mut Conversation) {
+        if conv.messages.len() <= self.conversation_config.compress_after {
+            return;
+        }
+        let old_count = conv.messages.len() - self.conversation_config.compress_after;
+        let old_messages: Vec<ConvMessage> = conv.messages.drain(..old_count).collect();
+
+        // Build text from old messages for summarization
+        let old_text: Vec<String> = old_messages.iter()
+            .map(|m| format!("{}: {}", m.role, m.text))
+            .collect();
+        let text_to_summarize = old_text.join("\n");
+
+        // Attempt LLM summarization. On failure, keep a simple prefix summary.
+        let summary = match self.summarize_conversation(&text_to_summarize) {
+            Ok(s) => s,
+            Err(_) => format!("[Previous conversation summary: {} messages omitted]", old_count),
+        };
+
+        // Prepend summary as a system message
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        conv.messages.insert(0, ConvMessage {
+            role: "system".to_string(),
+            text: summary,
+            timestamp: now,
+        });
+    }
+
+    /// Summarize conversation text via LLM call.
+    fn summarize_conversation(&self, text: &str) -> Result<String, String> {
+        let backend = llm::create_llm_backend();
+        let prompt = "Summarize this conversation concisely, preserving key facts and decisions.";
+        backend.call(prompt, text)
+    }
+
+    /// Get conversation history as a formatted string for LLM multi-turn injection.
+    /// Returns None if conversation not found or empty.
+    pub fn get_conversation_for_llm(&self, conv_id: &str) -> Option<String> {
+        let convs = self.conversations.lock().ok()?;
+        let conv = convs.get(conv_id)?;
+        if conv.messages.is_empty() {
+            return None;
+        }
+        let mut parts = Vec::new();
+        for msg in &conv.messages {
+            parts.push(format!("{}: {}", msg.role, msg.text));
+        }
+        Some(parts.join("\n"))
+    }
+
     /// Get the server configuration (Phase 6.1).
     pub fn get_server_config(&self) -> Option<&MlogServerDecl> {
         self.server_config.as_ref()
@@ -2255,6 +2518,8 @@ impl Interpreter {
         for h in &self.hooks_after {
             target.hooks_after.push(h.clone());
         }
+        // ADR-0053: copy conversation config (conversations themselves are per-session)
+        target.conversation_config = self.conversation_config.clone();
 
         // Copy LLM cache so route handlers benefit from cached LLM responses
         if let Ok(mut target_cache) = target.llm_cache.lock() {
@@ -2607,6 +2872,23 @@ impl Interpreter {
                     let etype = format!("{}", eval_args[0]);
                     let field = format!("{}", eval_args[1]);
                     return Ok(Value::Float(self.event_sum(&etype, &field)));
+                }
+
+                // ADR-0053: conversation builtins
+                if name == "conv_start" {
+                    return self.invoke_conv_start(&eval_args);
+                }
+                if name == "conv_add" {
+                    return self.invoke_conv_add(&eval_args);
+                }
+                if name == "conv_history" {
+                    return self.invoke_conv_history(&eval_args);
+                }
+                if name == "conv_context" {
+                    return self.invoke_conv_context(&eval_args);
+                }
+                if name == "conv_end" {
+                    return self.invoke_conv_end(&eval_args);
                 }
 
                 // Check json_body() — server context builtin (Наряд №3)

@@ -1,0 +1,54 @@
+// Contract test: match statement (P1-1)
+// match expr { "val" then { stmts } else { stmts } }
+
+pattern test_match_basic() -> String {
+  let x = "hello"
+  let result = match x {
+    "world" then {
+      let _ = print("world")
+      "wrong"
+    }
+    "hello" then {
+      let _ = print("hello")
+      "correct"
+    }
+    "other" then {
+      "also_wrong"
+    }
+    else {
+      "default"
+    }
+  }
+  return result
+}
+
+pattern test_match_no_match() -> String {
+  let x = "unknown"
+  let result = match x {
+    "hello" then { "wrong" }
+    else { "default_hit" }
+  }
+  return result
+}
+
+pattern test_match_no_else() -> String {
+  let x = "unknown"
+  let val = "fallback"
+  match x {
+    "hello" then {
+      let val = "matched"
+    }
+  }
+  return val
+}
+
+pattern test_match_return() -> String {
+  let x = "b"
+  match x {
+    "a" then { return "first" }
+    "b" then { return "second" }
+    "c" then { return "third" }
+    else { return "default" }
+  }
+  return "never"
+}

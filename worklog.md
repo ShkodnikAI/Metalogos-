@@ -146,3 +146,32 @@ Stage Summary:
 - Event types instrumented: memory_store, adapt, pattern_call (llm_call, rule_fire, error deferred)
 - Builtins: event_count(), events_since(), event_sum() — special-cased in FnCall dispatch
 - All 26 related tests pass (9 event + 9 eval + 8 inspect)
+---
+Task ID: 9
+Agent: main
+Task: Наряд №9 — Conversation state, управляемый контекст диалога (ADR-0053)
+
+Work Log:
+- Explored codebase: no pre-existing conversation implementation found (fully greenfield)
+- Added conversation_decl grammar rule to grammar.pest (ttl, max_messages, compress_after)
+- Added conversation_line to learnable_body for learnable pattern binding
+- Added "conversation" to step_ident negative lookahead
+- Added ConversationDecl struct to ast.rs + Declaration::Conversation variant
+- Added conversation: Option<String> to LearnablePatternDecl and CompiledLearnable
+- Added parse_conversation_decl() to parser.rs + conversation_line extraction
+- Added ConvMessage, Conversation, ConversationConfig structs to interpreter.rs
+- Added conversations HashMap<Mutex> and conversation_config to Interpreter
+- Implemented 5 builtins: conv_start, conv_add, conv_history, conv_context, conv_end
+- Implemented compress_conversation() via LLM summarization
+- Implemented max_messages enforcement (oldest message eviction)
+- Added get_conversation_for_llm() for learnable pattern integration
+- Handled Declaration::Conversation in run() dispatch (2 locations) and compiler.rs (2 match arms)
+- Updated 3 existing test files (llm_cache, model_routing, phase75) to include conversation field
+- Wrote 10 contract tests (conversation_state_contract.rs), all passing
+- Wrote ADR-0053
+
+Stage Summary:
+- 10 files changed, 771 insertions(+), 5 deletions(-)
+- 10 contract tests, all green
+- All 63 existing tests pass (no regressions)
+- Commit 235e94e pushed to main

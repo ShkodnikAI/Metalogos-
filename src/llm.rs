@@ -575,6 +575,535 @@ pub fn create_llm_backend() -> Box<dyn LlmBackend> {
     }
 }
 
+/// Global LLM usage tracker (Наряд №4).
+/// Shared across all SmartRouter instances. Written by SmartRouter::call(),
+/// read by the llm_usage() builtin.
+pub static GLOBAL_LLM_USAGE: once_cell::sync::Lazy<StdMutex<LlmUsageTracker>> =
+    once_cell::sync::Lazy::new(|| StdMutex::new(LlmUsageTracker::new_empty()));
+
+/// Reset the global LLM usage tracker (for tests).
+pub fn reset_global_llm_usage() {
+    if let Ok(mut tracker) = GLOBAL_LLM_USAGE.lock() {
+        *tracker = LlmUsageTracker::new_empty();
+    }
+}
+
+/// Get a snapshot of the global LLM usage tracker report.
+pub fn global_llm_usage_report() -> LlmUsageReport {
+    if let Ok(tracker) = GLOBAL_LLM_USAGE.lock() {
+        tracker.report()
+    } else {
+        LlmUsageReport {
+            total_calls: 0.0,
+            total_tokens: 0.0,
+            total_errors: 0.0,
+            providers: Vec::new(),
+        }
+    }
+}
+
+// ── Smart Router (Наряд №4: LLM Routing with Failover + Circuit Breaker) ──
+
+use std::sync::Mutex as StdMutex;
+use std::time::{Instant, SystemTime};
+
+/// Per-provider health tracking entry.
+#[derive(Debug, Clone)]
+struct ProviderHealth {
+    /// Timestamped results: (Instant, success: bool)
+    window: Vec<(Instant, bool)>,
+    /// Max entries in the health window.
+    max_window: usize,
+    /// Circuit breaker threshold: opens after N consecutive failures.
+    circuit_threshold: u32,
+    /// Current consecutive failure count.
+    consecutive_failures: u32,
+    /// Whether circuit is open (provider temporarily skipped).
+    circuit_open: bool,
+    /// When circuit was opened (for half-open recovery).
+    circuit_opened_at: Option<Instant>,
+    /// Circuit breaker recovery time in seconds.
+    circuit_recovery_secs: u64,
+}
+
+impl ProviderHealth {
+    fn new(circuit_threshold: u32) -> Self {
+        ProviderHealth {
+            window: Vec::new(),
+            max_window: 20,
+            circuit_threshold,
+            consecutive_failures: 0,
+            circuit_open: false,
+            circuit_opened_at: None,
+            circuit_recovery_secs: 60,
+        }
+    }
+
+    /// Record a call result. Returns true if the circuit should trip open.
+    fn record(&mut self, success: bool) {
+        self.window.push((Instant::now(), success));
+        if self.window.len() > self.max_window {
+            self.window.remove(0);
+        }
+        if success {
+            self.consecutive_failures = 0;
+            // Close circuit on success (half-open state)
+            self.circuit_open = false;
+            self.circuit_opened_at = None;
+        } else {
+            self.consecutive_failures += 1;
+            if self.consecutive_failures >= self.circuit_threshold && !self.circuit_open {
+                self.circuit_open = true;
+                self.circuit_opened_at = Some(Instant::now());
+            }
+        }
+    }
+
+    /// Check if this provider should be skipped (circuit open and not yet recovered).
+    fn is_available(&mut self) -> bool {
+        if !self.circuit_open {
+            return true;
+        }
+        // Half-open: check if recovery time has elapsed
+        if let Some(opened) = self.circuit_opened_at {
+            if opened.elapsed().as_secs() >= self.circuit_recovery_secs {
+                self.circuit_open = false;
+                self.circuit_opened_at = None;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Health score: success_count / total_count in window.
+    fn health_score(&self) -> f64 {
+        if self.window.is_empty() {
+            return 1.0;
+        }
+        let successes = self.window.iter().filter(|(_, ok)| *ok).count();
+        successes as f64 / self.window.len() as f64
+    }
+}
+
+/// Per-provider usage statistics.
+#[derive(Debug, Clone)]
+pub struct ProviderUsage {
+    pub alias: String,
+    pub calls: u64,
+    pub tokens: u64,
+    pub errors: u64,
+    pub avg_latency_ms: f64,
+    pub health_score: f64,
+}
+
+/// Global LLM usage tracker (thread-safe).
+pub struct LlmUsageTracker {
+    total_calls: StdMutex<u64>,
+    total_tokens: StdMutex<u64>,
+    total_errors: StdMutex<u64>,
+    providers: StdMutex<Vec<ProviderHealth>>,
+    provider_names: Vec<String>,
+    /// Per-provider: calls, tokens, errors, latencies for avg
+    provider_calls: StdMutex<Vec<u64>>,
+    provider_tokens: StdMutex<Vec<u64>>,
+    provider_errors: StdMutex<Vec<u64>>,
+    provider_latencies: StdMutex<Vec<u64>>,
+}
+
+impl LlmUsageTracker {
+    /// Create an empty tracker (no providers).
+    pub fn new_empty() -> Self {
+        LlmUsageTracker {
+            total_calls: StdMutex::new(0),
+            total_tokens: StdMutex::new(0),
+            total_errors: StdMutex::new(0),
+            providers: StdMutex::new(Vec::new()),
+            provider_names: Vec::new(),
+            provider_calls: StdMutex::new(Vec::new()),
+            provider_tokens: StdMutex::new(Vec::new()),
+            provider_errors: StdMutex::new(Vec::new()),
+            provider_latencies: StdMutex::new(Vec::new()),
+        }
+    }
+
+    pub fn new(provider_names: Vec<String>, circuit_threshold: u32) -> Self {
+        let n = provider_names.len();
+        LlmUsageTracker {
+            total_calls: StdMutex::new(0),
+            total_tokens: StdMutex::new(0),
+            total_errors: StdMutex::new(0),
+            providers: StdMutex::new(
+                provider_names.iter().map(|_| ProviderHealth::new(circuit_threshold)).collect()
+            ),
+            provider_names,
+            provider_calls: StdMutex::new(vec![0; n]),
+            provider_tokens: StdMutex::new(vec![0; n]),
+            provider_errors: StdMutex::new(vec![0; n]),
+            provider_latencies: StdMutex::new(vec![0; n]),
+        }
+    }
+
+    pub fn provider_count(&self) -> usize {
+        self.provider_names.len()
+    }
+
+    pub fn record_call(&self, provider_idx: usize, success: bool, prompt_chars: usize, latency_ms: u64) {
+        if let Ok(mut providers) = self.providers.lock() {
+            if provider_idx < providers.len() {
+                providers[provider_idx].record(success);
+            }
+        }
+        // Estimate tokens: chars / 4
+        let tokens = (prompt_chars / 4) as u64;
+        if let Ok(mut total_calls) = self.total_calls.lock() { *total_calls += 1; }
+        if let Ok(mut total_tokens) = self.total_tokens.lock() { *total_tokens += tokens; }
+        if !success {
+            if let Ok(mut total_errors) = self.total_errors.lock() { *total_errors += 1; }
+        }
+        if let Ok(mut pc) = self.provider_calls.lock() {
+            if provider_idx < pc.len() { pc[provider_idx] += 1; }
+        }
+        if let Ok(mut pt) = self.provider_tokens.lock() {
+            if provider_idx < pt.len() { pt[provider_idx] += tokens; }
+        }
+        if !success {
+            if let Ok(mut pe) = self.provider_errors.lock() {
+                if provider_idx < pe.len() { pe[provider_idx] += 1; }
+            }
+        }
+        if let Ok(mut pl) = self.provider_latencies.lock() {
+            if provider_idx < pl.len() { pl[provider_idx] = pl[provider_idx].saturating_add(latency_ms); }
+        }
+    }
+
+    /// Check if a specific provider is available (circuit breaker).
+    pub fn is_provider_available(&self, idx: usize) -> bool {
+        if let Ok(mut providers) = self.providers.lock() {
+            if idx < providers.len() {
+                return providers[idx].is_available();
+            }
+        }
+        true
+    }
+
+    /// Get health score for a specific provider.
+    pub fn health_score(&self, idx: usize) -> f64 {
+        if let Ok(providers) = self.providers.lock() {
+            if idx < providers.len() {
+                return providers[idx].health_score();
+            }
+        }
+        1.0
+    }
+
+    /// Build usage report as Value-compatible data.
+    pub fn report(&self) -> LlmUsageReport {
+        let total_calls = self.total_calls.lock().map(|g| *g).unwrap_or(0);
+        let total_tokens = self.total_tokens.lock().map(|g| *g).unwrap_or(0);
+        let total_errors = self.total_errors.lock().map(|g| *g).unwrap_or(0);
+
+        let mut provider_reports = Vec::new();
+        for i in 0..self.provider_names.len() {
+            let calls = self.provider_calls.lock().map(|g| g.get(i).copied().unwrap_or(0)).unwrap_or(0);
+            let tokens = self.provider_tokens.lock().map(|g| g.get(i).copied().unwrap_or(0)).unwrap_or(0);
+            let errors = self.provider_errors.lock().map(|g| g.get(i).copied().unwrap_or(0)).unwrap_or(0);
+            let total_lat = self.provider_latencies.lock().map(|g| g.get(i).copied().unwrap_or(0)).unwrap_or(0);
+            let avg_lat = if calls > 0 { total_lat as f64 / calls as f64 } else { 0.0 };
+            let health = self.health_score(i);
+
+            provider_reports.push(ProviderUsage {
+                alias: self.provider_names[i].clone(),
+                calls,
+                tokens,
+                errors,
+                avg_latency_ms: avg_lat,
+                health_score: health,
+            });
+        }
+
+        LlmUsageReport {
+            total_calls: total_calls as f64,
+            total_tokens: total_tokens as f64,
+            total_errors: total_errors as f64,
+            providers: provider_reports,
+        }
+    }
+}
+
+/// Usage report returned by llm_usage() builtin.
+#[derive(Debug, Clone)]
+pub struct LlmUsageReport {
+    pub total_calls: f64,
+    pub total_tokens: f64,
+    pub total_errors: f64,
+    pub providers: Vec<ProviderUsage>,
+}
+
+/// Smart LLM router: wraps multiple providers with failover, circuit breaker, health tracking.
+pub struct SmartRouter {
+    /// Provider configurations (alias, provider_type, api_key, url).
+    providers: Vec<(String, String, Option<String>, Option<String>)>,
+    /// Default model name/alias.
+    default_model: Option<String>,
+    /// Failover mode: "auto" or None.
+    failover: bool,
+    /// Timeout in seconds per provider call.
+    timeout: u32,
+    /// Health and usage tracker.
+    tracker: LlmUsageTracker,
+}
+
+impl SmartRouter {
+    /// Create a SmartRouter from an LlmConfigDecl.
+    pub fn from_config(config: &crate::ast::LlmConfigDecl) -> Self {
+        let provider_names: Vec<String> = config.providers.iter().map(|p| p.alias.clone()).collect();
+        let circuit_threshold = config.circuit_breaker;
+        let providers: Vec<(String, String, Option<String>, Option<String>)> = config.providers.iter().map(|p| {
+            // Evaluate key expression: if it's env("KEY"), resolve at runtime
+            let key = p.key.as_ref().and_then(|expr| {
+                match expr {
+                    crate::ast::Expr::FnCall(name, args) if name == "env" => {
+                        args.first().and_then(|a| {
+                            if let crate::ast::Expr::StringLit(s) = a {
+                                std::env::var(s).ok()
+                            } else {
+                                None
+                            }
+                        })
+                    }
+                    crate::ast::Expr::StringLit(s) => Some(s.clone()),
+                    _ => None,
+                }
+            });
+            (p.alias.clone(), p.provider.clone(), key, p.url.clone())
+        }).collect();
+
+        SmartRouter {
+            providers,
+            default_model: config.default_model.clone(),
+            failover: config.failover.as_deref() == Some("auto"),
+            timeout: config.timeout,
+            tracker: LlmUsageTracker::new(provider_names, circuit_threshold),
+        }
+    }
+
+    /// Call the LLM with smart routing.
+    /// 1. Pick best available provider (by health_score)
+    /// 2. Try it; on failure, try next available provider (failover)
+    /// 3. Track usage for each attempt
+    pub fn call(&self, prompt: &str, input: &str, model_override: Option<&str>) -> Result<String, String> {
+        if self.providers.is_empty() {
+            // No providers configured — fall back to legacy behavior
+            let backend = create_llm_backend();
+            return backend.call(prompt, input);
+        }
+
+        let effective_prompt_len = prompt.len() + input.len();
+
+        // Build ordered list of provider indices, sorted by health_score desc
+        let mut candidates: Vec<usize> = (0..self.providers.len()).collect();
+        candidates.sort_by(|&a, &b| {
+            let sa = self.tracker.health_score(a);
+            let sb = self.tracker.health_score(b);
+            sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut last_error = String::new();
+
+        for &idx in &candidates {
+            if !self.tracker.is_provider_available(idx) {
+                continue; // circuit breaker open — skip
+            }
+
+            let (ref alias, ref provider_type, ref api_key, ref url) = self.providers[idx];
+            let start = Instant::now();
+
+            let result = self.call_provider(
+                provider_type,
+                api_key.as_deref(),
+                url.as_deref(),
+                prompt,
+                input,
+                model_override,
+            );
+
+            let latency_ms = start.elapsed().as_millis() as u64;
+            let success = result.is_ok();
+            self.tracker.record_call(idx, success, effective_prompt_len, latency_ms);
+            // Also record to global tracker for llm_usage() builtin
+            if let Ok(global) = GLOBAL_LLM_USAGE.lock() {
+                global.record_call(idx, success, effective_prompt_len, latency_ms);
+            }
+
+            match result {
+                Ok(response) => return Ok(response),
+                Err(e) => {
+                    last_error = e.clone();
+                    if !self.failover {
+                        break; // manual mode — don't try next provider
+                    }
+                    // Continue to next provider (failover)
+                }
+            }
+        }
+
+        // All providers exhausted — soft failure
+        Err(format!(
+            "All LLM providers failed. Last error: {}",
+            truncate(&last_error, 200)
+        ))
+    }
+
+    /// Make a single provider call using the appropriate format.
+    fn call_provider(
+        &self,
+        provider_type: &str,
+        api_key: Option<&str>,
+        url: Option<&str>,
+        prompt: &str,
+        input: &str,
+        model_override: Option<&str>,
+    ) -> Result<String, String> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(self.timeout.max(5) as u64))
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|e| format!("HTTP client build error: {}", e))?;
+
+        let resolved_model = model_override
+            .or(self.default_model.as_deref())
+            .unwrap_or("default");
+
+        let body_text = format!("{}\n\nInput: {}", prompt, input);
+        let body = serde_json::json!({
+            "model": resolved_model,
+            "messages": [{ "role": "user", "content": body_text }],
+            "max_tokens": 1024,
+            "temperature": 0.0
+        });
+
+        let endpoint = self.resolve_endpoint(provider_type, url);
+
+        match provider_type {
+            "anthropic" => {
+                let key = api_key.ok_or_else(|| "anthropic requires an API key".to_string())?;
+                // Anthropic uses a different format
+                let anth_body = serde_json::json!({
+                    "model": resolved_model,
+                    "max_tokens": 1024,
+                    "messages": [{ "role": "user", "content": body_text }]
+                });
+                let resp = client
+                    .post(&endpoint)
+                    .header("x-api-key", key)
+                    .header("anthropic-version", "2023-06-01")
+                    .header("content-type", "application/json")
+                    .json(&anth_body)
+                    .send()
+                    .map_err(|e| format!("Anthropic request failed: {}", e))?;
+                let status = resp.status();
+                let text = resp.text().map_err(|e| format!("Response read error: {}", e))?;
+                if !status.is_success() {
+                    return Err(format!("Anthropic API error ({}): {}", status.as_u16(), truncate(&text, 500)));
+                }
+                parse_anthropic_response(&text)
+            }
+            "ollama" => {
+                let ollama_body = serde_json::json!({
+                    "model": resolved_model,
+                    "prompt": body_text,
+                    "stream": false
+                });
+                let resp = client
+                    .post(&endpoint)
+                    .header("content-type", "application/json")
+                    .json(&ollama_body)
+                    .send()
+                    .map_err(|e| format!("Ollama request failed: {}", e))?;
+                let status = resp.status();
+                let text = resp.text().map_err(|e| format!("Response read error: {}", e))?;
+                if !status.is_success() {
+                    return Err(format!("Ollama API error ({}): {}", status.as_u16(), truncate(&text, 500)));
+                }
+                parse_ollama_response(&text)
+            }
+            _ => {
+                // OpenAI-compatible: openai, groq, cerebras, nvidia, openrouter, custom
+                let key = api_key;
+                let mut req = client
+                    .post(&endpoint)
+                    .header("content-type", "application/json")
+                    .json(&body);
+                if let Some(k) = key {
+                    req = req.header("Authorization", format!("Bearer {}", k));
+                }
+                let resp = req.send().map_err(|e| format!("{} request failed: {}", provider_type, e))?;
+                let status = resp.status();
+                let text = resp.text().map_err(|e| format!("Response read error: {}", e))?;
+                if !status.is_success() {
+                    return Err(format!("{} API error ({}): {}", provider_type, status.as_u16(), truncate(&text, 500)));
+                }
+                parse_openai_response(&text)
+            }
+        }
+    }
+
+    /// Resolve the endpoint URL for a provider type.
+    fn resolve_endpoint(&self, provider_type: &str, url: Option<&str>) -> String {
+        if let Some(u) = url {
+            // Custom URL: append /v1/chat/completions for OpenAI-compatible, or /api/generate for ollama
+            if provider_type == "ollama" {
+                format!("{}/api/generate", u.trim_end_matches('/'))
+            } else if provider_type == "anthropic" {
+                format!("{}/v1/messages", u.trim_end_matches('/'))
+            } else {
+                format!("{}/v1/chat/completions", u.trim_end_matches('/'))
+            }
+        } else {
+            match provider_type {
+                "anthropic" => "https://api.anthropic.com/v1/messages".to_string(),
+                "openai" => "https://api.openai.com/v1/chat/completions".to_string(),
+                "ollama" => "http://localhost:11434/api/generate".to_string(),
+                "groq" => "https://api.groq.com/openai/v1/chat/completions".to_string(),
+                "cerebras" => "https://api.cerebras.ai/v1/chat/completions".to_string(),
+                "nvidia" => "https://integrate.api.nvidia.com/v1/chat/completions".to_string(),
+                "openrouter" => "https://openrouter.ai/api/v1/chat/completions".to_string(),
+                "google" => "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions".to_string(),
+                other => format!("https://{}/v1/chat/completions", other),
+            }
+        }
+    }
+
+    /// Get a usage report for the llm_usage() builtin.
+    pub fn usage_report(&self) -> LlmUsageReport {
+        self.tracker.report()
+    }
+
+    /// Get the number of providers.
+    pub fn provider_count(&self) -> usize {
+        self.providers.len()
+    }
+
+    /// Get provider alias by index.
+    pub fn provider_alias(&self, idx: usize) -> Option<&str> {
+        self.providers.get(idx).map(|(alias, ..)| alias.as_str())
+    }
+}
+
+/// Resolve a model alias to an actual model name, considering the llm config.
+/// 1. If `METALOGOS_LLM_MODEL_{alias}` env exists → use it
+/// 2. If alias matches a provider alias → use that provider (pass through)
+/// 3. Otherwise → return as-is (direct model name)
+pub fn resolve_model_smart(alias: &str, config: Option<&crate::ast::LlmConfigDecl>) -> String {
+    // Check env override first
+    let env_key = format!("METALOGOS_LLM_MODEL_{}", alias);
+    if let Ok(val) = env::var(&env_key) {
+        return val;
+    }
+    // If no env override, return as-is
+    alias.to_string()
+}
+
 // ── Tests ───────────────────────────────────────────────────────────
 
 #[cfg(test)]

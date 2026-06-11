@@ -574,6 +574,12 @@ pub struct Interpreter {
     /// Resume target: if Some((flow_name, checkpoint_name)), the flow should
     /// skip steps until reaching the step after this checkpoint.
     resume_target: Option<(String, String)>,
+    /// Наряд №4: LLM routing config (providers, circuit breaker, failover).
+    /// If None → backward compatible (env vars, single provider).
+    llm_config: Option<crate::ast::LlmConfigDecl>,
+    /// Наряд №4: Smart LLM router instance. Created from llm_config when present.
+    /// Shared via Arc<Mutex> for thread safety in server mode.
+    smart_router: std::sync::Arc<std::sync::Mutex<Option<llm::SmartRouter>>>,
 }
 
 impl Interpreter {
@@ -616,6 +622,8 @@ impl Interpreter {
             checkpoint_db: std::sync::Mutex::new(None),
             checkpoint_mem: std::sync::Mutex::new(HashMap::new()),
             resume_target: None,
+            llm_config: None,
+            smart_router: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -1133,6 +1141,14 @@ impl Interpreter {
                         compress_after: c.compress_after,
                     };
                 }
+                Declaration::LlmConfig(config) => {
+                    // Наряд №4: store LLM config and create smart router
+                    let router = llm::SmartRouter::from_config(&config);
+                    if let Ok(mut sr) = self.smart_router.lock() {
+                        *sr = Some(router);
+                    }
+                    self.llm_config = Some(config);
+                }
                 Declaration::Tool(t) => {
                     // ADR-0054: register tool as a module namespace and
                     // compile each method as a qualified pattern.
@@ -1410,6 +1426,14 @@ impl Interpreter {
                         max_messages: c.max_messages,
                         compress_after: c.compress_after,
                     };
+                }
+                Declaration::LlmConfig(config) => {
+                    // Наряд №4: store LLM config and create smart router
+                    let router = llm::SmartRouter::from_config(&config);
+                    if let Ok(mut sr) = self.smart_router.lock() {
+                        *sr = Some(router);
+                    }
+                    self.llm_config = Some(config);
                 }
                 Declaration::Tool(t) => {
                     // ADR-0054: register tool as namespace + compile methods as qualified patterns
@@ -2046,10 +2070,23 @@ impl Interpreter {
 
         // No few-shot match — call LLM backend
         let start = SystemTime::now();
-        let backend = llm::create_llm_backend();
-        // ADR-0048: resolve model alias via env, then pass to backend
+
+        // Наряд №4: Use SmartRouter if llm config is present, otherwise legacy backend
         let resolved_model = learnable.model.as_ref().map(|alias| llm::resolve_model(alias));
-        let response = backend.call_with_model(&effective_prompt, &input, resolved_model.as_deref())?;
+        let response = match self.smart_router.lock() {
+            Ok(guard) => {
+                if let Some(ref router) = *guard {
+                    router.call(&effective_prompt, &input, resolved_model.as_deref())
+                } else {
+                    let backend = llm::create_llm_backend();
+                    backend.call_with_model(&effective_prompt, &input, resolved_model.as_deref())
+                }
+            }
+            Err(_) => {
+                let backend = llm::create_llm_backend();
+                backend.call_with_model(&effective_prompt, &input, resolved_model.as_deref())
+            }
+        }?;
 
         // Phase 7.5: Sandbox enforcement — timeout check
         if let Some(ref sb) = self.active_sandbox {

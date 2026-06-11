@@ -121,6 +121,9 @@ impl Builtins {
         // Anthropic Claude LLM integration (Phase 7.7)
         funcs.insert("call_claude".to_string(), builtin_call_claude as BuiltinFn);
 
+        // Наряд №4: LLM usage tracking
+        funcs.insert("llm_usage".to_string(), builtin_llm_usage as BuiltinFn);
+
         // JSON escape utility (Phase 7.7)
         funcs.insert("escape_json".to_string(), builtin_escape_json as BuiltinFn);
 
@@ -1467,4 +1470,35 @@ fn builtin_list_dir(args: &[Value]) -> Result<Value, String> {
         })
         .collect();
     Ok(Value::List(entries))
+}
+
+/// Наряд №4: `llm_usage()` — returns LLM usage statistics as a Struct.
+/// Returns: { total_calls: Float, total_tokens: Float, total_errors: Float, providers: List }
+fn builtin_llm_usage(_args: &[Value]) -> Result<Value, String> {
+    let report = crate::llm::global_llm_usage_report();
+
+    let mut fields = std::collections::HashMap::new();
+    fields.insert("total_calls".to_string(), Value::Float(report.total_calls));
+    fields.insert("total_tokens".to_string(), Value::Float(report.total_tokens));
+    fields.insert("total_errors".to_string(), Value::Float(report.total_errors));
+
+    let providers: Vec<Value> = report.providers.iter().map(|p| {
+        let mut pf = std::collections::HashMap::new();
+        pf.insert("alias".to_string(), Value::String(p.alias.clone()));
+        pf.insert("calls".to_string(), Value::Float(p.calls as f64));
+        pf.insert("tokens".to_string(), Value::Float(p.tokens as f64));
+        pf.insert("errors".to_string(), Value::Float(p.errors as f64));
+        pf.insert("avg_latency_ms".to_string(), Value::Float(p.avg_latency_ms));
+        pf.insert("health_score".to_string(), Value::Float(p.health_score));
+        Value::Struct {
+            type_name: "ProviderUsage".to_string(),
+            fields: pf,
+        }
+    }).collect();
+    fields.insert("providers".to_string(), Value::List(providers));
+
+    Ok(Value::Struct {
+        type_name: "LlmUsage".to_string(),
+        fields,
+    })
 }

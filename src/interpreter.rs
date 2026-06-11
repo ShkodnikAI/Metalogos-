@@ -1283,7 +1283,10 @@ impl Interpreter {
         // Check learnable patterns
         if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
             let collapsed_args = self.collapse_args(&learnable.params, &args);
-            return self.invoke_learnable_with_env(name, &learnable, &collapsed_args);
+            let learnable_clone = learnable.clone();
+            return self.invoke_pattern_with_hooks(name, &collapsed_args, || {
+                self.invoke_learnable_with_env(name, &learnable_clone, &collapsed_args)
+            });
         }
 
         // Check builtins
@@ -1323,7 +1326,9 @@ impl Interpreter {
         // Bind parameters with Fluid collapse
         let mut local_env = self.bind_and_collapse(&pattern.params, &args)?;
 
-        self.eval_statements(&pattern.body, &mut local_env)
+        self.invoke_pattern_with_hooks(name, &args, || {
+            self.eval_statements(&pattern.body, &mut local_env)
+        })
     }
 
     /// ADR-0045: Execute a pattern invocation wrapped with before/after hooks.
@@ -1331,7 +1336,7 @@ impl Interpreter {
     /// result (after only), confidence (after only).
     /// Builtins are NOT wrapped — only user-defined patterns and learnable patterns.
     fn invoke_pattern_with_hooks<F>(
-        &mut self,
+        &self,
         name: &str,
         args: &[Value],
         f: F,
@@ -2385,7 +2390,9 @@ impl Interpreter {
                     ));
                 }
                 let mut local_env = self.bind_and_collapse(&pattern.params, &eval_args)?;
-                self.eval_statements(&pattern.body, &mut local_env)
+                self.invoke_pattern_with_hooks(function, &eval_args, || {
+                    self.eval_statements(&pattern.body, &mut local_env)
+                })
             }
             Expr::FnCall(name, args) => {
                 let mut eval_args = Vec::new();
@@ -2446,7 +2453,10 @@ impl Interpreter {
                 // Check learnable patterns first
                 if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
                     let collapsed_args = self.collapse_args(&learnable.params, &eval_args);
-                    return self.invoke_learnable_with_env(name, &learnable, &collapsed_args);
+                    let learnable_clone = learnable.clone();
+                    return self.invoke_pattern_with_hooks(name, &collapsed_args, || {
+                        self.invoke_learnable_with_env(name, &learnable_clone, &collapsed_args)
+                    });
                 }
 
                 // Check builtins
@@ -2484,7 +2494,9 @@ impl Interpreter {
 
                 // Bind parameters with Fluid collapse
                 let mut local_env = self.bind_and_collapse(&pattern.params, &eval_args)?;
-                self.eval_statements(&pattern.body, &mut local_env)
+                self.invoke_pattern_with_hooks(name, &eval_args, || {
+                    self.eval_statements(&pattern.body, &mut local_env)
+                })
             }
             Expr::BinaryOp(left, op, right) => {
                 let l = self.eval_expr_with_env(left, env)?;

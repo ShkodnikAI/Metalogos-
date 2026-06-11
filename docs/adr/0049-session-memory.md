@@ -2,7 +2,7 @@
 
 **Статус**: Accepted
 **Дата**: 2025-06-09
-**Наряд**: №5
+**Наряд**: №5 (повторный Наряд #1)
 
 ## Контекст
 
@@ -82,6 +82,7 @@ session_clear(chat_id)
 |------|-----------|
 | `src/builtins.rs` | +3 builtin functions, SESSION_STORE static, helpers |
 | `tests/session_memory_contract.rs` | NEW — 10 contract tests |
+| `examples/p8_session_memory.mlog` | NEW — контракт по Наряд #1 (TestSession pattern + isolation) |
 | `docs/adr/0049-session-memory.md` | NEW — этот документ |
 
 ## Последствия

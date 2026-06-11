@@ -12,7 +12,7 @@ declaration = _{ mlogserver_decl | template_decl | db_decl | memory_decl | impor
 // hook after_pattern { <statements> }
 // Variables available inside hook body:
 //   pattern_name (String), args (List), result (after only), confidence (after only)
-hook_decl     = { HOOK_KW ~ hook_kind ~ "{" ~ statement* ~ "}" }
+hook_decl     = { HOOK_KW ~ hook_kind ~ LBRACE ~ statement* ~ RBRACE }
 hook_kind     = _{ BEFORE_PATTERN_KW | AFTER_PATTERN_KW }
 BEFORE_PATTERN_KW = @{ "before_pattern" }
 AFTER_PATTERN_KW  = @{ "after_pattern" }
@@ -21,31 +21,31 @@ HOOK_KW       = @{ "hook" }
 // ── MlogServer (Phase 6.1) ──────────────────────────────────────
 // server { port: 8080  middleware: [session, csrf, security_headers]  route "/path" method=GET requires=[role] { body } }
 // "server" is an alias for "mlogserver" (Наряд №7 final integration)
-mlogserver_decl    = _{ "mlogserver" ~ "{" ~ mlogserver_body ~ "}" | "server" ~ "{" ~ mlogserver_body ~ "}" }
+mlogserver_decl    = _{ "mlogserver" ~ LBRACE ~ mlogserver_body ~ RBRACE | "server" ~ LBRACE ~ mlogserver_body ~ RBRACE }
 mlogserver_body    = { mlogserver_port? ~ mlogserver_middleware? ~ route_decl* ~ WHITESPACE* }
 mlogserver_port    = { "port" ~ COLON ~ INT }
-mlogserver_middleware = { "middleware" ~ COLON ~ "[" ~ ident_list? ~ "]" }
-route_decl         = { "route" ~ STRING_LITERAL ~ "method" ~ ASSIGN ~ IDENT ~ route_requires? ~ "{" ~ statement* ~ "}" }
-route_requires     = { "requires" ~ ASSIGN ~ "[" ~ ident_list? ~ "]" }
+mlogserver_middleware = { "middleware" ~ COLON ~ LBRACKET ~ ident_list? ~ RBRACKET }
+route_decl         = { "route" ~ STRING_LITERAL ~ "method" ~ ASSIGN ~ IDENT ~ route_requires? ~ LBRACE ~ statement* ~ RBRACE }
+route_requires     = { "requires" ~ ASSIGN ~ LBRACKET ~ ident_list? ~ RBRACKET }
 
 // -- Template (Phase 6.2) ----------------------------------------
 // template Page(title: String, body: String) -> Html { <html>{{ title }}</html> }
 // Grammar accepts empty template body. The parser does balanced-brace extraction
 // from the ORIGINAL source string using the pair's span position.
-template_decl = { "template" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ "{" ~ template_body_raw ~ "}" }
-template_body_raw = { (!"}" ~ ANY)* }
+template_decl = { "template" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ LBRACE ~ template_body_raw ~ RBRACE }
+template_body_raw = { (!RBRACE ~ ANY)* }
 
 // ── DB (Phase 6.3) ──────────────────────────────────────
 // db { url: env("DATABASE_URL")  pool_size: 10  migrate: "./migrations" }
-db_decl      = { "db" ~ "{" ~ db_body ~ "}" }
+db_decl      = { "db" ~ LBRACE ~ db_body ~ RBRACE }
 
 // ── Memory config (Phase 7.6) ──────────────────────────────
 // memory { persist: "./data/memory.db" }
 // memory { kv: { type: key_value, persist: true } }
 // Without persist → in-memory (backward compatible)
-memory_decl   = { MEMORY_KW ~ "{" ~ memory_body ~ "}" }
+memory_decl   = { MEMORY_KW ~ LBRACE ~ memory_body ~ RBRACE }
 memory_body   = { memory_kv_config? ~ memory_persist? }
-memory_kv_config = { "kv" ~ ":" ~ "{" ~ kv_type_field? ~ kv_persist_field? ~ "}" }
+memory_kv_config = { "kv" ~ ":" ~ LBRACE ~ kv_type_field? ~ kv_persist_field? ~ RBRACE }
 kv_type_field    = { "type" ~ ":" ~ IDENT }
 kv_persist_field  = { "persist" ~ ":" ~ BOOL_LITERAL }
 memory_persist = { "persist" ~ COLON ~ STRING_LITERAL }
@@ -66,18 +66,18 @@ import_path_segments = { IDENT ~ (SLASH ~ IDENT)* }
 relate_decl = { RELATE_KW ~ expression ~ "to" ~ expression ~ "as" ~ expression }
 
 // ── Sandbox (P2) ────────────────────────────────────────────────────
-sandbox_decl    = { SANDBOX_KW ~ IDENT ~ "{" ~ sandbox_body ~ "}" }
+sandbox_decl    = { SANDBOX_KW ~ IDENT ~ LBRACE ~ sandbox_body ~ RBRACE }
 sandbox_body    = { sandbox_allowed? ~ (COMMA ~ sandbox_forbidden?)? ~ (COMMA ~ sandbox_timeout?)? }
-sandbox_allowed  = { "allowed" ~ ":" ~ "[" ~ ident_list? ~ "]" }
-sandbox_forbidden = { "forbidden" ~ ":" ~ "[" ~ ident_list? ~ "]" }
+sandbox_allowed  = { "allowed" ~ ":" ~ LBRACKET ~ ident_list? ~ RBRACKET }
+sandbox_forbidden = { "forbidden" ~ ":" ~ LBRACKET ~ ident_list? ~ RBRACKET }
 sandbox_timeout  = { "timeout" ~ ":" ~ INT }
 ident_list      = { IDENT ~ (COMMA ~ IDENT)* }
 
 // ── Eval Harness (ADR-0050) ──────────────────────────────────────────────
 // eval PatternName { dataset: [("input", "expected"), ...] metric: accuracy threshold: 0.8 }
-eval_decl        = { EVAL_KW ~ IDENT ~ "{" ~ eval_body ~ "}" }
+eval_decl        = { EVAL_KW ~ IDENT ~ LBRACE ~ eval_body ~ RBRACE }
 eval_body        = { eval_dataset ~ eval_metric? ~ eval_threshold? }
-eval_dataset      = { "dataset" ~ COLON ~ "[" ~ eval_example_list? ~ "]" }
+eval_dataset      = { "dataset" ~ COLON ~ LBRACKET ~ eval_example_list? ~ RBRACKET }
 eval_example_list = { eval_example ~ (COMMA ~ eval_example)* }
 eval_example     = { "(" ~ STRING_LITERAL ~ COMMA ~ STRING_LITERAL ~ ")" }
 eval_metric      = { "metric" ~ COLON ~ IDENT }
@@ -85,18 +85,18 @@ eval_threshold   = { "threshold" ~ COLON ~ FLOAT_LITERAL }
 EVAL_KW          = @{ "eval" }
 
 // ── Mutate (P2) ─────────────────────────────────────────────────────
-mutate_decl      = { MUTATE_KW ~ IDENT ~ "{" ~ mutate_body ~ "}" }
+mutate_decl      = { MUTATE_KW ~ IDENT ~ LBRACE ~ mutate_body ~ RBRACE }
 mutate_body      = { mutate_add_example* ~ mutate_rollback? }
 mutate_add_example = { "add_example" ~ "(" ~ expression ~ COMMA ~ expression ~ ")" }
 mutate_rollback    = { "rollback_if" ~ ":" ~ "accuracy" ~ compare_op ~ FLOAT_LITERAL }
 
 // ── Entity: struct type ───────────────────────────────────────────────
-// Disambiguates from simple entity: IDENT followed by "{" not ":"
-entity_type_decl = { "entity" ~ IDENT ~ !":" ~ "{" ~ field_decl ~ (COMMA ~ field_decl)* ~ COMMA? ~ "}" }
+// Disambiguates from simple entity: IDENT followed by '{' not ":"
+entity_type_decl = { "entity" ~ IDENT ~ !":" ~ LBRACE ~ field_decl ~ (COMMA ~ field_decl)* ~ COMMA? ~ RBRACE }
 field_decl        = { IDENT ~ COLON ~ type_name ~ (ASSIGN ~ literal)? }
 
 // ── Entity: struct instance ─────────────────────────────────────────
-entity_record_decl = { "entity" ~ IDENT ~ ":" ~ type_name ~ "=" ~ "{" ~ field_init ~ (COMMA ~ field_init)* ~ COMMA? ~ "}" }
+entity_record_decl = { "entity" ~ IDENT ~ ":" ~ type_name ~ "=" ~ LBRACE ~ field_init ~ (COMMA ~ field_init)* ~ COMMA? ~ RBRACE }
 field_init         = { IDENT ~ COLON ~ expression }
 
 // ── Entity: simple (M1) ──────────────────────────────────────────────
@@ -125,7 +125,7 @@ CONTAINS_KW  = @{ "contains" }
 assignment   = { IDENT ~ "." ~ IDENT ~ "=" ~ expression }
 
 // ── Learnable Pattern (M3) ──────────────────────────────────────────
-learnable_pattern_decl = { LEARNABLE_KW ~ "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ "{" ~ learnable_body ~ "}" }
+learnable_pattern_decl = { LEARNABLE_KW ~ "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ LBRACE ~ learnable_body ~ RBRACE }
 learnable_body = { prompt_line* ~ context_line? ~ model_line? ~ max_tokens_line? ~ cache_line? ~ cache_ttl_line? }
 prompt_line    = { "prompt" ~ COLON ~ expression }
 context_line   = { "context" ~ COLON ~ "recall" ~ "(" ~ expression ~ (COMMA ~ "limit" ~ ASSIGN ~ expression)? ~ ")" }
@@ -135,30 +135,49 @@ cache_line    = { "cache" ~ COLON ~ BOOL_LITERAL }
 cache_ttl_line = { "cache_ttl" ~ COLON ~ expression ~ DOT_CHAR ~ IDENT }
 
 // ── Pattern (M1) ──────────────────────────────────────────────────
-pattern_decl = { "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ "{" ~ pattern_body ~ "}" }
+pattern_decl = { "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ LBRACE ~ pattern_body ~ RBRACE }
 params       = { param ~ (COMMA ~ WHITESPACE? ~ param)* }
 param        = { IDENT ~ ":" ~ type_name }
 pattern_body = { statement* }
 
-// ── Statements (v0.5.0: block if-else + if-then + expr_stmt) ────────────
-statement    = { if_block_stmt | if_then_stmt | each_stmt | while_stmt | let_binding | assign_stmt | return_stmt | expr_stmt }
+// ── Statements (v0.5.1: unified if-then-else support) ───────────────
+statement    = { match_stmt | if_block_stmt | each_stmt | while_stmt | let_binding | assign_or_expr | return_stmt }
+// Combined assignment-or-expression: disambiguates IDENT followed by "=" (assignment)
+// vs IDENT followed by other tokens (expression statement like function calls).
+// PEG ordered choice: try assignment first (= present), fall through to expression.
+assign_or_expr = { IDENT ~ ASSIGN ~ expression | expression }
+// Match statement: match expr { "val" then { stmts } else { stmts } } (P1-1)
+// Extended P1-1: arms support patterns: exact string, starts_with, contains, > / < / >= / <= / == / !=
+match_stmt   = { MATCH_KW ~ expression ~ LBRACE ~ match_arm* ~ match_else? ~ RBRACE }
+match_arm    = { match_arm_exact | match_arm_starts | match_arm_contains | match_arm_compare }
+match_arm_exact     = { STRING_LITERAL ~ "then" ~ LBRACE ~ statement* ~ RBRACE }
+match_arm_starts    = { STARTS_WITH_KW ~ STRING_LITERAL ~ "then" ~ LBRACE ~ statement* ~ RBRACE }
+match_arm_contains  = { CONTAINS_KW ~ STRING_LITERAL ~ "then" ~ LBRACE ~ statement* ~ RBRACE }
+match_arm_compare   = { compare_op ~ expression ~ "then" ~ LBRACE ~ statement* ~ RBRACE }
+match_else   = { "else" ~ LBRACE ~ statement* ~ RBRACE }
+STARTS_WITH_KW    = @{ "starts_with" }
+
 expr_stmt    = { expression }
-if_block_stmt = { "if" ~ expression "{" ~ statement* ~ "}" ~ else_if_block* ~ ("else" "{" ~ statement* ~ "}")? }
-else_if_block = { "else" "if" ~ expression "{" ~ statement* ~ "}" }
-each_stmt    = { "each" ~ IDENT ~ "in" ~ expression ~ "{" ~ statement* ~ "}" }
-while_stmt   = { "while" ~ expression ~ "{" ~ statement* ~ "}" }
+if_block_stmt = { "if" ~ expression ~ LBRACE ~ statement* ~ RBRACE ~ else_if_block* ~ ("else" ~ LBRACE ~ statement* ~ RBRACE)? }
+else_if_block = { "else" ~ "if" ~ expression ~ LBRACE ~ statement* ~ RBRACE }
+if_then_stmt = { "if" ~ expression ~ "then" ~ LBRACE ~ statement* ~ RBRACE ~ else_if_then_block* ~ ("else" ~ LBRACE ~ statement* ~ RBRACE)? }
+else_if_then_block = { "else" ~ "if" ~ expression ~ "then" ~ LBRACE ~ statement* ~ RBRACE }
+each_stmt    = { "each" ~ IDENT ~ "in" ~ expression ~ LBRACE ~ statement* ~ RBRACE }
+while_stmt   = { "while" ~ expression ~ LBRACE ~ statement* ~ RBRACE }
 let_binding  = { "let" ~ IDENT ~ "=" ~ expression }
+// assign_stmt must explicitly contain "=" after IDENT to distinguish from expr_stmt (function calls).
+// In PEG, if assign_stmt starts matching IDENT but fails on ASSIGN, the whole rule fails atomically,
+// preventing expr_stmt from being tried. Solution: combine into a single rule that handles both.
 assign_stmt  = { IDENT ~ ASSIGN ~ expression }
 return_stmt  = { "return" ~ expression }
-if_then_stmt = { "if" ~ expression ~ "then" ~ "{" ~ statement* ~ "}" }
 
 // ── Flow ──────────────────────────────────────────────────────────────
 // Pipeline and branch definitions are separate: pipeline comes first,
 // then zero or more named branch_def blocks after the pipeline line.
-flow_decl     = { "flow" ~ IDENT ~ "{" ~ flow_pipeline ~ branch_def* ~ "}" }
+flow_decl     = { "flow" ~ IDENT ~ LBRACE ~ flow_pipeline ~ branch_def* ~ RBRACE }
 flow_pipeline = { "input" ~ ":" ~ type_name ~ "=" ~ expression ~ (ARROW ~ step_ident)* ~ ARROW ~ "output" }
-branch_def    = { step_ident ~ "{" ~ branch* ~ "}" }
-step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "adapt" | "add_example" | "relate" | "sandbox" | "mutate" | "eval" | "dataset" | "metric" | "threshold" | "allowed" | "forbidden" | "timeout" | "rollback_if" | "accuracy" | "to" | "as" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or" | "each" | "while" | "server" | "mlogserver" | "template" | "route" | "middleware" | "port" | "method" | "requires" | "db" | "migrate" | "pool_size" | "memory" | "persist" | "kv" | "type" | "else" | "hook" | "before_pattern" | "after_pattern") ~ IDENT }
+branch_def    = { step_ident ~ LBRACE ~ branch* ~ RBRACE }
+step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "adapt" | "add_example" | "relate" | "sandbox" | "mutate" | "eval" | "dataset" | "metric" | "threshold" | "allowed" | "forbidden" | "timeout" | "rollback_if" | "accuracy" | "to" | "as" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or" | "each" | "while" | "server" | "mlogserver" | "template" | "route" | "middleware" | "port" | "method" | "requires" | "db" | "migrate" | "pool_size" | "memory" | "persist" | "kv" | "type" | "else" | "hook" | "before_pattern" | "after_pattern" | "match" | "starts_with") ~ IDENT }
 branch        = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
 branch_condition = { IDENT ~ "." ~ IDENT ~ compare_op ~ expression }
 
@@ -176,7 +195,7 @@ unary_expr       = { if_else_expr | qualified_call_expr | call_expr | unary_minu
 unary_minus     = @{ MINUS ~ unary_expr }
 if_else_expr     = { "if" ~ expression ~ "then" ~ expression ~ "else" ~ expression }
 access_expr      = { primary_expr ~ postfix_op* }
-postfix_op       = _{ "." ~ IDENT | "[" ~ expression "]" }
+postfix_op       = _{ "." ~ IDENT | LBRACKET ~ expression ~ RBRACKET }
 qualified_call_expr = { IDENT ~ DOT_CHAR ~ IDENT ~ "(" ~ expression_list? ~ ")" }
 call_expr        = { IDENT ~ "(" ~ expression_list? ~ ")" }
 expression_list  = { expression ~ (COMMA ~ WHITESPACE? ~ expression)* }
@@ -192,9 +211,11 @@ inner_string   =  { (ESCAPE_SEQ | (!( "\"" | "\\") ~ ANY))* }
 ESCAPE_SEQ     = @{ "\\" ~ ("\"" | "\\" | "n" | "t" | "r") }
 FLOAT_LITERAL  = @{ DIGIT+ ~ DOT_CHAR ~ DIGIT+ }
 INT            = @{ DIGIT+ }
-// IDENT supports ASCII + Cyrillic (U+0410-U+044F) + Latin Extended (U+00C0-U+024F)
-IDENT          = @{ !("true" | "false" | "if" | "then" | "else" | "let" | "return" | "each" | "while" | "import" | "as") ~ ident_start ~ (ident_start | ASCII_DIGIT | APOSTROPHE)* }
-ident_start   = _{ ASCII_ALPHA | "_" | "\u{0410}".."\u{044f}" | "\u{0401}" | "\u{0451}" | "\u{00C0}".."\u{024F}" }
+// IDENT supports ASCII + Cyrillic (U+0410-U+044F, i.e. А-я)
+// Ё/ё and Latin Extended are excluded from grammar range but can be added post-parse if needed
+CYRILLIC_CHAR = _{ 'А'..'я' }
+IDENT          = @{ !("true" | "false" | "if" | "then" | "else" | "let" | "return" | "each" | "while" | "import" | "as" | "match" | "starts_with" | "contains") ~ ident_start ~ (ident_start | ASCII_DIGIT | APOSTROPHE)* }
+ident_start   = _{ ASCII_ALPHA | "_" | CYRILLIC_CHAR }
 
 // ── Single-char tokens (only those NOT used as rule delimiters!) ────────
 COLON     = @{ ":" }
@@ -209,9 +230,10 @@ GT        = @{ ">" }
 LT        = @{ "<" }
 LBRACKET  = @{ "[" }
 RBRACKET  = @{ "]" }
+LBRACE    = @{ "{" }
+RBRACE    = @{ "}" }
 GTE       = @{ ">=" }
 LTE       = @{ "<=" }
-NEQ       = @{ "!=" }
 EQ        = @{ "==" }
 NEQ       = @{ "!=" }
 BOOL_LITERAL = @{ "true" | "false" }
@@ -220,7 +242,7 @@ DIGIT     = @{ ASCII_DIGIT }
 
 // ── Keyword tokens ───────────────────────────────────────────────────
 ENTITY      = @{ "entity" }
-RULE        = @{ "rule" }
+RULE_KW     = @{ "rule" }
 FLUID_KW    = @{ "fluid" }
 MEMORY_KW    = @{ "memory" }
 LEARNABLE_KW = @{ "learnable" }
@@ -241,7 +263,7 @@ PRIORITY_KW = @{ "priority" }
 PATTERN_KW  = @{ "pattern" }
 PROMPT_KW   = @{ "prompt" }
 RETURN_KW   = @{ "return" }
-HOOK_KW     = @{ "hook" }
+MATCH_KW     = @{ "match" }
 FLOW_KW     = @{ "flow" }
 INPUT_KW    = @{ "input" }
 OUTPUT_KW   = @{ "output" }

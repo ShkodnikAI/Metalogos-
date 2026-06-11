@@ -30,6 +30,11 @@ fn make_learnable_decl(name: &str, prompt: &str) -> Declaration {
         }],
         return_type: "String".to_string(),
         prompt: prompt.to_string(),
+        context: None,
+        max_tokens: None,
+        cache: false,
+        cache_ttl: 3600,
+        model: None,
     })
 }
 

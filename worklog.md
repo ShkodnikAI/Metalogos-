@@ -122,3 +122,27 @@ Stage Summary:
 - PatternStats now has 6 fields (added last_call), inspect returns 8 fields (added cache_misses, last_call, is_learnable)
 - Regular patterns also tracked (is_learnable=0.0, calls still counted)
 - Files changed: src/interpreter.rs, tests/inspect_builtin_contract.rs, docs/adr/0051-inspect.md
+
+---
+Task ID: 8
+Agent: main
+Task: Наряд №8 — Event Stream: unified log of all operations (ADR-0052)
+
+Work Log:
+- Explored codebase: zero existing event stream infrastructure
+- Designed Event struct: id, timestamp (Unix ms), event_type, source, data HashMap, duration_ms
+- Added event_log (Mutex<Vec<Event>>) + event_next_id (AtomicU64) to Interpreter
+- Implemented emit_event() — thread-safe, auto-increment, timestamp capture
+- Instrumented 3 operation types: memory_store (memorize), adapt, pattern_call (via record_pattern_call)
+- Added 4 builtins in FnCall dispatch: event_count(), event_count(type), events_since(seconds), event_sum(type, field)
+- Added public Rust API: event_count(), events_since_ms(), get_events(), event_sum()
+- Wrote 9 contract tests covering all instrumented operations + edge cases
+- All 9 tests pass, zero regressions on eval (9/9) and inspect (8/8) suites
+- Wrote ADR-0052 documenting design, event types, builtins, prior art
+- Committed and pushed: 56a404b
+
+Stage Summary:
+- 466 lines added across 3 files
+- Event types instrumented: memory_store, adapt, pattern_call (llm_call, rule_fire, error deferred)
+- Builtins: event_count(), events_since(), event_sum() — special-cased in FnCall dispatch
+- All 26 related tests pass (9 event + 9 eval + 8 inspect)

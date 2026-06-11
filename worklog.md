@@ -247,3 +247,25 @@ Stage Summary:
 - 82/82 total contract tests pass (no regressions)
 - Commit: ba17171 "feat(ADR-0056): lifecycle control — checkpoint/resume for long-running flows"
 - Push: main -> origin/main
+
+---
+Task ID: 13
+Agent: main
+Task: Наряд №13 — mlog audit: verify pre-implementation, fix bugs, add ADR-0057
+
+Work Log:
+- Discovered Наряд №13 (mlog audit) was fully pre-implemented: src/audit.rs (1054 lines), CLI subcommand, 18 unit tests + 1 integration test
+- Removed 2 debug eprintln! calls from check_rate_limit() and audit_program()
+- Removed unused HashSet import
+- Fixed taint tracking: LetBinding RHS was not checked for sink calls (SECRET_LEAK, HTML_INJECTION, OPEN_REDIRECT). Added check_expr_for_leak/check_respond_for_html/check_expr_for_redirect calls for LetBinding values
+- Fixed test_adapt_with_sandbox_ok: sandbox syntax requires COMMA separators between fields
+- Refactored test_format_output to use direct AST construction instead of parsing
+- Added `use crate::ast` to audit test module
+- Wrote ADR-0057: Static Security Audit documentation (docs/adr/0057-security-audit.md)
+
+Stage Summary:
+- 2 files changed, 160 insertions(+), 74 deletions(-)
+- 20/20 audit unit tests pass
+- 122/126 total lib tests pass (4 pre-existing semantic failures unrelated to audit)
+- Commit: 0052cb5 "Наряд №13: fix audit tests, add ADR-0057"
+- Push: main -> origin/main

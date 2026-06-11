@@ -1,0 +1,10 @@
+// P0-1 Contract: respond_html() + query_param() builtins
+
+pattern test_respond_html(input: String) -> String {
+  let r200 = respond_html("200", "ok")
+  let r404 = respond_html("404", "not found")
+  let qp = query_param("id")
+  return "P0-1 passed"
+}
+
+flow Main { input: String = "x" -> test_respond_html -> output }

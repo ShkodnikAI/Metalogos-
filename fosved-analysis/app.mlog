@@ -1,0 +1,336 @@
+memory {
+  persist: "./data/memory.db"
+}
+
+db {
+  url: env("DATABASE_URL")
+}
+
+import ./dept/utils as utils
+import ./dept/file_cache as fc
+import ./dept/yana as yana
+import ./dept/osp as osp
+import ./dept/lz as lz
+import ./dept/expert as expert
+import ./dept/dev as dev
+import ./dept/design as design
+import ./dept/qa as qa
+import ./dept/engineering as engineering
+import ./dept/marketing as marketing
+import ./dept/legal as legal
+import ./dept/finance as finance
+import ./dept/visual as visual
+import ./dept/kavalnya as kavalnya
+import ./dept/chain as chain
+import ./dept/miniapp as miniapp
+
+pattern local_send_telegram(chat_id: String, text: String) -> String {
+  let token = env("TELEGRAM_BOT_TOKEN")
+  let safe_text = __replace(__replace(__replace(text, "\\", "\\\\"), "\"", "\\\""), "\n", " ")
+  let body = "{\"chat_id\":" + chat_id + ",\"text\":\"" + safe_text + "\"}"
+  let r = http_post("https://api.telegram.org/bot" + token + "/sendMessage", body, "application/json")
+  return r
+}
+
+pattern local_send_report(chat_id: String, text: String) -> String {
+  let rows = query("SELECT strftime('%s','now')", [])
+  let ts = to_string(rows)
+  let doc_id = chat_id + "-" + ts
+  let _ = mem_set("report:" + doc_id, text)
+  let base_url = env("RENDER_SERVICE_URL")
+  let server = if len(base_url) > 4 then base_url else "https://fosved-office-v2.onrender.com"
+  let link = server + "/report?id=" + doc_id
+  return local_send_telegram(chat_id, "Report: " + link)
+}
+
+mlogserver {
+  port: 10000
+  middleware: [security_headers]
+
+  route "/" method=GET {
+    return respond("200 Fosved Office v2 . Metalogos v0.4.0")
+  }
+
+  route "/health" method=GET {
+    let _ = query("CREATE TABLE IF NOT EXISTS archive (id INTEGER PRIMARY KEY, dept TEXT, chat_id TEXT, topic TEXT, depth TEXT, ts INTEGER, result TEXT)", [])
+    let notified = mem_get("deploy_notified")
+    if notified == "" then {
+      let chat_id = env("OWNER_TELEGRAM_ID")
+      if chat_id != "" then {
+        let token = env("TELEGRAM_BOT_TOKEN")
+        let server_url = env("RENDER_SERVICE_URL")
+        let status = "Fosved Office v2 - ONLINE  Runtime: Metalogos v0.4.0  Endpoint: " + server_url + "  Depts: yana(osp)(lz)(expert)(dev)(design)(qa)(eng)(mkt)(legal)(fin)(visual)(kavalnya)(chain)"
+        let safe_status = __replace(__replace(__replace(status, "\\", "\\\\"), "\"", "\\\""), "\n", " ")
+        let body = "{\"chat_id\":" + chat_id + ",\"text\":\"" + safe_status + "\"}"
+        let _ = http_post("https://api.telegram.org/bot" + token + "/sendMessage", body, "application/json")
+        let _ = mem_set("deploy_notified", 24.0)
+      }
+    }
+    return respond("200 ok")
+  }
+
+  route "/diag" method=GET {
+    let chat_id = env("OWNER_TELEGRAM_ID")
+    let token = env("TELEGRAM_BOT_TOKEN")
+    let msg = "DIAG  chat_id=" + chat_id + "  token_len=" + to_string(len(token))
+    let safe_msg = __replace(__replace(msg, "\"", "\\\""), "\n", " ")
+    let body = "{\"chat_id\":" + chat_id + ",\"text\":\"" + safe_msg + "\"}"
+    let r = http_post("https://api.telegram.org/bot" + token + "/sendMessage", body, "application/json")
+    return respond("200 " + r)
+  }
+
+  route "/webhook-check" method=GET {
+    let token = env("TELEGRAM_BOT_TOKEN")
+    let r = http_post("https://api.telegram.org/bot" + token + "/getWebhookInfo", "", "application/json")
+    return respond("200 " + r)
+  }
+
+  route "/get-updates" method=GET {
+    let token = env("TELEGRAM_BOT_TOKEN")
+    let r = http_post("https://api.telegram.org/bot" + token + "/getUpdates?limit=3&offset=-3", "", "application/json")
+    return respond("200 " + r)
+  }
+
+  route "/webhook-test" method=GET {
+    let chat_id = env("OWNER_TELEGRAM_ID")
+    let token = env("TELEGRAM_BOT_TOKEN")
+    let status_text = "WEBHOOK-TEST OK  chat_id=" + chat_id + "  time=active"
+    let safe_text = __replace(__replace(__replace(status_text, "\\", "\\\\"), "\"", "\\\""), "\n", " ")
+    let body = "{\"chat_id\":" + chat_id + ",\"text\":\"" + safe_text + "\"}"
+    let r = http_post("https://api.telegram.org/bot" + token + "/sendMessage", body, "application/json")
+    return respond("200 " + r)
+  }
+
+  route "/webhook-log" method=GET {
+    let rows = query("SELECT chat_id, topic, ts, result FROM archive WHERE dept='wh_log' ORDER BY ts DESC LIMIT 10", [])
+    let log_data = to_string(rows)
+    if log_data == "" then {
+      return respond("200 no_webhook_requests_recorded")
+    }
+    return respond("200 " + log_data)
+  }
+
+  route "/test-llm" method=GET {
+    let chat_id = env("OWNER_TELEGRAM_ID")
+    let token = env("TELEGRAM_BOT_TOKEN")
+    let api_key_len = to_string(len(env("METALOGOS_API_KEY")))
+    let provider = env("METALOGOS_LLM_PROVIDER")
+    let model = env("METALOGOS_LLM_MODEL")
+    let base_url = env("METALOGOS_OPENAI_BASE_URL")
+    let msg = "LLM  provider=[" + provider + "] model=[" + model + "] base_url=[" + base_url + "] key_len=" + api_key_len
+    let safe_msg = __replace(__replace(msg, "\"", "\\\""), "\n", " ")
+    let _ = http_post("https://api.telegram.org/bot" + token + "/sendMessage", "{\"chat_id\":" + chat_id + ",\"text\":\"" + safe_msg + "\"}", "application/json")
+    let reply = call_llm("You are a test. Reply with exactly: OK", "Say just: OK")
+    let rlen = to_string(len(reply))
+    return respond("200 keys_ok provider=[" + provider + "] llm_len=" + rlen)
+  }
+
+  route "/show-env" method=GET {
+    let server_url = env("RENDER_SERVICE_URL")
+    let chat_id = env("OWNER_TELEGRAM_ID")
+    let token = env("TELEGRAM_BOT_TOKEN")
+    let msg = "ENV  RENDER_SERVICE_URL=[" + server_url + "]  OWNER_TELEGRAM_ID=[" + chat_id + "]  token_len=" + to_string(len(token))
+    let safe_msg = __replace(__replace(msg, "\"", "\\\""), "\n", " ")
+    let r = http_post("https://api.telegram.org/bot" + token + "/sendMessage", "{\"chat_id\":" + chat_id + ",\"text\":\"" + safe_msg + "\"}", "application/json")
+    return respond("200 " + r)
+  }
+
+  route "/reset-webhook" method=GET {
+    let token = env("TELEGRAM_BOT_TOKEN")
+    let server_url = env("RENDER_SERVICE_URL")
+    let webhook_url = if len(server_url) > 4 then server_url + "/webhook/telegram" else "https://fosved-office-v2.onrender.com/webhook/telegram"
+    let body = "{\"url\":\"" + webhook_url + "\",\"drop_pending_updates\":true}"
+    let r = http_post("https://api.telegram.org/bot" + token + "/setWebhook", body, "application/json")
+    return respond("200 url=[" + webhook_url + "] resp=[" + r + "]")
+  }
+
+  route "/miniapp" method=GET {
+    let doc_param = query_param("doc")
+    let stored_html = mem_get("miniapp:" + doc_param)
+    if stored_html == "" then {
+      return respond_html("200", "<html><body style='background:#24243e;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh'><p>Report not found or expired</p></body></html>")
+    }
+    return respond_html("200", stored_html)
+  }
+
+  route "/report" method=GET {
+    let doc_id = query_param("id")
+    let content = mem_get("report:" + doc_id)
+    if content == "" then {
+      return respond("404 not found")
+    }
+    let html = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Fosved Report</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#0f0c29 0%,#302b63 50%,#24243e 100%);color:#e0e0e0;min-height:100vh;padding:20px;line-height:1.8}.container{max-width:800px;margin:0 auto;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:24px;white-space:pre-wrap;word-wrap:break-word}</style></head><body><div class=\"container\">" + content + "</div></body></html>"
+    return respond_html("200", html)
+  }
+
+  route "/webhook/telegram" method=POST {
+    let data = json_body()
+    let message = data.message
+    let from = message.from
+    let user_id = to_string(from.id)
+    let chat = message.chat
+    let chat_id = to_string(chat.id)
+    let text = message.text
+    let log_ts_rows = query("SELECT strftime('%s','now')", [])
+    let log_ts = to_string(log_ts_rows)
+    let _ = query("INSERT INTO archive (dept, chat_id, topic, ts, result) VALUES ('wh_log', $1, $2, $3, 'recv')", [user_id, text, log_ts])
+
+    let owner_id = env("OWNER_TELEGRAM_ID")
+    if user_id != owner_id then {
+      return respond("200 ok")
+    }
+
+    let locked = mem_get("system_lockdown")
+    let lockdown_password = env("LOCKDOWN_PASSWORD")
+
+    if locked == "system_lockdown" then {
+      if starts_with(text, "/unlock ") then {
+        let pwd = substring(text, 8, len(text))
+        if pwd == lockdown_password then {
+          let _ = mem_delete("system_lockdown")
+          let token1 = env("TELEGRAM_BOT_TOKEN")
+          let _ = http_post("https://api.telegram.org/bot" + token1 + "/sendMessage", "{\"chat_id\":" + chat_id + ",\"text\":\"Unlocked\"}", "application/json")
+          return respond("200 ok")
+        }
+      }
+      return respond("200 ok")
+    }
+
+    if starts_with(text, "/lockdown ") then {
+      let pwd = substring(text, 10, len(text))
+      if pwd == lockdown_password then {
+        let _ = mem_set("system_lockdown", "system_lockdown")
+        let token2 = env("TELEGRAM_BOT_TOKEN")
+        let _ = http_post("https://api.telegram.org/bot" + token2 + "/sendMessage", "{\"chat_id\":" + chat_id + ",\"text\":\"Locked\"}", "application/json")
+        return respond("200 ok")
+      }
+    }
+
+    if text == "/status" then {
+      let token = env("TELEGRAM_BOT_TOKEN")
+      let status_text = "Fosved Office v2 . Metalogos v0.4.0  Otdely: Yana(active) OSP(active) LZ(active) Expert(active) Dev(active) Design(active) QA(active) Engineering(active) Marketing(active) Legal(active) Finance(active) Visual(active) Kavalnya(active)"
+      let safe_text = __replace(__replace(__replace(status_text, "\\", "\\\\"), "\"", "\\\""), "\n", " ")
+      let body = "{\"chat_id\":" + chat_id + ",\"text\":\"" + safe_text + "\"}"
+      let _ = http_post("https://api.telegram.org/bot" + token + "/sendMessage", body, "application/json")
+      return respond("200 ok")
+    }
+
+    match text {
+      starts_with "/analyze " then { let _ = osp_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/quickanalyze " then { let _ = osp_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/wargame " then { let _ = osp_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/deep " then { let _ = osp_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/watch " then { let _ = osp_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/unwatch " then { let _ = osp_dispatch(chat_id, text) return respond("200 ok") }
+      "/score" then { let _ = osp_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/redteam " then { let _ = osp_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/profile " then { let _ = osp_dispatch(chat_id, text) return respond("200 ok") }
+      "/regime" then { let _ = osp_dispatch(chat_id, text) return respond("200 ok") }
+      "/recalibrate" then { let _ = osp_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/bet " then { let _ = osp_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/verify " then { let _ = osp_dispatch(chat_id, text) return respond("200 ok") }
+      "/archive" then { let _ = osp_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/scan deep " then { let _ = lz_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/scan " then { let _ = lz_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/disrupt " then { let _ = lz_dispatch(chat_id, text) return respond("200 ok") }
+      "/inflection" then { let _ = lz_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/hypecycle " then { let _ = lz_dispatch(chat_id, text) return respond("200 ok") }
+      "/cross-domain" then { let _ = lz_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/lab-watch" then { let _ = lz_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/lab-archive" then { let _ = lz_dispatch(chat_id, text) return respond("200 ok") }
+      "/lab-score" then { let _ = lz_dispatch(chat_id, text) return respond("200 ok") }
+      "/lab-recalibrate" then { let _ = lz_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/expert " then { let _ = expert_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/quickexpert " then { let _ = expert_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/deepexpert " then { let _ = expert_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/expert-update " then { let _ = expert_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/expert-followup " then { let _ = expert_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/expert-debrief " then { let _ = expert_dispatch(chat_id, text) return respond("200 ok") }
+      "/expert-archive" then { let _ = expert_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/dev" then { let _ = dev_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/design" then { let _ = design_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/qa" then { let _ = qa_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/calc" then { let _ = engineering_dispatch(chat_id, text) return respond("200 ok") }
+      "/eng-score" then { let _ = engineering_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/eng-archive" then { let _ = engineering_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/market-research " then { let _ = marketing_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/segment " then { let _ = marketing_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/competitors " then { let _ = marketing_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/campaign" then { let _ = marketing_dispatch(chat_id, text) return respond("200 ok") }
+      "/marketing-score" then { let _ = marketing_dispatch(chat_id, text) return respond("200 ok") }
+      "/marketing-archive" then { let _ = marketing_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/finance" then { let _ = finance_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/legal" then { let _ = legal_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/visual" then { let _ = visual_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/recruit " then { let _ = kavalnya_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/train " then { let _ = kavalnya_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/polygon " then { let _ = kavalnya_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/debrief " then { let _ = kavalnya_dispatch(chat_id, text) return respond("200 ok") }
+      "/forge-status" then { let _ = kavalnya_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/assess " then { let _ = kavalnya_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/recalibrate-dept " then { let _ = kavalnya_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/forge " then { let _ = kavalnya_dispatch(chat_id, text) return respond("200 ok") }
+      starts_with "/osp deep " then {
+        let topic = substring(text, 10, len(text))
+        let _ = osp_dispatch(chat_id, "/osp-deep " + topic)
+        return respond("200 ok")
+      }
+      starts_with "/osp full " then {
+        let topic = substring(text, 10, len(text))
+        let _ = osp_dispatch(chat_id, "/osp-full " + topic)
+        return respond("200 ok")
+      }
+      starts_with "/chain " then {
+        let args = substring(text, 7, len(text))
+        let space_pos = index_of(args, " ")
+        let chain = substring(args, 0, space_pos)
+        let query = substring(args, space_pos + 1, len(args))
+        let result = chain.ExecuteChain(chain, query, chat_id)
+        return respond("200 ok")
+      }
+      starts_with "/chain-auto " then {
+        let query = substring(text, 12, len(text))
+        let dept1 = yana_classify(query)
+        let enriched = query + "\n\n[Yana detected: " + dept1 + "]"
+        let dept2 = yana_classify(enriched)
+        if dept2 == dept1 then {
+          let result = chain.CallDept(dept1, query, chat_id)
+          let tk3 = env("TELEGRAM_BOT_TOKEN")
+          let _ = http_post("https://api.telegram.org/bot" + tk3 + "/sendMessage", "{\"chat_id\":" + chat_id + ",\"text\":\"Chain: " + dept1 + " (single)\"}", "application/json")
+          return respond("200 ok")
+        }
+        let result = chain.ExecuteChain(dept1 + "+" + dept2, query, chat_id)
+        let tk4 = env("TELEGRAM_BOT_TOKEN")
+        let _ = http_post("https://api.telegram.org/bot" + tk4 + "/sendMessage", "{\"chat_id\":" + chat_id + ",\"text\":\"Chain: " + dept1 + " -> " + dept2 + "\"}", "application/json")
+        return respond("200 ok")
+      }
+      starts_with "/miniapp " then {
+        let args = substring(text, 9, len(text))
+        let space_pos = index_of(args, " ")
+        if space_pos < 1 then {
+          let tk5 = env("TELEGRAM_BOT_TOKEN")
+          let _ = http_post("https://api.telegram.org/bot" + tk5 + "/sendMessage", "{\"chat_id\":" + chat_id + ",\"text\":\"Usage: /miniapp <dept> <topic>\"}", "application/json")
+          return respond("200 ok")
+        }
+        let dept = substring(args, 0, space_pos)
+        let topic = substring(args, space_pos + 1, len(args))
+        let _ = miniapp_send_miniapp(chat_id, dept, topic, "Generating report...", "1", topic)
+        return respond("200 ok")
+      }
+      else {
+        let yana_prompt = "You are Yana, the AI office manager of Fosved Office v2. You coordinate 12 departments: OSP (strategy/analysis), LZ (technology/scanning), Expert (briefing/meeting prep), Dev (development), Design (UI/UX), QA (testing), Engineering (calculations), Marketing (research/campaigns), Finance (budget/forecast), Legal (contracts/risk), Visual (infographics), Kavalnya (training/recruitment). Your role: understand the user request, classify which department(s) can help, and provide a concise useful response or route to the right department. You MUST respond ENTIRELY in Russian language using Cyrillic alphabet. All text output must be in proper Russian. Be concise - max 4 sentences."
+        let llm_resp = call_llm(yana_prompt, text)
+        let ts_rows = query("SELECT strftime('%s','now')", [])
+        let ts = to_string(ts_rows)
+        let doc_id = chat_id + "-" + ts
+        let _ = mem_set("report:" + doc_id, llm_resp)
+        let base_url = env("RENDER_SERVICE_URL")
+        let server = if len(base_url) > 4 then base_url else "https://fosved-office-v2.onrender.com"
+        let link = server + "/report?id=" + doc_id
+        let tk_y = env("TELEGRAM_BOT_TOKEN")
+        let _ = http_post("https://api.telegram.org/bot" + tk_y + "/sendMessage", "{\"chat_id\":" + chat_id + ",\"text\":\"Yana: " + link + "\"}", "application/json")
+        return respond("200 ok")
+      }
+    }
+  }
+}

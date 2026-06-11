@@ -1077,6 +1077,24 @@ impl Interpreter {
                         compress_after: c.compress_after,
                     };
                 }
+                Declaration::Tool(t) => {
+                    // ADR-0054: register tool as a module namespace and
+                    // compile each method as a qualified pattern.
+                    // Tool methods are stored as "toolname.methodname" to
+                    // avoid namespace collisions between tools with same method names.
+                    // tool.method(args) resolves via QualifiedCall.
+                    self.module_namespaces.insert(t.name.clone(), format!("tool:{}", t.name));
+                    for method in &t.methods {
+                        let qualified_name = format!("{}.{}", t.name, method.name);
+                        self.patterns.insert(
+                            qualified_name,
+                            CompiledPattern {
+                                params: method.params.clone(),
+                                body: method.body.clone(),
+                            },
+                        );
+                    }
+                }
                 Declaration::Db(db) => {
                     self.db_config = Some(db.clone());
                     self.init_db_connection(&db);
@@ -1334,6 +1352,20 @@ impl Interpreter {
                         max_messages: c.max_messages,
                         compress_after: c.compress_after,
                     };
+                }
+                Declaration::Tool(t) => {
+                    // ADR-0054: register tool as namespace + compile methods as qualified patterns
+                    self.module_namespaces.insert(t.name.clone(), format!("tool:{}", t.name));
+                    for method in &t.methods {
+                        let qualified_name = format!("{}.{}", t.name, method.name);
+                        self.patterns.insert(
+                            qualified_name,
+                            CompiledPattern {
+                                params: method.params.clone(),
+                                body: method.body.clone(),
+                            },
+                        );
+                    }
                 }
                 Declaration::Db(db) => {
                     self.db_config = Some(db.clone());
@@ -2791,10 +2823,21 @@ impl Interpreter {
                     }
                     return builtin_fn(&eval_args);
                 }
-                // Look up compiled pattern
-                let pattern = match self.patterns.get(function) {
-                    Some(p) => p.clone(),
-                    None => return Err(format!("undefined pattern '{}' in module '{}'", function, module)),
+                // Look up compiled pattern.
+                // ADR-0054: For tool namespaces, use qualified key "module.function".
+                // For import namespaces, patterns are already merged flat under their function name.
+                let namespace = self.module_namespaces.get(module).map(|s| s.as_str());
+                let is_tool = namespace.map_or(false, |ns| ns.starts_with("tool:"));
+                let qualified_key = format!("{}.{}", module, function);
+                let pattern = if is_tool {
+                    self.patterns.get(&qualified_key)
+                        .cloned()
+                        .ok_or_else(|| format!("undefined method '{}' in tool '{}'", function, module))?
+                } else {
+                    match self.patterns.get(function) {
+                        Some(p) => p.clone(),
+                        None => return Err(format!("undefined pattern '{}' in module '{}'", function, module)),
+                    }
                 };
                 if eval_args.len() != pattern.params.len() {
                     return Err(format!(

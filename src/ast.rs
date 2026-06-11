@@ -50,6 +50,10 @@ pub enum Declaration {
     Flow(FlowDecl),
     /// `conversation { ttl: 1800  max_messages: 50  compress_after: 20 }` (ADR-0053)
     Conversation(ConversationDecl),
+    /// `tool Name { method(params) -> Type { body } ... }` (ADR-0054)
+    /// Groups related operations under a namespace.
+    /// tool.method(args) resolves via QualifiedCall.
+    Tool(ToolDecl),
 }
 
 // ── MlogServer (Phase 6.1) ──────────────────────────────────────
@@ -303,6 +307,33 @@ pub struct MemorizeDecl {
 pub struct ForgetDecl {
     pub query: Expr,
     pub days: i64,
+}
+
+// ── Tool Abstraction (ADR-0054) ──────────────────────────────────────
+
+/// `tool telegram { send(...) -> ... { ... } get_updates(...) -> ... { ... } }`
+/// A named group of methods, each compiled as a namespace-isolated pattern.
+/// tool.method(args) resolves via QualifiedCall, same as module.pattern().
+#[derive(Debug, Clone)]
+pub struct ToolDecl {
+    /// Tool name (e.g., "telegram", "math_api").
+    pub name: String,
+    /// Methods inside the tool. Each is effectively a pattern.
+    pub methods: Vec<ToolMethod>,
+}
+
+/// A single method inside a tool declaration.
+/// Structurally identical to a PatternDecl but scoped under a tool namespace.
+#[derive(Debug, Clone)]
+pub struct ToolMethod {
+    /// Method name (e.g., "send", "get_updates").
+    pub name: String,
+    /// Parameters with types.
+    pub params: Vec<Param>,
+    /// Return type name.
+    pub return_type: String,
+    /// Method body (list of statements).
+    pub body: Vec<Statement>,
 }
 
 // ── Conversation Config (ADR-0053) ──────────────────────────────────────

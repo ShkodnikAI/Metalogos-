@@ -1,0 +1,50 @@
+// ── Наряд #1: Session Memory — Contract Program ──────────────────────
+// Tests session_set, session_get, session_clear builtins.
+// Storage: HashMap<String, HashMap<String, String>> — NOT persistent.
+// session_id = chat_id from Telegram (or any session identifier).
+//
+// Run: mlog run examples/p8_session_memory.mlog
+// Expected: "ALL SESSION CONTRACTS PASSED"
+
+// ── Contract 1: session_set returns value, session_get reads it back ──
+pattern TestSession(sid: String) -> String {
+  session_set(sid, "name", "Alice")
+  session_set(sid, "mood", "happy")
+  let name = session_get(sid, "name")
+  let mood = session_get(sid, "mood")
+  let missing = session_get(sid, "nonexistent")
+  return name + " is " + mood + " missing=" + missing
+}
+
+entity sid: String = "chat_123"
+flow Main { input: String = sid -> TestSession -> output }
+
+// Expected output: Alice is happy missing=
+
+// ── Contract 2: Session isolation ──
+// session_set("chat_1", ...) is NOT visible from session_get("chat_2", ...)
+pattern TestIsolation() -> String {
+  session_set("chat_1", "x", "1")
+  session_set("chat_2", "x", "2")
+  let a = session_get("chat_1", "x")
+  let b = session_get("chat_2", "x")
+  require(a == "1") print("PASS: chat_1.x = 1")
+  require(b == "2") print("PASS: chat_2.x = 2")
+  return "ok"
+}
+
+// ── Contract 3: session_clear removes session ──
+pattern TestClear() -> String {
+  session_set("to_clear", "temp", "data")
+  session_clear("to_clear")
+  let gone = session_get("to_clear", "temp")
+  require(gone == "") print("PASS: session_clear removes all keys")
+  return "ok"
+}
+
+// ── Contract 4: Missing key returns empty string ──
+pattern TestMissing() -> String {
+  let empty = session_get("chat_999", "no_such_key")
+  require(empty == "") print("PASS: missing key returns empty string")
+  return "ok"
+}

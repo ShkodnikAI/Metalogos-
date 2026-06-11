@@ -269,3 +269,20 @@ Stage Summary:
 - 122/126 total lib tests pass (4 pre-existing semantic failures unrelated to audit)
 - Commit: 0052cb5 "Наряд №13: fix audit tests, add ADR-0057"
 - Push: main -> origin/main
+
+---
+Task ID: 14
+Agent: main
+Task: Отчёт по 21 Наряду Metalogos
+
+Work Log:
+- Изучил все ADR (0001-0021, 0045-0057) для описания каждого Наряд
+- Составил сводную таблицу всех 21 Нарядов с фазой, фичей, компонентами
+- Сгенерировал PDF-отчёт (12 страниц) через ReportLab
+- Отчёт содержит: титульная, оглавление, введение, сводная таблица, 5 разделов по фазам (M1-M5, Phase 1-4), раздел с доп. Нарядами (0045-0057), статистика, заключение
+- Палитра сгенерирована через pdf.py palette.generate
+
+Stage Summary:
+- Файл: /home/z/my-project/download/metalogos_21_naradov_report.pdf (66KB, 12 стр.)
+- Все 21 Нарядов + 10 доп. Нарядов описаны
+- PDF проходит QA (8/8 passed, 3 warnings - косметические)

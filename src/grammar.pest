@@ -11,7 +11,7 @@ declaration = _{ llm_decl | mlogserver_decl | template_decl | db_decl | memory_d
 // llm { providers: [...], default_model: "...", failover: auto, circuit_breaker: 3, timeout: 30 }
 // If absent → backward compatible (env vars, single provider).
 llm_decl      = { LLM_KW ~ LBRACE ~ llm_body ~ RBRACE }
-llm_body      = { llm_providers? ~ llm_default_model? ~ llm_failover? ~ llm_circuit_breaker? ~ llm_timeout? }
+llm_body      = { llm_providers? ~ (COMMA ~ llm_default_model?)? ~ (COMMA ~ llm_failover?)? ~ (COMMA ~ llm_circuit_breaker?)? ~ (COMMA ~ llm_timeout?)? }
 llm_providers = { "providers" ~ COLON ~ LBRACKET ~ llm_provider_list? ~ RBRACKET }
 llm_provider_list = { llm_provider_entry ~ (COMMA ~ llm_provider_entry)* }
 llm_provider_entry = { LBRACE ~ llm_provider_alias ~ COMMA ~ llm_provider_name ~ (COMMA ~ llm_provider_key)? ~ (COMMA ~ llm_provider_url)? ~ RBRACE }
@@ -73,12 +73,12 @@ db_decl      = { "db" ~ LBRACE ~ db_body ~ RBRACE }
 // memory { kv: { type: key_value, persist: true } }
 // Without persist → in-memory (backward compatible)
 memory_decl   = { MEMORY_KW ~ LBRACE ~ memory_body ~ RBRACE }
-memory_body   = { memory_kv_config? ~ memory_persist? }
+memory_body   = { memory_kv_config? ~ (COMMA ~ memory_persist?)? }
 memory_kv_config = { "kv" ~ ":" ~ LBRACE ~ kv_type_field? ~ kv_persist_field? ~ RBRACE }
 kv_type_field    = { "type" ~ ":" ~ IDENT }
 kv_persist_field  = { "persist" ~ ":" ~ BOOL_LITERAL }
 memory_persist = { "persist" ~ COLON ~ STRING_LITERAL }
-db_body      = { db_url? ~ db_pool? ~ db_migrate? }
+db_body      = { db_url? ~ (COMMA ~ db_pool?)? ~ (COMMA ~ db_migrate?)? }
 db_url       = { "url" ~ COLON ~ expression }
 db_pool      = { "pool_size" ~ COLON ~ INT }
 db_migrate   = { "migrate" ~ COLON ~ STRING_LITERAL }
@@ -105,7 +105,7 @@ ident_list      = { IDENT ~ (COMMA ~ IDENT)* }
 // ── Eval Harness (ADR-0050) ──────────────────────────────────────────────
 // eval PatternName { dataset: [("input", "expected"), ...] metric: accuracy threshold: 0.8 }
 eval_decl        = { EVAL_KW ~ IDENT ~ LBRACE ~ eval_body ~ RBRACE }
-eval_body        = { eval_dataset ~ eval_metric? ~ eval_threshold? }
+eval_body        = { eval_dataset ~ (COMMA ~ eval_metric?)? ~ (COMMA ~ eval_threshold?)? }
 eval_dataset      = { "dataset" ~ COLON ~ LBRACKET ~ eval_example_list? ~ RBRACKET }
 eval_example_list = { eval_example ~ (COMMA ~ eval_example)* }
 eval_example     = { "(" ~ STRING_LITERAL ~ COMMA ~ STRING_LITERAL ~ ")" }
@@ -156,7 +156,7 @@ assignment   = { IDENT ~ "." ~ IDENT ~ "=" ~ expression }
 // ── Conversation (ADR-0053) ──────────────────────────────────────────
 // conversation { ttl: 1800  max_messages: 50  compress_after: 20 }
 conversation_decl = { CONVERSATION_KW ~ LBRACE ~ conversation_body ~ RBRACE }
-conversation_body = { conversation_ttl? ~ conversation_max_messages? ~ conversation_compress_after? }
+conversation_body = { conversation_ttl? ~ (COMMA ~ conversation_max_messages?)? ~ (COMMA ~ conversation_compress_after?)? }
 conversation_ttl = { "ttl" ~ COLON ~ INT }
 conversation_max_messages = { "max_messages" ~ COLON ~ INT }
 conversation_compress_after = { "compress_after" ~ COLON ~ INT }
@@ -265,7 +265,12 @@ INT            = @{ DIGIT+ }
 // IDENT supports ASCII + Cyrillic (U+0410-U+044F, i.e. А-я)
 // Ё/ё and Latin Extended are excluded from grammar range but can be added post-parse if needed
 CYRILLIC_CHAR = _{ 'А'..'я' }
-IDENT          = @{ !("true" | "false" | "if" | "then" | "else" | "let" | "return" | "each" | "while" | "import" | "as" | "match" | "starts_with" | "contains") ~ ident_start ~ (ident_start | ASCII_DIGIT | APOSTROPHE)* }
+// IDENT matches any valid identifier (ASCII, underscore, Cyrillic).
+// Keyword conflicts are resolved by PEG ordered choice in the rules
+// that use keywords as delimiters (e.g. statement, declaration).
+// This avoids the prefix-bug where !("as") rejected identifiers like
+// ask_llm that merely start with a keyword prefix.
+IDENT          = @{ ident_start ~ (ident_start | ASCII_DIGIT | APOSTROPHE)* }
 ident_start   = _{ ASCII_ALPHA | "_" | CYRILLIC_CHAR }
 
 // ── Single-char tokens (only those NOT used as rule delimiters!) ────────

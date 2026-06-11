@@ -52,6 +52,17 @@ enum Commands {
         /// Path to .mlog source file
         file: PathBuf,
     },
+    /// Resume a flow from a checkpoint (ADR-0056)
+    Resume {
+        /// Path to .mlog source file
+        file: PathBuf,
+        /// Flow name to resume
+        #[arg(long)]
+        flow: String,
+        /// Checkpoint name to resume from
+        #[arg(long)]
+        from: String,
+    },
 }
 
 fn main() {
@@ -64,6 +75,7 @@ fn main() {
         Commands::Serve { file } => cmd_serve(file),
         Commands::Compile { file } => cmd_compile(file),
         Commands::Eval { file } => cmd_eval(file),
+        Commands::Resume { file, flow, from } => cmd_resume(file, &flow, &from),
     }
 }
 
@@ -188,6 +200,29 @@ fn cmd_eval(file: PathBuf) {
             }
             if any_failed {
                 std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// `mlog resume <file> --flow=Name --from=checkpoint` — resume flow from checkpoint (ADR-0056)
+fn cmd_resume(file: PathBuf, flow_name: &str, checkpoint_name: &str) {
+    let source = match fs::read_to_string(&file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: cannot read {:?}: {}", file, e);
+            std::process::exit(1);
+        }
+    };
+
+    match metalogos::resume_program(&source, flow_name, checkpoint_name) {
+        Ok(output) => {
+            if let Some(result) = output {
+                println!("{}", result);
             }
         }
         Err(e) => {

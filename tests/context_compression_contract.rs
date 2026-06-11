@@ -155,7 +155,7 @@ fn test_none_strategy_no_compression() {
     // With context_strategy: none and max_context_tokens: 1,
     // the prompt should NOT be compressed even with large context.
     // We can verify by memorizing facts and checking the prompt.
-    let mut source = String::from("memory { persist: false }\n");
+    let mut source = String::from("");
     for i in 0..5 {
         source.push_str(&format!(
             "memorize \"fact {}\"\n", i
@@ -183,7 +183,7 @@ fn test_none_strategy_no_compression() {
 fn test_compress_no_overflow() {
     // With context_strategy: compress but max_context_tokens very high,
     // no compression should be needed (context fits within budget).
-    let mut source = String::from("memory { persist: false }\n");
+    let mut source = String::from("");
     for i in 0..5 {
         source.push_str(&format!(
             "memorize \"short fact {}\"\n", i

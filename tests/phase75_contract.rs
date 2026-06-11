@@ -36,6 +36,8 @@ fn make_learnable_decl(name: &str, prompt: &str) -> Declaration {
         cache_ttl: 3600,
         model: None,
         conversation: None,
+        context_strategy: metalogos::ast::ContextStrategy::None,
+        max_context_tokens: 2000,
     })
 }
 

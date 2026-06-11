@@ -35,6 +35,7 @@ fn make_learnable_decl(name: &str, prompt: &str) -> Declaration {
         cache: false,
         cache_ttl: 3600,
         model: None,
+        conversation: None,
     })
 }
 

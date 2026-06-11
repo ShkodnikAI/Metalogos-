@@ -48,6 +48,8 @@ pub enum Declaration {
     LearnablePattern(LearnablePatternDecl),
     /// `flow Name { input: Type = expr -> steps -> output }`
     Flow(FlowDecl),
+    /// `conversation { ttl: 1800  max_messages: 50  compress_after: 20 }` (ADR-0053)
+    Conversation(ConversationDecl),
 }
 
 // ── MlogServer (Phase 6.1) ──────────────────────────────────────
@@ -303,6 +305,22 @@ pub struct ForgetDecl {
     pub days: i64,
 }
 
+// ── Conversation Config (ADR-0053) ──────────────────────────────────────
+
+/// `conversation { ttl: 1800  max_messages: 50  compress_after: 20 }`
+/// Configures conversation state management for the interpreter.
+#[derive(Debug, Clone)]
+pub struct ConversationDecl {
+    /// Time-to-live in seconds. Default: 1800 (30 minutes).
+    /// Conversations inactive longer than this are auto-cleaned.
+    pub ttl: u64,
+    /// Maximum number of messages per conversation. Default: 50.
+    pub max_messages: usize,
+    /// After this many messages, older messages are compressed via LLM summarization.
+    /// Default: 20.
+    pub compress_after: usize,
+}
+
 // ── Learnable Pattern (M3) ────────────────────────────────────────────
 
 /// Context mode for learnable pattern context auto-loading (ADR-0046).
@@ -356,6 +374,10 @@ pub struct LearnablePatternDecl {
     /// When set, this model name is passed to the LLM backend instead of
     /// the global METALOGOS_LLM_MODEL. Used for cost-aware routing.
     pub model: Option<String>,
+    /// Optional conversation binding (ADR-0053).
+    /// When set (e.g., `conversation: current`), the learnable pattern
+    /// automatically injects conversation history as multi-turn messages.
+    pub conversation: Option<String>,
 }
 
 // ── Pattern (M1, unchanged) ─────────────────────────────────────────

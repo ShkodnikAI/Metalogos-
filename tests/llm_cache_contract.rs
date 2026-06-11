@@ -24,6 +24,7 @@ fn make_cached_learnable_decl(name: &str, prompt: &str, cache: bool, ttl: u64) -
         cache,
         cache_ttl: ttl,
         model: None,
+        conversation: None,
     })
 }
 

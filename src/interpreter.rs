@@ -295,10 +295,12 @@ pub struct PatternStats {
     pub calls: u64,
     /// Sum of confidence values from each invocation (for computing average).
     pub confidence_sum: f64,
-    /// Number of cache hits (responses served from LLM cache, not LLM backend).
+    /// Number of cache hits (responses served from few-shot or LLM cache).
     pub cache_hits: u64,
     /// Timestamp of the last adapt operation (Unix seconds), or 0 if never adapted.
     pub last_adapt: i64,
+    /// Timestamp of the last invocation (Unix seconds), or 0 if never called.
+    pub last_call: i64,
     /// Current count of few-shot examples added via adapt.
     pub examples_count: u64,
 }
@@ -310,6 +312,7 @@ impl PatternStats {
             confidence_sum: 0.0,
             cache_hits: 0,
             last_adapt: 0,
+            last_call: 0,
             examples_count: 0,
         }
     }
@@ -1344,6 +1347,12 @@ impl Interpreter {
     where
         F: FnOnce() -> Result<Value, String>,
     {
+        // ADR-0051: Track stats for regular (non-learnable) patterns.
+        // Learnable patterns track themselves in invoke_learnable_with_env.
+        if !self.learnable_patterns.contains_key(name) {
+            self.record_pattern_call(name, false);
+        }
+
         // Execute all before_pattern hooks
         if !self.hooks_before.is_empty() {
             let mut hook_env = HashMap::new();
@@ -1996,6 +2005,10 @@ impl Interpreter {
     /// Record a learnable pattern invocation for stats tracking.
     /// Called by invoke_learnable_with_env() on every invocation.
     fn record_pattern_call(&self, name: &str, cache_hit: bool) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
         if let Ok(mut stats) = self.pattern_stats.lock() {
             let entry = stats.entry(name.to_string()).or_insert_with(PatternStats::new);
             entry.calls += 1;
@@ -2003,18 +2016,26 @@ impl Interpreter {
             if cache_hit {
                 entry.cache_hits += 1;
             }
+            entry.last_call = now;
         }
     }
 
     /// Invoke the `inspect()` builtin (ADR-0051).
     /// Returns a Struct with pattern metadata: calls, avg_confidence, cache_hits,
-    /// last_adapt, examples_count.
+    /// cache_misses, last_adapt, last_call, examples_count, is_learnable.
     fn invoke_inspect(&self, args: &[Value]) -> Result<Value, String> {
         let pattern_name = match args.first() {
             Some(Value::String(s)) => s.clone(),
             Some(other) => return Err(format!("inspect() expected String pattern name, got {}", other.type_name())),
             None => return Err("inspect() requires 1 argument (pattern name)".to_string()),
         };
+
+        // Soft-failure: nonexistent pattern → Value::Unit
+        let is_learnable = self.learnable_patterns.contains_key(&pattern_name);
+        let is_regular = self.patterns.contains_key(&pattern_name);
+        if !is_learnable && !is_regular {
+            return Ok(Value::Unit);
+        }
 
         // Look up stats
         let stats = match self.pattern_stats.lock() {
@@ -2028,17 +2049,30 @@ impl Interpreter {
             .map(|lp| lp.few_shot.len() as u64)
             .unwrap_or(stats.examples_count);
 
+        let cache_misses = stats.calls.saturating_sub(stats.cache_hits);
+
         let mut fields = std::collections::HashMap::new();
         fields.insert("calls".to_string(), Value::Float(stats.calls as f64));
         fields.insert("avg_confidence".to_string(), Value::Float(stats.avg_confidence()));
         fields.insert("cache_hits".to_string(), Value::Float(stats.cache_hits as f64));
+        fields.insert("cache_misses".to_string(), Value::Float(cache_misses as f64));
         fields.insert("last_adapt".to_string(), Value::Float(stats.last_adapt as f64));
+        fields.insert("last_call".to_string(), Value::Float(stats.last_call as f64));
         fields.insert("examples_count".to_string(), Value::Float(actual_examples as f64));
+        fields.insert("is_learnable".to_string(), Value::Float(if is_learnable { 1.0 } else { 0.0 }));
 
         Ok(Value::Struct {
             type_name: "PatternStats".to_string(),
             fields,
         })
+    }
+
+    /// Public helper: inspect a pattern by name, returning its stats as a Value.
+    /// Returns Value::Unit for nonexistent patterns (soft-failure).
+    /// Used by contract tests and may be exposed as a library API in the future.
+    pub fn inspect_pattern(&self, name: &str) -> Value {
+        self.invoke_inspect(&[Value::String(name.to_string())])
+            .unwrap_or(Value::Unit)
     }
 
     /// Get the server configuration (Phase 6.1).

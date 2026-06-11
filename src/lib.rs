@@ -2,6 +2,7 @@
 // Exposes: parser, interpreter, LLM client, semantic analysis, run_program for binary + tests.
 
 pub mod ast;
+pub mod audit;
 pub mod bytecode;
 pub mod builtins;
 pub mod compiler;
@@ -44,6 +45,12 @@ pub fn run_program_with_dir(source: &str, base_dir: std::path::PathBuf) -> Resul
             }
         }
     }
+}
+
+/// Static security audit on a .mlog program (ADR-0057).
+/// Analyzes without executing; returns AuditResult with findings.
+pub fn audit_program(source: &str) -> Result<audit::AuditResult, String> {
+    audit::audit_program(source)
 }
 
 /// Parse and check a .mlog program without execution.

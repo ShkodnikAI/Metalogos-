@@ -97,3 +97,28 @@ Stage Summary:
 - 9/9 eval contract tests now pass
 - CLI mlog eval <file> works correctly with proper exit codes and formatted output
 - Files changed: src/parser.rs, tests/eval_harness_contract.rs, tests/memory_persist_e2e.rs, docs/adr/0050-eval-harness.md
+
+---
+Task ID: 7
+Agent: main
+Task: Наряд №7 — inspect() builtin: add missing fields, fix tests
+
+Work Log:
+- Found inspect() fully pre-implemented: PatternStats, record_pattern_call, invoke_inspect, ADR-0051, 6 contract tests
+- All 6 tests failed: used invalid syntax (let, direct pattern calls at top level)
+- Added last_call field to PatternStats, tracked in record_pattern_call
+- Added cache_misses (computed), last_call, is_learnable to invoke_inspect output (now 8 fields)
+- inspect("nonexistent") → Value::Unit soft-failure per spec
+- Added regular pattern tracking in invoke_pattern_with_hooks
+- Added public inspect_pattern() method for test access
+- Rewrote all 8 tests with valid .mlog (flow invocations + inspect_pattern() helper)
+- All 8 inspect tests + 9 eval tests pass (no regressions)
+- Updated ADR-0051 with new fields and semantics
+- Committed and pushed: e5de054
+
+Stage Summary:
+- Key fix: tests used `let` and direct calls — invalid .mlog top-level syntax
+- 8/8 inspect contract tests now pass
+- PatternStats now has 6 fields (added last_call), inspect returns 8 fields (added cache_misses, last_call, is_learnable)
+- Regular patterns also tracked (is_learnable=0.0, calls still counted)
+- Files changed: src/interpreter.rs, tests/inspect_builtin_contract.rs, docs/adr/0051-inspect.md

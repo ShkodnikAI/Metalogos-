@@ -688,9 +688,21 @@ fn parse_eval_decl(pair: Pair<Rule>) -> Declaration {
 
         // Extract dataset: [("input", "expected"), ...]
         if let Some(ds_pair) = body_children.iter().find(|c| c.as_rule() == Rule::eval_dataset) {
-            // Collect all eval_example pairs
+            // eval_example is nested inside eval_example_list (if present)
+            // or directly in eval_dataset when there's a single example.
+            // Flatten both levels to collect all eval_example pairs.
             let examples: Vec<Pair<Rule>> = ds_pair.clone().into_inner()
-                .filter(|c| c.as_rule() == Rule::eval_example)
+                .flat_map(|c| {
+                    if c.as_rule() == Rule::eval_example {
+                        vec![c]
+                    } else if c.as_rule() == Rule::eval_example_list {
+                        c.into_inner()
+                            .filter(|inner| inner.as_rule() == Rule::eval_example)
+                            .collect()
+                    } else {
+                        vec![]
+                    }
+                })
                 .collect();
             for ex_pair in examples {
                 let strings: Vec<Pair<Rule>> = ex_pair.clone().into_inner()

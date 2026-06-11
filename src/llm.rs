@@ -539,6 +539,24 @@ fn truncate(s: &str, max_len: usize) -> String {
 
 // ── Factory ─────────────────────────────────────────────────────────
 
+/// Resolve a model alias to an actual model name using environment variables.
+///
+/// Lookup order:
+/// 1. If `METALOGOS_LLM_MODEL_{alias}` exists → use its value
+/// 2. Otherwise → return the alias as-is (treated as a direct model name)
+///
+/// # Examples
+/// ```ignore
+/// // METALOGOS_LLM_MODEL_fast=claude-haiku-4-5-20251001
+/// resolve_model("fast")       → "claude-haiku-4-5-20251001"
+/// resolve_model("claude-sonnet-4-20250514") → "claude-sonnet-4-20250514"
+/// resolve_model("unknown")    → "unknown"
+/// ```
+pub fn resolve_model(alias: &str) -> String {
+    let env_key = format!("METALOGOS_LLM_MODEL_{}", alias);
+    env::var(&env_key).unwrap_or_else(|_| alias.to_string())
+}
+
 /// Create an LLM backend based on environment configuration.
 ///
 /// - If `METALOGOS_MOCK_LLM=1` or `METALOGOS_MOCK_LLM=true`: returns MockLlm (for tests)
@@ -774,6 +792,44 @@ mod tests {
         let backend = create_llm_backend();
         assert_eq!(backend.call("prompt", "input").unwrap(), "prompt");
         env::remove_var("METALOGOS_MOCK_LLM");
+    }
+
+    // ── resolve_model unit tests (ADR-0048) ──────────────────────────
+
+    #[test]
+    fn test_resolve_model_with_env_alias() {
+        env::set_var("METALOGOS_LLM_MODEL_fast", "claude-haiku-4-5-20251001");
+        assert_eq!(resolve_model("fast"), "claude-haiku-4-5-20251001");
+        env::remove_var("METALOGOS_LLM_MODEL_fast");
+    }
+
+    #[test]
+    fn test_resolve_model_without_env_passthrough() {
+        env::remove_var("METALOGOS_LLM_MODEL_unknown");
+        assert_eq!(resolve_model("unknown"), "unknown");
+    }
+
+    #[test]
+    fn test_resolve_model_direct_model_name() {
+        // "claude-sonnet-4-20250514" is a real model name, not an alias
+        env::remove_var("METALOGOS_LLM_MODEL_claude-sonnet-4-20250514");
+        assert_eq!(resolve_model("claude-sonnet-4-20250514"), "claude-sonnet-4-20250514");
+    }
+
+    #[test]
+    fn test_resolve_model_custom_user_alias() {
+        env::set_var("METALOGOS_LLM_MODEL_cheap", "gpt-4o-mini");
+        assert_eq!(resolve_model("cheap"), "gpt-4o-mini");
+        env::remove_var("METALOGOS_LLM_MODEL_cheap");
+    }
+
+    #[test]
+    fn test_resolve_model_env_changes_are_reflected() {
+        env::set_var("METALOGOS_LLM_MODEL_volatile", "model-v1");
+        assert_eq!(resolve_model("volatile"), "model-v1");
+        env::set_var("METALOGOS_LLM_MODEL_volatile", "model-v2");
+        assert_eq!(resolve_model("volatile"), "model-v2");
+        env::remove_var("METALOGOS_LLM_MODEL_volatile");
     }
 
     // ── Integration Tests (require real API keys) ──────────────────

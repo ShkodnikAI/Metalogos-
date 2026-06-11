@@ -34,7 +34,18 @@ learnable pattern DefaultTask(text: String) -> String {
 
 1. **`model: "name"`**: Optional string field. When set, this model name is passed to the LLM backend instead of the global `METALOGOS_LLM_MODEL`. When absent, the global model is used (backward compatible).
 
-2. **Model resolution**: The per-pattern model override is passed to the `LlmBackend::call_with_model()` method. The backend uses the override model in the API JSON body's `"model"` field. If the override equals the global model, no special handling is needed.
+2. **Model alias resolution via environment variables**: The model field value is first checked against environment variables using the pattern `METALOGOS_LLM_MODEL_{alias}`. This allows defining human-readable aliases that map to actual model names:
+   ```
+   METALOGOS_LLM_MODEL_fast=claude-haiku-4-5-20251001
+   METALOGOS_LLM_MODEL_strong=claude-opus-4-20250115
+   METALOGOS_LLM_MODEL_cheap=gpt-4o-mini
+   METALOGOS_LLM_MODEL_vision=gpt-4o
+   ```
+   Resolution order:
+   - If `METALOGOS_LLM_MODEL_{alias}` exists → use its value
+   - Otherwise → pass the alias as-is (treated as a direct model name like `"gpt-4o"`)
+   
+   This means model names like `"claude-sonnet-4-20250514"` or `"gpt-4o"` work directly without needing an env variable, since no `METALOGOS_LLM_MODEL_claude-sonnet-4-20250514` would typically exist.
 
 3. **Cache key integration**: The model override is NOT part of the cache key (`hash(prompt + input)`). This is intentional — the same prompt+input with different models would produce different responses, but the current cache key doesn't include model. If model-specific caching is needed, users should use different prompt text to differentiate.
 
@@ -47,10 +58,13 @@ learnable pattern DefaultTask(text: String) -> String {
 - **Grammar**: `model_line = { "model" ~ COLON ~ expression }` rule in `learnable_body`.
 - **AST**: `LearnablePatternDecl` gains `model: Option<String>`.
 - **Parser**: Extracts model string from `model_line` expression.
-- **LlmBackend trait**: New `call_with_model(prompt, input, model: Option<&str>)` method with default impl that delegates to `call()`. This is backward compatible — existing backends and tests are unaffected.
+- **`llm::resolve_model(alias)`**: Public function that resolves a model alias to an actual model name via environment variable lookup. Checks `METALOGOS_LLM_MODEL_{alias}`; if not found, returns the alias as-is (direct model name passthrough).
+- **LlmBackend trait**: `call_with_model(prompt, input, model: Option<&str>)` method with default impl that delegates to `call()`. Backward compatible.
 - **RealLlm**: Implements `call_with_model()` by cloning self with the overridden model field, then calling `call()` through the clone.
 - **MockLlm**: Implements `call_with_model()` to record the model name in a static `MOCK_LLM_LAST_MODEL: Mutex<String>` for contract tests.
-- **Interpreter**: `CompiledLearnable` gains `model: Option<String>`. `invoke_learnable_with_env()` calls `backend.call_with_model()` instead of `backend.call()`.
+- **Interpreter**: `CompiledLearnable` gains `model: Option<String>`. `invoke_learnable_with_env()` calls `resolve_model()` on the alias, then passes the resolved name to `backend.call_with_model()`.
+- **Contract tests**: `tests/model_routing_contract.rs` — 6 tests verifying alias resolution, passthrough, and no-override behavior.
+- **Unit tests**: 5 tests in `llm.rs` for `resolve_model()` directly.
 
 ### Backward Compatibility
 

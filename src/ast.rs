@@ -1,5 +1,6 @@
 // ── AST types for METALOGOS ────────────────────────────────────────
 
+use std::collections::HashMap;
 use std::fmt;
 
 /// Top-level declaration in a .mlog program.
@@ -477,6 +478,7 @@ pub enum Statement {
 // ── Flow (M1 + M2 branching) ────────────────────────────────────────
 // Pipeline is a simple list of step names; branch definitions are
 // separate named blocks that appear after the pipeline line.
+// ADR-0056: checkpoint("name") markers save flow state at that point.
 
 #[derive(Debug, Clone)]
 pub struct FlowDecl {
@@ -487,6 +489,10 @@ pub struct FlowDecl {
     pub pipeline: Vec<String>,
     /// Named branch definitions: (step_name, [Branch])
     pub branch_defs: Vec<(String, Vec<Branch>)>,
+    /// ADR-0056: Checkpoint markers — maps checkpoint name to the pipeline step index
+    /// AFTER which the checkpoint fires. E.g., checkpoint("mid") after Step1
+    /// with pipeline ["Step1", "Step2"] → checkpoints = {"mid": 0}
+    pub checkpoints: HashMap<String, usize>,
 }
 
 #[derive(Debug, Clone)]

@@ -1254,7 +1254,9 @@ fn parse_if_block_stmt(pair: Pair<Rule>) -> Statement {
 
 // ── Flow ──────────────────────────────────────────────────────────────
 // flow_decl = { "flow" ~ IDENT ~ "{" ~ flow_pipeline ~ branch_def* ~ "}" }
-// flow_pipeline = { "input" ":" ~ type_name "=" ~ expression ~ (ARROW ~ step_ident)* ~ ARROW ~ "output" }
+// flow_pipeline = { "input" ":" type_name "=" expression ~ flow_step* ~ ARROW ~ "output" }
+// flow_step     = { ARROW ~ (checkpoint_call | step_ident) }
+// checkpoint_call = { "checkpoint" ~ "(" ~ STRING_LITERAL ~ ")" }
 // branch_def    = { step_ident ~ "{" ~ branch* ~ "}" }
 
 fn parse_flow_decl(pair: Pair<Rule>) -> Declaration {
@@ -1268,8 +1270,9 @@ fn parse_flow_decl(pair: Pair<Rule>) -> Declaration {
     let mut input_type = String::new();
     let mut source: Option<Expr> = None;
     let mut pipeline_steps: Vec<String> = Vec::new();
+    let mut checkpoints: HashMap<String, usize> = HashMap::new();
 
-    // Walk pipeline children: type_name, expression, (ARROW, step_ident)*, ARROW
+    // Walk pipeline children: type_name, expression, flow_step*, ARROW
     let mut i = 0;
     // First: type_name
     if i < pipeline_children.len() && pipeline_children[i].as_rule() == Rule::type_name {
@@ -1282,14 +1285,40 @@ fn parse_flow_decl(pair: Pair<Rule>) -> Declaration {
         source = Some(parse_expression(pipeline_children[i].clone()));
         i += 1;
     }
-    // Remaining: (ARROW, step_ident)* pairs, final ARROW (-> output)
+    // Remaining: flow_step* then final ARROW -> output
     while i < pipeline_children.len() {
-        if pipeline_children[i].as_rule() == Rule::ARROW {
-            i += 1;
-            if i < pipeline_children.len() && pipeline_children[i].as_rule() == Rule::step_ident {
-                pipeline_steps.push(pair_str(&pipeline_children[i]));
-                i += 1;
+        if pipeline_children[i].as_rule() == Rule::flow_step {
+            let step_children = children_of(&pipeline_children[i]);
+            // flow_step = { ARROW ~ (checkpoint_call | step_ident) }
+            for sc in &step_children {
+                if sc.as_rule() == Rule::step_ident {
+                    pipeline_steps.push(pair_str(sc));
+                } else if sc.as_rule() == Rule::checkpoint_call {
+                    // checkpoint("name") — maps to the PRECEDING step index
+                    let full = sc.as_str(); // e.g., 'checkpoint("mid")'
+                    // Extract the checkpoint name between quotes
+                    let cp_name = if let Some(s) = full.find('"') {
+                        if let Some(e) = full.rfind('"') {
+                            if e > s + 1 {
+                                full[s+1..e].to_string()
+                            } else {
+                                String::new()
+                            }
+                        } else {
+                            String::new()
+                        }
+                    } else {
+                        String::new()
+                    };
+                    // Checkpoint fires AFTER the last pipeline step added
+                    let step_idx = if pipeline_steps.is_empty() { 0 } else { pipeline_steps.len() - 1 };
+                    checkpoints.insert(cp_name, step_idx);
+                }
             }
+            i += 1;
+        } else if pipeline_children[i].as_rule() == Rule::ARROW {
+            // Final ARROW before "output" — skip
+            i += 1;
         } else {
             i += 1;
         }
@@ -1310,11 +1339,12 @@ fn parse_flow_decl(pair: Pair<Rule>) -> Declaration {
     }
 
     Declaration::Flow(FlowDecl {
-        name,
+        name: name.clone(),
         input_type,
         source: source.unwrap(),
-        pipeline: pipeline_steps,
+        pipeline: pipeline_steps.clone(),
         branch_defs,
+        checkpoints: checkpoints.clone(),
     })
 }
 

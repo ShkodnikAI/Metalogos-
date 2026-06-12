@@ -50,7 +50,7 @@ HOOK_KW       = @{ "hook" }
 // ── MlogServer (Phase 6.1) ──────────────────────────────────────
 // server { port: 8080  middleware: [session, csrf, security_headers]  route "/path" method=GET requires=[role] { body } }
 // "server" is an alias for "mlogserver" (Наряд №7 final integration)
-mlogserver_decl    = _{ "mlogserver" ~ LBRACE ~ mlogserver_body ~ RBRACE | "server" ~ LBRACE ~ mlogserver_body ~ RBRACE }
+mlogserver_decl    = { "mlogserver" ~ LBRACE ~ mlogserver_body ~ RBRACE | "server" ~ LBRACE ~ mlogserver_body ~ RBRACE }
 mlogserver_body    = { mlogserver_port? ~ mlogserver_middleware? ~ route_decl* ~ WHITESPACE* }
 mlogserver_port    = { "port" ~ COLON ~ INT }
 mlogserver_middleware = { "middleware" ~ COLON ~ LBRACKET ~ ident_list? ~ RBRACKET }

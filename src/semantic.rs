@@ -100,6 +100,7 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         "starts_with", "ends_with", "to_float",
         // Phase 6 builtins
         "respond", "render", "form_data", "json_body", "escape_html",
+        "parse_json", "json_encode", "json_get", "has_field", "http_get",
         "query", "db_execute",
         "env", "hash_password", "verify_password", "encrypt", "decrypt", "generate_key",
         "authenticate", "session_login", "session_logout",

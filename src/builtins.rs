@@ -130,6 +130,8 @@ impl Builtins {
         // Phase 7.7 — new builtins for department modularity
         funcs.insert("parse_json".to_string(), builtin_parse_json as BuiltinFn);
         funcs.insert("json_encode".to_string(), builtin_json_encode as BuiltinFn);
+        funcs.insert("json_get".to_string(), builtin_json_get as BuiltinFn);
+        funcs.insert("has_field".to_string(), builtin_has_field as BuiltinFn);
         funcs.insert("http_get".to_string(), builtin_http_get as BuiltinFn);
         funcs.insert("now".to_string(), builtin_now as BuiltinFn);
 
@@ -962,8 +964,60 @@ fn builtin_json_encode(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(serialized))
 }
 
+/// Safe field access on a struct value: returns default if field missing or not a struct.
+/// Usage: json_get(obj, "field") -> Value (returns Unit if missing)
+/// Usage: json_get(obj, "field", default_value) -> Value (returns default if missing)
+/// Usage: json_get(obj, "nested.field.path", default) -> Value (dot-separated path)
+/// This is the P0 fix: prevents runtime crash when accessing optional JSON fields
+/// like message.voice on non-voice Telegram updates.
+fn builtin_json_get(args: &[Value]) -> Result<Value, String> {
+    let obj = match args.get(0) {
+        Some(v) => v,
+        None => return Err("json_get() requires at least 2 arguments (obj, field_path)".to_string()),
+    };
+    let path = expect_string_arg("json_get", args, 1)?;
+    let default_val = args.get(2).cloned().unwrap_or(Value::Unit);
+
+    // Navigate the path (dot-separated)
+    let mut current = obj;
+    for segment in path.split('.') {
+        match current.get_field(segment) {
+            Ok(val) => current = val,
+            Err(_) => return Ok(default_val),
+        }
+    }
+    Ok(current.clone())
+}
+
+/// Check if a struct value has a given field. Returns 1.0 (true) or 0.0 (false).
+/// Usage: has_field(obj, "field") -> Float
+/// Usage: has_field(obj, "nested.field") -> Float (dot-separated path)
+fn builtin_has_field(args: &[Value]) -> Result<Value, String> {
+    let obj = match args.get(0) {
+        Some(v) => v,
+        None => return Err("has_field() requires 2 arguments (obj, field_path)".to_string()),
+    };
+    let path = expect_string_arg("has_field", args, 1)?;
+
+    let mut current = obj;
+    let segments: Vec<&str> = path.split('.').collect();
+    for (i, segment) in segments.iter().enumerate() {
+        match current.get_field(segment) {
+            Ok(val) => {
+                if i == segments.len() - 1 {
+                    return Ok(Value::Float(1.0));
+                }
+                current = val;
+            }
+            Err(_) => return Ok(Value::Float(0.0)),
+        }
+    }
+    Ok(Value::Float(0.0))
+}
+
 /// Send an HTTP GET request. Returns the response body as String.
 /// Usage: http_get(url) -> String
+/// Usage: http_get(url, headers_struct) -> String  — sets headers from Struct fields
 fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
     let url = match args.get(0) {
         Some(Value::String(s)) => s.clone(),
@@ -972,12 +1026,32 @@ fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
     };
 
     let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| format!("http_get(): failed to create client: {}", e))?;
 
-    let resp = client
-        .get(&url)
+    let mut req = client.get(&url);
+
+    // Optional 2nd argument: headers (String as Bearer token, Struct as header map)
+    if let Some(headers_arg) = args.get(1) {
+        match headers_arg {
+            Value::String(auth_token) => {
+                if !auth_token.is_empty() {
+                    req = req.header("Authorization", format!("Bearer {}", auth_token));
+                }
+            }
+            Value::Struct { fields, .. } => {
+                for (key, val) in fields {
+                    if let Value::String(v) = val {
+                        req = req.header(key.as_str(), v.as_str());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let resp = req
         .send()
         .map_err(|e| format!("http_get() request failed: {}", e))?;
 
@@ -1501,4 +1575,132 @@ fn builtin_llm_usage(_args: &[Value]) -> Result<Value, String> {
         type_name: "LlmUsage".to_string(),
         fields,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_struct(fields: Vec<(&str, Value)>) -> Value {
+        let mut map = std::collections::HashMap::new();
+        for (k, v) in fields {
+            map.insert(k.to_string(), v);
+        }
+        Value::Struct { type_name: "Test".to_string(), fields: map }
+    }
+
+    fn is_string(val: &Value, expected: &str) -> bool {
+        matches!(val, Value::String(s) if s == expected)
+    }
+
+    fn is_float(val: &Value, expected: f64) -> bool {
+        matches!(val, Value::Float(f) if (*f - expected).abs() < 1e-9)
+    }
+
+    fn is_unit(val: &Value) -> bool {
+        matches!(val, Value::Unit)
+    }
+
+    #[test]
+    fn test_json_get_existing_field() {
+        let obj = make_struct(vec![
+            ("name", Value::String("Alice".to_string())),
+            ("age", Value::Float(25.0)),
+        ]);
+        let result = builtin_json_get(&[obj, Value::String("name".to_string())]).unwrap();
+        assert!(is_string(&result, "Alice"));
+    }
+
+    #[test]
+    fn test_json_get_missing_field_returns_unit() {
+        let obj = make_struct(vec![("name", Value::String("Alice".to_string()))]);
+        let result = builtin_json_get(&[obj, Value::String("voice".to_string())]).unwrap();
+        assert!(is_unit(&result), "expected Unit, got {:?}", result.type_name());
+    }
+
+    #[test]
+    fn test_json_get_missing_field_returns_custom_default() {
+        let obj = make_struct(vec![("name", Value::String("Alice".to_string()))]);
+        let result = builtin_json_get(&[
+            obj,
+            Value::String("voice".to_string()),
+            Value::String("none".to_string()),
+        ]).unwrap();
+        assert!(is_string(&result, "none"));
+    }
+
+    #[test]
+    fn test_json_get_nested_path() {
+        let inner = make_struct(vec![("file_id", Value::String("abc123".to_string()))]);
+        let obj = make_struct(vec![("voice", inner)]);
+        let result = builtin_json_get(&[
+            obj,
+            Value::String("voice.file_id".to_string()),
+        ]).unwrap();
+        assert!(is_string(&result, "abc123"));
+    }
+
+    #[test]
+    fn test_json_get_nested_path_missing() {
+        let obj = make_struct(vec![("text", Value::String("hello".to_string()))]);
+        let result = builtin_json_get(&[
+            obj,
+            Value::String("voice.file_id".to_string()),
+            Value::String("default".to_string()),
+        ]).unwrap();
+        assert!(is_string(&result, "default"));
+    }
+
+    #[test]
+    fn test_json_get_non_struct_returns_default() {
+        let obj = Value::String("not a struct".to_string());
+        let result = builtin_json_get(&[
+            obj,
+            Value::String("field".to_string()),
+            Value::Float(42.0),
+        ]).unwrap();
+        assert!(is_float(&result, 42.0));
+    }
+
+    #[test]
+    fn test_has_field_existing() {
+        let obj = make_struct(vec![("voice", Value::String("data".to_string()))]);
+        let result = builtin_has_field(&[obj, Value::String("voice".to_string())]).unwrap();
+        assert!(is_float(&result, 1.0));
+    }
+
+    #[test]
+    fn test_has_field_missing() {
+        let obj = make_struct(vec![("text", Value::String("hi".to_string()))]);
+        let result = builtin_has_field(&[obj, Value::String("voice".to_string())]).unwrap();
+        assert!(is_float(&result, 0.0));
+    }
+
+    #[test]
+    fn test_has_field_nested() {
+        let inner = make_struct(vec![("file_id", Value::String("x".to_string()))]);
+        let obj = make_struct(vec![("voice", inner)]);
+        let result = builtin_has_field(&[obj, Value::String("voice.file_id".to_string())]).unwrap();
+        assert!(is_float(&result, 1.0));
+    }
+
+    #[test]
+    fn test_json_encode_roundtrip() {
+        let obj = make_struct(vec![
+            ("key", Value::String("value".to_string())),
+            ("num", Value::Float(42.0)),
+        ]);
+        let encoded = builtin_json_encode(&[obj]).unwrap();
+        let decoded = builtin_parse_json(&[encoded]).unwrap();
+        let key_val = decoded.get_field("key").unwrap();
+        assert!(is_string(key_val, "value"));
+        let num_val = decoded.get_field("num").unwrap();
+        assert!(is_float(num_val, 42.0));
+    }
+
+    #[test]
+    fn test_escape_json_handles_special_chars() {
+        let result = builtin_escape_json(&[Value::String("hello\"world\n".to_string())]).unwrap();
+        assert!(is_string(&result, "hello\\\"world\\n"));
+    }
 }

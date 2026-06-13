@@ -1610,6 +1610,18 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
         Rule::primary_expr => {
             let inner = pair.into_inner().next().unwrap();
             match inner.as_rule() {
+                Rule::struct_literal => {
+                    let mut fields = Vec::new();
+                    for field_pair in inner.into_inner() {
+                        if field_pair.as_rule() == Rule::struct_field_init {
+                            let mut parts = field_pair.into_inner();
+                            let name = parts.next().unwrap().as_str().to_string();
+                            let value = parse_expression(parts.next().unwrap());
+                            fields.push((name, value));
+                        }
+                    }
+                    Expr::StructLiteral(fields)
+                }
                 Rule::list_literal => {
                     let mut items = Vec::new();
                     for child in inner.clone().into_inner() {

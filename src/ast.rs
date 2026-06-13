@@ -563,6 +563,8 @@ pub enum Expr {
     List(Vec<Expr>),
     /// Index access: `list[index]` or `struct["field"]` (v0.5.0)
     IndexAccess(Box<Expr>, Box<Expr>),
+    /// Inline struct literal: `{ key: expr, key: expr }`
+    StructLiteral(Vec<(String, Expr)>),
 }
 
 #[derive(Debug, Clone, Copy)]

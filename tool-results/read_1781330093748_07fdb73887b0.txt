@@ -1,0 +1,1247 @@
+     1→// ── METALOGOS HTTP Server (Phase 6.1–7.4) ───────────────────────────
+     2→// Axum-based HTTP server with security middleware:
+     3→// - SQLite-backed session store (Phase 7.4)
+     4→// - HMAC-SHA256 signed session cookies
+     5→// - CSRF double-submit cookie pattern (Phase 7.4: real tokens)
+     6→// - Rate limiting: sliding window per IP (Phase 7.4)
+     7→// - Security headers (CSP, X-Frame-Options, X-Content-Type-Options, HSTS)
+     8→// - Role-based route access
+     9→// - Template rendering with auto-escaping
+    10→// - Bot integration (Telegram webhooks)
+    11→
+    12→use axum::{
+    13→    Router,
+    14→    extract::State,
+    15→    http::{HeaderMap, HeaderValue, StatusCode, Uri, header, Method},
+    16→    response::{Html as AxumHtml, IntoResponse, Response},
+    17→    routing::{get, post, put, delete, any},
+    18→};
+    19→use std::collections::HashMap;
+    20→use std::sync::Arc;
+    21→use tokio::sync::RwLock;
+    22→use tower_http::set_header::SetResponseHeaderLayer;
+    23→
+    24→use crate::ast::*;
+    25→use crate::interpreter::{Interpreter, Value};
+    26→
+    27→// Compile-time check: ServerState must be Send + Sync for axum::State
+    28→fn _assert_state_send_sync(state: ServerState) {
+    29→    fn assert_send<T: Send>(_: &T) {}
+    30→    fn assert_sync<T: Sync>(_: &T) {}
+    31→    // Force the compiler to check Send+Sync on the actual struct, not just the name
+    32→    let _ = &state;
+    33→    assert_send(&state);
+    34→    assert_sync(&state);
+    35→}
+    36→
+    37→// ── Server State ──────────────────────────────────────────────────
+    38→
+    39→/// Shared mutable server state, protected by tokio::RwLock / std::sync::Mutex.
+    40→#[derive(Clone)]
+    41→pub struct ServerState {
+    42→    /// In-memory session cache (kept for fast lookouts, authoritative source is SQLite).
+    43→    pub sessions: Arc<RwLock<HashMap<String, SessionEntry>>>,
+    44→    /// CSRF token store for double-submit validation.
+    45→    pub csrf_tokens: Arc<RwLock<HashMap<String, String>>>,
+    46→    /// HMAC signing key for session cookies.
+    47→    pub hmac_key: Arc<Vec<u8>>,
+    48→    /// Audit log entries.
+    49→    pub audit_log: Arc<RwLock<Vec<String>>>,
+    50→    /// Registered templates.
+    51→    pub templates: Arc<RwLock<HashMap<String, TemplateDecl>>>,
+    52→    /// Mock DB store.
+    53→    pub db_store: Arc<RwLock<Vec<HashMap<String, Value>>>>,
+    54→    /// Memory persist path (if configured).
+    55→    pub memory_persist: Option<String>,
+    56→    /// Interpreter (for running route handlers).
+    57→    pub interpreter: Arc<RwLock<Interpreter>>,
+    58→    /// Route definitions from mlogserver block.
+    59→    pub routes: Vec<RouteDecl>,
+    60→    /// Required middleware (from mlogserver config).
+    61→    pub middleware: Vec<String>,
+    62→    /// SQLite connection for session persistence (Phase 7.4).
+    63→    pub db: Arc<tokio::sync::Mutex<rusqlite::Connection>>,
+    64→    /// Rate-limit tracker: IP → Vec<Instant> (Phase 7.4).
+    65→    pub rate_limits: Arc<RwLock<HashMap<String, Vec<std::time::Instant>>>>,
+    66→}
+    67→
+    68→#[derive(Debug, Clone)]
+    69→pub struct SessionEntry {
+    70→    pub data: HashMap<String, String>,
+    71→    pub roles: Vec<String>,
+    72→    pub expires: std::time::Instant,
+    73→}
+    74→
+    75→// ── Public API ─────────────────────────────────────────────────────
+    76→
+    77→/// Parse source, build Axum router, start server on configured port.
+    78→/// This is the entry point for `mlog serve <file>`.
+    79→pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    80→    let declarations = crate::parser::parse(source)
+    81→        .map_err(|e| format!("parse error: {}", e))?;
+    82→
+    83→    let mut interp = Interpreter::new();
+    84→    // Run declarations to populate templates, patterns, etc. (skip flows)
+    85→    for decl in declarations.clone() {
+    86→        match decl {
+    87→            Declaration::MlogServer(ref srv) => {
+    88→                interp = build_interpreter_with_server(srv, interp);
+    89→            }
+    90→            Declaration::Flow(_) => { /* skip flows in server mode */ }
+    91→            _ => {
+    92→                let mut tmp_interp = Interpreter::new();
+    93→                tmp_interp.set_base_dir(std::path::PathBuf::from("."));
+    94→                let _ = tmp_interp.run(vec![decl]);
+    95→                interp = merge_interpreter(tmp_interp, interp);
+    96→            }
+    97→        }
+    98→    }
+    99→
+   100→    // Find MlogServer declaration
+   101→    let server_config = declarations.iter().find_map(|d| match d {
+   102→        Declaration::MlogServer(s) => Some(s.clone()),
+   103→        _ => None,
+   104→    });
+   105→
+   106→    let config = match server_config {
+   107→        Some(c) => c,
+   108→        None => return Err("no mlogserver block found in source".into()),
+   109→    };
+   110→
+   111→    let port = config.port;
+   112→    let state = build_state(config, interp).await;
+   113→    let app = build_router(state);
+   114→
+   115→    println!("mlog serve: listening on 0.0.0.0:{}", port);
+   116→    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
+   117→    axum::serve(listener, app).await?;
+   118→    Ok(())
+   119→}
+   120→
+   121→/// Start server on a random port for integration testing.
+   122→/// Returns (port, join_handle).
+   123→pub async fn run_test_server(source: &str) -> Result<(u16, tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>), Box<dyn std::error::Error + Send + Sync>> {
+   124→    let declarations = crate::parser::parse(source)
+   125→        .map_err(|e| format!("parse error: {}", e))?;
+   126→
+   127→    let server_config = declarations.iter().find_map(|d| match d {
+   128→        Declaration::MlogServer(s) => Some(s.clone()),
+   129→        _ => None,
+   130→    }).ok_or("no mlogserver block")?;
+   131→
+   132→    let mut interp = Interpreter::new();
+   133→    for decl in declarations {
+   134→        if !matches!(decl, Declaration::Flow(_)) {
+   135→            let mut tmp = Interpreter::new();
+   136→            tmp.set_base_dir(std::path::PathBuf::from("."));
+   137→            let _ = tmp.run(vec![decl]);
+   138→            interp = merge_interpreter(tmp, interp);
+   139→        }
+   140→    }
+   141→
+   142→    // Override port to 0 (OS-assigned)
+   143→    let mut config = server_config.clone();
+   144→    config.port = 0;
+   145→
+   146→    let state = build_state(config.clone(), interp).await;
+   147→    let app = build_router(state);
+   148→
+   149→    let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await?;
+   150→    let port = listener.local_addr()?.port();
+   151→
+   152→    let handle = tokio::spawn(async move {
+   153→        axum::serve(listener, app).await?;
+   154→        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+   155→    });
+   156→
+   157→    Ok((port, handle))
+   158→}
+   159→
+   160→// ── Internal: Build State ──────────────────────────────────────────
+   161→
+   162→async fn build_state(config: MlogServerDecl, interp: Interpreter) -> ServerState {
+   163→    // Generate HMAC key
+   164→    let hmac_key = generate_hmac_key();
+   165→
+   166→    // Collect templates from interpreter
+   167→    let templates_map = interp.get_templates().clone();
+   168→
+   169→    // Phase 7.4: SQLite session store (in-memory for this server instance)
+   170→    let conn = rusqlite::Connection::open_in_memory()
+   171→        .expect("Failed to open SQLite in-memory database");
+   172→    init_session_db(&conn).expect("Failed to create sessions table");
+   173→
+   174→    ServerState {
+   175→        sessions: Arc::new(RwLock::new(HashMap::new())),
+   176→        csrf_tokens: Arc::new(RwLock::new(HashMap::new())),
+   177→        hmac_key: Arc::new(hmac_key),
+   178→        audit_log: Arc::new(RwLock::new(Vec::new())),
+   179→        templates: Arc::new(RwLock::new(templates_map)),
+   180→        db_store: Arc::new(RwLock::new(Vec::new())),
+   181→        memory_persist: interp.get_memory_persist_path(),
+   182→        interpreter: Arc::new(RwLock::new(interp)),
+   183→        routes: config.routes.clone(),
+   184→        middleware: config.middleware.clone(),
+   185→        db: Arc::new(tokio::sync::Mutex::new(conn)),
+   186→        rate_limits: Arc::new(RwLock::new(HashMap::new())),
+   187→    }
+   188→}
+   189→
+   190→fn build_router(state: ServerState) -> Router {
+   191→    let mut app = Router::new();
+   192→
+   193→    // Add security headers layer (always applied)
+   194→    app = app.layer(SetResponseHeaderLayer::if_not_present(
+   195→        header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"),
+   196→    ));
+   197→    app = app.layer(SetResponseHeaderLayer::if_not_present(
+   198→        header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"),
+   199→    ));
+   200→    app = app.layer(SetResponseHeaderLayer::if_not_present(
+   201→        header::STRICT_TRANSPORT_SECURITY, HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+   202→    ));
+   203→    app = app.layer(SetResponseHeaderLayer::if_not_present(
+   204→        header::CONTENT_SECURITY_POLICY,
+   205→        HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"),
+   206→    ));
+   207→
+   208→    // Register routes
+   209→    for route in &state.routes {
+   210→        let path = route.path.clone();
+   211→        let handler = route_handler;
+   212→
+   213→        match route.method.as_str() {
+   214→            "GET" => app = app.route(&path, get(handler)),
+   215→            "POST" => app = app.route(&path, post(handler)),
+   216→            "PUT" => app = app.route(&path, put(handler)),
+   217→            "DELETE" => app = app.route(&path, delete(handler)),
+   218→            _ => app = app.route(&path, any(handler)),
+   219→        }
+   220→    }
+   221→
+   222→    app.with_state(state)
+   223→}
+   224→
+   225→// ── Route Handler ──────────────────────────────────────────────────
+   226→
+   227→async fn route_handler(
+   228→    State(state): State<ServerState>,
+   229→    uri: Uri,
+   230→    method: Method,
+   231→    headers: HeaderMap,
+   232→    body: bytes::Bytes,
+   233→) -> Response {
+   234→    // 0. Extract client IP for rate limiting
+   235→    let client_ip = extract_client_ip(&headers);
+   236→
+   237→    // 1. Rate limiting (Phase 7.4)
+   238→    if state.middleware.contains(&"rate_limit".to_string()) {
+   239→        if let Err(resp) = check_rate_limit(&state, &client_ip, 100).await {
+   240→            return resp;
+   241→        }
+   242→    }
+   243→
+   244→    // 2. CSRF check for mutating methods (Phase 7.4: real double-submit)
+   245→    if matches!(method, Method::POST | Method::PUT | Method::DELETE) {
+   246→        if state.middleware.contains(&"csrf".to_string()) {
+   247→            if let Err(resp) = check_csrf(&state, &headers).await {
+   248→                return resp;
+   249→            }
+   250→        }
+   251→    }
+   252→
+   253→    // 3. Session expiry check (Phase 7.4: SQLite-backed)
+   254→    if state.middleware.contains(&"session".to_string()) {
+   255→        if let Some(session_id) = extract_session_cookie(&headers) {
+   256→            // Verify HMAC signature first
+   257→            let verified = verify_cookie(&session_id, &state.hmac_key);
+   258→            if let Some(raw_id) = verified {
+   259→                if let Err(resp) = validate_session_in_db(&state, &raw_id).await {
+   260→                    return resp;
+   261→                }
+   262→            }
+   263→        }
+   264→    }
+   265→
+   266→    // 4. Find matching route by path AND method
+   267→    let matched_route = state.routes.iter().find(|r| {
+   268→        r.path == uri.path() && r.method == method.as_str()
+   269→    });
+   270→
+   271→    if let Some(route) = matched_route {
+   272→        // Role check
+   273→        if !route.requires.is_empty() {
+   274→            if state.middleware.contains(&"session".to_string()) {
+   275→                if let Err(resp) = check_roles(&state, &headers, &route.requires).await {
+   276→                    return resp;
+   277→                }
+   278→            }
+   279→        }
+   280→
+   281→        // Execute route handler body
+   282→        let result = execute_route_body(&state, &route.body, &headers, &body).await;
+   283→        let mut response = match result {
+   284→            Ok(response) => response,
+   285→            Err(e) => (
+   286→                StatusCode::INTERNAL_SERVER_ERROR,
+   287→                format!("Handler error: {}", e),
+   288→            ).into_response(),
+   289→        };
+   290→
+   291→        // 5. On GET with CSRF middleware, generate and set CSRF token cookie (Phase 7.4)
+   292→        if method == Method::GET && state.middleware.contains(&"csrf".to_string()) {
+   293→            let token = generate_csrf_token();
+   294→            {
+   295→                let mut tokens = state.csrf_tokens.write().await;
+   296→                tokens.insert(token.clone(), token.clone());
+   297→            }
+   298→            let cookie_value = format!(
+   299→                "_mlog_csrf={}; HttpOnly; SameSite=Strict; Path=/",
+   300→                token
+   301→            );
+   302→            if let Ok(val) = HeaderValue::from_str(&cookie_value) {
+   303→                response.headers_mut().append(header::SET_COOKIE, val);
+   304→            }
+   305→        }
+   306→
+   307→        response
+   308→    } else {
+   309→        (StatusCode::NOT_FOUND, "404 Not Found").into_response()
+   310→    }
+   311→}
+   312→
+   313→// ── CSRF Middleware (Phase 7.4: real double-submit) ────────────────
+   314→
+   315→/// Generate a cryptographically random CSRF token (32 hex chars).
+   316→pub fn generate_csrf_token() -> String {
+   317→    use rand::Rng;
+   318→    let mut buf = [0u8; 16];
+   319→    rand::thread_rng().fill(&mut buf[..]);
+   320→    hex::encode(buf)
+   321→}
+   322→
+   323→async fn check_csrf(state: &ServerState, headers: &HeaderMap) -> Result<(), Response> {
+   324→    // Read CSRF token from cookie
+   325→    let cookie_token = headers.get("cookie")
+   326→        .and_then(|c| c.to_str().ok())
+   327→        .and_then(|s| extract_cookie(s, "_mlog_csrf"));
+   328→
+   329→    // Read CSRF token from header (X-CSRF-Token) or form field (_csrf)
+   330→    let header_token = headers.get("x-csrf-token")
+   331→        .and_then(|t| t.to_str().ok())
+   332→        .map(|s| s.to_string())
+   333→        .or_else(|| {
+   334→            // Also check content-type for form data with _csrf field
+   335→            headers.get("x-csrf-field")
+   336→                .and_then(|t| t.to_str().ok())
+   337→                .map(|s| s.to_string())
+   338→        });
+   339→
+   340→    match (cookie_token, header_token) {
+   341→        (Some(cookie), Some(header)) if cookie == header => Ok(()),
+   342→        _ => {
+   343→            // Log to audit
+   344→            {
+   345→                let mut log = state.audit_log.write().await;
+   346→                log.push("[CSRF] Rejected: missing or mismatched CSRF token".to_string());
+   347→            }
+   348→            Err((StatusCode::FORBIDDEN, "403 Forbidden: CSRF token validation failed").into_response())
+   349→        }
+   350→    }
+   351→}
+   352→
+   353→fn extract_cookie(cookie_header: &str, name: &str) -> Option<String> {
+   354→    for pair in cookie_header.split(';') {
+   355→        let pair = pair.trim();
+   356→        if let Some(eq_pos) = pair.find('=') {
+   357→            let key = &pair[..eq_pos];
+   358→            let val = &pair[eq_pos + 1..];
+   359→            if key.trim() == name {
+   360→                return Some(val.trim().to_string());
+   361→            }
+   362→        }
+   363→    }
+   364→    None
+   365→}
+   366→
+   367→/// Extract the session cookie (unsigned) from the Cookie header.
+   368→fn extract_session_cookie(headers: &HeaderMap) -> Option<String> {
+   369→    headers.get("cookie")
+   370→        .and_then(|c| c.to_str().ok())
+   371→        .and_then(|s| extract_cookie(s, "_mlog_session"))
+   372→}
+   373→
+   374→/// Extract client IP from headers (x-forwarded-for or x-real-ip).
+   375→fn extract_client_ip(headers: &HeaderMap) -> String {
+   376→    headers.get("x-forwarded-for")
+   377→        .and_then(|v| v.to_str().ok())
+   378→        .map(|s| s.split(',').next().unwrap_or("unknown").trim().to_string())
+   379→        .or_else(|| {
+   380→            headers.get("x-real-ip")
+   381→                .and_then(|v| v.to_str().ok())
+   382→                .map(|s| s.to_string())
+   383→        })
+   384→        .unwrap_or_else(|| "unknown".to_string())
+   385→}
+   386→
+   387→// ── Rate Limiting (Phase 7.4) ─────────────────────────────────────
+   388→
+   389→/// Check rate limit using sliding window. Returns Err(429) if exceeded.
+   390→pub async fn check_rate_limit(
+   391→    state: &ServerState,
+   392→    ip: &str,
+   393→    max_per_minute: usize,
+   394→) -> Result<(), Response> {
+   395→    let mut limits = state.rate_limits.write().await;
+   396→    let now = std::time::Instant::now();
+   397→    let window_start = now - std::time::Duration::from_secs(60);
+   398→
+   399→    let entries = limits.entry(ip.to_string()).or_default();
+   400→    // Remove entries outside the 60-second window
+   401→    entries.retain(|&t| t > window_start);
+   402→
+   403→    if entries.len() >= max_per_minute {
+   404→        {
+   405→            let mut log = state.audit_log.write().await;
+   406→            log.push(format!("[RATE_LIMIT] Rejected: {} exceeded {} req/min", ip, max_per_minute));
+   407→        }
+   408→        return Err((
+   409→            StatusCode::TOO_MANY_REQUESTS,
+   410→            "429 Too Many Requests: rate limit exceeded",
+   411→        ).into_response());
+   412→    }
+   413→
+   414→    entries.push(now);
+   415→    Ok(())
+   416→}
+   417→
+   418→// ── Session & Role Middleware ────────────────────────────────────────
+   419→
+   420→async fn check_roles(state: &ServerState, headers: &HeaderMap, required_roles: &[String]) -> Result<(), Response> {
+   421→    let session_cookie = extract_session_cookie(headers);
+   422→
+   423→    let raw_id = match session_cookie {
+   424→        Some(id) => {
+   425→            // Verify HMAC signature
+   426→            match verify_cookie(&id, &state.hmac_key) {
+   427→                Some(raw) => raw,
+   428→                None => {
+   429→                    let mut log = state.audit_log.write().await;
+   430→                    log.push("[AUTH] Rejected: tampered session cookie".to_string());
+   431→                    return Err((StatusCode::UNAUTHORIZED, "401 Unauthorized: invalid session signature").into_response());
+   432→                }
+   433→            }
+   434→        }
+   435→        None => {
+   436→            let mut log = state.audit_log.write().await;
+   437→            log.push("[AUTH] Rejected: no session cookie".to_string());
+   438→            return Err((StatusCode::UNAUTHORIZED, "401 Unauthorized: no session").into_response());
+   439→        }
+   440→    };
+   441→
+   442→    // Check in-memory cache first, then SQLite
+   443→    let sessions = state.sessions.read().await;
+   444→    if let Some(entry) = sessions.get(&raw_id) {
+   445→        if entry.expires < std::time::Instant::now() {
+   446→            return Err((StatusCode::UNAUTHORIZED, "401 Unauthorized: session expired").into_response());
+   447→        }
+   448→        let has_role = required_roles.iter().any(|role| entry.roles.contains(role));
+   449→        if has_role {
+   450→            Ok(())
+   451→        } else {
+   452→            drop(sessions);
+   453→            let mut log = state.audit_log.write().await;
+   454→            log.push(format!("[AUTH] Rejected: insufficient roles (need {:?}, have {:?})",
+   455→                required_roles, Vec::<String>::new()));
+   456→            Err((StatusCode::FORBIDDEN, "403 Forbidden: insufficient permissions").into_response())
+   457→        }
+   458→    } else {
+   459→        // Fall through to SQLite check
+   460→        drop(sessions);
+   461→        validate_session_in_db(&state, &raw_id).await?;
+   462→        // If valid but not in memory cache, load from DB
+   463→        // For simplicity, reject here — session needs re-login
+   464→        Err((StatusCode::UNAUTHORIZED, "401 Unauthorized: session not found in cache").into_response())
+   465→    }
+   466→}
+   467→
+   468→// ── SQLite Session Store (Phase 7.4) ─────────────────────────────
+   469→
+   470→/// Initialize the sessions table in SQLite.
+   471→pub fn init_session_db(conn: &rusqlite::Connection) -> Result<(), rusqlite::Error> {
+   472→    conn.execute_batch(
+   473→        "CREATE TABLE IF NOT EXISTS sessions (
+   474→            id TEXT PRIMARY KEY,
+   475→            user_id TEXT NOT NULL,
+   476→            data TEXT NOT NULL DEFAULT '{}',
+   477→            created_at INTEGER NOT NULL,
+   478→            expires_at INTEGER NOT NULL
+   479→        );
+   480→        CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+   481→
+   482→        -- Phase 7.5: Audit log table for interpreter audit entries
+   483→        CREATE TABLE IF NOT EXISTS audit_log (
+   484→            id INTEGER PRIMARY KEY AUTOINCREMENT,
+   485→            timestamp INTEGER NOT NULL,
+   486→            action TEXT NOT NULL,
+   487→            pattern TEXT,
+   488→            result TEXT,
+   489→            sandbox TEXT
+   490→        );"
+   491→    )?;
+   492→    Ok(())
+   493→}
+   494→
+   495→/// Create a new session in SQLite. Returns the session ID (UUID).
+   496→pub async fn create_session_db(
+   497→    conn: &Arc<tokio::sync::Mutex<rusqlite::Connection>>,
+   498→    user_id: &str,
+   499→) -> Result<String, String> {
+   500→    let id = uuid::Uuid::new_v4().to_string();
+   501→    let now = std::time::SystemTime::now()
+   502→        .duration_since(std::time::UNIX_EPOCH)
+   503→        .unwrap_or_default()
+   504→        .as_secs() as i64;
+   505→    let expires_at = now + 24 * 3600; // 24 hours
+   506→
+   507→    let conn = conn.lock().await;
+   508→    conn.execute(
+   509→        "INSERT INTO sessions (id, user_id, data, created_at, expires_at) VALUES (?1, ?2, '{}', ?3, ?4)",
+   510→        rusqlite::params![id, user_id, now, expires_at],
+   511→    ).map_err(|e| format!("Failed to create session: {}", e))?;
+   512→
+   513→    Ok(id)
+   514→}
+   515→
+   516→/// Validate a session against SQLite: check existence and expiry.
+   517→/// Returns Ok(()) if valid, Err(Response) if expired or not found.
+   518→pub async fn validate_session_in_db(state: &ServerState, session_id: &str) -> Result<(), Response> {
+   519→    let now = std::time::SystemTime::now()
+   520→        .duration_since(std::time::UNIX_EPOCH)
+   521→        .unwrap_or_default()
+   522→        .as_secs() as i64;
+   523→
+   524→    let conn = state.db.lock().await;
+   525→    let result: Result<String, _> = conn.query_row(
+   526→        "SELECT id FROM sessions WHERE id = ?1 AND expires_at > ?2",
+   527→        rusqlite::params![session_id, now],
+   528→        |row| row.get(0),
+   529→    );
+   530→    drop(conn); // release lock before async ops
+   531→
+   532→    match result {
+   533→        Ok(_) => Ok(()),
+   534→        Err(rusqlite::Error::QueryReturnedNoRows) => {
+   535→            let mut log = state.audit_log.write().await;
+   536→            log.push("[AUTH] Rejected: session expired or not found in DB".to_string());
+   537→            Err((StatusCode::UNAUTHORIZED, "401 Unauthorized: session expired").into_response())
+   538→        }
+   539→        Err(e) => {
+   540→            Err((StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {}", e)).into_response())
+   541→        }
+   542→    }
+   543→}
+   544→
+   545→/// Delete a session from SQLite.
+   546→pub async fn delete_session_db(
+   547→    conn: &Arc<tokio::sync::Mutex<rusqlite::Connection>>,
+   548→    session_id: &str,
+   549→) -> Result<(), String> {
+   550→    let conn = conn.lock().await;
+   551→    conn.execute("DELETE FROM sessions WHERE id = ?1", rusqlite::params![session_id])
+   552→        .map_err(|e| format!("Failed to delete session: {}", e))?;
+   553→    Ok(())
+   554→}
+   555→
+   556→/// Remove all expired sessions from SQLite.
+   557→pub async fn clean_expired_sessions_db(
+   558→    conn: &Arc<tokio::sync::Mutex<rusqlite::Connection>>,
+   559→) -> Result<usize, String> {
+   560→    let now = std::time::SystemTime::now()
+   561→        .duration_since(std::time::UNIX_EPOCH)
+   562→        .unwrap_or_default()
+   563→        .as_secs() as i64;
+   564→
+   565→    let conn = conn.lock().await;
+   566→    let deleted = conn.execute("DELETE FROM sessions WHERE expires_at <= ?1", rusqlite::params![now])
+   567→        .map_err(|e| format!("Failed to clean expired sessions: {}", e))?;
+   568→    Ok(deleted)
+   569→}
+   570→
+   571→/// Build a Set-Cookie header value for _mlog_session.
+   572→pub fn make_session_cookie_value(session_id: &str, signed: bool, hmac_key: &[u8]) -> String {
+   573→    let value = if signed {
+   574→        sign_cookie(session_id, hmac_key)
+   575→    } else {
+   576→        session_id.to_string()
+   577→    };
+   578→    format!(
+   579→        "_mlog_session={}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=86400",
+   580→        value
+   581→    )
+   582→}
+   583→
+   584→// ── JSON → Value Conversion (Наряд №3) ──────────────────────────
+   585→
+   586→/// Recursively convert serde_json::Value → metalogos Value.
+   587→/// Supports nested objects (→ Value::Struct), arrays, strings, numbers, bools, null.
+   588→pub fn json_value_to_value(val: &serde_json::Value) -> Value {
+   589→    match val {
+   590→        serde_json::Value::String(s) => Value::String(s.clone()),
+   591→        serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
+   592→        serde_json::Value::Bool(b) => Value::Bool(*b),
+   593→        serde_json::Value::Null => Value::Unit,
+   594→        serde_json::Value::Array(arr) => {
+   595→            Value::List(arr.iter().map(json_value_to_value).collect())
+   596→        }
+   597→        serde_json::Value::Object(map) => {
+   598→            let fields: HashMap<String, Value> = map
+   599→                .iter()
+   600→                .map(|(k, v)| (k.clone(), json_value_to_value(v)))
+   601→                .collect();
+   602→            Value::Struct {
+   603→                type_name: "JsonObject".to_string(),
+   604→                fields,
+   605→            }
+   606→        }
+   607→    }
+   608→}
+   609→
+   610→// ── Route Body Execution ────────────────────────────────────────────
+   611→
+   612→async fn execute_route_body(
+   613→    state: &ServerState,
+   614→    body_stmts: &[Statement],
+   615→    _headers: &HeaderMap,
+   616→    raw_body: &bytes::Bytes,
+   617→) -> Result<Response, String> {
+   618→    // Set up interpreter with request context (Наряд №8: route pattern invocation fix)
+   619→    let mut interp = Interpreter::new();
+   620→    // Copy ALL program definitions (patterns, learnables, templates, struct types,
+   621→    // rules, sandboxes, namespaces, variables, db_config, db_url) from shared interpreter.
+   622→    {
+   623→        let shared = state.interpreter.read().await;
+   624→        shared.clone_definitions_into(&mut interp);
+   625→    }
+   626→    interp.set_base_dir(std::path::PathBuf::from("."));
+   627→
+   628→    // Initialize memory persistence (per-request SQLite connection to shared DB)
+   629→    if let Some(ref persist_path) = state.memory_persist {
+   630→        interp.configure_memory(&MemoryDecl { persist: Some(persist_path.clone()) });
+   631→    }
+   632→
+   633→    // Initialize DB connection for per-request interpreter (query() / db_execute())
+   634→    // Opens a NEW connection to the same database, so concurrent requests are safe.
+   635→    interp.reconnect_db();
+   636→
+   637→    // Parse JSON body recursively and inject as json_body() server builtin (Наряд №3)
+   638→    if let Ok(body_str) = std::str::from_utf8(raw_body) {
+   639→        if !body_str.is_empty() {
+   640→            if let Ok(json) = serde_json::from_str::<serde_json::Value>(body_str) {
+   641→                let value = json_value_to_value(&json);
+   642→                interp.set_server_json_body(value);
+   643→            }
+   644→        }
+   645→    }
+   646→
+   647→    // Execute body statements
+   648→    let mut env = HashMap::new();
+   649→    for stmt in body_stmts {
+   650→        match stmt {
+   651→            Statement::LetBinding { name, value } => {
+   652→                let val = interp.eval_expr_with_env(value, &env)?;
+   653→                env.insert(name.clone(), val);
+   654→            }
+   655→            Statement::Assign { name, value } => {
+   656→                let val = interp.eval_expr_with_env(value, &env)?;
+   657→                if env.contains_key(name) {
+   658→                    env.insert(name.clone(), val);
+   659→                }
+   660→            }
+   661→            Statement::Return(expr) => {
+   662→                let val = interp.eval_expr_with_env(expr, &env)?;
+   663→                // Phase 7.5: Flush interpreter audit entries to SQLite
+   664→                flush_audit_to_db(state, &mut interp).await;
+   665→                return Ok(value_to_response(val));
+   666→            }
+   667→            Statement::IfThen(cond, body) => {
+   668→                let cond_val = interp.eval_expr_with_env(cond, &env)?;
+   669→                if cond_val.as_bool().unwrap_or(false) {
+   670→                    let result = interp.eval_statements(body, &mut env)?;
+   671→                    if !matches!(result, Value::Unit) {
+   672→                        flush_audit_to_db(state, &mut interp).await;
+   673→                        return Ok(value_to_response(result));
+   674→                    }
+   675→                }
+   676→            }
+   677→            // Block-level if/else (Наряд №2 + final integration)
+   678→            Statement::IfElseBlock { condition, then_body, else_ifs, else_body } => {
+   679→                let cond_val = interp.eval_expr_with_env(condition, &env)?;
+   680→                let branch = if cond_val.as_bool().unwrap_or(false) {
+   681→                    Some(then_body.as_slice())
+   682→                } else {
+   683→                    // Check else-if chain
+   684→                    let mut matched = None;
+   685→                    for (ei_cond, ei_body) in else_ifs {
+   686→                        let ei_val = interp.eval_expr_with_env(ei_cond, &env)?;
+   687→                        if ei_val.as_bool().unwrap_or(false) {
+   688→                            matched = Some(ei_body.as_slice());
+   689→                            break;
+   690→                        }
+   691→                    }
+   692→                    matched.or_else(|| else_body.as_deref())
+   693→                };
+   694→                if let Some(stmts) = branch {
+   695→                    for s in stmts {
+   696→                        match s {
+   697→                            Statement::Return(expr) => {
+   698→                                let val = interp.eval_expr_with_env(expr, &env)?;
+   699→                                flush_audit_to_db(state, &mut interp).await;
+   700→                                return Ok(value_to_response(val));
+   701→                            }
+   702→                            Statement::LetBinding { name, value } => {
+   703→                                let val = interp.eval_expr_with_env(value, &env)?;
+   704→                                env.insert(name.clone(), val);
+   705→                            }
+   706→                            Statement::ExprStmt(expr) => {
+   707→                                let val = interp.eval_expr_with_env(expr, &env)?;
+   708→                                if let Value::HttpResponse { .. } = val {
+   709→                                    flush_audit_to_db(state, &mut interp).await;
+   710→                                    return Ok(value_to_response(val));
+   711→                                }
+   712→                            }
+   713→                            _ => { interp.eval_statements(&[s.clone()], &mut env)?; }
+   714→                        }
+   715→                    }
+   716→                }
+   717→            }
+   718→            // Bare expression statement — evaluate for side effects
+   719→            Statement::ExprStmt(expr) => {
+   720→                let val = interp.eval_expr_with_env(expr, &env)?;
+   721→                // If expression is respond("ok") or similar HttpResponse, use as route response
+   722→                if let Value::HttpResponse { .. } = val {
+   723→                    flush_audit_to_db(state, &mut interp).await;
+   724→                    return Ok(value_to_response(val));
+   725→                }
+   726→            }
+   727→            _ => {
+   728→                let result = interp.eval_statements(&[stmt.clone()], &mut env)?;
+   729→                // If the statement produced an HttpResponse (e.g., respond("ok")),
+   730→                // use it as the route response (final integration)
+   731→                if let Value::HttpResponse { .. } = result {
+   732→                    flush_audit_to_db(state, &mut interp).await;
+   733→                    return Ok(value_to_response(result));
+   734→                }
+   735→            }
+   736→        }
+   737→    }
+   738→
+   739→    // Phase 7.5: Flush interpreter audit entries to SQLite before response
+   740→    flush_audit_to_db(state, &mut interp).await;
+   741→
+   742→    Ok((StatusCode::OK, "OK").into_response())
+   743→}
+   744→
+   745→/// Phase 7.5: Write interpreter audit entries to the SQLite audit_log table.
+   746→async fn flush_audit_to_db(state: &ServerState, interp: &mut Interpreter) {
+   747→    let entries = interp.take_audit_log();
+   748→    if entries.is_empty() {
+   749→        return;
+   750→    }
+   751→
+   752→    let now = std::time::SystemTime::now()
+   753→        .duration_since(std::time::UNIX_EPOCH)
+   754→        .unwrap_or_default()
+   755→        .as_secs() as i64;
+   756→
+   757→    // Get active sandbox name for context
+   758→    let sandbox_name = interp.get_active_sandbox().map(|sb| sb.name.clone());
+   759→
+   760→    let conn = state.db.lock().await;
+   761→    for entry in &entries {
+   762→        // Parse entry to extract action and pattern name
+   763→        let (action, pattern, result) = parse_audit_entry(entry);
+   764→        let _ = conn.execute(
+   765→            "INSERT INTO audit_log (timestamp, action, pattern, result, sandbox) VALUES (?1, ?2, ?3, ?4, ?5)",
+   766→            rusqlite::params![now, action, pattern, result, sandbox_name.as_deref().unwrap_or("")],
+   767→        );
+   768→    }
+   769→    // Also append to in-memory audit log for backward compatibility
+   770→    {
+   771→        let mut log = state.audit_log.write().await;
+   772→        for entry in &entries {
+   773→            log.push(entry.clone());
+   774→        }
+   775→    }
+   776→}
+   777→
+   778→/// Parse an audit entry string into (action, pattern, result) components.
+   779→/// Format: "[AUDIT] adapt PatternName: input -> output"
+   780→///         "[AUDIT] mutate PatternName: N examples, accuracy=X"
+   781→///         "[AUDIT] unsafe_html: rendered template 'name'"
+   782→fn parse_audit_entry(entry: &str) -> (String, Option<String>, Option<String>) {
+   783→    if let Some(rest) = entry.strip_prefix("[AUDIT] ") {
+   784→        let parts: Vec<&str> = rest.splitn(2, ' ').collect();
+   785→        let action = parts[0].to_string();
+   786→        let detail = if parts.len() > 1 { Some(parts[1].to_string()) } else { None };
+   787→
+   788→        match action.as_str() {
+   789→            "adapt" | "mutate" => {
+   790→                // Extract pattern name (first word of detail)
+   791→                let pattern = detail.as_ref().and_then(|d| d.split(':').next()).map(|s| s.trim().to_string());
+   792→                let result = detail.as_ref().and_then(|d| {
+   793→                    d.splitn(2, ':').nth(1).map(|s| s.trim().to_string())
+   794→                });
+   795→                (action, pattern, result)
+   796→            }
+   797→            "unsafe_html" => {
+   798→                let pattern = detail.as_ref().and_then(|d| d.split('\'').nth(1)).map(|s| s.to_string());
+   799→                (action, pattern, None)
+   800→            }
+   801→            _ => (action, None, None),
+   802→        }
+   803→    } else {
+   804→        ("unknown".to_string(), None, None)
+   805→    }
+   806→}
+   807→
+   808→fn value_to_response(val: Value) -> Response {
+   809→    match val {
+   810→        Value::HttpResponse { status, body } => {
+   811→            let code = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
+   812→            (code, body).into_response()
+   813→        }
+   814→        Value::Html(html) => {
+   815→            AxumHtml(html).into_response()
+   816→        }
+   817→        Value::String(s) => {
+   818→            (StatusCode::OK, s).into_response()
+   819→        }
+   820→        Value::Unit => {
+   821→            StatusCode::OK.into_response()
+   822→        }
+   823→        other => {
+   824→            (StatusCode::OK, format!("{}", other)).into_response()
+   825→        }
+   826→    }
+   827→}
+   828→
+   829→// ── HMAC Helpers ───────────────────────────────────────────────────
+   830→
+   831→fn generate_hmac_key() -> Vec<u8> {
+   832→    use rand::Rng;
+   833→    let mut key = vec![0u8; 32];
+   834→    rand::thread_rng().fill(&mut key[..]);
+   835→    key
+   836→}
+   837→
+   838→pub fn sign_cookie(value: &str, key: &[u8]) -> String {
+   839→    use hmac::{Hmac, Mac};
+   840→    use sha2::Sha256;
+   841→    type HmacSha256 = Hmac<Sha256>;
+   842→
+   843→    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC key error");
+   844→    mac.update(value.as_bytes());
+   845→    let result = mac.finalize();
+   846→    let signature = hex::encode(result.into_bytes());
+   847→    format!("{}.{}", value, signature)
+   848→}
+   849→
+   850→pub fn verify_cookie(cookie: &str, key: &[u8]) -> Option<String> {
+   851→    use hmac::{Hmac, Mac};
+   852→    use sha2::Sha256;
+   853→    type HmacSha256 = Hmac<Sha256>;
+   854→
+   855→    let parts: Vec<&str> = cookie.rsplitn(2, '.').collect();
+   856→    if parts.len() != 2 {
+   857→        return None;
+   858→    }
+   859→    let signature = parts[0];
+   860→    let value = parts[1];
+   861→
+   862→    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC key error");
+   863→    mac.update(value.as_bytes());
+   864→    let expected = hex::encode(mac.finalize().into_bytes());
+   865→
+   866→    if signature == expected {
+   867→        Some(value.to_string())
+   868→    } else {
+   869→        None
+   870→    }
+   871→}
+   872→
+   873→// ── HTML Auto-Escaping ─────────────────────────────────────────────
+   874→
+   875→/// Escape HTML special characters to prevent XSS.
+   876→pub fn escape_html(s: &str) -> String {
+   877→    s.replace('&', "&amp;")
+   878→     .replace('<', "&lt;")
+   879→     .replace('>', "&gt;")
+   880→     .replace('"', "&quot;")
+   881→     .replace('\'', "&#x27;")
+   882→}
+   883→
+   884→/// Simple template rendering: replace {{ var }} with escaped values.
+   885→pub fn render_template(body: &str, vars: &HashMap<String, String>) -> String {
+   886→    let mut result = body.to_string();
+   887→    for (key, val) in vars {
+   888→        let escaped = escape_html(val);
+   889→        result = result.replace(&format!("{{{{{}}}}}", key), &escaped);
+   890→    }
+   891→    result
+   892→}
+   893→
+   894→// ── Interpreter Merge ──────────────────────────────────────────────
+   895→
+   896→fn build_interpreter_with_server(srv: &MlogServerDecl, mut interp: Interpreter) -> Interpreter {
+   897→    interp = merge_templates(srv, interp);
+   898→    interp
+   899→}
+   900→
+   901→fn merge_interpreter(from: Interpreter, mut into: Interpreter) -> Interpreter {
+   902→    // Merge variables (borrow, don't move)
+   903→    for (k, v) in &from.variables {
+   904→        into.variables.entry(k.clone()).or_insert(v.clone());
+   905→    }
+   906→    // Merge templates
+   907→    for (k, v) in from.get_templates() {
+   908→        into.templates.entry(k.clone()).or_insert(v.clone());
+   909→    }
+   910→    // Propagate memory persist path
+   911→    if let Some(path) = from.get_memory_persist_path() {
+   912→        into.set_memory_persist_path(Some(path));
+   913→    }
+   914→    // Merge patterns, struct types, learnable patterns, rules, sandboxes, module namespaces
+   915→    from.clone_definitions_into(&mut into);
+   916→    into
+   917→}
+   918→
+   919→fn merge_templates(_srv: &MlogServerDecl, interp: Interpreter) -> Interpreter {
+   920→    // Templates are added during run() already
+   921→    interp
+   922→}
+   923→
+   924→// ── Tests ───────────────────────────────────────────────────────────
+   925→
+   926→#[cfg(test)]
+   927→mod tests {
+   928→    use super::*;
+   929→
+   930→    // ── Phase 6 tests (unchanged) ──
+   931→
+   932→    #[test]
+   933→    fn test_escape_html_prevents_xss() {
+   934→        assert_eq!(escape_html("<script>alert(1)</script>"),
+   935→                   "&lt;script&gt;alert(1)&lt;/script&gt;");
+   936→        assert_eq!(escape_html("Hello & \"world\""),
+   937→                   "Hello &amp; &quot;world&quot;");
+   938→    }
+   939→
+   940→    #[test]
+   941→    fn test_hmac_cookie_signing() {
+   942→        let key = generate_hmac_key();
+   943→        let value = "session_abc123";
+   944→        let signed = sign_cookie(value, &key);
+   945→        assert!(signed.contains('.'));
+   946→        let verified = verify_cookie(&signed, &key);
+   947→        assert_eq!(verified, Some(value.to_string()));
+   948→    }
+   949→
+   950→    #[test]
+   951→    fn test_hmac_tamper_detection() {
+   952→        let key = generate_hmac_key();
+   953→        let value = "session_abc123";
+   954→        let signed = sign_cookie(value, &key);
+   955→        let tampered = format!("{}.deadbeef", value);
+   956→        let verified = verify_cookie(&tampered, &key);
+   957→        assert!(verified.is_none());
+   958→    }
+   959→
+   960→    #[test]
+   961→    fn test_opaque_types_in_value_enum() {
+   962→        let html = Value::Html("<h1>Test</h1>".to_string());
+   963→        assert_eq!(html.type_name(), "Html");
+   964→        assert_eq!(format!("{}", html), "[Html]");
+   965→
+   966→        let secret = Value::Secret(crate::interpreter::SecretString::new("my-api-key".to_string()));
+   967→        assert_eq!(secret.type_name(), "Secret");
+   968→        assert_eq!(format!("{}", secret), "[Secret]");
+   969→
+   970→        let query = Value::Query("SELECT * FROM users".to_string());
+   971→        assert_eq!(query.type_name(), "Query");
+   972→        assert_eq!(format!("{}", query), "[Query]");
+   973→    }
+   974→
+   975→    // ── Phase 7.4 Contract Tests ──
+   976→
+   977→    #[test]
+   978→    fn test_74_csrf_token_generation_is_random() {
+   979→        let t1 = generate_csrf_token();
+   980→        let t2 = generate_csrf_token();
+   981→        assert_ne!(t1, t2);
+   982→        assert_eq!(t1.len(), 32); // 16 bytes = 32 hex chars
+   983→        assert!(hex::decode(&t1).is_ok());
+   984→    }
+   985→
+   986→    #[tokio::test]
+   987→    async fn test_74_post_without_csrf_returns_403() {
+   988→        // Simulate a POST request without CSRF cookie or header
+   989→        let state = make_test_state().await;
+   990→
+   991→        let mut headers = HeaderMap::new();
+   992→        // No _mlog_csrf cookie, no x-csrf-token header
+   993→        headers.insert("cookie", HeaderValue::from_static("other=value"));
+   994→
+   995→        let result = check_csrf(&state, &headers).await;
+   996→        assert!(result.is_err());
+   997→        let resp = result.unwrap_err();
+   998→        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+   999→    }
+  1000→
+  1001→    #[tokio::test]
+  1002→    async fn test_74_post_with_matching_csrf_returns_ok() {
+  1003→        let state = make_test_state().await;
+  1004→        let token = generate_csrf_token();
+  1005→
+  1006→        // Store token in state (simulating cookie set on previous GET)
+  1007→        {
+  1008→            let mut tokens = state.csrf_tokens.write().await;
+  1009→            tokens.insert(token.clone(), token.clone());
+  1010→        }
+  1011→
+  1012→        // Simulate POST with matching cookie and header
+  1013→        let mut headers = HeaderMap::new();
+  1014→        headers.insert("cookie", HeaderValue::from_str(
+  1015→            &format!("_mlog_csrf={}", token)
+  1016→        ).unwrap());
+  1017→        headers.insert("x-csrf-token", HeaderValue::from_str(&token).unwrap());
+  1018→
+  1019→        let result = check_csrf(&state, &headers).await;
+  1020→        assert!(result.is_ok());
+  1021→    }
+  1022→
+  1023→    #[tokio::test]
+  1024→    async fn test_74_post_with_mismatched_csrf_returns_403() {
+  1025→        let state = make_test_state().await;
+  1026→        let token = generate_csrf_token();
+  1027→
+  1028→        // Cookie has one token, header has different one
+  1029→        let mut headers = HeaderMap::new();
+  1030→        headers.insert("cookie", HeaderValue::from_str(
+  1031→            &format!("_mlog_csrf={}", token)
+  1032→        ).unwrap());
+  1033→        headers.insert("x-csrf-token", HeaderValue::from_str("wrong_token_value").unwrap());
+  1034→
+  1035→        let result = check_csrf(&state, &headers).await;
+  1036→        assert!(result.is_err());
+  1037→        assert_eq!(result.unwrap_err().status(), StatusCode::FORBIDDEN);
+  1038→    }
+  1039→
+  1040→    #[tokio::test]
+  1041→    async fn test_74_expired_session_returns_401() {
+  1042→        let state = make_test_state().await;
+  1043→
+  1044→        // Create a session that's already expired
+  1045→        let conn = state.db.lock().await;
+  1046→        let now = std::time::SystemTime::now()
+  1047→            .duration_since(std::time::UNIX_EPOCH)
+  1048→            .unwrap_or_default()
+  1049→            .as_secs() as i64;
+  1050→        let past = now - 3600; // 1 hour ago
+  1051→
+  1052→        conn.execute(
+  1053→            "INSERT INTO sessions (id, user_id, data, created_at, expires_at) VALUES (?1, ?2, '{}', ?3, ?4)",
+  1054→            rusqlite::params!["expired-session-id", "user1", now, past],
+  1055→        ).unwrap();
+  1056→        drop(conn);
+  1057→
+  1058→        let result = validate_session_in_db(&state, "expired-session-id").await;
+  1059→        assert!(result.is_err());
+  1060→        assert_eq!(result.unwrap_err().status(), StatusCode::UNAUTHORIZED);
+  1061→    }
+  1062→
+  1063→    #[tokio::test]
+  1064→    async fn test_74_valid_session_returns_ok() {
+  1065→        let state = make_test_state().await;
+  1066→
+  1067→        // Create a valid session (expires in 24 hours)
+  1068→        let session_id = create_session_db(&state.db, "user1").await.unwrap();
+  1069→
+  1070→        let result = validate_session_in_db(&state, &session_id).await;
+  1071→        assert!(result.is_ok());
+  1072→    }
+  1073→
+  1074→    #[tokio::test]
+  1075→    async fn test_74_nonexistent_session_returns_401() {
+  1076→        let state = make_test_state().await;
+  1077→
+  1078→        let result = validate_session_in_db(&state, "nonexistent-id").await;
+  1079→        assert!(result.is_err());
+  1080→        assert_eq!(result.unwrap_err().status(), StatusCode::UNAUTHORIZED);
+  1081→    }
+  1082→
+  1083→    #[tokio::test]
+  1084→    async fn test_74_rate_limit_under_threshold_passes() {
+  1085→        let state = make_test_state().await;
+  1086→
+  1087→        // 50 requests should pass (limit is 100/min)
+  1088→        for _ in 0..50 {
+  1089→            let result = check_rate_limit(&state, "192.168.1.1", 100).await;
+  1090→            assert!(result.is_ok());
+  1091→        }
+  1092→    }
+  1093→
+  1094→    #[tokio::test]
+  1095→    async fn test_74_rate_limit_exceeded_returns_429() {
+  1096→        let state = make_test_state().await;
+  1097→
+  1098→        // Fill up to limit
+  1099→        for _ in 0..100 {
+  1100→            let _ = check_rate_limit(&state, "192.168.1.2", 100).await;
+  1101→        }
+  1102→
+  1103→        // 101st should fail
+  1104→        let result = check_rate_limit(&state, "192.168.1.2", 100).await;
+  1105→        assert!(result.is_err());
+  1106→        assert_eq!(result.unwrap_err().status(), StatusCode::TOO_MANY_REQUESTS);
+  1107→    }
+  1108→
+  1109→    #[tokio::test]
+  1110→    async fn test_74_rate_limit_per_ip_isolated() {
+  1111→        let state = make_test_state().await;
+  1112→
+  1113→        // Exhaust limit for IP A
+  1114→        for _ in 0..100 {
+  1115→            let _ = check_rate_limit(&state, "ip-a", 100).await;
+  1116→        }
+  1117→        let result_a = check_rate_limit(&state, "ip-a", 100).await;
+  1118→        assert!(result_a.is_err());
+  1119→
+  1120→        // IP B should still be fine
+  1121→        let result_b = check_rate_limit(&state, "ip-b", 100).await;
+  1122→        assert!(result_b.is_ok());
+  1123→    }
+  1124→
+  1125→    #[tokio::test]
+  1126→    async fn test_74_session_create_and_delete() {
+  1127→        let state = make_test_state().await;
+  1128→
+  1129→        let id = create_session_db(&state.db, "testuser").await.unwrap();
+  1130→        assert!(!id.is_empty());
+  1131→
+  1132→        // Verify it exists in DB
+  1133→        let conn = state.db.lock().await;
+  1134→        let found: Result<String, _> = conn.query_row(
+  1135→            "SELECT user_id FROM sessions WHERE id = ?1",
+  1136→            rusqlite::params![id],
+  1137→            |row| row.get(0),
+  1138→        );
+  1139→        assert_eq!(found.unwrap(), "testuser");
+  1140→        drop(conn);
+  1141→
+  1142→        // Delete it
+  1143→        delete_session_db(&state.db, &id).await.unwrap();
+  1144→
+  1145→        // Verify deleted
+  1146→        let conn = state.db.lock().await;
+  1147→        let result: Result<String, _> = conn.query_row(
+  1148→            "SELECT user_id FROM sessions WHERE id = ?1",
+  1149→            rusqlite::params![id],
+  1150→            |row| row.get(0),
+  1151→        );
+  1152→        assert!(result.is_err());
+  1153→    }
+  1154→
+  1155→    #[tokio::test]
+  1156→    async fn test_74_clean_expired_sessions() {
+  1157→        let state = make_test_state().await;
+  1158→
+  1159→        let conn = state.db.lock().await;
+  1160→        let now = std::time::SystemTime::now()
+  1161→            .duration_since(std::time::UNIX_EPOCH)
+  1162→            .unwrap_or_default()
+  1163→            .as_secs() as i64;
+  1164→        let past = now - 7200;
+  1165→
+  1166→        // Insert expired session
+  1167→        conn.execute(
+  1168→            "INSERT INTO sessions (id, user_id, data, created_at, expires_at) VALUES (?1, ?2, '{}', ?3, ?4)",
+  1169→            rusqlite::params!["expired-1", "old_user", now, past],
+  1170→        ).unwrap();
+  1171→
+  1172→        // Insert valid session
+  1173→        let future = now + 86400;
+  1174→        conn.execute(
+  1175→            "INSERT INTO sessions (id, user_id, data, created_at, expires_at) VALUES (?1, ?2, '{}', ?3, ?4)",
+  1176→            rusqlite::params!["valid-1", "current_user", now, future],
+  1177→        ).unwrap();
+  1178→        drop(conn);
+  1179→
+  1180→        // Clean expired
+  1181→        let deleted = clean_expired_sessions_db(&state.db).await.unwrap();
+  1182→        assert_eq!(deleted, 1);
+  1183→
+  1184→        // Verify expired is gone, valid remains
+  1185→        let conn = state.db.lock().await;
+  1186→        let expired_exists: bool = conn.query_row(
+  1187→            "SELECT COUNT(*) FROM sessions WHERE id = 'expired-1'",
+  1188→            [],
+  1189→            |row| row.get(0),
+  1190→        ).unwrap();
+  1191→        assert_eq!(expired_exists, false);
+  1192→
+  1193→        let valid_exists: bool = conn.query_row(
+  1194→            "SELECT COUNT(*) FROM sessions WHERE id = 'valid-1'",
+  1195→            [],
+  1196→            |row| row.get(0),
+  1197→        ).unwrap();
+  1198→        assert_eq!(valid_exists, true);
+  1199→    }
+  1200→
+  1201→    #[test]
+  1202→    fn test_74_extract_client_ip_from_headers() {
+  1203→        let mut headers = HeaderMap::new();
+  1204→        headers.insert("x-forwarded-for", HeaderValue::from_static("10.0.0.1, 172.16.0.1"));
+  1205→        assert_eq!(extract_client_ip(&headers), "10.0.0.1");
+  1206→
+  1207→        let mut headers2 = HeaderMap::new();
+  1208→        headers2.insert("x-real-ip", HeaderValue::from_static("192.168.1.100"));
+  1209→        assert_eq!(extract_client_ip(&headers2), "192.168.1.100");
+  1210→
+  1211→        let headers3 = HeaderMap::new();
+  1212→        assert_eq!(extract_client_ip(&headers3), "unknown");
+  1213→    }
+  1214→
+  1215→    #[test]
+  1216→    fn test_74_make_session_cookie_value() {
+  1217→        let key = generate_hmac_key();
+  1218→        let cookie = make_session_cookie_value("abc123", true, &key);
+  1219→        assert!(cookie.starts_with("_mlog_session="));
+  1220→        assert!(cookie.contains("HttpOnly"));
+  1221→        assert!(cookie.contains("Secure"));
+  1222→        assert!(cookie.contains("SameSite=Strict"));
+  1223→        assert!(cookie.contains("Max-Age=86400"));
+  1224→    }
+  1225→
+  1226→    /// Helper: create a ServerState for testing (with in-memory SQLite).
+  1227→    async fn make_test_state() -> ServerState {
+  1228→        let conn = rusqlite::Connection::open_in_memory().unwrap();
+  1229→        init_session_db(&conn).unwrap();
+  1230→
+  1231→        ServerState {
+  1232→            sessions: Arc::new(RwLock::new(HashMap::new())),
+  1233→            csrf_tokens: Arc::new(RwLock::new(HashMap::new())),
+  1234→            hmac_key: Arc::new(generate_hmac_key()),
+  1235→            audit_log: Arc::new(RwLock::new(Vec::new())),
+  1236→            templates: Arc::new(RwLock::new(HashMap::new())),
+  1237→            db_store: Arc::new(RwLock::new(Vec::new())),
+  1238→            memory_persist: None,
+  1239→            interpreter: Arc::new(RwLock::new(Interpreter::new())),
+  1240→            routes: Vec::new(),
+  1241→            middleware: vec!["session".to_string(), "csrf".to_string(), "rate_limit".to_string()],
+  1242→            db: Arc::new(tokio::sync::Mutex::new(conn)),
+  1243→            rate_limits: Arc::new(RwLock::new(HashMap::new())),
+  1244→        }
+  1245→    }
+  1246→}
+  1247→

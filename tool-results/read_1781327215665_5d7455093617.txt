@@ -1,0 +1,1652 @@
+     1→// ── Pest → AST conversion for METALOGOS M1+M2 ──────────────────────
+     2→
+     3→use pest::iterators::Pair;
+     4→use pest::Parser as _;
+     5→use pest_derive::Parser;
+     6→
+     7→use std::collections::HashMap;
+     8→
+     9→#[derive(Parser)]
+    10→#[grammar = "grammar.pest"]
+    11→pub struct MlogParser;
+    12→
+    13→pub type ParseError = pest::error::Error<Rule>;
+    14→
+    15→use crate::ast::*;
+    16→
+    17→/// Parse a .mlog source string into a list of declarations.
+    18→/// Templates with `}` in their body (HTML, CSS, JS) are handled via
+    19→/// pre-processing: template bodies are extracted with balanced brace counting,
+    20→/// replaced with placeholders for Pest parsing, then restored.
+    21→pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
+    22→    // Pre-process: extract template bodies that contain } characters.
+    23→    // Replace with unique placeholders to avoid Pest's "stop at first }" limitation.
+    24→    let (preprocessed, template_bodies) = preprocess_templates(source);
+    25→
+    26→    let pairs = MlogParser::parse(Rule::program, &preprocessed)?;
+    27→    let mut declarations = Vec::new();
+    28→
+    29→    for pair in pairs {
+    30→        for inner_pair in pair.into_inner() {
+    31→            match inner_pair.as_rule() {
+    32→                Rule::mlogserver_decl => declarations.push(parse_mlogserver_decl(inner_pair)),
+    33→                Rule::template_decl => declarations.push(parse_template_decl_with_body(inner_pair, &template_bodies)),
+    34→                Rule::db_decl => declarations.push(parse_db_decl(inner_pair)),
+    35→                Rule::memory_decl => declarations.push(parse_memory_decl(inner_pair)),
+    36→                Rule::import_decl => declarations.push(parse_import_decl(inner_pair)),
+    37→                Rule::entity_type_decl => declarations.push(parse_entity_type_decl(inner_pair)),
+    38→                Rule::entity_record_decl => declarations.push(parse_entity_record_decl(inner_pair)),
+    39→                Rule::entity_simple_decl => declarations.push(parse_entity_simple_decl(inner_pair)),
+    40→                Rule::rule_decl => declarations.push(parse_rule_decl(inner_pair)),
+    41→                Rule::memorize_decl => declarations.push(parse_memorize_decl(inner_pair)),
+    42→                Rule::forget_decl => declarations.push(parse_forget_decl(inner_pair)),
+    43→                Rule::if_block_stmt => declarations.push(Declaration::Pattern(PatternDecl { name: "_top_level_if".to_string(), params: vec![], return_type: "Unit".to_string(), body: vec![parse_if_block_stmt(inner_pair)] })),
+    44→                Rule::fluid_decl => declarations.push(parse_fluid_decl(inner_pair)),
+    45→                Rule::adapt_decl => declarations.push(parse_adapt_decl(inner_pair)),
+    46→                Rule::relate_decl => declarations.push(parse_relate_decl(inner_pair)),
+    47→                Rule::sandbox_decl => declarations.push(parse_sandbox_decl(inner_pair)),
+    48→                Rule::hook_decl => declarations.push(parse_hook_decl(inner_pair)),
+    49→                Rule::mutate_decl => declarations.push(parse_mutate_decl(inner_pair)),
+    50→                Rule::eval_decl => declarations.push(parse_eval_decl(inner_pair)),
+    51→                Rule::conversation_decl => declarations.push(parse_conversation_decl(inner_pair)),
+    52→                Rule::llm_decl => declarations.push(parse_llm_decl(inner_pair)),
+    53→                Rule::tool_decl => declarations.push(parse_tool_decl(inner_pair)),
+    54→                Rule::learnable_pattern_decl => declarations.push(parse_learnable_pattern_decl(inner_pair)),
+    55→                Rule::pattern_decl => declarations.push(parse_pattern_decl(inner_pair)),
+    56→                Rule::flow_decl => declarations.push(parse_flow_decl(inner_pair)),
+    57→                _ => {}
+    58→            }
+    59→        }
+    60→    }
+    61→
+    62→    Ok(declarations)
+    63→}
+    64→
+    65→// ── Helpers ──────────────────────────────────────────────────────────
+    66→
+    67→/// Extract a string from a pair (works for IDENT, type_name, COLON, etc.).
+    68→fn pair_str(pair: &Pair<Rule>) -> String {
+    69→    pair.as_str().to_string()
+    70→}
+    71→
+    72→/// Collect inner pairs into a Vec for easy index access.
+    73→fn children_of<'a>(pair: &'a Pair<'a, Rule>) -> Vec<Pair<'a, Rule>> {
+    74→    pair.clone().into_inner().collect()
+    75→}
+    76→
+    77→/// Find the first child matching a rule, return its string.
+    78→fn find_child_str(children: &[Pair<Rule>], rule: Rule) -> Option<String> {
+    79→    children.iter().find(|c| c.as_rule() == rule).map(|c| pair_str(c))
+    80→}
+    81→
+    82→/// Find the first child matching a rule and return it.
+    83→fn find_child<'a>(children: &'a [Pair<'a, Rule>], rule: Rule) -> Option<Pair<'a, Rule>> {
+    84→    children.iter().find(|c| c.as_rule() == rule).cloned()
+    85→}
+    86→
+    87→// ── MlogServer (Phase 6.1) ─────────────────────────────────────
+    88→
+    89→fn parse_mlogserver_decl(pair: Pair<Rule>) -> Declaration {
+    90→    let _children = children_of(&pair);
+    91→    let body_children: Vec<Pair<Rule>> = pair.clone().into_inner()
+    92→        .filter(|c| c.as_rule() == Rule::mlogserver_body)
+    93→        .flat_map(|c| c.into_inner())
+    94→        .collect();
+    95→
+    96→    let port: u16 = body_children.iter()
+    97→        .find(|c| c.as_rule() == Rule::mlogserver_port)
+    98→        .and_then(|c| find_child_str(&children_of(c), Rule::INT))
+    99→        .and_then(|s| s.parse().ok())
+   100→        .unwrap_or(8080);
+   101→
+   102→    let mut middleware = Vec::new();
+   103→    for child in &body_children {
+   104→        if child.as_rule() == Rule::mlogserver_middleware {
+   105→            if let Some(il) = child.clone().into_inner().find(|c| c.as_rule() == Rule::ident_list) {
+   106→                middleware = il.clone().into_inner()
+   107→                    .filter(|c| c.as_rule() == Rule::IDENT)
+   108→                    .map(|c| pair_str(&c))
+   109→                    .collect();
+   110→            }
+   111→        }
+   112→    }
+   113→
+   114→    let routes: Vec<RouteDecl> = body_children.iter()
+   115→        .filter(|c| c.as_rule() == Rule::route_decl)
+   116→        .map(|c| parse_route_decl(c.clone()))
+   117→        .collect();
+   118→
+   119→    Declaration::MlogServer(MlogServerDecl { port, middleware, routes })
+   120→}
+   121→
+   122→fn parse_route_decl(pair: Pair<Rule>) -> RouteDecl {
+   123→    let children: Vec<Pair<Rule>> = pair.clone().into_inner().collect();
+   124→    let path = children.iter()
+   125→        .find(|c| c.as_rule() == Rule::STRING_LITERAL)
+   126→        .map(|c| {
+   127→            let s = c.as_str();
+   128→            s[1..s.len()-1].to_string()
+   129→        })
+   130→        .unwrap_or_default();
+   131→
+   132→    let method = children.iter()
+   133→        .filter(|c| c.as_rule() == Rule::IDENT)
+   134→        .map(|c| pair_str(c))
+   135→        .next() // first IDENT after STRING_LITERAL is the HTTP method
+   136→        .unwrap_or_else(|| "GET".to_string());
+   137→
+   138→    let mut requires = Vec::new();
+   139→    for child in &children {
+   140→        if child.as_rule() == Rule::route_requires {
+   141→            if let Some(il) = child.clone().into_inner().find(|c| c.as_rule() == Rule::ident_list) {
+   142→                requires = il.clone().into_inner()
+   143→                    .filter(|c| c.as_rule() == Rule::IDENT)
+   144→                    .map(|c| pair_str(&c))
+   145→                    .collect();
+   146→            }
+   147→        }
+   148→    }
+   149→
+   150→    let body: Vec<Statement> = pair.clone().into_inner()
+   151→        .filter(|c| c.as_rule() == Rule::statement)
+   152→        .map(|c| parse_single_statement(c))
+   153→        .collect();
+   154→
+   155→    RouteDecl { path, method, requires, body }
+   156→}
+   157→
+   158→// ── Template (Phase 6.2) ─────────────────────────────────────
+   159→
+   160→/// Pre-process source to handle template bodies containing `}` (HTML, CSS, JS).
+   161→/// Extracts template bodies using balanced brace counting, replaces with safe placeholders,
+   162→/// and returns a mapping of placeholder -> actual body content.
+   163→/// Uses char_indices() for Unicode-safe byte positioning.
+   164→fn preprocess_templates(source: &str) -> (String, HashMap<String, String>) {
+   165→    let mut result = source.to_string();
+   166→    let mut bodies = HashMap::new();
+   167→    let mut counter = 0u32;
+   168→
+   169→    // Find template declarations and extract balanced brace bodies
+   170→    let mut search_from = 0;
+   171→    while search_from < result.len() {
+   172→        // Find "template" keyword (ASCII-only, find() is safe)
+   173→        if let Some(start) = result[search_from..].find("template") {
+   174→            let abs_start = search_from + start;
+   175→            // Skip if this is part of a longer identifier (check preceding char)
+   176→            if abs_start > 0 && result.as_bytes().get(abs_start - 1).map(|&b| b.is_ascii_alphanumeric()).unwrap_or(false) {
+   177→                search_from = abs_start + 1;
+   178→                continue;
+   179→            }
+   180→
+   181→            // Find the opening { of the template body (after type_name)
+   182→            // '{' is ASCII, find() on ASCII patterns is char-boundary-safe
+   183→            if let Some(brace_pos) = result[abs_start..].find('{') {
+   184→                let abs_brace = abs_start + brace_pos;
+   185→                // Find the matching closing } using balanced brace counting.
+   186→                // MUST use char_indices() to get correct BYTE offsets for Unicode-safe slicing.
+   187→                let mut depth = 0;
+   188→                let mut end_byte_pos = None;
+   189→                for (byte_offset, ch) in result[abs_brace..].char_indices() {
+   190→                    match ch {
+   191→                        '{' => depth += 1,
+   192→                        '}' => {
+   193→                            depth -= 1;
+   194→                            if depth == 0 {
+   195→                                end_byte_pos = Some(abs_brace + byte_offset);
+   196→                                break;
+   197→                            }
+   198→                        }
+   199→                        _ => {}
+   200→                    }
+   201→                }
+   202→
+   203→                if let Some(close_pos) = end_byte_pos {
+   204→                    // Extract the body between the braces (byte offsets are char-boundary-safe)
+   205→                    let body = result[abs_brace + 1..close_pos].to_string();
+   206→                    let placeholder = format!("__TEMPLATE_BODY_{}__", counter);
+   207→                    counter += 1;
+   208→
+   209→                    // Replace the body content with a safe placeholder (no })
+   210→                    let replacement = format!("{{{}}}", placeholder);
+   211→                    result.replace_range(abs_brace..=close_pos, &replacement);
+   212→                    bodies.insert(placeholder, body);
+   213→
+   214→                    search_from = abs_brace + replacement.len();
+   215→                    continue;
+   216→                }
+   217→            }
+   218→            search_from = abs_start + 1;
+   219→        } else {
+   220→            break;
+   221→        }
+   222→    }
+   223→
+   224→    (result, bodies)
+   225→}
+   226→
+   227→/// Parse a template declaration, restoring the pre-processed body.
+   228→fn parse_template_decl_with_body(pair: Pair<Rule>, bodies: &HashMap<String, String>) -> Declaration {
+   229→    let children = children_of(&pair);
+   230→    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+   231→    let params = find_child(&children, Rule::params)
+   232→        .map(|p| parse_params(p))
+   233→        .unwrap_or_default();
+   234→    let return_type = find_child_str(&children, Rule::type_name).unwrap_or_default();
+   235→
+   236→    // The grammar captured the placeholder in template_body_raw
+   237→    let body = pair.clone().into_inner()
+   238→        .find(|c| c.as_rule() == Rule::template_body_raw)
+   239→        .map(|c| {
+   240→            let placeholder = c.as_str().trim().to_string();
+   241→            // Look up the placeholder in our pre-processed bodies map
+   242→            if let Some(actual_body) = bodies.get(&placeholder) {
+   243→                actual_body.clone()
+   244→            } else {
+   245→                // Fallback: use the raw text (for templates without } in body)
+   246→                placeholder
+   247→            }
+   248→        })
+   249→        .unwrap_or_default();
+   250→
+   251→    Declaration::Template(TemplateDecl { name, params, return_type, body })
+   252→}
+   253→
+   254→/// Extract content between balanced braces from a string like "{ content } }".
+   255→/// Handles nested braces by counting depth.
+   256→fn extract_balanced_braces(s: &str) -> String {
+   257→    let chars: Vec<char> = s.chars().collect();
+   258→    if chars.is_empty() || chars[0] != '{' {
+   259→        return String::new();
+   260→    }
+   261→    let mut depth = 0;
+   262→    let mut end = 0;
+   263→    for (i, &ch) in chars.iter().enumerate() {
+   264→        match ch {
+   265→            '{' => depth += 1,
+   266→            '}' => {
+   267→                depth -= 1;
+   268→                if depth == 0 {
+   269→                    end = i;
+   270→                    break;
+   271→                }
+   272→            }
+   273→            _ => {}
+   274→        }
+   275→    }
+   276→    if end > 0 {
+   277→        chars[1..end].iter().collect()
+   278→    } else {
+   279→        String::new()
+   280→    }
+   281→}
+   282→
+   283→// ── DB (Phase 6.3) ─────────────────────────────────────
+   284→
+   285→fn parse_db_decl(pair: Pair<Rule>) -> Declaration {
+   286→    let children: Vec<Pair<Rule>> = pair.into_inner()
+   287→        .filter(|c| c.as_rule() == Rule::db_body)
+   288→        .flat_map(|c| c.into_inner())
+   289→        .collect();
+   290→
+   291→    let url = children.iter()
+   292→        .find(|c| c.as_rule() == Rule::db_url)
+   293→        .and_then(|c| {
+   294→            let c_children = children_of(c);
+   295→            find_child(&c_children, Rule::expression).map(|e| parse_expression(e))
+   296→        });
+   297→
+   298→    let pool_size = children.iter()
+   299→        .find(|c| c.as_rule() == Rule::db_pool)
+   300→        .and_then(|c| find_child_str(&children_of(c), Rule::INT))
+   301→        .and_then(|s| s.parse().ok());
+   302→
+   303→    let migrate = children.iter()
+   304→        .find(|c| c.as_rule() == Rule::db_migrate)
+   305→        .and_then(|c| find_child_str(&children_of(c), Rule::STRING_LITERAL))
+   306→        .map(|s| s[1..s.len()-1].to_string());
+   307→
+   308→    Declaration::Db(DbDecl { url, pool_size, migrate })
+   309→}
+   310→
+   311→// ── Memory Config (Phase 7.6) ──────────────────────────────────────
+   312→
+   313→fn parse_memory_decl(pair: Pair<Rule>) -> Declaration {
+   314→    let children: Vec<Pair<Rule>> = pair.into_inner()
+   315→        .filter(|c| c.as_rule() == Rule::memory_body)
+   316→        .flat_map(|c| c.into_inner())
+   317→        .collect();
+   318→
+   319→    let persist = children.iter()
+   320→        .find(|c| c.as_rule() == Rule::memory_persist)
+   321→        .and_then(|c| find_child_str(&children_of(c), Rule::STRING_LITERAL))
+   322→        .map(|s| s[1..s.len()-1].to_string());
+   323→
+   324→    Declaration::Memory(MemoryDecl { persist })
+   325→}
+   326→
+   327→// ── Import (Phase 5.4) ─────────────────────────────────────
+   328→
+   329→fn parse_import_decl(pair: Pair<Rule>) -> Declaration {
+   330→    let children = children_of(&pair);
+   331→    // import_decl = { IMPORT_KW ~ import_path ~ (AS_KW ~ IDENT)? }
+   332→    let path = find_child_str(&children, Rule::import_path).unwrap_or_default();
+   333→    let alias = find_child_str(&children, Rule::IDENT);
+   334→    Declaration::Import(ImportDecl { path, alias })
+   335→}
+   336→
+   337→// ── Entity: struct type ─────────────────────────────────────────────
+   338→
+   339→fn parse_entity_type_decl(pair: Pair<Rule>) -> Declaration {
+   340→    let children = children_of(&pair);
+   341→    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+   342→    let fields: Vec<FieldDecl> = children.iter()
+   343→        .filter(|c| c.as_rule() == Rule::field_decl)
+   344→        .map(|c| parse_field_decl(c.clone()))
+   345→        .collect();
+   346→    Declaration::EntityType(EntityTypeDecl { name, fields })
+   347→}
+   348→
+   349→fn parse_field_decl(pair: Pair<Rule>) -> FieldDecl {
+   350→    let children = children_of(&pair);
+   351→    // Children: IDENT, COLON, type_name, [ASSIGN, literal]
+   352→    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+   353→    let type_name = find_child_str(&children, Rule::type_name).unwrap_or_default();
+   354→    let default = find_child(&children, Rule::literal)
+   355→        .map(|lit| parse_literal_to_expr(&lit));
+   356→    FieldDecl { name, type_name, default }
+   357→}
+   358→
+   359→/// Process escape sequences in a string literal (without outer quotes).
+   360→fn unescape_string(s: &str) -> String {
+   361→    let trimmed = &s[1..s.len()-1]; // strip outer quotes
+   362→    let mut result = String::with_capacity(trimmed.len());
+   363→    let mut chars = trimmed.chars().peekable();
+   364→    while let Some(c) = chars.next() {
+   365→        if c == '\\' {
+   366→            match chars.peek() {
+   367→                Some('\"') => { result.push('\"'); chars.next(); }
+   368→                Some('\\') => { result.push('\\'); chars.next(); }
+   369→                Some('n')  => { result.push('\n'); chars.next(); }
+   370→                Some('t')  => { result.push('\t'); chars.next(); }
+   371→                Some('r')  => { result.push('\r'); chars.next(); }
+   372→                _ => { result.push(c); }
+   373→            }
+   374→        } else {
+   375→            result.push(c);
+   376→        }
+   377→    }
+   378→    result
+   379→}
+   380→
+   381→/// Convert a literal pair (STRING_LITERAL, FLOAT_LITERAL, or IDENT) to an Expr.
+   382→fn parse_literal_to_expr(pair: &Pair<Rule>) -> Expr {
+   383→    let inner = pair.clone().into_inner().next().unwrap();
+   384→    match inner.as_rule() {
+   385→        Rule::STRING_LITERAL => Expr::StringLit(unescape_string(inner.as_str())),
+   386→        Rule::FLOAT_LITERAL => Expr::FloatLit(inner.as_str().parse().unwrap_or(0.0)),
+   387→        Rule::IDENT => Expr::Ident(inner.as_str().to_string()),
+   388→        _ => Expr::StringLit(pair.as_str().to_string()),
+   389→    }
+   390→}
+   391→
+   392→// ── Entity: struct instance ─────────────────────────────────────────
+   393→
+   394→fn parse_entity_record_decl(pair: Pair<Rule>) -> Declaration {
+   395→    let children = children_of(&pair);
+   396→    // Children: IDENT, type_name, field_init, ...
+   397→    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+   398→    let type_name = find_child_str(&children, Rule::type_name).unwrap_or_default();
+   399→    let fields: Vec<FieldInit> = children.iter()
+   400→        .filter(|c| c.as_rule() == Rule::field_init)
+   401→        .map(|c| parse_field_init(c.clone()))
+   402→        .collect();
+   403→    Declaration::EntityRecord(EntityRecordDecl { name, type_name, fields })
+   404→}
+   405→
+   406→fn parse_field_init(pair: Pair<Rule>) -> FieldInit {
+   407→    let children = children_of(&pair);
+   408→    // Children: IDENT, COLON, expression
+   409→    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+   410→    let expr_pair = find_child(&children, Rule::expression).unwrap();
+   411→    let value = parse_expression(expr_pair);
+   412→    FieldInit { name, value }
+   413→}
+   414→
+   415→// ── Entity: simple (M1) ──────────────────────────────────────────────
+   416→
+   417→fn parse_entity_simple_decl(pair: Pair<Rule>) -> Declaration {
+   418→    let children = children_of(&pair);
+   419→    // Children: IDENT, type_name, expression
+   420→    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+   421→    let type_name = find_child_str(&children, Rule::type_name).unwrap_or_default();
+   422→    let expr_pair = find_child(&children, Rule::expression).unwrap();
+   423→    let value = parse_expression(expr_pair);
+   424→    Declaration::EntitySimple(EntitySimpleDecl { name, type_name, value })
+   425→}
+   426→
+   427→// ── Rule ──────────────────────────────────────────────────────────────
+   428→
+   429→fn parse_rule_decl(pair: Pair<Rule>) -> Declaration {
+   430→    let children = children_of(&pair);
+   431→    // Children: condition (contains/compare), assignment, [INT]
+   432→    let condition_pair = &children[0];
+   433→    let condition = parse_condition(condition_pair.clone());
+   434→
+   435→    // assignment = { IDENT ~ "." ~ IDENT ~ "=" ~ expression }
+   436→    // Children: [IDENT(target), IDENT(field), expression(value)]
+   437→    let assignment_children = children_of(&children[1]);
+   438→    let target = Expr::Ident(pair_str(&assignment_children[0]));
+   439→    let field = pair_str(&assignment_children[1]);
+   440→    let value = parse_expression(assignment_children[2].clone());
+   441→
+   442→    let priority = find_child_str(&children, Rule::INT)
+   443→        .and_then(|s| s.parse::<i32>().ok())
+   444→        .unwrap_or(0);
+   445→
+   446→    Declaration::Rule(RuleDecl { condition, target, field, value, priority })
+   447→}
+   448→
+   449→fn parse_condition(pair: Pair<Rule>) -> Condition {
+   450→    match pair.as_rule() {
+   451→        Rule::contains_condition => {
+   452→            let children = children_of(&pair);
+   453→            // Children: expression, CONTAINS_KW, expression
+   454→            let left = parse_expression(children[0].clone());
+   455→            let right = parse_expression(children[2].clone());
+   456→            Condition::Contains { left, right }
+   457→        }
+   458→        Rule::compare_condition => {
+   459→            let children = children_of(&pair);
+   460→            // Children: expression, compare_op, expression
+   461→            Condition::Compare {
+   462→                left: parse_expression(children[0].clone()),
+   463→                op: parse_compare_op(&children[1]),
+   464→                right: parse_expression(children[2].clone()),
+   465→            }
+   466→        }
+   467→        _ => unreachable!("expected condition, got {:?}", pair.as_rule()),
+   468→    }
+   469→}
+   470→
+   471→fn parse_compare_op(pair: &Pair<Rule>) -> CompareOp {
+   472→    match pair.as_str().trim() {
+   473→        ">" => CompareOp::Gt,
+   474→        "<" => CompareOp::Lt,
+   475→        ">=" => CompareOp::Ge,
+   476→        "<=" => CompareOp::Le,
+   477→        "==" => CompareOp::Eq,
+   478→        _ => unreachable!("unexpected compare op: {}", pair.as_str()),
+   479→    }
+   480→}
+   481→
+   482→// ── Fluid Types (Phase 1) ──────────────────────────────────────────
+   483→
+   484→fn parse_fluid_decl(pair: Pair<Rule>) -> Declaration {
+   485→    let children = children_of(&pair);
+   486→    // fluid_decl = { FLUID_KW ~ IDENT ~ "=" ~ fluid_branch ~ ("or" ~ fluid_branch)* }
+   487→    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+   488→
+   489→    let variants: Vec<FluidVariant> = children.iter()
+   490→        .filter(|c| c.as_rule() == Rule::fluid_branch)
+   491→        .map(|c| parse_fluid_branch(c.clone()))
+   492→        .collect();
+   493→
+   494→    Declaration::Fluid(FluidDecl { name, variants })
+   495→}
+   496→
+   497→fn parse_fluid_branch(pair: Pair<Rule>) -> FluidVariant {
+   498→    let children = children_of(&pair);
+   499→    // fluid_branch = { type_name ~ LBRACKET ~ expression ~ RBRACKET ~ LBRACKET ~ FLOAT_LITERAL ~ RBRACKET }
+   500→    let type_name = find_child_str(&children, Rule::type_name).unwrap_or_default();
+   501→
+   502→    let exprs: Vec<Pair<Rule>> = children.iter()
+   503→        .filter(|c| c.as_rule() == Rule::expression)
+   504→        .cloned()
+   505→        .collect();
+   506→    let value = if !exprs.is_empty() { parse_expression(exprs[0].clone()) } else { Expr::StringLit(String::new()) };
+   507→
+   508→    let floats: Vec<&Pair<Rule>> = children.iter()
+   509→        .filter(|c| c.as_rule() == Rule::FLOAT_LITERAL)
+   510→        .collect();
+   511→    // The last FLOAT_LITERAL is the confidence (value may also be a float)
+   512→    let confidence = floats.last()
+   513→        .map(|f| f.as_str().parse().unwrap_or(0.0))
+   514→        .unwrap_or(0.0);
+   515→
+   516→    FluidVariant { type_name, value, confidence }
+   517→}
+   518→
+   519→// ── Adapt (M5) ──────────────────────────────────────────────────
+   520→
+   521→fn parse_adapt_decl(pair: Pair<Rule>) -> Declaration {
+   522→    let children = children_of(&pair);
+   523→    // adapt_decl = { ADAPT_KW ~ IDENT ~ ADD_EXAMPLE_KW ~ "(" ~ expression ~ COMMA ~ expression ~ ")" }
+   524→    // Children: IDENT(pattern_name), "(", expression(input), ",", expression(output), ")"
+   525→    let pattern_name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+   526→
+   527→    let exprs: Vec<Pair<Rule>> = children.iter()
+   528→        .filter(|c| c.as_rule() == Rule::expression)
+   529→        .cloned()
+   530→        .collect();
+   531→
+   532→    let input_example = if exprs.len() >= 1 { parse_expression(exprs[0].clone()) } else { Expr::StringLit(String::new()) };
+   533→    let output_example = if exprs.len() >= 2 { parse_expression(exprs[1].clone()) } else { Expr::StringLit(String::new()) };
+   534→
+   535→    Declaration::Adapt(AdaptDecl { pattern_name, input_example, output_example })
+   536→}
+   537→
+   538→// ── Relate (knowledge graph edge) ──────────────────────────────
+   539→
+   540→fn parse_relate_decl(pair: Pair<Rule>) -> Declaration {
+   541→    let children = children_of(&pair);
+   542→    // relate_decl = { RELATE_KW ~ expression ~ "to" ~ expression ~ "as" ~ expression }
+   543→    // Children: expression(from), expression(to), expression(relation)
+   544→    let exprs: Vec<Pair<Rule>> = children.iter()
+   545→        .filter(|c| c.as_rule() == Rule::expression)
+   546→        .cloned()
+   547→        .collect();
+   548→    let from = if exprs.len() >= 1 { parse_expression(exprs[0].clone()) } else { Expr::StringLit(String::new()) };
+   549→    let to = if exprs.len() >= 2 { parse_expression(exprs[1].clone()) } else { Expr::StringLit(String::new()) };
+   550→
+   551→    // Extract relation string from third expression
+   552→    let relation = if exprs.len() >= 3 {
+   553→        match parse_expression(exprs[2].clone()) {
+   554→            Expr::StringLit(s) => s,
+   555→            _ => String::new(),
+   556→        }
+   557→    } else {
+   558→        String::new()
+   559→    };
+   560→
+   561→    Declaration::Relate(RelateDecl { from, to, relation })
+   562→}
+   563→
+   564→// ── Hook (ADR-0045) ──────────────────────────────────────────────────
+   565→
+   566→fn parse_hook_decl(pair: Pair<Rule>) -> Declaration {
+   567→    let children = children_of(&pair);
+   568→    // hook_decl = { HOOK_KW ~ hook_kind ~ "{" ~ statement* ~ "}" }
+   569→    let phase = children.iter()
+   570→        .find(|c| c.as_rule() == Rule::hook_kind)
+   571→        .map(|c| {
+   572→            let kind_children = children_of(c);
+   573→            if kind_children.iter().any(|kc| kc.as_rule() == Rule::BEFORE_PATTERN_KW) {
+   574→                HookPhase::BeforePattern
+   575→            } else {
+   576→                HookPhase::AfterPattern
+   577→            }
+   578→        })
+   579→        .unwrap_or(HookPhase::BeforePattern);
+   580→
+   581→    let body: Vec<Statement> = children.iter()
+   582→        .filter(|c| c.as_rule() == Rule::statement)
+   583→        .map(|c| parse_single_statement(c.clone()))
+   584→        .collect();
+   585→
+   586→    Declaration::Hook(HookDecl { phase, body })
+   587→}
+   588→
+   589→// ── Sandbox (P2) ────────────────────────────────────────────────
+   590→
+   591→fn parse_sandbox_decl(pair: Pair<Rule>) -> Declaration {
+   592→    let children = children_of(&pair);
+   593→    // sandbox_decl = { SANDBOX_KW ~ IDENT ~ "{" ~ sandbox_body "}" }
+   594→    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+   595→
+   596→    let mut allowed = Vec::new();
+   597→    let mut forbidden = Vec::new();
+   598→    let mut timeout: i64 = 30;
+   599→
+   600→    if let Some(body_pair) = find_child(&children, Rule::sandbox_body) {
+   601→        let body_children = children_of(&body_pair);
+   602→        // Extract allowed list
+   603→        if let Some(al_pair) = body_children.iter().find(|c| c.as_rule() == Rule::sandbox_allowed) {
+   604→            let al_children = children_of(al_pair);
+   605→            if let Some(il_pair) = al_children.iter().find(|c| c.as_rule() == Rule::ident_list) {
+   606→                allowed = il_pair.clone().into_inner()
+   607→                    .filter(|c| c.as_rule() == Rule::IDENT)
+   608→                    .map(|c| pair_str(&c))
+   609→                    .collect();
+   610→            }
+   611→        }
+   612→        // Extract forbidden list
+   613→        if let Some(fb_pair) = body_children.iter().find(|c| c.as_rule() == Rule::sandbox_forbidden) {
+   614→            let fb_children = children_of(fb_pair);
+   615→            if let Some(il_pair) = fb_children.iter().find(|c| c.as_rule() == Rule::ident_list) {
+   616→                forbidden = il_pair.clone().into_inner()
+   617→                    .filter(|c| c.as_rule() == Rule::IDENT)
+   618→                    .map(|c| pair_str(&c))
+   619→                    .collect();
+   620→            }
+   621→        }
+   622→        // Extract timeout
+   623→        if let Some(to_pair) = body_children.iter().find(|c| c.as_rule() == Rule::sandbox_timeout) {
+   624→            if let Some(int_val) = find_child_str(&children_of(to_pair), Rule::INT) {
+   625→                timeout = int_val.parse().unwrap_or(30);
+   626→            }
+   627→        }
+   628→    }
+   629→
+   630→    Declaration::Sandbox(SandboxDecl { name, allowed, forbidden, timeout })
+   631→}
+   632→
+   633→// ── Mutate (P2) ─────────────────────────────────────────────────
+   634→
+   635→fn parse_mutate_decl(pair: Pair<Rule>) -> Declaration {
+   636→    let children = children_of(&pair);
+   637→    // mutate_decl = { MUTATE_KW ~ IDENT ~ "{" ~ mutate_body "}" }
+   638→    let pattern_name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+   639→
+   640→    let mut new_examples: Vec<(Expr, Expr)> = Vec::new();
+   641→    let mut rollback_threshold: Option<f64> = None;
+   642→    let mut rollback_op: Option<CompareOp> = None;
+   643→
+   644→    if let Some(body_pair) = find_child(&children, Rule::mutate_body) {
+   645→        let body_children = children_of(&body_pair);
+   646→        // Extract add_example pairs
+   647→        for ae_pair in body_children.iter().filter(|c| c.as_rule() == Rule::mutate_add_example) {
+   648→            let ae_children = children_of(ae_pair);
+   649→            let exprs: Vec<Expr> = ae_children.iter()
+   650→                .filter(|c| c.as_rule() == Rule::expression)
+   651→                .map(|c| parse_expression(c.clone()))
+   652→                .collect();
+   653→            if exprs.len() >= 2 {
+   654→                new_examples.push((exprs[0].clone(), exprs[1].clone()));
+   655→            }
+   656→        }
+   657→        // Extract rollback_if condition
+   658→        if let Some(rb_pair) = body_children.iter().find(|c| c.as_rule() == Rule::mutate_rollback) {
+   659→            let rb_children = children_of(rb_pair);
+   660→            // Find compare_op and FLOAT_LITERAL
+   661→            if let Some(op_pair) = rb_children.iter().find(|c| c.as_rule() == Rule::compare_op) {
+   662→                rollback_op = Some(parse_compare_op(op_pair));
+   663→            }
+   664→            if let Some(float_pair) = rb_children.iter().find(|c| c.as_rule() == Rule::FLOAT_LITERAL) {
+   665→                rollback_threshold = Some(float_pair.as_str().parse().unwrap_or(0.0));
+   666→            }
+   667→        }
+   668→    }
+   669→
+   670→    Declaration::Mutate(MutateDecl {
+   671→        pattern_name,
+   672→        new_examples,
+   673→        rollback_threshold,
+   674→        rollback_op,
+   675→    })
+   676→}
+   677→
+   678→// ── Conversation Config (ADR-0053) ──────────────────────────────────
+   679→
+   680→fn parse_conversation_decl(pair: Pair<Rule>) -> Declaration {
+   681→    let children: Vec<Pair<Rule>> = pair.into_inner()
+   682→        .filter(|c| c.as_rule() == Rule::conversation_body)
+   683→        .flat_map(|c| c.into_inner())
+   684→        .collect();
+   685→
+   686→    let ttl = children.iter()
+   687→        .find(|c| c.as_rule() == Rule::conversation_ttl)
+   688→        .and_then(|c| find_child_str(&children_of(c), Rule::INT))
+   689→        .and_then(|s| s.parse().ok())
+   690→        .unwrap_or(1800);
+   691→
+   692→    let max_messages = children.iter()
+   693→        .find(|c| c.as_rule() == Rule::conversation_max_messages)
+   694→        .and_then(|c| find_child_str(&children_of(c), Rule::INT))
+   695→        .and_then(|s| s.parse().ok())
+   696→        .unwrap_or(50);
+   697→
+   698→    let compress_after = children.iter()
+   699→        .find(|c| c.as_rule() == Rule::conversation_compress_after)
+   700→        .and_then(|c| find_child_str(&children_of(c), Rule::INT))
+   701→        .and_then(|s| s.parse().ok())
+   702→        .unwrap_or(20);
+   703→
+   704→    Declaration::Conversation(ConversationDecl { ttl, max_messages, compress_after })
+   705→}
+   706→
+   707→// ── LLM Config (Наряд №4: Smart LLM Routing) ──────────────────────────
+   708→
+   709→fn parse_llm_decl(pair: Pair<Rule>) -> Declaration {
+   710→    let children: Vec<Pair<Rule>> = pair.into_inner()
+   711→        .filter(|c| c.as_rule() == Rule::llm_body)
+   712→        .flat_map(|c| c.into_inner())
+   713→        .collect();
+   714→
+   715→    // Parse providers list
+   716→    let mut providers = Vec::new();
+   717→    if let Some(pl_pair) = children.iter().find(|c| c.as_rule() == Rule::llm_providers) {
+   718→        // Flatten: llm_provider_list -> llm_provider_entry*
+   719→        let entries: Vec<Pair<Rule>> = pl_pair.clone().into_inner()
+   720→            .flat_map(|c| {
+   721→                if c.as_rule() == Rule::llm_provider_entry {
+   722→                    vec![c]
+   723→                } else if c.as_rule() == Rule::llm_provider_list {
+   724→                    c.into_inner()
+   725→                        .filter(|inner| inner.as_rule() == Rule::llm_provider_entry)
+   726→                        .collect()
+   727→                } else {
+   728→                    vec![]
+   729→                }
+   730→            })
+   731→            .collect();
+   732→
+   733→        for entry_pair in entries {
+   734→            let entry_children = children_of(&entry_pair);
+   735→
+   736→            let alias = entry_children.iter()
+   737→                .find(|c| c.as_rule() == Rule::llm_provider_alias)
+   738→                .and_then(|c| find_child_str(&children_of(c), Rule::IDENT))
+   739→                .unwrap_or_default();
+   740→
+   741→            let provider = entry_children.iter()
+   742→                .find(|c| c.as_rule() == Rule::llm_provider_name)
+   743→                .and_then(|c| find_child_str(&children_of(c), Rule::IDENT))
+   744→                .unwrap_or_default();
+   745→
+   746→            let key = entry_children.iter()
+   747→                .find(|c| c.as_rule() == Rule::llm_provider_key)
+   748→                .and_then(|c| {
+   749→                    find_child(&children_of(c), Rule::expression).map(|e| parse_expression(e))
+   750→                });
+   751→
+   752→            let url = entry_children.iter()
+   753→                .find(|c| c.as_rule() == Rule::llm_provider_url)
+   754→                .and_then(|c| find_child_str(&children_of(c), Rule::STRING_LITERAL))
+   755→                .map(|s| s[1..s.len()-1].to_string());
+   756→
+   757→            providers.push(LlmProviderEntry { alias, provider, key, url });
+   758→        }
+   759→    }
+   760→
+   761→    // Parse default_model
+   762→    let default_model = children.iter()
+   763→        .find(|c| c.as_rule() == Rule::llm_default_model)
+   764→        .and_then(|c| {
+   765→            find_child(&children_of(c), Rule::expression).and_then(|e| {
+   766→                if let Expr::StringLit(s) = parse_expression(e) {
+   767→                    Some(s)
+   768→                } else {
+   769→                    None
+   770→                }
+   771→            })
+   772→        });
+   773→
+   774→    // Parse failover mode
+   775→    let failover = children.iter()
+   776→        .find(|c| c.as_rule() == Rule::llm_failover)
+   777→        .and_then(|c| find_child_str(&children_of(c), Rule::IDENT));
+   778→
+   779→    // Parse circuit_breaker
+   780→    let circuit_breaker = children.iter()
+   781→        .find(|c| c.as_rule() == Rule::llm_circuit_breaker)
+   782→        .and_then(|c| find_child_str(&children_of(c), Rule::INT))
+   783→        .and_then(|s| s.parse().ok())
+   784→        .unwrap_or(3);
+   785→
+   786→    // Parse timeout
+   787→    let timeout = children.iter()
+   788→        .find(|c| c.as_rule() == Rule::llm_timeout)
+   789→        .and_then(|c| find_child_str(&children_of(c), Rule::INT))
+   790→        .and_then(|s| s.parse().ok())
+   791→        .unwrap_or(30);
+   792→
+   793→    Declaration::LlmConfig(LlmConfigDecl {
+   794→        providers,
+   795→        default_model,
+   796→        failover,
+   797→        circuit_breaker,
+   798→        timeout,
+   799→    })
+   800→}
+   801→
+   802→// ── Tool Abstraction (ADR-0054) ──────────────────────────────────────
+   803→
+   804→fn parse_tool_decl(pair: Pair<Rule>) -> Declaration {
+   805→    let children = children_of(&pair);
+   806→    // tool_decl = { TOOL_KW ~ IDENT ~ "{" ~ tool_method* ~ "}" }
+   807→    // First IDENT is the tool name; subsequent children are tool_method nodes.
+   808→    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+   809→
+   810→    let methods: Vec<ToolMethod> = children.iter()
+   811→        .filter(|c| c.as_rule() == Rule::tool_method)
+   812→        .map(|c| parse_tool_method(c.clone()))
+   813→        .collect();
+   814→
+   815→    Declaration::Tool(ToolDecl { name, methods })
+   816→}
+   817→
+   818→fn parse_tool_method(pair: Pair<Rule>) -> ToolMethod {
+   819→    let children = children_of(&pair);
+   820→    // tool_method = { IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ LBRACE ~ statement* ~ RBRACE }
+   821→    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+   822→    let params = find_child(&children, Rule::params)
+   823→        .map(|p| parse_params(p))
+   824→        .unwrap_or_default();
+   825→    let return_type = find_child_str(&children, Rule::type_name).unwrap_or_default();
+   826→    let body: Vec<Statement> = children.iter()
+   827→        .filter(|c| c.as_rule() == Rule::statement)
+   828→        .map(|c| parse_single_statement(c.clone()))
+   829→        .collect();
+   830→    ToolMethod { name, params, return_type, body }
+   831→}
+   832→
+   833→// ── Eval Harness (ADR-0050) ──────────────────────────────────────────
+   834→
+   835→fn parse_eval_decl(pair: Pair<Rule>) -> Declaration {
+   836→    let children = children_of(&pair);
+   837→    // eval_decl = { EVAL_KW ~ IDENT ~ "{" ~ eval_body ~ "}" }
+   838→    let pattern_name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+   839→
+   840→    let mut dataset: Vec<(String, String)> = Vec::new();
+   841→    let mut metric = "accuracy".to_string();
+   842→    let mut threshold: f64 = 0.8;
+   843→
+   844→    if let Some(body_pair) = find_child(&children, Rule::eval_body) {
+   845→        let body_children = children_of(&body_pair);
+   846→
+   847→        // Extract dataset: [("input", "expected"), ...]
+   848→        if let Some(ds_pair) = body_children.iter().find(|c| c.as_rule() == Rule::eval_dataset) {
+   849→            // eval_example is nested inside eval_example_list (if present)
+   850→            // or directly in eval_dataset when there's a single example.
+   851→            // Flatten both levels to collect all eval_example pairs.
+   852→            let examples: Vec<Pair<Rule>> = ds_pair.clone().into_inner()
+   853→                .flat_map(|c| {
+   854→                    if c.as_rule() == Rule::eval_example {
+   855→                        vec![c]
+   856→                    } else if c.as_rule() == Rule::eval_example_list {
+   857→                        c.into_inner()
+   858→                            .filter(|inner| inner.as_rule() == Rule::eval_example)
+   859→                            .collect()
+   860→                    } else {
+   861→                        vec![]
+   862→                    }
+   863→                })
+   864→                .collect();
+   865→            for ex_pair in examples {
+   866→                let strings: Vec<Pair<Rule>> = ex_pair.clone().into_inner()
+   867→                    .filter(|c| c.as_rule() == Rule::STRING_LITERAL)
+   868→                    .collect();
+   869→                let input = if strings.len() >= 1 {
+   870→                    unescape_string(strings[0].as_str())
+   871→                } else {
+   872→                    String::new()
+   873→                };
+   874→                let expected = if strings.len() >= 2 {
+   875→                    unescape_string(strings[1].as_str())
+   876→                } else {
+   877→                    String::new()
+   878→                };
+   879→                dataset.push((input, expected));
+   880→            }
+   881→        }
+   882→
+   883→        // Extract metric: accuracy (or future metrics)
+   884→        if let Some(m_pair) = body_children.iter().find(|c| c.as_rule() == Rule::eval_metric) {
+   885→            let m_children = children_of(m_pair);
+   886→            metric = find_child_str(&m_children, Rule::IDENT).unwrap_or_else(|| "accuracy".to_string());
+   887→        }
+   888→
+   889→        // Extract threshold: 0.8
+   890→        if let Some(t_pair) = body_children.iter().find(|c| c.as_rule() == Rule::eval_threshold) {
+   891→            let t_children = children_of(t_pair);
+   892→            threshold = find_child_str(&t_children, Rule::FLOAT_LITERAL)
+   893→                .and_then(|s| s.parse().ok())
+   894→                .unwrap_or(0.8);
+   895→        }
+   896→    }
+   897→
+   898→    Declaration::Eval(EvalDecl {
+   899→        pattern_name,
+   900→        dataset,
+   901→        metric,
+   902→        threshold,
+   903→    })
+   904→}
+   905→
+   906→// ── Memorize (M4) ──────────────────────────────────────────────────
+   907→
+   908→fn parse_memorize_decl(pair: Pair<Rule>) -> Declaration {
+   909→    let children = children_of(&pair);
+   910→    // Children: expression, ["with", "priority", "=", FLOAT_LITERAL]
+   911→    let value = find_child(&children, Rule::expression).unwrap();
+   912→    let value = parse_expression(value);
+   913→
+   914→    let priority = find_child(&children, Rule::FLOAT_LITERAL)
+   915→        .map(|f| f.as_str().parse().unwrap_or(0.5))
+   916→        .unwrap_or(0.5);
+   917→
+   918→    Declaration::Memorize(MemorizeDecl { value, priority })
+   919→}
+   920→
+   921→fn parse_forget_decl(pair: Pair<Rule>) -> Declaration {
+   922→    let children = children_of(&pair);
+   923→    // Children: expression, INT, "days"
+   924→    let query = find_child(&children, Rule::expression).unwrap();
+   925→    let query = parse_expression(query);
+   926→
+   927→    let days = find_child(&children, Rule::INT)
+   928→        .map(|i| i.as_str().parse().unwrap_or(30))
+   929→        .unwrap_or(30);
+   930→
+   931→    Declaration::Forget(ForgetDecl { query, days })
+   932→}
+   933→
+   934→// ── Learnable Pattern (M3) ────────────────────────────────────────────
+   935→
+   936→fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
+   937→    let children = children_of(&pair);
+   938→    // Children: IDENT, [params], ARROW, type_name, learnable_body
+   939→    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+   940→    let params = find_child(&children, Rule::params)
+   941→        .map(|p| parse_params(p))
+   942→        .unwrap_or_default();
+   943→    let return_type = find_child_str(&children, Rule::type_name).unwrap_or_default();
+   944→
+   945→    // Extract prompt, context, model, max_tokens, cache, cache_ttl from learnable_body
+   946→    let mut prompt = String::new();
+   947→    let mut context: Option<ContextMode> = None;
+   948→    let mut model: Option<String> = None;
+   949→    let mut max_tokens: Option<u32> = None;
+   950→    let mut cache = false;
+   951→    let mut cache_ttl: u64 = 3600; // default 1 hour
+   952→    let mut conversation: Option<String> = None;
+   953→    let mut context_strategy: ContextStrategy = ContextStrategy::None;
+   954→    let mut max_context_tokens: usize = 2000; // default 2000
+   955→
+   956→    if let Some(body_pair) = find_child(&children, Rule::learnable_body) {
+   957→        let body_children = children_of(&body_pair);
+   958→
+   959→        // Extract prompt from prompt_line -> expression
+   960→        if let Some(pl_pair) = body_children.iter().find(|c| c.as_rule() == Rule::prompt_line) {
+   961→            let pl_children = children_of(pl_pair);
+   962→            if let Some(expr_pair) = pl_children.iter().find(|c| c.as_rule() == Rule::expression) {
+   963→                if let Expr::StringLit(s) = parse_expression(expr_pair.clone()) {
+   964→                    prompt = s;
+   965→                }
+   966→            }
+   967→        }
+   968→
+   969→        // Extract context: supports recall(...), auto, none, or string literal
+   970→        // NOTE: context_line uses _{ } (silent choice), so the inner rule appears
+   971→        // directly in body_children, NOT wrapped in a context_line node.
+   972→        let ctx_pair = body_children.iter().find(|c| {
+   973→            matches!(c.as_rule(),
+   974→                Rule::context_recall_line |
+   975→                Rule::context_auto_line |
+   976→                Rule::context_none_line |
+   977→                Rule::context_literal_line)
+   978→        });
+   979→        if let Some(inner_pair) = ctx_pair {
+   980→            match inner_pair.as_rule() {
+   981→                Rule::context_recall_line => {
+   982→                    // context: recall(query_expr, limit=N)
+   983→                    let inner_children = children_of(inner_pair);
+   984→                    let exprs: Vec<Expr> = inner_children.iter()
+   985→                        .filter(|c| c.as_rule() == Rule::expression)
+   986→                        .cloned()
+   987→                        .map(|p| parse_expression(p))
+   988→                        .collect();
+   989→                    if !exprs.is_empty() {
+   990→                        let limit = if exprs.len() >= 2 {
+   991→                            if let Expr::FloatLit(n) = exprs[1].clone() {
+   992→                                Some(n as usize)
+   993→                            } else {
+   994→                                None
+   995→                            }
+   996→                        } else {
+   997→                            None
+   998→                        };
+   999→                        context = Some(ContextMode::Recall(exprs[0].clone(), limit));
+  1000→                    }
+  1001→                }
+  1002→                Rule::context_auto_line => {
+  1003→                    // context: auto → recall(first_param, limit=5)
+  1004→                    context = Some(ContextMode::Auto);
+  1005→                }
+  1006→                Rule::context_none_line => {
+  1007→                    // context: none → explicitly no context
+  1008→                    context = Some(ContextMode::None);
+  1009→                }
+  1010→                Rule::context_literal_line => {
+  1011→                    // context: "some string" or context: expr
+  1012→                    let inner_children = children_of(inner_pair);
+  1013→                    if let Some(expr_pair) = inner_children.iter().find(|c| c.as_rule() == Rule::expression) {
+  1014→                        if let Expr::StringLit(s) = parse_expression(expr_pair.clone()) {
+  1015→                            context = Some(ContextMode::Literal(s));
+  1016→                        }
+  1017→                    }
+  1018→                }
+  1019→                _ => {}
+  1020→            }
+  1021→        }
+  1022→
+  1023→        // Extract conversation: "current" or conversation: <expr> (ADR-0053)
+  1024→        if let Some(conv_pair) = body_children.iter().find(|c| c.as_rule() == Rule::conversation_line) {
+  1025→            let conv_children = children_of(conv_pair);
+  1026→            if let Some(expr_pair) = conv_children.iter().find(|c| c.as_rule() == Rule::expression) {
+  1027→                if let Expr::StringLit(s) = parse_expression(expr_pair.clone()) {
+  1028→                    conversation = Some(s);
+  1029→                }
+  1030→            }
+  1031→        }
+  1032→
+  1033→        // Extract model: "haiku" (ADR-0048)
+  1034→        if let Some(m_pair) = body_children.iter().find(|c| c.as_rule() == Rule::model_line) {
+  1035→            let m_children = children_of(m_pair);
+  1036→            if let Some(expr_pair) = m_children.iter().find(|c| c.as_rule() == Rule::expression) {
+  1037→                if let Expr::StringLit(s) = parse_expression(expr_pair.clone()) {
+  1038→                    model = Some(s);
+  1039→                }
+  1040→            }
+  1041→        }
+  1042→
+  1043→        // Extract max_tokens: N
+  1044→        if let Some(mt_pair) = body_children.iter().find(|c| c.as_rule() == Rule::max_tokens_line) {
+  1045→            let mt_children = children_of(mt_pair);
+  1046→            if let Some(expr_pair) = mt_children.iter().find(|c| c.as_rule() == Rule::expression) {
+  1047→                if let Expr::FloatLit(n) = parse_expression(expr_pair.clone()) {
+  1048→                    max_tokens = Some(n as u32);
+  1049→                }
+  1050→            }
+  1051→        }
+  1052→
+  1053→        // Extract cache: true/false
+  1054→        if let Some(c_pair) = body_children.iter().find(|c| c.as_rule() == Rule::cache_line) {
+  1055→            let c_str = c_pair.as_str().trim();
+  1056→            // cache_line = { "cache" ~ ":" ~ BOOL_LITERAL }
+  1057→            // Extract the boolean value after the colon
+  1058→            if let Some(colon_pos) = c_str.find(':') {
+  1059→                let val_str = c_str[colon_pos + 1..].trim();
+  1060→                cache = val_str == "true";
+  1061→            }
+  1062→        }
+  1063→
+  1064→        // Extract cache_ttl: N.minutes
+  1065→        if let Some(ttl_pair) = body_children.iter().find(|c| c.as_rule() == Rule::cache_ttl_line) {
+  1066→            let ttl_children = children_of(ttl_pair);
+  1067→            // cache_ttl_line = { "cache_ttl" ~ ":" ~ expression ~ "." ~ IDENT }
+  1068→            let exprs: Vec<Expr> = ttl_children.iter()
+  1069→                .filter(|c| c.as_rule() == Rule::expression)
+  1070→                .cloned()
+  1071→                .map(|p| parse_expression(p))
+  1072→                .collect();
+  1073→            let unit_ident = ttl_children.iter()
+  1074→                .filter(|c| c.as_rule() == Rule::IDENT)
+  1075→                .map(|c| pair_str(c))
+  1076→                .next()
+  1077→                .unwrap_or_default();
+  1078→            if let Some(Expr::FloatLit(n)) = exprs.first() {
+  1079→                let n_val = *n as u64;
+  1080→                cache_ttl = match unit_ident.as_str() {
+  1081→                    "seconds" | "second" => n_val,
+  1082→                    "minutes" | "minute" => n_val * 60,
+  1083→                    "hours" | "hour" => n_val * 3600,
+  1084→                    "days" | "day" => n_val * 86400,
+  1085→                    _ => n_val * 60, // default to minutes
+  1086→                };
+  1087→            }
+  1088→        }
+  1089→
+  1090→        // Extract context_strategy: none | auto | compress (ADR-0055)
+  1091→        if let Some(cs_pair) = body_children.iter().find(|c| c.as_rule() == Rule::context_strategy_line) {
+  1092→            let cs_str = cs_pair.as_str().trim();
+  1093→            // context_strategy_line = { "context_strategy" ~ ":" ~ context_strategy_value }
+  1094→            if let Some(colon_pos) = cs_str.find(':') {
+  1095→                let val_str = cs_str[colon_pos + 1..].trim();
+  1096→                context_strategy = match val_str {
+  1097→                    "auto" => ContextStrategy::Auto,
+  1098→                    "compress" => ContextStrategy::Compress,
+  1099→                    _ => ContextStrategy::None,
+  1100→                };
+  1101→            }
+  1102→        }
+  1103→
+  1104→        // Extract max_context_tokens: N (ADR-0055)
+  1105→        if let Some(mct_pair) = body_children.iter().find(|c| c.as_rule() == Rule::max_context_tokens_line) {
+  1106→            if let Some(int_val) = find_child_str(&children_of(mct_pair), Rule::INT) {
+  1107→                max_context_tokens = int_val.parse().unwrap_or(2000);
+  1108→            }
+  1109→        }
+  1110→    }
+  1111→
+  1112→    Declaration::LearnablePattern(LearnablePatternDecl {
+  1113→        name,
+  1114→        params,
+  1115→        return_type,
+  1116→        prompt,
+  1117→        context,
+  1118→        context_strategy,
+  1119→        max_context_tokens,
+  1120→        model,
+  1121→        max_tokens,
+  1122→        cache,
+  1123→        cache_ttl,
+  1124→        conversation,
+  1125→    })
+  1126→}
+  1127→
+  1128→// ── Pattern ──────────────────────────────────────────────────────────
+  1129→
+  1130→fn parse_pattern_decl(pair: Pair<Rule>) -> Declaration {
+  1131→    let children = children_of(&pair);
+  1132→    // Children: IDENT, params, ARROW, type_name, pattern_body
+  1133→    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+  1134→    let params = find_child(&children, Rule::params)
+  1135→        .map(|p| parse_params(p))
+  1136→        .unwrap_or_default();
+  1137→    let return_type = find_child_str(&children, Rule::type_name).unwrap_or_default();
+  1138→    let body = find_child(&children, Rule::pattern_body)
+  1139→        .map(|p| parse_pattern_body(p))
+  1140→        .unwrap_or_default();
+  1141→    Declaration::Pattern(PatternDecl { name, params, return_type, body })
+  1142→}
+  1143→
+  1144→fn parse_params(pair: Pair<Rule>) -> Vec<Param> {
+  1145→    pair.into_inner()
+  1146→        .filter(|p| p.as_rule() == Rule::param)
+  1147→        .map(|p| {
+  1148→            let children = children_of(&p);
+  1149→            Param {
+  1150→                name: find_child_str(&children, Rule::IDENT).unwrap_or_default(),
+  1151→                type_name: find_child_str(&children, Rule::type_name).unwrap_or_default(),
+  1152→            }
+  1153→        })
+  1154→        .collect()
+  1155→}
+  1156→
+  1157→fn parse_pattern_body(pair: Pair<Rule>) -> Vec<Statement> {
+  1158→    pair.into_inner()
+  1159→        .filter(|s| s.as_rule() == Rule::statement)
+  1160→        .map(|s| parse_single_statement(s))
+  1161→        .collect()
+  1162→}
+  1163→
+  1164→/// Parse a single statement from its rule pair.
+  1165→fn parse_single_statement(pair: Pair<Rule>) -> Statement {
+  1166→    let children = children_of(&pair);
+  1167→    // statement = { if_block_stmt | each_stmt | while_stmt | let_binding | assign_or_expr | return_stmt }
+  1168→    // NOTE: match_stmt is parsed as a regular expression (match is a builtin) — parse_match_stmt
+  1169→    // was removed because MatchArm / Statement::Match are not in the AST.
+  1170→    if let Some(ib_pair) = children.iter().find(|c| c.as_rule() == Rule::if_block_stmt) {
+  1171→        parse_if_block_stmt(ib_pair.clone())
+  1172→    } else if let Some(each_pair) = children.iter().find(|c| c.as_rule() == Rule::each_stmt) {
+  1173→        let each_children: Vec<Pair<Rule>> = each_pair.clone().into_inner().collect();
+  1174→        // children: IDENT(variable), expression(iterable), statement*(body)
+  1175→        let variable = pair_str(&each_children[0]);
+  1176→        let iterable = parse_expression(each_children[1].clone());
+  1177→        let body: Vec<Statement> = each_children[2..].iter()
+  1178→            .filter(|c| c.as_rule() == Rule::statement)
+  1179→            .map(|c| parse_single_statement(c.clone()))
+  1180→            .collect();
+  1181→        Statement::Each { variable, iterable, body }
+  1182→    } else if let Some(while_pair) = children.iter().find(|c| c.as_rule() == Rule::while_stmt) {
+  1183→        let while_children: Vec<Pair<Rule>> = while_pair.clone().into_inner().collect();
+  1184→        // children: expression(condition), statement*(body)
+  1185→        let condition = parse_expression(while_children[0].clone());
+  1186→        let body: Vec<Statement> = while_children[1..].iter()
+  1187→            .filter(|c| c.as_rule() == Rule::statement)
+  1188→            .map(|c| parse_single_statement(c.clone()))
+  1189→            .collect();
+  1190→        Statement::While { condition, body }
+  1191→    } else if let Some(lb_pair) = children.iter().find(|c| c.as_rule() == Rule::let_binding) {
+  1192→        let lb_children = children_of(lb_pair);
+  1193→        let name = find_child_str(&lb_children, Rule::IDENT).unwrap_or_default();
+  1194→        let expr = find_child(&lb_children, Rule::expression).unwrap();
+  1195→        Statement::LetBinding { name, value: parse_expression(expr) }
+  1196→    } else if let Some(ae_pair) = children.iter().find(|c| c.as_rule() == Rule::assign_or_expr) {
+  1197→        // assign_or_expr = { IDENT ~ ASSIGN ~ expression | expression }
+  1198→        let ae_children: Vec<Pair<Rule>> = ae_pair.clone().into_inner().collect();
+  1199→        // Check if this is an assignment (has IDENT + expression) or expression
+  1200→        let has_assign = ae_children.iter().any(|c| c.as_rule() == Rule::ASSIGN);
+  1201→        if has_assign {
+  1202→            let name = pair_str(&ae_children[0]); // IDENT is first
+  1203→            let expr = ae_children.iter().find(|c| c.as_rule() == Rule::expression)
+  1204→                .cloned().expect("assign_or_expr assignment must have expression");
+  1205→            Statement::Assign { name, value: parse_expression(expr) }
+  1206→        } else {
+  1207→            // Expression statement (function call, etc.)
+  1208→            let expr = ae_children.iter().find(|c| c.as_rule() == Rule::expression)
+  1209→                .cloned().expect("assign_or_expr expression must have expression");
+  1210→            Statement::ExprStmt(parse_expression(expr))
+  1211→        }
+  1212→    } else if let Some(rs_pair) = children.iter().find(|c| c.as_rule() == Rule::return_stmt) {
+  1213→        let rs_children = children_of(rs_pair);
+  1214→        let expr = find_child(&rs_children, Rule::expression).unwrap();
+  1215→        Statement::Return(parse_expression(expr))
+  1216→    } else if let Some(it_pair) = children.iter().find(|c| c.as_rule() == Rule::if_then_stmt) {
+  1217→        // if_then_stmt with optional else: "if expr then { ... } [else if expr then { ... }]* [else { ... }]"
+  1218→        let it_children: Vec<Pair<Rule>> = it_pair.clone().into_inner().collect();
+  1219→        let condition = parse_expression(it_children.iter().find(|c| c.as_rule() == Rule::expression).cloned().unwrap());
+  1220→        let body: Vec<Statement> = it_children.iter()
+  1221→            .filter(|c| c.as_rule() == Rule::statement)
+  1222→            .map(|c| parse_single_statement(c.clone()))
+  1223→            .collect();
+  1224→
+  1225→        // Check for else_if_then_block and else blocks
+  1226→        let mut else_ifs = Vec::new();
+  1227→        let mut else_body: Option<Vec<Statement>> = None;
+  1228→        let mut in_else = false;
+  1229→
+  1230→        for child in &it_children {
+  1231→            match child.as_rule() {
+  1232→                Rule::else_if_then_block => {
+  1233→                    let ei_children = children_of(child);
+  1234→                    let ei_condition = ei_children.iter()
+  1235→                        .find(|c| c.as_rule() == Rule::expression)
+  1236→                        .map(|c| parse_expression(c.clone()))
+  1237→                        .unwrap_or_else(|| Expr::BoolLit(true));
+  1238→                    let ei_body: Vec<Statement> = ei_children.iter()
+  1239→                        .filter(|c| c.as_rule() == Rule::statement)
+  1240→                        .map(|c| parse_single_statement(c.clone()))
+  1241→                        .collect();
+  1242→                    else_ifs.push((ei_condition, ei_body));
+  1243→                }
+  1244→                Rule::statement => {
+  1245→                    if in_else {
+  1246→                        if else_body.is_none() {
+  1247→                            else_body = Some(Vec::new());
+  1248→                        }
+  1249→                        if let Some(ref mut eb) = else_body {
+  1250→                            eb.push(parse_single_statement(child.clone()));
+  1251→                        }
+  1252→                    }
+  1253→                }
+  1254→                _ => {
+  1255→                    if child.as_str().trim() == "else" {
+  1256→                        in_else = true;
+  1257→                    }
+  1258→                }
+  1259→            }
+  1260→        }
+  1261→
+  1262→        if else_ifs.is_empty() && else_body.is_none() {
+  1263→            Statement::IfThen(Box::new(condition), body)
+  1264→        } else {
+  1265→            Statement::IfElseBlock { condition, then_body: body, else_ifs, else_body }
+  1266→        }
+  1267→    } else if let Some(es_pair) = children.iter().find(|c| c.as_rule() == Rule::expr_stmt) {
+  1268→        // Legacy expr_stmt fallback (shouldn't normally be reached with assign_or_expr)
+  1269→        let expr = es_pair.clone().into_inner().find(|c| c.as_rule() == Rule::expression)
+  1270→            .expect("expr_stmt must contain expression");
+  1271→        Statement::ExprStmt(parse_expression(expr))
+  1272→    } else if let Some(as_pair) = children.iter().find(|c| c.as_rule() == Rule::assign_stmt) {
+  1273→        // Legacy assign_stmt fallback
+  1274→        let as_children = children_of(as_pair);
+  1275→        let name = find_child_str(&as_children, Rule::IDENT).unwrap_or_default();
+  1276→        let expr = find_child(&as_children, Rule::expression).unwrap();
+  1277→        Statement::Assign { name, value: parse_expression(expr) }
+  1278→    } else {
+  1279→        // Fallback: direct expression child (legacy)
+  1280→        let expr = find_child(&children, Rule::expression)
+  1281→            .expect(&format!("unrecognized statement: '{}'", pair.as_str()));
+  1282→        Statement::Return(parse_expression(expr))
+  1283→    }
+  1284→}
+  1285→
+  1286→/// Parse a block-style if statement: `if expr { stmts } else if expr { stmts } else { stmts }`
+  1287→fn parse_if_block_stmt(pair: Pair<Rule>) -> Statement {
+  1288→    let children = children_of(&pair);
+  1289→    // if_block_stmt = { "if" ~ expression "{" ~ statement* ~ "}" ~ else_if_block* ~ ("else" "{" ~ statement* ~ "}")? }
+  1290→    // The pair directly contains the whole if_block_stmt; its children are:
+  1291→    // [expression, "{", statement*, "}", else_if_block*, ("else", "{", statement*, "}")?]
+  1292→    let mut expr_idx = 0;
+  1293→    // Skip any non-expression, non-statement children to find the condition expression
+  1294→    let condition = children.iter()
+  1295→        .find(|c| c.as_rule() == Rule::expression)
+  1296→        .map(|c| parse_expression(c.clone()))
+  1297→        .unwrap_or_else(|| Expr::BoolLit(true));
+  1298→
+  1299→    // Collect then_body statements (between first "{" and matching "}")
+  1300→    let mut then_body = Vec::new();
+  1301→    let mut else_ifs = Vec::new();
+  1302→    let mut else_body: Option<Vec<Statement>> = None;
+  1303→
+  1304→    let mut in_then = false;
+  1305→    let mut in_else = false;
+  1306→    for child in &children {
+  1307→        match child.as_rule() {
+  1308→            Rule::statement => {
+  1309→                if in_else {
+  1310→                    if else_body.is_none() {
+  1311→                        else_body = Some(Vec::new());
+  1312→                    }
+  1313→                    if let Some(ref mut eb) = else_body {
+  1314→                        eb.push(parse_single_statement(child.clone()));
+  1315→                    }
+  1316→                } else if !in_then {
+  1317→                    in_then = true;
+  1318→                    then_body.push(parse_single_statement(child.clone()));
+  1319→                } else {
+  1320→                    then_body.push(parse_single_statement(child.clone()));
+  1321→                }
+  1322→            }
+  1323→            Rule::else_if_block => {
+  1324→                in_then = false;
+  1325→                in_else = false;
+  1326→                // Parse else if block: condition + body
+  1327→                let ei_children = children_of(child);
+  1328→                let ei_condition = ei_children.iter()
+  1329→                    .find(|c| c.as_rule() == Rule::expression)
+  1330→                    .map(|c| parse_expression(c.clone()))
+  1331→                    .unwrap_or_else(|| Expr::BoolLit(true));
+  1332→                let ei_body: Vec<Statement> = ei_children.iter()
+  1333→                    .filter(|c| c.as_rule() == Rule::statement)
+  1334→                    .map(|c| parse_single_statement(c.clone()))
+  1335→                    .collect();
+  1336→                else_ifs.push((ei_condition, ei_body));
+  1337→            }
+  1338→            _ => {
+  1339→                // Skip non-statement children (braces, keywords, etc.)
+  1340→                if child.as_str().trim() == "else" {
+  1341→                    in_then = false;
+  1342→                    in_else = true;
+  1343→                }
+  1344→            }
+  1345→        }
+  1346→    }
+  1347→
+  1348→    Statement::IfElseBlock { condition, then_body, else_ifs, else_body }
+  1349→}
+  1350→
+  1351→// ── Flow ──────────────────────────────────────────────────────────────
+  1352→// flow_decl = { "flow" ~ IDENT ~ "{" ~ flow_pipeline ~ branch_def* ~ "}" }
+  1353→// flow_pipeline = { "input" ":" type_name "=" expression ~ flow_step* ~ ARROW ~ "output" }
+  1354→// flow_step     = { ARROW ~ (checkpoint_call | step_ident) }
+  1355→// checkpoint_call = { "checkpoint" ~ "(" ~ STRING_LITERAL ~ ")" }
+  1356→// branch_def    = { step_ident ~ "{" ~ branch* ~ "}" }
+  1357→
+  1358→fn parse_flow_decl(pair: Pair<Rule>) -> Declaration {
+  1359→    let children = children_of(&pair);
+  1360→    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+  1361→
+  1362→    // children: IDENT, flow_pipeline, [branch_def, ...]
+  1363→    let pipeline_pair = find_child(&children, Rule::flow_pipeline).unwrap();
+  1364→    let pipeline_children = children_of(&pipeline_pair);
+  1365→
+  1366→    let mut input_type = String::new();
+  1367→    let mut source: Option<Expr> = None;
+  1368→    let mut pipeline_steps: Vec<String> = Vec::new();
+  1369→    let mut checkpoints: HashMap<String, usize> = HashMap::new();
+  1370→
+  1371→    // Walk pipeline children: type_name, expression, flow_step*, ARROW
+  1372→    let mut i = 0;
+  1373→    // First: type_name
+  1374→    if i < pipeline_children.len() && pipeline_children[i].as_rule() == Rule::type_name {
+  1375→        let tn_inner = children_of(&pipeline_children[i]);
+  1376→        input_type = pair_str(&tn_inner[0]);
+  1377→        i += 1;
+  1378→    }
+  1379→    // Second: expression (source)
+  1380→    if i < pipeline_children.len() && pipeline_children[i].as_rule() == Rule::expression {
+  1381→        source = Some(parse_expression(pipeline_children[i].clone()));
+  1382→        i += 1;
+  1383→    }
+  1384→    // Remaining: flow_step* then final ARROW -> output
+  1385→    while i < pipeline_children.len() {
+  1386→        if pipeline_children[i].as_rule() == Rule::flow_step {
+  1387→            let step_children = children_of(&pipeline_children[i]);
+  1388→            // flow_step = { ARROW ~ (checkpoint_call | step_ident) }
+  1389→            for sc in &step_children {
+  1390→                if sc.as_rule() == Rule::step_ident {
+  1391→                    pipeline_steps.push(pair_str(sc));
+  1392→                } else if sc.as_rule() == Rule::checkpoint_call {
+  1393→                    // checkpoint("name") — maps to the PRECEDING step index
+  1394→                    let full = sc.as_str(); // e.g., 'checkpoint("mid")'
+  1395→                    // Extract the checkpoint name between quotes
+  1396→                    let cp_name = if let Some(s) = full.find('"') {
+  1397→                        if let Some(e) = full.rfind('"') {
+  1398→                            if e > s + 1 {
+  1399→                                full[s+1..e].to_string()
+  1400→                            } else {
+  1401→                                String::new()
+  1402→                            }
+  1403→                        } else {
+  1404→                            String::new()
+  1405→                        }
+  1406→                    } else {
+  1407→                        String::new()
+  1408→                    };
+  1409→                    // Checkpoint fires AFTER the last pipeline step added
+  1410→                    let step_idx = if pipeline_steps.is_empty() { 0 } else { pipeline_steps.len() - 1 };
+  1411→                    checkpoints.insert(cp_name, step_idx);
+  1412→                }
+  1413→            }
+  1414→            i += 1;
+  1415→        } else if pipeline_children[i].as_rule() == Rule::ARROW {
+  1416→            // Final ARROW before "output" — skip
+  1417→            i += 1;
+  1418→        } else {
+  1419→            i += 1;
+  1420→        }
+  1421→    }
+  1422→
+  1423→    // Parse branch_def blocks after the pipeline
+  1424→    let mut branch_defs: Vec<(String, Vec<Branch>)> = Vec::new();
+  1425→    for child in &children {
+  1426→        if child.as_rule() == Rule::branch_def {
+  1427→            let bd_children = children_of(child);
+  1428→            let step_name = pair_str(&bd_children[0]); // step_ident
+  1429→            let branches: Vec<Branch> = bd_children.iter()
+  1430→                .filter(|c| c.as_rule() == Rule::branch)
+  1431→                .map(|c| parse_branch(c.clone()))
+  1432→                .collect();
+  1433→            branch_defs.push((step_name, branches));
+  1434→        }
+  1435→    }
+  1436→
+  1437→    Declaration::Flow(FlowDecl {
+  1438→        name: name.clone(),
+  1439→        input_type,
+  1440→        source: source.unwrap(),
+  1441→        pipeline: pipeline_steps.clone(),
+  1442→        branch_defs,
+  1443→        checkpoints: checkpoints.clone(),
+  1444→    })
+  1445→}
+  1446→
+  1447→fn parse_branch(pair: Pair<Rule>) -> Branch {
+  1448→    let children = children_of(&pair);
+  1449→    // branch = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
+  1450→    let label = pair_str(&children[0]);
+  1451→    let cond_pair = find_child(&children, Rule::branch_condition).unwrap();
+  1452→    let target = pair_str(&children.last().unwrap()); // step_ident is last
+  1453→    Branch {
+  1454→        label,
+  1455→        condition: parse_branch_condition(cond_pair),
+  1456→        target,
+  1457→    }
+  1458→}
+  1459→
+  1460→fn parse_branch_condition(pair: Pair<Rule>) -> BranchCondition {
+  1461→    let children = children_of(&pair);
+  1462→    // branch_condition = { IDENT ~ "." ~ IDENT ~ compare_op ~ expression }
+  1463→    // Children: [IDENT(target), IDENT(field), compare_op, expression(threshold)]
+  1464→    BranchCondition {
+  1465→        target: Expr::Ident(pair_str(&children[0])),
+  1466→        field: pair_str(&children[1]),
+  1467→        op: parse_compare_op(&children[2]),
+  1468→        threshold: parse_expression(children[3].clone()),
+  1469→    }
+  1470→}
+  1471→
+  1472→// ── Expressions ─────────────────────────────────────────────────────
+  1473→
+  1474→fn parse_binop(pair: &Pair<Rule>) -> BinOp {
+  1475→    match pair.as_str().trim() {
+  1476→        "+" => BinOp::Add,
+  1477→        "-" => BinOp::Sub,
+  1478→        "*" => BinOp::Mul,
+  1479→        "/" => BinOp::Div,
+  1480→        ">=" => BinOp::Ge,
+  1481→        "<=" => BinOp::Le,
+  1482→        ">" => BinOp::Gt,
+  1483→        "<" => BinOp::Lt,
+  1484→        "==" => BinOp::Eq,
+  1485→        "!=" => BinOp::Ne,
+  1486→        _ => unreachable!("unexpected binop: {}", pair.as_str()),
+  1487→    }
+  1488→}
+  1489→
+  1490→fn parse_expression(pair: Pair<Rule>) -> Expr {
+  1491→    match pair.as_rule() {
+  1492→        Rule::expression => {
+  1493→            let inner = pair.into_inner().next().unwrap();
+  1494→            parse_expression(inner)
+  1495→        }
+  1496→        Rule::binary_expr => {
+  1497→            let children = children_of(&pair);
+  1498→            if children.is_empty() { return Expr::StringLit(String::new()); }
+  1499→            let mut left = parse_expression(children[0].clone());
+  1500→            let mut i = 1;
+  1501→            while i + 1 < children.len() {
+  1502→                if children[i].as_rule() == Rule::binop {
+  1503→                    let op = parse_binop(&children[i]);
+  1504→                    left = Expr::BinaryOp(
+  1505→                        Box::new(left), op,
+  1506→                        Box::new(parse_expression(children[i + 1].clone())),
+  1507→                    );
+  1508→                    i += 2;
+  1509→                } else {
+  1510→                    i += 1;
+  1511→                }
+  1512→            }
+  1513→            left
+  1514→        }
+  1515→        Rule::unary_expr => {
+  1516→            parse_expression(pair.into_inner().next().unwrap())
+  1517→        }
+  1518→        Rule::if_else_expr => {
+  1519→            let children = children_of(&pair);
+  1520→            // if_else_expr = { "if" ~ expression ~ "then" ~ expression ~ "else" ~ expression }
+  1521→            let exprs: Vec<Expr> = children.iter()
+  1522→                .filter(|c| c.as_rule() == Rule::expression)
+  1523→                .map(|c| parse_expression(c.clone()))
+  1524→                .collect();
+  1525→            // Should have exactly 3 expression children: cond, then, else
+  1526→            let cond = exprs[0].clone();
+  1527→            let then_br = exprs[1].clone();
+  1528→            let else_br = exprs[2].clone();
+  1529→            Expr::IfElse(Box::new(cond), Box::new(then_br), Box::new(else_br))
+  1530→        }
+  1531→        Rule::access_expr => {
+  1532→            let children = children_of(&pair);
+  1533→            // access_expr = { primary_expr ~ postfix_op* }
+  1534→            // postfix_op = { "." ~ IDENT | "[" ~ expression "]" }
+  1535→            let mut base = parse_expression(children[0].clone()); // primary_expr
+  1536→            let mut i = 1;
+  1537→            while i < children.len() {
+  1538→                let child = &children[i];
+  1539→                let inner = children_of(child);
+  1540→                // Check if it's a field access (contains IDENT)
+  1541→                if let Some(ident) = inner.iter().find(|c| c.as_rule() == Rule::IDENT) {
+  1542→                    base = Expr::FieldAccess(Box::new(base), pair_str(ident));
+  1543→                } else if let Some(expr_pair) = inner.iter().find(|c| c.as_rule() == Rule::expression) {
+  1544→                    // Index access
+  1545→                    base = Expr::IndexAccess(Box::new(base), Box::new(parse_expression(expr_pair.clone())));
+  1546→                }
+  1547→                i += 1;
+  1548→            }
+  1549→            base
+  1550→        }
+  1551→        Rule::qualified_call_expr => {
+  1552→            let children = children_of(&pair);
+  1553→            // qualified_call_expr = { IDENT ~ "." ~ IDENT ~ "(" ~ expression_list? ~ ")" }
+  1554→            let idents: Vec<String> = children.iter()
+  1555→                .filter(|c| c.as_rule() == Rule::IDENT)
+  1556→                .map(|c| pair_str(c))
+  1557→                .collect();
+  1558→            let module = idents.get(0).cloned().unwrap_or_default();
+  1559→            let function = idents.get(1).cloned().unwrap_or_default();
+  1560→            let mut args = Vec::new();
+  1561→            for child in children.iter() {
+  1562→                if child.as_rule() == Rule::expression_list {
+  1563→                    for ap in child.clone().into_inner() {
+  1564→                        if ap.as_rule() == Rule::expression {
+  1565→                            args.push(parse_expression(ap));
+  1566→                        }
+  1567→                    }
+  1568→                }
+  1569→            }
+  1570→            Expr::QualifiedCall { module, function, args }
+  1571→        }
+  1572→        Rule::call_expr => {
+  1573→            let children = children_of(&pair);
+  1574→            let fname = pair_str(&children[0]);
+  1575→            // Handle integer literals as function names (e.g., if INT is matched as call_expr)
+  1576→            if fname == "true" || fname == "false" {
+  1577→                // Bool literal parsed as call_expr — shouldn't happen but handle gracefully
+  1578→                return Expr::BoolLit(fname == "true");
+  1579→            }
+  1580→            let mut args = Vec::new();
+  1581→            for child in children.iter().skip(1) {
+  1582→                match child.as_rule() {
+  1583→                    Rule::expression_list => {
+  1584→                        for ap in child.clone().into_inner() {
+  1585→                            if ap.as_rule() == Rule::expression {
+  1586→                                args.push(parse_expression(ap));
+  1587→                            }
+  1588→                        }
+  1589→                    }
+  1590→                    Rule::expression => args.push(parse_expression(child.clone())),
+  1591→                    _ => {}
+  1592→                }
+  1593→            }
+  1594→            Expr::FnCall(fname, args)
+  1595→        }
+  1596→        Rule::unary_minus => {
+  1597→            let children: Vec<_> = pair.clone().into_inner().collect();
+  1598→            let inner_expr = if !children.is_empty() {
+  1599→                parse_expression(children[0].clone())
+  1600→            } else {
+  1601→                Expr::FloatLit(0.0)
+  1602→            };
+  1603→            // Negate: 0.0 - val
+  1604→            Expr::BinaryOp(
+  1605→                Box::new(Expr::FloatLit(0.0)),
+  1606→                BinOp::Sub,
+  1607→                Box::new(inner_expr),
+  1608→            )
+  1609→        }
+  1610→        Rule::primary_expr => {
+  1611→            let inner = pair.into_inner().next().unwrap();
+  1612→            match inner.as_rule() {
+  1613→                Rule::list_literal => {
+  1614→                    let mut items = Vec::new();
+  1615→                    for child in inner.clone().into_inner() {
+  1616→                        match child.as_rule() {
+  1617→                            Rule::expression_list => {
+  1618→                                // expression_list contains nested expression pairs
+  1619→                                for expr_pair in child.into_inner() {
+  1620→                                    if expr_pair.as_rule() == Rule::expression {
+  1621→                                        items.push(parse_expression(expr_pair));
+  1622→                                    }
+  1623→                                }
+  1624→                            }
+  1625→                            Rule::expression => {
+  1626→                                items.push(parse_expression(child));
+  1627→                            }
+  1628→                            _ => {}
+  1629→                        }
+  1630→                    }
+  1631→                    Expr::List(items)
+  1632→                }
+  1633→                Rule::BOOL_LITERAL => {
+  1634→                    Expr::BoolLit(inner.as_str() == "true")
+  1635→                }
+  1636→                Rule::STRING_LITERAL => {
+  1637→                    Expr::StringLit(unescape_string(inner.as_str()))
+  1638→                }
+  1639→                Rule::FLOAT_LITERAL => {
+  1640→                    Expr::FloatLit(inner.as_str().parse().unwrap_or(0.0))
+  1641→                }
+  1642→                Rule::INT => {
+  1643→                    Expr::FloatLit(inner.as_str().parse().unwrap_or(0.0))
+  1644→                }
+  1645→                Rule::IDENT => Expr::Ident(inner.as_str().to_string()),
+  1646→                _ => Expr::Ident(inner.as_str().to_string()),
+  1647→            }
+  1648→        }
+  1649→        _ => Expr::StringLit(pair.as_str().to_string()),
+  1650→    }
+  1651→}
+  1652→

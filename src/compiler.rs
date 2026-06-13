@@ -454,6 +454,13 @@ impl Compiler {
                 self.compile_expr_with_locals(index, code, locals)?;
                 code.push(Instruction::IndexAccess);
             }
+            Expr::StructLiteral(fields) => {
+                let field_names: Vec<String> = fields.iter().map(|(n, _)| n.clone()).collect();
+                for (_, val_expr) in fields {
+                    self.compile_expr_with_locals(val_expr, code, locals)?;
+                }
+                code.push(Instruction::MakeStruct("Struct".to_string(), field_names));
+            }
         }
         Ok(())
     }

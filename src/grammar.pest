@@ -250,8 +250,12 @@ postfix_op       = _{ "." ~ IDENT | LBRACKET ~ expression ~ RBRACKET }
 qualified_call_expr = { IDENT ~ DOT_CHAR ~ IDENT ~ "(" ~ expression_list? ~ ")" }
 call_expr        = { IDENT ~ "(" ~ expression_list? ~ ")" }
 expression_list  = { expression ~ (COMMA ~ WHITESPACE? ~ expression)* }
-primary_expr     = { list_literal | BOOL_LITERAL | FLOAT_LITERAL | STRING_LITERAL | INT | IDENT }
+primary_expr     = { struct_literal | list_literal | BOOL_LITERAL | FLOAT_LITERAL | STRING_LITERAL | INT | IDENT }
+struct_literal    = { LBRACE ~ struct_field_init ~ (COMMA ~ struct_field_init)* ~ COMMA? ~ RBRACE }
+struct_field_init = { IDENT ~ COLON ~ expression }
 list_literal     = { LBRACKET ~ expression_list? ~ RBRACKET }
+
+// ── Struct literal (inline expression) ───────────────────────────
 
 // ── Literals ─────────────────────────────────────────────────────────
 literal = _{ FLOAT_LITERAL | STRING_LITERAL | IDENT }

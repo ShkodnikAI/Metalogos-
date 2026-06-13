@@ -3117,6 +3117,14 @@ impl Interpreter {
                 }
                 Ok(Value::List(items))
             }
+            Expr::StructLiteral(fields) => {
+                let mut map = HashMap::new();
+                for (name, val_expr) in fields {
+                    let val = self.eval_expr_with_env(val_expr, env)?;
+                    map.insert(name.clone(), val);
+                }
+                Ok(Value::Struct { type_name: "Struct".to_string(), fields: map })
+            }
             Expr::IfElse(cond, then_br, else_br) => {
                 let cond_val = self.eval_expr_with_env(cond, env)?;
                 if cond_val.as_bool()? {

@@ -140,6 +140,12 @@ impl Builtins {
         funcs.insert("session_get".to_string(), builtin_session_get as BuiltinFn);
         funcs.insert("session_clear".to_string(), builtin_session_clear as BuiltinFn);
 
+        // type_of — runtime type introspection (safety for json_get + Unit)
+        funcs.insert("type_of".to_string(), builtin_type_of as BuiltinFn);
+
+        // Multipart HTTP — for file uploads (Telegram voice, Whisper API, etc.)
+        funcs.insert("http_post_multipart".to_string(), builtin_http_post_multipart as BuiltinFn);
+
         Builtins { funcs }
     }
 
@@ -1575,6 +1581,137 @@ fn builtin_llm_usage(_args: &[Value]) -> Result<Value, String> {
         type_name: "LlmUsage".to_string(),
         fields,
     })
+}
+
+// ── type_of — runtime type introspection ─────────────────────────
+
+/// `type_of(value)` — returns the type name as a String.
+/// Useful for safe checking after json_get: `if type_of(x) == "Unit" { ... }`
+fn builtin_type_of(args: &[Value]) -> Result<Value, String> {
+    if args.is_empty() {
+        return Err("type_of() requires 1 argument".to_string());
+    }
+    Ok(Value::String(args[0].type_name().to_string()))
+}
+
+// ── Multipart HTTP POST ──────────────────────────────────────
+
+/// `http_post_multipart(url, fields_json, files_json)` — send multipart/form-data request.
+///
+/// `fields_json`: JSON string of text fields, e.g. '{"model":"whisper-1","chat_id":"123"}'
+/// `files_json`: JSON string of file entries, e.g. '[{"name":"file","path":"/tmp/voice.ogg","mime":"audio/ogg"}]'
+///
+/// Returns the response body as String.
+/// Timeout: 30 seconds. Error on status >= 400.
+fn builtin_http_post_multipart(args: &[Value]) -> Result<Value, String> {
+    let url = match args.get(0) {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => return Err(format!("http_post_multipart() expected String as url, got {}", other.type_name())),
+        None => return Err("http_post_multipart() requires 3 arguments (url, fields_json, files_json)".to_string()),
+    };
+
+    let fields_str = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Struct { fields, .. }) => {
+            // Allow passing a Struct directly instead of JSON string
+            mlog_value_to_json(&Value::Struct { type_name: "Fields".into(), fields: fields.clone() }).to_string()
+        }
+        Some(other) => return Err(format!("http_post_multipart() expected String/Struct as fields, got {}", other.type_name())),
+        None => return Err("http_post_multipart() requires 3 arguments (url, fields_json, files_json)".to_string()),
+    };
+
+    let files_str = match args.get(2) {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::List(items)) => {
+            // Allow passing a List of Structs instead of JSON string
+            let json_items: Vec<serde_json::Value> = items.iter()
+                .map(|v| mlog_value_to_json(v))
+                .collect();
+            serde_json::Value::Array(json_items).to_string()
+        }
+        None => "[]".to_string(),
+        Some(other) => return Err(format!("http_post_multipart() expected String/List as files, got {}", other.type_name())),
+    };
+
+    // Optional 4th argument: auth token or headers struct
+    let auth_or_headers = args.get(3);
+
+    let fields: serde_json::Value = serde_json::from_str(&fields_str)
+        .map_err(|e| format!("http_post_multipart() invalid fields JSON: {}", e))?;
+
+    let files: Vec<serde_json::Value> = serde_json::from_str::<serde_json::Value>(&files_str)
+        .map_err(|e| format!("http_post_multipart() invalid files JSON: {}", e))?
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("http_post_multipart(): failed to create client: {}", e))?;
+
+    let mut form = reqwest::blocking::multipart::Form::new();
+
+    // Add text fields
+    if let serde_json::Value::Object(map) = &fields {
+        for (key, val) in map {
+            if let Some(s) = val.as_str() {
+                form = form.text(key.clone(), s.to_string());
+            } else {
+                form = form.text(key.clone(), val.to_string());
+            }
+        }
+    }
+
+    // Add file fields
+    for file_entry in &files {
+        let name = file_entry.get("name").and_then(|v| v.as_str()).unwrap_or("file").to_string();
+        let path = file_entry.get("path").and_then(|v| v.as_str()).unwrap_or("");
+        let mime = file_entry.get("mime").and_then(|v| v.as_str()).unwrap_or("application/octet-stream");
+
+        let file_content = std::fs::read(path)
+            .map_err(|e| format!("http_post_multipart(): cannot read file '{}': {}", path, e))?;
+
+        let part = reqwest::blocking::multipart::Part::bytes(file_content)
+            .file_name(path.rsplit('/').next().unwrap_or("file").to_string())
+            .mime_str(mime)
+            .unwrap_or(reqwest::blocking::multipart::MIME_OCTET_STREAM);
+
+        form = form.part(name, part);
+    }
+
+    let mut req = client.post(&url).multipart(form);
+
+    // Optional auth/headers
+    if let Some(h) = auth_or_headers {
+        match h {
+            Value::String(token) => {
+                if !token.is_empty() {
+                    req = req.header("Authorization", format!("Bearer {}", token));
+                }
+            }
+            Value::Struct { fields, .. } => {
+                for (key, val) in fields {
+                    if let Value::String(v) = val {
+                        req = req.header(key.as_str(), v.as_str());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let resp = req.send()
+        .map_err(|e| format!("http_post_multipart() request failed: {}", e))?;
+
+    let status = resp.status().as_u16();
+    let resp_body = resp.text().unwrap_or_default();
+
+    if status >= 400 {
+        return Err(format!("http_post_multipart() returned status {}: {}", status, resp_body));
+    }
+
+    Ok(Value::String(resp_body))
 }
 
 #[cfg(test)]

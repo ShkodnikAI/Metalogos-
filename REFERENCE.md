@@ -98,6 +98,7 @@ let x = 42.0
 let name = "Metalogos"
 let items = [1.0, 2.0, 3.0]
 let result = if x > 10.0 then "big" else "small"   // let с if-выражением
+let payload = { chat_id: "123", text: "hello", urgent: true }  // struct literal
 ```
 
 ### 3.3. Операторы
@@ -313,6 +314,8 @@ let claude_response = call_claude(env("ANTHROPIC_KEY"), "claude-sonnet-4-2025051
 | `http_post(url, body, content_type, headers)` | `String, String, String, String\|Struct -> String` | String | POST с заголовками. Если 4-й аргумент String — устанавливается `Authorization: Bearer <token>`. Если Struct — устанавливаются заголовки из полей |
 | `http_get(url)` | `String -> String` | String | GET-запрос. Таймаут 30с. Ошибка при статусе >= 400 |
 | `http_get(url, headers)` | `String, String\|Struct -> String` | String | GET с заголовками (Bearer token или Struct) |
+| `http_post_multipart(url, fields, files)` | `String, String\|Struct, String\|List -> String` | String | Multipart POST. `fields` — JSON-строка или Struct с текстовыми полями. `files` — JSON-массив `[{name, path, mime}]` или List of Structs |
+| `http_post_multipart(url, fields, files, headers)` | `String, String\|Struct, String\|List, String\|Struct -> String` | String | Multipart POST с заголовками |
 
 **Примеры:**
 ```mlog
@@ -329,6 +332,22 @@ let resp = http_post("https://api.example.com/data", body, "application/json", h
 // GET
 let data = http_get("https://api.example.com/users")
 let data = http_get("https://api.example.com/users", env("API_TOKEN"))
+
+// Multipart POST — отправка голосового в Telegram
+let result = http_post_multipart(
+  "https://api.telegram.org/bot" + token + "/sendVoice",
+  { chat_id: chat_id },
+  "[{\"name\":\"voice\",\"path\":\"/tmp/voice.ogg\",\"mime\":\"audio/ogg\"}]",
+  token
+)
+
+// Multipart POST — Whisper transcription
+let result = http_post_multipart(
+  "https://api.groq.com/openai/v1/audio/transcriptions",
+  "{\"model\":\"whisper-large-v3\"}",
+  "[{\"name\":\"file\",\"path\":\"/tmp/voice.ogg\",\"mime\":\"audio/ogg\"}]",
+  env("GROQ_KEY")
+)
 ```
 
 ### 4.7. JSON
@@ -517,6 +536,40 @@ return page
 | `now()` | `-> Float` | Float | Текущий Unix-timestamp в секундах |
 | `str(value)` | `Any -> String` | String | Преобразует любое значение в строку |
 | `to_string(value)` | `Any -> String` | String | Аналог `str()` (Float без `.0` для целых) |
+| `type_of(value)` | `Any -> String` | String | Возвращает имя типа значения: `"String"`, `"Float"`, `"Bool"`, `"List"`, `"Struct"`, `"Unit"`, `"Html"`, `"Query"`, `"Secret"`, `"Encrypted"`, `"Hash"`, `"Session"`, `"Fluid"`, `"HttpResponse"` |
+
+**Пример `type_of` — безопасная работа с `json_get`:**
+```mlog
+let voice_file_id = json_get(data, "message.voice.file_id", "")
+if type_of(voice_file_id) == "Unit" {
+  // Нет голосового вложения
+  return "text only"
+}
+// voice_file_id — реальное значение
+```
+
+---
+
+## 4.18. Scoping: область видимости `let`
+
+**Важно:** `let` внутри `if`, `while`, `each` блоков создаёт **новую лексическую переменную**, видимую только внутри этого блока. Она **не затрагивает** внешнюю переменную с тем же именем.
+
+```mlog
+let handled = 0.0
+if user_id != owner_id {
+  let handled = 1.0   // ← это НОВАЯ переменная, видна только здесь
+}
+// Внешний handled всё ещё 0.0!
+```
+
+**Как изменить внешнюю переменную:** используйте прямое присваивание (без `let`):
+```mlog
+let handled = 0.0
+if user_id != owner_id {
+  handled = 1.0   // ← присваивание в существующую переменную
+}
+// Теперь handled == 1.0
+```
 
 ---
 

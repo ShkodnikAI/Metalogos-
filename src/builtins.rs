@@ -197,7 +197,7 @@ fn builtin_str(args: &[Value]) -> Result<Value, String> {
 
 fn builtin_print(args: &[Value]) -> Result<Value, String> {
     let s = expect_string_arg("print", args, 0)?;
-    log::info!("print: {}", s);
+    eprintln!("[print] {}", s);
     Ok(Value::String(s))
 }
 

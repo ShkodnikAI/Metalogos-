@@ -1,4 +1,24 @@
 ---
+Task ID: 3
+Agent: main
+Task: Наряд №14 — устранение архитектурных ограничений Metalogos (6 пунктов)
+
+Work Log:
+- P0-1: match statement — MatchArm enum, Statement::Match, parse_match_stmt(), interpreter eval, compiler stub
+- P0-2: let mut — mutable: bool в LetBinding, grammar "mut"?, parser flag, interpreter mutable_vars HashSet, error on immutable assign
+- P0-3: if/else block expression — block_if_else_expr grammar, Expr::BlockIfElse, parse_block_if_else_expr(), interpreter eval
+- P1-4: try expression — try_expr grammar, Expr::Try, interpreter catch Err→Unit
+- P1-5: parser stack 8MB — wrapped parse in thread with 8MB stack
+- P2-6: require() builtin — server_user_roles, require intercept, session role injection in server.rs
+- REFERENCE.md обновлён: let mut, match arms, block if/else expr, try, require
+- 7 коммитов запушено: 512ac76, 7163dfe, 224d94f, dd586cf, 0f43801, 3be5009, d9ab5e9
+
+Stage Summary:
+- 6 из 6 пунктов Наряда №14 выполнены и запушены
+- Файлы: grammar.pest, ast.rs, parser.rs, interpreter.rs, compiler.rs, server.rs, audit.rs, REFERENCE.md
+
+---
+
 Task ID: 2
 Agent: main
 Task: Полный аудит замечаний по архитектуре Metalogos v0.4.0+ и исправление багов

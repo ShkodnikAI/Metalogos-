@@ -29,3 +29,44 @@ Stage Summary:
   through nested if/match blocks inside loops
 - Files changed: ast.rs, compiler.rs, grammar.pest, interpreter.rs, parser.rs, tests/phase17_break_continue.rs
 - CI build triggered, awaiting result
+
+---
+Task ID: 18
+Agent: main
+Task: Наряд №18 — Bytecode compiler: full statement compilation + builtin sync
+
+Work Log:
+- Audited compiler gaps: compile_pattern_body_with_locals had _ => {} for Each, While, Assign, IfElseBlock, IfThen, ExprStmt; Match was stub; QualifiedCall returned error; Break/Continue were no-ops
+- Added 3 new bytecode instructions: MakeList(usize), ListLen, Pop (bytecode.rs)
+- Implemented VM handlers for MakeList (pop N, reverse, create Value::List), ListLen (list/string length as Float), Pop (discard TOS) (vm.rs)
+- Refactored compiler: compile_pattern_body_with_locals → wrapper; added compile_stmts + compile_stmt with mutable code buffer
+- Introduced LoopCtx struct (continue_addr, break_patches) for break/continue jump backpatching
+- Compiled all 12 Statement variants:
+  - IfElseBlock: JumpIfNot/Jump chain with explicit ei_end_jumps vec for else-if patching
+  - IfThen: JumpIfNot for single-branch conditional
+  - Each: hidden list_slot + idx_slot locals, ListLen + CmpLt + IndexAccess loop
+  - EachWithIndex: same as Each + index var binding via LoadLocal + StoreLocal
+  - While: condition + body + Jump back + backpatching
+  - Assign: StoreLocal if in locals, StoreGlobal if in globals
+  - Match: scrutinee in hidden local, chained CmpEq/Contains/Cmp* + JumpIfNot dispatch (StartsWith deferred)
+  - ExprStmt: compile expr + Pop
+  - Break: Jump(0) placeholder collected in LoopCtx.break_patches, patched at loop_end
+  - Continue: Jump(continue_addr) directly (target known at loop start)
+- Fixed Expr::List: MakeList(N) instead of broken push-count pattern
+- Fixed Expr::QualifiedCall: resolve function part (ignores module prefix) instead of error
+- Expanded builtin_indices from 22 to 98 entries (compiler.rs)
+- Expanded VM builtin_names from 26 to 98 entries (vm.rs)
+- Expanded semantic builtin_names from 30 to 65+ entries (semantic.rs)
+- Updated analyze_purity to include Pop in pure instruction set
+- Wrote 17 integration tests in tests/phase18_compiler_statements.rs
+- Committed as 052de34, pushed to origin/main
+- Updated parent repo submodule ref, pushed as 871a904
+
+Stage Summary:
+- Produced artifacts: commit 052de34 (submodule), 871a904 (parent)
+- Key architectural decision: compile_stmts/compile_stmt with mutable &mut Vec<Instruction> code buffer
+  instead of returning Vec<Instruction> — enables correct address tracking for backpatching
+- LoopCtx struct with break_patches Vec enables nested loop support (each loop creates its own ctx)
+- Match StartsWith arms deferred (no StartsWith instruction) — falls through to next arm
+- Builtin index alignment: compiler builtin_indices and VM builtin_names now have 98 entries in identical order
+- CI build triggered by push to main

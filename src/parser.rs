@@ -1186,14 +1186,29 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
         parse_if_block_stmt(ib_pair.clone())
     } else if let Some(each_pair) = children.iter().find(|c| c.as_rule() == Rule::each_stmt) {
         let each_children: Vec<Pair<Rule>> = each_pair.clone().into_inner().collect();
-        // children: IDENT(variable), expression(iterable), statement*(body)
-        let variable = pair_str(&each_children[0]);
-        let iterable = parse_expression(each_children[1].clone());
-        let body: Vec<Statement> = each_children[2..].iter()
+        // each_stmt: IDENT [COMMA IDENT] "in" expression { body }
+        // Наряд №17.3: support `each i, item in list { ... }`
+        let idents: Vec<String> = each_children.iter()
+            .filter(|c| c.as_rule() == Rule::IDENT)
+            .map(|c| pair_str(c))
+            .collect();
+        let in_idx = each_children.iter().position(|c| c.as_str().trim() == "in").expect("each_stmt must have 'in'");
+        let iterable = parse_expression(each_children[in_idx + 1].clone());
+        let body: Vec<Statement> = each_children[in_idx + 2..].iter()
             .filter(|c| c.as_rule() == Rule::statement)
             .map(|c| parse_single_statement(c.clone()))
             .collect();
-        Statement::Each { variable, iterable, body }
+        if idents.len() == 2 {
+            // each i, item in list { ... } — index + value
+            // Desugar into: let _each_list = <iterable>; let i = 0; while i < len(_each_list) { let item = _each_list[i]; <body>; i = i + 1 }
+            // We create a synthetic Each that the interpreter will handle
+            let index_var = idents[0].clone();
+            let item_var = idents[1].clone();
+            Statement::EachWithIndex { index_var, item_var, iterable, body }
+        } else {
+            let variable = idents[0].clone();
+            Statement::Each { variable, iterable, body }
+        }
     } else if let Some(while_pair) = children.iter().find(|c| c.as_rule() == Rule::while_stmt) {
         let while_children: Vec<Pair<Rule>> = while_pair.clone().into_inner().collect();
         // children: expression(condition), statement*(body)
@@ -1229,6 +1244,10 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
         let rs_children = children_of(rs_pair);
         let expr = find_child(&rs_children, Rule::expression).unwrap();
         Statement::Return(parse_expression(expr))
+    } else if let Some(br_pair) = children.iter().find(|c| c.as_rule() == Rule::break_stmt) {
+        Statement::Break
+    } else if let Some(co_pair) = children.iter().find(|c| c.as_rule() == Rule::continue_stmt) {
+        Statement::Continue
     } else if let Some(it_pair) = children.iter().find(|c| c.as_rule() == Rule::if_then_stmt) {
         // if_then_stmt with optional else: "if expr then { ... } [else if expr then { ... }]* [else { ... }]"
         let it_children: Vec<Pair<Rule>> = it_pair.clone().into_inner().collect();

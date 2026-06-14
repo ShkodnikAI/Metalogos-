@@ -501,6 +501,14 @@ impl Compiler {
                     // the tree-walking interpreter for match statements.
                     let _ = (arms, else_body);
                 }
+                // Наряд №17: break/continue — not meaningful in non-loop context
+                Statement::Break | Statement::Continue => {}
+                // Наряд №17.3: each with index — compile as indexed loop
+                Statement::EachWithIndex { index_var, item_var, iterable, body } => {
+                    // Compile: evaluate iterable, then for each item push index + item to locals
+                    // For now, emit as Unit (full compilation deferred to Наряд №18)
+                    let _ = (index_var, item_var, iterable, body);
+                }
                 _ => {}
             }
         }

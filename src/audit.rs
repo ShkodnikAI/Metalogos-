@@ -212,6 +212,7 @@ fn check_secrets(declarations: &[Declaration], source: &str, findings: &mut Vec<
                     if let Some(body) = else_body { walk_string_stmts(body, acc); }
                 }
                 Statement::IfThen(_, body) => walk_string_stmts(body, acc),
+                _ => {}
             }
         }
     }
@@ -352,6 +353,7 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                     if let Some(body) = else_body { for s in body { walk_stmt(s, source, findings, all_literal, literal_count); } }
                 }
                 Statement::IfThen(_, body) => { for s in body { walk_stmt(s, source, findings, all_literal, literal_count); } }
+                _ => {}
             }
         }
         for stmt in stmts {
@@ -540,8 +542,11 @@ fn check_html_injection(declarations: &[Declaration], source: &str, findings: &m
                 Statement::IfThen(_, body) => {
                     for s in body { process_stmt(s, tracker, source, findings); }
                 }
-            }
+                _ => {}
+            
         }
+
+        for stmt in stmts {
 
         for stmt in stmts {
             process_stmt(stmt, &mut tracker, source, findings);
@@ -615,6 +620,7 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                 Statement::IfThen(_, body) => {
                     for s in body { process_stmt(s, tracker, source, findings); }
                 }
+                _ => {}
             }
         }
 
@@ -720,8 +726,11 @@ fn check_open_redirect(declarations: &[Declaration], source: &str, findings: &mu
                 Statement::IfThen(_, body) => {
                     for s in body { process_stmt(s, tracker, source, findings); }
                 }
-            }
+                _ => {}
+            
         }
+
+        for stmt in stmts {
 
         for stmt in stmts {
             process_stmt(stmt, &mut tracker, source, findings);

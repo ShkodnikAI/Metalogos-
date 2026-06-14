@@ -1180,17 +1180,24 @@ impl Vm {
             }
         }
 
-        // Check patterns
-        for pattern in self.patterns.iter() {
+        // Check patterns — find first matching pattern, then release borrow
+        let mut matched_pattern: Option<(usize, &CompiledFn)> = None;
+        for (idx, pattern) in self.patterns.iter().enumerate() {
             if pattern.name == name {
-                if args.len() != pattern.param_count {
-                    return Err(format!(
-                        "VM: pattern {} expects {} args, got {}",
-                        name, pattern.param_count, args.len()
-                    ));
-                }
+                matched_pattern = Some((idx, pattern));
+                break;
+            }
+        }
+        let (pattern_idx, pattern) = matched_pattern
+            .ok_or_else(|| format!("VM: unknown pattern {}", name))?;
+        if args.len() != pattern.param_count {
+            return Err(format!(
+                "VM: pattern {} expects {} args, got {}",
+                name, pattern.param_count, args.len()
+            ));
+        }
 
-                // ── VM bytecode path ───────────────────────────
+        // ── VM bytecode path ───────────────────────────
                 // Collapse Fluid arguments to parameter types
                 let collapsed_args: Vec<Value> = args.iter()
                     .zip(pattern.param_types.iter())

@@ -643,8 +643,16 @@ fn check_opaque_in_stmt(
 }
 
 /// Placeholder to satisfy the function signature without threading extra params.
-fn _builtin_arity_placeholder() -> HashMap<&'static str, usize> { HashMap::new() }
-fn _pattern_arity_placeholder() -> HashMap<String, usize> { HashMap::new() }
+fn _builtin_arity_placeholder() -> &'static HashMap<&'static str, usize> {
+    use std::sync::OnceLock;
+    static MAP: OnceLock<HashMap<&'static str, usize>> = OnceLock::new();
+    MAP.get_or_init(HashMap::new)
+}
+fn _pattern_arity_placeholder() -> &'static HashMap<String, usize> {
+    use std::sync::OnceLock;
+    static MAP: OnceLock<HashMap<String, usize>> = OnceLock::new();
+    MAP.get_or_init(HashMap::new)
+}
 
 /// Check opaque type violations in an expression.
 fn check_opaque_in_expr(

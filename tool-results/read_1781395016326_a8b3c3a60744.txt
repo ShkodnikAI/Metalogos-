@@ -1,0 +1,2002 @@
+     1→// ── Tree-walking interpreter for METALOGOS M1+M2 ─────────────────────
+     2→// M1: entities, patterns, linear flow
+     3→// M2: struct entities, rules, branching flow, comparisons
+     4→
+     5→use std::collections::HashMap;
+     6→use std::sync::Mutex;
+     7→use std::time::{SystemTime, UNIX_EPOCH};
+     8→use zeroize::Zeroizing;
+     9→
+    10→use crate::ast::*;
+    11→use crate::builtins::Builtins;
+    12→use crate::embeddings::EmbeddingManager;
+    13→#[allow(unused_imports)]
+    14→use crate::embeddings::cosine_similarity;
+    15→use crate::memory_store::{MemoryEntry, MemoryStore, KgStore, InMemoryStore, InMemoryKg, SqliteStore, SqliteKg};
+    16→use crate::llm;
+    17→
+    18→/// A single variant inside a Fluid value (runtime). Contains a concrete
+    19→/// value, its declared type name, and a confidence score (0.0..1.0).
+    20→#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    21→pub struct FluidValueVariant {
+    22→    pub type_name: String,
+    23→    pub value: Value,
+    24→    pub confidence: f64,
+    25→}
+    26→
+    27→/// Opaque secret string with automatic memory zeroing on drop (Phase 7.3).
+    28→/// Implements serde by serializing as "[SECRET]" marker — actual value is NEVER persisted.
+    29→#[derive(Clone, Debug)]
+    30→pub struct SecretString(pub Zeroizing<String>);
+    31→
+    32→impl serde::Serialize for SecretString {
+    33→    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+    34→        // Never serialize the actual secret — emit a safe marker
+    35→        s.serialize_str("[SECRET]")
+    36→    }
+    37→}
+    38→
+    39→impl<'de> serde::Deserialize<'de> for SecretString {
+    40→    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+    41→        let inner = String::deserialize(d)?;
+    42→        Ok(SecretString(Zeroizing::new(inner)))
+    43→    }
+    44→}
+    45→
+    46→impl std::ops::Deref for SecretString {
+    47→    type Target = String;
+    48→    fn deref(&self) -> &Self::Target {
+    49→        &self.0
+    50→    }
+    51→}
+    52→
+    53→impl SecretString {
+    54→    pub fn new(s: String) -> Self {
+    55→        SecretString(Zeroizing::new(s))
+    56→    }
+    57→    pub fn as_str(&self) -> &str {
+    58→        self.0.as_str()
+    59→    }
+    60→}
+    61→
+    62→/// Runtime value.
+    63→#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    64→pub enum Value {
+    65→    String(String),
+    66→    Float(f64),
+    67→    Bool(bool),
+    68→    Struct {
+    69→        type_name: String,
+    70→        fields: HashMap<String, Value>,
+    71→    },
+    72→    /// List value: ordered collection of items.
+    73→    List(Vec<Value>),
+    74→    /// Fluid value: superposition of typed variants with confidence scores.
+    75→    /// Collapses lazily at point of use (see `maybe_collapse`).
+    76→    Fluid(Vec<FluidValueVariant>),
+    77→    Unit,
+    78→    /// Opaque HTML content (Phase 6.2) — cannot be concatenated, printed, or converted to String
+    79→    Html(String),
+    80→    /// Opaque SQL query (Phase 6.3) — only created via query() builtin
+    81→    Query(String),
+    82→    /// Opaque secret value (Phase 6.4) — cannot be printed or converted to String.
+    83→    /// Phase 7.3: Internally uses SecretString (Zeroizing<String>) — memory is zeroed on drop.
+    84→    Secret(SecretString),
+    85→    /// Opaque encrypted data (Phase 6.4)
+    86→    Encrypted(Vec<u8>),
+    87→    /// Opaque password hash (Phase 6.4)
+    88→    Hash(String),
+    89→    /// Opaque session data (Phase 6.5)
+    90→    Session(std::collections::HashMap<String, String>),
+    91→    /// HTTP response value (Phase 6.1)
+    92→    HttpResponse { status: u16, body: String },
+    93→}
+    94→
+    95→impl std::fmt::Display for Value {
+    96→    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    97→        match self {
+    98→            Value::String(s) => write!(f, "{}", s),
+    99→            Value::Float(n) => write!(f, "{}", n),
+   100→            Value::Bool(b) => write!(f, "{}", b),
+   101→            Value::Struct { type_name, fields } => {
+   102→                write!(f, "{} {{", type_name)?;
+   103→                let pairs: Vec<_> = fields.iter().collect();
+   104→                for (i, (k, v)) in pairs.iter().enumerate() {
+   105→                    if i > 0 { write!(f, ", ")?; }
+   106→                    write!(f, "{}: {}", k, v)?;
+   107→                }
+   108→                write!(f, "}}")
+   109→            }
+   110→            Value::List(items) => {
+   111→                write!(f, "[")?;
+   112→                for (i, item) in items.iter().enumerate() {
+   113→                    if i > 0 { write!(f, ", ")?; }
+   114→                    write!(f, "{}", item)?;
+   115→                }
+   116→                write!(f, "]")
+   117→            }
+   118→            Value::Fluid(variants) => {
+   119→                // Display as the highest-confidence variant
+   120→                let best = variants.iter().max_by(|a, b| {
+   121→                    a.confidence.partial_cmp(&b.confidence).unwrap_or(std::cmp::Ordering::Equal)
+   122→                });
+   123→                match best {
+   124→                    Some(v) => write!(f, "{}", v.value),
+   125→                    None => write!(f, "()"),
+   126→                }
+   127→            }
+   128→            Value::Unit => write!(f, "()"),
+   129→            Value::Html(_) => write!(f, "[Html]"),
+   130→            Value::Query(_) => write!(f, "[Query]"),
+   131→            Value::Secret(_) => write!(f, "[Secret]"),
+   132→            Value::Encrypted(_) => write!(f, "[Encrypted]"),
+   133→            Value::Hash(_) => write!(f, "[Hash]"),
+   134→            Value::Session(_) => write!(f, "[Session]"),
+   135→            Value::HttpResponse { status, .. } => write!(f, "[HttpResponse {}]", status),
+   136→        }
+   137→    }
+   138→}
+   139→
+   140→impl Value {
+   141→    pub fn type_name(&self) -> &'static str {
+   142→        match self {
+   143→            Value::String(_) => "String",
+   144→            Value::Float(_) => "Float",
+   145→            Value::Bool(_) => "Bool",
+   146→            Value::List(_) => "List",
+   147→            Value::Struct { .. } => "Struct",
+   148→            Value::Fluid(_) => "Fluid",
+   149→            Value::Unit => "Unit",
+   150→            Value::Html(_) => "Html",
+   151→            Value::Query(_) => "Query",
+   152→            Value::Secret(_) => "Secret",
+   153→            Value::Encrypted(_) => "Encrypted",
+   154→            Value::Hash(_) => "Hash",
+   155→            Value::Session(_) => "Session",
+   156→            Value::HttpResponse { .. } => "HttpResponse",
+   157→        }
+   158→    }
+   159→
+   160→    /// Get a field value from a struct. Returns Err if not a struct or field missing.
+   161→    pub fn get_field(&self, field: &str) -> Result<&Value, String> {
+   162→        match self {
+   163→            Value::Struct { fields, .. } => fields.get(field)
+   164→                .ok_or_else(|| format!("field '{}' not found on struct", field)),
+   165→            _ => Err(format!("cannot access field '{}' on non-struct value ({})", field, self.type_name())),
+   166→        }
+   167→    }
+   168→
+   169→    /// Set a field value on a mutable struct.
+   170→    pub fn set_field(&mut self, field: &str, value: Value) -> Result<(), String> {
+   171→        match self {
+   172→            Value::Struct { fields, .. } => {
+   173→                if fields.contains_key(field) {
+   174→                    fields.insert(field.to_string(), value);
+   175→                    Ok(())
+   176→                } else {
+   177→                    Err(format!("field '{}' not found on struct", field))
+   178→                }
+   179→            }
+   180→            _ => Err(format!("cannot set field '{}' on non-struct value", field)),
+   181→        }
+   182→    }
+   183→
+   184→    /// Convert to f64 for numeric comparisons.
+   185→    pub fn as_float(&self) -> Result<f64, String> {
+   186→        match self {
+   187→            Value::Float(f) => Ok(*f),
+   188→            Value::Bool(b) => Ok(if *b { 1.0 } else { 0.0 }),
+   189→            Value::String(s) => s.parse::<f64>()
+   190→                .map_err(|_| format!("cannot convert '{}' to Float", s)),
+   191→            _ => Err(format!("cannot convert {} to Float", self.type_name())),
+   192→        }
+   193→    }
+   194→
+   195→    /// Convert to bool for condition checking.
+   196→    pub fn as_bool(&self) -> Result<bool, String> {
+   197→        match self {
+   198→            Value::Bool(b) => Ok(*b),
+   199→            Value::Float(f) => Ok(*f != 0.0),
+   200→            Value::String(s) => Ok(!s.is_empty()),
+   201→            Value::Unit => Ok(false),
+   202→            _ => Err(format!("cannot convert {} to Bool", self.type_name())),
+   203→        }
+   204→    }
+   205→
+   206→    /// Check if this value is a Fluid superposition.
+   207→    pub fn is_fluid(&self) -> bool {
+   208→        matches!(self, Value::Fluid(_))
+   209→    }
+   210→}
+   211→
+   212→/// A compiled pattern ready for invocation.
+   213→#[derive(Clone)]
+   214→struct CompiledPattern {
+   215→    params: Vec<Param>,
+   216→    body: Vec<Statement>,
+   217→}
+   218→
+   219→/// A learnable pattern that calls an LLM.
+   220→#[derive(Clone)]
+   221→pub struct CompiledLearnable {
+   222→    pub params: Vec<Param>,
+   223→    pub prompt: String,
+   224→    /// Few-shot examples added by `adapt` declarations.
+   225→    /// Each entry: (input_string, output_string).
+   226→    pub few_shot: Vec<(String, String)>,
+   227→    /// Optional context auto-loading mode (ADR-0046).
+   228→    /// - None: no context (default, backward compatible)
+   229→    /// - Auto: recall(first_param, limit=5)
+   230→    /// - Recall(query_expr, limit): explicit recall
+   231→    /// - Literal(string): static text prepended to prompt
+   232→    pub context: Option<ContextMode>,
+   233→    /// Optional context compression strategy (ADR-0055).
+   234→    /// - None: no compression (default)
+   235→    /// - Auto: inject as-is
+   236→    /// - Compress: compress via LLM if exceeds max_context_tokens
+   237→    pub context_strategy: ContextStrategy,
+   238→    /// Max estimated tokens for context before compression (ADR-0055).
+   239→    /// Default: 2000.
+   240→    pub max_context_tokens: usize,
+   241→    /// Optional max_tokens for LLM backend.
+   242→    max_tokens: Option<u32>,
+   243→    /// Enable LLM response caching (ADR-0047).
+   244→    cache: bool,
+   245→    /// Cache time-to-live in seconds. Default 3600 (1 hour).
+   246→    cache_ttl: u64,
+   247→    /// Optional per-pattern model override (ADR-0048).
+   248→    /// When set, passed to the LLM backend instead of the global model.
+   249→    model: Option<String>,
+   250→    /// Optional conversation binding (ADR-0053).
+   251→    /// When set (e.g., "current"), the learnable pattern injects conversation history.
+   252→    conversation: Option<String>,
+   253→}
+   254→
+   255→/// A cached LLM response (ADR-0047).
+   256→#[derive(Clone, serde::Serialize, serde::Deserialize)]
+   257→struct LlmCacheEntry {
+   258→    /// The response string from the LLM.
+   259→    response: String,
+   260→    /// Unix timestamp when the entry was created.
+   261→    created_at: i64,
+   262→    /// Time-to-live in seconds.
+   263→    ttl: u64,
+   264→}
+   265→
+   266→/// ADR-0056: Serialized checkpoint data for flow lifecycle control.
+   267→/// Stores the complete state needed to resume a flow from a checkpoint.
+   268→#[derive(Clone, serde::Serialize, serde::Deserialize)]
+   269→struct CheckpointData {
+   270→    /// Name of the flow being checkpointed.
+   271→    flow_name: String,
+   272→    /// Checkpoint name (e.g., "mid", "sources").
+   273→    checkpoint_name: String,
+   274→    /// Pipeline step index at which the checkpoint was taken (0-based).
+   275→    step_index: usize,
+   276→    /// Serialized current value at this point in the pipeline.
+   277→    current_value: Value,
+   278→    /// Serialized variable scope at checkpoint time.
+   279→    variables: HashMap<String, Value>,
+   280→    /// Unix timestamp (milliseconds) when checkpoint was created.
+   281→    created_at: i64,
+   282→}
+   283→
+   284→/// A registered struct type.
+   285→#[derive(Clone)]
+   286→struct StructType {
+   287→    #[allow(dead_code)]
+   288→    name: String,
+   289→    fields: Vec<FieldDecl>,
+   290→}
+   291→
+   292→// MemoryEntry and KgStore types are now in memory_store module (Phase 7.6).
+   293→
+   294→/// Result of running an eval block (ADR-0050).
+   295→/// Contains accuracy, confusion matrix, and failure details.
+   296→#[derive(Debug, Clone)]
+   297→pub struct EvalResult {
+   298→    /// Name of the evaluated learnable pattern.
+   299→    pub pattern_name: String,
+   300→    /// Metric used (currently only "accuracy").
+   301→    pub metric: String,
+   302→    /// Total number of test examples.
+   303→    pub total: usize,
+   304→    /// Number of correctly predicted examples.
+   305→    pub correct: usize,
+   306→    /// Fraction of correct predictions (correct / total).
+   307→    pub accuracy: f64,
+   308→    /// Minimum acceptable accuracy threshold.
+   309→    pub threshold: f64,
+   310→    /// Whether accuracy >= threshold (eval passes).
+   311→    pub passed: bool,
+   312→    /// Confusion matrix: expected_label -> predicted_label -> count.
+   313→    pub confusion: std::collections::HashMap<String, std::collections::HashMap<String, usize>>,
+   314→    /// Failing examples: (input, expected, actual).
+   315→    pub failures: Vec<(String, String, String)>,
+   316→}
+   317→
+   318→/// Per-pattern runtime statistics (ADR-0051).
+   319→/// Tracked automatically during pattern invocation and adapt operations.
+   320→/// Returned by the `inspect()` builtin.
+   321→#[derive(Debug, Clone)]
+   322→pub struct PatternStats {
+   323→    /// Total number of invocations of this learnable pattern.
+   324→    pub calls: u64,
+   325→    /// Sum of confidence values from each invocation (for computing average).
+   326→    pub confidence_sum: f64,
+   327→    /// Number of cache hits (responses served from few-shot or LLM cache).
+   328→    pub cache_hits: u64,
+   329→    /// Timestamp of the last adapt operation (Unix seconds), or 0 if never adapted.
+   330→    pub last_adapt: i64,
+   331→    /// Timestamp of the last invocation (Unix seconds), or 0 if never called.
+   332→    pub last_call: i64,
+   333→    /// Current count of few-shot examples added via adapt.
+   334→    pub examples_count: u64,
+   335→}
+   336→
+   337→impl PatternStats {
+   338→    pub fn new() -> Self {
+   339→        PatternStats {
+   340→            calls: 0,
+   341→            confidence_sum: 0.0,
+   342→            cache_hits: 0,
+   343→            last_adapt: 0,
+   344→            last_call: 0,
+   345→            examples_count: 0,
+   346→        }
+   347→    }
+   348→
+   349→    /// Average confidence across all invocations.
+   350→    pub fn avg_confidence(&self) -> f64 {
+   351→        if self.calls == 0 {
+   352→            0.0
+   353→        } else {
+   354→            self.confidence_sum / self.calls as f64
+   355→        }
+   356→    }
+   357→}
+   358→
+   359→/// A single message within a conversation (ADR-0053).
+   360→#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+   361→pub struct ConvMessage {
+   362→    /// Message role: "user", "assistant", or "system".
+   363→    pub role: String,
+   364→    /// Message text content.
+   365→    pub text: String,
+   366→    /// Unix timestamp when the message was added.
+   367→    pub timestamp: i64,
+   368→}
+   369→
+   370→/// A conversation with its messages and metadata (ADR-0053).
+   371→#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+   372→pub struct Conversation {
+   373→    /// Conversation identifier.
+   374→    pub id: String,
+   375→    /// Ordered list of messages in this conversation.
+   376→    pub messages: Vec<ConvMessage>,
+   377→    /// Unix timestamp when the conversation was created.
+   378→    pub created_at: i64,
+   379→    /// Unix timestamp of last activity (message added/removed).
+   380→    pub last_active: i64,
+   381→    /// Additional metadata (key-value pairs).
+   382→    pub metadata: HashMap<String, String>,
+   383→}
+   384→
+   385→/// Conversation configuration (ADR-0053).
+   386→/// Set by `conversation { ttl: N max_messages: N compress_after: N }`.
+   387→#[derive(Debug, Clone)]
+   388→pub struct ConversationConfig {
+   389→    /// Time-to-live in seconds. Default: 1800 (30 minutes).
+   390→    pub ttl: u64,
+   391→    /// Maximum messages per conversation. Default: 50.
+   392→    pub max_messages: usize,
+   393→    /// Compress older messages via LLM summarization after this count. Default: 20.
+   394→    pub compress_after: usize,
+   395→}
+   396→
+   397→impl Default for ConversationConfig {
+   398→    fn default() -> Self {
+   399→        ConversationConfig {
+   400→            ttl: 1800,
+   401→            max_messages: 50,
+   402→            compress_after: 20,
+   403→        }
+   404→    }
+   405→}
+   406→
+   407→/// A single event in the event stream (ADR-0052).
+   408→/// Represents a discrete operation that occurred during interpretation.
+   409→#[derive(Debug, Clone, serde::Serialize)]
+   410→pub struct Event {
+   411→    /// Auto-incrementing event ID.
+   412→    pub id: u64,
+   413→    /// Unix timestamp in milliseconds.
+   414→    pub timestamp: u64,
+   415→    /// Event type: "pattern_call", "llm_call", "memory_store", "memory_recall",
+   416→    /// "rule_fire", "adapt", "error", etc.
+   417→    pub event_type: String,
+   418→    /// Source: pattern name, "system", or "builtin".
+   419→    pub source: String,
+   420→    /// Arbitrary key-value data attached to the event.
+   421→    pub data: HashMap<String, String>,
+   422→    /// Duration of the operation in milliseconds, if measurable.
+   423→    pub duration_ms: Option<u64>,
+   424→}
+   425→
+   426→impl EvalResult {
+   427→    /// Format the eval result as a human-readable report.
+   428→    pub fn format_report(&self) -> String {
+   429→        let mut lines = Vec::new();
+   430→        lines.push(format!("Eval: {}", self.pattern_name));
+   431→        lines.push(format!("  Dataset: {} examples", self.total));
+   432→        lines.push(format!("  Accuracy: {:.1}% ({}/{})", self.accuracy * 100.0, self.correct, self.total));
+   433→        lines.push(format!("  Threshold: {}", self.threshold));
+   434→        lines.push(format!("  Result: {}", if self.passed { "PASS" } else { "FAIL (below threshold)" }));
+   435→
+   436→        // Confusion matrix
+   437→        if !self.confusion.is_empty() {
+   438→            // Collect all unique labels
+   439→            let mut all_labels: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+   440→            for (expected, predictions) in &self.confusion {
+   441→                all_labels.insert(expected.clone());
+   442→                for pred in predictions.keys() {
+   443→                    all_labels.insert(pred.clone());
+   444→                }
+   445→            }
+   446→
+   447→            let labels: Vec<&String> = all_labels.iter().collect();
+   448→
+   449→            // Header row
+   450→            let header = format!("  {:12} {}", "", labels.iter().map(|l| format!("{:>12}", l)).collect::<Vec<_>>().join(" "));
+   451→            lines.push(header);
+   452→
+   453→            // Data rows
+   454→            for expected in &labels {
+   455→                let row = format!("  {:12} {}", expected,
+   456→                    labels.iter().map(|pred| {
+   457→                        let count = self.confusion.get(*expected)
+   458→                            .and_then(|m| m.get(*pred))
+   459→                            .copied()
+   460→                            .unwrap_or(0);
+   461→                        format!("{:>12}", count)
+   462→                    }).collect::<Vec<_>>().join(" ")
+   463→                );
+   464→                lines.push(row);
+   465→            }
+   466→        }
+   467→
+   468→        // Failing examples with adapt suggestions
+   469→        if !self.failures.is_empty() {
+   470→            lines.push(String::new());
+   471→            lines.push("  Failing examples (suggest adapt):".to_string());
+   472→            for (input, expected, actual) in &self.failures {
+   473→                lines.push(format!("    - {:?} -> expected {:?}, got {:?}", input, expected, actual));
+   474→            }
+   475→            // Generate adapt suggestions
+   476→            lines.push(String::new());
+   477→            lines.push("  Suggested adapt commands:".to_string());
+   478→            for (input, expected, _actual) in &self.failures {
+   479→                lines.push(format!("    adapt {} add_example({:?}, {:?})", self.pattern_name, input, expected));
+   480→            }
+   481→        }
+   482→
+   483→        lines.join("\n")
+   484→    }
+   485→}
+   486→
+   487→/// The interpreter holds all runtime state.
+   488→pub struct Interpreter {
+   489→    /// Global variable store.
+   490→    pub(crate) variables: HashMap<String, Value>,
+   491→    /// Struct type registry.
+   492→    struct_types: HashMap<String, StructType>,
+   493→    /// Compiled patterns (pure).
+   494→    patterns: HashMap<String, CompiledPattern>,
+   495→    /// Compiled learnable patterns (LLM-backed).
+   496→    learnable_patterns: HashMap<String, CompiledLearnable>,
+   497→    /// Rule declarations (stored for later execution).
+   498→    rules: Vec<RuleDecl>,
+   499→    /// Built-in function registry.
+   500→    builtins: Builtins,
+   501→    /// Flow branch definitions: step_name -> [Branch]
+   502→    branch_defs: HashMap<String, Vec<Branch>>,
+   503→    /// Memory store backend (Phase 7.6): InMemoryStore or SqliteStore.
+   504→    memory: std::sync::Mutex<Box<dyn MemoryStore>>,
+   505→    /// Knowledge graph store backend (Phase 7.6): InMemoryKg or SqliteKg.
+   506→    kg: std::sync::Mutex<Box<dyn KgStore>>,
+   507→    /// Sandbox declarations (recorded but not enforced).
+   508→    sandboxes: HashMap<String, SandboxDecl>,
+   509→    /// Active sandbox enforcement (Phase 7.5): clone of the current sandbox config.
+   510→    /// When Some, iteration limits are reduced and network/timeout checks apply.
+   511→    active_sandbox: Option<SandboxDecl>,
+   512→    /// Memory persist path (Phase 7.6).
+   513→    memory_persist_path: Option<String>,
+   514→    /// Mutate status log messages.
+   515→    mutate_log: Vec<String>,
+   516→    /// Module namespaces: alias -> path (for qualified call resolution).
+   517→    module_namespaces: HashMap<String, String>,
+   518→    /// Set of currently-loading module paths (for circular import detection).
+   519→    loading_stack: Vec<String>,
+   520→    /// Base directory for resolving relative imports (set before run).
+   521→    base_dir: std::path::PathBuf,
+   522→    /// Template registry (Phase 6.2)
+   523→    pub(crate) templates: HashMap<String, TemplateDecl>,
+   524→    /// DB config (Phase 6.3)
+   525→    db_config: Option<DbDecl>,
+   526→    /// Mock DB store (Phase 6.3)
+   527→    db_store: Vec<HashMap<String, Value>>,
+   528→    /// SQLite connection for db {} block (Наряд №7).
+   529→    /// Opened when db { url: "sqlite::memory:" } or similar is declared.
+   530→    db_conn: std::sync::Mutex<Option<rusqlite::Connection>>,
+   531→    /// Resolved DB URL string for re-opening connections (Наряд №8).
+   532→    /// Set by init_db_connection() so per-request interpreters can open new connections.
+   533→    db_url: Option<String>,
+   534→    /// Audit log (Phase 7.5): uses Mutex for interior mutability + Send/Sync.
+   535→    audit_log: Mutex<Vec<String>>,
+   536→    /// Server config (Phase 6.1)
+   537→    server_config: Option<MlogServerDecl>,
+   538→    /// Embedding manager for semantic recall (Phase 7.2).
+   539→    embedding_manager: EmbeddingManager,
+   540→    /// Server context: parsed JSON request body (Наряд №3).
+   541→    /// Set by execute_route_body, returned by json_body() builtin.
+   542→    server_json_body: Option<Value>,
+   543→    /// LLM response cache (ADR-0047): HashMap<hash, (response, created_at)>
+   544→    /// Key = hash(effective_prompt + input), Value = cached response + timestamp.
+   545→    /// Checked before every LLM call for learnable patterns with cache: true.
+   546→    llm_cache: std::sync::Mutex<HashMap<u64, LlmCacheEntry>>,
+   547→    /// Registered hooks (ADR-0045): before_pattern and after_pattern.
+   548→    /// Stored in declaration order; all before hooks fire before every pattern invocation,
+   549→    /// all after hooks fire after every pattern invocation.
+   550→    hooks_before: Vec<HookDecl>,
+   551→    hooks_after: Vec<HookDecl>,
+   552→    /// Eval blocks (ADR-0050): collected during run(), executed by run_eval_blocks().
+   553→    eval_blocks: Vec<EvalDecl>,
+   554→    /// Per-pattern runtime statistics (ADR-0051): calls, confidence, cache hits, adapt info.
+   555→    /// Key = pattern name. Used by the `inspect()` builtin.
+   556→    pattern_stats: std::sync::Mutex<std::collections::HashMap<String, PatternStats>>,
+   557→    /// Event stream (ADR-0052): in-memory log of all operations.
+   558→    /// Each event has id, timestamp, type, source, data, duration.
+   559→    event_log: std::sync::Mutex<Vec<Event>>,
+   560→    /// Next event ID (ADR-0052): auto-incrementing counter for event IDs.
+   561→    event_next_id: std::sync::atomic::AtomicU64,
+   562→    /// Conversations storage (ADR-0053): HashMap<id, Conversation>.
+   563→    /// Thread-safe via Mutex for interior mutability.
+   564→    conversations: std::sync::Mutex<HashMap<String, Conversation>>,
+   565→    /// Conversation configuration (ADR-0053).
+   566→    /// Set by `conversation { ttl: N max_messages: N compress_after: N }`.
+   567→    conversation_config: ConversationConfig,
+   568→    /// ADR-0056: Path to checkpoint SQLite database (for lifecycle control).
+   569→    /// Set by `memory { persist: "path" }` — checkpoints use same directory.
+   570→    /// None = in-memory only (checkpoints stored in HashMap, lost on restart).
+   571→    checkpoint_db: std::sync::Mutex<Option<rusqlite::Connection>>,
+   572→    /// In-memory checkpoint fallback when no persist path is configured.
+   573→    checkpoint_mem: std::sync::Mutex<HashMap<String, CheckpointData>>,
+   574→    /// Resume target: if Some((flow_name, checkpoint_name)), the flow should
+   575→    /// skip steps until reaching the step after this checkpoint.
+   576→    resume_target: Option<(String, String)>,
+   577→    /// Наряд №4: LLM routing config (providers, circuit breaker, failover).
+   578→    /// If None → backward compatible (env vars, single provider).
+   579→    llm_config: Option<crate::ast::LlmConfigDecl>,
+   580→    /// Наряд №4: Smart LLM router instance. Created from llm_config when present.
+   581→    /// Shared via Arc<Mutex> for thread safety in server mode.
+   582→    smart_router: std::sync::Arc<std::sync::Mutex<Option<llm::SmartRouter>>>,
+   583→}
+   584→
+   585→impl Interpreter {
+   586→    pub fn new() -> Self {
+   587→        Interpreter {
+   588→            variables: HashMap::new(),
+   589→            struct_types: HashMap::new(),
+   590→            patterns: HashMap::new(),
+   591→            learnable_patterns: HashMap::new(),
+   592→            rules: Vec::new(),
+   593→            builtins: Builtins::new(),
+   594→            branch_defs: HashMap::new(),
+   595→            memory: std::sync::Mutex::new(Box::new(InMemoryStore::new())),
+   596→            kg: std::sync::Mutex::new(Box::new(InMemoryKg::new())),
+   597→            sandboxes: HashMap::new(),
+   598→            active_sandbox: None,
+   599→            memory_persist_path: None,
+   600→            mutate_log: Vec::new(),
+   601→            module_namespaces: HashMap::new(),
+   602→            loading_stack: Vec::new(),
+   603→            base_dir: std::path::PathBuf::from("."),
+   604→            templates: HashMap::new(),
+   605→            db_config: None,
+   606→            db_store: Vec::new(),
+   607→            db_conn: std::sync::Mutex::new(None),
+   608→            db_url: None,
+   609→            audit_log: Mutex::new(Vec::new()),
+   610→            server_config: None,
+   611→            embedding_manager: EmbeddingManager::new(),
+   612→            server_json_body: None,
+   613→            llm_cache: std::sync::Mutex::new(HashMap::new()),
+   614→            hooks_before: Vec::new(),
+   615→            hooks_after: Vec::new(),
+   616→            eval_blocks: Vec::new(),
+   617→            pattern_stats: std::sync::Mutex::new(std::collections::HashMap::new()),
+   618→            event_log: std::sync::Mutex::new(Vec::new()),
+   619→            event_next_id: std::sync::atomic::AtomicU64::new(1),
+   620→            conversations: std::sync::Mutex::new(HashMap::new()),
+   621→            conversation_config: ConversationConfig::default(),
+   622→            checkpoint_db: std::sync::Mutex::new(None),
+   623→            checkpoint_mem: std::sync::Mutex::new(HashMap::new()),
+   624→            resume_target: None,
+   625→            llm_config: None,
+   626→            smart_router: std::sync::Arc::new(std::sync::Mutex::new(None)),
+   627→        }
+   628→    }
+   629→
+   630→    /// Set the base directory for resolving relative imports.
+   631→    pub fn set_base_dir(&mut self, dir: std::path::PathBuf) {
+   632→        self.base_dir = dir;
+   633→    }
+   634→
+   635→    /// Set the parsed JSON body for server context (Наряд №3).
+   636→    /// Used by execute_route_body; returned by json_body() builtin.
+   637→    pub fn set_server_json_body(&mut self, val: Value) {
+   638→        self.server_json_body = Some(val);
+   639→    }
+   640→
+   641→    /// Get the parsed JSON body in server context.
+   642→    pub fn get_server_json_body(&self) -> Option<&Value> {
+   643→        self.server_json_body.as_ref()
+   644→    }
+   645→
+   646→    /// Activate a sandbox for enforcement (Phase 7.5).
+   647→    /// When a sandbox is active, iteration limits are reduced to 10,000,
+   648→    /// network access is blocked if "network" is in the forbidden list,
+   649→    /// and LLM calls are subject to the sandbox timeout.
+   650→    pub fn set_active_sandbox(&mut self, sandbox: SandboxDecl) {
+   651→        self.active_sandbox = Some(sandbox);
+   652→    }
+   653→
+   654→    /// Deactivate the current sandbox, restoring normal limits.
+   655→    pub fn clear_active_sandbox(&mut self) {
+   656→        self.active_sandbox = None;
+   657→    }
+   658→
+   659→    /// Get a reference to the active sandbox (if any).
+   660→    pub fn get_active_sandbox(&self) -> Option<&SandboxDecl> {
+   661→        self.active_sandbox.as_ref()
+   662→    }
+   663→
+   664→    /// Push an audit log entry (Phase 7.5).
+   665→    /// Uses Mutex for interior mutability so it can be called from `&self` methods.
+   666→    pub fn push_audit(&self, entry: String) {
+   667→        self.audit_log.lock().unwrap().push(entry);
+   668→    }
+   669→
+   670→    /// ADR-0052: Emit an event to the event stream.
+   671→    /// Thread-safe: appends to event_log behind Mutex, auto-increments ID.
+   672→    fn emit_event(&self, event_type: &str, source: &str, data: HashMap<String, String>, duration_ms: Option<u64>) {
+   673→        let id = self.event_next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+   674→        let timestamp = SystemTime::now()
+   675→            .duration_since(UNIX_EPOCH)
+   676→            .map(|d| d.as_millis() as u64)
+   677→            .unwrap_or(0);
+   678→        let event = Event {
+   679→            id,
+   680→            timestamp,
+   681→            event_type: event_type.to_string(),
+   682→            source: source.to_string(),
+   683→            data,
+   684→            duration_ms,
+   685→        };
+   686→        if let Ok(mut log) = self.event_log.lock() {
+   687→            log.push(event);
+   688→        }
+   689→    }
+   690→
+   691→    /// ADR-0052: Get total number of events, optionally filtered by type.
+   692→    pub fn event_count(&self, event_type: Option<&str>) -> usize {
+   693→        if let Ok(log) = self.event_log.lock() {
+   694→            match event_type {
+   695→                Some(t) => log.iter().filter(|e| e.event_type == t).count(),
+   696→                None => log.len(),
+   697→            }
+   698→        } else {
+   699→            0
+   700→        }
+   701→    }
+   702→
+   703→    /// ADR-0052: Get events since a given Unix timestamp (seconds).
+   704→    /// Returns events with timestamp >= since_ms (milliseconds).
+   705→    pub fn events_since_ms(&self, since_ms: u64) -> Vec<Event> {
+   706→        if let Ok(log) = self.event_log.lock() {
+   707→            log.iter().filter(|e| e.timestamp >= since_ms).cloned().collect()
+   708→        } else {
+   709→            Vec::new()
+   710→        }
+   711→    }
+   712→
+   713→    /// ADR-0052: Get a reference to the full event log (for test access).
+   714→    pub fn get_events(&self) -> Vec<Event> {
+   715→        self.event_log.lock().map(|log| log.clone()).unwrap_or_default()
+   716→    }
+   717→
+   718→    /// ADR-0052: Sum a numeric field across events of a given type.
+   719→    /// Parses field values as f64 and sums them.
+   720→    pub fn event_sum(&self, event_type: &str, field: &str) -> f64 {
+   721→        if let Ok(log) = self.event_log.lock() {
+   722→            log.iter()
+   723→                .filter(|e| e.event_type == event_type)
+   724→                .filter_map(|e| e.data.get(field))
+   725→                .filter_map(|v| v.parse::<f64>().ok())
+   726→                .sum()
+   727→        } else {
+   728→            0.0
+   729→        }
+   730→    }
+   731→
+   732→    /// Configure memory persistence (Phase 7.6).
+   733→    /// If persist path is provided, switches to SQLite-backed stores.
+   734→    /// The in-memory data is migrated to SQLite during the switch.
+   735→    pub fn configure_memory(&mut self, config: &MemoryDecl) {
+   736→        if let Some(ref path) = config.persist {
+   737→            // Switch to SQLite backend
+   738→            let db_path = std::path::PathBuf::from(path);
+   739→            match SqliteStore::open(&db_path) {
+   740→                Ok(sqlite_store) => {
+   741→                    // Migrate existing in-memory data to SQLite
+   742→                    let existing = self.memory.lock().unwrap().all_entries();
+   743→                    let mut new_store: Box<dyn MemoryStore> = Box::new(sqlite_store);
+   744→                    for entry in existing {
+   745→                        let _ = new_store.memorize(entry);
+   746→                    }
+   747→                    self.memory = std::sync::Mutex::new(new_store);
+   748→
+   749→                    // Migrate KG edges to SQLite (sharing the same DB file)
+   750→                    let existing_edges: Vec<(String, String, String, f64)> =
+   751→                        self.kg.lock().unwrap().all_edges();
+   752→                    if let Ok(sqlite_kg) = SqliteKg::open(&db_path) {
+   753→                        let mut new_kg: Box<dyn KgStore> = Box::new(sqlite_kg);
+   754→                        for (from, to, relation, weight) in existing_edges {
+   755→                            let _ = new_kg.relate(&from, &to, &relation, weight);
+   756→                        }
+   757→                        self.kg = std::sync::Mutex::new(new_kg);
+   758→                    } else {
+   759→                        eprintln!("[memory] KG migration to SQLite failed; keeping in-memory KG");
+   760→                    }
+   761→                    eprintln!("[memory] Persistence enabled: {}", path);
+   762→                    self.memory_persist_path = Some(path.clone());
+   763→
+   764→                    // Наряд №6 — also enable KV store SQLite persistence
+   765→                    if let Err(e) = crate::builtins::init_kv_persist(path) {
+   766→                        eprintln!("[kv_store] Failed to enable KV persistence: {}. KV will be in-memory only.", e);
+   767→                    }
+   768→
+   769→                    // ADR-0056: initialize checkpoint SQLite (same DB directory)
+   770→                    let cp_path = std::path::PathBuf::from(path).with_file_name("checkpoints.db");
+   771→                    if let Ok(conn) = rusqlite::Connection::open(&cp_path) {
+   772→                        let _ = conn.execute_batch(
+   773→                            "CREATE TABLE IF NOT EXISTS checkpoints (
+   774→                                flow_name TEXT NOT NULL,
+   775→                                checkpoint_name TEXT NOT NULL,
+   776→                                step_index INTEGER NOT NULL,
+   777→                                state_json TEXT NOT NULL,
+   778→                                created_at INTEGER NOT NULL,
+   779→                                PRIMARY KEY (flow_name, checkpoint_name)
+   780→                            )"
+   781→                        );
+   782→                        *self.checkpoint_db.lock().unwrap() = Some(conn);
+   783→                    }
+   784→                }
+   785→                Err(e) => {
+   786→                    eprintln!("[memory] Failed to open persistent store '{}': {}. Using in-memory.", path, e);
+   787→                }
+   788→            }
+   789→        }
+   790→        // If persist is None, keep the default InMemoryStore (already set in new())
+   791→    }
+   792→
+   793→    /// Initialize SQLite connection for db { url: "..." } block (Наряд №7).
+   794→    /// Supports "sqlite::memory:" for in-memory databases and file paths.
+   795→    fn init_db_connection(&mut self, db: &DbDecl) {
+   796→        let url_expr = match &db.url {
+   797→            Some(expr) => expr,
+   798→            None => {
+   799→                eprintln!("[db] No url specified in db {{}} block — query() will be unavailable");
+   800→                return;
+   801→            }
+   802→        };
+   803→        // Evaluate the url expression (must be a string literal or variable)
+   804→        let url = match self.eval_expr(url_expr) {
+   805→            Ok(Value::String(s)) => s,
+   806→            Ok(other) => {
+   807→                eprintln!("[db] url must be a String, got {}", other.type_name());
+   808→                return;
+   809→            }
+   810→            Err(e) => {
+   811→                eprintln!("[db] Failed to evaluate url: {}", e);
+   812→                return;
+   813→            }
+   814→        };
+   815→        // Parse the URL: "sqlite::memory:" → in-memory, "sqlite:path.db" → file
+   816→        let conn = if url == "sqlite::memory:" {
+   817→            rusqlite::Connection::open_in_memory()
+   818→        } else if url.starts_with("sqlite:") {
+   819→            let path = url.trim_start_matches("sqlite:");
+   820→            rusqlite::Connection::open(path)
+   821→        } else {
+   822→            eprintln!("[db] Unsupported URL scheme: '{}'. Use 'sqlite::memory:' or 'sqlite:path.db'", url);
+   823→            return;
+   824→        };
+   825→        match conn {
+   826→            Ok(c) => {
+   827→                // Enable WAL mode for better concurrent read performance
+   828→                let _ = c.execute_batch("PRAGMA journal_mode=WAL;");
+   829→                let mut guard = self.db_conn.lock().unwrap();
+   830→                *guard = Some(c);
+   831→                // Store resolved URL for per-request interpreter reconnection
+   832→                self.db_url = Some(url.clone());
+   833→                eprintln!("[db] Connected: {}", url);
+   834→            }
+   835→            Err(e) => {
+   836→                eprintln!("[db] Failed to connect to '{}': {}", url, e);
+   837→            }
+   838→        }
+   839→    }
+   840→
+   841→    /// Execute a SQL query and return readable results (Наряд №7).
+   842→    /// - SELECT → List of Struct (each row = struct with column names as fields)
+   843→    /// - INSERT/UPDATE/DELETE → String with affected row count
+   844→    /// - PRAGMA/CREATE/etc. → String "ok"
+   845→    fn invoke_query(&self, args: &[Value]) -> Result<Value, String> {
+   846→        let sql = match args.first() {
+   847→            Some(Value::String(s)) => s.clone(),
+   848→            Some(other) => return Err(format!("query() expected String SQL, got {}", other.type_name())),
+   849→            None => return Err("query() requires at least 1 argument (SQL string)".to_string()),
+   850→        };
+   851→        let params: Vec<String> = if args.len() > 1 {
+   852→            match &args[1] {
+   853→                Value::List(items) => items.iter().filter_map(|v| match v {
+   854→                    Value::String(s) => Some(s.clone()),
+   855→                    Value::Float(n) => Some(format!("{}", n)),
+   856→                    Value::Bool(b) => Some(format!("{}", b)),
+   857→                    _ => None,
+   858→                }).collect(),
+   859→                _ => Vec::new(),
+   860→            }
+   861→        } else {
+   862→            Vec::new()
+   863→        };
+   864→
+   865→        let guard = self.db_conn.lock().map_err(|e| format!("db lock error: {}", e))?;
+   866→        let conn = guard.as_ref().ok_or_else(|| {
+   867→            "query() error: no database connection. Declare db { url: \"sqlite::memory:\" } first.".to_string()
+   868→        })?;
+   869→
+   870→        let sql_upper = sql.trim().to_uppercase();
+   871→        if sql_upper.starts_with("SELECT") || sql_upper.starts_with("PRAGMA") {
+   872→            // SELECT/PRAGMA → List of Struct
+   873→            let mut stmt = conn.prepare(&sql)
+   874→                .map_err(|e| format!("query() SQL error: {}", e))?;
+   875→            let col_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+   876→            let rows: Vec<Value> = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
+   877→                let mut fields = std::collections::HashMap::new();
+   878→                for (i, col) in col_names.iter().enumerate() {
+   879→                    let val: Value = match row.get_ref(i) {
+   880→                        Ok(rusqlite::types::ValueRef::Null) => Value::Unit,
+   881→                        Ok(rusqlite::types::ValueRef::Integer(n)) => {
+   882→                            // Heuristic: if the column name suggests it's an ID or count, keep as Float
+   883→                            Value::Float(n as f64)
+   884→                        }
+   885→                        Ok(rusqlite::types::ValueRef::Real(f)) => Value::Float(f),
+   886→                        Ok(rusqlite::types::ValueRef::Text(s)) => {
+   887→                            Value::String(String::from_utf8_lossy(s).to_string())
+   888→                        }
+   889→                        Ok(rusqlite::types::ValueRef::Blob(b)) => {
+   890→                            // Encode blobs as hex strings
+   891→                            Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
+   892→                        }
+   893→                        Err(_) => Value::Unit,
+   894→                    };
+   895→                    fields.insert(col.clone(), val);
+   896→                }
+   897→                Ok(Value::Struct { type_name: "Row".to_string(), fields })
+   898→            }).map_err(|e| format!("query() execution error: {}", e))?
+   899→            .filter_map(|r| r.ok())
+   900→            .collect();
+   901→            Ok(Value::List(rows))
+   902→        } else {
+   903→            // INSERT/UPDATE/DELETE/CREATE/ALTER/etc. → affected row count as String
+   904→            let affected = conn.execute(&sql, rusqlite::params_from_iter(params.iter()))
+   905→                .map_err(|e| format!("query() SQL error: {}", e))?;
+   906→            Ok(Value::String(affected.to_string()))
+   907→        }
+   908→    }
+   909→
+   910→    /// Execute a SQL statement via db_execute() — returns affected row count (Наряд №7).
+   911→    fn invoke_db_execute(&self, args: &[Value]) -> Result<Value, String> {
+   912→        let sql = match args.first() {
+   913→            Some(Value::String(s)) => s.clone(),
+   914→            Some(other) => return Err(format!("db_execute() expected String SQL, got {}", other.type_name())),
+   915→            None => return Err("db_execute() requires at least 1 argument (SQL string)".to_string()),
+   916→        };
+   917→        let guard = self.db_conn.lock().map_err(|e| format!("db lock error: {}", e))?;
+   918→        let conn = guard.as_ref().ok_or_else(|| {
+   919→            "db_execute() error: no database connection. Declare db { url: \"sqlite::memory:\" } first.".to_string()
+   920→        })?;
+   921→        let affected = conn.execute(&sql, [])
+   922→            .map_err(|e| format!("db_execute() SQL error: {}", e))?;
+   923→        Ok(Value::String(affected.to_string()))
+   924→    }
+   925→
+   926→    /// Open a new DB connection using stored db_url (Наряд №8).
+   927→    /// Called by per-request interpreters to get their own SQLite connection.
+   928→    pub fn reconnect_db(&mut self) {
+   929→        if let Some(ref url) = self.db_url {
+   930→            let conn = if url == "sqlite::memory:" {
+   931→                rusqlite::Connection::open_in_memory()
+   932→            } else if url.starts_with("sqlite:") {
+   933→                let path = url.trim_start_matches("sqlite:");
+   934→                rusqlite::Connection::open(path)
+   935→            } else {
+   936→                return;
+   937→            };
+   938→            match conn {
+   939→                Ok(c) => {
+   940→                    let _ = c.execute_batch("PRAGMA journal_mode=WAL;");
+   941→                    *self.db_conn.lock().unwrap() = Some(c);
+   942→                }
+   943→                Err(e) => {
+   944→                    eprintln!("[db] Per-request reconnect failed: {}", e);
+   945→                }
+   946→            }
+   947→        }
+   948→    }
+   949→
+   950→    /// Run a complete .mlog program.
+   951→    pub fn run(&mut self, declarations: Vec<Declaration>) -> Result<Option<String>, String> {
+   952→        let mut output: Option<String> = None;
+   953→
+   954→        for decl in declarations {
+   955→            match decl {
+   956→                Declaration::Import(import) => {
+   957→                    self.handle_import(&import)?;
+   958→                }
+   959→                Declaration::EntityType(e) => {
+   960→                    self.struct_types.insert(e.name.clone(), StructType {
+   961→                        name: e.name.clone(),
+   962→                        fields: e.fields,
+   963→                    });
+   964→                }
+   965→                Declaration::EntityRecord(e) => {
+   966→                    let value = self.instantiate_struct(&e.type_name, &e.fields)?;
+   967→                    self.variables.insert(e.name.clone(), value);
+   968→                }
+   969→                Declaration::EntitySimple(e) => {
+   970→                    let value = self.eval_expr(&e.value)?;
+   971→                    self.variables.insert(e.name.clone(), value);
+   972→                }
+   973→                Declaration::Rule(r) => {
+   974→                    self.rules.push(r);
+   975→                }
+   976→                Declaration::Memorize(m) => {
+   977→                    let value_str = match self.eval_expr(&m.value)? {
+   978→                        Value::String(s) => s,
+   979→                        other => format!("{}", other),
+   980→                    };
+   981→                    let now = SystemTime::now()
+   982→                        .duration_since(UNIX_EPOCH)
+   983→                        .map(|d| d.as_secs() as i64)
+   984→                        .unwrap_or(0);
+   985→                    let embedding = self.embedding_manager.embed(&value_str).unwrap_or_default();
+   986→                    let _ = self.memory.lock().unwrap().memorize(MemoryEntry {
+   987→                        id: None,
+   988→                        value: value_str.clone(),
+   989→                        priority: m.priority,
+   990→                        timestamp: now,
+   991→                        decay_rate: 0.01,
+   992→                        confidence: m.priority,
+   993→                        embedding,
+   994→                    });
+   995→                    // ADR-0052: emit memory_store event
+   996→                    let preview = if value_str.len() > 30 { &value_str[..30] } else { &value_str };
+   997→                    let mut data = HashMap::new();
+   998→                    data.insert("key_preview".to_string(), preview.to_string());
+   999→                    data.insert("priority".to_string(), m.priority.to_string());
+  1000→                    self.emit_event("memory_store", "system", data, None);
+  1001→                }
+  1002→                Declaration::Forget(f) => {
+  1003→                    let query_str = match self.eval_expr(&f.query)? {
+  1004→                        Value::String(s) => s,
+  1005→                        other => format!("{}", other),
+  1006→                    };
+  1007→                    let now = SystemTime::now()
+  1008→                        .duration_since(UNIX_EPOCH)
+  1009→                        .map(|d| d.as_secs() as i64)
+  1010→                        .unwrap_or(0);
+  1011→                    let cutoff = now - (f.days * 86400);
+  1012→                    self.memory.lock().unwrap().forget(&query_str, cutoff);
+  1013→                }
+  1014→                Declaration::Pattern(p) => {
+  1015→                    self.patterns.insert(
+  1016→                        p.name.clone(),
+  1017→                        CompiledPattern {
+  1018→                            params: p.params.clone(),
+  1019→                            body: p.body.clone(),
+  1020→                        },
+  1021→                    );
+  1022→                }
+  1023→                Declaration::LearnablePattern(lp) => {
+  1024→                    self.learnable_patterns.insert(
+  1025→                        lp.name.clone(),
+  1026→                        CompiledLearnable {
+  1027→                            params: lp.params.clone(),
+  1028→                            prompt: lp.prompt.clone(),
+  1029→                            few_shot: Vec::new(),
+  1030→                            context: lp.context.clone(),
+  1031→                            context_strategy: lp.context_strategy.clone(),
+  1032→                            max_context_tokens: lp.max_context_tokens,
+  1033→                            max_tokens: lp.max_tokens,
+  1034→                            cache: lp.cache,
+  1035→                            cache_ttl: lp.cache_ttl,
+  1036→                            model: lp.model.clone(),
+  1037→                            conversation: lp.conversation.clone(),
+  1038→                        },
+  1039→                    );
+  1040→                }
+  1041→                Declaration::Adapt(a) => {
+  1042→                    let input_str = match self.eval_expr(&a.input_example)? {
+  1043→                        Value::String(s) => s,
+  1044→                        other => format!("{}", other),
+  1045→                    };
+  1046→                    let output_str = match self.eval_expr(&a.output_example)? {
+  1047→                        Value::String(s) => s,
+  1048→                        other => format!("{}", other),
+  1049→                    };
+  1050→                    if let Some(learnable) = self.learnable_patterns.get_mut(&a.pattern_name) {
+  1051→                        learnable.few_shot.push((input_str.clone(), output_str.clone()));
+  1052→                    } else {
+  1053→                        return Err(format!("adapt: learnable pattern '{}' not found", a.pattern_name));
+  1054→                    }
+  1055→                    // ADR-0051: update pattern stats for inspect()
+  1056→                    {
+  1057→                        let now = SystemTime::now()
+  1058→                            .duration_since(UNIX_EPOCH)
+  1059→                            .map(|d| d.as_secs() as i64)
+  1060→                            .unwrap_or(0);
+  1061→                        let mut stats = self.pattern_stats.lock().unwrap();
+  1062→                        let entry = stats.entry(a.pattern_name.clone()).or_insert_with(PatternStats::new);
+  1063→                        entry.last_adapt = now;
+  1064→                        entry.examples_count += 1;
+  1065→                    }
+  1066→                    // Phase 7.5: Audit log for adapt operations
+  1067→                    self.push_audit(format!(
+  1068→                        "[AUDIT] adapt {}: {} -> {}",
+  1069→                        a.pattern_name, input_str, output_str
+  1070→                    ));
+  1071→                    // ADR-0052: emit adapt event
+  1072→                    let examples_count = self.learnable_patterns.get(&a.pattern_name)
+  1073→                        .map(|lp| lp.few_shot.len())
+  1074→                        .unwrap_or(0);
+  1075→                    let mut data = HashMap::new();
+  1076→                    data.insert("pattern".to_string(), a.pattern_name.clone());
+  1077→                    data.insert("action".to_string(), "add_example".to_string());
+  1078→                    data.insert("examples_count".to_string(), examples_count.to_string());
+  1079→                    self.emit_event("adapt", &a.pattern_name, data, None);
+  1080→                }
+  1081→                Declaration::Fluid(fl) => {
+  1082→                    let mut variants = Vec::new();
+  1083→                    for v in &fl.variants {
+  1084→                        let val = self.eval_expr(&v.value)?;
+  1085→                        variants.push(FluidValueVariant {
+  1086→                            type_name: v.type_name.clone(),
+  1087→                            value: val,
+  1088→                            confidence: v.confidence,
+  1089→                        });
+  1090→                    }
+  1091→                    self.variables.insert(fl.name.clone(), Value::Fluid(variants));
+  1092→                }
+  1093→                Declaration::Relate(r) => {
+  1094→                    let from_str = match self.eval_expr(&r.from)? {
+  1095→                        Value::String(s) => s,
+  1096→                        other => format!("{}", other),
+  1097→                    };
+  1098→                    let to_str = match self.eval_expr(&r.to)? {
+  1099→                        Value::String(s) => s,
+  1100→                        other => format!("{}", other),
+  1101→                    };
+  1102→                    let _ = self.kg.lock().unwrap().relate(&from_str, &to_str, &r.relation, 1.0);
+  1103→                }
+  1104→                Declaration::Sandbox(s) => {
+  1105→                    self.sandboxes.insert(s.name.clone(), s);
+  1106→                }
+  1107→                Declaration::Hook(h) => {
+  1108→                    // ADR-0045: register hooks in declaration order
+  1109→                    match h.phase {
+  1110→                        HookPhase::BeforePattern => self.hooks_before.push(h),
+  1111→                        HookPhase::AfterPattern => self.hooks_after.push(h),
+  1112→                    }
+  1113→                }
+  1114→                Declaration::Mutate(m) => {
+  1115→                    let msg = self.handle_mutate(&m)?;
+  1116→                    self.mutate_log.push(msg);
+  1117→                }
+  1118→                Declaration::Eval(e) => {
+  1119→                    // ADR-0050: store eval block for later execution by run_eval_blocks()
+  1120→                    self.eval_blocks.push(e);
+  1121→                }
+  1122→                Declaration::Flow(f) => {
+  1123→                    // Execute rules before flow (they modify entity state)
+  1124→                    self.execute_rules()?;
+  1125→                    output = Some(self.run_flow(&f)?);
+  1126→                }
+  1127→                Declaration::MlogServer(srv) => {
+  1128→                    self.server_config = Some(srv);
+  1129→                }
+  1130→                Declaration::Template(t) => {
+  1131→                    self.templates.insert(t.name.clone(), t);
+  1132→                }
+  1133→                Declaration::Memory(m) => {
+  1134→                    self.configure_memory(&m);
+  1135→                }
+  1136→                Declaration::Conversation(c) => {
+  1137→                    // ADR-0053: store conversation configuration
+  1138→                    self.conversation_config = ConversationConfig {
+  1139→                        ttl: c.ttl,
+  1140→                        max_messages: c.max_messages,
+  1141→                        compress_after: c.compress_after,
+  1142→                    };
+  1143→                }
+  1144→                Declaration::LlmConfig(config) => {
+  1145→                    // Наряд №4: store LLM config and create smart router
+  1146→                    let router = llm::SmartRouter::from_config(&config);
+  1147→                    if let Ok(mut sr) = self.smart_router.lock() {
+  1148→                        *sr = Some(router);
+  1149→                    }
+  1150→                    self.llm_config = Some(config);
+  1151→                }
+  1152→                Declaration::Tool(t) => {
+  1153→                    // ADR-0054: register tool as a module namespace and
+  1154→                    // compile each method as a qualified pattern.
+  1155→                    // Tool methods are stored as "toolname.methodname" to
+  1156→                    // avoid namespace collisions between tools with same method names.
+  1157→                    // tool.method(args) resolves via QualifiedCall.
+  1158→                    self.module_namespaces.insert(t.name.clone(), format!("tool:{}", t.name));
+  1159→                    for method in &t.methods {
+  1160→                        let qualified_name = format!("{}.{}", t.name, method.name);
+  1161→                        self.patterns.insert(
+  1162→                            qualified_name,
+  1163→                            CompiledPattern {
+  1164→                                params: method.params.clone(),
+  1165→                                body: method.body.clone(),
+  1166→                            },
+  1167→                        );
+  1168→                    }
+  1169→                }
+  1170→                Declaration::Db(db) => {
+  1171→                    self.db_config = Some(db.clone());
+  1172→                    self.init_db_connection(&db);
+  1173→                }
+  1174→            }
+  1175→        }
+  1176→
+  1177→        Ok(output)
+  1178→    }
+  1179→
+  1180→    /// Instantiate a struct from a type name and field initializers.
+  1181→    fn instantiate_struct(&self, type_name: &str, inits: &[FieldInit]) -> Result<Value, String> {
+  1182→        let struct_type = self.struct_types.get(type_name)
+  1183→            .ok_or_else(|| format!("unknown struct type: {}", type_name))?
+  1184→            .clone();
+  1185→
+  1186→        let mut fields = HashMap::new();
+  1187→        for fd in &struct_type.fields {
+  1188→            // Look for an initializer
+  1189→            let init_val = inits.iter()
+  1190→                .find(|fi| fi.name == fd.name)
+  1191→                .map(|fi| self.eval_expr(&fi.value));
+  1192→
+  1193→            let value = match init_val {
+  1194→                Some(Ok(v)) => v,
+  1195→                Some(Err(e)) => return Err(e),
+  1196→                None => {
+  1197→                    // Use default value
+  1198→                    match &fd.default {
+  1199→                        Some(def_expr) => self.eval_expr(def_expr)?,
+  1200→                        None => Value::Unit,
+  1201→                    }
+  1202→                }
+  1203→            };
+  1204→            fields.insert(fd.name.clone(), value);
+  1205→        }
+  1206→
+  1207→        Ok(Value::Struct { type_name: type_name.to_string(), fields })
+  1208→    }
+  1209→
+  1210→    /// Handle an import declaration: load module, register namespace or merge globally.
+  1211→    fn handle_import(&mut self, import: &ImportDecl) -> Result<(), String> {
+  1212→        let module_path = &import.path;
+  1213→
+  1214→        // Register namespace mapping (alias or path itself for global merge)
+  1215→        let alias = import.alias.as_ref().cloned().unwrap_or_else(|| module_path.clone());
+  1216→        self.module_namespaces.insert(alias.clone(), module_path.clone());
+  1217→
+  1218→        // Load the module file and execute its declarations into this interpreter
+  1219→        self.load_module(module_path)?;
+  1220→
+  1221→        Ok(())
+  1222→    }
+  1223→
+  1224→    /// Load a module by path, parsing and executing its declarations.
+  1225→    /// Detects circular imports via loading_stack.
+  1226→    fn load_module(&mut self, module_path: &str) -> Result<(), String> {
+  1227→        // Circular import detection
+  1228→        if self.loading_stack.contains(&module_path.to_string()) {
+  1229→            return Err(format!(
+  1230→                "circular import detected: {} -> {}",
+  1231→                self.loading_stack.join(" -> "),
+  1232→                module_path
+  1233→            ));
+  1234→        }
+  1235→
+  1236→        // Don't reload if already loaded (check if patterns from this module exist)
+  1237→        // We track this via the loading_stack during the current load pass
+  1238→        self.loading_stack.push(module_path.to_string());
+  1239→
+  1240→        let result = self.load_module_inner(module_path);
+  1241→
+  1242→        self.loading_stack.pop();
+  1243→        result
+  1244→    }
+  1245→
+  1246→    fn load_module_inner(&mut self, module_path: &str) -> Result<(), String> {
+  1247→        // Resolve file path: std/string -> std/string.mlog, ./my_utils -> ./my_utils.mlog
+  1248→        let file_path = if module_path.starts_with("./") {
+  1249→            self.base_dir.join(format!("{}.mlog", module_path))
+  1250→        } else if module_path.starts_with("std/") {
+  1251→            self.base_dir.join(format!("{}.mlog", module_path))
+  1252→        } else {
+  1253→            self.base_dir.join(format!("{}.mlog", module_path))
+  1254→        };
+  1255→
+  1256→        let source = std::fs::read_to_string(&file_path).map_err(|e| {
+  1257→            format!("cannot import module '{}': {} (tried {:?})", module_path, e, file_path)
+  1258→        })?;
+  1259→
+  1260→        // Parse the module source
+  1261→        let declarations = crate::parser::parse(&source)
+  1262→            .map_err(|e| format!("parse error in module '{}': {}", module_path, e))?;
+  1263→
+  1264→        // Execute all declarations from the module into the current interpreter
+  1265→        // This merges patterns, entities, etc. into the global scope
+  1266→        for decl in declarations {
+  1267→            match decl {
+  1268→                Declaration::Import(sub_import) => {
+  1269→                    self.handle_import(&sub_import)?;
+  1270→                }
+  1271→                Declaration::EntityType(e) => {
+  1272→                    self.struct_types.insert(e.name.clone(), StructType {
+  1273→                        name: e.name.clone(),
+  1274→                        fields: e.fields,
+  1275→                    });
+  1276→                }
+  1277→                Declaration::EntityRecord(e) => {
+  1278→                    let value = self.instantiate_struct(&e.type_name, &e.fields)?;
+  1279→                    self.variables.insert(e.name.clone(), value);
+  1280→                }
+  1281→                Declaration::EntitySimple(e) => {
+  1282→                    let value = self.eval_expr(&e.value)?;
+  1283→                    self.variables.insert(e.name.clone(), value);
+  1284→                }
+  1285→                Declaration::Pattern(p) => {
+  1286→                    self.patterns.insert(p.name.clone(), CompiledPattern {
+  1287→                        params: p.params.clone(),
+  1288→                        body: p.body.clone(),
+  1289→                    });
+  1290→                }
+  1291→                Declaration::LearnablePattern(lp) => {
+  1292→                    self.learnable_patterns.insert(lp.name.clone(), CompiledLearnable {
+  1293→                        params: lp.params.clone(),
+  1294→                        prompt: lp.prompt.clone(),
+  1295→                        few_shot: Vec::new(),
+  1296→                        context: lp.context.clone(),
+  1297→                        context_strategy: lp.context_strategy.clone(),
+  1298→                        max_context_tokens: lp.max_context_tokens,
+  1299→                        max_tokens: lp.max_tokens,
+  1300→                        cache: lp.cache,
+  1301→                        cache_ttl: lp.cache_ttl,
+  1302→                        model: lp.model.clone(),
+  1303→                        conversation: lp.conversation.clone(),
+  1304→                    });
+  1305→                }
+  1306→                Declaration::Rule(r) => self.rules.push(r),
+  1307→                Declaration::Memorize(m) => {
+  1308→                    let value_str = match self.eval_expr(&m.value)? {
+  1309→                        Value::String(s) => s,
+  1310→                        other => format!("{}", other),
+  1311→                    };
+  1312→                    let now = SystemTime::now()
+  1313→                        .duration_since(UNIX_EPOCH)
+  1314→                        .map(|d| d.as_secs() as i64)
+  1315→                        .unwrap_or(0);
+  1316→                    let embedding = self.embedding_manager.embed(&value_str).unwrap_or_default();
+  1317→                    let _ = self.memory.lock().unwrap().memorize(MemoryEntry {
+  1318→                        id: None,
+  1319→                        value: value_str.clone(),
+  1320→                        priority: m.priority,
+  1321→                        timestamp: now,
+  1322→                        decay_rate: 0.01,
+  1323→                        confidence: m.priority,
+  1324→                        embedding,
+  1325→                    });
+  1326→                    // ADR-0052: emit memory_store event
+  1327→                    let preview = if value_str.len() > 30 { &value_str[..30] } else { &value_str };
+  1328→                    let mut data = HashMap::new();
+  1329→                    data.insert("key_preview".to_string(), preview.to_string());
+  1330→                    data.insert("priority".to_string(), m.priority.to_string());
+  1331→                    self.emit_event("memory_store", "system", data, None);
+  1332→                }
+  1333→                Declaration::Forget(f) => {
+  1334→                    let query_str = match self.eval_expr(&f.query)? {
+  1335→                        Value::String(s) => s,
+  1336→                        other => format!("{}", other),
+  1337→                    };
+  1338→                    let now = SystemTime::now()
+  1339→                        .duration_since(UNIX_EPOCH)
+  1340→                        .map(|d| d.as_secs() as i64)
+  1341→                        .unwrap_or(0);
+  1342→                    let cutoff = now - (f.days * 86400);
+  1343→                    self.memory.lock().unwrap().forget(&query_str, cutoff);
+  1344→                }
+  1345→                Declaration::Fluid(fl) => {
+  1346→                    let mut variants = Vec::new();
+  1347→                    for v in &fl.variants {
+  1348→                        let val = self.eval_expr(&v.value)?;
+  1349→                        variants.push(FluidValueVariant {
+  1350→                            type_name: v.type_name.clone(),
+  1351→                            value: val,
+  1352→                            confidence: v.confidence,
+  1353→                        });
+  1354→                    }
+  1355→                    self.variables.insert(fl.name.clone(), Value::Fluid(variants));
+  1356→                }
+  1357→                Declaration::Relate(r) => {
+  1358→                    let from_str = match self.eval_expr(&r.from)? {
+  1359→                        Value::String(s) => s,
+  1360→                        other => format!("{}", other),
+  1361→                    };
+  1362→                    let to_str = match self.eval_expr(&r.to)? {
+  1363→                        Value::String(s) => s,
+  1364→                        other => format!("{}", other),
+  1365→                    };
+  1366→                    let _ = self.kg.lock().unwrap().relate(&from_str, &to_str, &r.relation, 1.0);
+  1367→                }
+  1368→                Declaration::Adapt(a) => {
+  1369→                    let input_str = match self.eval_expr(&a.input_example)? {
+  1370→                        Value::String(s) => s,
+  1371→                        other => format!("{}", other),
+  1372→                    };
+  1373→                    let output_str = match self.eval_expr(&a.output_example)? {
+  1374→                        Value::String(s) => s,
+  1375→                        other => format!("{}", other),
+  1376→                    };
+  1377→                    if let Some(learnable) = self.learnable_patterns.get_mut(&a.pattern_name) {
+  1378→                        learnable.few_shot.push((input_str, output_str));
+  1379→                    }
+  1380→                    // ADR-0051: track stats
+  1381→                    {
+  1382→                        let now = SystemTime::now()
+  1383→                            .duration_since(UNIX_EPOCH)
+  1384→                            .map(|d| d.as_secs() as i64)
+  1385→                            .unwrap_or(0);
+  1386→                        let mut stats = self.pattern_stats.lock().unwrap();
+  1387→                        let entry = stats.entry(a.pattern_name.clone()).or_insert_with(PatternStats::new);
+  1388→                        entry.last_adapt = now;
+  1389→                        entry.examples_count += 1;
+  1390→                    }
+  1391→                }
+  1392→                Declaration::Mutate(m) => {
+  1393→                    let msg = self.handle_mutate(&m)?;
+  1394→                    self.mutate_log.push(msg);
+  1395→                }
+  1396→                Declaration::Eval(e) => {
+  1397→                    self.eval_blocks.push(e);
+  1398→                }
+  1399→                Declaration::Flow(f) => {
+  1400→                    self.execute_rules()?;
+  1401→                    // Silently execute flow in module (don't override main output)
+  1402→                    let _ = self.run_flow(&f);
+  1403→                }
+  1404→                Declaration::Sandbox(s) => {
+  1405→                    self.sandboxes.insert(s.name.clone(), s);
+  1406→                }
+  1407→                Declaration::Hook(h) => {
+  1408→                    match h.phase {
+  1409→                        HookPhase::BeforePattern => self.hooks_before.push(h),
+  1410→                        HookPhase::AfterPattern => self.hooks_after.push(h),
+  1411→                    }
+  1412→                }
+  1413→                Declaration::MlogServer(srv) => {
+  1414→                    self.server_config = Some(srv);
+  1415→                }
+  1416→                Declaration::Template(t) => {
+  1417→                    self.templates.insert(t.name.clone(), t);
+  1418→                }
+  1419→                Declaration::Memory(m) => {
+  1420→                    self.configure_memory(&m);
+  1421→                }
+  1422→                Declaration::Conversation(c) => {
+  1423→                    // ADR-0053: store conversation configuration (merge)
+  1424→                    self.conversation_config = ConversationConfig {
+  1425→                        ttl: c.ttl,
+  1426→                        max_messages: c.max_messages,
+  1427→                        compress_after: c.compress_after,
+  1428→                    };
+  1429→                }
+  1430→                Declaration::LlmConfig(config) => {
+  1431→                    // Наряд №4: store LLM config and create smart router
+  1432→                    let router = llm::SmartRouter::from_config(&config);
+  1433→                    if let Ok(mut sr) = self.smart_router.lock() {
+  1434→                        *sr = Some(router);
+  1435→                    }
+  1436→                    self.llm_config = Some(config);
+  1437→                }
+  1438→                Declaration::Tool(t) => {
+  1439→                    // ADR-0054: register tool as namespace + compile methods as qualified patterns
+  1440→                    self.module_namespaces.insert(t.name.clone(), format!("tool:{}", t.name));
+  1441→                    for method in &t.methods {
+  1442→                        let qualified_name = format!("{}.{}", t.name, method.name);
+  1443→                        self.patterns.insert(
+  1444→                            qualified_name,
+  1445→                            CompiledPattern {
+  1446→                                params: method.params.clone(),
+  1447→                                body: method.body.clone(),
+  1448→                            },
+  1449→                        );
+  1450→                    }
+  1451→                }
+  1452→                Declaration::Db(db) => {
+  1453→                    self.db_config = Some(db.clone());
+  1454→                    self.init_db_connection(&db);
+  1455→                }
+  1456→            }
+  1457→        }
+  1458→
+  1459→        Ok(())
+  1460→    }
+  1461→
+  1462→    /// Execute all rules in priority order (highest first, then declaration order).
+  1463→    fn execute_rules(&mut self) -> Result<(), String> {
+  1464→        // Sort by priority descending; stable sort preserves declaration order for ties
+  1465→        let mut sorted_rules: Vec<&RuleDecl> = self.rules.iter().collect();
+  1466→        sorted_rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+  1467→
+  1468→        for rule in sorted_rules {
+  1469→            let condition_met = self.eval_condition(&rule.condition, &self.variables)?;
+  1470→            if condition_met {
+  1471→                // Execute assignment: target.field = value
+  1472→                let _target_val = self.eval_expr(&rule.target)?;
+  1473→                let value_val = self.eval_expr(&rule.value)?;
+  1474→
+  1475→                // We need to mutate the entity in variables
+  1476→                // The target is an Ident (entity name), field is the field name
+  1477→                if let Expr::Ident(name) = &rule.target {
+  1478→                    let entity = self.variables.get_mut(name)
+  1479→                        .ok_or_else(|| format!("rule target '{}' not found", name))?;
+  1480→                    entity.set_field(&rule.field, value_val)?;
+  1481→                }
+  1482→            }
+  1483→        }
+  1484→        Ok(())
+  1485→    }
+  1486→
+  1487→    /// Evaluate a rule condition.
+  1488→    fn eval_condition(&self, cond: &Condition, env: &HashMap<String, Value>) -> Result<bool, String> {
+  1489→        match cond {
+  1490→            Condition::Contains { left, right } => {
+  1491→                let lv = self.eval_expr_with_env(left, env)?;
+  1492→                let rv = self.eval_expr_with_env(right, env)?;
+  1493→                let ls = match &lv {
+  1494→                    Value::String(s) => s.clone(),
+  1495→                    other => return Err(format!("contains: left must be String, got {}", other.type_name())),
+  1496→                };
+  1497→                let rs = match &rv {
+  1498→                    Value::String(s) => s.clone(),
+  1499→                    other => return Err(format!("contains: right must be String, got {}", other.type_name())),
+  1500→                };
+  1501→                Ok(ls.contains(&rs))
+  1502→            }
+  1503→            Condition::Compare { left, op, right } => {
+  1504→                let lv = self.eval_expr_with_env(left, env)?;
+  1505→                let rv = self.eval_expr_with_env(right, env)?;
+  1506→                let lf = lv.as_float()?;
+  1507→                let rf = rv.as_float()?;
+  1508→                Ok(match op {
+  1509→                    CompareOp::Gt => lf > rf,
+  1510→                    CompareOp::Lt => lf < rf,
+  1511→                    CompareOp::Ge => lf >= rf,
+  1512→                    CompareOp::Le => lf <= rf,
+  1513→                    CompareOp::Eq => lf == rf,
+  1514→                    CompareOp::Ne => lf != rf,
+  1515→                })
+  1516→            }
+  1517→        }
+  1518→    }
+  1519→
+  1520→    /// ADR-0056: Save a checkpoint for a flow at a given pipeline step.
+  1521→    fn save_checkpoint(
+  1522→        &self,
+  1523→        flow_name: &str,
+  1524→        checkpoint_name: &str,
+  1525→        step_index: usize,
+  1526→        current_value: &Value,
+  1527→    ) -> Result<(), String> {
+  1528→        let ts = SystemTime::now()
+  1529→            .duration_since(UNIX_EPOCH)
+  1530→            .map(|d| d.as_millis() as i64)
+  1531→            .unwrap_or(0);
+  1532→
+  1533→        let data = CheckpointData {
+  1534→            flow_name: flow_name.to_string(),
+  1535→            checkpoint_name: checkpoint_name.to_string(),
+  1536→            step_index,
+  1537→            current_value: current_value.clone(),
+  1538→            variables: self.variables.clone(),
+  1539→            created_at: ts,
+  1540→        };
+  1541→
+  1542→        let state_json = serde_json::to_string(&data)
+  1543→            .map_err(|e| format!("checkpoint serialization error: {}", e))?;
+  1544→
+  1545→        // Try SQLite first
+  1546→        if let Some(ref conn) = *self.checkpoint_db.lock().map_err(|e| format!("checkpoint lock: {}", e))? {
+  1547→            conn.execute(
+  1548→                "INSERT OR REPLACE INTO checkpoints (flow_name, checkpoint_name, step_index, state_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+  1549→                rusqlite::params![flow_name, checkpoint_name, step_index as i64, state_json, ts],
+  1550→            ).map_err(|e| format!("checkpoint save error: {}", e))?;
+  1551→        } else {
+  1552→            // Fallback: in-memory
+  1553→            let key = format!("{}:{}", flow_name, checkpoint_name);
+  1554→            self.checkpoint_mem.lock().map_err(|e| format!("checkpoint lock: {}", e))?.insert(key, data);
+  1555→        }
+  1556→
+  1557→        Ok(())
+  1558→    }
+  1559→
+  1560→    /// ADR-0056: Load a checkpoint for a flow. Returns None if not found.
+  1561→    fn load_checkpoint(&self, flow_name: &str, checkpoint_name: &str) -> Result<Option<CheckpointData>, String> {
+  1562→        // Try SQLite first
+  1563→        if let Some(ref conn) = *self.checkpoint_db.lock().map_err(|e| format!("checkpoint lock: {}", e))? {
+  1564→            let mut stmt = conn.prepare(
+  1565→                "SELECT state_json FROM checkpoints WHERE flow_name = ?1 AND checkpoint_name = ?2"
+  1566→            ).map_err(|e| format!("checkpoint load error: {}", e))?;
+  1567→
+  1568→            let result: Result<String, _> = stmt.query_row(
+  1569→                rusqlite::params![flow_name, checkpoint_name],
+  1570→                |row| row.get(0),
+  1571→            );
+  1572→
+  1573→            match result {
+  1574→                Ok(state_json) => {
+  1575→                    let data: CheckpointData = serde_json::from_str(&state_json)
+  1576→                        .map_err(|e| format!("checkpoint deserialization error: {}", e))?;
+  1577→                    Ok(Some(data))
+  1578→                }
+  1579→                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+  1580→                Err(e) => Err(format!("checkpoint load error: {}", e)),
+  1581→            }
+  1582→        } else {
+  1583→            // Fallback: in-memory
+  1584→            let key = format!("{}:{}", flow_name, checkpoint_name);
+  1585→            Ok(self.checkpoint_mem.lock().map_err(|e| format!("checkpoint lock: {}", e))?.get(&key).cloned())
+  1586→        }
+  1587→    }
+  1588→
+  1589→    /// ADR-0056: Set the resume target for a specific flow and checkpoint.
+  1590→    /// Must be called before `run()` to take effect.
+  1591→    pub fn set_resume_target(&mut self, flow_name: &str, checkpoint_name: &str) {
+  1592→        self.resume_target = Some((flow_name.to_string(), checkpoint_name.to_string()));
+  1593→    }
+  1594→
+  1595→    /// ADR-0056: List all checkpoints for a flow (public for tests and CLI).
+  1596→    /// Returns Vec of (checkpoint_name, step_index, created_at).
+  1597→    pub fn list_checkpoints(&self, flow_name: &str) -> Result<Vec<(String, usize, i64)>, String> {
+  1598→        if let Some(ref conn) = *self.checkpoint_db.lock().map_err(|e| format!("checkpoint lock: {}", e))? {
+  1599→            let mut stmt = conn.prepare(
+  1600→                "SELECT checkpoint_name, step_index, created_at FROM checkpoints WHERE flow_name = ?1 ORDER BY step_index"
+  1601→            ).map_err(|e| format!("checkpoint list error: {}", e))?;
+  1602→
+  1603→            let rows = stmt.query_map(rusqlite::params![flow_name], |row| {
+  1604→                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize, row.get::<_, i64>(2)?))
+  1605→            }).map_err(|e| format!("checkpoint list error: {}", e))?
+  1606→              .collect::<Result<Vec<_>, _>>()
+  1607→              .map_err(|e| format!("checkpoint list error: {}", e))?;
+  1608→
+  1609→            Ok(rows)
+  1610→        } else {
+  1611→            // In-memory fallback
+  1612→            let mem = self.checkpoint_mem.lock().map_err(|e| format!("checkpoint lock: {}", e))?;
+  1613→            let prefix = format!("{}:", flow_name);
+  1614→            let mut results: Vec<(String, usize, i64)> = mem.iter()
+  1615→                .filter(|(k, _)| k.starts_with(&prefix))
+  1616→                .map(|(_k, v)| (v.checkpoint_name.clone(), v.step_index, v.created_at))
+  1617→                .collect();
+  1618→            results.sort_by_key(|(_, idx, _)| *idx);
+  1619→            Ok(results)
+  1620→        }
+  1621→    }
+  1622→
+  1623→    /// ADR-0056: Delete a specific checkpoint (public for tests and cleanup).
+  1624→    pub fn delete_checkpoint(&self, flow_name: &str, checkpoint_name: &str) -> Result<(), String> {
+  1625→        if let Some(ref conn) = *self.checkpoint_db.lock().map_err(|e| format!("checkpoint lock: {}", e))? {
+  1626→            conn.execute(
+  1627→                "DELETE FROM checkpoints WHERE flow_name = ?1 AND checkpoint_name = ?2",
+  1628→                rusqlite::params![flow_name, checkpoint_name],
+  1629→            ).map_err(|e| format!("checkpoint delete error: {}", e))?;
+  1630→        } else {
+  1631→            let key = format!("{}:{}", flow_name, checkpoint_name);
+  1632→            self.checkpoint_mem.lock().map_err(|e| format!("checkpoint lock: {}", e))?.remove(&key);
+  1633→        }
+  1634→        Ok(())
+  1635→    }
+  1636→
+  1637→    /// ADR-0056: Reset all in-memory checkpoints (for test isolation).
+  1638→    pub fn reset_checkpoints(&self) {
+  1639→        if let Ok(mut mem) = self.checkpoint_mem.lock() {
+  1640→            mem.clear();
+  1641→        }
+  1642→    }
+  1643→
+  1644→    /// Execute a flow: evaluate source, thread through pipeline steps.
+  1645→    /// ADR-0056: After each step, check if a checkpoint follows. If so, save state.
+  1646→    /// If resume_target is set, skip steps until we reach the checkpoint, then resume.
+  1647→    fn run_flow(&mut self, flow: &FlowDecl) -> Result<String, String> {
+  1648→        // Register branch definitions for this flow
+  1649→        self.branch_defs.clear();
+  1650→        for (step_name, branches) in &flow.branch_defs {
+  1651→            self.branch_defs.insert(step_name.clone(), branches.clone());
+  1652→        }
+  1653→
+  1654→        // ADR-0056: Determine resume start position
+  1655→        let mut start_idx: usize = 0;
+  1656→        let mut current: Option<Value> = None;
+  1657→
+  1658→        if let Some((ref target_flow, ref target_cp)) = self.resume_target {
+  1659→            if target_flow == &flow.name {
+  1660→                // Try to load checkpoint
+  1661→                if let Some(data) = self.load_checkpoint(&flow.name, target_cp)? {
+  1662→                    // Restore variables from checkpoint
+  1663→                    for (k, v) in data.variables {
+  1664→                        self.variables.insert(k, v);
+  1665→                    }
+  1666→                    // Start from the step AFTER the checkpoint
+  1667→                    start_idx = data.step_index + 1;
+  1668→                    current = Some(data.current_value);
+  1669→                } else {
+  1670→                    return Err(format!("checkpoint '{}' not found for flow '{}'", target_cp, flow.name));
+  1671→                }
+  1672→                // Clear resume target (one-shot)
+  1673→                self.resume_target = None;
+  1674→            }
+  1675→        }
+  1676→
+  1677→        // If no resume, evaluate the source expression
+  1678→        let mut current = current.unwrap_or_else(|| self.eval_expr(&flow.source).unwrap_or(Value::Unit));
+  1679→
+  1680→        // ADR-0056: Build reverse map: step_index -> checkpoint names at that position
+  1681→        let mut checkpoint_at: HashMap<usize, Vec<String>> = HashMap::new();
+  1682→        for (cp_name, &step_idx) in &flow.checkpoints {
+  1683→            checkpoint_at.entry(step_idx).or_default().push(cp_name.clone());
+  1684→        }
+  1685→
+  1686→        // Execute pipeline steps, starting from start_idx (0 for fresh run)
+  1687→        for (i, step_name) in flow.pipeline.iter().enumerate() {
+  1688→            if i < start_idx {
+  1689→                continue; // Skip steps before resume point
+  1690→            }
+  1691→            current = self.run_flow_step(step_name, current)?;
+  1692→
+  1693→            // Check if a checkpoint follows this step
+  1694→            if let Some(cp_names) = checkpoint_at.get(&i) {
+  1695→                for cp_name in cp_names {
+  1696→                    self.save_checkpoint(&flow.name, cp_name, i, &current)?;
+  1697→                }
+  1698→            }
+  1699→        }
+  1700→
+  1701→        Ok(format!("{}", current))
+  1702→    }
+  1703→
+  1704→    /// Execute a single flow step: check branch_defs first, else invoke as pattern/builtin.
+  1705→    fn run_flow_step(&mut self, step_name: &str, current: Value) -> Result<Value, String> {
+  1706→        if let Some(branches) = self.branch_defs.get(step_name).cloned() {
+  1707→            // Step has branch definitions — evaluate conditions against current value
+  1708→            for branch in &branches {
+  1709→                if self.eval_branch_condition(&branch.condition, &current)? {
+  1710→                    return self.invoke(&branch.target, vec![current]);
+  1711→                }
+  1712→            }
+  1713→            Err(format!("no branch matched in step '{}'", step_name))
+  1714→        } else {
+  1715→            // No branch definitions — invoke as pattern/builtin directly
+  1716→            self.invoke(step_name, vec![current])
+  1717→        }
+  1718→    }
+  1719→
+  1720→    /// Evaluate a branch condition: `target.field op threshold`
+  1721→    fn eval_branch_condition(&self, cond: &BranchCondition, current: &Value) -> Result<bool, String> {
+  1722→        // The target in branch_condition is the flow input value (current)
+  1723→        let field_val = current.get_field(&cond.field)
+  1724→            .map_err(|e| format!("branch condition: {}", e))?
+  1725→            .clone();
+  1726→        let threshold = self.eval_expr(&cond.threshold)?;
+  1727→        let fv = field_val.as_float()?;
+  1728→        let tv = threshold.as_float()?;
+  1729→        Ok(match cond.op {
+  1730→            CompareOp::Gt => fv > tv,
+  1731→            CompareOp::Lt => fv < tv,
+  1732→            CompareOp::Ge => fv >= tv,
+  1733→            CompareOp::Le => fv <= tv,
+  1734→            CompareOp::Eq => fv == tv,
+  1735→            CompareOp::Ne => fv != tv,
+  1736→        })
+  1737→    }
+  1738→
+  1739→    /// Invoke a pattern or built-in by name with given arguments.
+  1740→    /// ADR-0045: Hooks (before_pattern / after_pattern) fire around pattern
+  1741→    /// and learnable pattern invocations, but NOT around builtin calls.
+  1742→    fn invoke(&mut self, name: &str, args: Vec<Value>) -> Result<Value, String> {
+  1743→        // Check recall (memory) first — it's a built-in with memory access
+  1744→        if name == "recall" {
+  1745→            return self.invoke_recall(args);
+  1746→        }
+  1747→
+  1748→        // Check find (entity store query) — needs access to interpreter state
+  1749→        if name == "find" {
+  1750→            return self.invoke_find(args);
+  1751→        }
+  1752→
+  1753→        // Check learnable patterns
+  1754→        if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
+  1755→            let collapsed_args = self.collapse_args(&learnable.params, &args);
+  1756→            let learnable_clone = learnable.clone();
+  1757→            return self.invoke_pattern_with_hooks(name, &collapsed_args, || {
+  1758→                self.invoke_learnable_with_env(name, &learnable_clone, &collapsed_args)
+  1759→            });
+  1760→        }
+  1761→
+  1762→        // Check builtins
+  1763→        if let Some(builtin_fn) = self.builtins.get(name) {
+  1764→            // Phase 7.5: Sandbox enforcement — filesystem isolation
+  1765→            if let Some(ref sb) = self.active_sandbox {
+  1766→                if sb.forbidden.iter().any(|f| f == "filesystem") {
+  1767→                    if matches!(name,
+  1768→                        "read_file" | "write_file" | "append_file"
+  1769→                        | "delete_file" | "file_exists" | "list_dir"
+  1770→                    ) {
+  1771→                        return Err(format!(
+  1772→                            "filesystem access forbidden in sandbox '{}'",
+  1773→                            sb.name
+  1774→                        ));
+  1775→                    }
+  1776→                }
+  1777→            }
+  1778→            return builtin_fn(&args);
+  1779→        }
+  1780→
+  1781→        // Look up compiled pattern
+  1782→        let pattern = match self.patterns.get(name) {
+  1783→            Some(p) => p.clone(),
+  1784→            None => return Err(format!("undefined pattern or builtin: {}", name)),
+  1785→        };
+  1786→
+  1787→        if args.len() != pattern.params.len() {
+  1788→            return Err(format!(
+  1789→                "pattern {} expects {} arguments, got {}",
+  1790→                name,
+  1791→                pattern.params.len(),
+  1792→                args.len()
+  1793→            ));
+  1794→        }
+  1795→
+  1796→        // Bind parameters with Fluid collapse
+  1797→        let mut local_env = self.bind_and_collapse(&pattern.params, &args)?;
+  1798→
+  1799→        self.invoke_pattern_with_hooks(name, &args, || {
+  1800→            self.eval_statements(&pattern.body, &mut local_env)
+  1801→        })
+  1802→    }
+  1803→
+  1804→    /// ADR-0045: Execute a pattern invocation wrapped with before/after hooks.
+  1805→    /// Injects hook variables: pattern_name (String), args (List),
+  1806→    /// result (after only), confidence (after only).
+  1807→    /// Builtins are NOT wrapped — only user-defined patterns and learnable patterns.
+  1808→    fn invoke_pattern_with_hooks<F>(
+  1809→        &self,
+  1810→        name: &str,
+  1811→        args: &[Value],
+  1812→        f: F,
+  1813→    ) -> Result<Value, String>
+  1814→    where
+  1815→        F: FnOnce() -> Result<Value, String>,
+  1816→    {
+  1817→        // ADR-0051: Track stats for regular (non-learnable) patterns.
+  1818→        // Learnable patterns track themselves in invoke_learnable_with_env.
+  1819→        if !self.learnable_patterns.contains_key(name) {
+  1820→            self.record_pattern_call(name, false);
+  1821→        }
+  1822→
+  1823→        // Execute all before_pattern hooks
+  1824→        if !self.hooks_before.is_empty() {
+  1825→            let mut hook_env = HashMap::new();
+  1826→            hook_env.insert("pattern_name".to_string(), Value::String(name.to_string()));
+  1827→            hook_env.insert("args".to_string(), Value::List(args.to_vec()));
+  1828→            for hook in &self.hooks_before {
+  1829→                // Ignore hook errors — hooks are advisory, not blocking
+  1830→                let _ = self.eval_statements(&hook.body, &mut hook_env);
+  1831→            }
+  1832→        }
+  1833→
+  1834→        // Execute the actual pattern
+  1835→        let result = f();
+  1836→
+  1837→        // Execute all after_pattern hooks
+  1838→        if !self.hooks_after.is_empty() {
+  1839→            let mut hook_env = HashMap::new();
+  1840→            hook_env.insert("pattern_name".to_string(), Value::String(name.to_string()));
+  1841→            hook_env.insert("args".to_string(), Value::List(args.to_vec()));
+  1842→            match &result {
+  1843→                Ok(val) => {
+  1844→                    hook_env.insert("result".to_string(), val.clone());
+  1845→                    // Extract confidence for Fluid results, default 1.0
+  1846→                    let conf = match val {
+  1847→                        Value::Fluid(variants) => {
+  1848→                            variants.iter().map(|v| v.confidence).fold(0.0_f64, f64::max)
+  1849→                        }
+  1850→                        _ => 1.0,
+  1851→                    };
+  1852→                    hook_env.insert("confidence".to_string(), Value::Float(conf));
+  1853→                }
+  1854→                Err(e) => {
+  1855→                    hook_env.insert("result".to_string(), Value::String(e.clone()));
+  1856→                    hook_env.insert("confidence".to_string(), Value::Float(0.0));
+  1857→                }
+  1858→            }
+  1859→            for hook in &self.hooks_after {
+  1860→                // Ignore hook errors — hooks are advisory, not blocking
+  1861→                let _ = self.eval_statements(&hook.body, &mut hook_env);
+  1862→            }
+  1863→        }
+  1864→
+  1865→        result
+  1866→    }
+  1867→
+  1868→    /// ADR-0046: Build the effective system prompt for a learnable pattern.
+  1869→    /// Handles all ContextMode variants:
+  1870→    /// - None → return base prompt unchanged
+  1871→    /// - Auto → recall(first_param_value, limit=5) + prepend context
+  1872→    /// - Recall(query_expr, limit) → evaluate query, recall, prepend context
+  1873→    /// - Literal(string) → prepend static text as context
+  1874→    ///
+  1875→    /// ADR-0055: Context compression.
+  1876→    /// When context_strategy is Compress and the recalled context exceeds
+  1877→    /// max_context_tokens estimated tokens, the facts are compressed via LLM
+  1878→    /// summarization before being prepended to the prompt.
+  1879→    fn build_effective_prompt(&self, learnable: &CompiledLearnable, args: &[Value]) -> String {
+  1880→        let context_mode = match &learnable.context {
+  1881→            None => return learnable.prompt.clone(),
+  1882→            Some(ContextMode::None) => return learnable.prompt.clone(),
+  1883→            Some(mode) => mode.clone(),
+  1884→        };
+  1885→
+  1886→        match context_mode {
+  1887→            ContextMode::None | ContextMode::Auto | ContextMode::Recall(_, _) => {
+  1888→                // Determine the query string and limit for recall
+  1889→                let (query, limit) = match &learnable.context {
+  1890→                    Some(ContextMode::Auto) => {
+  1891→                        // Use first parameter's runtime value as query
+  1892→                        let query_str = if !args.is_empty() {
+  1893→                            match &args[0] {
+  1894→                                Value::String(s) => s.clone(),
+  1895→                                other => format!("{}", other),
+  1896→                            }
+  1897→                        } else {
+  1898→                            return learnable.prompt.clone();
+  1899→                        };
+  1900→                        (query_str, 5)
+  1901→                    }
+  1902→                    Some(ContextMode::Recall(query_expr, limit_opt)) => {
+  1903→                        // Evaluate the context query expression with param names bound to args
+  1904→                        let mut env: HashMap<String, Value> = HashMap::new();
+  1905→                        for (i, param) in learnable.params.iter().enumerate() {
+  1906→                            if i < args.len() {
+  1907→                                env.insert(param.name.clone(), args[i].clone());
+  1908→                            }
+  1909→                        }
+  1910→                        let query = match self.eval_expr_with_env(query_expr, &mut env) {
+  1911→                            Ok(Value::String(s)) => s,
+  1912→                            Ok(other) => format!("{}", other),
+  1913→                            Err(_) => return learnable.prompt.clone(), // context eval failed → skip
+  1914→                        };
+  1915→                        (query, limit_opt.unwrap_or(5))
+  1916→                    }
+  1917→                    _ => unreachable!(),
+  1918→                };
+  1919→
+  1920→                // Recall memories: collect up to `limit` unique results
+  1921→                let mut facts = Vec::new();
+  1922→                let query_embedding = self.embedding_manager.embed(&query).unwrap_or_default();
+  1923→                let mut seen = std::collections::HashSet::new();
+  1924→                let min_conf = 0.1_f32;
+  1925→
+  1926→                match self.memory.lock() {
+  1927→                    Ok(store) => {
+  1928→                        let all = store.all_entries();
+  1929→                        let mut scored: Vec<(String, f32)> = Vec::new();
+  1930→                        for entry in all {
+  1931→                            if seen.contains(&entry.value) {
+  1932→                                continue;
+  1933→                            }
+  1934→                            let score = if entry.embedding.is_empty() || query_embedding.is_empty() {
+  1935→                                if entry.value.to_lowercase().contains(&query.to_lowercase()) {
+  1936→                                    0.5
+  1937→                                } else {
+  1938→                                    0.0
+  1939→                                }
+  1940→                            } else {
+  1941→                                cosine_similarity(&query_embedding, &entry.embedding) as f32
+  1942→                                    * entry.confidence as f32
+  1943→                                    * entry.priority as f32
+  1944→                            };
+  1945→                            if score >= min_conf {
+  1946→                                seen.insert(entry.value.clone());
+  1947→                                scored.push((entry.value, score));
+  1948→                            }
+  1949→                        }
+  1950→                        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+  1951→                        for (fact, _score) in scored.iter().take(limit) {
+  1952→                            facts.push(fact.clone());
+  1953→                        }
+  1954→                    }
+  1955→                    Err(_) => return learnable.prompt.clone(),
+  1956→                }
+  1957→
+  1958→                if facts.is_empty() {
+  1959→                    return learnable.prompt.clone();
+  1960→                }
+  1961→
+  1962→                // Format context block
+  1963→                let context_block = self.format_context_block(&facts);
+  1964→
+  1965→                // ADR-0055: Apply compression strategy
+  1966→                if learnable.context_strategy == ContextStrategy::Compress {
+  1967→                    let estimated_tokens = Self::estimate_tokens(&context_block);
+  1968→                    if estimated_tokens > learnable.max_context_tokens {
+  1969→                        // Compress: call LLM to summarize the context
+  1970→                        let compressed = self.compress_context(&context_block);
+  1971→                        return format!("{}\n{}", compressed, learnable.prompt);
+  1972→                    }
+  1973→                }
+  1974→
+  1975→                // No compression needed — inject as-is
+  1976→                format!("{}\n{}", context_block, learnable.prompt)
+  1977→            }
+  1978→            ContextMode::Literal(literal_text) => {
+  1979→                // Prepend static literal text as context
+  1980→                format!("{}\n{}", literal_text, learnable.prompt)
+  1981→            }
+  1982→        }
+  1983→    }
+  1984→
+  1985→    /// ADR-0055: Format recalled facts into a context block string.
+  1986→    /// Format: "Relevant context:\n- fact1\n- fact2\n..."
+  1987→    fn format_context_block(&self, facts: &[String]) -> String {
+  1988→        let mut block = String::from("Relevant context:\n");
+  1989→        for fact in facts {
+  1990→            block.push_str("- ");
+  1991→            block.push_str(fact);
+  1992→            block.push('\n');
+  1993→        }
+  1994→        block
+  1995→    }
+  1996→
+  1997→    /// ADR-0055: Estimate token count for a string.
+  1998→    /// Uses a rough approximation:
+  1999→    /// - English text: ~4 chars per token
+  2000→    /// - Cyrillic text: ~2 chars per token
+
+[showing lines 1-2000 of 3571; use offset=2001 with limit to continue reading]

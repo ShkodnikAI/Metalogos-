@@ -1,0 +1,1913 @@
+     1→// ── Built-in functions for METALOGOS M1+M2 ────────────────────────────
+     2→
+     3→use crate::interpreter::{Value, SecretString};
+     4→
+     5→pub type BuiltinFn = fn(&[Value]) -> Result<Value, String>;
+     6→
+     7→/// Registry of built-in functions.
+     8→pub struct Builtins {
+     9→    funcs: std::collections::HashMap<String, BuiltinFn>,
+    10→}
+    11→
+    12→impl Builtins {
+    13→    pub fn new() -> Self {
+    14→        let mut funcs = std::collections::HashMap::new();
+    15→
+    16→        funcs.insert("upper".to_string(), builtin_upper as BuiltinFn);
+    17→        funcs.insert("lower".to_string(), builtin_lower as BuiltinFn);
+    18→        funcs.insert("len".to_string(), builtin_len as BuiltinFn);
+    19→        funcs.insert("str".to_string(), builtin_str as BuiltinFn);
+    20→        funcs.insert("print".to_string(), builtin_print as BuiltinFn);
+    21→        funcs.insert("contains".to_string(), builtin_contains as BuiltinFn);
+    22→        funcs.insert("float".to_string(), builtin_float as BuiltinFn);
+    23→        funcs.insert("to_string".to_string(), builtin_to_string as BuiltinFn);
+    24→        funcs.insert("get".to_string(), builtin_get as BuiltinFn);
+    25→        funcs.insert("push".to_string(), builtin_push as BuiltinFn);
+    26→
+    27→        // Phase 7 — environment variable access
+    28→        funcs.insert("env".to_string(), builtin_env as BuiltinFn);
+    29→
+    30→        // Phase 5.3 — string operations
+    31→        funcs.insert("index_of".to_string(), builtin_index_of as BuiltinFn);
+    32→        funcs.insert("substring".to_string(), builtin_substring as BuiltinFn);
+    33→        funcs.insert("char_at".to_string(), builtin_char_at as BuiltinFn);
+    34→        funcs.insert("starts_with".to_string(), builtin_starts_with as BuiltinFn);
+    35→        funcs.insert("ends_with".to_string(), builtin_ends_with as BuiltinFn);
+    36→        funcs.insert("to_float".to_string(), builtin_to_float as BuiltinFn);
+    37→
+    38→        // Fluid confidence accessor
+    39→        funcs.insert("confidence".to_string(), builtin_confidence as BuiltinFn);
+    40→
+    41→        // Phase 5.4 — stdlib backing builtins (double-underscore prefix)
+    42→        funcs.insert("__trim".to_string(), builtin_trim as BuiltinFn);
+    43→        funcs.insert("__replace".to_string(), builtin_replace as BuiltinFn);
+    44→        funcs.insert("__split".to_string(), builtin_split as BuiltinFn);
+    45→        funcs.insert("__join".to_string(), builtin_join as BuiltinFn);
+    46→        funcs.insert("__abs".to_string(), builtin_abs as BuiltinFn);
+    47→        funcs.insert("__min".to_string(), builtin_min as BuiltinFn);
+    48→        funcs.insert("__max".to_string(), builtin_max as BuiltinFn);
+    49→        funcs.insert("__clamp".to_string(), builtin_clamp as BuiltinFn);
+    50→        funcs.insert("__round".to_string(), builtin_round as BuiltinFn);
+    51→        funcs.insert("__first".to_string(), builtin_first as BuiltinFn);
+    52→        funcs.insert("__last".to_string(), builtin_last as BuiltinFn);
+    53→
+    54→        // Phase 6.1 — HTTP server stubs
+    55→        funcs.insert("respond".to_string(), builtin_respond as BuiltinFn);
+    56→        funcs.insert("respond_html".to_string(), builtin_respond_html as BuiltinFn);
+    57→        funcs.insert("form_data".to_string(), builtin_form_data as BuiltinFn);
+    58→        funcs.insert("json_body".to_string(), builtin_json_body as BuiltinFn);
+    59→        funcs.insert("query_param".to_string(), builtin_query_param as BuiltinFn);
+    60→
+    61→        // Phase 6.2 — Template stubs
+    62→        funcs.insert("render".to_string(), builtin_render as BuiltinFn);
+    63→        funcs.insert("escape_html".to_string(), builtin_escape_html as BuiltinFn);
+    64→
+    65→        // Phase 6.3 — Database stubs
+    66→        funcs.insert("query".to_string(), builtin_query as BuiltinFn);
+    67→        funcs.insert("db_execute".to_string(), builtin_db_execute as BuiltinFn);
+    68→
+    69→        // Phase 6.4 — Encryption stubs
+    70→        funcs.insert("env".to_string(), builtin_env as BuiltinFn);
+    71→        funcs.insert("hash_password".to_string(), builtin_hash_password as BuiltinFn);
+    72→        funcs.insert("verify_password".to_string(), builtin_verify_password as BuiltinFn);
+    73→        funcs.insert("encrypt".to_string(), builtin_encrypt as BuiltinFn);
+    74→        funcs.insert("decrypt".to_string(), builtin_decrypt as BuiltinFn);
+    75→        funcs.insert("generate_key".to_string(), builtin_generate_key as BuiltinFn);
+    76→
+    77→        // Phase 6.5 — Auth stubs
+    78→        funcs.insert("authenticate".to_string(), builtin_authenticate as BuiltinFn);
+    79→        funcs.insert("session_login".to_string(), builtin_session_login as BuiltinFn);
+    80→        funcs.insert("session_logout".to_string(), builtin_session_logout as BuiltinFn);
+    81→
+    82→        // Phase 6.6 — Bot stubs
+    83→        funcs.insert("send_message".to_string(), builtin_send_message as BuiltinFn);
+    84→        funcs.insert("require".to_string(), builtin_require as BuiltinFn);
+    85→
+    86→        // Definition of Done — outgoing HTTP
+    87→        funcs.insert("http_post".to_string(), builtin_http_post as BuiltinFn);
+    88→
+    89→        // v0.5.0 — top-level string builtins (aliases for __* + new)
+    90→        funcs.insert("trim".to_string(), builtin_trim as BuiltinFn);
+    91→        funcs.insert("replace".to_string(), builtin_replace as BuiltinFn);
+    92→        funcs.insert("split".to_string(), builtin_split as BuiltinFn);
+    93→        funcs.insert("join".to_string(), builtin_join as BuiltinFn);
+    94→        funcs.insert("length".to_string(), builtin_length as BuiltinFn);
+    95→        funcs.insert("to_int".to_string(), builtin_to_int as BuiltinFn);
+    96→        funcs.insert("reverse".to_string(), builtin_reverse as BuiltinFn);
+    97→
+    98→        // v0.5.0 — LLM call builtin
+    99→        funcs.insert("call_llm".to_string(), builtin_call_llm as BuiltinFn);
+   100→
+   101→        // v0.5.0 — KV memory builtins
+   102→        funcs.insert("kv_set".to_string(), builtin_kv_set as BuiltinFn);
+   103→        funcs.insert("kv_get".to_string(), builtin_kv_get as BuiltinFn);
+   104→        funcs.insert("kv_delete".to_string(), builtin_kv_delete as BuiltinFn);
+   105→        funcs.insert("kv_exists".to_string(), builtin_kv_exists as BuiltinFn);
+   106→        funcs.insert("kv_list".to_string(), builtin_kv_list as BuiltinFn);
+   107→
+   108→        // Наряд №6 — exact key-value memory (mem_set/mem_get/mem_delete)
+   109→        funcs.insert("mem_set".to_string(), builtin_mem_set as BuiltinFn);
+   110→        funcs.insert("mem_get".to_string(), builtin_mem_get as BuiltinFn);
+   111→        funcs.insert("mem_delete".to_string(), builtin_mem_delete as BuiltinFn);
+   112→
+   113→        // v0.5.0 — File I/O builtins (full set)
+   114→        funcs.insert("read_file".to_string(), builtin_read_file as BuiltinFn);
+   115→        funcs.insert("write_file".to_string(), builtin_write_file as BuiltinFn);
+   116→        funcs.insert("append_file".to_string(), builtin_append_file as BuiltinFn);
+   117→        funcs.insert("delete_file".to_string(), builtin_delete_file as BuiltinFn);
+   118→        funcs.insert("file_exists".to_string(), builtin_file_exists as BuiltinFn);
+   119→        funcs.insert("list_dir".to_string(), builtin_list_dir as BuiltinFn);
+   120→
+   121→        // Anthropic Claude LLM integration (Phase 7.7)
+   122→        funcs.insert("call_claude".to_string(), builtin_call_claude as BuiltinFn);
+   123→
+   124→        // Наряд №4: LLM usage tracking
+   125→        funcs.insert("llm_usage".to_string(), builtin_llm_usage as BuiltinFn);
+   126→
+   127→        // JSON escape utility (Phase 7.7)
+   128→        funcs.insert("escape_json".to_string(), builtin_escape_json as BuiltinFn);
+   129→
+   130→        // Phase 7.7 — new builtins for department modularity
+   131→        funcs.insert("parse_json".to_string(), builtin_parse_json as BuiltinFn);
+   132→        funcs.insert("json_encode".to_string(), builtin_json_encode as BuiltinFn);
+   133→        funcs.insert("json_get".to_string(), builtin_json_get as BuiltinFn);
+   134→        funcs.insert("has_field".to_string(), builtin_has_field as BuiltinFn);
+   135→        funcs.insert("http_get".to_string(), builtin_http_get as BuiltinFn);
+   136→        funcs.insert("now".to_string(), builtin_now as BuiltinFn);
+   137→
+   138→        // ADR-0049 — session memory (temporary per-session KV store)
+   139→        funcs.insert("session_set".to_string(), builtin_session_set as BuiltinFn);
+   140→        funcs.insert("session_get".to_string(), builtin_session_get as BuiltinFn);
+   141→        funcs.insert("session_clear".to_string(), builtin_session_clear as BuiltinFn);
+   142→
+   143→        // Voice pipeline builtins (Phase 7.8)
+   144→        funcs.insert("http_post_multipart".to_string(), builtin_http_post_multipart as BuiltinFn);
+   145→        funcs.insert("whisper_transcribe".to_string(), builtin_whisper_transcribe as BuiltinFn);
+   146→        funcs.insert("tts_send".to_string(), builtin_tts_send as BuiltinFn);
+   147→
+   148→        Builtins { funcs }
+   149→    }
+   150→
+   151→    /// Look up a built-in by name.
+   152→    pub fn get(&self, name: &str) -> Option<&BuiltinFn> {
+   153→        self.funcs.get(name)
+   154→    }
+   155→}
+   156→
+   157→fn builtin_upper(args: &[Value]) -> Result<Value, String> {
+   158→    let s = expect_string_arg("upper", args, 0)?;
+   159→    Ok(Value::String(s.to_uppercase()))
+   160→}
+   161→
+   162→fn builtin_lower(args: &[Value]) -> Result<Value, String> {
+   163→    let s = expect_string_arg("lower", args, 0)?;
+   164→    Ok(Value::String(s.to_lowercase()))
+   165→}
+   166→
+   167→fn builtin_len(args: &[Value]) -> Result<Value, String> {
+   168→    match args.get(0) {
+   169→        // Unicode-aware: chars().count() returns character count, not byte count.
+   170→        // "Привет" (6 chars, 12 bytes) → 6.0, not 12.0.
+   171→        Some(Value::String(s)) => Ok(Value::Float(s.chars().count() as f64)),
+   172→        Some(Value::List(items)) => Ok(Value::Float(items.len() as f64)),
+   173→        _ => Err("len() requires String or List argument".to_string()),
+   174→    }
+   175→}
+   176→
+   177→fn builtin_str(args: &[Value]) -> Result<Value, String> {
+   178→    if args.is_empty() {
+   179→        return Err("str() requires 1 argument".to_string());
+   180→    }
+   181→    Ok(Value::String(format!("{}", args[0])))
+   182→}
+   183→
+   184→fn builtin_print(args: &[Value]) -> Result<Value, String> {
+   185→    let s = expect_string_arg("print", args, 0)?;
+   186→    println!("{}", s);
+   187→    Ok(Value::String(s))
+   188→}
+   189→
+   190→fn builtin_contains(args: &[Value]) -> Result<Value, String> {
+   191→    let haystack = expect_string_arg("contains", args, 0)?;
+   192→    let needle = expect_string_arg("contains", args, 1)?;
+   193→    let result = if haystack.contains(&needle) { 1.0 } else { 0.0 };
+   194→    Ok(Value::Float(result))
+   195→}
+   196→
+   197→fn builtin_float(args: &[Value]) -> Result<Value, String> {
+   198→    match args.get(0) {
+   199→        Some(Value::Float(f)) => Ok(Value::Float(*f)),
+   200→        Some(Value::String(s)) => s.parse::<f64>()
+   201→            .map(Value::Float)
+   202→            .map_err(|_| format!("float() cannot parse '{}'", s)),
+   203→        _ => Err("float() requires 1 argument".to_string()),
+   204→    }
+   205→}
+   206→
+   207→fn builtin_to_string(args: &[Value]) -> Result<Value, String> {
+   208→    if args.is_empty() {
+   209→        return Err("to_string() requires 1 argument".to_string());
+   210→    }
+   211→    // Use Value's Display impl — Float omits .0 for integers automatically
+   212→    Ok(Value::String(format!("{}", args[0])))
+   213→}
+   214→
+   215→fn builtin_get(args: &[Value]) -> Result<Value, String> {
+   216→    let list = match args.get(0) {
+   217→        Some(Value::List(items)) => items,
+   218→        _ => return Err("get() requires List as first argument".to_string()),
+   219→    };
+   220→    let index = match args.get(1) {
+   221→        Some(Value::Float(f)) => *f as usize,
+   222→        _ => return Err("get() requires Float index as second argument".to_string()),
+   223→    };
+   224→    list.get(index).cloned().ok_or_else(|| format!(
+   225→        "get() index {} out of bounds (list has {} elements)",
+   226→        index, list.len()
+   227→    ))
+   228→}
+   229→
+   230→fn builtin_push(args: &[Value]) -> Result<Value, String> {
+   231→    let list = match args.get(0) {
+   232→        Some(Value::List(items)) => items.clone(),
+   233→        _ => return Err("push() requires List as first argument".to_string()),
+   234→    };
+   235→    let item = match args.get(1) {
+   236→        Some(v) => v.clone(),
+   237→        None => return Err("push() requires a second argument (item to push)".to_string()),
+   238→    };
+   239→    let mut new_list = list;
+   240→    new_list.push(item);
+   241→    Ok(Value::List(new_list))
+   242→}
+   243→
+   244→fn builtin_index_of(args: &[Value]) -> Result<Value, String> {
+   245→    let haystack = expect_string_arg("index_of", args, 0)?;
+   246→    let needle = expect_string_arg("index_of", args, 1)?;
+   247→    // Unicode-aware: return CHARACTER position, not byte offset.
+   248→    // "Привет, мир".find("мир") byte offset = 12, char offset = 8.
+   249→    // Must be consistent with substring()/char_at() which use char indices.
+   250→    let char_pos = haystack
+   251→        .char_indices()
+   252→        .find(|(byte_idx, _)| haystack[*byte_idx..].starts_with(&needle))
+   253→        .map(|(byte_idx, _)| haystack[..byte_idx].chars().count());
+   254→    match char_pos {
+   255→        Some(pos) => Ok(Value::Float(pos as f64)),
+   256→        None => Ok(Value::Float(-1.0)),
+   257→    }
+   258→}
+   259→
+   260→fn builtin_substring(args: &[Value]) -> Result<Value, String> {
+   261→    let s = expect_string_arg("substring", args, 0)?;
+   262→    let start = expect_float_arg("substring", args, 1)? as usize;
+   263→    let end = expect_float_arg("substring", args, 2)? as usize;
+   264→    // Soft-failure: clamp to valid range, empty string if start >= len
+   265→    let s_len = s.chars().count();
+   266→    if start >= s_len {
+   267→        return Ok(Value::String(String::new()));
+   268→    }
+   269→    let end = if end > s_len { s_len } else { end };
+   270→    if start >= end {
+   271→        return Ok(Value::String(String::new()));
+   272→    }
+   273→    // Convert byte indices for char-based slicing
+   274→    let chars: Vec<char> = s.chars().collect();
+   275→    let result: String = chars[start..end].iter().collect();
+   276→    Ok(Value::String(result))
+   277→}
+   278→
+   279→fn builtin_char_at(args: &[Value]) -> Result<Value, String> {
+   280→    let s = expect_string_arg("char_at", args, 0)?;
+   281→    let index = expect_float_arg("char_at", args, 1)? as usize;
+   282→    // Soft-failure: return empty string on out-of-bounds
+   283→    let chars: Vec<char> = s.chars().collect();
+   284→    match chars.get(index) {
+   285→        Some(ch) => Ok(Value::String(ch.to_string())),
+   286→        None => Ok(Value::String(String::new())),
+   287→    }
+   288→}
+   289→
+   290→fn builtin_starts_with(args: &[Value]) -> Result<Value, String> {
+   291→    let s = expect_string_arg("starts_with", args, 0)?;
+   292→    let prefix = expect_string_arg("starts_with", args, 1)?;
+   293→    Ok(Value::Bool(s.starts_with(&prefix)))
+   294→}
+   295→
+   296→fn builtin_ends_with(args: &[Value]) -> Result<Value, String> {
+   297→    let s = expect_string_arg("ends_with", args, 0)?;
+   298→    let suffix = expect_string_arg("ends_with", args, 1)?;
+   299→    Ok(Value::Bool(s.ends_with(&suffix)))
+   300→}
+   301→
+   302→fn builtin_to_float(args: &[Value]) -> Result<Value, String> {
+   303→    match args.get(0) {
+   304→        Some(Value::Float(f)) => Ok(Value::Float(*f)),
+   305→        Some(Value::String(s)) => Ok(s.parse::<f64>()
+   306→            .map(Value::Float)
+   307→            .unwrap_or(Value::Float(0.0))), // soft-failure: return 0.0 on parse error
+   308→        Some(Value::Bool(b)) => Ok(Value::Float(if *b { 1.0 } else { 0.0 })),
+   309→        _ => Ok(Value::Float(0.0)), // soft-failure
+   310→    }
+   311→}
+   312→
+   313→fn builtin_confidence(args: &[Value]) -> Result<Value, String> {
+   314→    match args.get(0) {
+   315→        Some(Value::Fluid(variants)) => {
+   316→            let best = variants.iter().map(|v| v.confidence)
+   317→                .fold(0.0_f64, f64::max);
+   318→            Ok(Value::Float(best))
+   319→        }
+   320→        Some(_) => Ok(Value::Float(1.0)), // concrete values are fully confident
+   321→        None => Err("confidence() requires 1 argument".to_string()),
+   322→    }
+   323→}
+   324→
+   325→// builtin_env moved to Phase 6.4 section below
+   326→
+   327→fn expect_float_arg(fn_name: &str, args: &[Value], index: usize) -> Result<f64, String> {
+   328→    if args.len() <= index {
+   329→        return Err(format!("{}() requires an argument at position {}", fn_name, index));
+   330→    }
+   331→    match &args[index] {
+   332→        Value::Float(f) => Ok(*f),
+   333→        other => Err(format!(
+   334→            "{}() expected Float argument, got {}",
+   335→            fn_name, other.type_name()
+   336→        )),
+   337→    }
+   338→}
+   339→
+   340→fn expect_string_arg(fn_name: &str, args: &[Value], index: usize) -> Result<String, String> {
+   341→    if args.len() <= index {
+   342→        return Err(format!("{}() requires an argument at position {}", fn_name, index));
+   343→    }
+   344→    match &args[index] {
+   345→        Value::String(s) => Ok(s.clone()),
+   346→        other => Err(format!(
+   347→            "{}() expected String argument, got {}",
+   348→            fn_name, other.type_name()
+   349→        )),
+   350→    }
+   351→}
+   352→
+   353→// ── Stdlib backing builtins (Phase 5.4) ───────────────────────────
+   354→// These implement the primitives used by std/*.mlog pattern wrappers.
+   355→
+   356→fn builtin_trim(args: &[Value]) -> Result<Value, String> {
+   357→    let s = expect_string_arg("__trim", args, 0)?;
+   358→    Ok(Value::String(s.trim().to_string()))
+   359→}
+   360→
+   361→fn builtin_replace(args: &[Value]) -> Result<Value, String> {
+   362→    let s = expect_string_arg("__replace", args, 0)?;
+   363→    let old = expect_string_arg("__replace", args, 1)?;
+   364→    let new = expect_string_arg("__replace", args, 2)?;
+   365→    Ok(Value::String(s.replace(&old, &new)))
+   366→}
+   367→
+   368→fn builtin_split(args: &[Value]) -> Result<Value, String> {
+   369→    let s = expect_string_arg("__split", args, 0)?;
+   370→    let sep = expect_string_arg("__split", args, 1)?;
+   371→    let items: Vec<Value> = if sep.is_empty() {
+   372→        s.chars().map(|c| Value::String(c.to_string())).collect()
+   373→    } else {
+   374→        s.split(&sep).map(|part| Value::String(part.to_string())).collect()
+   375→    };
+   376→    Ok(Value::List(items))
+   377→}
+   378→
+   379→fn builtin_join(args: &[Value]) -> Result<Value, String> {
+   380→    let list = match args.get(0) {
+   381→        Some(Value::List(items)) => items,
+   382→        _ => return Err("__join() requires List as first argument".to_string()),
+   383→    };
+   384→    let sep = if args.len() > 1 {
+   385→        match &args[1] {
+   386→            Value::String(s) => s.clone(),
+   387→            _ => ",".to_string(),
+   388→        }
+   389→    } else {
+   390→        ",".to_string()
+   391→    };
+   392→    let parts: Vec<String> = list.iter().map(|v| format!("{}", v)).collect();
+   393→    Ok(Value::String(parts.join(&sep)))
+   394→}
+   395→
+   396→fn builtin_abs(args: &[Value]) -> Result<Value, String> {
+   397→    let f = expect_float_arg("__abs", args, 0)?;
+   398→    Ok(Value::Float(f.abs()))
+   399→}
+   400→
+   401→fn builtin_min(args: &[Value]) -> Result<Value, String> {
+   402→    let a = expect_float_arg("__min", args, 0)?;
+   403→    let b = expect_float_arg("__min", args, 1)?;
+   404→    Ok(Value::Float(a.min(b)))
+   405→}
+   406→
+   407→fn builtin_max(args: &[Value]) -> Result<Value, String> {
+   408→    let a = expect_float_arg("__max", args, 0)?;
+   409→    let b = expect_float_arg("__max", args, 1)?;
+   410→    Ok(Value::Float(a.max(b)))
+   411→}
+   412→
+   413→fn builtin_clamp(args: &[Value]) -> Result<Value, String> {
+   414→    let val = expect_float_arg("__clamp", args, 0)?;
+   415→    let lo = expect_float_arg("__clamp", args, 1)?;
+   416→    let hi = expect_float_arg("__clamp", args, 2)?;
+   417→    Ok(Value::Float(val.clamp(lo, hi)))
+   418→}
+   419→
+   420→fn builtin_round(args: &[Value]) -> Result<Value, String> {
+   421→    let f = expect_float_arg("__round", args, 0)?;
+   422→    Ok(Value::Float(f.round()))
+   423→}
+   424→
+   425→fn builtin_first(args: &[Value]) -> Result<Value, String> {
+   426→    let list = match args.get(0) {
+   427→        Some(Value::List(items)) => items,
+   428→        _ => return Err("__first() requires List as first argument".to_string()),
+   429→    };
+   430→    match list.first() {
+   431→        Some(v) => Ok(v.clone()),
+   432→        None => Ok(Value::String(String::new())), // soft-failure
+   433→    }
+   434→}
+   435→
+   436→fn builtin_last(args: &[Value]) -> Result<Value, String> {
+   437→    let list = match args.get(0) {
+   438→        Some(Value::List(items)) => items,
+   439→        _ => return Err("__last() requires List as first argument".to_string()),
+   440→    };
+   441→    match list.last() {
+   442→        Some(v) => Ok(v.clone()),
+   443→        None => Ok(Value::String(String::new())), // soft-failure
+   444→    }
+   445→}
+   446→
+   447→// ── Phase 6.1 — HTTP server stubs ───────────────────────────
+   448→// In interpreter-only mode (mlog run), these return mock values.
+   449→// Real implementations live in server.rs for the Axum context.
+   450→
+   451→fn builtin_respond(args: &[Value]) -> Result<Value, String> {
+   452→    let status_body = expect_string_arg("respond", args, 0)?;
+   453→    // Parse "200 OK" → status 200, body "OK"
+   454→    let (status, body) = parse_status_line(&status_body);
+   455→    Ok(Value::HttpResponse { status, body })
+   456→}
+   457→
+   458→/// respond_html(status, html) — respond with HTML content.
+   459→/// In server context, value_to_response converts HttpResponse to Axum response.
+   460→/// The Html variant would auto-set Content-Type, but FOSVED uses respond_html("200", ...)
+   461→/// with return, so HttpResponse is the correct type here — the server sets Content-Type.
+   462→fn builtin_respond_html(args: &[Value]) -> Result<Value, String> {
+   463→    let status_str = expect_string_arg("respond_html", args, 0)?;
+   464→    let html = expect_string_arg("respond_html", args, 1)?;
+   465→    let (status, _) = parse_status_line(&status_str);
+   466→    Ok(Value::HttpResponse { status, body: html })
+   467→}
+   468→
+   469→fn builtin_form_data(args: &[Value]) -> Result<Value, String> {
+   470→    let _ = args; // no args needed
+   471→    // In non-server context, return empty form data struct
+   472→    Ok(Value::Struct {
+   473→        type_name: "FormData".to_string(),
+   474→        fields: std::collections::HashMap::new(),
+   475→    })
+   476→}
+   477→
+   478→fn builtin_json_body(args: &[Value]) -> Result<Value, String> {
+   479→    let _ = args; // no args needed
+   480→    // In non-server context, return empty json body struct
+   481→    Ok(Value::Struct {
+   482→        type_name: "JsonBody".to_string(),
+   483→        fields: std::collections::HashMap::new(),
+   484→    })
+   485→}
+   486→
+   487→/// query_param(name) — stub that returns empty string.
+   488→/// Real implementation is handled in interpreter.rs FnCall dispatch
+   489→/// (needs access to server_query_params HashMap on the interpreter).
+   490→fn builtin_query_param(args: &[Value]) -> Result<Value, String> {
+   491→    let _name = if args.is_empty() {
+   492→        return Err("query_param() requires 1 argument (param name)".to_string());
+   493→    } else {
+   494→        match &args[0] {
+   495→            Value::String(s) => s.clone(),
+   496→            other => return Err(format!("query_param() expected String, got {}", other.type_name())),
+   497→        }
+   498→    };
+   499→    // Stub — real implementation is special-cased in interpreter FnCall dispatch
+   500→    Ok(Value::String(String::new()))
+   501→}
+   502→
+   503→// ── Phase 6.2 — Template stubs ───────────────────────────
+   504→
+   505→fn builtin_render(args: &[Value]) -> Result<Value, String> {
+   506→    // render(template_name, key1, val1, key2, val2, ...)
+   507→    // Simple {{ var }} substitution with auto-escaping
+   508→    // In interpreter mode, do basic string substitution
+   509→    if args.len() < 3 || (args.len() - 1) % 2 != 0 {
+   510→        return Err("render() requires template name + key/value pairs (odd count)".to_string());
+   511→    }
+   512→    let template_name = expect_string_arg("render", args, 0)?;
+   513→
+   514→    // Build substitution map from remaining args (key, value pairs)
+   515→    let mut vars = std::collections::HashMap::new();
+   516→    let mut i = 1;
+   517→    while i + 1 < args.len() {
+   518→        let key = match &args[i] {
+   519→            Value::String(s) => s.clone(),
+   520→            other => return Err(format!("render() key must be String, got {}", other.type_name())),
+   521→        };
+   522→        let val = match &args[i + 1] {
+   523→            Value::String(s) => s.clone(),
+   524→            other => format!("{}", other),
+   525→        };
+   526→        vars.insert(key, val);
+   527→        i += 2;
+   528→    }
+   529→
+   530→    // In interpreter mode, generate a simple HTML string from the template name and vars
+   531→    let mut html = String::from("<div class=\"template-");
+   532→    html.push_str(&escape_html_chars(&template_name));
+   533→    html.push_str("\">");
+   534→    for (key, val) in &vars {
+   535→        html.push_str(&format!("<span data-key=\"{}\">{}</span>",
+   536→            escape_html_chars(key), escape_html_chars(val)));
+   537→    }
+   538→    html.push_str("</div>");
+   539→
+   540→    Ok(Value::Html(html))
+   541→}
+   542→
+   543→fn builtin_escape_html(args: &[Value]) -> Result<Value, String> {
+   544→    let s = expect_string_arg("escape_html", args, 0)?;
+   545→    Ok(Value::String(escape_html_chars(&s)))
+   546→}
+   547→
+   548→/// HTML-escape a string (for use in templates and escape_html builtin).
+   549→fn escape_html_chars(s: &str) -> String {
+   550→    let mut out = String::with_capacity(s.len());
+   551→    for ch in s.chars() {
+   552→        match ch {
+   553→            '&' => out.push_str("&amp;"),
+   554→            '<' => out.push_str("&lt;"),
+   555→            '>' => out.push_str("&gt;"),
+   556→            '"' => out.push_str("&quot;"),
+   557→            '\'' => out.push_str("&#39;"),
+   558→            _ => out.push(ch),
+   559→        }
+   560→    }
+   561→    out
+   562→}
+   563→
+   564→/// Parse a status line like "200 OK" into (status_code, body).
+   565→fn parse_status_line(status_body: &str) -> (u16, String) {
+   566→    let parts: Vec<&str> = status_body.splitn(2, ' ').collect();
+   567→    let status = parts.first().and_then(|s| s.parse::<u16>().ok()).unwrap_or(200);
+   568→    let body = if parts.len() > 1 { parts[1].to_string() } else { String::new() };
+   569→    (status, body)
+   570→}
+   571→
+   572→// ── Phase 6.3 — Database stubs ───────────────────────────
+   573→
+   574→fn builtin_query(args: &[Value]) -> Result<Value, String> {
+   575→    let sql = expect_string_arg("query", args, 0)?;
+   576→    // Wrap SQL in opaque Query value — prevents string concatenation or printing
+   577→    // In interpreter mode, store the SQL for later mock execution
+   578→    let _params = if args.len() > 1 { &args[1] } else { &Value::Unit };
+   579→    Ok(Value::Query(sql))
+   580→}
+   581→
+   582→fn builtin_db_execute(args: &[Value]) -> Result<Value, String> {
+   583→    let _sql = expect_string_arg("db_execute", args, 0)?;
+   584→    // In interpreter mode, no-op (returns Unit)
+   585→    Ok(Value::Unit)
+   586→}
+   587→
+   588→// ── Phase 6.4 — Encryption stubs ───────────────────────────
+   589→
+   590→fn builtin_env(args: &[Value]) -> Result<Value, String> {
+   591→    let key = expect_string_arg("env", args, 0)?;
+   592→    match std::env::var(&key) {
+   593→        Ok(val) => Ok(Value::String(val)),
+   594→        Err(_) => Ok(Value::String(String::new())), // soft-failure: empty string if not found
+   595→    }
+   596→}
+   597→
+   598→fn builtin_hash_password(args: &[Value]) -> Result<Value, String> {
+   599→    let password = expect_string_arg("hash_password", args, 0)?;
+   600→    // Argon2id with random salt — real password hashing (Phase 7.3)
+   601→    use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
+   602→    use rand::rngs::OsRng;
+   603→
+   604→    let salt = SaltString::generate(&mut OsRng);
+   605→    let argon2 = Argon2::default(); // Argon2id
+   606→    match argon2.hash_password(password.as_bytes(), &salt) {
+   607→        Ok(hash) => Ok(Value::Hash(hash.to_string())),
+   608→        Err(e) => Err(format!("hash_password() failed: {}", e)),
+   609→    }
+   610→}
+   611→
+   612→fn builtin_verify_password(args: &[Value]) -> Result<Value, String> {
+   613→    let password = expect_string_arg("verify_password", args, 0)?;
+   614→    let hash_str = match args.get(1) {
+   615→        Some(Value::Hash(h)) => h.as_str(),
+   616→        Some(other) => return Err(format!("verify_password() expected Hash as second arg, got {}", other.type_name())),
+   617→        None => return Err("verify_password() requires 2 arguments".to_string()),
+   618→    };
+   619→    // Real Argon2id verification with constant-time comparison (Phase 7.3)
+   620→    use argon2::{Argon2, PasswordVerifier, password_hash::PasswordHash};
+   621→
+   622→    let argon2 = Argon2::default();
+   623→    match PasswordHash::new(hash_str) {
+   624→        Ok(parsed_hash) => {
+   625→            // Constant-time comparison inside argon2
+   626→            match argon2.verify_password(password.as_bytes(), &parsed_hash) {
+   627→                Ok(_) => Ok(Value::Bool(true)),
+   628→                Err(argon2::password_hash::Error::Password) => Ok(Value::Bool(false)),
+   629→                Err(e) => Err(format!("verify_password() failed: {}", e)),
+   630→            }
+   631→        }
+   632→        Err(e) => Err(format!("verify_password() invalid hash format: {}", e)),
+   633→    }
+   634→}
+   635→
+   636→fn builtin_encrypt(args: &[Value]) -> Result<Value, String> {
+   637→    let data = expect_string_arg("encrypt", args, 0)?;
+   638→    let key_str = match args.get(1) {
+   639→        Some(Value::Secret(zs)) => zs.as_str(),
+   640→        Some(other) => return Err(format!("encrypt() expected Secret as second arg, got {}", other.type_name())),
+   641→        None => return Err("encrypt() requires 2 arguments".to_string()),
+   642→    };
+   643→    // Real AES-256-GCM with random 96-bit nonce (Phase 7.3)
+   644→    use aes_gcm::{Aes256Gcm, AeadCore, Key};
+   645→    use aes_gcm::aead::{Aead, KeyInit, OsRng};
+   646→
+   647→    let key_bytes = hex::decode(key_str)
+   648→        .map_err(|e| format!("encrypt() invalid key format (expected hex): {}", e))?;
+   649→    if key_bytes.len() != 32 {
+   650→        return Err(format!("encrypt() key must be 256-bit (64 hex chars), got {} bytes", key_bytes.len()));
+   651→    }
+   652→    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+   653→    let cipher = Aes256Gcm::new(key);
+   654→    let nonce = Aes256Gcm::generate_nonce(&mut OsRng); // 96-bit random nonce
+   655→
+   656→    match cipher.encrypt(&nonce, data.as_ref()) {
+   657→        Ok(ciphertext) => {
+   658→            // Prepend nonce to ciphertext for self-contained Encrypted value
+   659→            let mut output = nonce.to_vec();
+   660→            output.extend_from_slice(&ciphertext);
+   661→            Ok(Value::Encrypted(output))
+   662→        }
+   663→        Err(e) => Err(format!("encrypt() AES-256-GCM encryption failed: {}", e)),
+   664→    }
+   665→}
+   666→
+   667→fn builtin_decrypt(args: &[Value]) -> Result<Value, String> {
+   668→    let encrypted = match args.get(0) {
+   669→        Some(Value::Encrypted(data)) => data.clone(),
+   670→        Some(other) => return Err(format!("decrypt() expected Encrypted as first arg, got {}", other.type_name())),
+   671→        None => return Err("decrypt() requires 2 arguments".to_string()),
+   672→    };
+   673→    let key_str = match args.get(1) {
+   674→        Some(Value::Secret(zs)) => zs.as_str(),
+   675→        Some(other) => return Err(format!("decrypt() expected Secret as second arg, got {}", other.type_name())),
+   676→        None => return Err("decrypt() requires 2 arguments".to_string()),
+   677→    };
+   678→    // Real AES-256-GCM decryption (Phase 7.3)
+   679→    // Encrypted format: nonce (12 bytes) || ciphertext_with_tag
+   680→    use aes_gcm::{Aes256Gcm, Key, Nonce};
+   681→    use aes_gcm::aead::{Aead, KeyInit};
+   682→
+   683→    if encrypted.len() < 13 {
+   684→        // Need at least 12 (nonce) + 1 (tag minimum)
+   685→        return Err("decrypt() invalid encrypted data: too short".to_string());
+   686→    }
+   687→
+   688→    let key_bytes = hex::decode(key_str)
+   689→        .map_err(|e| format!("decrypt() invalid key format (expected hex): {}", e))?;
+   690→    if key_bytes.len() != 32 {
+   691→        return Err(format!("decrypt() key must be 256-bit (64 hex chars), got {} bytes", key_bytes.len()));
+   692→    }
+   693→
+   694→    let (nonce_bytes, ciphertext) = encrypted.split_at(12);
+   695→    let nonce = Nonce::from_slice(nonce_bytes);
+   696→    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+   697→    let cipher = Aes256Gcm::new(key);
+   698→
+   699→    match cipher.decrypt(nonce, ciphertext) {
+   700→        Ok(plaintext) => {
+   701→            match String::from_utf8(plaintext) {
+   702→                Ok(s) => Ok(Value::String(s)),
+   703→                Err(_) => Err("decrypt() decrypted data is not valid UTF-8".to_string()),
+   704→            }
+   705→        }
+   706→        Err(_) => Err("decrypt() failed: incorrect key or corrupted data".to_string()),
+   707→    }
+   708→}
+   709→
+   710→fn builtin_generate_key(args: &[Value]) -> Result<Value, String> {
+   711→    let _ = args; // no args needed
+   712→    // Generate a real 256-bit random key (Phase 7.3)
+   713→    use rand::RngCore;
+   714→
+   715→    let mut key_bytes = [0u8; 32];
+   716→    rand::thread_rng().fill_bytes(&mut key_bytes);
+   717→    let key_hex = hex::encode(key_bytes); // 64 hex chars
+   718→    Ok(Value::Secret(SecretString::new(key_hex)))
+   719→}
+   720→
+   721→// ── Phase 6.5 — Auth stubs ───────────────────────────
+   722→
+   723→fn builtin_authenticate(args: &[Value]) -> Result<Value, String> {
+   724→    let _email = expect_string_arg("authenticate", args, 0)?;
+   725→    let _password = match args.get(1) {
+   726→        Some(Value::Secret(_)) => true,
+   727→        Some(Value::String(_)) => true,
+   728→        Some(other) => return Err(format!("authenticate() expected Secret or String as password, got {}", other.type_name())),
+   729→        None => return Err("authenticate() requires 2 arguments (email, password)".to_string()),
+   730→    };
+   731→    // In interpreter mode, always fail (mock)
+   732→    Ok(Value::Unit)
+   733→}
+   734→
+   735→fn builtin_session_login(args: &[Value]) -> Result<Value, String> {
+   736→    let _user_id = expect_string_arg("session_login", args, 0)?;
+   737→    // In interpreter mode, return empty session
+   738→    Ok(Value::Session(std::collections::HashMap::new()))
+   739→}
+   740→
+   741→fn builtin_session_logout(args: &[Value]) -> Result<Value, String> {
+   742→    let _session = match args.get(0) {
+   743→        Some(Value::Session(_)) => true,
+   744→        Some(other) => return Err(format!("session_logout() expected Session, got {}", other.type_name())),
+   745→        None => return Err("session_logout() requires 1 argument".to_string()),
+   746→    };
+   747→    Ok(Value::Unit)
+   748→}
+   749→
+   750→// ── Phase 6.6 — Bot stubs ───────────────────────────
+   751→
+   752→fn builtin_send_message(args: &[Value]) -> Result<Value, String> {
+   753→    let _chat_id = match args.get(0) {
+   754→        Some(Value::String(_)) | Some(Value::Float(_)) => true,
+   755→        Some(other) => return Err(format!("send_message() expected String or Float as chat_id, got {}", other.type_name())),
+   756→        None => return Err("send_message() requires 2 arguments (chat_id, text)".to_string()),
+   757→    };
+   758→    let text = match args.get(1) {
+   759→        Some(Value::String(s)) => s.clone(),
+   760→        Some(other) => return Err(format!("send_message() expected String as text, got {}", other.type_name())),
+   761→        None => return Err("send_message() requires 2 arguments (chat_id, text)".to_string()),
+   762→    };
+   763→    // In interpreter mode, log to audit and return Unit
+   764→    eprintln!("[AUDIT] send_message: {}", text);
+   765→    Ok(Value::Unit)
+   766→}
+   767→
+   768→// ── Outgoing HTTP (Definition of Done: http_post) ─────────────────
+   769→
+   770→/// Send an HTTP POST request. Returns the response body as String.
+   771→/// Usage: http_post(url, body, content_type)
+   772→/// Usage: http_post(url, body, content_type, auth_token)        — sets Authorization: Bearer <auth_token>
+   773→/// Usage: http_post(url, body, content_type, headers_struct)    — sets headers from Struct fields
+   774→/// Наряд №12 Bug 2: Added 4th parameter for authorization headers.
+   775→fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
+   776→    let url = match args.get(0) {
+   777→        Some(Value::String(s)) => s.clone(),
+   778→        Some(other) => return Err(format!("http_post() expected String as url, got {}", other.type_name())),
+   779→        None => return Err("http_post() requires at least 1 argument (url)".to_string()),
+   780→    };
+   781→
+   782→    let body = match args.get(1) {
+   783→        Some(Value::String(s)) => s.clone(),
+   784→        Some(other) => return Err(format!("http_post() expected String as body, got {}", other.type_name())),
+   785→        None => return Err("http_post() requires at least 2 arguments (url, body)".to_string()),
+   786→    };
+   787→
+   788→    let content_type = match args.get(2) {
+   789→        Some(Value::String(s)) => s.clone(),
+   790→        _ => "application/json".to_string(),
+   791→    };
+   792→
+   793→
+   794→    let client = reqwest::blocking::Client::builder()
+   795→        .timeout(std::time::Duration::from_secs(30))
+   796→        .build()
+   797→        .map_err(|e| format!("http_post(): failed to create client: {}", e))?;
+   798→
+   799→
+   800→    let mut req = client
+   801→        .post(&url)
+   802→        .header("Content-Type", &content_type)
+   803→        .body(body);
+   804→
+   805→    // Optional 4th argument: headers (Наряд №12 Bug 2)
+   806→    // String: treat as Bearer token; Struct: set headers from fields
+   807→    if let Some(headers_arg) = args.get(3) {
+   808→        match headers_arg {
+   809→            Value::String(auth_token) => {
+   810→                if !auth_token.is_empty() {
+   811→                    req = req.header("Authorization", format!("Bearer {}", auth_token));
+   812→                }
+   813→            }
+   814→            Value::Struct { fields, .. } => {
+   815→                for (key, val) in fields {
+   816→                    if let Value::String(v) = val {
+   817→                        req = req.header(key.as_str(), v.as_str());
+   818→                    }
+   819→                }
+   820→            }
+   821→            _ => {}
+   822→        }
+   823→    }
+   824→
+   825→    let resp = req
+   826→        .send()
+   827→        .map_err(|e| format!("http_post() request failed: {}", e))?;
+   828→
+   829→    let status = resp.status().as_u16();
+   830→    let resp_body = resp.text().unwrap_or_default();
+   831→
+   832→    if status >= 400 {
+   833→        return Err(format!("http_post() returned status {}: {}", status, resp_body));
+   834→    }
+   835→
+   836→    Ok(Value::String(resp_body))
+   837→}
+   838→
+   839→/// Send a request to Anthropic Claude Messages API.
+   840→/// Usage: call_claude(api_key, model, system_prompt, user_message) -> String
+   841→fn builtin_call_claude(args: &[Value]) -> Result<Value, String> {
+   842→    let api_key = expect_string_arg("call_claude", args, 0)?;
+   843→    let model = expect_string_arg("call_claude", args, 1)?;
+   844→    let system_prompt = expect_string_arg("call_claude", args, 2)?;
+   845→    let user_message = expect_string_arg("call_claude", args, 3)?;
+   846→
+   847→    let body = serde_json::json!({
+   848→        "model": model,
+   849→        "max_tokens": 4096,
+   850→        "system": system_prompt,
+   851→        "messages": [{"role": "user", "content": user_message}]
+   852→    });
+   853→
+   854→    let client = reqwest::blocking::Client::builder()
+   855→        .timeout(std::time::Duration::from_secs(30))
+   856→        .build()
+   857→        .map_err(|e| format!("call_claude(): failed to create client: {}", e))?;
+   858→
+   859→    let resp = client
+   860→        .post("https://api.anthropic.com/v1/messages")
+   861→        .header("x-api-key", &api_key)
+   862→        .header("anthropic-version", "2023-06-01")
+   863→        .header("content-type", "application/json")
+   864→        .body(body.to_string())
+   865→        .send()
+   866→        .map_err(|e| format!("call_claude(): request failed: {}", e))?;
+   867→
+   868→    let status = resp.status().as_u16();
+   869→    let resp_body = resp.text().unwrap_or_default();
+   870→
+   871→    if status >= 400 {
+   872→        return Err(format!("call_claude() returned status {}: {}", status, resp_body));
+   873→    }
+   874→
+   875→    // Parse response and extract content[0].text
+   876→    let parsed: serde_json::Value = serde_json::from_str(&resp_body)
+   877→        .map_err(|e| format!("call_claude(): JSON parse error: {}", e))?;
+   878→
+   879→    let content = parsed["content"][0]["text"]
+   880→        .as_str()
+   881→        .unwrap_or("Claude API returned an unexpected response format")
+   882→        .to_string();
+   883→
+   884→    Ok(Value::String(content))
+   885→}
+   886→
+   887→/// Escape a string for safe embedding inside a JSON string value.
+   888→/// Replaces: " -> \" , \ -> \\ , newline -> \n , tab -> \t , carriage return -> \r
+   889→/// Usage: escape_json(text) -> String
+   890→fn builtin_escape_json(args: &[Value]) -> Result<Value, String> {
+   891→    let s = expect_string_arg("escape_json", args, 0)?;
+   892→    let mut out = String::with_capacity(s.len() + 8);
+   893→    for ch in s.chars() {
+   894→        match ch {
+   895→            '"' => out.push_str("\\\""),
+   896→            '\\' => out.push_str("\\\\"),
+   897→            '\n' => out.push_str("\\n"),
+   898→            '\t' => out.push_str("\\t"),
+   899→            '\r' => out.push_str("\\r"),
+   900→            _ => out.push(ch),
+   901→        }
+   902→    }
+   903→    Ok(Value::String(out))
+   904→}
+   905→
+   906→// ── Phase 7.7 — parse_json, http_get, now ────────────────────────────
+   907→
+   908→/// Parse a JSON string into a Value (Struct or List).
+   909→/// Usage: parse_json(text) -> Struct|List|String|Float|Bool|Unit
+   910→fn builtin_parse_json(args: &[Value]) -> Result<Value, String> {
+   911→    let text = expect_string_arg("parse_json", args, 0)?;
+   912→    let parsed: serde_json::Value = serde_json::from_str(&text)
+   913→        .map_err(|e| format!("parse_json() error: {}", e))?;
+   914→    Ok(json_value_to_mlog_value(&parsed))
+   915→}
+   916→
+   917→/// Convert serde_json::Value to METALOGOS Value (same logic as interpreter's method).
+   918→fn json_value_to_mlog_value(json: &serde_json::Value) -> Value {
+   919→    match json {
+   920→        serde_json::Value::String(s) => Value::String(s.clone()),
+   921→        serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
+   922→        serde_json::Value::Bool(b) => Value::Bool(*b),
+   923→        serde_json::Value::Null => Value::Unit,
+   924→        serde_json::Value::Array(arr) => {
+   925→            Value::List(arr.iter().map(|v| json_value_to_mlog_value(v)).collect())
+   926→        }
+   927→        serde_json::Value::Object(obj) => {
+   928→            let mut fields = std::collections::HashMap::new();
+   929→            for (k, v) in obj {
+   930→                fields.insert(k.clone(), json_value_to_mlog_value(v));
+   931→            }
+   932→            Value::Struct { type_name: "Json".to_string(), fields }
+   933→        }
+   934→    }
+   935→}
+   936→
+   937→/// Convert METALOGOS Value to serde_json::Value (reverse of json_value_to_mlog_value).
+   938→fn mlog_value_to_json(val: &Value) -> serde_json::Value {
+   939→    match val {
+   940→        Value::String(s) => serde_json::Value::String(s.clone()),
+   941→        Value::Float(f) => serde_json::json!(*f),
+   942→        Value::Bool(b) => serde_json::Value::Bool(*b),
+   943→        Value::Unit => serde_json::Value::Null,
+   944→        Value::List(items) => {
+   945→            serde_json::Value::Array(items.iter().map(|v| mlog_value_to_json(v)).collect())
+   946→        }
+   947→        Value::Struct { fields, .. } => {
+   948→            let mut map = serde_json::Map::new();
+   949→            for (k, v) in fields {
+   950→                map.insert(k.clone(), mlog_value_to_json(v));
+   951→            }
+   952→            serde_json::Value::Object(map)
+   953→        }
+   954→        // Opaque/internal types: convert to string representation
+   955→        other => serde_json::Value::String(format!("{}", other)),
+   956→    }
+   957→}
+   958→
+   959→/// Serialize a Value to a JSON string.
+   960→/// Usage: json_encode(value) -> String
+   961→/// Supports: String, Float, Bool, Unit->null, List->array, Struct->object
+   962→fn builtin_json_encode(args: &[Value]) -> Result<Value, String> {
+   963→    if args.is_empty() {
+   964→        return Err("json_encode() requires 1 argument".to_string());
+   965→    }
+   966→    let json = mlog_value_to_json(&args[0]);
+   967→    let serialized = serde_json::to_string(&json)
+   968→        .map_err(|e| format!("json_encode() serialization error: {}", e))?;
+   969→    Ok(Value::String(serialized))
+   970→}
+   971→
+   972→/// Safe field access on a struct value: returns default if field missing or not a struct.
+   973→/// Usage: json_get(obj, "field") -> Value (returns Unit if missing)
+   974→/// Usage: json_get(obj, "field", default_value) -> Value (returns default if missing)
+   975→/// Usage: json_get(obj, "nested.field.path", default) -> Value (dot-separated path)
+   976→/// This is the P0 fix: prevents runtime crash when accessing optional JSON fields
+   977→/// like message.voice on non-voice Telegram updates.
+   978→fn builtin_json_get(args: &[Value]) -> Result<Value, String> {
+   979→    let obj = match args.get(0) {
+   980→        Some(v) => v,
+   981→        None => return Err("json_get() requires at least 2 arguments (obj, field_path)".to_string()),
+   982→    };
+   983→    let path = expect_string_arg("json_get", args, 1)?;
+   984→    let default_val = args.get(2).cloned().unwrap_or(Value::Unit);
+   985→
+   986→    // Navigate the path (dot-separated)
+   987→    let mut current = obj;
+   988→    for segment in path.split('.') {
+   989→        match current.get_field(segment) {
+   990→            Ok(val) => current = val,
+   991→            Err(_) => return Ok(default_val),
+   992→        }
+   993→    }
+   994→    Ok(current.clone())
+   995→}
+   996→
+   997→/// Check if a struct value has a given field. Returns 1.0 (true) or 0.0 (false).
+   998→/// Usage: has_field(obj, "field") -> Float
+   999→/// Usage: has_field(obj, "nested.field") -> Float (dot-separated path)
+  1000→fn builtin_has_field(args: &[Value]) -> Result<Value, String> {
+  1001→    let obj = match args.get(0) {
+  1002→        Some(v) => v,
+  1003→        None => return Err("has_field() requires 2 arguments (obj, field_path)".to_string()),
+  1004→    };
+  1005→    let path = expect_string_arg("has_field", args, 1)?;
+  1006→
+  1007→    let mut current = obj;
+  1008→    let segments: Vec<&str> = path.split('.').collect();
+  1009→    for (i, segment) in segments.iter().enumerate() {
+  1010→        match current.get_field(segment) {
+  1011→            Ok(val) => {
+  1012→                if i == segments.len() - 1 {
+  1013→                    return Ok(Value::Float(1.0));
+  1014→                }
+  1015→                current = val;
+  1016→            }
+  1017→            Err(_) => return Ok(Value::Float(0.0)),
+  1018→        }
+  1019→    }
+  1020→    Ok(Value::Float(0.0))
+  1021→}
+  1022→
+  1023→/// Send an HTTP GET request. Returns the response body as String.
+  1024→/// Usage: http_get(url) -> String
+  1025→/// Usage: http_get(url, headers_struct) -> String  — sets headers from Struct fields
+  1026→fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
+  1027→    let url = match args.get(0) {
+  1028→        Some(Value::String(s)) => s.clone(),
+  1029→        Some(other) => return Err(format!("http_get() expected String as url, got {}", other.type_name())),
+  1030→        None => return Err("http_get() requires 1 argument (url)".to_string()),
+  1031→    };
+  1032→
+  1033→    let client = reqwest::blocking::Client::builder()
+  1034→        .timeout(std::time::Duration::from_secs(30))
+  1035→        .build()
+  1036→        .map_err(|e| format!("http_get(): failed to create client: {}", e))?;
+  1037→
+  1038→    let mut req = client.get(&url);
+  1039→
+  1040→    // Optional 2nd argument: headers (String as Bearer token, Struct as header map)
+  1041→    if let Some(headers_arg) = args.get(1) {
+  1042→        match headers_arg {
+  1043→            Value::String(auth_token) => {
+  1044→                if !auth_token.is_empty() {
+  1045→                    req = req.header("Authorization", format!("Bearer {}", auth_token));
+  1046→                }
+  1047→            }
+  1048→            Value::Struct { fields, .. } => {
+  1049→                for (key, val) in fields {
+  1050→                    if let Value::String(v) = val {
+  1051→                        req = req.header(key.as_str(), v.as_str());
+  1052→                    }
+  1053→                }
+  1054→            }
+  1055→            _ => {}
+  1056→        }
+  1057→    }
+  1058→
+  1059→    let resp = req
+  1060→        .send()
+  1061→        .map_err(|e| format!("http_get() request failed: {}", e))?;
+  1062→
+  1063→    let status = resp.status().as_u16();
+  1064→    let resp_body = resp.text().unwrap_or_default();
+  1065→
+  1066→    if status >= 400 {
+  1067→        return Err(format!("http_get() returned status {}: {}", status, resp_body));
+  1068→    }
+  1069→
+  1070→    Ok(Value::String(resp_body))
+  1071→}
+  1072→
+  1073→/// Return current Unix timestamp as Float (seconds since epoch).
+  1074→/// Usage: now() -> Float
+  1075→fn builtin_now(args: &[Value]) -> Result<Value, String> {
+  1076→    let _ = args;
+  1077→    let now = std::time::SystemTime::now()
+  1078→        .duration_since(std::time::UNIX_EPOCH)
+  1079→        .map(|d| d.as_secs_f64())
+  1080→        .unwrap_or(0.0);
+  1081→    Ok(Value::Float(now))
+  1082→}
+  1083→
+  1084→fn builtin_require(args: &[Value]) -> Result<Value, String> {
+  1085→    if args.is_empty() {
+  1086→        return Err("require() requires 1 argument (bool expression)".to_string());
+  1087→    }
+  1088→    match &args[0] {
+  1089→        Value::Bool(true) => Ok(Value::Unit),
+  1090→        Value::Bool(false) => {
+  1091→            let msg = if args.len() > 1 {
+  1092→                match &args[1] {
+  1093→                    Value::String(s) => s.clone(),
+  1094→                    other => format!("{:?}", other),
+  1095→                }
+  1096→            } else {
+  1097→                "require assertion failed".to_string()
+  1098→            };
+  1099→            Err(format!("require assertion failed: {}", msg))
+  1100→        }
+  1101→        other => Err(format!("require() expected Bool, got {}", other.type_name())),
+  1102→    }
+  1103→}
+  1104→
+  1105→// ── v0.5.0 — New string builtins ──────────────────────────
+  1106→
+  1107→/// `length(s)` — returns the length of a string or list as Float.
+  1108→fn builtin_length(args: &[Value]) -> Result<Value, String> {
+  1109→    match args.get(0) {
+  1110→        Some(Value::String(s)) => Ok(Value::Float(s.chars().count() as f64)),
+  1111→        Some(Value::List(items)) => Ok(Value::Float(items.len() as f64)),
+  1112→        other => Err(format!("length() requires String or List, got {}", other.as_ref().map(|v| v.type_name()).unwrap_or("none"))),
+  1113→    }
+  1114→}
+  1115→
+  1116→/// `to_int(s)` — parse a string to an integer Float (truncates towards zero).
+  1117→fn builtin_to_int(args: &[Value]) -> Result<Value, String> {
+  1118→    match args.get(0) {
+  1119→        Some(Value::Float(f)) => Ok(Value::Float(f.trunc())),
+  1120→        Some(Value::String(s)) => {
+  1121→            // Try integer parse first, then float truncation
+  1122→            if let Ok(i) = s.parse::<i64>() {
+  1123→                Ok(Value::Float(i as f64))
+  1124→            } else if let Ok(f) = s.parse::<f64>() {
+  1125→                Ok(Value::Float(f.trunc()))
+  1126→            } else {
+  1127→                Ok(Value::Float(0.0)) // soft-failure
+  1128→            }
+  1129→        }
+  1130→        Some(Value::Bool(b)) => Ok(Value::Float(if *b { 1.0 } else { 0.0 })),
+  1131→        _ => Ok(Value::Float(0.0)), // soft-failure
+  1132→    }
+  1133→}
+  1134→
+  1135→/// `reverse(s)` — reverse a string or list.
+  1136→fn builtin_reverse(args: &[Value]) -> Result<Value, String> {
+  1137→    match args.get(0) {
+  1138→        Some(Value::String(s)) => {
+  1139→            Ok(Value::String(s.chars().rev().collect()))
+  1140→        }
+  1141→        Some(Value::List(items)) => {
+  1142→            let mut rev = items.clone();
+  1143→            rev.reverse();
+  1144→            Ok(Value::List(rev))
+  1145→        }
+  1146→        other => Err(format!("reverse() requires String or List, got {}", other.as_ref().map(|v| v.type_name()).unwrap_or("none"))),
+  1147→    }
+  1148→}
+  1149→
+  1150→// ── v0.5.0 — LLM call builtin ──────────────────────────────
+  1151→
+  1152→/// `call_llm(prompt, input)` — call the LLM backend with a prompt and input.
+  1153→/// When METALOGOS_LLM_MOCK=true (default), returns "[MOCK: <prompt> | <input>]".
+  1154→/// When METALOGOS_LLM_MOCK=false, calls the real LLM backend (30s timeout).
+  1155→fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
+  1156→    let prompt = match args.get(0) {
+  1157→        Some(Value::String(s)) => s.clone(),
+  1158→        Some(other) => return Err(format!("call_llm() expected String as prompt, got {}", other.type_name())),
+  1159→        None => return Err("call_llm() requires at least 1 argument (prompt)".to_string()),
+  1160→    };
+  1161→    let input = match args.get(1) {
+  1162→        Some(Value::String(s)) => s.clone(),
+  1163→        Some(other) => format!("{}", other),
+  1164→        None => String::new(),
+  1165→    };
+  1166→
+  1167→    // Check mock mode
+  1168→    let mock_mode = std::env::var("METALOGOS_LLM_MOCK")
+  1169→        .map(|v| v == "true" || v == "1")
+  1170→        .unwrap_or(true); // Default: mock mode ON
+  1171→
+  1172→    if mock_mode {
+  1173→        Ok(Value::String(format!("[MOCK: {} | {}]", prompt, input)))
+  1174→    } else {
+  1175→        // Real LLM call
+  1176→        let backend = crate::llm::create_llm_backend();
+  1177→        backend.call(&prompt, &input)
+  1178→            .map(Value::String)
+  1179→            .map_err(|e| format!("call_llm() failed: {}", e))
+  1180→    }
+  1181→}
+  1182→
+  1183→// ── v0.5.0 — KV memory builtins ────────────────────────────
+  1184→// These use a thread-local KV store (in-memory by default).
+  1185→// When memory { persist: "..." } is configured, they also persist to SQLite kv_store table.
+  1186→// Uses a write-through cache: in-memory HashMap is always authoritative;
+  1187→// SQLite is a persistence backend that mirrors the HashMap.
+  1188→
+  1189→use std::sync::Mutex as StdMutex;
+  1190→
+  1191→/// Global KV store — lazy_static pattern using std::sync::OnceLock (Rust 1.70+).
+  1192→static KV_STORE: std::sync::OnceLock<StdMutex<std::collections::HashMap<String, String>>> = std::sync::OnceLock::new();
+  1193→
+  1194→fn kv_store() -> &'static StdMutex<std::collections::HashMap<String, String>> {
+  1195→    KV_STORE.get_or_init(|| StdMutex::new(std::collections::HashMap::new()))
+  1196→}
+  1197→
+  1198→/// Global SQLite KV persistence backend.
+  1199→/// Initialized by init_kv_persist() when memory { persist: "..." } is configured.
+  1200→/// Uses std::sync::Mutex (same thread model as KV_STORE).
+  1201→static KV_SQLITE: std::sync::OnceLock<StdMutex<Option<rusqlite::Connection>>> = std::sync::OnceLock::new();
+  1202→
+  1203→fn kv_sqlite() -> &'static StdMutex<Option<rusqlite::Connection>> {
+  1204→    KV_SQLITE.get_or_init(|| StdMutex::new(None))
+  1205→}
+  1206→
+  1207→/// Initialize SQLite persistence for the KV store.
+  1208→/// Called by Interpreter::configure_memory() when persist path is set.
+  1209→/// Creates kv_store table (key TEXT PRIMARY KEY, value TEXT) in the given database.
+  1210→/// Loads existing rows into the in-memory HashMap.
+  1211→pub fn init_kv_persist(db_path: &str) -> Result<(), String> {
+  1212→    let conn = rusqlite::Connection::open(db_path)
+  1213→        .map_err(|e| format!("[kv_store] Failed to open database '{}': {}", db_path, e))?;
+  1214→    conn.execute_batch(
+  1215→        "CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
+  1216→    ).map_err(|e| format!("[kv_store] Failed to create table: {}", e))?;
+  1217→
+  1218→    // Load existing KV pairs into in-memory HashMap (write-through cache warmup)
+  1219→    {
+  1220→        let mut stmt = conn.prepare("SELECT key, value FROM kv_store")
+  1221→            .map_err(|e| format!("[kv_store] Failed to query: {}", e))?;
+  1222→        let rows: Vec<(String, String)> = stmt.query_map([], |row| {
+  1223→            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+  1224→        }).map_err(|e| format!("[kv_store] Failed to iterate: {}", e))?
+  1225→        .filter_map(|r| r.ok())
+  1226→        .collect();
+  1227→
+  1228→        // Merge into in-memory store (SQLite is authoritative on init)
+  1229→        if let Ok(mut store) = kv_store().lock() {
+  1230→            for (key, value) in rows {
+  1231→                store.insert(key, value);
+  1232→            }
+  1233→        }
+  1234→    } // stmt is dropped here, releasing borrow on conn
+  1235→
+  1236→    // Store the connection globally
+  1237→    let mut sqlite_guard = kv_sqlite().lock()
+  1238→        .map_err(|e| format!("[kv_store] lock error: {}", e))?;
+  1239→    *sqlite_guard = Some(conn);
+  1240→    eprintln!("[kv_store] SQLite persistence enabled: {}", db_path);
+  1241→    Ok(())
+  1242→}
+  1243→
+  1244→/// `kv_set(key, value)` — store a key-value pair.
+  1245→fn builtin_kv_set(args: &[Value]) -> Result<Value, String> {
+  1246→    let key = expect_string_arg("kv_set", args, 0)?;
+  1247→    let value = match args.get(1) {
+  1248→        Some(Value::String(s)) => s.clone(),
+  1249→        Some(other) => format!("{}", other),
+  1250→        None => return Err("kv_set() requires 2 arguments (key, value)".to_string()),
+  1251→    };
+  1252→    let mut store = kv_store().lock().map_err(|e| format!("kv_set() lock error: {}", e))?;
+  1253→    store.insert(key.clone(), value.clone());
+  1254→    // Write-through to SQLite if available
+  1255→    if let Ok(sqlite_guard) = kv_sqlite().lock() {
+  1256→        if let Some(ref conn) = *sqlite_guard {
+  1257→            let _ = conn.execute(
+  1258→                "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?1, ?2)",
+  1259→                rusqlite::params![key, value],
+  1260→            );
+  1261→        }
+  1262→    }
+  1263→    Ok(Value::Unit)
+  1264→}
+  1265→
+  1266→/// `kv_get(key)` — retrieve a value by key. Returns empty string if not found.
+  1267→fn builtin_kv_get(args: &[Value]) -> Result<Value, String> {
+  1268→    let key = expect_string_arg("kv_get", args, 0)?;
+  1269→    let store = kv_store().lock().map_err(|e| format!("kv_get() lock error: {}", e))?;
+  1270→    Ok(Value::String(store.get(&key).cloned().unwrap_or_default()))
+  1271→}
+  1272→
+  1273→/// `kv_delete(key)` — remove a key-value pair.
+  1274→fn builtin_kv_delete(args: &[Value]) -> Result<Value, String> {
+  1275→    let key = expect_string_arg("kv_delete", args, 0)?;
+  1276→    let mut store = kv_store().lock().map_err(|e| format!("kv_delete() lock error: {}", e))?;
+  1277→    store.remove(&key);
+  1278→    // Write-through delete to SQLite if available
+  1279→    if let Ok(sqlite_guard) = kv_sqlite().lock() {
+  1280→        if let Some(ref conn) = *sqlite_guard {
+  1281→            let _ = conn.execute("DELETE FROM kv_store WHERE key = ?1", rusqlite::params![key]);
+  1282→        }
+  1283→    }
+  1284→    Ok(Value::Unit)
+  1285→}
+  1286→
+  1287→/// `kv_exists(key)` — check if a key exists. Returns Bool.
+  1288→fn builtin_kv_exists(args: &[Value]) -> Result<Value, String> {
+  1289→    let key = expect_string_arg("kv_exists", args, 0)?;
+  1290→    let store = kv_store().lock().map_err(|e| format!("kv_exists() lock error: {}", e))?;
+  1291→    Ok(Value::Bool(store.contains_key(&key)))
+  1292→}
+  1293→
+  1294→/// `kv_list()` — list all keys. Returns List of Strings.
+  1295→fn builtin_kv_list(args: &[Value]) -> Result<Value, String> {
+  1296→    let _ = args;
+  1297→    let store = kv_store().lock().map_err(|e| format!("kv_list() lock error: {}", e))?;
+  1298→    let keys: Vec<Value> = store.keys().cloned().map(Value::String).collect();
+  1299→    Ok(Value::List(keys))
+  1300→}
+  1301→
+  1302→// ── Наряд №6 — mem_set / mem_get / mem_delete (exact KV, not semantic) ─
+  1303→// These are user-facing aliases for the KV store with String return types.
+  1304→// mem_set returns the stored value, mem_get returns value or empty string,
+  1305→// mem_delete returns the deleted value or empty string.
+  1306→// They share the same global HashMap + optional SQLite backend as kv_*.
+  1307→
+  1308→/// `mem_set(key, value)` — exact key-value write. Returns the stored value.
+  1309→fn builtin_mem_set(args: &[Value]) -> Result<Value, String> {
+  1310→    let key = expect_string_arg("mem_set", args, 0)?;
+  1311→    let value = match args.get(1) {
+  1312→        Some(Value::String(s)) => s.clone(),
+  1313→        Some(other) => format!("{}", other),
+  1314→        None => return Err("mem_set() requires 2 arguments (key, value)".to_string()),
+  1315→    };
+  1316→    let mut store = kv_store().lock().map_err(|e| format!("mem_set() lock error: {}", e))?;
+  1317→    store.insert(key.clone(), value.clone());
+  1318→    // Write-through to SQLite if available
+  1319→    if let Ok(sqlite_guard) = kv_sqlite().lock() {
+  1320→        if let Some(ref conn) = *sqlite_guard {
+  1321→            let _ = conn.execute(
+  1322→                "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?1, ?2)",
+  1323→                rusqlite::params![key, value],
+  1324→            );
+  1325→        }
+  1326→    }
+  1327→    Ok(Value::String(value))
+  1328→}
+  1329→
+  1330→/// `mem_get(key)` — exact key-value read (not semantic recall).
+  1331→/// Returns the value or empty string if not found.
+  1332→fn builtin_mem_get(args: &[Value]) -> Result<Value, String> {
+  1333→    let key = expect_string_arg("mem_get", args, 0)?;
+  1334→    let store = kv_store().lock().map_err(|e| format!("mem_get() lock error: {}", e))?;
+  1335→    Ok(Value::String(store.get(&key).cloned().unwrap_or_default()))
+  1336→}
+  1337→
+  1338→/// `mem_delete(key)` — remove a key-value pair. Returns the deleted value or empty string.
+  1339→fn builtin_mem_delete(args: &[Value]) -> Result<Value, String> {
+  1340→    let key = expect_string_arg("mem_delete", args, 0)?;
+  1341→    let mut store = kv_store().lock().map_err(|e| format!("mem_delete() lock error: {}", e))?;
+  1342→    let removed = store.remove(&key);
+  1343→    // Write-through delete to SQLite if available
+  1344→    if let Ok(sqlite_guard) = kv_sqlite().lock() {
+  1345→        if let Some(ref conn) = *sqlite_guard {
+  1346→            let _ = conn.execute("DELETE FROM kv_store WHERE key = ?1", rusqlite::params![key]);
+  1347→        }
+  1348→    }
+  1349→    Ok(Value::String(removed.unwrap_or_default()))
+  1350→}
+  1351→
+  1352→// ── ADR-0049 — session memory (temporary per-session KV store) ──
+  1353→// In-memory HashMap<String, HashMap<String, String>> — NOT persistent.
+  1354→// Resets when mlog serve restarts (by design: session data is ephemeral).
+  1355→// Unlike mem_set/mem_get (global), session_* is scoped to a specific session_id.
+  1356→//
+  1357→// Usage:
+  1358→//   session_set(session_id, key, value)   -> String (stored value)
+  1359→//   session_get(session_id, key)             -> String (value or "")
+  1360→//   session_clear(session_id)                -> Unit
+  1361→
+  1362→/// Global session store — lazy_static pattern using std::sync::OnceLock.
+  1363→/// Outer key = session_id, inner key = data key, inner value = data value.
+  1364→static SESSION_STORE: std::sync::OnceLock<StdMutex<std::collections::HashMap<String, std::collections::HashMap<String, String>>>> = std::sync::OnceLock::new();
+  1365→
+  1366→fn session_store() -> &'static StdMutex<std::collections::HashMap<String, std::collections::HashMap<String, String>>> {
+  1367→    SESSION_STORE.get_or_init(|| StdMutex::new(std::collections::HashMap::new()))
+  1368→}
+  1369→
+  1370→/// Reset the entire session store. Used by contract tests to verify restart behavior.
+  1371→pub fn reset_session_store() {
+  1372→    if let Ok(mut store) = session_store().lock() {
+  1373→        store.clear();
+  1374→    }
+  1375→}
+  1376→
+  1377→/// Get the number of sessions in the store. Used by contract tests.
+  1378→pub fn session_store_count() -> usize {
+  1379→    session_store().lock().map(|s| s.len()).unwrap_or(0)
+  1380→}
+  1381→
+  1382→/// Get the number of keys in a specific session. Used by contract tests.
+  1383→pub fn session_key_count(session_id: &str) -> usize {
+  1384→    session_store().lock()
+  1385→        .ok()
+  1386→        .and_then(|s| s.get(session_id).map(|m| m.len()))
+  1387→        .unwrap_or(0)
+  1388→}
+  1389→
+  1390→/// `session_set(session_id, key, value)` — store a value scoped to a session.
+  1391→/// Returns the stored value. Creates session bucket if it doesn't exist.
+  1392→fn builtin_session_set(args: &[Value]) -> Result<Value, String> {
+  1393→    let session_id = expect_string_arg("session_set", args, 0)?;
+  1394→    let key = expect_string_arg("session_set", args, 1)?;
+  1395→    let value = match args.get(2) {
+  1396→        Some(Value::String(s)) => s.clone(),
+  1397→        Some(other) => format!("{}", other),
+  1398→        None => return Err("session_set() requires 3 arguments (session_id, key, value)".to_string()),
+  1399→    };
+  1400→    let mut store = session_store().lock().map_err(|e| format!("session_set() lock error: {}", e))?;
+  1401→    store.entry(session_id).or_default().insert(key.clone(), value.clone());
+  1402→    Ok(Value::String(value))
+  1403→}
+  1404→
+  1405→/// `session_get(session_id, key)` — retrieve a value from a session.
+  1406→/// Returns empty string if session or key not found.
+  1407→fn builtin_session_get(args: &[Value]) -> Result<Value, String> {
+  1408→    let session_id = expect_string_arg("session_get", args, 0)?;
+  1409→    let key = expect_string_arg("session_get", args, 1)?;
+  1410→    let store = session_store().lock().map_err(|e| format!("session_get() lock error: {}", e))?;
+  1411→    let value = store.get(&session_id)
+  1412→        .and_then(|session| session.get(&key).cloned())
+  1413→        .unwrap_or_default();
+  1414→    Ok(Value::String(value))
+  1415→}
+  1416→
+  1417→/// `session_clear(session_id)` — remove all keys for a session.
+  1418→/// Returns "ok". No-op if session doesn't exist.
+  1419→fn builtin_session_clear(args: &[Value]) -> Result<Value, String> {
+  1420→    let session_id = expect_string_arg("session_clear", args, 0)?;
+  1421→    let mut store = session_store().lock().map_err(|e| format!("session_clear() lock error: {}", e))?;
+  1422→    store.remove(&session_id);
+  1423→    Ok(Value::String("ok".to_string()))
+  1424→}
+  1425→
+  1426→// ── v0.5.0 — File I/O builtins (sandboxed) ──────────────────
+  1427→// All file operations are restricted to the working directory.
+  1428→// Paths containing ".." or absolute paths are rejected (sandbox).
+  1429→
+  1430→/// Validate that a path is safe (within working directory, no traversal).
+  1431→fn sandbox_path(path: &str) -> Result<std::path::PathBuf, String> {
+  1432→    let p = std::path::Path::new(path);
+  1433→    // Reject absolute paths
+  1434→    if p.is_absolute() {
+  1435→        return Err(format!("file I/O sandbox: absolute paths not allowed: '{}'", path));
+  1436→    }
+  1437→    // Reject path traversal
+  1438→    for component in p.components() {
+  1439→        if let std::path::Component::ParentDir = component {
+  1440→            return Err(format!("file I/O sandbox: path traversal ('..') not allowed: '{}'", path));
+  1441→        }
+  1442→    }
+  1443→    Ok(std::path::PathBuf::from(path))
+  1444→}
+  1445→
+  1446→/// `read_file(path)` — read file contents as String.
+  1447→/// Soft-failure: returns empty string on error (file not found, permission denied, etc.).
+  1448→fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
+  1449→    let path = expect_string_arg("read_file", args, 0)?;
+  1450→    let safe_path = match sandbox_path(&path) {
+  1451→        Ok(p) => p,
+  1452→        Err(_) => return Ok(Value::String(String::new())), // soft-failure on sandbox violation
+  1453→    };
+  1454→    match std::fs::read_to_string(&safe_path) {
+  1455→        Ok(content) => Ok(Value::String(content)),
+  1456→        Err(_) => Ok(Value::String(String::new())), // soft-failure
+  1457→    }
+  1458→}
+  1459→
+  1460→/// `write_file(path, content)` — write string to file (overwrite).
+  1461→/// Returns "ok" on success, empty string on soft-failure.
+  1462→fn builtin_write_file(args: &[Value]) -> Result<Value, String> {
+  1463→    let path = expect_string_arg("write_file", args, 0)?;
+  1464→    let content = match args.get(1) {
+  1465→        Some(Value::String(s)) => s.clone(),
+  1466→        Some(other) => format!("{}", other),
+  1467→        None => return Ok(Value::String(String::new())), // soft-failure
+  1468→    };
+  1469→    let safe_path = match sandbox_path(&path) {
+  1470→        Ok(p) => p,
+  1471→        Err(_) => return Ok(Value::String(String::new())), // soft-failure on sandbox violation
+  1472→    };
+  1473→    // Create parent directories if needed
+  1474→    if let Some(parent) = safe_path.parent() {
+  1475→        let _ = std::fs::create_dir_all(parent); // best-effort
+  1476→    }
+  1477→    match std::fs::write(&safe_path, &content) {
+  1478→        Ok(_) => Ok(Value::String("ok".to_string())),
+  1479→        Err(_) => Ok(Value::String(String::new())), // soft-failure
+  1480→    }
+  1481→}
+  1482→
+  1483→/// `append_file(path, content)` — append string to file.
+  1484→/// Returns "ok" on success, empty string on soft-failure.
+  1485→fn builtin_append_file(args: &[Value]) -> Result<Value, String> {
+  1486→    let path = expect_string_arg("append_file", args, 0)?;
+  1487→    let content = match args.get(1) {
+  1488→        Some(Value::String(s)) => s.clone(),
+  1489→        Some(other) => format!("{}", other),
+  1490→        None => return Ok(Value::String(String::new())), // soft-failure
+  1491→    };
+  1492→    let safe_path = match sandbox_path(&path) {
+  1493→        Ok(p) => p,
+  1494→        Err(_) => return Ok(Value::String(String::new())), // soft-failure on sandbox violation
+  1495→    };
+  1496→    // Create parent directories if needed
+  1497→    if let Some(parent) = safe_path.parent() {
+  1498→        let _ = std::fs::create_dir_all(parent); // best-effort
+  1499→    }
+  1500→    use std::io::Write;
+  1501→    match std::fs::OpenOptions::new()
+  1502→        .create(true)
+  1503→        .append(true)
+  1504→        .open(&safe_path)
+  1505→    {
+  1506→        Ok(mut file) => match file.write_all(content.as_bytes()) {
+  1507→            Ok(_) => Ok(Value::String("ok".to_string())),
+  1508→            Err(_) => Ok(Value::String(String::new())), // soft-failure
+  1509→        },
+  1510→        Err(_) => Ok(Value::String(String::new())), // soft-failure
+  1511→    }
+  1512→}
+  1513→
+  1514→/// `delete_file(path)` — delete a file.
+  1515→/// Soft-failure: returns empty string on error.
+  1516→fn builtin_delete_file(args: &[Value]) -> Result<Value, String> {
+  1517→    let path = expect_string_arg("delete_file", args, 0)?;
+  1518→    let safe_path = match sandbox_path(&path) {
+  1519→        Ok(p) => p,
+  1520→        Err(_) => return Ok(Value::String(String::new())), // soft-failure
+  1521→    };
+  1522→    match std::fs::remove_file(&safe_path) {
+  1523→        Ok(_) => Ok(Value::String("ok".to_string())),
+  1524→        Err(_) => Ok(Value::String(String::new())), // soft-failure
+  1525→    }
+  1526→}
+  1527→
+  1528→/// `file_exists(path)` — check if a file exists. Returns Bool.
+  1529→fn builtin_file_exists(args: &[Value]) -> Result<Value, String> {
+  1530→    let path = expect_string_arg("file_exists", args, 0)?;
+  1531→    let safe_path = sandbox_path(&path)?;
+  1532→    Ok(Value::Bool(safe_path.exists()))
+  1533→}
+  1534→
+  1535→/// `list_dir(path)` — list files in a directory. Returns List of Strings.
+  1536→fn builtin_list_dir(args: &[Value]) -> Result<Value, String> {
+  1537→    let path = if args.is_empty() {
+  1538→        ".".to_string()
+  1539→    } else {
+  1540→        expect_string_arg("list_dir", args, 0)?
+  1541→    };
+  1542→    let safe_path = sandbox_path(&path)?;
+  1543→    let entries: Vec<Value> = std::fs::read_dir(&safe_path)
+  1544→        .map_err(|e| format!("list_dir('{}'): {}", path, e))?
+  1545→        .filter_map(|entry| {
+  1546→            entry.ok().map(|e| {
+  1547→                Value::String(e.file_name().to_string_lossy().to_string())
+  1548→            })
+  1549→        })
+  1550→        .collect();
+  1551→    Ok(Value::List(entries))
+  1552→}
+  1553→
+  1554→/// Наряд №4: `llm_usage()` — returns LLM usage statistics as a Struct.
+  1555→/// Returns: { total_calls: Float, total_tokens: Float, total_errors: Float, providers: List }
+  1556→fn builtin_llm_usage(_args: &[Value]) -> Result<Value, String> {
+  1557→    let report = crate::llm::global_llm_usage_report();
+  1558→
+  1559→    let mut fields = std::collections::HashMap::new();
+  1560→    fields.insert("total_calls".to_string(), Value::Float(report.total_calls));
+  1561→    fields.insert("total_tokens".to_string(), Value::Float(report.total_tokens));
+  1562→    fields.insert("total_errors".to_string(), Value::Float(report.total_errors));
+  1563→
+  1564→    let providers: Vec<Value> = report.providers.iter().map(|p| {
+  1565→        let mut pf = std::collections::HashMap::new();
+  1566→        pf.insert("alias".to_string(), Value::String(p.alias.clone()));
+  1567→        pf.insert("calls".to_string(), Value::Float(p.calls as f64));
+  1568→        pf.insert("tokens".to_string(), Value::Float(p.tokens as f64));
+  1569→        pf.insert("errors".to_string(), Value::Float(p.errors as f64));
+  1570→        pf.insert("avg_latency_ms".to_string(), Value::Float(p.avg_latency_ms));
+  1571→        pf.insert("health_score".to_string(), Value::Float(p.health_score));
+  1572→        Value::Struct {
+  1573→            type_name: "ProviderUsage".to_string(),
+  1574→            fields: pf,
+  1575→        }
+  1576→    }).collect();
+  1577→    fields.insert("providers".to_string(), Value::List(providers));
+  1578→
+  1579→    Ok(Value::Struct {
+  1580→        type_name: "LlmUsage".to_string(),
+  1581→        fields,
+  1582→    })
+  1583→}
+  1584→
+  1585→// ── Phase 7.8: Voice pipeline builtins ──────────────────────────────
+  1586→
+  1587→fn builtin_http_post_multipart(args: &[Value]) -> Result<Value, String> {
+  1588→    let url = expect_string_arg("http_post_multipart", args, 0)?;
+  1589→    let fields = match args.get(1) {
+  1590→        Some(Value::Struct { fields, .. }) => fields.clone(),
+  1591→        _ => return Err("http_post_multipart() requires Struct as 2nd argument (fields)".to_string()),
+  1592→    };
+  1593→    let files = match args.get(2) {
+  1594→        Some(Value::Struct { fields, .. }) => fields.clone(),
+  1595→        _ => return Err("http_post_multipart() requires Struct as 3rd argument (files)".to_string()),
+  1596→    };
+  1597→
+  1598→    let client = reqwest::blocking::Client::builder()
+  1599→        .timeout(std::time::Duration::from_secs(120))
+  1600→        .build()
+  1601→        .map_err(|e| format!("http_post_multipart(): client error: {}", e))?;
+  1602→
+  1603→    let mut form = reqwest::blocking::multipart::Form::new();
+  1604→
+  1605→    // Add text fields
+  1606→    for (key, val) in &fields {
+  1607→        if let Value::String(v) = val {
+  1608→            form = form.text(key.clone(), v.clone());
+  1609→        }
+  1610→    }
+  1611→
+  1612→    // Add file fields
+  1613→    for (key, val) in &files {
+  1614→        if let Value::String(path) = val {
+  1615→            let file_bytes = std::fs::read(path)
+  1616→                .map_err(|e| format!("http_post_multipart(): cannot read file '{}': {}", path, e))?;
+  1617→            let file_name = std::path::Path::new(path)
+  1618→                .file_name()
+  1619→                .and_then(|n| n.to_str())
+  1620→                .unwrap_or("file");
+  1621→            let part = reqwest::blocking::multipart::Part::bytes(file_bytes)
+  1622→                .file_name(file_name.to_string());
+  1623→            form = form.part(key.clone(), part);
+  1624→        }
+  1625→    }
+  1626→
+  1627→    let resp = client.post(&url).multipart(form).send()
+  1628→        .map_err(|e| format!("http_post_multipart(): request failed: {}", e))?;
+  1629→
+  1630→    let status = resp.status().as_u16();
+  1631→    let resp_body = resp.text().unwrap_or_default();
+  1632→
+  1633→    if status >= 400 {
+  1634→        return Err(format!("http_post_multipart() returned status {}: {}", status, resp_body));
+  1635→    }
+  1636→
+  1637→    Ok(Value::String(resp_body))
+  1638→}
+  1639→
+  1640→fn builtin_whisper_transcribe(args: &[Value]) -> Result<Value, String> {
+  1641→    let file_id = expect_string_arg("whisper_transcribe", args, 0)?;
+  1642→    let bot_token = expect_string_arg("whisper_transcribe", args, 1)?;
+  1643→    let whisper_key = expect_string_arg("whisper_transcribe", args, 2)?;
+  1644→    let provider = match args.get(3) {
+  1645→        Some(Value::String(s)) => s.clone(),
+  1646→        _ => "openai".to_string(),
+  1647→    };
+  1648→
+  1649→    // Step 1: Get file path from Telegram
+  1650→    let tg_client = reqwest::blocking::Client::builder()
+  1651→        .timeout(std::time::Duration::from_secs(30))
+  1652→        .build()
+  1653→        .map_err(|e| format!("whisper_transcribe(): client error: {}", e))?;
+  1654→
+  1655→    let get_file_url = format!("https://api.telegram.org/bot{}/getFile?file_id={}", bot_token, file_id);
+  1656→    let tg_resp = tg_client.get(&get_file_url).send()
+  1657→        .map_err(|e| format!("whisper_transcribe(): Telegram getFile failed: {}", e))?;
+  1658→    let tg_body: serde_json::Value = serde_json::from_str(&tg_resp.text().unwrap_or_default())
+  1659→        .map_err(|e| format!("whisper_transcribe(): Telegram response parse error: {}", e))?;
+  1660→
+  1661→    let file_path = tg_body.get("result")
+  1662→        .and_then(|r| r.get("file_path"))
+  1663→        .and_then(|p| p.as_str())
+  1664→        .unwrap_or("")
+  1665→        .to_string();
+  1666→
+  1667→    if file_path.is_empty() {
+  1668→        return Err("whisper_transcribe(): Telegram returned empty file_path".to_string());
+  1669→    }
+  1670→
+  1671→    // Step 2: Download the file
+  1672→    let download_url = format!("https://api.telegram.org/file/bot{}/{}", bot_token, file_path);
+  1673→    let audio_bytes = tg_client.get(&download_url).send()
+  1674→        .map_err(|e| format!("whisper_transcribe(): download failed: {}", e))?
+  1675→        .bytes()
+  1676→        .map_err(|e| format!("whisper_transcribe(): read bytes failed: {}", e))?;
+  1677→
+  1678→    // Step 3: Send to Whisper API
+  1679→    let (api_url, auth_header, auth_value) = match provider.as_str() {
+  1680→        "groq" => (
+  1681→            "https://api.groq.com/openai/v1/audio/transcriptions".to_string(),
+  1682→            "Authorization".to_string(),
+  1683→            format!("Bearer {}", whisper_key),
+  1684→        ),
+  1685→        _ => ( // openai
+  1686→            "https://api.openai.com/v1/audio/transcriptions".to_string(),
+  1687→            "Authorization".to_string(),
+  1688→            format!("Bearer {}", whisper_key),
+  1689→        ),
+  1690→    };
+  1691→
+  1692→    // Use multipart form
+  1693→    let whisper_client = reqwest::blocking::Client::builder()
+  1694→        .timeout(std::time::Duration::from_secs(120))
+  1695→        .build()
+  1696→        .map_err(|e| format!("whisper_transcribe(): whisper client error: {}", e))?;
+  1697→
+  1698→    let model = if provider == "groq" { "whisper-large-v3" } else { "whisper-1" };
+  1699→    let mut form = reqwest::blocking::multipart::Form::new();
+  1700→    form = form.text("model", model.to_string());
+  1701→    let part = reqwest::blocking::multipart::Part::bytes(audio_bytes.to_vec())
+  1702→        .file_name("audio.ogg");
+  1703→    form = form.part("file", part);
+  1704→
+  1705→    let whisper_resp = whisper_client.post(&api_url)
+  1706→        .header(auth_header, auth_value)
+  1707→        .multipart(form)
+  1708→        .send()
+  1709→        .map_err(|e| format!("whisper_transcribe(): whisper request failed: {}", e))?;
+  1710→
+  1711→    let status = whisper_resp.status().as_u16();
+  1712→    let whisper_body = whisper_resp.text().unwrap_or_default();
+  1713→
+  1714→    if status >= 400 {
+  1715→        return Err(format!("whisper_transcribe(): whisper API status {}: {}", status, whisper_body));
+  1716→    }
+  1717→
+  1718→    // Parse response to extract text
+  1719→    let parsed: serde_json::Value = serde_json::from_str(&whisper_body)
+  1720→        .map_err(|e| format!("whisper_transcribe(): whisper response parse error: {}", e))?;
+  1721→    let text = parsed.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
+  1722→
+  1723→    Ok(Value::String(text))
+  1724→}
+  1725→
+  1726→fn builtin_tts_send(args: &[Value]) -> Result<Value, String> {
+  1727→    let text = expect_string_arg("tts_send", args, 0)?;
+  1728→    let voice = expect_string_arg("tts_send", args, 1)?;
+  1729→    let bot_token = expect_string_arg("tts_send", args, 2)?;
+  1730→    let chat_id = expect_string_arg("tts_send", args, 3)?;
+  1731→    let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_default();
+  1732→    if api_key.is_empty() {
+  1733→        return Err("tts_send(): OPENAI_API_KEY env var not set".to_string());
+  1734→    }
+  1735→
+  1736→    // Step 1: Call OpenAI TTS API
+  1737→    let tts_body = serde_json::json!({
+  1738→        "model": "tts-1",
+  1739→        "input": text,
+  1740→        "voice": voice,
+  1741→    });
+  1742→
+  1743→    let client = reqwest::blocking::Client::builder()
+  1744→        .timeout(std::time::Duration::from_secs(30))
+  1745→        .build()
+  1746→        .map_err(|e| format!("tts_send(): client error: {}", e))?;
+  1747→
+  1748→    let tts_resp = client.post("https://api.openai.com/v1/audio/speech")
+  1749→        .header("Authorization", format!("Bearer {}", api_key))
+  1750→        .header("Content-Type", "application/json")
+  1751→        .body(tts_body.to_string())
+  1752→        .send()
+  1753→        .map_err(|e| format!("tts_send(): TTS request failed: {}", e))?;
+  1754→
+  1755→    let status = tts_resp.status().as_u16();
+  1756→    if status >= 400 {
+  1757→        let err_body = tts_resp.text().unwrap_or_default();
+  1758→        return Err(format!("tts_send(): TTS API status {}: {}", status, err_body));
+  1759→    }
+  1760→
+  1761→    let audio_bytes = tts_resp.bytes()
+  1762→        .map_err(|e| format!("tts_send(): failed to read TTS audio: {}", e))?;
+  1763→
+  1764→    // Step 2: Send audio to Telegram via sendAudio
+  1765→    let mut form = reqwest::blocking::multipart::Form::new();
+  1766→    form = form.text("chat_id", chat_id.clone());
+  1767→    let audio_part = reqwest::blocking::multipart::Part::bytes(audio_bytes.to_vec())
+  1768→        .file_name("speech.ogg");
+  1769→    form = form.part("audio", audio_part);
+  1770→
+  1771→    let tg_resp = client.post(format!("https://api.telegram.org/bot{}/sendAudio", bot_token))
+  1772→        .multipart(form)
+  1773→        .send()
+  1774→        .map_err(|e| format!("tts_send(): Telegram sendAudio failed: {}", e))?;
+  1775→
+  1776→    let tg_status = tg_resp.status().as_u16();
+  1777→    let tg_body = tg_resp.text().unwrap_or_default();
+  1778→
+  1779→    if tg_status >= 400 {
+  1780→        return Err(format!("tts_send(): Telegram status {}: {}", tg_status, tg_body));
+  1781→    }
+  1782→
+  1783→    Ok(Value::String(tg_body))
+  1784→}
+  1785→
+  1786→#[cfg(test)]
+  1787→mod tests {
+  1788→    use super::*;
+  1789→
+  1790→    fn make_struct(fields: Vec<(&str, Value)>) -> Value {
+  1791→        let mut map = std::collections::HashMap::new();
+  1792→        for (k, v) in fields {
+  1793→            map.insert(k.to_string(), v);
+  1794→        }
+  1795→        Value::Struct { type_name: "Test".to_string(), fields: map }
+  1796→    }
+  1797→
+  1798→    fn is_string(val: &Value, expected: &str) -> bool {
+  1799→        matches!(val, Value::String(s) if s == expected)
+  1800→    }
+  1801→
+  1802→    fn is_float(val: &Value, expected: f64) -> bool {
+  1803→        matches!(val, Value::Float(f) if (*f - expected).abs() < 1e-9)
+  1804→    }
+  1805→
+  1806→    fn is_unit(val: &Value) -> bool {
+  1807→        matches!(val, Value::Unit)
+  1808→    }
+  1809→
+  1810→    #[test]
+  1811→    fn test_json_get_existing_field() {
+  1812→        let obj = make_struct(vec![
+  1813→            ("name", Value::String("Alice".to_string())),
+  1814→            ("age", Value::Float(25.0)),
+  1815→        ]);
+  1816→        let result = builtin_json_get(&[obj, Value::String("name".to_string())]).unwrap();
+  1817→        assert!(is_string(&result, "Alice"));
+  1818→    }
+  1819→
+  1820→    #[test]
+  1821→    fn test_json_get_missing_field_returns_unit() {
+  1822→        let obj = make_struct(vec![("name", Value::String("Alice".to_string()))]);
+  1823→        let result = builtin_json_get(&[obj, Value::String("voice".to_string())]).unwrap();
+  1824→        assert!(is_unit(&result), "expected Unit, got {:?}", result.type_name());
+  1825→    }
+  1826→
+  1827→    #[test]
+  1828→    fn test_json_get_missing_field_returns_custom_default() {
+  1829→        let obj = make_struct(vec![("name", Value::String("Alice".to_string()))]);
+  1830→        let result = builtin_json_get(&[
+  1831→            obj,
+  1832→            Value::String("voice".to_string()),
+  1833→            Value::String("none".to_string()),
+  1834→        ]).unwrap();
+  1835→        assert!(is_string(&result, "none"));
+  1836→    }
+  1837→
+  1838→    #[test]
+  1839→    fn test_json_get_nested_path() {
+  1840→        let inner = make_struct(vec![("file_id", Value::String("abc123".to_string()))]);
+  1841→        let obj = make_struct(vec![("voice", inner)]);
+  1842→        let result = builtin_json_get(&[
+  1843→            obj,
+  1844→            Value::String("voice.file_id".to_string()),
+  1845→        ]).unwrap();
+  1846→        assert!(is_string(&result, "abc123"));
+  1847→    }
+  1848→
+  1849→    #[test]
+  1850→    fn test_json_get_nested_path_missing() {
+  1851→        let obj = make_struct(vec![("text", Value::String("hello".to_string()))]);
+  1852→        let result = builtin_json_get(&[
+  1853→            obj,
+  1854→            Value::String("voice.file_id".to_string()),
+  1855→            Value::String("default".to_string()),
+  1856→        ]).unwrap();
+  1857→        assert!(is_string(&result, "default"));
+  1858→    }
+  1859→
+  1860→    #[test]
+  1861→    fn test_json_get_non_struct_returns_default() {
+  1862→        let obj = Value::String("not a struct".to_string());
+  1863→        let result = builtin_json_get(&[
+  1864→            obj,
+  1865→            Value::String("field".to_string()),
+  1866→            Value::Float(42.0),
+  1867→        ]).unwrap();
+  1868→        assert!(is_float(&result, 42.0));
+  1869→    }
+  1870→
+  1871→    #[test]
+  1872→    fn test_has_field_existing() {
+  1873→        let obj = make_struct(vec![("voice", Value::String("data".to_string()))]);
+  1874→        let result = builtin_has_field(&[obj, Value::String("voice".to_string())]).unwrap();
+  1875→        assert!(is_float(&result, 1.0));
+  1876→    }
+  1877→
+  1878→    #[test]
+  1879→    fn test_has_field_missing() {
+  1880→        let obj = make_struct(vec![("text", Value::String("hi".to_string()))]);
+  1881→        let result = builtin_has_field(&[obj, Value::String("voice".to_string())]).unwrap();
+  1882→        assert!(is_float(&result, 0.0));
+  1883→    }
+  1884→
+  1885→    #[test]
+  1886→    fn test_has_field_nested() {
+  1887→        let inner = make_struct(vec![("file_id", Value::String("x".to_string()))]);
+  1888→        let obj = make_struct(vec![("voice", inner)]);
+  1889→        let result = builtin_has_field(&[obj, Value::String("voice.file_id".to_string())]).unwrap();
+  1890→        assert!(is_float(&result, 1.0));
+  1891→    }
+  1892→
+  1893→    #[test]
+  1894→    fn test_json_encode_roundtrip() {
+  1895→        let obj = make_struct(vec![
+  1896→            ("key", Value::String("value".to_string())),
+  1897→            ("num", Value::Float(42.0)),
+  1898→        ]);
+  1899→        let encoded = builtin_json_encode(&[obj]).unwrap();
+  1900→        let decoded = builtin_parse_json(&[encoded]).unwrap();
+  1901→        let key_val = decoded.get_field("key").unwrap();
+  1902→        assert!(is_string(key_val, "value"));
+  1903→        let num_val = decoded.get_field("num").unwrap();
+  1904→        assert!(is_float(num_val, 42.0));
+  1905→    }
+  1906→
+  1907→    #[test]
+  1908→    fn test_escape_json_handles_special_chars() {
+  1909→        let result = builtin_escape_json(&[Value::String("hello\"world\n".to_string())]).unwrap();
+  1910→        assert!(is_string(&result, "hello\\\"world\\n"));
+  1911→    }
+  1912→}
+  1913→

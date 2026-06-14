@@ -389,7 +389,7 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         ("http_post", 2), ("http_get", 1), ("http_post_multipart", 3),
         ("whisper_transcribe", 1), ("tts_send", 2),
         ("base64_encode", 1), ("base64_decode", 1),
-        ("exec", 1), ("escape_js", 1), ("dict_get", 2), ("dict_set", 3), ("dict_keys", 1), ("dict_values", 1), ("dict_has", 2), ("type_of", 1), ("format", -1),
+        ("exec", 1), ("escape_js", 1), ("dict_get", 2), ("dict_set", 3), ("dict_keys", 1), ("dict_values", 1), ("dict_has", 2), ("type_of", 1), ("format", 1),
         ("respond", 2), ("respond_html", 1), ("form_data", 0),
         ("json_body", 0), ("query_param", 1), ("render", 2), ("escape_html", 1),
         ("query", 2), ("db_execute", 1),

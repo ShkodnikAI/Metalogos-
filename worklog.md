@@ -93,4 +93,25 @@ Stage Summary:
 - 7 files changed, 266 insertions, 2 deletions
 - Pushed to https://github.com/ShkodnikAI/Metalogos-.git main branch
 - GitHub Actions CI should build new binary automatically
-- Token lacks Actions API access so cannot poll build status
+- Token lacks Actions API access so cannot poll build status---
+Task ID: Наряд 17
+Agent: main
+Task: Исправление CI и реализация Нарядов 12-16 заданий
+
+Work Log:
+- Fixed 7 compilation errors from Наряд 14 (Box<Expr>, Self::compare_values, unescape_string, session lookup, thread scope, unused import, test data mutable field)
+- Fixed 5 missing _ => {} wildcards in audit.rs for Statement::Match exhaustiveness
+- Fixed broken brace structure in audit.rs from Python regex insertion
+- Audited all 22 tasks from Наряд 12-16
+- Verified 9 tasks already fixed in previous Нарядов
+- Implemented 5 new builtins: base64_encode, base64_decode, exec, escape_js, type_of
+- Added dict_get alias for json_get
+- Added compile import warning (З-О.2)
+
+Stage Summary:
+- Pushed 4 commits: bee67e0, e2ed89e, 88adb24, a173052
+- All 7 original CI errors fixed
+- audit.rs exhaustive matches fixed
+- 5 new builtins added
+- 9/22 tasks confirmed already implemented
+- Binary should now compile successfully

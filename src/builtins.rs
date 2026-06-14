@@ -145,13 +145,19 @@ impl Builtins {
         funcs.insert("whisper_transcribe".to_string(), builtin_whisper_transcribe as BuiltinFn);
         funcs.insert("tts_send".to_string(), builtin_tts_send as BuiltinFn);
 
-        // Наряд 17: utility builtins — base64, exec, escape_js, dict_get, type_of
+        // Наряд 17: utility builtins — base64, exec, escape_js, dict operations, type_of
         funcs.insert("base64_encode".to_string(), builtin_base64_encode as BuiltinFn);
         funcs.insert("base64_decode".to_string(), builtin_base64_decode as BuiltinFn);
         funcs.insert("exec".to_string(), builtin_exec as BuiltinFn);
         funcs.insert("escape_js".to_string(), builtin_escape_js as BuiltinFn);
         funcs.insert("dict_get".to_string(), builtin_json_get as BuiltinFn); // alias
+        funcs.insert("dict_set".to_string(), builtin_dict_set as BuiltinFn);
+        funcs.insert("dict_keys".to_string(), builtin_dict_keys as BuiltinFn);
+        funcs.insert("dict_values".to_string(), builtin_dict_values as BuiltinFn);
+        funcs.insert("dict_has".to_string(), builtin_dict_has as BuiltinFn);
         funcs.insert("type_of".to_string(), builtin_type_of as BuiltinFn);
+        // Наряд №17 В.3: format() — positional string interpolation
+        funcs.insert("format".to_string(), builtin_format as BuiltinFn);
 
         Builtins { funcs }
     }
@@ -191,7 +197,7 @@ fn builtin_str(args: &[Value]) -> Result<Value, String> {
 
 fn builtin_print(args: &[Value]) -> Result<Value, String> {
     let s = expect_string_arg("print", args, 0)?;
-    println!("{}", s);
+    log::info!("print: {}", s);
     Ok(Value::String(s))
 }
 
@@ -2015,4 +2021,85 @@ mod tests {
         let result = builtin_escape_json(&[Value::String("hello\"world\n".to_string())]).unwrap();
         assert!(is_string(&result, "hello\\\"world\\n"));
     }
+}
+
+// ── Dict operations (Наряд №17 В.1) ─────────────────────────────
+// Dicts are represented as Value::Struct with type_name "Dict".
+
+/// `dict_set(dict, key, value)` — set a key in a dict. Returns the modified dict.
+fn builtin_dict_set(args: &[Value]) -> Result<Value, String> {
+    if args.len() < 3 {
+        return Err("dict_set() requires 3 arguments (dict, key, value)".to_string());
+    }
+    let key = expect_string_arg("dict_set", args, 1)?;
+    let mut fields = match &args[0] {
+        Value::Struct { fields, .. } => fields.clone(),
+        other => return Err(format!("dict_set() expected Struct as first arg, got {}", other.type_name())),
+    };
+    fields.insert(key, args[2].clone());
+    Ok(Value::Struct { type_name: "Dict".to_string(), fields })
+}
+
+/// `dict_keys(dict) -> List` — return list of keys.
+fn builtin_dict_keys(args: &[Value]) -> Result<Value, String> {
+    let fields = match &args.get(0) {
+        Some(Value::Struct { fields, .. }) => fields,
+        _ => return Err("dict_keys() requires 1 argument (Struct/Dict)".to_string()),
+    };
+    let keys: Vec<Value> = fields.keys().map(|k| Value::String(k.clone())).collect();
+    Ok(Value::List(keys))
+}
+
+/// `dict_values(dict) -> List` — return list of values.
+fn builtin_dict_values(args: &[Value]) -> Result<Value, String> {
+    let fields = match &args.get(0) {
+        Some(Value::Struct { fields, .. }) => fields,
+        _ => return Err("dict_values() requires 1 argument (Struct/Dict)".to_string()),
+    };
+    let values: Vec<Value> = fields.values().cloned().collect();
+    Ok(Value::List(values))
+}
+
+/// `dict_has(dict, key) -> Bool` — check if key exists.
+fn builtin_dict_has(args: &[Value]) -> Result<Value, String> {
+    if args.len() < 2 {
+        return Err("dict_has() requires 2 arguments (dict, key)".to_string());
+    }
+    let key = expect_string_arg("dict_has", args, 1)?;
+    let has = match &args[0] {
+        Value::Struct { fields, .. } => fields.contains_key(&key),
+        _ => return Err(format!("dict_has() expected Struct as first arg, got {}", args[0].type_name())),
+    };
+    Ok(Value::Bool(has))
+}
+
+// ── Format (Наряд №17 В.3) ──────────────────────────────────────
+/// `format(template, arg1, arg2, ...)` — positional string interpolation.
+/// Replaces `{}` placeholders in template with arguments.
+/// Usage: format("Hello {}, you are {} years old", name, age)
+fn builtin_format(args: &[Value]) -> Result<Value, String> {
+    if args.is_empty() {
+        return Err("format() requires at least 1 argument (template)".to_string());
+    }
+    let template = expect_string_arg("format", args, 0)?;
+    let mut result = String::new();
+    let mut arg_idx = 1;
+    let mut chars = template.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '{' && chars.peek() == Some(&'}') {
+            chars.next(); // consume '}'
+            if arg_idx < args.len() {
+                result.push_str(&format!("{}", args[arg_idx]));
+                arg_idx += 1;
+            } else {
+                return Err(format!("format(): not enough arguments for template (need {} more)", arg_idx - 1));
+            }
+        } else if ch == '{' && chars.peek() == Some(&'{') {
+            chars.next(); // consume second '{', emit literal '{'
+            result.push('{');
+        } else {
+            result.push(ch);
+        }
+    }
+    Ok(Value::String(result))
 }

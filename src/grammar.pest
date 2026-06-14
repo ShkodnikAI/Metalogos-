@@ -187,7 +187,7 @@ param        = { IDENT ~ ":" ~ type_name }
 pattern_body = { statement* }
 
 // ── Statements (v0.5.1: unified if-then-else support) ───────────────
-statement    = { match_stmt | if_block_stmt | if_then_stmt | each_stmt | while_stmt | let_binding | break_stmt | continue_stmt | return_stmt | assign_or_expr }
+statement    = { match_stmt | if_block_stmt | each_stmt | while_stmt | let_binding | break_stmt | continue_stmt | return_stmt | assign_or_expr }
 // Combined assignment-or-expression: disambiguates IDENT followed by "=" (assignment)
 // vs IDENT followed by other tokens (expression statement like function calls).
 // PEG ordered choice: try assignment first (= present), fall through to expression.

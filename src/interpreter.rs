@@ -540,6 +540,12 @@ pub struct Interpreter {
     /// Server context: parsed JSON request body (Наряд №3).
     /// Set by execute_route_body, returned by json_body() builtin.
     server_json_body: Option<Value>,
+    /// Server context: parsed query string parameters (Bug 2.1 fix).
+    /// Set by execute_route_body, returned by query_param() builtin.
+    server_query_params: Option<std::collections::HashMap<String, String>>,
+    /// Server context: user roles for RBAC (Наряд №14 P2-6).
+    /// Set by execute_route_body, checked by require() builtin.
+    server_user_roles: Vec<String>,
     /// LLM response cache (ADR-0047): HashMap<hash, (response, created_at)>
     /// Key = hash(effective_prompt + input), Value = cached response + timestamp.
     /// Checked before every LLM call for learnable patterns with cache: true.
@@ -610,6 +616,8 @@ impl Interpreter {
             server_config: None,
             embedding_manager: EmbeddingManager::new(),
             server_json_body: None,
+            server_query_params: None,
+            server_user_roles: Vec::new(),
             llm_cache: std::sync::Mutex::new(HashMap::new()),
             hooks_before: Vec::new(),
             hooks_after: Vec::new(),
@@ -641,6 +649,22 @@ impl Interpreter {
     /// Get the parsed JSON body in server context.
     pub fn get_server_json_body(&self) -> Option<&Value> {
         self.server_json_body.as_ref()
+    }
+
+    /// Set query string parameters (Bug 2.1 fix).
+    /// Called by execute_route_body so query_param() can access them.
+    pub fn set_server_query_params(&mut self, params: std::collections::HashMap<String, String>) {
+        self.server_query_params = Some(params);
+    }
+
+    /// Get a query string parameter by name (Bug 2.1 fix).
+    pub fn get_server_query_param(&self, name: &str) -> Option<String> {
+        self.server_query_params.as_ref()?.get(name).cloned()
+    }
+
+    /// Set user roles for RBAC (Наряд №14 P2-6).
+    pub fn set_server_user_roles(&mut self, roles: Vec<String>) {
+        self.server_user_roles = roles;
     }
 
     /// Activate a sandbox for enforcement (Phase 7.5).
@@ -2343,7 +2367,7 @@ impl Interpreter {
             confidence: priority,
             embedding,
         }) {
-            Ok(id) => eprintln!("[memorize] stored id={} value={}", id, value_str),
+            Ok(id) => { /* Bug 2.3 fix: removed eprintln stdout leak in HTTP context */ },
             Err(e) => eprintln!("[memorize] ERROR: {}", e),
         }
         Ok(Value::Unit)
@@ -2963,6 +2987,35 @@ impl Interpreter {
     /// Phase 7.5: Sandbox iteration limit (10,000 for both while and each).
     const SANDBOX_ITER_LIMIT: u64 = 10_000;
 
+    /// Наряд №14: Compare two Values using a CompareOp.
+    /// Used by match statement's Compare arm.
+    fn compare_values(left: &Value, op: &CompareOp, right: &Value) -> Result<bool, String> {
+        // Try numeric comparison first
+        let left_f = left.as_float().ok();
+        let right_f = right.as_float().ok();
+        if let (Some(lf), Some(rf)) = (left_f, right_f) {
+            return Ok(match op {
+                CompareOp::Gt => lf > rf,
+                CompareOp::Lt => lf < rf,
+                CompareOp::Ge => lf >= rf,
+                CompareOp::Le => lf <= rf,
+                CompareOp::Eq => lf == rf,
+                CompareOp::Ne => lf != rf,
+            });
+        }
+        // Fall back to string comparison
+        let ls = format!("{}", left);
+        let rs = format!("{}", right);
+        Ok(match op {
+            CompareOp::Eq => ls == rs,
+            CompareOp::Ne => ls != rs,
+            CompareOp::Gt => ls > rs,
+            CompareOp::Lt => ls < rs,
+            CompareOp::Ge => ls >= rs,
+            CompareOp::Le => ls <= rs,
+        })
+    }
+
     pub(crate) fn eval_statements(
         &self,
         stmts: &[Statement],
@@ -2975,19 +3028,32 @@ impl Interpreter {
             Self::WHILE_SAFETY_LIMIT
         };
 
+        // Наряд №13: Track the last non-Unit expression value for implicit return.
+        // When a pattern body ends with a bare expression (no explicit `return`),
+        // that expression's value becomes the pattern's return value.
+        // This allows: pattern Foo(x: String) -> String { x } instead of
+        // pattern Foo(x: String) -> String { return x }
+        let mut last_expr_value = Value::Unit;
+
+        // Наряд №14: Track which variables are declared as `let mut`
+        let mut mutable_vars: std::collections::HashSet<String> = std::collections::HashSet::new();
+
         for stmt in stmts {
             match stmt {
-                Statement::LetBinding { name, value } => {
+                Statement::LetBinding { name, value, mutable } => {
                     let val = self.eval_expr_with_env(value, env)?;
+                    if *mutable {
+                        mutable_vars.insert(name.clone());
+                    }
                     env.insert(name.clone(), val);
                 }
                 Statement::Assign { name, value } => {
-                    let val = self.eval_expr_with_env(value, env)?;
-                    if env.contains_key(name) {
-                        env.insert(name.clone(), val);
-                    } else {
-                        return Err(format!("cannot assign to undeclared variable: {}", name));
+                    // Наряд №14: Only allow assignment to `let mut` variables
+                    if !mutable_vars.contains(name) {
+                        return Err(format!("cannot assign to immutable variable: {} (use 'let mut {}' to make it mutable)", name, name));
                     }
+                    let val = self.eval_expr_with_env(value, env)?;
+                    env.insert(name.clone(), val);
                 }
                 Statement::Each { variable, iterable, body } => {
                     let iter_val = self.eval_expr_with_env(iterable, env)?;
@@ -3090,11 +3156,62 @@ impl Interpreter {
                         }
                     }
                 }
-                // Bare expression statement: evaluate for side effects, discard result
-                Statement::ExprStmt(expr) => { self.eval_expr_with_env(expr, env)?; }
+                // Наряд №14: match statement — dispatch by string/value patterns
+                Statement::Match { scrutinee, ref arms, ref else_body } => {
+                    let scrutinee_val = self.eval_expr_with_env(scrutinee, env)?;
+                    let scrutinee_str = format!("{}", scrutinee_val);
+                    let mut matched = false;
+                    for arm in arms {
+                        let arm_matches = match arm {
+                            MatchArm::Exact(val, _) => scrutinee_str == *val,
+                            MatchArm::StartsWith(prefix, _) => scrutinee_str.starts_with(prefix.as_str()),
+                            MatchArm::Contains(substr, _) => scrutinee_str.contains(substr.as_str()),
+                            MatchArm::Compare(op, threshold, _) => {
+                                let threshold_val = self.eval_expr_with_env(threshold, env)?;
+                                match Self::compare_values(&scrutinee_val, op, &threshold_val) {
+                                    Ok(b) => b,
+                                    Err(_) => false,
+                                }
+                            }
+                        };
+                        if arm_matches {
+                            matched = true;
+                            let body = match arm {
+                                MatchArm::Exact(_, b) => b,
+                                MatchArm::StartsWith(_, b) => b,
+                                MatchArm::Contains(_, b) => b,
+                                MatchArm::Compare(_, _, b) => b,
+                            };
+                            let result = self.eval_statements(body, env)?;
+                            if !matches!(result, Value::Unit) {
+                                return Ok(result);
+                            }
+                            break;
+                        }
+                    }
+                    if !matched {
+                        if let Some(eb) = else_body {
+                            let result = self.eval_statements(eb, env)?;
+                            if !matches!(result, Value::Unit) {
+                                return Ok(result);
+                            }
+                        }
+                    }
+                }
+                // Bare expression statement: evaluate for side effects.
+                // Наряд №13: Track last expression value for implicit return.
+                Statement::ExprStmt(expr) => {
+                    let val = self.eval_expr_with_env(expr, env)?;
+                    if !matches!(val, Value::Unit) {
+                        last_expr_value = val;
+                    }
+                }
             }
         }
-        Ok(Value::Unit)
+        // Наряд №13: Implicit return — if the last statement was a non-Unit
+        // expression, return it as the pattern's result. This eliminates the
+        // need for explicit `return` in simple patterns.
+        Ok(last_expr_value)
     }
 
     pub fn eval_expr(&self, expr: &Expr) -> Result<Value, String> {
@@ -3117,13 +3234,39 @@ impl Interpreter {
                 }
                 Ok(Value::List(items))
             }
-            Expr::StructLiteral(fields) => {
-                let mut map = HashMap::new();
-                for (name, val_expr) in fields {
-                    let val = self.eval_expr_with_env(val_expr, env)?;
-                    map.insert(name.clone(), val);
+            Expr::StructLit(fields) => {
+                let mut resolved = std::collections::HashMap::new();
+                for (k, v) in fields {
+                    resolved.insert(k.clone(), self.eval_expr_with_env(v, env)?);
                 }
-                Ok(Value::Struct { type_name: "Struct".to_string(), fields: map })
+                Ok(Value::Struct { type_name: "Struct".to_string(), fields: resolved })
+            }
+            // Наряд №14 P0-3: block if/else as expression
+            Expr::BlockIfElse { condition, ref then_body, ref else_ifs, ref else_body } => {
+                let cond_val = self.eval_expr_with_env(condition, env)?;
+                if cond_val.as_bool()? {
+                    return self.eval_statements(then_body, env);
+                }
+                for (ei_cond, ei_body) in else_ifs {
+                    let ei_val = self.eval_expr_with_env(ei_cond, env)?;
+                    if ei_val.as_bool()? {
+                        return self.eval_statements(ei_body, env);
+                    }
+                }
+                if let Some(eb) = else_body {
+                    return self.eval_statements(eb, env);
+                }
+                Ok(Value::Unit)
+            }
+            // Наряд №14 P1-4: try expression — catch errors, return Unit
+            Expr::Try(inner) => {
+                match self.eval_expr_with_env(inner, env) {
+                    Ok(val) => Ok(val),
+                    Err(e) => {
+                        eprintln!("[try] caught error: {}", e);
+                        Ok(Value::Unit)
+                    }
+                }
             }
             Expr::IfElse(cond, then_br, else_br) => {
                 let cond_val = self.eval_expr_with_env(cond, env)?;
@@ -3341,6 +3484,35 @@ impl Interpreter {
                     });
                 }
 
+                // Bug 2.1 fix: query_param() — intercept to access server_query_params
+                if name == "query_param" {
+                    let param_name = eval_args.get(0)
+                        .and_then(|v| match v {
+                            Value::String(s) => Some(s.clone()),
+                            _ => None,
+                        })
+                        .unwrap_or_default();
+                    if let Some(val) = self.get_server_query_param(&param_name) {
+                        return Ok(Value::String(val));
+                    }
+                    // Fallback: empty string (non-server context, param not found)
+                    return Ok(Value::String(String::new()));
+                }
+
+                // Наряд №14 P2-6: require() — RBAC check
+                if name == "require" {
+                    let role = eval_args.get(0)
+                        .and_then(|v| match v {
+                            Value::String(s) => Some(s.clone()),
+                            _ => None,
+                        })
+                        .unwrap_or_default();
+                    if self.server_user_roles.contains(&role) {
+                        return Ok(Value::Bool(true));
+                    }
+                    return Err(format!("require('{}'): access denied — user has roles {:?}", role, self.server_user_roles));
+                }
+
                 // Check memorize() — callable form (Definition of Done)
                 // Usage: let _ = memorize("text", 0.5) or memorize("text")
                 // Differs from declaration: memorize "text" with priority=0.5
@@ -3537,6 +3709,13 @@ impl Interpreter {
             (BinOp::Ne, Value::String(a), Value::String(b)) => Ok(Value::Bool(a != b)),
             (BinOp::Ne, Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a != b)),
             (BinOp::Ne, Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a != b)),
+            (BinOp::Add, l, r) => {
+                eprintln!("[WARNING] implicit Unit→String conversion in '+' operation: {} + {}", l.type_name(), r.type_name());
+                Err(format!(
+                    "type mismatch in string concatenation: {} + {} (use to_string() explicitly)",
+                    l.type_name(), r.type_name()
+                ))
+            }
             (_, l, r) => Err(format!(
                 "type mismatch in binary operation: {} {:?} {}",
                 l.type_name(),

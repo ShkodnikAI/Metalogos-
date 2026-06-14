@@ -253,7 +253,7 @@ postfix_op       = _{ "." ~ IDENT | LBRACKET ~ expression ~ RBRACKET }
 qualified_call_expr = { IDENT ~ DOT_CHAR ~ IDENT ~ "(" ~ expression_list? ~ ")" }
 call_expr        = { IDENT ~ "(" ~ expression_list? ~ ")" }
 expression_list  = { expression ~ (COMMA ~ WHITESPACE? ~ expression)* }
-primary_expr     = { block_if_else_expr | struct_literal | list_literal | BOOL_LITERAL | FLOAT_LITERAL | STRING_LITERAL | INT | IDENT }
+primary_expr     = { block_if_else_expr | struct_literal | list_literal | BOOL_LITERAL | FLOAT_LITERAL | MULTILINE_STRING | STRING_LITERAL | INT | IDENT }
 block_if_else_expr = { "if" ~ expression ~ LBRACE ~ statement* ~ RBRACE ~ else_if_block* ~ ("else" ~ LBRACE ~ statement* ~ RBRACE)? }
 struct_literal   = { LBRACE ~ struct_field_init ~ (COMMA ~ struct_field_init)* ~ COMMA? ~ RBRACE }
 struct_field_init = { IDENT ~ COLON ~ expression }
@@ -264,6 +264,7 @@ literal = _{ FLOAT_LITERAL | STRING_LITERAL | IDENT }
 
 // ── Primitives ─────────────────────────────────────────────────────────
 STRING_LITERAL = @{ "\"" ~ inner_string ~ "\"" }
+MULTILINE_STRING = @{ "\"\"\"" ~ (!("\"\"\"") ~ ANY)* ~ "\"\"\"" }
 inner_string   =  { (ESCAPE_SEQ | (!( "\"" | "\\") ~ ANY))* }
 ESCAPE_SEQ     = @{ "\\" ~ ("\"" | "\\" | "n" | "t" | "r") }
 FLOAT_LITERAL  = @{ DIGIT+ ~ DOT_CHAR ~ DIGIT+ }

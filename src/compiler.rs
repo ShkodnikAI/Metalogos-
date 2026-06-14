@@ -116,7 +116,9 @@ impl Compiler {
             // System
             "exec", "escape_js",
             // Misc
-            "dict_get", "type_of",
+            "dict_get", "dict_set", "dict_keys", "dict_values", "dict_has", "type_of",
+            // Format
+            "format",
             // Memory (recall)
             "recall",
             // Phase 4.4 self-hosting

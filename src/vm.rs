@@ -747,7 +747,7 @@ impl Vm {
     /// This handles the call stack and Return instructions internally.
     /// Execute compiled code in a pattern body context (used internally and by tests).
     pub fn execute_code(
-        &self,
+        &mut self,
         code: &[Instruction],
         stack: &mut Vec<Value>,
         call_stack: &mut Vec<CallFrame>,

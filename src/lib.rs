@@ -133,7 +133,7 @@ pub fn compile_program(source: &str) -> Result<bytecode::Program, String> {
     // Warn if imports are present — bytecode compiler cannot resolve them
     for decl in &declarations {
         if let Declaration::Import(import) = decl {
-            eprintln!("warning: import '{}' cannot be resolved in compile mode (use `mlog serve` instead)", import.module);
+            eprintln!("warning: import '{}' cannot be resolved in compile mode (use `mlog serve` instead)", import.path);
         }
     }
     let mut compiler = compiler::Compiler::new();

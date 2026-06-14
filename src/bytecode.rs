@@ -65,6 +65,12 @@ pub enum Instruction {
     GetField(String),
     /// Pop index and base; push base[index] (list/struct/string index access).
     IndexAccess,
+    /// Pop N values (in reverse stack order), create a Value::List. (Наряд №18)
+    MakeList(usize),
+    /// Pop a list/string, push its length as Float. (Наряд №18)
+    ListLen,
+    /// Discard top-of-stack value. Used after ExprStmt to keep stack clean. (Наряд №18)
+    Pop,
 
     // ── Fluid Types ──────────────────────────────────────────
     /// Pop 2*N values (N value-confidence pairs), create a Fluid value.

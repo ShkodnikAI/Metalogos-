@@ -24,6 +24,30 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use crate::ast::*;
 use crate::interpreter::{Interpreter, Value};
 
+/// Simple URL percent-decode fallback (handles %XX without external crate).
+fn url_decode_fallback(s: &str) -> String {
+    let mut result = Vec::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '%' {
+            let hex: String = chars.by_ref().take(2).collect();
+            if hex.len() == 2 {
+                if let Ok(byte) = u8::from_str_radix(&hex, 16) {
+                    result.push(byte as char);
+                    continue;
+                }
+            }
+            result.push('%');
+            result.extend(hex.chars());
+        } else if c == '+' {
+            result.push(' ');
+        } else {
+            result.push(c);
+        }
+    }
+    result.into_iter().collect()
+}
+
 // Compile-time check: ServerState must be Send + Sync for axum::State
 fn _assert_state_send_sync(state: ServerState) {
     fn assert_send<T: Send>(_: &T) {}
@@ -239,12 +263,13 @@ async fn route_handler(
         .map(|q| {
             q.split('&')
                 .filter_map(|pair| {
+                    if pair.is_empty() { return None; }
                     let mut parts = pair.splitn(2, '=');
-                    let key = urlencoding::decode(parts.next()?).ok()?.into_owned();
-                    let val = parts.next()
-                        .and_then(|v| urlencoding::decode(v).ok())
-                        .map(|v| v.into_owned())
-                        .unwrap_or_default();
+                    let key = parts.next()?;
+                    let val = parts.next().unwrap_or("");
+                    // URL-decode: handle %XX escapes
+                    let key = url_decode_fallback(key);
+                    let val = url_decode_fallback(val);
                     Some((key, val))
                 })
                 .collect()

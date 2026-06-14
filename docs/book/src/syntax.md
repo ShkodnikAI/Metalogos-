@@ -1,10 +1,16 @@
 # Syntax Reference
 
-Complete reference for METALOGOS surface syntax as implemented in v0.3.0.
+Complete reference for METALOGOS surface syntax as implemented in v0.7.7.
+
+## Comments
+
+```mlog
+// single-line comment
+```
 
 ## Declarations
 
-Every `.mlog` file is a sequence of top-level declarations.
+Every `.mlog` file is a sequence of top-level declarations (24 types).
 
 ### Entity (simple)
 
@@ -17,7 +23,7 @@ Declares a named value of a given type.
 ```mlog
 entity greeting: String = "Hello"
 entity score: Float = 42.5
-entity count: Float = 10
+entity api_key: Secret = env("API_KEY")
 ```
 
 ### Entity Type
@@ -50,10 +56,13 @@ entity msg: Message = { text: "Help!", urgency: 0.9 }
 ### Pattern
 
 ```mlog
-pattern Name(param: Type, ...) -> ReturnType { return expr }
+pattern Name(param: Type, ...) -> ReturnType {
+  // body with statements
+  return expr
+}
 ```
 
-A pure function. Parameters are positional and typed. The body contains `return` statements.
+A pure function. Parameters are positional and typed.
 
 ```mlog
 pattern Shout(s: String) -> String { return upper(s) + "!" }
@@ -68,7 +77,7 @@ learnable pattern Name(param: Type, ...) -> ReturnType {
 }
 ```
 
-A pattern backed by a language model. The `prompt` field guides the LLM's behavior.
+A pattern backed by a language model.
 
 ```mlog
 learnable pattern Classify(text: String) -> String {
@@ -100,15 +109,13 @@ flow Name {
 }
 ```
 
-Branch conditions compare a field to a threshold.
-
 ### Fluid
 
 ```mlog
 fluid name = Type1[value1][confidence1] or Type2[value2][confidence2]
 ```
 
-A superposition of typed variants with confidence scores. Collapses to the highest-confidence matching variant when used in a typed context.
+A superposition of typed variants with confidence scores.
 
 ```mlog
 fluid x = Float[42.0][0.9] or String["answer"][0.1]
@@ -119,13 +126,6 @@ fluid x = Float[42.0][0.9] or String["answer"][0.1]
 ```mlog
 rule If(target.field op value) then target.field = new_value
 rule If(condition) then target.field = value with priority=N
-```
-
-Conditional logic with optional priority for conflict resolution.
-
-```mlog
-rule If(msg.text contains "urgent") then msg.urgency = 0.9
-rule If(score > 90) then grade = "A" with priority=10
 ```
 
 ### Memory
@@ -141,8 +141,6 @@ forget "query" after N.days
 adapt PatternName add_example("input", "output")
 ```
 
-Adds a training example to a learnable pattern.
-
 ### Mutation
 
 ```mlog
@@ -151,8 +149,6 @@ mutate PatternName {
   rollback_if: accuracy op threshold
 }
 ```
-
-Adds examples with a safety rollback condition.
 
 ### Sandbox
 
@@ -164,15 +160,12 @@ sandbox name {
 }
 ```
 
-Defines a safety sandbox for adaptive operations.
-
 ### Import
 
 ```mlog
 import std/module
+import std/string as str
 ```
-
-Loads a standard library module.
 
 ### Relate
 
@@ -180,50 +173,205 @@ Loads a standard library module.
 relate "from" to "to" as "relation"
 ```
 
-Creates a knowledge graph edge.
+### Server (HTTP)
+
+```mlog
+server {
+  port: 8080
+  route "/api/items" method=GET { ... }
+  route "/api/items" method=POST requires=[admin] { ... }
+}
+```
+
+### Template
+
+```mlog
+template Page(title: String) -> Html {
+  <h1>{{ title }}</h1>
+}
+```
+
+### Tool
+
+```mlog
+tool telegram {
+  send(chat_id: String, text: String) -> String { ... }
+}
+```
+
+### Hook
+
+```mlog
+hook before_pattern { print("calling: " + pattern_name) }
+hook after_pattern { print("result: " + to_string(result)) }
+```
+
+### Eval
+
+```mlog
+eval Classify {
+  dataset: [
+    { input: "hello", expected: "greeting" }
+  ]
+  threshold: 0.8
+}
+```
+
+### Conversation
+
+```mlog
+conversation {
+  ttl: 1800
+  max_messages: 50
+  compress_after: 20
+}
+```
+
+### LLM Config
+
+```mlog
+llm {
+  providers: [
+    { name: "openai", model: "gpt-4", api_key: env("OPENAI_KEY") }
+  ]
+  default: "openai"
+  timeout: 30
+}
+```
+
+## Statements
+
+### Let Binding
+
+```mlog
+let x = 42.0
+let name = if x > 10.0 then "big" else "small"
+```
+
+### Assignment
+
+```mlog
+x = 10.0
+```
+
+### Each Loop
+
+```mlog
+each item in items {
+  print(item)
+}
+```
+
+### Each With Index
+
+```mlog
+each i, item in items {
+  print(to_string(i) + ": " + item)
+}
+```
+
+### While Loop
+
+```mlog
+while count < 10.0 {
+  let count = count + 1.0
+}
+```
+
+### Break / Continue
+
+```mlog
+each item in items {
+  if item == "stop" then { break }
+  if item == "skip" then { continue }
+  print(item)
+}
+```
+
+### If-Else Block
+
+```mlog
+if x > 10.0 {
+  print("big")
+} else if x > 5.0 {
+  print("medium")
+} else {
+  print("small")
+}
+```
+
+### If-Then-Else Expression
+
+```mlog
+let label = if score >= 90.0 then "A" else "B"
+```
+
+### Match
+
+```mlog
+match command {
+  "start" then { print("starting") }
+  starts_with "stop" then { print("stopping") }
+  contains "help" then { print("helping") }
+  > 100.0 then { print("too big") }
+  else { print("unknown") }
+}
+```
+
+### Return
+
+```mlog
+return result
+```
+
+### Try
+
+```mlog
+let result = try risky_operation()
+```
 
 ## Expressions
 
 | Expression | Example | Description |
 |-----------|---------|-------------|
-| String literal | `"hello"` | Double-quoted string |
-| Float literal | `42.0`, `10` | Numeric value |
-| Identifier | `greeting` | Reference to an entity |
-| Field access | `msg.text` | Access entity field |
+| String literal | `"hello"` | Double-quoted string, supports `\" \\ \n \t \r` |
+| Float literal | `42.0`, `3.14`, `-1.0` | All numbers are Float |
+| Bool literal | `true`, `false` | Boolean values |
+| Identifier | `greeting` | Reference to a variable |
+| Field access | `msg.text` | Access struct field |
 | Function call | `upper(s)` | Invoke a pattern or builtin |
-| Binary op | `a + b`, `a - b`, `a * b`, `a / b` | Arithmetic |
+| Qualified call | `str.trim(s)` | Module-qualified call |
+| Binary op | `a + b`, `a == b` | Arithmetic, comparison |
+| Unary minus | `-x` | Negation |
+| Index access | `list[0]` | List index |
+| If-else | `if c then a else b` | Ternary expression |
+| List literal | `[1.0, 2.0, "three"]` | Heterogeneous list |
+| Struct literal | `{ name: "Alice", age: 25.0 }` | Named fields |
+| Block if/else | `if c { ... } else { ... }` | Block if as expression |
+| Try | `try expr` | Error-catching expression |
 
-## Built-in Functions
+## Data Types
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `upper(s)` | `String -> String` | Uppercase |
-| `lower(s)` | `String -> String` | Lowercase |
-| `len(s)` | `String -> Float` | String length |
-| `str(x)` | `Any -> String` | Convert to string |
-| `print(x)` | `Any -> ()` | Print to stdout |
-| `contains(s, sub)` | `(String, String) -> Float` | Substring check (1.0/0.0) |
-| `float(s)` | `String -> Float` | Parse to float |
-| `confidence(x)` | `Any -> Float` | Get confidence value |
-
-## Comparison Operators (in rules/branches)
-
-| Operator | Meaning |
-|----------|---------|
-| `>` | Greater than |
-| `<` | Less than |
-| `>=` | Greater or equal |
-| `<=` | Less or equal |
-| `==` | Equal |
-| `contains` | Substring match |
-
-## Comments
-
-METALOGOS does not have a comment syntax in the current version.
+| Type | Description |
+|------|-------------|
+| `String` | UTF-8 string |
+| `Float` | All numbers (no separate Int) |
+| `Bool` | `true` / `false` |
+| `List` | Heterogeneous list |
+| `Struct` | Named fields |
+| `Html` | Opaque: auto-escaped, XSS-safe |
+| `Query` | Opaque: parameterized SQL |
+| `Secret` | Opaque: cannot be printed |
+| `Encrypted` | Opaque: encrypted data |
+| `Hash` | Opaque: password hashes |
+| `Session` | Opaque: session token |
+| `Unit` | Null/void |
+| `Fluid` | Probabilistic superposition |
 
 ## File Conventions
 
 - Source files: `.mlog`
+- Bytecode files: `.mbc`
 - Project manifest: `mlog.toml`
 - Lock file: `mlog.lock`
 - Standard library: `std/*.mlog`

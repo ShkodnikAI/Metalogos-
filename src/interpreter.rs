@@ -2398,7 +2398,7 @@ impl Interpreter {
             embedding,
         }) {
             Ok(id) => { /* Bug 2.3 fix: removed eprintln stdout leak in HTTP context */ },
-            Err(e) => eprintln!("[memorize] ERROR: {}", e),
+            Err(_) => { /* silent — don't leak to stdout in HTTP context */ },
         }
         Ok(Value::Unit)
     }

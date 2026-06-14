@@ -1889,6 +1889,27 @@ fn builtin_type_of(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(args[0].type_name().to_string()))
 }
 
+// ── Base64 encoding/decoding (Наряд 17 Б.3) ──────────────────────
+
+fn builtin_base64_encode(args: &[Value]) -> Result<Value, String> {
+    let s = string_arg(args, 0, "base64_encode")?;
+    use base64::Engine;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&s);
+    Ok(Value::String(encoded))
+}
+
+fn builtin_base64_decode(args: &[Value]) -> Result<Value, String> {
+    let s = string_arg(args, 0, "base64_decode")?;
+    use base64::Engine;
+    match base64::engine::general_purpose::STANDARD.decode(&s) {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(decoded) => Ok(Value::String(decoded)),
+            Err(_) => Ok(Value::String(String::new())),
+        }
+        Err(_) => Err("base64_decode: invalid base64 input".to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

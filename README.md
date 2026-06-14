@@ -7,8 +7,9 @@
 **The first programming language designed by AI, for AI. Security built into the language.**
 
 [![Rust](https://img.shields.io/badge/rust-1.80+-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/v0.4.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-)
+[![Version](https://img.shields.io/badge/v0.7.7-blue.svg)](https://github.com/ShkodnikAI/Metalogos-)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
+[![CI](https://img.shields.io/badge/CI-passing-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 
 </div>
 
@@ -95,7 +96,9 @@ flow Pipeline { input -> Classify -> Respond -> output }
 ## Quick Start
 
 ```bash
-# Clone and build
+# Download pre-built binary from GitHub Releases (Linux x86_64)
+# Or build from source:
+
 git clone https://github.com/ShkodnikAI/Metalogos-.git
 cd Metalogos-
 cargo install --path .
@@ -104,15 +107,25 @@ cargo install --path .
 mlog run examples/m1_hello.mlog
 # Output: HELLO, METALOGOS!!
 
+# Compile to bytecode, then run
+mlog compile examples/m1_hello.mlog
+mlog run examples/m1_hello.mbc
+
 # Interactive REPL
 mlog repl
 
 # Semantic check (no execution)
 mlog check examples/p6_full_app.mlog
 
+# Static security audit
+mlog audit examples/p6_full_app.mlog
+
 # Serve a web application
 mlog serve examples/p6_full_app.mlog
 # Listening on 0.0.0.0:8080
+
+# Run eval harness (test learnable patterns)
+mlog eval examples/m3_classify.mlog
 ```
 
 ---
@@ -158,19 +171,21 @@ Metalogos addresses every item in the OWASP Top 10 (2021) at the **language leve
 | [`p2_knowledge_graph.mlog`](examples/p2_knowledge_graph.mlog) | Knowledge graph with `relate` | 12 |
 | [`p6_full_app.mlog`](examples/p6_full_app.mlog) | Full web app — auth, CRUD, AI classify, bot webhooks | 170 |
 
-All examples have golden-file tests (`.expected` files). Run them with `cargo test`.
+All examples have golden-file tests (`.expected` / `.error` files). Run them with `cargo test`.
 
 ---
 
 ## Architecture
 
+Metalogos has **three execution backends**: a tree-walking interpreter, a bytecode VM, and a JIT compiler (Cranelift).
+
 ```
- .mlog source        Pest PEG          AST              Semantic            Interpreter
+ .mlog source        Pest PEG          AST              Semantic            Three Backends
 ─────────────  ──▶  ────────────  ──▶  ───────────  ──▶  ────────────  ──▶  ────────────
- entity             parse tokens      17 declaration    cross-reference     tree-walking
- pattern            syntax rules     Expr variants     validation          evaluation
- flow                                  Statement         opaque type       built-in fns
- memory                                 Value            enforcement        effects
+ entity             parse tokens      24 declaration    cross-reference     tree-walking
+ pattern            syntax rules      14 Expr           validation          bytecode VM
+ flow                                  12 Statement      opaque type       JIT (Cranelift)
+ memory                                 4 MatchArm        enforcement
  rule                                                             
  learn                                                         
  adapt
@@ -180,29 +195,39 @@ All examples have golden-file tests (`.expected` files). Run them with `cargo te
 
 | Component | Technology |
 |---|---|
-| Parser | [Pest 2.7](https://pest.rs/) — PEG grammar |
-| AST / Interpreter | Hand-written Rust (~5 000 lines) |
+| Parser | [Pest 2.7](https://pest.rs/) — PEG grammar (335 rules) |
+| AST / Interpreter | Hand-written Rust (~19 400 lines) |
+| Bytecode VM | 44 instructions, stack-based |
+| JIT | [Cranelift](https://cranelift.dev/) — code generation |
 | Web server | [Axum 0.8](https://github.com/tokio-rs/axum) + [Tokio](https://tokio.rs/) |
 | Crypto | `hmac`, `sha2`, `aes-gcm` (AES-256-GCM) |
 | CLI | [Clap 4.5](https://github.com/clap-rs/clap) |
-| Tests | Golden-file (`examples/*.expected`) + unit + integration |
+| Tests | Golden-file (78 examples with `.expected`/`.error`) + 32 integration test files (7 000+ lines) |
 
 ```
 Metalogos-/
-├── Cargo.toml              # Single-crate project
+├── Cargo.toml              # Single-crate project, version 0.7.7
 ├── src/
-│   ├── grammar.pest         # PEG grammar (~200 lines)
-│   ├── ast.rs               # AST definitions
-│   ├── parser.rs            # Pest tokens → AST
-│   ├── semantic.rs          # Semantic analysis (opaque types, references)
-│   ├── interpreter.rs       # Tree-walking interpreter
-│   ├── builtins.rs          # 40+ built-in functions
-│   ├── server.rs            # Axum HTTP server + security middleware
-│   ├── llm.rs               # LLM backend trait + mock
-│   └── main.rs              # CLI: run / repl / check / serve
-├── examples/                # 36 .mlog programs with golden tests
-├── tests/                   # Golden-file runner, integration tests
-└── docs/adr/                # 26 Architecture Decision Records
+│   ├── grammar.pest         # PEG grammar (335 rules)
+│   ├── ast.rs               # AST: 24 Declaration, 14 Expr, 12 Statement, 4 MatchArm variants
+│   ├── parser.rs            # Pest tokens → AST (1 860 lines)
+│   ├── semantic.rs          # Semantic analysis, opaque type enforcement, security audit (1 370 lines)
+│   ├── interpreter.rs       # Tree-walking interpreter (3 810 lines)
+│   ├── compiler.rs          # Bytecode compiler (1 100 lines)
+│   ├── bytecode.rs          # 44 VM instructions
+│   ├── vm.rs                # Bytecode VM executor (1 470 lines)
+│   ├── jit.rs               # JIT compiler via Cranelift
+│   ├── builtins.rs          # 93 built-in functions (2 020 lines)
+│   ├── server.rs            # Axum HTTP server + security middleware (1 280 lines)
+│   ├── llm.rs               # LLM backend trait + mock + real providers (1 420 lines)
+│   ├── memory_store.rs      # Semantic memory with decay + KV store (1 170 lines)
+│   ├── audit.rs             # Static security audit (1 060 lines)
+│   ├── embeddings.rs        # Embedding generation + cosine similarity (600 lines)
+│   └── main.rs              # CLI: run / repl / check / serve / compile / eval / resume / audit
+├── examples/                # 78 .mlog programs with golden tests
+├── tests/                   # 32 integration test files (7 000+ lines)
+├── stdlib/                  # Standard library modules (std/string, std/math, std/collections)
+└── docs/adr/                # 63 Architecture Decision Records
 ```
 
 ---
@@ -220,21 +245,35 @@ Metalogos-/
 | M5 | Adapt + Sandbox + Mutate with rollback | Done |
 | Phase 1 | Fluid types + Confidence propagation | Done |
 | Phase 2 | Vector recall + Full adapt + ML learn | Done |
-| Phase 5 | `let`/`if`/`each`/`while`, List type, Modules | Done |
+| Phase 3 | LSP, `mlogpkg` package manager, mdbook docs | Done |
+| Phase 4 | Bytecode VM + JIT (Cranelift), self-hosted lexer | Done |
+| Phase 5 | `let`/`if`/`each`/`while`, List type, Modules, Break/Continue, Match | Done |
 | Phase 6.1–6.2 | HTTP server + Type-safe HTML templates | Done |
 | Phase 6.3 | Parameterized database queries | Done |
 | Phase 6.4 | Encryption: Secret / Encrypted / Hash | Done |
 | Phase 6.5 | Authentication: sessions + CSRF + roles | Done |
 | Phase 6.6 | Bot integration: Telegram + Discord webhooks | Done |
 | Phase 6.7 | OWASP Top 10 validation + full web app | Done |
+| Phase 7.1 | Inspect builtin, context loading, event streaming | Done |
+| Phase 7.2 | Conversation state, LLM cache, model routing | Done |
+| Phase 7.3 | Context compression, lifecycle control | Done |
+| Phase 7.4 | Tool abstraction, hooks, definition of done | Done |
+| Phase 7.5 | Memory persistence (e2e), JWT-style tokens, eval harness | Done |
+| Phase 7.6 | Session memory, audit parse tests, server JSON body | Done |
+| Phase 7.7 | Break/Continue, Match (StartsWith/Contains/Compare), compiler full-coverage, constraints | Done |
+
+### In Progress
+
+| Phase | Target |
+|---|---|
+| Compiler coverage | `Expr::BlockIfElse` and `Expr::Try` full bytecode compilation |
 
 ### Next
 
 | Phase | Target |
 |---|---|
-| Phase 3 | LSP, `mlogpkg` package manager, mdbook docs |
-| Phase 4 | Bytecode VM / JIT, self-hosted compiler |
-| Phase 7 | Production LLM backend (OpenAI / Anthropic), real database (SQLite/Postgres) |
+| Phase 8 | Production LLM backend (OpenAI / Anthropic), real database (SQLite/Postgres) |
+| Phase 9 | Self-hosted compiler, mlogpkg ecosystem, production deployment |
 
 ---
 
@@ -246,6 +285,7 @@ Metalogos stands on the shoulders of proven systems:
 - **Haskell** — type-safe HTML (Yesod/Blaze), `newtype` for secrets
 - **Pest** — elegant PEG parser generator
 - **Axum** — ergonomic async HTTP
+- **Cranelift** — fast JIT code generation
 - **Datalog / CLIPS** — declarative rule engines with priority
 - **ACT-R** — memory activation and decay models
 - **DSPy** — programmatic LLM orchestration

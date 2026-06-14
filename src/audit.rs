@@ -125,6 +125,11 @@ impl TaintTracker {
     fn get_taint(&self, name: &str) -> Option<TaintKind> {
         self.tainted.get(name).copied()
     }
+
+    /// Remove taint from a variable (e.g., after reassignment to a safe value).
+    fn untaint(&mut self, name: &str) {
+        self.tainted.remove(name);
+    }
 }
 
 // ── Helper: find line number for a keyword in source ────────────────
@@ -574,7 +579,9 @@ fn check_html_injection(declarations: &[Declaration], source: &str, findings: &m
 
 fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut Vec<AuditFinding>) {
     /// Sink functions that must not receive secrets.
-    const SINK_FUNCTIONS: &[&str] = &["respond", "respond_html", "http_post", "write_file", "send_message"];
+    /// Note: http_post/send_message are NOT sinks — they are intentional
+    /// API call points where passing auth tokens is expected.
+    const SINK_FUNCTIONS: &[&str] = &["respond", "respond_html", "write_file"];
 
     fn is_sink(name: &str) -> bool {
         SINK_FUNCTIONS.contains(&name)
@@ -595,8 +602,11 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                         }
                     }
                 }
-                Statement::Assign { name: _, value: _ } => {
-                    // Assign could update taint, but we only track initial env() bindings
+                Statement::Assign { name, value } => {
+                    // Clear taint if variable is reassigned to a literal
+                    if let Expr::StringLit(_) = value {
+                        tracker.untaint(name);
+                    }
                 }
                 Statement::ExprStmt(expr) => {
                     check_expr_for_leak(expr, tracker, source, findings);
@@ -667,17 +677,17 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
 fn check_open_redirect(declarations: &[Declaration], source: &str, findings: &mut Vec<AuditFinding>) {
     fn check_expr_for_redirect(expr: &Expr, tracker: &TaintTracker, source: &str, findings: &mut Vec<AuditFinding>) {
         if let Expr::FnCall(fn_name, args) = expr {
-            if fn_name == "respond" || fn_name == "respond_html" {
-                // Check if any arg contains user input
+            // Only flag respond_html for open redirect (HTML can set Location header)
+            if fn_name == "respond_html" {
                 for arg in args {
                     if let Expr::Ident(var) = arg {
                         if tracker.get_taint(var) == Some(TaintKind::UserInput) {
-                            let line = find_line(source, "respond");
+                            let line = find_line(source, "respond_html");
                             findings.push(AuditFinding {
                                 severity: Severity::Warning,
                                 check_id: "OPEN_REDIRECT",
                                 line,
-                                message: "possible open redirect — respond() with user-controlled input".to_string(),
+                                message: "possible open redirect — respond_html() with user-controlled input".to_string(),
                             });
                         }
                     }
@@ -701,8 +711,11 @@ fn check_open_redirect(declarations: &[Declaration], source: &str, findings: &mu
                         }
                     }
                 }
-                Statement::Assign { name: _, value: _ } => {
-                    // Assign could update taint, but we only track initial bindings
+                Statement::Assign { name, value } => {
+                    // Clear taint if variable is reassigned to a literal
+                    if let Expr::StringLit(_) = value {
+                        tracker.untaint(name);
+                    }
                 }
                 Statement::ExprStmt(expr) => {
                     check_expr_for_redirect(expr, tracker, source, findings);

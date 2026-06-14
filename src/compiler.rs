@@ -556,7 +556,7 @@ impl Compiler {
     fn compile_pattern_body_with_locals(&self, body: &[Statement], locals: &mut HashMap<String, usize>) -> Result<Vec<Instruction>, String> {
         let mut code = Vec::new();
         let mut next_slot = locals.len();
-        self.compile_stmts(body, &mut code, locals, &mut next_slot, None)?;
+        self.compile_stmts(body, &mut code, locals, &mut next_slot, &mut None)?;
         Ok(code)
     }
 
@@ -568,7 +568,7 @@ impl Compiler {
         code: &mut Vec<Instruction>,
         locals: &mut HashMap<String, usize>,
         next_slot: &mut usize,
-        loop_ctx: Option<&mut LoopCtx>,
+        loop_ctx: &mut Option<LoopCtx>,
     ) -> Result<(), String> {
         for stmt in stmts {
             self.compile_stmt(stmt, code, locals, next_slot, loop_ctx)?;
@@ -583,7 +583,7 @@ impl Compiler {
         code: &mut Vec<Instruction>,
         locals: &mut HashMap<String, usize>,
         next_slot: &mut usize,
-        loop_ctx: Option<&mut LoopCtx>,
+        loop_ctx: &mut Option<LoopCtx>,
     ) -> Result<(), String> {
         match stmt {
             Statement::LetBinding { name, value, mutable: _ } => {
@@ -712,7 +712,7 @@ impl Compiler {
                 };
                 code.push(Instruction::StoreLocal(item_slot));
                 // Compile body with loop context
-                self.compile_stmts(body, code, locals, next_slot, Some(&mut inner_loop))?;
+                self.compile_stmts(body, code, locals, next_slot, &mut Some(inner_loop))?;
                 // Increment index
                 code.push(Instruction::LoadLocal(idx_slot));
                 code.push(Instruction::Const(Value::Float(1.0)));
@@ -780,7 +780,7 @@ impl Compiler {
                 };
                 code.push(Instruction::StoreLocal(item_slot));
                 // Compile body
-                self.compile_stmts(body, code, locals, next_slot, Some(&mut inner_loop))?;
+                self.compile_stmts(body, code, locals, next_slot, &mut Some(inner_loop))?;
                 // Increment index
                 code.push(Instruction::LoadLocal(idx_slot));
                 code.push(Instruction::Const(Value::Float(1.0)));
@@ -808,7 +808,7 @@ impl Compiler {
                 self.compile_expr_with_locals(condition, code, locals)?;
                 let exit_jump = code.len();
                 code.push(Instruction::JumpIfNot(0));
-                self.compile_stmts(body, code, locals, next_slot, Some(&mut inner_loop))?;
+                self.compile_stmts(body, code, locals, next_slot, &mut Some(inner_loop))?;
                 code.push(Instruction::Jump(cond_addr));
                 let loop_end = code.len();
                 if let Some(Instruction::JumpIfNot(ref mut target)) = code.get_mut(exit_jump) {

@@ -542,10 +542,64 @@ impl Compiler {
                 }
                 code.push(Instruction::MakeStruct("Struct".to_string(), field_names));
             }
-            // Наряд №14 P0-3: block if/else expression — deferred to tree-walking
-            Expr::BlockIfElse { .. } => {
-                // Compiled as Unit placeholder; tree-walking interpreter handles it
-                code.push(Instruction::Const(Value::Unit));
+            // Наряд №17 Б.1: block if/else expression — compile with result on stack
+            Expr::BlockIfElse { condition, ref then_body, ref else_ifs, ref else_body } => {
+                // Allocate a hidden local slot for the result value
+                let result_slot = *next_slot;
+                *next_slot += 1;
+
+                // Evaluate condition
+                self.compile_expr_with_locals(condition, code, locals)?;
+                let jump_to_else = code.len();
+                code.push(Instruction::JumpIfNot(0)); // placeholder
+
+                // ── then branch ──
+                self.compile_body_with_result(then_body, code, locals, next_slot, loop_ctx, result_slot)?;
+                let jump_to_end = code.len();
+                code.push(Instruction::Jump(0)); // placeholder
+
+                // ── else-if chain ──
+                let else_start = code.len();
+                if let Some(Instruction::JumpIfNot(ref mut target)) = code.get_mut(jump_to_else) {
+                    *target = else_start;
+                }
+                let mut ei_end_jumps: Vec<usize> = Vec::new();
+                for (ei_cond, ei_body) in else_ifs {
+                    self.compile_expr_with_locals(ei_cond, code, locals)?;
+                    let ei_jump = code.len();
+                    code.push(Instruction::JumpIfNot(0)); // placeholder
+                    self.compile_body_with_result(ei_body, code, locals, next_slot, loop_ctx, result_slot)?;
+                    let ei_jump_end = code.len();
+                    code.push(Instruction::Jump(0)); // placeholder
+                    ei_end_jumps.push(ei_jump_end);
+                    let ei_next = code.len();
+                    if let Some(Instruction::JumpIfNot(ref mut target)) = code.get_mut(ei_jump) {
+                        *target = ei_next;
+                    }
+                }
+
+                // ── else branch ──
+                if let Some(eb) = else_body {
+                    self.compile_body_with_result(eb, code, locals, next_slot, loop_ctx, result_slot)?;
+                } else {
+                    // No else → store Unit as default
+                    code.push(Instruction::Const(Value::Unit));
+                    code.push(Instruction::StoreLocal(result_slot));
+                }
+
+                // Patch all end jumps
+                let end = code.len();
+                if let Some(Instruction::Jump(ref mut target)) = code.get_mut(jump_to_end) {
+                    *target = end;
+                }
+                for &patch_addr in &ei_end_jumps {
+                    if let Some(Instruction::Jump(ref mut target)) = code.get_mut(patch_addr) {
+                        *target = end;
+                    }
+                }
+
+                // Load result onto stack
+                code.push(Instruction::LoadLocal(result_slot));
             }
             // Наряд №14 P1-4: try expression — deferred to tree-walking
             Expr::Try(_) => {
@@ -578,6 +632,74 @@ impl Compiler {
     ) -> Result<(), String> {
         for stmt in stmts {
             self.compile_stmt(stmt, code, locals, next_slot, loop_ctx)?;
+        }
+        Ok(())
+    }
+
+    /// Наряд №17 Б.1: Compile a block of statements, storing the last expression's
+    /// result into `result_slot`. All statements except the last are compiled normally
+    /// (with Pop for ExprStmt). The last statement's value is stored into result_slot.
+    fn compile_body_with_result(
+        &self,
+        stmts: &[Statement],
+        code: &mut Vec<Instruction>,
+        locals: &mut HashMap<String, usize>,
+        next_slot: &mut usize,
+        loop_ctx: &mut Option<LoopCtx>,
+        result_slot: usize,
+    ) -> Result<(), String> {
+        if stmts.is_empty() {
+            code.push(Instruction::Const(Value::Unit));
+            code.push(Instruction::StoreLocal(result_slot));
+            return Ok(());
+        }
+        let last_idx = stmts.len() - 1;
+        for (i, stmt) in stmts.iter().enumerate() {
+            if i == last_idx {
+                // Last statement: compile its expression and store to result_slot
+                match stmt {
+                    Statement::ExprStmt(expr) => {
+                        self.compile_expr_with_locals(expr, code, locals)?;
+                        code.push(Instruction::StoreLocal(result_slot));
+                    }
+                    Statement::Return(expr) => {
+                        self.compile_expr_with_locals(expr, code, locals)?;
+                        code.push(Instruction::StoreLocal(result_slot));
+                    }
+                    Statement::LetBinding { name, value, mutable: _ } => {
+                        let slot = *next_slot;
+                        *next_slot += 1;
+                        locals.insert(name.clone(), slot);
+                        self.compile_expr_with_locals(value, code, locals)?;
+                        code.push(Instruction::StoreLocal(slot));
+                        // Also copy to result_slot
+                        code.push(Instruction::LoadLocal(slot));
+                        code.push(Instruction::StoreLocal(result_slot));
+                    }
+                    Statement::Assign { name, value } => {
+                        self.compile_expr_with_locals(value, code, locals)?;
+                        if let Some(&slot) = locals.get(name) {
+                            code.push(Instruction::StoreLocal(slot));
+                        } else if let Some(&slot) = self.global_slots.get(name) {
+                            code.push(Instruction::StoreGlobal(slot));
+                        } else {
+                            code.push(Instruction::Pop);
+                        }
+                        // Load assigned value for result
+                        code.push(Instruction::Const(Value::Unit));
+                        code.push(Instruction::StoreLocal(result_slot));
+                    }
+                    _ => {
+                        // For control flow statements (if, each, while, match), compile normally
+                        // and store Unit as result (their return value is undefined in statement context)
+                        self.compile_stmt(stmt, code, locals, next_slot, loop_ctx)?;
+                        code.push(Instruction::Const(Value::Unit));
+                        code.push(Instruction::StoreLocal(result_slot));
+                    }
+                }
+            } else {
+                self.compile_stmt(stmt, code, locals, next_slot, loop_ctx)?;
+            }
         }
         Ok(())
     }

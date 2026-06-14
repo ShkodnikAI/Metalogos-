@@ -1,13 +1,20 @@
 ---
-Task ID: 0
+Task ID: 2
 Agent: main
-Task: Установить постоянное правило автообновления документации и пуша
+Task: Полный аудит замечаний по архитектуре Metalogos v0.4.0+ и исправление багов
 
 Work Log:
-- Зафиксировано рабочее правило: AUTO-DOC-PUSH
+- Прочитаны: grammar.pest, ast.rs, interpreter.rs, builtins.rs, compiler.rs, server.rs, main.rs, lib.rs, parser.rs, REFERENCE.md
+- Проверен каждый пункт из 7 блоков замечаний (Блок 1-7)
+- Исправлен Баг 2.1: query_param() — добавлено server_query_params в Interpreter, парсинг query string в server.rs route_handler
+- Исправлен Баг 2.2: json_get() 2-arg — разделены ветки 2-arg и 3-arg, 2-arg возвращает реальное значение
+- Исправлен Баг 2.3: memorize() — убран eprintln при успешном сохранении (stdout leak в HTTP)
+- REFERENCE.md обновлён (json_get, query_param)
+- Запушен commit d6b8588
 
 Stage Summary:
-- Правило AUTO-DOC-PUSH активно для всех последующих задач
+- 3 бага исправлены и запушены
+- Полный отчёт по 7 блокам замечаний предоставлен пользователю
 
 ================================================================================
 PERMANENT WORKING RULE: AUTO-DOC-PUSH

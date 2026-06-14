@@ -1203,6 +1203,8 @@ impl Vm {
             .zip(pattern.param_types.iter())
             .map(|(arg, param_type)| self.maybe_collapse(arg, param_type))
             .collect();
+        // Clone code to release borrow on self.patterns before mutable borrow
+        let code = pattern.code.clone();
         // Execute pattern body as bytecode
         let mut stack: Vec<Value> = Vec::new();
         let mut call_stack: Vec<CallFrame> = Vec::new();
@@ -1217,7 +1219,7 @@ impl Vm {
         for arg in collapsed_args {
             stack.push(arg);
         }
-        self.execute_code(&pattern.code, &mut stack, &mut call_stack, &program)
+        self.execute_code(&code, &mut stack, &mut call_stack, &program)
     }
 
     /// Execute all registered rules (already sorted by priority descending).

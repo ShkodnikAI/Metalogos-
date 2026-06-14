@@ -533,7 +533,7 @@ impl Compiler {
                 // Single iteration ensures field_names and compiled values
                 // stay in the same order (HashMap iteration is consistent
                 // within a process but we collect once to be explicit).
-                let items: Vec<(String, &Expr)> = fields.iter().collect();
+                let items: Vec<(String, &Expr)> = fields.iter().map(|(k, v)| (k.clone(), v)).collect();
                 let field_names: Vec<String> = items.iter().map(|(k, _)| k.clone()).collect();
                 for (_, val_expr) in &items {
                     self.compile_expr_with_locals(val_expr, code, locals)?;
@@ -688,13 +688,13 @@ impl Compiler {
                 code.push(Instruction::Const(Value::Float(0.0)));
                 code.push(Instruction::StoreLocal(idx_slot));
                 // Set up loop context
-                let mut inner_loop = LoopCtx {
+                let mut inner_loop = Some(LoopCtx {
                     continue_addr: 0,
                     break_patches: Vec::new(),
-                };
+                });
                 // Condition check: idx < len(list)
                 let cond_addr = code.len();
-                inner_loop.continue_addr = cond_addr;
+                inner_loop.as_mut().unwrap().continue_addr = cond_addr;
                 code.push(Instruction::LoadLocal(idx_slot));
                 code.push(Instruction::LoadLocal(list_slot));
                 code.push(Instruction::ListLen);
@@ -716,7 +716,7 @@ impl Compiler {
                 };
                 code.push(Instruction::StoreLocal(item_slot));
                 // Compile body with loop context
-                self.compile_stmts(body, code, locals, next_slot, &mut Some(inner_loop))?;
+                self.compile_stmts(body, code, locals, next_slot, &mut inner_loop)?;
                 // Increment index
                 code.push(Instruction::LoadLocal(idx_slot));
                 code.push(Instruction::Const(Value::Float(1.0)));
@@ -731,7 +731,7 @@ impl Compiler {
                     *target = loop_end;
                 }
                 // Patch break jumps
-                for &patch_addr in &inner_loop.break_patches {
+                for &patch_addr in &inner_loop.as_ref().unwrap().break_patches {
                     if let Some(Instruction::Jump(ref mut target)) = code.get_mut(patch_addr) {
                         *target = loop_end;
                     }
@@ -747,12 +747,12 @@ impl Compiler {
                 *next_slot += 1;
                 code.push(Instruction::Const(Value::Float(0.0)));
                 code.push(Instruction::StoreLocal(idx_slot));
-                let mut inner_loop = LoopCtx {
+                let mut inner_loop = Some(LoopCtx {
                     continue_addr: 0,
                     break_patches: Vec::new(),
-                };
+                });
                 let cond_addr = code.len();
-                inner_loop.continue_addr = cond_addr;
+                inner_loop.as_mut().unwrap().continue_addr = cond_addr;
                 code.push(Instruction::LoadLocal(idx_slot));
                 code.push(Instruction::LoadLocal(list_slot));
                 code.push(Instruction::ListLen);
@@ -784,7 +784,7 @@ impl Compiler {
                 };
                 code.push(Instruction::StoreLocal(item_slot));
                 // Compile body
-                self.compile_stmts(body, code, locals, next_slot, &mut Some(inner_loop))?;
+                self.compile_stmts(body, code, locals, next_slot, &mut inner_loop)?;
                 // Increment index
                 code.push(Instruction::LoadLocal(idx_slot));
                 code.push(Instruction::Const(Value::Float(1.0)));
@@ -795,7 +795,7 @@ impl Compiler {
                 if let Some(Instruction::JumpIfNot(ref mut target)) = code.get_mut(exit_jump) {
                     *target = loop_end;
                 }
-                for &patch_addr in &inner_loop.break_patches {
+                for &patch_addr in &inner_loop.as_ref().unwrap().break_patches {
                     if let Some(Instruction::Jump(ref mut target)) = code.get_mut(patch_addr) {
                         *target = loop_end;
                     }
@@ -803,22 +803,22 @@ impl Compiler {
             }
             // Наряд №18: While — condition + body loop
             Statement::While { condition, body } => {
-                let mut inner_loop = LoopCtx {
+                let mut inner_loop = Some(LoopCtx {
                     continue_addr: 0,
                     break_patches: Vec::new(),
-                };
+                });
                 let cond_addr = code.len();
-                inner_loop.continue_addr = cond_addr;
+                inner_loop.as_mut().unwrap().continue_addr = cond_addr;
                 self.compile_expr_with_locals(condition, code, locals)?;
                 let exit_jump = code.len();
                 code.push(Instruction::JumpIfNot(0));
-                self.compile_stmts(body, code, locals, next_slot, &mut Some(inner_loop))?;
+                self.compile_stmts(body, code, locals, next_slot, &mut inner_loop)?;
                 code.push(Instruction::Jump(cond_addr));
                 let loop_end = code.len();
                 if let Some(Instruction::JumpIfNot(ref mut target)) = code.get_mut(exit_jump) {
                     *target = loop_end;
                 }
-                for &patch_addr in &inner_loop.break_patches {
+                for &patch_addr in &inner_loop.as_ref().unwrap().break_patches {
                     if let Some(Instruction::Jump(ref mut target)) = code.get_mut(patch_addr) {
                         *target = loop_end;
                     }

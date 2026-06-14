@@ -3329,16 +3329,19 @@ impl Interpreter {
             Expr::BlockIfElse { condition, ref then_body, ref else_ifs, ref else_body } => {
                 let cond_val = self.eval_expr_with_env(condition, env)?;
                 if cond_val.as_bool()? {
-                    return self.eval_statements(then_body, env);
+                    let mut local_env = env.clone();
+                    return self.eval_statements(then_body, &mut local_env);
                 }
                 for (ei_cond, ei_body) in else_ifs {
                     let ei_val = self.eval_expr_with_env(ei_cond, env)?;
                     if ei_val.as_bool()? {
-                        return self.eval_statements(ei_body, env);
+                        let mut local_env = env.clone();
+                        return self.eval_statements(ei_body, &mut local_env);
                     }
                 }
                 if let Some(eb) = else_body {
-                    return self.eval_statements(eb, env);
+                    let mut local_env = env.clone();
+                    return self.eval_statements(eb, &mut local_env);
                 }
                 Ok(Value::Unit)
             }

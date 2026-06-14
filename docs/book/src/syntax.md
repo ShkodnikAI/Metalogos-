@@ -347,8 +347,8 @@ let result = try risky_operation()
 | If-else | `if c then a else b` | Ternary expression |
 | List literal | `[1.0, 2.0, "three"]` | Heterogeneous list |
 | Struct literal | `{ name: "Alice", age: 25.0 }` | Named fields |
-| Block if/else | `if c { ... } else { ... }` | Block if as expression |
-| Try | `try expr` | Error-catching expression |
+| Block if/else | `if c { ... } else { ... }` | Block if as expression (all 3 backends) |
+| Try | `try expr` | Error-catching expression (interpreter only; VM: Unit placeholder) |
 
 ## Data Types
 

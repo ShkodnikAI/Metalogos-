@@ -19,6 +19,18 @@ use crate::ast::*;
 /// pre-processing: template bodies are extracted with balanced brace counting,
 /// replaced with placeholders for Pest parsing, then restored.
 pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
+    // Наряд №14 P1-5: Use a thread with 8MB stack for large files.
+    // Pest's recursive descent can overflow the default 2-8MB stack
+    // on deeply nested expressions or very long string literals.
+    let source_owned = source.to_string();
+    let handle = std::thread::Builder::new()
+        .stack_size(8 * 1024 * 1024)
+        .spawn(move || parse_inner(&source_owned))
+        .expect("failed to spawn parser thread");
+    handle.join().expect("parser thread panicked")
+}
+
+fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
     // Pre-process: extract template bodies that contain } characters.
     // Replace with unique placeholders to avoid Pest's "stop at first }" limitation.
     let (preprocessed, template_bodies) = preprocess_templates(source);
@@ -1164,9 +1176,12 @@ fn parse_pattern_body(pair: Pair<Rule>) -> Vec<Statement> {
 /// Parse a single statement from its rule pair.
 fn parse_single_statement(pair: Pair<Rule>) -> Statement {
     let children = children_of(&pair);
-    // statement = { if_block_stmt | each_stmt | while_stmt | let_binding | assign_or_expr | return_stmt }
-    // NOTE: match_stmt is parsed as a regular expression (match is a builtin) — parse_match_stmt
-    // was removed because MatchArm / Statement::Match are not in the AST.
+    // statement = { match_stmt | if_block_stmt | each_stmt | ... }
+    // Наряд №14: match_stmt is now a proper AST statement
+    if let Some(m_pair) = children.iter().find(|c| c.as_rule() == Rule::match_stmt) {
+        return parse_match_stmt(m_pair.clone());
+    }
+    // NOTE: match_stmt previously was parsed as a regular expression — now has full AST support.
     if let Some(ib_pair) = children.iter().find(|c| c.as_rule() == Rule::if_block_stmt) {
         parse_if_block_stmt(ib_pair.clone())
     } else if let Some(each_pair) = children.iter().find(|c| c.as_rule() == Rule::each_stmt) {
@@ -1192,7 +1207,8 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
         let lb_children = children_of(lb_pair);
         let name = find_child_str(&lb_children, Rule::IDENT).unwrap_or_default();
         let expr = find_child(&lb_children, Rule::expression).unwrap();
-        Statement::LetBinding { name, value: parse_expression(expr) }
+        let mutable = lb_children.iter().any(|c| c.as_str().trim() == "mut");
+        Statement::LetBinding { name, value: parse_expression(expr), mutable }
     } else if let Some(ae_pair) = children.iter().find(|c| c.as_rule() == Rule::assign_or_expr) {
         // assign_or_expr = { IDENT ~ ASSIGN ~ expression | expression }
         let ae_children: Vec<Pair<Rule>> = ae_pair.clone().into_inner().collect();
@@ -1280,6 +1296,158 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
         let expr = find_child(&children, Rule::expression)
             .expect(&format!("unrecognized statement: '{}'", pair.as_str()));
         Statement::Return(parse_expression(expr))
+    }
+}
+
+/// Parse a match statement: `match expr { "val" then { stmts } ... else { stmts } }` (Наряд №14)
+fn parse_match_stmt(pair: Pair<Rule>) -> Statement {
+    use crate::ast::{MatchArm, CompareOp as AstCmp};
+    let children: Vec<Pair<Rule>> = pair.into_inner().collect();
+
+    // First child is the scrutinee expression
+    let scrutinee = children.iter()
+        .find(|c| c.as_rule() == Rule::expression)
+        .map(|c| parse_expression(c.clone()))
+        .unwrap_or_else(|| Expr::StringLit(String::new()));
+
+    // Parse match arms
+    let mut arms = Vec::new();
+    let mut else_body: Option<Vec<Statement>> = None;
+
+    for child in &children {
+        match child.as_rule() {
+            Rule::match_arm_exact => {
+                let arm_children: Vec<Pair<Rule>> = child.clone().into_inner().collect();
+                let value = arm_children.iter()
+                    .find(|c| c.as_rule() == Rule::STRING_LITERAL)
+                    .map(|c| unescape_string(c.as_str()))
+                    .unwrap_or_default();
+                let body = arm_children.iter()
+                    .filter(|c| c.as_rule() == Rule::statement)
+                    .map(|c| parse_single_statement(c.clone()))
+                    .collect();
+                arms.push(MatchArm::Exact(value, body));
+            }
+            Rule::match_arm_starts => {
+                let arm_children: Vec<Pair<Rule>> = child.clone().into_inner().collect();
+                let prefix = arm_children.iter()
+                    .find(|c| c.as_rule() == Rule::STRING_LITERAL)
+                    .map(|c| unescape_string(c.as_str()))
+                    .unwrap_or_default();
+                let body = arm_children.iter()
+                    .filter(|c| c.as_rule() == Rule::statement)
+                    .map(|c| parse_single_statement(c.clone()))
+                    .collect();
+                arms.push(MatchArm::StartsWith(prefix, body));
+            }
+            Rule::match_arm_contains => {
+                let arm_children: Vec<Pair<Rule>> = child.clone().into_inner().collect();
+                let substr = arm_children.iter()
+                    .find(|c| c.as_rule() == Rule::STRING_LITERAL)
+                    .map(|c| unescape_string(c.as_str()))
+                    .unwrap_or_default();
+                let body = arm_children.iter()
+                    .filter(|c| c.as_rule() == Rule::statement)
+                    .map(|c| parse_single_statement(c.clone()))
+                    .collect();
+                arms.push(MatchArm::Contains(substr, body));
+            }
+            Rule::match_arm_compare => {
+                let arm_children: Vec<Pair<Rule>> = child.clone().into_inner().collect();
+                // First non-statement child is the operator (from compare_op rule)
+                let op_str = arm_children.iter()
+                    .find(|c| c.as_rule() == Rule::compare_op)
+                    .map(|c| c.as_str().trim())
+                    .unwrap_or("==");
+                let op = match op_str {
+                    ">=" => AstCmp::Ge,
+                    "<=" => AstCmp::Le,
+                    "!=" => AstCmp::Ne,
+                    ">" => AstCmp::Gt,
+                    "<" => AstCmp::Lt,
+                    "==" => AstCmp::Eq,
+                    _ => AstCmp::Eq,
+                };
+                let expr = arm_children.iter()
+                    .find(|c| c.as_rule() == Rule::expression)
+                    .map(|c| parse_expression(c.clone()))
+                    .unwrap_or_else(|| Expr::FloatLit(0.0));
+                let body = arm_children.iter()
+                    .filter(|c| c.as_rule() == Rule::statement)
+                    .map(|c| parse_single_statement(c.clone()))
+                    .collect();
+                arms.push(MatchArm::Compare(op, expr, body));
+            }
+            Rule::match_else => {
+                let else_children: Vec<Pair<Rule>> = child.clone().into_inner().collect();
+                else_body = Some(else_children.iter()
+                    .filter(|c| c.as_rule() == Rule::statement)
+                    .map(|c| parse_single_statement(c.clone()))
+                    .collect());
+            }
+            _ => {}
+        }
+    }
+
+    Statement::Match { scrutinee, arms, else_body }
+}
+
+/// Наряд №14 P0-3: Parse block if/else as expression.
+/// `if cond { stmts } else if cond { stmts } else { stmts }` → Expr::BlockIfElse
+fn parse_block_if_else_expr(pair: Pair<Rule>) -> Expr {
+    let children: Vec<Pair<Rule>> = pair.into_inner().collect();
+    let condition = children.iter()
+        .find(|c| c.as_rule() == Rule::expression)
+        .map(|c| parse_expression(c.clone()))
+        .unwrap_or_else(|| Expr::BoolLit(true));
+
+    let mut then_body = Vec::new();
+    let mut else_ifs = Vec::new();
+    let mut else_body: Option<Vec<Statement>> = None;
+    let mut in_then = false;
+    let mut in_else = false;
+
+    for child in &children {
+        match child.as_rule() {
+            Rule::statement => {
+                if in_else {
+                    if else_body.is_none() { else_body = Some(Vec::new()); }
+                    if let Some(ref mut eb) = else_body {
+                        eb.push(parse_single_statement(child.clone()));
+                    }
+                } else {
+                    in_then = true;
+                    then_body.push(parse_single_statement(child.clone()));
+                }
+            }
+            Rule::else_if_block => {
+                in_then = false;
+                in_else = false;
+                let ei_children = children_of(child);
+                let ei_condition = ei_children.iter()
+                    .find(|c| c.as_rule() == Rule::expression)
+                    .map(|c| parse_expression(c.clone()))
+                    .unwrap_or_else(|| Expr::BoolLit(true));
+                let ei_body: Vec<Statement> = ei_children.iter()
+                    .filter(|c| c.as_rule() == Rule::statement)
+                    .map(|c| parse_single_statement(c.clone()))
+                    .collect();
+                else_ifs.push((ei_condition, ei_body));
+            }
+            _ => {
+                if child.as_str().trim() == "else" {
+                    in_then = false;
+                    in_else = true;
+                }
+            }
+        }
+    }
+
+    Expr::BlockIfElse {
+        condition: Box::new(condition),
+        then_body,
+        else_ifs: else_ifs.into_iter().map(|(c, b)| (Box::new(c), b)).collect(),
+        else_body,
     }
 }
 
@@ -1515,6 +1683,12 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
         Rule::unary_expr => {
             parse_expression(pair.into_inner().next().unwrap())
         }
+        // Наряд №14 P1-4: try expression
+        Rule::try_expr => {
+            let inner = pair.into_inner().next().unwrap();
+            let expr = parse_expression(inner);
+            Expr::Try(Box::new(expr))
+        }
         Rule::if_else_expr => {
             let children = children_of(&pair);
             // if_else_expr = { "if" ~ expression ~ "then" ~ expression ~ "else" ~ expression }
@@ -1610,17 +1784,22 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
         Rule::primary_expr => {
             let inner = pair.into_inner().next().unwrap();
             match inner.as_rule() {
+                Rule::block_if_else_expr => {
+                    // Наряд №14 P0-3: block if/else as expression
+                    parse_block_if_else_expr(inner)
+                }
                 Rule::struct_literal => {
-                    let mut fields = Vec::new();
-                    for field_pair in inner.into_inner() {
-                        if field_pair.as_rule() == Rule::struct_field_init {
-                            let mut parts = field_pair.into_inner();
-                            let name = parts.next().unwrap().as_str().to_string();
-                            let value = parse_expression(parts.next().unwrap());
-                            fields.push((name, value));
+                    let mut fields = std::collections::HashMap::new();
+                    for child in inner.clone().into_inner() {
+                        if child.as_rule() == Rule::struct_field_init {
+                            let field_children: Vec<_> = child.into_inner().collect();
+                            // struct_field_init = { IDENT ~ COLON ~ expression }
+                            let name = pair_str(&field_children[0]);
+                            let value = parse_expression(field_children.last().unwrap().clone());
+                            fields.insert(name, value);
                         }
                     }
-                    Expr::StructLiteral(fields)
+                    Expr::StructLit(fields)
                 }
                 Rule::list_literal => {
                     let mut items = Vec::new();

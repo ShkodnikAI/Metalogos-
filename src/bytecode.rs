@@ -71,6 +71,8 @@ pub enum Instruction {
     ListLen,
     /// Discard top-of-stack value. Used after ExprStmt to keep stack clean. (Наряд №18)
     Pop,
+    /// Pop two strings; push 1.0 if left starts with right, else 0.0. (Наряд №21)
+    StartsWith,
 
     // ── Fluid Types ──────────────────────────────────────────
     /// Pop 2*N values (N value-confidence pairs), create a Fluid value.
@@ -163,6 +165,8 @@ pub enum ConditionOp {
     Ge,
     Le,
     Eq,
+    /// Наряд №21: added Ne — previously fell back to Eq (bug)
+    Ne,
 }
 
 /// A compiled pattern function: name, parameter count, types, and instruction body.

@@ -385,6 +385,19 @@ impl Vm {
                     stack.push(result);
                     ip += 1;
                 }
+                // Наряд №21: StartsWith instruction
+                Instruction::StartsWith => {
+                    let right = stack.pop().unwrap_or(Value::Unit);
+                    let left = stack.pop().unwrap_or(Value::Unit);
+                    let result = match (&left, &right) {
+                        (Value::String(s), Value::String(prefix)) => {
+                            if s.starts_with(prefix.as_str()) { 1.0 } else { 0.0 }
+                        }
+                        _ => 0.0,
+                    };
+                    stack.push(Value::Float(result));
+                    ip += 1;
+                }
                 Instruction::CmpGt => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
@@ -732,7 +745,8 @@ impl Vm {
 
     /// Execute a block of code (e.g., pattern body) and return the result.
     /// This handles the call stack and Return instructions internally.
-    fn execute_code(
+    /// Execute compiled code in a pattern body context (used internally and by tests).
+    pub fn execute_code(
         &self,
         code: &[Instruction],
         stack: &mut Vec<Value>,
@@ -931,7 +945,98 @@ impl Vm {
                     stack.push(Value::String(result));
                     ip += 1;
                 }
-                // For any unhandled instruction, skip
+                // Наряд №21: StartsWith instruction in pattern body loop
+                Instruction::StartsWith => {
+                    let right = stack.pop().unwrap_or(Value::Unit);
+                    let left = stack.pop().unwrap_or(Value::Unit);
+                    let result = match (&left, &right) {
+                        (Value::String(s), Value::String(prefix)) => {
+                            if s.starts_with(prefix.as_str()) { 1.0 } else { 0.0 }
+                        }
+                        _ => 0.0,
+                    };
+                    stack.push(Value::Float(result));
+                    ip += 1;
+                }
+                // Наряд №22: additional instructions needed in pattern body loop
+                Instruction::StoreGlobal(slot) => {
+                    let val = stack.pop().unwrap_or(Value::Unit);
+                    if *slot < self.globals.len() {
+                        self.globals[*slot] = val;
+                    }
+                    ip += 1;
+                }
+                Instruction::MakeStruct(type_name, field_names) => {
+                    let mut fields = std::collections::HashMap::new();
+                    for fname in field_names.iter().rev() {
+                        let val = stack.pop().unwrap_or(Value::Unit);
+                        fields.insert(fname.clone(), val);
+                    }
+                    stack.push(Value::Struct { type_name: type_name.clone(), fields });
+                    ip += 1;
+                }
+                Instruction::IndexAccess => {
+                    let index = stack.pop().unwrap_or(Value::Unit);
+                    let base = stack.pop().unwrap_or(Value::Unit);
+                    let result = match (&base, &index) {
+                        (Value::List(items), Value::Float(f)) => {
+                            let idx = *f as usize;
+                            items.get(idx).cloned().unwrap_or(Value::Unit)
+                        }
+                        (Value::String(s), Value::Float(f)) => {
+                            let idx = *f as usize;
+                            if let Some(ch) = s.chars().nth(idx) {
+                                Value::String(ch.to_string())
+                            } else {
+                                Value::Unit
+                            }
+                        }
+                        _ => Value::Unit,
+                    };
+                    stack.push(result);
+                    ip += 1;
+                }
+                Instruction::MakeList(n) => {
+                    let mut items: Vec<Value> = Vec::with_capacity(*n);
+                    for _ in 0..*n {
+                        items.insert(0, stack.pop().unwrap_or(Value::Unit));
+                    }
+                    stack.push(Value::List(items));
+                    ip += 1;
+                }
+                Instruction::ListLen => {
+                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let len = match &val {
+                        Value::List(items) => items.len() as f64,
+                        Value::String(s) => s.len() as f64,
+                        _ => 0.0,
+                    };
+                    stack.push(Value::Float(len));
+                    ip += 1;
+                }
+                Instruction::Pop => {
+                    stack.pop();
+                    ip += 1;
+                }
+                Instruction::Contains => {
+                    let right = stack.pop().unwrap_or(Value::Unit);
+                    let left = stack.pop().unwrap_or(Value::Unit);
+                    let result = match (&left, &right) {
+                        (Value::String(s), Value::String(sub)) => {
+                            if s.contains(sub.as_str()) { 1.0 } else { 0.0 }
+                        }
+                        (Value::List(items), Value::String(sub)) => {
+                            if items.iter().any(|v| format!("{}", v).contains(sub.as_str())) { 1.0 } else { 0.0 }
+                        }
+                        _ => 0.0,
+                    };
+                    stack.push(Value::Float(result));
+                    ip += 1;
+                }
+                Instruction::Halt => {
+                    return Ok(stack.pop().unwrap_or(Value::Unit));
+                }
+                // For any other unhandled instruction, skip
                 _ => { ip += 1; }
             }
         }
@@ -1062,6 +1167,7 @@ impl Vm {
             ConditionOp::Ge => fv >= tv,
             ConditionOp::Le => fv <= tv,
             ConditionOp::Eq => fv == tv,
+            ConditionOp::Ne => fv != tv,
         })
     }
 
@@ -1153,6 +1259,7 @@ impl Vm {
                     ConditionOp::Ge => lf >= rf,
                     ConditionOp::Le => lf <= rf,
                     ConditionOp::Eq => lf == rf,
+                    ConditionOp::Ne => lf != rf,
                 })
             }
         }
@@ -1208,6 +1315,7 @@ impl Vm {
                     (Some(ConditionOp::Gt), Some(_)) |
                     (Some(ConditionOp::Ge), Some(_)) => false,
                     (Some(ConditionOp::Eq), Some(threshold)) => (accuracy - threshold).abs() < 1e-9,
+                    (Some(ConditionOp::Ne), Some(threshold)) => (accuracy - threshold).abs() >= 1e-9,
                     _ => true,
                 };
 

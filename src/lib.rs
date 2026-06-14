@@ -127,8 +127,15 @@ pub async fn serve_program(source: &str) -> Result<(), Box<dyn std::error::Error
 }
 
 /// Compile a .mlog source to bytecode Program.
+/// Note: imports are not resolved during compilation. Use `mlog serve` for import support.
 pub fn compile_program(source: &str) -> Result<bytecode::Program, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+    // Warn if imports are present — bytecode compiler cannot resolve them
+    for decl in &declarations {
+        if let Declaration::Import(import) = decl {
+            eprintln!("warning: import '{}' cannot be resolved in compile mode (use `mlog serve` instead)", import.module);
+        }
+    }
     let mut compiler = compiler::Compiler::new();
     compiler.compile(declarations)
 }

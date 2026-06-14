@@ -145,6 +145,14 @@ impl Builtins {
         funcs.insert("whisper_transcribe".to_string(), builtin_whisper_transcribe as BuiltinFn);
         funcs.insert("tts_send".to_string(), builtin_tts_send as BuiltinFn);
 
+        // Наряд 17: utility builtins — base64, exec, escape_js, dict_get, type_of
+        funcs.insert("base64_encode".to_string(), builtin_base64_encode as BuiltinFn);
+        funcs.insert("base64_decode".to_string(), builtin_base64_decode as BuiltinFn);
+        funcs.insert("exec".to_string(), builtin_exec as BuiltinFn);
+        funcs.insert("escape_js".to_string(), builtin_escape_js as BuiltinFn);
+        funcs.insert("dict_get".to_string(), builtin_json_get as BuiltinFn); // alias
+        funcs.insert("type_of".to_string(), builtin_type_of as BuiltinFn);
+
         Builtins { funcs }
     }
 
@@ -1795,6 +1803,90 @@ fn builtin_tts_send(args: &[Value]) -> Result<Value, String> {
     }
 
     Ok(Value::String(tg_body))
+}
+
+// ── Наряд 17: Utility builtins ──────────────────────────────────
+
+/// `base64_encode(s) -> String` — encode a string to base64.
+fn builtin_base64_encode(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("base64_encode", args, 0)?;
+    use base64::Engine;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(s.as_bytes());
+    Ok(Value::String(encoded))
+}
+
+/// `base64_decode(s) -> String` — decode a base64 string.
+fn builtin_base64_decode(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("base64_decode", args, 0)?;
+    use base64::Engine;
+    match base64::engine::general_purpose::STANDARD.decode(s.as_bytes()) {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(decoded) => Ok(Value::String(decoded)),
+            Err(_) => Err("base64_decode(): decoded bytes are not valid UTF-8".to_string()),
+        },
+        Err(e) => Err(format!("base64_decode(): invalid base64: {}", e)),
+    }
+}
+
+/// `exec(command) -> String` — execute a shell command and return stdout.
+/// **Security**: Only available outside sandbox. Inside sandbox, always errors.
+/// In server mode, command execution is disabled unless the binary is run with METALOGOS_ALLOW_EXEC=1.
+fn builtin_exec(args: &[Value]) -> Result<Value, String> {
+    // Security: disable in server context unless explicitly allowed
+    if std::env::var("METALOGOS_ALLOW_EXEC").unwrap_or_default() != "1" {
+        // Check if we're likely in server mode (has METALOGOS_PORT or METALOGOS_DB env)
+        let in_server = std::env::var("METALOGOS_PORT").is_ok()
+            || std::env::var("METALOGOS_DB").is_ok();
+        if in_server {
+            return Err("exec() is disabled in server mode. Set METALOGOS_ALLOW_EXEC=1 to enable.".to_string());
+        }
+    }
+
+    let cmd = expect_string_arg("exec", args, 0)?;
+    let output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(&cmd)
+        .output()
+        .map_err(|e| format!("exec(): failed to run command: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(format!("exec() command exited with {}: {}", output.status, stderr.trim()));
+    }
+    Ok(Value::String(stdout))
+}
+
+/// `escape_js(s) -> String` — escape a string for safe insertion into JavaScript.
+/// Escapes: backslash, single quote, double quote, newline, carriage return, tab,
+/// line separator, paragraph separator, and NUL.
+fn builtin_escape_js(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("escape_js", args, 0)?;
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\'' => out.push_str("\\'"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{2028}' => out.push_str("\\u2028"), // line separator
+            '\u{2029}' => out.push_str("\\u2029"), // paragraph separator
+            '\0' => out.push_str("\\0"),
+            _ => out.push(c),
+        }
+    }
+    Ok(Value::String(out))
+}
+
+/// `type_of(value) -> String` — returns the runtime type name as a String.
+/// Useful for safe checking after json_get: `if type_of(x) == "Unit" { ... }`
+fn builtin_type_of(args: &[Value]) -> Result<Value, String> {
+    if args.is_empty() {
+        return Err("type_of() requires 1 argument".to_string());
+    }
+    Ok(Value::String(args[0].type_name().to_string()))
 }
 
 #[cfg(test)]

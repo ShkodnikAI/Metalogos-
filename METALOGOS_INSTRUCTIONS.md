@@ -1,4 +1,4 @@
-# METALOGOS — Устав агента-строителя (v2)
+# METALOGOS — Устав агента-строителя (v3)
 
 > Этот файл вставляется в **Instructions** проекта. Пять скиллов из папки `skills/`
 > прикрепляются к файлам проекта. Агент читает их по триггерам, описанным в каждом `SKILL.md`.
@@ -35,17 +35,49 @@ Metalogos — **полноценный универсальный язык пр�
 - **Ты (агент-строитель).** Пишешь код, тесты, примеры, документацию. Не изобретаешь
   решённое (§5). Не закладываешь конструкцию без теста (§6).
 
-## 4. Текущее состояние (Phases 0–4 закрыты)
+## 4. Текущее состояние (Phases 0–7 закрыты)
 
 Что уже работает и не подлежит переделке без ADR:
-- **7 столпов:** Entity, Pattern, Flow, Memory, Rule, Learn, Adapt
-- **Система типов:** Fluid Types с ленивым коллапсом, confidence propagation
-- **Рантайм:** 3 бэкенда (tree-walking, bytecode VM, JIT через Cranelift)
-- **Экосистема:** CLI (run/repl/check), LSP, mlogpkg, std/, mdbook
-- **Self-hosting:** лексер на Metalogos
-- **ADR:** 0001–0023
 
-Следующие фазы: **Phase 5 (Language Completeness)** → **Phase 6 (Web + Security)**.
+### Язык и рантайм
+- **7 столпов:** Entity, Pattern, Flow, Memory, Rule, Learn, Adapt
+- **24 вида объявлений:** Pattern, LearnablePattern, Entity (3 варианта), Flow, Rule,
+  Memorize, Forget, Fluid, Adapt, Relate, Sandbox, Hook, Mutate, Eval, MlogServer,
+  Template, Db, Memory, Import, Tool, Conversation, EntityType, EntityRecord, LlmConfig
+- **14 видов выражений:** StringLit, FloatLit, BoolLit, Ident, FieldAccess, FnCall,
+  QualifiedCall, BinaryOp, IfElse, List, IndexAccess, StructLit, BlockIfElse, Try
+- **12 видов statements:** LetBinding, Assign, Each, EachWithIndex, While, IfElseBlock,
+  IfThen, Return, ExprStmt, Match (4 arm-варианта: Exact, StartsWith, Contains, Compare),
+  Break, Continue
+- **Система типов:** Fluid Types с ленивым коллапсом, confidence propagation;
+  13 типов данных включая 5 непрозрачных (Html, Query, Secret, Encrypted, Hash)
+
+### Три бэкенда выполнения
+- **Tree-walking интерпретатор** — 3 810 строк, полный набор функций
+- **Bytecode VM** — 44 инструкции, стековая машина, 1 470 строк
+- **JIT (Cranelift)** — нативная генерация кода
+
+### Компилятор
+- **Bytecode compiler** — 1 100 строк, компилирует все 12 видов statements и 14 видов expressions
+- **Полнота компиляции:** LetBinding, Assign, Return, ExprStmt, Each, EachWithIndex,
+  While, IfElseBlock, IfThen, Match (все 4 arm), Break, Continue
+
+### Экосистема
+- **93 встроенных функции** (string, math, collections, JSON, HTTP, file I/O, crypto, auth, bots)
+- **CLI:** 8 подкоманд — run, repl, check, serve, compile, eval, resume, audit
+- **LSP сервер**, `mlogpkg` package manager, mdbook docs
+- **HTTP-сервер** (Axum 0.8): маршруты, middleware, шаблоны, static files
+- **78 примеров** `.mlog` с golden-file тестами
+- **32 интеграционных теста** (7 000+ строк)
+- **63 ADR** (Architecture Decision Records)
+- **Самохостинг:** лексер на Metalogos
+
+### Безопасность (OWASP Top 10 — закрыт)
+- Type-safe HTML (XSS impossible), Parameterized queries (SQLi impossible),
+  Secret/Encrypted/Hash opaque types, Auth (sessions, roles, CSRF),
+  Security headers (CSP/HSTS), LLM sandbox
+
+Следующие фазы: **Phase 8 (Production LLM + real DB)** → **Phase 9 (Self-hosted compiler, ecosystem)**.
 
 ## 5. Стой на плечах гигантов (обязательно)
 
@@ -58,6 +90,8 @@ Metalogos — **полноценный универсальный язык пр�
 - Обучаемые паттерны → DSPy, LMQL/Guidance/Outlines
 - Память с затуханием → ACT-R, vector DB + decay
 - Конструкция компилятора → Crafting Interpreters, Engineering a Compiler
+- **Байткод VM** → Lua VM, CPython bytecode, Crafting Interpreters (ч. 16–17)
+- **JIT** → Cranelift, LLVM, Crafting Interpreters (ч. 18–19)
 - **Веб-фреймворки** → Actix-web, Axum, Rocket (Rust); Phoenix (Elixir); Rails
 - **Шаблонизация** → Askama/Tera (Rust), Jinja2, JSX — компилируемые шаблоны безопаснее runtime
 - **Безопасность by design** → Rust ownership (memory safety), Elm (no runtime exceptions),
@@ -78,6 +112,9 @@ Metalogos — **полноценный универсальный язык пр�
 8. **Безопасность — свойство языка, не библиотека.** Небезопасные операции (raw SQL,
    unescaped HTML, plaintext secrets) **невозможны синтаксически** — только безопасные
    аналоги доступны по умолчанию.
+9. **Все три бэкенда.** Новая фича работает в tree-walking интерпретаторе. Байткод VM
+   и JIT — по мере необходимости, но фича должна быть спроектирована с учётом
+   компилируемости.
 
 ## 7. Технологический стек
 
@@ -108,7 +145,8 @@ Metalogos — **полноценный универсальный язык пр�
 
 Фаза закрыта, когда: (а) golden-программы запускаются; (б) весь тест-сьют зелёный;
 (в) ADR написаны; (г) `examples/` и `docs/` обновлены; (д) для Phase 6 — OWASP Top 10
-проверен: XSS, injection, broken auth, sensitive data exposure, CSRF.
+проверен: XSS, injection, broken auth, sensitive data exposure, CSRF; (е) для Phase 7 —
+байткод компилятор покрывает все statement/expr типы.
 
 ## 10. Анти-паттерны
 
@@ -118,3 +156,5 @@ Metalogos — **полноценный универсальный язык пр�
 - `adapt` без sandbox.
 - Фича без контракта и теста.
 - Зависимость от OpenSSL (используй rustls/ring).
+- Определение struct/enum внутри `impl` блока (Rust не позволяет — выноси на уровень модуля).
+- Вызов `&mut` метода из `&self` контекста (проверяйте сигнатуры).

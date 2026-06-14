@@ -2,7 +2,100 @@
 
 All notable changes to the Metalogos project.
 
-## [0.4.0] — 2025-06-03
+## [0.7.7] — 2026-06-14
+
+**Phase 7.7: Break/Continue, Match arms, compiler full-coverage, security constraints.**
+
+### Language
+
+- **`break` and `continue`** statements in `each`, `each_with_index`, and `while` loops (Наряд 17)
+- **`MatchArm::StartsWith`** — bytecode instruction `StartsWith` + VM execution + compiler codegen (Наряд 17)
+- **`MatchArm::Compare`** — threshold-based match arms with full compiler support
+- **`Statement::IfElseBlock`** — multi-branch `if/else if/else` as statement with full compiler coverage (Наряд 18)
+- **`Expr::BlockIfElse`** — block if/else as expression in interpreter (Наряд 14)
+- **`Expr::Try`** — try/catch expression, catches errors and returns `Unit` (Наряд 14)
+
+### Bytecode compiler
+
+- Full statement compilation: `LetBinding`, `Assign`, `Return`, `ExprStmt`, `Each`, `EachWithIndex`, `While`, `IfElseBlock`, `IfThen`, `Match`, `Break`, `Continue` (Наряд 18)
+- Loop context (`LoopCtx`) for break/continue jump patching — continue jumps back to condition, break jumps to loop end
+- `Match` with `Exact`, `StartsWith`, `Contains`, `Compare` arms — all compiled to conditional jump chains
+- Global variable slots, `StoreGlobal` instruction (Наряд 22)
+- 44 total VM instructions in the bytecode instruction set
+
+### VM
+
+- `StartsWith` instruction — string prefix check, pushes 1.0 (true) or 0.0 (false)
+- `StoreGlobal` instruction — write to global variable slot
+- `execute_code` method with `&mut self` for mutable global state in pattern execution
+- `IndexAccess`, `ListLen`, `MakeList`, `MakeStruct`, `GetField` — collection and struct support
+
+### Semantic analysis
+
+- Opaque type enforcement across all statement types: `Each`, `EachWithIndex`, `While`, `IfElseBlock`, `IfThen`, `Match` (all 4 arm variants)
+- Tool declaration body analysis
+- Static security audit (`mlog audit`) coverage for new statement forms
+
+### Security constraints (Наряды 19–22)
+
+- `inspect` builtin — introspect variable values without violating opaque types (Наряд 19)
+- Context loading from `Entity`/`Memory`/`Fluid` declarations before pattern execution (Наряд 20)
+- Event streaming: `emit`/`on` event hooks (Наряд 20)
+- Conversation state: `Conversation` declaration with TTL and message limits (Наряд 21)
+- LLM response cache with configurable TTL (Наряд 21)
+- Model routing: `LlmConfig` declaration with provider failover (Наряд 21)
+- Context compression for long conversations (Наряд 21)
+- Tool abstraction: `Tool` declaration with typed methods (Наряд 22)
+- `Hook` declaration: before/after pattern hooks (Наряд 22)
+- Session memory: `session_set`/`session_get`/`session_clear` builtins (Наряд 22)
+
+### Infrastructure
+
+- 32 integration test files (7 000+ lines of tests)
+- 63 Architecture Decision Records
+- CI pipeline: build + release binary (Linux x86_64)
+
+---
+
+## [0.7.5] — 2026-06-13
+
+**Phase 7.5–7.6: Memory persistence, tokens, eval harness, session memory, audit.**
+
+- Memory persistence e2e tests (JSON file-based storage)
+- JWT-style token generation and verification
+- Eval harness for testing learnable patterns with golden-file assertions
+- `session_set`/`session_get`/`session_clear` session memory builtins
+- Audit parser integration tests
+- Server JSON body parsing for POST routes
+
+---
+
+## [0.7.3] — 2026-06-12
+
+**Phase 7.3–7.4: Context compression, lifecycle, tool abstraction, hooks, DoD.**
+
+- Context compression for long conversations
+- Lifecycle control for flows and patterns
+- Tool abstraction (`Tool` declaration)
+- `Hook` declaration for before/after pattern execution
+- Definition of Done framework with automated checks
+
+---
+
+## [0.7.1] — 2026-06-10
+
+**Phase 7.1–7.2: Inspect, context loading, events, conversation state, LLM cache, model routing.**
+
+- `inspect()` builtin for safe value introspection
+- Context loading from entity/memory/fluid declarations
+- Event streaming (`emit`/`on`)
+- `Conversation` declaration with TTL and message limits
+- LLM response cache with configurable TTL
+- `LlmConfig` declaration for multi-provider model routing
+
+---
+
+## [0.6.0] — 2025-06-03
 
 **Phase 6: Full-stack web platform with security by design.**
 
@@ -33,37 +126,36 @@ All notable changes to the Metalogos project.
 
 ### Examples
 
-- `p6_full_app.mlog` — 170-line full-stack application demonstrating all 6 security levels: auth, CRUD, AI classification, and bot webhooks in a single `.mlog` file
-
-### Infrastructure
-
-- 26 Architecture Decision Records (`docs/adr/`)
-- Phase 6 contract tests (`tests/phase6_contract.rs`)
-- Landing page for GitHub Pages
+- `p6_full_app.mlog` — 170-line full-stack application demonstrating all 6 security levels
 
 ---
 
-## [0.3.0] — Phase 5: Language completeness
+## [0.5.0] — Phase 5: Language completeness
 
-**Control flow, collections, string operations, modules.**
+**Control flow, collections, string operations, modules, bytecode VM, JIT.**
 
 - `let` bindings with `if/else` expressions
 - `each item in list { ... }` and `while cond { ... }` loops
-- List literals `[1.0, 2.0, 3.0]` with `get`, `push`, `len`
+- `break` and `continue` in loops
+- `match` expression with `exact`, `starts_with`, `contains`, `compare` arms
+- List literals `[1.0, 2.0, 3.0]` with `get`, `push`, `len`, `first`, `last`, `reverse`
 - String operations: `index_of`, `substring`, `char_at`, `starts_with`, `ends_with`, `contains`, `split`, `join`, `trim`, `replace`
 - Module system: `import std/string as str` with qualified calls (`str.trim(s)`)
+- Bytecode VM: 44 instructions, stack-based execution
+- JIT compiler via Cranelift
+- Self-hosted lexer
 - REPL integration tests, semantic check integration tests
 
 ---
 
-## [0.2.0] — Phases 1–4: Core language, types, ML, ecosystem
+## [0.3.0] — Phases 1–4: Core language, types, ML, ecosystem
 
-**Probabilistic types, ML backend, knowledge graph, vector recall.**
+**Probabilistic types, ML backend, knowledge graph, vector recall, LSP, packages.**
 
 - **Phase 1**: Fluid types with probabilistic superposition, confidence propagation, entity store queries (`find()`)
 - **Phase 2**: Knowledge graph (`relate`), vector recall (semantic memory), full adapt system (sandbox/mutate/rollback), ML learn statement
-- **Phase 3**: CLI (`mlog run/repl/check`), rustyline-based REPL with multiline support
-- **Phase 4**: Code generation stubs, intermediate representation
+- **Phase 3**: CLI (`mlog run/repl/check`), LSP server, `mlogpkg` package manager, mdbook documentation
+- **Phase 4**: Bytecode VM, JIT compiler (Cranelift), self-hosted lexer, IR generation
 
 ---
 

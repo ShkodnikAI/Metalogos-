@@ -1,6 +1,6 @@
 # METALOGOS — Справочник языка (Reference)
 
-> **Версия:** 0.4.0+ (Phase 7.7)
+> **Версия:** 0.7.7 (Phase 7.7)
 > **Единый источник истины** для разработчиков, пишущих на Металогосе.
 > Содержит полный список встроенных функций с сигнатурами, типами, описанием и примерами,
 > а также справочник по синтаксису, типам данных и CLI.
@@ -30,9 +30,10 @@
    - [Базы данных](#415-базы-данных)
    - [Боты (Telegram/Discord)](#416-боты-telegramdiscord)
    - [Прочее](#417-прочее)
-5. [Объявления верхнего уровня](#5-объявления-верхнего-уровня)
-6. [Stdlib (стандартная библиотека)](#6-stdlib-стандартная-библиотека)
-7. [Changelog](#7-changelog-кратко)
+5. [Байткод VM и JIT](#5-байткод-vm-и-jit)
+6. [Объявления верхнего уровня](#6-объявления-верхнего-уровня)
+7. [Stdlib](#7-stdlib-стандартная-библиотека)
+8. [Changelog](#8-changelog-кратко)
 
 ---
 
@@ -138,10 +139,26 @@ each item in items {
 }
 ```
 
+**Each with index (цикл с индексом):**
+```mlog
+each i, item in items {
+  print(to_string(i) + ": " + item)
+}
+```
+
 **While (цикл с условием):**
 ```mlog
 while count < 10.0 {
   let count = count + 1.0
+}
+```
+
+**Break / Continue:**
+```mlog
+each item in items {
+  if item == "stop" then { break }
+  if item == "skip" then { continue }
+  print(item)
 }
 ```
 
@@ -154,6 +171,12 @@ match command {
   > 100.0 then { print("too big") }
   else { print("unknown") }
 }
+```
+
+**Try (перехват ошибок):**
+```mlog
+let result = try risky_operation()
+// Если risky_operation() вернёт ошибку, result = Unit
 ```
 
 **Return:**
@@ -183,7 +206,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Встроенные функции (Builtins)
 
-Все встроенные функции регистрируются в `src/builtins.rs` и доступны как в tree-walking интерпретаторе, так и в VM.
+Все 93 встроенные функции регистрируются в `src/builtins.rs` и доступны как в tree-walking интерпретаторе, так и в байткод VM. JIT-компилятор через Cranelift также поддерживает все builtins.
 
 ### 4.1. Строковые функции
 
@@ -198,9 +221,9 @@ pattern Приветствие(кто: String) -> String { ... }
 | `index_of(s, needle)` | `String, String -> Float` | Float | Возвращает позицию (символьную, не байтовую) первого вхождения или `-1.0` |
 | `substring(s, start, end)` | `String, Float, Float -> String` | String | Извлекает подстроку по символьным индексам. Soft-failure: пустая строка при out-of-bounds |
 | `char_at(s, index)` | `String, Float -> String` | String | Возвращает символ по индексу. Пустая строка при out-of-bounds |
-| `starts_with(s, prefix)` | `String, String -> Bool` | Bool | Проверяет, начинается ли строка с префикса |
+| `starts_with(s, prefix)` | `String, String -> Bool` | Bool | Проверяет, начинается ли строка с префикса. Также доступна как VM-инструкция `StartsWith` и в `match` как `starts_with "..."` |
 | `ends_with(s, suffix)` | `String, String -> Bool` | Bool | Проверяет, заканчивается ли строка суффиксом |
-| `contains(s, needle)` | `String, String -> Float` | Float | Возвращает `1.0` если содержит, `0.0` если нет |
+| `contains(s, needle)` | `String, String -> Float` | Float | Возвращает `1.0` если содержит, `0.0` если нет. Также доступна как VM-инструкция `Contains` |
 | `reverse(s)` | `String -> String` | String | Разворачивает строку (посимвольно) |
 | `length(s)` | `String -> Float` | Float | Длина строки в символах (Unicode-aware). Аналог `len()` |
 | `len(s)` | `String\|List -> Float` | Float | Длина строки (символы) или списка (элементы) |
@@ -573,9 +596,50 @@ if user_id != owner_id {
 
 ---
 
-## 5. Объявления верхнего уровня
+## 5. Байткод VM и JIT
 
-### 5.1. Pattern (функция)
+Metalogos имеет три бэкенда выполнения:
+
+| Бэкенд | Команда | Описание |
+|--------|---------|----------|
+| Tree-walking | `mlog run file.mlog` | Интерпретатор AST, полный набор функций |
+| Bytecode VM | `mlog compile file.mlog` затем `mlog run file.mbc` | 44 инструкции, стековая машина |
+| JIT (Cranelift) | Автоматически при наличии Cranelift | Нативный код через Cranelift |
+
+### 5.1. Инструкции VM (44)
+
+**Константы и переменные:** `Const`, `LoadGlobal`, `LoadGlobalByName`, `StoreGlobal`, `LoadLocal`, `StoreLocal`
+
+**Функции:** `RegisterPattern`, `RegisterLearnable`, `CallBuiltin(arity, idx)`, `CallPattern(arity, idx)`, `Return`
+
+**Арифметика и сравнение:** `Add`, `Sub`, `Mul`, `Div`, `Contains`, `CmpGt`, `CmpLt`, `CmpGe`, `CmpLe`, `CmpEq`, `CmpNe`
+
+**Структуры и коллекции:** `MakeStruct(type_name, fields)`, `GetField(name)`, `IndexAccess`, `MakeList(count)`, `ListLen`, `Pop`, `StartsWith`
+
+**Fluid types:** `MakeFluid(variant_count)`
+
+**Управление:** `Jump(addr)`, `JumpIfNot(addr)`, `JumpIfLow(confidence, addr)`, `Halt`
+
+**Память:** `Collapse(name)`, `Memorize(priority)`, `Recall`, `Forget(decay)`
+
+**LLM:** `LlmCall(arity, learnable_idx)`
+
+**Adapt/Relate/Mutate:** `Adapt(pattern_name)`, `Relate`, `Mutate { .. }`
+
+**Пайплайны и правила:** `FlowExec { .. }`, `ExecuteRules`
+
+### 5.2. Компиляция управляющих конструкций
+
+Все 12 видов statements компилируются в байткод:
+`LetBinding`, `Assign`, `Return`, `ExprStmt`, `Each`, `EachWithIndex`, `While`, `IfElseBlock`, `IfThen`, `Match` (все 4 arm-варианта), `Break`, `Continue`.
+
+Циклы используют `LoopCtx` — контекст с адресом условия (для `continue`) и списком патчей (для `break`).
+
+---
+
+## 6. Объявления верхнего уровня
+
+### 6.1. Pattern (функция)
 
 ```mlog
 pattern Name(param1: Type, param2: Type) -> ReturnType {
@@ -584,7 +648,7 @@ pattern Name(param1: Type, param2: Type) -> ReturnType {
 }
 ```
 
-### 5.2. Learnable Pattern (AI-функция)
+### 6.2. Learnable Pattern (AI-функция)
 
 ```mlog
 learnable pattern Classify(text: String) -> Category {
@@ -604,7 +668,7 @@ learnable pattern Classify(text: String) -> Category {
 - `context: none` — без контекста
 - `context: "literal text"` — литеральный контекст
 
-### 5.3. Entity (структура данных)
+### 6.3. Entity (структура данных)
 
 ```mlog
 // Определение типа
@@ -621,7 +685,7 @@ entity alice: User = { id: "1", name: "Alice", role: "admin" }
 entity db_url: Secret = env("DATABASE_URL")
 ```
 
-### 5.4. Flow (пайплайн)
+### 6.4. Flow (пайплайн)
 
 ```mlog
 flow ProcessMessage {
@@ -635,13 +699,13 @@ flow ProcessMessage {
 }
 ```
 
-### 5.5. Rule (правило)
+### 6.5. Rule (правило)
 
 ```mlog
 rule If(status contains "error") then alert.level = "high" with priority = 10
 ```
 
-### 5.6. Server / MlogServer (HTTP-сервер)
+### 6.6. Server / MlogServer (HTTP-сервер)
 
 ```mlog
 server {
@@ -662,7 +726,7 @@ server {
 
 Доступные middleware: `session`, `csrf`, `security_headers`.
 
-### 5.7. Template (HTML-шаблон)
+### 6.7. Template (HTML-шаблон)
 
 ```mlog
 template Page(title: String, body: String) -> Html {
@@ -676,7 +740,7 @@ template Page(title: String, body: String) -> Html {
 
 Тип возврата `Html` — непрозрачный, обеспечивает автоматическое экранирование XSS.
 
-### 5.8. Import (модули)
+### 6.8. Import (модули)
 
 ```mlog
 import std/string as str
@@ -689,7 +753,7 @@ str.trim("  hello  ")
 math.abs(-5.0)
 ```
 
-### 5.9. Memory (память)
+### 6.9. Memory (память)
 
 ```mlog
 // In-memory (по умолчанию)
@@ -702,7 +766,7 @@ memory { persist: "./data/memory.db" }
 memory { kv: { type: key_value, persist: true } }
 ```
 
-### 5.10. DB (база данных)
+### 6.10. DB (база данных)
 
 ```mlog
 db {
@@ -712,7 +776,7 @@ db {
 }
 ```
 
-### 5.11. LLM (конфигурация провайдеров)
+### 6.11. LLM (конфигурация провайдеров)
 
 ```mlog
 llm {
@@ -727,7 +791,7 @@ llm {
 }
 ```
 
-### 5.12. Hook (хуки паттернов)
+### 6.12. Hook (хуки паттернов)
 
 ```mlog
 hook before_pattern { print("calling: " + pattern_name) }
@@ -736,7 +800,7 @@ hook after_pattern { print("result: " + to_string(result) + " confidence: " + to
 
 Переменные внутри хука: `pattern_name`, `args`, `result` (только after), `confidence` (только after).
 
-### 5.13. Tool (абстракция инструментов)
+### 6.13. Tool (абстракция инструментов)
 
 ```mlog
 tool telegram {
@@ -749,7 +813,7 @@ tool telegram {
 
 Вызов: `telegram.send("123", "hello")`.
 
-### 5.14. Eval (тестирование паттернов)
+### 6.14. Eval (тестирование паттернов)
 
 ```mlog
 eval Classify {
@@ -765,7 +829,7 @@ eval Classify {
 
 Запуск: `mlog eval file.mlog`.
 
-### 5.15. Sandbox, Mutate, Adapt, Memorize, Forget, Relate
+### 6.15. Sandbox, Mutate, Adapt, Memorize, Forget, Relate
 
 ```mlog
 // Sandbox (ограничение выполнения)
@@ -792,7 +856,7 @@ forget "outdated fact" after 30.0 days
 relate entity1 to entity2 as "relationship"
 ```
 
-### 5.16. Conversation (конфигурация)
+### 6.16. Conversation (конфигурация)
 
 ```mlog
 conversation {
@@ -802,7 +866,7 @@ conversation {
 }
 ```
 
-### 5.17. Fluid Types (вероятностные типы)
+### 6.17. Fluid Types (вероятностные типы)
 
 ```mlog
 fluid x = String["answer"][0.9] or String["question"][0.1]
@@ -810,7 +874,7 @@ fluid x = String["answer"][0.9] or String["question"][0.1]
 
 ---
 
-## 6. Stdlib (стандартная библиотека)
+## 7. Stdlib (стандартная библиотека)
 
 Стандартная библиотека находится в `std/` и подключается через `import`:
 
@@ -852,13 +916,17 @@ collections.push(items, item) -> List      // append to list
 
 ---
 
-## 7. Changelog (кратко)
+## 8. Changelog (кратко)
 
 | Версия | Дата | Что нового |
 |--------|------|------------|
-| **0.4.0** | 2025-06-03 | Phase 6: HTTP-сервер, шаблоны, БД, шифрование, auth, CSRF, bot integration, 40+ builtins |
-| **0.3.0** | — | Phase 5: let/if, each/while, List literals, строковые операции, модули, REPL |
-| **0.2.0** | — | Phases 1-4: fluid types, knowledge graph, vector recall, CLI, codegen |
+| **0.7.7** | 2026-06-14 | Phase 7.7: break/continue, Match (StartsWith/Contains/Compare), компилятор полн. покрытие, 93 builtins, 44 VM-инструкций |
+| **0.7.1** | 2026-06-10 | Phase 7.1–7.2: inspect, контекст, события, conversation state, LLM cache, model routing |
+| **0.7.3** | 2026-06-12 | Phase 7.3–7.4: контекстная компрессия, lifecycle, Tool, Hook, DoD |
+| **0.7.5** | 2026-06-13 | Phase 7.5–7.6: memory persistence, tokens, eval harness, session memory, audit |
+| **0.6.0** | 2025-06-03 | Phase 6: HTTP-сервер, шаблоны, БД, шифрование, auth, CSRF, bot integration |
+| **0.5.0** | — | Phase 5: let/if, each/while/break/continue, match, List, строки, модули, bytecode VM, JIT |
+| **0.3.0** | — | Phases 1-4: fluid types, knowledge graph, vector recall, CLI, LSP, mlogpkg, codegen |
 | **0.1.0** | — | M1-M5: entity, rule, learnable pattern, semantic memory, sandbox, adapt |
 
 Полный CHANGELOG см. в файле [`CHANGELOG.md`](CHANGELOG.md).

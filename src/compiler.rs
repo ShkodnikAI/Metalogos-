@@ -341,7 +341,8 @@ impl Compiler {
                         AstCompareOp::Ge => ConditionOp::Ge,
                         AstCompareOp::Le => ConditionOp::Le,
                         AstCompareOp::Eq => ConditionOp::Eq,
-                        _ => ConditionOp::Eq, // Ne and others fall back to Eq
+                        AstCompareOp::Ne => ConditionOp::Ne,
+                        _ => ConditionOp::Eq, // fallback
                     });
                     code.push(Instruction::Mutate {
                         pattern_name: m.pattern_name.clone(),
@@ -367,7 +368,8 @@ impl Compiler {
                                     AstCompareOp::Ge => ConditionOp::Ge,
                                     AstCompareOp::Le => ConditionOp::Le,
                                     AstCompareOp::Eq => ConditionOp::Eq,
-                                    _ => ConditionOp::Eq, // Ne and others fall back to Eq
+                                    AstCompareOp::Ne => ConditionOp::Ne,
+                                    _ => ConditionOp::Eq, // fallback
                                 };
                                 // Compile the threshold expression to a constant if possible
                                 let threshold_val = self.eval_const_expr(&b.condition.threshold);
@@ -860,10 +862,21 @@ impl Compiler {
                                 *target = next_arm;
                             }
                         }
-                        MatchArm::StartsWith(_prefix, _arm_body) => {
-                            // StartsWith not directly supported in bytecode — skip arm
-                            // Users should use Contains or Exact as bytecode-compatible alternatives
-                            let _ = (_prefix, _arm_body);
+                        MatchArm::StartsWith(prefix, arm_body) => {
+                            // Наряд №21: StartsWith now compiled using the StartsWith instruction
+                            code.push(Instruction::LoadLocal(scrut_slot));
+                            code.push(Instruction::Const(Value::String(prefix.clone())));
+                            code.push(Instruction::StartsWith);
+                            let arm_skip = code.len();
+                            code.push(Instruction::JumpIfNot(0));
+                            self.compile_stmts(arm_body, code, locals, next_slot, loop_ctx)?;
+                            let arm_end = code.len();
+                            code.push(Instruction::Jump(0));
+                            arm_end_jumps.push(arm_end);
+                            let next_arm = code.len();
+                            if let Some(Instruction::JumpIfNot(ref mut target)) = code.get_mut(arm_skip) {
+                                *target = next_arm;
+                            }
                         }
                         MatchArm::Compare(op, threshold, arm_body) => {
                             code.push(Instruction::LoadLocal(scrut_slot));
@@ -964,7 +977,8 @@ impl Compiler {
                         AstCompareOp::Ge => ConditionOp::Ge,
                         AstCompareOp::Le => ConditionOp::Le,
                         AstCompareOp::Eq => ConditionOp::Eq,
-                        _ => ConditionOp::Eq, // Ne and others fall back to Eq
+                        AstCompareOp::Ne => ConditionOp::Ne,
+                        _ => ConditionOp::Eq, // fallback
                     },
                     right: self.rule_value_expr(right),
                 }

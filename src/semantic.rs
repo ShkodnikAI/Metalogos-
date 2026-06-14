@@ -1,9 +1,11 @@
 // ── Semantic analysis for METALOGOS ──────────────────────────────
 // Validates declarations without execution. Reports errors and warnings.
 // Phase 6+: Enforces opaque type constraints (Html, Query, Secret, etc.)
+// Наряд №19: opaque type enforcement (print/to_string/concat restrictions)
+// Наряд №20: variable scope tracking + arity checking
 
 use crate::ast::*;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Result of semantic analysis: errors prevent execution, warnings are advisory.
 #[derive(Debug, Clone, Default)]
@@ -341,7 +343,690 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         }
     }
 
+    // ── Наряд №19: Opaque type constraint checking ────────────────────
+    // Build a type map: entity name -> declared type, pattern name -> param types + return type
+    let mut entity_type_map: HashMap<String, String> = HashMap::new();
+    let mut pattern_arity: HashMap<String, usize> = HashMap::new();
+    for decl in declarations {
+        match decl {
+            Declaration::EntitySimple(e) => {
+                entity_type_map.insert(e.name.clone(), e.type_name.clone());
+            }
+            Declaration::EntityRecord(e) => {
+                entity_type_map.insert(e.name.clone(), e.type_name.clone());
+            }
+            Declaration::Pattern(p) => {
+                pattern_arity.insert(p.name.clone(), p.params.len());
+            }
+            Declaration::LearnablePattern(lp) => {
+                pattern_arity.insert(lp.name.clone(), lp.params.len());
+            }
+            Declaration::Template(t) => {
+                pattern_arity.insert(t.name.clone(), t.params.len());
+            }
+            _ => {}
+        }
+    }
+    // Known builtins with their arity (for Наряд №20 checking)
+    let builtin_arity: HashMap<&str, usize> = [
+        ("upper", 1), ("lower", 1), ("len", 1), ("str", 1), ("print", 1),
+        ("contains", 2), ("float", 1), ("to_string", 1), ("get", 2), ("push", 2),
+        ("env", 1), ("index_of", 2), ("substring", 3), ("char_at", 2),
+        ("starts_with", 2), ("ends_with", 2), ("to_float", 1), ("confidence", 1),
+        ("trim", 1), ("replace", 3), ("split", 2), ("join", 2), ("length", 1),
+        ("to_int", 1), ("reverse", 1), ("call_llm", 1), ("call_claude", 1),
+        ("kv_set", 2), ("kv_get", 1), ("kv_delete", 1), ("kv_exists", 1), ("kv_list", 0),
+        ("mem_set", 2), ("mem_get", 1), ("mem_delete", 1), ("recall", 1),
+        ("read_file", 1), ("write_file", 2), ("append_file", 2), ("delete_file", 1),
+        ("file_exists", 1), ("list_dir", 1), ("llm_usage", 0),
+        ("escape_json", 1), ("parse_json", 1), ("json_encode", 1),
+        ("json_get", 2), ("has_field", 2), ("now", 0),
+        ("session_set", 2), ("session_get", 1), ("session_clear", 0),
+        ("hash_password", 1), ("verify_password", 2), ("encrypt", 2),
+        ("decrypt", 2), ("generate_key", 0), ("authenticate", 2),
+        ("session_login", 1), ("session_logout", 0),
+        ("send_message", 2), ("require", 1),
+        ("http_post", 2), ("http_get", 1), ("http_post_multipart", 3),
+        ("whisper_transcribe", 1), ("tts_send", 2),
+        ("base64_encode", 1), ("base64_decode", 1),
+        ("exec", 1), ("escape_js", 1), ("dict_get", 2), ("type_of", 1),
+        ("respond", 2), ("respond_html", 1), ("form_data", 0),
+        ("json_body", 0), ("query_param", 1), ("render", 2), ("escape_html", 1),
+        ("query", 2), ("db_execute", 1),
+        ("stdin", 0), ("split_tokens", 1), ("if_eq", 3), ("newline", 0),
+        ("is_string_token", 1),
+    ].iter().cloned().collect();
+
+    // Functions that must NOT receive opaque types as arguments.
+    // Map: function_name -> set of param indices that reject opaque types.
+    // "print" rejects opaque on param 0; "to_string" rejects opaque on param 0.
+    const OPAQUE_RESTRICTED: &[(&str, usize)] = &[
+        ("print", 0),
+        ("to_string", 0),
+        ("lower", 0),
+        ("upper", 0),
+        ("trim", 0),
+        ("replace", 0),
+        ("split", 0),
+        ("contains", 0),
+        ("contains", 1),
+        ("starts_with", 0),
+        ("ends_with", 0),
+        ("index_of", 0),
+        ("substring", 0),
+    ];
+
+    // Walk all statement bodies in patterns, tools, hooks, routes, etc.
+    for decl in declarations {
+        let stmts: Option<&[Statement]> = match decl {
+            Declaration::Pattern(p) => Some(&p.body),
+            Declaration::Tool(t) => {
+                // Collect all method bodies as a single scope for checking
+                // (each method has its own scope, but we check all of them)
+                let mut all = Vec::new();
+                for method in &t.methods {
+                    all.extend(method.body.iter().cloned());
+                }
+                Some(&t.methods.iter().flat_map(|m| m.body.iter()).collect::<Vec<_>>()[..])
+            }
+            Declaration::Hook(h) => Some(&h.body),
+            Declaration::MlogServer(srv) => {
+                let mut all = Vec::new();
+                for route in &srv.routes {
+                    all.extend(route.body.iter().cloned());
+                }
+                if all.is_empty() { None } else {
+                    // We need a slice; use a trick with LEAK detection avoided
+                    // by just checking in a loop below
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        if let Declaration::MlogServer(srv) = decl {
+            for route in &srv.routes {
+                let mut local_scope: HashSet<String> = HashSet::new();
+                // Route body has no params, but let bindings create locals
+                collect_let_bindings(&route.body, &mut local_scope);
+                check_opaque_in_stmts(&route.body, &entity_type_map, &builtin_arity,
+                    &local_scope, &entity_names, &pattern_arity, OPAQUE_RESTRICTED, &mut result);
+                // Наряд №20: variable + arity checks in route bodies
+                check_variables_in_stmts(&route.body, &local_scope, &entity_names,
+                    &builtin_names, &builtin_arity, &pattern_arity, &mut result);
+            }
+        }
+
+        if let Some(body) = stmts {
+            let mut local_scope: HashSet<String> = HashSet::new();
+
+            // Populate scope with pattern/tool method parameters
+            match decl {
+                Declaration::Pattern(p) => {
+                    for param in &p.params {
+                        local_scope.insert(param.name.clone());
+                    }
+                }
+                Declaration::Tool(t) => {
+                    // Each method has its own scope — check each separately
+                    for method in &t.methods {
+                        let mut method_scope: HashSet<String> = HashSet::new();
+                        for param in &method.params {
+                            method_scope.insert(param.name.clone());
+                        }
+                        collect_let_bindings(&method.body, &mut method_scope);
+                        check_opaque_in_stmts(&method.body, &entity_type_map, &builtin_arity,
+                            &method_scope, &entity_names, &pattern_arity, OPAQUE_RESTRICTED, &mut result);
+                        check_variables_in_stmts(&method.body, &method_scope, &entity_names,
+                            &builtin_names, &builtin_arity, &pattern_arity, &mut result);
+                    }
+                    continue;
+                }
+                Declaration::Hook(h) => {
+                    // Hook has implicit vars: pattern_name, args, result (after), confidence (after)
+                    local_scope.insert("pattern_name".to_string());
+                    local_scope.insert("args".to_string());
+                }
+                _ => {}
+            }
+
+            collect_let_bindings(body, &mut local_scope);
+            check_opaque_in_stmts(body, &entity_type_map, &builtin_arity,
+                &local_scope, &entity_names, &pattern_arity, OPAQUE_RESTRICTED, &mut result);
+            // Наряд №20: variable + arity checks
+            check_variables_in_stmts(body, &local_scope, &entity_names,
+                &builtin_names, &builtin_arity, &pattern_arity, &mut result);
+        }
+    }
+
     result
+}
+
+/// Наряд №20: collect let-binding names from a statement list into the scope.
+fn collect_let_bindings(stmts: &[Statement], scope: &mut HashSet<String>) {
+    for stmt in stmts {
+        match stmt {
+            Statement::LetBinding { name, .. } => {
+                scope.insert(name.clone());
+            }
+            Statement::Each { variable, body, .. } => {
+                scope.insert(variable.clone());
+                collect_let_bindings(body, scope);
+            }
+            Statement::EachWithIndex { index_var, item_var, body, .. } => {
+                scope.insert(index_var.clone());
+                scope.insert(item_var.clone());
+                collect_let_bindings(body, scope);
+            }
+            Statement::While { body, .. } => {
+                collect_let_bindings(body, scope);
+            }
+            Statement::IfElseBlock { then_body, else_ifs, else_body, .. } => {
+                collect_let_bindings(then_body, scope);
+                for (_, ei_body) in else_ifs {
+                    collect_let_bindings(ei_body, scope);
+                }
+                if let Some(eb) = else_body {
+                    collect_let_bindings(eb, scope);
+                }
+            }
+            Statement::IfThen(_, body) => {
+                collect_let_bindings(body, scope);
+            }
+            Statement::Match { arms, else_body, .. } => {
+                for arm in arms {
+                    match arm {
+                        MatchArm::Exact(_, body) => collect_let_bindings(body, scope),
+                        MatchArm::StartsWith(_, body) => collect_let_bindings(body, scope),
+                        MatchArm::Contains(_, body) => collect_let_bindings(body, scope),
+                        MatchArm::Compare(_, _, body) => collect_let_bindings(body, scope),
+                    }
+                }
+                if let Some(eb) = else_body {
+                    collect_let_bindings(eb, scope);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Наряд №19: Check opaque type constraint violations in statements.
+/// Walks expressions and flags:
+///   - print(secret_entity), to_string(secret_entity) — leaking opaque types
+///   - BinaryOp::Add where one side is an opaque-typed entity — constructing
+///     Html/Query/Secret from string concatenation (XSS/injection vector)
+fn check_opaque_in_stmts(
+    stmts: &[Statement],
+    entity_type_map: &HashMap<String, String>,
+    _builtin_arity: &HashMap<&str, usize>,
+    scope: &HashSet<String>,
+    entity_names: &HashSet<String>,
+    _pattern_arity: &HashMap<String, usize>,
+    opaque_restricted: &[(&str, usize)],
+    result: &mut AnalysisResult,
+) {
+    for stmt in stmts {
+        check_opaque_in_stmt(stmt, entity_type_map, scope, entity_names, opaque_restricted, result);
+    }
+}
+
+fn check_opaque_in_stmt(
+    stmt: &Statement,
+    entity_type_map: &HashMap<String, String>,
+    scope: &HashSet<String>,
+    entity_names: &HashSet<String>,
+    opaque_restricted: &[(&str, usize)],
+    result: &mut AnalysisResult,
+) {
+    match stmt {
+        Statement::LetBinding { value, .. } => {
+            check_opaque_in_expr(value, entity_type_map, scope, entity_names, opaque_restricted, result);
+        }
+        Statement::Assign { value, .. } => {
+            check_opaque_in_expr(value, entity_type_map, scope, entity_names, opaque_restricted, result);
+        }
+        Statement::Return(expr) => {
+            check_opaque_in_expr(expr, entity_type_map, scope, entity_names, opaque_restricted, result);
+        }
+        Statement::ExprStmt(expr) => {
+            check_opaque_in_expr(expr, entity_type_map, scope, entity_names, opaque_restricted, result);
+        }
+        Statement::Each { iterable, body, .. } => {
+            check_opaque_in_expr(iterable, entity_type_map, scope, entity_names, opaque_restricted, result);
+            check_opaque_in_stmts(body, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+        }
+        Statement::EachWithIndex { iterable, body, .. } => {
+            check_opaque_in_expr(iterable, entity_type_map, scope, entity_names, opaque_restricted, result);
+            check_opaque_in_stmts(body, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+        }
+        Statement::While { condition, body } => {
+            check_opaque_in_expr(condition, entity_type_map, scope, entity_names, opaque_restricted, result);
+            check_opaque_in_stmts(body, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+        }
+        Statement::IfElseBlock { condition, then_body, else_ifs, else_body } => {
+            check_opaque_in_expr(condition, entity_type_map, scope, entity_names, opaque_restricted, result);
+            check_opaque_in_stmts(then_body, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+            for (ei_cond, ei_body) in else_ifs {
+                check_opaque_in_expr(ei_cond, entity_type_map, scope, entity_names, opaque_restricted, result);
+                check_opaque_in_stmts(ei_body, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+            }
+            if let Some(eb) = else_body {
+                check_opaque_in_stmts(eb, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+            }
+        }
+        Statement::IfThen(cond, body) => {
+            check_opaque_in_expr(cond, entity_type_map, scope, entity_names, opaque_restricted, result);
+            check_opaque_in_stmts(body, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+        }
+        Statement::Match { scrutinee, arms, else_body } => {
+            check_opaque_in_expr(scrutinee, entity_type_map, scope, entity_names, opaque_restricted, result);
+            for arm in arms {
+                match arm {
+                    MatchArm::Exact(_, body) |
+                    MatchArm::StartsWith(_, body) |
+                    MatchArm::Contains(_, body) => {
+                        check_opaque_in_stmts(body, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+                    }
+                    MatchArm::Compare(_, threshold, body) => {
+                        check_opaque_in_expr(threshold, entity_type_map, scope, entity_names, opaque_restricted, result);
+                        check_opaque_in_stmts(body, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+                    }
+                }
+            }
+            if let Some(eb) = else_body {
+                check_opaque_in_stmts(eb, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+            }
+        }
+        Statement::Break | Statement::Continue => {}
+    }
+}
+
+/// Placeholder to satisfy the function signature without threading extra params.
+fn _builtin_arity_placeholder() -> HashMap<&'static str, usize> { HashMap::new() }
+fn _pattern_arity_placeholder() -> HashMap<String, usize> { HashMap::new() }
+
+/// Check opaque type violations in an expression.
+fn check_opaque_in_expr(
+    expr: &Expr,
+    entity_type_map: &HashMap<String, String>,
+    scope: &HashSet<String>,
+    entity_names: &HashSet<String>,
+    opaque_restricted: &[(&str, usize)],
+    result: &mut AnalysisResult,
+) {
+    match expr {
+        Expr::StringLit(_) | Expr::FloatLit(_) | Expr::BoolLit(_) => {}
+        Expr::Ident(name) => {
+            // Check if this ident refers to an opaque-typed entity
+            if let Some(typ) = entity_type_map.get(name) {
+                if is_opaque_type(typ) {
+                    // We don't error on mere reference — only on specific operations.
+                    // The violation is caught at the call site (print, to_string, +).
+                }
+            }
+        }
+        Expr::FieldAccess(base, _field) => {
+            check_opaque_in_expr(base, entity_type_map, scope, entity_names, opaque_restricted, result);
+        }
+        Expr::FnCall(name, args) => {
+            // Наряд №19: Check if this function rejects opaque types on specific params
+            for &(fn_name, param_idx) in opaque_restricted {
+                if name == fn_name {
+                    if let Some(arg) = args.get(param_idx) {
+                        if expr_refers_to_opaque(arg, entity_type_map, scope, entity_names) {
+                            result.errors.push(format!(
+                                "opaque type constraint: '{}'() does not accept opaque-typed argument (Secret, Hash, Encrypted, etc. are not printable)",
+                                name
+                            ));
+                        }
+                    }
+                }
+            }
+            for arg in args {
+                check_opaque_in_expr(arg, entity_type_map, scope, entity_names, opaque_restricted, result);
+            }
+        }
+        Expr::QualifiedCall { function, args, .. } => {
+            // Same opaque restriction check for the function part
+            for &(fn_name, param_idx) in opaque_restricted {
+                if function == fn_name {
+                    if let Some(arg) = args.get(param_idx) {
+                        if expr_refers_to_opaque(arg, entity_type_map, scope, entity_names) {
+                            result.errors.push(format!(
+                                "opaque type constraint: '{}.{}'() does not accept opaque-typed argument",
+                                "module", function
+                            ));
+                        }
+                    }
+                }
+            }
+            for arg in args {
+                check_opaque_in_expr(arg, entity_type_map, scope, entity_names, opaque_restricted, result);
+            }
+        }
+        Expr::BinaryOp(left, op, right) => {
+            // Наряд №19: String concatenation (+) with opaque types is forbidden
+            if matches!(op, BinOp::Add) {
+                if expr_refers_to_opaque(left, entity_type_map, scope, entity_names) {
+                    result.errors.push(
+                        "opaque type constraint: cannot concatenate (+) opaque-typed value with another value".to_string()
+                    );
+                }
+                if expr_refers_to_opaque(right, entity_type_map, scope, entity_names) {
+                    result.errors.push(
+                        "opaque type constraint: cannot concatenate (+) value with an opaque-typed value".to_string()
+                    );
+                }
+            }
+            check_opaque_in_expr(left, entity_type_map, scope, entity_names, opaque_restricted, result);
+            check_opaque_in_expr(right, entity_type_map, scope, entity_names, opaque_restricted, result);
+        }
+        Expr::IfElse(cond, then_expr, else_expr) => {
+            check_opaque_in_expr(cond, entity_type_map, scope, entity_names, opaque_restricted, result);
+            check_opaque_in_expr(then_expr, entity_type_map, scope, entity_names, opaque_restricted, result);
+            check_opaque_in_expr(else_expr, entity_type_map, scope, entity_names, opaque_restricted, result);
+        }
+        Expr::List(items) => {
+            for item in items {
+                check_opaque_in_expr(item, entity_type_map, scope, entity_names, opaque_restricted, result);
+            }
+        }
+        Expr::IndexAccess(base, index) => {
+            check_opaque_in_expr(base, entity_type_map, scope, entity_names, opaque_restricted, result);
+            check_opaque_in_expr(index, entity_type_map, scope, entity_names, opaque_restricted, result);
+        }
+        Expr::StructLit(fields) => {
+            for (_, val) in fields {
+                check_opaque_in_expr(val, entity_type_map, scope, entity_names, opaque_restricted, result);
+            }
+        }
+        Expr::BlockIfElse { condition, then_body, else_ifs, else_body } => {
+            check_opaque_in_expr(condition, entity_type_map, scope, entity_names, opaque_restricted, result);
+            for stmt in then_body {
+                check_opaque_in_stmt(stmt, entity_type_map, scope, entity_names, opaque_restricted, result);
+            }
+            for (ei_cond, ei_body) in else_ifs {
+                check_opaque_in_expr(ei_cond, entity_type_map, scope, entity_names, opaque_restricted, result);
+                for stmt in ei_body {
+                    check_opaque_in_stmt(stmt, entity_type_map, scope, entity_names, opaque_restricted, result);
+                }
+            }
+            if let Some(eb) = else_body {
+                for stmt in eb {
+                    check_opaque_in_stmt(stmt, entity_type_map, scope, entity_names, opaque_restricted, result);
+                }
+            }
+        }
+        Expr::Try(inner) => {
+            check_opaque_in_expr(inner, entity_type_map, scope, entity_names, opaque_restricted, result);
+        }
+    }
+}
+
+/// Check whether an expression refers to an opaque-typed entity/variable.
+fn expr_refers_to_opaque(
+    expr: &Expr,
+    entity_type_map: &HashMap<String, String>,
+    scope: &HashSet<String>,
+    entity_names: &HashSet<String>,
+) -> bool {
+    match expr {
+        Expr::Ident(name) => {
+            // Check if it's a known entity with opaque type
+            if entity_names.contains(name) {
+                if let Some(typ) = entity_type_map.get(name) {
+                    return is_opaque_type(typ);
+                }
+            }
+            // Check if it's a let-bound variable with opaque type
+            // (We can't fully track let-binding types yet, so we rely on entity types)
+            false
+        }
+        Expr::FieldAccess(base, _field) => {
+            // If base is an opaque-typed entity, field access is OK (e.g., session.role)
+            false
+        }
+        _ => false,
+    }
+}
+
+/// Наряд №20: Check variable references and call arity in statements.
+fn check_variables_in_stmts(
+    stmts: &[Statement],
+    scope: &HashSet<String>,
+    entity_names: &HashSet<String>,
+    builtin_names: &HashSet<String>,
+    builtin_arity: &HashMap<&str, usize>,
+    pattern_arity: &HashMap<String, usize>,
+    result: &mut AnalysisResult,
+) {
+    for stmt in stmts {
+        check_variables_in_stmt(stmt, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+    }
+}
+
+fn check_variables_in_stmt(
+    stmt: &Statement,
+    scope: &HashSet<String>,
+    entity_names: &HashSet<String>,
+    builtin_names: &HashSet<String>,
+    builtin_arity: &HashMap<&str, usize>,
+    pattern_arity: &HashMap<String, usize>,
+    result: &mut AnalysisResult,
+) {
+    match stmt {
+        Statement::LetBinding { value, .. } => {
+            check_variables_in_expr(value, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+        }
+        Statement::Assign { name, value } => {
+            // Check that the assigned-to variable exists in scope or is a global
+            if !scope.contains(name) && !entity_names.contains(name) {
+                result.errors.push(format!(
+                    "assignment to undefined variable '{}'",
+                    name
+                ));
+            }
+            check_variables_in_expr(value, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+        }
+        Statement::Return(expr) => {
+            check_variables_in_expr(expr, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+        }
+        Statement::ExprStmt(expr) => {
+            check_variables_in_expr(expr, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+        }
+        Statement::Each { iterable, body, variable } => {
+            check_variables_in_expr(iterable, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            let mut inner_scope = scope.clone();
+            inner_scope.insert(variable.clone());
+            collect_let_bindings(body, &mut inner_scope);
+            check_variables_in_stmts(body, &inner_scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+        }
+        Statement::EachWithIndex { iterable, body, index_var, item_var } => {
+            check_variables_in_expr(iterable, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            let mut inner_scope = scope.clone();
+            inner_scope.insert(index_var.clone());
+            inner_scope.insert(item_var.clone());
+            collect_let_bindings(body, &mut inner_scope);
+            check_variables_in_stmts(body, &inner_scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+        }
+        Statement::While { condition, body } => {
+            check_variables_in_expr(condition, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            let mut inner_scope = scope.clone();
+            collect_let_bindings(body, &mut inner_scope);
+            check_variables_in_stmts(body, &inner_scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+        }
+        Statement::IfElseBlock { condition, then_body, else_ifs, else_body } => {
+            check_variables_in_expr(condition, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            let mut inner_scope = scope.clone();
+            collect_let_bindings(then_body, &mut inner_scope);
+            check_variables_in_stmts(then_body, &inner_scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            for (ei_cond, ei_body) in else_ifs {
+                check_variables_in_expr(ei_cond, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+                let mut ei_scope = scope.clone();
+                collect_let_bindings(ei_body, &mut ei_scope);
+                check_variables_in_stmts(ei_body, &ei_scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            }
+            if let Some(eb) = else_body {
+                let mut eb_scope = scope.clone();
+                collect_let_bindings(eb, &mut eb_scope);
+                check_variables_in_stmts(eb, &eb_scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            }
+        }
+        Statement::IfThen(cond, body) => {
+            check_variables_in_expr(cond, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            let mut inner_scope = scope.clone();
+            collect_let_bindings(body, &mut inner_scope);
+            check_variables_in_stmts(body, &inner_scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+        }
+        Statement::Match { scrutinee, arms, else_body } => {
+            check_variables_in_expr(scrutinee, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            for arm in arms {
+                match arm {
+                    MatchArm::Exact(_, body) |
+                    MatchArm::StartsWith(_, body) |
+                    MatchArm::Contains(_, body) => {
+                        let mut arm_scope = scope.clone();
+                        collect_let_bindings(body, &mut arm_scope);
+                        check_variables_in_stmts(body, &arm_scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+                    }
+                    MatchArm::Compare(_, threshold, body) => {
+                        check_variables_in_expr(threshold, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+                        let mut arm_scope = scope.clone();
+                        collect_let_bindings(body, &mut arm_scope);
+                        check_variables_in_stmts(body, &arm_scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+                    }
+                }
+            }
+            if let Some(eb) = else_body {
+                let mut eb_scope = scope.clone();
+                collect_let_bindings(eb, &mut eb_scope);
+                check_variables_in_stmts(eb, &eb_scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            }
+        }
+        Statement::Break | Statement::Continue => {}
+    }
+}
+
+/// Наряд №20: Check variable references and call arity in an expression.
+fn check_variables_in_expr(
+    expr: &Expr,
+    scope: &HashSet<String>,
+    entity_names: &HashSet<String>,
+    builtin_names: &HashSet<String>,
+    builtin_arity: &HashMap<&str, usize>,
+    pattern_arity: &HashMap<String, usize>,
+    result: &mut AnalysisResult,
+) {
+    match expr {
+        Expr::StringLit(_) | Expr::FloatLit(_) | Expr::BoolLit(_) => {}
+        Expr::Ident(name) => {
+            // Check if the variable is defined
+            if !scope.contains(name) && !entity_names.contains(name) && !builtin_names.contains(name) {
+                result.errors.push(format!(
+                    "undefined variable '{}'",
+                    name
+                ));
+            }
+        }
+        Expr::FieldAccess(base, _field) => {
+            check_variables_in_expr(base, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+        }
+        Expr::FnCall(name, args) => {
+            // Check all argument expressions
+            for arg in args {
+                check_variables_in_expr(arg, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            }
+            // Наряд №20: arity check for builtins
+            if let Some(&expected) = builtin_arity.get(name.as_str()) {
+                if args.len() != expected {
+                    result.errors.push(format!(
+                        "builtin '{}' expects {} argument(s), got {}",
+                        name, expected, args.len()
+                    ));
+                }
+            }
+            // Наряд №20: arity check for user-defined patterns
+            if let Some(&expected) = pattern_arity.get(name) {
+                if args.len() != expected {
+                    result.errors.push(format!(
+                        "pattern '{}' expects {} argument(s), got {}",
+                        name, expected, args.len()
+                    ));
+                }
+            }
+            // If not a builtin and not a known pattern, that's an error
+            if !builtin_names.contains(name) && !pattern_arity.contains_key(name) {
+                result.errors.push(format!(
+                    "undefined function '{}'",
+                    name
+                ));
+            }
+        }
+        Expr::QualifiedCall { function, args, .. } => {
+            for arg in args {
+                check_variables_in_expr(arg, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            }
+            // Qualified calls: check function part
+            if !builtin_names.contains(function) && !pattern_arity.contains_key(function) {
+                result.errors.push(format!(
+                    "undefined function '{}' in qualified call",
+                    function
+                ));
+            }
+            if let Some(&expected) = builtin_arity.get(function.as_str()) {
+                if args.len() != expected {
+                    result.errors.push(format!(
+                        "builtin '{}' expects {} argument(s), got {}",
+                        function, expected, args.len()
+                    ));
+                }
+            }
+        }
+        Expr::BinaryOp(left, _, right) => {
+            check_variables_in_expr(left, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            check_variables_in_expr(right, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+        }
+        Expr::IfElse(cond, then_expr, else_expr) => {
+            check_variables_in_expr(cond, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            check_variables_in_expr(then_expr, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            check_variables_in_expr(else_expr, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+        }
+        Expr::List(items) => {
+            for item in items {
+                check_variables_in_expr(item, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            }
+        }
+        Expr::IndexAccess(base, index) => {
+            check_variables_in_expr(base, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            check_variables_in_expr(index, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+        }
+        Expr::StructLit(fields) => {
+            for (_, val) in fields {
+                check_variables_in_expr(val, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            }
+        }
+        Expr::BlockIfElse { condition, then_body, else_ifs, else_body } => {
+            check_variables_in_expr(condition, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            for stmt in then_body {
+                check_variables_in_stmt(stmt, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+            }
+            for (ei_cond, ei_body) in else_ifs {
+                check_variables_in_expr(ei_cond, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+                for stmt in ei_body {
+                    check_variables_in_stmt(stmt, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+                }
+            }
+            if let Some(eb) = else_body {
+                for stmt in eb {
+                    check_variables_in_stmt(stmt, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+                }
+            }
+        }
+        Expr::Try(inner) => {
+            check_variables_in_expr(inner, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
+        }
+    }
 }
 
 /// Helper: extract field names from an EntityType declaration.
@@ -500,5 +1185,185 @@ template Page(title: String) -> Secret {
         let result = check_program(&decls);
         assert!(!result.is_ok());
         assert!(result.errors.iter().any(|e| e.contains("only Html is supported")));
+    }
+
+    // ── Наряд №19: Opaque type constraint tests ─────────────────────
+
+    #[test]
+    fn test_opaque_print_secret() {
+        let source = r#"
+entity api_key: Secret = env("API_KEY")
+pattern leak() -> String {
+    print(api_key)
+    return "done"
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(!result.is_ok());
+        assert!(result.errors.iter().any(|e| e.contains("opaque type constraint") && e.contains("print")));
+    }
+
+    #[test]
+    fn test_opaque_to_string_secret() {
+        let source = r#"
+entity api_key: Secret = env("API_KEY")
+pattern leak2() -> String {
+    return to_string(api_key)
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(!result.is_ok());
+        assert!(result.errors.iter().any(|e| e.contains("opaque type constraint") && e.contains("to_string")));
+    }
+
+    #[test]
+    fn test_opaque_concat_forbidden() {
+        let source = r#"
+entity html_content: Html = escape_html("<b>bold</b>")
+pattern xss_vector() -> String {
+    let payload = "<script>alert(1)</script>" + html_content
+    return payload
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(!result.is_ok());
+        assert!(result.errors.iter().any(|e| e.contains("concatenate") && e.contains("opaque")));
+    }
+
+    #[test]
+    fn test_opaque_field_access_allowed() {
+        let source = r#"
+entity sess: Session = session_login("user1")
+pattern check_session() -> String {
+    return sess.role
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        // Field access on opaque is OK — only print/concat/toString are restricted
+        // (We expect other errors like undefined variable 'sess.role' but NOT opaque errors)
+        let has_opaque_error = result.errors.iter().any(|e| e.contains("opaque type constraint"));
+        assert!(!has_opaque_error, "should not have opaque errors for field access, got: {:?}", result.errors);
+    }
+
+    // ── Наряд №20: Variable + arity checking tests ────────────────
+
+    #[test]
+    fn test_undefined_variable_detected() {
+        let source = r#"
+pattern use_undef() -> String {
+    return undefined_var
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(!result.is_ok());
+        assert!(result.errors.iter().any(|e| e.contains("undefined variable") && e.contains("undefined_var")));
+    }
+
+    #[test]
+    fn test_let_binding_in_scope() {
+        let source = r#"
+pattern scoped_var(x: String) -> String {
+    let y = upper(x)
+    return y
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(result.is_ok(), "let binding should be in scope, errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_arity_mismatch_builtin() {
+        let source = r#"
+pattern wrong_arity(x: String) -> String {
+    return upper(x, "extra")
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(!result.is_ok());
+        assert!(result.errors.iter().any(|e| e.contains("expects 1 argument") && e.contains("got 2")));
+    }
+
+    #[test]
+    fn test_arity_mismatch_pattern() {
+        let source = r#"
+pattern double(x: String) -> String {
+    return x + x
+}
+pattern call_wrong() -> String {
+    return double("a", "b")
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(!result.is_ok());
+        assert!(result.errors.iter().any(|e| e.contains("expects 1 argument") && e.contains("double")));
+    }
+
+    #[test]
+    fn test_undefined_function_detected() {
+        let source = r#"
+pattern call_nonexistent() -> String {
+    return nonexistent_fn("hi")
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(!result.is_ok());
+        assert!(result.errors.iter().any(|e| e.contains("undefined function") && e.contains("nonexistent_fn")));
+    }
+
+    #[test]
+    fn test_assign_undefined_var() {
+        let source = r#"
+pattern bad_assign() -> String {
+    nonexistent = "oops"
+    return "done"
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(!result.is_ok());
+        assert!(result.errors.iter().any(|e| e.contains("assignment to undefined variable") && e.contains("nonexistent")));
+    }
+
+    #[test]
+    fn test_each_var_in_scope() {
+        let source = r#"
+pattern sum_items(items: List) -> String {
+    let mut total = ""
+    each item in items {
+        total = total + item
+    }
+    return total
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        // 'item' should be in scope inside the each block
+        let has_undef = result.errors.iter().any(|e| e.contains("undefined variable") && e.contains("item"));
+        assert!(!has_undef, "'item' should be in scope in each block, errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn test_builtin_arity_ok() {
+        let source = r#"
+pattern correct_calls(x: String) -> String {
+    let up = upper(x)
+    let idx = index_of(x, "a")
+    let l = len(x)
+    return up
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        let arity_errors: Vec<_> = result.errors.iter().filter(|e| e.contains("expects")).collect();
+        assert!(arity_errors.is_empty(), "unexpected arity errors: {:?}", arity_errors);
     }
 }

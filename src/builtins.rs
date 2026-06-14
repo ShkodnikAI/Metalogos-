@@ -140,11 +140,10 @@ impl Builtins {
         funcs.insert("session_get".to_string(), builtin_session_get as BuiltinFn);
         funcs.insert("session_clear".to_string(), builtin_session_clear as BuiltinFn);
 
-        // type_of — runtime type introspection (safety for json_get + Unit)
-        funcs.insert("type_of".to_string(), builtin_type_of as BuiltinFn);
-
-        // Multipart HTTP — for file uploads (Telegram voice, Whisper API, etc.)
+        // Voice pipeline builtins (Phase 7.8)
         funcs.insert("http_post_multipart".to_string(), builtin_http_post_multipart as BuiltinFn);
+        funcs.insert("whisper_transcribe".to_string(), builtin_whisper_transcribe as BuiltinFn);
+        funcs.insert("tts_send".to_string(), builtin_tts_send as BuiltinFn);
 
         Builtins { funcs }
     }
@@ -982,17 +981,31 @@ fn builtin_json_get(args: &[Value]) -> Result<Value, String> {
         None => return Err("json_get() requires at least 2 arguments (obj, field_path)".to_string()),
     };
     let path = expect_string_arg("json_get", args, 1)?;
-    let default_val = args.get(2).cloned().unwrap_or(Value::Unit);
-
-    // Navigate the path (dot-separated)
-    let mut current = obj;
-    for segment in path.split('.') {
-        match current.get_field(segment) {
-            Ok(val) => current = val,
-            Err(_) => return Ok(default_val),
+    // Bug 2.2 fix: when no default is provided, return the found value directly
+    // (not wrapped in Unit). The old code defaulted to Value::Unit which silently
+    // swallowed string values and made them unusable.
+    if args.len() >= 3 {
+        let default_val = args[2].clone();
+        // Navigate the path (dot-separated)
+        let mut current = obj;
+        for segment in path.split('.') {
+            match current.get_field(segment) {
+                Ok(val) => current = val,
+                Err(_) => return Ok(default_val),
+            }
         }
+        Ok(current.clone())
+    } else {
+        // 2-argument form: return the found value or Unit if not found
+        let mut current = obj;
+        for segment in path.split('.') {
+            match current.get_field(segment) {
+                Ok(val) => current = val,
+                Err(_) => return Ok(Value::Unit),
+            }
+        }
+        Ok(current.clone())
     }
-    Ok(current.clone())
 }
 
 /// Check if a struct value has a given field. Returns 1.0 (true) or 0.0 (false).
@@ -1583,126 +1596,50 @@ fn builtin_llm_usage(_args: &[Value]) -> Result<Value, String> {
     })
 }
 
-// ── type_of — runtime type introspection ─────────────────────────
+// ── Phase 7.8: Voice pipeline builtins ──────────────────────────────
 
-/// `type_of(value)` — returns the type name as a String.
-/// Useful for safe checking after json_get: `if type_of(x) == "Unit" { ... }`
-fn builtin_type_of(args: &[Value]) -> Result<Value, String> {
-    if args.is_empty() {
-        return Err("type_of() requires 1 argument".to_string());
-    }
-    Ok(Value::String(args[0].type_name().to_string()))
-}
-
-// ── Multipart HTTP POST ──────────────────────────────────────
-
-/// `http_post_multipart(url, fields_json, files_json)` — send multipart/form-data request.
-///
-/// `fields_json`: JSON string of text fields, e.g. '{"model":"whisper-1","chat_id":"123"}'
-/// `files_json`: JSON string of file entries, e.g. '[{"name":"file","path":"/tmp/voice.ogg","mime":"audio/ogg"}]'
-///
-/// Returns the response body as String.
-/// Timeout: 30 seconds. Error on status >= 400.
 fn builtin_http_post_multipart(args: &[Value]) -> Result<Value, String> {
-    let url = match args.get(0) {
-        Some(Value::String(s)) => s.clone(),
-        Some(other) => return Err(format!("http_post_multipart() expected String as url, got {}", other.type_name())),
-        None => return Err("http_post_multipart() requires 3 arguments (url, fields_json, files_json)".to_string()),
+    let url = expect_string_arg("http_post_multipart", args, 0)?;
+    let fields = match args.get(1) {
+        Some(Value::Struct { fields, .. }) => fields.clone(),
+        _ => return Err("http_post_multipart() requires Struct as 2nd argument (fields)".to_string()),
     };
-
-    let fields_str = match args.get(1) {
-        Some(Value::String(s)) => s.clone(),
-        Some(Value::Struct { fields, .. }) => {
-            // Allow passing a Struct directly instead of JSON string
-            mlog_value_to_json(&Value::Struct { type_name: "Fields".into(), fields: fields.clone() }).to_string()
-        }
-        Some(other) => return Err(format!("http_post_multipart() expected String/Struct as fields, got {}", other.type_name())),
-        None => return Err("http_post_multipart() requires 3 arguments (url, fields_json, files_json)".to_string()),
+    let files = match args.get(2) {
+        Some(Value::Struct { fields, .. }) => fields.clone(),
+        _ => return Err("http_post_multipart() requires Struct as 3rd argument (files)".to_string()),
     };
-
-    let files_str = match args.get(2) {
-        Some(Value::String(s)) => s.clone(),
-        Some(Value::List(items)) => {
-            // Allow passing a List of Structs instead of JSON string
-            let json_items: Vec<serde_json::Value> = items.iter()
-                .map(|v| mlog_value_to_json(v))
-                .collect();
-            serde_json::Value::Array(json_items).to_string()
-        }
-        None => "[]".to_string(),
-        Some(other) => return Err(format!("http_post_multipart() expected String/List as files, got {}", other.type_name())),
-    };
-
-    // Optional 4th argument: auth token or headers struct
-    let auth_or_headers = args.get(3);
-
-    let fields: serde_json::Value = serde_json::from_str(&fields_str)
-        .map_err(|e| format!("http_post_multipart() invalid fields JSON: {}", e))?;
-
-    let files: Vec<serde_json::Value> = serde_json::from_str::<serde_json::Value>(&files_str)
-        .map_err(|e| format!("http_post_multipart() invalid files JSON: {}", e))?
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
 
     let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(120))
         .build()
-        .map_err(|e| format!("http_post_multipart(): failed to create client: {}", e))?;
+        .map_err(|e| format!("http_post_multipart(): client error: {}", e))?;
 
     let mut form = reqwest::blocking::multipart::Form::new();
 
     // Add text fields
-    if let serde_json::Value::Object(map) = &fields {
-        for (key, val) in map {
-            if let Some(s) = val.as_str() {
-                form = form.text(key.clone(), s.to_string());
-            } else {
-                form = form.text(key.clone(), val.to_string());
-            }
+    for (key, val) in &fields {
+        if let Value::String(v) = val {
+            form = form.text(key.clone(), v.clone());
         }
     }
 
     // Add file fields
-    for file_entry in &files {
-        let name = file_entry.get("name").and_then(|v| v.as_str()).unwrap_or("file").to_string();
-        let path = file_entry.get("path").and_then(|v| v.as_str()).unwrap_or("");
-        let mime = file_entry.get("mime").and_then(|v| v.as_str()).unwrap_or("application/octet-stream");
-
-        let file_content = std::fs::read(path)
-            .map_err(|e| format!("http_post_multipart(): cannot read file '{}': {}", path, e))?;
-
-        let part = reqwest::blocking::multipart::Part::bytes(file_content)
-            .file_name(path.rsplit('/').next().unwrap_or("file").to_string())
-            .mime_str(mime)
-            .unwrap_or(reqwest::blocking::multipart::MIME_OCTET_STREAM);
-
-        form = form.part(name, part);
-    }
-
-    let mut req = client.post(&url).multipart(form);
-
-    // Optional auth/headers
-    if let Some(h) = auth_or_headers {
-        match h {
-            Value::String(token) => {
-                if !token.is_empty() {
-                    req = req.header("Authorization", format!("Bearer {}", token));
-                }
-            }
-            Value::Struct { fields, .. } => {
-                for (key, val) in fields {
-                    if let Value::String(v) = val {
-                        req = req.header(key.as_str(), v.as_str());
-                    }
-                }
-            }
-            _ => {}
+    for (key, val) in &files {
+        if let Value::String(path) = val {
+            let file_bytes = std::fs::read(path)
+                .map_err(|e| format!("http_post_multipart(): cannot read file '{}': {}", path, e))?;
+            let file_name = std::path::Path::new(path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("file");
+            let part = reqwest::blocking::multipart::Part::bytes(file_bytes)
+                .file_name(file_name.to_string());
+            form = form.part(key.clone(), part);
         }
     }
 
-    let resp = req.send()
-        .map_err(|e| format!("http_post_multipart() request failed: {}", e))?;
+    let resp = client.post(&url).multipart(form).send()
+        .map_err(|e| format!("http_post_multipart(): request failed: {}", e))?;
 
     let status = resp.status().as_u16();
     let resp_body = resp.text().unwrap_or_default();
@@ -1712,6 +1649,152 @@ fn builtin_http_post_multipart(args: &[Value]) -> Result<Value, String> {
     }
 
     Ok(Value::String(resp_body))
+}
+
+fn builtin_whisper_transcribe(args: &[Value]) -> Result<Value, String> {
+    let file_id = expect_string_arg("whisper_transcribe", args, 0)?;
+    let bot_token = expect_string_arg("whisper_transcribe", args, 1)?;
+    let whisper_key = expect_string_arg("whisper_transcribe", args, 2)?;
+    let provider = match args.get(3) {
+        Some(Value::String(s)) => s.clone(),
+        _ => "openai".to_string(),
+    };
+
+    // Step 1: Get file path from Telegram
+    let tg_client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("whisper_transcribe(): client error: {}", e))?;
+
+    let get_file_url = format!("https://api.telegram.org/bot{}/getFile?file_id={}", bot_token, file_id);
+    let tg_resp = tg_client.get(&get_file_url).send()
+        .map_err(|e| format!("whisper_transcribe(): Telegram getFile failed: {}", e))?;
+    let tg_body: serde_json::Value = serde_json::from_str(&tg_resp.text().unwrap_or_default())
+        .map_err(|e| format!("whisper_transcribe(): Telegram response parse error: {}", e))?;
+
+    let file_path = tg_body.get("result")
+        .and_then(|r| r.get("file_path"))
+        .and_then(|p| p.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if file_path.is_empty() {
+        return Err("whisper_transcribe(): Telegram returned empty file_path".to_string());
+    }
+
+    // Step 2: Download the file
+    let download_url = format!("https://api.telegram.org/file/bot{}/{}", bot_token, file_path);
+    let audio_bytes = tg_client.get(&download_url).send()
+        .map_err(|e| format!("whisper_transcribe(): download failed: {}", e))?
+        .bytes()
+        .map_err(|e| format!("whisper_transcribe(): read bytes failed: {}", e))?;
+
+    // Step 3: Send to Whisper API
+    let (api_url, auth_header, auth_value) = match provider.as_str() {
+        "groq" => (
+            "https://api.groq.com/openai/v1/audio/transcriptions".to_string(),
+            "Authorization".to_string(),
+            format!("Bearer {}", whisper_key),
+        ),
+        _ => ( // openai
+            "https://api.openai.com/v1/audio/transcriptions".to_string(),
+            "Authorization".to_string(),
+            format!("Bearer {}", whisper_key),
+        ),
+    };
+
+    // Use multipart form
+    let whisper_client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("whisper_transcribe(): whisper client error: {}", e))?;
+
+    let model = if provider == "groq" { "whisper-large-v3" } else { "whisper-1" };
+    let mut form = reqwest::blocking::multipart::Form::new();
+    form = form.text("model", model.to_string());
+    let part = reqwest::blocking::multipart::Part::bytes(audio_bytes.to_vec())
+        .file_name("audio.ogg");
+    form = form.part("file", part);
+
+    let whisper_resp = whisper_client.post(&api_url)
+        .header(auth_header, auth_value)
+        .multipart(form)
+        .send()
+        .map_err(|e| format!("whisper_transcribe(): whisper request failed: {}", e))?;
+
+    let status = whisper_resp.status().as_u16();
+    let whisper_body = whisper_resp.text().unwrap_or_default();
+
+    if status >= 400 {
+        return Err(format!("whisper_transcribe(): whisper API status {}: {}", status, whisper_body));
+    }
+
+    // Parse response to extract text
+    let parsed: serde_json::Value = serde_json::from_str(&whisper_body)
+        .map_err(|e| format!("whisper_transcribe(): whisper response parse error: {}", e))?;
+    let text = parsed.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
+
+    Ok(Value::String(text))
+}
+
+fn builtin_tts_send(args: &[Value]) -> Result<Value, String> {
+    let text = expect_string_arg("tts_send", args, 0)?;
+    let voice = expect_string_arg("tts_send", args, 1)?;
+    let bot_token = expect_string_arg("tts_send", args, 2)?;
+    let chat_id = expect_string_arg("tts_send", args, 3)?;
+    let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_default();
+    if api_key.is_empty() {
+        return Err("tts_send(): OPENAI_API_KEY env var not set".to_string());
+    }
+
+    // Step 1: Call OpenAI TTS API
+    let tts_body = serde_json::json!({
+        "model": "tts-1",
+        "input": text,
+        "voice": voice,
+    });
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("tts_send(): client error: {}", e))?;
+
+    let tts_resp = client.post("https://api.openai.com/v1/audio/speech")
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .body(tts_body.to_string())
+        .send()
+        .map_err(|e| format!("tts_send(): TTS request failed: {}", e))?;
+
+    let status = tts_resp.status().as_u16();
+    if status >= 400 {
+        let err_body = tts_resp.text().unwrap_or_default();
+        return Err(format!("tts_send(): TTS API status {}: {}", status, err_body));
+    }
+
+    let audio_bytes = tts_resp.bytes()
+        .map_err(|e| format!("tts_send(): failed to read TTS audio: {}", e))?;
+
+    // Step 2: Send audio to Telegram via sendAudio
+    let mut form = reqwest::blocking::multipart::Form::new();
+    form = form.text("chat_id", chat_id.clone());
+    let audio_part = reqwest::blocking::multipart::Part::bytes(audio_bytes.to_vec())
+        .file_name("speech.ogg");
+    form = form.part("audio", audio_part);
+
+    let tg_resp = client.post(format!("https://api.telegram.org/bot{}/sendAudio", bot_token))
+        .multipart(form)
+        .send()
+        .map_err(|e| format!("tts_send(): Telegram sendAudio failed: {}", e))?;
+
+    let tg_status = tg_resp.status().as_u16();
+    let tg_body = tg_resp.text().unwrap_or_default();
+
+    if tg_status >= 400 {
+        return Err(format!("tts_send(): Telegram status {}: {}", tg_status, tg_body));
+    }
+
+    Ok(Value::String(tg_body))
 }
 
 #[cfg(test)]

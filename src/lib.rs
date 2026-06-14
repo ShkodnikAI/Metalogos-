@@ -132,7 +132,7 @@ pub fn compile_program(source: &str) -> Result<bytecode::Program, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
     // Warn if imports are present — bytecode compiler cannot resolve them
     for decl in &declarations {
-        if let Declaration::Import(import) = decl {
+        if let ast::Declaration::Import(import) = decl {
             eprintln!("warning: import '{}' cannot be resolved in compile mode (use `mlog serve` instead)", import.path);
         }
     }

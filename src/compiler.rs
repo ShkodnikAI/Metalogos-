@@ -39,6 +39,14 @@ pub struct Compiler {
 
 
 
+/// Loop context for break/continue jump patching. (Наряд №18)
+struct LoopCtx {
+    /// Address of the condition check (for continue to jump back to).
+    continue_addr: usize,
+    /// Locations of Jump(0) placeholders emitted by Break that need patching.
+    break_patches: Vec<usize>,
+}
+
 impl Compiler {
     /// Create a new compiler with default settings.
     pub fn new() -> Self {
@@ -539,14 +547,6 @@ impl Compiler {
             }
         }
         Ok(())
-    }
-
-    /// Loop context for break/continue jump patching. (Наряд №18)
-    struct LoopCtx {
-        /// Address of the condition check (for continue to jump back to).
-        continue_addr: usize,
-        /// Locations of Jump(0) placeholders emitted by Break that need patching.
-        break_patches: Vec<usize>,
     }
 
     /// Compile a pattern body with parameter names as locals.

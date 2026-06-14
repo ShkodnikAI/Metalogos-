@@ -423,11 +423,11 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
             Declaration::Tool(t) => {
                 // Collect all method bodies as a single scope for checking
                 // (each method has its own scope, but we check all of them)
-                let mut all = Vec::new();
+                let mut all: Vec<Statement> = Vec::new();
                 for method in &t.methods {
                     all.extend(method.body.iter().cloned());
                 }
-                Some(&t.methods.iter().flat_map(|m| m.body.iter()).collect::<Vec<_>>()[..])
+                Some(&all[..])
             }
             Declaration::Hook(h) => Some(&h.body),
             Declaration::MlogServer(srv) => {

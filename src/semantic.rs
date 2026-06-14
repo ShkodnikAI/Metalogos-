@@ -93,18 +93,59 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     let mut builtin_names: HashSet<String> = HashSet::new();
     let mut role_names: HashSet<String> = HashSet::new();
 
-    // Known builtins (including Phase 6 web builtins)
+    // Known builtins (Наряд №18: full list synced with builtins.rs)
     for b in &[
-        "upper", "lower", "len", "str", "print", "contains", "float", "confidence",
-        "to_string", "get", "push", "index_of", "substring", "char_at",
-        "starts_with", "ends_with", "to_float",
-        // Phase 6 builtins
-        "respond", "render", "form_data", "json_body", "escape_html",
-        "parse_json", "json_encode", "json_get", "has_field", "http_get",
+        // String operations
+        "upper", "lower", "len", "str", "print", "contains", "float",
+        "to_string", "get", "push",
+        // Environment
+        "env",
+        // String operations Phase 5.3
+        "index_of", "substring", "char_at", "starts_with", "ends_with", "to_float",
+        // Fluid
+        "confidence",
+        // Phase 6 builtins (web, crypto, auth, etc.)
+        "respond", "respond_html", "form_data", "json_body", "query_param",
+        "render", "escape_html",
         "query", "db_execute",
-        "env", "hash_password", "verify_password", "encrypt", "decrypt", "generate_key",
+        "hash_password", "verify_password", "encrypt", "decrypt", "generate_key",
         "authenticate", "session_login", "session_logout",
         "send_message", "require",
+        "http_post", "http_get",
+        // Public string/math ops
+        "trim", "replace", "split", "join", "length", "to_int", "reverse",
+        // LLM
+        "call_llm",
+        // KV store
+        "kv_set", "kv_get", "kv_delete", "kv_exists", "kv_list",
+        // Memory
+        "mem_set", "mem_get", "mem_delete",
+        // File I/O
+        "read_file", "write_file", "append_file", "delete_file", "file_exists", "list_dir",
+        // AI providers
+        "call_claude",
+        // LLM usage
+        "llm_usage",
+        // JSON
+        "escape_json", "parse_json", "json_encode", "json_get", "has_field",
+        // Time
+        "now",
+        // Session
+        "session_set", "session_get", "session_clear",
+        // HTTP extras
+        "http_post_multipart",
+        // Media
+        "whisper_transcribe", "tts_send",
+        // Encoding
+        "base64_encode", "base64_decode",
+        // System
+        "exec", "escape_js",
+        // Misc
+        "dict_get", "type_of",
+        // Memory (recall)
+        "recall",
+        // Phase 4.4 self-hosting
+        "stdin", "split_tokens", "if_eq", "newline", "is_string_token",
     ] {
         builtin_names.insert(b.to_string());
     }

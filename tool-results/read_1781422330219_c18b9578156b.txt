@@ -1,0 +1,865 @@
+     1→# METALOGOS — Справочник языка (Reference)
+     2→
+     3→> **Версия:** 0.4.0+ (Phase 7.7)
+     4→> **Единый источник истины** для разработчиков, пишущих на Металогосе.
+     5→> Содержит полный список встроенных функций с сигнатурами, типами, описанием и примерами,
+     6→> а также справочник по синтаксису, типам данных и CLI.
+     7→
+     8→---
+     9→
+    10→## Содержание
+    11→
+    12→1. [CLI](#1-cli-команды)
+    13→2. [Типы данных](#2-типы-данных)
+    14→3. [Синтаксис](#3-синтаксис)
+    15→4. [Встроенные функции (Builtins)](#4-встроенные-функции-builtins)
+    16→   - [Строки](#41-строковые-функции)
+    17→   - [Числа и математика](#42-числа-и-математика)
+    18→   - [Коллекции (List)](#43-коллекции-list)
+    19→   - [Преобразование типов](#44-преобразование-типов)
+    20→   - [LLM и AI](#45-llm-и-ai)
+    21→   - [HTTP](#46-http)
+    22→   - [JSON](#47-json)
+    23→   - [Файловый I/O](#48-файловый-io)
+    24→   - [Память (KV-хранилище)](#49-память-kv-хранилище)
+    25→   - [Сессионная память](#410-сессионная-память)
+    26→   - [Шифрование и безопасность](#411-шифрование-и-безопасность)
+    27→   - [Аутентификация](#412-аутентификация)
+    28→   - [HTTP-сервер (mlogserver)](#413-http-сервер-mlogserver)
+    29→   - [Шаблоны (Templates)](#414-шаблоны-templates)
+    30→   - [Базы данных](#415-базы-данных)
+    31→   - [Боты (Telegram/Discord)](#416-боты-telegramdiscord)
+    32→   - [Прочее](#417-прочее)
+    33→5. [Объявления верхнего уровня](#5-объявления-верхнего-уровня)
+    34→6. [Stdlib (стандартная библиотека)](#6-stdlib-стандартная-библиотека)
+    35→7. [Changelog](#7-changelog-кратко)
+    36→
+    37→---
+    38→
+    39→## 1. CLI команды
+    40→
+    41→Бинарник `mlog` поддерживает следующие команды:
+    42→
+    43→| Команда | Описание |
+    44→|---------|----------|
+    45→| `mlog run <file.mlog>` | Выполнить программу (или `.mbc` байткод) |
+    46→| `mlog repl` | Интерактивная сессия (REPL) с историей команд |
+    47→| `mlog check <file.mlog>` | Семантический анализ без выполнения |
+    48→| `mlog serve <file.mlog>` | Запустить HTTP-сервер из `mlogserver`/`server` блока |
+    49→| `mlog compile <file.mlog>` | Скомпилировать `.mlog` в `.mbc` байткод |
+    50→| `mlog eval <file.mlog>` | Запустить `eval`-блоки (тестирование learnable patterns) |
+    51→| `mlog resume <file.mlog> --flow=<name> --from=<checkpoint>` | Возобновить flow с контрольной точки |
+    52→| `mlog audit <file.mlog>` | Статический security-аудит без выполнения |
+    53→
+    54→### Переменные окружения
+    55→
+    56→| Переменная | Описание |
+    57→|------------|----------|
+    58→| `METALOGOS_LLM_MOCK` | `true` (по умолчанию) — моковые LLM-ответы; `false` — реальные вызовы |
+    59→| `METALOGOS_FORCE_PIPE` | `1` — принудительно использовать piped-режим REPL (для тестов) |
+    60→
+    61→---
+    62→
+    63→## 2. Типы данных
+    64→
+    65→| Тип | Описание | Пример литерала |
+    66→|-----|----------|-----------------|
+    67→| `String` | Строка (UTF-8, Unicode-aware) | `"Привет мир"` |
+    68→| `Float` | Число с плавающей точкой (все числа) | `42.0`, `3.14`, `-1.0` |
+    69→| `Bool` | Булево значение | `true`, `false` |
+    70→| `List` | Список значений | `[1.0, 2.0, "three"]` |
+    71→| `Struct` | Именованная структура с полями | `{ name: "Alice", age: 25.0 }` |
+    72→| `Html` | непрозрачный тип для безопасного HTML (авто-escaping) | — |
+    73→| `Query` | непрозрачный тип для SQL-запросов (инъекция невозможна) | — |
+    74→| `Secret` | непрозрачный тип для секретов (не печатается, не сериализуется) | — |
+    75→| `Encrypted` | непрозрачный тип для зашифрованных данных | — |
+    76→| `Hash` | непрозрачный тип для хешей паролей | — |
+    77→| `Session` | непрозрачный тип для сессий | — |
+    78→| `Unit` | Пустое значение (аналог `null`/`void`) | — |
+    79→| `Fluid` | Вероятностный тип (суперпозиция вариантов с confidence) | — |
+    80→
+    81→> **Примечание:** В Металогосе нет отдельного типа `Int` — все числа являются `Float`.
+    82→> Целые числа записываются как `42.0`. Для преобразования строки в целое используйте `to_int()`.
+    83→
+    84→---
+    85→
+    86→## 3. Синтаксис
+    87→
+    88→### 3.1. Комментарии
+    89→
+    90→```mlog
+    91→// однострочный комментарий
+    92→```
+    93→
+    94→### 3.2. Переменные и привязки
+    95→
+    96→```mlog
+    97→let x = 42.0
+    98→let name = "Metalogos"
+    99→let items = [1.0, 2.0, 3.0]
+   100→let result = if x > 10.0 then "big" else "small"   // let с if-выражением
+   101→let payload = { chat_id: "123", text: "hello", urgent: true }  // struct literal
+   102→```
+   103→
+   104→### 3.3. Операторы
+   105→
+   106→| Категория | Операторы |
+   107→|-----------|-----------|
+   108→| Арифметические | `+`, `-`, `*`, `/` |
+   109→| Сравнение | `==`, `!=`, `>`, `<`, `>=`, `<=` |
+   110→| Унарный минус | `-expr` |
+   111→| Доступ к полю | `obj.field` |
+   112→| Доступ по индексу | `list[0]` |
+   113→| Вызов функции | `func(arg1, arg2)` |
+   114→| Квалифицированный вызов | `module.func(arg)` |
+   115→
+   116→### 3.4. Управляющие конструкции
+   117→
+   118→**If-else (блочная форма):**
+   119→```mlog
+   120→if x > 10.0 {
+   121→  print("big")
+   122→} else if x > 5.0 {
+   123→  print("medium")
+   124→} else {
+   125→  print("small")
+   126→}
+   127→```
+   128→
+   129→**If-then-else (выражение):**
+   130→```mlog
+   131→let label = if score >= 90.0 then "A" else "B"
+   132→```
+   133→
+   134→**Each (цикл по коллекции):**
+   135→```mlog
+   136→each item in items {
+   137→  print(item)
+   138→}
+   139→```
+   140→
+   141→**While (цикл с условием):**
+   142→```mlog
+   143→while count < 10.0 {
+   144→  let count = count + 1.0
+   145→}
+   146→```
+   147→
+   148→**Match (сопоставление с образцом):**
+   149→```mlog
+   150→match command {
+   151→  "start" then { print("starting") }
+   152→  starts_with "stop" then { print("stopping") }
+   153→  contains "help" then { print("helping") }
+   154→  > 100.0 then { print("too big") }
+   155→  else { print("unknown") }
+   156→}
+   157→```
+   158→
+   159→**Return:**
+   160→```mlog
+   161→return result
+   162→```
+   163→
+   164→### 3.5. Строковые литералы
+   165→
+   166→```mlog
+   167→let s = "hello world"
+   168→let with_escape = "line1\nline2\ttabbed"
+   169→```
+   170→
+   171→Поддерживаемые escape-последовательности: `\"`, `\\`, `\n`, `\t`, `\r`.
+   172→
+   173→### 3.6. Идентификаторы
+   174→
+   175→Идентификаторы поддерживают ASCII, `_` и кириллицу (А-я):
+   176→```mlog
+   177→let имя = "Metalogos"
+   178→let счетчик = 0.0
+   179→pattern Приветствие(кто: String) -> String { ... }
+   180→```
+   181→
+   182→---
+   183→
+   184→## 4. Встроенные функции (Builtins)
+   185→
+   186→Все встроенные функции регистрируются в `src/builtins.rs` и доступны как в tree-walking интерпретаторе, так и в VM.
+   187→
+   188→### 4.1. Строковые функции
+   189→
+   190→| Функция | Сигнатура | Возврат | Описание |
+   191→|---------|-----------|---------|----------|
+   192→| `upper(s)` | `String -> String` | String | Преобразует строку в верхний регистр |
+   193→| `lower(s)` | `String -> String` | String | Преобразует строку в нижний регистр |
+   194→| `trim(s)` | `String -> String` | String | Убирает пробелы по краям |
+   195→| `replace(s, old, new)` | `String, String, String -> String` | String | Заменяет все вхождения `old` на `new`. Unicode-aware, работает с кириллицей и эмодзи |
+   196→| `split(s, sep)` | `String, String -> List` | List | Разделяет строку по разделителю. Пустой разделитель разбивает посимвольно |
+   197→| `join(items, sep)` | `List, String -> String` | String | Объединяет элементы списка через разделитель. По умолчанию `","` |
+   198→| `index_of(s, needle)` | `String, String -> Float` | Float | Возвращает позицию (символьную, не байтовую) первого вхождения или `-1.0` |
+   199→| `substring(s, start, end)` | `String, Float, Float -> String` | String | Извлекает подстроку по символьным индексам. Soft-failure: пустая строка при out-of-bounds |
+   200→| `char_at(s, index)` | `String, Float -> String` | String | Возвращает символ по индексу. Пустая строка при out-of-bounds |
+   201→| `starts_with(s, prefix)` | `String, String -> Bool` | Bool | Проверяет, начинается ли строка с префикса |
+   202→| `ends_with(s, suffix)` | `String, String -> Bool` | Bool | Проверяет, заканчивается ли строка суффиксом |
+   203→| `contains(s, needle)` | `String, String -> Float` | Float | Возвращает `1.0` если содержит, `0.0` если нет |
+   204→| `reverse(s)` | `String -> String` | String | Разворачивает строку (посимвольно) |
+   205→| `length(s)` | `String -> Float` | Float | Длина строки в символах (Unicode-aware). Аналог `len()` |
+   206→| `len(s)` | `String\|List -> Float` | Float | Длина строки (символы) или списка (элементы) |
+   207→| `escape_html(s)` | `String -> String` | String | Экранирует HTML-спецсимволы: `& < > " '` |
+   208→| `escape_json(s)` | `String -> String` | String | Экранирует JSON-спецсимволы: `" \ \n \t \r` |
+   209→
+   210→**Примеры:**
+   211→```mlog
+   212→let s = "Привет, мир!"
+   213→upper(s)              // "ПРИВЕТ, МИР!"
+   214→lower(s)              // "привет, мир!"
+   215→trim("  hello  ")     // "hello"
+   216→replace(s, "мир", "свет")  // "Привет, свет!"
+   217→split("a,b,c", ",")   // ["a", "b", "c"]
+   218→join([1.0, 2.0], "-") // "1-2"
+   219→index_of(s, "мир")    // 8.0
+   220→substring(s, 0.0, 6.0) // "Привет"
+   221→char_at(s, 8.0)       // "м"
+   222→starts_with(s, "Прив") // true
+   223→ends_with(s, "!")      // true
+   224→contains(s, "ет")      // 1.0
+   225→reverse("abc")         // "cba"
+   226→length("Привет")       // 6.0
+   227→len([1.0, 2.0, 3.0])  // 3.0
+   228→escape_html("<script>alert('xss')</script>")
+   229→  // "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;"
+   230→escape_json("hello\"world\n")  // "hello\\\"world\\n"
+   231→```
+   232→
+   233→### 4.2. Числа и математика
+   234→
+   235→| Функция | Сигнатура | Возврат | Описание |
+   236→|---------|-----------|---------|----------|
+   237→| `abs(n)` | `Float -> Float` | Float | Абсолютное значение |
+   238→| `min(a, b)` | `Float, Float -> Float` | Float | Минимум из двух чисел |
+   239→| `max(a, b)` | `Float, Float -> Float` | Float | Максимум из двух чисел |
+   240→| `clamp(val, lo, hi)` | `Float, Float, Float -> Float` | Float | Ограничивает значение диапазоном `[lo, hi]` |
+   241→| `round(n)` | `Float -> Float` | Float | Округление до ближайшего целого |
+   242→| `to_float(s)` | `String\|Float\|Bool -> Float` | Float | Преобразует в Float. Soft-failure: `0.0` |
+   243→| `to_int(s)` | `String\|Float\|Bool -> Float` | Float | Преобразует в целое (усекает дробную часть). Soft-failure: `0.0` |
+   244→| `float(s)` | `String\|Float -> Float` | Float | Аналог `to_float()`, но с ошибкой при невалидной строке |
+   245→
+   246→**Примеры:**
+   247→```mlog
+   248→abs(-5.5)          // 5.5
+   249→min(3.0, 7.0)      // 3.0
+   250→max(3.0, 7.0)      // 7.0
+   251→clamp(15.0, 0.0, 10.0)  // 10.0
+   252→round(3.7)         // 4.0
+   253→to_float("3.14")   // 3.14
+   254→to_int("42abc")    // 0.0 (soft-failure)
+   255→to_int(3.9)        // 3.0
+   256→```
+   257→
+   258→### 4.3. Коллекции (List)
+   259→
+   260→| Функция | Сигнатура | Возврат | Описание |
+   261→|---------|-----------|---------|----------|
+   262→| `get(list, index)` | `List, Float -> Value` | Value | Получить элемент по индексу. Ошибка при out-of-bounds |
+   263→| `push(list, item)` | `List, Value -> List` | List | Добавить элемент в конец (возвращает новый список) |
+   264→| `first(list)` | `List -> Value` | Value | Первый элемент. Пустая строка если список пуст |
+   265→| `last(list)` | `List -> Value` | Value | Последний элемент. Пустая строка если список пуст |
+   266→| `len(list)` | `List -> Float` | Float | Количество элементов |
+   267→| `length(list)` | `List -> Float` | Float | Аналог `len()` |
+   268→| `reverse(list)` | `List -> List` | List | Разворачивает список |
+   269→
+   270→**Примеры:**
+   271→```mlog
+   272→let items = [10.0, 20.0, 30.0]
+   273→get(items, 1.0)        // 20.0
+   274→push(items, 40.0)      // [10.0, 20.0, 30.0, 40.0]
+   275→first(items)           // 10.0
+   276→last(items)            // 30.0
+   277→len(items)             // 3.0
+   278→reverse(items)         // [30.0, 20.0, 10.0]
+   279→```
+   280→
+   281→### 4.4. Преобразование типов
+   282→
+   283→| Функция | Сигнатура | Возврат | Описание |
+   284→|---------|-----------|---------|----------|
+   285→| `str(value)` | `Any -> String` | String | Преобразует любое значение в строку |
+   286→| `to_string(value)` | `Any -> String` | String | Аналог `str()`. Float без `.0` для целых |
+   287→| `float(value)` | `String\|Float -> Float` | Float | Преобразует в число (с ошибкой) |
+   288→| `to_float(value)` | `String\|Float\|Bool -> Float` | Float | Преобразует в число (soft-failure: 0.0) |
+   289→| `to_int(value)` | `String\|Float\|Bool -> Float` | Float | Преобразует в целое (soft-failure: 0.0) |
+   290→
+   291→### 4.5. LLM и AI
+   292→
+   293→| Функция | Сигнатура | Возврат | Описание |
+   294→|---------|-----------|---------|----------|
+   295→| `call_llm(prompt, input)` | `String, String -> String` | String | Вызывает LLM-бэкенд. По умолчанию возвращает мок: `"[MOCK: prompt \| input]"`. Реальный вызов при `METALOGOS_LLM_MOCK=false` |
+   296→| `call_claude(api_key, model, system_prompt, user_message)` | `String, String, String, String -> String` | String | Прямой вызов Anthropic Claude Messages API (v1/messages). Возвращает `content[0].text` |
+   297→| `llm_usage()` | `-> Struct` | Struct `{LlmUsage}` | Статистика использования LLM: `total_calls`, `total_tokens`, `total_errors`, `providers` (список `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
+   298→| `confidence(fluid_value)` | `Fluid -> Float` | Float | Возвращает максимальный confidence вероятностного типа. Для конкретных значений возвращает `1.0` |
+   299→
+   300→**Пример:**
+   301→```mlog
+   302→let result = call_llm("Translate to English", "Привет мир")
+   303→// По умолчанию: "[MOCK: Translate to English | Привет мир]"
+   304→
+   305→let claude_response = call_claude(env("ANTHROPIC_KEY"), "claude-sonnet-4-20250514", "You are helpful.", "Hello!")
+   306→```
+   307→
+   308→### 4.6. HTTP
+   309→
+   310→| Функция | Сигнатура | Возврат | Описание |
+   311→|---------|-----------|---------|----------|
+   312→| `http_post(url, body)` | `String, String -> String` | String | POST-запрос. Content-Type по умолчанию `application/json`. Таймаут 30с. Ошибка при статусе >= 400 |
+   313→| `http_post(url, body, content_type)` | `String, String, String -> String` | String | POST с указанным Content-Type |
+   314→| `http_post(url, body, content_type, headers)` | `String, String, String, String\|Struct -> String` | String | POST с заголовками. Если 4-й аргумент String — устанавливается `Authorization: Bearer <token>`. Если Struct — устанавливаются заголовки из полей |
+   315→| `http_get(url)` | `String -> String` | String | GET-запрос. Таймаут 30с. Ошибка при статусе >= 400 |
+   316→| `http_get(url, headers)` | `String, String\|Struct -> String` | String | GET с заголовками (Bearer token или Struct) |
+   317→| `http_post_multipart(url, fields, files)` | `String, String\|Struct, String\|List -> String` | String | Multipart POST. `fields` — JSON-строка или Struct с текстовыми полями. `files` — JSON-массив `[{name, path, mime}]` или List of Structs |
+   318→| `http_post_multipart(url, fields, files, headers)` | `String, String\|Struct, String\|List, String\|Struct -> String` | String | Multipart POST с заголовками |
+   319→
+   320→**Примеры:**
+   321→```mlog
+   322→// Простой POST
+   323→let resp = http_post("https://api.example.com/data", json_encode(payload))
+   324→
+   325→// POST с Bearer-токеном
+   326→let resp = http_post("https://api.example.com/data", body, "application/json", env("API_TOKEN"))
+   327→
+   328→// POST с кастомными заголовками
+   329→let headers = { "X-Custom": "value", "Authorization": "Bearer token123" }
+   330→let resp = http_post("https://api.example.com/data", body, "application/json", headers)
+   331→
+   332→// GET
+   333→let data = http_get("https://api.example.com/users")
+   334→let data = http_get("https://api.example.com/users", env("API_TOKEN"))
+   335→
+   336→// Multipart POST — отправка голосового в Telegram
+   337→let result = http_post_multipart(
+   338→  "https://api.telegram.org/bot" + token + "/sendVoice",
+   339→  { chat_id: chat_id },
+   340→  "[{\"name\":\"voice\",\"path\":\"/tmp/voice.ogg\",\"mime\":\"audio/ogg\"}]",
+   341→  token
+   342→)
+   343→
+   344→// Multipart POST — Whisper transcription
+   345→let result = http_post_multipart(
+   346→  "https://api.groq.com/openai/v1/audio/transcriptions",
+   347→  "{\"model\":\"whisper-large-v3\"}",
+   348→  "[{\"name\":\"file\",\"path\":\"/tmp/voice.ogg\",\"mime\":\"audio/ogg\"}]",
+   349→  env("GROQ_KEY")
+   350→)
+   351→```
+   352→
+   353→### 4.7. JSON
+   354→
+   355→| Функция | Сигнатура | Возврат | Описание |
+   356→|---------|-----------|---------|----------|
+   357→| `parse_json(text)` | `String -> Struct\|List\|String\|Float\|Bool\|Unit` | Any | Парсит JSON-строку. Объекты → Struct с `type_name: "Json"`, массивы → List, `null` → Unit |
+   358→| `json_encode(value)` | `Any -> String` | String | Сериализует значение в JSON-строку. Поддерживает String, Float, Bool, Unit→null, List→array, Struct→object |
+   359→| `json_get(obj, field_path)` | `Struct, String -> Value` | Value | Безопасный доступ к полю (возвращает Unit если нет поля). Поддерживает dot-path: `"voice.file_id"` |
+   360→| `json_get(obj, field_path, default)` | `Struct, String, Value -> Value` | Value | С дефолтным значением при отсутствии поля |
+   361→| `has_field(obj, field_path)` | `Struct, String -> Float` | Float | `1.0` если поле существует, `0.0` если нет. Поддерживает dot-path |
+   362→| `escape_json(text)` | `String -> String` | String | Экранирует спецсимволы для встраивания в JSON |
+   363→
+   364→**Примеры:**
+   365→```mlog
+   366→let data = parse_json("{\"name\": \"Alice\", \"age\": 30}")
+   367→let name = json_get(data, "name")           // "Alice"
+   368→let missing = json_get(data, "email")        // Unit
+   369→let missing = json_get(data, "email", "none") // "none"
+   370→
+   371→let nested = parse_json("{\"a\": {\"b\": 42}}")
+   372→json_get(nested, "a.b")                      // 42.0
+   373→has_field(nested, "a.b")                     // 1.0
+   374→
+   375→let encoded = json_encode({ key: "value", n: 42.0 })
+   376→// "{\"key\":\"value\",\"n\":42.0}"
+   377→```
+   378→
+   379→### 4.8. Файловый I/O
+   380→
+   381→> **Важно:** Все файловые операции песочницей ограничены рабочей директорией.
+   382→> Абсолютные пути и `..` (path traversal) отклоняются.
+   383→
+   384→| Функция | Сигнатура | Возврат | Описание |
+   385→|---------|-----------|---------|----------|
+   386→| `read_file(path)` | `String -> String` | String | Читает файл. Soft-failure: пустая строка при ошибке |
+   387→| `write_file(path, content)` | `String, String -> String` | String | Пишет файл (перезапись). Возвращает `"ok"` или `""` при ошибке |
+   388→| `append_file(path, content)` | `String, String -> String` | String | Добавляет в конец файла. Возвращает `"ok"` или `""` |
+   389→| `delete_file(path)` | `String -> String` | String | Удаляет файл. Возвращает `"ok"` или `""` |
+   390→| `file_exists(path)` | `String -> Bool` | Bool | Проверяет существование файла |
+   391→| `list_dir(path)` | `String -> List` | List | Список файлов в директории. Без аргумента — текущая директория |
+   392→
+   393→**Примеры:**
+   394→```mlog
+   395→write_file("data.txt", "hello world")  // "ok"
+   396→let content = read_file("data.txt")   // "hello world"
+   397→append_file("data.txt", "\nmore")     // "ok"
+   398→file_exists("data.txt")               // true
+   399→let files = list_dir(".")             // ["data.txt", ...]
+   400→delete_file("data.txt")               // "ok"
+   401→```
+   402→
+   403→### 4.9. Память (KV-хранилище)
+   404→
+   405→Глобальное in-memory KV-хранилище. При `memory { persist: "path.db" }` — также записывает в SQLite (write-through).
+   406→
+   407→| Функция | Сигнатура | Возврат | Описание |
+   408→|---------|-----------|---------|----------|
+   409→| `kv_set(key, value)` | `String, String -> Unit` | Unit | Записывает пару ключ-значение |
+   410→| `kv_get(key)` | `String -> String` | String | Читает значение (пустая строка если нет ключа) |
+   411→| `kv_delete(key)` | `String -> Unit` | Unit | Удаляет ключ |
+   412→| `kv_exists(key)` | `String -> Bool` | Bool | Проверяет существование ключа |
+   413→| `kv_list()` | `-> List` | List | Возвращает список всех ключей |
+   414→| `mem_set(key, value)` | `String, String -> String` | String | Аналог `kv_set`, но возвращает записанное значение |
+   415→| `mem_get(key)` | `String -> String` | String | Аналог `kv_get` |
+   416→| `mem_delete(key)` | `String -> String` | String | Аналог `kv_delete`, возвращает удалённое значение |
+   417→
+   418→### 4.10. Сессионная память
+   419→
+   420→Временное in-memory хранилище, привязанное к session_id. Не персистентно — сбрасывается при перезапуске `mlog serve`.
+   421→
+   422→| Функция | Сигнатура | Возврат | Описание |
+   423→|---------|-----------|---------|----------|
+   424→| `session_set(session_id, key, value)` | `String, String, String -> String` | String | Сохраняет значение в сессии |
+   425→| `session_get(session_id, key)` | `String, String -> String` | String | Читает значение из сессии (пустая строка если нет) |
+   426→| `session_clear(session_id)` | `String -> String` | String | Удаляет все данные сессии. Возвращает `"ok"` |
+   427→
+   428→### 4.11. Шифрование и безопасность
+   429→
+   430→| Функция | Сигнатура | Возврат | Описание |
+   431→|---------|-----------|---------|----------|
+   432→| `env(key)` | `String -> String` (→ `Secret` в entity context) | String/Secret | Читает переменную окружения. Пустая строка если не найдена |
+   433→| `generate_key()` | `-> Secret` | Secret | Генерирует 256-битный случайный ключ (64 hex-символа) |
+   434→| `encrypt(data, key)` | `String, Secret -> Encrypted` | Encrypted | Шифрует AES-256-GCM со случайным 96-бит nonce. Ключ — 64 hex-символа |
+   435→| `decrypt(encrypted, key)` | `Encrypted, Secret -> String` | String | Расшифровывает AES-256-GCM. Ошибка при неверном ключе |
+   436→| `hash_password(password)` | `String -> Hash` | Hash | Хеширует пароль (Argon2id с рандомной солью) |
+   437→| `verify_password(password, hash)` | `String, Hash -> Bool` | Bool | Проверяет пароль (constant-time сравнение) |
+   438→| `require(condition)` | `Bool -> Unit` | Unit | Runtime-assertion. Ошибка если `false` |
+   439→| `require(condition, message)` | `Bool, String -> Unit` | Unit | Assertion с сообщением об ошибке |
+   440→
+   441→**Примеры:**
+   442→```mlog
+   443→entity db_url: Secret = env("DATABASE_URL")
+   444→let key = generate_key()
+   445→let encrypted = encrypt("secret data", key)
+   446→let decrypted = decrypt(encrypted, key)  // "secret data"
+   447→
+   448→let hash = hash_password("mypassword")     // Hash (opaque)
+   449→verify_password("mypassword", hash)        // true
+   450→verify_password("wrong", hash)             // false
+   451→
+   452→require(user.role == "admin")              // паника если не admin
+   453→require(age >= 18.0, "Access denied")      // с сообщением
+   454→```
+   455→
+   456→### 4.12. Аутентификация
+   457→
+   458→> **Примечание:** В режиме `mlog run` эти функции возвращают мок-значения.
+   459→> Реальная работа только в контексте `mlog serve` (Axum-сервер).
+   460→
+   461→| Функция | Сигнатура | Возврат | Описание |
+   462→|---------|-----------|---------|----------|
+   463→| `authenticate(email, password)` | `String, Secret\|String -> Unit` | Unit | Аутентификация пользователя. В server-контексте проверяет credentials |
+   464→| `session_login(user_id)` | `String -> Session` | Session | Создаёт сессию для пользователя |
+   465→| `session_logout(session)` | `Session -> Unit` | Unit | Уничтожает сессию |
+   466→
+   467→### 4.13. HTTP-сервер (mlogserver)
+   468→
+   469→Функции для использования внутри route-обработчиков `mlogserver`/`server` блоков.
+   470→
+   471→| Функция | Сигнатура | Возврат | Описание |
+   472→|---------|-----------|---------|----------|
+   473→| `respond(status_line)` | `String -> HttpResponse` | HttpResponse | Формирует HTTP-ответ. Формат: `"200 OK"`, `"404 Not Found"` и т.д. |
+   474→| `respond_html(status, html)` | `String, String -> HttpResponse` | HttpResponse | HTML-ответ с указанным статусом |
+   475→| `form_data()` | `-> Struct {FormData}` | Struct | Парсит данные из `application/x-www-form-urlencoded` тела запроса |
+   476→| `json_body()` | `-> Struct {JsonBody}` | Struct | Парсит JSON из тела запроса |
+   477→| `query_param(name)` | `String -> String` | String | Получает query-параметр из URL |
+   478→
+   479→**Пример:**
+   480→```mlog
+   481→mlogserver {
+   482→  port: 8080
+   483→  route "/hello" method=GET {
+   484→    respond("200 OK")
+   485→  }
+   486→  route "/api/data" method=POST {
+   487→    let data = json_body()
+   488→    let name = json_get(data, "name", "unknown")
+   489→    respond_html("200", "<h1>Hello " + escape_html(name) + "</h1>")
+   490→  }
+   491→  route "/search" method=GET {
+   492→    let q = query_param("q")
+   493→    respond("200 " + q)
+   494→  }
+   495→}
+   496→```
+   497→
+   498→### 4.14. Шаблоны (Templates)
+   499→
+   500→| Функция | Сигнатура | Возврат | Описание |
+   501→|---------|-----------|---------|----------|
+   502→| `render(template_name, key1, val1, key2, val2, ...)` | `String, String, Any, ... -> Html` | Html | Рендерит шаблон с подстановкой переменных `{{ var }}`. Количество аргументов после имени шаблона должно быть чётным (пары ключ/значение) |
+   503→
+   504→**Пример:**
+   505→```mlog
+   506→template Page(title: String, body: String) -> Html {
+   507→  <html><head><title>{{ title }}</title></head><body>{{ body }}</body></html>
+   508→}
+   509→
+   510→// В route handler:
+   511→let page = render(Page, "title", "My Page", "body", "Hello!")
+   512→return page
+   513→```
+   514→
+   515→### 4.15. Базы данных
+   516→
+   517→| Функция | Сигнатура | Возврат | Описание |
+   518→|---------|-----------|---------|----------|
+   519→| `query(sql, params)` | `String, List -> Query` | Query | Создаёт параметизированный SQL-запрос (непрозрачный тип, инъекция синтаксически невозможна) |
+   520→| `db_execute(sql)` | `String -> Unit` | Unit | Выполняет SQL-запрос без возврата данных (INSERT, UPDATE, DELETE) |
+   521→
+   522→> **Безопасность:** `query()` возвращает непрозрачный тип `Query` — его нельзя напечатать,
+   523→> конкатенировать со строкой или передать как строку. SQL-инъекция невозможна на уровне типа.
+   524→
+   525→### 4.16. Боты (Telegram/Discord)
+   526→
+   527→| Функция | Сигнатура | Возврат | Описание |
+   528→|---------|-----------|---------|----------|
+   529→| `send_message(chat_id, text)` | `String\|Float, String -> Unit` | Unit | Отправляет сообщение в чат (Telegram/Discord). В interpreter mode — логирует в `[AUDIT]` |
+   530→
+   531→### 4.17. Прочее
+   532→
+   533→| Функция | Сигнатура | Возврат | Описание |
+   534→|---------|-----------|---------|----------|
+   535→| `print(s)` | `String -> String` | String | Выводит строку в stdout, возвращает её же |
+   536→| `now()` | `-> Float` | Float | Текущий Unix-timestamp в секундах |
+   537→| `str(value)` | `Any -> String` | String | Преобразует любое значение в строку |
+   538→| `to_string(value)` | `Any -> String` | String | Аналог `str()` (Float без `.0` для целых) |
+   539→| `type_of(value)` | `Any -> String` | String | Возвращает имя типа значения: `"String"`, `"Float"`, `"Bool"`, `"List"`, `"Struct"`, `"Unit"`, `"Html"`, `"Query"`, `"Secret"`, `"Encrypted"`, `"Hash"`, `"Session"`, `"Fluid"`, `"HttpResponse"` |
+   540→
+   541→**Пример `type_of` — безопасная работа с `json_get`:**
+   542→```mlog
+   543→let voice_file_id = json_get(data, "message.voice.file_id", "")
+   544→if type_of(voice_file_id) == "Unit" {
+   545→  // Нет голосового вложения
+   546→  return "text only"
+   547→}
+   548→// voice_file_id — реальное значение
+   549→```
+   550→
+   551→---
+   552→
+   553→## 4.18. Scoping: область видимости `let`
+   554→
+   555→**Важно:** `let` внутри `if`, `while`, `each` блоков создаёт **новую лексическую переменную**, видимую только внутри этого блока. Она **не затрагивает** внешнюю переменную с тем же именем.
+   556→
+   557→```mlog
+   558→let handled = 0.0
+   559→if user_id != owner_id {
+   560→  let handled = 1.0   // ← это НОВАЯ переменная, видна только здесь
+   561→}
+   562→// Внешний handled всё ещё 0.0!
+   563→```
+   564→
+   565→**Как изменить внешнюю переменную:** используйте прямое присваивание (без `let`):
+   566→```mlog
+   567→let handled = 0.0
+   568→if user_id != owner_id {
+   569→  handled = 1.0   // ← присваивание в существующую переменную
+   570→}
+   571→// Теперь handled == 1.0
+   572→```
+   573→
+   574→---
+   575→
+   576→## 5. Объявления верхнего уровня
+   577→
+   578→### 5.1. Pattern (функция)
+   579→
+   580→```mlog
+   581→pattern Name(param1: Type, param2: Type) -> ReturnType {
+   582→  // тело
+   583→  return result
+   584→}
+   585→```
+   586→
+   587→### 5.2. Learnable Pattern (AI-функция)
+   588→
+   589→```mlog
+   590→learnable pattern Classify(text: String) -> Category {
+   591→  prompt: "Classify this message. Return JSON: {category, confidence}"
+   592→  context: auto
+   593→  model: "gpt-4"
+   594→  max_tokens: 100
+   595→  cache: true
+   596→  cache_ttl: 5.0 minutes
+   597→  max_context_tokens: 4000
+   598→}
+   599→```
+   600→
+   601→Поля `context`:
+   602→- `context: recall("query", limit = 5)` — семантический поиск в памяти
+   603→- `context: auto` — автоматический выбор стратегии
+   604→- `context: none` — без контекста
+   605→- `context: "literal text"` — литеральный контекст
+   606→
+   607→### 5.3. Entity (структура данных)
+   608→
+   609→```mlog
+   610→// Определение типа
+   611→entity User {
+   612→  id: String,
+   613→  name: String,
+   614→  role: String = "viewer"    // значение по умолчанию
+   615→}
+   616→
+   617→// Экземпляр (record)
+   618→entity alice: User = { id: "1", name: "Alice", role: "admin" }
+   619→
+   620→// Простой entity (single value)
+   621→entity db_url: Secret = env("DATABASE_URL")
+   622→```
+   623→
+   624→### 5.4. Flow (пайплайн)
+   625→
+   626→```mlog
+   627→flow ProcessMessage {
+   628→  input: String = "Hello world"
+   629→  -> Normalize -> Classify -> checkpoint("classified") -> Format -> output
+   630→
+   631→  Classify {
+   632→    result.confidence > 0.8 -> HighConfidenceHandler
+   633→    result.confidence < 0.3 -> LowConfidenceHandler
+   634→  }
+   635→}
+   636→```
+   637→
+   638→### 5.5. Rule (правило)
+   639→
+   640→```mlog
+   641→rule If(status contains "error") then alert.level = "high" with priority = 10
+   642→```
+   643→
+   644→### 5.6. Server / MlogServer (HTTP-сервер)
+   645→
+   646→```mlog
+   647→server {
+   648→  port: 8080
+   649→  middleware: [session, csrf, security_headers]
+   650→
+   651→  route "/" method=GET {
+   652→    respond("200 OK")
+   653→  }
+   654→
+   655→  route "/admin" method=GET requires=[admin] {
+   656→    respond("200 Secret")
+   657→  }
+   658→}
+   659→```
+   660→
+   661→Ключевое слово `server` — синоним `mlogserver`.
+   662→
+   663→Доступные middleware: `session`, `csrf`, `security_headers`.
+   664→
+   665→### 5.7. Template (HTML-шаблон)
+   666→
+   667→```mlog
+   668→template Page(title: String, body: String) -> Html {
+   669→  <!DOCTYPE html>
+   670→  <html>
+   671→  <head><title>{{ title }}</title></head>
+   672→  <body>{{ body }}</body>
+   673→  </html>
+   674→}
+   675→```
+   676→
+   677→Тип возврата `Html` — непрозрачный, обеспечивает автоматическое экранирование XSS.
+   678→
+   679→### 5.8. Import (модули)
+   680→
+   681→```mlog
+   682→import std/string as str
+   683→import std/math
+   684→import ./my_utils
+   685→import pkg/utils as u
+   686→
+   687→// Квалифицированный вызов
+   688→str.trim("  hello  ")
+   689→math.abs(-5.0)
+   690→```
+   691→
+   692→### 5.9. Memory (память)
+   693→
+   694→```mlog
+   695→// In-memory (по умолчанию)
+   696→memory { }
+   697→
+   698→// С персистентностью в SQLite
+   699→memory { persist: "./data/memory.db" }
+   700→
+   701→// С KV-конфигурацией
+   702→memory { kv: { type: key_value, persist: true } }
+   703→```
+   704→
+   705→### 5.10. DB (база данных)
+   706→
+   707→```mlog
+   708→db {
+   709→  url: env("DATABASE_URL")
+   710→  pool_size: 10
+   711→  migrate: "./migrations"
+   712→}
+   713→```
+   714→
+   715→### 5.11. LLM (конфигурация провайдеров)
+   716→
+   717→```mlog
+   718→llm {
+   719→  providers: [
+   720→    { alias: openai, provider: openai, key: env("OPENAI_KEY") },
+   721→    { alias: claude, provider: anthropic, key: env("ANTHROPIC_KEY"), url: "https://api.anthropic.com" }
+   722→  ],
+   723→  default_model: "gpt-4",
+   724→  failover: auto,
+   725→  circuit_breaker: 3,
+   726→  timeout: 30
+   727→}
+   728→```
+   729→
+   730→### 5.12. Hook (хуки паттернов)
+   731→
+   732→```mlog
+   733→hook before_pattern { print("calling: " + pattern_name) }
+   734→hook after_pattern { print("result: " + to_string(result) + " confidence: " + to_string(confidence)) }
+   735→```
+   736→
+   737→Переменные внутри хука: `pattern_name`, `args`, `result` (только after), `confidence` (только after).
+   738→
+   739→### 5.13. Tool (абстракция инструментов)
+   740→
+   741→```mlog
+   742→tool telegram {
+   743→  send(chat_id: String, text: String) -> String {
+   744→    http_post("https://api.telegram.org/bot" + token + "/sendMessage",
+   745→      json_encode({ chat_id: chat_id, text: text }))
+   746→  }
+   747→}
+   748→```
+   749→
+   750→Вызов: `telegram.send("123", "hello")`.
+   751→
+   752→### 5.14. Eval (тестирование паттернов)
+   753→
+   754→```mlog
+   755→eval Classify {
+   756→  dataset: [
+   757→    ("Hello", "greeting"),
+   758→    ("Fix bug #123", "task"),
+   759→    ("Please help", "question")
+   760→  ],
+   761→  metric: accuracy,
+   762→  threshold: 0.8
+   763→}
+   764→```
+   765→
+   766→Запуск: `mlog eval file.mlog`.
+   767→
+   768→### 5.15. Sandbox, Mutate, Adapt, Memorize, Forget, Relate
+   769→
+   770→```mlog
+   771→// Sandbox (ограничение выполнения)
+   772→sandbox safe_executor {
+   773→  allowed: [upper, lower, trim, split],
+   774→  forbidden: [http_post, http_get, write_file],
+   775→  timeout: 5
+   776→}
+   777→
+   778→// Mutate (адаптация с откатом)
+   779→mutate Classify {
+   780→  add_example("new input", "new output")
+   781→  rollback_if: accuracy < 0.7
+   782→}
+   783→
+   784→// Adapt (добавление примера)
+   785→adapt Classify add_example("input", "output")
+   786→
+   787→// Memorize / Forget (семантическая память)
+   788→memorize "important fact" with priority = 0.9
+   789→forget "outdated fact" after 30.0 days
+   790→
+   791→// Relate (знаковый граф)
+   792→relate entity1 to entity2 as "relationship"
+   793→```
+   794→
+   795→### 5.16. Conversation (конфигурация)
+   796→
+   797→```mlog
+   798→conversation {
+   799→  ttl: 1800,
+   800→  max_messages: 50,
+   801→  compress_after: 20
+   802→}
+   803→```
+   804→
+   805→### 5.17. Fluid Types (вероятностные типы)
+   806→
+   807→```mlog
+   808→fluid x = String["answer"][0.9] or String["question"][0.1]
+   809→```
+   810→
+   811→---
+   812→
+   813→## 6. Stdlib (стандартная библиотека)
+   814→
+   815→Стандартная библиотека находится в `std/` и подключается через `import`:
+   816→
+   817→### std/string
+   818→
+   819→```mlog
+   820→import std/string as str
+   821→
+   822→str.trim(s: String) -> String       // trim whitespace
+   823→str.replace(s, old, new) -> String  // replace all occurrences
+   824→str.split(s, sep) -> List           // split by separator
+   825→str.join(items, sep) -> String      // join list into string
+   826→```
+   827→
+   828→### std/math
+   829→
+   830→```mlog
+   831→import std/math
+   832→
+   833→math.abs(n: Float) -> Float         // absolute value
+   834→math.min(a, b) -> Float             // minimum
+   835→math.max(a, b) -> Float             // maximum
+   836→math.clamp(val, lo, hi) -> Float    // clamp to range
+   837→math.round(n) -> Float              // round to nearest
+   838→```
+   839→
+   840→### std/collections
+   841→
+   842→```mlog
+   843→import std/collections
+   844→
+   845→collections.first(items: List) -> String   // first element
+   846→collections.last(items: List) -> String    // last element
+   847→collections.push(items, item) -> List      // append to list
+   848→```
+   849→
+   850→> **Примечание:** Все функции stdlib также доступны как top-level builtins (без импорта):
+   851→> `trim()`, `replace()`, `split()`, `join()`, `abs()`, `min()`, `max()`, `clamp()`, `round()`, `first()`, `last()`.
+   852→
+   853→---
+   854→
+   855→## 7. Changelog (кратко)
+   856→
+   857→| Версия | Дата | Что нового |
+   858→|--------|------|------------|
+   859→| **0.4.0** | 2025-06-03 | Phase 6: HTTP-сервер, шаблоны, БД, шифрование, auth, CSRF, bot integration, 40+ builtins |
+   860→| **0.3.0** | — | Phase 5: let/if, each/while, List literals, строковые операции, модули, REPL |
+   861→| **0.2.0** | — | Phases 1-4: fluid types, knowledge graph, vector recall, CLI, codegen |
+   862→| **0.1.0** | — | M1-M5: entity, rule, learnable pattern, semantic memory, sandbox, adapt |
+   863→
+   864→Полный CHANGELOG см. в файле [`CHANGELOG.md`](CHANGELOG.md).
+   865→Архитектурные решения см. в [`docs/adr/`](docs/adr/).

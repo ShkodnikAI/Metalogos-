@@ -1198,31 +1198,26 @@ impl Vm {
         }
 
         // ── VM bytecode path ───────────────────────────
-                // Collapse Fluid arguments to parameter types
-                let collapsed_args: Vec<Value> = args.iter()
-                    .zip(pattern.param_types.iter())
-                    .map(|(arg, param_type)| self.maybe_collapse(arg, param_type))
-                    .collect();
-                // Execute pattern body as bytecode
-                let mut stack: Vec<Value> = Vec::new();
-                let mut call_stack: Vec<CallFrame> = Vec::new();
-                let program = Program {
-                    globals: Vec::new(),
-                    patterns: Vec::new(),
-                    learnables: Vec::new(),
-                    rules: Vec::new(),
-                    main_code: Vec::new(),
-                    collections_loaded: false,
-                };
-                for arg in collapsed_args {
-                    stack.push(arg);
-                }
-                return self.execute_code(&pattern.code, &mut stack, &mut call_stack, &program);
-            }
+        // Collapse Fluid arguments to parameter types
+        let collapsed_args: Vec<Value> = args.iter()
+            .zip(pattern.param_types.iter())
+            .map(|(arg, param_type)| self.maybe_collapse(arg, param_type))
+            .collect();
+        // Execute pattern body as bytecode
+        let mut stack: Vec<Value> = Vec::new();
+        let mut call_stack: Vec<CallFrame> = Vec::new();
+        let program = Program {
+            globals: Vec::new(),
+            patterns: Vec::new(),
+            learnables: Vec::new(),
+            rules: Vec::new(),
+            main_code: Vec::new(),
+            collections_loaded: false,
+        };
+        for arg in collapsed_args {
+            stack.push(arg);
         }
-
-        // Check builtins
-        self.call_builtin(name, &args)
+        self.execute_code(&pattern.code, &mut stack, &mut call_stack, &program)
     }
 
     /// Execute all registered rules (already sorted by priority descending).

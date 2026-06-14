@@ -530,8 +530,12 @@ impl Compiler {
                 code.push(Instruction::IndexAccess);
             }
             Expr::StructLit(fields) => {
-                let field_names: Vec<String> = fields.keys().cloned().collect();
-                for (_, val_expr) in fields {
+                // Single iteration ensures field_names and compiled values
+                // stay in the same order (HashMap iteration is consistent
+                // within a process but we collect once to be explicit).
+                let items: Vec<(String, &Expr)> = fields.iter().collect();
+                let field_names: Vec<String> = items.iter().map(|(k, _)| k.clone()).collect();
+                for (_, val_expr) in &items {
                     self.compile_expr_with_locals(val_expr, code, locals)?;
                 }
                 code.push(Instruction::MakeStruct("Struct".to_string(), field_names));

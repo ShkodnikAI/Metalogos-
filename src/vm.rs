@@ -56,7 +56,9 @@ const COLLAPSE_THRESHOLD: f64 = 0.1;
 impl Vm {
     /// Create a new VM with empty state.
     pub fn new() -> Self {
+        // Наряд №18: full builtin name list — must match compiler builtin_indices order
         let builtin_names = vec![
+            // String operations
             "upper".to_string(),        // 0
             "lower".to_string(),        // 1
             "len".to_string(),          // 2
@@ -64,25 +66,124 @@ impl Vm {
             "print".to_string(),        // 4
             "contains".to_string(),     // 5
             "float".to_string(),        // 6
-            "__trim".to_string(),       // 7
-            "__replace".to_string(),    // 8
-            "__split".to_string(),      // 9
-            "__join".to_string(),       // 10
-            "__abs".to_string(),        // 11
-            "__min".to_string(),        // 12
-            "__max".to_string(),        // 13
-            "__clamp".to_string(),      // 14
-            "__round".to_string(),      // 15
-            "__first".to_string(),      // 16
-            "__last".to_string(),       // 17
-            "__push".to_string(),       // 18
-            "__list_len".to_string(),   // 19
-            "recall".to_string(),       // 20
-            "stdin".to_string(),        // 21
-            "split_tokens".to_string(), // 22
-            "if_eq".to_string(),        // 23
-            "newline".to_string(),      // 24
-            "is_string_token".to_string(), // 25
+            "to_string".to_string(),    // 7
+            "get".to_string(),          // 8
+            "push".to_string(),         // 9
+            // Environment
+            "env".to_string(),          // 10
+            // String operations Phase 5.3
+            "index_of".to_string(),     // 11
+            "substring".to_string(),    // 12
+            "char_at".to_string(),      // 13
+            "starts_with".to_string(),  // 14
+            "ends_with".to_string(),    // 15
+            "to_float".to_string(),     // 16
+            // Fluid
+            "confidence".to_string(),   // 17
+            // Internal string/math ops
+            "__trim".to_string(),       // 18
+            "__replace".to_string(),    // 19
+            "__split".to_string(),      // 20
+            "__join".to_string(),       // 21
+            "__abs".to_string(),        // 22
+            "__min".to_string(),        // 23
+            "__max".to_string(),        // 24
+            "__clamp".to_string(),      // 25
+            "__round".to_string(),      // 26
+            "__first".to_string(),      // 27
+            "__last".to_string(),       // 28
+            // Phase 6: Web
+            "respond".to_string(),      // 29
+            "respond_html".to_string(), // 30
+            "form_data".to_string(),    // 31
+            "json_body".to_string(),    // 32
+            "query_param".to_string(),  // 33
+            "render".to_string(),       // 34
+            "escape_html".to_string(),  // 35
+            // Phase 6.3: DB
+            "query".to_string(),        // 36
+            "db_execute".to_string(),   // 37
+            // Phase 6.4: Crypto
+            "hash_password".to_string(),  // 38
+            "verify_password".to_string(), // 39
+            "encrypt".to_string(),      // 40
+            "decrypt".to_string(),      // 41
+            "generate_key".to_string(), // 42
+            // Phase 6.5: Auth/Session
+            "authenticate".to_string(),   // 43
+            "session_login".to_string(),  // 44
+            "session_logout".to_string(), // 45
+            // Phase 6: Messaging
+            "send_message".to_string(),  // 46
+            "require".to_string(),       // 47
+            // HTTP
+            "http_post".to_string(),    // 48
+            "http_get".to_string(),     // 49
+            // Public string/math ops
+            "trim".to_string(),         // 50
+            "replace".to_string(),      // 51
+            "split".to_string(),        // 52
+            "join".to_string(),         // 53
+            "length".to_string(),       // 54
+            "to_int".to_string(),       // 55
+            "reverse".to_string(),      // 56
+            // LLM
+            "call_llm".to_string(),     // 57
+            // KV store
+            "kv_set".to_string(),       // 58
+            "kv_get".to_string(),       // 59
+            "kv_delete".to_string(),    // 60
+            "kv_exists".to_string(),    // 61
+            "kv_list".to_string(),      // 62
+            // Memory
+            "mem_set".to_string(),      // 63
+            "mem_get".to_string(),      // 64
+            "mem_delete".to_string(),   // 65
+            // File I/O
+            "read_file".to_string(),    // 66
+            "write_file".to_string(),   // 67
+            "append_file".to_string(),  // 68
+            "delete_file".to_string(),  // 69
+            "file_exists".to_string(),  // 70
+            "list_dir".to_string(),     // 71
+            // AI providers
+            "call_claude".to_string(),  // 72
+            // LLM usage
+            "llm_usage".to_string(),    // 73
+            // JSON
+            "escape_json".to_string(),  // 74
+            "parse_json".to_string(),   // 75
+            "json_encode".to_string(),  // 76
+            "json_get".to_string(),     // 77
+            "has_field".to_string(),    // 78
+            // Time
+            "now".to_string(),          // 79
+            // Session
+            "session_set".to_string(),  // 80
+            "session_get".to_string(),  // 81
+            "session_clear".to_string(), // 82
+            // HTTP extras
+            "http_post_multipart".to_string(), // 83
+            // Media
+            "whisper_transcribe".to_string(), // 84
+            "tts_send".to_string(),     // 85
+            // Encoding
+            "base64_encode".to_string(), // 86
+            "base64_decode".to_string(), // 87
+            // System
+            "exec".to_string(),         // 88
+            "escape_js".to_string(),    // 89
+            // Misc
+            "dict_get".to_string(),     // 90
+            "type_of".to_string(),      // 91
+            // Memory (recall)
+            "recall".to_string(),       // 92
+            // Phase 4.4 self-hosting
+            "stdin".to_string(),        // 93
+            "split_tokens".to_string(), // 94
+            "if_eq".to_string(),        // 95
+            "newline".to_string(),      // 96
+            "is_string_token".to_string(), // 97
         ];
 
         Vm {
@@ -370,6 +471,31 @@ impl Vm {
                         _ => Value::Unit,
                     };
                     stack.push(result);
+                    ip += 1;
+                }
+
+                // ── List Operations (Наряд №18) ───────────────
+                Instruction::MakeList(n) => {
+                    let mut items: Vec<Value> = Vec::with_capacity(*n);
+                    for _ in 0..*n {
+                        items.push(stack.pop().unwrap_or(Value::Unit));
+                    }
+                    items.reverse(); // Restore original order
+                    stack.push(Value::List(items));
+                    ip += 1;
+                }
+                Instruction::ListLen => {
+                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let len = match &val {
+                        Value::List(items) => items.len() as f64,
+                        Value::String(s) => s.len() as f64,
+                        _ => 0.0,
+                    };
+                    stack.push(Value::Float(len));
+                    ip += 1;
+                }
+                Instruction::Pop => {
+                    stack.pop();
                     ip += 1;
                 }
 

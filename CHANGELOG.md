@@ -2,6 +2,22 @@
 
 All notable changes to the Metalogos project.
 
+## [0.7.8] — 2026-06-15
+
+**Наряд №17 closure: BlockIfElse expression in bytecode compiler, format() arity fix.**
+
+### Bytecode compiler
+
+- **`Expr::BlockIfElse` full bytecode compilation** — `if cond { ... } else { ... }` as expression now compiles to a proper conditional jump chain with result slot, instead of emitting `Const(Unit)` placeholder (Наряд 17 Б.1)
+- New `compile_body_expr` method — compiles statement blocks in expression context, storing the last expression's value into a result local slot
+- `format()` arity corrected from `-1` (variadic) to `1` (template-only) in semantic arity checks
+
+### Bug fixes
+
+- Block if/else expression in VM path no longer silently returns `Unit`; the value of the last expression in the matched branch is correctly propagated to the stack
+
+---
+
 ## [0.7.7] — 2026-06-14
 
 **Phase 7.7: Break/Continue, Match arms, compiler full-coverage, security constraints.**

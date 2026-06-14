@@ -494,6 +494,8 @@ pub enum Statement {
     LetBinding { name: String, value: Expr, mutable: bool },
     Assign { name: String, value: Expr },
     Each { variable: String, iterable: Expr, body: Vec<Statement> },
+    /// `each i, item in list { ... }` — iteration with index (Наряд №17.3)
+    EachWithIndex { index_var: String, item_var: String, iterable: Expr, body: Vec<Statement> },
     While { condition: Expr, body: Vec<Statement> },
     /// Block-style if: `if expr { stmts } else if expr { stmts } else { stmts }` (v0.5.0)
     IfElseBlock {
@@ -515,6 +517,10 @@ pub enum Statement {
         arms: Vec<MatchArm>,
         else_body: Option<Vec<Statement>>,
     },
+    /// Break: exit the innermost each/while loop (Наряд №17)
+    Break,
+    /// Continue: skip to the next iteration of the innermost each/while loop (Наряд №17)
+    Continue,
 }
 
 /// A single match arm: pattern + body.

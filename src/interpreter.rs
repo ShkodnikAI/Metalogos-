@@ -588,6 +588,36 @@ pub struct Interpreter {
     smart_router: std::sync::Arc<std::sync::Mutex<Option<llm::SmartRouter>>>,
 }
 
+/// Control flow signal for loop constructs (Наряд №17).
+/// Break/Continue propagate through eval_statements without being confused
+/// with Return values. The interpreter uses Result<ControlFlow, String>
+/// internally for loop bodies, then converts back to Result<Value, String>
+/// at the public eval_statements boundary.
+#[derive(Debug, Clone)]
+pub(crate) enum ControlFlow {
+    /// Normal execution, optionally carrying a value (like implicit return).
+    ContinueNormal(Value),
+    /// `break` — exit the innermost loop.
+    Break,
+    /// `continue` — skip to next iteration of the innermost loop.
+    ContinueLoop,
+    /// `return expr` — early return from a pattern/function.
+    Return(Value),
+}
+
+impl ControlFlow {
+    fn is_break(&self) -> bool { matches!(self, ControlFlow::Break) }
+    fn is_continue(&self) -> bool { matches!(self, ControlFlow::ContinueLoop) }
+    fn is_return(&self) -> bool { matches!(self, ControlFlow::Return(_)) }
+    /// Extract the inner value if this is ContinueNormal or Return.
+    fn into_value(self) -> Value {
+        match self {
+            ControlFlow::ContinueNormal(v) | ControlFlow::Return(v) => v,
+            ControlFlow::Break | ControlFlow::ContinueLoop => Value::Unit,
+        }
+    }
+}
+
 impl Interpreter {
     pub fn new() -> Self {
         Interpreter {
@@ -3021,6 +3051,24 @@ impl Interpreter {
         stmts: &[Statement],
         env: &mut HashMap<String, Value>,
     ) -> Result<Value, String> {
+        match self.eval_statements_cf(stmts, env)? {
+            ControlFlow::ContinueNormal(v) => Ok(v),
+            ControlFlow::Return(v) => Ok(v),
+            ControlFlow::Break | ControlFlow::ContinueLoop => {
+                // break/continue at top level (not inside a loop) is an error
+                Err("break/continue used outside of a loop".to_string())
+            }
+        }
+    }
+
+    /// Internal statement evaluator that returns ControlFlow signals.
+    /// This allows break/continue to propagate through nested if/match blocks
+    /// up to the nearest each/while loop without being swallowed.
+    fn eval_statements_cf(
+        &self,
+        stmts: &[Statement],
+        env: &mut HashMap<String, Value>,
+    ) -> Result<ControlFlow, String> {
         // Phase 7.5: Determine iteration limit based on active sandbox
         let iter_limit = if self.active_sandbox.is_some() {
             Self::SANDBOX_ITER_LIMIT
@@ -3029,14 +3077,27 @@ impl Interpreter {
         };
 
         // Наряд №13: Track the last non-Unit expression value for implicit return.
-        // When a pattern body ends with a bare expression (no explicit `return`),
-        // that expression's value becomes the pattern's return value.
-        // This allows: pattern Foo(x: String) -> String { x } instead of
-        // pattern Foo(x: String) -> String { return x }
         let mut last_expr_value = Value::Unit;
 
         // Наряд №14: Track which variables are declared as `let mut`
         let mut mutable_vars: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        /// Helper: evaluate a sub-block and propagate ControlFlow signals.
+        /// Returns Ok(Some(cf)) if the block produced a signal (break/continue/return).
+        /// Returns Ok(None) if the block completed normally.
+        macro_rules! eval_block {
+            ($stmts:expr, $env:expr) => {{
+                let cf = self.eval_statements_cf($stmts, $env)?;
+                if cf.is_break() || cf.is_continue() || cf.is_return() {
+                    return Ok(cf);
+                }
+                // Extract the implicit return value
+                let v = cf.into_value();
+                if !matches!(v, Value::Unit) {
+                    last_expr_value = v;
+                }
+            }};
+        }
 
         for stmt in stmts {
             match stmt {
@@ -3048,7 +3109,6 @@ impl Interpreter {
                     env.insert(name.clone(), val);
                 }
                 Statement::Assign { name, value } => {
-                    // Наряд №14: Only allow assignment to `let mut` variables
                     if !mutable_vars.contains(name) {
                         return Err(format!("cannot assign to immutable variable: {} (use 'let mut {}' to make it mutable)", name, name));
                     }
@@ -3059,12 +3119,8 @@ impl Interpreter {
                     let iter_val = self.eval_expr_with_env(iterable, env)?;
                     let items = match iter_val {
                         Value::List(items) => items,
-                        other => return Err(format!(
-                            "each: expected List, got {}",
-                            other.type_name()
-                        )),
+                        other => return Err(format!("each: expected List, got {}", other.type_name())),
                     };
-                    // Phase 7.5: Enforce sandbox iteration limit for each loops
                     if self.active_sandbox.is_some() && (items.len() as u64) > iter_limit {
                         return Err(format!(
                             "iteration limit exceeded in sandbox: each loop has {} items (limit {})",
@@ -3072,7 +3128,6 @@ impl Interpreter {
                         ));
                     }
                     for (idx, item) in items.into_iter().enumerate() {
-                        // Phase 7.5: Check sandbox iteration limit during each
                         if self.active_sandbox.is_some() && (idx as u64) >= iter_limit {
                             return Err(format!(
                                 "iteration limit exceeded in sandbox: each loop exceeded {} iterations",
@@ -3080,17 +3135,57 @@ impl Interpreter {
                             ));
                         }
                         env.insert(variable.clone(), item);
-                        let result = self.eval_statements(body, env)?;
-                        // If body returned a non-Unit value, propagate as early return
-                        if !matches!(result, Value::Unit) {
-                            return Ok(result);
+                        let cf = self.eval_statements_cf(body, env)?;
+                        match cf {
+                            ControlFlow::Break => return Ok(ControlFlow::Break),
+                            ControlFlow::ContinueLoop => continue, // skip to next iteration
+                            ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
+                            ControlFlow::ContinueNormal(v) => {
+                                if !matches!(v, Value::Unit) {
+                                    return Ok(ControlFlow::Return(v));
+                                }
+                            }
+                        }
+                    }
+                }
+                // Наряд №17.3: each i, item in list { ... }
+                Statement::EachWithIndex { index_var, item_var, iterable, body } => {
+                    let iter_val = self.eval_expr_with_env(iterable, env)?;
+                    let items = match iter_val {
+                        Value::List(items) => items,
+                        other => return Err(format!("each: expected List, got {}", other.type_name())),
+                    };
+                    if self.active_sandbox.is_some() && (items.len() as u64) > iter_limit {
+                        return Err(format!(
+                            "iteration limit exceeded in sandbox: each loop has {} items (limit {})",
+                            items.len(), iter_limit
+                        ));
+                    }
+                    for (idx, item) in items.into_iter().enumerate() {
+                        if self.active_sandbox.is_some() && (idx as u64) >= iter_limit {
+                            return Err(format!(
+                                "iteration limit exceeded in sandbox: each loop exceeded {} iterations",
+                                iter_limit
+                            ));
+                        }
+                        env.insert(index_var.clone(), Value::Float(idx as f64));
+                        env.insert(item_var.clone(), item);
+                        let cf = self.eval_statements_cf(body, env)?;
+                        match cf {
+                            ControlFlow::Break => return Ok(ControlFlow::Break),
+                            ControlFlow::ContinueLoop => continue,
+                            ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
+                            ControlFlow::ContinueNormal(v) => {
+                                if !matches!(v, Value::Unit) {
+                                    return Ok(ControlFlow::Return(v));
+                                }
+                            }
                         }
                     }
                 }
                 Statement::While { condition, body } => {
                     let mut iterations: u64 = 0;
                     loop {
-                        // Phase 7.5: Use sandbox-aware iteration limit
                         if iterations >= iter_limit {
                             if self.active_sandbox.is_some() {
                                 return Err(format!(
@@ -3108,10 +3203,16 @@ impl Interpreter {
                         if !cond_val.as_bool()? {
                             break;
                         }
-                        let result = self.eval_statements(body, env)?;
-                        // If body returned a non-Unit value, propagate as early return
-                        if !matches!(result, Value::Unit) {
-                            return Ok(result);
+                        let cf = self.eval_statements_cf(body, env)?;
+                        match cf {
+                            ControlFlow::Break => break,
+                            ControlFlow::ContinueLoop => { iterations += 1; continue; }
+                            ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
+                            ControlFlow::ContinueNormal(v) => {
+                                if !matches!(v, Value::Unit) {
+                                    return Ok(ControlFlow::Return(v));
+                                }
+                            }
                         }
                         iterations += 1;
                     }
@@ -3119,44 +3220,34 @@ impl Interpreter {
                 Statement::IfElseBlock { condition, then_body, else_ifs, else_body } => {
                     let cond_val = self.eval_expr_with_env(condition, env)?;
                     if cond_val.as_bool()? {
-                        let result = self.eval_statements(then_body, env)?;
-                        if !matches!(result, Value::Unit) {
-                            return Ok(result);
-                        }
+                        eval_block!(then_body, env);
                     } else {
                         let mut matched = false;
                         for (ei_cond, ei_body) in else_ifs {
                             let ei_val = self.eval_expr_with_env(ei_cond, env)?;
                             if ei_val.as_bool()? {
-                                let result = self.eval_statements(ei_body, env)?;
-                                if !matches!(result, Value::Unit) {
-                                    return Ok(result);
-                                }
+                                eval_block!(ei_body, env);
                                 matched = true;
                                 break;
                             }
                         }
                         if !matched {
                             if let Some(eb) = else_body {
-                                let result = self.eval_statements(eb, env)?;
-                                if !matches!(result, Value::Unit) {
-                                    return Ok(result);
-                                }
+                                eval_block!(eb, env);
                             }
                         }
                     }
                 }
-                Statement::Return(expr) => return self.eval_expr_with_env(expr, env),
+                Statement::Return(expr) => {
+                    let val = self.eval_expr_with_env(expr, env)?;
+                    return Ok(ControlFlow::Return(val));
+                }
                 Statement::IfThen(cond, body) => {
                     let cond_val = self.eval_expr_with_env(cond, env)?;
                     if cond_val.as_bool()? {
-                        let result = self.eval_statements(body, env)?;
-                        if !matches!(result, Value::Unit) {
-                            return Ok(result);
-                        }
+                        eval_block!(body, env);
                     }
                 }
-                // Наряд №14: match statement — dispatch by string/value patterns
                 Statement::Match { scrutinee, ref arms, ref else_body } => {
                     let scrutinee_val = self.eval_expr_with_env(scrutinee, env)?;
                     let scrutinee_str = format!("{}", scrutinee_val);
@@ -3182,24 +3273,20 @@ impl Interpreter {
                                 MatchArm::Contains(_, b) => b,
                                 MatchArm::Compare(_, _, b) => b,
                             };
-                            let result = self.eval_statements(body, env)?;
-                            if !matches!(result, Value::Unit) {
-                                return Ok(result);
-                            }
+                            eval_block!(body, env);
                             break;
                         }
                     }
                     if !matched {
                         if let Some(eb) = else_body {
-                            let result = self.eval_statements(eb, env)?;
-                            if !matches!(result, Value::Unit) {
-                                return Ok(result);
-                            }
+                            eval_block!(eb, env);
                         }
                     }
                 }
-                // Bare expression statement: evaluate for side effects.
-                // Наряд №13: Track last expression value for implicit return.
+                // Наряд №17: break statement
+                Statement::Break => return Ok(ControlFlow::Break),
+                // Наряд №17: continue statement
+                Statement::Continue => return Ok(ControlFlow::ContinueLoop),
                 Statement::ExprStmt(expr) => {
                     let val = self.eval_expr_with_env(expr, env)?;
                     if !matches!(val, Value::Unit) {
@@ -3208,10 +3295,7 @@ impl Interpreter {
                 }
             }
         }
-        // Наряд №13: Implicit return — if the last statement was a non-Unit
-        // expression, return it as the pattern's result. This eliminates the
-        // need for explicit `return` in simple patterns.
-        Ok(last_expr_value)
+        Ok(ControlFlow::ContinueNormal(last_expr_value))
     }
 
     pub fn eval_expr(&self, expr: &Expr) -> Result<Value, String> {

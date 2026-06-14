@@ -70,3 +70,63 @@ Stage Summary:
 - Match StartsWith arms deferred (no StartsWith instruction) — falls through to next arm
 - Builtin index alignment: compiler builtin_indices and VM builtin_names now have 98 entries in identical order
 - CI build triggered by push to main
+
+---
+Task ID: 19-22
+Agent: main
+Task: Наряды №19–22 — Ограничения (opaque types, variable/arity checking, compiler fixes, VM completion)
+
+Work Log:
+- Наряд №19: Opaque type constraints in semantic.rs
+  - Built entity_type_map (name → declared type) for type tracking
+  - Defined OPAQUE_RESTRICTED list: print, to_string, upper, lower, trim, replace, split, contains, starts_with, ends_with, index_of, substring reject opaque args
+  - Implemented check_opaque_in_expr: walks all Expr variants, checks FnCall/QualifiedCall args against OPAQUE_RESTRICTED
+  - Implemented BinaryOp::Add check: forbids concatenation when either side is opaque-typed entity
+  - expr_refers_to_opaque: checks Ident against entity_type_map for opaque types
+  - Field access on opaque types explicitly allowed (e.g., session.role)
+  - 4 semantic tests: print(Secret), to_string(Secret), concat with Html, field access allowed
+
+- Наряд №20: Variable scope + arity checking in semantic.rs
+  - Built builtin_arity table: 60+ builtins with exact argument counts
+  - Built pattern_arity map from declarations
+  - Implemented collect_let_bindings: walks all statement types, collects variable names into scope
+  - Implemented check_variables_in_expr: checks Ident against scope ∪ entity_names ∪ builtin_names
+  - FnCall: arity check against builtin_arity and pattern_arity; "undefined function" if not in either
+  - QualifiedCall: same arity + existence checks on function part
+  - Statement::Assign: checks target exists in scope or entity_names
+  - Proper scope nesting: each/while/if-else/match create child scopes
+  - 8 semantic tests: undefined var, let in scope, arity mismatch (builtin+pattern), undefined function, assign undefined, each var scoped, correct arity
+
+- Наряд №21: Fix compiler silent drops
+  - Added Instruction::StartsWith to bytecode.rs
+  - Added ConditionOp::Ne to bytecode.rs (was completely missing)
+  - Fixed MatchArm::StartsWith compilation: now emits LoadLocal + Const + StartsWith + JumpIfNot + body + Jump
+  - Fixed 3 places where CompareOp::Ne fell back to ConditionOp::Eq:
+    1. compile_rule (rule conditions)
+    2. Mutate rollback_op mapping
+    3. Flow branch condition op mapping
+  - Added StartsWith handler in VM main loop
+  - Added StartsWith handler in VM execute_code (pattern body loop)
+  - Added ConditionOp::Ne handling in VM:
+    1. eval_branch_condition (flow branches)
+    2. eval_rule_condition (rule engine)
+    3. Mutate rollback evaluation
+
+- Наряд №22: Complete VM pattern body loop
+  - Added 9 instruction handlers to execute_code:
+    StoreGlobal, MakeStruct, IndexAccess, MakeList, ListLen, Pop, Contains, StartsWith, Halt
+  - Pattern bodies can now use list operations, struct construction, field access, index access
+  - Made execute_code pub for integration testing
+  - 13 integration tests in tests/phase19_22_constraints.rs
+
+- Committed as 41fe235 (submodule, rebased onto origin/main), ba39188 (parent)
+- All pushed to origin/main
+
+Stage Summary:
+- Produced artifacts: commit 41fe235 (submodule), ba39188 (parent)
+- semantic.rs grew from 504 to 1370 lines (opaque constraints + variable/arity checking)
+- bytecode.rs: +StartsWith instruction, +ConditionOp::Ne
+- compiler.rs: StartsWith match arm compiled (was silently dropped), Ne no longer falls back to Eq
+- vm.rs: execute_code expanded from ~30 to ~100 handled instructions
+- Total: 25 new tests (11 unit in semantic.rs + 14 integration in phase19_22_constraints.rs)
+- CI build triggered by push to main

@@ -1,0 +1,483 @@
+    80→   118→
+    81→   119→        Ok(program)
+    82→   120→    }
+    83→   121→
+    84→   122→    /// Pass 1: collect type info, register patterns, assign global slots.
+    85→   123→    fn pass1(&mut self, decls: &[Declaration]) -> Result<(), String> {
+    86→   124→        for decl in decls {
+    87→   125→            match decl {
+    88→   126→                Declaration::EntityType(e) => {
+    89→   127→                    let fields: Vec<String> = e.fields.iter().map(|f| f.name.clone()).collect();
+    90→   128→                    self.struct_fields.insert(e.name.clone(), fields);
+    91→   129→                }
+    92→   130→                Declaration::EntityRecord(e) => {
+    93→   131→                    self.ensure_global(&e.name);
+    94→   132→                }
+    95→   133→                Declaration::EntitySimple(e) => {
+    96→   134→                    self.ensure_global(&e.name);
+    97→   135→                }
+    98→   136→                Declaration::Pattern(p) => {
+    99→   137→                    let idx = self.pattern_indices.len();
+   100→   138→                    self.pattern_indices.insert(p.name.clone(), idx);
+   101→   139→                }
+   102→   140→                Declaration::LearnablePattern(lp) => {
+   103→   141→                    let idx = self.learnable_indices.len();
+   104→   142→                    self.learnable_indices.insert(lp.name.clone(), idx);
+   105→   143→                }
+   106→   144→                Declaration::Fluid(fl) => {
+   107→   145→                    self.ensure_global(&fl.name);
+   108→   146→                }
+   109→   147→                Declaration::Rule(r) => {
+   110→   148→                    self.rules.push(self.compile_rule(r)?);
+   111→   149→                }
+   112→   150→                Declaration::Memorize(_) => {
+   113→   151→                    // Handled in pass2
+   114→   152→                }
+   115→   153→                Declaration::Sandbox(s) => {
+   116→   154→                    self.sandboxes.insert(s.name.clone(), s.clone());
+   117→   155→                }
+   118→   156→                Declaration::Adapt(_) | Declaration::Relate(_) | Declaration::Mutate(_) | Declaration::Forget(_) => {
+   119→   157→                    // Handled in pass2
+   120→   158→                }
+   121→   159→                Declaration::MlogServer(_) | Declaration::Template(_) | Declaration::Db(_) | Declaration::Memory(_) | Declaration::Conversation(_) | Declaration::Tool(_) | Declaration::LlmConfig(_) => {
+   122→   160→                    // Phase 6: handled elsewhere
+   123→   161→                }
+   124→   162→                _ => {}
+   125→   163→            }
+   126→   164→        }
+   127→   165→        Ok(())
+   128→   166→    }
+   129→   167→
+   130→   168→    /// Pass 2: generate main_code instructions.
+   131→   169→    fn pass2(&mut self, decls: &[Declaration]) -> Result<Vec<Instruction>, String> {
+   132→   170→        let mut code = Vec::new();
+   133→   171→
+   134→   172→        for decl in decls {
+   135→   173→            match decl {
+   136→   174→                Declaration::EntityType(e) => {
+   137→   175→                    // Struct type already registered in pass1. No runtime instruction needed.
+   138→   176→                    // (The VM will need to know about struct types for MakeStruct.)
+   139→   177→                    // We emit a special marker or nothing — the VM handles this via metadata.
+   140→   178→                    let _ = e;
+   141→   179→                }
+   142→   180→                Declaration::EntityRecord(e) => {
+   143→   181→                    // Evaluate each field initializer, create struct, store globally
+   144→   182→                    let field_names = self.struct_fields.get(&e.type_name)
+   145→   183→                        .ok_or_else(|| format!("compile: unknown struct type: {}", e.type_name))?;
+   146→   184→
+   147→   185→                    // Push field values in field order
+   148→   186→                    for fd_name in field_names {
+   149→   187→                        // Find initializer for this field
+   150→   188→                        let init = e.fields.iter().find(|fi| fi.name == *fd_name);
+   151→   189→                        match init {
+   152→   190→                            Some(fi) => self.compile_expr(&fi.value, &mut code)?,
+   153→   191→                            None => code.push(Instruction::Const(Value::Unit)),
+   154→   192→                        }
+   155→   193→                    }
+   156→   194→
+   157→   195→                    let slot = self.global_slots[&e.name];
+   158→   196→                    code.push(Instruction::MakeStruct(e.type_name.clone(), field_names.clone()));
+   159→   197→                    code.push(Instruction::StoreGlobal(slot));
+   160→   198→                }
+   161→   199→                Declaration::EntitySimple(e) => {
+   162→   200→                    self.compile_expr(&e.value, &mut code)?;
+   163→   201→                    let slot = self.global_slots[&e.name];
+   164→   202→                    code.push(Instruction::StoreGlobal(slot));
+   165→   203→                }
+   166→   204→                Declaration::Pattern(p) => {
+   167→   205→                    // Compile pattern body with parameter names as locals
+   168→   206→                    let mut locals: HashMap<String, usize> = p.params.iter()
+   169→   207→                        .enumerate()
+   170→   208→                        .map(|(i, param)| (param.name.clone(), i))
+   171→   209→                        .collect();
+   172→   210→                    let fn_code = self.compile_pattern_body_with_locals(&p.body, &mut locals)?;
+   173→   211→                    let is_pure = Self::analyze_purity(&fn_code, &p.params);
+   174→   212→                    let compiled = CompiledFn {
+   175→   213→                        name: p.name.clone(),
+   176→   214→                        param_count: p.params.len(),
+   177→   215→                        param_types: p.params.iter().map(|param| param.type_name.clone()).collect(),
+   178→   216→                        code: fn_code,
+   179→   217→                        is_pure,
+   180→   218→                    };
+   181→   219→                    // We'll add this to the program's patterns list
+   182→   220→                    // For now, store in a side-channel; we'll fix this below.
+   183→   221→                    // Actually, let's store directly. The problem is that we're building
+   184→   222→                    // the program in compile(), not here. Let's use a different approach.
+   185→   223→                    // We'll add a pseudo-instruction to register the pattern.
+   186→   224→                    code.push(Instruction::RegisterPattern(compiled));
+   187→   225→                }
+   188→   226→                Declaration::LearnablePattern(lp) => {
+   189→   227→                    code.push(Instruction::RegisterLearnable(CompiledLearnableInfo {
+   190→   228→                        name: lp.name.clone(),
+   191→   229→                        param_count: lp.params.len(),
+   192→   230→                        prompt: lp.prompt.clone(),
+   193→   231→                        few_shot: Vec::new(),
+   194→   232→                    }));
+   195→   233→                }
+   196→   234→                Declaration::Rule(_) => {
+   197→   235→                    // Rules are already compiled. Emit ExecuteRules before any flow.
+   198→   236→                    // We'll insert this before the flow instruction.
+   199→   237→                }
+   200→   238→                Declaration::Memorize(m) => {
+   201→   239→                    self.compile_expr(&m.value, &mut code)?;
+   202→   240→                    code.push(Instruction::Memorize(m.priority));
+   203→   241→                }
+   204→   242→                Declaration::Forget(f) => {
+   205→   243→                    self.compile_expr(&f.query, &mut code)?;
+   206→   244→                    // We need a Forget instruction — let's add it to the bytecode
+   207→   245→                    // For now, emit as a special instruction
+   208→   246→                    code.push(Instruction::Forget(f.days));
+   209→   247→                }
+   210→   248→                Declaration::Fluid(fl) => {
+   211→   249→                    // Compile Fluid value construction: push value, confidence pairs
+   212→   250→                    for v in &fl.variants {
+   213→   251→                        self.compile_expr(&v.value, &mut code)?;
+   214→   252→                        // Push confidence
+   215→   253→                        code.push(Instruction::Const(Value::Float(v.confidence)));
+   216→   254→                    }
+   217→   255→                    let slot = self.global_slots[&fl.name];
+   218→   256→                    code.push(Instruction::MakeFluid(fl.variants.len()));
+   219→   257→                    code.push(Instruction::StoreGlobal(slot));
+   220→   258→                }
+   221→   259→                Declaration::Adapt(a) => {
+   222→   260→                    // Evaluate input/output examples (try to resolve literals)
+   223→   261→                    // For now, just emit an adapt instruction
+   224→   262→                    self.compile_expr(&a.input_example, &mut code)?;
+   225→   263→                    self.compile_expr(&a.output_example, &mut code)?;
+   226→   264→                    code.push(Instruction::Adapt(a.pattern_name.clone()));
+   227→   265→                }
+   228→   266→                Declaration::Relate(r) => {
+   229→   267→                    self.compile_expr(&r.from, &mut code)?;
+   230→   268→                    self.compile_expr(&r.to, &mut code)?;
+   231→   269→                    code.push(Instruction::Const(Value::String(r.relation.clone())));
+   232→   270→                    code.push(Instruction::Relate);
+   233→   271→                }
+   234→   272→                Declaration::Sandbox(_) => {
+   235→   273→                    // No runtime instruction needed
+   236→   274→                }
+   237→   275→                Declaration::Mutate(m) => {
+   238→   276→                    // Compile new examples and rollback info
+   239→   277→                    let mut examples = Vec::new();
+   240→   278→                    for (inp, out) in &m.new_examples {
+   241→   279→                        self.compile_expr(inp, &mut code)?;
+   242→   280→                        self.compile_expr(out, &mut code)?;
+   243→   281→                        examples.push((String::new(), String::new())); // placeholder
+   244→   282→                    }
+   245→   283→                    let rollback_op = m.rollback_op.map(|op| match op {
+   246→   284→                        AstCompareOp::Gt => ConditionOp::Gt,
+   247→   285→                        AstCompareOp::Lt => ConditionOp::Lt,
+   248→   286→                        AstCompareOp::Ge => ConditionOp::Ge,
+   249→   287→                        AstCompareOp::Le => ConditionOp::Le,
+   250→   288→                        AstCompareOp::Eq => ConditionOp::Eq,
+   251→   289→                        _ => ConditionOp::Eq, // Ne and others fall back to Eq
+   252→   290→                    });
+   253→   291→                    code.push(Instruction::Mutate {
+   254→   292→                        pattern_name: m.pattern_name.clone(),
+   255→   293→                        example_count: m.new_examples.len(),
+   256→   294→                        rollback_threshold: m.rollback_threshold,
+   257→   295→                        rollback_op,
+   258→   296→                    });
+   259→   297→                }
+   260→   298→                Declaration::Flow(f) => {
+   261→   299→                    // Emit ExecuteRules before the flow (if any rules exist)
+   262→   300→                    if !self.rules.is_empty() {
+   263→   301→                        code.push(Instruction::ExecuteRules);
+   264→   302→                    }
+   265→   303→                    // Compile the flow source expression
+   266→   304→                    let source_expr = self.compile_flow_expr(&f.source);
+   267→   305→                    let mut branch_defs = Vec::new();
+   268→   306→                    for (step_name, branches) in &f.branch_defs {
+   269→   307→                        let compiled_branches: Vec<BranchDef> = branches.iter()
+   270→   308→                            .map(|b| {
+   271→   309→                                let op = match b.condition.op {
+   272→   310→                                    AstCompareOp::Gt => ConditionOp::Gt,
+   273→   311→                                    AstCompareOp::Lt => ConditionOp::Lt,
+   274→   312→                                    AstCompareOp::Ge => ConditionOp::Ge,
+   275→   313→                                    AstCompareOp::Le => ConditionOp::Le,
+   276→   314→                                    AstCompareOp::Eq => ConditionOp::Eq,
+   277→   315→                                    _ => ConditionOp::Eq, // Ne and others fall back to Eq
+   278→   316→                                };
+   279→   317→                                // Compile the threshold expression to a constant if possible
+   280→   318→                                let threshold_val = self.eval_const_expr(&b.condition.threshold);
+   281→   319→                                BranchDef {
+   282→   320→                                    label: b.label.clone(),
+   283→   321→                                    condition_field: b.condition.field.clone(),
+   284→   322→                                    condition_op: op,
+   285→   323→                                    condition_threshold: threshold_val,
+   286→   324→                                    target: b.target.clone(),
+   287→   325→                                }
+   288→   326→                            })
+   289→   327→                            .collect();
+   290→   328→                        branch_defs.push((step_name.clone(), compiled_branches));
+   291→   329→                    }
+   292→   330→                    code.push(Instruction::FlowExec {
+   293→   331→                        source_expr,
+   294→   332→                        pipeline: f.pipeline.clone(),
+   295→   333→                        branch_defs,
+   296→   334→                    });
+   297→   335→                }
+   298→   336→                Declaration::Import(_) => {
+   299→   337→                    // Already resolved in import preprocessing
+   300→   338→                }
+   301→   339→                Declaration::MlogServer(_) | Declaration::Template(_) | Declaration::Db(_) | Declaration::Memory(_)
+   302→   340→                | Declaration::Hook(_) | Declaration::Eval(_) | Declaration::Conversation(_) | Declaration::Tool(_) | Declaration::LlmConfig(_) => {
+   303→   341→                    // Phase 6+: no bytecode instruction needed
+   304→   342→                }
+   305→   343→            }
+   306→   344→        }
+   307→   345→
+   308→   346→        code.push(Instruction::Halt);
+   309→   347→        Ok(code)
+   310→   348→    }
+   311→   349→
+   312→   350→    /// Compile an AST expression into stack instructions (no locals context).
+   313→   351→    fn compile_expr(&self, expr: &Expr, code: &mut Vec<Instruction>) -> Result<(), String> {
+   314→   352→        self.compile_expr_with_locals(expr, code, &HashMap::new())
+   315→   353→    }
+   316→   354→
+   317→   355→    /// Compile an AST expression into stack instructions with a locals map.
+   318→   356→    fn compile_expr_with_locals(&self, expr: &Expr, code: &mut Vec<Instruction>, locals: &HashMap<String, usize>) -> Result<(), String> {
+   319→   357→        match expr {
+   320→   358→            Expr::StringLit(s) => {
+   321→   359→                code.push(Instruction::Const(Value::String(s.clone())));
+   322→   360→            }
+   323→   361→            Expr::FloatLit(f) => {
+   324→   362→                code.push(Instruction::Const(Value::Float(*f)));
+   325→   363→            }
+   326→   364→            Expr::Ident(name) => {
+   327→   365→                // Check if it's a local (parameter or let binding) first
+   328→   366→                if let Some(&slot) = locals.get(name) {
+   329→   367→                    code.push(Instruction::LoadLocal(slot));
+   330→   368→                } else if let Some(&slot) = self.global_slots.get(name) {
+   331→   369→                    code.push(Instruction::LoadGlobal(slot));
+   332→   370→                } else {
+   333→   371→                    code.push(Instruction::LoadGlobalByName(name.clone()));
+   334→   372→                }
+   335→   373→            }
+   336→   374→            Expr::FieldAccess(base, field) => {
+   337→   375→                self.compile_expr_with_locals(base, code, locals)?;
+   338→   376→                code.push(Instruction::GetField(field.clone()));
+   339→   377→            }
+   340→   378→            Expr::FnCall(name, args) => {
+   341→   379→                for arg in args {
+   342→   380→                    self.compile_expr_with_locals(arg, code, locals)?;
+   343→   381→                }
+   344→   382→                let arity = args.len();
+   345→   383→                // Check if it's a builtin
+   346→   384→                if let Some(&idx) = self.builtin_indices.get(name) {
+   347→   385→                    code.push(Instruction::CallBuiltin(idx, arity));
+   348→   386→                } else if let Some(&idx) = self.pattern_indices.get(name) {
+   349→   387→                    code.push(Instruction::CallPattern(idx, arity));
+   350→   388→                } else if let Some(&idx) = self.learnable_indices.get(name) {
+   351→   389→                    code.push(Instruction::LlmCall(idx, arity));
+   352→   390→                } else {
+   353→   391→                    return Err(format!("compile: undefined function: {}", name));
+   354→   392→                }
+   355→   393→            }
+   356→   394→            Expr::BinaryOp(left, op, right) => {
+   357→   395→                self.compile_expr_with_locals(left, code, locals)?;
+   358→   396→                self.compile_expr_with_locals(right, code, locals)?;
+   359→   397→                match op {
+   360→   398→                    BinOp::Add => code.push(Instruction::Add),
+   361→   399→                    BinOp::Sub => code.push(Instruction::Sub),
+   362→   400→                    BinOp::Mul => code.push(Instruction::Mul),
+   363→   401→                    BinOp::Div => code.push(Instruction::Div),
+   364→   402→                    // Phase 5.1: comparison operators
+   365→   403→                    BinOp::Gt => code.push(Instruction::CmpGt),
+   366→   404→                    BinOp::Lt => code.push(Instruction::CmpLt),
+   367→   405→                    BinOp::Ge => code.push(Instruction::CmpGe),
+   368→   406→                    BinOp::Le => code.push(Instruction::CmpLe),
+   369→   407→                    BinOp::Eq => code.push(Instruction::CmpEq),
+   370→   408→                    BinOp::Ne => code.push(Instruction::CmpNe),
+   371→   409→                }
+   372→   410→            }
+   373→   411→            Expr::IfElse(cond, then_expr, else_expr) => {
+   374→   412→                // Compile condition
+   375→   413→                self.compile_expr_with_locals(cond, code, locals)?;
+   376→   414→                // Jump to else branch if falsy
+   377→   415→                let jump_to_else = code.len();
+   378→   416→                code.push(Instruction::JumpIfNot(0)); // placeholder
+   379→   417→                // Compile then branch
+   380→   418→                self.compile_expr_with_locals(then_expr, code, locals)?;
+   381→   419→                // Jump past else branch
+   382→   420→                let jump_to_end = code.len();
+   383→   421→                code.push(Instruction::Jump(0)); // placeholder
+   384→   422→                // Patch: else branch starts here
+   385→   423→                let else_start = code.len();
+   386→   424→                if let Some(Instruction::JumpIfNot(ref mut target)) = code.get_mut(jump_to_else) {
+   387→   425→                    *target = else_start;
+   388→   426→                }
+   389→   427→                // Compile else branch
+   390→   428→                self.compile_expr_with_locals(else_expr, code, locals)?;
+   391→   429→                // Patch: end jump target
+   392→   430→                let end = code.len();
+   393→   431→                if let Some(Instruction::Jump(ref mut target)) = code.get_mut(jump_to_end) {
+   394→   432→                    *target = end;
+   395→   433→                }
+   396→   434→            }
+   397→   435→            // Additional expression forms in Metalogos- AST
+   398→   436→            Expr::BoolLit(b) => {
+   399→   437→                code.push(Instruction::Const(Value::Float(if *b { 1.0 } else { 0.0 })));
+   400→   438→            }
+   401→   439→            Expr::QualifiedCall { module: _, function: _, args: _ } => {
+   402→   440→                return Err("compile: qualified calls not yet supported in bytecode".to_string());
+   403→   441→            }
+   404→   442→            Expr::List(items) => {
+   405→   443→                // Push each item, then construct via MakeStruct-like approach
+   406→   444→                // For now, emit as individual pushes (list construction not fully supported)
+   407→   445→                for item in items {
+   408→   446→                    self.compile_expr_with_locals(item, code, locals)?;
+   409→   447→                }
+   410→   448→                // We'll use a special const for list length tracking (Phase 5)
+   411→   449→                // For now, lists are pushed as individual values
+   412→   450→                code.push(Instruction::Const(Value::Float(items.len() as f64)));
+   413→   451→            }
+   414→   452→            Expr::IndexAccess(base, index) => {
+   415→   453→                self.compile_expr_with_locals(base, code, locals)?;
+   416→   454→                self.compile_expr_with_locals(index, code, locals)?;
+   417→   455→                code.push(Instruction::IndexAccess);
+   418→   456→            }
+   419→   457→            Expr::StructLit(fields) => {
+   420→   458→                let field_names: Vec<String> = fields.keys().cloned().collect();
+   421→   459→                for (_, val_expr) in fields {
+   422→   460→                    self.compile_expr_with_locals(val_expr, code, locals)?;
+   423→   461→                }
+   424→   462→                code.push(Instruction::MakeStruct("Struct".to_string(), field_names));
+   425→   463→            }
+   426→   464→            // Наряд №14 P0-3: block if/else expression — deferred to tree-walking
+   427→   465→            Expr::BlockIfElse { .. } => {
+   428→   466→                // Compiled as Unit placeholder; tree-walking interpreter handles it
+   429→   467→                code.push(Instruction::Const(Value::Unit));
+   430→   468→            }
+   431→   469→            // Наряд №14 P1-4: try expression — deferred to tree-walking
+   432→   470→            Expr::Try(_) => {
+   433→   471→                code.push(Instruction::Const(Value::Unit));
+   434→   472→            }
+   435→   473→        }
+   436→   474→        Ok(())
+   437→   475→    }
+   438→   476→
+   439→   477→    /// Compile a pattern body with parameter names as locals.
+   440→   478→    /// Phase 5.1: also handles let bindings, assigning additional local slots.
+   441→   479→    fn compile_pattern_body_with_locals(&self, body: &[Statement], locals: &mut HashMap<String, usize>) -> Result<Vec<Instruction>, String> {
+   442→   480→        let mut code = Vec::new();
+   443→   481→        let mut next_slot = locals.len();
+   444→   482→        for stmt in body {
+   445→   483→            match stmt {
+   446→   484→                // Fix 1: use Statement::LetBinding { name, value } instead of Statement::Let(name, expr)
+   447→   485→                Statement::LetBinding { name, value, mutable: _ } => {
+   448→   486→                    let slot = next_slot;
+   449→   487→                    next_slot += 1;
+   450→   488→                    locals.insert(name.clone(), slot);
+   451→   489→                    self.compile_expr_with_locals(value, &mut code, locals)?;
+   452→   490→                    code.push(Instruction::StoreLocal(slot));
+   453→   491→                }
+   454→   492→                Statement::Return(expr) => {
+   455→   493→                    self.compile_expr_with_locals(expr, &mut code, locals)?;
+   456→   494→                    code.push(Instruction::Return);
+   457→   495→                }
+   458→   496→                // Наряд №14: match — compiled as chained if-jump-else (simplified)
+   459→   497→                Statement::Match { scrutinee, arms, else_body } => {
+   460→   498→                    self.compile_expr_with_locals(scrutinee, &mut code, locals)?;
+   461→   499→                    // For now, store scrutinee and evaluate arms via tree-walking fallback.
+   462→   500→                    // Full bytecode match compilation is deferred — the VM path uses
+   463→   501→                    // the tree-walking interpreter for match statements.
+   464→   502→                    let _ = (arms, else_body);
+   465→   503→                }
+   466→   504→                // Наряд №17: break/continue — not meaningful in non-loop context
+   467→   505→                Statement::Break | Statement::Continue => {}
+   468→   506→                // Наряд №17.3: each with index — compile as indexed loop
+   469→   507→                Statement::EachWithIndex { index_var, item_var, iterable, body } => {
+   470→   508→                    // Compile: evaluate iterable, then for each item push index + item to locals
+   471→   509→                    // For now, emit as Unit (full compilation deferred to Наряд №18)
+   472→   510→                    let _ = (index_var, item_var, iterable, body);
+   473→   511→                }
+   474→   512→                _ => {}
+   475→   513→            }
+   476→   514→        }
+   477→   515→        Ok(code)
+   478→   516→    }
+   479→   517→
+   480→   518→    /// Compile a flow source expression into a FlowExpr.
+   481→   519→    fn compile_flow_expr(&self, expr: &Expr) -> FlowExpr {
+   482→   520→        match expr {
+   483→   521→            Expr::Ident(name) => {
+   484→   522→                if let Some(&slot) = self.global_slots.get(name) {
+   485→   523→                    FlowExpr::GlobalSlot(slot)
+   486→   524→                } else {
+   487→   525→                    FlowExpr::Ident(name.clone())
+   488→   526→                }
+   489→   527→            }
+   490→   528→            Expr::StringLit(s) => FlowExpr::Const(Value::String(s.clone())),
+   491→   529→            Expr::FloatLit(f) => FlowExpr::Const(Value::Float(*f)),
+   492→   530→            _ => FlowExpr::Ident(format!("{:?}", expr)),
+   493→   531→        }
+   494→   532→    }
+   495→   533→
+   496→   534→    /// Try to evaluate an expression to a constant Value.
+   497→   535→    fn eval_const_expr(&self, expr: &Expr) -> Value {
+   498→   536→        match expr {
+   499→   537→            Expr::StringLit(s) => Value::String(s.clone()),
+   500→   538→            Expr::FloatLit(f) => Value::Float(*f),
+   501→   539→            _ => Value::Unit,
+   502→   540→        }
+   503→   541→    }
+   504→   542→
+   505→   543→    /// Compile a rule into CompiledRule.
+   506→   544→    fn compile_rule(&self, rule: &RuleDecl) -> Result<CompiledRule, String> {
+   507→   545→        let condition = match &rule.condition {
+   508→   546→            Condition::Contains { left, right } => {
+   509→   547→                RuleCondition::Contains {
+   510→   548→                    left: self.rule_value_expr(left),
+   511→   549→                    right: self.rule_value_expr(right),
+   512→   550→                }
+   513→   551→            }
+   514→   552→            Condition::Compare { left, op, right } => {
+   515→   553→                RuleCondition::Compare {
+   516→   554→                    left: self.rule_value_expr(left),
+   517→   555→                    op: match op {
+   518→   556→                        AstCompareOp::Gt => ConditionOp::Gt,
+   519→   557→                        AstCompareOp::Lt => ConditionOp::Lt,
+   520→   558→                        AstCompareOp::Ge => ConditionOp::Ge,
+   521→   559→                        AstCompareOp::Le => ConditionOp::Le,
+   522→   560→                        AstCompareOp::Eq => ConditionOp::Eq,
+   523→   561→                        _ => ConditionOp::Eq, // Ne and others fall back to Eq
+   524→   562→                    },
+   525→   563→                    right: self.rule_value_expr(right),
+   526→   564→                }
+   527→   565→            }
+   528→   566→        };
+   529→   567→
+   530→   568→        let target_name = match &rule.target {
+   531→   569→            Expr::Ident(name) => name.clone(),
+   532→   570→            _ => return Err("rule target must be an identifier".to_string()),
+   533→   571→        };
+   534→   572→
+   535→   573→        Ok(CompiledRule {
+   536→   574→            condition,
+   537→   575→            target_name,
+   538→   576→            field: rule.field.clone(),
+   539→   577→            value_expr: self.rule_value_expr(&rule.value),
+   540→   578→            priority: rule.priority,
+   541→   579→        })
+   542→   580→    }
+   543→   581→
+   544→   582→    /// Convert an AST expression to a simplified rule value expression.
+   545→   583→    fn rule_value_expr(&self, expr: &Expr) -> RuleValueExpr {
+   546→   584→        match expr {
+   547→   585→            Expr::Ident(name) => RuleValueExpr::Ident(name.clone()),
+   548→   586→            Expr::StringLit(s) => RuleValueExpr::StringLit(s.clone()),
+   549→   587→            Expr::FloatLit(f) => RuleValueExpr::FloatLit(*f),
+   550→   588→            Expr::FieldAccess(base, field) => {
+   551→   589→                if let Expr::Ident(name) = base.as_ref() {
+   552→   590→                    RuleValueExpr::FieldAccess(name.clone(), field.clone())
+   553→   591→                } else {
+   554→   592→                    RuleValueExpr::Ident(format!("{:?}", expr))
+   555→   593→                }
+   556→   594→            }
+   557→   595→            _ => RuleValueExpr::Ident(format!("{:?}", expr)),
+   558→   596→        }
+   559→   597→    }
+   560→   598→
+   561→
+   562→[showing lines 39-598 of 680; use offset=599 with limit to continue reading]

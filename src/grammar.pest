@@ -187,7 +187,7 @@ param        = { IDENT ~ ":" ~ type_name }
 pattern_body = { statement* }
 
 // ── Statements (v0.5.1: unified if-then-else support) ───────────────
-statement    = { match_stmt | if_block_stmt | each_stmt | while_stmt | let_binding | assign_or_expr | return_stmt }
+statement    = { match_stmt | if_block_stmt | each_stmt | while_stmt | let_binding | break_stmt | continue_stmt | return_stmt | assign_or_expr }
 // Combined assignment-or-expression: disambiguates IDENT followed by "=" (assignment)
 // vs IDENT followed by other tokens (expression statement like function calls).
 // PEG ordered choice: try assignment first (= present), fall through to expression.
@@ -208,7 +208,7 @@ if_block_stmt = { "if" ~ expression ~ LBRACE ~ statement* ~ RBRACE ~ else_if_blo
 else_if_block = { "else" ~ "if" ~ expression ~ LBRACE ~ statement* ~ RBRACE }
 if_then_stmt = { "if" ~ expression ~ "then" ~ LBRACE ~ statement* ~ RBRACE ~ else_if_then_block* ~ ("else" ~ LBRACE ~ statement* ~ RBRACE)? }
 else_if_then_block = { "else" ~ "if" ~ expression ~ "then" ~ LBRACE ~ statement* ~ RBRACE }
-each_stmt    = { "each" ~ IDENT ~ "in" ~ expression ~ LBRACE ~ statement* ~ RBRACE }
+each_stmt    = { "each" ~ IDENT ~ (COMMA ~ IDENT)? ~ "in" ~ expression ~ LBRACE ~ statement* ~ RBRACE }
 while_stmt   = { "while" ~ expression ~ LBRACE ~ statement* ~ RBRACE }
 let_binding  = { "let" ~ "mut"? ~ IDENT ~ "=" ~ expression }
 // assign_stmt must explicitly contain "=" after IDENT to distinguish from expr_stmt (function calls).
@@ -216,6 +216,8 @@ let_binding  = { "let" ~ "mut"? ~ IDENT ~ "=" ~ expression }
 // preventing expr_stmt from being tried. Solution: combine into a single rule that handles both.
 assign_stmt  = { IDENT ~ ASSIGN ~ expression }
 return_stmt  = { "return" ~ expression }
+break_stmt   = { "break" }
+continue_stmt = { "continue" }
 
 // ── Flow ──────────────────────────────────────────────────────────────
 // Pipeline and branch definitions are separate: pipeline comes first,
@@ -228,7 +230,7 @@ flow_step     = { ARROW ~ (checkpoint_call | step_ident) }
 checkpoint_call = { CHECKPOINT_KW ~ "(" ~ STRING_LITERAL ~ ")" }
 CHECKPOINT_KW = @{ "checkpoint" }
 branch_def    = { step_ident ~ LBRACE ~ branch* ~ RBRACE }
-step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "adapt" | "add_example" | "relate" | "sandbox" | "mutate" | "eval" | "dataset" | "metric" | "threshold" | "allowed" | "forbidden" | "timeout" | "rollback_if" | "accuracy" | "to" | "as" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or" | "each" | "while" | "server" | "mlogserver" | "template" | "route" | "middleware" | "port" | "method" | "requires" | "db" | "migrate" | "pool_size" | "memory" | "persist" | "kv" | "type" | "else" | "hook" | "before_pattern" | "after_pattern" | "match" | "starts_with" | "conversation" | "tool" | "checkpoint" | "llm" | "providers" | "default_model" | "failover" | "circuit_breaker" | "alias" | "provider" | "key" | "url") ~ IDENT }
+step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "adapt" | "add_example" | "relate" | "sandbox" | "mutate" | "eval" | "dataset" | "metric" | "threshold" | "allowed" | "forbidden" | "timeout" | "rollback_if" | "accuracy" | "to" | "as" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or" | "each" | "while" | "server" | "mlogserver" | "template" | "route" | "middleware" | "port" | "method" | "requires" | "db" | "migrate" | "pool_size" | "memory" | "persist" | "kv" | "type" | "else" | "hook" | "before_pattern" | "after_pattern" | "match" | "starts_with" | "conversation" | "tool" | "checkpoint" | "llm" | "providers" | "default_model" | "failover" | "circuit_breaker" | "alias" | "provider" | "key" | "url" | "break" | "continue") ~ IDENT }
 branch        = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
 branch_condition = { IDENT ~ "." ~ IDENT ~ compare_op ~ expression }
 
@@ -323,6 +325,8 @@ PRIORITY_KW = @{ "priority" }
 PATTERN_KW  = @{ "pattern" }
 PROMPT_KW   = @{ "prompt" }
 RETURN_KW   = @{ "return" }
+BREAK_KW     = @{ "break" }
+CONTINUE_KW  = @{ "continue" }
 MATCH_KW     = @{ "match" }
 FLOW_KW     = @{ "flow" }
 INPUT_KW    = @{ "input" }

@@ -1850,6 +1850,13 @@ impl Interpreter {
                             sb.name
                         ));
                     }
+                    // Наряд №17 Г.2: also enforce exec() in sandbox
+                    if name == "exec" {
+                        return Err(format!(
+                            "exec() forbidden in sandbox '{}'",
+                            sb.name
+                        ));
+                    }
                 }
             }
             return builtin_fn(&args);
@@ -3466,6 +3473,13 @@ impl Interpreter {
                             ) {
                                 return Err(format!(
                                     "filesystem access forbidden in sandbox '{}'",
+                                    sb.name
+                                ));
+                            }
+                            // Наряд №17 Г.2: also enforce exec() in sandbox
+                            if function == "exec" {
+                                return Err(format!(
+                                    "exec() forbidden in sandbox '{}'",
                                     sb.name
                                 ));
                             }

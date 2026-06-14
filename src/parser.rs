@@ -1846,6 +1846,10 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
                 Rule::STRING_LITERAL => {
                     Expr::StringLit(unescape_string(inner.as_str()))
                 }
+                Rule::MULTILINE_STRING => {
+                    // Triple-quoted string: content between """ delimiters, raw (no escape processing)
+                    Expr::StringLit(inner.as_str().to_string())
+                }
                 Rule::FLOAT_LITERAL => {
                     Expr::FloatLit(inner.as_str().parse().unwrap_or(0.0))
                 }

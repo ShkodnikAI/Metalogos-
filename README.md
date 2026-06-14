@@ -7,7 +7,7 @@
 **The first programming language designed by AI, for AI. Security built into the language.**
 
 [![Rust](https://img.shields.io/badge/rust-1.80+-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/v0.7.7-blue.svg)](https://github.com/ShkodnikAI/Metalogos-)
+[![Version](https://img.shields.io/badge/v0.7.8-blue.svg)](https://github.com/ShkodnikAI/Metalogos-)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
 [![CI](https://img.shields.io/badge/CI-passing-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 
@@ -196,8 +196,8 @@ Metalogos has **three execution backends**: a tree-walking interpreter, a byteco
 | Component | Technology |
 |---|---|
 | Parser | [Pest 2.7](https://pest.rs/) — PEG grammar (335 rules) |
-| AST / Interpreter | Hand-written Rust (~19 400 lines) |
-| Bytecode VM | 44 instructions, stack-based |
+| AST / Interpreter | Hand-written Rust (~19 700 lines) |
+| Bytecode compiler | 1 220 lines, 44 VM instructions, stack-based |
 | JIT | [Cranelift](https://cranelift.dev/) — code generation |
 | Web server | [Axum 0.8](https://github.com/tokio-rs/axum) + [Tokio](https://tokio.rs/) |
 | Crypto | `hmac`, `sha2`, `aes-gcm` (AES-256-GCM) |
@@ -213,7 +213,7 @@ Metalogos-/
 │   ├── parser.rs            # Pest tokens → AST (1 860 lines)
 │   ├── semantic.rs          # Semantic analysis, opaque type enforcement, security audit (1 370 lines)
 │   ├── interpreter.rs       # Tree-walking interpreter (3 810 lines)
-│   ├── compiler.rs          # Bytecode compiler (1 100 lines)
+│   ├── compiler.rs          # Bytecode compiler (1 220 lines)
 │   ├── bytecode.rs          # 44 VM instructions
 │   ├── vm.rs                # Bytecode VM executor (1 470 lines)
 │   ├── jit.rs               # JIT compiler via Cranelift
@@ -261,12 +261,7 @@ Metalogos-/
 | Phase 7.5 | Memory persistence (e2e), JWT-style tokens, eval harness | Done |
 | Phase 7.6 | Session memory, audit parse tests, server JSON body | Done |
 | Phase 7.7 | Break/Continue, Match (StartsWith/Contains/Compare), compiler full-coverage, constraints | Done |
-
-### In Progress
-
-| Phase | Target |
-|---|---|
-| Compiler coverage | `Expr::BlockIfElse` and `Expr::Try` full bytecode compilation |
+| Phase 7.8 | BlockIfElse expression bytecode compilation, format() arity fix (Наряд 17 Б.1) | Done |
 
 ### Next
 

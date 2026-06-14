@@ -491,7 +491,7 @@ pub struct Param {
 
 #[derive(Debug, Clone)]
 pub enum Statement {
-    LetBinding { name: String, value: Expr },
+    LetBinding { name: String, value: Expr, mutable: bool },
     Assign { name: String, value: Expr },
     Each { variable: String, iterable: Expr, body: Vec<Statement> },
     While { condition: Expr, body: Vec<Statement> },
@@ -508,6 +508,27 @@ pub enum Statement {
     /// Bare expression statement: `respond("ok")`, `http_post(...)` etc.
     /// The expression is evaluated for side effects; result is discarded unless in route context.
     ExprStmt(Expr),
+    /// Match statement: `match expr { "val" then { stmts } ... else { stmts } }` (Наряд №14)
+    /// Supports: exact string, starts_with, contains, comparison arms.
+    Match {
+        scrutinee: Expr,
+        arms: Vec<MatchArm>,
+        else_body: Option<Vec<Statement>>,
+    },
+}
+
+/// A single match arm: pattern + body.
+/// Supports exact string, starts_with, contains, and comparison operators.
+#[derive(Debug, Clone)]
+pub enum MatchArm {
+    /// `"literal" then { stmts }`
+    Exact(String, Vec<Statement>),
+    /// `starts_with "prefix" then { stmts }`
+    StartsWith(String, Vec<Statement>),
+    /// `contains "substr" then { stmts }`
+    Contains(String, Vec<Statement>),
+    /// `> expr then { stmts }`, `>= expr then { stmts }`, etc.
+    Compare(CompareOp, Expr, Vec<Statement>),
 }
 
 // ── Flow (M1 + M2 branching) ────────────────────────────────────────
@@ -563,8 +584,18 @@ pub enum Expr {
     List(Vec<Expr>),
     /// Index access: `list[index]` or `struct["field"]` (v0.5.0)
     IndexAccess(Box<Expr>, Box<Expr>),
-    /// Inline struct literal: `{ key: expr, key: expr }`
-    StructLiteral(Vec<(String, Expr)>),
+    /// Struct literal: `{key: val, ...}` — creates a Struct value inline
+    StructLit(HashMap<String, Expr>),
+    /// Block if/else as expression: `if cond { stmts } else { stmts }` (Наряд №14 P0-3)
+    /// Value is the last expression in the matched branch. Returns Unit if no non-Unit expr.
+    BlockIfElse {
+        condition: Box<Expr>,
+        then_body: Vec<Statement>,
+        else_ifs: Vec<(Box<Expr>, Vec<Statement>)>,
+        else_body: Option<Vec<Statement>>,
+    },
+    /// Try expression: `try expr` — returns Unit on error instead of propagating (Наряд №14 P1-4)
+    Try(Box<Expr>),
 }
 
 #[derive(Debug, Clone, Copy)]

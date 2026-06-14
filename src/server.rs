@@ -234,6 +234,23 @@ async fn route_handler(
     // 0. Extract client IP for rate limiting
     let client_ip = extract_client_ip(&headers);
 
+    // 0b. Bug 2.1 fix: parse query string from URI
+    let query: std::collections::HashMap<String, String> = uri.query()
+        .map(|q| {
+            q.split('&')
+                .filter_map(|pair| {
+                    let mut parts = pair.splitn(2, '=');
+                    let key = urlencoding::decode(parts.next()?).ok()?.into_owned();
+                    let val = parts.next()
+                        .and_then(|v| urlencoding::decode(v).ok())
+                        .map(|v| v.into_owned())
+                        .unwrap_or_default();
+                    Some((key, val))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     // 1. Rate limiting (Phase 7.4)
     if state.middleware.contains(&"rate_limit".to_string()) {
         if let Err(resp) = check_rate_limit(&state, &client_ip, 100).await {
@@ -279,7 +296,7 @@ async fn route_handler(
         }
 
         // Execute route handler body
-        let result = execute_route_body(&state, &route.body, &headers, &body).await;
+        let result = execute_route_body(&state, &route.body, &headers, &body, &query).await;
         let mut response = match result {
             Ok(response) => response,
             Err(e) => (
@@ -614,6 +631,7 @@ async fn execute_route_body(
     body_stmts: &[Statement],
     _headers: &HeaderMap,
     raw_body: &bytes::Bytes,
+    query_params: &std::collections::HashMap<String, String>,
 ) -> Result<Response, String> {
     // Set up interpreter with request context (Наряд №8: route pattern invocation fix)
     let mut interp = Interpreter::new();
@@ -644,11 +662,28 @@ async fn execute_route_body(
         }
     }
 
+    // Bug 2.1 fix: inject query string parameters so query_param() works
+    if !query_params.is_empty() {
+        interp.set_server_query_params(query_params.clone());
+    }
+
+    // Наряд №14 P2-6: inject user roles for require() builtin
+    if state.middleware.contains(&"session".to_string()) {
+        if let Some(session_id) = extract_session_cookie(_headers) {
+            if let Some(raw_id) = verify_cookie(&session_id, &state.hmac_key) {
+                let sessions = state.sessions.read().await;
+                if let Some(entry) = sessions.get(&raw_id) {
+                    interp.set_server_user_roles(entry.roles.clone());
+                }
+            }
+        }
+    }
+
     // Execute body statements
     let mut env = HashMap::new();
     for stmt in body_stmts {
         match stmt {
-            Statement::LetBinding { name, value } => {
+            Statement::LetBinding { name, value, mutable: _ } => {
                 let val = interp.eval_expr_with_env(value, &env)?;
                 env.insert(name.clone(), val);
             }
@@ -699,7 +734,7 @@ async fn execute_route_body(
                                 flush_audit_to_db(state, &mut interp).await;
                                 return Ok(value_to_response(val));
                             }
-                            Statement::LetBinding { name, value } => {
+                            Statement::LetBinding { name, value, mutable: _ } => {
                                 let val = interp.eval_expr_with_env(value, &env)?;
                                 env.insert(name.clone(), val);
                             }

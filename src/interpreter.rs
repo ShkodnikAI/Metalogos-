@@ -3039,6 +3039,9 @@ impl Interpreter {
     const WHILE_SAFETY_LIMIT: u64 = 100_000;
     /// Phase 7.5: Sandbox iteration limit (10,000 for both while and each).
     const SANDBOX_ITER_LIMIT: u64 = 10_000;
+    /// Наряд №17 В.4: Maximum string length to prevent memory exhaustion.
+    /// Applied to builtin string operations (concat, replace, split, etc.).
+    const MAX_STRING_LENGTH: usize = 1_000_000; // 1 MB
 
     /// Наряд №14: Compare two Values using a CompareOp.
     /// Used by match statement's Compare arm.
@@ -3796,7 +3799,16 @@ impl Interpreter {
         }
         match (op, left, right) {
             // Arithmetic on Floats
-            (BinOp::Add, Value::String(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
+            (BinOp::Add, Value::String(a), Value::String(b)) => {
+                let result = format!("{}{}", a, b);
+                if result.len() > Self::MAX_STRING_LENGTH {
+                    return Err(format!(
+                        "string length {} exceeds maximum allowed {}",
+                        result.len(), Self::MAX_STRING_LENGTH
+                    ));
+                }
+                Ok(Value::String(result))
+            }
             (BinOp::Add, Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
             (BinOp::Sub, Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
             (BinOp::Mul, Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),

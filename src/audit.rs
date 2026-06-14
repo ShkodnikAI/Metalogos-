@@ -543,10 +543,8 @@ fn check_html_injection(declarations: &[Declaration], source: &str, findings: &m
                     for s in body { process_stmt(s, tracker, source, findings); }
                 }
                 _ => {}
-            
+            }
         }
-
-        for stmt in stmts {
 
         for stmt in stmts {
             process_stmt(stmt, &mut tracker, source, findings);
@@ -727,10 +725,8 @@ fn check_open_redirect(declarations: &[Declaration], source: &str, findings: &mu
                     for s in body { process_stmt(s, tracker, source, findings); }
                 }
                 _ => {}
-            
+            }
         }
-
-        for stmt in stmts {
 
         for stmt in stmts {
             process_stmt(stmt, &mut tracker, source, findings);

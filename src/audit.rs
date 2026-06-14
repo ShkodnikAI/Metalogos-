@@ -497,7 +497,7 @@ fn check_html_injection(declarations: &[Declaration], source: &str, findings: &m
 
         fn process_stmt(stmt: &Statement, tracker: &mut TaintTracker, source: &str, findings: &mut Vec<AuditFinding>) {
             match stmt {
-                Statement::LetBinding { name, value } => {
+                Statement::LetBinding { name, value, mutable: _ } => {
                     // Check if this let-binding calls respond() with tainted args
                     check_respond_for_html(value, tracker, source, findings);
                     // Track taint sources
@@ -582,7 +582,7 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
 
         fn process_stmt(stmt: &Statement, tracker: &mut TaintTracker, source: &str, findings: &mut Vec<AuditFinding>) {
             match stmt {
-                Statement::LetBinding { name, value } => {
+                Statement::LetBinding { name, value, mutable: _ } => {
                     // Check if this let-binding calls a sink function with tainted args
                     check_expr_for_leak(value, tracker, source, findings);
                     // Track taint sources
@@ -687,7 +687,7 @@ fn check_open_redirect(declarations: &[Declaration], source: &str, findings: &mu
 
         fn process_stmt(stmt: &Statement, tracker: &mut TaintTracker, source: &str, findings: &mut Vec<AuditFinding>) {
             match stmt {
-                Statement::LetBinding { name, value } => {
+                Statement::LetBinding { name, value, mutable: _ } => {
                     // Check if this let-binding calls respond() with tainted args
                     check_expr_for_redirect(value, tracker, source, findings);
                     // Track taint sources
@@ -1004,9 +1004,9 @@ mod tests {
                 method: "POST".to_string(),
                 requires: vec![],
                 body: vec![
-                    Statement::LetBinding { name: "api_key".to_string(), value: Expr::FnCall("env".to_string(), vec![Expr::StringLit("KEY".to_string())]) },
-                    Statement::LetBinding { name: "result".to_string(), value: Expr::FnCall("call_llm".to_string(), vec![Expr::StringLit("summarize".to_string())]) },
-                    Statement::LetBinding { name: "resp".to_string(), value: Expr::FnCall("respond".to_string(), vec![Expr::StringLit("200 OK".to_string()), Expr::Ident("result".to_string())]) },
+                    Statement::LetBinding { name: "api_key".to_string(), value: Expr::FnCall("env".to_string(), vec![Expr::StringLit("KEY".to_string())]), mutable: false },
+                    Statement::LetBinding { name: "result".to_string(), value: Expr::FnCall("call_llm".to_string(), vec![Expr::StringLit("summarize".to_string())]), mutable: false },
+                    Statement::LetBinding { name: "resp".to_string(), value: Expr::FnCall("respond".to_string(), vec![Expr::StringLit("200 OK".to_string()), Expr::Ident("result".to_string())]), mutable: false },
                     Statement::Return(Expr::Ident("resp".to_string())),
                 ],
             }],

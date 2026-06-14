@@ -62,6 +62,7 @@ fn make_while_true_pattern() -> Declaration {
                 body: vec![Statement::LetBinding {
                     name: "_x".to_string(),
                     value: Expr::FloatLit(1.0),
+                    mutable: false,
                 }],
             },
         ],
@@ -78,6 +79,7 @@ fn make_counting_while_pattern() -> Declaration {
             Statement::LetBinding {
                 name: "counter".to_string(),
                 value: Expr::FloatLit(0.0),
+                mutable: false,
             },
             Statement::While {
                 condition: Expr::BoolLit(true),

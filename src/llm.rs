@@ -605,7 +605,7 @@ pub fn global_llm_usage_report() -> LlmUsageReport {
 // ── Smart Router (Наряд №4: LLM Routing with Failover + Circuit Breaker) ──
 
 use std::sync::Mutex as StdMutex;
-use std::time::{Instant, SystemTime};
+use std::time::Instant;
 
 /// Per-provider health tracking entry.
 #[derive(Debug, Clone)]

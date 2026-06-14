@@ -1799,7 +1799,30 @@ impl Interpreter {
             return self.invoke_recall(args);
         }
 
-        // Check find (entity store query) — needs access to interpreter state
+        // ADR-0045/Phase 7.1: server-context builtins (flow step dispatch)
+        if name == "query_param" {
+            let param_name = args.get(0)
+                .and_then(|v| match v {
+                    Value::String(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            if let Some(val) = self.get_server_query_param(&param_name) {
+                return Ok(Value::String(val));
+            }
+            return Ok(Value::String(String::new()));
+        }
+
+        // memorize() — callable form (flow step context)
+        if name == "memorize" {
+            return self.invoke_memorize_fn(args);
+        }
+
+        // forget() — callable form (flow step context)
+        if name == "forget" {
+            return self.invoke_forget_fn(args);
+        }
+
         if name == "find" {
             return self.invoke_find(args);
         }

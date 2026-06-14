@@ -420,14 +420,10 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     for decl in declarations {
         let stmts: Option<&[Statement]> = match decl {
             Declaration::Pattern(p) => Some(&p.body),
-            Declaration::Tool(t) => {
-                // Collect all method bodies as a single scope for checking
-                // (each method has its own scope, but we check all of them)
-                let mut all: Vec<Statement> = Vec::new();
-                for method in &t.methods {
-                    all.extend(method.body.iter().cloned());
-                }
-                Some(&all[..])
+            Declaration::Tool(_) => {
+                // Tool methods are checked individually below (line 470-483)
+                // Returning None here; the Tool branch hits `continue` before using stmts.
+                None
             }
             Declaration::Hook(h) => Some(&h.body),
             Declaration::MlogServer(srv) => {

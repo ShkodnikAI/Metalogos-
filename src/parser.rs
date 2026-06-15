@@ -1229,7 +1229,7 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
         let lb_children = children_of(lb_pair);
         let name = find_child_str(&lb_children, Rule::IDENT).unwrap_or_default();
         let expr = find_child(&lb_children, Rule::expression).unwrap();
-        let mutable = lb_children.iter().any(|c| c.as_str().trim() == "mut");
+        let mutable = lb_children.iter().any(|c| c.as_rule() == Rule::MUT_KW);
         Statement::LetBinding { name, value: parse_expression(expr), mutable }
     } else if let Some(ae_pair) = children.iter().find(|c| c.as_rule() == Rule::assign_or_expr) {
         // assign_or_expr = { IDENT ~ ASSIGN ~ expression | expression }

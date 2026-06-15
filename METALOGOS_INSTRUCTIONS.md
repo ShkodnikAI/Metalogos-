@@ -63,7 +63,7 @@ Metalogos — **полноценный универсальный язык пр�
   While, IfElseBlock, IfThen, Match (все 4 arm), Break, Continue
 
 ### Экосистема
-- **93 встроенных функции** (string, math, collections, JSON, HTTP, file I/O, crypto, auth, bots)
+- **100 встроенных функций** (string, math, collections, JSON, HTTP, file I/O, crypto, auth, bots, voice, search, git)
 - **CLI:** 8 подкоманд — run, repl, check, serve, compile, eval, resume, audit
 - **LSP сервер**, `mlogpkg` package manager, mdbook docs
 - **HTTP-сервер** (Axum 0.8): маршруты, middleware, шаблоны, static files

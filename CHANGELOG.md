@@ -2,6 +2,30 @@
 
 All notable changes to the Metalogos project.
 
+## [0.7.9] — 2026-06-15
+
+**Наряд №24: аудит-доработка — новые builtins, исправления, конвергенция бинарников.**
+
+### Новые builtins
+
+- **`git_push(message)`** — `git add/commit/push` через subprocess. Использует `GITHUB_TOKEN` и `GITHUB_REPO` env vars (Наряд 24 A3)
+- **`web_search(query, num_results)`** — поиск через SerpAPI. Использует `SERPAPI_KEY` env. Возвращает raw JSON (Наряд 24 A4)
+- **`make_list(a, b, c, ...)`** — создание списка из вариативных аргументов. Устраняет race condition от write_file/read_file при возврате нескольких значений (Наряд 24 B2)
+
+### Исправления
+
+- **Graceful unknown function** — вызов несуществующей функции возвращает `Ok(String("[ERROR: unknown function '...']"))` вместо `Err(...)` и краша. Критично для fosved-v2 (Наряд 24 B1)
+- **LLM timeout 30→120с** — увеличен таймаут в `call_claude()` (builtins.rs) и `RealLlm` (llm.rs) для сложных запросов (Наряд 24 B3)
+- **json_get с числовыми индексами массивов** — `json_get(data, "items.0.title")` теперь работает: числовые сегменты path трактуются как индексы `Value::List` (Наряд 24 B4)
+- **send_message: реальная Telegram API отправка** — при наличии `TELEGRAM_BOT_TOKEN` env отправляет сообщение через Telegram API. Поддерживает отрицательные channel ID (как `i64` в JSON). Без токена — audit stub (Наряд 24 B5)
+
+### Статистика
+
+- 100 уникальных builtins (89 публичных + 11 `__`-префиксных внутренних)
+- Бинарник: 12 MB (Linux x86_64)
+
+---
+
 ## [0.7.8] — 2026-06-15
 
 **Наряд №17 closure: BlockIfElse expression in bytecode compiler, format() arity fix.**

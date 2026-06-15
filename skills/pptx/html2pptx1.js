@@ -1041,9 +1041,10 @@ function addElements(slideData, targetSlide, pres, tmpDir) {
       // Only zero the inset when the element has no padding of its own; padded
       // containers (e.g. .bubble) need the padding to render as inset so text
       // wraps inside the visible shape.
-      if (!hasContainerPadding || iconOnlyText) textOptions.inset = 0;
+      const zeroTextInset = el.style?._zeroTextInset === true;
+      if (!hasContainerPadding || iconOnlyText || zeroTextInset) textOptions.inset = 0;
       if (alignOut2) textOptions.align = alignOut2;
-      if (iconOnlyText) textOptions.margin = [0, 0, 0, 0];
+      if (iconOnlyText || zeroTextInset) textOptions.margin = [0, 0, 0, 0];
       else if (el.style.margin) textOptions.margin = el.style.margin;
       if (el.style.rotate !== undefined) textOptions.rotate = el.style.rotate;
       if (el.style._pptxVert) textOptions.vert = el.style._pptxVert;
@@ -2184,10 +2185,14 @@ async function extractSlideData(page, slideDims) {
       if (items.length > 0) return items.map(t => '- ' + t).join('\n');
       return normalizeWhitespaceForPpt(noteEl.textContent, 'pre-line').trim();
     };
-    const notes = Array.from(document.querySelectorAll('[data-notes]'))
+    const noteElements = Array.from(document.querySelectorAll('[data-notes]'));
+    const notes = noteElements
       .map(extractNotesText)
       .filter(Boolean)
       .join('\n');
+    // Notes are speaker metadata, not slide artwork. Remove them after extraction
+    // so later element collection never renders them into the visible slide.
+    noteElements.forEach(noteEl => noteEl.remove());
 
     let background;
     if (bgImage && bgImage !== 'none') {
@@ -2791,6 +2796,7 @@ async function extractSlideData(page, slideDims) {
       return null;
     };
     const ICON_CLASS_PATTERN = /(?:^|\s)(material-icons|material-symbols-(?:outlined|rounded|sharp)|fa-[a-z0-9-]+|fas|far|fab|fal|fad|bi-[a-z0-9-]+|icon-[a-z0-9-]+)(?:\s|$)/;
+    const MATERIAL_ICON_CLASS_PATTERN = /(?:^|\s)(material-icons|material-symbols-(?:outlined|rounded|sharp))(?:\s|$)/;
     const isIconElement = (el) => {
       if (!el) return false;
       if (el.tagName !== 'I' && el.tagName !== 'SPAN') return false;
@@ -2800,6 +2806,40 @@ async function extractSlideData(page, slideDims) {
       return ff.includes('material icons') || ff.includes('material symbols') ||
              ff.includes('font awesome') || ff.includes('fontawesome') ||
              ff.includes('bootstrap-icons') || ff.includes('feather');
+    };
+    const isMaterialLigatureIcon = (el) => {
+      if (!el) return false;
+      const raw = (el.textContent || '').trim();
+      if (raw.length <= 1) return false;
+      const cls = typeof el.className === 'string' ? el.className : (el.className?.baseVal || '');
+      if (MATERIAL_ICON_CLASS_PATTERN.test(cls)) return true;
+      const ff = (window.getComputedStyle(el).fontFamily || '').toLowerCase();
+      return ff.includes('material icons') || ff.includes('material symbols');
+    };
+    const normalizeIconBoxForMeasurement = (el) => {
+      if (!isMaterialLigatureIcon(el)) return;
+      const computed = window.getComputedStyle(el);
+      const fsPx = parseFloat(computed.fontSize) || 16;
+      // Material Icons ligatures are visually a 1em square. If the webfont is
+      // unavailable during conversion, Chromium measures raw names such as
+      // business_center as long words, which corrupts flex layout and
+      // produces inconsistent PPT icon widths. Force the measured box to match
+      // the symbol we will emit into PowerPoint.
+      const boxPx = Math.max(1, fsPx);
+      el._h2pIconBoxPx = boxPx;
+      if (el._iconGlyph) el.textContent = el._iconGlyph;
+      el.style.setProperty('display', 'inline-flex', 'important');
+      el.style.setProperty('align-items', 'center', 'important');
+      el.style.setProperty('justify-content', 'center', 'important');
+      el.style.setProperty('width', boxPx + 'px', 'important');
+      el.style.setProperty('height', boxPx + 'px', 'important');
+      el.style.setProperty('min-width', boxPx + 'px', 'important');
+      el.style.setProperty('max-width', boxPx + 'px', 'important');
+      el.style.setProperty('line-height', boxPx + 'px', 'important');
+      el.style.setProperty('overflow', 'hidden', 'important');
+      el.style.setProperty('white-space', 'nowrap', 'important');
+      el.style.setProperty('flex', '0 0 ' + boxPx + 'px', 'important');
+      el.style.setProperty('font-family', 'Segoe UI Symbol', 'important');
     };
     // Extract the bare icon name from a class string (`fa-user`, `bi-check-circle`).
     const extractIconNameFromClass = (cls) => {
@@ -2851,8 +2891,12 @@ async function extractSlideData(page, slideDims) {
       if (isIconElement(el)) {
         el._isIcon = true;
         el._iconGlyph = resolveIconGlyph(el);
+        normalizeIconBoxForMeasurement(el);
       }
     });
+    // The inline style changes above intentionally affect flex/grid layout.
+    // Flush once before any bounding boxes are collected.
+    void document.body.offsetHeight;
 
     // Pre-pass: heading/paragraph elements whose only text-bearing children are
     // block-display inline tags (e.g. `<h1><span class="block">A</span><span class="block">B</span></h1>`)
@@ -4197,6 +4241,11 @@ async function extractSlideData(page, slideDims) {
         (computed.whiteSpace === 'nowrap' || (parseFloat(computed.borderRadius) || 0) > 0);
       if (isShortPaddedBadgeText) {
         baseStyle._centerInFrame = true;
+        // The measured badge rect already includes CSS padding. Re-applying
+        // that padding as PPT text inset leaves very little usable width for
+        // compact labels such as T1/T2/T3/T4.
+        baseStyle._zeroTextInset = true;
+        baseStyle.margin = [0, 0, 0, 0];
         if (baseStyle.align === 'left') baseStyle.align = 'center';
       }
       if (textShadow) baseStyle.shadow = textShadow;

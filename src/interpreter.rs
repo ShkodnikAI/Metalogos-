@@ -1865,7 +1865,7 @@ impl Interpreter {
         // Look up compiled pattern
         let pattern = match self.patterns.get(name) {
             Some(p) => p.clone(),
-            None => return Err(format!("undefined pattern or builtin: {}", name)),
+            None => return Ok(Value::String(format!("[ERROR: unknown function '{}']", name))),
         };
 
         if args.len() != pattern.params.len() {
@@ -3692,7 +3692,7 @@ impl Interpreter {
                 // Look up compiled pattern
                 let pattern = match self.patterns.get(name) {
                     Some(p) => p.clone(),
-                    None => return Err(format!("undefined pattern or builtin: {}", name)),
+                    None => return Ok(Value::String(format!("[ERROR: unknown function '{}']", name))),
                 };
 
                 if eval_args.len() != pattern.params.len() {

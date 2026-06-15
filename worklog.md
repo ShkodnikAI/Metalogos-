@@ -130,3 +130,24 @@ Stage Summary:
 - vm.rs: execute_code expanded from ~30 to ~100 handled instructions
 - Total: 25 new tests (11 unit in semantic.rs + 14 integration in phase19_22_constraints.rs)
 - CI build triggered by push to main
+---
+Task ID: 26
+Agent: main
+Task: CI сборка и обновление FOSVED binary — 14 критических багов
+
+Work Log:
+- Инвентаризация: прочитал parser.rs, interpreter.rs, compiler.rs, builtins.rs
+- Обнаружил, что remote (fd61e28) уже содержит 15 баг-фиксов из коммитов 5c650a3, efee876, e0e7422, 3fd5a45
+- Мои изменения (fc44874) были дублированием — reset на origin/main
+- Подтвердил, что все 14 багов закрыты на remote HEAD
+- CI run 27548383717 (fd61e28) — success, artifact mlog-linux-x86_64 (4.9MB)
+- Скачал artifact через requests lib (urllib не мог авторизовать redirect на actions.download.github.com)
+- Загрузил бинарник в FOSVED-office-v2/bin/mlog через GitHub Contents API (commit 352c717d5588)
+
+Stage Summary:
+- Remote Metalogos fd61e28: все 14 багов пофикшены, CI собран
+- FOSVED-office-v2 binary обновлён (commit 352c717d5588)
+- Уникальные фиксы, добавленные в этой сессии, но уже присутствующие на remote:
+  - sandbox_path: абсолютные пути разрешены
+  - push() auto-mutation для mutable vars
+  - request_body() alias в FnCall dispatch

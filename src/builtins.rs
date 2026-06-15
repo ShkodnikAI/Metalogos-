@@ -165,6 +165,11 @@ impl Builtins {
         funcs.insert("make_list".to_string(), builtin_make_list as BuiltinFn);
         // time() alias for now()
         funcs.insert("time".to_string(), builtin_now as BuiltinFn);
+        // request_body() alias for json_body() — common in web frameworks
+        funcs.insert("request_body".to_string(), builtin_json_body as BuiltinFn);
+        // Public first/last (without __ prefix)
+        funcs.insert("first".to_string(), builtin_first as BuiltinFn);
+        funcs.insert("last".to_string(), builtin_last as BuiltinFn);
 
         Builtins { funcs }
     }
@@ -446,7 +451,7 @@ fn builtin_round(args: &[Value]) -> Result<Value, String> {
 fn builtin_first(args: &[Value]) -> Result<Value, String> {
     let list = match args.get(0) {
         Some(Value::List(items)) => items,
-        _ => return Err("__first() requires List as first argument".to_string()),
+        _ => return Err("first() requires List as first argument".to_string()),
     };
     match list.first() {
         Some(v) => Ok(v.clone()),
@@ -457,7 +462,7 @@ fn builtin_first(args: &[Value]) -> Result<Value, String> {
 fn builtin_last(args: &[Value]) -> Result<Value, String> {
     let list = match args.get(0) {
         Some(Value::List(items)) => items,
-        _ => return Err("__last() requires List as first argument".to_string()),
+        _ => return Err("last() requires List as first argument".to_string()),
     };
     match list.last() {
         Some(v) => Ok(v.clone()),
@@ -1637,7 +1642,10 @@ fn builtin_delete_file(args: &[Value]) -> Result<Value, String> {
 /// `file_exists(path)` — check if a file exists. Returns Bool.
 fn builtin_file_exists(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("file_exists", args, 0)?;
-    let safe_path = sandbox_path(&path)?;
+    let safe_path = match sandbox_path(&path) {
+        Ok(p) => p,
+        Err(_) => return Ok(Value::Bool(false)), // soft-failure on sandbox violation
+    };
     Ok(Value::Bool(safe_path.exists()))
 }
 

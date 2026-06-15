@@ -1,7 +1,7 @@
 // ── LLM client abstraction for METALOGOS M3 ─────────────────────────
 // Phase 7.1: Real LLM backends — Anthropic, OpenAI, Ollama.
 // Mock mode for testing (METALOGOS_MOCK_LLM=true).
-// Retry with exponential backoff (3 retries, 1s/2s/4s). Timeout 30s.
+// Retry with exponential backoff (3 retries, 1s/2s/4s). Timeout 120s.
 
 use std::env;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -192,9 +192,9 @@ impl RealLlm {
 
 impl LlmBackend for RealLlm {
     fn call(&self, prompt: &str, input: &str) -> Result<String, String> {
-        // Build blocking HTTP client with 30s timeout
+        // Build blocking HTTP client with 120s timeout
         let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(120))
             .connect_timeout(Duration::from_secs(10))
             .build()
             .map_err(|e| format!("HTTP client build error: {}", e))?;

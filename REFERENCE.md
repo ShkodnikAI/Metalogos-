@@ -1,6 +1,6 @@
 # METALOGOS — Справочник языка (Reference)
 
-> **Версия:** 0.7.7 (Phase 7.7)
+> **Версия:** 0.7.9 (Phase 7.8+)
 > **Единый источник истины** для разработчиков, пишущих на Металогосе.
 > Содержит полный список встроенных функций с сигнатурами, типами, описанием и примерами,
 > а также справочник по синтаксису, типам данных и CLI.
@@ -289,6 +289,7 @@ to_int(3.9)        // 3.0
 | `len(list)` | `List -> Float` | Float | Количество элементов |
 | `length(list)` | `List -> Float` | Float | Аналог `len()` |
 | `reverse(list)` | `List -> List` | List | Разворачивает список |
+| `make_list(a, b, c, ...)` | `Any, ... -> List` | List | Создаёт список из произвольного числа аргументов. Потокобезопасная альтернатива write_file/read_file для возврата нескольких значений из pattern (Наряд 24) |
 
 **Примеры:**
 ```mlog
@@ -315,8 +316,8 @@ reverse(items)         // [30.0, 20.0, 10.0]
 
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|
-| `call_llm(prompt, input)` | `String, String -> String` | String | Вызывает LLM-бэкенд. По умолчанию возвращает мок: `"[MOCK: prompt \| input]"`. Реальный вызов при `METALOGOS_LLM_MOCK=false` |
-| `call_claude(api_key, model, system_prompt, user_message)` | `String, String, String, String -> String` | String | Прямой вызов Anthropic Claude Messages API (v1/messages). Возвращает `content[0].text` |
+| `call_llm(prompt, input)` | `String, String -> String` | String | Вызывает LLM-бэкенд. По умолчанию возвращает мок: `"[MOCK: prompt \| input]"`. Реальный вызов при `METALOGOS_LLM_MOCK=false`. Таймаут 120с |
+| `call_claude(api_key, model, system_prompt, user_message)` | `String, String, String, String -> String` | String | Прямой вызов Anthropic Claude Messages API (v1/messages). Возвращает `content[0].text`. Таймаут 120с |
 | `llm_usage()` | `-> Struct` | Struct `{LlmUsage}` | Статистика использования LLM: `total_calls`, `total_tokens`, `total_errors`, `providers` (список `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
 | `confidence(fluid_value)` | `Fluid -> Float` | Float | Возвращает максимальный confidence вероятностного типа. Для конкретных значений возвращает `1.0` |
 
@@ -379,8 +380,8 @@ let result = http_post_multipart(
 |---------|-----------|---------|----------|
 | `parse_json(text)` | `String -> Struct\|List\|String\|Float\|Bool\|Unit` | Any | Парсит JSON-строку. Объекты → Struct с `type_name: "Json"`, массивы → List, `null` → Unit |
 | `json_encode(value)` | `Any -> String` | String | Сериализует значение в JSON-строку. Поддерживает String, Float, Bool, Unit→null, List→array, Struct→object |
-| `json_get(obj, field_path)` | `Struct, String -> Value` | Value | Безопасный доступ к полю (возвращает Unit если нет поля). Поддерживает dot-path: `"voice.file_id"` |
-| `json_get(obj, field_path, default)` | `Struct, String, Value -> Value` | Value | С дефолтным значением при отсутствии поля |
+| `json_get(obj, field_path)` | `Struct, String -> Value` | Value | Безопасный доступ к полю (возвращает Unit если нет поля). Поддерживает dot-path: `"voice.file_id"`. **Поддерживает числовые индексы массивов:** `"items.0.title"` (Наряд 24) |
+| `json_get(obj, field_path, default)` | `Struct, String, Value -> Value` | Value | С дефолтным значением при отсутствии поля. Также поддерживает числовые индексы |
 | `has_field(obj, field_path)` | `Struct, String -> Float` | Float | `1.0` если поле существует, `0.0` если нет. Поддерживает dot-path |
 | `escape_json(text)` | `String -> String` | String | Экранирует спецсимволы для встраивания в JSON |
 
@@ -549,9 +550,19 @@ return page
 
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|
-| `send_message(chat_id, text)` | `String\|Float, String -> Unit` | Unit | Отправляет сообщение в чат (Telegram/Discord). В interpreter mode — логирует в `[AUDIT]` |
+| `send_message(chat_id, text)` | `String\|Float, String -> String` | String | Отправляет сообщение в Telegram. При `TELEGRAM_BOT_TOKEN` env — реальная отправка через API. Поддерживает отрицательные channel ID (числа в JSON). Без токена — логирует в `[AUDIT]` |
+| `whisper_transcribe(file_id, bot_token, whisper_key, provider)` | `String, String, String, String -> String` | String | STT через Whisper API: скачивает голосовое из Telegram, отправляет в OpenAI/Groq. `provider`: `"openai"` (по умолч.) или `"groq"` |
+| `tts_send(text, voice, bot_token, chat_id)` | `String, String, String, String -> String` | String | TTS через OpenAI API + отправка аудио в Telegram (`sendAudio`). Требует `OPENAI_API_KEY` |
 
-### 4.17. Прочее
+### 4.17. Интеграции и автоматизация
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `git_push(message)` | `String -> String` | String | `git add . && git commit && git push` через subprocess. Требует `GITHUB_TOKEN` и `GITHUB_REPO` env. Возвращает `"ok"` или `"nothing to commit"` |
+| `web_search(query, num_results)` | `String, Float -> String` | String | Поиск через SerpAPI. Требует `SERPAPI_KEY` env. Возвращает raw JSON. `num_results` по умолчанию 10 |
+| `exec(command)` | `String -> String` | String | Выполняет shell-команду. В server mode отключён без `METALOGOS_ALLOW_EXEC=1` |
+
+### 4.18. Прочее
 
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|
@@ -560,6 +571,7 @@ return page
 | `str(value)` | `Any -> String` | String | Преобразует любое значение в строку |
 | `to_string(value)` | `Any -> String` | String | Аналог `str()` (Float без `.0` для целых) |
 | `type_of(value)` | `Any -> String` | String | Возвращает имя типа значения: `"String"`, `"Float"`, `"Bool"`, `"List"`, `"Struct"`, `"Unit"`, `"Html"`, `"Query"`, `"Secret"`, `"Encrypted"`, `"Hash"`, `"Session"`, `"Fluid"`, `"HttpResponse"` |
+| `format(template)` | `String -> String` | String | Позиционная интерполяция: `format("Hello {0}, you are {1}", name, age)` |
 
 **Пример `type_of` — безопасная работа с `json_get`:**
 ```mlog
@@ -920,7 +932,9 @@ collections.push(items, item) -> List      // append to list
 
 | Версия | Дата | Что нового |
 |--------|------|------------|
-| **0.7.7** | 2026-06-14 | Phase 7.7: break/continue, Match (StartsWith/Contains/Compare), компилятор полн. покрытие, 93 builtins, 44 VM-инструкций |
+| **0.7.9** | 2026-06-15 | Наряд 24: +git_push, +web_search, +make_list, graceful unknown fn, LLM timeout 120с, json_get массивы, send_message реальный API, 100 builtins |
+| **0.7.8** | 2026-06-15 | BlockIfElse expression в bytecode, format() arity fix |
+| **0.7.7** | 2026-06-14 | Phase 7.7: break/continue, Match (StartsWith/Contains/Compare), компилятор полн. покрытие, 44 VM-инструкций |
 | **0.7.1** | 2026-06-10 | Phase 7.1–7.2: inspect, контекст, события, conversation state, LLM cache, model routing |
 | **0.7.3** | 2026-06-12 | Phase 7.3–7.4: контекстная компрессия, lifecycle, Tool, Hook, DoD |
 | **0.7.5** | 2026-06-13 | Phase 7.5–7.6: memory persistence, tokens, eval harness, session memory, audit |

@@ -148,6 +148,14 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         "recall",
         // Phase 4.4 self-hosting
         "stdin", "split_tokens", "if_eq", "newline", "is_string_token",
+        // Format & list utilities
+        "format", "first", "last", "make_list",
+        // Time alias
+        "time",
+        // Наряд №24: integrations
+        "git_push", "web_search",
+        // Server request helpers
+        "request_body",
     ] {
         builtin_names.insert(b.to_string());
     }
@@ -389,12 +397,20 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         ("http_post", 2), ("http_get", 1), ("http_post_multipart", 3),
         ("whisper_transcribe", 1), ("tts_send", 2),
         ("base64_encode", 1), ("base64_decode", 1),
-        ("exec", 1), ("escape_js", 1), ("dict_get", 2), ("dict_set", 3), ("dict_keys", 1), ("dict_values", 1), ("dict_has", 2), ("type_of", 1), ("format", 1),
+        ("exec", 1), ("escape_js", 1), ("dict_get", 2), ("dict_set", 3), ("dict_keys", 1), ("dict_values", 1), ("dict_has", 2), ("type_of", 1),
         ("respond", 2), ("respond_html", 1), ("form_data", 0),
         ("json_body", 0), ("query_param", 1), ("render", 2), ("escape_html", 1),
         ("query", 2), ("db_execute", 1),
         ("stdin", 0), ("split_tokens", 1), ("if_eq", 3), ("newline", 0),
         ("is_string_token", 1),
+        // List & format utilities (variadic: 0 = skip strict arity check)
+        ("first", 1), ("last", 1), ("make_list", 0), ("format", 0),
+        // Time alias
+        ("time", 0),
+        // Наряд №24: integrations
+        ("git_push", 0), ("web_search", 1),
+        // Server request helpers
+        ("request_body", 0),
     ].iter().cloned().collect();
 
     // Functions that must NOT receive opaque types as arguments.
@@ -939,9 +955,9 @@ fn check_variables_in_expr(
             for arg in args {
                 check_variables_in_expr(arg, scope, entity_names, builtin_names, builtin_arity, pattern_arity, result);
             }
-            // Наряд №20: arity check for builtins
+            // Наряд №20: arity check for builtins (0 = variadic, skip check)
             if let Some(&expected) = builtin_arity.get(name.as_str()) {
-                if args.len() != expected {
+                if expected > 0 && args.len() != expected {
                     result.errors.push(format!(
                         "builtin '{}' expects {} argument(s), got {}",
                         name, expected, args.len()

@@ -163,6 +163,8 @@ impl Builtins {
         funcs.insert("git_push".to_string(), builtin_git_push as BuiltinFn);
         funcs.insert("web_search".to_string(), builtin_web_search as BuiltinFn);
         funcs.insert("make_list".to_string(), builtin_make_list as BuiltinFn);
+        // time() alias for now()
+        funcs.insert("time".to_string(), builtin_now as BuiltinFn);
 
         Builtins { funcs }
     }
@@ -468,9 +470,19 @@ fn builtin_last(args: &[Value]) -> Result<Value, String> {
 // Real implementations live in server.rs for the Axum context.
 
 fn builtin_respond(args: &[Value]) -> Result<Value, String> {
-    let status_body = expect_string_arg("respond", args, 0)?;
-    // Parse "200 OK" → status 200, body "OK"
-    let (status, body) = parse_status_line(&status_body);
+    // Two forms: respond("200 OK") or respond("200", "body text")
+    let (status, body) = if args.len() >= 2 {
+        let status_str = expect_string_arg("respond", args, 0)?;
+        let status = status_str.parse::<u16>().unwrap_or(200);
+        let body = match &args[1] {
+            Value::String(s) => s.clone(),
+            other => format!("{}", other),
+        };
+        (status, body)
+    } else {
+        let status_body = expect_string_arg("respond", args, 0)?;
+        parse_status_line(&status_body)
+    };
     Ok(Value::HttpResponse { status, body })
 }
 

@@ -3084,7 +3084,8 @@ impl Interpreter {
         stmts: &[Statement],
         env: &mut HashMap<String, Value>,
     ) -> Result<Value, String> {
-        match self.eval_statements_cf(stmts, env)? {
+        let mut mutable_vars: std::collections::HashSet<String> = std::collections::HashSet::new();
+        match self.eval_statements_cf(stmts, env, &mut mutable_vars)? {
             ControlFlow::ContinueNormal(v) => Ok(v),
             ControlFlow::Return(v) => Ok(v),
             ControlFlow::Break | ControlFlow::ContinueLoop => {
@@ -3101,6 +3102,7 @@ impl Interpreter {
         &self,
         stmts: &[Statement],
         env: &mut HashMap<String, Value>,
+        mutable_vars: &mut std::collections::HashSet<String>,
     ) -> Result<ControlFlow, String> {
         // Phase 7.5: Determine iteration limit based on active sandbox
         let iter_limit = if self.active_sandbox.is_some() {
@@ -3112,15 +3114,12 @@ impl Interpreter {
         // Наряд №13: Track the last non-Unit expression value for implicit return.
         let mut last_expr_value = Value::Unit;
 
-        // Наряд №14: Track which variables are declared as `let mut`
-        let mut mutable_vars: std::collections::HashSet<String> = std::collections::HashSet::new();
-
         /// Helper: evaluate a sub-block and propagate ControlFlow signals.
         /// Returns Ok(Some(cf)) if the block produced a signal (break/continue/return).
         /// Returns Ok(None) if the block completed normally.
         macro_rules! eval_block {
             ($stmts:expr, $env:expr) => {{
-                let cf = self.eval_statements_cf($stmts, $env)?;
+                let cf = self.eval_statements_cf($stmts, $env, mutable_vars)?;
                 if cf.is_break() || cf.is_continue() || cf.is_return() {
                     return Ok(cf);
                 }
@@ -3168,7 +3167,7 @@ impl Interpreter {
                             ));
                         }
                         env.insert(variable.clone(), item);
-                        let cf = self.eval_statements_cf(body, env)?;
+                        let cf = self.eval_statements_cf(body, env, mutable_vars)?;
                         match cf {
                             ControlFlow::Break => return Ok(ControlFlow::Break),
                             ControlFlow::ContinueLoop => continue, // skip to next iteration
@@ -3203,7 +3202,7 @@ impl Interpreter {
                         }
                         env.insert(index_var.clone(), Value::Float(idx as f64));
                         env.insert(item_var.clone(), item);
-                        let cf = self.eval_statements_cf(body, env)?;
+                        let cf = self.eval_statements_cf(body, env, mutable_vars)?;
                         match cf {
                             ControlFlow::Break => return Ok(ControlFlow::Break),
                             ControlFlow::ContinueLoop => continue,
@@ -3236,7 +3235,7 @@ impl Interpreter {
                         if !cond_val.as_bool()? {
                             break;
                         }
-                        let cf = self.eval_statements_cf(body, env)?;
+                        let cf = self.eval_statements_cf(body, env, mutable_vars)?;
                         match cf {
                             ControlFlow::Break => break,
                             ControlFlow::ContinueLoop => { iterations += 1; continue; }

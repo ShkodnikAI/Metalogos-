@@ -195,7 +195,7 @@ assign_or_expr = { IDENT ~ ASSIGN ~ expression | expression }
 // Match statement: match expr { "val" then { stmts } else { stmts } } (P1-1)
 // Extended P1-1: arms support patterns: exact string, starts_with, contains, > / < / >= / <= / == / !=
 match_stmt   = { MATCH_KW ~ expression ~ LBRACE ~ match_arm* ~ match_else? ~ RBRACE }
-match_arm    = { match_arm_exact | match_arm_starts | match_arm_contains | match_arm_compare }
+match_arm    = _{ match_arm_exact | match_arm_starts | match_arm_contains | match_arm_compare }
 match_arm_exact     = { STRING_LITERAL ~ "then" ~ LBRACE ~ statement* ~ RBRACE }
 match_arm_starts    = { STARTS_WITH_KW ~ STRING_LITERAL ~ "then" ~ LBRACE ~ statement* ~ RBRACE }
 match_arm_contains  = { CONTAINS_KW ~ STRING_LITERAL ~ "then" ~ LBRACE ~ statement* ~ RBRACE }
@@ -204,9 +204,10 @@ match_else   = { "else" ~ LBRACE ~ statement* ~ RBRACE }
 STARTS_WITH_KW    = @{ "starts_with" }
 
 expr_stmt    = { expression }
-if_block_stmt = { "if" ~ expression ~ LBRACE ~ statement* ~ RBRACE ~ else_if_block* ~ ("else" ~ LBRACE ~ statement* ~ RBRACE)? }
+if_block_stmt = { "if" ~ expression ~ LBRACE ~ statement* ~ RBRACE ~ else_if_block* ~ else_block? }
 else_if_block = { "else" ~ "if" ~ expression ~ LBRACE ~ statement* ~ RBRACE }
-if_then_stmt = { "if" ~ expression ~ "then" ~ LBRACE ~ statement* ~ RBRACE ~ else_if_then_block* ~ ("else" ~ LBRACE ~ statement* ~ RBRACE)? }
+else_block = { "else" ~ LBRACE ~ statement* ~ RBRACE }
+if_then_stmt = { "if" ~ expression ~ "then" ~ LBRACE ~ statement* ~ RBRACE ~ else_if_then_block* ~ else_block? }
 else_if_then_block = { "else" ~ "if" ~ expression ~ "then" ~ LBRACE ~ statement* ~ RBRACE }
 each_stmt    = { "each" ~ IDENT ~ (COMMA ~ IDENT)? ~ "in" ~ expression ~ LBRACE ~ statement* ~ RBRACE }
 while_stmt   = { "while" ~ expression ~ LBRACE ~ statement* ~ RBRACE }
@@ -254,7 +255,7 @@ qualified_call_expr = { IDENT ~ DOT_CHAR ~ IDENT ~ "(" ~ expression_list? ~ ")" 
 call_expr        = { IDENT ~ "(" ~ expression_list? ~ ")" }
 expression_list  = { expression ~ (COMMA ~ WHITESPACE? ~ expression)* }
 primary_expr     = { block_if_else_expr | struct_literal | list_literal | BOOL_LITERAL | FLOAT_LITERAL | MULTILINE_STRING | STRING_LITERAL | INT | IDENT }
-block_if_else_expr = { "if" ~ expression ~ LBRACE ~ statement* ~ RBRACE ~ else_if_block* ~ ("else" ~ LBRACE ~ statement* ~ RBRACE)? }
+block_if_else_expr = { "if" ~ expression ~ LBRACE ~ statement* ~ RBRACE ~ else_if_block* ~ else_block? }
 struct_literal   = { LBRACE ~ struct_field_init ~ (COMMA ~ struct_field_init)* ~ COMMA? ~ RBRACE }
 struct_field_init = { IDENT ~ COLON ~ expression }
 list_literal     = { LBRACKET ~ expression_list? ~ RBRACKET }

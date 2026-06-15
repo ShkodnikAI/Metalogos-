@@ -527,7 +527,7 @@ pub struct Interpreter {
     db_store: Vec<HashMap<String, Value>>,
     /// SQLite connection for db {} block (Наряд №7).
     /// Opened when db { url: "sqlite::memory:" } or similar is declared.
-    db_conn: std::sync::Mutex<Option<rusqlite::Connection>>,
+    db_conn: std::sync::Arc<std::sync::Mutex<Option<rusqlite::Connection>>>,
     /// Resolved DB URL string for re-opening connections (Наряд №8).
     /// Set by init_db_connection() so per-request interpreters can open new connections.
     db_url: Option<String>,
@@ -640,7 +640,7 @@ impl Interpreter {
             templates: HashMap::new(),
             db_config: None,
             db_store: Vec::new(),
-            db_conn: std::sync::Mutex::new(None),
+            db_conn: std::sync::Arc::new(std::sync::Mutex::new(None)),
             db_url: None,
             audit_log: Mutex::new(Vec::new()),
             server_config: None,
@@ -979,23 +979,31 @@ impl Interpreter {
 
     /// Open a new DB connection using stored db_url (Наряд №8).
     /// Called by per-request interpreters to get their own SQLite connection.
+    /// For in-memory DBs, the Arc-shared connection is already set via clone_definitions_into.
+    /// For file-based DBs, opens a new connection (safe for concurrent access via WAL).
     pub fn reconnect_db(&mut self) {
         if let Some(ref url) = self.db_url {
-            let conn = if url == "sqlite::memory:" {
-                rusqlite::Connection::open_in_memory()
-            } else if url.starts_with("sqlite:") {
-                let path = url.trim_start_matches("sqlite:");
-                rusqlite::Connection::open(path)
-            } else {
+            if url == "sqlite::memory:" {
+                // In-memory DB: Arc-shared connection from main interpreter
+                // No need to reconnect — clone_definitions_into already shared it
                 return;
-            };
-            match conn {
-                Ok(c) => {
-                    let _ = c.execute_batch("PRAGMA journal_mode=WAL;");
-                    *self.db_conn.lock().unwrap() = Some(c);
-                }
-                Err(e) => {
-                    eprintln!("[db] Per-request reconnect failed: {}", e);
+            } else if url.starts_with("sqlite:") {
+                // File DB: open a new connection for this request (WAL handles concurrency)
+                let path = url.trim_start_matches("sqlite:");
+                match rusqlite::Connection::open(path) {
+                    Ok(c) => {
+                        let _ = c.execute_batch("PRAGMA journal_mode=WAL;");
+                        // For file DBs, each request gets its own connection
+                        // (don't overwrite the shared Arc for in-memory)
+                        let mut guard = self.db_conn.lock().unwrap();
+                        // Only set if no connection yet (in-memory may have set it)
+                        if guard.is_none() {
+                            *guard = Some(c);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[db] Per-request reconnect failed: {}", e);
+                    }
                 }
             }
         }
@@ -3009,6 +3017,8 @@ impl Interpreter {
         if let Some(ref url) = self.db_url {
             target.db_url = Some(url.clone());
         }
+        // Share db_conn via Arc so in-memory DB persists between requests
+        target.db_conn = self.db_conn.clone();
         // Copy embedding manager (for recall() — semantic memory search)
         // EmbeddingManager is cheap to clone; it lazily initializes backends.
         // We don't clone the internal cache/embeddings — each interpreter builds its own.

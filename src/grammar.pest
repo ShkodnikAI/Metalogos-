@@ -211,7 +211,7 @@ if_then_stmt = { "if" ~ expression ~ "then" ~ LBRACE ~ statement* ~ RBRACE ~ els
 else_if_then_block = { "else" ~ "if" ~ expression ~ "then" ~ LBRACE ~ statement* ~ RBRACE }
 each_stmt    = { "each" ~ IDENT ~ (COMMA ~ IDENT)? ~ "in" ~ expression ~ LBRACE ~ statement* ~ RBRACE }
 while_stmt   = { "while" ~ expression ~ LBRACE ~ statement* ~ RBRACE }
-let_binding  = { "let" ~ "mut"? ~ IDENT ~ "=" ~ expression }
+let_binding  = { "let" ~ MUT_KW? ~ IDENT ~ "=" ~ expression }
 // assign_stmt must explicitly contain "=" after IDENT to distinguish from expr_stmt (function calls).
 // In PEG, if assign_stmt starts matching IDENT but fails on ASSIGN, the whole rule fails atomically,
 // preventing expr_stmt from being tried. Solution: combine into a single rule that handles both.
@@ -329,6 +329,7 @@ PROMPT_KW   = @{ "prompt" }
 RETURN_KW   = @{ "return" }
 BREAK_KW     = @{ "break" }
 CONTINUE_KW  = @{ "continue" }
+MUT_KW       = @{ "mut" }
 MATCH_KW     = @{ "match" }
 FLOW_KW     = @{ "flow" }
 INPUT_KW    = @{ "input" }

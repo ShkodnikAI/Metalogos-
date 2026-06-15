@@ -159,6 +159,11 @@ impl Builtins {
         // Наряд №17 В.3: format() — positional string interpolation
         funcs.insert("format".to_string(), builtin_format as BuiltinFn);
 
+        // Наряд №24: git_push, web_search, make_list
+        funcs.insert("git_push".to_string(), builtin_git_push as BuiltinFn);
+        funcs.insert("web_search".to_string(), builtin_web_search as BuiltinFn);
+        funcs.insert("make_list".to_string(), builtin_make_list as BuiltinFn);
+
         Builtins { funcs }
     }
 
@@ -764,8 +769,18 @@ fn builtin_session_logout(args: &[Value]) -> Result<Value, String> {
 // ── Phase 6.6 — Bot stubs ───────────────────────────
 
 fn builtin_send_message(args: &[Value]) -> Result<Value, String> {
-    let _chat_id = match args.get(0) {
-        Some(Value::String(_)) | Some(Value::Float(_)) => true,
+    // Extract and format chat_id — supports negative channel IDs (Наряд №24 B5)
+    let chat_id_value: serde_json::Value = match args.get(0) {
+        Some(Value::String(s)) => serde_json::Value::String(s.clone()),
+        Some(Value::Float(f)) => {
+            // Send as number in JSON for correct Telegram API handling of
+            // negative channel IDs like -1004290868173
+            if *f == (*f as i64) as f64 {
+                serde_json::json!(*f as i64)
+            } else {
+                serde_json::json!(*f)
+            }
+        }
         Some(other) => return Err(format!("send_message() expected String or Float as chat_id, got {}", other.type_name())),
         None => return Err("send_message() requires 2 arguments (chat_id, text)".to_string()),
     };
@@ -774,9 +789,40 @@ fn builtin_send_message(args: &[Value]) -> Result<Value, String> {
         Some(other) => return Err(format!("send_message() expected String as text, got {}", other.type_name())),
         None => return Err("send_message() requires 2 arguments (chat_id, text)".to_string()),
     };
-    // In interpreter mode, log to audit and return Unit
-    eprintln!("[AUDIT] send_message: {}", text);
-    Ok(Value::Unit)
+
+    // Try to send via Telegram API if BOT_TOKEN env var is set
+    let bot_token = std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default();
+    if bot_token.is_empty() {
+        // No token — fall back to audit stub
+        eprintln!("[AUDIT] send_message to {:?}: {}", chat_id_value, text);
+        return Ok(Value::Unit);
+    }
+
+    let body = serde_json::json!({
+        "chat_id": chat_id_value,
+        "text": text,
+    });
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("send_message(): client error: {}", e))?;
+
+    let resp = client
+        .post(format!("https://api.telegram.org/bot{}/sendMessage", bot_token))
+        .header("Content-Type", "application/json")
+        .body(body.to_string())
+        .send()
+        .map_err(|e| format!("send_message(): request failed: {}", e))?;
+
+    let status = resp.status().as_u16();
+    let resp_body = resp.text().unwrap_or_default();
+
+    if status >= 400 {
+        return Err(format!("send_message(): Telegram status {}: {}", status, resp_body));
+    }
+
+    Ok(Value::String(resp_body))
 }
 
 // ── Outgoing HTTP (Definition of Done: http_post) ─────────────────
@@ -866,7 +912,7 @@ fn builtin_call_claude(args: &[Value]) -> Result<Value, String> {
     });
 
     let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|e| format!("call_claude(): failed to create client: {}", e))?;
 
@@ -987,6 +1033,7 @@ fn builtin_json_encode(args: &[Value]) -> Result<Value, String> {
 /// Usage: json_get(obj, "field") -> Value (returns Unit if missing)
 /// Usage: json_get(obj, "field", default_value) -> Value (returns default if missing)
 /// Usage: json_get(obj, "nested.field.path", default) -> Value (dot-separated path)
+/// Supports numeric path segments for array indexing: "items.0.title"
 /// This is the P0 fix: prevents runtime crash when accessing optional JSON fields
 /// like message.voice on non-voice Telegram updates.
 fn builtin_json_get(args: &[Value]) -> Result<Value, String> {
@@ -1003,20 +1050,42 @@ fn builtin_json_get(args: &[Value]) -> Result<Value, String> {
         // Navigate the path (dot-separated)
         let mut current = obj;
         for segment in path.split('.') {
+            // Try struct field access first
             match current.get_field(segment) {
-                Ok(val) => current = val,
-                Err(_) => return Ok(default_val),
+                Ok(val) => { current = val; continue; }
+                Err(_) => {}
             }
+            // If struct field not found, try numeric array index (Наряд №24 B4)
+            if let Ok(index) = segment.parse::<usize>() {
+                if let Value::List(items) = current {
+                    if let Some(item) = items.get(index) {
+                        current = item;
+                        continue;
+                    }
+                }
+            }
+            return Ok(default_val);
         }
         Ok(current.clone())
     } else {
         // 2-argument form: return the found value or Unit if not found
         let mut current = obj;
         for segment in path.split('.') {
+            // Try struct field access first
             match current.get_field(segment) {
-                Ok(val) => current = val,
-                Err(_) => return Ok(Value::Unit),
+                Ok(val) => { current = val; continue; }
+                Err(_) => {}
             }
+            // If struct field not found, try numeric array index (Наряд №24 B4)
+            if let Ok(index) = segment.parse::<usize>() {
+                if let Value::List(items) = current {
+                    if let Some(item) = items.get(index) {
+                        current = item;
+                        continue;
+                    }
+                }
+            }
+            return Ok(Value::Unit);
         }
         Ok(current.clone())
     }
@@ -1893,6 +1962,103 @@ fn builtin_type_of(args: &[Value]) -> Result<Value, String> {
         return Err("type_of() requires 1 argument".to_string());
     }
     Ok(Value::String(args[0].type_name().to_string()))
+}
+
+// ── Наряд 24: New builtins (A3, A4, B2) ──────────────────────────────
+
+/// `git_push(message?) -> String` — git add/commit/push via subprocess.
+/// Uses GITHUB_TOKEN and GITHUB_REPO env vars for authentication.
+/// Usage: git_push("commit message") -> "ok" | "nothing to commit" | error
+fn builtin_git_push(args: &[Value]) -> Result<Value, String> {
+    let message = match args.get(0) {
+        Some(Value::String(s)) => s.clone(),
+        _ => "Auto commit".to_string(),
+    };
+
+    let run = |cmd: &str, cmd_args: &[&str]| -> Result<String, String> {
+        let output = std::process::Command::new(cmd)
+            .args(cmd_args)
+            .output()
+            .map_err(|e| format!("git_push(): {} failed: {}", cmd, e))?;
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        } else {
+            Err(format!(
+                "git_push(): {} exited with {}: {}",
+                cmd,
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))
+        }
+    };
+
+    run("git", &["add", "."])?;
+
+    // Check if there's anything to commit
+    let status = run("git", &["status", "--porcelain"])?;
+    if status.trim().is_empty() {
+        return Ok(Value::String("nothing to commit".to_string()));
+    }
+
+    run("git", &["commit", "-m", &message])?;
+
+    // Push using token from env
+    let token = std::env::var("GITHUB_TOKEN").unwrap_or_default();
+    let repo = std::env::var("GITHUB_REPO").unwrap_or_default();
+    if token.is_empty() || repo.is_empty() {
+        return Err("git_push(): GITHUB_TOKEN or GITHUB_REPO env var not set".to_string());
+    }
+
+    let remote = format!("https://{}@github.com/{}.git", token, repo);
+    run("git", &["push", &remote, "main"])?;
+
+    Ok(Value::String("ok".to_string()))
+}
+
+/// `web_search(query, num_results?) -> String` — search via SerpAPI.
+/// Uses SERPAPI_KEY env var. Returns raw JSON string.
+/// Usage: web_search("query") -> JSON string
+/// Usage: web_search("query", 5) -> JSON string with 5 results
+fn builtin_web_search(args: &[Value]) -> Result<Value, String> {
+    let query = expect_string_arg("web_search", args, 0)?;
+    let num: i32 = match args.get(1) {
+        Some(Value::Float(n)) => *n as i32,
+        _ => 10,
+    };
+
+    let api_key = std::env::var("SERPAPI_KEY").unwrap_or_default();
+    if api_key.is_empty() {
+        return Err("web_search(): SERPAPI_KEY env var not set".to_string());
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("web_search(): client error: {}", e))?;
+
+    let url = format!(
+        "https://serpapi.com/search.json?q={}&num={}&api_key={}&hl=ru",
+        urlencoding::encode(query), num, api_key
+    );
+
+    let resp = client
+        .get(&url)
+        .send()
+        .map_err(|e| format!("web_search(): request failed: {}", e))?;
+
+    let body = resp
+        .text()
+        .map_err(|e| format!("web_search(): failed to read response: {}", e))?;
+
+    Ok(Value::String(body))
+}
+
+/// `make_list(a, b, c, ...) -> List` — create a list from variadic arguments.
+/// Eliminates race conditions from write_file/read_file workarounds for
+/// returning multiple values from patterns.
+/// Usage: make_list("red", "green", "blue") -> List ["red", "green", "blue"]
+fn builtin_make_list(args: &[Value]) -> Result<Value, String> {
+    Ok(Value::List(args.to_vec()))
 }
 
 #[cfg(test)]

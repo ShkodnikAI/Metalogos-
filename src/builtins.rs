@@ -2036,9 +2036,10 @@ fn builtin_web_search(args: &[Value]) -> Result<Value, String> {
         .build()
         .map_err(|e| format!("web_search(): client error: {}", e))?;
 
+    let encoded_query = urlencoding::encode(query);
     let url = format!(
         "https://serpapi.com/search.json?q={}&num={}&api_key={}&hl=ru",
-        urlencoding::encode(query), num, api_key
+        encoded_query, num, api_key
     );
 
     let resp = client

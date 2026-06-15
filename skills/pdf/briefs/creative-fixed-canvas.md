@@ -1,4 +1,8 @@
-# Brief: Creative Production (Art Director Blueprint Mode)
+# Brief: Creative Fixed-Canvas (Art Director Blueprint Mode)
+
+**When to use this brief:** Each page is a self-contained visual canvas with fixed dimensions — posters, infographics, invitations, certificates, dashboards, business cards, menus, greeting cards. Visual impact is primary; content per page ≤ 150 words.
+
+**NOT for:** Text-heavy flowing documents (guides, handbooks, catalogs, introductions) → use `briefs/creative-flow.md` instead.
 
 **Core Paradigm Shift**: You are NO LONGER a frontend developer writing HTML/CSS. You are an elite Art Director and Editorial Designer.
 
@@ -205,6 +209,8 @@ Cover pages (`archetype: "cover_hero"`) are the first impression. They must be r
 
 **→ MUST READ: `typesetting/cover.md`** before designing any cover.
 
+> **⚠️ Template Numbering:** Cover HTML templates use `cover.md`'s authoritative numbering: **01** (HUD), **03** (Academic Anchor), **04** (Academic Symmetric), **06** (Institutional), **07** (Crystal Blue). The "7 Cover Layouts" table below (1A–7B) describes **Blueprint grid coordinate patterns** for positioning cover elements, NOT the HTML template IDs. Do not confuse the two systems.
+
 #### Global Iron Rules (Always Apply)
 
 1. **Maximum 4 components** on any cover page. Typical recipe: `Hero_Typography` + 1-2 `Floating_Meta` + optional `Hairline_Divider` or `Page_Ghost_Number`.
@@ -241,9 +247,9 @@ Each layout has 2-3 variants (A/B/C) with specific grid_area mappings - see `typ
 | **Tension** | Crisis / Alert / Disruption | 1A, 5A | **1A** |
 | **Energy** | Marketing / Creative / Design | 3C, 5A, 6B | **5A** |
 | **Energy** | Tech / Data | 2B, 4B, 6A | **2B** |
-| **Authority** | Formal / Corporate / Financial | 02, 03, 07 | **03** |
-| **Authority** | Government / Bidding | 7A, 7B, 3A, **11** | **7A** |
-| **Authority** | Thesis proposal / Dissertation | **11 Institutional** | **11** |
+| **Authority** | Formal / Corporate / Financial | 2A, 3A, 7A | **3A** |
+| **Authority** | Government / Bidding | 7A, 7B, 3A | **7A** |
+| **Authority** | Thesis proposal / Dissertation | Use **Template 06** (Institutional) from `cover.md` | **Template 06** |
 | **Authority** | Luxury / Editorial | 3A, 5A, 2B | **3A** |
 | **Warmth** | Food / Lifestyle / Home | 4A, 5A | **4A** |
 
@@ -381,16 +387,16 @@ This table is the **sole authority** for mapping document intent to concrete des
 
 | Intent | palette_mode | color_harmony | background_svg | Cover Templates | Cover BG Recipe | Base Hue |
 |--------|-------------|---------------|----------------|-----------------|-----------------|----------|
-| **Calm** | minimal | analogous | flow / none | 12 Crystal Blue, 01 HUD | A (极简弧线) | 210° (steel blue-grey) |
-| **Tension** | dark | complementary | grid | 01 HUD, 05 Diagonal | C (锐角切割) | 0° (warm vs cold) |
-| **Energy** | pastel / light | triadic | flow (5+ curves) | 12 Crystal Blue, 09 Academic Symmetric | B (工程十字轴) | 30° (amber) |
-| **Authority** | minimal | split_complementary | noise | 09 Academic Symmetric, 07 Sidebar, 12 Crystal Blue | A or B | 280° (muted violet) |
-| **Warmth** | pastel / light | analogous | flow (soft) | 12 Crystal Blue, 01 HUD | A (极简弧线) | 20° (terracotta) |
+| **Calm** | minimal | analogous | flow / none | 07 Crystal Blue, 01 HUD | A (极简弧线) | 210° (steel blue-grey) |
+| **Tension** | dark | complementary | grid | 01 HUD | C (锐角切割) | 0° (warm vs cold) |
+| **Energy** | pastel / light | triadic | flow (5+ curves) | 07 Crystal Blue, 04 Academic Symmetric | B (工程十字轴) | 30° (amber) |
+| **Authority** | minimal | split_complementary | noise | 04 Academic Symmetric, 03 Academic Anchor, 07 Crystal Blue | A or B | 280° (muted violet) |
+| **Warmth** | pastel / light | analogous | flow (soft) | 07 Crystal Blue, 01 HUD | A (极简弧线) | 20° (terracotta) |
 
 **How to use this table:**
 1. Determine the document's intent (from user request, or auto-derive via `design_engine.py derive`)
 2. Look up the row → fill in `art_direction` JSON fields accordingly
-3. For cover template selection, cross-reference with document type (see Tone → Layout Quick Reference)
+3. For cover template selection, use `cover.md`'s template numbering (01/03/04/06/07). Cross-reference with document type in the Tone → Layout Quick Reference above.
 4. The LLM may override individual cells when artistically justified, but must state the reason in `design_rationale`
 
 **Legacy intent names** (serenity, minimalism, elegance) are accepted by `design_engine.py` as aliases and auto-mapped to their new equivalents.
@@ -638,7 +644,7 @@ Before you output the JSON block, verify:
 11. **Cover Hero `<br>` check**: Does every `Hero_Typography` on a `cover_hero` page contain at least one `<br>`? Single-line hero text on covers = FAIL.
 12. **Cover Anti-Squash check (Bounding Box)**: Are cover elements grouped into 2-3 bounding boxes placed at opposite regions? Is remaining space dynamically distributed (not hardcoded gaps)? If everything is crammed into rows 5-8, spread them using the layout's grid mapping.
 13a. **Cover Typography Scale check**: Is the hero title ≥ 45pt? Is subtitle ≥ 25pt? Is meta text ≥ 18pt (never below 14pt)? Tiny cover text = FAIL.
-13b. **Cover Layout Selection**: Did I pick a layout (1-7) that matches the document tone? If unsure, default to Layout 1A (Diagonal Tension). For government/bidding documents, use Layout 7 (Left-Matrix).
+13b. **Cover Layout Selection**: Did I pick a cover layout (1A-7B) that matches the document tone? If unsure, default to Layout 1A (Diagonal Tension). For government/bidding documents, use Layout 7A (Left-Matrix). For thesis/institutional documents, use **Template 06** from `cover.md`. Cover HTML templates follow `cover.md`'s numbering: 01, 03, 04, 06, 07.
 14. **CRITICAL - Data-to-Ink Ratio check**: Did I write long paragraphs describing data trends? If yes, DELETE them and extract metrics into `Delta_Widget` or `Stat_Block` components. Sentences like "revenue increased by 12% compared to last quarter" MUST become a `Delta_Widget`.
 15. **Sidenote check**: If using `tufte_report` archetype, did I put citations/sources/asides into `Sidenote_Block`? They must NOT be inline in `Glass_Canvas`.
 16. **Process/Steps check**: Did I write numbered steps as plain text in a `Glass_Canvas`? Convert to `Process_List` component instead.
@@ -679,12 +685,14 @@ node "$PDF_SKILL_DIR/scripts/html2pdf-next.js" input.html --output output.pdf --
 0. **Full-Bleed CSS (MANDATORY)**: Every HTML file for Playwright PDF MUST include:
    ```css
    @page { size: 800px 1200px; margin: 0; }  /* CONCRETE values only - CSS variables NOT supported in @page */
-   html, body { margin: 0; padding: 0; width: 800px; height: 1200px; }
+   html, body { margin: 0; padding: 0; width: 800px; }
+   .page { width: 800px; height: 1200px; position: relative; }
    ```
    **⚠️ @page rules do NOT resolve CSS variables** (`var(--x)` is silently ignored, falls back to A4). Always use concrete `px` values.
-   **⚠️ html/body must have explicit width + min-height** matching the canvas size. Use `min-height` (not `height`) so content taller than the design height expands naturally into a single long-page PDF.
-   **⚠️ Poster = seamless pagination.** When content exceeds `@page` height, `html2pdf-next.js` lets Playwright paginate at page boundaries - each page has the same dimensions, content flows seamlessly across pages (like scrolling a long image). Do NOT expand to a single oversized page.
-   `design_engine.py` handles this automatically via `override_css`.
+   - Each `.page` div = one PDF page, with fixed `height` matching `@page` size.
+   - **No `overflow: hidden`** on `.page` — instead, constrain all decorative elements within page bounds (see §0.75).
+   - Content must fit within each `.page` — no cross-page flow.
+   - `design_engine.py` handles this automatically via `override_css`.
 
 0.25. **Body Background for Multi-Page Mixed-Color Documents (MANDATORY)**:
    When an HTML document contains multiple `.page` divs with **different background colors** (e.g. dark cover + white body + dark specs page), Playwright's sub-pixel rounding creates <1px gaps at `.page` edges where `body` background shows through. On dark pages, a white `body` = visible white edges.
@@ -707,10 +715,11 @@ node "$PDF_SKILL_DIR/scripts/html2pdf-next.js" input.html --output output.pdf --
    - Mixed dark + light pages → `body { background: <darkest page color> }` (dark edges on white pages are invisible; white edges on dark pages are the bug we're fixing)
    - All pages white/light → `body { background: <lightest content bg> }` (e.g. `#f8fafc`)
 
-0.5. **No overflow:hidden + Browser Preview Adaptive Scaling (MANDATORY)**:
-   For fixed-size single-page designs (posters, infographics, certificates, etc.), **absolutely never** set `overflow: hidden` on `html`, `body`, or the main container. Reasons:
-   - When opening the HTML directly in a browser, the viewport is much smaller than the design size (e.g., a 1400px-tall page in a 900px viewport). `overflow: hidden` clips the bottom content and prevents scrolling.
+0.5. **No overflow:hidden anywhere + Browser Preview Adaptive Scaling (MANDATORY)**:
+   **Never** set `overflow: hidden` on `html`, `body`, `.page`, or any container. Reasons:
+   - It silently clips content that slightly exceeds bounds, making layout bugs invisible.
    - `html2pdf-next.js`'s pre-render check detects `scrollHeight > clientHeight` + `overflow: hidden` and triggers auto-fix (force-expanding the container), which may break the layout.
+   - Instead, constrain decorative elements within page bounds at the CSS level (see §0.75).
 
    **`design_engine.py` handles this automatically**: During blueprint compilation, it auto-injects `@media screen` centering + scaling code, and the `html` background color uses `var(--c-bg)` matching the poster's main color. No manual addition needed.
 
@@ -739,12 +748,41 @@ node "$PDF_SKILL_DIR/scripts/html2pdf-next.js" input.html --output output.pdf --
    `@media screen` rules only apply in browser preview; `page.pdf()` uses print media and is unaffected.
    **Every fixed-size HTML must include this `@media screen` adaptive code.**
 
-0.75. **Page Container Overflow Clipping (MANDATORY for multi-page documents)**:
-   Every `.page` div MUST have `overflow: hidden`. Decorative elements (glow circles, gradient overlays) commonly use `width: 120%` or negative offsets - without clipping, they inflate `scrollWidth` beyond page width, causing Playwright to shrink all content and shift it left.
+0.75. **Decorative Element Containment (MANDATORY — replaces overflow:hidden)**:
+   **Do NOT use `overflow: hidden` on `.page` containers.** It silently clips content that slightly exceeds bounds, making layout errors invisible and debugging painful.
+
+   Instead, **constrain all decorative elements within page bounds at the CSS level**:
+
    ```css
-   .page { overflow: hidden; }  /* Clips decorative overflow, prevents Playwright shrink */
+   /* ✅ CORRECT: decorative element stays inside .page */
+   .deco-circle {
+       position: absolute;
+       width: 80%;           /* NOT >100% */
+       height: 40%;
+       top: 10%;
+       right: 0;             /* NOT negative */
+       border-radius: 50%;
+       opacity: 0.1;
+   }
+
+   /* ❌ FORBIDDEN: causes scrollWidth > pageWidth → Playwright shrinks everything */
+   .deco-circle-bad {
+       position: absolute;
+       width: 200%;          /* inflates scrollWidth */
+       left: -50%;           /* extends beyond left edge */
+   }
    ```
-   For horizontal flex layouts (≥3 items), always add `flex-wrap: wrap`. See `typesetting/overflow.md` §3.5.
+
+   **Iron rules for decorative elements:**
+   - `width` ≤ 100% of `.page` width. No exceptions.
+   - `left` ≥ 0, `right` ≥ 0. No negative offsets that push content beyond page edges.
+   - For edge-bleeding effects, position the element at the edge and let `border-radius` or `opacity` create the visual bleed within bounds.
+   - For horizontal flex layouts (≥3 items), always add `flex-wrap: wrap` to prevent horizontal overflow.
+
+   **Why not overflow:hidden?**
+   Playwright’s `page.pdf()` checks `body.scrollWidth`. If any absolutely-positioned child pushes `scrollWidth` beyond `@page` width, Playwright shrinks **all content** to fit. `overflow:hidden` masks this by clipping, but also silently hides any content that slightly exceeds bounds. Constraining elements at the source eliminates both the shrink bug and the silent clipping.
+
+   See `typesetting/overflow.md` §3.5 for additional horizontal overflow rules.
 
 1. **Character Encoding Safety**: Never use Japanese kana (の, が, は), rare symbols, or Private Use Area characters in content strings. They corrupt to U+FFFD (�) during LLM→file write→read transit. Replace with plain Chinese equivalents: `の`→`之/的/缔/省略`.
 2. **Vertical Chinese Text** - When using `writing-mode: vertical-rl` for CJK, you MUST include:

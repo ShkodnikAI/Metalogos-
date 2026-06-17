@@ -1008,8 +1008,8 @@ impl Interpreter {
         let mut rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
             row.get_ref(0).map(|v| match v {
                 rusqlite::types::ValueRef::Null => Value::Unit,
-                rusqlite::types::ValueRef::Integer(n) => Value::Float(*n as f64),
-                rusqlite::types::ValueRef::Real(f) => Value::Float(*f),
+                rusqlite::types::ValueRef::Integer(n) => Value::Float(n as f64),
+                rusqlite::types::ValueRef::Real(f) => Value::Float(f),
                 rusqlite::types::ValueRef::Text(s) => Value::String(String::from_utf8_lossy(s).to_string()),
                 rusqlite::types::ValueRef::Blob(b) => Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect()),
             })

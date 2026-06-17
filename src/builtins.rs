@@ -216,8 +216,7 @@ fn builtin_print(args: &[Value]) -> Result<Value, String> {
 fn builtin_contains(args: &[Value]) -> Result<Value, String> {
     let haystack = expect_string_arg("contains", args, 0)?;
     let needle = expect_string_arg("contains", args, 1)?;
-    let result = if haystack.contains(&needle) { 1.0 } else { 0.0 };
-    Ok(Value::Float(result))
+    Ok(Value::Bool(haystack.contains(&needle)))
 }
 
 fn builtin_float(args: &[Value]) -> Result<Value, String> {
@@ -862,46 +861,77 @@ fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
         None => return Err("http_post() requires at least 2 arguments (url, body)".to_string()),
     };
 
-    let content_type = match args.get(2) {
-        Some(Value::String(s)) => s.clone(),
-        _ => "application/json".to_string(),
+    let (content_type, timeout_arg_idx) = match args.get(2) {
+        Some(Value::String(s)) => (s.clone(), 3),
+        _ => ("application/json".to_string(), 2),
     };
 
+    // Наряда-26 P0-1: configurable timeout (default 30s, max 300s)
+    // Signatures: http_post(url, body, timeout) | http_post(url, body, ct, timeout) | http_post(url, body, ct, headers, timeout)
+    let timeout_secs = if let Some(timeout_val) = args.get(timeout_arg_idx) {
+        match timeout_val {
+            Value::Float(f) => {
+                let t = f.clamp(1.0, 300.0) as u64;
+                if *f > 300.0 {
+                    eprintln!("[http_post] timeout clamped from {} to 300s", f);
+                }
+                t
+            }
+            _ => 30, // not a number → skip, treat as headers or ignore
+        }
+    } else {
+        30
+    };
 
     let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(timeout_secs))
         .build()
         .map_err(|e| format!("http_post(): failed to create client: {}", e))?;
-
 
     let mut req = client
         .post(&url)
         .header("Content-Type", &content_type)
         .body(body);
 
-    // Optional 4th argument: headers (Наряд №12 Bug 2)
-    // String: treat as Bearer token; Struct: set headers from fields
-    if let Some(headers_arg) = args.get(3) {
-        match headers_arg {
-            Value::String(auth_token) => {
-                if !auth_token.is_empty() {
-                    req = req.header("Authorization", format!("Bearer {}", auth_token));
-                }
-            }
-            Value::Struct { fields, .. } => {
-                for (key, val) in fields {
-                    if let Value::String(v) = val {
-                        req = req.header(key.as_str(), v.as_str());
+    // Optional headers argument (index depends on whether content_type was provided)
+    let headers_idx = if args.len() > 2 && matches!(args.get(2), Some(Value::String(_))) {
+        // content_type was 3rd arg → headers are 4th
+        3
+    } else {
+        // content_type was default → headers are 3rd
+        2
+    };
+    // Only parse headers if the arg exists and is NOT a Float (which would be timeout)
+    if let Some(headers_arg) = args.get(headers_idx) {
+        if !matches!(headers_arg, Value::Float(_)) {
+            match headers_arg {
+                Value::String(auth_token) => {
+                    if !auth_token.is_empty() {
+                        req = req.header("Authorization", format!("Bearer {}", auth_token));
                     }
                 }
+                Value::Struct { fields, .. } => {
+                    for (key, val) in fields {
+                        if let Value::String(v) = val {
+                            req = req.header(key.as_str(), v.as_str());
+                        }
+                    }
+                }
+                _ => {}
             }
-            _ => {}
         }
     }
 
     let resp = req
         .send()
-        .map_err(|e| format!("http_post() request failed: {}", e))?;
+        .map_err(|e| {
+            let err_str = e.to_string();
+            if err_str.contains("timeout") || err_str.contains("timed out") {
+                format!("ERROR: http timeout after {}s", timeout_secs)
+            } else {
+                format!("http_post() request failed: {}", e)
+            }
+        })?;
 
     let status = resp.status().as_u16();
     let resp_body = resp.text().unwrap_or_default();
@@ -1144,15 +1174,36 @@ fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
         None => return Err("http_get() requires 1 argument (url)".to_string()),
     };
 
+    // Наряда-26 P0-1: configurable timeout
+    // http_get(url) | http_get(url, timeout) | http_get(url, headers) | http_get(url, headers, timeout)
+    let (headers_arg, timeout_secs) = match args.len() {
+        1 => (None, 30u64),
+        2 => {
+            // 2nd arg could be timeout (Float) or headers (String/Struct)
+            match &args[1] {
+                Value::Float(f) => (None, f.clamp(1.0, 300.0) as u64),
+                other => (Some(other), 30),
+            }
+        }
+        _ => {
+            // 3+ args: 2nd is headers, 3rd is timeout
+            let timeout = if let Some(Value::Float(f)) = args.get(2) {
+                f.clamp(1.0, 300.0) as u64
+            } else {
+                30
+            };
+            (args.get(1), timeout)
+        }
+    };
+
     let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(timeout_secs))
         .build()
         .map_err(|e| format!("http_get(): failed to create client: {}", e))?;
 
     let mut req = client.get(&url);
 
-    // Optional 2nd argument: headers (String as Bearer token, Struct as header map)
-    if let Some(headers_arg) = args.get(1) {
+    if let Some(headers_arg) = headers_arg {
         match headers_arg {
             Value::String(auth_token) => {
                 if !auth_token.is_empty() {
@@ -1172,7 +1223,14 @@ fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
 
     let resp = req
         .send()
-        .map_err(|e| format!("http_get() request failed: {}", e))?;
+        .map_err(|e| {
+            let err_str = e.to_string();
+            if err_str.contains("timeout") || err_str.contains("timed out") {
+                format!("ERROR: http timeout after {}s", timeout_secs)
+            } else {
+                format!("http_get() request failed: {}", e)
+            }
+        })?;
 
     let status = resp.status().as_u16();
     let resp_body = resp.text().unwrap_or_default();

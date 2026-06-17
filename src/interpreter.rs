@@ -977,6 +977,103 @@ impl Interpreter {
         Ok(Value::String(affected.to_string()))
     }
 
+    /// Наряда-26 P1-7: query_scalar(sql, params) -> Value
+    /// Executes a SELECT that returns exactly one row with one column.
+    /// Returns the scalar value directly (String, Float, or Unit for NULL).
+    fn invoke_query_scalar(&self, args: &[Value]) -> Result<Value, String> {
+        let sql = match args.first() {
+            Some(Value::String(s)) => s.clone(),
+            Some(other) => return Err(format!("query_scalar() expected String SQL, got {}", other.type_name())),
+            None => return Err("query_scalar() requires at least 1 argument (SQL string)".to_string()),
+        };
+        let params: Vec<String> = if args.len() > 1 {
+            match &args[1] {
+                Value::List(items) => items.iter().filter_map(|v| match v {
+                    Value::String(s) => Some(s.clone()),
+                    Value::Float(n) => Some(format!("{}", n)),
+                    Value::Bool(b) => Some(format!("{}", b)),
+                    _ => None,
+                }).collect(),
+                _ => Vec::new(),
+            }
+        } else { Vec::new() };
+
+        let guard = self.db_conn.lock().map_err(|e| format!("db lock error: {}", e))?;
+        let conn = guard.as_ref().ok_or_else(|| {
+            "query_scalar() error: no database connection.".to_string()
+        })?;
+
+        let mut stmt = conn.prepare(&sql)
+            .map_err(|e| format!("query_scalar() SQL error: {}", e))?;
+        let mut rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
+            row.get_ref(0).map(|v| match v {
+                rusqlite::types::ValueRef::Null => Value::Unit,
+                rusqlite::types::ValueRef::Integer(n) => Value::Float(*n as f64),
+                rusqlite::types::ValueRef::Real(f) => Value::Float(*f),
+                rusqlite::types::ValueRef::Text(s) => Value::String(String::from_utf8_lossy(s).to_string()),
+                rusqlite::types::ValueRef::Blob(b) => Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect()),
+            })
+        }).map_err(|e| format!("query_scalar() execution error: {}", e))?;
+
+        match rows.next() {
+            Some(Ok(val)) => Ok(val),
+            Some(Err(e)) => Err(format!("query_scalar() row error: {}", e)),
+            None => Ok(Value::Unit),
+        }
+    }
+
+    /// Наряда-26 P1-7: query_row(sql, params) -> List
+    /// Executes a SELECT that returns exactly one row.
+    /// Returns a List of column values (preserving column order).
+    fn invoke_query_row(&self, args: &[Value]) -> Result<Value, String> {
+        let sql = match args.first() {
+            Some(Value::String(s)) => s.clone(),
+            Some(other) => return Err(format!("query_row() expected String SQL, got {}", other.type_name())),
+            None => return Err("query_row() requires at least 1 argument (SQL string)".to_string()),
+        };
+        let params: Vec<String> = if args.len() > 1 {
+            match &args[1] {
+                Value::List(items) => items.iter().filter_map(|v| match v {
+                    Value::String(s) => Some(s.clone()),
+                    Value::Float(n) => Some(format!("{}", n)),
+                    Value::Bool(b) => Some(format!("{}", b)),
+                    _ => None,
+                }).collect(),
+                _ => Vec::new(),
+            }
+        } else { Vec::new() };
+
+        let guard = self.db_conn.lock().map_err(|e| format!("db lock error: {}", e))?;
+        let conn = guard.as_ref().ok_or_else(|| {
+            "query_row() error: no database connection.".to_string()
+        })?;
+
+        let mut stmt = conn.prepare(&sql)
+            .map_err(|e| format!("query_row() SQL error: {}", e))?;
+        let col_count = stmt.column_count();
+        let mut rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
+            let mut vals = Vec::with_capacity(col_count);
+            for i in 0..col_count {
+                let val = match row.get_ref(i) {
+                    Ok(rusqlite::types::ValueRef::Null) => Value::Unit,
+                    Ok(rusqlite::types::ValueRef::Integer(n)) => Value::Float(n as f64),
+                    Ok(rusqlite::types::ValueRef::Real(f)) => Value::Float(f),
+                    Ok(rusqlite::types::ValueRef::Text(s)) => Value::String(String::from_utf8_lossy(s).to_string()),
+                    Ok(rusqlite::types::ValueRef::Blob(b)) => Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect()),
+                    Err(_) => Value::Unit,
+                };
+                vals.push(val);
+            }
+            Ok(vals)
+        }).map_err(|e| format!("query_row() execution error: {}", e))?;
+
+        match rows.next() {
+            Some(Ok(vals)) => Ok(Value::List(vals)),
+            Some(Err(e)) => Err(format!("query_row() row error: {}", e)),
+            None => Ok(Value::List(vec![])),
+        }
+    }
+
     /// Open a new DB connection using stored db_url (Наряд №8).
     /// Called by per-request interpreters to get their own SQLite connection.
     /// For in-memory DBs, the Arc-shared connection is already set via clone_definitions_into.
@@ -3331,6 +3428,12 @@ impl Interpreter {
                 Statement::Continue => return Ok(ControlFlow::ContinueLoop),
                 Statement::ExprStmt(expr) => {
                     let val = self.eval_expr_with_env(expr, env)?;
+                    // Наряда-26 P0-2: respond() as early return.
+                    // When an ExprStmt produces HttpResponse inside any block (if/while/match/route),
+                    // propagate it as Return so the server can catch it and stop processing.
+                    if let Value::HttpResponse { .. } = &val {
+                        return Ok(ControlFlow::Return(val));
+                    }
                     if !matches!(val, Value::Unit) {
                         last_expr_value = val;
                     }
@@ -3669,6 +3772,13 @@ impl Interpreter {
                 }
                 if name == "db_execute" {
                     return self.invoke_db_execute(&eval_args);
+                }
+                // Наряда-26 P1-7: query_scalar / query_row
+                if name == "query_scalar" {
+                    return self.invoke_query_scalar(&eval_args);
+                }
+                if name == "query_row" {
+                    return self.invoke_query_row(&eval_args);
                 }
 
                 // Check learnable patterns first

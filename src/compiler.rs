@@ -459,20 +459,55 @@ impl Compiler {
                 }
             }
             Expr::BinaryOp(left, op, right) => {
-                self.compile_expr_with_locals(left, code, locals)?;
-                self.compile_expr_with_locals(right, code, locals)?;
-                match op {
-                    BinOp::Add => code.push(Instruction::Add),
-                    BinOp::Sub => code.push(Instruction::Sub),
-                    BinOp::Mul => code.push(Instruction::Mul),
-                    BinOp::Div => code.push(Instruction::Div),
-                    // Phase 5.1: comparison operators
-                    BinOp::Gt => code.push(Instruction::CmpGt),
-                    BinOp::Lt => code.push(Instruction::CmpLt),
-                    BinOp::Ge => code.push(Instruction::CmpGe),
-                    BinOp::Le => code.push(Instruction::CmpLe),
-                    BinOp::Eq => code.push(Instruction::CmpEq),
-                    BinOp::Ne => code.push(Instruction::CmpNe),
+                // Short-circuit for logical operators: compile with conditional jumps
+                if matches!(op, BinOp::And) {
+                    self.compile_expr_with_locals(left, code, locals)?;
+                    let jump_to_end = code.len();
+                    code.push(Instruction::JumpIfNot(0)); // if left falsy, skip right
+                    self.compile_expr_with_locals(right, code, locals)?;
+                    code.push(Instruction::Jump(0)); // skip false push
+                    let false_start = code.len();
+                    code.push(Instruction::Const(Value::Float(0.0)));
+                    let end = code.len();
+                    if let Some(Instruction::JumpIfNot(ref mut target)) = code.get_mut(jump_to_end) {
+                        *target = false_start;
+                    }
+                    if let Some(Instruction::Jump(ref mut target)) = code.get_mut(false_start + 1) {
+                        *target = end;
+                    }
+                } else if matches!(op, BinOp::Or) {
+                    self.compile_expr_with_locals(left, code, locals)?;
+                    let jump_to_end = code.len();
+                    code.push(Instruction::JumpIfNot(0)); // if left falsy, evaluate right
+                    // left is truthy — push 1.0 and jump past right
+                    code.push(Instruction::Const(Value::Float(1.0)));
+                    let skip_right = code.len();
+                    code.push(Instruction::Jump(0)); // jump past right evaluation
+                    let right_start = code.len();
+                    if let Some(Instruction::JumpIfNot(ref mut target)) = code.get_mut(jump_to_end) {
+                        *target = right_start;
+                    }
+                    self.compile_expr_with_locals(right, code, locals)?;
+                    let end = code.len();
+                    if let Some(Instruction::Jump(ref mut target)) = code.get_mut(skip_right) {
+                        *target = end;
+                    }
+                } else {
+                    self.compile_expr_with_locals(left, code, locals)?;
+                    self.compile_expr_with_locals(right, code, locals)?;
+                    match op {
+                        BinOp::Add => code.push(Instruction::Add),
+                        BinOp::Sub => code.push(Instruction::Sub),
+                        BinOp::Mul => code.push(Instruction::Mul),
+                        BinOp::Div => code.push(Instruction::Div),
+                        BinOp::Gt => code.push(Instruction::CmpGt),
+                        BinOp::Lt => code.push(Instruction::CmpLt),
+                        BinOp::Ge => code.push(Instruction::CmpGe),
+                        BinOp::Le => code.push(Instruction::CmpLe),
+                        BinOp::Eq => code.push(Instruction::CmpEq),
+                        BinOp::Ne => code.push(Instruction::CmpNe),
+                        _ => {} // And/Or handled above
+                    }
                 }
             }
             Expr::IfElse(cond, then_expr, else_expr) => {

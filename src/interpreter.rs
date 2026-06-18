@@ -1008,8 +1008,8 @@ impl Interpreter {
         let mut rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
             row.get_ref(0).map(|v| match v {
                 rusqlite::types::ValueRef::Null => Value::Unit,
-                rusqlite::types::ValueRef::Integer(n) => Value::Float(*n as f64),
-                rusqlite::types::ValueRef::Real(f) => Value::Float(*f),
+                rusqlite::types::ValueRef::Integer(n) => Value::Float(n as f64),
+                rusqlite::types::ValueRef::Real(f) => Value::Float(f),
                 rusqlite::types::ValueRef::Text(s) => Value::String(String::from_utf8_lossy(s).to_string()),
                 rusqlite::types::ValueRef::Blob(b) => Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect()),
             })
@@ -3830,6 +3830,19 @@ impl Interpreter {
                 })
             }
             Expr::BinaryOp(left, op, right) => {
+                // Short-circuit for logical operators: and/or
+                if matches!(op, BinOp::And) {
+                    let l = self.eval_expr_with_env(left, env)?;
+                    if !Self::is_truthy(&l) { return Ok(Value::Bool(false)); }
+                    let r = self.eval_expr_with_env(right, env)?;
+                    return Ok(Value::Bool(Self::is_truthy(&r)));
+                }
+                if matches!(op, BinOp::Or) {
+                    let l = self.eval_expr_with_env(left, env)?;
+                    if Self::is_truthy(&l) { return Ok(Value::Bool(true)); }
+                    let r = self.eval_expr_with_env(right, env)?;
+                    return Ok(Value::Bool(Self::is_truthy(&r)));
+                }
                 let l = self.eval_expr_with_env(left, env)?;
                 let r = self.eval_expr_with_env(right, env)?;
                 self.eval_binop(l, *op, r)
@@ -3920,6 +3933,16 @@ impl Interpreter {
         )
     }
 
+    fn is_truthy(value: &Value) -> bool {
+        match value {
+            Value::String(s) => !s.is_empty(),
+            Value::Float(f) => *f != 0.0,
+            Value::Bool(b) => *b,
+            Value::List(items) => !items.is_empty(),
+            _ => false,
+        }
+    }
+
     fn eval_binop(&self, left: Value, op: BinOp, right: Value) -> Result<Value, String> {
         // Enforce opaque type restrictions for Add (concatenation)
         if matches!(op, BinOp::Add) {
@@ -3957,13 +3980,17 @@ impl Interpreter {
             (BinOp::Lt, Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a < b)),
             (BinOp::Ge, Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a >= b)),
             (BinOp::Le, Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a <= b)),
-            // Equality (works for Float, String, Bool)
+            // Equality (works for Float, String, Bool, Unit)
             (BinOp::Eq, Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a == b)),
             (BinOp::Eq, Value::String(a), Value::String(b)) => Ok(Value::Bool(a == b)),
             (BinOp::Eq, Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a == b)),
+            (BinOp::Eq, Value::Unit, Value::Unit) => Ok(Value::Bool(true)),
+            (BinOp::Eq, Value::Unit, _) | (BinOp::Eq, _, Value::Unit) => Ok(Value::Bool(false)),
             (BinOp::Ne, Value::String(a), Value::String(b)) => Ok(Value::Bool(a != b)),
             (BinOp::Ne, Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a != b)),
             (BinOp::Ne, Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a != b)),
+            (BinOp::Ne, Value::Unit, Value::Unit) => Ok(Value::Bool(false)),
+            (BinOp::Ne, Value::Unit, _) | (BinOp::Ne, _, Value::Unit) => Ok(Value::Bool(true)),
             (BinOp::Add, l, r) => {
                 eprintln!("[WARNING] implicit Unit→String conversion in '+' operation: {} + {}", l.type_name(), r.type_name());
                 Err(format!(

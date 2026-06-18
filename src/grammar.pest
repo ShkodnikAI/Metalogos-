@@ -187,7 +187,7 @@ param        = { IDENT ~ ":" ~ type_name }
 pattern_body = { statement* }
 
 // ── Statements (v0.5.1: unified if-then-else support) ───────────────
-statement    = { match_stmt | if_block_stmt | each_stmt | while_stmt | let_binding | break_stmt | continue_stmt | return_stmt | assign_or_expr }
+statement    = { match_stmt | if_then_stmt | if_block_stmt | each_stmt | while_stmt | let_binding | break_stmt | continue_stmt | return_stmt | assign_or_expr }
 // Combined assignment-or-expression: disambiguates IDENT followed by "=" (assignment)
 // vs IDENT followed by other tokens (expression statement like function calls).
 // PEG ordered choice: try assignment first (= present), fall through to expression.
@@ -244,7 +244,7 @@ ARROW = @{ "->" }
 // ── Expressions (v0.5.0: access_expr replaces field_expr, INT in primary_expr) ──
 expression       = { binary_expr }
 binary_expr      = { unary_expr ~ (binop ~ unary_expr)* }
-binop            = @{ STAR | SLASH | PLUS | MINUS | GTE | LTE | NEQ | GT | LT | EQ }
+binop            = @{ AND_KW | OR_KW | STAR | SLASH | PLUS | MINUS | GTE | LTE | NEQ | GT | LT | EQ }
 unary_expr       = { try_expr | if_else_expr | qualified_call_expr | call_expr | unary_minus | access_expr | primary_expr }
 unary_minus     = @{ MINUS ~ unary_expr }
 try_expr       = { "try" ~ unary_expr }
@@ -267,7 +267,7 @@ literal = _{ FLOAT_LITERAL | STRING_LITERAL | IDENT }
 STRING_LITERAL = @{ "\"" ~ inner_string ~ "\"" }
 MULTILINE_STRING = @{ "\"\"\"" ~ (!("\"\"\"") ~ ANY)* ~ "\"\"\"" }
 inner_string   =  { (ESCAPE_SEQ | (!( "\"" | "\\") ~ ANY))* }
-ESCAPE_SEQ     = @{ "\\" ~ ("\"" | "\\" | "n" | "t" | "r") }
+ESCAPE_SEQ     = @{ "\\" ~ ("\"" | "\\" | "n" | "t" | "r" | "u" ~ ASCII_HEX_DIGIT{4}) }
 FLOAT_LITERAL  = @{ DIGIT+ ~ DOT_CHAR ~ DIGIT+ }
 INT            = @{ DIGIT+ }
 // IDENT supports ASCII + Cyrillic (U+0410-U+044F, i.e. А-я)
@@ -330,6 +330,8 @@ RETURN_KW   = @{ "return" }
 BREAK_KW     = @{ "break" }
 CONTINUE_KW  = @{ "continue" }
 MUT_KW       = @{ "mut" }
+AND_KW       = @{ "and" }
+OR_KW        = @{ "or" }
 ELSE_KW      = @{ "else" }
 MATCH_KW     = @{ "match" }
 FLOW_KW     = @{ "flow" }

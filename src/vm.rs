@@ -1402,6 +1402,18 @@ impl Vm {
 
     /// Evaluate a binary operation.
     fn eval_binop(&self, left: Value, op: crate::ast::BinOp, right: Value) -> Result<Value, String> {
+        // Short-circuit for logical operators
+        match op {
+            crate::ast::BinOp::And => {
+                if !is_truthy(&left) { return Ok(Value::Float(0.0)); }
+                return Ok(Value::Float(if is_truthy(&right) { 1.0 } else { 0.0 }));
+            }
+            crate::ast::BinOp::Or => {
+                if is_truthy(&left) { return Ok(Value::Float(1.0)); }
+                return Ok(Value::Float(if is_truthy(&right) { 1.0 } else { 0.0 }));
+            }
+            _ => {}
+        }
         match (left, right) {
             (Value::String(a), Value::String(b)) => match op {
                 crate::ast::BinOp::Add => Ok(Value::String(format!("{}{}", a, b))),
@@ -1426,6 +1438,18 @@ impl Vm {
                 crate::ast::BinOp::Le => Ok(Value::Float(if a <= b { 1.0 } else { 0.0 })),
                 crate::ast::BinOp::Eq => Ok(Value::Float(if a == b { 1.0 } else { 0.0 })),
                 crate::ast::BinOp::Ne => Ok(Value::Float(if a != b { 1.0 } else { 0.0 })),
+                // And/Or handled by short-circuit above; unreachable here
+                _ => Err(format!("cannot apply {:?} to two Floats", op)),
+            },
+            (Value::Unit, r) => match op {
+                crate::ast::BinOp::Eq => Ok(Value::Float(if matches!(r, Value::Unit) { 1.0 } else { 0.0 })),
+                crate::ast::BinOp::Ne => Ok(Value::Float(if matches!(r, Value::Unit) { 0.0 } else { 1.0 })),
+                _ => Err(format!("cannot apply {:?} to Unit and {}", op, r.type_name())),
+            },
+            (l, Value::Unit) => match op {
+                crate::ast::BinOp::Eq => Ok(Value::Float(if matches!(l, Value::Unit) { 1.0 } else { 0.0 })),
+                crate::ast::BinOp::Ne => Ok(Value::Float(if matches!(l, Value::Unit) { 0.0 } else { 1.0 })),
+                _ => Err(format!("cannot apply {:?} to {} and Unit", op, l.type_name())),
             },
             (l, r) => Err(format!(
                 "type mismatch: {} {:?} {}",

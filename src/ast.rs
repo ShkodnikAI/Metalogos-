@@ -616,6 +616,8 @@ pub enum BinOp {
     Le,
     Eq,
     Ne,
+    And,
+    Or,
 }
 
 impl fmt::Display for BinOp {
@@ -631,6 +633,8 @@ impl fmt::Display for BinOp {
             BinOp::Le => write!(f, "<="),
             BinOp::Eq => write!(f, "=="),
             BinOp::Ne => write!(f, "!="),
+            BinOp::And => write!(f, "and"),
+            BinOp::Or => write!(f, "or"),
         }
     }
 }

@@ -381,6 +381,21 @@ fn unescape_string(s: &str) -> String {
                 Some('n')  => { result.push('\n'); chars.next(); }
                 Some('t')  => { result.push('\t'); chars.next(); }
                 Some('r')  => { result.push('\r'); chars.next(); }
+                Some('u')  => {
+                    chars.next(); // consume 'u'
+                    let hex: String = chars.by_ref().take(4).collect();
+                    if let Ok(code_point) = u32::from_str_radix(&hex, 16) {
+                        if let Some(ch) = char::from_u32(code_point) {
+                            result.push(ch);
+                        } else {
+                            result.push_str("\\u");
+                            result.push_str(&hex);
+                        }
+                    } else {
+                        result.push_str("\\u");
+                        result.push_str(&hex);
+                    }
+                }
                 _ => { result.push(c); }
             }
         } else {
@@ -1647,6 +1662,8 @@ fn parse_branch_condition(pair: Pair<Rule>) -> BranchCondition {
 
 fn parse_binop(pair: &Pair<Rule>) -> BinOp {
     match pair.as_str().trim() {
+        "and" => BinOp::And,
+        "or" => BinOp::Or,
         "+" => BinOp::Add,
         "-" => BinOp::Sub,
         "*" => BinOp::Mul,

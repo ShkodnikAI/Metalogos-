@@ -1,6 +1,6 @@
 # METALOGOS — Справочник языка (Reference)
 
-> **Версия:** 0.7.9 (Phase 7.8+)
+> **Версия:** 0.7.10 (Phase 7.10)
 > **Единый источник истины** для разработчиков, пишущих на Металогосе.
 > Содержит полный список встроенных функций с сигнатурами, типами, описанием и примерами,
 > а также справочник по синтаксису, типам данных и CLI.
@@ -108,6 +108,7 @@ let payload = { chat_id: "123", text: "hello", urgent: true }  // struct literal
 |-----------|-----------|
 | Арифметические | `+`, `-`, `*`, `/` |
 | Сравнение | `==`, `!=`, `>`, `<`, `>=`, `<=` |
+| Логические (short-circuit) | `and`, `or` |
 | Унарный минус | `-expr` |
 | Доступ к полю | `obj.field` |
 | Доступ по индексу | `list[0]` |
@@ -127,9 +128,20 @@ if x > 10.0 {
 }
 ```
 
-**If-then-else (выражение):**
+**If-then-else (тернарное выражение):**
 ```mlog
 let label = if score >= 90.0 then "A" else "B"
+```
+
+**If-then (блочный оператор):**
+```mlog
+if x > 10.0 then {
+  print("big")
+} else if x > 5.0 then {
+  print("medium")
+} else {
+  print("small")
+}
 ```
 
 **Each (цикл по коллекции):**
@@ -191,7 +203,7 @@ let s = "hello world"
 let with_escape = "line1\nline2\ttabbed"
 ```
 
-Поддерживаемые escape-последовательности: `\"`, `\\`, `\n`, `\t`, `\r`.
+Поддерживаемые escape-последовательности: `\"`, `\\`, `\n`, `\t`, `\r`, `\uXXXX` (Unicode code point, например `\u0041` = `A`).
 
 ### 3.6. Идентификаторы
 
@@ -380,7 +392,7 @@ let result = http_post_multipart(
 |---------|-----------|---------|----------|
 | `parse_json(text)` | `String -> Struct\|List\|String\|Float\|Bool\|Unit` | Any | Парсит JSON-строку. Объекты → Struct с `type_name: "Json"`, массивы → List, `null` → Unit |
 | `json_encode(value)` | `Any -> String` | String | Сериализует значение в JSON-строку. Поддерживает String, Float, Bool, Unit→null, List→array, Struct→object |
-| `json_get(obj, field_path)` | `Struct, String -> Value` | Value | Безопасный доступ к полю (возвращает Unit если нет поля). Поддерживает dot-path: `"voice.file_id"`. **Поддерживает числовые индексы массивов:** `"items.0.title"` (Наряд 24) |
+| `json_get(obj, field_path)` | `Struct, String -> Value` | Value | Безопасный доступ к полю (возвращает Unit если нет поля). Unit корректно сравнивается через `==`/`!=` с любым типом. Поддерживает dot-path: `"voice.file_id"`. **Поддерживает числовые индексы массивов:** `"items.0.title"` (Наряд 24) |
 | `json_get(obj, field_path, default)` | `Struct, String, Value -> Value` | Value | С дефолтным значением при отсутствии поля. Также поддерживает числовые индексы |
 | `has_field(obj, field_path)` | `Struct, String -> Float` | Float | `1.0` если поле существует, `0.0` если нет. Поддерживает dot-path |
 | `escape_json(text)` | `String -> String` | String | Экранирует спецсимволы для встраивания в JSON |
@@ -573,14 +585,19 @@ return page
 | `type_of(value)` | `Any -> String` | String | Возвращает имя типа значения: `"String"`, `"Float"`, `"Bool"`, `"List"`, `"Struct"`, `"Unit"`, `"Html"`, `"Query"`, `"Secret"`, `"Encrypted"`, `"Hash"`, `"Session"`, `"Fluid"`, `"HttpResponse"` |
 | `format(template)` | `String -> String` | String | Позиционная интерполяция: `format("Hello {0}, you are {1}", name, age)` |
 
-**Пример `type_of` — безопасная работа с `json_get`:**
+**Пример — безопасная работа с `json_get` (Unit comparison):**
 ```mlog
-let voice_file_id = json_get(data, "message.voice.file_id", "")
-if type_of(voice_file_id) == "Unit" {
-  // Нет голосового вложения
-  return "text only"
+// Двухаргументная форма: возвращает Unit если поле отсутствует
+let voice = json_get(data, "voice")
+if voice == "" {
+  // voice — Unit, сравнение Unit == "" = false
+  // Безопасно: не крашит
 }
-// voice_file_id — реальное значение
+// С дефолтом — проще:
+let file_id = json_get(data, "voice.file_id", "")
+if file_id != "" {
+  send_voice(file_id)
+}
 ```
 
 ---
@@ -932,6 +949,7 @@ collections.push(items, item) -> List      // append to list
 
 | Версия | Дата | Что нового |
 |--------|------|------------|
+| **0.7.10** | 2026-06-18 | +and/or логические операторы (short-circuit), Unit == / != без краша, +\uXXXX escape, +if-then блочный оператор, query_scalar fix |
 | **0.7.9** | 2026-06-15 | Наряд 24: +git_push, +web_search, +make_list, graceful unknown fn, LLM timeout 120с, json_get массивы, send_message реальный API, 100 builtins |
 | **0.7.8** | 2026-06-15 | BlockIfElse expression в bytecode, format() arity fix |
 | **0.7.7** | 2026-06-14 | Phase 7.7: break/continue, Match (StartsWith/Contains/Compare), компилятор полн. покрытие, 44 VM-инструкций |

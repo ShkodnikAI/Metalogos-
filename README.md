@@ -7,7 +7,7 @@
 **The first programming language designed by AI, for AI. Security built into the language.**
 
 [![Rust](https://img.shields.io/badge/rust-1.80+-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/v0.7.8-blue.svg)](https://github.com/ShkodnikAI/Metalogos-)
+[![Version](https://img.shields.io/badge/v0.7.10-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
 [![CI](https://img.shields.io/badge/CI-passing-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 
@@ -206,7 +206,7 @@ Metalogos has **three execution backends**: a tree-walking interpreter, a byteco
 
 ```
 Metalogos-/
-├── Cargo.toml              # Single-crate project, version 0.7.7
+├── Cargo.toml              # Single-crate project, version 0.7.10
 ├── src/
 │   ├── grammar.pest         # PEG grammar (335 rules)
 │   ├── ast.rs               # AST: 24 Declaration, 14 Expr, 12 Statement, 4 MatchArm variants

@@ -104,7 +104,7 @@ impl Compiler {
             // JSON
             "escape_json", "parse_json", "json_encode", "json_get", "has_field",
             // Time
-            "now",
+            "now", "format_date",
             // Session
             "session_set", "session_get", "session_clear",
             // HTTP extras

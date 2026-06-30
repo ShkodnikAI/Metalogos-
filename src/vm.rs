@@ -158,32 +158,33 @@ impl Vm {
             "has_field".to_string(),    // 78
             // Time
             "now".to_string(),          // 79
+            "format_date".to_string(),  // 80
             // Session
-            "session_set".to_string(),  // 80
-            "session_get".to_string(),  // 81
-            "session_clear".to_string(), // 82
+            "session_set".to_string(),  // 81
+            "session_get".to_string(),  // 82
+            "session_clear".to_string(), // 83
             // HTTP extras
-            "http_post_multipart".to_string(), // 83
+            "http_post_multipart".to_string(), // 84
             // Media
-            "whisper_transcribe".to_string(), // 84
-            "tts_send".to_string(),     // 85
+            "whisper_transcribe".to_string(), // 85
+            "tts_send".to_string(),     // 86
             // Encoding
-            "base64_encode".to_string(), // 86
-            "base64_decode".to_string(), // 87
+            "base64_encode".to_string(), // 87
+            "base64_decode".to_string(), // 88
             // System
-            "exec".to_string(),         // 88
-            "escape_js".to_string(),    // 89
+            "exec".to_string(),         // 89
+            "escape_js".to_string(),    // 90
             // Misc
-            "dict_get".to_string(),     // 90
-            "type_of".to_string(),      // 91
+            "dict_get".to_string(),     // 91
+            "type_of".to_string(),      // 92
             // Memory (recall)
-            "recall".to_string(),       // 92
+            "recall".to_string(),       // 93
             // Phase 4.4 self-hosting
-            "stdin".to_string(),        // 93
-            "split_tokens".to_string(), // 94
-            "if_eq".to_string(),        // 95
-            "newline".to_string(),      // 96
-            "is_string_token".to_string(), // 97
+            "stdin".to_string(),        // 94
+            "split_tokens".to_string(), // 95
+            "if_eq".to_string(),        // 96
+            "newline".to_string(),      // 97
+            "is_string_token".to_string(), // 98
         ];
 
         Vm {

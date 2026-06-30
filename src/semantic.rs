@@ -131,7 +131,7 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         // JSON
         "escape_json", "parse_json", "json_encode", "json_get", "has_field",
         // Time
-        "now",
+        "now", "format_date",
         // Session
         "session_set", "session_get", "session_clear",
         // HTTP extras
@@ -388,7 +388,7 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         ("read_file", 1), ("write_file", 2), ("append_file", 2), ("delete_file", 1),
         ("file_exists", 1), ("list_dir", 1), ("llm_usage", 0),
         ("escape_json", 1), ("parse_json", 1), ("json_encode", 1),
-        ("json_get", 2), ("has_field", 2), ("now", 0),
+        ("json_get", 2), ("has_field", 2), ("now", 0), ("format_date", 0),
         ("session_set", 2), ("session_get", 1), ("session_clear", 0),
         ("hash_password", 1), ("verify_password", 2), ("encrypt", 2),
         ("decrypt", 2), ("generate_key", 0), ("authenticate", 2),

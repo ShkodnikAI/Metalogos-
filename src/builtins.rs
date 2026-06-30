@@ -165,6 +165,8 @@ impl Builtins {
         funcs.insert("make_list".to_string(), builtin_make_list as BuiltinFn);
         // time() alias for now()
         funcs.insert("time".to_string(), builtin_now as BuiltinFn);
+        // format_date() — format unix timestamp or current time
+        funcs.insert("format_date".to_string(), builtin_format_date as BuiltinFn);
         // request_body() alias for json_body() — common in web frameworks
         funcs.insert("request_body".to_string(), builtin_json_body as BuiltinFn);
         // Public first/last (without __ prefix)
@@ -2346,5 +2348,73 @@ fn builtin_format(args: &[Value]) -> Result<Value, String> {
             result.push(ch);
         }
     }
+    Ok(Value::String(result))
+}
+
+// ── format_date ──────────────────────────────────────────
+/// `format_date(format)` — format current time.
+/// `format_date(format, timestamp)` — format given unix timestamp (Float seconds).
+/// Supported specifiers: %Y %m %d %H %M %S %F %T %R %Y-%m-%d %d.%m.%Y
+/// Example: format_date("%Y-%m-%d %H:%M:%S") -> "2026-06-30 12:30:45"
+fn builtin_format_date(args: &[Value]) -> Result<Value, String> {
+    let fmt_str = if args.is_empty() {
+        "%Y-%m-%d %H:%M:%S".to_string()
+    } else {
+        expect_string_arg("format_date", args, 0)?
+    };
+
+    let timestamp = if args.len() >= 2 {
+        match &args[1] {
+            Value::Float(f) => *f,
+            _ => return Err(format!("format_date(): timestamp must be Float, got {}", args[1].type_name())),
+        }
+    } else {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0)
+    };
+
+    let secs = timestamp as i64;
+    let mut tm = libc::tm {
+        tm_sec: 0, tm_min: 0, tm_hour: 0,
+        tm_mday: 0, tm_mon: 0, tm_year: 0,
+        tm_wday: 0, tm_yday: 0, tm_isdst: 0,
+        tm_gmtoff: 0, tm_zone: std::ptr::null(),
+    };
+    unsafe {
+        libc::localtime_r(&secs, &mut tm);
+    }
+
+    let y = (tm.tm_year + 1900) as u32;
+    let mo = (tm.tm_mon + 1) as u32;
+    let d = tm.tm_mday as u32;
+    let h = tm.tm_hour as u32;
+    let mi = tm.tm_min as u32;
+    let s = tm.tm_sec as u32;
+
+    // Handle shorthand formats first
+    let result = match fmt_str.as_str() {
+        "%F" => format!("{:04}-{:02}-{:02}", y, mo, d),
+        "%T" => format!("{:02}:{:02}:{:02}", h, mi, s),
+        "%R" => format!("{:02}:{:02}", h, mi),
+        "%Y-%m-%d" => format!("{:04}-{:02}-{:02}", y, mo, d),
+        "%d.%m.%Y" => format!("{:02}.{:02}.{:04}", d, mo, y),
+        _ => {
+            // General format: replace %Y %m %d %H %M %S
+            let mut out = fmt_str;
+            out = out.replace("%Y", &format!("{:04}", y));
+            out = out.replace("%m", &format!("{:02}", mo));
+            out = out.replace("%d", &format!("{:02}", d));
+            out = out.replace("%H", &format!("{:02}", h));
+            out = out.replace("%M", &format!("{:02}", mi));
+            out = out.replace("%S", &format!("{:02}", s));
+            // Shorthand expansions that may appear inside longer strings
+            out = out.replace("%F", &format!("{:04}-{:02}-{:02}", y, mo, d));
+            out = out.replace("%T", &format!("{:02}:{:02}:{:02}", h, mi, s));
+            out = out.replace("%R", &format!("{:02}:{:02}", h, mi));
+            out
+        }
+    };
     Ok(Value::String(result))
 }

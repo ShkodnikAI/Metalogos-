@@ -7,7 +7,7 @@
 **The first programming language designed by AI, for AI. Security built into the language.**
 
 [![Rust](https://img.shields.io/badge/rust-1.80+-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/v0.7.10-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/)
+[![Version](https://img.shields.io/badge/v0.8.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
 [![CI](https://img.shields.io/badge/CI-passing-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 
@@ -39,6 +39,38 @@ flow Triage {
 ```
 
 No frameworks. No boilerplate. No `import ai_sdk`. The language *is* the AI infrastructure.
+
+---
+
+## What's New in v0.8.0
+
+**Time, Calendar, Weather, Geolocation, Reminders** — all built-in, no API keys needed.
+
+```mlog
+// Free weather via Open-Meteo (no API key!)
+let w = weather("Minsk")
+print(format("{}°C, {}", w.temp, w.description))
+
+// 7-day forecast
+let forecast = weather_forecast("London", 7)
+each day in forecast {
+  print(day.date + ": " + to_string(day.temp_min) + ".." + to_string(day.temp_max) + "°C, " + day.description)
+}
+
+// Date formatting and calendar
+print(format_date("%A, %d %B %Y"))  // "Tuesday, 01 July 2026"
+let dp = date_parts(now())
+print("Week " + to_string(dp.week_number) + " of " + to_string(dp.year))
+
+// Geolocation by IP (free)
+let loc = geo_ip()
+print(loc.city + ", " + loc.country)  // "Minsk, Belarus"
+
+// Reminders with recurrence
+let id = remind("Call client", add_hours(now(), 2.0))
+let daily = remind_recurring("Daily standup", 86400.0)
+let due = check_reminders()
+```
 
 ---
 
@@ -170,6 +202,7 @@ Metalogos addresses every item in the OWASP Top 10 (2021) at the **language leve
 | [`p1_fluid_types.mlog`](examples/p1_fluid_types.mlog) | Fluid types: probabilistic superposition | 5 |
 | [`p2_knowledge_graph.mlog`](examples/p2_knowledge_graph.mlog) | Knowledge graph with `relate` | 12 |
 | [`p6_full_app.mlog`](examples/p6_full_app.mlog) | Full web app — auth, CRUD, AI classify, bot webhooks | 170 |
+| [`v05_final_integration.mlog`](examples/v05_final_integration.mlog) | Full integration: strings, files, LLM, memory, time, weather | 30 |
 
 All examples have golden-file tests (`.expected` / `.error` files). Run them with `cargo test`.
 
@@ -203,10 +236,11 @@ Metalogos has **three execution backends**: a tree-walking interpreter, a byteco
 | Crypto | `hmac`, `sha2`, `aes-gcm` (AES-256-GCM) |
 | CLI | [Clap 4.5](https://github.com/clap-rs/clap) |
 | Tests | Golden-file (78 examples with `.expected`/`.error`) + 32 integration test files (7 000+ lines) |
+| Builtins | `builtins.rs` — 108 built-in functions (2 900 lines) |
 
 ```
 Metalogos-/
-├── Cargo.toml              # Single-crate project, version 0.7.10
+├── Cargo.toml              # Single-crate project, version 0.8.0
 ├── src/
 │   ├── grammar.pest         # PEG grammar (335 rules)
 │   ├── ast.rs               # AST: 24 Declaration, 14 Expr, 12 Statement, 4 MatchArm variants
@@ -217,7 +251,7 @@ Metalogos-/
 │   ├── bytecode.rs          # 44 VM instructions
 │   ├── vm.rs                # Bytecode VM executor (1 470 lines)
 │   ├── jit.rs               # JIT compiler via Cranelift
-│   ├── builtins.rs          # 93 built-in functions (2 020 lines)
+│   ├── builtins.rs          # 108 built-in functions (2 900 lines)
 │   ├── server.rs            # Axum HTTP server + security middleware (1 280 lines)
 │   ├── llm.rs               # LLM backend trait + mock + real providers (1 420 lines)
 │   ├── memory_store.rs      # Semantic memory with decay + KV store (1 170 lines)
@@ -262,12 +296,12 @@ Metalogos-/
 | Phase 7.6 | Session memory, audit parse tests, server JSON body | Done |
 | Phase 7.7 | Break/Continue, Match (StartsWith/Contains/Compare), compiler full-coverage, constraints | Done |
 | Phase 7.8 | BlockIfElse expression bytecode compilation, format() arity fix (Наряд 17 Б.1) | Done |
+| Phase 8.0 | Time/Date/Calendar, Geolocation, Weather (Open-Meteo, free), Reminders with recurrence | Done |
 
 ### Next
 
 | Phase | Target |
 |---|---|
-| Phase 8 | Production LLM backend (OpenAI / Anthropic), real database (SQLite/Postgres) |
 | Phase 9 | Self-hosted compiler, mlogpkg ecosystem, production deployment |
 
 ---

@@ -1,6 +1,6 @@
 # METALOGOS — Справочник языка (Reference)
 
-> **Версия:** 0.7.10 (Phase 7.10)
+> **Версия:** 0.8.0 (Phase 8)
 > **Единый источник истины** для разработчиков, пишущих на Металогосе.
 > Содержит полный список встроенных функций с сигнатурами, типами, описанием и примерами,
 > а также справочник по синтаксису, типам данных и CLI.
@@ -29,7 +29,12 @@
    - [Шаблоны (Templates)](#414-шаблоны-templates)
    - [Базы данных](#415-базы-данных)
    - [Боты (Telegram/Discord)](#416-боты-telegramdiscord)
-   - [Прочее](#417-прочее)
+   - [Время, дата, календарь](#417-время-дата-календарь)
+   - [Геолокация](#418-геолокация)
+   - [Погода](#419-погода)
+   - [Напоминания и таймеры](#420-напоминания-и-таймеры)
+   - [Интеграции и автоматизация](#421-интеграции-и-автоматизация)
+   - [Прочее](#422-прочее)
 5. [Байткод VM и JIT](#5-байткод-vm-и-jit)
 6. [Объявления верхнего уровня](#6-объявления-верхнего-уровня)
 7. [Stdlib](#7-stdlib-стандартная-библиотека)
@@ -218,7 +223,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Встроенные функции (Builtins)
 
-Все 93 встроенные функции регистрируются в `src/builtins.rs` и доступны как в tree-walking интерпретаторе, так и в байткод VM. JIT-компилятор через Cranelift также поддерживает все builtins.
+Все 108 встроенных функций регистрируются в `src/builtins.rs` и доступны как в tree-walking интерпретаторе, так и в байткод VM. JIT-компилятор через Cranelift также поддерживает все builtins.
 
 ### 4.1. Строковые функции
 
@@ -566,7 +571,134 @@ return page
 | `whisper_transcribe(file_id, bot_token, whisper_key, provider)` | `String, String, String, String -> String` | String | STT через Whisper API: скачивает голосовое из Telegram, отправляет в OpenAI/Groq. `provider`: `"openai"` (по умолч.) или `"groq"` |
 | `tts_send(text, voice, bot_token, chat_id)` | `String, String, String, String -> String` | String | TTS через OpenAI API + отправка аудио в Telegram (`sendAudio`). Требует `OPENAI_API_KEY` |
 
-### 4.17. Интеграции и автоматизация
+### 4.17. Время, дата, календарь
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `now()` | `-> Float` | Float | Текущий Unix-timestamp в секундах (alias: `time()`) |
+| `format_date(fmt, timestamp?)` | `String, Float? -> String` | String | Форматирует timestamp (или текущее время) по шаблону. Поддерживает: `%Y` (год), `%y` (2 цифры), `%m` (месяц), `%d` (день), `%H` (часы 24), `%I` (часы 12), `%M` (минуты), `%S` (секунды), `%p` (AM/PM), `%A` (день недели), `%a` (сокр.), `%B` (месяц), `%b` (сокр.), `%j` (день года), `%w` (weekday 0=Mon), `%W` (неделя), `%F` (YYYY-MM-DD), `%T` (HH:MM:SS), `%R` (HH:MM) |
+| `date_parts(timestamp?)` | `Float? -> Struct {Date}` | Struct | Возвращает struct: `year`, `month`, `day`, `hour`, `minute`, `second`, `weekday`, `weekday_name`, `month_name`, `day_of_year`, `week_number`, `timestamp` |
+| `days_between(ts1, ts2)` | `Float, Float -> Float` | Float | Абсолютная разница в днях между двумя timestamps |
+| `days_in_month(year, month)` | `Float, Float -> Float` | Float | Количество дней в месяце (1-12). Учитывает високосные года |
+| `is_leap_year(year)` | `Float -> Bool` | Bool | Проверяет, является ли год високосным |
+| `add_days(timestamp, days)` | `Float, Float -> Float` | Float | Прибавляет/вычитает дни к timestamp |
+| `add_hours(timestamp, hours)` | `Float, Float -> Float` | Float | Прибавляет/вычитает часы к timestamp |
+| `weekday_name(timestamp)` | `Float -> String` | String | Полное название дня недели: "Monday".."Sunday" |
+
+**Примеры:**
+```mlog
+let ts = now()
+print(format_date("%Y-%m-%d %H:%M:%S", ts))  // "2026-07-01 14:30:00"
+print(format_date("%d.%m.%Y"))               // текущая дата: "01.07.2026"
+
+let dp = date_parts(ts)
+print(dp.weekday_name)   // "Tuesday"
+print(dp.week_number)    // "27"
+
+print(days_in_month(2026.0, 2.0))   // 28.0
+print(is_leap_year(2024.0))          // true
+print(add_days(ts, 7.0))            // timestamp через 7 дней
+print(days_between(ts, add_days(ts, 3.0)))  // 3.0
+print(weekday_name(ts))             // "Tuesday"
+```
+
+### 4.18. Геолокация
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `geo_ip(ip?)` | `String? -> Struct {GeoLocation}` | Struct | Геолокация по IP. Без аргумента — текущий IP. Использует ip-api.com (бесплатно, без ключа). Поля: `ip`, `city`, `region`, `country`, `country_code`, `lat`, `lon`, `isp`, `timezone` |
+| `geo_distance(lat1, lon1, lat2, lon2, unit?)` | `Float, Float, Float, Float, String? -> Float` | Float | Расстояние по формуле гаверсинуса. `unit`: `"km"` (по умолч.), `"mi"`, `"nm"`, `"m"` |
+
+**Примеры:**
+```mlog
+// Определить местоположение по IP
+let loc = geo_ip()
+print(loc.city)          // "Minsk"
+print(loc.country_code)  // "BY"
+print(loc.lat)           // 53.9
+
+// Расстояние между городами
+let d = geo_distance(53.9, 27.57, 55.75, 37.62)  // Минск — Москва
+print(d)                  // ~690 km
+let d_mi = geo_distance(53.9, 27.57, 55.75, 37.62, "mi")
+print(d_mi)              // ~429 mi
+```
+
+### 4.19. Погода
+
+Погодные функции используют **Open-Meteo API** — полностью бесплатно, **без API-ключа**, без регистрации. Город автоматически разрешается в координаты через Open-Meteo Geocoding.
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `weather(city_or_lat, lon?)` | `String \| Float, Float? -> Struct {Weather}` | Struct | Текущая погода. `weather("Minsk")` или `weather(53.9, 27.57)`. Поля: `temp`, `feels_like`, `temp_min`, `temp_max`, `humidity`, `description`, `wind_speed`, `wind_direction`, `pressure`, `cloud_cover`, `is_day`, `city`, `country` |
+| `weather_forecast(city_or_lat, lon_or_days?, days?)` | `String \| Float, Float?, Float? -> List` | List | Прогноз на 1–16 дней. `weather_forecast("Minsk")` (7 дней), `weather_forecast("Minsk", 3)`, `weather_forecast(53.9, 27.57, 14)`. Каждый элемент — struct `DayForecast`: `date`, `temp_max`, `temp_min`, `precipitation`, `weather_code`, `description`, `wind_speed_max`, `sunrise`, `sunset`, `uv_index` |
+
+**Примеры:**
+```mlog
+// Текущая погода
+let w = weather("Minsk")
+print("Температура: " + to_string(w.temp) + "°C")
+print("Ощущается: " + to_string(w.feels_like) + "°C")
+print(w.description)              // "Partly cloudy"
+print("Влажность: " + to_string(w.humidity) + "%")
+print("Ветер: " + to_string(w.wind_speed) + " km/h")
+print("День: " + to_string(w.is_day))  // 1.0 = день, 0.0 = ночь
+
+// По координатам
+let w2 = weather(40.71, -74.01)   // New York
+
+// Прогноз на 3 дня
+let forecast = weather_forecast("Minsk", 3)
+each day in forecast {
+  print(day.date + ": " + to_string(day.temp_min) + ".." + to_string(day.temp_max) + "°C, " + day.description)
+}
+
+// Полный прогноз (по умолчанию 7 дней, макс 16)
+let week = weather_forecast("London", 14)
+each day in week {
+  print(day.date + " | " + day.description + " | UV: " + day.uv_index)
+}
+```
+
+### 4.20. Напоминания и таймеры
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `remind(message, timestamp, data?)` | `String, Float, String? -> String` | String | Одноразовое напоминание. Возвращает ID. `timestamp` — когда сработать (Unix). `data` — произвольные данные |
+| `remind_recurring(message, interval_seconds, data?)` | `String, Float, String? -> String` | String | Повторяющееся напоминание. `interval_seconds` — период в секундах (86400 = день, 604800 = неделя) |
+| `cancel_remind(id)` | `String -> String` | String | Отменяет напоминание. Возвращает `"ok"` или `"not_found"` |
+| `list_reminders()` | `-> List` | List | Список активных напоминаний. Каждый элемент — struct `Reminder`: `id`, `message`, `fire_at`, `interval`, `next_fire`, `data`, `created_at`, `type` |
+| `check_reminders()` | `-> List` | List | Возвращает просроченные напоминания (DueReminder). Одноразовые деактивируются, повторяющиеся сдвигаются на следующий период |
+
+**Примеры:**
+```mlog
+// Напоминание через 1 час
+let in_1h = add_hours(now(), 1.0)
+let id = remind("Перезвонить клиенту", in_1h, "phone:+375291234567")
+
+// Ежедневное напоминание (каждые 24 часа)
+let daily_id = remind_recurring("Ежедневный отчёт", 86400.0, "report:daily")
+
+// Еженедельное напоминание
+let weekly_id = remind_recurring("Плёнка", 604800.0)
+
+// Проверить сработавшие
+let due = check_reminders()
+each r in due {
+  print("НАПОМИНАНИЕ: " + r.message + " (data: " + r.data + ")")
+}
+
+// Отменить
+cancel_remind(daily_id)
+
+// Список всех активных
+let active = list_reminders()
+each r in active {
+  print(r.type + ": " + r.message + " next=" + format_date("%Y-%m-%d %H:%M", r.next_fire))
+}
+```
+
+### 4.21. Интеграции и автоматизация
 
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|
@@ -574,12 +706,11 @@ return page
 | `web_search(query, num_results)` | `String, Float -> String` | String | Поиск через SerpAPI. Требует `SERPAPI_KEY` env. Возвращает raw JSON. `num_results` по умолчанию 10 |
 | `exec(command)` | `String -> String` | String | Выполняет shell-команду. В server mode отключён без `METALOGOS_ALLOW_EXEC=1` |
 
-### 4.18. Прочее
+### 4.22. Прочее
 
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|
 | `print(s)` | `String -> String` | String | Выводит строку в stdout, возвращает её же |
-| `now()` | `-> Float` | Float | Текущий Unix-timestamp в секундах |
 | `str(value)` | `Any -> String` | String | Преобразует любое значение в строку |
 | `to_string(value)` | `Any -> String` | String | Аналог `str()` (Float без `.0` для целых) |
 | `type_of(value)` | `Any -> String` | String | Возвращает имя типа значения: `"String"`, `"Float"`, `"Bool"`, `"List"`, `"Struct"`, `"Unit"`, `"Html"`, `"Query"`, `"Secret"`, `"Encrypted"`, `"Hash"`, `"Session"`, `"Fluid"`, `"HttpResponse"` |
@@ -949,6 +1080,7 @@ collections.push(items, item) -> List      // append to list
 
 | Версия | Дата | Что нового |
 |--------|------|------------|
+| **0.8.0** | 2026-07-01 | +Время/дата/календарь (format_date, date_parts, days_between, add_days, add_hours, weekday_name, is_leap_year, days_in_month), +Геолокация (geo_ip, geo_distance), +Погода Open-Meteo бесплатно без ключа (weather, weather_forecast), +Напоминания с рекурренцией (remind, remind_recurring, cancel_remind, list_reminders, check_reminders), 108 builtins |
 | **0.7.10** | 2026-06-18 | +and/or логические операторы (short-circuit), Unit == / != без краша, +\uXXXX escape, +if-then блочный оператор, query_scalar fix |
 | **0.7.9** | 2026-06-15 | Наряд 24: +git_push, +web_search, +make_list, graceful unknown fn, LLM timeout 120с, json_get массивы, send_message реальный API, 100 builtins |
 | **0.7.8** | 2026-06-15 | BlockIfElse expression в bytecode, format() arity fix |

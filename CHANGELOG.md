@@ -2,6 +2,51 @@
 
 All notable changes to the Metalogos project.
 
+## [0.8.0] — 2026-07-01
+
+**Phase 8: Время, дата, календарь, геолокация, погода (бесплатно), напоминания.**
+
+### Новые builtins (15 функций, итого 108)
+
+**Время, дата, календарь (8):**
+- **`format_date(fmt, timestamp?)`** — форматирование даты/времени. Шаблоны: `%Y/%y/%m/%d/%H/%I/%M/%S/%p/%A/%a/%B/%b/%j/%w/%W/%F/%T/%R`
+- **`date_parts(timestamp?)`** — возвращает struct {Date} со всеми компонентами: year, month, day, hour, minute, second, weekday, weekday_name, month_name, day_of_year, week_number, timestamp
+- **`days_between(ts1, ts2)`** — абсолютная разница в днях
+- **`days_in_month(year, month)`** — дни в месяце с учётом високосных годов
+- **`is_leap_year(year)`** — проверка високосного года
+- **`add_days(timestamp, days)`** — прибавить/вычесть дни
+- **`add_hours(timestamp, hours)`** — прибавить/вычесть часы
+- **`weekday_name(timestamp)`** — полное название дня недели
+
+**Геолокация (2):**
+- **`geo_ip(ip?)`** — геолокация по IP через ip-api.com (бесплатно, без ключа). Возвращает {ip, city, region, country, country_code, lat, lon, isp, timezone}
+- **`geo_distance(lat1, lon1, lat2, lon2, unit?)`** — расстояние по гаверсинусу. Единицы: km (по умолч.), mi, nm, m
+
+**Погода (2, Open-Meteo — БЕСПЛАТНО, БЕЗ API-КЛЮЧА):**
+- **`weather(city_or_lat, lon?)`** — текущая погода. Автоматическое разрешение города через Open-Meteo Geocoding. Возвращает {temp, feels_like, humidity, description, wind_speed, wind_direction, pressure, cloud_cover, is_day, city}
+- **`weather_forecast(city_or_lat, days?)`** — прогноз на 1–16 дней. Возвращает список DayForecast: {date, temp_max, temp_min, precipitation, description, wind_speed_max, sunrise, sunset, uv_index}
+- Заменён OpenWeatherMap (требовал API-ключ) на Open-Meteo (никаких ключей)
+- WMO weather codes → человекочитаемые описания (Clear sky, Partly cloudy, Rain, Snow, Thunderstorm и т.д.)
+
+**Напоминания (5):**
+- **`remind(message, timestamp, data?)`** — одноразовое напоминание, возвращает ID
+- **`remind_recurring(message, interval_seconds, data?)`** — повторяющееся (86400 = день, 604800 = неделя)
+- **`cancel_remind(id)`** — отмена ("ok" / "not_found")
+- **`list_reminders()`** — список активных
+- **`check_reminders()`** — просроченные (одноразовые деактивируются, повторяющиеся сдвигаются)
+
+### Документация
+
+- REFERENCE.md полностью переработан: новые разделы 4.17–4.20 (время, геолокация, погода, напоминания)
+- README.md: новый раздел "What's New in v0.8.0", обновлены таблицы и roadmap
+- Обновлённые docs/book/src/ (syntax.md, stdlib.md)
+
+### Версия
+
+- Bump 0.7.10 → 0.8.0
+
+---
+
 ## [0.7.10] — 2026-06-18
 
 **4 критических багфикса + документация.**

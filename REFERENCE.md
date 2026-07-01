@@ -1,6 +1,6 @@
 # METALOGOS — Справочник языка (Reference)
 
-> **Версия:** 0.8.0 (Phase 8)
+> **Версия:** 0.8.1 (Phase 8.1)
 > **Единый источник истины** для разработчиков, пишущих на Металогосе.
 > Содержит полный список встроенных функций с сигнатурами, типами, описанием и примерами,
 > а также справочник по синтаксису, типам данных и CLI.
@@ -34,7 +34,8 @@
    - [Погода](#419-погода)
    - [Напоминания и таймеры](#420-напоминания-и-таймеры)
    - [Интеграции и автоматизация](#421-интеграции-и-автоматизация)
-   - [Прочее](#422-прочее)
+   - [Human Intelligence Layer](#422-human-intelligence-layer-openhuman-inspired)
+   - [Прочее](#423-прочее)
 5. [Байткод VM и JIT](#5-байткод-vm-и-jit)
 6. [Объявления верхнего уровня](#6-объявления-верхнего-уровня)
 7. [Stdlib](#7-stdlib-стандартная-библиотека)
@@ -706,7 +707,175 @@ each r in active {
 | `web_search(query, num_results)` | `String, Float -> String` | String | Поиск через SerpAPI. Требует `SERPAPI_KEY` env. Возвращает raw JSON. `num_results` по умолчанию 10 |
 | `exec(command)` | `String -> String` | String | Выполняет shell-команду. В server mode отключён без `METALOGOS_ALLOW_EXEC=1` |
 
-### 4.22. Прочее
+### 4.22. Human Intelligence Layer (OpenHuman-inspired)
+
+Система персон (вдохновлённая [OpenHuman](https://github.com/tinyhumansai/OpenHuman)) — персоны с чертами характера, память, отслеживание настроения, человекоподобные AI-ответы. Построена на существующих примитивах Metalogos (KV-хранилище для персистентности, `call_llm` для генерации). Без новых зависимостей, без API-ключей сверх провайдера LLM.
+
+#### `human_create(name, traits)` → Struct {Persona}
+
+Создаёт или обновляет персону с именем и описанием характера. Хранит в KV под `human_persona:{name}`.
+
+```mlog
+human_create("Alice", "friendly, professional, curious, speaks Russian")
+human_create("Support Bot", "patient, helpful, technical, concise")
+```
+
+Возвращает:
+```
+Struct {Persona} {
+  name: String,          // имя персоны
+  traits: String,        // описание характера
+  created_at: Float,     // timestamp создания
+  memory_count: Float    // количество сохранённых воспоминаний
+}
+```
+
+#### `human_mood(persona, mood?, intensity?)` → Struct {Mood}
+
+Получает или устанавливает эмоциональное состояние персоны. Настроение влияет на тон генерируемых ответов.
+
+- **1 аргумент** — получить текущее настроение.
+- **2+ аргумента** — установить настроение. `intensity` от 0.0 до 1.0 (по умолчанию 0.5).
+
+Примеры mood: `"happy"`, `"sad"`, `"focused"`, `"creative"`, `"neutral"`, `"excited"`, `"calm"`, `"anxious"`.
+
+```mlog
+// Установить настроение
+human_mood("Alice", "excited", 0.9)
+
+// Получить текущее настроение
+let m = human_mood("Alice")
+print(m.mood + " (intensity: " + to_string(m.intensity) + ")")
+```
+
+Возвращает:
+```
+Struct {Mood} {
+  persona: String,       // имя персоны
+  mood: String,          // текущее настроение
+  intensity: Float,      // интенсивность 0.0–1.0
+  updated_at: Float      // timestamp последнего обновления
+}
+```
+
+#### `human_remember(persona, key, content, importance?)` → String
+
+Сохраняет воспоминание в дерево памяти персоны. `importance` от 0.0 до 1.0 (по умолчанию 0.5) — выше значит вспоминается первым.
+
+```mlog
+human_remember("Alice", "user_name", "Sergei from Minsk", 0.9)
+human_remember("Alice", "preference", "prefers concise responses", 0.7)
+human_remember("Alice", "project", "building AI assistant in Metalogos", 0.8)
+human_remember("Alice", "meeting_2026_07_01", "Discussed roadmap for Phase 9", 0.6)
+```
+
+Возвращает: `"ok"`.
+
+#### `human_forget(persona, key?)` → String | Float
+
+Удаляет воспоминания. С 2 аргументами — конкретное по ключу (возвращает `"ok"` / `"not_found"`). С 1 аргументом — ВСЕ воспоминания персоны (возвращает количество удалённых).
+
+```mlog
+human_forget("Alice", "meeting_2026_07_01")  // "ok" или "not_found"
+human_forget("Alice")  // удалит все, вернёт количество (например, 3.0)
+```
+
+#### `human_recall(persona, query, limit?)` → List of Struct {Memory}
+
+Поиск воспоминаний персоны по ключевым словам. Возвращает список, отсортированный по composite score (50% релевантность + 30% важность + 20% свежесть). Поле `score` отражает итоговый рейтинг.
+
+```mlog
+let memories = human_recall("Alice", "project AI", 3)
+each mem in memories {
+  print(mem.key + ": " + mem.content)
+  print("  importance=" + to_string(mem.importance) + " score=" + to_string(mem.score))
+}
+```
+
+Возвращает список:
+```
+Struct {Memory} {
+  key: String,           // ключ воспоминания
+  content: String,       // содержание
+  importance: Float,     // важность 0.0–1.0
+  created_at: Float,     // timestamp создания
+  access_count: Float,   // количество обращений
+  relevance: Float,      // релевантность запросу 0.0–1.0
+  score: Float           // composite score (итоговый рейтинг)
+}
+```
+
+**Алгоритм скоринга:**
+- **Релевантность (50%)** — доля совпавших слов из запроса в content/key
+- **Важность (30%)** — напрямую из `importance` при сохранении
+- **Свежесть (20%)** — экспоненциальное затухание с периодом полураспада ~1 неделя (168 часов)
+
+#### `human_respond(persona, message, context?)` → String
+
+Генерирует человекоподобный ответ используя характер, настроение и воспоминания персоны + LLM. Автоматически вызывает `human_recall` для поиска релевантных воспоминаний.
+
+```mlog
+// Без дополнительного контекста
+let reply = human_respond("Alice", "Как дела с моим проектом?")
+print(reply)
+
+// С контекстом разговора
+let reply2 = human_respond("Alice", "А что насчёт дедлайна?", "Мы обсуждали Phase 9")
+print(reply2)
+```
+
+В mock-режиме (`METALOGOS_LLM_MOCK=true`, по умолчанию) возвращает: `[Alice (mood: excited): Как дела с моим проектом?]`. При реальном LLM-провайдере генерирует полный ответ в характере персоны с учётом настроения и памяти.
+
+#### `human_personas()` → List of Struct {PersonaSummary}
+
+Список всех созданных персон с текущим настроением и количеством воспоминаний.
+
+```mlog
+let all = human_personas()
+each p in all {
+  print(p.name + " (" + p.mood + "): " + to_string(p.memory_count) + " memories")
+}
+```
+
+#### `human_delete(persona)` → Struct {DeleteResult}
+
+Удаляет персону и все её воспоминания.
+
+```mlog
+let result = human_delete("Old Bot")
+print(result.status)  // "deleted" или "not_found"
+print(to_string(result.deleted_memories))  // количество удалённых воспоминаний
+```
+
+Возвращает:
+```
+Struct {DeleteResult} {
+  deleted_memories: Float,  // количество удалённых воспоминаний
+  status: String            // "deleted" или "not_found"
+}
+```
+
+**Пример — полноценный чат-бот с персональностью:**
+```mlog
+// Инициализация
+human_create("Assistant", "helpful, technical, friendly, speaks Russian")
+human_remember("Assistant", "system", "Metalogos v0.8.1 — AI-native язык программирования", 1.0)
+human_remember("Assistant", "owner", "Sergei, создатель Metalogos", 0.9)
+human_mood("Assistant", "focused", 0.8)
+
+// Сохраняем факт из разговора
+human_remember("Assistant", "user_question", "User asked about Phase 9 roadmap", 0.5)
+
+// Генерируем ответ
+let answer = human_respond("Assistant", "Что ты знаешь о Metalogos?")
+print(answer)
+
+// Проверяем что запомнили
+let mem = human_recall("Assistant", "Metalogos", 1)
+print("Recalled: " + first(mem).content)
+```
+
+### 4.23. Прочее
 
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|

@@ -193,6 +193,16 @@ impl Builtins {
         funcs.insert("first".to_string(), builtin_first as BuiltinFn);
         funcs.insert("last".to_string(), builtin_last as BuiltinFn);
 
+        // v0.8.1 — OpenHuman-inspired Human Intelligence builtins
+        funcs.insert("human_create".to_string(), builtin_human_create as BuiltinFn);
+        funcs.insert("human_mood".to_string(), builtin_human_mood as BuiltinFn);
+        funcs.insert("human_remember".to_string(), builtin_human_remember as BuiltinFn);
+        funcs.insert("human_forget".to_string(), builtin_human_forget as BuiltinFn);
+        funcs.insert("human_recall".to_string(), builtin_human_recall as BuiltinFn);
+        funcs.insert("human_respond".to_string(), builtin_human_respond as BuiltinFn);
+        funcs.insert("human_personas".to_string(), builtin_human_personas as BuiltinFn);
+        funcs.insert("human_delete".to_string(), builtin_human_delete as BuiltinFn);
+
         Builtins { funcs }
     }
 
@@ -2906,4 +2916,401 @@ fn builtin_check_reminders(args: &[Value]) -> Result<Value, String> {
         }
     }
     Ok(Value::List(due))
+}
+
+// ── v0.8.1 — OpenHuman-inspired Human Intelligence builtins ──────────
+// Inspired by https://github.com/tinyhumansai/OpenHuman — memory tree,
+// persona system, mood tracking, human-like AI responses.
+// All built on top of existing Metalogos primitives (KV store, call_llm).
+// No external dependencies, no API keys required beyond LLM provider.
+
+/// `human_create(name, traits)` — create or update a persona.
+/// `traits` is a string describing personality: "friendly, professional, speaks Russian".
+/// Stores persona in KV under `human_persona:{name}`.
+/// Returns Struct {name, traits, created_at, memory_count}.
+fn builtin_human_create(args: &[Value]) -> Result<Value, String> {
+    let name = expect_string_arg("human_create", args, 0)?;
+    let traits = expect_string_arg("human_create", args, 1)?;
+    if name.is_empty() {
+        return Err("human_create() name cannot be empty".to_string());
+    }
+    let now_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64()).unwrap_or(0.0);
+    let persona_data = serde_json::json!({
+        "name": name,
+        "traits": traits,
+        "created_at": now_ts,
+        "mood": "neutral",
+        "mood_intensity": 0.5,
+    });
+    let key = format!("human_persona:{}", name);
+    let value = serde_json::to_string(&persona_data)
+        .map_err(|e| format!("human_create() serialize error: {}", e))?;
+    let mut store = kv_store().lock().map_err(|e| format!("human_create() lock error: {}", e))?;
+    store.insert(key.clone(), value.clone());
+    if let Ok(sqlite_guard) = kv_sqlite().lock() {
+        if let Some(ref conn) = *sqlite_guard {
+            let _ = conn.execute(
+                "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?1, ?2)",
+                rusqlite::params![key, value],
+            );
+        }
+    }
+    // Count existing memories for this persona
+    let mem_prefix = format!("human_mem:{}:", name);
+    let mem_count = store.keys().filter(|k| k.starts_with(&mem_prefix)).count();
+    Ok(make_date_struct("Persona", vec![
+        ("name", Value::String(name)),
+        ("traits", Value::String(traits)),
+        ("created_at", Value::Float(now_ts)),
+        ("memory_count", Value::Float(mem_count as f64)),
+    ]))
+}
+
+/// `human_mood(persona, mood?, intensity?)` — get or set persona's emotional state.
+/// With 1 arg: returns current mood as Struct {mood, intensity, updated_at}.
+/// With 2+ args: sets mood. `intensity` is 0.0–1.0 (default 0.5).
+/// `mood` examples: "happy", "sad", "focused", "creative", "neutral", "excited".
+fn builtin_human_mood(args: &[Value]) -> Result<Value, String> {
+    let persona = expect_string_arg("human_mood", args, 0)?;
+    let key = format!("human_persona:{}", persona);
+    let store = kv_store().lock().map_err(|e| format!("human_mood() lock error: {}", e))?;
+    let mut data_str = store.get(&key).cloned().unwrap_or_default();
+    drop(store);
+    if data_str.is_empty() {
+        return Err(format!("human_mood() persona '{}' not found. Use human_create() first.", persona));
+    }
+    let mut data: serde_json::Value = serde_json::from_str(&data_str)
+        .map_err(|e| format!("human_mood() parse error: {}", e))?;
+    let now_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64()).unwrap_or(0.0);
+
+    // If mood argument provided — set mood
+    if args.len() >= 2 {
+        let mood = expect_string_arg("human_mood", args, 1)?;
+        let intensity = if args.len() >= 3 {
+            expect_float_arg("human_mood", args, 2)?.clamp(0.0, 1.0)
+        } else {
+            0.5
+        };
+        data["mood"] = serde_json::Value::String(mood.clone());
+        data["mood_intensity"] = serde_json::Value::Number(serde_json::Number::from_f64(intensity).unwrap_or(serde_json::Number::from(0.5)));
+        data["mood_updated_at"] = serde_json::json!(now_ts);
+        let updated = serde_json::to_string(&data)
+            .map_err(|e| format!("human_mood() serialize error: {}", e))?;
+        let mut store = kv_store().lock().map_err(|e| format!("human_mood() lock error: {}", e))?;
+        store.insert(key.clone(), updated.clone());
+        if let Ok(sqlite_guard) = kv_sqlite().lock() {
+            if let Some(ref conn) = *sqlite_guard {
+                let _ = conn.execute(
+                    "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?1, ?2)",
+                    rusqlite::params![key, updated],
+                );
+            }
+        }
+    }
+
+    let mood = data.get("mood").and_then(|v| v.as_str()).unwrap_or("neutral").to_string();
+    let intensity = data.get("mood_intensity").and_then(|v| v.as_f64()).unwrap_or(0.5);
+    let updated_at = data.get("mood_updated_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    Ok(make_date_struct("Mood", vec![
+        ("persona", Value::String(persona)),
+        ("mood", Value::String(mood)),
+        ("intensity", Value::Float(intensity)),
+        ("updated_at", Value::Float(updated_at)),
+    ]))
+}
+
+/// `human_remember(persona, key, content, importance?)` — store a memory in persona's memory tree.
+/// `importance` is 0.0–1.0 (default 0.5). Higher importance = recalled first.
+/// Stores as KV entry `human_mem:{persona}:{key}` with metadata.
+fn builtin_human_remember(args: &[Value]) -> Result<Value, String> {
+    let persona = expect_string_arg("human_remember", args, 0)?;
+    let key = expect_string_arg("human_remember", args, 1)?;
+    let content = expect_string_arg("human_remember", args, 2)?;
+    if key.is_empty() {
+        return Err("human_remember() key cannot be empty".to_string());
+    }
+    let importance = if args.len() >= 4 {
+        expect_float_arg("human_remember", args, 3)?.clamp(0.0, 1.0)
+    } else { 0.5 };
+    let now_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64()).unwrap_or(0.0);
+    let mem_data = serde_json::json!({
+        "persona": persona,
+        "key": key,
+        "content": content,
+        "importance": importance,
+        "created_at": now_ts,
+        "access_count": 0,
+        "last_accessed": now_ts,
+    });
+    let store_key = format!("human_mem:{}:{}", persona, key);
+    let value = serde_json::to_string(&mem_data)
+        .map_err(|e| format!("human_remember() serialize error: {}", e))?;
+    let mut store = kv_store().lock().map_err(|e| format!("human_remember() lock error: {}", e))?;
+    store.insert(store_key.clone(), value.clone());
+    if let Ok(sqlite_guard) = kv_sqlite().lock() {
+        if let Some(ref conn) = *sqlite_guard {
+            let _ = conn.execute(
+                "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?1, ?2)",
+                rusqlite::params![store_key, value],
+            );
+        }
+    }
+    Ok(Value::String("ok".to_string()))
+}
+
+/// `human_forget(persona, key?)` — delete a specific memory or all memories for a persona.
+/// With 2 args: deletes specific memory by key. Returns "ok" or "not_found".
+/// With 1 arg: deletes ALL memories for persona. Returns count of deleted memories.
+fn builtin_human_forget(args: &[Value]) -> Result<Value, String> {
+    let persona = expect_string_arg("human_forget", args, 0)?;
+    let prefix = format!("human_mem:{}:", persona);
+    let mut store = kv_store().lock().map_err(|e| format!("human_forget() lock error: {}", e))?;
+
+    if args.len() >= 2 {
+        let key = expect_string_arg("human_forget", args, 1)?;
+        let store_key = format!("human_mem:{}:{}", persona, key);
+        if store.remove(&store_key).is_some() {
+            if let Ok(sqlite_guard) = kv_sqlite().lock() {
+                if let Some(ref conn) = *sqlite_guard {
+                    let _ = conn.execute("DELETE FROM kv_store WHERE key = ?1", rusqlite::params![store_key]);
+                }
+            }
+            Ok(Value::String("ok".to_string()))
+        } else {
+            Ok(Value::String("not_found".to_string()))
+        }
+    } else {
+        // Delete all memories for this persona
+        let to_remove: Vec<String> = store.keys().filter(|k| k.starts_with(&prefix)).cloned().collect();
+        let count = to_remove.len();
+        for k in &to_remove {
+            store.remove(k);
+        }
+        if let Ok(sqlite_guard) = kv_sqlite().lock() {
+            if let Some(ref conn) = *sqlite_guard {
+                for k in &to_remove {
+                    let _ = conn.execute("DELETE FROM kv_store WHERE key = ?1", rusqlite::params![k]);
+                }
+            }
+        }
+        Ok(Value::Float(count as f64))
+    }
+}
+
+/// `human_recall(persona, query, limit?)` — search persona's memories by keyword match.
+/// Returns List of Memory structs sorted by importance (descending), then by recency.
+/// Each struct: {key, content, importance, created_at, access_count, relevance}.
+fn builtin_human_recall(args: &[Value]) -> Result<Value, String> {
+    let persona = expect_string_arg("human_recall", args, 0)?;
+    let query = expect_string_arg("human_recall", args, 1)?;
+    let limit: usize = if args.len() >= 3 {
+        expect_float_arg("human_recall", args, 2)? as usize
+    } else { 10 };
+    let prefix = format!("human_mem:{}:", persona);
+    let query_lower = query.to_lowercase();
+    let now_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64()).unwrap_or(0.0);
+
+    let store = kv_store().lock().map_err(|e| format!("human_recall() lock error: {}", e))?;
+    let mut memories: Vec<(f64, f64, Value)> = Vec::new(); // (importance, recency, struct)
+
+    for (k, v) in store.iter() {
+        if !k.starts_with(&prefix) { continue; }
+        if let Ok(data) = serde_json::from_str::<serde_json::Value>(v) {
+            let content = data.get("content").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let key_str = data.get("key").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            // Simple relevance scoring: keyword match in content or key
+            let query_words: Vec<&str> = query_lower.split_whitespace().collect();
+            let mut matches = 0;
+            for word in &query_words {
+                if content.contains(word) || key_str.contains(word) {
+                    matches += 1;
+                }
+            }
+            let relevance = if query_words.is_empty() { 0.5 } else { matches as f64 / query_words.len() as f64 };
+            if relevance < 0.01 && !query.is_empty() { continue; } // skip non-matching if query given
+
+            let importance = data.get("importance").and_then(|v| v.as_f64()).unwrap_or(0.5);
+            let created_at = data.get("created_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let access_count = data.get("access_count").and_then(|v| v.as_i64()).unwrap_or(0) as f64;
+            let age_hours = (now_ts - created_at).max(0.0) / 3600.0;
+            // Recency score: 1.0 for fresh, decays over time (half-life ~168h = 1 week)
+            let recency = (0.5_f64).powf(age_hours / 168.0);
+            // Composite score: 50% relevance, 30% importance, 20% recency
+            let score = relevance * 0.5 + importance * 0.3 + recency * 0.2;
+
+            let mem_key = data.get("key").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let mem_content = data.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let mem_struct = make_date_struct("Memory", vec![
+                ("key", Value::String(mem_key)),
+                ("content", Value::String(mem_content)),
+                ("importance", Value::Float(importance)),
+                ("created_at", Value::Float(created_at)),
+                ("access_count", Value::Float(access_count)),
+                ("relevance", Value::Float(relevance)),
+                ("score", Value::Float(score)),
+            ]);
+            memories.push((score, recency, mem_struct));
+        }
+    }
+    drop(store);
+
+    // Sort by score descending, take top N
+    memories.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    memories.truncate(limit);
+
+    let results: Vec<Value> = memories.into_iter().map(|(_, _, v)| v).collect();
+    Ok(Value::List(results))
+}
+
+/// `human_respond(persona, message, context?)` — generate a human-like response.
+/// Uses the persona's traits, mood, and recalled memories to craft a response via LLM.
+/// `context` is optional additional context (e.g., conversation history).
+/// Returns the generated response as String.
+fn builtin_human_respond(args: &[Value]) -> Result<Value, String> {
+    let persona = expect_string_arg("human_respond", args, 0)?;
+    let message = expect_string_arg("human_respond", args, 1)?;
+    let context = match args.get(2) {
+        Some(Value::String(s)) => s.clone(),
+        _ => String::new(),
+    };
+
+    // Load persona data
+    let persona_key = format!("human_persona:{}", persona);
+    let store = kv_store().lock().map_err(|e| format!("human_respond() lock error: {}", e))?;
+    let persona_data = store.get(&persona_key).cloned().unwrap_or_default();
+    drop(store);
+
+    if persona_data.is_empty() {
+        return Err(format!("human_respond() persona '{}' not found. Use human_create() first.", persona));
+    }
+
+    let data: serde_json::Value = serde_json::from_str(&persona_data)
+        .map_err(|e| format!("human_respond() persona parse error: {}", e))?;
+    let traits = data.get("traits").and_then(|v| v.as_str()).unwrap_or("helpful assistant").to_string();
+    let mood = data.get("mood").and_then(|v| v.as_str()).unwrap_or("neutral").to_string();
+    let mood_intensity = data.get("mood_intensity").and_then(|v| v.as_f64()).unwrap_or(0.5);
+
+    // Recall relevant memories
+    let recall_result = builtin_human_recall(&[
+        Value::String(persona.clone()),
+        Value::String(message.clone()),
+        Value::Float(5.0),
+    ])?;
+    let memories_text = match recall_result {
+        Value::List(items) => {
+            let mut parts = Vec::new();
+            for item in &items {
+                if let Value::Struct { fields, .. } = item {
+                    let key = fields.get("key").map(|v| format!("{}", v)).unwrap_or_default();
+                    let content = fields.get("content").map(|v| format!("{}", v)).unwrap_or_default();
+                    parts.push(format!("- [{}]: {}", key, content));
+                }
+            }
+            if parts.is_empty() { "No relevant memories found.".to_string() } else { parts.join("\n") }
+        }
+        _ => "No memories.".to_string(),
+    };
+
+    // Build the LLM prompt
+    let system_prompt = format!(
+        "You are {}, a persona with the following traits: {}. \
+        Your current emotional state is '{}' with intensity {:.1}. \
+        Let your mood subtly influence your tone and word choice. \
+        You have access to the following memories about the user and past interactions:\n{}\
+        \nRespond naturally, as a human would. Be concise but warm. Stay in character.",
+        persona, traits, mood, mood_intensity, memories_text
+    );
+
+    let full_prompt = if context.is_empty() {
+        format!("{}\n\nUser: {}", system_prompt, message)
+    } else {
+        format!("{}\n\nRecent context:\n{}\n\nUser: {}", system_prompt, context, message)
+    };
+
+    // Call LLM (reuses existing call_llm infrastructure)
+    let mock_mode = std::env::var("METALOGOS_LLM_MOCK")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(true);
+
+    let response = if mock_mode {
+        format!("[{} (mood: {}): {}]", persona, mood, message)
+    } else {
+        let backend = crate::llm::create_llm_backend();
+        backend.call(&full_prompt, "")
+            .map_err(|e| format!("human_respond() LLM call failed: {}", e))?
+    };
+
+    Ok(Value::String(response))
+}
+
+/// `human_personas()` — list all created personas.
+/// Returns List of PersonaSummary structs: {name, traits, mood, memory_count, created_at}.
+fn builtin_human_personas(args: &[Value]) -> Result<Value, String> {
+    let _ = args;
+    let prefix = "human_persona:";
+    let store = kv_store().lock().map_err(|e| format!("human_personas() lock error: {}", e))?;
+    let mut result = Vec::new();
+    for (k, v) in store.iter() {
+        if !k.starts_with(prefix) { continue; }
+        if let Ok(data) = serde_json::from_str::<serde_json::Value>(v) {
+            let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let traits = data.get("traits").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let mood = data.get("mood").and_then(|v| v.as_str()).unwrap_or("neutral").to_string();
+            let created_at = data.get("created_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            // Count memories for this persona
+            let mem_prefix = format!("human_mem:{}:", name);
+            let mem_count = store.keys().filter(|mk| mk.starts_with(&mem_prefix)).count();
+            result.push(make_date_struct("PersonaSummary", vec![
+                ("name", Value::String(name)),
+                ("traits", Value::String(traits)),
+                ("mood", Value::String(mood)),
+                ("memory_count", Value::Float(mem_count as f64)),
+                ("created_at", Value::Float(created_at)),
+            ]));
+        }
+    }
+    Ok(Value::List(result))
+}
+
+/// `human_delete(persona)` — delete a persona and all its memories.
+/// Returns Struct {deleted_memories: Float, status: String}.
+fn builtin_human_delete(args: &[Value]) -> Result<Value, String> {
+    let persona = expect_string_arg("human_delete", args, 0)?;
+    let persona_key = format!("human_persona:{}", persona);
+    let mem_prefix = format!("human_mem:{}:", persona);
+    let mut store = kv_store().lock().map_err(|e| format!("human_delete() lock error: {}", e))?;
+
+    // Delete persona
+    let persona_existed = store.remove(&persona_key).is_some();
+    // Delete all memories
+    let to_remove: Vec<String> = store.keys().filter(|k| k.starts_with(&mem_prefix)).cloned().collect();
+    let mem_count = to_remove.len();
+    for k in &to_remove {
+        store.remove(k);
+    }
+    drop(store);
+
+    // SQLite cleanup
+    if let Ok(sqlite_guard) = kv_sqlite().lock() {
+        if let Some(ref conn) = *sqlite_guard {
+            let _ = conn.execute("DELETE FROM kv_store WHERE key = ?1", rusqlite::params![persona_key]);
+            for k in &to_remove {
+                let _ = conn.execute("DELETE FROM kv_store WHERE key = ?1", rusqlite::params![k]);
+            }
+        }
+    }
+
+    let status = if persona_existed { "deleted" } else { "not_found" };
+    Ok(make_date_struct("DeleteResult", vec![
+        ("deleted_memories", Value::Float(mem_count as f64)),
+        ("status", Value::String(status.to_string())),
+    ]))
 }

@@ -124,8 +124,8 @@ impl Compiler {
             "is_leap_year", "add_days", "add_hours", "weekday_name",
             // v0.8.0 — Geolocation
             "geo_ip", "geo_distance",
-            // v0.8.0 — Weather
-            "weather",
+            // v0.8.0 — Weather (Open-Meteo, free, no API key)
+            "weather", "weather_forecast",
             // v0.8.0 — Reminders
             "remind", "remind_recurring", "cancel_remind", "list_reminders", "check_reminders",
             // Memory (recall)

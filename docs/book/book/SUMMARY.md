@@ -22,11 +22,11 @@ If you're new to METALOGOS, start with the [Tutorial](./tutorial.md) — it walk
 
 - [Tutorial: Hello to Adapt](./tutorial.md) — hands-on guide from basics to advanced features
 - [Syntax Reference](./syntax.md) — complete language syntax reference
-- [Standard Library Reference](./stdlib.md) — built-in modules: string, math, collections
+- [Standard Library Reference](./stdlib.md) — built-in modules: string, math, collections + 108 builtins including time, weather, geo, reminders (v0.8.0)
 
 ## Architecture
 
-- [ADR Index](./adr-index.md) — Architecture Decision Records (0001–0019)
+- [ADR Index](./adr-index.md) — Architecture Decision Records (0001–0057)
 
 ## Tooling
 

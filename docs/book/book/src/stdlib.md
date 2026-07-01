@@ -2,6 +2,8 @@
 
 METALOGOS includes a standard library organized into modules. Import modules with `import std/module_name`.
 
+> **v0.8.0 Note:** 108 total builtins. New in v0.8.0: time/date/calendar, geolocation, weather (Open-Meteo, free, no API key), reminders with recurrence. See REFERENCE.md sections 4.17–4.20.
+
 ## std/string
 
 String manipulation patterns.

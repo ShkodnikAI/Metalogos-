@@ -176,15 +176,40 @@ impl Vm {
             "escape_js".to_string(),    // 90
             // Misc
             "dict_get".to_string(),     // 91
-            "type_of".to_string(),      // 92
+            "dict_set".to_string(),     // 92
+            "dict_keys".to_string(),    // 93
+            "dict_values".to_string(),  // 94
+            "dict_has".to_string(),     // 95
+            "type_of".to_string(),      // 96
+            // Format
+            "format".to_string(),       // 97
+            // v0.8.0 — Time / Date / Calendar
+            "date_parts".to_string(),   // 98
+            "days_between".to_string(), // 99
+            "days_in_month".to_string(), // 100
+            "is_leap_year".to_string(), // 101
+            "add_days".to_string(),     // 102
+            "add_hours".to_string(),    // 103
+            "weekday_name".to_string(), // 104
+            // v0.8.0 — Geolocation
+            "geo_ip".to_string(),       // 105
+            "geo_distance".to_string(), // 106
+            // v0.8.0 — Weather
+            "weather".to_string(),      // 107
+            // v0.8.0 — Reminders
+            "remind".to_string(),       // 108
+            "remind_recurring".to_string(), // 109
+            "cancel_remind".to_string(),    // 110
+            "list_reminders".to_string(),   // 111
+            "check_reminders".to_string(),  // 112
             // Memory (recall)
-            "recall".to_string(),       // 93
+            "recall".to_string(),       // 113
             // Phase 4.4 self-hosting
-            "stdin".to_string(),        // 94
-            "split_tokens".to_string(), // 95
-            "if_eq".to_string(),        // 96
-            "newline".to_string(),      // 97
-            "is_string_token".to_string(), // 98
+            "stdin".to_string(),        // 114
+            "split_tokens".to_string(), // 115
+            "if_eq".to_string(),        // 116
+            "newline".to_string(),      // 117
+            "is_string_token".to_string(), // 118
         ];
 
         Vm {

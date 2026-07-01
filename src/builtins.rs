@@ -178,8 +178,9 @@ impl Builtins {
         // v0.8.0 — Geolocation
         funcs.insert("geo_ip".to_string(), builtin_geo_ip as BuiltinFn);
         funcs.insert("geo_distance".to_string(), builtin_geo_distance as BuiltinFn);
-        // v0.8.0 — Weather
+        // v0.8.0 — Weather (Open-Meteo, free, no API key)
         funcs.insert("weather".to_string(), builtin_weather as BuiltinFn);
+        funcs.insert("weather_forecast".to_string(), builtin_weather_forecast as BuiltinFn);
         // v0.8.0 — Reminders
         funcs.insert("remind".to_string(), builtin_remind as BuiltinFn);
         funcs.insert("remind_recurring".to_string(), builtin_remind_recurring as BuiltinFn);
@@ -2652,25 +2653,67 @@ fn builtin_geo_distance(args: &[Value]) -> Result<Value, String> {
     }))
 }
 
-// ── v0.8.0 — Weather builtins ───────────────────────────────────────
+// ── v0.8.0 — Weather builtins (Open-Meteo, free, no API key) ───────
 
-/// `weather(city_or_lat, lon?)` — current weather. Needs OPENWEATHER_API_KEY env var.
-/// Returns Struct {temp, feels_like, temp_min, temp_max, pressure, humidity, description, wind_speed, city, country, clouds, visibility}.
+/// WMO weather codes to human-readable description.
+fn wmo_description(code: i64) -> &'static str {
+    match code {
+        0 => "Clear sky", 1 => "Mainly clear", 2 => "Partly cloudy", 3 => "Overcast",
+        45 | 48 => "Fog", 51 | 53 | 55 => "Drizzle", 56 | 57 => "Freezing drizzle",
+        61 | 63 | 65 => "Rain", 66 | 67 => "Freezing rain",
+        71 | 73 | 75 => "Snow fall", 77 => "Snow grains",
+        80 | 81 | 82 => "Rain showers", 85 | 86 => "Snow showers",
+        95 => "Thunderstorm", 96 | 99 => "Thunderstorm with hail",
+        _ => "Unknown",
+    }
+}
+
+/// Resolve city name to (lat, lon) via Open-Meteo geocoding (free, no key).
+fn geo_resolve_city(city: &str) -> Result<(f64, f64), String> {
+    let url = format!(
+        "https://geocoding-api.open-meteo.com/v1/search?name={}&count=1&language=en&format=json",
+        urlencoding::encode(city)
+    );
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build().map_err(|e| format!("weather() client error: {}", e))?;
+    let body = client.get(&url).send()
+        .map_err(|e| format!("weather() geocoding failed: {}", e))?
+        .text().unwrap_or_default();
+    let json: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| format!("weather() geocoding parse error: {}", e))?;
+    let results = json.get("results").and_then(|r| r.as_array())
+        .ok_or_else(|| format!("weather() city not found: {}", city))?;
+    if results.is_empty() {
+        return Err(format!("weather() city not found: {}", city));
+    }
+    let first = &results[0];
+    let lat = first.get("latitude").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let lon = first.get("longitude").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    Ok((lat, lon))
+}
+
+/// `weather(city_or_lat, lon?)` — current weather via Open-Meteo (FREE, no API key).
+/// `weather("Minsk")` or `weather(53.9, 27.57)`.
+/// Returns Struct {temp, feels_like, temp_min, temp_max, humidity, description,
+///   wind_speed, wind_direction, pressure, cloud_cover, is_day, city, country}.
 fn builtin_weather(args: &[Value]) -> Result<Value, String> {
-    let api_key = std::env::var("OPENWEATHER_API_KEY")
-        .map_err(|_| "weather() requires OPENWEATHER_API_KEY environment variable".to_string())?;
-    let url = if args.len() >= 2 {
+    let (lat, lon, resolved_city) = if args.len() >= 2 {
         let lat = expect_float_arg("weather", args, 0)?;
         let lon = expect_float_arg("weather", args, 1)?;
-        format!("https://api.openweathermap.org/data/2.5/weather?lat={}&lon={}&appid={}&units=metric", lat, lon, api_key)
+        (lat, lon, String::new())
     } else {
         let city = expect_string_arg("weather", args, 0)?;
-        format!("https://api.openweathermap.org/data/2.5/weather?q={}&appid={}&units=metric", urlencoding::encode(&city), api_key)
+        let (lat, lon) = geo_resolve_city(&city)?;
+        (lat, lon, city)
     };
+    let url = format!(
+        "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,cloud_cover,is_day&timezone=auto",
+        lat, lon
+    );
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| format!("weather() client error: {}", e))?;
+        .build().map_err(|e| format!("weather() client error: {}", e))?;
     let resp = client.get(&url).send()
         .map_err(|e| format!("weather() request failed: {}", e))?;
     let status = resp.status().as_u16();
@@ -2680,27 +2723,101 @@ fn builtin_weather(args: &[Value]) -> Result<Value, String> {
     }
     let json: serde_json::Value = serde_json::from_str(&body)
         .map_err(|e| format!("weather() parse error: {}", e))?;
-    let jf = |p: &str, j: &serde_json::Value| -> f64 {
-        p.split('.').fold(j.clone(), |a, k| a.get(k).cloned().unwrap_or(serde_json::Value::Null)).as_f64().unwrap_or(0.0)
+    let cur = json.get("current").ok_or("weather() missing 'current' in response")?;
+    let gf = |key: &str| -> f64 {
+        cur.get(key).and_then(|v| v.as_f64()).unwrap_or(0.0)
     };
-    let js = |p: &str, j: &serde_json::Value| -> String {
-        p.split('.').fold(j.clone(), |a, k| a.get(k).cloned().unwrap_or(serde_json::Value::Null)).as_str().unwrap_or("").to_string()
-    };
+    let code = gf("weather_code") as i64;
+    let desc = wmo_description(code).to_string();
     Ok(make_date_struct("Weather", vec![
-        ("temp", Value::Float(jf("main.temp", &json))),
-        ("feels_like", Value::Float(jf("main.feels_like", &json))),
-        ("temp_min", Value::Float(jf("main.temp_min", &json))),
-        ("temp_max", Value::Float(jf("main.temp_max", &json))),
-        ("pressure", Value::Float(jf("main.pressure", &json))),
-        ("humidity", Value::Float(jf("main.humidity", &json))),
-        ("description", Value::String(js("weather.0.description", &json))),
-        ("icon", Value::String(js("weather.0.icon", &json))),
-        ("wind_speed", Value::Float(jf("wind.speed", &json))),
-        ("city", Value::String(js("name", &json))),
-        ("country", Value::String(js("sys.country", &json))),
-        ("clouds", Value::Float(jf("clouds.all", &json))),
-        ("visibility", Value::Float(jf("visibility", &json))),
+        ("temp", Value::Float(gf("temperature_2m"))),
+        ("feels_like", Value::Float(gf("apparent_temperature"))),
+        ("temp_min", Value::Float(gf("temperature_2m"))),
+        ("temp_max", Value::Float(gf("temperature_2m"))),
+        ("humidity", Value::Float(gf("relative_humidity_2m"))),
+        ("description", Value::String(desc)),
+        ("wind_speed", Value::Float(gf("wind_speed_10m"))),
+        ("wind_direction", Value::Float(gf("wind_direction_10m"))),
+        ("pressure", Value::Float(gf("surface_pressure"))),
+        ("cloud_cover", Value::Float(gf("cloud_cover"))),
+        ("is_day", Value::Float(gf("is_day"))),
+        ("city", Value::String(resolved_city)),
+        ("country", Value::String(String::new())),
     ]))
+}
+
+/// `weather_forecast(city_or_lat, lon?, days?)` — multi-day forecast via Open-Meteo (FREE, no API key).
+/// `weather_forecast("Minsk", 7)` or `weather_forecast(53.9, 27.57, 3)`.
+/// Default: 7 days. Max: 16 days. Returns List of DayForecast structs.
+fn builtin_weather_forecast(args: &[Value]) -> Result<Value, String> {
+    let (lat, lon) = if args.len() >= 2 && matches!(&args[1], Value::Float(_)) {
+        let la = expect_float_arg("weather_forecast", args, 0)?;
+        let lo = expect_float_arg("weather_forecast", args, 1)?;
+        (la, lo)
+    } else {
+        let city = expect_string_arg("weather_forecast", args, 0)?;
+        geo_resolve_city(&city)?
+    };
+    let mut days: u32 = 7;
+    if args.len() == 2 && matches!(&args[1], Value::Float(_)) {
+        days = expect_float_arg("weather_forecast", args, 1)? as u32;
+    } else if args.len() >= 3 {
+        days = expect_float_arg("weather_forecast", args, 2)? as u32;
+    }
+    if days < 1 { days = 1; }
+    if days > 16 { days = 16; }
+    let url = format!(
+        "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,sunrise,sunset,uv_index_max&timezone=auto&forecast_days={}",
+        lat, lon, days
+    );
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build().map_err(|e| format!("weather_forecast() client error: {}", e))?;
+    let resp = client.get(&url).send()
+        .map_err(|e| format!("weather_forecast() request failed: {}", e))?;
+    let status = resp.status().as_u16();
+    let body = resp.text().unwrap_or_default();
+    if status >= 400 {
+        return Err(format!("weather_forecast() API error {}: {}", status, body));
+    }
+    let json: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| format!("weather_forecast() parse error: {}", e))?;
+    let daily = json.get("daily").ok_or("weather_forecast() missing 'daily' in response")?;
+    let dates = daily.get("time").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let codes = daily.get("weather_code").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let tmax = daily.get("temperature_2m_max").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let tmin = daily.get("temperature_2m_min").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let precip = daily.get("precipitation_sum").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let wind = daily.get("wind_speed_10m_max").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let sunrise = daily.get("sunrise").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let sunset = daily.get("sunset").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let uv = daily.get("uv_index_max").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let gf = |arr: &[serde_json::Value], i: usize| -> f64 {
+        arr.get(i).and_then(|v| v.as_f64()).unwrap_or(0.0)
+    };
+    let gs = |arr: &[serde_json::Value], i: usize| -> String {
+        arr.get(i).and_then(|v| v.as_str()).unwrap_or("").to_string()
+    };
+    let mut result = Vec::new();
+    for i in 0..dates.len() {
+        let code = gf(&codes, i) as i64;
+        let desc = wmo_description(code).to_string();
+        let uv_val = gf(&uv, i);
+        let uv_str = if uv_val < 0.0 { String::new() } else { format!("{:.1}", uv_val) };
+        result.push(make_date_struct("DayForecast", vec![
+            ("date", Value::String(gs(&dates, i))),
+            ("temp_max", Value::Float(gf(&tmax, i))),
+            ("temp_min", Value::Float(gf(&tmin, i))),
+            ("precipitation", Value::Float(gf(&precip, i))),
+            ("weather_code", Value::Float(gf(&codes, i))),
+            ("description", Value::String(desc)),
+            ("wind_speed_max", Value::Float(gf(&wind, i))),
+            ("sunrise", Value::String(gs(&sunrise, i))),
+            ("sunset", Value::String(gs(&sunset, i))),
+            ("uv_index", Value::String(uv_str)),
+        ]));
+    }
+    Ok(Value::List(result))
 }
 
 // ── v0.8.0 — Reminders builtins ─────────────────────────────────────

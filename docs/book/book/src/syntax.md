@@ -1,6 +1,6 @@
 # Syntax Reference
 
-Complete reference for METALOGOS surface syntax as implemented in v0.3.0.
+Complete reference for METALOGOS surface syntax as implemented in v0.8.0.
 
 ## Declarations
 

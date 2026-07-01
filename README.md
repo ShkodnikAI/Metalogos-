@@ -7,7 +7,7 @@
 **The first programming language designed by AI, for AI. Security built into the language.**
 
 [![Rust](https://img.shields.io/badge/rust-1.80+-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/v0.8.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/)
+[![Version](https://img.shields.io/badge/v0.8.1-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
 [![CI](https://img.shields.io/badge/CI-passing-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 
@@ -15,30 +15,38 @@
 
 ---
 
-## 30-Second Example
+## What's New in v0.8.1
 
-An AI-powered message triage system with learnable patterns, confidence-based branching, semantic memory, and runtime self-improvement — in under 10 lines:
+**Human Intelligence Layer** — persona system, memory tree, mood tracking, human-like AI responses. Inspired by [OpenHuman](https://github.com/tinyhumansai/OpenHuman).
 
 ```mlog
-// Learnable pattern: LLM call as a first-class language operation
-learnable pattern Classify(msg: String) -> String {
-  prompt: "Classify as: question | complaint | greeting | urgent"
+// Create a persona with personality traits
+human_create("Alice", "friendly, professional, curious, speaks Russian")
+
+// Store memories with importance scoring
+human_remember("Alice", "user_name", "Sergei from Minsk", 0.9)
+human_remember("Alice", "preference", "prefers concise responses", 0.7)
+human_remember("Alice", "project", "building AI assistant in Metalogos", 0.8)
+
+// Set mood — influences LLM response tone
+human_mood("Alice", "excited", 0.9)
+
+// Recall relevant memories (keyword search with scoring)
+let memories = human_recall("Alice", "project AI", 3)
+each mem in memories {
+  print(mem.key + ": " + mem.content + " (score: " + to_string(mem.score) + ")")
 }
 
-// Semantic memory with priority-based recall
-memorize "user prefers email over chat" with priority=0.9
+// Generate human-like response using persona + mood + memories + LLM
+let reply = human_respond("Alice", "How is my project going?")
+print(reply)
 
-// Runtime self-improvement: add examples to the model on the fly
-adapt Classify add_example("where is my order?", "complaint")
-
-// Confidence-based flow branching
-flow Triage {
-  input: String = "where is my order?"
-  -> Classify -> output
-}
+// Manage multiple personas
+let all = human_personas()
+human_delete("Alice")  // cleanup persona + all its memories
 ```
 
-No frameworks. No boilerplate. No `import ai_sdk`. The language *is* the AI infrastructure.
+**All built on existing Metalogos primitives** — KV store for persistence, `call_llm` for generation. Zero new dependencies. Works with any LLM provider.
 
 ---
 
@@ -71,6 +79,33 @@ let id = remind("Call client", add_hours(now(), 2.0))
 let daily = remind_recurring("Daily standup", 86400.0)
 let due = check_reminders()
 ```
+
+---
+
+## 30-Second Example
+
+An AI-powered message triage system with learnable patterns, confidence-based branching, semantic memory, and runtime self-improvement — in under 10 lines:
+
+```mlog
+// Learnable pattern: LLM call as a first-class language operation
+learnable pattern Classify(msg: String) -> String {
+  prompt: "Classify as: question | complaint | greeting | urgent"
+}
+
+// Semantic memory with priority-based recall
+memorize "user prefers email over chat" with priority=0.9
+
+// Runtime self-improvement: add examples to the model on the fly
+adapt Classify add_example("where is my order?", "complaint")
+
+// Confidence-based flow branching
+flow Triage {
+  input: String = "where is my order?"
+  -> Classify -> output
+}
+```
+
+No frameworks. No boilerplate. No `import ai_sdk`. The language *is* the AI infrastructure.
 
 ---
 
@@ -121,6 +156,17 @@ learnable pattern Classify(text: String) -> Category {
 }
 // Call it like any other pattern:
 flow Pipeline { input -> Classify -> Respond -> output }
+```
+
+### Human Intelligence Layer
+
+Inspired by [OpenHuman](https://github.com/tinyhumansai/OpenHuman), Metalogos has a built-in **persona system** with memory trees, mood tracking, and human-like response generation. Create multiple AI personas, each with their own personality, emotional state, and persistent memory — all as simple function calls:
+
+```mlog
+human_create("Support Bot", "patient, helpful, technical")
+human_remember("Support Bot", "faq_login", "User must reset password via email link", 0.9)
+human_mood("Support Bot", "focused", 0.8)
+let answer = human_respond("Support Bot", "I can't log in")
 ```
 
 ---
@@ -219,8 +265,8 @@ Metalogos has **three execution backends**: a tree-walking interpreter, a byteco
  pattern            syntax rules      14 Expr           validation          bytecode VM
  flow                                  12 Statement      opaque type       JIT (Cranelift)
  memory                                 4 MatchArm        enforcement
- rule                                                             
- learn                                                         
+ rule
+ learn
  adapt
 ```
 
@@ -236,11 +282,11 @@ Metalogos has **three execution backends**: a tree-walking interpreter, a byteco
 | Crypto | `hmac`, `sha2`, `aes-gcm` (AES-256-GCM) |
 | CLI | [Clap 4.5](https://github.com/clap-rs/clap) |
 | Tests | Golden-file (78 examples with `.expected`/`.error`) + 32 integration test files (7 000+ lines) |
-| Builtins | `builtins.rs` — 108 built-in functions (2 900 lines) |
+| Builtins | `builtins.rs` — 116 built-in functions (3 300+ lines) |
 
 ```
 Metalogos-/
-├── Cargo.toml              # Single-crate project, version 0.8.0
+├── Cargo.toml              # Single-crate project, version 0.8.1
 ├── src/
 │   ├── grammar.pest         # PEG grammar (335 rules)
 │   ├── ast.rs               # AST: 24 Declaration, 14 Expr, 12 Statement, 4 MatchArm variants
@@ -251,7 +297,7 @@ Metalogos-/
 │   ├── bytecode.rs          # 44 VM instructions
 │   ├── vm.rs                # Bytecode VM executor (1 470 lines)
 │   ├── jit.rs               # JIT compiler via Cranelift
-│   ├── builtins.rs          # 108 built-in functions (2 900 lines)
+│   ├── builtins.rs          # 116 built-in functions (3 300+ lines)
 │   ├── server.rs            # Axum HTTP server + security middleware (1 280 lines)
 │   ├── llm.rs               # LLM backend trait + mock + real providers (1 420 lines)
 │   ├── memory_store.rs      # Semantic memory with decay + KV store (1 170 lines)
@@ -295,8 +341,9 @@ Metalogos-/
 | Phase 7.5 | Memory persistence (e2e), JWT-style tokens, eval harness | Done |
 | Phase 7.6 | Session memory, audit parse tests, server JSON body | Done |
 | Phase 7.7 | Break/Continue, Match (StartsWith/Contains/Compare), compiler full-coverage, constraints | Done |
-| Phase 7.8 | BlockIfElse expression bytecode compilation, format() arity fix (Наряд 17 Б.1) | Done |
+| Phase 7.8 | BlockIfElse expression bytecode compilation, format() arity fix | Done |
 | Phase 8.0 | Time/Date/Calendar, Geolocation, Weather (Open-Meteo, free), Reminders with recurrence | Done |
+| Phase 8.1 | Human Intelligence Layer: personas, memory tree, mood, human-like AI responses | Done |
 
 ### Next
 
@@ -318,6 +365,7 @@ Metalogos stands on the shoulders of proven systems:
 - **Datalog / CLIPS** — declarative rule engines with priority
 - **ACT-R** — memory activation and decay models
 - **DSPy** — programmatic LLM orchestration
+- **[OpenHuman](https://github.com/tinyhumansai/OpenHuman)** — persona system, memory tree, mood tracking (inspiration for Human Intelligence Layer)
 
 ---
 

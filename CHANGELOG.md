@@ -2,6 +2,42 @@
 
 All notable changes to the Metalogos project.
 
+## [0.8.1] — 2026-07-01
+
+**Phase 8.1: Human Intelligence Layer — система персон, память, настроение, человекоподобные AI-ответы.**
+**Вдохновлено [OpenHuman](https://github.com/tinyhumansai/OpenHuman) — ключевые концепции (memory tree, persona, mood) реализованы как нативные builtins Metalogos.**
+
+### Новые builtins (8 функций, итого 116)
+
+**Human Intelligence Layer (8):**
+- **`human_create(name, traits)`** — создать персону с чертами характера. Хранится в KV (персистентно). Возвращает {name, traits, created_at, memory_count}
+- **`human_mood(persona, mood?, intensity?)`** — получить/установить эмоциональное состояние. Настроение влияет на тон LLM-ответов. Mood: happy/sad/focused/creative/neutral/excited и т.д. Intensity 0.0–1.0
+- **`human_remember(persona, key, content, importance?)`** — сохранить воспоминание. Importance 0.0–1.0 (по умолчанию 0.5). Хранится в KV с метаданными
+- **`human_forget(persona, key?)`** — удалить воспоминание по ключу ("ok"/"not_found") или все воспоминания персоны (возвращает количество)
+- **`human_recall(persona, query, limit?)`** — поиск по памяти с composite scoring: 50% релевантность (keyword match) + 30% важность + 20% свежесть (half-life ~1 неделя). Возвращает отсортированный список {Memory} с полем score
+- **`human_respond(persona, message, context?)`** — генерация человекоподобного ответа через LLM с учётом характера, настроения и релевантных воспоминаний. Автоматически вызывает human_recall
+- **`human_personas()`** — список всех персон с текущим настроением и количеством воспоминаний
+- **`human_delete(persona)`** — удаление персоны + всех её воспоминаний. Возвращает {deleted_memories, status}
+
+### Архитектура
+
+- Построено на существующих примитивах Metalogos: KV-хранилище (kv_set/kv_get) для персистентности, call_llm для генерации
+- Нулевые новые зависимости — только serde_json (уже в проекте)
+- Поддержка SQLite-персистенции (write-through через существующий KV_SQLITE)
+- Mock-режим по умолчанию (METALOGOS_LLM_MOCK=true) — работает без LLM-провайдера
+
+### Документация
+
+- REFERENCE.md: новый раздел 4.22 «Human Intelligence Layer» с полным описанием всех 8 функций, структур возврата, алгоритма скоринга и примерами
+- README.md: новый раздел «What's New in v0.8.1» с примерами, обновлён раздел «Why Metalogos» (новый pillar «Human Intelligence Layer»), обновлены Prior Art и Architecture
+- CHANGELOG.md: данная запись
+
+### Версия
+
+- Bump 0.8.0 → 0.8.1
+
+---
+
 ## [0.8.0] — 2026-07-01
 
 **Phase 8: Время, дата, календарь, геолокация, погода (бесплатно), напоминания.**

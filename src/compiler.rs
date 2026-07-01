@@ -130,6 +130,9 @@ impl Compiler {
             "remind", "remind_recurring", "cancel_remind", "list_reminders", "check_reminders",
             // Memory (recall)
             "recall",
+            // v0.8.1 — OpenHuman-inspired Human Intelligence
+            "human_create", "human_mood", "human_remember", "human_forget",
+            "human_recall", "human_respond", "human_personas", "human_delete",
             // Phase 4.4 self-hosting
             "stdin", "split_tokens", "if_eq", "newline", "is_string_token",
         ];

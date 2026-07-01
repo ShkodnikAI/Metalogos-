@@ -119,6 +119,15 @@ impl Compiler {
             "dict_get", "dict_set", "dict_keys", "dict_values", "dict_has", "type_of",
             // Format
             "format",
+            // v0.8.0 — Time / Date / Calendar
+            "date_parts", "days_between", "days_in_month",
+            "is_leap_year", "add_days", "add_hours", "weekday_name",
+            // v0.8.0 — Geolocation
+            "geo_ip", "geo_distance",
+            // v0.8.0 — Weather
+            "weather",
+            // v0.8.0 — Reminders
+            "remind", "remind_recurring", "cancel_remind", "list_reminders", "check_reminders",
             // Memory (recall)
             "recall",
             // Phase 4.4 self-hosting

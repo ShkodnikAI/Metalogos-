@@ -134,9 +134,39 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
 
     let port = config.port;
     let state = build_state(config, interp).await;
-    let app = build_router(state);
+    let app = build_router(state.clone());
+
+    // v0.8.1 — Background reminder scheduler (checks every 5 seconds)
+    let scheduler_state = state.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            let mut interp = scheduler_state.interpreter.write().await;
+            // Call check_reminders() via the builtin registry
+            let check_result = {
+                let builtin_name = "check_reminders";
+                if let Some(builtin_fn) = interp.get_builtin(builtin_name) {
+                    builtin_fn(&[])
+                } else {
+                    Ok(crate::interpreter::Value::List(vec![]))
+                }
+            };
+            if let Ok(crate::interpreter::Value::List(items)) = check_result {
+                for item in &items {
+                    // Log due reminders; in future versions, dispatch to patterns
+                    if let crate::interpreter::Value::Struct { fields, .. } = item {
+                        let msg = fields.get("message").map(|v| format!("{}", v)).unwrap_or_default();
+                        let rtype = fields.get("type").map(|v| format!("{}", v)).unwrap_or_default();
+                        eprintln!("[scheduler] due {}: [{}] {}", rtype, msg,
+                            fields.get("data").map(|v| format!("{}", v)).unwrap_or_default());
+                    }
+                }
+            }
+        }
+    });
 
     println!("mlog serve: listening on 0.0.0.0:{}", port);
+    println!("mlog serve: reminder scheduler active (5s interval)");
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     axum::serve(listener, app).await?;
     Ok(())

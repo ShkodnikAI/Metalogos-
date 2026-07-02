@@ -1,6 +1,6 @@
 # METALOGOS — Справочник языка (Reference)
 
-> **Версия:** 0.8.1 (Phase 8.1)
+> **Версия:** 0.8.2 (Phase 8.2)
 > **Единый источник истины** для разработчиков, пишущих на Металогосе.
 > Содержит полный список встроенных функций с сигнатурами, типами, описанием и примерами,
 > а также справочник по синтаксису, типам данных и CLI.
@@ -568,9 +568,47 @@ return page
 
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|
-| `send_message(chat_id, text)` | `String\|Float, String -> String` | String | Отправляет сообщение в Telegram. При `TELEGRAM_BOT_TOKEN` env — реальная отправка через API. Поддерживает отрицательные channel ID (числа в JSON). Без токена — логирует в `[AUDIT]` |
-| `whisper_transcribe(file_id, bot_token, whisper_key, provider)` | `String, String, String, String -> String` | String | STT через Whisper API: скачивает голосовое из Telegram, отправляет в OpenAI/Groq. `provider`: `"openai"` (по умолч.) или `"groq"` |
-| `tts_send(text, voice, bot_token, chat_id)` | `String, String, String, String -> String` | String | TTS через OpenAI API + отправка аудио в Telegram (`sendAudio`). Требует `OPENAI_API_KEY` |
+| `send_message(chat_id, text, reply_markup?)` | `String\|Float, String, Struct? -> String` | String | Отправляет сообщение в Telegram. При `TELEGRAM_BOT_TOKEN` env — реальная отправка через API. 3-й аргумент (Struct) передаётся как `reply_markup` в Telegram API (для inline keyboard). Без токена — логирует в `[AUDIT]` |
+| `answer_callback_query(callback_query_id, text?, show_alert?)` | `String, String?, Float? -> String` | String | Ответ на callback от inline keyboard. `show_alert` 1.0 = alert popup, 0.0 = toast (по умолчанию) |
+| `edit_message_text(chat_id, message_id, text, reply_markup?)` | `String\|Float, Float, String, Struct? -> String` | String | Редактирование существующего сообщения (для обновления inline keyboard после callback) |
+| `whisper_transcribe(file_id, bot_token, whisper_key, provider?)` | `String, String, String, String? -> String` | String | STT через Whisper API: скачивает голосовое из Telegram, отправляет в OpenAI/Groq. `provider`: `"openai"` (по умолч.) или `"groq"` |
+| `tts_send(text, voice, bot_token, chat_id, mode?)` | `String, String, String, String, String? -> String` | String | TTS через OpenAI API + отправка в Telegram. По умолчанию отправляет как голосовое сообщение (voice bubble, `sendVoice`). 5-й аргумент `"audio"` — режим аудиоплеера (`sendAudio`). Требует `OPENAI_API_KEY` |
+
+**Пример — inline keyboard + callback handling (v0.8.2):**
+```mlog
+// Webhook route для Telegram бота
+route "/webhook" method=POST {
+  let data = json_body()
+
+  // Обработка callback от inline keyboard
+  let cb = data.callback_query
+  if cb != "" {
+    answer_callback_query(cb.id, "Выбрано: " + cb.data)
+    if cb.data == "yes" {
+      edit_message_text(cb.message.chat.id, cb.message.message_id, "Отлично!")
+    }
+    respond("ok")
+    return
+  }
+
+  // Обработка текстовых сообщений
+  let text = data.message.text
+  let chat_id = data.message.chat.id
+
+  let keyboard = {
+    inline_keyboard: [
+      [{ text: "Да", callback_data: "yes" }, { text: "Нет", callback_data: "no" }]
+    ]
+  }
+  send_message(chat_id, "Выберите:", keyboard)
+  respond("ok")
+}
+
+// Голосовое сообщение (voice bubble)
+tts_send("Привет!", "alloy", bot_token, chat_id)
+// Аудиоплеер вместо voice bubble
+tts_send("Привет!", "alloy", bot_token, chat_id, "audio")
+```
 
 ### 4.17. Время, дата, календарь
 
@@ -662,6 +700,8 @@ each day in week {
 ```
 
 ### 4.20. Напоминания и таймеры
+
+> **v0.8.2:** Напоминания автоматически персистируются в SQLite (таблица `reminders`). При запуске `mlog serve` фоновый таск каждые 5 секунд проверяет просроченные напоминания и логирует их.
 
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|
@@ -859,7 +899,7 @@ Struct {DeleteResult} {
 ```mlog
 // Инициализация
 human_create("Assistant", "helpful, technical, friendly, speaks Russian")
-human_remember("Assistant", "system", "Metalogos v0.8.1 — AI-native язык программирования", 1.0)
+human_remember("Assistant", "system", "Metalogos v0.8.2 — AI-native язык программирования", 1.0)
 human_remember("Assistant", "owner", "Sergei, создатель Metalogos", 0.9)
 human_mood("Assistant", "focused", 0.8)
 
@@ -902,7 +942,7 @@ if file_id != "" {
 
 ---
 
-## 4.18. Scoping: область видимости `let`
+## 4.24. Scoping: область видимости `let`
 
 **Важно:** `let` внутри `if`, `while`, `each` блоков создаёт **новую лексическую переменную**, видимую только внутри этого блока. Она **не затрагивает** внешнюю переменную с тем же именем.
 
@@ -1249,6 +1289,8 @@ collections.push(items, item) -> List      // append to list
 
 | Версия | Дата | Что нового |
 |--------|------|------------|
+| **0.8.2** | 2026-07-02 | +answer_callback_query, +edit_message_text, send_message +reply_markup (inline keyboard), tts_send → voice bubble (sendVoice), reminder persistence SQLite, background scheduler при mlog serve, 118 builtins |
+| **0.8.1** | 2026-07-01 | +Human Intelligence Layer: human_create, human_mood, human_remember, human_forget, human_recall, human_respond, human_personas, human_delete, 116 builtins |
 | **0.8.0** | 2026-07-01 | +Время/дата/календарь (format_date, date_parts, days_between, add_days, add_hours, weekday_name, is_leap_year, days_in_month), +Геолокация (geo_ip, geo_distance), +Погода Open-Meteo бесплатно без ключа (weather, weather_forecast), +Напоминания с рекурренцией (remind, remind_recurring, cancel_remind, list_reminders, check_reminders), 108 builtins |
 | **0.7.10** | 2026-06-18 | +and/or логические операторы (short-circuit), Unit == / != без краша, +\uXXXX escape, +if-then блочный оператор, query_scalar fix |
 | **0.7.9** | 2026-06-15 | Наряд 24: +git_push, +web_search, +make_list, graceful unknown fn, LLM timeout 120с, json_get массивы, send_message реальный API, 100 builtins |

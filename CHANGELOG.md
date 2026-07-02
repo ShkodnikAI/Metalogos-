@@ -2,6 +2,39 @@
 
 All notable changes to the Metalogos project.
 
+## [0.8.2] — 2026-07-02
+
+**Phase 8.2: Telegram Bot Platform + Reminder Scheduler.**
+
+### Новые builtins (2, итого 118)
+
+- **`answer_callback_query(callback_query_id, text?, show_alert?)`** — ответ на callback от inline keyboard. `show_alert` 1.0 = alert popup, 0.0 = toast (по умолчанию)
+- **`edit_message_text(chat_id, message_id, text, reply_markup?)`** — редактирование существующего сообщения (для обновления inline keyboard после callback)
+
+### Исправления и улучшения
+
+- **`tts_send` теперь отправляет голосовые сообщения (voice bubble)** — изменён endpoint с `sendAudio` на `sendVoice`, multipart field с `"audio"` на `"voice"`. Опциональный 5-й аргумент `"audio"` возвращает старое поведение (аудиоплеер)
+- **`send_message` поддерживает inline keyboard** — опциональный 3-й аргумент (Struct) передаётся как `reply_markup` в Telegram API. Полный конвертер `value_to_json()` (Value → serde_json) для вложенных структур и списков
+- **`tts_send` arity fix** — semantic.rs корректно ожидает 4 аргумента (было 2)
+- **Reminder persistence** — write-through в SQLite (по аналогии с KV store). Таблица `reminders` с полной схемой. `init_reminder_persist()` для загрузки при старте. Все мутации (remind, cancel, check) синхронизируются с БД
+- **Background scheduler** — `mlog serve` теперь запускает фоновый таск (`tokio::spawn`) который каждые 5 секунд вызывает `check_reminders()` и логирует просроченные напоминания. Будущие версии будут диспатчить на паттерны
+- **`Interpreter::get_builtin()`** — новый публичный метод для доступа к реестру builtins (нужен для scheduler)
+
+### Файлы
+
+- `builtins.rs`: +`value_to_json()`, +`answer_callback_query`, +`edit_message_text`, +reminder persistence (+80 строк), voice/audio toggle в tts_send
+- `server.rs`: background scheduler loop (+25 строк)
+- `interpreter.rs`: `get_builtin()` public method
+- `compiler.rs`: +2 новых builtins в таблицу
+- `semantic.rs`: arity fix tts_send 2→4, +answer_callback_query, +edit_message_text
+- `Cargo.toml`: 0.8.1 → 0.8.2
+
+### Версия
+
+- Bump 0.8.1 → 0.8.2
+
+---
+
 ## [0.8.1] — 2026-07-01
 
 **Phase 8.1: Human Intelligence Layer — система персон, память, настроение, человекоподобные AI-ответы.**

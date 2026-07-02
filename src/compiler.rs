@@ -84,7 +84,7 @@ impl Compiler {
             // Phase 6.5: Auth/Session
             "authenticate", "session_login", "session_logout",
             // Phase 6: Messaging
-            "send_message", "require",
+            "send_message", "answer_callback_query", "edit_message_text", "require",
             // HTTP
             "http_post", "http_get",
             // Public string/math ops

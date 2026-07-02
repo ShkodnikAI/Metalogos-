@@ -3022,6 +3022,11 @@ impl Interpreter {
         self.memory_persist_path.clone()
     }
 
+    /// Get a builtin function by name (used by server scheduler).
+    pub fn get_builtin(&self, name: &str) -> Option<&crate::builtins::BuiltinFn> {
+        self.builtins.get(name)
+    }
+
     pub fn set_memory_persist_path(&mut self, path: Option<String>) {
         self.memory_persist_path = path;
     }

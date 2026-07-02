@@ -7,11 +7,48 @@
 **The first programming language designed by AI, for AI. Security built into the language.**
 
 [![Rust](https://img.shields.io/badge/rust-1.80+-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/v0.8.1-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/)
+[![Version](https://img.shields.io/badge/v0.8.2-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
 [![CI](https://img.shields.io/badge/CI-passing-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 
 </div>
+
+---
+
+## What's New in v0.8.2
+
+**Telegram Bot Platform + Reminder Scheduler** — voice notes, inline keyboards, callback handling, background cron.
+
+```mlog
+// Voice notes (tts_send now sends as voice bubble, not audio file)
+tts_send("Привет!", "alloy", bot_token, chat_id)
+// Optional 5th arg "audio" for audio player mode instead
+
+// Inline keyboards
+let keyboard = {
+  inline_keyboard: [
+    [{ text: "Да", callback_data: "yes" }, { text: "Нет", callback_data: "no" }]
+  ]
+}
+send_message(chat_id, "Выберите:", keyboard)
+
+// Handle callbacks in webhook route
+route "/webhook" method=POST {
+  let data = json_body()
+  let cb = data.callback_query
+  if cb != "" {
+    answer_callback_query(cb.id, "Выбрано: " + cb.data)
+    if cb.data == "yes" {
+      edit_message_text(cb.message.chat.id, cb.message.message_id, "Отлично!", keyboard)
+    }
+  }
+  respond("ok")
+}
+
+// Background scheduler — reminders auto-fire every 5 seconds in server mode
+remind_recurring("Ежедневный отчёт", 86400.0, "DailyReport")
+// Server: mlog serve app.mlog → [scheduler] due recurring: [Ежедневный отчёт] DailyReport
+```
 
 ---
 
@@ -282,11 +319,11 @@ Metalogos has **three execution backends**: a tree-walking interpreter, a byteco
 | Crypto | `hmac`, `sha2`, `aes-gcm` (AES-256-GCM) |
 | CLI | [Clap 4.5](https://github.com/clap-rs/clap) |
 | Tests | Golden-file (78 examples with `.expected`/`.error`) + 32 integration test files (7 000+ lines) |
-| Builtins | `builtins.rs` — 116 built-in functions (3 300+ lines) |
+| Builtins | `builtins.rs` — 118 built-in functions (3 500+ lines) |
 
 ```
 Metalogos-/
-├── Cargo.toml              # Single-crate project, version 0.8.1
+├── Cargo.toml              # Single-crate project, version 0.8.2
 ├── src/
 │   ├── grammar.pest         # PEG grammar (335 rules)
 │   ├── ast.rs               # AST: 24 Declaration, 14 Expr, 12 Statement, 4 MatchArm variants
@@ -297,7 +334,7 @@ Metalogos-/
 │   ├── bytecode.rs          # 44 VM instructions
 │   ├── vm.rs                # Bytecode VM executor (1 470 lines)
 │   ├── jit.rs               # JIT compiler via Cranelift
-│   ├── builtins.rs          # 116 built-in functions (3 300+ lines)
+│   ├── builtins.rs          # 118 built-in functions (3 500+ lines)
 │   ├── server.rs            # Axum HTTP server + security middleware (1 280 lines)
 │   ├── llm.rs               # LLM backend trait + mock + real providers (1 420 lines)
 │   ├── memory_store.rs      # Semantic memory with decay + KV store (1 170 lines)
@@ -344,6 +381,7 @@ Metalogos-/
 | Phase 7.8 | BlockIfElse expression bytecode compilation, format() arity fix | Done |
 | Phase 8.0 | Time/Date/Calendar, Geolocation, Weather (Open-Meteo, free), Reminders with recurrence | Done |
 | Phase 8.1 | Human Intelligence Layer: personas, memory tree, mood, human-like AI responses | Done |
+| Phase 8.2 | Telegram Bot Platform: voice notes, inline keyboards, callbacks, reminder scheduler | Done |
 
 ### Next
 

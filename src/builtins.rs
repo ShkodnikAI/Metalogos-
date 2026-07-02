@@ -81,6 +81,8 @@ impl Builtins {
 
         // Phase 6.6 — Bot stubs
         funcs.insert("send_message".to_string(), builtin_send_message as BuiltinFn);
+        funcs.insert("answer_callback_query".to_string(), builtin_answer_callback_query as BuiltinFn);
+        funcs.insert("edit_message_text".to_string(), builtin_edit_message_text as BuiltinFn);
         funcs.insert("require".to_string(), builtin_require as BuiltinFn);
 
         // Definition of Done — outgoing HTTP
@@ -816,13 +818,41 @@ fn builtin_session_logout(args: &[Value]) -> Result<Value, String> {
 
 // ── Phase 6.6 — Bot stubs ───────────────────────────
 
+/// Convert Metalogos Value to serde_json::Value (inverse of server.rs json_value_to_value).
+fn value_to_json(val: &Value) -> Result<serde_json::Value, String> {
+    match val {
+        Value::String(s) => Ok(serde_json::Value::String(s.clone())),
+        Value::Float(f) => {
+            if *f == (*f as i64) as f64 {
+                Ok(serde_json::json!(*f as i64))
+            } else {
+                Ok(serde_json::json!(*f))
+            }
+        }
+        Value::Bool(b) => Ok(serde_json::Value::Bool(*b)),
+        Value::List(items) => {
+            let arr: Vec<serde_json::Value> = items.iter()
+                .map(value_to_json)
+                .collect::<Result<_, _>>()?;
+            Ok(serde_json::Value::Array(arr))
+        }
+        Value::Struct { fields, .. } => {
+            let mut map = serde_json::Map::new();
+            for (k, v) in fields {
+                map.insert(k.clone(), value_to_json(v)?);
+            }
+            Ok(serde_json::Value::Object(map))
+        }
+        Value::Unit => Ok(serde_json::Value::Null),
+        _ => Ok(serde_json::Value::Null),
+    }
+}
+
 fn builtin_send_message(args: &[Value]) -> Result<Value, String> {
     // Extract and format chat_id — supports negative channel IDs (Наряд №24 B5)
     let chat_id_value: serde_json::Value = match args.get(0) {
         Some(Value::String(s)) => serde_json::Value::String(s.clone()),
         Some(Value::Float(f)) => {
-            // Send as number in JSON for correct Telegram API handling of
-            // negative channel IDs like -1004290868173
             if *f == (*f as i64) as f64 {
                 serde_json::json!(*f as i64)
             } else {
@@ -830,12 +860,12 @@ fn builtin_send_message(args: &[Value]) -> Result<Value, String> {
             }
         }
         Some(other) => return Err(format!("send_message() expected String or Float as chat_id, got {}", other.type_name())),
-        None => return Err("send_message() requires 2 arguments (chat_id, text)".to_string()),
+        None => return Err("send_message() requires at least 2 arguments (chat_id, text)".to_string()),
     };
     let text = match args.get(1) {
         Some(Value::String(s)) => s.clone(),
         Some(other) => return Err(format!("send_message() expected String as text, got {}", other.type_name())),
-        None => return Err("send_message() requires 2 arguments (chat_id, text)".to_string()),
+        None => return Err("send_message() requires at least 2 arguments (chat_id, text)".to_string()),
     };
 
     // Try to send via Telegram API if BOT_TOKEN env var is set
@@ -846,10 +876,15 @@ fn builtin_send_message(args: &[Value]) -> Result<Value, String> {
         return Ok(Value::Unit);
     }
 
-    let body = serde_json::json!({
+    // Build JSON body with optional reply_markup (3rd arg: Struct)
+    let mut body = serde_json::json!({
         "chat_id": chat_id_value,
         "text": text,
     });
+    if let Some(markup) = args.get(2) {
+        let markup_json = value_to_json(markup)?;
+        body["reply_markup"] = markup_json;
+    }
 
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
@@ -870,6 +905,86 @@ fn builtin_send_message(args: &[Value]) -> Result<Value, String> {
         return Err(format!("send_message(): Telegram status {}: {}", status, resp_body));
     }
 
+    Ok(Value::String(resp_body))
+}
+
+/// `answer_callback_query(callback_query_id, text?, show_alert?)` — respond to Telegram inline keyboard callback.
+/// `callback_query_id` from update.callback_query.id.
+/// `text` — notification text (max 200 chars). `show_alert` — 1.0 = alert popup, 0.0 = toast (default).
+fn builtin_answer_callback_query(args: &[Value]) -> Result<Value, String> {
+    let callback_query_id = expect_string_arg("answer_callback_query", args, 0)?;
+    let text = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        _ => String::new(),
+    };
+    let show_alert = match args.get(2) {
+        Some(Value::Float(f)) if *f > 0.5 => true,
+        _ => false,
+    };
+    let bot_token = std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default();
+    if bot_token.is_empty() {
+        eprintln!("[AUDIT] answer_callback_query id={}: {}", callback_query_id, text);
+        return Ok(Value::Unit);
+    }
+    let body = serde_json::json!({
+        "callback_query_id": callback_query_id,
+        "text": text,
+        "show_alert": show_alert,
+    });
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build().map_err(|e| format!("answer_callback_query(): client error: {}", e))?;
+    let resp = client.post(format!("https://api.telegram.org/bot{}/answerCallbackQuery", bot_token))
+        .header("Content-Type", "application/json")
+        .body(body.to_string()).send()
+        .map_err(|e| format!("answer_callback_query(): request failed: {}", e))?;
+    let status = resp.status().as_u16();
+    let resp_body = resp.text().unwrap_or_default();
+    if status >= 400 {
+        return Err(format!("answer_callback_query(): Telegram status {}: {}", status, resp_body));
+    }
+    Ok(Value::String(resp_body))
+}
+
+/// `edit_message_text(chat_id, message_id, text, reply_markup?)` — edit existing Telegram message.
+/// Used to update inline keyboard buttons after callback.
+fn builtin_edit_message_text(args: &[Value]) -> Result<Value, String> {
+    let chat_id_val: serde_json::Value = match args.get(0) {
+        Some(Value::String(s)) => serde_json::Value::String(s.clone()),
+        Some(Value::Float(f)) => serde_json::json!(*f as i64),
+        _ => return Err("edit_message_text() requires chat_id".to_string()),
+    };
+    let message_id = match args.get(1) {
+        Some(Value::Float(f)) => *f as i64,
+        _ => return Err("edit_message_text() message_id must be Float".to_string()),
+    };
+    let text = expect_string_arg("edit_message_text", args, 2)?;
+    let bot_token = std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default();
+    if bot_token.is_empty() {
+        eprintln!("[AUDIT] edit_message_text chat_id={}: {}", chat_id_val, text);
+        return Ok(Value::Unit);
+    }
+    let mut body = serde_json::json!({
+        "chat_id": chat_id_val,
+        "message_id": message_id,
+        "text": text,
+    });
+    if let Some(markup) = args.get(3) {
+        let markup_json = value_to_json(markup)?;
+        body["reply_markup"] = markup_json;
+    }
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build().map_err(|e| format!("edit_message_text(): client error: {}", e))?;
+    let resp = client.post(format!("https://api.telegram.org/bot{}/editMessageText", bot_token))
+        .header("Content-Type", "application/json")
+        .body(body.to_string()).send()
+        .map_err(|e| format!("edit_message_text(): request failed: {}", e))?;
+    let status = resp.status().as_u16();
+    let resp_body = resp.text().unwrap_or_default();
+    if status >= 400 {
+        return Err(format!("edit_message_text(): Telegram status {}: {}", status, resp_body));
+    }
     Ok(Value::String(resp_body))
 }
 
@@ -1968,17 +2083,27 @@ fn builtin_tts_send(args: &[Value]) -> Result<Value, String> {
     let audio_bytes = tts_resp.bytes()
         .map_err(|e| format!("tts_send(): failed to read TTS audio: {}", e))?;
 
-    // Step 2: Send audio to Telegram via sendAudio
+    // Step 2: Send as voice note to Telegram via sendVoice
+    // sendVoice (not sendAudio) displays as voice message bubble in Telegram.
+    // Optional 5th arg "audio" switches back to sendAudio (audio player).
+    let send_as = match args.get(4) {
+        Some(Value::String(s)) if s == "audio" => "audio",
+        _ => "voice",
+    };
+    let (field_name, endpoint) = match send_as {
+        "audio" => ("audio", "sendAudio"),
+        _ => ("voice", "sendVoice"),
+    };
     let mut form = reqwest::blocking::multipart::Form::new();
     form = form.text("chat_id", chat_id.clone());
     let audio_part = reqwest::blocking::multipart::Part::bytes(audio_bytes.to_vec())
         .file_name("speech.ogg");
-    form = form.part("audio", audio_part);
+    form = form.part(field_name, audio_part);
 
-    let tg_resp = client.post(format!("https://api.telegram.org/bot{}/sendAudio", bot_token))
+    let tg_resp = client.post(format!("https://api.telegram.org/bot{}/{}", bot_token, endpoint))
         .multipart(form)
         .send()
-        .map_err(|e| format!("tts_send(): Telegram sendAudio failed: {}", e))?;
+        .map_err(|e| format!("tts_send(): Telegram {} failed: {}", endpoint, e))?;
 
     let tg_status = tg_resp.status().as_u16();
     let tg_body = tg_resp.text().unwrap_or_default();
@@ -2844,6 +2969,83 @@ fn reminders_store() -> &'static StdMutex<Vec<ReminderEntry>> {
     REMINDERS.get_or_init(|| StdMutex::new(Vec::new()))
 }
 
+/// Global SQLite persistence for reminders (same pattern as KV_SQLITE).
+static REMINDERS_SQLITE: std::sync::OnceLock<StdMutex<Option<rusqlite::Connection>>> = std::sync::OnceLock::new();
+
+fn reminders_sqlite() -> &'static StdMutex<Option<rusqlite::Connection>> {
+    REMINDERS_SQLITE.get_or_init(|| StdMutex::new(None))
+}
+
+/// Initialize SQLite persistence for reminders. Called from server.rs on startup.
+pub fn init_reminder_persist(db_path: &str) -> Result<(), String> {
+    let conn = rusqlite::Connection::open(db_path)
+        .map_err(|e| format!("[reminders] Failed to open database '{}': {}", db_path, e))?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS reminders (
+            id TEXT PRIMARY KEY,
+            message TEXT NOT NULL,
+            fire_at REAL NOT NULL,
+            interval REAL NOT NULL DEFAULT 0,
+            next_fire REAL NOT NULL,
+            data TEXT NOT NULL DEFAULT '',
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at REAL NOT NULL
+        );"
+    ).map_err(|e| format!("[reminders] Failed to create table: {}", e))?;
+    // Load existing reminders into memory
+    let mut stmt = conn.prepare("SELECT id, message, fire_at, interval, next_fire, data, active, created_at FROM reminders")
+        .map_err(|e| format!("[reminders] Failed to query: {}", e))?;
+    let rows: Vec<ReminderEntry> = stmt.query_map([], |row| {
+        Ok(ReminderEntry {
+            id: row.get::<_, String>(0)?,
+            message: row.get::<_, String>(1)?,
+            fire_at: row.get::<_, f64>(2)?,
+            interval: row.get::<_, f64>(3)?,
+            next_fire: row.get::<_, f64>(4)?,
+            data: row.get::<_, String>(5)?,
+            active: row.get::<_, i32>(6)? != 0,
+            created_at: row.get::<_, f64>(7)?,
+        })
+    }).map_err(|e| format!("[reminders] Failed to iterate: {}", e))?
+    .filter_map(|r| r.ok())
+    .collect();
+    if let Ok(mut store) = reminders_store().lock() {
+        store.extend(rows);
+    }
+    let mut guard = reminders_sqlite().lock().map_err(|e| format!("[reminders] lock error: {}", e))?;
+    *guard = Some(conn);
+    eprintln!("[reminders] SQLite persistence enabled: {}", db_path);
+    Ok(())
+}
+
+/// Write a single reminder to SQLite (write-through, called after mutations).
+fn reminder_sqlite_upsert(entry: &ReminderEntry) {
+    if let Ok(guard) = reminders_sqlite().lock() {
+        if let Some(ref conn) = *guard {
+            let _ = conn.execute(
+                "INSERT OR REPLACE INTO reminders (id, message, fire_at, interval, next_fire, data, active, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                rusqlite::params![entry.id, entry.message, entry.fire_at, entry.interval, entry.next_fire, entry.data, entry.active as i32, entry.created_at],
+            );
+        }
+    }
+}
+
+fn reminder_sqlite_delete(id: &str) {
+    if let Ok(guard) = reminders_sqlite().lock() {
+        if let Some(ref conn) = *guard {
+            let _ = conn.execute("DELETE FROM reminders WHERE id = ?1", rusqlite::params![id]);
+        }
+    }
+}
+
+fn reminder_sqlite_delete_all_for_persona() {
+    if let Ok(guard) = reminders_sqlite().lock() {
+        if let Some(ref conn) = *guard {
+            let _ = conn.execute("DELETE FROM reminders", []);
+        }
+    }
+}
+
 /// `remind(message, timestamp, data?)` — one-time reminder. Returns ID.
 fn builtin_remind(args: &[Value]) -> Result<Value, String> {
     let message = expect_string_arg("remind", args, 0)?;
@@ -2852,7 +3054,9 @@ fn builtin_remind(args: &[Value]) -> Result<Value, String> {
     let now_ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
     let id = uuid::Uuid::new_v4().to_string()[..8].to_string();
     let mut store = reminders_store().lock().map_err(|e| format!("remind() lock error: {}", e))?;
-    store.push(ReminderEntry { id: id.clone(), message, fire_at, interval: 0.0, next_fire: fire_at, data, active: true, created_at: now_ts });
+    let entry = ReminderEntry { id: id.clone(), message, fire_at, interval: 0.0, next_fire: fire_at, data, active: true, created_at: now_ts };
+    reminder_sqlite_upsert(&entry);
+    store.push(entry);
     Ok(Value::String(id))
 }
 
@@ -2865,7 +3069,9 @@ fn builtin_remind_recurring(args: &[Value]) -> Result<Value, String> {
     let now_ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
     let id = uuid::Uuid::new_v4().to_string()[..8].to_string();
     let mut store = reminders_store().lock().map_err(|e| format!("remind_recurring() lock error: {}", e))?;
-    store.push(ReminderEntry { id: id.clone(), message, fire_at: now_ts, interval, next_fire: now_ts + interval, data, active: true, created_at: now_ts });
+    let entry = ReminderEntry { id: id.clone(), message, fire_at: now_ts, interval, next_fire: now_ts + interval, data, active: true, created_at: now_ts };
+    reminder_sqlite_upsert(&entry);
+    store.push(entry);
     Ok(Value::String(id))
 }
 
@@ -2874,7 +3080,11 @@ fn builtin_cancel_remind(args: &[Value]) -> Result<Value, String> {
     let id = expect_string_arg("cancel_remind", args, 0)?;
     let mut store = reminders_store().lock().map_err(|e| format!("cancel_remind() lock error: {}", e))?;
     for entry in store.iter_mut() {
-        if entry.id == id && entry.active { entry.active = false; return Ok(Value::String("ok".to_string())); }
+        if entry.id == id && entry.active {
+            entry.active = false;
+            reminder_sqlite_upsert(entry);
+            return Ok(Value::String("ok".to_string()));
+        }
     }
     Ok(Value::String("not_found".to_string()))
 }
@@ -2913,6 +3123,7 @@ fn builtin_check_reminders(args: &[Value]) -> Result<Value, String> {
                 ("next_fire", Value::Float(entry.next_fire)), ("overdue_seconds", Value::Float(now_ts - entry.next_fire)),
             ]));
             if entry.interval > 0.0 { entry.next_fire += entry.interval; } else { entry.active = false; }
+            reminder_sqlite_upsert(entry);
         }
     }
     Ok(Value::List(due))

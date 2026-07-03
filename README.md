@@ -355,7 +355,7 @@ Metalogos has **three execution backends**: a tree-walking interpreter, a byteco
 | Crypto | `hmac`, `sha2`, `aes-gcm` (AES-256-GCM) |
 | CLI | [Clap 4.5](https://github.com/clap-rs/clap) |
 | Tests | Golden-file (78 examples with `.expected`/`.error`) + 32 integration test files (7 000+ lines) |
-| Builtins | `builtins.rs` — 128 built-in functions (3 700+ lines) |
+| Builtins | `builtins.rs` — 141 built-in functions (4 700+ lines) |
 
 ```
 Metalogos-/

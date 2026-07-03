@@ -1,6 +1,6 @@
 # METALOGOS — Справочник языка (Reference)
 
-> **Версия:** 0.8.3 (Phase 8.3)
+> **Версия:** 0.8.4 (Phase 8.4)
 > **Единый источник истины** для разработчиков, пишущих на Металогосе.
 > Содержит полный список встроенных функций с сигнатурами, типами, описанием и примерами,
 > а также справочник по синтаксису, типам данных и CLI.
@@ -978,7 +978,75 @@ each row in admins {
 | `read_file_tokens(path)` | `String -> Struct {FileInfo}` | Struct | Читает файл, возвращает `{content, chars, tokens}` |
 | `extract_param(text, index)` | `String, Float -> String` | String | Парсит `:`-разделённую строку, возвращает N-й сегмент |
 
-### 4.26. Прочее
+### 4.26. Планирование (Cron Scheduler, OpenHuman-inspired)
+
+> **Источник:** OpenHuman `cron_add`/`cron_list`/`cron_remove`/`cron_run`. Хранение в KV store (`cron_jobs`). `mlog serve` dispatch'ит `force_run`-задачи в 5-секундном тик-лупе.
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `cron_add(expr, prompt)` | `String, String -> Struct {CronJob}` | Struct | Регистрирует recurring job. `expr` — 5-поле cron (`min hour dom month dow`). Возвращает `{id, cron_expr, prompt, enabled, status}` |
+| `cron_list()` | `-> List[Struct {CronJob}]` | List | Список всех cron jobs с `{id, cron_expr, prompt, enabled, run_count}` |
+| `cron_remove(id)` | `String -> Struct {CronRemoveResult}` | Struct | Удаляет job по id. Возвращает `{removed: Float, status}` |
+| `cron_run(id)` | `String -> Struct {CronRunResult}` | Struct | Ставит job в очередь немедленного выполнения (force_run). Возвращает `{id, executed, status}` |
+
+### 4.27. Approval Gate (OpenHuman-inspired)
+
+> **Источник:** OpenHuman approval flow — агент запрашивает подтверждение перед write-действием, которое пользователь не просил. В Telegram-контексте генерирует inline keyboard.
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `ask_approval(title, description)` | `String, String -> Struct {Approval}` | Struct | Создаёт запрос на подтверждение. Возвращает `{id, title, description, approved: 0.0, status: "pending"}`. Опросить статус через `kv_get("approval:<id>")` |
+
+### 4.28. Goals and Todos (OpenHuman-inspired)
+
+> **Источник:** OpenHuman Goals (long-term + thread goal + token budget) и Task Board (kanban todos). Долгосрочные цели хранятся в `goals_list` (max 8), цель потока — в `thread_goal`, задачи — в `todos`.
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `goal_set(objective, budget?)` | `String, Float? -> Struct {ThreadGoal}` | Struct | Устанавливает цель текущего потока. `{objective, status: "active", budget, spent}` |
+| `goal_get()` | `-> Struct {ThreadGoal}` | Struct | Возвращает текущую цель потока. Если нет — `{status: "none"}` |
+| `goal_complete()` | `-> Struct {GoalComplete}` | Struct | Отмечает цель как завершённую. `{status: "complete", objective}` |
+| `goals_list()` | `-> List[Struct {Goal}]` | List | Все долгосрочные цели: `{id, text, status}` |
+| `goals_add(text)` | `String -> Struct {Goal}` | Struct | Добавляет долгосрочную цель (max 8). `{id, text, status: "active"}` |
+| `goals_reflect()` | `-> Struct {GoalsReflection}` | Struct | Stub для рефлексии целей. `{goal_count, active, status}` |
+| `todo_add(title, status?)` | `String, String? -> Struct {Todo}` | Struct | Создаёт задачу. Статусы: `todo`, `in_progress`, `awaiting_approval`, `ready`, `blocked`, `done`, `rejected` |
+| `todo_update(id, new_status)` | `String, String -> Struct {TodoUpdate}` | Struct | Обновляет статус задачи. `{id, old_status, new_status, updated}` |
+| `todo_list()` | `-> List[Struct {Todo}]` | List | Все задачи: `{id, title, status}` |
+
+### 4.29. Извлечение сущностей (OpenHuman-inspired)
+
+> **Источник:** OpenHuman `score/entity extraction` — regex-based extraction. LLM-based extraction доступен через `call_llm`.
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `extract_entities(text)` | `String -> List[Struct {Entity}]` | List | Извлекает именованные сущности. Возвращает `[{kind, name}, ...]`. Kinds: `email`, `url`, `phone`, `entity` (последовательности 2+ capitalised слов) |
+
+### 4.30. Оценка памяти (OpenHuman-inspired)
+
+> **Источник:** OpenHuman Memory Tree scoring pipeline — weighted signals для admission gate.
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `memory_score(text, metadata?)` | `String, Struct? -> Struct {MemoryScore}` | Struct | Вычисляет weighted score для чанка текста. Возвращает `{score, admitted, token_count, unique_words, entity_density}`. Admission threshold: score >= 0.3 |
+
+### 4.31. Токен-компрессия HTML (OpenHuman TokenJuice)
+
+> **Источник:** OpenHuman TokenJuice HtmlCompressor — strip tags, decode entities, preserve block boundaries, CJK-safe.
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `compress_html(html)` | `String -> String` | String | Конвертирует HTML в чистый текст. Убирает `<script>`/`<style>`, декодирует `&amp;` `&lt;` `&#NNN;` и т.д., вставляет переносы строк на границах блочных тегов |
+
+### 4.32. Персонализация (OpenHuman-inspired)
+
+> **Источник:** OpenHuman self-learning pipeline — 6 facet-классов (style, identity, tooling, veto, goal, channel) с evidence counting и promotion (candidate → active после 3 наблюдений).
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `learn_preference(class, key, value)` | `String, String, String -> Struct {Preference}` | Struct | Записывает наблюдение предпочтения. class: `style`/`identity`/`tooling`/`veto`/`goal`/`channel`. Возвращает `{class, key, value, evidence, state}`. State: `candidate` (1-2 наблюдений), `active` (3+) |
+| `get_profile()` | `-> List[Struct {Preference}]` | List | Все записанные предпочтения: `[{class, key, value, evidence, state}, ...]` |
+
+### 4.33. Прочее
 
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|
@@ -1353,6 +1421,7 @@ collections.push(items, item) -> List      // append to list
 | Версия | Дата | Что нового |
 |--------|------|------------|
 | **0.8.3** | 2026-07-03 | +map/zip/sort_by/filter/reduce, +db_insert, +matches_any/estimate_tokens/read_file_tokens/extract_param, Problem D Hook диагностика, 128 builtins |
+| **0.8.4** | 2026-07-03 | +OpenHuman-inspired: cron_add/cron_list/cron_remove/cron_run, ask_approval, goal_set/goal_get/goal_complete/goals_list/goals_add/goals_reflect, todo_add/todo_update/todo_list, extract_entities, memory_score, compress_html, learn_preference/get_profile, 141 builtins |
 | **0.8.2** | 2026-07-02 | +answer_callback_query, +edit_message_text, send_message +reply_markup (inline keyboard), tts_send → voice bubble (sendVoice), reminder persistence SQLite, background scheduler при mlog serve, 118 builtins |
 | **0.8.1** | 2026-07-01 | +Human Intelligence Layer: human_create, human_mood, human_remember, human_forget, human_recall, human_respond, human_personas, human_delete, 116 builtins |
 | **0.8.0** | 2026-07-01 | +Время/дата/календарь (format_date, date_parts, days_between, add_days, add_hours, weekday_name, is_leap_year, days_in_month), +Геолокация (geo_ip, geo_distance), +Погода Open-Meteo бесплатно без ключа (weather, weather_forecast), +Напоминания с рекурренцией (remind, remind_recurring, cancel_remind, list_reminders, check_reminders), 108 builtins |

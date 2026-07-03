@@ -160,6 +160,21 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         "zip", "sort_by", "filter", "reduce", "map",
         "extract_param", "estimate_tokens", "db_insert",
         "matches_any", "read_file_tokens",
+        // OpenHuman-inspired (v0.8.3): Scheduling
+        "cron_add", "cron_list", "cron_remove", "cron_run",
+        // OpenHuman-inspired (v0.8.3): Approval Gate
+        "ask_approval",
+        // OpenHuman-inspired (v0.8.3): Goals & Todos
+        "goal_set", "goal_get", "goal_complete", "goals_list", "goals_add", "goals_reflect",
+        "todo_add", "todo_update", "todo_list",
+        // OpenHuman-inspired (v0.8.3): Entity Extraction
+        "extract_entities",
+        // OpenHuman-inspired (v0.8.3): Memory Scoring
+        "memory_score",
+        // OpenHuman-inspired (v0.8.3): Token Compression
+        "compress_html",
+        // OpenHuman-inspired (v0.8.3): Personalization
+        "learn_preference", "get_profile",
     ] {
         builtin_names.insert(b.to_string());
     }

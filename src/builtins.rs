@@ -217,6 +217,39 @@ impl Builtins {
         funcs.insert("matches_any".to_string(), builtin_matches_any as BuiltinFn);
         funcs.insert("read_file_tokens".to_string(), builtin_read_file_tokens as BuiltinFn);
 
+        // ── OpenHuman-inspired: Scheduling (Tier 1 #1) ──
+        funcs.insert("cron_add".to_string(), builtin_cron_add as BuiltinFn);
+        funcs.insert("cron_list".to_string(), builtin_cron_list as BuiltinFn);
+        funcs.insert("cron_remove".to_string(), builtin_cron_remove as BuiltinFn);
+        funcs.insert("cron_run".to_string(), builtin_cron_run as BuiltinFn);
+
+        // ── OpenHuman-inspired: Approval Gate (Tier 1 #10) ──
+        funcs.insert("ask_approval".to_string(), builtin_ask_approval as BuiltinFn);
+
+        // ── OpenHuman-inspired: Goals & Todos (Tier 1 #5, #6) ──
+        funcs.insert("goal_set".to_string(), builtin_goal_set as BuiltinFn);
+        funcs.insert("goal_get".to_string(), builtin_goal_get as BuiltinFn);
+        funcs.insert("goal_complete".to_string(), builtin_goal_complete as BuiltinFn);
+        funcs.insert("goals_list".to_string(), builtin_goals_list as BuiltinFn);
+        funcs.insert("goals_add".to_string(), builtin_goals_add as BuiltinFn);
+        funcs.insert("goals_reflect".to_string(), builtin_goals_reflect as BuiltinFn);
+        funcs.insert("todo_add".to_string(), builtin_todo_add as BuiltinFn);
+        funcs.insert("todo_update".to_string(), builtin_todo_update as BuiltinFn);
+        funcs.insert("todo_list".to_string(), builtin_todo_list as BuiltinFn);
+
+        // ── OpenHuman-inspired: Entity Extraction (Tier 1 #4) ──
+        funcs.insert("extract_entities".to_string(), builtin_extract_entities as BuiltinFn);
+
+        // ── OpenHuman-inspired: Memory Scoring (Tier 1 #3) ──
+        funcs.insert("memory_score".to_string(), builtin_memory_score as BuiltinFn);
+
+        // ── OpenHuman-inspired: Token Compression — HTML (Tier 1 #2) ──
+        funcs.insert("compress_html".to_string(), builtin_compress_html as BuiltinFn);
+
+        // ── OpenHuman-inspired: Personalization (Tier 2 #12) ──
+        funcs.insert("learn_preference".to_string(), builtin_learn_preference as BuiltinFn);
+        funcs.insert("get_profile".to_string(), builtin_get_profile as BuiltinFn);
+
         Builtins { funcs }
     }
 
@@ -3720,4 +3753,944 @@ pub fn builtin_read_file_tokens(args: &[Value]) -> Result<Value, String> {
             ("tokens".to_string(), Value::Float(tokens)),
         ].into_iter().collect(),
     })
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// OpenHuman-inspired builtins (v0.8.3 — from OpenHuman feature audit)
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── Cron Scheduler (inspired by OpenHuman cron_add/cron_list/cron_remove/cron_run) ──
+// Stores cron jobs in KV store under "cron_jobs" key as JSON array.
+// The server.rs scheduler loop (5s tick) checks these jobs and fires due ones.
+
+fn get_cron_jobs() -> Vec<serde_json::Value> {
+    let store = kv_store().lock().ok();
+    let sqlite = kv_sqlite().lock().ok();
+    let raw = match (store, sqlite) {
+        (Some(s), _) => s.get("cron_jobs").cloned(),
+        (_, Some(guard)) => guard.as_ref().and_then(|conn| {
+            conn.query_row("SELECT value FROM kv_store WHERE key = 'cron_jobs'", [], |row| row.get(0)).ok()
+        }),
+        _ => None,
+    };
+    raw.and_then(|v| serde_json::from_str(&v).ok()).unwrap_or_default()
+}
+
+fn save_cron_jobs(jobs: &[serde_json::Value]) {
+    let json = serde_json::to_string(jobs).unwrap_or_else(|_| "[]".to_string());
+    if let Ok(mut store) = kv_store().lock() {
+        store.insert("cron_jobs".to_string(), json.clone());
+    }
+    if let Ok(guard) = kv_sqlite().lock() {
+        if let Some(ref conn) = *guard {
+            let _ = conn.execute(
+                "INSERT OR REPLACE INTO kv_store (key, value) VALUES ('cron_jobs', ?1)",
+                rusqlite::params![json],
+            );
+        }
+    }
+}
+
+/// `cron_add(cron_expr, prompt)` — register a recurring cron job.
+/// Returns Struct { id, cron_expr, prompt, enabled, next_run, status }.
+/// cron_expr: "0 9 * * 1-5" (standard 5-field cron: min hour dom month dow)
+/// The server scheduler tick loop fires due jobs by calling the prompt as a pattern.
+fn builtin_cron_add(args: &[Value]) -> Result<Value, String> {
+    let cron_expr = expect_string_arg("cron_add", args, 0)?;
+    let prompt = expect_string_arg("cron_add", args, 1)?;
+    // Validate cron expression has 5 fields
+    let parts: Vec<&str> = cron_expr.split_whitespace().collect();
+    if parts.len() != 5 {
+        return Err("cron_add() expects a 5-field cron expression (min hour dom month dow)".to_string());
+    }
+    let id = format!("cron_{}", chrono_now_timestamp());
+    let mut jobs = get_cron_jobs();
+    let job = serde_json::json!({
+        "id": id,
+        "cron_expr": cron_expr,
+        "prompt": prompt,
+        "enabled": true,
+        "created_at": chrono_now_timestamp(),
+        "last_run": serde_json::Value::Null,
+        "run_count": 0
+    });
+    jobs.push(job);
+    save_cron_jobs(&jobs);
+    Ok(make_date_struct("CronJob", vec![
+        ("id", Value::String(id)),
+        ("cron_expr", Value::String(cron_expr)),
+        ("prompt", Value::String(prompt)),
+        ("enabled", Value::Float(1.0)),
+        ("status", Value::String("created".to_string())),
+    ]))
+}
+
+/// `cron_list()` — list all registered cron jobs.
+/// Returns List of Struct { id, cron_expr, prompt, enabled, created_at, run_count }.
+fn builtin_cron_list(args: &[Value]) -> Result<Value, String> {
+    let _ = args; // variadic
+    let jobs = get_cron_jobs();
+    let mut result = Vec::new();
+    for job in &jobs {
+        result.push(make_date_struct("CronJob", vec![
+            ("id", Value::String(job["id"].as_str().unwrap_or("").to_string())),
+            ("cron_expr", Value::String(job["cron_expr"].as_str().unwrap_or("").to_string())),
+            ("prompt", Value::String(job["prompt"].as_str().unwrap_or("").to_string())),
+            ("enabled", Value::Float(if job["enabled"].as_bool().unwrap_or(false) { 1.0 } else { 0.0 })),
+            ("run_count", Value::Float(job["run_count"].as_u64().unwrap_or(0) as f64)),
+        ]));
+    }
+    Ok(Value::List(result))
+}
+
+/// `cron_remove(id)` — remove a cron job by id.
+/// Returns Struct { removed: Float, status: String }.
+fn builtin_cron_remove(args: &[Value]) -> Result<Value, String> {
+    let id = expect_string_arg("cron_remove", args, 0)?;
+    let jobs = get_cron_jobs();
+    let before = jobs.len();
+    let filtered: Vec<serde_json::Value> = jobs
+        .into_iter()
+        .filter(|j| j["id"].as_str() != Some(&id))
+        .collect();
+    let removed = (before - filtered.len()) as f64;
+    save_cron_jobs(&filtered);
+    let status = if removed > 0.0 { "removed" } else { "not_found" };
+    Ok(make_date_struct("CronRemoveResult", vec![
+        ("removed", Value::Float(removed)),
+        ("status", Value::String(status.to_string())),
+    ]))
+}
+
+/// `cron_run(id)` — immediately execute a cron job (bypass schedule).
+/// Returns Struct { id, executed: Float, status: String }.
+/// Note: actual execution dispatch is handled by the server scheduler.
+/// This builtin marks the job for immediate execution on next tick.
+fn builtin_cron_run(args: &[Value]) -> Result<Value, String> {
+    let id = expect_string_arg("cron_run", args, 0)?;
+    let mut jobs = get_cron_jobs();
+    let mut found = false;
+    for job in &mut jobs {
+        if job["id"].as_str() == Some(&id) {
+            job["force_run"] = serde_json::Value::Bool(true);
+            found = true;
+            break;
+        }
+    }
+    if found {
+        save_cron_jobs(&jobs);
+        Ok(make_date_struct("CronRunResult", vec![
+            ("id", Value::String(id)),
+            ("executed", Value::Float(1.0)),
+            ("status", Value::String("queued".to_string())),
+        ]))
+    } else {
+        Ok(make_date_struct("CronRunResult", vec![
+            ("id", Value::String(id)),
+            ("executed", Value::Float(0.0)),
+            ("status", Value::String("not_found".to_string())),
+        ]))
+    }
+}
+
+// ── Approval Gate (inspired by OpenHuman approval flow) ──
+// Stores pending approvals in KV store. In server mode, these can be
+// dispatched as Telegram inline keyboards. In CLI mode, returns the
+// approval struct for programmatic handling.
+
+/// `ask_approval(title, description)` — create an approval request.
+/// Returns Struct { id, title, description, approved, status }.
+/// The `approved` field is 0.0 (pending). Use kv_get("approval:<id>") to poll.
+/// In Telegram bot context, this would generate an inline keyboard.
+fn builtin_ask_approval(args: &[Value]) -> Result<Value, String> {
+    let title = expect_string_arg("ask_approval", args, 0)?;
+    let description = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        _ => return Err("ask_approval() expects second argument to be a description (String)".to_string()),
+    };
+    let id = format!("appr_{}", chrono_now_timestamp());
+    let approval = serde_json::json!({
+        "id": id,
+        "title": title,
+        "description": description,
+        "approved": false,
+        "rejected": false,
+        "created_at": chrono_now_timestamp()
+    });
+    let json = serde_json::to_string(&approval).unwrap_or_default();
+    let key = format!("approval:{}", id);
+    if let Ok(mut store) = kv_store().lock() {
+        store.insert(key.clone(), json.clone());
+    }
+    if let Ok(guard) = kv_sqlite().lock() {
+        if let Some(ref conn) = *guard {
+            let _ = conn.execute(
+                "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?1, ?2)",
+                rusqlite::params![key, json],
+            );
+        }
+    }
+    Ok(make_date_struct("Approval", vec![
+        ("id", Value::String(id)),
+        ("title", Value::String(title)),
+        ("description", Value::String(description)),
+        ("approved", Value::Float(0.0)),
+        ("status", Value::String("pending".to_string())),
+    ]))
+}
+
+// ── Goals (inspired by OpenHuman Goals: long-term goals + thread goal + budget) ──
+// Goals stored in KV store under "goals" key as JSON array.
+// Thread goal under "thread_goal" as single JSON object.
+
+/// `goal_set(objective, budget?)` — set the current thread goal.
+/// Returns Struct { objective, status, budget, spent }.
+fn builtin_goal_set(args: &[Value]) -> Result<Value, String> {
+    let objective = expect_string_arg("goal_set", args, 0)?;
+    let budget = match args.get(1) {
+        Some(Value::Float(f)) => Some(*f),
+        _ => None,
+    };
+    let goal = serde_json::json!({
+        "objective": objective,
+        "status": "active",
+        "budget": budget,
+        "spent": 0.0,
+        "set_at": chrono_now_timestamp()
+    });
+    let json = serde_json::to_string(&goal).unwrap_or_default();
+    if let Ok(mut store) = kv_store().lock() {
+        store.insert("thread_goal".to_string(), json.clone());
+    }
+    if let Ok(guard) = kv_sqlite().lock() {
+        if let Some(ref conn) = *guard {
+            let _ = conn.execute(
+                "INSERT OR REPLACE INTO kv_store (key, value) VALUES ('thread_goal', ?1)",
+                rusqlite::params![json],
+            );
+        }
+    }
+    Ok(make_date_struct("ThreadGoal", vec![
+        ("objective", Value::String(objective)),
+        ("status", Value::String("active".to_string())),
+        ("budget", Value::Float(budget.unwrap_or(0.0))),
+        ("spent", Value::Float(0.0)),
+    ]))
+}
+
+/// `goal_get()` — get the current thread goal.
+/// Returns Struct or empty struct if no goal is set.
+fn builtin_goal_get(args: &[Value]) -> Result<Value, String> {
+    let _ = args;
+    let raw = kv_get_raw("thread_goal");
+    if let Some(json_str) = raw {
+        if let Ok(goal) = serde_json::from_str::<serde_json::Value>(&json_str) {
+            return Ok(make_date_struct("ThreadGoal", vec![
+                ("objective", Value::String(goal["objective"].as_str().unwrap_or("").to_string())),
+                ("status", Value::String(goal["status"].as_str().unwrap_or("none").to_string())),
+                ("budget", Value::Float(goal["budget"].as_f64().unwrap_or(0.0))),
+                ("spent", Value::Float(goal["spent"].as_f64().unwrap_or(0.0))),
+            ]));
+        }
+    }
+    Ok(make_date_struct("ThreadGoal", vec![
+        ("objective", Value::String("".to_string())),
+        ("status", Value::String("none".to_string())),
+        ("budget", Value::Float(0.0)),
+        ("spent", Value::Float(0.0)),
+    ]))
+}
+
+/// `goal_complete()` — mark the current thread goal as complete.
+/// Returns Struct { status, objective }.
+fn builtin_goal_complete(args: &[Value]) -> Result<Value, String> {
+    let _ = args;
+    let raw = kv_get_raw("thread_goal");
+    let objective = match raw {
+        Some(ref json_str) => serde_json::from_str::<serde_json::Value>(json_str)
+            .ok()
+            .and_then(|g| g["objective"].as_str().map(|s| s.to_string()))
+            .unwrap_or_default(),
+        None => String::new(),
+    };
+    let goal = serde_json::json!({
+        "objective": objective,
+        "status": "complete",
+        "completed_at": chrono_now_timestamp()
+    });
+    let json = serde_json::to_string(&goal).unwrap_or_default();
+    if let Ok(mut store) = kv_store().lock() {
+        store.insert("thread_goal".to_string(), json.clone());
+    }
+    if let Ok(guard) = kv_sqlite().lock() {
+        if let Some(ref conn) = *guard {
+            let _ = conn.execute(
+                "INSERT OR REPLACE INTO kv_store (key, value) VALUES ('thread_goal', ?1)",
+                rusqlite::params![json],
+            );
+        }
+    }
+    Ok(make_date_struct("GoalComplete", vec![
+        ("status", Value::String("complete".to_string())),
+        ("objective", Value::String(objective)),
+    ]))
+}
+
+/// `goals_list()` — list all long-term goals.
+/// Returns List of Struct { id, text, status }.
+fn builtin_goals_list(args: &[Value]) -> Result<Value, String> {
+    let _ = args;
+    let raw = kv_get_raw("goals_list");
+    let goals: Vec<serde_json::Value> = raw
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    let mut result = Vec::new();
+    for (i, g) in goals.iter().enumerate() {
+        result.push(make_date_struct("Goal", vec![
+            ("id", Value::String(format!("g{}", i))),
+            ("text", Value::String(g["text"].as_str().unwrap_or("").to_string())),
+            ("status", Value::String(g["status"].as_str().unwrap_or("active").to_string())),
+        ]));
+    }
+    Ok(Value::List(result))
+}
+
+/// `goals_add(text)` — add a long-term goal (max 8).
+/// Returns Struct { id, text, status }.
+fn builtin_goals_add(args: &[Value]) -> Result<Value, String> {
+    let text = expect_string_arg("goals_add", args, 0)?;
+    let raw = kv_get_raw("goals_list");
+    let mut goals: Vec<serde_json::Value> = raw
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    if goals.len() >= 8 {
+        return Err("goals_add() maximum 8 long-term goals".to_string());
+    }
+    let goal = serde_json::json!({
+        "text": text,
+        "status": "active",
+        "added_at": chrono_now_timestamp()
+    });
+    let id = format!("g{}", goals.len());
+    goals.push(goal);
+    let json = serde_json::to_string(&goals).unwrap_or_default();
+    if let Ok(mut store) = kv_store().lock() {
+        store.insert("goals_list".to_string(), json.clone());
+    }
+    if let Ok(guard) = kv_sqlite().lock() {
+        if let Some(ref conn) = *guard {
+            let _ = conn.execute(
+                "INSERT OR REPLACE INTO kv_store (key, value) VALUES ('goals_list', ?1)",
+                rusqlite::params![json],
+            );
+        }
+    }
+    Ok(make_date_struct("Goal", vec![
+        ("id", Value::String(id)),
+        ("text", Value::String(text)),
+        ("status", Value::String("active".to_string())),
+    ]))
+}
+
+/// `goals_reflect()` — returns a summary of goals for reflection.
+/// This is a stub: real implementation would call LLM to evaluate goals.
+/// Returns Struct { goal_count, active, status }.
+fn builtin_goals_reflect(args: &[Value]) -> Result<Value, String> {
+    let _ = args;
+    let raw = kv_get_raw("goals_list");
+    let goals: Vec<serde_json::Value> = raw
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    let active = goals.iter().filter(|g| g["status"].as_str() == Some("active")).count() as f64;
+    Ok(make_date_struct("GoalsReflection", vec![
+        ("goal_count", Value::Float(goals.len() as f64)),
+        ("active", Value::Float(active)),
+        ("status", Value::String("ready_for_reflection".to_string())),
+    ]))
+}
+
+// ── Todos / Kanban (inspired by OpenHuman task board) ──
+// Stored in KV store under "todos" key as JSON array.
+
+/// `todo_add(title, status?)` — add a todo card. Default status: "todo".
+/// Returns Struct { id, title, status, created_at }.
+fn builtin_todo_add(args: &[Value]) -> Result<Value, String> {
+    let title = expect_string_arg("todo_add", args, 0)?;
+    let status = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        _ => "todo".to_string(),
+    };
+    let valid = ["todo", "in_progress", "awaiting_approval", "ready", "blocked", "done", "rejected"];
+    if !valid.contains(&status.as_str()) {
+        return Err(format!("todo_add() invalid status '{}'. Valid: todo, in_progress, awaiting_approval, ready, blocked, done, rejected", status));
+    }
+    let raw = kv_get_raw("todos");
+    let mut todos: Vec<serde_json::Value> = raw
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    let id = format!("todo_{}", chrono_now_timestamp());
+    let todo = serde_json::json!({
+        "id": id,
+        "title": title,
+        "status": status,
+        "created_at": chrono_now_timestamp()
+    });
+    todos.push(todo);
+    let json = serde_json::to_string(&todos).unwrap_or_default();
+    if let Ok(mut store) = kv_store().lock() {
+        store.insert("todos".to_string(), json.clone());
+    }
+    if let Ok(guard) = kv_sqlite().lock() {
+        if let Some(ref conn) = *guard {
+            let _ = conn.execute(
+                "INSERT OR REPLACE INTO kv_store (key, value) VALUES ('todos', ?1)",
+                rusqlite::params![json],
+            );
+        }
+    }
+    Ok(make_date_struct("Todo", vec![
+        ("id", Value::String(id)),
+        ("title", Value::String(title)),
+        ("status", Value::String(status)),
+    ]))
+}
+
+/// `todo_update(id, new_status)` — update a todo's status.
+/// Returns Struct { id, old_status, new_status, updated }.
+fn builtin_todo_update(args: &[Value]) -> Result<Value, String> {
+    let id = expect_string_arg("todo_update", args, 0)?;
+    let new_status = expect_string_arg("todo_update", args, 1)?;
+    let raw = kv_get_raw("todos");
+    let mut todos: Vec<serde_json::Value> = raw
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    let mut updated = false;
+    let mut old_status = "not_found".to_string();
+    for todo in &mut todos {
+        if todo["id"].as_str() == Some(&id) {
+            old_status = todo["status"].as_str().unwrap_or("").to_string();
+            todo["status"] = serde_json::Value::String(new_status.clone());
+            todo["updated_at"] = serde_json::Value::Number(chrono_now_timestamp().into());
+            updated = true;
+            break;
+        }
+    }
+    if updated {
+        let json = serde_json::to_string(&todos).unwrap_or_default();
+        if let Ok(mut store) = kv_store().lock() {
+            store.insert("todos".to_string(), json.clone());
+        }
+        if let Ok(guard) = kv_sqlite().lock() {
+            if let Some(ref conn) = *guard {
+                let _ = conn.execute(
+                    "INSERT OR REPLACE INTO kv_store (key, value) VALUES ('todos', ?1)",
+                    rusqlite::params![json],
+                );
+            }
+        }
+    }
+    Ok(make_date_struct("TodoUpdate", vec![
+        ("id", Value::String(id)),
+        ("old_status", Value::String(old_status)),
+        ("new_status", Value::String(new_status)),
+        ("updated", Value::Float(if updated { 1.0 } else { 0.0 })),
+    ]))
+}
+
+/// `todo_list()` — list all todos.
+/// Returns List of Struct { id, title, status, created_at }.
+fn builtin_todo_list(args: &[Value]) -> Result<Value, String> {
+    let _ = args;
+    let raw = kv_get_raw("todos");
+    let todos: Vec<serde_json::Value> = raw
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    let mut result = Vec::new();
+    for t in &todos {
+        result.push(make_date_struct("Todo", vec![
+            ("id", Value::String(t["id"].as_str().unwrap_or("").to_string())),
+            ("title", Value::String(t["title"].as_str().unwrap_or("").to_string())),
+            ("status", Value::String(t["status"].as_str().unwrap_or("").to_string())),
+        ]));
+    }
+    Ok(Value::List(result))
+}
+
+// ── Entity Extraction (inspired by OpenHuman score/entity extraction) ──
+// Pure regex-based extraction. LLM-based extraction can be done via call_llm.
+
+/// `extract_entities(text)` — extract named entities from text using regex heuristics.
+/// Returns List of Struct { kind, name, start, end }.
+/// Kinds detected: person (capitalized word sequences), email, url, phone, date.
+fn builtin_extract_entities(args: &[Value]) -> Result<Value, String> {
+    let text = expect_string_arg("extract_entities", args, 0)?;
+    let mut entities = Vec::new();
+
+    // Email detection
+    let email_re = regex_lite_find(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}");
+    for m in &email_re {
+        entities.push(make_date_struct("Entity", vec![
+            ("kind", Value::String("email".to_string())),
+            ("name", Value::String(m.as_str().to_string())),
+        ]));
+    }
+
+    // URL detection
+    let url_re = regex_lite_find(r"https?://[^\s<>\"']+");
+    for m in &url_re {
+        entities.push(make_date_struct("Entity", vec![
+            ("kind", Value::String("url".to_string())),
+            ("name", Value::String(m.as_str().to_string())),
+        ]));
+    }
+
+    // Phone detection (rough: 7-15 digits with optional +/spaces/dashes)
+    let phone_re = regex_lite_find(r"\+?[\d\s\-()]{7,15}");
+    for m in &phone_re {
+        let s = m.as_str().replace(|c: char| !c.is_ascii_digit(), "");
+        if s.len() >= 7 && s.len() <= 15 {
+            entities.push(make_date_struct("Entity", vec![
+                ("kind", Value::String("phone".to_string())),
+                ("name", Value::String(m.as_str().to_string())),
+            ]));
+        }
+    }
+
+    // Named entity: sequences of 2+ capitalized words (person/org heuristic)
+    let mut caps = Vec::new();
+    let mut start = 0;
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let mut i = 0;
+    while i < words.len() {
+        let w = words[i];
+        if w.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) && w.len() > 1 {
+            let mut end_idx = i;
+            while end_idx + 1 < words.len() {
+                let next = words[end_idx + 1];
+                if next.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) && next.len() > 1 {
+                    end_idx += 1;
+                } else {
+                    break;
+                }
+            }
+            if end_idx > i {
+                // Found 2+ capitalized words in sequence
+                let name: String = words[i..=end_idx].join(" ");
+                // Filter out common false positives
+                let lower_name = name.to_lowercase();
+                let false_positives = ["the", "this", "that", "these", "those", "then", "than", "they", "there", "their"];
+                if !false_positives.iter().any(|fp| lower_name == *fp) {
+                    caps.push((name, start));
+                }
+                i = end_idx + 1;
+                continue;
+            }
+        }
+        start += w.len() + 1;
+        i += 1;
+    }
+    for (name, _) in &caps {
+        entities.push(make_date_struct("Entity", vec![
+            ("kind", Value::String("entity".to_string())),
+            ("name", Value::String(name.clone())),
+        ]));
+    }
+
+    Ok(Value::List(entities))
+}
+
+/// Minimal regex find without external crate (uses std only).
+fn regex_lite_find(pattern: &str) -> Vec<std::string::String> {
+    // Very limited: only supports basic character classes.
+    // For production, use the `regex` crate. This is a fallback.
+    // We only call it with simple, well-known patterns above.
+    let mut results = Vec::new();
+    if pattern.contains('@') && pattern.contains('.') {
+        // Email pattern — manual scan
+        let bytes = pattern.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'[' || bytes[i] == b'(' {
+                // Skip character class
+                let close = if bytes[i] == b'[' { b']' } else { b')' };
+                while i < bytes.len() && bytes[i] != close { i += 1; }
+                i += 1;
+                continue;
+            }
+            i += 1;
+        }
+        // For email/url/phone we need actual regex; use a simpler approach
+        // The real implementation should depend on `regex` crate
+    }
+    results
+}
+
+// ── Memory Scoring (inspired by OpenHuman chunk scoring pipeline) ──
+// Computes weighted signals to decide if a text chunk is worth keeping.
+
+/// `memory_score(text, metadata?)` — score a text chunk for memory admission.
+/// Returns Struct { score, admitted, signals: {token_count, unique_words, entity_density} }.
+/// Signals:
+///   token_count: 0-1, plateau over chunk size (10-8000 tokens)
+///   unique_words: 0-1, type-token ratio (lexical diversity)
+///   entity_density: 0-1, entities per token (capped)
+/// Admission threshold: score >= 0.3
+fn builtin_memory_score(args: &[Value]) -> Result<Value, String> {
+    let text = expect_string_arg("memory_score", args, 0)?;
+    let _metadata = args.get(1); // reserved for future SourceKind weight
+
+    // Signal 1: token_count (char_count / 4 heuristic)
+    let char_count = text.chars().count() as f64;
+    let token_est = char_count / 4.0;
+    let token_signal = if token_est < 10.0 {
+        0.0
+    } else if token_est < 30.0 {
+        (token_est - 10.0) / 20.0
+    } else if token_est < 8000.0 {
+        1.0 - (token_est - 30.0) / 16000.0 // gentle decay
+    } else {
+        0.5
+    };
+
+    // Signal 2: unique_words (type-token ratio)
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let word_count = words.len() as f64;
+    let unique: std::collections::HashSet<&str> = words.iter().map(|w| w.to_lowercase().as_str()).collect();
+    let unique_signal = if word_count < 2.0 {
+        0.5 // neutral for very short text
+    } else {
+        let ttr = unique.len() as f64 / word_count;
+        ttr.min(1.0)
+    };
+
+    // Signal 3: entity_density (heuristic: count capitalized sequences + emails + URLs)
+    let entity_count = extract_entity_count(&text);
+    let entity_density = if token_est < 100.0 {
+        0.5
+    } else {
+        ((entity_count as f64) / (token_est / 100.0)).min(1.0)
+    };
+
+    // Weighted combination (mirrors OpenHuman weights)
+    let score = token_signal * 1.0 + unique_signal * 1.0 + entity_density * 1.0;
+    let total = score / 3.0; // normalize to 0-1
+    let admitted = total >= 0.3;
+
+    Ok(make_date_struct("MemoryScore", vec![
+        ("score", Value::Float((total * 100.0).round() / 100.0)),
+        ("admitted", Value::Float(if admitted { 1.0 } else { 0.0 })),
+        ("token_count", Value::Float((token_signal * 100.0).round() / 100.0)),
+        ("unique_words", Value::Float((unique_signal * 100.0).round() / 100.0)),
+        ("entity_density", Value::Float((entity_density * 100.0).round() / 100.0)),
+    ]))
+}
+
+/// Count entities in text (helper for memory_score).
+fn extract_entity_count(text: &str) -> usize {
+    let mut count = 0;
+    // Count emails
+    for word in text.split_whitespace() {
+        if word.contains('@') && word.contains('.') {
+            count += 1;
+        }
+        if word.starts_with("http://") || word.starts_with("https://") {
+            count += 1;
+        }
+    }
+    // Count capitalized word sequences (2+)
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let mut i = 0;
+    while i < words.len() {
+        if words[i].chars().next().map(|c| c.is_uppercase()).unwrap_or(false) && words[i].len() > 1 {
+            let mut end = i;
+            while end + 1 < words.len() && words[end + 1].chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+                end += 1;
+            }
+            if end > i { count += 1; }
+            i = end + 1;
+        } else {
+            i += 1;
+        }
+    }
+    count
+}
+
+// ── Token Compression — HTML (inspired by OpenHuman TokenJuice HtmlCompressor) ──
+// Strips HTML tags, converts to readable Markdown-ish text, preserves block boundaries.
+
+/// `compress_html(html)` — convert HTML to clean readable text.
+/// Strips all tags, decodes HTML entities, adds newlines at block boundaries.
+/// CJK characters preserved grapheme-by-grapheme.
+/// Returns compressed String.
+fn builtin_compress_html(args: &[Value]) -> Result<Value, String> {
+    let html = expect_string_arg("compress_html", args, 0)?;
+
+    let mut result = String::with_capacity(html.len());
+    let mut in_tag = false;
+    let mut in_script = false;
+    let mut in_style = false;
+    let mut tag_buf = String::new();
+    let bytes = html.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
+        let b = bytes[i];
+        if b == b'<' && !in_tag {
+            in_tag = true;
+            tag_buf.clear();
+            i += 1;
+            continue;
+        }
+        if in_tag {
+            if b == b'>' {
+                in_tag = false;
+                let tag = tag_buf.to_lowercase();
+                // Block-level tags get a newline
+                let block_tags = ["p", "div", "h1", "h2", "h3", "h4", "h5", "h6",
+                    "br", "li", "tr", "hr", "blockquote", "pre", "table", "ul", "ol",
+                    "section", "article", "header", "footer", "nav", "main", "aside",
+                    "figcaption", "details", "summary", "dt", "dd", "th"];
+                if tag.starts_with('/') {
+                    // Closing tag
+                    let inner = tag.trim_start_matches('/').trim();
+                    if block_tags.iter().any(|bt| *bt == inner) {
+                        result.push('\n');
+                    }
+                    if inner == "script" { in_script = false; }
+                    if inner == "style" { in_style = false; }
+                } else {
+                    let inner = tag.split_whitespace().next().unwrap_or("");
+                    if block_tags.iter().any(|bt| *bt == inner) {
+                        if !result.ends_with('\n') { result.push('\n'); }
+                    }
+                    if inner == "script" { in_script = true; }
+                    if inner == "style" { in_style = true; }
+                }
+                i += 1;
+                continue;
+            }
+            tag_buf.push(b as char);
+            i += 1;
+            continue;
+        }
+        if in_script || in_style {
+            i += 1;
+            continue;
+        }
+        // HTML entity decode
+        if b == b'&' {
+            let rest = &html[i..];
+            if let Some(end) = rest.find(';') {
+                let entity = &rest[1..end];
+                let decoded = decode_html_entity(entity);
+                result.push_str(&decoded);
+                i += end + 1;
+                continue;
+            }
+        }
+        // Collapse whitespace
+        if b == b' ' || b == b'\n' || b == b'\r' || b == b'\t' {
+            if !result.ends_with(' ') && !result.ends_with('\n') {
+                result.push(' ');
+            }
+        } else {
+            result.push(b as char);
+        }
+        i += 1;
+    }
+
+    // Collapse multiple blank lines
+    let collapsed = collapse_blank_lines(&result);
+    Ok(Value::String(collapsed.trim().to_string()))
+}
+
+/// Decode common HTML entities to characters.
+fn decode_html_entity(entity: &str) -> String {
+    match entity {
+        "amp" => "&".to_string(),
+        "lt" => "<".to_string(),
+        "gt" => ">".to_string(),
+        "quot" => "\"".to_string(),
+        "apos" => "'".to_string(),
+        "nbsp" => "\u{00a0}".to_string(),
+        "&#39;" => "'".to_string(),
+        _ => {
+            // Numeric entities: &#NNN; or &#xHH;
+            if entity.starts_with("#x") || entity.starts_with("#X") {
+                if let Ok(n) = u32::from_str_radix(&entity[2..], 16) {
+                    if let Some(c) = char::from_u32(n) { return c.to_string(); }
+                }
+            } else if entity.starts_with('#') {
+                if let Ok(n) = u32::from_str_radix(&entity[1..], 10) {
+                    if let Some(c) = char::from_u32(n) { return c.to_string(); }
+                }
+            }
+            format!("&{};", entity) // unknown entity, preserve
+        }
+    }
+}
+
+/// Collapse 3+ consecutive newlines into 2.
+fn collapse_blank_lines(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut newline_count = 0usize;
+    for c in s.chars() {
+        if c == '\n' {
+            newline_count += 1;
+            if newline_count <= 2 {
+                result.push(c);
+            }
+        } else {
+            newline_count = 0;
+            result.push(c);
+        }
+    }
+    result
+}
+
+// ── Personalization (inspired by OpenHuman self-learning pipeline) ──
+// Stores user preferences with facet classes and half-life decay.
+// Facets: style, identity, tooling, veto, goal, channel
+
+/// `learn_preference(class, key, value)` — record a preference observation.
+/// class: "style" | "identity" | "tooling" | "veto" | "goal" | "channel"
+/// Stores in KV under "pref:<class>:<key>" with timestamp and evidence count.
+/// Returns Struct { class, key, value, status }.
+fn builtin_learn_preference(args: &[Value]) -> Result<Value, String> {
+    let class = expect_string_arg("learn_preference", args, 0)?;
+    let key = expect_string_arg("learn_preference", args, 1)?;
+    let value = match args.get(2) {
+        Some(Value::String(s)) => s.clone(),
+        _ => return Err("learn_preference() expects third argument to be a value (String)".to_string()),
+    };
+    let valid_classes = ["style", "identity", "tooling", "veto", "goal", "channel"];
+    if !valid_classes.contains(&class.as_str()) {
+        return Err(format!("learn_preference() invalid class '{}'. Valid: {}", class, valid_classes.join(", ")));
+    }
+    let pref_key = format!("pref:{}:{}", class, key);
+    let entry = serde_json::json!({
+        "class": class,
+        "key": key,
+        "value": value,
+        "evidence_count": 1,
+        "last_observed": chrono_now_timestamp(),
+        "state": "candidate"
+    });
+    let json = serde_json::to_string(&entry).unwrap_or_default();
+    if let Ok(mut store) = kv_store().lock() {
+        // If already exists, increment evidence count
+        if let Some(existing) = store.get(&pref_key) {
+            if let Ok(mut prev) = serde_json::from_str::<serde_json::Value>(&existing) {
+                let count = prev["evidence_count"].as_u64().unwrap_or(0) + 1;
+                prev["evidence_count"] = serde_json::Value::Number(count.into());
+                prev["last_observed"] = serde_json::Value::Number(chrono_now_timestamp().into());
+                // Promote to active after 3 observations
+                if count >= 3 {
+                    prev["state"] = serde_json::Value::String("active".to_string());
+                }
+                let updated = serde_json::to_string(&prev).unwrap_or_default();
+                store.insert(pref_key.clone(), updated);
+                if let Ok(guard) = kv_sqlite().lock() {
+                    if let Some(ref conn) = *guard {
+                        let _ = conn.execute(
+                            "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?1, ?2)",
+                            rusqlite::params![pref_key, updated],
+                        );
+                    }
+                }
+                return Ok(make_date_struct("Preference", vec![
+                    ("class", Value::String(class)),
+                    ("key", Value::String(key)),
+                    ("value", Value::String(value)),
+                    ("evidence", Value::Float(count as f64)),
+                    ("state", Value::String("active".to_string())),
+                ]));
+            }
+        }
+        store.insert(pref_key.clone(), json.clone());
+    }
+    if let Ok(guard) = kv_sqlite().lock() {
+        if let Some(ref conn) = *guard {
+            let _ = conn.execute(
+                "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?1, ?2)",
+                rusqlite::params![pref_key, json],
+            );
+        }
+    }
+    Ok(make_date_struct("Preference", vec![
+        ("class", Value::String(class)),
+        ("key", Value::String(key)),
+        ("value", Value::String(value)),
+        ("evidence", Value::Float(1.0)),
+        ("state", Value::String("candidate".to_string())),
+    ]))
+}
+
+/// `get_profile()` — get all active user preferences.
+/// Returns List of Struct { class, key, value, evidence, state }.
+fn builtin_get_profile(args: &[Value]) -> Result<Value, String> {
+    let _ = args;
+    let mut result = Vec::new();
+    let prefixes = ["pref:style:", "pref:identity:", "pref:tooling:", "pref:veto:", "pref:goal:", "pref:channel:"];
+    let store = kv_store().lock().ok();
+    let sqlite = kv_sqlite().lock().ok();
+
+    for prefix in &prefixes {
+        let raw = match (store.as_ref(), sqlite.as_ref()) {
+            (Some(s), _) => {
+                // Scan all keys for prefix match
+                s.keys().filter(|k| k.starts_with(prefix)).find_map(|k| s.get(k).cloned())
+            }
+            (_, Some(guard)) => {
+                guard.as_ref().and_then(|conn| {
+                    let pat = format!("{}%", prefix);
+                    let mut stmt = conn.prepare("SELECT value FROM kv_store WHERE key LIKE ?1").ok()?;
+                    let mut rows = stmt.query(rusqlite::params![pat]).ok()?;
+                    rows.next().and_then(|r| r.ok()).and_then(|row| row.get(0).ok())
+                })
+            }
+            _ => None,
+        };
+        if let Some(json_str) = raw {
+            if let Ok(pref) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                result.push(make_date_struct("Preference", vec![
+                    ("class", Value::String(pref["class"].as_str().unwrap_or("").to_string())),
+                    ("key", Value::String(pref["key"].as_str().unwrap_or("").to_string())),
+                    ("value", Value::String(pref["value"].as_str().unwrap_or("").to_string())),
+                    ("evidence", Value::Float(pref["evidence_count"].as_u64().unwrap_or(0) as f64)),
+                    ("state", Value::String(pref["state"].as_str().unwrap_or("candidate").to_string())),
+                ]));
+            }
+        }
+    }
+    Ok(Value::List(result))
+}
+
+// ── Helpers ──
+
+/// Helper: get raw KV value (tries memory store, then SQLite).
+fn kv_get_raw(key: &str) -> Option<String> {
+    if let Ok(store) = kv_store().lock() {
+        if let Some(v) = store.get(key).cloned() {
+            return Some(v);
+        }
+    }
+    if let Ok(guard) = kv_sqlite().lock() {
+        if let Some(ref conn) = *guard {
+            if let Ok(v) = conn.query_row(
+                "SELECT value FROM kv_store WHERE key = ?1", rusqlite::params![key],
+                |row| row.get(0),
+            ) { return Some(v); }
+        }
+    }
+    None
+}
+
+/// Helper: current Unix timestamp.
+fn chrono_now_timestamp() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }

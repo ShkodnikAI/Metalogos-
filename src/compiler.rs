@@ -141,6 +141,21 @@ impl Compiler {
             "db_insert",
             // Problem A (reverse-iteration): skill index helpers
             "matches_any", "read_file_tokens",
+            // v0.8.4 — OpenHuman-inspired: Scheduling
+            "cron_add", "cron_list", "cron_remove", "cron_run", "cron_mark_fired",
+            // v0.8.4 — OpenHuman-inspired: Approval Gate
+            "ask_approval",
+            // v0.8.4 — OpenHuman-inspired: Goals & Todos
+            "goal_set", "goal_get", "goal_complete", "goals_list", "goals_add", "goals_reflect",
+            "todo_add", "todo_update", "todo_list",
+            // v0.8.4 — OpenHuman-inspired: Entities & Memory
+            "extract_entities", "memory_score", "compress_html",
+            // v0.8.4 — OpenHuman-inspired: Personalization
+            "learn_preference", "get_profile",
+            // v0.8.6 — Memory Tree
+            "mtree_store", "mtree_retrieve", "mtree_forget", "mtree_summarize", "mtree_stats",
+            // v0.7.9 — Misc (added after v0.8.3 table freeze)
+            "git_push", "web_search", "make_list", "first", "last", "time", "request_body",
         ];
         for (i, name) in builtins.iter().enumerate() {
             builtin_indices.insert(name.to_string(), i);

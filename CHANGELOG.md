@@ -2,6 +2,53 @@
 
 All notable changes to the Metalogos project.
 
+## [0.8.4] — 2026-07-03
+
+**OpenHuman-inspired builtins: 13 новых функций из анализа OpenHuman (tinyhumansai/OpenHuman).**
+
+### Планирование (Cron Scheduler) — 4 builtins
+- **`cron_add(expr, prompt)`** — регистрирует recurring cron job (5-поле cron expression). Хранение в KV store (`cron_jobs`)
+- **`cron_list()`** — список всех cron jobs
+- **`cron_remove(id)`** — удаление job по id
+- **`cron_run(id)`** — немедленное выполнение job (force_run flag). Server scheduler (5s tick) dispatch'ит force_run-задачи
+
+### Approval Gate — 1 builtin
+- **`ask_approval(title, description)`** — создаёт запрос на подтверждение. Интеграция с Telegram inline keyboard через `kv_get("approval:<id>")`
+
+### Goals & Todos — 9 builtins
+- **`goal_set(objective, budget?)`** — цель текущего потока с опциональным token budget
+- **`goal_get()`** — возвращает текущую цель
+- **`goal_complete()`** — отмечает цель как завершённую
+- **`goals_list()`** — долгосрочные цели (max 8)
+- **`goals_add(text)`** — добавление долгосрочной цели
+- **`goals_reflect()`** — stub для рефлексии целей
+- **`todo_add(title, status?)`** — kanban-задача (7 статусов)
+- **`todo_update(id, new_status)`** — обновление статуса задачи
+- **`todo_list()`** — все задачи
+
+### Извлечение сущностей — 1 builtin
+- **`extract_entities(text)`** — regex-based extraction (email, url, phone, capitalized sequences)
+
+### Оценка памяти — 1 builtin
+- **`memory_score(text)`** — weighted signals (token_count, unique_words, entity_density) для admission gate (threshold 0.3)
+
+### Токен-компрессия HTML — 1 builtin
+- **`compress_html(html)`** — HTML→text конвертация, entity decode, script/style strip, CJK-safe
+
+### Персонализация — 2 builtins
+- **`learn_preference(class, key, value)`** — запись наблюдения предпочтения (6 facet-классов, promotion candidate→active после 3 наблюдений)
+- **`get_profile()`** — все записанные предпочтения
+
+### Runtime (server.rs)
+- Scheduler loop расширен: помимо reminders, теперь также проверяет cron jobs
+
+### Documentation
+- REFERENCE.md: новые разделы 4.26–4.32 (7 новых секций), changelog + версия 0.8.4
+- README.md: 141 builtins (было 128)
+- semantic.rs: 16 новых имён в `builtin_names` HashSet
+
+**Итого:** 141 builtin (было 128)
+
 ## [0.8.3] — 2026-07-03
 
 **Наряд reverse-iteration: 4 языковых примитива методом обратной итерации.**

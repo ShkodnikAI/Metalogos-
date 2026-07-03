@@ -3832,12 +3832,14 @@ fn builtin_cron_list(args: &[Value]) -> Result<Value, String> {
     let jobs = get_cron_jobs();
     let mut result = Vec::new();
     for job in &jobs {
+        let force_run = job["force_run"].as_bool().unwrap_or(false);
         result.push(make_date_struct("CronJob", vec![
             ("id", Value::String(job["id"].as_str().unwrap_or("").to_string())),
             ("cron_expr", Value::String(job["cron_expr"].as_str().unwrap_or("").to_string())),
             ("prompt", Value::String(job["prompt"].as_str().unwrap_or("").to_string())),
             ("enabled", Value::Float(if job["enabled"].as_bool().unwrap_or(false) { 1.0 } else { 0.0 })),
             ("run_count", Value::Float(job["run_count"].as_u64().unwrap_or(0) as f64)),
+            ("force_run", Value::Float(if force_run { 1.0 } else { 0.0 })),
         ]));
     }
     Ok(Value::List(result))

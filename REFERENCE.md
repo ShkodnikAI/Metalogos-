@@ -980,14 +980,16 @@ each row in admins {
 
 ### 4.26. Планирование (Cron Scheduler, OpenHuman-inspired)
 
-> **Источник:** OpenHuman `cron_add`/`cron_list`/`cron_remove`/`cron_run`. Хранение в KV store (`cron_jobs`). `mlog serve` dispatch'ит `force_run`-задачи в 5-секундном тик-лупе.
+> **Источник:** OpenHuman `cron_add`/`cron_list`/`cron_remove`/`cron_run`. Хранение в KV store (`cron_jobs`). `mlog serve` dispatch'ит задачи в 5-секундном тик-лупе с **полным парсингом cron-выражений** (v0.8.5: `*`, `*/N`, `N`, `N-M`, `N,M`, `N-M/S`).
 
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|
 | `cron_add(expr, prompt)` | `String, String -> Struct {CronJob}` | Struct | Регистрирует recurring job. `expr` — 5-поле cron (`min hour dom month dow`). Возвращает `{id, cron_expr, prompt, enabled, status}` |
-| `cron_list()` | `-> List[Struct {CronJob}]` | List | Список всех cron jobs с `{id, cron_expr, prompt, enabled, run_count}` |
+| `cron_list()` | `-> List[Struct {CronJob}]` | List | Список всех cron jobs с `{id, cron_expr, prompt, enabled, run_count, force_run}` |
 | `cron_remove(id)` | `String -> Struct {CronRemoveResult}` | Struct | Удаляет job по id. Возвращает `{removed: Float, status}` |
 | `cron_run(id)` | `String -> Struct {CronRunResult}` | Struct | Ставит job в очередь немедленного выполнения (force_run). Возвращает `{id, executed, status}` |
+
+**Cron expression format:** стандартные 5 полей — `min hour dom month dow`. Примеры: `0 9 * * 1-5` (пн-пт в 9:00), `*/30 * * * *` (каждые 30 мин), `0 0 1 * *` (1-го числа каждого месяца). Dispatch в `mlog serve` — `force_run` или совпадение по времени. Для builtin-вызовов prompt = имя builtin, для пользовательских паттернов — в v0.8.6.
 
 ### 4.27. Approval Gate (OpenHuman-inspired)
 

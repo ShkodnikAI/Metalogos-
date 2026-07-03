@@ -2,6 +2,28 @@
 
 All notable changes to the Metalogos project.
 
+## [0.8.5] — 2026-07-03
+
+**Исправления критических багов v0.8.4 + полноценный cron scheduler.**
+
+### Bugfix: semantic.rs arities
+- Добавлены arities для всех 16 builtin'ов из v0.8.4 в `builtin_arity` HashMap. Без этого semantic analysis выдавал ложные предупреждения о неправильном числе аргументов.
+
+### Bugfix: cron_list() — missing force_run field
+- `cron_list()` теперь возвращает поле `force_run` в Struct. Ранее scheduler в server.rs пытался прочитать `force_run`, которого не было в выводе — условие никогда не срабатывало.
+
+### Feature: Реальный cron expression matching (server.rs)
+- Добавлены `cron_field_matches()` и `cron_expr_matches()` — полный парсинг 5-полевых cron-выражений без внешних зависимостей.
+- Поддерживаемые форматы: `*`, `*/N`, `N`, `N-M`, `N,M,O`, `N-M/S`.
+- Scheduler в `mlog serve` теперь dispatch'ит jobs по реальному совпадению времени, а не только по `force_run`.
+- Добавлена зависимость `chrono = "0.4"` для определения текущего времени.
+- Builtin-вызовы через `get_builtin()` работают; пользовательские паттерны — TODO v0.8.6 (нужен `Interpreter::call_pattern()`).
+
+### Documentation
+- REFERENCE.md секция 4.26: обновлено описание cron scheduler (реальный matching, примеры выражений, force_run в выводе cron_list)
+
+**Итого:** 141 builtin (без изменений), 3 багфикса, 1 новая фича
+
 ## [0.8.4] — 2026-07-03
 
 **OpenHuman-inspired builtins: 13 новых функций из анализа OpenHuman (tinyhumansai/OpenHuman).**

@@ -136,13 +136,15 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
     let state = build_state(config, interp).await;
     let app = build_router(state.clone());
 
-    // v0.8.1 — Background reminder scheduler (checks every 5 seconds)
+    // v0.8.2 — Background reminder scheduler (checks every 5 seconds)
+    // v0.8.3 — Extended: also checks cron jobs from OpenHuman-inspired cron_add
     let scheduler_state = state.clone();
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+            // ── Reminder check (v0.8.2) ──
             let mut interp = scheduler_state.interpreter.write().await;
-            // Call check_reminders() via the builtin registry
             let check_result = {
                 let builtin_name = "check_reminders";
                 if let Some(builtin_fn) = interp.get_builtin(builtin_name) {
@@ -153,7 +155,6 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
             };
             if let Ok(crate::interpreter::Value::List(items)) = check_result {
                 for item in &items {
-                    // Log due reminders; in future versions, dispatch to patterns
                     if let crate::interpreter::Value::Struct { fields, .. } = item {
                         let msg = fields.get("message").map(|v| format!("{}", v)).unwrap_or_default();
                         let rtype = fields.get("type").map(|v| format!("{}", v)).unwrap_or_default();
@@ -162,11 +163,34 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
                     }
                 }
             }
+
+            // ── Cron job dispatch (v0.8.3) ──
+            let cron_check = {
+                let builtin_name = "cron_list";
+                if let Some(builtin_fn) = interp.get_builtin(builtin_name) {
+                    builtin_fn(&[])
+                } else {
+                    Ok(crate::interpreter::Value::List(vec![]))
+                }
+            };
+            if let Ok(crate::interpreter::Value::List(jobs)) = cron_check {
+                for job in &jobs {
+                    if let crate::interpreter::Value::Struct { fields, .. } = job {
+                        let force_run = fields.get("force_run").map(|v| format!("{}", v)) == Some("true".to_string());
+                        // Future: check cron_expr against current time
+                        // For now, only force_run jobs are dispatched
+                        if force_run {
+                            let prompt = fields.get("prompt").map(|v| format!("{}", v)).unwrap_or_default();
+                            eprintln!("[cron] force_run job: {}", prompt);
+                        }
+                    }
+                }
+            }
         }
     });
 
     println!("mlog serve: listening on 0.0.0.0:{}", port);
-    println!("mlog serve: reminder scheduler active (5s interval)");
+    println!("mlog serve: scheduler active (5s interval — reminders + cron)");
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     axum::serve(listener, app).await?;
     Ok(())

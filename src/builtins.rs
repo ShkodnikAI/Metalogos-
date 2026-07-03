@@ -250,6 +250,12 @@ impl Builtins {
         funcs.insert("learn_preference".to_string(), builtin_learn_preference as BuiltinFn);
         funcs.insert("get_profile".to_string(), builtin_get_profile as BuiltinFn);
 
+        // ── Memory Tree (OpenHuman-inspired Tier 1 #9) ──
+        funcs.insert("mtree_store".to_string(), builtin_mtree_store as BuiltinFn);
+        funcs.insert("mtree_retrieve".to_string(), builtin_mtree_retrieve as BuiltinFn);
+        funcs.insert("mtree_forget".to_string(), builtin_mtree_forget as BuiltinFn);
+        funcs.insert("mtree_summarize".to_string(), builtin_mtree_summarize as BuiltinFn);
+
         Builtins { funcs }
     }
 
@@ -4687,6 +4693,244 @@ fn kv_get_raw(key: &str) -> Option<String> {
         }
     }
     None
+}
+
+// ── Memory Tree Pipeline (OpenHuman-inspired: L0→L1→L2 hierarchical memory) ──
+// Stored in KV store under "mtree_entries" key as JSON array.
+// Each entry: { id, text, level, score, created_at, source, summary }
+// Levels: L0=raw, L1=chunk_summary, L2=global_summary
+//
+// This is a lightweight alternative to the full MemoryStore (which uses embeddings).
+// Memory Tree focuses on hierarchical summarization for long-term context management.
+
+fn get_mtree_entries() -> Vec<serde_json::Value> {
+    let store = kv_store().lock().ok();
+    let sqlite = kv_sqlite().lock().ok();
+    let raw = match (store, sqlite) {
+        (Some(s), _) => s.get("mtree_entries").cloned(),
+        (_, Some(guard)) => guard.as_ref().and_then(|conn| {
+            conn.query_row("SELECT value FROM kv_store WHERE key = 'mtree_entries'", [], |row| row.get(0)).ok()
+        }),
+        _ => None,
+    };
+    raw.and_then(|v| serde_json::from_str(&v).ok()).unwrap_or_default()
+}
+
+fn save_mtree_entries(entries: &[serde_json::Value]) {
+    let json = serde_json::to_string(entries).unwrap_or_else(|_| "[]".to_string());
+    if let Ok(mut store) = kv_store().lock() {
+        store.insert("mtree_entries".to_string(), json.clone());
+    }
+    if let Ok(guard) = kv_sqlite().lock() {
+        if let Some(ref conn) = *guard {
+            let _ = conn.execute(
+                "INSERT OR REPLACE INTO kv_store (key, value) VALUES ('mtree_entries', ?1)",
+                rusqlite::params![json],
+            );
+        }
+    }
+}
+
+/// Simple keyword relevance scoring (no embeddings needed).
+/// Returns 0.0..1.0 based on overlapping words.
+fn keyword_relevance(text: &str, query: &str) -> f64 {
+    let text_lower = text.to_lowercase();
+    let query_lower = query.to_lowercase();
+    let query_words: std::collections::HashSet<&str> = query_lower.split_whitespace().collect();
+    if query_words.is_empty() { return 0.0; }
+    let text_words: std::collections::HashSet<&str> = text_lower.split_whitespace().collect();
+    let overlap: usize = query_words.intersection(&text_words).count();
+    overlap as f64 / query_words.len() as f64
+}
+
+/// `mtree_store(text, source?)` — store a memory chunk at L0.
+/// Uses inline memory_score for admission gate (threshold 0.3).
+/// Returns Struct { id, level, score, admitted }.
+fn builtin_mtree_store(args: &[Value]) -> Result<Value, String> {
+    let text = expect_string_arg("mtree_store", args, 0)?;
+    let source = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        _ => "user".to_string(),
+    };
+
+    // Inline admission gate (same logic as memory_score builtin)
+    let token_count = (text.len() as f64 / 4.0).ceil() as usize;
+    let words: std::collections::HashSet<&str> = text.split_whitespace().collect();
+    let unique_words = words.len();
+    let entity_density = {
+        let caps: Vec<&str> = text.split_whitespace()
+            .filter(|w| w.chars().next().map_or(false, |c| c.is_uppercase()) && w.len() > 1)
+            .collect();
+        if token_count > 0 { caps.len() as f64 / token_count as f64 } else { 0.0 }
+    };
+    let score = (0.3 * (unique_words as f64 / 50.0).min(1.0))
+        + (0.2 * entity_density.min(1.0))
+        + (0.2 * 1.0) // recency bonus for fresh entry
+        + (0.3 * (token_count as f64 / 200.0).min(1.0));
+    let score = score.min(1.0);
+    let admitted = score >= 0.3;
+
+    if !admitted {
+        return Ok(make_date_struct("MTreeStore", vec![
+            ("id", Value::String("".to_string())),
+            ("level", Value::String("L0".to_string())),
+            ("score", Value::Float(score)),
+            ("admitted", Value::Float(0.0)),
+            ("reason", Value::String("below_threshold".to_string())),
+        ]));
+    }
+
+    let id = format!("mt_{}", chrono_now_timestamp());
+    let entry = serde_json::json!({
+        "id": id,
+        "text": text,
+        "level": "L0",
+        "score": score,
+        "created_at": chrono_now_timestamp(),
+        "source": source,
+        "summary": serde_json::Value::Null
+    });
+
+    let mut entries = get_mtree_entries();
+    entries.push(entry);
+    save_mtree_entries(&entries);
+
+    Ok(make_date_struct("MTreeStore", vec![
+        ("id", Value::String(id)),
+        ("level", Value::String("L0".to_string())),
+        ("score", Value::Float(score)),
+        ("admitted", Value::Float(1.0)),
+        ("reason", Value::String("stored".to_string())),
+    ]))
+}
+
+/// `mtree_retrieve(query, limit?)` — retrieve top-N relevant L0 memories.
+/// Uses keyword relevance scoring. Default limit: 5.
+/// Returns List of Struct { id, text, level, score, relevance }.
+fn builtin_mtree_retrieve(args: &[Value]) -> Result<Value, String> {
+    let query = expect_string_arg("mtree_retrieve", args, 0)?;
+    let limit = match args.get(1) {
+        Some(Value::Float(f)) => *f as usize,
+        _ => 5,
+    };
+    let limit = if limit == 0 { 5 } else { limit };
+
+    let entries = get_mtree_entries();
+    let mut scored: Vec<(f64, &serde_json::Value)> = entries.iter()
+        .filter(|e| e["level"].as_str() == Some("L0"))
+        .map(|e| {
+            let text = e["text"].as_str().unwrap_or("");
+            let rel = keyword_relevance(text, &query);
+            let stored_score = e["score"].as_f64().unwrap_or(0.0);
+            (rel * 0.6 + stored_score * 0.4, e)
+        })
+        .filter(|(s, _)| *s > 0.0)
+        .collect();
+
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    scored.truncate(limit);
+
+    let mut result = Vec::new();
+    for (relevance, e) in &scored {
+        result.push(make_date_struct("MTreeEntry", vec![
+            ("id", Value::String(e["id"].as_str().unwrap_or("").to_string())),
+            ("text", Value::String(e["text"].as_str().unwrap_or("").to_string())),
+            ("level", Value::String(e["level"].as_str().unwrap_or("L0").to_string())),
+            ("score", Value::Float(e["score"].as_f64().unwrap_or(0.0))),
+            ("relevance", Value::Float(*relevance)),
+        ]));
+    }
+    Ok(Value::List(result))
+}
+
+/// `mtree_forget(id)` — delete a memory tree entry by id.
+/// Returns Struct { id, removed, status }.
+fn builtin_mtree_forget(args: &[Value]) -> Result<Value, String> {
+    let id = expect_string_arg("mtree_forget", args, 0)?;
+    let entries = get_mtree_entries();
+    let before = entries.len();
+    let filtered: Vec<serde_json::Value> = entries
+        .into_iter()
+        .filter(|e| e["id"].as_str() != Some(&id))
+        .collect();
+    let removed = (before - filtered.len()) as f64;
+    save_mtree_entries(&filtered);
+    let status = if removed > 0.0 { "removed" } else { "not_found" };
+    Ok(make_date_struct("MTreeForget", vec![
+        ("id", Value::String(id)),
+        ("removed", Value::Float(removed)),
+        ("status", Value::String(status.to_string())),
+    ]))
+}
+
+/// `mtree_summarize()` — promote L0 entries to L1 summaries.
+/// Batches up to 10 L0 entries into one L1 summary (concatenation, truncated to 500 chars).
+/// In production v0.9, this would call an LLM for real summarization.
+/// Returns Struct { promoted, total_l1, status }.
+fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
+    let _ = args;
+    let mut entries = get_mtree_entries();
+
+    let l0_ids: Vec<String> = entries.iter()
+        .filter(|e| e["level"].as_str() == Some("L0") && e["summary"].is_null())
+        .map(|e| e["id"].as_str().unwrap_or("").to_string())
+        .collect();
+
+    if l0_ids.is_empty() {
+        return Ok(make_date_struct("MTreeSummarize", vec![
+            ("promoted", Value::Float(0.0)),
+            ("total_l1", Value::Float(entries.iter().filter(|e| e["level"].as_str() == Some("L1")).count() as f64)),
+            ("status", Value::String("no_unsummarized_l0".to_string())),
+        ]));
+    }
+
+    let batch_size = 10;
+    let mut promoted = 0u32;
+    for chunk in l0_ids.chunks(batch_size) {
+        let texts: Vec<String> = chunk.iter().filter_map(|id| {
+            entries.iter().find(|e| e["id"].as_str() == Some(id.as_str()))
+                .and_then(|e| e["text"].as_str().map(|s| s.to_string()))
+        }).collect();
+
+        let combined: String = texts.join(" | ");
+        let summary = if combined.len() > 500 {
+            format!("{}...", &combined[..497])
+        } else {
+            combined
+        };
+
+        let l1_id = format!("mt_l1_{}", chrono_now_timestamp());
+        let l1_entry = serde_json::json!({
+            "id": l1_id,
+            "text": summary.clone(),
+            "level": "L1",
+            "score": 0.7,
+            "created_at": chrono_now_timestamp(),
+            "source": "mtree_summarize",
+            "summary": summary,
+            "source_ids": chunk
+        });
+        entries.push(l1_entry);
+
+        for id in chunk {
+            for e in &mut entries {
+                if e["id"].as_str() == Some(id.as_str()) {
+                    e["summary"] = serde_json::Value::String(l1_id.clone());
+                    break;
+                }
+            }
+        }
+        promoted += 1;
+    }
+
+    save_mtree_entries(&entries);
+    let total_l1 = entries.iter().filter(|e| e["level"].as_str() == Some("L1")).count();
+
+    Ok(make_date_struct("MTreeSummarize", vec![
+        ("promoted", Value::Float(promoted as f64)),
+        ("total_l1", Value::Float(total_l1 as f64)),
+        ("status", Value::String("promoted".to_string())),
+    ]))
 }
 
 /// Helper: current Unix timestamp.

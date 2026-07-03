@@ -1048,7 +1048,18 @@ each row in admins {
 | `learn_preference(class, key, value)` | `String, String, String -> Struct {Preference}` | Struct | Записывает наблюдение предпочтения. class: `style`/`identity`/`tooling`/`veto`/`goal`/`channel`. Возвращает `{class, key, value, evidence, state}`. State: `candidate` (1-2 наблюдений), `active` (3+) |
 | `get_profile()` | `-> List[Struct {Preference}]` | List | Все записанные предпочтения: `[{class, key, value, evidence, state}, ...]` |
 
-### 4.33. Прочее
+### 4.33. Memory Tree (OpenHuman-inspired)
+
+> **Источник:** OpenHuman Memory Tree — иерархическая память L0 (raw) → L1 (chunk summaries) → L2 (global summary). Хранение в KV store (`mtree_entries`). Admission gate через inline memory_score (threshold 0.3). Retrieval — keyword relevance + stored quality score.
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `mtree_store(text, source?)` | `String, String? -> Struct {MTreeStore}` | Struct | Сохраняет чанк на L0. Admission gate: score >= 0.3. Возвращает `{id, level, score, admitted, reason}` |
+| `mtree_retrieve(query, limit?)` | `String, Float? -> List[Struct {MTreeEntry}]` | List | Top-N релевантных L0-записей. Default limit: 5. Возвращает `[{id, text, level, score, relevance}]` |
+| `mtree_forget(id)` | `String -> Struct {MTreeForget}` | Struct | Удаляет запись по id. Возвращает `{id, removed, status}` |
+| `mtree_summarize()` | `-> Struct {MTreeSummarize}` | Struct | L0→L1 промоция. Батчи по 10. Возвращает `{promoted, total_l1, status}` |
+
+### 4.34. Прочее
 
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|

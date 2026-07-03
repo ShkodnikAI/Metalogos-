@@ -3027,6 +3027,35 @@ impl Interpreter {
         self.builtins.get(name)
     }
 
+    /// Call a user-defined pattern by name with given arguments.
+    /// Used by the server scheduler (cron dispatch) and future webhook handlers.
+    /// Returns Err if pattern not found or arity mismatch.
+    pub fn call_pattern(&self, name: &str, args: &[Value]) -> Result<Value, String> {
+        // Check learnable patterns first
+        if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
+            let collapsed_args = self.collapse_args(&learnable.params, args);
+            let learnable_clone = learnable.clone();
+            return self.invoke_pattern_with_hooks(name, &collapsed_args, || {
+                self.invoke_learnable_with_env(name, &learnable_clone, &collapsed_args)
+            });
+        }
+        // Regular pattern
+        let pattern = match self.patterns.get(name) {
+            Some(p) => p.clone(),
+            None => return Err(format!("call_pattern: unknown pattern '{}'", name)),
+        };
+        if args.len() != pattern.params.len() {
+            return Err(format!(
+                "call_pattern: '{}' expects {} args, got {}",
+                name, pattern.params.len(), args.len()
+            ));
+        }
+        let mut local_env = self.bind_and_collapse(&pattern.params, args)?;
+        self.invoke_pattern_with_hooks(name, args, || {
+            self.eval_statements(&pattern.body, &mut local_env)
+        })
+    }
+
     pub fn set_memory_persist_path(&mut self, path: Option<String>) {
         self.memory_persist_path = path;
     }

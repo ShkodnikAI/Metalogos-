@@ -24,6 +24,71 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use crate::ast::*;
 use crate::interpreter::{Interpreter, Value};
 
+/// Check if a cron field (min/hour/dom/month/dow) matches a value.
+/// Supports: `*`, `*/N`, `N`, `N-M`, `N,M,O`, `N-M/S`.
+fn cron_field_matches(field: &str, value: u32) -> bool {
+    for part in field.split(',') {
+        let part = part.trim();
+        if part == "*" {
+            return true;
+        }
+        if let Some(step_str) = part.strip_prefix("*/") {
+            if let Ok(step) = step_str.parse::<u32>() {
+                if step == 0 { continue; }
+                if value % step == 0 { return true; }
+            }
+            continue;
+        }
+        // Handle range with optional step: N-M or N-M/S
+        if part.contains('-') {
+            let segments: Vec<&str> = part.split('/').collect();
+            let range_str = segments[0];
+            let step: u32 = if segments.len() > 1 {
+                segments[1].parse().unwrap_or(1)
+            } else {
+                1
+            };
+            if step == 0 { continue; }
+            let bounds: Vec<&str> = range_str.split('-').collect();
+            if bounds.len() == 2 {
+                if let (Ok(lo), Ok(hi)) = (bounds[0].parse::<u32>(), bounds[1].parse::<u32>()) {
+                    if value >= lo && value <= hi && (value - lo) % step == 0 {
+                        return true;
+                    }
+                }
+            }
+            continue;
+        }
+        // Plain number
+        if let Ok(n) = part.parse::<u32>() {
+            if n == value { return true; }
+        }
+    }
+    false
+}
+
+/// Check if a 5-field cron expression matches the current time.
+/// Fields: min hour dom month dow
+/// dow: 0=Sunday (chrono), same as standard cron.
+fn cron_expr_matches(expr: &str) -> bool {
+    let parts: Vec<&str> = expr.split_whitespace().collect();
+    if parts.len() != 5 {
+        return false;
+    }
+    let now = chrono::Local::now();
+    let min = now.minute();
+    let hour = now.hour();
+    let dom = now.day();          // 1-31
+    let month = now.month();       // 1-12
+    let dow = now.num_days_from_sunday(); // 0=Sun
+
+    cron_field_matches(parts[0], min)
+        && cron_field_matches(parts[1], hour)
+        && cron_field_matches(parts[2], dom)
+        && cron_field_matches(parts[3], month)
+        && cron_field_matches(parts[4], dow)
+}
+
 /// Simple URL percent-decode fallback (handles %XX without external crate).
 fn url_decode_fallback(s: &str) -> String {
     let mut result = Vec::with_capacity(s.len());
@@ -164,7 +229,7 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
                 }
             }
 
-            // ── Cron job dispatch (v0.8.3) ──
+            // ── Cron job dispatch (v0.8.5) ──
             let cron_check = {
                 let builtin_name = "cron_list";
                 if let Some(builtin_fn) = interp.get_builtin(builtin_name) {
@@ -176,12 +241,23 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
             if let Ok(crate::interpreter::Value::List(jobs)) = cron_check {
                 for job in &jobs {
                     if let crate::interpreter::Value::Struct { fields, .. } = job {
-                        let force_run = fields.get("force_run").map(|v| format!("{}", v)) == Some("true".to_string());
-                        // Future: check cron_expr against current time
-                        // For now, only force_run jobs are dispatched
-                        if force_run {
-                            let prompt = fields.get("prompt").map(|v| format!("{}", v)).unwrap_or_default();
-                            eprintln!("[cron] force_run job: {}", prompt);
+                        let cron_expr = fields.get("cron_expr").map(|v| format!("{}", v)).unwrap_or_default();
+                        let enabled = fields.get("enabled").map(|v| format!("{}", v)) == Some("1".to_string());
+                        let force_run = fields.get("force_run").map(|v| format!("{}", v)) == Some("1".to_string());
+                        let prompt = fields.get("prompt").map(|v| format!("{}", v)).unwrap_or_default();
+
+                        if !enabled { continue; }
+
+                        let should_fire = force_run || cron_expr_matches(&cron_expr);
+                        if should_fire {
+                            eprintln!("[cron] firing: {} — {}", cron_expr, prompt);
+                            // Try to dispatch as builtin call; otherwise log for user-pattern routing
+                            if let Some(builtin_fn) = interp.get_builtin(&prompt) {
+                                if let Err(e) = builtin_fn(&[]) {
+                                    eprintln!("[cron] builtin '{}' error: {}", prompt, e);
+                                }
+                            }
+                            // TODO v0.8.6: add Interpreter::call_pattern() for user patterns
                         }
                     }
                 }

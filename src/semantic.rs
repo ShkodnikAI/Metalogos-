@@ -436,6 +436,22 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         ("extract_param", 0), ("estimate_tokens", 0),
         ("db_insert", 0),
         ("matches_any", 0), ("read_file_tokens", 0),
+        // OpenHuman-inspired (v0.8.4): Scheduling
+        ("cron_add", 2), ("cron_list", 0), ("cron_remove", 1), ("cron_run", 1),
+        // OpenHuman-inspired (v0.8.4): Approval Gate
+        ("ask_approval", 2),
+        // OpenHuman-inspired (v0.8.4): Goals & Todos
+        ("goal_set", 0), ("goal_get", 0), ("goal_complete", 0), ("goals_list", 0),
+        ("goals_add", 1), ("goals_reflect", 0),
+        ("todo_add", 0), ("todo_update", 2), ("todo_list", 0),
+        // OpenHuman-inspired (v0.8.4): Entity Extraction
+        ("extract_entities", 1),
+        // OpenHuman-inspired (v0.8.4): Memory Scoring
+        ("memory_score", 1),
+        // OpenHuman-inspired (v0.8.4): Token Compression
+        ("compress_html", 1),
+        // OpenHuman-inspired (v0.8.4): Personalization
+        ("learn_preference", 3), ("get_profile", 0),
     ].iter().cloned().collect();
 
     // Functions that must NOT receive opaque types as arguments.

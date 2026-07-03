@@ -156,6 +156,10 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         "git_push", "web_search",
         // Server request helpers
         "request_body",
+        // Problem B (reverse-iteration): list aggregation + helpers
+        "zip", "sort_by", "filter", "reduce", "map",
+        "extract_param", "estimate_tokens", "db_insert",
+        "matches_any", "read_file_tokens",
     ] {
         builtin_names.insert(b.to_string());
     }
@@ -411,6 +415,12 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         ("git_push", 0), ("web_search", 1),
         // Server request helpers
         ("request_body", 0),
+        // Problem B (reverse-iteration): list aggregation + helpers
+        ("zip", 0), ("sort_by", 0), ("filter", 0), ("reduce", 0),
+        ("map", 0),
+        ("extract_param", 0), ("estimate_tokens", 0),
+        ("db_insert", 0),
+        ("matches_any", 0), ("read_file_tokens", 0),
     ].iter().cloned().collect();
 
     // Functions that must NOT receive opaque types as arguments.

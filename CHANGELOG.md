@@ -2,6 +2,55 @@
 
 All notable changes to the Metalogos project.
 
+## [0.8.3] — 2026-07-03
+
+**Наряд reverse-iteration: 4 языковых примитива методом обратной итерации.**
+
+### Problem D — Диагностика Hook (конфигурационная, не языковая)
+
+Hook (`before_pattern` / `after_pattern`) уже полностью реализован (ADR-0045, 6 контракт-тестов). Проблема Telegram callback/web_app_data решена в v0.8.2 через `route "/webhook"` + `answer_callback_query()` + `edit_message_text()`. Новые helper-builtin: `extract_param(text, index)` для парсинга `:`-разделённых callback_data.
+
+### Problem B — Агрегация над списком структур (10 новых builtins, итого 128)
+
+**Списочные builtins:**
+- **`map(list, "pattern_name")`** — применяет pattern к каждому элементу списка. Interpreter-level (нужен доступ к реестру паттернов). Pattern должен принимать 1 аргумент
+- **`zip(list_a, list_b)`** — попарное объединение двух списков в список `{a, b}` Pair-структур
+- **`sort_by(list, key_field, descending?)`** — сортировка списка структур по имени поля. descending: 1.0 = убывание
+- **`filter(list, key_field, value)`** — фильтрация списка структур где поле == значение
+- **`reduce(list, key_field, initial)`** — суммирование float-значений поля по всем структурам списка
+
+### Problem C — Schema-as-code (1 новый builtin)
+
+- **`db_insert(table, {field: value, ...})`** — параметризованный INSERT через db_conn. Возвращает rowid. Interpreter-level (нужен доступ к SQLite). Безопасность by design — значения параметризуются, не конкатенируются в SQL
+
+### Problem A — Skill Index helpers (2 новых builtins)
+
+- **`matches_any(text, triggers_list)`** — case-insensitive substring-матч: возвращает 1.0 если любой триггер из списка найден в тексте, иначе 0.0
+- **`read_file_tokens(path)`** — читает файл и возвращает `{content, chars, tokens}` struct (estimate_tokens + read_file в одном вызове)
+- **`estimate_tokens(text)`** — эвристика: `ceil(chars / 4)`. ADR фиксирует как временную
+
+### STOP TRIGГЕР №1 (EntityType покрывает struct)
+
+Контракт Problem B предлагал `struct Actor { ... }` — в Metalogos это `entity Actor { ... }` (EntityTypeDecl). Не дублирована новая конструкция, используется существующая.
+
+### STOP ТРИГГЕР №2 (Db декларация расширена, не дублирована)
+
+Контракт Problem C предлагал отдельный `schema` keyword. Расширена существующая `db` декларация через `db_insert` builtin вместо создания параллельной конструкции. Полноценная `schema` декларация с авто-миграцией — отдельный наряд.
+
+### Файлы
+
+- `builtins.rs`: +`zip`, +`sort_by`, +`filter`, +`reduce`, +`extract_param`, +`estimate_tokens`, +`matches_any`, +`read_file_tokens` (8 новых функций, ~200 строк)
+- `interpreter.rs`: +`map` intercept (interpreter-level, ~25 строк), +`db_insert` intercept (~35 строк)
+- `compiler.rs`: +9 новых builtins в таблицу
+- `semantic.rs`: +9 builtin_names, +9 builtin_arity entries
+- `Cargo.toml`: 0.8.2 → 0.8.3
+
+### Версия
+
+- Bump 0.8.2 → 0.8.3
+
+---
+
 ## [0.8.2] — 2026-07-02
 
 **Phase 8.2: Telegram Bot Platform + Reminder Scheduler.**

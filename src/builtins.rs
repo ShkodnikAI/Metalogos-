@@ -205,6 +205,18 @@ impl Builtins {
         funcs.insert("human_personas".to_string(), builtin_human_personas as BuiltinFn);
         funcs.insert("human_delete".to_string(), builtin_human_delete as BuiltinFn);
 
+        // Problem B (Наряд reverse-iteration): list aggregation
+        funcs.insert("zip".to_string(), builtin_zip as BuiltinFn);
+        funcs.insert("sort_by".to_string(), builtin_sort_by as BuiltinFn);
+        funcs.insert("filter".to_string(), builtin_filter as BuiltinFn);
+        funcs.insert("reduce".to_string(), builtin_reduce as BuiltinFn);
+        // Problem D helper + Problem A helper
+        funcs.insert("extract_param".to_string(), builtin_extract_param as BuiltinFn);
+        funcs.insert("estimate_tokens".to_string(), builtin_estimate_tokens as BuiltinFn);
+        // Problem A (reverse-iteration): skill index helpers
+        funcs.insert("matches_any".to_string(), builtin_matches_any as BuiltinFn);
+        funcs.insert("read_file_tokens".to_string(), builtin_read_file_tokens as BuiltinFn);
+
         Builtins { funcs }
     }
 
@@ -3524,4 +3536,188 @@ fn builtin_human_delete(args: &[Value]) -> Result<Value, String> {
         ("deleted_memories", Value::Float(mem_count as f64)),
         ("status", Value::String(status.to_string())),
     ]))
+}
+
+// ── Problem B (Наряд reverse-iteration): list aggregation builtins ──────
+
+/// `zip(list_a, list_b)` — pairwise merge two lists into list of 2-element structs [{a, b}, ...]
+pub fn builtin_zip(args: &[Value]) -> Result<Value, String> {
+    let list_a = match args.get(0) {
+        Some(Value::List(items)) => items,
+        _ => return Err("zip() expects first argument to be a List".to_string()),
+    };
+    let list_b = match args.get(1) {
+        Some(Value::List(items)) => items,
+        _ => return Err("zip() expects second argument to be a List".to_string()),
+    };
+    let paired: Vec<Value> = list_a.iter().zip(list_b.iter()).map(|(a, b)| {
+        Value::Struct {
+            type_name: "Pair".to_string(),
+            fields: [
+                ("a".to_string(), a.clone()),
+                ("b".to_string(), b.clone()),
+            ].into_iter().collect(),
+        }
+    }).collect();
+    Ok(Value::List(paired))
+}
+
+/// `sort_by(list, key_field, descending?)` — sort list of structs by a field name.
+/// descending: 1.0 = descending, 0.0 or absent = ascending.
+pub fn builtin_sort_by(args: &[Value]) -> Result<Value, String> {
+    let list = match args.get(0) {
+        Some(Value::List(items)) => items.clone(),
+        _ => return Err("sort_by() expects first argument to be a List".to_string()),
+    };
+    let key_field = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        _ => return Err("sort_by() expects second argument to be a field name (String)".to_string()),
+    };
+    let descending = match args.get(2) {
+        Some(Value::Float(f)) if *f != 0.0 => true,
+        _ => false,
+    };
+
+    let mut sorted = list;
+    sorted.sort_by(|a, b| {
+        let va = a.get_field(&key_field).unwrap_or(Value::Float(0.0));
+        let vb = b.get_field(&key_field).unwrap_or(Value::Float(0.0));
+        let fa = match va {
+            Value::Float(f) => f,
+            Value::String(s) => s.parse::<f64>().unwrap_or(0.0),
+            _ => 0.0,
+        };
+        let fb = match vb {
+            Value::Float(f) => f,
+            Value::String(s) => s.parse::<f64>().unwrap_or(0.0),
+            _ => 0.0,
+        };
+        if descending {
+            fb.partial_cmp(&fa).unwrap_or(std::cmp::Ordering::Equal)
+        } else {
+            fa.partial_cmp(&fb).unwrap_or(std::cmp::Ordering::Equal)
+        }
+    });
+    Ok(Value::List(sorted))
+}
+
+/// `filter(list, key_field, value)` — filter list of structs where field == value.
+pub fn builtin_filter(args: &[Value]) -> Result<Value, String> {
+    let list = match args.get(0) {
+        Some(Value::List(items)) => items.clone(),
+        _ => return Err("filter() expects first argument to be a List".to_string()),
+    };
+    let key_field = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        _ => return Err("filter() expects second argument to be a field name (String)".to_string()),
+    };
+    let filter_val = match args.get(2) {
+        Some(v) => v.clone(),
+        None => return Err("filter() expects three arguments".to_string()),
+    };
+
+    let filtered: Vec<Value> = list.into_iter().filter(|item| {
+        let field_val = item.get_field(&key_field).unwrap_or(Value::Unit);
+        field_val == filter_val
+    }).collect();
+    Ok(Value::List(filtered))
+}
+
+/// `reduce(list, key_field, initial)` — sum all float values of a field across list of structs.
+pub fn builtin_reduce(args: &[Value]) -> Result<Value, String> {
+    let list = match args.get(0) {
+        Some(Value::List(items)) => items,
+        _ => return Err("reduce() expects first argument to be a List".to_string()),
+    };
+    let key_field = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        _ => return Err("reduce() expects second argument to be a field name (String)".to_string()),
+    };
+    let initial = match args.get(2) {
+        Some(Value::Float(f)) => *f,
+        _ => return Err("reduce() expects third argument to be an initial Float value".to_string()),
+    };
+
+    let mut acc = initial;
+    for item in list {
+        let field_val = item.get_field(&key_field).unwrap_or(Value::Float(0.0));
+        if let Value::Float(f) = field_val {
+            acc += f;
+        }
+    }
+    Ok(Value::Float(acc))
+}
+
+/// `extract_param(text, index)` — parse colon-separated callback_data, return N-th segment.
+/// Example: extract_param("dept:osp:watch:42", 2) → "watch"
+pub fn builtin_extract_param(args: &[Value]) -> Result<Value, String> {
+    let text = match args.get(0) {
+        Some(Value::String(s)) => s.clone(),
+        _ => return Err("extract_param() expects first argument to be a String".to_string()),
+    };
+    let index = match args.get(1) {
+        Some(Value::Float(f)) => *f as usize,
+        _ => return Err("extract_param() expects second argument to be a Float (index)".to_string()),
+    };
+    let parts: Vec<&str> = text.split(':').collect();
+    match parts.get(index) {
+        Some(s) => Ok(Value::String(s.to_string())),
+        None => Ok(Value::String("".to_string())),
+    }
+}
+
+/// `estimate_tokens(text)` — rough token count heuristic (len / 4 for CJK+Latin mix).
+/// ADR note: temporary heuristic, replace with proper tokenizer when available.
+pub fn builtin_estimate_tokens(args: &[Value]) -> Result<Value, String> {
+    let text = match args.get(0) {
+        Some(Value::String(s)) => s.clone(),
+        _ => return Err("estimate_tokens() expects a String argument".to_string()),
+    };
+    let char_count = text.chars().count() as f64;
+    // Heuristic: ~4 chars per token for mixed CJK/Latin
+    let tokens = (char_count / 4.0).ceil();
+    Ok(Value::Float(tokens))
+}
+
+/// `matches_any(text, triggers_list)` — case-insensitive substring match.
+/// Returns 1.0 if ANY trigger string is found in text, 0.0 otherwise.
+/// Used by skill_index tier matching (Problem A).
+pub fn builtin_matches_any(args: &[Value]) -> Result<Value, String> {
+    let text = match args.get(0) {
+        Some(Value::String(s)) => s.to_lowercase(),
+        _ => return Err("matches_any() expects first argument to be a String".to_string()),
+    };
+    let triggers = match args.get(1) {
+        Some(Value::List(items)) => items,
+        _ => return Err("matches_any() expects second argument to be a List of trigger strings".to_string()),
+    };
+    for trigger in triggers {
+        if let Value::String(t) = trigger {
+            if text.contains(&t.to_lowercase()) {
+                return Ok(Value::Float(1.0));
+            }
+        }
+    }
+    Ok(Value::Float(0.0))
+}
+
+/// `read_file_tokens(path)` — read file and return {content, tokens} struct.
+/// Convenience for skill_index: read skill file + estimate its token cost in one call.
+pub fn builtin_read_file_tokens(args: &[Value]) -> Result<Value, String> {
+    let path = match args.get(0) {
+        Some(Value::String(s)) => s.clone(),
+        _ => return Err("read_file_tokens() expects a file path (String)".to_string()),
+    };
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("read_file_tokens(): {}", e))?;
+    let char_count = content.chars().count() as f64;
+    let tokens = (char_count / 4.0).ceil();
+    Ok(Value::Struct {
+        type_name: "FileInfo".to_string(),
+        fields: [
+            ("content".to_string(), Value::String(content)),
+            ("chars".to_string(), Value::Float(char_count)),
+            ("tokens".to_string(), Value::Float(tokens)),
+        ].into_iter().collect(),
+    })
 }

@@ -3786,6 +3786,70 @@ impl Interpreter {
                     return self.invoke_query_row(&eval_args);
                 }
 
+                // Problem B (reverse-iteration): map(list, "pattern_name") — needs pattern access
+                if name == "map" {
+                    let list = match eval_args.get(0) {
+                        Some(Value::List(items)) => items.clone(),
+                        _ => return Err("map() expects first argument to be a List".to_string()),
+                    };
+                    let pattern_name = match eval_args.get(1) {
+                        Some(Value::String(s)) => s.clone(),
+                        _ => return Err("map() expects second argument to be a pattern name (String)".to_string()),
+                    };
+                    let pattern = match self.patterns.get(&pattern_name) {
+                        Some(p) => p.clone(),
+                        None => return Err(format!("map(): pattern '{}' not found", pattern_name)),
+                    };
+                    if pattern.params.len() != 1 {
+                        return Err(format!("map(): pattern '{}' must accept exactly 1 argument, got {}", pattern_name, pattern.params.len()));
+                    }
+                    let mut results = Vec::new();
+                    for item in &list {
+                        let mut local_env = self.bind_and_collapse(&pattern.params, &[item.clone()])?;
+                        let result = self.eval_statements(&pattern.body, &mut local_env)?;
+                        results.push(result);
+                    }
+                    return Ok(Value::List(results));
+                }
+
+                // Problem C (reverse-iteration): db_insert(table, struct) — needs db_conn
+                if name == "db_insert" {
+                    let table = match eval_args.get(0) {
+                        Some(Value::String(s)) => s.clone(),
+                        _ => return Err("db_insert() expects first argument to be a table name (String)".to_string()),
+                    };
+                    let fields = match eval_args.get(1) {
+                        Some(Value::Struct { fields, .. }) => fields.clone(),
+                        _ => return Err("db_insert() expects second argument to be a Struct { field: value, ... }".to_string()),
+                    };
+                    let guard = self.db_conn.lock().map_err(|e| format!("db lock error: {}", e))?;
+                    let conn = guard.as_ref().ok_or_else(|| {
+                        "db_insert() error: no database connection. Declare db { url: \"sqlite::memory:\" } first.".to_string()
+                    })?;
+                    let col_names: Vec<String> = fields.keys().cloned().collect();
+                    let placeholders: Vec<String> = col_names.iter().map(|_| "?".to_string()).collect();
+                    let sql = format!("INSERT INTO {} ({}) VALUES ({})",
+                        table,
+                        col_names.join(", "),
+                        placeholders.join(", "));
+                    let params: Vec<Box<dyn rusqlite::types::ToSql>> = fields.values().map(|v| {
+                        match v {
+                            Value::String(s) => Box::new(s.clone()) as Box<dyn rusqlite::types::ToSql>,
+                            Value::Float(f) => Box::new(*f) as Box<dyn rusqlite::types::ToSql>,
+                            Value::Bool(b) => Box::new(*b) as Box<dyn rusqlite::types::ToSql>,
+                            Value::Unit => Box::new(Option::<String>::None) as Box<dyn rusqlite::types::ToSql>,
+                            other => Box::new(format!("{}", other)) as Box<dyn rusqlite::types::ToSql>,
+                        }
+                    }).collect();
+                    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+                    conn.execute(&sql, param_refs.as_slice())
+                        .map_err(|e| format!("db_insert() SQL error: {}", e))?;
+                    // Return last inserted rowid
+                    let rowid: i64 = conn.query_row("SELECT last_insert_rowid()", [], |row| row.get(0))
+                        .unwrap_or(0);
+                    return Ok(Value::Float(rowid as f64));
+                }
+
                 // Check learnable patterns first
                 if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
                     let collapsed_args = self.collapse_args(&learnable.params, &eval_args);

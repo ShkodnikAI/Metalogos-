@@ -988,6 +988,7 @@ each row in admins {
 | `cron_list()` | `-> List[Struct {CronJob}]` | List | Список всех cron jobs с `{id, cron_expr, prompt, enabled, run_count, force_run}` |
 | `cron_remove(id)` | `String -> Struct {CronRemoveResult}` | Struct | Удаляет job по id. Возвращает `{removed: Float, status}` |
 | `cron_run(id)` | `String -> Struct {CronRunResult}` | Struct | Ставит job в очередь немедленного выполнения (force_run). Возвращает `{id, executed, status}` |
+| `cron_mark_fired(id)` | `String -> Struct {CronMarkResult}` | Struct | Внутренний: сбрасывает force_run, инкрементирует run_count, устанавливает last_run. Вызывается scheduler'ом после dispatch'а |
 
 **Cron expression format:** стандартные 5 полей — `min hour dom month dow`. Примеры: `0 9 * * 1-5` (пн-пт в 9:00), `*/30 * * * *` (каждые 30 мин), `0 0 1 * *` (1-го числа каждого месяца). Dispatch в `mlog serve` — `force_run` или совпадение по времени. Для builtin-вызовов prompt = имя builtin, для пользовательских паттернов — в v0.8.6.
 
@@ -1050,14 +1051,15 @@ each row in admins {
 
 ### 4.33. Memory Tree (OpenHuman-inspired)
 
-> **Источник:** OpenHuman Memory Tree — иерархическая память L0 (raw) → L1 (chunk summaries) → L2 (global summary). Хранение в KV store (`mtree_entries`). Admission gate через inline memory_score (threshold 0.3). Retrieval — keyword relevance + stored quality score.
+> **Источник:** OpenHuman Memory Tree — иерархическая память L0 (raw) → L1 (chunk summaries) → L2 (global summary). Хранение в KV store (`mtree_entries`). Admission gate через inline memory_score (threshold 0.3). Retrieval — keyword relevance + stored quality score. L2 — глобальная сводка, создаётся при 3+ L1, единственная (замещается).
 
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|
 | `mtree_store(text, source?)` | `String, String? -> Struct {MTreeStore}` | Struct | Сохраняет чанк на L0. Admission gate: score >= 0.3. Возвращает `{id, level, score, admitted, reason}` |
-| `mtree_retrieve(query, limit?)` | `String, Float? -> List[Struct {MTreeEntry}]` | List | Top-N релевантных L0-записей. Default limit: 5. Возвращает `[{id, text, level, score, relevance}]` |
+| `mtree_retrieve(query, limit?)` | `String, Float? -> List[Struct {MTreeEntry}]` | List | Top-N релевантных записей (L0 + L1). Default limit: 5. L0 scoring: `relevance*0.6 + score*0.4`. L1 boost: `relevance*0.8 + 0.2` |
 | `mtree_forget(id)` | `String -> Struct {MTreeForget}` | Struct | Удаляет запись по id. Возвращает `{id, removed, status}` |
-| `mtree_summarize()` | `-> Struct {MTreeSummarize}` | Struct | L0→L1 промоция. Батчи по 10. Возвращает `{promoted, total_l1, status}` |
+| `mtree_summarize()` | `-> Struct {MTreeSummarize}` | Struct | Двухфазная: L0→L1 (батчи по 10, 500 символов) + L1→L2 (3+ L1, 1000 символов). Возвращает `{l0_promoted, l1_count, l2_created, status}` |
+| `mtree_stats()` | `-> Struct {MTreeStats}` | Struct | Диагностика. Возвращает `{l0, l1, l2, total, total_chars}` |
 
 ### 4.34. Прочее
 
@@ -1433,6 +1435,7 @@ collections.push(items, item) -> List      // append to list
 
 | Версия | Дата | Что нового |
 |--------|------|------------|
+| **0.8.7** | 2026-07-04 | +cron_mark_fired (fix force_run infinite re-fire), +mtree_stats, mtree_summarize L0→L1→L2 (global summary), mtree_retrieve L0+L1 search, 147 builtins |
 | **0.8.3** | 2026-07-03 | +map/zip/sort_by/filter/reduce, +db_insert, +matches_any/estimate_tokens/read_file_tokens/extract_param, Problem D Hook диагностика, 128 builtins |
 | **0.8.4** | 2026-07-03 | +OpenHuman-inspired: cron_add/cron_list/cron_remove/cron_run, ask_approval, goal_set/goal_get/goal_complete/goals_list/goals_add/goals_reflect, todo_add/todo_update/todo_list, extract_entities, memory_score, compress_html, learn_preference/get_profile, 141 builtins |
 | **0.8.2** | 2026-07-02 | +answer_callback_query, +edit_message_text, send_message +reply_markup (inline keyboard), tts_send → voice bubble (sendVoice), reminder persistence SQLite, background scheduler при mlog serve, 118 builtins |

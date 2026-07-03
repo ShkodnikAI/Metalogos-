@@ -251,13 +251,14 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
                         let should_fire = force_run || cron_expr_matches(&cron_expr);
                         if should_fire {
                             eprintln!("[cron] firing: {} — {}", cron_expr, prompt);
-                            // Try to dispatch as builtin call; otherwise log for user-pattern routing
+                            // Dispatch: try builtin first, then user pattern
                             if let Some(builtin_fn) = interp.get_builtin(&prompt) {
                                 if let Err(e) = builtin_fn(&[]) {
                                     eprintln!("[cron] builtin '{}' error: {}", prompt, e);
                                 }
+                            } else if let Err(e) = interp.call_pattern(&prompt, &[]) {
+                                eprintln!("[cron] pattern '{}' error: {}", prompt, e);
                             }
-                            // TODO v0.8.6: add Interpreter::call_pattern() for user patterns
                         }
                     }
                 }

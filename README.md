@@ -359,7 +359,7 @@ Metalogos has **three execution backends**: a tree-walking interpreter, a byteco
 
 ```
 Metalogos-/
-├── Cargo.toml              # Single-crate project, version 0.8.5
+├── Cargo.toml              # Single-crate project, version 0.8.6
 ├── src/
 │   ├── grammar.pest         # PEG grammar (335 rules)
 │   ├── ast.rs               # AST: 24 Declaration, 14 Expr, 12 Statement, 4 MatchArm variants

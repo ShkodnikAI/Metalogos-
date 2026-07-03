@@ -413,10 +413,10 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         ("session_set", 2), ("session_get", 1), ("session_clear", 0),
         ("hash_password", 1), ("verify_password", 2), ("encrypt", 2),
         ("decrypt", 2), ("generate_key", 0), ("authenticate", 2),
-        ("session_login", 1), ("session_logout", 0),
-        ("send_message", 0), ("answer_callback_query", 0), ("edit_message_text", 0), ("require", 1),
+        ("session_login", 1), ("session_logout", 1),
+        ("send_message", 2), ("answer_callback_query", 1), ("edit_message_text", 3), ("require", 1),
         ("http_post", 2), ("http_get", 1), ("http_post_multipart", 3),
-        ("whisper_transcribe", 0), ("tts_send", 0),
+        ("whisper_transcribe", 1), ("tts_send", 2),
         ("base64_encode", 1), ("base64_decode", 1),
         ("exec", 1), ("escape_js", 1), ("dict_get", 2), ("dict_set", 3), ("dict_keys", 1), ("dict_values", 1), ("dict_has", 2), ("type_of", 1),
         ("respond", 2), ("respond_html", 1), ("form_data", 0),
@@ -443,9 +443,9 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         // OpenHuman-inspired (v0.8.4): Approval Gate
         ("ask_approval", 2),
         // OpenHuman-inspired (v0.8.4): Goals & Todos
-        ("goal_set", 0), ("goal_get", 0), ("goal_complete", 0), ("goals_list", 0),
+        ("goal_set", 1), ("goal_get", 0), ("goal_complete", 0), ("goals_list", 0),
         ("goals_add", 1), ("goals_reflect", 0),
-        ("todo_add", 0), ("todo_update", 2), ("todo_list", 0),
+        ("todo_add", 2), ("todo_update", 2), ("todo_list", 0),
         // OpenHuman-inspired (v0.8.4): Entity Extraction
         ("extract_entities", 1),
         // OpenHuman-inspired (v0.8.4): Memory Scoring
@@ -455,7 +455,7 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         // OpenHuman-inspired (v0.8.4): Personalization
         ("learn_preference", 3), ("get_profile", 0),
         // OpenHuman-inspired (v0.8.6): Memory Tree
-        ("mtree_store", 0), ("mtree_retrieve", 0), ("mtree_forget", 1), ("mtree_summarize", 0), ("mtree_stats", 0),
+        ("mtree_store", 1), ("mtree_retrieve", 1), ("mtree_forget", 1), ("mtree_summarize", 0), ("mtree_stats", 0),
     ].iter().cloned().collect();
 
     // Functions that must NOT receive opaque types as arguments.
@@ -506,8 +506,8 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                 let mut local_scope: HashSet<String> = HashSet::new();
                 // Route body has no params, but let bindings create locals
                 collect_let_bindings(&route.body, &mut local_scope);
-                check_opaque_in_stmts(&route.body, &entity_type_map, &builtin_arity,
-                    &local_scope, &entity_names, &pattern_arity, OPAQUE_RESTRICTED, &mut result);
+                check_opaque_in_stmts(&route.body, &entity_type_map,
+                    &local_scope, &entity_names, OPAQUE_RESTRICTED, &mut result);
                 // Наряд №20: variable + arity checks in route bodies
                 check_variables_in_stmts(&route.body, &local_scope, &entity_names,
                     &builtin_names, &builtin_arity, &pattern_arity, &mut result);
@@ -532,8 +532,8 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                             method_scope.insert(param.name.clone());
                         }
                         collect_let_bindings(&method.body, &mut method_scope);
-                        check_opaque_in_stmts(&method.body, &entity_type_map, &builtin_arity,
-                            &method_scope, &entity_names, &pattern_arity, OPAQUE_RESTRICTED, &mut result);
+                        check_opaque_in_stmts(&method.body, &entity_type_map,
+                            &method_scope, &entity_names, OPAQUE_RESTRICTED, &mut result);
                         check_variables_in_stmts(&method.body, &method_scope, &entity_names,
                             &builtin_names, &builtin_arity, &pattern_arity, &mut result);
                     }
@@ -548,8 +548,8 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
             }
 
             collect_let_bindings(body, &mut local_scope);
-            check_opaque_in_stmts(body, &entity_type_map, &builtin_arity,
-                &local_scope, &entity_names, &pattern_arity, OPAQUE_RESTRICTED, &mut result);
+            check_opaque_in_stmts(body, &entity_type_map,
+                &local_scope, &entity_names, OPAQUE_RESTRICTED, &mut result);
             // Наряд №20: variable + arity checks
             check_variables_in_stmts(body, &local_scope, &entity_names,
                 &builtin_names, &builtin_arity, &pattern_arity, &mut result);
@@ -616,10 +616,8 @@ fn collect_let_bindings(stmts: &[Statement], scope: &mut HashSet<String>) {
 fn check_opaque_in_stmts(
     stmts: &[Statement],
     entity_type_map: &HashMap<String, String>,
-    _builtin_arity: &HashMap<&str, usize>,
     scope: &HashSet<String>,
     entity_names: &HashSet<String>,
-    _pattern_arity: &HashMap<String, usize>,
     opaque_restricted: &[(&str, usize)],
     result: &mut AnalysisResult,
 ) {
@@ -651,30 +649,30 @@ fn check_opaque_in_stmt(
         }
         Statement::Each { iterable, body, .. } => {
             check_opaque_in_expr(iterable, entity_type_map, scope, entity_names, opaque_restricted, result);
-            check_opaque_in_stmts(body, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+            check_opaque_in_stmts(body, entity_type_map, scope, entity_names, opaque_restricted, result);
         }
         Statement::EachWithIndex { iterable, body, .. } => {
             check_opaque_in_expr(iterable, entity_type_map, scope, entity_names, opaque_restricted, result);
-            check_opaque_in_stmts(body, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+            check_opaque_in_stmts(body, entity_type_map, scope, entity_names, opaque_restricted, result);
         }
         Statement::While { condition, body } => {
             check_opaque_in_expr(condition, entity_type_map, scope, entity_names, opaque_restricted, result);
-            check_opaque_in_stmts(body, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+            check_opaque_in_stmts(body, entity_type_map, scope, entity_names, opaque_restricted, result);
         }
         Statement::IfElseBlock { condition, then_body, else_ifs, else_body } => {
             check_opaque_in_expr(condition, entity_type_map, scope, entity_names, opaque_restricted, result);
-            check_opaque_in_stmts(then_body, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+            check_opaque_in_stmts(then_body, entity_type_map, scope, entity_names, opaque_restricted, result);
             for (ei_cond, ei_body) in else_ifs {
                 check_opaque_in_expr(ei_cond, entity_type_map, scope, entity_names, opaque_restricted, result);
-                check_opaque_in_stmts(ei_body, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+                check_opaque_in_stmts(ei_body, entity_type_map, scope, entity_names, opaque_restricted, result);
             }
             if let Some(eb) = else_body {
-                check_opaque_in_stmts(eb, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+                check_opaque_in_stmts(eb, entity_type_map, scope, entity_names, opaque_restricted, result);
             }
         }
         Statement::IfThen(cond, body) => {
             check_opaque_in_expr(cond, entity_type_map, scope, entity_names, opaque_restricted, result);
-            check_opaque_in_stmts(body, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+            check_opaque_in_stmts(body, entity_type_map, scope, entity_names, opaque_restricted, result);
         }
         Statement::Match { scrutinee, arms, else_body } => {
             check_opaque_in_expr(scrutinee, entity_type_map, scope, entity_names, opaque_restricted, result);
@@ -683,30 +681,20 @@ fn check_opaque_in_stmt(
                     MatchArm::Exact(_, body) |
                     MatchArm::StartsWith(_, body) |
                     MatchArm::Contains(_, body) => {
-                        check_opaque_in_stmts(body, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+                        check_opaque_in_stmts(body, entity_type_map, scope, entity_names, opaque_restricted, result);
                     }
                     MatchArm::Compare(_, threshold, body) => {
                         check_opaque_in_expr(threshold, entity_type_map, scope, entity_names, opaque_restricted, result);
-                        check_opaque_in_stmts(body, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+                        check_opaque_in_stmts(body, entity_type_map, scope, entity_names, opaque_restricted, result);
                     }
                 }
             }
             if let Some(eb) = else_body {
-                check_opaque_in_stmts(eb, entity_type_map, _builtin_arity_placeholder(), scope, entity_names, _pattern_arity_placeholder(), opaque_restricted, result);
+                check_opaque_in_stmts(eb, entity_type_map, scope, entity_names, opaque_restricted, result);
             }
         }
         Statement::Break | Statement::Continue => {}
     }
-}
-
-/// Placeholder to satisfy the function signature without threading extra params.
-fn _builtin_arity_placeholder() -> &'static HashMap<&'static str, usize> {
-    static MAP: std::sync::OnceLock<HashMap<&'static str, usize>> = std::sync::OnceLock::new();
-    MAP.get_or_init(HashMap::new)
-}
-fn _pattern_arity_placeholder() -> &'static HashMap<String, usize> {
-    static MAP: std::sync::OnceLock<HashMap<String, usize>> = std::sync::OnceLock::new();
-    MAP.get_or_init(HashMap::new)
 }
 
 /// Check opaque type violations in an expression.

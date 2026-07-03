@@ -1,6 +1,6 @@
 [package]
 name = "metalogos"
-version = "0.8.7"
+version = "0.8.8"
 edition = "2021"
 description = "METALOGOS — AI-native programming language with security by design"
 

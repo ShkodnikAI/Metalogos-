@@ -4277,7 +4277,7 @@ fn builtin_extract_entities(args: &[Value]) -> Result<Value, String> {
     }
 
     // URL detection
-    let url_re = regex_lite_find(r"https?://[^\s<>\"']+");
+    let url_re = regex_lite_find(r#"https?://[^\s<>"]'+)"#);
     for m in &url_re {
         entities.push(make_date_struct("Entity", vec![
             ("kind", Value::String("url".to_string())),

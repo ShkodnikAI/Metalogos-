@@ -57,160 +57,180 @@ impl Vm {
     /// Create a new VM with empty state.
     pub fn new() -> Self {
         // Наряд №18: full builtin name list — must match compiler builtin_indices order
-        let builtin_names = vec![
-            // String operations
-            "upper".to_string(),        // 0
-            "lower".to_string(),        // 1
-            "len".to_string(),          // 2
-            "str".to_string(),          // 3
-            "print".to_string(),        // 4
-            "contains".to_string(),     // 5
-            "float".to_string(),        // 6
-            "to_string".to_string(),    // 7
-            "get".to_string(),          // 8
-            "push".to_string(),         // 9
-            // Environment
-            "env".to_string(),          // 10
-            // String operations Phase 5.3
-            "index_of".to_string(),     // 11
-            "substring".to_string(),    // 12
-            "char_at".to_string(),      // 13
-            "starts_with".to_string(),  // 14
-            "ends_with".to_string(),    // 15
-            "to_float".to_string(),     // 16
-            // Fluid
-            "confidence".to_string(),   // 17
-            // Internal string/math ops
-            "__trim".to_string(),       // 18
-            "__replace".to_string(),    // 19
-            "__split".to_string(),      // 20
-            "__join".to_string(),       // 21
-            "__abs".to_string(),        // 22
-            "__min".to_string(),        // 23
-            "__max".to_string(),        // 24
-            "__clamp".to_string(),      // 25
-            "__round".to_string(),      // 26
-            "__first".to_string(),      // 27
-            "__last".to_string(),       // 28
-            // Phase 6: Web
-            "respond".to_string(),      // 29
+                let builtin_names = vec![
+            "upper".to_string(), // 0
+            "lower".to_string(), // 1
+            "len".to_string(), // 2
+            "str".to_string(), // 3
+            "print".to_string(), // 4
+            "contains".to_string(), // 5
+            "float".to_string(), // 6
+            "to_string".to_string(), // 7
+            "get".to_string(), // 8
+            "push".to_string(), // 9
+            "env".to_string(), // 10
+            "index_of".to_string(), // 11
+            "substring".to_string(), // 12
+            "char_at".to_string(), // 13
+            "starts_with".to_string(), // 14
+            "ends_with".to_string(), // 15
+            "to_float".to_string(), // 16
+            "confidence".to_string(), // 17
+            "__trim".to_string(), // 18
+            "__replace".to_string(), // 19
+            "__split".to_string(), // 20
+            "__join".to_string(), // 21
+            "__abs".to_string(), // 22
+            "__min".to_string(), // 23
+            "__max".to_string(), // 24
+            "__clamp".to_string(), // 25
+            "__round".to_string(), // 26
+            "__first".to_string(), // 27
+            "__last".to_string(), // 28
+            "respond".to_string(), // 29
             "respond_html".to_string(), // 30
-            "form_data".to_string(),    // 31
-            "json_body".to_string(),    // 32
-            "query_param".to_string(),  // 33
-            "render".to_string(),       // 34
-            "escape_html".to_string(),  // 35
-            // Phase 6.3: DB
-            "query".to_string(),        // 36
-            "db_execute".to_string(),   // 37
-            // Phase 6.4: Crypto
-            "hash_password".to_string(),  // 38
+            "form_data".to_string(), // 31
+            "json_body".to_string(), // 32
+            "query_param".to_string(), // 33
+            "render".to_string(), // 34
+            "escape_html".to_string(), // 35
+            "query".to_string(), // 36
+            "db_execute".to_string(), // 37
+            "hash_password".to_string(), // 38
             "verify_password".to_string(), // 39
-            "encrypt".to_string(),      // 40
-            "decrypt".to_string(),      // 41
+            "encrypt".to_string(), // 40
+            "decrypt".to_string(), // 41
             "generate_key".to_string(), // 42
-            // Phase 6.5: Auth/Session
-            "authenticate".to_string(),   // 43
-            "session_login".to_string(),  // 44
+            "authenticate".to_string(), // 43
+            "session_login".to_string(), // 44
             "session_logout".to_string(), // 45
-            // Phase 6: Messaging
-            "send_message".to_string(),  // 46
-            "require".to_string(),       // 47
-            // HTTP
-            "http_post".to_string(),    // 48
-            "http_get".to_string(),     // 49
-            // Public string/math ops
-            "trim".to_string(),         // 50
-            "replace".to_string(),      // 51
-            "split".to_string(),        // 52
-            "join".to_string(),         // 53
-            "length".to_string(),       // 54
-            "to_int".to_string(),       // 55
-            "reverse".to_string(),      // 56
-            // LLM
-            "call_llm".to_string(),     // 57
-            // KV store
-            "kv_set".to_string(),       // 58
-            "kv_get".to_string(),       // 59
-            "kv_delete".to_string(),    // 60
-            "kv_exists".to_string(),    // 61
-            "kv_list".to_string(),      // 62
-            // Memory
-            "mem_set".to_string(),      // 63
-            "mem_get".to_string(),      // 64
-            "mem_delete".to_string(),   // 65
-            // File I/O
-            "read_file".to_string(),    // 66
-            "write_file".to_string(),   // 67
-            "append_file".to_string(),  // 68
-            "delete_file".to_string(),  // 69
-            "file_exists".to_string(),  // 70
-            "list_dir".to_string(),     // 71
-            // AI providers
-            "call_claude".to_string(),  // 72
-            // LLM usage
-            "llm_usage".to_string(),    // 73
-            // JSON
-            "escape_json".to_string(),  // 74
-            "parse_json".to_string(),   // 75
-            "json_encode".to_string(),  // 76
-            "json_get".to_string(),     // 77
-            "has_field".to_string(),    // 78
-            // Time
-            "now".to_string(),          // 79
-            "format_date".to_string(),  // 80
-            // Session
-            "session_set".to_string(),  // 81
-            "session_get".to_string(),  // 82
-            "session_clear".to_string(), // 83
-            // HTTP extras
-            "http_post_multipart".to_string(), // 84
-            // Media
-            "whisper_transcribe".to_string(), // 85
-            "tts_send".to_string(),     // 86
-            // Encoding
-            "base64_encode".to_string(), // 87
-            "base64_decode".to_string(), // 88
-            // System
-            "exec".to_string(),         // 89
-            "escape_js".to_string(),    // 90
-            // Misc
-            "dict_get".to_string(),     // 91
-            "dict_set".to_string(),     // 92
-            "dict_keys".to_string(),    // 93
-            "dict_values".to_string(),  // 94
-            "dict_has".to_string(),     // 95
-            "type_of".to_string(),      // 96
-            // Format
-            "format".to_string(),       // 97
-            // v0.8.0 — Time / Date / Calendar
-            "date_parts".to_string(),   // 98
-            "days_between".to_string(), // 99
-            "days_in_month".to_string(), // 100
-            "is_leap_year".to_string(), // 101
-            "add_days".to_string(),     // 102
-            "add_hours".to_string(),    // 103
-            "weekday_name".to_string(), // 104
-            // v0.8.0 — Geolocation
-            "geo_ip".to_string(),       // 105
-            "geo_distance".to_string(), // 106
-            // v0.8.0 — Weather
-            "weather".to_string(),      // 107
-            // v0.8.0 — Reminders
-            "remind".to_string(),       // 108
-            "remind_recurring".to_string(), // 109
-            "cancel_remind".to_string(),    // 110
-            "list_reminders".to_string(),   // 111
-            "check_reminders".to_string(),  // 112
-            // Memory (recall)
-            "recall".to_string(),       // 113
-            // Phase 4.4 self-hosting
-            "stdin".to_string(),        // 114
-            "split_tokens".to_string(), // 115
-            "if_eq".to_string(),        // 116
-            "newline".to_string(),      // 117
-            "is_string_token".to_string(), // 118
+            "send_message".to_string(), // 46
+            "answer_callback_query".to_string(), // 47
+            "edit_message_text".to_string(), // 48
+            "require".to_string(), // 49
+            "http_post".to_string(), // 50
+            "http_get".to_string(), // 51
+            "trim".to_string(), // 52
+            "replace".to_string(), // 53
+            "split".to_string(), // 54
+            "join".to_string(), // 55
+            "length".to_string(), // 56
+            "to_int".to_string(), // 57
+            "reverse".to_string(), // 58
+            "call_llm".to_string(), // 59
+            "kv_set".to_string(), // 60
+            "kv_get".to_string(), // 61
+            "kv_delete".to_string(), // 62
+            "kv_exists".to_string(), // 63
+            "kv_list".to_string(), // 64
+            "mem_set".to_string(), // 65
+            "mem_get".to_string(), // 66
+            "mem_delete".to_string(), // 67
+            "read_file".to_string(), // 68
+            "write_file".to_string(), // 69
+            "append_file".to_string(), // 70
+            "delete_file".to_string(), // 71
+            "file_exists".to_string(), // 72
+            "list_dir".to_string(), // 73
+            "call_claude".to_string(), // 74
+            "llm_usage".to_string(), // 75
+            "escape_json".to_string(), // 76
+            "parse_json".to_string(), // 77
+            "json_encode".to_string(), // 78
+            "json_get".to_string(), // 79
+            "has_field".to_string(), // 80
+            "now".to_string(), // 81
+            "format_date".to_string(), // 82
+            "session_set".to_string(), // 83
+            "session_get".to_string(), // 84
+            "session_clear".to_string(), // 85
+            "http_post_multipart".to_string(), // 86
+            "whisper_transcribe".to_string(), // 87
+            "tts_send".to_string(), // 88
+            "base64_encode".to_string(), // 89
+            "base64_decode".to_string(), // 90
+            "exec".to_string(), // 91
+            "escape_js".to_string(), // 92
+            "dict_get".to_string(), // 93
+            "dict_set".to_string(), // 94
+            "dict_keys".to_string(), // 95
+            "dict_values".to_string(), // 96
+            "dict_has".to_string(), // 97
+            "type_of".to_string(), // 98
+            "format".to_string(), // 99
+            "date_parts".to_string(), // 100
+            "days_between".to_string(), // 101
+            "days_in_month".to_string(), // 102
+            "is_leap_year".to_string(), // 103
+            "add_days".to_string(), // 104
+            "add_hours".to_string(), // 105
+            "weekday_name".to_string(), // 106
+            "geo_ip".to_string(), // 107
+            "geo_distance".to_string(), // 108
+            "weather".to_string(), // 109
+            "weather_forecast".to_string(), // 110
+            "remind".to_string(), // 111
+            "remind_recurring".to_string(), // 112
+            "cancel_remind".to_string(), // 113
+            "list_reminders".to_string(), // 114
+            "check_reminders".to_string(), // 115
+            "recall".to_string(), // 116
+            "human_create".to_string(), // 117
+            "human_mood".to_string(), // 118
+            "human_remember".to_string(), // 119
+            "human_forget".to_string(), // 120
+            "human_recall".to_string(), // 121
+            "human_respond".to_string(), // 122
+            "human_personas".to_string(), // 123
+            "human_delete".to_string(), // 124
+            "stdin".to_string(), // 125
+            "split_tokens".to_string(), // 126
+            "if_eq".to_string(), // 127
+            "newline".to_string(), // 128
+            "is_string_token".to_string(), // 129
+            "zip".to_string(), // 130
+            "sort_by".to_string(), // 131
+            "filter".to_string(), // 132
+            "reduce".to_string(), // 133
+            "extract_param".to_string(), // 134
+            "estimate_tokens".to_string(), // 135
+            "db_insert".to_string(), // 136
+            "matches_any".to_string(), // 137
+            "read_file_tokens".to_string(), // 138
+            "cron_add".to_string(), // 139
+            "cron_list".to_string(), // 140
+            "cron_remove".to_string(), // 141
+            "cron_run".to_string(), // 142
+            "cron_mark_fired".to_string(), // 143
+            "ask_approval".to_string(), // 144
+            "goal_set".to_string(), // 145
+            "goal_get".to_string(), // 146
+            "goal_complete".to_string(), // 147
+            "goals_list".to_string(), // 148
+            "goals_add".to_string(), // 149
+            "goals_reflect".to_string(), // 150
+            "todo_add".to_string(), // 151
+            "todo_update".to_string(), // 152
+            "todo_list".to_string(), // 153
+            "extract_entities".to_string(), // 154
+            "memory_score".to_string(), // 155
+            "compress_html".to_string(), // 156
+            "learn_preference".to_string(), // 157
+            "get_profile".to_string(), // 158
+            "mtree_store".to_string(), // 159
+            "mtree_retrieve".to_string(), // 160
+            "mtree_forget".to_string(), // 161
+            "mtree_summarize".to_string(), // 162
+            "mtree_stats".to_string(), // 163
+            "git_push".to_string(), // 164
+            "web_search".to_string(), // 165
+            "make_list".to_string(), // 166
+            "first".to_string(), // 167
+            "last".to_string(), // 168
+            "time".to_string(), // 169
+            "request_body".to_string(), // 170
         ];
+
 
         Vm {
             globals: Vec::new(),

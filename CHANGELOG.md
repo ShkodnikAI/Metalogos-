@@ -2,6 +2,42 @@
 
 All notable changes to the Metalogos project.
 
+## [0.8.8] — 2026-07-04
+
+**Semantic fixes + compiler/VM builtin sync + integration tests.**
+
+### Bugfix: Semantic analysis dead code (P0-1)
+- Removed unused `_builtin_arity`/`_pattern_arity` parameters from `check_opaque_in_stmts`
+- Removed `_builtin_arity_placeholder()` and `_pattern_arity_placeholder()` dead functions
+- Note: `check_variables_in_stmts` was already correct (arity maps were threaded properly)
+
+### Bugfix: `session_logout` arity 0→1 (P1-2)
+- Semantic had arity=0 but runtime requires 1 arg (Session). Fixed to arity=1.
+
+### Fix: Compiler/VM builtin table sync (P1-3)
+- Added 42 missing builtins to `compiler.rs` builtin_indices (was 129, now 171)
+- Added 53 missing builtins to `vm.rs` builtin_names (was 119, now 171)
+- VM list auto-generated from compiler list to guarantee exact order match
+- Missing builtins included: all v0.8.3 (zip, sort_by, filter, reduce, db_insert, etc.), v0.8.4 (cron, goals, todos, mtree, approval, preferences), v0.8.7 (cron_mark_fired, mtree_stats), plus answer_callback_query, edit_message_text, weather_forecast, git_push, web_search, make_list, first, last, time, request_body
+- Bytecode-compiled programs can now use ALL 147 builtins (previously only ~119)
+
+### Fix: Variadic builtin minimum arities (P1-5)
+- `send_message` 0→2, `edit_message_text` 0→3, `answer_callback_query` 0→1
+- `whisper_transcribe` 0→1, `tts_send` 0→2
+- `goal_set` 0→1, `todo_add` 0→2
+- `mtree_store` 0→1, `mtree_retrieve` 0→1
+- Semantic now catches calling these with too few arguments
+
+### Tests: 17 integration tests for v0.8.4–v0.8.7 (P1-4)
+- `tests/phase23_v084_v087_tests.rs`: cron, goals, todos, mtree (store/retrieve/forget/stats/summarize L1+L2/retrieve L1), extract_entities, memory_score, compress_html, learn_preference, semantic arity checks
+
+### Files changed
+- `semantic.rs`: removed dead code, fixed arities (+9 min-arity fixes)
+- `compiler.rs`: +42 builtins to table
+- `vm.rs`: +53 builtins (auto-generated from compiler)
+- `Cargo.toml`: 0.8.7 → 0.8.8
+- `tests/phase23_v084_v087_tests.rs`: new, 17 tests
+
 ## [0.8.7] — 2026-07-04
 
 **Cron force_run bugfix + Memory Tree L2 global summary + retrieve L1.**

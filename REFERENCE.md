@@ -1,6 +1,6 @@
 # METALOGOS — Справочник языка (Reference)
 
-> **Версия:** 0.8.2 (Phase 8.2)
+> **Версия:** 0.8.3 (Phase 8.3)
 > **Единый источник истины** для разработчиков, пишущих на Металогосе.
 > Содержит полный список встроенных функций с сигнатурами, типами, описанием и примерами,
 > а также справочник по синтаксису, типам данных и CLI.
@@ -35,7 +35,10 @@
    - [Напоминания и таймеры](#420-напоминания-и-таймеры)
    - [Интеграции и автоматизация](#421-интеграции-и-автоматизация)
    - [Human Intelligence Layer](#422-human-intelligence-layer-openhuman-inspired)
-   - [Прочее](#423-прочее)
+   - [Списочные операции](#423-списочные-операции-mapzipsortfilterreduce)
+   - [Базы данных: вставка](#424-базы-данных-параметризованная-вставка)
+   - [Утилиты для скилл-индексов](#425-утилиты-для-скилл-индексов-и-callbackов)
+   - [Прочее](#426-прочее)
 5. [Байткод VM и JIT](#5-байткод-vm-и-jit)
 6. [Объявления верхнего уровня](#6-объявления-верхнего-уровня)
 7. [Stdlib](#7-stdlib-стандартная-библиотека)
@@ -915,7 +918,67 @@ let mem = human_recall("Assistant", "Metalogos", 1)
 print("Recalled: " + first(mem).content)
 ```
 
-### 4.23. Прочее
+### 4.23. Списочные операции (map/zip/sort/filter/reduce)
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `map(list, "pattern_name")` | `List, String -> List` | List | Применяет pattern к каждому элементу списка. Pattern должен принимать 1 аргумент. Interpreter-level (не работает в bytecode VM) |
+| `zip(list_a, list_b)` | `List, List -> List` | List | Попарное объединение в список `{a, b}` Pair-структур. Длина результата = min(len_a, len_b) |
+| `sort_by(list, key_field, descending?)` | `List, String, Float? -> List` | List | Сортировка списка структур по полю. `descending` 1.0 = убывание. Поля типа Float и String поддерживаются |
+| `filter(list, key_field, value)` | `List, String, Any -> List` | List | Фильтрация: возвращает только те структуры, где `item.field == value` |
+| `reduce(list, key_field, initial)` | `List, String, Float -> Float` | Float | Суммирование float-значений поля по всем структурам списка |
+
+**Пример — агрегация потенциала акторов (формула P = A × R × S):**
+```mlog
+entity Actor { name: String, A: Float, R: Float, S: Float }
+
+let actors = [
+  { name: "РФ",      A: 0.6, R: 0.7, S: 0.5 },
+  { name: "Украина", A: 0.7, R: 0.4, S: 0.6 }
+]
+
+pattern Potential(a: Actor) -> Float {
+  return a.A * a.R * a.S
+}
+
+let scores = map(actors, "Potential")              // [0.21, 0.168]
+let paired = zip(actors, scores)                   // [{a: Actor, b: Float}, ...]
+let ranked = sort_by(paired, "b", 1.0)            // по убыванию
+print(ranked[0].a.name)                            // "РФ"
+print(to_string(ranked[0].b))                      // "0.21"
+let total_S = reduce(actors, "S", 0.0)             // 1.1
+```
+
+### 4.24. Базы данных: параметризованная вставка
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `db_insert(table, {field: value, ...})` | `String, Struct -> Float` | Float | Параметризованный INSERT. Возвращает `last_insert_rowid()` как Float. Interpreter-level, требует открытую БД (`db { url: ... }`) |
+
+**Пример:**
+```mlog
+db { url: "sqlite::memory:" }
+db_execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, role TEXT)")
+
+let id = db_insert("users", { name: "Alice", role: "admin" })
+let id2 = db_insert("users", { name: "Bob", role: "viewer" })
+
+let admins = query("SELECT * FROM users WHERE role = ?", ["admin"])
+each row in admins {
+  print(row.name)  // "Alice"
+}
+```
+
+### 4.25. Утилиты для скилл-индексов и callback'ов
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `matches_any(text, triggers)` | `String, List -> Float` | Float | Case-insensitive substring match. Возвращает 1.0 если любой элемент списка найден в тексте |
+| `estimate_tokens(text)` | `String -> Float` | Float | Эвристика: `ceil(chars / 4)` для CJK+Latin. Временная, будет заменена на настоящий токенизатор |
+| `read_file_tokens(path)` | `String -> Struct {FileInfo}` | Struct | Читает файл, возвращает `{content, chars, tokens}` |
+| `extract_param(text, index)` | `String, Float -> String` | String | Парсит `:`-разделённую строку, возвращает N-й сегмент |
+
+### 4.26. Прочее
 
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|
@@ -942,7 +1005,7 @@ if file_id != "" {
 
 ---
 
-## 4.24. Scoping: область видимости `let`
+## 4.27. Scoping: область видимости `let`
 
 **Важно:** `let` внутри `if`, `while`, `each` блоков создаёт **новую лексическую переменную**, видимую только внутри этого блока. Она **не затрагивает** внешнюю переменную с тем же именем.
 
@@ -1289,6 +1352,7 @@ collections.push(items, item) -> List      // append to list
 
 | Версия | Дата | Что нового |
 |--------|------|------------|
+| **0.8.3** | 2026-07-03 | +map/zip/sort_by/filter/reduce, +db_insert, +matches_any/estimate_tokens/read_file_tokens/extract_param, Problem D Hook диагностика, 128 builtins |
 | **0.8.2** | 2026-07-02 | +answer_callback_query, +edit_message_text, send_message +reply_markup (inline keyboard), tts_send → voice bubble (sendVoice), reminder persistence SQLite, background scheduler при mlog serve, 118 builtins |
 | **0.8.1** | 2026-07-01 | +Human Intelligence Layer: human_create, human_mood, human_remember, human_forget, human_recall, human_respond, human_personas, human_delete, 116 builtins |
 | **0.8.0** | 2026-07-01 | +Время/дата/календарь (format_date, date_parts, days_between, add_days, add_hours, weekday_name, is_leap_year, days_in_month), +Геолокация (geo_ip, geo_distance), +Погода Open-Meteo бесплатно без ключа (weather, weather_forecast), +Напоминания с рекурренцией (remind, remind_recurring, cancel_remind, list_reminders, check_reminders), 108 builtins |

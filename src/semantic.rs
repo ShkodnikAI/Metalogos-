@@ -161,7 +161,7 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         "extract_param", "estimate_tokens", "db_insert",
         "matches_any", "read_file_tokens",
         // OpenHuman-inspired (v0.8.3): Scheduling
-        "cron_add", "cron_list", "cron_remove", "cron_run",
+        "cron_add", "cron_list", "cron_remove", "cron_run", "cron_mark_fired",
         // OpenHuman-inspired (v0.8.3): Approval Gate
         "ask_approval",
         // OpenHuman-inspired (v0.8.3): Goals & Todos
@@ -176,7 +176,7 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         // OpenHuman-inspired (v0.8.3): Personalization
         "learn_preference", "get_profile",
         // OpenHuman-inspired (v0.8.6): Memory Tree
-        "mtree_store", "mtree_retrieve", "mtree_forget", "mtree_summarize",
+        "mtree_store", "mtree_retrieve", "mtree_forget", "mtree_summarize", "mtree_stats",
     ] {
         builtin_names.insert(b.to_string());
     }
@@ -439,7 +439,7 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         ("db_insert", 0),
         ("matches_any", 0), ("read_file_tokens", 0),
         // OpenHuman-inspired (v0.8.4): Scheduling
-        ("cron_add", 2), ("cron_list", 0), ("cron_remove", 1), ("cron_run", 1),
+        ("cron_add", 2), ("cron_list", 0), ("cron_remove", 1), ("cron_run", 1), ("cron_mark_fired", 1),
         // OpenHuman-inspired (v0.8.4): Approval Gate
         ("ask_approval", 2),
         // OpenHuman-inspired (v0.8.4): Goals & Todos
@@ -455,7 +455,7 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         // OpenHuman-inspired (v0.8.4): Personalization
         ("learn_preference", 3), ("get_profile", 0),
         // OpenHuman-inspired (v0.8.6): Memory Tree
-        ("mtree_store", 0), ("mtree_retrieve", 0), ("mtree_forget", 1), ("mtree_summarize", 0),
+        ("mtree_store", 0), ("mtree_retrieve", 0), ("mtree_forget", 1), ("mtree_summarize", 0), ("mtree_stats", 0),
     ].iter().cloned().collect();
 
     // Functions that must NOT receive opaque types as arguments.

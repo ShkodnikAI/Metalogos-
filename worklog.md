@@ -151,3 +151,26 @@ Stage Summary:
   - sandbox_path: абсолютные пути разрешены
   - push() auto-mutation для mutable vars
   - request_body() alias в FnCall dispatch
+
+---
+Task ID: 27
+Agent: main
+Task: v0.8.7 — cron force_run bugfix + Memory Tree L2 + mtree_stats
+
+Work Log:
+- Discovered critical bug: cron scheduler never resets force_run after firing, causing infinite re-fire every 5s tick
+- Added cron_mark_fired(id) builtin: resets force_run=false, increments run_count, sets last_run timestamp
+- Modified server.rs scheduler: extracts job_id from cron_list, calls cron_mark_fired after dispatch
+- Extended mtree_summarize(): two-phase L0→L1 (unchanged) + L1→L2 (new, triggers at 3+ L1, single L2 replaced on re-run)
+- Extended mtree_retrieve(): now searches both L0 and L1 entries; L1 gets relevance boost (0.8*rel + 0.2)
+- Added mtree_stats() diagnostic builtin: returns {l0, l1, l2, total, total_chars}
+- Updated semantic.rs: +cron_mark_fired, +mtree_stats in builtin_names and builtin_arity
+- Updated REFERENCE.md: cron_mark_fired in 4.26, mtree_retrieve/stats/summarize in 4.33, version table
+- Updated CHANGELOG.md: v0.8.7 entry
+- Bumped Cargo.toml: 0.8.6 → 0.8.7
+
+Stage Summary:
+- Critical bug fixed: cron force_run infinite re-fire (production impact)
+- Memory Tree now complete 3-level hierarchy: L0→L1→L2
+- 147 builtins total (+cron_mark_fired, +mtree_stats)
+- Files changed: builtins.rs, server.rs, semantic.rs, Cargo.toml, CHANGELOG.md, REFERENCE.md

@@ -2,6 +2,38 @@
 
 All notable changes to the Metalogos project.
 
+## [0.8.7] — 2026-07-04
+
+**Cron force_run bugfix + Memory Tree L2 global summary + retrieve L1.**
+
+### Bugfix: Cron force_run infinite re-fire
+- `cron_run(id)` set `force_run=true` but the scheduler never reset it — the job would fire on **every** 5-second tick indefinitely
+- Added `cron_mark_fired(id)` builtin: resets `force_run`, increments `run_count`, sets `last_run`
+- Scheduler now calls `cron_mark_fired` after every successful dispatch
+- 1 new builtin (cron_mark_fired), 147 total
+
+### Feature: Memory Tree L2 global summary
+- `mtree_summarize()` now has two-phase promotion: L0→L1 (unchanged) + L1→L2 (new)
+- L1→L2 triggers when 3+ L1 entries exist; concatenates all L1 texts (truncated to 1000 chars)
+- Only one L2 entry exists at a time (previous L2 is replaced)
+- Return struct changed: `{ l0_promoted, l1_count, l2_created, status }` (was `{ promoted, total_l1, status }`)
+
+### Feature: mtree_retrieve searches L0 + L1
+- Previously only searched L0 entries; now also searches L1 chunk summaries
+- L1 entries get a relevance boost: `relevance * 0.8 + 0.2` (compressed knowledge is more useful)
+- L0 scoring unchanged: `relevance * 0.6 + stored_score * 0.4`
+
+### Feature: mtree_stats() diagnostic builtin
+- Returns `{ l0, l1, l2, total, total_chars }` for monitoring memory tree state
+
+### Files changed
+- `builtins.rs`: +cron_mark_fired, +mtree_stats, extended mtree_summarize (L2), extended mtree_retrieve (L1 search)
+- `server.rs`: scheduler calls cron_mark_fired after dispatch
+- `semantic.rs`: +cron_mark_fired, +mtree_stats in names and arities
+- `Cargo.toml`: 0.8.6 → 0.8.7
+
+**Total: 147 builtins (was 146)**
+
 ## [0.8.6] — 2026-07-04
 
 **Memory Tree pipeline + Interpreter::call_pattern() + cron user-pattern dispatch.**

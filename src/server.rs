@@ -241,6 +241,7 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
             if let Ok(crate::interpreter::Value::List(jobs)) = cron_check {
                 for job in &jobs {
                     if let crate::interpreter::Value::Struct { fields, .. } = job {
+                        let job_id = fields.get("id").map(|v| format!("{}", v)).unwrap_or_default();
                         let cron_expr = fields.get("cron_expr").map(|v| format!("{}", v)).unwrap_or_default();
                         let enabled = fields.get("enabled").map(|v| format!("{}", v)) == Some("1".to_string());
                         let force_run = fields.get("force_run").map(|v| format!("{}", v)) == Some("1".to_string());
@@ -258,6 +259,12 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
                                 }
                             } else if let Err(e) = interp.call_pattern(&prompt, &[]) {
                                 eprintln!("[cron] pattern '{}' error: {}", prompt, e);
+                            }
+                            // Reset force_run, increment run_count, set last_run
+                            if let Some(mark_fn) = interp.get_builtin("cron_mark_fired") {
+                                if let Err(e) = mark_fn(&[crate::interpreter::Value::String(job_id)]) {
+                                    eprintln!("[cron] mark_fired error: {}", e);
+                                }
                             }
                         }
                     }

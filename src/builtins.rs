@@ -222,6 +222,7 @@ impl Builtins {
         funcs.insert("cron_list".to_string(), builtin_cron_list as BuiltinFn);
         funcs.insert("cron_remove".to_string(), builtin_cron_remove as BuiltinFn);
         funcs.insert("cron_run".to_string(), builtin_cron_run as BuiltinFn);
+        funcs.insert("cron_mark_fired".to_string(), builtin_cron_mark_fired as BuiltinFn);
 
         // ── OpenHuman-inspired: Approval Gate (Tier 1 #10) ──
         funcs.insert("ask_approval".to_string(), builtin_ask_approval as BuiltinFn);
@@ -255,6 +256,7 @@ impl Builtins {
         funcs.insert("mtree_retrieve".to_string(), builtin_mtree_retrieve as BuiltinFn);
         funcs.insert("mtree_forget".to_string(), builtin_mtree_forget as BuiltinFn);
         funcs.insert("mtree_summarize".to_string(), builtin_mtree_summarize as BuiltinFn);
+        funcs.insert("mtree_stats".to_string(), builtin_mtree_stats as BuiltinFn);
 
         Builtins { funcs }
     }
@@ -3901,6 +3903,37 @@ fn builtin_cron_run(args: &[Value]) -> Result<Value, String> {
     }
 }
 
+/// `cron_mark_fired(id)` — internal: reset force_run, increment run_count, set last_run.
+/// Called by the server scheduler after dispatching a cron job.
+/// Returns Struct { id, status }.
+fn builtin_cron_mark_fired(args: &[Value]) -> Result<Value, String> {
+    let id = expect_string_arg("cron_mark_fired", args, 0)?;
+    let mut jobs = get_cron_jobs();
+    let mut found = false;
+    for job in &mut jobs {
+        if job["id"].as_str() == Some(&id) {
+            job["force_run"] = serde_json::Value::Bool(false);
+            let count = job["run_count"].as_u64().unwrap_or(0) + 1;
+            job["run_count"] = serde_json::Value::Number(count.into());
+            job["last_run"] = serde_json::Value::Number(chrono_now_timestamp().into());
+            found = true;
+            break;
+        }
+    }
+    if found {
+        save_cron_jobs(&jobs);
+        Ok(make_date_struct("CronMarkResult", vec![
+            ("id", Value::String(id)),
+            ("status", Value::String("fired".to_string())),
+        ]))
+    } else {
+        Ok(make_date_struct("CronMarkResult", vec![
+            ("id", Value::String(id)),
+            ("status", Value::String("not_found".to_string())),
+        ]))
+    }
+}
+
 // ── Approval Gate (inspired by OpenHuman approval flow) ──
 // Stores pending approvals in KV store. In server mode, these can be
 // dispatched as Telegram inline keyboards. In CLI mode, returns the
@@ -4804,8 +4837,10 @@ fn builtin_mtree_store(args: &[Value]) -> Result<Value, String> {
     ]))
 }
 
-/// `mtree_retrieve(query, limit?)` — retrieve top-N relevant L0 memories.
+/// `mtree_retrieve(query, limit?)` — retrieve top-N relevant memories from L0 and L1.
 /// Uses keyword relevance scoring. Default limit: 5.
+/// L0 entries are scored by relevance*0.6 + stored_score*0.4.
+/// L1 summaries are scored by relevance*0.8 + 0.2 (L1 boost for compressed knowledge).
 /// Returns List of Struct { id, text, level, score, relevance }.
 fn builtin_mtree_retrieve(args: &[Value]) -> Result<Value, String> {
     let query = expect_string_arg("mtree_retrieve", args, 0)?;
@@ -4817,12 +4852,22 @@ fn builtin_mtree_retrieve(args: &[Value]) -> Result<Value, String> {
 
     let entries = get_mtree_entries();
     let mut scored: Vec<(f64, &serde_json::Value)> = entries.iter()
-        .filter(|e| e["level"].as_str() == Some("L0"))
+        .filter(|e| {
+            let level = e["level"].as_str().unwrap_or("");
+            level == "L0" || level == "L1"
+        })
         .map(|e| {
             let text = e["text"].as_str().unwrap_or("");
             let rel = keyword_relevance(text, &query);
             let stored_score = e["score"].as_f64().unwrap_or(0.0);
-            (rel * 0.6 + stored_score * 0.4, e)
+            let level = e["level"].as_str().unwrap_or("L0");
+            // L1 summaries get a relevance boost (compressed knowledge is more useful)
+            let composite = if level == "L1" {
+                rel * 0.8 + 0.2
+            } else {
+                rel * 0.6 + stored_score * 0.4
+            };
+            (composite, e)
         })
         .filter(|(s, _)| *s > 0.0)
         .collect();
@@ -4863,29 +4908,25 @@ fn builtin_mtree_forget(args: &[Value]) -> Result<Value, String> {
     ]))
 }
 
-/// `mtree_summarize()` — promote L0 entries to L1 summaries.
-/// Batches up to 10 L0 entries into one L1 summary (concatenation, truncated to 500 chars).
-/// In production v0.9, this would call an LLM for real summarization.
-/// Returns Struct { promoted, total_l1, status }.
+/// `mtree_summarize()` — promote L0 entries to L1, then L1 entries to L2 global summary.
+/// L0→L1: batches up to 10 unsummarized L0 entries into one L1 summary (concat+truncate to 500 chars).
+/// L1→L2: if 3+ L1 entries exist and no L2 yet (or L2 is stale), concatenate all L1 texts
+///   into a single L2 global summary (truncated to 1000 chars). Only one L2 exists at a time;
+///   previous L2 is replaced.
+/// In a future version, LLM-backed summarization will replace concat+truncate.
+/// Returns Struct { l0_promoted, l1_count, l2_created, status }.
 fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
     let _ = args;
     let mut entries = get_mtree_entries();
 
+    // ── Phase 1: L0 → L1 ──
     let l0_ids: Vec<String> = entries.iter()
         .filter(|e| e["level"].as_str() == Some("L0") && e["summary"].is_null())
         .map(|e| e["id"].as_str().unwrap_or("").to_string())
         .collect();
 
-    if l0_ids.is_empty() {
-        return Ok(make_date_struct("MTreeSummarize", vec![
-            ("promoted", Value::Float(0.0)),
-            ("total_l1", Value::Float(entries.iter().filter(|e| e["level"].as_str() == Some("L1")).count() as f64)),
-            ("status", Value::String("no_unsummarized_l0".to_string())),
-        ]));
-    }
-
+    let mut l0_promoted = 0u32;
     let batch_size = 10;
-    let mut promoted = 0u32;
     for chunk in l0_ids.chunks(batch_size) {
         let texts: Vec<String> = chunk.iter().filter_map(|id| {
             entries.iter().find(|e| e["id"].as_str() == Some(id.as_str()))
@@ -4920,16 +4961,81 @@ fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
                 }
             }
         }
-        promoted += 1;
+        l0_promoted += 1;
+    }
+
+    // ── Phase 2: L1 → L2 global summary ──
+    let l1_entries: Vec<&serde_json::Value> = entries.iter()
+        .filter(|e| e["level"].as_str() == Some("L1"))
+        .collect();
+    let mut l2_created = 0u32;
+
+    if l1_entries.len() >= 3 {
+        // Remove any existing L2 (global summary is always replaced)
+        entries.retain(|e| e["level"].as_str() != Some("L2"));
+
+        let l1_texts: Vec<String> = l1_entries.iter()
+            .filter_map(|e| e["text"].as_str().map(|s| s.to_string()))
+            .collect();
+
+        let combined: String = l1_texts.join("\n---\n");
+        let global_summary = if combined.len() > 1000 {
+            format!("{}...", &combined[..997])
+        } else {
+            combined
+        };
+
+        let l2_id = format!("mt_l2_{}", chrono_now_timestamp());
+        let l2_entry = serde_json::json!({
+            "id": l2_id,
+            "text": global_summary,
+            "level": "L2",
+            "score": 0.9,
+            "created_at": chrono_now_timestamp(),
+            "source": "mtree_summarize",
+            "summary": serde_json::Value::Null,
+            "source_l1_count": l1_entries.len()
+        });
+        entries.push(l2_entry);
+        l2_created = 1;
     }
 
     save_mtree_entries(&entries);
-    let total_l1 = entries.iter().filter(|e| e["level"].as_str() == Some("L1")).count();
+    let l1_count = entries.iter().filter(|e| e["level"].as_str() == Some("L1")).count();
+
+    let status = match (l0_promoted, l2_created) {
+        (0, 0) => "no_unsummarized_l0".to_string(),
+        (_, 1) => "l0_and_l2_promoted".to_string(),
+        (n, 0) if n > 0 => "l0_promoted".to_string(),
+        _ => "no_change".to_string(),
+    };
 
     Ok(make_date_struct("MTreeSummarize", vec![
-        ("promoted", Value::Float(promoted as f64)),
-        ("total_l1", Value::Float(total_l1 as f64)),
-        ("status", Value::String("promoted".to_string())),
+        ("l0_promoted", Value::Float(l0_promoted as f64)),
+        ("l1_count", Value::Float(l1_count as f64)),
+        ("l2_created", Value::Float(l2_created as f64)),
+        ("status", Value::String(status)),
+    ]))
+}
+
+/// `mtree_stats()` — diagnostics: count entries at each level, total size.
+/// Returns Struct { l0, l1, l2, total, total_chars }.
+fn builtin_mtree_stats(args: &[Value]) -> Result<Value, String> {
+    let _ = args;
+    let entries = get_mtree_entries();
+    let l0 = entries.iter().filter(|e| e["level"].as_str() == Some("L0")).count();
+    let l1 = entries.iter().filter(|e| e["level"].as_str() == Some("L1")).count();
+    let l2 = entries.iter().filter(|e| e["level"].as_str() == Some("L2")).count();
+    let total_chars: usize = entries.iter()
+        .filter_map(|e| e["text"].as_str())
+        .map(|s| s.len())
+        .sum();
+    Ok(make_date_struct("MTreeStats", vec![
+        ("l0", Value::Float(l0 as f64)),
+        ("l1", Value::Float(l1 as f64)),
+        ("l2", Value::Float(l2 as f64)),
+        ("total", Value::Float(entries.len() as f64)),
+        ("total_chars", Value::Float(total_chars as f64)),
     ]))
 }
 

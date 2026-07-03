@@ -175,6 +175,8 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         "compress_html",
         // OpenHuman-inspired (v0.8.3): Personalization
         "learn_preference", "get_profile",
+        // OpenHuman-inspired (v0.8.6): Memory Tree
+        "mtree_store", "mtree_retrieve", "mtree_forget", "mtree_summarize",
     ] {
         builtin_names.insert(b.to_string());
     }
@@ -452,6 +454,8 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         ("compress_html", 1),
         // OpenHuman-inspired (v0.8.4): Personalization
         ("learn_preference", 3), ("get_profile", 0),
+        // OpenHuman-inspired (v0.8.6): Memory Tree
+        ("mtree_store", 0), ("mtree_retrieve", 0), ("mtree_forget", 1), ("mtree_summarize", 0),
     ].iter().cloned().collect();
 
     // Functions that must NOT receive opaque types as arguments.

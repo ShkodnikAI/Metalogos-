@@ -2,6 +2,31 @@
 
 All notable changes to the Metalogos project.
 
+## [0.8.6] — 2026-07-04
+
+**Memory Tree pipeline + Interpreter::call_pattern() + cron user-pattern dispatch.**
+
+### Feature: Interpreter::call_pattern()
+- Public method for calling user patterns by name from external code (server scheduler, webhooks)
+- Supports regular patterns (params+body) and learnable patterns (LLM-backed)
+- Full lifecycle: arity check, bind_and_collapse, invoke_pattern_with_hooks
+
+### Feature: Cron dispatch of user patterns (server.rs)
+- Scheduler now dispatches user patterns via call_pattern() after builtin check
+
+### Feature: Memory Tree pipeline — 4 builtins
+- `mtree_store(text, source?)` — L0 storage with admission gate (score >= 0.3)
+- `mtree_retrieve(query, limit?)` — top-N retrieval by keyword relevance
+- `mtree_forget(id)` — delete entry by id
+- `mtree_summarize()` — L0 to L1 promotion (batches of 10, concat+truncate; LLM in v0.9)
+- KV store backend (mtree_entries), compatible with in-memory and SQLite
+
+### Docs
+- REFERENCE.md: new section 4.33 (Memory Tree)
+- semantic.rs: 4 new names + 4 arities
+
+**Total: 145 builtins (was 141)**
+
 ## [0.8.5] — 2026-07-03
 
 **Исправления критических багов v0.8.4 + полноценный cron scheduler.**

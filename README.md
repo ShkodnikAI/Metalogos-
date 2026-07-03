@@ -7,11 +7,47 @@
 **The first programming language designed by AI, for AI. Security built into the language.**
 
 [![Rust](https://img.shields.io/badge/rust-1.80+-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/v0.8.2-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/)
+[![Version](https://img.shields.io/badge/v0.8.3-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
 [![CI](https://img.shields.io/badge/CI-passing-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 
 </div>
+
+---
+
+## What's New in v0.8.3
+
+**Reverse-iteration primitives** — list aggregation, DB inserts, skill matching. Built by reverse-iterating from real Fosved V2 pain points.
+
+```mlog
+// map — apply pattern to every list element
+entity Actor { name: String, A: Float, R: Float }
+let actors = [{ name: "РФ", A: 0.6, R: 0.7 }, { name: "UA", A: 0.7, R: 0.4 }]
+
+pattern Potential(a: Actor) -> Float {
+  return a.A * a.R
+}
+
+let scores = map(actors, "Potential")          // [0.42, 0.28]
+let ranked = sort_by(zip(actors, scores), "b", 1.0)  // descending by score
+print(ranked[0].a.name)                        // "РФ"
+
+// filter — find structs by field value
+let big = filter(actors, "A", 0.65)
+
+// db_insert — parameterized INSERT (safe by design)
+db { url: "sqlite::memory:" }
+db_insert("users", { name: "Alice", role: "admin" })
+let row = query("SELECT * FROM users WHERE role = 'admin'")
+print(row[0].name)  // "Alice"
+
+// matches_any — case-insensitive substring matching
+let hit = matches_any("проанализируй рынок нефти", ["рынок", "акци", "валют"])
+// hit = 1.0
+
+// estimate_tokens — rough heuristic
+let t = estimate_tokens("Hello world")  // 3.0
+```
 
 ---
 
@@ -319,11 +355,11 @@ Metalogos has **three execution backends**: a tree-walking interpreter, a byteco
 | Crypto | `hmac`, `sha2`, `aes-gcm` (AES-256-GCM) |
 | CLI | [Clap 4.5](https://github.com/clap-rs/clap) |
 | Tests | Golden-file (78 examples with `.expected`/`.error`) + 32 integration test files (7 000+ lines) |
-| Builtins | `builtins.rs` — 118 built-in functions (3 500+ lines) |
+| Builtins | `builtins.rs` — 128 built-in functions (3 700+ lines) |
 
 ```
 Metalogos-/
-├── Cargo.toml              # Single-crate project, version 0.8.2
+├── Cargo.toml              # Single-crate project, version 0.8.3
 ├── src/
 │   ├── grammar.pest         # PEG grammar (335 rules)
 │   ├── ast.rs               # AST: 24 Declaration, 14 Expr, 12 Statement, 4 MatchArm variants
@@ -382,6 +418,7 @@ Metalogos-/
 | Phase 8.0 | Time/Date/Calendar, Geolocation, Weather (Open-Meteo, free), Reminders with recurrence | Done |
 | Phase 8.1 | Human Intelligence Layer: personas, memory tree, mood, human-like AI responses | Done |
 | Phase 8.2 | Telegram Bot Platform: voice notes, inline keyboards, callbacks, reminder scheduler | Done |
+| Phase 8.3 | Reverse-iteration primitives: map/zip/sort_by/filter/reduce, db_insert, matches_any, estimate_tokens | Done |
 
 ### Next
 

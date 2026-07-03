@@ -135,6 +135,12 @@ impl Compiler {
             "human_recall", "human_respond", "human_personas", "human_delete",
             // Phase 4.4 self-hosting
             "stdin", "split_tokens", "if_eq", "newline", "is_string_token",
+            // Problem B (reverse-iteration): list aggregation + helpers
+            "zip", "sort_by", "filter", "reduce", "extract_param", "estimate_tokens",
+            // Problem C (reverse-iteration): db_insert
+            "db_insert",
+            // Problem A (reverse-iteration): skill index helpers
+            "matches_any", "read_file_tokens",
         ];
         for (i, name) in builtins.iter().enumerate() {
             builtin_indices.insert(name.to_string(), i);

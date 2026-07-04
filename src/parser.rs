@@ -1684,16 +1684,102 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
             let inner = pair.into_inner().next().unwrap();
             parse_expression(inner)
         }
-        Rule::binary_expr => {
+        Rule::or_expr => {
             let children = children_of(&pair);
             if children.is_empty() { return Expr::StringLit(String::new()); }
             let mut left = parse_expression(children[0].clone());
             let mut i = 1;
             while i + 1 < children.len() {
-                if children[i].as_rule() == Rule::binop {
+                if children[i].as_rule() == Rule::OR_KW {
+                    left = Expr::BinaryOp(
+                        Box::new(left), BinOp::Or,
+                        Box::new(parse_expression(children[i + 1].clone())),
+                    );
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            left
+        }
+        Rule::and_expr => {
+            let children = children_of(&pair);
+            if children.is_empty() { return Expr::StringLit(String::new()); }
+            let mut left = parse_expression(children[0].clone());
+            let mut i = 1;
+            while i + 1 < children.len() {
+                if children[i].as_rule() == Rule::AND_KW {
+                    left = Expr::BinaryOp(
+                        Box::new(left), BinOp::And,
+                        Box::new(parse_expression(children[i + 1].clone())),
+                    );
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            left
+        }
+        Rule::compare_expr => {
+            let children = children_of(&pair);
+            if children.is_empty() { return Expr::StringLit(String::new()); }
+            let mut left = parse_expression(children[0].clone());
+            let mut i = 1;
+            while i + 1 < children.len() {
+                if children[i].as_rule() == Rule::compare_op {
                     let op = parse_binop(&children[i]);
                     left = Expr::BinaryOp(
                         Box::new(left), op,
+                        Box::new(parse_expression(children[i + 1].clone())),
+                    );
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            left
+        }
+        Rule::add_expr => {
+            let children = children_of(&pair);
+            if children.is_empty() { return Expr::StringLit(String::new()); }
+            let mut left = parse_expression(children[0].clone());
+            let mut i = 1;
+            while i + 1 < children.len() {
+                let rule = children[i].as_rule();
+                if rule == Rule::PLUS {
+                    left = Expr::BinaryOp(
+                        Box::new(left), BinOp::Add,
+                        Box::new(parse_expression(children[i + 1].clone())),
+                    );
+                    i += 2;
+                } else if rule == Rule::MINUS {
+                    left = Expr::BinaryOp(
+                        Box::new(left), BinOp::Sub,
+                        Box::new(parse_expression(children[i + 1].clone())),
+                    );
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            left
+        }
+        Rule::mul_expr => {
+            let children = children_of(&pair);
+            if children.is_empty() { return Expr::StringLit(String::new()); }
+            let mut left = parse_expression(children[0].clone());
+            let mut i = 1;
+            while i + 1 < children.len() {
+                let rule = children[i].as_rule();
+                if rule == Rule::STAR {
+                    left = Expr::BinaryOp(
+                        Box::new(left), BinOp::Mul,
+                        Box::new(parse_expression(children[i + 1].clone())),
+                    );
+                    i += 2;
+                } else if rule == Rule::SLASH {
+                    left = Expr::BinaryOp(
+                        Box::new(left), BinOp::Div,
                         Box::new(parse_expression(children[i + 1].clone())),
                     );
                     i += 2;
@@ -1809,6 +1895,11 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
         Rule::primary_expr => {
             let inner = pair.into_inner().next().unwrap();
             match inner.as_rule() {
+                Rule::paren_expr => {
+                    // Наряд M1: parenthesized grouping — unwrap inner expression
+                    let inner_expr = inner.into_inner().next().unwrap();
+                    parse_expression(inner_expr)
+                }
                 Rule::block_if_else_expr => {
                     // Наряд №14 P0-3: block if/else as expression
                     parse_block_if_else_expr(inner)

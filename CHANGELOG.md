@@ -2,6 +2,28 @@
 
 All notable changes to the Metalogos project.
 
+## [0.8.9] — 2026-07-05
+
+**Наряд M2: else-ветка не исполнялась + мутации в ветках if/else терялись.**
+
+### Bugfix: parser — else_block пропускался (A.1, A.2)
+- `if_then_stmt`: добавлена обработка `Rule::else_block` — извлечение statements из узла else_block.
+  Ранее else_body оставался None → else отбрасывался без ошибки.
+- `block_if_else_expr` и `parse_if_block_stmt`: тот же дефект — `in_else = true` не работал,
+  т.к. statements внутри else_block не являются прямыми детьми if-узла.
+- Исправлено во всех трёх местах; мёртвый код (in_else флаг, текстовый детектор) оставлен.
+
+### Bugfix: interpreter — мутации в Expr::BlockIfElse терялись (B.1)
+- `env.clone()` заменён на `eval_block!` макрос (тот же, что в Statement::IfElseBlock).
+- Мутации `let` внутри then/else/else-if веток теперь сохраняются в окружении.
+
+### Breaking impact
+- 31 else-блок в FOSVED-office-v2 (ранее мёртвые) оживут после обновления бинарника.
+- Программы, полагавшиеся на то что else не исполняется — изменят поведение.
+
+### Контракты
+- e1 (oneline return), e2 (multiline mutation), e3 (then regression), e4 (else-if chain)
+
 ## [0.8.8] — 2026-07-04
 
 **Semantic fixes + compiler/VM builtin sync + integration tests.**

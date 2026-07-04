@@ -174,3 +174,27 @@ Stage Summary:
 - Memory Tree now complete 3-level hierarchy: L0→L1→L2
 - 147 builtins total (+cron_mark_fired, +mtree_stats)
 - Files changed: builtins.rs, server.rs, semantic.rs, Cargo.toml, CHANGELOG.md, REFERENCE.md
+
+---
+Task ID: 28
+Agent: main
+Task: Chrono fix, docs update, README rewrite, push
+
+Work Log:
+- chrono Datelike/Timelike fix already in HEAD (commit 8fde411 by previous agent session)
+- Updated REFERENCE.md version: 0.8.4 → 0.8.8
+- Added chrono fix entry to CHANGELOG.md v0.8.8 section
+- Rewrote README.md from scratch (was stale at v0.8.3, 5 versions behind)
+  - Updated all metrics: 171 builtins, 23.2K lines, 33 test files, 78 examples
+  - Added cron, Memory Tree, goals/todos features
+  - Added FOSVED-office-v2 submodule in project structure
+  - Added version history table, accurate line counts per file
+- Committed as e7a5cfa, pushed to origin/main
+- Answered user questions about FOSVED-office-v2:
+  1. It's a git submodule (mode 160000), not a regular folder — no code duplication
+  2. Added 10 Jun 2026 by Z Agent, updated 1 Jul 2026 by Z User — both AI sessions
+
+Stage Summary:
+- All docs now reflect v0.8.8
+- Pushed 3 commits to origin/main (51acf16..e7a5cfa)
+- CI will rebuild with chrono fix

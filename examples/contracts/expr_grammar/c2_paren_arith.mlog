@@ -1,0 +1,8 @@
+pattern T(x: String) -> String {
+  let a = 10.0
+  let b = 2.0
+  let r = (a / b) * 100.0
+  if r == 500.0 then { return "ok" }
+  return "fail"
+}
+flow Main { input: String = "z" -> T -> output }

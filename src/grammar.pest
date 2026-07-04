@@ -242,9 +242,13 @@ type_name = { IDENT }
 ARROW = @{ "->" }
 
 // ── Expressions (v0.5.0: access_expr replaces field_expr, INT in primary_expr) ──
-expression       = { binary_expr }
-binary_expr      = { unary_expr ~ (binop ~ unary_expr)* }
-binop            = @{ AND_KW | OR_KW | STAR | SLASH | PLUS | MINUS | GTE | LTE | NEQ | GT | LT | EQ }
+// v0.8.8.1: standard operator precedence via layered grammar (narad M1)
+expression       = { or_expr }
+or_expr          = { and_expr ~ (OR_KW ~ and_expr)* }
+and_expr         = { compare_expr ~ (AND_KW ~ compare_expr)* }
+compare_expr     = { add_expr ~ (compare_op ~ add_expr)* }
+add_expr         = { mul_expr ~ ((PLUS | MINUS) ~ mul_expr)* }
+mul_expr         = { unary_expr ~ ((STAR | SLASH) ~ unary_expr)* }
 unary_expr       = { try_expr | if_else_expr | qualified_call_expr | call_expr | unary_minus | access_expr | primary_expr }
 unary_minus     = @{ MINUS ~ unary_expr }
 try_expr       = { "try" ~ unary_expr }
@@ -254,7 +258,8 @@ postfix_op       = _{ "." ~ IDENT | LBRACKET ~ expression ~ RBRACKET }
 qualified_call_expr = { IDENT ~ DOT_CHAR ~ IDENT ~ "(" ~ expression_list? ~ ")" }
 call_expr        = { IDENT ~ "(" ~ expression_list? ~ ")" }
 expression_list  = { expression ~ (COMMA ~ WHITESPACE? ~ expression)* }
-primary_expr     = { block_if_else_expr | struct_literal | list_literal | BOOL_LITERAL | FLOAT_LITERAL | MULTILINE_STRING | STRING_LITERAL | INT | IDENT }
+primary_expr     = { paren_expr | block_if_else_expr | struct_literal | list_literal | BOOL_LITERAL | FLOAT_LITERAL | MULTILINE_STRING | STRING_LITERAL | INT | IDENT }
+paren_expr       = { "(" ~ expression ~ ")" }
 block_if_else_expr = { "if" ~ expression ~ LBRACE ~ statement* ~ RBRACE ~ else_if_block* ~ else_block? }
 struct_literal   = { LBRACE ~ struct_field_init ~ (COMMA ~ struct_field_init)* ~ COMMA? ~ RBRACE }
 struct_field_init = { IDENT ~ COLON ~ expression }

@@ -1,0 +1,8 @@
+pattern T(x: String) -> String {
+  let s = "content"
+  let result = ""
+  let budget = 100.0
+  if s != "" and len(result) < budget then { return "T" }
+  return "F"
+}
+flow Main { input: String = "z" -> T -> output }

@@ -1,0 +1,5 @@
+pattern T(t: String) -> String {
+  if (contains(t, "a") or contains(t, "b")) and len(t) < 100.0 then { return "x" }
+  return "y"
+}
+flow Main { input: String = "abc" -> T -> output }

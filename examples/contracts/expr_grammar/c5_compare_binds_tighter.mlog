@@ -1,0 +1,5 @@
+pattern T(x: String) -> String {
+  if lower(x) == "yes" or lower(x) == "ok" then { return "T" }
+  return "F"
+}
+flow Main { input: String = "ok" -> T -> output }

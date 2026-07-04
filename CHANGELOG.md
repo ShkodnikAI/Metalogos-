@@ -31,10 +31,15 @@ All notable changes to the Metalogos project.
 ### Tests: 17 integration tests for v0.8.4–v0.8.7 (P1-4)
 - `tests/phase23_v084_v087_tests.rs`: cron, goals, todos, mtree (store/retrieve/forget/stats/summarize L1+L2/retrieve L1), extract_entities, memory_score, compress_html, learn_preference, semantic arity checks
 
+### Fix: chrono trait imports for new stable Rust
+- Added `use chrono::{Datelike, Timelike}` in `server.rs` — `.minute()`, `.hour()`, `.num_days_from_sunday()` require explicit trait import on latest stable
+- Without this fix, cron scheduler fails to compile
+
 ### Files changed
 - `semantic.rs`: removed dead code, fixed arities (+9 min-arity fixes)
 - `compiler.rs`: +42 builtins to table
 - `vm.rs`: +53 builtins (auto-generated from compiler)
+- `server.rs`: +chrono Datelike/Timelike imports
 - `Cargo.toml`: 0.8.7 → 0.8.8
 - `tests/phase23_v084_v087_tests.rs`: new, 17 tests
 

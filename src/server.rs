@@ -82,7 +82,7 @@ fn cron_expr_matches(expr: &str) -> bool {
     let hour = now.hour();
     let dom = now.day();          // 1-31
     let month = now.month();       // 1-12
-    let dow = now.num_days_from_sunday(); // 0=Sun
+    let dow = now.weekday().num_days_from_sunday(); // 0=Sun
 
     cron_field_matches(parts[0], min)
         && cron_field_matches(parts[1], hour)

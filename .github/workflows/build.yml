@@ -18,6 +18,9 @@ jobs:
       - name: Build release
         run: cargo build --release --bin mlog
 
+      - name: Run tests
+        run: cargo test --release
+
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:

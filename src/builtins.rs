@@ -3065,6 +3065,7 @@ pub fn init_reminder_persist(db_path: &str) -> Result<(), String> {
     if let Ok(mut store) = reminders_store().lock() {
         store.extend(rows);
     }
+    drop(stmt);
     let mut guard = reminders_sqlite().lock().map_err(|e| format!("[reminders] lock error: {}", e))?;
     *guard = Some(conn);
     eprintln!("[reminders] SQLite persistence enabled: {}", db_path);
@@ -3260,7 +3261,7 @@ fn builtin_human_mood(args: &[Value]) -> Result<Value, String> {
             0.5
         };
         data["mood"] = serde_json::Value::String(mood.clone());
-        data["mood_intensity"] = serde_json::Value::Number(serde_json::Number::from_f64(intensity).unwrap_or(serde_json::Number::from(0.5)));
+        data["mood_intensity"] = serde_json::Value::Number(serde_json::Number::from_f64(intensity).unwrap_or(serde_json::Number::from_f64(0.5).unwrap()));
         data["mood_updated_at"] = serde_json::json!(now_ts);
         let updated = serde_json::to_string(&data)
             .map_err(|e| format!("human_mood() serialize error: {}", e))?;
@@ -3621,8 +3622,8 @@ pub fn builtin_sort_by(args: &[Value]) -> Result<Value, String> {
 
     let mut sorted = list;
     sorted.sort_by(|a, b| {
-        let va = a.get_field(&key_field).unwrap_or(Value::Float(0.0));
-        let vb = b.get_field(&key_field).unwrap_or(Value::Float(0.0));
+        let va = a.get_field(&key_field).ok().cloned().unwrap_or(Value::Float(0.0));
+        let vb = b.get_field(&key_field).ok().cloned().unwrap_or(Value::Float(0.0));
         let fa = match va {
             Value::Float(f) => f,
             Value::String(s) => s.parse::<f64>().unwrap_or(0.0),
@@ -3658,8 +3659,13 @@ pub fn builtin_filter(args: &[Value]) -> Result<Value, String> {
     };
 
     let filtered: Vec<Value> = list.into_iter().filter(|item| {
-        let field_val = item.get_field(&key_field).unwrap_or(Value::Unit);
-        field_val == filter_val
+        let field_val = item.get_field(&key_field).ok().cloned().unwrap_or(Value::Unit);
+        match (&field_val, &filter_val) {
+            (Value::String(a), Value::String(b)) => a == b,
+            (Value::Float(a), Value::Float(b)) => a == b,
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            _ => false,
+        }
     }).collect();
     Ok(Value::List(filtered))
 }
@@ -3681,7 +3687,7 @@ pub fn builtin_reduce(args: &[Value]) -> Result<Value, String> {
 
     let mut acc = initial;
     for item in list {
-        let field_val = item.get_field(&key_field).unwrap_or(Value::Float(0.0));
+        let field_val = item.get_field(&key_field).ok().cloned().unwrap_or(Value::Float(0.0));
         if let Value::Float(f) = field_val {
             acc += f;
         }
@@ -4396,7 +4402,7 @@ fn builtin_memory_score(args: &[Value]) -> Result<Value, String> {
     // Signal 2: unique_words (type-token ratio)
     let words: Vec<&str> = text.split_whitespace().collect();
     let word_count = words.len() as f64;
-    let unique: std::collections::HashSet<&str> = words.iter().map(|w| w.to_lowercase().as_str()).collect();
+    let unique: std::collections::HashSet<String> = words.iter().map(|w| w.to_lowercase()).collect();
     let unique_signal = if word_count < 2.0 {
         0.5 // neutral for very short text
     } else {
@@ -4631,7 +4637,7 @@ fn builtin_learn_preference(args: &[Value]) -> Result<Value, String> {
                     prev["state"] = serde_json::Value::String("active".to_string());
                 }
                 let updated = serde_json::to_string(&prev).unwrap_or_default();
-                store.insert(pref_key.clone(), updated);
+                store.insert(pref_key.clone(), updated.clone());
                 if let Ok(guard) = kv_sqlite().lock() {
                     if let Some(ref conn) = *guard {
                         let _ = conn.execute(
@@ -4688,7 +4694,7 @@ fn builtin_get_profile(args: &[Value]) -> Result<Value, String> {
                     let pat = format!("{}%", prefix);
                     let mut stmt = conn.prepare("SELECT value FROM kv_store WHERE key LIKE ?1").ok()?;
                     let mut rows = stmt.query(rusqlite::params![pat]).ok()?;
-                    rows.next().and_then(|r| r.ok()).and_then(|row| row.get(0).ok())
+                    rows.next().ok().flatten().and_then(|row| row.get(0).ok())
                 })
             }
             _ => None,

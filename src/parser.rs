@@ -1298,7 +1298,19 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
                         .collect();
                     else_ifs.push((ei_condition, ei_body));
                 }
+                // Наряд M2: else_block is a named rule — its statements are
+                // children of else_block, NOT direct children of if_then_stmt.
+                // The old in_else flag and text "else" detector are dead code.
+                Rule::else_block => {
+                    let eb: Vec<Statement> = children_of(child).iter()
+                        .filter(|c| c.as_rule() == Rule::statement)
+                        .map(|c| parse_single_statement(c.clone()))
+                        .collect();
+                    else_body = Some(eb);
+                }
                 Rule::statement => {
+                    // Dead path: statements inside else_block are handled above.
+                    // Kept per наряд restriction "не удалять".
                     if in_else {
                         if else_body.is_none() {
                             else_body = Some(Vec::new());
@@ -1309,6 +1321,8 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
                     }
                 }
                 _ => {
+                    // Dead path: text-based "else" detector never matches else_block node.
+                    // Kept per наряд restriction "не удалять".
                     if child.as_str().trim() == "else" {
                         in_else = true;
                     }
@@ -1472,8 +1486,12 @@ fn parse_block_if_else_expr(pair: Pair<Rule>) -> Expr {
                 else_ifs.push((ei_condition, ei_body));
             }
             Rule::else_block => {
-                in_else = true;
-                else_body = Some(Vec::new());
+                // Наряд M2: extract statements from else_block node directly.
+                let eb: Vec<Statement> = children_of(child).iter()
+                    .filter(|c| c.as_rule() == Rule::statement)
+                    .map(|c| parse_single_statement(c.clone()))
+                    .collect();
+                else_body = Some(eb);
             }
             _ => {}
         }
@@ -1527,8 +1545,12 @@ fn parse_if_block_stmt(pair: Pair<Rule>) -> Statement {
                 else_ifs.push((ei_condition, ei_body));
             }
             Rule::else_block => {
-                in_else = true;
-                else_body = Some(Vec::new());
+                // Наряд M2: extract statements from else_block node directly.
+                let eb: Vec<Statement> = children_of(child).iter()
+                    .filter(|c| c.as_rule() == Rule::statement)
+                    .map(|c| parse_single_statement(c.clone()))
+                    .collect();
+                else_body = Some(eb);
             }
             _ => {}
         }

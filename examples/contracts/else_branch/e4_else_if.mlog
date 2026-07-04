@@ -1,0 +1,7 @@
+pattern T(x: String) -> String {
+  let a = x == "no"
+  let b = x == "abc"
+  if a then { return "first" } else if b then { return "second" } else { return "third" }
+  return "after"
+}
+flow Main { input: String = "abc" -> T -> output }

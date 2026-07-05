@@ -79,7 +79,7 @@ pub struct MemoryGraph {
 }
 
 /// Serializable snapshot of the graph for KV storage.
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphSnapshot {
     pub nodes: Vec<MemoryNode>,
     pub edges: Vec<GraphEdgeRecord>,
@@ -405,7 +405,7 @@ impl MemoryGraph {
         // Resolve each contradiction
         let mut superseded = None;
         for cid in &all_contradictions {
-            if let Some(other_idx) = self.id_index.get(cid) {
+            if let Some(&other_idx) = self.id_index.get(cid) {
                 let other_score = self.graph[other_idx].score;
                 let other_time = self.graph[other_idx].last_accessed.max(self.graph[other_idx].created_at);
 

@@ -86,7 +86,7 @@ pub struct GraphSnapshot {
 }
 
 /// Serializable edge record (stores source/target node ids, not indices).
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphEdgeRecord {
     pub source_id: String,
     pub target_id: String,
@@ -431,7 +431,7 @@ impl MemoryGraph {
         }
 
         Some(ReviseResult {
-            action: if superseded.is_some() { "superseded_rival" } else { "updated" },
+            action: if superseded.is_some() { "superseded_rival".to_string() } else { "updated".to_string() },
             superseded_id: superseded,
             winner_id: id.to_string(),
         })

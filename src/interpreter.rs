@@ -3508,24 +3508,21 @@ impl Interpreter {
             Expr::BlockIfElse { condition, ref then_body, ref else_ifs, ref else_body } => {
                 let cond_val = self.eval_expr_with_env(condition, env)?;
                 if cond_val.as_bool()? {
-                    eval_block!(then_body, env);
-                } else {
-                    let mut matched = false;
-                    for (ei_cond, ei_body) in else_ifs {
-                        let ei_val = self.eval_expr_with_env(ei_cond, env)?;
-                        if ei_val.as_bool()? {
-                            eval_block!(ei_body, env);
-                            matched = true;
-                            break;
-                        }
-                    }
-                    if !matched {
-                        if let Some(eb) = else_body {
-                            eval_block!(eb, env);
-                        }
+                    let mut local_env = env.clone();
+                    return self.eval_statements(then_body, &mut local_env);
+                }
+                for (ei_cond, ei_body) in else_ifs {
+                    let ei_val = self.eval_expr_with_env(ei_cond, env)?;
+                    if ei_val.as_bool()? {
+                        let mut local_env = env.clone();
+                        return self.eval_statements(ei_body, &mut local_env);
                     }
                 }
-                Ok(last_expr_value)
+                if let Some(eb) = else_body {
+                    let mut local_env = env.clone();
+                    return self.eval_statements(eb, &mut local_env);
+                }
+                Ok(Value::Unit)
             }
             // Наряд №14 P1-4: try expression — catch errors, return Unit
             Expr::Try(inner) => {

@@ -90,6 +90,9 @@ pub enum Value {
     Session(std::collections::HashMap<String, String>),
     /// HTTP response value (Phase 6.1)
     HttpResponse { status: u16, body: String },
+    /// Graph subgraph — opaque first-class graph value (V3).
+    /// Contains a serializable GraphSnapshot that can be passed between functions.
+    Subgraph(crate::memory_graph::GraphSnapshot),
 }
 
 impl std::fmt::Display for Value {
@@ -133,6 +136,7 @@ impl std::fmt::Display for Value {
             Value::Hash(_) => write!(f, "[Hash]"),
             Value::Session(_) => write!(f, "[Session]"),
             Value::HttpResponse { status, .. } => write!(f, "[HttpResponse {}]", status),
+            Value::Subgraph(snap) => write!(f, "[Subgraph {} nodes, {} edges]", snap.nodes.len(), snap.edges.len()),
         }
     }
 }
@@ -154,6 +158,7 @@ impl Value {
             Value::Hash(_) => "Hash",
             Value::Session(_) => "Session",
             Value::HttpResponse { .. } => "HttpResponse",
+            Value::Subgraph(_) => "Subgraph",
         }
     }
 
@@ -4019,7 +4024,7 @@ impl Interpreter {
     fn is_opaque_type(v: &Value) -> bool {
         matches!(v,
             Value::Html(_) | Value::Query(_) | Value::Secret(_) |
-            Value::Encrypted(_) | Value::Hash(_)
+            Value::Encrypted(_) | Value::Hash(_) | Value::Subgraph(_)
         )
     }
 
@@ -4027,7 +4032,7 @@ impl Interpreter {
     fn is_nonprintable_type(v: &Value) -> bool {
         matches!(v,
             Value::Html(_) | Value::Query(_) | Value::Secret(_) |
-            Value::Encrypted(_) | Value::Hash(_)
+            Value::Encrypted(_) | Value::Hash(_) | Value::Subgraph(_)
         )
     }
 

@@ -9,6 +9,7 @@ pub mod compiler;
 pub mod embeddings;
 pub mod interpreter;
 pub mod llm;
+pub mod memory_graph;
 pub mod memory_store;
 pub mod parser;
 pub mod semantic;

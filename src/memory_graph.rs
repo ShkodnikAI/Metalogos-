@@ -4,6 +4,7 @@
 
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::algo::{dijkstra, connected_components};
+use petgraph::visit::EdgeRef;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 

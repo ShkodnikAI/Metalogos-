@@ -94,6 +94,17 @@ pub struct GraphEdgeRecord {
     pub weight: f64,
 }
 
+/// Result of a belief revision operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReviseResult {
+    /// What happened: "updated", "superseded_rival", or "demoted"
+    pub action: String,
+    /// ID of the node that was superseded (if any).
+    pub superseded_id: Option<String>,
+    /// ID of the winning node.
+    pub winner_id: String,
+}
+
 impl MemoryGraph {
     pub fn new() -> Self {
         MemoryGraph {
@@ -349,6 +360,113 @@ impl MemoryGraph {
             self.remove_node(id);
         }
         count
+    }
+
+    /// Belief revision: update a node's text/score, then resolve Contradicts edges.
+    /// If the updated node has Contradicts edges, the system keeps the belief with
+    /// higher score (or newer timestamp if scores are equal) and demotes the loser.
+    /// Returns a struct describing what happened: { action, superseded_id?, winner_id }.
+    pub fn revise(&mut self, id: &str, new_text: &str, new_score: f64, now: i64) -> Option<ReviseResult> {
+        let idx = match self.id_index.get(id) {
+            Some(&i) => i,
+            None => return None,
+        };
+
+        // Update the node
+        let node = &mut self.graph[idx];
+        node.text = new_text.to_string();
+        node.score = new_score.min(1.0);
+        node.last_accessed = now;
+        node.access_count = node.access_count.saturating_add(1);
+
+        // Find Contradicts edges FROM and TO this node
+        let contradicted_ids: Vec<String> = self.graph.edges(idx)
+            .filter(|e| matches!(e.weight().relation, Relation::Contradicts))
+            .map(|e| self.graph[e.target()].id.clone())
+            .collect();
+        let contradicted_by: Vec<String> = self.graph.edges_directed(idx, petgraph::Direction::Incoming)
+            .filter(|e| matches!(e.weight().relation, Relation::Contradicts))
+            .map(|e| self.graph[e.source()].id.clone())
+            .collect();
+
+        let all_contradictions: Vec<String> = contradicted_ids.into_iter()
+            .chain(contradicted_by.into_iter())
+            .filter(|cid| cid != id)
+            .collect();
+
+        if all_contradictions.is_empty() {
+            return Some(ReviseResult {
+                action: "updated".to_string(),
+                superseded_id: None,
+                winner_id: id.to_string(),
+            });
+        }
+
+        // Resolve each contradiction
+        let mut superseded = None;
+        for cid in &all_contradictions {
+            if let Some(other_idx) = self.id_index.get(cid) {
+                let other_score = self.graph[other_idx].score;
+                let other_time = self.graph[other_idx].last_accessed.max(self.graph[other_idx].created_at);
+
+                if new_score > other_score
+                    || (new_score == other_score && now > other_time)
+                {
+                    // We win — demote the other
+                    self.graph[other_idx].score *= 0.3;
+                    // Add Supersedes edge from us to them
+                    let _ = self.add_edge(id, cid, Relation::Supersedes, 0.9);
+                    superseded = Some(cid.clone());
+                } else {
+                    // They win — demote us
+                    self.graph[idx].score *= 0.3;
+                    let _ = self.add_edge(cid, id, Relation::Supersedes, 0.9);
+                    return Some(ReviseResult {
+                        action: "demoted".to_string(),
+                        superseded_id: Some(id.to_string()),
+                        winner_id: cid.clone(),
+                    });
+                }
+            }
+        }
+
+        Some(ReviseResult {
+            action: if superseded.is_some() { "superseded_rival" } else { "updated" },
+            superseded_id: superseded,
+            winner_id: id.to_string(),
+        })
+    }
+
+    /// Extract a subgraph containing the given node ids and all edges between them.
+    /// Returns a GraphSnapshot (serializable).
+    pub fn subgraph(&self, ids: &[String]) -> GraphSnapshot {
+        let id_set: std::collections::HashSet<&str> = ids.iter().map(|s| s.as_str()).collect();
+        let nodes: Vec<MemoryNode> = self.graph.node_indices()
+            .filter(|i| id_set.contains(self.graph[*i].id.as_str()))
+            .map(|i| self.graph[i].clone())
+            .collect();
+
+        let edge_ids: std::collections::HashSet<String> = id_set.iter().map(|s| s.to_string()).collect();
+        let edges: Vec<GraphEdgeRecord> = self.graph.edge_indices()
+            .filter_map(|ei| {
+                let (src, tgt) = self.graph.edge_endpoints(ei)?;
+                let src_id = &self.graph[src].id;
+                let tgt_id = &self.graph[tgt].id;
+                if edge_ids.contains(src_id) && edge_ids.contains(tgt_id) {
+                    let edge = &self.graph[ei];
+                    Some(GraphEdgeRecord {
+                        source_id: src_id.clone(),
+                        target_id: tgt_id.clone(),
+                        relation: edge.relation.as_str().to_string(),
+                        weight: edge.weight,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        GraphSnapshot { nodes, edges }
     }
 
     /// Serialize to JSON for KV storage.

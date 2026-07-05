@@ -1,6 +1,6 @@
 # METALOGOS — Справочник языка (Reference)
 
-> **Версия:** 0.8.8 (Phase 8.8)
+> **Версия:** 0.8.9 (Phase 8.9)
 > **Единый источник истины** для разработчиков, пишущих на Металогосе.
 > Содержит полный список встроенных функций с сигнатурами, типами, описанием и примерами,
 > а также справочник по синтаксису, типам данных и CLI.
@@ -227,7 +227,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Встроенные функции (Builtins)
 
-Все 108 встроенных функций регистрируются в `src/builtins.rs` и доступны как в tree-walking интерпретаторе, так и в байткод VM. JIT-компилятор через Cranelift также поддерживает все builtins.
+Все 171 встроенная функция регистрируется в `src/builtins.rs` и доступна как в tree-walking интерпретаторе, так и в байткод VM. JIT-компилятор через Cranelift также поддерживает все builtins.
 
 ### 4.1. Строковые функции
 
@@ -1435,6 +1435,8 @@ collections.push(items, item) -> List      // append to list
 
 | Версия | Дата | Что нового |
 |--------|------|------------|
+| **0.8.9** | 2026-07-05 | Fix: else-branch parsing (else_body отбрасывался без ошибки), Fix: мутации в Expr::BlockIfElse терялись (env.clone → eval_block! макрос), 171 builtins |
+| **0.8.8** | 2026-07-04 | Semantic fixes, compiler/VM 171-builtin sync, variadic min-arity, chrono fix |
 | **0.8.7** | 2026-07-04 | +cron_mark_fired (fix force_run infinite re-fire), +mtree_stats, mtree_summarize L0→L1→L2 (global summary), mtree_retrieve L0+L1 search, 147 builtins |
 | **0.8.3** | 2026-07-03 | +map/zip/sort_by/filter/reduce, +db_insert, +matches_any/estimate_tokens/read_file_tokens/extract_param, Problem D Hook диагностика, 128 builtins |
 | **0.8.4** | 2026-07-03 | +OpenHuman-inspired: cron_add/cron_list/cron_remove/cron_run, ask_approval, goal_set/goal_get/goal_complete/goals_list/goals_add/goals_reflect, todo_add/todo_update/todo_list, extract_entities, memory_score, compress_html, learn_preference/get_profile, 141 builtins |

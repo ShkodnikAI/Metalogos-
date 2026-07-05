@@ -4734,65 +4734,82 @@ fn kv_get_raw(key: &str) -> Option<String> {
     None
 }
 
-// ── Memory Tree Pipeline (OpenHuman-inspired: L0→L1→L2 hierarchical memory) ──
-// Stored in KV store under "mtree_entries" key as JSON array.
-// Each entry: { id, text, level, score, created_at, source, summary }
-// Levels: L0=raw, L1=chunk_summary, L2=global_summary
-//
-// This is a lightweight alternative to the full MemoryStore (which uses embeddings).
-// Memory Tree focuses on hierarchical summarization for long-term context management.
+// ── Memory Graph (v2) — petgraph-backed knowledge graph ─────────────
+// Replaces flat L0/L1/L2 JSON array with a directed graph.
+// Stored in KV store under "memory_graph" key as GraphSnapshot JSON.
+// Auto-migrates from legacy "mtree_entries" JSON array on first access.
 
-fn get_mtree_entries() -> Vec<serde_json::Value> {
+use crate::memory_graph::{MemoryGraph, MemoryNode, Relation, graph_search};
+
+fn get_memory_graph() -> MemoryGraph {
     let store = kv_store().lock().ok();
     let sqlite = kv_sqlite().lock().ok();
+
+    // Try new format first
     let raw = match (store, sqlite) {
+        (Some(s), _) => s.get("memory_graph").cloned(),
+        (_, Some(guard)) => guard.as_ref().and_then(|conn| {
+            conn.query_row("SELECT value FROM kv_store WHERE key = 'memory_graph'", [], |row| row.get(0)).ok()
+        }),
+        _ => None,
+    };
+
+    if let Some(json) = raw {
+        return MemoryGraph::from_json(&json);
+    }
+
+    // Migration: try legacy flat array format
+    let legacy_raw = match (store, sqlite) {
         (Some(s), _) => s.get("mtree_entries").cloned(),
         (_, Some(guard)) => guard.as_ref().and_then(|conn| {
             conn.query_row("SELECT value FROM kv_store WHERE key = 'mtree_entries'", [], |row| row.get(0)).ok()
         }),
         _ => None,
     };
-    raw.and_then(|v| serde_json::from_str(&v).ok()).unwrap_or_default()
+
+    if let Some(legacy_json) = legacy_raw {
+        if let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(&legacy_json) {
+            let mut graph = MemoryGraph::new();
+            for e in &entries {
+                let node = MemoryNode {
+                    id: e["id"].as_str().unwrap_or("").to_string(),
+                    text: e["text"].as_str().unwrap_or("").to_string(),
+                    level: e["level"].as_str().unwrap_or("L0").to_string(),
+                    score: e["score"].as_f64().unwrap_or(0.0),
+                    created_at: e["created_at"].as_i64().unwrap_or(0),
+                    source: e["source"].as_str().unwrap_or("migrated").to_string(),
+                    tags: vec![],
+                };
+                if !node.id.is_empty() {
+                    graph.add_node(node);
+                }
+            }
+            // Migrated — persist in new format
+            save_memory_graph(&graph);
+            return graph;
+        }
+    }
+
+    MemoryGraph::new()
 }
 
-fn save_mtree_entries(entries: &[serde_json::Value]) {
-    let json = serde_json::to_string(entries).unwrap_or_else(|_| "[]".to_string());
+fn save_memory_graph(graph: &MemoryGraph) {
+    let json = graph.to_json();
     if let Ok(mut store) = kv_store().lock() {
-        store.insert("mtree_entries".to_string(), json.clone());
+        store.insert("memory_graph".to_string(), json.clone());
     }
     if let Ok(guard) = kv_sqlite().lock() {
         if let Some(ref conn) = *guard {
             let _ = conn.execute(
-                "INSERT OR REPLACE INTO kv_store (key, value) VALUES ('mtree_entries', ?1)",
+                "INSERT OR REPLACE INTO kv_store (key, value) VALUES ('memory_graph', ?1)",
                 rusqlite::params![json],
             );
         }
     }
 }
 
-/// Simple keyword relevance scoring (no embeddings needed).
-/// Returns 0.0..1.0 based on overlapping words.
-fn keyword_relevance(text: &str, query: &str) -> f64 {
-    let text_lower = text.to_lowercase();
-    let query_lower = query.to_lowercase();
-    let query_words: std::collections::HashSet<&str> = query_lower.split_whitespace().collect();
-    if query_words.is_empty() { return 0.0; }
-    let text_words: std::collections::HashSet<&str> = text_lower.split_whitespace().collect();
-    let overlap: usize = query_words.intersection(&text_words).count();
-    overlap as f64 / query_words.len() as f64
-}
-
-/// `mtree_store(text, source?)` — store a memory chunk at L0.
-/// Uses inline memory_score for admission gate (threshold 0.3).
-/// Returns Struct { id, level, score, admitted }.
-fn builtin_mtree_store(args: &[Value]) -> Result<Value, String> {
-    let text = expect_string_arg("mtree_store", args, 0)?;
-    let source = match args.get(1) {
-        Some(Value::String(s)) => s.clone(),
-        _ => "user".to_string(),
-    };
-
-    // Inline admission gate (same logic as memory_score builtin)
+/// Helper: inline admission gate score (same logic as memory_score builtin).
+fn compute_admission_score(text: &str) -> f64 {
     let token_count = (text.len() as f64 / 4.0).ceil() as usize;
     let words: std::collections::HashSet<&str> = text.split_whitespace().collect();
     let unique_words = words.len();
@@ -4806,7 +4823,21 @@ fn builtin_mtree_store(args: &[Value]) -> Result<Value, String> {
         + (0.2 * entity_density.min(1.0))
         + (0.2 * 1.0) // recency bonus for fresh entry
         + (0.3 * (token_count as f64 / 200.0).min(1.0));
-    let score = score.min(1.0);
+    score.min(1.0)
+}
+
+/// `mtree_store(text, source?)` — store a memory chunk as a graph node.
+/// Uses inline admission gate (threshold 0.3).
+/// Returns Struct { id, level, score, admitted, reason }.
+/// V2: stores as graph node (no edges yet; edges added by mtree_summarize).
+fn builtin_mtree_store(args: &[Value]) -> Result<Value, String> {
+    let text = expect_string_arg("mtree_store", args, 0)?;
+    let source = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        _ => "user".to_string(),
+    };
+
+    let score = compute_admission_score(&text);
     let admitted = score >= 0.3;
 
     if !admitted {
@@ -4820,19 +4851,19 @@ fn builtin_mtree_store(args: &[Value]) -> Result<Value, String> {
     }
 
     let id = format!("mt_{}", chrono_now_timestamp());
-    let entry = serde_json::json!({
-        "id": id,
-        "text": text,
-        "level": "L0",
-        "score": score,
-        "created_at": chrono_now_timestamp(),
-        "source": source,
-        "summary": serde_json::Value::Null
-    });
+    let node = MemoryNode {
+        id: id.clone(),
+        text: text.clone(),
+        level: "L0".to_string(),
+        score,
+        created_at: chrono_now_timestamp(),
+        source,
+        tags: vec![],
+    };
 
-    let mut entries = get_mtree_entries();
-    entries.push(entry);
-    save_mtree_entries(&entries);
+    let mut graph = get_memory_graph();
+    graph.add_node(node);
+    save_memory_graph(&graph);
 
     Ok(make_date_struct("MTreeStore", vec![
         ("id", Value::String(id)),
@@ -4843,11 +4874,9 @@ fn builtin_mtree_store(args: &[Value]) -> Result<Value, String> {
     ]))
 }
 
-/// `mtree_retrieve(query, limit?)` — retrieve top-N relevant memories from L0 and L1.
-/// Uses keyword relevance scoring. Default limit: 5.
-/// L0 entries are scored by relevance*0.6 + stored_score*0.4.
-/// L1 summaries are scored by relevance*0.8 + 0.2 (L1 boost for compressed knowledge).
-/// Returns List of Struct { id, text, level, score, relevance }.
+/// `mtree_retrieve(query, limit?)` — retrieve top-N relevant memories using graph search.
+/// V2: uses graph_search (keyword relevance on graph nodes) instead of flat array scan.
+/// Default limit: 5. Returns List of Struct { id, text, level, score, relevance }.
 fn builtin_mtree_retrieve(args: &[Value]) -> Result<Value, String> {
     let query = expect_string_arg("mtree_retrieve", args, 0)?;
     let limit = match args.get(1) {
@@ -4856,57 +4885,34 @@ fn builtin_mtree_retrieve(args: &[Value]) -> Result<Value, String> {
     };
     let limit = if limit == 0 { 5 } else { limit };
 
-    let entries = get_mtree_entries();
-    let mut scored: Vec<(f64, &serde_json::Value)> = entries.iter()
-        .filter(|e| {
-            let level = e["level"].as_str().unwrap_or("");
-            level == "L0" || level == "L1"
-        })
-        .map(|e| {
-            let text = e["text"].as_str().unwrap_or("");
-            let rel = keyword_relevance(text, &query);
-            let stored_score = e["score"].as_f64().unwrap_or(0.0);
-            let level = e["level"].as_str().unwrap_or("L0");
-            // L1 summaries get a relevance boost (compressed knowledge is more useful)
-            let composite = if level == "L1" {
-                rel * 0.8 + 0.2
-            } else {
-                rel * 0.6 + stored_score * 0.4
-            };
-            (composite, e)
-        })
-        .filter(|(s, _)| *s > 0.0)
-        .collect();
-
-    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-    scored.truncate(limit);
+    let graph = get_memory_graph();
+    let results = graph_search(&graph, &query, limit, None);
 
     let mut result = Vec::new();
-    for (relevance, e) in &scored {
+    for (id, text, level, score, relevance) in &results {
         result.push(make_date_struct("MTreeEntry", vec![
-            ("id", Value::String(e["id"].as_str().unwrap_or("").to_string())),
-            ("text", Value::String(e["text"].as_str().unwrap_or("").to_string())),
-            ("level", Value::String(e["level"].as_str().unwrap_or("L0").to_string())),
-            ("score", Value::Float(e["score"].as_f64().unwrap_or(0.0))),
+            ("id", Value::String(id.clone())),
+            ("text", Value::String(text.clone())),
+            ("level", Value::String(level.clone())),
+            ("score", Value::Float(*score)),
             ("relevance", Value::Float(*relevance)),
         ]));
     }
     Ok(Value::List(result))
 }
 
-/// `mtree_forget(id)` — delete a memory tree entry by id.
+/// `mtree_forget(id)` — delete a memory node and its edges from the graph.
 /// Returns Struct { id, removed, status }.
 fn builtin_mtree_forget(args: &[Value]) -> Result<Value, String> {
     let id = expect_string_arg("mtree_forget", args, 0)?;
-    let entries = get_mtree_entries();
-    let before = entries.len();
-    let filtered: Vec<serde_json::Value> = entries
-        .into_iter()
-        .filter(|e| e["id"].as_str() != Some(&id))
-        .collect();
-    let removed = (before - filtered.len()) as f64;
-    save_mtree_entries(&filtered);
-    let status = if removed > 0.0 { "removed" } else { "not_found" };
+    let mut graph = get_memory_graph();
+    let existed = graph.get_node(&id).is_some();
+    let removed = if existed { 1.0 } else { 0.0 };
+    if existed {
+        graph.remove_node(&id);
+        save_memory_graph(&graph);
+    }
+    let status = if existed { "removed" } else { "not_found" };
     Ok(make_date_struct("MTreeForget", vec![
         ("id", Value::String(id)),
         ("removed", Value::Float(removed)),
@@ -4914,30 +4920,26 @@ fn builtin_mtree_forget(args: &[Value]) -> Result<Value, String> {
     ]))
 }
 
-/// `mtree_summarize()` — promote L0 entries to L1, then L1 entries to L2 global summary.
-/// L0→L1: batches up to 10 unsummarized L0 entries into one L1 summary (concat+truncate to 500 chars).
-/// L1→L2: if 3+ L1 entries exist and no L2 yet (or L2 is stale), concatenate all L1 texts
-///   into a single L2 global summary (truncated to 1000 chars). Only one L2 exists at a time;
-///   previous L2 is replaced.
-/// In a future version, LLM-backed summarization will replace concat+truncate.
-/// Returns Struct { l0_promoted, l1_count, l2_created, status }.
+/// `mtree_summarize()` — promote L0 entries to L1 with derived_from edges,
+/// then if 3+ L1 entries exist, create L2 global summary with edges to all L1.
+/// V2: uses graph edges (DerivedFrom) instead of flat JSON "summary" field.
+/// Returns Struct { l0_promoted, l1_count, l2_created, status, edges }.
 fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
     let _ = args;
-    let mut entries = get_mtree_entries();
+    let mut graph = get_memory_graph();
 
     // ── Phase 1: L0 → L1 ──
-    let l0_ids: Vec<String> = entries.iter()
-        .filter(|e| e["level"].as_str() == Some("L0") && e["summary"].is_null())
-        .map(|e| e["id"].as_str().unwrap_or("").to_string())
+    let l0_nodes: Vec<MemoryNode> = graph.nodes()
+        .into_iter()
+        .filter(|n| n.level == "L0")
+        .cloned()
         .collect();
 
     let mut l0_promoted = 0u32;
     let batch_size = 10;
-    for chunk in l0_ids.chunks(batch_size) {
-        let texts: Vec<String> = chunk.iter().filter_map(|id| {
-            entries.iter().find(|e| e["id"].as_str() == Some(id.as_str()))
-                .and_then(|e| e["text"].as_str().map(|s| s.to_string()))
-        }).collect();
+    for chunk in l0_nodes.chunks(batch_size) {
+        let texts: Vec<String> = chunk.iter().map(|n| n.text.clone()).collect();
+        let ids: Vec<String> = chunk.iter().map(|n| n.id.clone()).collect();
 
         let combined: String = texts.join(" | ");
         let summary = if combined.len() > 500 {
@@ -4947,43 +4949,47 @@ fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
         };
 
         let l1_id = format!("mt_l1_{}", chrono_now_timestamp());
-        let l1_entry = serde_json::json!({
-            "id": l1_id,
-            "text": summary.clone(),
-            "level": "L1",
-            "score": 0.7,
-            "created_at": chrono_now_timestamp(),
-            "source": "mtree_summarize",
-            "summary": summary,
-            "source_ids": chunk
-        });
-        entries.push(l1_entry);
+        let l1_node = MemoryNode {
+            id: l1_id.clone(),
+            text: summary,
+            level: "L1".to_string(),
+            score: 0.7,
+            created_at: chrono_now_timestamp(),
+            source: "mtree_summarize".to_string(),
+            tags: vec![],
+        };
+        graph.add_node(l1_node);
 
-        for id in chunk {
-            for e in &mut entries {
-                if e["id"].as_str() == Some(id.as_str()) {
-                    e["summary"] = serde_json::Value::String(l1_id.clone());
-                    break;
-                }
-            }
+        // Add derived_from edges: L1 → each L0 in the batch
+        for src_id in &ids {
+            let _ = graph.add_edge(&l1_id, src_id, Relation::DerivedFrom, 0.8);
         }
         l0_promoted += 1;
     }
 
     // ── Phase 2: L1 → L2 global summary ──
-    let l1_entries: Vec<&serde_json::Value> = entries.iter()
-        .filter(|e| e["level"].as_str() == Some("L1"))
+    let l1_nodes: Vec<MemoryNode> = graph.nodes()
+        .into_iter()
+        .filter(|n| n.level == "L1")
+        .cloned()
         .collect();
+
+    let l1_count = l1_nodes.len();
     let mut l2_created = 0u32;
 
-    let l1_count = l1_entries.len();
-    let l1_texts: Vec<String> = l1_entries.iter()
-        .filter_map(|e| e["text"].as_str().map(|s| s.to_string()))
-        .collect();
-    drop(l1_entries);
     if l1_count >= 3 {
-        // Remove any existing L2 (global summary is always replaced)
-        entries.retain(|e| e["level"].as_str() != Some("L2"));
+        // Remove any existing L2
+        let l2_ids: Vec<String> = graph.nodes()
+            .into_iter()
+            .filter(|n| n.level == "L2")
+            .map(|n| n.id.clone())
+            .collect();
+        for id in &l2_ids {
+            graph.remove_node(id);
+        }
+
+        let l1_texts: Vec<String> = l1_nodes.iter().map(|n| n.text.clone()).collect();
+        let l1_ids: Vec<String> = l1_nodes.iter().map(|n| n.id.clone()).collect();
 
         let combined: String = l1_texts.join("\n---\n");
         let global_summary = if combined.len() > 1000 {
@@ -4993,23 +4999,30 @@ fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
         };
 
         let l2_id = format!("mt_l2_{}", chrono_now_timestamp());
-        let l2_entry = serde_json::json!({
-            "id": l2_id,
-            "text": global_summary,
-            "level": "L2",
-            "score": 0.9,
-            "created_at": chrono_now_timestamp(),
-            "source": "mtree_summarize",
-            "summary": serde_json::Value::Null,
-            "source_l1_count": l1_count
-        });
-        entries.push(l2_entry);
+        let l2_node = MemoryNode {
+            id: l2_id.clone(),
+            text: global_summary,
+            level: "L2".to_string(),
+            score: 0.9,
+            created_at: chrono_now_timestamp(),
+            source: "mtree_summarize".to_string(),
+            tags: vec![],
+        };
+        graph.add_node(l2_node);
+
+        // L2 derives from all L1 entries
+        for src_id in &l1_ids {
+            let _ = graph.add_edge(&l2_id, src_id, Relation::DerivedFrom, 0.9);
+        }
         l2_created = 1;
     }
 
-    save_mtree_entries(&entries);
-    let l1_count = entries.iter().filter(|e| e["level"].as_str() == Some("L1")).count();
+    save_memory_graph(&graph);
 
+    // Recount L1 after changes
+    let l1_final = graph.count_by_level().get("L1").copied().unwrap_or(0);
+
+    let (nodes, edges, components) = graph.stats();
     let status = match (l0_promoted, l2_created) {
         (0, 0) => "no_unsummarized_l0".to_string(),
         (_, 1) => "l0_and_l2_promoted".to_string(),
@@ -5019,30 +5032,35 @@ fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
 
     Ok(make_date_struct("MTreeSummarize", vec![
         ("l0_promoted", Value::Float(l0_promoted as f64)),
-        ("l1_count", Value::Float(l1_count as f64)),
+        ("l1_count", Value::Float(l1_final as f64)),
         ("l2_created", Value::Float(l2_created as f64)),
         ("status", Value::String(status)),
+        ("graph_nodes", Value::Float(nodes as f64)),
+        ("graph_edges", Value::Float(edges as f64)),
+        ("components", Value::Float(components as f64)),
     ]))
 }
 
-/// `mtree_stats()` — diagnostics: count entries at each level, total size.
-/// Returns Struct { l0, l1, l2, total, total_chars }.
+/// `mtree_stats()` — diagnostics: count entries at each level, graph metrics.
+/// V2: includes graph nodes, edges, connected components.
+/// Returns Struct { l0, l1, l2, total, total_chars, nodes, edges, components }.
 fn builtin_mtree_stats(args: &[Value]) -> Result<Value, String> {
     let _ = args;
-    let entries = get_mtree_entries();
-    let l0 = entries.iter().filter(|e| e["level"].as_str() == Some("L0")).count();
-    let l1 = entries.iter().filter(|e| e["level"].as_str() == Some("L1")).count();
-    let l2 = entries.iter().filter(|e| e["level"].as_str() == Some("L2")).count();
-    let total_chars: usize = entries.iter()
-        .filter_map(|e| e["text"].as_str())
-        .map(|s| s.len())
-        .sum();
+    let graph = get_memory_graph();
+    let levels = graph.count_by_level();
+    let l0 = *levels.get("L0").unwrap_or(&0);
+    let l1 = *levels.get("L1").unwrap_or(&0);
+    let l2 = *levels.get("L2").unwrap_or(&0);
+    let total_chars = graph.total_chars();
+    let (nodes, edges, components) = graph.stats();
     Ok(make_date_struct("MTreeStats", vec![
         ("l0", Value::Float(l0 as f64)),
         ("l1", Value::Float(l1 as f64)),
         ("l2", Value::Float(l2 as f64)),
-        ("total", Value::Float(entries.len() as f64)),
+        ("total", Value::Float(nodes as f64)),
         ("total_chars", Value::Float(total_chars as f64)),
+        ("graph_edges", Value::Float(edges as f64)),
+        ("components", Value::Float(components as f64)),
     ]))
 }
 

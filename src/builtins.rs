@@ -260,6 +260,9 @@ impl Builtins {
         funcs.insert("graph_query".to_string(), builtin_graph_query as BuiltinFn);
         funcs.insert("graph_path".to_string(), builtin_graph_path as BuiltinFn);
         funcs.insert("graph_neighbors".to_string(), builtin_graph_neighbors as BuiltinFn);
+        funcs.insert("memory_decay".to_string(), builtin_memory_decay as BuiltinFn);
+        funcs.insert("memory_boost".to_string(), builtin_memory_boost as BuiltinFn);
+        funcs.insert("memory_prune".to_string(), builtin_memory_prune as BuiltinFn);
 
         Builtins { funcs }
     }
@@ -4782,6 +4785,8 @@ fn get_memory_graph() -> MemoryGraph {
                     created_at: e["created_at"].as_i64().unwrap_or(0),
                     source: e["source"].as_str().unwrap_or("migrated").to_string(),
                     tags: vec![],
+                    last_accessed: 0,
+                    access_count: 0,
                 };
                 if !node.id.is_empty() {
                     graph.add_node(node);
@@ -4862,6 +4867,8 @@ fn builtin_mtree_store(args: &[Value]) -> Result<Value, String> {
         created_at: chrono_now_timestamp(),
         source,
         tags: vec![],
+        last_accessed: 0,
+        access_count: 0,
     };
 
     let mut graph = get_memory_graph();
@@ -4960,6 +4967,8 @@ fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
             created_at: chrono_now_timestamp(),
             source: "mtree_summarize".to_string(),
             tags: vec![],
+            last_accessed: 0,
+            access_count: 0,
         };
         graph.add_node(l1_node);
 
@@ -5010,6 +5019,8 @@ fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
             created_at: chrono_now_timestamp(),
             source: "mtree_summarize".to_string(),
             tags: vec![],
+            last_accessed: 0,
+            access_count: 0,
         };
         graph.add_node(l2_node);
 
@@ -5084,8 +5095,15 @@ fn builtin_graph_query(args: &[Value]) -> Result<Value, String> {
         _ => None,
     };
 
-    let graph = get_memory_graph();
+    let mut graph = get_memory_graph();
     let results = graph_search(&graph, &query, limit, level_filter);
+
+    // Touch accessed nodes to update last_accessed
+    let now = chrono_now_timestamp();
+    for (id, _, _, _, _) in &results {
+        graph.touch(id, now);
+    }
+    save_memory_graph(&graph);
 
     let mut result = Vec::new();
     for (id, text, level, score, relevance) in &results {
@@ -5143,8 +5161,16 @@ fn builtin_graph_neighbors(args: &[Value]) -> Result<Value, String> {
     };
     let depth = if depth == 0 { 1 } else { depth };
 
-    let graph = get_memory_graph();
+    let mut graph = get_memory_graph();
     let nbrs = graph.neighbors(&id, depth);
+
+    // Touch the queried node and its neighbors
+    let now = chrono_now_timestamp();
+    graph.touch(&id, now);
+    for (node, _) in &nbrs {
+        graph.touch(&node.id, now);
+    }
+    save_memory_graph(&graph);
 
     let mut result = Vec::new();
     for (node, distance) in &nbrs {
@@ -5156,6 +5182,76 @@ fn builtin_graph_neighbors(args: &[Value]) -> Result<Value, String> {
         ]));
     }
     Ok(Value::List(result))
+}
+
+/// `memory_decay(lambda?)` — apply exponential decay to all memory node scores.
+/// `lambda` controls decay rate (default 0.01 = gentle).
+/// Formula: score *= e^(-lambda * hours_since_access).
+/// Returns Struct { decayed: <count>, nodes: <total>, edges: <total> }.
+fn builtin_memory_decay(args: &[Value]) -> Result<Value, String> {
+    let lambda = match args.get(0) {
+        Some(Value::Float(f)) => *f,
+        _ => 0.01,
+    };
+    let now = chrono_now_timestamp();
+    let mut graph = get_memory_graph();
+    let decayed = graph.decay(lambda, now);
+    let (nodes, edges, components) = graph.stats();
+    save_memory_graph(&graph);
+    Ok(make_date_struct("DecayResult", vec![
+        ("decayed", Value::Float(decayed as f64)),
+        ("nodes", Value::Float(nodes as f64)),
+        ("edges", Value::Float(edges as f64)),
+        ("components", Value::Float(components as f64)),
+    ]))
+}
+
+/// `memory_boost(id, amount?)` — boost a memory node's score by amount (default 0.1, capped at 1.0).
+/// Updates last_accessed timestamp. Returns Struct { id, new_score, access_count }.
+fn builtin_memory_boost(args: &[Value]) -> Result<Value, String> {
+    let id = expect_string_arg("memory_boost", args, 0)?;
+    let amount = match args.get(1) {
+        Some(Value::Float(f)) => *f,
+        _ => 0.1,
+    };
+    let now = chrono_now_timestamp();
+    let mut graph = get_memory_graph();
+    let boosted = graph.boost(&id, amount, now);
+    if boosted {
+        let node = graph.get_node(&id).unwrap();
+        save_memory_graph(&graph);
+        Ok(make_date_struct("BoostResult", vec![
+            ("id", Value::String(node.id.clone())),
+            ("new_score", Value::Float(node.score)),
+            ("access_count", Value::Float(node.access_count as f64)),
+        ]))
+    } else {
+        Err(format!("memory_boost: node '{}' not found", id))
+    }
+}
+
+/// `memory_prune(threshold?, min_age_hours?)` — remove dead memory nodes.
+/// `threshold`: minimum score to keep (default 0.05).
+/// `min_age_hours`: minimum age in hours before pruning (default 24, protects fresh entries).
+/// Returns Struct { pruned: <count>, remaining: <total> }.
+fn builtin_memory_prune(args: &[Value]) -> Result<Value, String> {
+    let threshold = match args.get(0) {
+        Some(Value::Float(f)) => *f,
+        _ => 0.05,
+    };
+    let min_age_hours = match args.get(1) {
+        Some(Value::Float(f)) => *f,
+        _ => 24.0,
+    };
+    let now = chrono_now_timestamp();
+    let mut graph = get_memory_graph();
+    let pruned = graph.prune(threshold, min_age_hours, now);
+    let (nodes, _, _) = graph.stats();
+    save_memory_graph(&graph);
+    Ok(make_date_struct("PruneResult", vec![
+        ("pruned", Value::Float(pruned as f64)),
+        ("remaining", Value::Float(nodes as f64)),
+    ]))
 }
 
 /// Helper: current Unix timestamp.

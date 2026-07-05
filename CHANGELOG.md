@@ -24,7 +24,7 @@ All notable changes to the Metalogos project.
 ### Контракты
 - e1 (oneline return), e2 (multiline mutation), e3 (then regression), e4 (else-if chain)
 
-## [0.8.8] — 2026-07-04
+## [0.8.8] — 2026-07-04 (не собиралась: CI failure; сборка восстановлена в 0.8.9)
 
 **Semantic fixes + compiler/VM builtin sync + integration tests.**
 
@@ -65,7 +65,7 @@ All notable changes to the Metalogos project.
 - `Cargo.toml`: 0.8.7 → 0.8.8
 - `tests/phase23_v084_v087_tests.rs`: new, 17 tests
 
-## [0.8.7] — 2026-07-04
+## [0.8.7] — 2026-07-04 (не собиралась: CI failure; сборка восстановлена в 0.8.9)
 
 **Cron force_run bugfix + Memory Tree L2 global summary + retrieve L1.**
 
@@ -97,7 +97,7 @@ All notable changes to the Metalogos project.
 
 **Total: 147 builtins (was 146)**
 
-## [0.8.6] — 2026-07-04
+## [0.8.6] — 2026-07-04 (не собиралась: CI failure; сборка восстановлена в 0.8.9)
 
 **Memory Tree pipeline + Interpreter::call_pattern() + cron user-pattern dispatch.**
 
@@ -122,7 +122,7 @@ All notable changes to the Metalogos project.
 
 **Total: 145 builtins (was 141)**
 
-## [0.8.5] — 2026-07-03
+## [0.8.5] — 2026-07-03 (не собиралась: CI failure; сборка восстановлена в 0.8.9)
 
 **Исправления критических багов v0.8.4 + полноценный cron scheduler.**
 
@@ -144,7 +144,7 @@ All notable changes to the Metalogos project.
 
 **Итого:** 141 builtin (без изменений), 3 багфикса, 1 новая фича
 
-## [0.8.4] — 2026-07-03
+## [0.8.4] — 2026-07-03 (не собиралась: CI failure; сборка восстановлена в 0.8.9)
 
 **OpenHuman-inspired builtins: 13 новых функций из анализа OpenHuman (tinyhumansai/OpenHuman).**
 
@@ -191,7 +191,7 @@ All notable changes to the Metalogos project.
 
 **Итого:** 141 builtin (было 128)
 
-## [0.8.3] — 2026-07-03
+## [0.8.3] — 2026-07-03 (не собиралась: CI failure; сборка восстановлена в 0.8.9)
 
 **Наряд reverse-iteration: 4 языковых примитива методом обратной итерации.**
 

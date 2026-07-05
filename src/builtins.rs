@@ -263,6 +263,14 @@ impl Builtins {
         funcs.insert("memory_decay".to_string(), builtin_memory_decay as BuiltinFn);
         funcs.insert("memory_boost".to_string(), builtin_memory_boost as BuiltinFn);
         funcs.insert("memory_prune".to_string(), builtin_memory_prune as BuiltinFn);
+        funcs.insert("memory_revise".to_string(), builtin_memory_revise as BuiltinFn);
+        funcs.insert("subgraph_extract".to_string(), builtin_subgraph_extract as BuiltinFn);
+        funcs.insert("subgraph_nodes".to_string(), builtin_subgraph_nodes as BuiltinFn);
+        funcs.insert("subgraph_json".to_string(), builtin_subgraph_json as BuiltinFn);
+        funcs.insert("trace_start".to_string(), builtin_trace_start as BuiltinFn);
+        funcs.insert("trace_end".to_string(), builtin_trace_end as BuiltinFn);
+        funcs.insert("assert_eq".to_string(), builtin_assert_eq as BuiltinFn);
+        funcs.insert("assert_contains".to_string(), builtin_assert_contains as BuiltinFn);
 
         Builtins { funcs }
     }
@@ -4745,7 +4753,7 @@ fn kv_get_raw(key: &str) -> Option<String> {
 // Stored in KV store under "memory_graph" key as GraphSnapshot JSON.
 // Auto-migrates from legacy "mtree_entries" JSON array on first access.
 
-use crate::memory_graph::{MemoryGraph, MemoryNode, Relation, graph_search};
+use crate::memory_graph::{MemoryGraph, MemoryNode, Relation, graph_search, GraphSnapshot};
 
 fn get_memory_graph() -> MemoryGraph {
     let store = kv_store().lock().ok();
@@ -5258,6 +5266,172 @@ fn builtin_memory_prune(args: &[Value]) -> Result<Value, String> {
         ("pruned", Value::Float(pruned as f64)),
         ("remaining", Value::Float(nodes as f64)),
     ]))
+}
+
+// ── V2: Belief Revision ────────────────────────────────────────────
+
+/// `memory_revise(id, new_text, new_score?)` — update a node and resolve Contradicts.
+/// If the node contradicts others, the system keeps the higher-scoring belief
+/// and demotes the loser (score *= 0.3, adds Supersedes edge).
+/// Returns Struct { action, winner_id, superseded_id? }.
+fn builtin_memory_revise(args: &[Value]) -> Result<Value, String> {
+    let id = expect_string_arg("memory_revise", args, 0)?;
+    let new_text = expect_string_arg("memory_revise", args, 1)?;
+    let new_score = match args.get(2) {
+        Some(Value::Float(f)) => *f,
+        _ => 0.8,
+    };
+    let now = chrono_now_timestamp();
+    let mut graph = get_memory_graph();
+    match graph.revise(&id, new_text, new_score, now) {
+        Some(result) => {
+            save_memory_graph(&graph);
+            let mut fields = vec![
+                ("action", Value::String(result.action)),
+                ("winner_id", Value::String(result.winner_id)),
+            ];
+            if let Some(sid) = result.superseded_id {
+                fields.push(("superseded_id", Value::String(sid)));
+            }
+            Ok(make_date_struct("ReviseResult", fields))
+        }
+        None => Err(format!("memory_revise: node '{}' not found", id)),
+    }
+}
+
+// ── V3: Subgraph as First-Class Value ──────────────────────────────
+
+/// `subgraph_extract(id, depth?)` — extract a subgraph around a node as a first-class value.
+/// Returns an opaque Subgraph value containing nodes and edges within depth.
+/// Pass to subgraph_nodes() or subgraph_json() to inspect.
+fn builtin_subgraph_extract(args: &[Value]) -> Result<Value, String> {
+    let id = expect_string_arg("subgraph_extract", args, 0)?;
+    let depth = match args.get(1) {
+        Some(Value::Float(f)) => *f as usize,
+        _ => 2,
+    };
+    let depth = if depth == 0 { 2 } else { depth };
+
+    let mut graph = get_memory_graph();
+    let nbrs: Vec<(String, String, String, usize)> = graph.neighbors(&id, depth)
+        .into_iter()
+        .map(|(n, d)| (n.id.clone(), n.text.clone(), n.level.clone(), d))
+        .collect();
+    let mut ids: Vec<String> = nbrs.iter().map(|(nid, _, _, _)| nid.clone()).collect();
+    // Include the center node itself
+    if graph.get_node(&id).is_some() && !ids.contains(&id) {
+        ids.insert(0, id.clone());
+    }
+
+    // Touch accessed nodes
+    let now = chrono_now_timestamp();
+    graph.touch(&id, now);
+    for nid in &ids {
+        graph.touch(nid, now);
+    }
+    save_memory_graph(&graph);
+
+    let snapshot = graph.subgraph(&ids);
+    Ok(Value::Subgraph(snapshot))
+}
+
+/// `subgraph_nodes(subgraph_value)` — extract node list from a Subgraph value.
+/// Returns List of Struct { id, text, level, score }.
+fn builtin_subgraph_nodes(args: &[Value]) -> Result<Value, String> {
+    let snap = match args.get(0) {
+        Some(Value::Subgraph(s)) => s,
+        _ => return Err("subgraph_nodes: expected Subgraph value as first argument".to_string()),
+    };
+    let mut result = Vec::new();
+    for node in &snap.nodes {
+        result.push(make_date_struct("GraphNode", vec![
+            ("id", Value::String(node.id.clone())),
+            ("text", Value::String(node.text.clone())),
+            ("level", Value::String(node.level.clone())),
+            ("score", Value::Float(node.score)),
+        ]));
+    }
+    Ok(Value::List(result))
+}
+
+/// `subgraph_json(subgraph_value)` — serialize a Subgraph to JSON string.
+fn builtin_subgraph_json(args: &[Value]) -> Result<Value, String> {
+    let snap = match args.get(0) {
+        Some(Value::Subgraph(s)) => s,
+        _ => return Err("subgraph_json: expected Subgraph value as first argument".to_string()),
+    };
+    match serde_json::to_string(snap) {
+        Ok(json) => Ok(Value::String(json)),
+        Err(e) => Err(format!("subgraph_json: serialization failed: {}", e)),
+    }
+}
+
+// ── V4: Execution Tracing ──────────────────────────────────────────
+
+/// `trace_start(name)` — begin a named trace span. Stores start time in session.
+/// Returns Unit.
+fn builtin_trace_start(args: &[Value]) -> Result<Value, String> {
+    let name = expect_string_arg("trace_start", args, 0)?;
+    let key = format!("__trace_{}", name);
+    let now = format!("{}", chrono_now_timestamp());
+    if let Ok(mut store) = kv_store().lock() {
+        store.insert(key, now);
+    }
+    Ok(Value::Unit)
+}
+
+/// `trace_end(name)` — end a named trace span. Returns Struct { name, elapsed_ms, elapsed_secs }.
+/// Removes the start time from session.
+fn builtin_trace_end(args: &[Value]) -> Result<Value, String> {
+    let name = expect_string_arg("trace_end", args, 0)?;
+    let key = format!("__trace_{}", name);
+    let start: i64 = if let Ok(store) = kv_store().lock() {
+        match store.get(&key) {
+            Some(s) => s.parse().unwrap_or(0),
+            None => return Err(format!("trace_end: no active trace '{}'", name)),
+        }
+    } else {
+        return Err("trace_end: cannot access session store".to_string());
+    };
+    let now = chrono_now_timestamp();
+    let elapsed_ms = (now - start).max(0) * 1000; // seconds→ms (timestamp is seconds)
+    // Clean up
+    if let Ok(mut store) = kv_store().lock() {
+        store.remove(&key);
+    }
+    Ok(make_date_struct("TraceSpan", vec![
+        ("name", Value::String(name)),
+        ("elapsed_ms", Value::Float(elapsed_ms as f64)),
+        ("elapsed_secs", Value::Float((now - start).max(0) as f64)),
+    ]))
+}
+
+// ── V5: Assertions ──────────────────────────────────────────────────
+
+/// `assert_eq(actual, expected)` — error if two values display differently.
+/// Returns the actual value on success.
+fn builtin_assert_eq(args: &[Value]) -> Result<Value, String> {
+    if args.len() < 2 {
+        return Err("assert_eq: requires 2 arguments (actual, expected)".to_string());
+    }
+    let actual_str = format!("{}", args[0]);
+    let expected_str = format!("{}", args[1]);
+    if actual_str != expected_str {
+        Err(format!("assert_eq failed: {} != {}", actual_str, expected_str))
+    } else {
+        Ok(args[0].clone())
+    }
+}
+
+/// `assert_contains(haystack, needle)` — panic if needle not found in haystack string.
+fn builtin_assert_contains(args: &[Value]) -> Result<Value, String> {
+    let haystack = format!("{}", args.get(0).unwrap_or(&Value::Unit));
+    let needle = format!("{}", args.get(1).unwrap_or(&Value::Unit));
+    if !haystack.contains(&needle) {
+        Err(format!("assert_contains failed: '{}' not in '{}'", needle, &haystack[..haystack.len().min(80)]))
+    } else {
+        Ok(args[0].clone())
+    }
 }
 
 /// Helper: current Unix timestamp.

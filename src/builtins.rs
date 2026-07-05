@@ -4976,13 +4976,14 @@ fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
         .collect();
     let mut l2_created = 0u32;
 
-    if l1_entries.len() >= 3 {
+    let l1_count = l1_entries.len();
+    let l1_texts: Vec<String> = l1_entries.iter()
+        .filter_map(|e| e["text"].as_str().map(|s| s.to_string()))
+        .collect();
+    drop(l1_entries);
+    if l1_count >= 3 {
         // Remove any existing L2 (global summary is always replaced)
         entries.retain(|e| e["level"].as_str() != Some("L2"));
-
-        let l1_texts: Vec<String> = l1_entries.iter()
-            .filter_map(|e| e["text"].as_str().map(|s| s.to_string()))
-            .collect();
 
         let combined: String = l1_texts.join("\n---\n");
         let global_summary = if combined.len() > 1000 {
@@ -5000,7 +5001,7 @@ fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
             "created_at": chrono_now_timestamp(),
             "source": "mtree_summarize",
             "summary": serde_json::Value::Null,
-            "source_l1_count": l1_entries.len()
+            "source_l1_count": l1_count
         });
         entries.push(l2_entry);
         l2_created = 1;

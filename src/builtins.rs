@@ -5283,7 +5283,7 @@ fn builtin_memory_revise(args: &[Value]) -> Result<Value, String> {
     };
     let now = chrono_now_timestamp();
     let mut graph = get_memory_graph();
-    match graph.revise(&id, new_text, new_score, now) {
+    match graph.revise(&id, &new_text, new_score, now) {
         Some(result) => {
             save_memory_graph(&graph);
             let mut fields = vec![

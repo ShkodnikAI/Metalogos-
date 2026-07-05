@@ -7,7 +7,7 @@
 **AI-native programming language with security by design. Written in Rust.**
 
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/v0.8.8-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
+[![Version](https://img.shields.io/badge/v0.8.9-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
 [![CI](https://img.shields.io/badge/CI-passing-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 
@@ -184,11 +184,11 @@ Pre-built Linux x86_64 binaries are available from [GitHub Actions](https://gith
 
 | Component | Technology | Lines |
 |---|---|---|
-| Parser | Pest 2.7 PEG grammar (335 rules) | 1 871 |
+| Parser | Pest 2.7 PEG grammar (346 rules) | 1 871 |
 | AST | 24 Declaration, 14 Expr, 12 Statement, 4 MatchArm | 658 |
+| Compiler | Bytecode, 171 builtins indexed | 1 286 |
 | Semantic analysis | Opaque types, arity checking, security audit | 1 419 |
 | Interpreter | Tree-walking, full feature support | 4 107 |
-| Compiler | Bytecode, 171 builtins indexed | 1 285 |
 | VM | 44 instructions, stack-based | 1 545 |
 | Built-in functions | 155 function definitions | 5 048 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 1 446 |
@@ -196,15 +196,15 @@ Pre-built Linux x86_64 binaries are available from [GitHub Actions](https://gith
 | Memory store | Semantic memory with decay + KV store | 1 173 |
 | Security audit | Static OWASP analysis | 1 075 |
 | Embeddings | Cosine similarity search | 601 |
-| **Total** | | **~23 200** |
+| **Total** | | **~23 400** |
 
 ### Project Structure
 
 ```
 Metalogos-/
-├── Cargo.toml                  # v0.8.8
+├── Cargo.toml                  # v0.8.9
 ├── src/
-│   ├── grammar.pest             # PEG grammar (335 rules)
+│   ├── grammar.pest             # PEG grammar (346 rules)
 │   ├── ast.rs                   # AST definitions
 │   ├── parser.rs                # Pest tokens -> AST
 │   ├── semantic.rs              # Semantic analysis + opaque type enforcement
@@ -219,7 +219,7 @@ Metalogos-/
 │   ├── memory_store.rs          # Semantic memory + KV store
 │   ├── audit.rs                 # Static security audit
 │   └── main.rs                  # CLI: run/repl/check/serve/compile/eval/audit
-├── tests/                       # 33 integration test files
+├── tests/                       # 33 integration test files (incl. phase23 v0.8.9 else-branch contracts)
 ├── examples/                    # 78 .mlog programs with golden tests
 ├── std/                         # Standard library (string, math, collections)
 ├── docs/adr/                    # 63 Architecture Decision Records
@@ -234,6 +234,7 @@ Metalogos-/
 
 | Version | Highlights |
 |---|---|
+| **0.8.9** | Fix: else-branch parsing (else dropped silently), Fix: BlockIfElse mutation loss, 4 contract tests |
 | **0.8.8** | Semantic fixes, compiler/VM 171-builtin sync, variadic min-arity, 17 integration tests, chrono fix |
 | **0.8.7** | Cron force_run bugfix, Memory Tree L2 global summary, mtree_stats |
 | **0.8.6** | Memory Tree (L0/L1/L2), `call_pattern()`, cron user-pattern dispatch |

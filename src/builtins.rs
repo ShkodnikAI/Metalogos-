@@ -257,6 +257,9 @@ impl Builtins {
         funcs.insert("mtree_forget".to_string(), builtin_mtree_forget as BuiltinFn);
         funcs.insert("mtree_summarize".to_string(), builtin_mtree_summarize as BuiltinFn);
         funcs.insert("mtree_stats".to_string(), builtin_mtree_stats as BuiltinFn);
+        funcs.insert("graph_query".to_string(), builtin_graph_query as BuiltinFn);
+        funcs.insert("graph_path".to_string(), builtin_graph_path as BuiltinFn);
+        funcs.insert("graph_neighbors".to_string(), builtin_graph_neighbors as BuiltinFn);
 
         Builtins { funcs }
     }
@@ -5062,6 +5065,97 @@ fn builtin_mtree_stats(args: &[Value]) -> Result<Value, String> {
         ("graph_edges", Value::Float(edges as f64)),
         ("components", Value::Float(components as f64)),
     ]))
+}
+
+// ── Graph Query builtins (v0.8.10) ──────────────────────────────────
+
+/// `graph_query(query, limit?, level?)` — search memory graph by keyword relevance.
+/// Same scoring as mtree_retrieve but explicit API. Optional level filter.
+/// Returns List of Struct { id, text, level, score, relevance }.
+fn builtin_graph_query(args: &[Value]) -> Result<Value, String> {
+    let query = expect_string_arg("graph_query", args, 0)?;
+    let limit = match args.get(1) {
+        Some(Value::Float(f)) => *f as usize,
+        _ => 5,
+    };
+    let limit = if limit == 0 { 5 } else { limit };
+    let level_filter = match args.get(2) {
+        Some(Value::String(s)) if !s.is_empty() => Some(s.as_str()),
+        _ => None,
+    };
+
+    let graph = get_memory_graph();
+    let results = graph_search(&graph, &query, limit, level_filter);
+
+    let mut result = Vec::new();
+    for (id, text, level, score, relevance) in &results {
+        result.push(make_date_struct("GraphEntry", vec![
+            ("id", Value::String(id.clone())),
+            ("text", Value::String(text.clone())),
+            ("level", Value::String(level.clone())),
+            ("score", Value::Float(*score)),
+            ("relevance", Value::Float(*relevance)),
+        ]));
+    }
+    Ok(Value::List(result))
+}
+
+/// `graph_path(from_id, to_id)` — find shortest path between two memory nodes.
+/// Returns List of Struct { id, text, level } (ordered from source to target),
+/// or List with single entry { status: "no_path" } if no path exists.
+fn builtin_graph_path(args: &[Value]) -> Result<Value, String> {
+    let from_id = expect_string_arg("graph_path", args, 0)?;
+    let to_id = expect_string_arg("graph_path", args, 1)?;
+
+    let graph = get_memory_graph();
+    match graph.shortest_path(&from_id, &to_id) {
+        Some(path) => {
+            let mut result = Vec::new();
+            for id in &path {
+                if let Some(node) = graph.get_node(id) {
+                    result.push(make_date_struct("PathNode", vec![
+                        ("id", Value::String(node.id.clone())),
+                        ("text", Value::String(node.text.clone())),
+                        ("level", Value::String(node.level.clone())),
+                    ]));
+                }
+            }
+            Ok(Value::List(result))
+        }
+        None => Ok(Value::List(vec![
+            make_date_struct("PathError", vec![
+                ("status", Value::String("no_path".to_string())),
+                ("from", Value::String(from_id)),
+                ("to", Value::String(to_id)),
+            ]))
+        ])),
+    }
+}
+
+/// `graph_neighbors(id, depth?)` — get nodes connected to a given node within depth.
+/// Default depth: 1. Bidirectional (follows edges both ways).
+/// Returns List of Struct { id, text, level, distance }.
+fn builtin_graph_neighbors(args: &[Value]) -> Result<Value, String> {
+    let id = expect_string_arg("graph_neighbors", args, 0)?;
+    let depth = match args.get(1) {
+        Some(Value::Float(f)) => *f as usize,
+        _ => 1,
+    };
+    let depth = if depth == 0 { 1 } else { depth };
+
+    let graph = get_memory_graph();
+    let nbrs = graph.neighbors(&id, depth);
+
+    let mut result = Vec::new();
+    for (node, distance) in &nbrs {
+        result.push(make_date_struct("Neighbor", vec![
+            ("id", Value::String(node.id.clone())),
+            ("text", Value::String(node.text.clone())),
+            ("level", Value::String(node.level.clone())),
+            ("distance", Value::Float(*distance as f64)),
+        ]));
+    }
+    Ok(Value::List(result))
 }
 
 /// Helper: current Unix timestamp.

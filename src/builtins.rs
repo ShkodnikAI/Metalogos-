@@ -4752,12 +4752,14 @@ fn get_memory_graph() -> MemoryGraph {
     let sqlite = kv_sqlite().lock().ok();
 
     // Try new format first
-    let raw = match (store, sqlite) {
-        (Some(s), _) => s.get("memory_graph").cloned(),
-        (_, Some(guard)) => guard.as_ref().and_then(|conn| {
+    let raw = if let Some(ref s) = store {
+        s.get("memory_graph").cloned()
+    } else if let Some(ref guard) = sqlite {
+        guard.as_ref().and_then(|conn| {
             conn.query_row("SELECT value FROM kv_store WHERE key = 'memory_graph'", [], |row| row.get(0)).ok()
-        }),
-        _ => None,
+        })
+    } else {
+        None
     };
 
     if let Some(json) = raw {
@@ -4765,12 +4767,14 @@ fn get_memory_graph() -> MemoryGraph {
     }
 
     // Migration: try legacy flat array format
-    let legacy_raw = match (store, sqlite) {
-        (Some(s), _) => s.get("mtree_entries").cloned(),
-        (_, Some(guard)) => guard.as_ref().and_then(|conn| {
+    let legacy_raw = if let Some(ref s) = store {
+        s.get("mtree_entries").cloned()
+    } else if let Some(ref guard) = sqlite {
+        guard.as_ref().and_then(|conn| {
             conn.query_row("SELECT value FROM kv_store WHERE key = 'mtree_entries'", [], |row| row.get(0)).ok()
-        }),
-        _ => None,
+        })
+    } else {
+        None
     };
 
     if let Some(legacy_json) = legacy_raw {
@@ -5161,22 +5165,25 @@ fn builtin_graph_neighbors(args: &[Value]) -> Result<Value, String> {
     let depth = if depth == 0 { 1 } else { depth };
 
     let mut graph = get_memory_graph();
-    let nbrs = graph.neighbors(&id, depth);
+    let nbrs: Vec<(String, String, String, usize)> = graph.neighbors(&id, depth)
+        .into_iter()
+        .map(|(n, d)| (n.id.clone(), n.text.clone(), n.level.clone(), d))
+        .collect();
 
     // Touch the queried node and its neighbors
     let now = chrono_now_timestamp();
     graph.touch(&id, now);
-    for (node, _) in &nbrs {
-        graph.touch(&node.id, now);
+    for (nid, _, _, _) in &nbrs {
+        graph.touch(nid, now);
     }
     save_memory_graph(&graph);
 
     let mut result = Vec::new();
-    for (node, distance) in &nbrs {
+    for (id, text, level, distance) in &nbrs {
         result.push(make_date_struct("Neighbor", vec![
-            ("id", Value::String(node.id.clone())),
-            ("text", Value::String(node.text.clone())),
-            ("level", Value::String(node.level.clone())),
+            ("id", Value::String(id.clone())),
+            ("text", Value::String(text.clone())),
+            ("level", Value::String(level.clone())),
             ("distance", Value::Float(*distance as f64)),
         ]));
     }

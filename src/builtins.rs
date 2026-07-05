@@ -5145,8 +5145,7 @@ fn builtin_graph_path(args: &[Value]) -> Result<Value, String> {
                 ("status", Value::String("no_path".to_string())),
                 ("from", Value::String(from_id)),
                 ("to", Value::String(to_id)),
-            ]))
-        ])),
+            ])])),
     }
 }
 

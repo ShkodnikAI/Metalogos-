@@ -242,7 +242,7 @@ type_name = { IDENT }
 ARROW = @{ "->" }
 
 // ── Expressions (v0.5.0: access_expr replaces field_expr, INT in primary_expr) ──
-// v0.8.8.1: standard operator precedence via layered grammar (narad M1)
+// v0.8.9: standard operator precedence via layered grammar (narad M1)
 expression       = { or_expr }
 or_expr          = { and_expr ~ (OR_KW ~ and_expr)* }
 and_expr         = { compare_expr ~ (AND_KW ~ compare_expr)* }

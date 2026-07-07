@@ -1,6 +1,6 @@
 # METALOGOS — Справочник языка (Reference)
 
-> **Версия:** 0.8.9 (Phase 8.9)
+> **Версия:** 0.4.0+ (Phase 7.7)
 > **Единый источник истины** для разработчиков, пишущих на Металогосе.
 > Содержит полный список встроенных функций с сигнатурами, типами, описанием и примерами,
 > а также справочник по синтаксису, типам данных и CLI.
@@ -29,20 +29,10 @@
    - [Шаблоны (Templates)](#414-шаблоны-templates)
    - [Базы данных](#415-базы-данных)
    - [Боты (Telegram/Discord)](#416-боты-telegramdiscord)
-   - [Время, дата, календарь](#417-время-дата-календарь)
-   - [Геолокация](#418-геолокация)
-   - [Погода](#419-погода)
-   - [Напоминания и таймеры](#420-напоминания-и-таймеры)
-   - [Интеграции и автоматизация](#421-интеграции-и-автоматизация)
-   - [Human Intelligence Layer](#422-human-intelligence-layer-openhuman-inspired)
-   - [Списочные операции](#423-списочные-операции-mapzipsortfilterreduce)
-   - [Базы данных: вставка](#424-базы-данных-параметризованная-вставка)
-   - [Утилиты для скилл-индексов](#425-утилиты-для-скилл-индексов-и-callbackов)
-   - [Прочее](#426-прочее)
-5. [Байткод VM и JIT](#5-байткод-vm-и-jit)
-6. [Объявления верхнего уровня](#6-объявления-верхнего-уровня)
-7. [Stdlib](#7-stdlib-стандартная-библиотека)
-8. [Changelog](#8-changelog-кратко)
+   - [Прочее](#417-прочее)
+5. [Объявления верхнего уровня](#5-объявления-верхнего-уровня)
+6. [Stdlib (стандартная библиотека)](#6-stdlib-стандартная-библиотека)
+7. [Changelog](#7-changelog-кратко)
 
 ---
 
@@ -108,7 +98,37 @@ let x = 42.0
 let name = "Metalogos"
 let items = [1.0, 2.0, 3.0]
 let result = if x > 10.0 then "big" else "small"   // let с if-выражением
-let payload = { chat_id: "123", text: "hello", urgent: true }  // struct literal
+```
+
+**Мутабельные переменные (`let mut`):** Начиная с Наряд №14, переменные по умолчанию иммутабельны. Для повторного присваивания используйте `let mut`:
+
+```mlog
+let mut counter = 0.0
+while counter < 10.0 {
+  counter = counter + 1.0   // OK — counter объявлена как mut
+}
+let x = 5.0
+x = 10.0   // ОШИБКА: "cannot assign to immutable variable: x"
+```
+
+**Область видимости `let`:** `let` создаёт или перезаписывает переменную в **текущем** окружении. Внутри блоков (`if`, `each`, `while`, `match`) `let` ведёт себя как перезапись — он модифицирует переменную из внешнего окружения, а не создаёт локальную теневую копию. Это значит, что `let x = 999.0` внутри `if` изменит `x` для всего последующего кода, включая код после блока.
+
+```mlog
+let x = 1.0
+if x == 1.0 {
+    let x = 999.0   // перезаписывает внешний x
+}
+// здесь x == 999.0
+```
+
+Если нужно локальное переопределение, которое не влияет на внешний `x`, используйте другое имя или шаблон с `let tmp_x = ...`. Это поведение может измениться в будущих версиях (планируется переход на лексическое scoping с блоковой изоляцией).
+
+**Мутабельные переменные (`let mut`, Наряд №14):** Переменные по умолчанию иммутабельны. Для присваивания используйте `let mut`:
+```mlog
+let mut counter = 0.0
+counter = counter + 1.0   // OK
+let x = 5.0
+x = 10.0                  // ОШИБКА: cannot assign to immutable variable: x
 ```
 
 ### 3.3. Операторы
@@ -117,7 +137,6 @@ let payload = { chat_id: "123", text: "hello", urgent: true }  // struct literal
 |-----------|-----------|
 | Арифметические | `+`, `-`, `*`, `/` |
 | Сравнение | `==`, `!=`, `>`, `<`, `>=`, `<=` |
-| Логические (short-circuit) | `and`, `or` |
 | Унарный минус | `-expr` |
 | Доступ к полю | `obj.field` |
 | Доступ по индексу | `list[0]` |
@@ -137,33 +156,15 @@ if x > 10.0 {
 }
 ```
 
-**If-then-else (тернарное выражение):**
+**If-then-else (выражение):**
 ```mlog
 let label = if score >= 90.0 then "A" else "B"
-```
-
-**If-then (блочный оператор):**
-```mlog
-if x > 10.0 then {
-  print("big")
-} else if x > 5.0 then {
-  print("medium")
-} else {
-  print("small")
-}
 ```
 
 **Each (цикл по коллекции):**
 ```mlog
 each item in items {
   print(item)
-}
-```
-
-**Each with index (цикл с индексом):**
-```mlog
-each i, item in items {
-  print(to_string(i) + ": " + item)
 }
 ```
 
@@ -174,16 +175,7 @@ while count < 10.0 {
 }
 ```
 
-**Break / Continue:**
-```mlog
-each item in items {
-  if item == "stop" then { break }
-  if item == "skip" then { continue }
-  print(item)
-}
-```
-
-**Match (сопоставление с образцом):**
+**Match (сопоставление с образцом, Наряд №14):**
 ```mlog
 match command {
   "start" then { print("starting") }
@@ -193,16 +185,28 @@ match command {
   else { print("unknown") }
 }
 ```
+Поддерживаются 4 вида arm: точное совпадение (`"val" then {}`), префикс (`starts_with "pre" then {}`), подстрока (`contains "sub" then {}`), сравнение (`> expr then {}` с любым из `>`, `<`, `>=`, `<=`, `==`, `!=`). Match возвращает значение последнего expression в выбранной ветви.
 
-**Try (перехват ошибок):**
+**If-else block как expression (Наряд №14):**
 ```mlog
-let result = try risky_operation()
-// Если risky_operation() вернёт ошибку, result = Unit
+let label = if score >= 90.0 { "A" } else { "B" }
+let dept_color = if x == "osp" { "#FF0000" } else if x == "lz" { "#00FF00" } else { "#999999" }
+```
+
+**Try expression (error handling, Наряд №14):**
+```mlog
+let result = try http_post("https://api.example.com", body, "application/json")
+// При ошибке: result = Unit, в stderr: [try] caught error: ...
 ```
 
 **Return:**
 ```mlog
 return result
+```
+
+**Require (RBAC, Наряд №14):** Проверяет роль текущего пользователя (только в HTTP контексте с session middleware).
+```mlog
+let _ = require("admin")   // При отказе: execution прерывается с ошибкой "access denied"
 ```
 
 ### 3.5. Строковые литералы
@@ -212,7 +216,7 @@ let s = "hello world"
 let with_escape = "line1\nline2\ttabbed"
 ```
 
-Поддерживаемые escape-последовательности: `\"`, `\\`, `\n`, `\t`, `\r`, `\uXXXX` (Unicode code point, например `\u0041` = `A`).
+Поддерживаемые escape-последовательности: `\"`, `\\`, `\n`, `\t`, `\r`.
 
 ### 3.6. Идентификаторы
 
@@ -227,7 +231,9 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Встроенные функции (Builtins)
 
-Все 171 встроенная функция регистрируется в `src/builtins.rs` и доступна как в tree-walking интерпретаторе, так и в байткод VM. JIT-компилятор через Cranelift также поддерживает все builtins.
+Все встроенные функции зарегистрированы в едином реестре `BUILTIN_REGISTRY` (файл `src/builtins.rs`). Реестр — **Single Source of Truth**: compiler, VM и semantic analysis читают имена и арности из него. Для добавления нового builtin достаточно добавить одну строку в `BUILTIN_REGISTRY` и один `funcs.insert()` в `Builtins::new()`.
+
+Всего зарегистрировано **135 builtins** в категориях: string, convert, list, math, std, web, json, crypto, auth, db, llm, memory, io, time, bot, voice, stateful, graph, mtree, cron, test, encoding, stub, fluid, system.
 
 ### 4.1. Строковые функции
 
@@ -242,9 +248,9 @@ pattern Приветствие(кто: String) -> String { ... }
 | `index_of(s, needle)` | `String, String -> Float` | Float | Возвращает позицию (символьную, не байтовую) первого вхождения или `-1.0` |
 | `substring(s, start, end)` | `String, Float, Float -> String` | String | Извлекает подстроку по символьным индексам. Soft-failure: пустая строка при out-of-bounds |
 | `char_at(s, index)` | `String, Float -> String` | String | Возвращает символ по индексу. Пустая строка при out-of-bounds |
-| `starts_with(s, prefix)` | `String, String -> Bool` | Bool | Проверяет, начинается ли строка с префикса. Также доступна как VM-инструкция `StartsWith` и в `match` как `starts_with "..."` |
+| `starts_with(s, prefix)` | `String, String -> Bool` | Bool | Проверяет, начинается ли строка с префикса |
 | `ends_with(s, suffix)` | `String, String -> Bool` | Bool | Проверяет, заканчивается ли строка суффиксом |
-| `contains(s, needle)` | `String, String -> Float` | Float | Возвращает `1.0` если содержит, `0.0` если нет. Также доступна как VM-инструкция `Contains` |
+| `contains(s, needle)` | `String, String -> Float` | Float | Возвращает `1.0` если содержит, `0.0` если нет |
 | `reverse(s)` | `String -> String` | String | Разворачивает строку (посимвольно) |
 | `length(s)` | `String -> Float` | Float | Длина строки в символах (Unicode-aware). Аналог `len()` |
 | `len(s)` | `String\|List -> Float` | Float | Длина строки (символы) или списка (элементы) |
@@ -310,7 +316,6 @@ to_int(3.9)        // 3.0
 | `len(list)` | `List -> Float` | Float | Количество элементов |
 | `length(list)` | `List -> Float` | Float | Аналог `len()` |
 | `reverse(list)` | `List -> List` | List | Разворачивает список |
-| `make_list(a, b, c, ...)` | `Any, ... -> List` | List | Создаёт список из произвольного числа аргументов. Потокобезопасная альтернатива write_file/read_file для возврата нескольких значений из pattern (Наряд 24) |
 
 **Примеры:**
 ```mlog
@@ -337,8 +342,8 @@ reverse(items)         // [30.0, 20.0, 10.0]
 
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|
-| `call_llm(prompt, input)` | `String, String -> String` | String | Вызывает LLM-бэкенд. По умолчанию возвращает мок: `"[MOCK: prompt \| input]"`. Реальный вызов при `METALOGOS_LLM_MOCK=false`. Таймаут 120с |
-| `call_claude(api_key, model, system_prompt, user_message)` | `String, String, String, String -> String` | String | Прямой вызов Anthropic Claude Messages API (v1/messages). Возвращает `content[0].text`. Таймаут 120с |
+| `call_llm(prompt, input)` | `String, String -> String` | String | Вызывает LLM-бэкенд. По умолчанию возвращает мок: `"[MOCK: prompt \| input]"`. Реальный вызов при `METALOGOS_LLM_MOCK=false` |
+| `call_claude(api_key, model, system_prompt, user_message)` | `String, String, String, String -> String` | String | Прямой вызов Anthropic Claude Messages API (v1/messages). Возвращает `content[0].text` |
 | `llm_usage()` | `-> Struct` | Struct `{LlmUsage}` | Статистика использования LLM: `total_calls`, `total_tokens`, `total_errors`, `providers` (список `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
 | `confidence(fluid_value)` | `Fluid -> Float` | Float | Возвращает максимальный confidence вероятностного типа. Для конкретных значений возвращает `1.0` |
 
@@ -359,8 +364,7 @@ let claude_response = call_claude(env("ANTHROPIC_KEY"), "claude-sonnet-4-2025051
 | `http_post(url, body, content_type, headers)` | `String, String, String, String\|Struct -> String` | String | POST с заголовками. Если 4-й аргумент String — устанавливается `Authorization: Bearer <token>`. Если Struct — устанавливаются заголовки из полей |
 | `http_get(url)` | `String -> String` | String | GET-запрос. Таймаут 30с. Ошибка при статусе >= 400 |
 | `http_get(url, headers)` | `String, String\|Struct -> String` | String | GET с заголовками (Bearer token или Struct) |
-| `http_post_multipart(url, fields, files)` | `String, String\|Struct, String\|List -> String` | String | Multipart POST. `fields` — JSON-строка или Struct с текстовыми полями. `files` — JSON-массив `[{name, path, mime}]` или List of Structs |
-| `http_post_multipart(url, fields, files, headers)` | `String, String\|Struct, String\|List, String\|Struct -> String` | String | Multipart POST с заголовками |
+| `http_post_multipart(url, fields, files)` | `String, Struct, Struct -> String` | String | Multipart POST. `fields` — текстовые поля (Struct), `files` — файловые поля (Struct, значения — пути к файлам). Таймаут 120с |
 
 **Примеры:**
 ```mlog
@@ -374,26 +378,22 @@ let resp = http_post("https://api.example.com/data", body, "application/json", e
 let headers = { "X-Custom": "value", "Authorization": "Bearer token123" }
 let resp = http_post("https://api.example.com/data", body, "application/json", headers)
 
+// Multipart POST (загрузка файла)
+let fields = {"model": "whisper-1"}
+let files = {"file": "/tmp/voice.ogg"}
+let resp = http_post_multipart("https://api.openai.com/v1/audio/transcriptions", fields, files)
+
 // GET
 let data = http_get("https://api.example.com/users")
 let data = http_get("https://api.example.com/users", env("API_TOKEN"))
-
-// Multipart POST — отправка голосового в Telegram
-let result = http_post_multipart(
-  "https://api.telegram.org/bot" + token + "/sendVoice",
-  { chat_id: chat_id },
-  "[{\"name\":\"voice\",\"path\":\"/tmp/voice.ogg\",\"mime\":\"audio/ogg\"}]",
-  token
-)
-
-// Multipart POST — Whisper transcription
-let result = http_post_multipart(
-  "https://api.groq.com/openai/v1/audio/transcriptions",
-  "{\"model\":\"whisper-large-v3\"}",
-  "[{\"name\":\"file\",\"path\":\"/tmp/voice.ogg\",\"mime\":\"audio/ogg\"}]",
-  env("GROQ_KEY")
-)
 ```
+
+### 4.6.1. Голосовой pipeline
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `whisper_transcribe(file_id, bot_token, api_key, provider)` | `String, String, String, String -> String` | String | Скачивает голосовое сообщение из Telegram по `file_id`, отправляет на транскрипцию в Whisper API. `provider`: `"openai"` (по умолчанию) или `"groq"`. Возвращает распознанный текст |
+| `tts_send(text, voice, bot_token, chat_id)` | `String, String, String, String -> String` | String | Генерирует речь через OpenAI TTS API (`tts-1` модель) и отправляет аудио в Telegram чат. Требует `OPENAI_API_KEY`. Голоса: `"alloy"`, `"echo"`, `"fable"`, `"onyx"`, `"nova"`, `"shimmer"` |
 
 ### 4.7. JSON
 
@@ -401,8 +401,8 @@ let result = http_post_multipart(
 |---------|-----------|---------|----------|
 | `parse_json(text)` | `String -> Struct\|List\|String\|Float\|Bool\|Unit` | Any | Парсит JSON-строку. Объекты → Struct с `type_name: "Json"`, массивы → List, `null` → Unit |
 | `json_encode(value)` | `Any -> String` | String | Сериализует значение в JSON-строку. Поддерживает String, Float, Bool, Unit→null, List→array, Struct→object |
-| `json_get(obj, field_path)` | `Struct, String -> Value` | Value | Безопасный доступ к полю (возвращает Unit если нет поля). Unit корректно сравнивается через `==`/`!=` с любым типом. Поддерживает dot-path: `"voice.file_id"`. **Поддерживает числовые индексы массивов:** `"items.0.title"` (Наряд 24) |
-| `json_get(obj, field_path, default)` | `Struct, String, Value -> Value` | Value | С дефолтным значением при отсутствии поля. Также поддерживает числовые индексы |
+| `json_get(obj, field_path)` | `Struct, String -> Value` | Value | Доступ к полю по dot-path. Возвращает **реальное значение** (в т.ч. String). Если поле отсутствует — возвращает Unit. Поддерживает dot-path: `"voice.file_id"` |
+| `json_get(obj, field_path, default)` | `Struct, String, Value -> Value` | Value | С дефолтным значением при отсутствии поля |
 | `has_field(obj, field_path)` | `Struct, String -> Float` | Float | `1.0` если поле существует, `0.0` если нет. Поддерживает dot-path |
 | `escape_json(text)` | `String -> String` | String | Экранирует спецсимволы для встраивания в JSON |
 
@@ -410,8 +410,8 @@ let result = http_post_multipart(
 ```mlog
 let data = parse_json("{\"name\": \"Alice\", \"age\": 30}")
 let name = json_get(data, "name")           // "Alice"
-let missing = json_get(data, "email")        // Unit
-let missing = json_get(data, "email", "none") // "none"
+let missing = json_get(data, "email")        // Unit (поле отсутствует)
+let missing = json_get(data, "email", "none") // "none" (дефолт)
 
 let nested = parse_json("{\"a\": {\"b\": 42}}")
 json_get(nested, "a.b")                      // 42.0
@@ -519,7 +519,7 @@ require(age >= 18.0, "Access denied")      // с сообщением
 | `respond_html(status, html)` | `String, String -> HttpResponse` | HttpResponse | HTML-ответ с указанным статусом |
 | `form_data()` | `-> Struct {FormData}` | Struct | Парсит данные из `application/x-www-form-urlencoded` тела запроса |
 | `json_body()` | `-> Struct {JsonBody}` | Struct | Парсит JSON из тела запроса |
-| `query_param(name)` | `String -> String` | String | Получает query-параметр из URL |
+| `query_param(name)` | `String -> String` | String | Получает query-параметр из URL. `curl "localhost:8080/search?q=hello" → query_param("q") == "hello"`. Пустая строка если параметр отсутствует. |
 
 **Пример:**
 ```mlog
@@ -571,590 +571,22 @@ return page
 
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|
-| `send_message(chat_id, text, reply_markup?)` | `String\|Float, String, Struct? -> String` | String | Отправляет сообщение в Telegram. При `TELEGRAM_BOT_TOKEN` env — реальная отправка через API. 3-й аргумент (Struct) передаётся как `reply_markup` в Telegram API (для inline keyboard). Без токена — логирует в `[AUDIT]` |
-| `answer_callback_query(callback_query_id, text?, show_alert?)` | `String, String?, Float? -> String` | String | Ответ на callback от inline keyboard. `show_alert` 1.0 = alert popup, 0.0 = toast (по умолчанию) |
-| `edit_message_text(chat_id, message_id, text, reply_markup?)` | `String\|Float, Float, String, Struct? -> String` | String | Редактирование существующего сообщения (для обновления inline keyboard после callback) |
-| `whisper_transcribe(file_id, bot_token, whisper_key, provider?)` | `String, String, String, String? -> String` | String | STT через Whisper API: скачивает голосовое из Telegram, отправляет в OpenAI/Groq. `provider`: `"openai"` (по умолч.) или `"groq"` |
-| `tts_send(text, voice, bot_token, chat_id, mode?)` | `String, String, String, String, String? -> String` | String | TTS через OpenAI API + отправка в Telegram. По умолчанию отправляет как голосовое сообщение (voice bubble, `sendVoice`). 5-й аргумент `"audio"` — режим аудиоплеера (`sendAudio`). Требует `OPENAI_API_KEY` |
+| `send_message(chat_id, text)` | `String\|Float, String -> Unit` | Unit | Отправляет сообщение в чат (Telegram/Discord). В interpreter mode — логирует в `[AUDIT]` |
 
-**Пример — inline keyboard + callback handling (v0.8.2):**
-```mlog
-// Webhook route для Telegram бота
-route "/webhook" method=POST {
-  let data = json_body()
-
-  // Обработка callback от inline keyboard
-  let cb = data.callback_query
-  if cb != "" {
-    answer_callback_query(cb.id, "Выбрано: " + cb.data)
-    if cb.data == "yes" {
-      edit_message_text(cb.message.chat.id, cb.message.message_id, "Отлично!")
-    }
-    respond("ok")
-    return
-  }
-
-  // Обработка текстовых сообщений
-  let text = data.message.text
-  let chat_id = data.message.chat.id
-
-  let keyboard = {
-    inline_keyboard: [
-      [{ text: "Да", callback_data: "yes" }, { text: "Нет", callback_data: "no" }]
-    ]
-  }
-  send_message(chat_id, "Выберите:", keyboard)
-  respond("ok")
-}
-
-// Голосовое сообщение (voice bubble)
-tts_send("Привет!", "alloy", bot_token, chat_id)
-// Аудиоплеер вместо voice bubble
-tts_send("Привет!", "alloy", bot_token, chat_id, "audio")
-```
-
-### 4.17. Время, дата, календарь
-
-| Функция | Сигнатура | Возврат | Описание |
-|---------|-----------|---------|----------|
-| `now()` | `-> Float` | Float | Текущий Unix-timestamp в секундах (alias: `time()`) |
-| `format_date(fmt, timestamp?)` | `String, Float? -> String` | String | Форматирует timestamp (или текущее время) по шаблону. Поддерживает: `%Y` (год), `%y` (2 цифры), `%m` (месяц), `%d` (день), `%H` (часы 24), `%I` (часы 12), `%M` (минуты), `%S` (секунды), `%p` (AM/PM), `%A` (день недели), `%a` (сокр.), `%B` (месяц), `%b` (сокр.), `%j` (день года), `%w` (weekday 0=Mon), `%W` (неделя), `%F` (YYYY-MM-DD), `%T` (HH:MM:SS), `%R` (HH:MM) |
-| `date_parts(timestamp?)` | `Float? -> Struct {Date}` | Struct | Возвращает struct: `year`, `month`, `day`, `hour`, `minute`, `second`, `weekday`, `weekday_name`, `month_name`, `day_of_year`, `week_number`, `timestamp` |
-| `days_between(ts1, ts2)` | `Float, Float -> Float` | Float | Абсолютная разница в днях между двумя timestamps |
-| `days_in_month(year, month)` | `Float, Float -> Float` | Float | Количество дней в месяце (1-12). Учитывает високосные года |
-| `is_leap_year(year)` | `Float -> Bool` | Bool | Проверяет, является ли год високосным |
-| `add_days(timestamp, days)` | `Float, Float -> Float` | Float | Прибавляет/вычитает дни к timestamp |
-| `add_hours(timestamp, hours)` | `Float, Float -> Float` | Float | Прибавляет/вычитает часы к timestamp |
-| `weekday_name(timestamp)` | `Float -> String` | String | Полное название дня недели: "Monday".."Sunday" |
-
-**Примеры:**
-```mlog
-let ts = now()
-print(format_date("%Y-%m-%d %H:%M:%S", ts))  // "2026-07-01 14:30:00"
-print(format_date("%d.%m.%Y"))               // текущая дата: "01.07.2026"
-
-let dp = date_parts(ts)
-print(dp.weekday_name)   // "Tuesday"
-print(dp.week_number)    // "27"
-
-print(days_in_month(2026.0, 2.0))   // 28.0
-print(is_leap_year(2024.0))          // true
-print(add_days(ts, 7.0))            // timestamp через 7 дней
-print(days_between(ts, add_days(ts, 3.0)))  // 3.0
-print(weekday_name(ts))             // "Tuesday"
-```
-
-### 4.18. Геолокация
-
-| Функция | Сигнатура | Возврат | Описание |
-|---------|-----------|---------|----------|
-| `geo_ip(ip?)` | `String? -> Struct {GeoLocation}` | Struct | Геолокация по IP. Без аргумента — текущий IP. Использует ip-api.com (бесплатно, без ключа). Поля: `ip`, `city`, `region`, `country`, `country_code`, `lat`, `lon`, `isp`, `timezone` |
-| `geo_distance(lat1, lon1, lat2, lon2, unit?)` | `Float, Float, Float, Float, String? -> Float` | Float | Расстояние по формуле гаверсинуса. `unit`: `"km"` (по умолч.), `"mi"`, `"nm"`, `"m"` |
-
-**Примеры:**
-```mlog
-// Определить местоположение по IP
-let loc = geo_ip()
-print(loc.city)          // "Minsk"
-print(loc.country_code)  // "BY"
-print(loc.lat)           // 53.9
-
-// Расстояние между городами
-let d = geo_distance(53.9, 27.57, 55.75, 37.62)  // Минск — Москва
-print(d)                  // ~690 km
-let d_mi = geo_distance(53.9, 27.57, 55.75, 37.62, "mi")
-print(d_mi)              // ~429 mi
-```
-
-### 4.19. Погода
-
-Погодные функции используют **Open-Meteo API** — полностью бесплатно, **без API-ключа**, без регистрации. Город автоматически разрешается в координаты через Open-Meteo Geocoding.
-
-| Функция | Сигнатура | Возврат | Описание |
-|---------|-----------|---------|----------|
-| `weather(city_or_lat, lon?)` | `String \| Float, Float? -> Struct {Weather}` | Struct | Текущая погода. `weather("Minsk")` или `weather(53.9, 27.57)`. Поля: `temp`, `feels_like`, `temp_min`, `temp_max`, `humidity`, `description`, `wind_speed`, `wind_direction`, `pressure`, `cloud_cover`, `is_day`, `city`, `country` |
-| `weather_forecast(city_or_lat, lon_or_days?, days?)` | `String \| Float, Float?, Float? -> List` | List | Прогноз на 1–16 дней. `weather_forecast("Minsk")` (7 дней), `weather_forecast("Minsk", 3)`, `weather_forecast(53.9, 27.57, 14)`. Каждый элемент — struct `DayForecast`: `date`, `temp_max`, `temp_min`, `precipitation`, `weather_code`, `description`, `wind_speed_max`, `sunrise`, `sunset`, `uv_index` |
-
-**Примеры:**
-```mlog
-// Текущая погода
-let w = weather("Minsk")
-print("Температура: " + to_string(w.temp) + "°C")
-print("Ощущается: " + to_string(w.feels_like) + "°C")
-print(w.description)              // "Partly cloudy"
-print("Влажность: " + to_string(w.humidity) + "%")
-print("Ветер: " + to_string(w.wind_speed) + " km/h")
-print("День: " + to_string(w.is_day))  // 1.0 = день, 0.0 = ночь
-
-// По координатам
-let w2 = weather(40.71, -74.01)   // New York
-
-// Прогноз на 3 дня
-let forecast = weather_forecast("Minsk", 3)
-each day in forecast {
-  print(day.date + ": " + to_string(day.temp_min) + ".." + to_string(day.temp_max) + "°C, " + day.description)
-}
-
-// Полный прогноз (по умолчанию 7 дней, макс 16)
-let week = weather_forecast("London", 14)
-each day in week {
-  print(day.date + " | " + day.description + " | UV: " + day.uv_index)
-}
-```
-
-### 4.20. Напоминания и таймеры
-
-> **v0.8.2:** Напоминания автоматически персистируются в SQLite (таблица `reminders`). При запуске `mlog serve` фоновый таск каждые 5 секунд проверяет просроченные напоминания и логирует их.
-
-| Функция | Сигнатура | Возврат | Описание |
-|---------|-----------|---------|----------|
-| `remind(message, timestamp, data?)` | `String, Float, String? -> String` | String | Одноразовое напоминание. Возвращает ID. `timestamp` — когда сработать (Unix). `data` — произвольные данные |
-| `remind_recurring(message, interval_seconds, data?)` | `String, Float, String? -> String` | String | Повторяющееся напоминание. `interval_seconds` — период в секундах (86400 = день, 604800 = неделя) |
-| `cancel_remind(id)` | `String -> String` | String | Отменяет напоминание. Возвращает `"ok"` или `"not_found"` |
-| `list_reminders()` | `-> List` | List | Список активных напоминаний. Каждый элемент — struct `Reminder`: `id`, `message`, `fire_at`, `interval`, `next_fire`, `data`, `created_at`, `type` |
-| `check_reminders()` | `-> List` | List | Возвращает просроченные напоминания (DueReminder). Одноразовые деактивируются, повторяющиеся сдвигаются на следующий период |
-
-**Примеры:**
-```mlog
-// Напоминание через 1 час
-let in_1h = add_hours(now(), 1.0)
-let id = remind("Перезвонить клиенту", in_1h, "phone:+375291234567")
-
-// Ежедневное напоминание (каждые 24 часа)
-let daily_id = remind_recurring("Ежедневный отчёт", 86400.0, "report:daily")
-
-// Еженедельное напоминание
-let weekly_id = remind_recurring("Плёнка", 604800.0)
-
-// Проверить сработавшие
-let due = check_reminders()
-each r in due {
-  print("НАПОМИНАНИЕ: " + r.message + " (data: " + r.data + ")")
-}
-
-// Отменить
-cancel_remind(daily_id)
-
-// Список всех активных
-let active = list_reminders()
-each r in active {
-  print(r.type + ": " + r.message + " next=" + format_date("%Y-%m-%d %H:%M", r.next_fire))
-}
-```
-
-### 4.21. Интеграции и автоматизация
-
-| Функция | Сигнатура | Возврат | Описание |
-|---------|-----------|---------|----------|
-| `git_push(message)` | `String -> String` | String | `git add . && git commit && git push` через subprocess. Требует `GITHUB_TOKEN` и `GITHUB_REPO` env. Возвращает `"ok"` или `"nothing to commit"` |
-| `web_search(query, num_results)` | `String, Float -> String` | String | Поиск через SerpAPI. Требует `SERPAPI_KEY` env. Возвращает raw JSON. `num_results` по умолчанию 10 |
-| `exec(command)` | `String -> String` | String | Выполняет shell-команду. В server mode отключён без `METALOGOS_ALLOW_EXEC=1` |
-
-### 4.22. Human Intelligence Layer (OpenHuman-inspired)
-
-Система персон (вдохновлённая [OpenHuman](https://github.com/tinyhumansai/OpenHuman)) — персоны с чертами характера, память, отслеживание настроения, человекоподобные AI-ответы. Построена на существующих примитивах Metalogos (KV-хранилище для персистентности, `call_llm` для генерации). Без новых зависимостей, без API-ключей сверх провайдера LLM.
-
-#### `human_create(name, traits)` → Struct {Persona}
-
-Создаёт или обновляет персону с именем и описанием характера. Хранит в KV под `human_persona:{name}`.
-
-```mlog
-human_create("Alice", "friendly, professional, curious, speaks Russian")
-human_create("Support Bot", "patient, helpful, technical, concise")
-```
-
-Возвращает:
-```
-Struct {Persona} {
-  name: String,          // имя персоны
-  traits: String,        // описание характера
-  created_at: Float,     // timestamp создания
-  memory_count: Float    // количество сохранённых воспоминаний
-}
-```
-
-#### `human_mood(persona, mood?, intensity?)` → Struct {Mood}
-
-Получает или устанавливает эмоциональное состояние персоны. Настроение влияет на тон генерируемых ответов.
-
-- **1 аргумент** — получить текущее настроение.
-- **2+ аргумента** — установить настроение. `intensity` от 0.0 до 1.0 (по умолчанию 0.5).
-
-Примеры mood: `"happy"`, `"sad"`, `"focused"`, `"creative"`, `"neutral"`, `"excited"`, `"calm"`, `"anxious"`.
-
-```mlog
-// Установить настроение
-human_mood("Alice", "excited", 0.9)
-
-// Получить текущее настроение
-let m = human_mood("Alice")
-print(m.mood + " (intensity: " + to_string(m.intensity) + ")")
-```
-
-Возвращает:
-```
-Struct {Mood} {
-  persona: String,       // имя персоны
-  mood: String,          // текущее настроение
-  intensity: Float,      // интенсивность 0.0–1.0
-  updated_at: Float      // timestamp последнего обновления
-}
-```
-
-#### `human_remember(persona, key, content, importance?)` → String
-
-Сохраняет воспоминание в дерево памяти персоны. `importance` от 0.0 до 1.0 (по умолчанию 0.5) — выше значит вспоминается первым.
-
-```mlog
-human_remember("Alice", "user_name", "Sergei from Minsk", 0.9)
-human_remember("Alice", "preference", "prefers concise responses", 0.7)
-human_remember("Alice", "project", "building AI assistant in Metalogos", 0.8)
-human_remember("Alice", "meeting_2026_07_01", "Discussed roadmap for Phase 9", 0.6)
-```
-
-Возвращает: `"ok"`.
-
-#### `human_forget(persona, key?)` → String | Float
-
-Удаляет воспоминания. С 2 аргументами — конкретное по ключу (возвращает `"ok"` / `"not_found"`). С 1 аргументом — ВСЕ воспоминания персоны (возвращает количество удалённых).
-
-```mlog
-human_forget("Alice", "meeting_2026_07_01")  // "ok" или "not_found"
-human_forget("Alice")  // удалит все, вернёт количество (например, 3.0)
-```
-
-#### `human_recall(persona, query, limit?)` → List of Struct {Memory}
-
-Поиск воспоминаний персоны по ключевым словам. Возвращает список, отсортированный по composite score (50% релевантность + 30% важность + 20% свежесть). Поле `score` отражает итоговый рейтинг.
-
-```mlog
-let memories = human_recall("Alice", "project AI", 3)
-each mem in memories {
-  print(mem.key + ": " + mem.content)
-  print("  importance=" + to_string(mem.importance) + " score=" + to_string(mem.score))
-}
-```
-
-Возвращает список:
-```
-Struct {Memory} {
-  key: String,           // ключ воспоминания
-  content: String,       // содержание
-  importance: Float,     // важность 0.0–1.0
-  created_at: Float,     // timestamp создания
-  access_count: Float,   // количество обращений
-  relevance: Float,      // релевантность запросу 0.0–1.0
-  score: Float           // composite score (итоговый рейтинг)
-}
-```
-
-**Алгоритм скоринга:**
-- **Релевантность (50%)** — доля совпавших слов из запроса в content/key
-- **Важность (30%)** — напрямую из `importance` при сохранении
-- **Свежесть (20%)** — экспоненциальное затухание с периодом полураспада ~1 неделя (168 часов)
-
-#### `human_respond(persona, message, context?)` → String
-
-Генерирует человекоподобный ответ используя характер, настроение и воспоминания персоны + LLM. Автоматически вызывает `human_recall` для поиска релевантных воспоминаний.
-
-```mlog
-// Без дополнительного контекста
-let reply = human_respond("Alice", "Как дела с моим проектом?")
-print(reply)
-
-// С контекстом разговора
-let reply2 = human_respond("Alice", "А что насчёт дедлайна?", "Мы обсуждали Phase 9")
-print(reply2)
-```
-
-В mock-режиме (`METALOGOS_LLM_MOCK=true`, по умолчанию) возвращает: `[Alice (mood: excited): Как дела с моим проектом?]`. При реальном LLM-провайдере генерирует полный ответ в характере персоны с учётом настроения и памяти.
-
-#### `human_personas()` → List of Struct {PersonaSummary}
-
-Список всех созданных персон с текущим настроением и количеством воспоминаний.
-
-```mlog
-let all = human_personas()
-each p in all {
-  print(p.name + " (" + p.mood + "): " + to_string(p.memory_count) + " memories")
-}
-```
-
-#### `human_delete(persona)` → Struct {DeleteResult}
-
-Удаляет персону и все её воспоминания.
-
-```mlog
-let result = human_delete("Old Bot")
-print(result.status)  // "deleted" или "not_found"
-print(to_string(result.deleted_memories))  // количество удалённых воспоминаний
-```
-
-Возвращает:
-```
-Struct {DeleteResult} {
-  deleted_memories: Float,  // количество удалённых воспоминаний
-  status: String            // "deleted" или "not_found"
-}
-```
-
-**Пример — полноценный чат-бот с персональностью:**
-```mlog
-// Инициализация
-human_create("Assistant", "helpful, technical, friendly, speaks Russian")
-human_remember("Assistant", "system", "Metalogos v0.8.2 — AI-native язык программирования", 1.0)
-human_remember("Assistant", "owner", "Sergei, создатель Metalogos", 0.9)
-human_mood("Assistant", "focused", 0.8)
-
-// Сохраняем факт из разговора
-human_remember("Assistant", "user_question", "User asked about Phase 9 roadmap", 0.5)
-
-// Генерируем ответ
-let answer = human_respond("Assistant", "Что ты знаешь о Metalogos?")
-print(answer)
-
-// Проверяем что запомнили
-let mem = human_recall("Assistant", "Metalogos", 1)
-print("Recalled: " + first(mem).content)
-```
-
-### 4.23. Списочные операции (map/zip/sort/filter/reduce)
-
-| Функция | Сигнатура | Возврат | Описание |
-|---------|-----------|---------|----------|
-| `map(list, "pattern_name")` | `List, String -> List` | List | Применяет pattern к каждому элементу списка. Pattern должен принимать 1 аргумент. Interpreter-level (не работает в bytecode VM) |
-| `zip(list_a, list_b)` | `List, List -> List` | List | Попарное объединение в список `{a, b}` Pair-структур. Длина результата = min(len_a, len_b) |
-| `sort_by(list, key_field, descending?)` | `List, String, Float? -> List` | List | Сортировка списка структур по полю. `descending` 1.0 = убывание. Поля типа Float и String поддерживаются |
-| `filter(list, key_field, value)` | `List, String, Any -> List` | List | Фильтрация: возвращает только те структуры, где `item.field == value` |
-| `reduce(list, key_field, initial)` | `List, String, Float -> Float` | Float | Суммирование float-значений поля по всем структурам списка |
-
-**Пример — агрегация потенциала акторов (формула P = A × R × S):**
-```mlog
-entity Actor { name: String, A: Float, R: Float, S: Float }
-
-let actors = [
-  { name: "РФ",      A: 0.6, R: 0.7, S: 0.5 },
-  { name: "Украина", A: 0.7, R: 0.4, S: 0.6 }
-]
-
-pattern Potential(a: Actor) -> Float {
-  return a.A * a.R * a.S
-}
-
-let scores = map(actors, "Potential")              // [0.21, 0.168]
-let paired = zip(actors, scores)                   // [{a: Actor, b: Float}, ...]
-let ranked = sort_by(paired, "b", 1.0)            // по убыванию
-print(ranked[0].a.name)                            // "РФ"
-print(to_string(ranked[0].b))                      // "0.21"
-let total_S = reduce(actors, "S", 0.0)             // 1.1
-```
-
-### 4.24. Базы данных: параметризованная вставка
-
-| Функция | Сигнатура | Возврат | Описание |
-|---------|-----------|---------|----------|
-| `db_insert(table, {field: value, ...})` | `String, Struct -> Float` | Float | Параметризованный INSERT. Возвращает `last_insert_rowid()` как Float. Interpreter-level, требует открытую БД (`db { url: ... }`) |
-
-**Пример:**
-```mlog
-db { url: "sqlite::memory:" }
-db_execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, role TEXT)")
-
-let id = db_insert("users", { name: "Alice", role: "admin" })
-let id2 = db_insert("users", { name: "Bob", role: "viewer" })
-
-let admins = query("SELECT * FROM users WHERE role = ?", ["admin"])
-each row in admins {
-  print(row.name)  // "Alice"
-}
-```
-
-### 4.25. Утилиты для скилл-индексов и callback'ов
-
-| Функция | Сигнатура | Возврат | Описание |
-|---------|-----------|---------|----------|
-| `matches_any(text, triggers)` | `String, List -> Float` | Float | Case-insensitive substring match. Возвращает 1.0 если любой элемент списка найден в тексте |
-| `estimate_tokens(text)` | `String -> Float` | Float | Эвристика: `ceil(chars / 4)` для CJK+Latin. Временная, будет заменена на настоящий токенизатор |
-| `read_file_tokens(path)` | `String -> Struct {FileInfo}` | Struct | Читает файл, возвращает `{content, chars, tokens}` |
-| `extract_param(text, index)` | `String, Float -> String` | String | Парсит `:`-разделённую строку, возвращает N-й сегмент |
-
-### 4.26. Планирование (Cron Scheduler, OpenHuman-inspired)
-
-> **Источник:** OpenHuman `cron_add`/`cron_list`/`cron_remove`/`cron_run`. Хранение в KV store (`cron_jobs`). `mlog serve` dispatch'ит задачи в 5-секундном тик-лупе с **полным парсингом cron-выражений** (v0.8.5: `*`, `*/N`, `N`, `N-M`, `N,M`, `N-M/S`).
-
-| Функция | Сигнатура | Возврат | Описание |
-|---------|-----------|---------|----------|
-| `cron_add(expr, prompt)` | `String, String -> Struct {CronJob}` | Struct | Регистрирует recurring job. `expr` — 5-поле cron (`min hour dom month dow`). Возвращает `{id, cron_expr, prompt, enabled, status}` |
-| `cron_list()` | `-> List[Struct {CronJob}]` | List | Список всех cron jobs с `{id, cron_expr, prompt, enabled, run_count, force_run}` |
-| `cron_remove(id)` | `String -> Struct {CronRemoveResult}` | Struct | Удаляет job по id. Возвращает `{removed: Float, status}` |
-| `cron_run(id)` | `String -> Struct {CronRunResult}` | Struct | Ставит job в очередь немедленного выполнения (force_run). Возвращает `{id, executed, status}` |
-| `cron_mark_fired(id)` | `String -> Struct {CronMarkResult}` | Struct | Внутренний: сбрасывает force_run, инкрементирует run_count, устанавливает last_run. Вызывается scheduler'ом после dispatch'а |
-
-**Cron expression format:** стандартные 5 полей — `min hour dom month dow`. Примеры: `0 9 * * 1-5` (пн-пт в 9:00), `*/30 * * * *` (каждые 30 мин), `0 0 1 * *` (1-го числа каждого месяца). Dispatch в `mlog serve` — `force_run` или совпадение по времени. Для builtin-вызовов prompt = имя builtin, для пользовательских паттернов — в v0.8.6.
-
-### 4.27. Approval Gate (OpenHuman-inspired)
-
-> **Источник:** OpenHuman approval flow — агент запрашивает подтверждение перед write-действием, которое пользователь не просил. В Telegram-контексте генерирует inline keyboard.
-
-| Функция | Сигнатура | Возврат | Описание |
-|---------|-----------|---------|----------|
-| `ask_approval(title, description)` | `String, String -> Struct {Approval}` | Struct | Создаёт запрос на подтверждение. Возвращает `{id, title, description, approved: 0.0, status: "pending"}`. Опросить статус через `kv_get("approval:<id>")` |
-
-### 4.28. Goals and Todos (OpenHuman-inspired)
-
-> **Источник:** OpenHuman Goals (long-term + thread goal + token budget) и Task Board (kanban todos). Долгосрочные цели хранятся в `goals_list` (max 8), цель потока — в `thread_goal`, задачи — в `todos`.
-
-| Функция | Сигнатура | Возврат | Описание |
-|---------|-----------|---------|----------|
-| `goal_set(objective, budget?)` | `String, Float? -> Struct {ThreadGoal}` | Struct | Устанавливает цель текущего потока. `{objective, status: "active", budget, spent}` |
-| `goal_get()` | `-> Struct {ThreadGoal}` | Struct | Возвращает текущую цель потока. Если нет — `{status: "none"}` |
-| `goal_complete()` | `-> Struct {GoalComplete}` | Struct | Отмечает цель как завершённую. `{status: "complete", objective}` |
-| `goals_list()` | `-> List[Struct {Goal}]` | List | Все долгосрочные цели: `{id, text, status}` |
-| `goals_add(text)` | `String -> Struct {Goal}` | Struct | Добавляет долгосрочную цель (max 8). `{id, text, status: "active"}` |
-| `goals_reflect()` | `-> Struct {GoalsReflection}` | Struct | Stub для рефлексии целей. `{goal_count, active, status}` |
-| `todo_add(title, status?)` | `String, String? -> Struct {Todo}` | Struct | Создаёт задачу. Статусы: `todo`, `in_progress`, `awaiting_approval`, `ready`, `blocked`, `done`, `rejected` |
-| `todo_update(id, new_status)` | `String, String -> Struct {TodoUpdate}` | Struct | Обновляет статус задачи. `{id, old_status, new_status, updated}` |
-| `todo_list()` | `-> List[Struct {Todo}]` | List | Все задачи: `{id, title, status}` |
-
-### 4.29. Извлечение сущностей (OpenHuman-inspired)
-
-> **Источник:** OpenHuman `score/entity extraction` — regex-based extraction. LLM-based extraction доступен через `call_llm`.
-
-| Функция | Сигнатура | Возврат | Описание |
-|---------|-----------|---------|----------|
-| `extract_entities(text)` | `String -> List[Struct {Entity}]` | List | Извлекает именованные сущности. Возвращает `[{kind, name}, ...]`. Kinds: `email`, `url`, `phone`, `entity` (последовательности 2+ capitalised слов) |
-
-### 4.30. Оценка памяти (OpenHuman-inspired)
-
-> **Источник:** OpenHuman Memory Tree scoring pipeline — weighted signals для admission gate.
-
-| Функция | Сигнатура | Возврат | Описание |
-|---------|-----------|---------|----------|
-| `memory_score(text, metadata?)` | `String, Struct? -> Struct {MemoryScore}` | Struct | Вычисляет weighted score для чанка текста. Возвращает `{score, admitted, token_count, unique_words, entity_density}`. Admission threshold: score >= 0.3 |
-
-### 4.31. Токен-компрессия HTML (OpenHuman TokenJuice)
-
-> **Источник:** OpenHuman TokenJuice HtmlCompressor — strip tags, decode entities, preserve block boundaries, CJK-safe.
-
-| Функция | Сигнатура | Возврат | Описание |
-|---------|-----------|---------|----------|
-| `compress_html(html)` | `String -> String` | String | Конвертирует HTML в чистый текст. Убирает `<script>`/`<style>`, декодирует `&amp;` `&lt;` `&#NNN;` и т.д., вставляет переносы строк на границах блочных тегов |
-
-### 4.32. Персонализация (OpenHuman-inspired)
-
-> **Источник:** OpenHuman self-learning pipeline — 6 facet-классов (style, identity, tooling, veto, goal, channel) с evidence counting и promotion (candidate → active после 3 наблюдений).
-
-| Функция | Сигнатура | Возврат | Описание |
-|---------|-----------|---------|----------|
-| `learn_preference(class, key, value)` | `String, String, String -> Struct {Preference}` | Struct | Записывает наблюдение предпочтения. class: `style`/`identity`/`tooling`/`veto`/`goal`/`channel`. Возвращает `{class, key, value, evidence, state}`. State: `candidate` (1-2 наблюдений), `active` (3+) |
-| `get_profile()` | `-> List[Struct {Preference}]` | List | Все записанные предпочтения: `[{class, key, value, evidence, state}, ...]` |
-
-### 4.33. Memory Tree (OpenHuman-inspired)
-
-> **Источник:** OpenHuman Memory Tree — иерархическая память L0 (raw) → L1 (chunk summaries) → L2 (global summary). Хранение в KV store (`mtree_entries`). Admission gate через inline memory_score (threshold 0.3). Retrieval — keyword relevance + stored quality score. L2 — глобальная сводка, создаётся при 3+ L1, единственная (замещается).
-
-| Функция | Сигнатура | Возврат | Описание |
-|---------|-----------|---------|----------|
-| `mtree_store(text, source?)` | `String, String? -> Struct {MTreeStore}` | Struct | Сохраняет чанк на L0. Admission gate: score >= 0.3. Возвращает `{id, level, score, admitted, reason}` |
-| `mtree_retrieve(query, limit?)` | `String, Float? -> List[Struct {MTreeEntry}]` | List | Top-N релевантных записей (L0 + L1). Default limit: 5. L0 scoring: `relevance*0.6 + score*0.4`. L1 boost: `relevance*0.8 + 0.2` |
-| `mtree_forget(id)` | `String -> Struct {MTreeForget}` | Struct | Удаляет запись по id. Возвращает `{id, removed, status}` |
-| `mtree_summarize()` | `-> Struct {MTreeSummarize}` | Struct | Двухфазная: L0→L1 (батчи по 10, 500 символов) + L1→L2 (3+ L1, 1000 символов). Возвращает `{l0_promoted, l1_count, l2_created, status}` |
-| `mtree_stats()` | `-> Struct {MTreeStats}` | Struct | Диагностика. Возвращает `{l0, l1, l2, total, total_chars}` |
-
-### 4.34. Прочее
+### 4.17. Прочее
 
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|
 | `print(s)` | `String -> String` | String | Выводит строку в stdout, возвращает её же |
+| `now()` | `-> Float` | Float | Текущий Unix-timestamp в секундах |
 | `str(value)` | `Any -> String` | String | Преобразует любое значение в строку |
 | `to_string(value)` | `Any -> String` | String | Аналог `str()` (Float без `.0` для целых) |
-| `type_of(value)` | `Any -> String` | String | Возвращает имя типа значения: `"String"`, `"Float"`, `"Bool"`, `"List"`, `"Struct"`, `"Unit"`, `"Html"`, `"Query"`, `"Secret"`, `"Encrypted"`, `"Hash"`, `"Session"`, `"Fluid"`, `"HttpResponse"` |
-| `format(template)` | `String -> String` | String | Позиционная интерполяция: `format("Hello {0}, you are {1}", name, age)` |
-
-**Пример — безопасная работа с `json_get` (Unit comparison):**
-```mlog
-// Двухаргументная форма: возвращает Unit если поле отсутствует
-let voice = json_get(data, "voice")
-if voice == "" {
-  // voice — Unit, сравнение Unit == "" = false
-  // Безопасно: не крашит
-}
-// С дефолтом — проще:
-let file_id = json_get(data, "voice.file_id", "")
-if file_id != "" {
-  send_voice(file_id)
-}
-```
 
 ---
 
-## 4.27. Scoping: область видимости `let`
+## 5. Объявления верхнего уровня
 
-**Важно:** `let` внутри `if`, `while`, `each` блоков создаёт **новую лексическую переменную**, видимую только внутри этого блока. Она **не затрагивает** внешнюю переменную с тем же именем.
-
-```mlog
-let handled = 0.0
-if user_id != owner_id {
-  let handled = 1.0   // ← это НОВАЯ переменная, видна только здесь
-}
-// Внешний handled всё ещё 0.0!
-```
-
-**Как изменить внешнюю переменную:** используйте прямое присваивание (без `let`):
-```mlog
-let handled = 0.0
-if user_id != owner_id {
-  handled = 1.0   // ← присваивание в существующую переменную
-}
-// Теперь handled == 1.0
-```
-
----
-
-## 5. Байткод VM и JIT
-
-Metalogos имеет три бэкенда выполнения:
-
-| Бэкенд | Команда | Описание |
-|--------|---------|----------|
-| Tree-walking | `mlog run file.mlog` | Интерпретатор AST, полный набор функций |
-| Bytecode VM | `mlog compile file.mlog` затем `mlog run file.mbc` | 44 инструкции, стековая машина |
-| JIT (Cranelift) | Автоматически при наличии Cranelift | Нативный код через Cranelift |
-
-### 5.1. Инструкции VM (44)
-
-**Константы и переменные:** `Const`, `LoadGlobal`, `LoadGlobalByName`, `StoreGlobal`, `LoadLocal`, `StoreLocal`
-
-**Функции:** `RegisterPattern`, `RegisterLearnable`, `CallBuiltin(arity, idx)`, `CallPattern(arity, idx)`, `Return`
-
-**Арифметика и сравнение:** `Add`, `Sub`, `Mul`, `Div`, `Contains`, `CmpGt`, `CmpLt`, `CmpGe`, `CmpLe`, `CmpEq`, `CmpNe`
-
-**Структуры и коллекции:** `MakeStruct(type_name, fields)`, `GetField(name)`, `IndexAccess`, `MakeList(count)`, `ListLen`, `Pop`, `StartsWith`
-
-**Fluid types:** `MakeFluid(variant_count)`
-
-**Управление:** `Jump(addr)`, `JumpIfNot(addr)`, `JumpIfLow(confidence, addr)`, `Halt`
-
-**Память:** `Collapse(name)`, `Memorize(priority)`, `Recall`, `Forget(decay)`
-
-**LLM:** `LlmCall(arity, learnable_idx)`
-
-**Adapt/Relate/Mutate:** `Adapt(pattern_name)`, `Relate`, `Mutate { .. }`
-
-**Пайплайны и правила:** `FlowExec { .. }`, `ExecuteRules`
-
-### 5.2. Компиляция управляющих конструкций
-
-Все 12 видов statements компилируются в байткод:
-`LetBinding`, `Assign`, `Return`, `ExprStmt`, `Each`, `EachWithIndex`, `While`, `IfElseBlock`, `IfThen`, `Match` (все 4 arm-варианта), `Break`, `Continue`.
-
-Циклы используют `LoopCtx` — контекст с адресом условия (для `continue`) и списком патчей (для `break`).
-
----
-
-## 6. Объявления верхнего уровня
-
-### 6.1. Pattern (функция)
+### 5.1. Pattern (функция)
 
 ```mlog
 pattern Name(param1: Type, param2: Type) -> ReturnType {
@@ -1163,7 +595,7 @@ pattern Name(param1: Type, param2: Type) -> ReturnType {
 }
 ```
 
-### 6.2. Learnable Pattern (AI-функция)
+### 5.2. Learnable Pattern (AI-функция)
 
 ```mlog
 learnable pattern Classify(text: String) -> Category {
@@ -1183,7 +615,7 @@ learnable pattern Classify(text: String) -> Category {
 - `context: none` — без контекста
 - `context: "literal text"` — литеральный контекст
 
-### 6.3. Entity (структура данных)
+### 5.3. Entity (структура данных)
 
 ```mlog
 // Определение типа
@@ -1200,7 +632,7 @@ entity alice: User = { id: "1", name: "Alice", role: "admin" }
 entity db_url: Secret = env("DATABASE_URL")
 ```
 
-### 6.4. Flow (пайплайн)
+### 5.4. Flow (пайплайн)
 
 ```mlog
 flow ProcessMessage {
@@ -1214,13 +646,13 @@ flow ProcessMessage {
 }
 ```
 
-### 6.5. Rule (правило)
+### 5.5. Rule (правило)
 
 ```mlog
 rule If(status contains "error") then alert.level = "high" with priority = 10
 ```
 
-### 6.6. Server / MlogServer (HTTP-сервер)
+### 5.6. Server / MlogServer (HTTP-сервер)
 
 ```mlog
 server {
@@ -1241,7 +673,7 @@ server {
 
 Доступные middleware: `session`, `csrf`, `security_headers`.
 
-### 6.7. Template (HTML-шаблон)
+### 5.7. Template (HTML-шаблон)
 
 ```mlog
 template Page(title: String, body: String) -> Html {
@@ -1255,7 +687,7 @@ template Page(title: String, body: String) -> Html {
 
 Тип возврата `Html` — непрозрачный, обеспечивает автоматическое экранирование XSS.
 
-### 6.8. Import (модули)
+### 5.8. Import (модули)
 
 ```mlog
 import std/string as str
@@ -1268,7 +700,7 @@ str.trim("  hello  ")
 math.abs(-5.0)
 ```
 
-### 6.9. Memory (память)
+### 5.9. Memory (память)
 
 ```mlog
 // In-memory (по умолчанию)
@@ -1281,7 +713,7 @@ memory { persist: "./data/memory.db" }
 memory { kv: { type: key_value, persist: true } }
 ```
 
-### 6.10. DB (база данных)
+### 5.10. DB (база данных)
 
 ```mlog
 db {
@@ -1291,7 +723,7 @@ db {
 }
 ```
 
-### 6.11. LLM (конфигурация провайдеров)
+### 5.11. LLM (конфигурация провайдеров)
 
 ```mlog
 llm {
@@ -1306,7 +738,7 @@ llm {
 }
 ```
 
-### 6.12. Hook (хуки паттернов)
+### 5.12. Hook (хуки паттернов)
 
 ```mlog
 hook before_pattern { print("calling: " + pattern_name) }
@@ -1315,7 +747,7 @@ hook after_pattern { print("result: " + to_string(result) + " confidence: " + to
 
 Переменные внутри хука: `pattern_name`, `args`, `result` (только after), `confidence` (только after).
 
-### 6.13. Tool (абстракция инструментов)
+### 5.13. Tool (абстракция инструментов)
 
 ```mlog
 tool telegram {
@@ -1328,7 +760,7 @@ tool telegram {
 
 Вызов: `telegram.send("123", "hello")`.
 
-### 6.14. Eval (тестирование паттернов)
+### 5.14. Eval (тестирование паттернов)
 
 ```mlog
 eval Classify {
@@ -1344,7 +776,7 @@ eval Classify {
 
 Запуск: `mlog eval file.mlog`.
 
-### 6.15. Sandbox, Mutate, Adapt, Memorize, Forget, Relate
+### 5.15. Sandbox, Mutate, Adapt, Memorize, Forget, Relate
 
 ```mlog
 // Sandbox (ограничение выполнения)
@@ -1371,7 +803,7 @@ forget "outdated fact" after 30.0 days
 relate entity1 to entity2 as "relationship"
 ```
 
-### 6.16. Conversation (конфигурация)
+### 5.16. Conversation (конфигурация)
 
 ```mlog
 conversation {
@@ -1381,7 +813,7 @@ conversation {
 }
 ```
 
-### 6.17. Fluid Types (вероятностные типы)
+### 5.17. Fluid Types (вероятностные типы)
 
 ```mlog
 fluid x = String["answer"][0.9] or String["question"][0.1]
@@ -1389,7 +821,7 @@ fluid x = String["answer"][0.9] or String["question"][0.1]
 
 ---
 
-## 7. Stdlib (стандартная библиотека)
+## 6. Stdlib (стандартная библиотека)
 
 Стандартная библиотека находится в `std/` и подключается через `import`:
 
@@ -1431,28 +863,13 @@ collections.push(items, item) -> List      // append to list
 
 ---
 
-## 8. Changelog (кратко)
+## 7. Changelog (кратко)
 
 | Версия | Дата | Что нового |
 |--------|------|------------|
-| **0.8.9** | 2026-07-05 | Fix: else-branch parsing (else_body отбрасывался без ошибки), Fix: мутации в Expr::BlockIfElse терялись (env.clone → eval_block! макрос), 171 builtins |
-| **0.8.8** | 2026-07-04 | Semantic fixes, compiler/VM 171-builtin sync, variadic min-arity, chrono fix |
-| **0.8.7** | 2026-07-04 | +cron_mark_fired (fix force_run infinite re-fire), +mtree_stats, mtree_summarize L0→L1→L2 (global summary), mtree_retrieve L0+L1 search, 147 builtins |
-| **0.8.3** | 2026-07-03 | +map/zip/sort_by/filter/reduce, +db_insert, +matches_any/estimate_tokens/read_file_tokens/extract_param, Problem D Hook диагностика, 128 builtins |
-| **0.8.4** | 2026-07-03 | +OpenHuman-inspired: cron_add/cron_list/cron_remove/cron_run, ask_approval, goal_set/goal_get/goal_complete/goals_list/goals_add/goals_reflect, todo_add/todo_update/todo_list, extract_entities, memory_score, compress_html, learn_preference/get_profile, 141 builtins |
-| **0.8.2** | 2026-07-02 | +answer_callback_query, +edit_message_text, send_message +reply_markup (inline keyboard), tts_send → voice bubble (sendVoice), reminder persistence SQLite, background scheduler при mlog serve, 118 builtins |
-| **0.8.1** | 2026-07-01 | +Human Intelligence Layer: human_create, human_mood, human_remember, human_forget, human_recall, human_respond, human_personas, human_delete, 116 builtins |
-| **0.8.0** | 2026-07-01 | +Время/дата/календарь (format_date, date_parts, days_between, add_days, add_hours, weekday_name, is_leap_year, days_in_month), +Геолокация (geo_ip, geo_distance), +Погода Open-Meteo бесплатно без ключа (weather, weather_forecast), +Напоминания с рекурренцией (remind, remind_recurring, cancel_remind, list_reminders, check_reminders), 108 builtins |
-| **0.7.10** | 2026-06-18 | +and/or логические операторы (short-circuit), Unit == / != без краша, +\uXXXX escape, +if-then блочный оператор, query_scalar fix |
-| **0.7.9** | 2026-06-15 | Наряд 24: +git_push, +web_search, +make_list, graceful unknown fn, LLM timeout 120с, json_get массивы, send_message реальный API, 100 builtins |
-| **0.7.8** | 2026-06-15 | BlockIfElse expression в bytecode, format() arity fix |
-| **0.7.7** | 2026-06-14 | Phase 7.7: break/continue, Match (StartsWith/Contains/Compare), компилятор полн. покрытие, 44 VM-инструкций |
-| **0.7.1** | 2026-06-10 | Phase 7.1–7.2: inspect, контекст, события, conversation state, LLM cache, model routing |
-| **0.7.3** | 2026-06-12 | Phase 7.3–7.4: контекстная компрессия, lifecycle, Tool, Hook, DoD |
-| **0.7.5** | 2026-06-13 | Phase 7.5–7.6: memory persistence, tokens, eval harness, session memory, audit |
-| **0.6.0** | 2025-06-03 | Phase 6: HTTP-сервер, шаблоны, БД, шифрование, auth, CSRF, bot integration |
-| **0.5.0** | — | Phase 5: let/if, each/while/break/continue, match, List, строки, модули, bytecode VM, JIT |
-| **0.3.0** | — | Phases 1-4: fluid types, knowledge graph, vector recall, CLI, LSP, mlogpkg, codegen |
+| **0.4.0** | 2025-06-03 | Phase 6: HTTP-сервер, шаблоны, БД, шифрование, auth, CSRF, bot integration, 40+ builtins |
+| **0.3.0** | — | Phase 5: let/if, each/while, List literals, строковые операции, модули, REPL |
+| **0.2.0** | — | Phases 1-4: fluid types, knowledge graph, vector recall, CLI, codegen |
 | **0.1.0** | — | M1-M5: entity, rule, learnable pattern, semantic memory, sandbox, adapt |
 
 Полный CHANGELOG см. в файле [`CHANGELOG.md`](CHANGELOG.md).

@@ -56,181 +56,7 @@ const COLLAPSE_THRESHOLD: f64 = 0.1;
 impl Vm {
     /// Create a new VM with empty state.
     pub fn new() -> Self {
-        // Наряд №18: full builtin name list — must match compiler builtin_indices order
-                let builtin_names = vec![
-            "upper".to_string(), // 0
-            "lower".to_string(), // 1
-            "len".to_string(), // 2
-            "str".to_string(), // 3
-            "print".to_string(), // 4
-            "contains".to_string(), // 5
-            "float".to_string(), // 6
-            "to_string".to_string(), // 7
-            "get".to_string(), // 8
-            "push".to_string(), // 9
-            "env".to_string(), // 10
-            "index_of".to_string(), // 11
-            "substring".to_string(), // 12
-            "char_at".to_string(), // 13
-            "starts_with".to_string(), // 14
-            "ends_with".to_string(), // 15
-            "to_float".to_string(), // 16
-            "confidence".to_string(), // 17
-            "__trim".to_string(), // 18
-            "__replace".to_string(), // 19
-            "__split".to_string(), // 20
-            "__join".to_string(), // 21
-            "__abs".to_string(), // 22
-            "__min".to_string(), // 23
-            "__max".to_string(), // 24
-            "__clamp".to_string(), // 25
-            "__round".to_string(), // 26
-            "__first".to_string(), // 27
-            "__last".to_string(), // 28
-            "respond".to_string(), // 29
-            "respond_html".to_string(), // 30
-            "form_data".to_string(), // 31
-            "json_body".to_string(), // 32
-            "query_param".to_string(), // 33
-            "render".to_string(), // 34
-            "escape_html".to_string(), // 35
-            "query".to_string(), // 36
-            "db_execute".to_string(), // 37
-            "hash_password".to_string(), // 38
-            "verify_password".to_string(), // 39
-            "encrypt".to_string(), // 40
-            "decrypt".to_string(), // 41
-            "generate_key".to_string(), // 42
-            "authenticate".to_string(), // 43
-            "session_login".to_string(), // 44
-            "session_logout".to_string(), // 45
-            "send_message".to_string(), // 46
-            "answer_callback_query".to_string(), // 47
-            "edit_message_text".to_string(), // 48
-            "require".to_string(), // 49
-            "http_post".to_string(), // 50
-            "http_get".to_string(), // 51
-            "trim".to_string(), // 52
-            "replace".to_string(), // 53
-            "split".to_string(), // 54
-            "join".to_string(), // 55
-            "length".to_string(), // 56
-            "to_int".to_string(), // 57
-            "reverse".to_string(), // 58
-            "call_llm".to_string(), // 59
-            "kv_set".to_string(), // 60
-            "kv_get".to_string(), // 61
-            "kv_delete".to_string(), // 62
-            "kv_exists".to_string(), // 63
-            "kv_list".to_string(), // 64
-            "mem_set".to_string(), // 65
-            "mem_get".to_string(), // 66
-            "mem_delete".to_string(), // 67
-            "read_file".to_string(), // 68
-            "write_file".to_string(), // 69
-            "append_file".to_string(), // 70
-            "delete_file".to_string(), // 71
-            "file_exists".to_string(), // 72
-            "list_dir".to_string(), // 73
-            "call_claude".to_string(), // 74
-            "llm_usage".to_string(), // 75
-            "escape_json".to_string(), // 76
-            "parse_json".to_string(), // 77
-            "json_encode".to_string(), // 78
-            "json_get".to_string(), // 79
-            "has_field".to_string(), // 80
-            "now".to_string(), // 81
-            "format_date".to_string(), // 82
-            "session_set".to_string(), // 83
-            "session_get".to_string(), // 84
-            "session_clear".to_string(), // 85
-            "http_post_multipart".to_string(), // 86
-            "whisper_transcribe".to_string(), // 87
-            "tts_send".to_string(), // 88
-            "base64_encode".to_string(), // 89
-            "base64_decode".to_string(), // 90
-            "exec".to_string(), // 91
-            "escape_js".to_string(), // 92
-            "dict_get".to_string(), // 93
-            "dict_set".to_string(), // 94
-            "dict_keys".to_string(), // 95
-            "dict_values".to_string(), // 96
-            "dict_has".to_string(), // 97
-            "type_of".to_string(), // 98
-            "format".to_string(), // 99
-            "date_parts".to_string(), // 100
-            "days_between".to_string(), // 101
-            "days_in_month".to_string(), // 102
-            "is_leap_year".to_string(), // 103
-            "add_days".to_string(), // 104
-            "add_hours".to_string(), // 105
-            "weekday_name".to_string(), // 106
-            "geo_ip".to_string(), // 107
-            "geo_distance".to_string(), // 108
-            "weather".to_string(), // 109
-            "weather_forecast".to_string(), // 110
-            "remind".to_string(), // 111
-            "remind_recurring".to_string(), // 112
-            "cancel_remind".to_string(), // 113
-            "list_reminders".to_string(), // 114
-            "check_reminders".to_string(), // 115
-            "recall".to_string(), // 116
-            "human_create".to_string(), // 117
-            "human_mood".to_string(), // 118
-            "human_remember".to_string(), // 119
-            "human_forget".to_string(), // 120
-            "human_recall".to_string(), // 121
-            "human_respond".to_string(), // 122
-            "human_personas".to_string(), // 123
-            "human_delete".to_string(), // 124
-            "stdin".to_string(), // 125
-            "split_tokens".to_string(), // 126
-            "if_eq".to_string(), // 127
-            "newline".to_string(), // 128
-            "is_string_token".to_string(), // 129
-            "zip".to_string(), // 130
-            "sort_by".to_string(), // 131
-            "filter".to_string(), // 132
-            "reduce".to_string(), // 133
-            "extract_param".to_string(), // 134
-            "estimate_tokens".to_string(), // 135
-            "db_insert".to_string(), // 136
-            "matches_any".to_string(), // 137
-            "read_file_tokens".to_string(), // 138
-            "cron_add".to_string(), // 139
-            "cron_list".to_string(), // 140
-            "cron_remove".to_string(), // 141
-            "cron_run".to_string(), // 142
-            "cron_mark_fired".to_string(), // 143
-            "ask_approval".to_string(), // 144
-            "goal_set".to_string(), // 145
-            "goal_get".to_string(), // 146
-            "goal_complete".to_string(), // 147
-            "goals_list".to_string(), // 148
-            "goals_add".to_string(), // 149
-            "goals_reflect".to_string(), // 150
-            "todo_add".to_string(), // 151
-            "todo_update".to_string(), // 152
-            "todo_list".to_string(), // 153
-            "extract_entities".to_string(), // 154
-            "memory_score".to_string(), // 155
-            "compress_html".to_string(), // 156
-            "learn_preference".to_string(), // 157
-            "get_profile".to_string(), // 158
-            "mtree_store".to_string(), // 159
-            "mtree_retrieve".to_string(), // 160
-            "mtree_forget".to_string(), // 161
-            "mtree_summarize".to_string(), // 162
-            "mtree_stats".to_string(), // 163
-            "git_push".to_string(), // 164
-            "web_search".to_string(), // 165
-            "make_list".to_string(), // 166
-            "first".to_string(), // 167
-            "last".to_string(), // 168
-            "time".to_string(), // 169
-            "request_body".to_string(), // 170
-        ];
-
+        let builtin_names = crate::builtins::builtin_names();
 
         Vm {
             globals: Vec::new(),
@@ -431,19 +257,6 @@ impl Vm {
                     stack.push(result);
                     ip += 1;
                 }
-                // Наряд №21: StartsWith instruction
-                Instruction::StartsWith => {
-                    let right = stack.pop().unwrap_or(Value::Unit);
-                    let left = stack.pop().unwrap_or(Value::Unit);
-                    let result = match (&left, &right) {
-                        (Value::String(s), Value::String(prefix)) => {
-                            if s.starts_with(prefix.as_str()) { 1.0 } else { 0.0 }
-                        }
-                        _ => 0.0,
-                    };
-                    stack.push(Value::Float(result));
-                    ip += 1;
-                }
                 Instruction::CmpGt => {
                     let right = stack.pop().unwrap_or(Value::Unit);
                     let left = stack.pop().unwrap_or(Value::Unit);
@@ -530,31 +343,6 @@ impl Vm {
                         _ => Value::Unit,
                     };
                     stack.push(result);
-                    ip += 1;
-                }
-
-                // ── List Operations (Наряд №18) ───────────────
-                Instruction::MakeList(n) => {
-                    let mut items: Vec<Value> = Vec::with_capacity(*n);
-                    for _ in 0..*n {
-                        items.push(stack.pop().unwrap_or(Value::Unit));
-                    }
-                    items.reverse(); // Restore original order
-                    stack.push(Value::List(items));
-                    ip += 1;
-                }
-                Instruction::ListLen => {
-                    let val = stack.pop().unwrap_or(Value::Unit);
-                    let len = match &val {
-                        Value::List(items) => items.len() as f64,
-                        Value::String(s) => s.len() as f64,
-                        _ => 0.0,
-                    };
-                    stack.push(Value::Float(len));
-                    ip += 1;
-                }
-                Instruction::Pop => {
-                    stack.pop();
                     ip += 1;
                 }
 
@@ -791,9 +579,8 @@ impl Vm {
 
     /// Execute a block of code (e.g., pattern body) and return the result.
     /// This handles the call stack and Return instructions internally.
-    /// Execute compiled code in a pattern body context (used internally and by tests).
-    pub fn execute_code(
-        &mut self,
+    fn execute_code(
+        &self,
         code: &[Instruction],
         stack: &mut Vec<Value>,
         call_stack: &mut Vec<CallFrame>,
@@ -991,98 +778,7 @@ impl Vm {
                     stack.push(Value::String(result));
                     ip += 1;
                 }
-                // Наряд №21: StartsWith instruction in pattern body loop
-                Instruction::StartsWith => {
-                    let right = stack.pop().unwrap_or(Value::Unit);
-                    let left = stack.pop().unwrap_or(Value::Unit);
-                    let result = match (&left, &right) {
-                        (Value::String(s), Value::String(prefix)) => {
-                            if s.starts_with(prefix.as_str()) { 1.0 } else { 0.0 }
-                        }
-                        _ => 0.0,
-                    };
-                    stack.push(Value::Float(result));
-                    ip += 1;
-                }
-                // Наряд №22: additional instructions needed in pattern body loop
-                Instruction::StoreGlobal(slot) => {
-                    let val = stack.pop().unwrap_or(Value::Unit);
-                    if *slot < self.globals.len() {
-                        self.globals[*slot] = val;
-                    }
-                    ip += 1;
-                }
-                Instruction::MakeStruct(type_name, field_names) => {
-                    let mut fields = std::collections::HashMap::new();
-                    for fname in field_names.iter().rev() {
-                        let val = stack.pop().unwrap_or(Value::Unit);
-                        fields.insert(fname.clone(), val);
-                    }
-                    stack.push(Value::Struct { type_name: type_name.clone(), fields });
-                    ip += 1;
-                }
-                Instruction::IndexAccess => {
-                    let index = stack.pop().unwrap_or(Value::Unit);
-                    let base = stack.pop().unwrap_or(Value::Unit);
-                    let result = match (&base, &index) {
-                        (Value::List(items), Value::Float(f)) => {
-                            let idx = *f as usize;
-                            items.get(idx).cloned().unwrap_or(Value::Unit)
-                        }
-                        (Value::String(s), Value::Float(f)) => {
-                            let idx = *f as usize;
-                            if let Some(ch) = s.chars().nth(idx) {
-                                Value::String(ch.to_string())
-                            } else {
-                                Value::Unit
-                            }
-                        }
-                        _ => Value::Unit,
-                    };
-                    stack.push(result);
-                    ip += 1;
-                }
-                Instruction::MakeList(n) => {
-                    let mut items: Vec<Value> = Vec::with_capacity(*n);
-                    for _ in 0..*n {
-                        items.insert(0, stack.pop().unwrap_or(Value::Unit));
-                    }
-                    stack.push(Value::List(items));
-                    ip += 1;
-                }
-                Instruction::ListLen => {
-                    let val = stack.pop().unwrap_or(Value::Unit);
-                    let len = match &val {
-                        Value::List(items) => items.len() as f64,
-                        Value::String(s) => s.len() as f64,
-                        _ => 0.0,
-                    };
-                    stack.push(Value::Float(len));
-                    ip += 1;
-                }
-                Instruction::Pop => {
-                    stack.pop();
-                    ip += 1;
-                }
-                Instruction::Contains => {
-                    let right = stack.pop().unwrap_or(Value::Unit);
-                    let left = stack.pop().unwrap_or(Value::Unit);
-                    let result = match (&left, &right) {
-                        (Value::String(s), Value::String(sub)) => {
-                            if s.contains(sub.as_str()) { 1.0 } else { 0.0 }
-                        }
-                        (Value::List(items), Value::String(sub)) => {
-                            if items.iter().any(|v| format!("{}", v).contains(sub.as_str())) { 1.0 } else { 0.0 }
-                        }
-                        _ => 0.0,
-                    };
-                    stack.push(Value::Float(result));
-                    ip += 1;
-                }
-                Instruction::Halt => {
-                    return Ok(stack.pop().unwrap_or(Value::Unit));
-                }
-                // For any other unhandled instruction, skip
+                // For any unhandled instruction, skip
                 _ => { ip += 1; }
             }
         }
@@ -1213,7 +909,6 @@ impl Vm {
             ConditionOp::Ge => fv >= tv,
             ConditionOp::Le => fv <= tv,
             ConditionOp::Eq => fv == tv,
-            ConditionOp::Ne => fv != tv,
         })
     }
 
@@ -1226,46 +921,42 @@ impl Vm {
             }
         }
 
-        // Check patterns — find first matching pattern, then release borrow
-        let mut matched_pattern: Option<(usize, &CompiledFn)> = None;
-        for (idx, pattern) in self.patterns.iter().enumerate() {
+        // Check patterns
+        for pattern in self.patterns.iter() {
             if pattern.name == name {
-                matched_pattern = Some((idx, pattern));
-                break;
+                if args.len() != pattern.param_count {
+                    return Err(format!(
+                        "VM: pattern {} expects {} args, got {}",
+                        name, pattern.param_count, args.len()
+                    ));
+                }
+
+                // ── VM bytecode path ───────────────────────────
+                // Collapse Fluid arguments to parameter types
+                let collapsed_args: Vec<Value> = args.iter()
+                    .zip(pattern.param_types.iter())
+                    .map(|(arg, param_type)| self.maybe_collapse(arg, param_type))
+                    .collect();
+                // Execute pattern body as bytecode
+                let mut stack: Vec<Value> = Vec::new();
+                let mut call_stack: Vec<CallFrame> = Vec::new();
+                let program = Program {
+                    globals: Vec::new(),
+                    patterns: Vec::new(),
+                    learnables: Vec::new(),
+                    rules: Vec::new(),
+                    main_code: Vec::new(),
+                    collections_loaded: false,
+                };
+                for arg in collapsed_args {
+                    stack.push(arg);
+                }
+                return self.execute_code(&pattern.code, &mut stack, &mut call_stack, &program);
             }
         }
-        let (pattern_idx, pattern) = matched_pattern
-            .ok_or_else(|| format!("VM: unknown pattern {}", name))?;
-        if args.len() != pattern.param_count {
-            return Err(format!(
-                "VM: pattern {} expects {} args, got {}",
-                name, pattern.param_count, args.len()
-            ));
-        }
 
-        // ── VM bytecode path ───────────────────────────
-        // Collapse Fluid arguments to parameter types
-        let collapsed_args: Vec<Value> = args.iter()
-            .zip(pattern.param_types.iter())
-            .map(|(arg, param_type)| self.maybe_collapse(arg, param_type))
-            .collect();
-        // Clone code to release borrow on self.patterns before mutable borrow
-        let code = pattern.code.clone();
-        // Execute pattern body as bytecode
-        let mut stack: Vec<Value> = Vec::new();
-        let mut call_stack: Vec<CallFrame> = Vec::new();
-        let program = Program {
-            globals: Vec::new(),
-            patterns: Vec::new(),
-            learnables: Vec::new(),
-            rules: Vec::new(),
-            main_code: Vec::new(),
-            collections_loaded: false,
-        };
-        for arg in collapsed_args {
-            stack.push(arg);
-        }
-        self.execute_code(&code, &mut stack, &mut call_stack, &program)
+        // Check builtins
+        self.call_builtin(name, &args)
     }
 
     /// Execute all registered rules (already sorted by priority descending).
@@ -1309,7 +1000,6 @@ impl Vm {
                     ConditionOp::Ge => lf >= rf,
                     ConditionOp::Le => lf <= rf,
                     ConditionOp::Eq => lf == rf,
-                    ConditionOp::Ne => lf != rf,
                 })
             }
         }
@@ -1365,7 +1055,6 @@ impl Vm {
                     (Some(ConditionOp::Gt), Some(_)) |
                     (Some(ConditionOp::Ge), Some(_)) => false,
                     (Some(ConditionOp::Eq), Some(threshold)) => (accuracy - threshold).abs() < 1e-9,
-                    (Some(ConditionOp::Ne), Some(threshold)) => (accuracy - threshold).abs() >= 1e-9,
                     _ => true,
                 };
 
@@ -1448,18 +1137,6 @@ impl Vm {
 
     /// Evaluate a binary operation.
     fn eval_binop(&self, left: Value, op: crate::ast::BinOp, right: Value) -> Result<Value, String> {
-        // Short-circuit for logical operators
-        match op {
-            crate::ast::BinOp::And => {
-                if !is_truthy(&left) { return Ok(Value::Float(0.0)); }
-                return Ok(Value::Float(if is_truthy(&right) { 1.0 } else { 0.0 }));
-            }
-            crate::ast::BinOp::Or => {
-                if is_truthy(&left) { return Ok(Value::Float(1.0)); }
-                return Ok(Value::Float(if is_truthy(&right) { 1.0 } else { 0.0 }));
-            }
-            _ => {}
-        }
         match (left, right) {
             (Value::String(a), Value::String(b)) => match op {
                 crate::ast::BinOp::Add => Ok(Value::String(format!("{}{}", a, b))),
@@ -1484,18 +1161,6 @@ impl Vm {
                 crate::ast::BinOp::Le => Ok(Value::Float(if a <= b { 1.0 } else { 0.0 })),
                 crate::ast::BinOp::Eq => Ok(Value::Float(if a == b { 1.0 } else { 0.0 })),
                 crate::ast::BinOp::Ne => Ok(Value::Float(if a != b { 1.0 } else { 0.0 })),
-                // And/Or handled by short-circuit above; unreachable here
-                _ => Err(format!("cannot apply {:?} to two Floats", op)),
-            },
-            (Value::Unit, r) => match op {
-                crate::ast::BinOp::Eq => Ok(Value::Float(if matches!(r, Value::Unit) { 1.0 } else { 0.0 })),
-                crate::ast::BinOp::Ne => Ok(Value::Float(if matches!(r, Value::Unit) { 0.0 } else { 1.0 })),
-                _ => Err(format!("cannot apply {:?} to Unit and {}", op, r.type_name())),
-            },
-            (l, Value::Unit) => match op {
-                crate::ast::BinOp::Eq => Ok(Value::Float(if matches!(l, Value::Unit) { 1.0 } else { 0.0 })),
-                crate::ast::BinOp::Ne => Ok(Value::Float(if matches!(l, Value::Unit) { 0.0 } else { 1.0 })),
-                _ => Err(format!("cannot apply {:?} to {} and Unit", op, l.type_name())),
             },
             (l, r) => Err(format!(
                 "type mismatch: {} {:?} {}",

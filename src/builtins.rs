@@ -9,6 +9,195 @@ pub struct Builtins {
     funcs: std::collections::HashMap<String, BuiltinFn>,
 }
 
+
+/// Metadata for a single builtin function.
+/// This is the SINGLE SOURCE OF TRUTH for all builtin metadata.
+/// Every consumer (compiler, VM, semantic) reads from here.
+///
+/// - `name`: function name as exposed to the DSL
+/// - `arity`: exact argument count; 0 = variadic (skip arity check)
+/// - `category`: logical group for documentation and error messages
+#[derive(Debug, Clone)]
+pub struct BuiltinSpec {
+    pub name: &'static str,
+    pub arity: usize,        // 0 = variadic
+    pub category: &'static str,
+}
+
+/// Master registry of ALL builtin functions.
+/// Order determines bytecode indices — DO NOT reorder existing entries.
+/// To add a new builtin: append a `BuiltinSpec` row here,
+/// add the handler in Builtins::new(), and you're done.
+pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
+    BuiltinSpec { name: "upper", arity: 1, category: "string" },
+    BuiltinSpec { name: "lower", arity: 1, category: "string" },
+    BuiltinSpec { name: "len", arity: 1, category: "string" },
+    BuiltinSpec { name: "str", arity: 1, category: "string" },
+    BuiltinSpec { name: "print", arity: 1, category: "io" },
+    BuiltinSpec { name: "contains", arity: 2, category: "string" },
+    BuiltinSpec { name: "float", arity: 1, category: "convert" },
+    BuiltinSpec { name: "to_string", arity: 1, category: "convert" },
+    BuiltinSpec { name: "get", arity: 2, category: "list" },
+    BuiltinSpec { name: "push", arity: 2, category: "list" },
+    BuiltinSpec { name: "index_of", arity: 2, category: "string" },
+    BuiltinSpec { name: "substring", arity: 3, category: "string" },
+    BuiltinSpec { name: "char_at", arity: 2, category: "string" },
+    BuiltinSpec { name: "starts_with", arity: 2, category: "string" },
+    BuiltinSpec { name: "ends_with", arity: 2, category: "string" },
+    BuiltinSpec { name: "to_float", arity: 1, category: "convert" },
+    BuiltinSpec { name: "confidence", arity: 1, category: "fluid" },
+    BuiltinSpec { name: "trim", arity: 1, category: "string" },
+    BuiltinSpec { name: "replace", arity: 3, category: "string" },
+    BuiltinSpec { name: "split", arity: 2, category: "string" },
+    BuiltinSpec { name: "join", arity: 2, category: "string" },
+    BuiltinSpec { name: "length", arity: 1, category: "string" },
+    BuiltinSpec { name: "to_int", arity: 1, category: "convert" },
+    BuiltinSpec { name: "reverse", arity: 1, category: "string" },
+    BuiltinSpec { name: "escape_html", arity: 1, category: "string" },
+    BuiltinSpec { name: "escape_json", arity: 1, category: "string" },
+    BuiltinSpec { name: "__trim", arity: 1, category: "std" },
+    BuiltinSpec { name: "__replace", arity: 3, category: "std" },
+    BuiltinSpec { name: "__split", arity: 2, category: "std" },
+    BuiltinSpec { name: "__join", arity: 2, category: "std" },
+    BuiltinSpec { name: "__abs", arity: 1, category: "std" },
+    BuiltinSpec { name: "__min", arity: 2, category: "std" },
+    BuiltinSpec { name: "__max", arity: 2, category: "std" },
+    BuiltinSpec { name: "__clamp", arity: 3, category: "std" },
+    BuiltinSpec { name: "__round", arity: 1, category: "std" },
+    BuiltinSpec { name: "__first", arity: 1, category: "std" },
+    BuiltinSpec { name: "__last", arity: 1, category: "std" },
+    BuiltinSpec { name: "__push", arity: 2, category: "std" },
+    BuiltinSpec { name: "__list_len", arity: 1, category: "std" },
+    BuiltinSpec { name: "abs", arity: 1, category: "math" },
+    BuiltinSpec { name: "min", arity: 2, category: "math" },
+    BuiltinSpec { name: "max", arity: 2, category: "math" },
+    BuiltinSpec { name: "clamp", arity: 3, category: "math" },
+    BuiltinSpec { name: "round", arity: 1, category: "math" },
+    BuiltinSpec { name: "respond", arity: 1, category: "web" },
+    BuiltinSpec { name: "respond_html", arity: 1, category: "web" },
+    BuiltinSpec { name: "form_data", arity: 1, category: "web" },
+    BuiltinSpec { name: "json_body", arity: 0, category: "web" },
+    BuiltinSpec { name: "query_param", arity: 1, category: "web" },
+    BuiltinSpec { name: "render", arity: 2, category: "web" },
+    BuiltinSpec { name: "http_get", arity: 1, category: "web" },
+    BuiltinSpec { name: "http_post", arity: 2, category: "web" },
+    BuiltinSpec { name: "http_post_multipart", arity: 2, category: "web" },
+    BuiltinSpec { name: "require", arity: 0, category: "web" },
+    BuiltinSpec { name: "parse_json", arity: 1, category: "json" },
+    BuiltinSpec { name: "json_encode", arity: 1, category: "json" },
+    BuiltinSpec { name: "json_get", arity: 2, category: "json" },
+    BuiltinSpec { name: "has_field", arity: 2, category: "json" },
+    BuiltinSpec { name: "env", arity: 1, category: "system" },
+    BuiltinSpec { name: "hash_password", arity: 1, category: "crypto" },
+    BuiltinSpec { name: "verify_password", arity: 2, category: "crypto" },
+    BuiltinSpec { name: "encrypt", arity: 2, category: "crypto" },
+    BuiltinSpec { name: "decrypt", arity: 2, category: "crypto" },
+    BuiltinSpec { name: "generate_key", arity: 0, category: "crypto" },
+    BuiltinSpec { name: "authenticate", arity: 2, category: "auth" },
+    BuiltinSpec { name: "session_login", arity: 2, category: "auth" },
+    BuiltinSpec { name: "session_logout", arity: 1, category: "auth" },
+    BuiltinSpec { name: "query", arity: 1, category: "db" },
+    BuiltinSpec { name: "db_execute", arity: 1, category: "db" },
+    BuiltinSpec { name: "call_llm", arity: 0, category: "llm" },
+    BuiltinSpec { name: "call_claude", arity: 0, category: "llm" },
+    BuiltinSpec { name: "llm_usage", arity: 0, category: "llm" },
+    BuiltinSpec { name: "kv_set", arity: 2, category: "memory" },
+    BuiltinSpec { name: "kv_get", arity: 1, category: "memory" },
+    BuiltinSpec { name: "kv_delete", arity: 1, category: "memory" },
+    BuiltinSpec { name: "kv_exists", arity: 1, category: "memory" },
+    BuiltinSpec { name: "kv_list", arity: 0, category: "memory" },
+    BuiltinSpec { name: "mem_set", arity: 2, category: "memory" },
+    BuiltinSpec { name: "mem_get", arity: 1, category: "memory" },
+    BuiltinSpec { name: "mem_delete", arity: 1, category: "memory" },
+    BuiltinSpec { name: "session_set", arity: 2, category: "memory" },
+    BuiltinSpec { name: "session_get", arity: 1, category: "memory" },
+    BuiltinSpec { name: "session_clear", arity: 0, category: "memory" },
+    BuiltinSpec { name: "read_file", arity: 1, category: "io" },
+    BuiltinSpec { name: "write_file", arity: 2, category: "io" },
+    BuiltinSpec { name: "append_file", arity: 2, category: "io" },
+    BuiltinSpec { name: "delete_file", arity: 1, category: "io" },
+    BuiltinSpec { name: "file_exists", arity: 1, category: "io" },
+    BuiltinSpec { name: "list_dir", arity: 1, category: "io" },
+    BuiltinSpec { name: "now", arity: 0, category: "time" },
+    BuiltinSpec { name: "send_message", arity: 2, category: "bot" },
+    BuiltinSpec { name: "whisper_transcribe", arity: 1, category: "voice" },
+    BuiltinSpec { name: "tts_send", arity: 2, category: "voice" },
+    BuiltinSpec { name: "recall", arity: 0, category: "stateful" },
+    BuiltinSpec { name: "memorize", arity: 0, category: "stateful" },
+    BuiltinSpec { name: "forget", arity: 0, category: "stateful" },
+    BuiltinSpec { name: "find", arity: 4, category: "stateful" },
+    BuiltinSpec { name: "inspect", arity: 1, category: "stateful" },
+    BuiltinSpec { name: "conv_start", arity: 1, category: "stateful" },
+    BuiltinSpec { name: "conv_add", arity: 3, category: "stateful" },
+    BuiltinSpec { name: "conv_history", arity: 1, category: "stateful" },
+    BuiltinSpec { name: "conv_context", arity: 1, category: "stateful" },
+    BuiltinSpec { name: "conv_end", arity: 1, category: "stateful" },
+    BuiltinSpec { name: "event_count", arity: 0, category: "stateful" },
+    BuiltinSpec { name: "events_since", arity: 1, category: "stateful" },
+    BuiltinSpec { name: "event_sum", arity: 2, category: "stateful" },
+    BuiltinSpec { name: "query_scalar", arity: 0, category: "stateful" },
+    BuiltinSpec { name: "query_row", arity: 0, category: "stateful" },
+    BuiltinSpec { name: "graph_query", arity: 0, category: "graph" },
+    BuiltinSpec { name: "graph_path", arity: 0, category: "graph" },
+    BuiltinSpec { name: "graph_neighbors", arity: 0, category: "graph" },
+    BuiltinSpec { name: "memory_decay", arity: 0, category: "graph" },
+    BuiltinSpec { name: "memory_boost", arity: 0, category: "graph" },
+    BuiltinSpec { name: "memory_prune", arity: 0, category: "graph" },
+    BuiltinSpec { name: "memory_revise", arity: 0, category: "graph" },
+    BuiltinSpec { name: "subgraph_extract", arity: 0, category: "graph" },
+    BuiltinSpec { name: "subgraph_nodes", arity: 0, category: "graph" },
+    BuiltinSpec { name: "subgraph_json", arity: 0, category: "graph" },
+    BuiltinSpec { name: "trace_start", arity: 0, category: "graph" },
+    BuiltinSpec { name: "trace_end", arity: 0, category: "graph" },
+    BuiltinSpec { name: "mtree_summarize", arity: 0, category: "mtree" },
+    BuiltinSpec { name: "mtree_retrieve", arity: 0, category: "mtree" },
+    BuiltinSpec { name: "mtree_stats", arity: 0, category: "mtree" },
+    BuiltinSpec { name: "cron_mark_fired", arity: 1, category: "cron" },
+    BuiltinSpec { name: "request_body", arity: 0, category: "web" },
+    BuiltinSpec { name: "stdin", arity: 0, category: "stub" },
+    BuiltinSpec { name: "split_tokens", arity: 0, category: "stub" },
+    BuiltinSpec { name: "if_eq", arity: 3, category: "stub" },
+    BuiltinSpec { name: "newline", arity: 0, category: "stub" },
+    BuiltinSpec { name: "is_string_token", arity: 1, category: "stub" },
+    BuiltinSpec { name: "assert_eq", arity: 2, category: "test" },
+    BuiltinSpec { name: "assert_contains", arity: 2, category: "test" },
+    BuiltinSpec { name: "base64_encode", arity: 1, category: "encoding" },
+    BuiltinSpec { name: "base64_decode", arity: 1, category: "encoding" },
+    BuiltinSpec { name: "db_insert", arity: 0, category: "db" },
+];
+
+/// Total number of registered builtins.
+pub fn builtin_count() -> usize {
+    BUILTIN_REGISTRY.len()
+}
+
+/// Ordered list of builtin names (parallel to compiler index table).
+pub fn builtin_names() -> Vec<String> {
+    BUILTIN_REGISTRY.iter().map(|s| s.name.to_string()).collect()
+}
+
+/// Name → bytecode index mapping for the compiler.
+pub fn builtin_indices() -> std::collections::HashMap<String, usize> {
+    BUILTIN_REGISTRY.iter().enumerate()
+        .map(|(i, s)| (s.name.to_string(), i))
+        .collect()
+}
+
+/// Set of all builtin names for semantic validation.
+pub fn builtin_name_set() -> std::collections::HashSet<String> {
+    BUILTIN_REGISTRY.iter().map(|s| s.name.to_string()).collect()
+}
+
+/// Name → arity mapping. 0 = variadic (skip check).
+pub fn builtin_arity_map() -> std::collections::HashMap<&'static str, usize> {
+    BUILTIN_REGISTRY.iter().map(|s| (s.name, s.arity)).collect()
+}
+
+/// Check if a name is a known builtin.
+pub fn is_builtin(name: &str) -> bool {
+    BUILTIN_REGISTRY.iter().any(|s| s.name == name)
+}
+
 impl Builtins {
     pub fn new() -> Self {
         let mut funcs = std::collections::HashMap::new();
@@ -67,7 +256,6 @@ impl Builtins {
         funcs.insert("db_execute".to_string(), builtin_db_execute as BuiltinFn);
 
         // Phase 6.4 — Encryption stubs
-        funcs.insert("env".to_string(), builtin_env as BuiltinFn);
         funcs.insert("hash_password".to_string(), builtin_hash_password as BuiltinFn);
         funcs.insert("verify_password".to_string(), builtin_verify_password as BuiltinFn);
         funcs.insert("encrypt".to_string(), builtin_encrypt as BuiltinFn);
@@ -273,6 +461,22 @@ impl Builtins {
         funcs.insert("assert_contains".to_string(), builtin_assert_contains as BuiltinFn);
 
         Builtins { funcs }
+    }
+
+    /// Verify builtin registry consistency (debug builds).
+    #[cfg(debug_assertions)]
+    fn check_registry_sync(&self) {
+        for spec in BUILTIN_REGISTRY.iter() {
+            if spec.category != "stateful" && spec.category != "stub"
+                && spec.category != "graph" && spec.category != "mtree"
+                && spec.category != "cron" && spec.category != "test"
+            {
+                assert!(
+                    self.funcs.contains_key(spec.name),
+                    "BUILTIN_REGISTRY '{}' has no handler in Builtins::new()", spec.name
+                );
+            }
+        }
     }
 
     /// Look up a built-in by name.

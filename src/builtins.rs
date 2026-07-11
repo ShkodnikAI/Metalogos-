@@ -164,6 +164,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec { name: "base64_encode", arity: 1, category: "encoding" },
     BuiltinSpec { name: "base64_decode", arity: 1, category: "encoding" },
     BuiltinSpec { name: "db_insert", arity: 0, category: "db" },
+    // Problem B: collection ops — variadic arity (compiler uses actual arg count)
+    BuiltinSpec { name: "map", arity: 0, category: "list" },
+    BuiltinSpec { name: "zip", arity: 0, category: "list" },
+    BuiltinSpec { name: "sort_by", arity: 0, category: "list" },
+    BuiltinSpec { name: "filter", arity: 0, category: "list" },
+    BuiltinSpec { name: "reduce", arity: 0, category: "list" },
 ];
 
 /// Total number of registered builtins.

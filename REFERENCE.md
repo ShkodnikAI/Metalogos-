@@ -571,12 +571,25 @@ return page
 
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|
-| `query(sql, params)` | `String, List -> Query` | Query | Создаёт параметизированный SQL-запрос (непрозрачный тип, инъекция синтаксически невозможна) |
-| `db_execute(sql)` | `String -> Unit` | Unit | Выполняет SQL-запрос без возврата данных (INSERT, UPDATE, DELETE) |
+| `query(sql, params)` | `String, List -> List` | List | SQL-запрос. SELECT возвращает List[Row{...}], остальное — строку с числом затронутых строк |
+| `db_execute(sql)` | `String -> Unit` | Unit | Выполняет SQL-запрос без возврата данных |
+| `db_insert(table, struct)` | `String, Struct -> Float` | Float | Параметризованный INSERT. Возвращает last_insert_rowid (Problem C) |
 
-> **Безопасность:** `query()` возвращает непрозрачный тип `Query` — его нельзя напечатать,
-> конкатенировать со строкой или передать как строку. SQL-инъекция невозможна на уровне типа.
+**Schema-as-code** (ADR-0060) — декларация таблиц прямо в .mlog:
 
+```mlog
+db { url: "sqlite::memory:" }
+
+schema my_dept {
+  table analysis {
+    id: Int primary_key auto_increment
+    topic: String
+    status: String default("drafted")
+  }
+}
+```
+
+Типы: Int->INTEGER, Float->REAL, String/Text->TEXT, Bool->INTEGER, DateTime->TEXT. Модификаторы: primary_key, auto_increment, nullable, references(table.field). Дефолты: default("value"), default(now()). Миграция: additive-only (CREATE TABLE IF NOT EXISTS).
 ### 4.16. Боты (Telegram/Discord)
 
 | Функция | Сигнатура | Возврат | Описание |

@@ -170,6 +170,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec { name: "sort_by", arity: 0, category: "list" },
     BuiltinSpec { name: "filter", arity: 0, category: "list" },
     BuiltinSpec { name: "reduce", arity: 0, category: "list" },
+    BuiltinSpec { name: "resolve_skill_index", arity: 1, category: "skill" },
+    BuiltinSpec { name: "fit_to_budget", arity: 0, category: "skill" },
 ];
 
 /// Total number of registered builtins.

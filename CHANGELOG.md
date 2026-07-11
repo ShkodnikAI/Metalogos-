@@ -18,6 +18,16 @@ All notable changes to the Metalogos project.
 - Диагностика: `Hook` (ADR-0045) — AOP для паттернов, не для HTTP. `route` — полноценный HTTP-роутер, достаточный для Telegram webhook. Корень бага — архитектурный (reverse_proxy.py маршрутизирует `/webhook/*` в Python, mlog-обработчик физически недостижим).
 - Golden test: `telegram_webhook_route.mlog` — проверяет `parse_json` + `json_get` на mock Telegram update JSON.
 
+### Problem C — Schema-as-code (ADR-0060)
+
+- Новая декларация `schema name { table T { ... } }` — DECLARE таблиц прямо в .mlog файлах
+- Auto-migration при старте: `CREATE TABLE IF NOT EXISTS` (additive-only, никогда не drop/alter)
+- Поддерживаемые типы: Int, Float, String, Text, Bool, DateTime
+- Модификаторы: primary_key, auto_increment, nullable, references(table.field)
+- Дефолты: default("value"), default(now())
+- Интеграционные тесты: schema + db_insert + query round-trip, additive migration
+- **Ограничение**: schema DDL и db_insert работают только в tree-walking режиме (требуют SQLite connection). VM/JIT путь отложен.
+
 ---
 
 ## [0.9.0] — 2026-07-07

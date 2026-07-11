@@ -849,6 +849,57 @@ impl Interpreter {
         // If persist is None, keep the default InMemoryStore (already set in new())
     }
 
+    /// Map Metalogos type names to SQLite column types (Problem C).
+    fn mlog_type_to_sql(t: &str) -> &'static str {
+        match t {
+            "Int" => "INTEGER",
+            "Float" => "REAL",
+            "String" | "Text" => "TEXT",
+            "Bool" => "INTEGER",
+            "DateTime" => "TEXT",
+            _ => "TEXT",
+        }
+    }
+
+    /// Problem C: Apply schema declaration — CREATE TABLE IF NOT EXISTS for each table.
+    fn apply_schema(&self, schema: &SchemaDecl) -> Result<(), String> {
+        let guard = self.db_conn.lock().map_err(|e| format!("db lock error: {}", e))?;
+        let conn = guard.as_ref().ok_or_else(|| {
+            "schema declaration requires a db connection. Declare db { url: \"...\" } first.".to_string()
+        })?;
+
+        for table in &schema.tables {
+            let mut col_defs = Vec::new();
+            for col in &table.columns {
+                let mut def = format!("{} {}", col.name, Self::mlog_type_to_sql(&col.col_type));
+                for modi in &col.modifiers {
+                    match modi {
+                        ColumnModifier::PrimaryKey => def.push_str(" PRIMARY KEY"),
+                        ColumnModifier::AutoIncrement => def.push_str(" AUTOINCREMENT"),
+                        ColumnModifier::Nullable => def.push_str(" NULL"),
+                        ColumnModifier::References(ref_table, ref_field) => {
+                            def.push_str(&format!(" REFERENCES {}({})", ref_table, ref_field));
+                        }
+                    }
+                }
+                if let Some(ref default_val) = col.default {
+                    if default_val == "now()" {
+                        def.push_str(" DEFAULT (datetime('now'))");
+                    } else {
+                        // Strip quotes if present
+                        let val = default_val.trim_matches('"');
+                        def.push_str(&format!(" DEFAULT '{}'", val));
+                    }
+                }
+                col_defs.push(def);
+            }
+            let sql = format!("CREATE TABLE IF NOT EXISTS {} ({})", table.name, col_defs.join(", "));
+            conn.execute(&sql, []).map_err(|e| format!("schema migration error for table '{}': {}", table.name, e))?;
+        }
+
+        Ok(())
+    }
+
     /// Initialize SQLite connection for db { url: "..." } block (Наряд №7).
     /// Supports "sqlite::memory:" for in-memory databases and file paths.
     fn init_db_connection(&mut self, db: &DbDecl) {
@@ -1335,6 +1386,9 @@ impl Interpreter {
                     self.db_config = Some(db.clone());
                     self.init_db_connection(&db);
                 }
+                Declaration::Schema(schema) => {
+                    self.apply_schema(&schema)?;
+                }
             }
         }
 
@@ -1616,6 +1670,9 @@ impl Interpreter {
                 Declaration::Db(db) => {
                     self.db_config = Some(db.clone());
                     self.init_db_connection(&db);
+                }
+                Declaration::Schema(schema) => {
+                    self.apply_schema(&schema)?;
                 }
             }
         }

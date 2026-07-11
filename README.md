@@ -7,7 +7,7 @@
 **AI-native programming language with security by design. Written in Rust.**
 
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/v0.8.9-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
+[![Version](https://img.shields.io/badge/v0.9.1-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
 [![CI](https://img.shields.io/badge/CI-passing-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 
@@ -96,7 +96,7 @@ Every item in the OWASP Top 10 (2021) is addressed at the language level: type-s
 - **Bytecode VM** — 44 instructions, stack-based, used for `mlog compile` + `mlog run file.mbc`
 - **JIT** — Cranelift-based code generation (experimental)
 
-### 171 Built-in Functions
+### 142 Built-in Functions
 
 String ops, math, collections, type conversion, LLM/AI, HTTP, JSON, file I/O, KV store, session memory, encryption, authentication, HTTP server, templates, databases, Telegram/Discord bots, time/date/calendar, geolocation, weather, reminders, cron, goals, todos, memory tree, preferences, approval workflows, and more. See [REFERENCE.md](REFERENCE.md) for the full list.
 
@@ -184,42 +184,42 @@ Pre-built Linux x86_64 binaries are available from [GitHub Actions](https://gith
 
 | Component | Technology | Lines |
 |---|---|---|
-| Parser | Pest 2.7 PEG grammar (346 rules) | 1 871 |
-| AST | 24 Declaration, 14 Expr, 12 Statement, 4 MatchArm | 658 |
-| Compiler | Bytecode, 171 builtins indexed | 1 286 |
-| Semantic analysis | Opaque types, arity checking, security audit | 1 419 |
-| Interpreter | Tree-walking, full feature support | 4 107 |
-| VM | 44 instructions, stack-based | 1 545 |
-| Built-in functions | 155 function definitions | 5 048 |
+| Parser | Pest 2.7 PEG grammar (346 rules) | 2 176 |
+| AST | 24 Declaration, 14 Expr, 12 Statement, 4 MatchArm | 731 |
+| Compiler | Bytecode, 142 builtins indexed | 659 |
+| Semantic analysis | Opaque types, arity checking, security audit | 446 |
+| Interpreter | Tree-walking, full feature support | 4 281 |
+| VM | 44 instructions, stack-based | 1 268 |
+| Built-in functions | 142 function definitions | 5 655 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 1 446 |
 | LLM backend | Trait + mock + real providers | 1 421 |
 | Memory store | Semantic memory with decay + KV store | 1 173 |
 | Security audit | Static OWASP analysis | 1 075 |
 | Embeddings | Cosine similarity search | 601 |
-| **Total** | | **~23 400** |
+| **Total** | | **~23 200** |
 
 ### Project Structure
 
 ```
 Metalogos-/
-├── Cargo.toml                  # v0.8.9
+├── Cargo.toml                  # v0.9.1
 ├── src/
 │   ├── grammar.pest             # PEG grammar (346 rules)
 │   ├── ast.rs                   # AST definitions
 │   ├── parser.rs                # Pest tokens -> AST
 │   ├── semantic.rs              # Semantic analysis + opaque type enforcement
 │   ├── interpreter.rs           # Tree-walking interpreter
-│   ├── compiler.rs              # Bytecode compiler (171 builtins)
+│   ├── compiler.rs              # Bytecode compiler (142 builtins)
 │   ├── bytecode.rs              # 44 VM instructions
 │   ├── vm.rs                    # Bytecode VM executor
 │   ├── jit.rs                   # JIT via Cranelift
-│   ├── builtins.rs              # 155 built-in functions
+│   ├── builtins.rs              # 142 built-in functions
 │   ├── server.rs                # Axum HTTP server + cron scheduler
 │   ├── llm.rs                   # LLM backend trait + providers
 │   ├── memory_store.rs          # Semantic memory + KV store
 │   ├── audit.rs                 # Static security audit
 │   └── main.rs                  # CLI: run/repl/check/serve/compile/eval/audit
-├── tests/                       # 33 integration test files (incl. phase23 v0.8.9 else-branch contracts)
+├── tests/                       # 33 integration test files (incl. phase23 v0.9.1 else-branch contracts)
 ├── examples/                    # 78 .mlog programs with golden tests
 ├── std/                         # Standard library (string, math, collections)
 ├── docs/adr/                    # 63 Architecture Decision Records
@@ -234,8 +234,9 @@ Metalogos-/
 
 | Version | Highlights |
 |---|---|
+| **0.9.1** | Collection ops sync (142 builtins), BUILTIN_REGISTRY as single source of truth, line counts refreshed |
 | **0.8.9** | Fix: else-branch parsing (else dropped silently), Fix: BlockIfElse mutation loss, 4 contract tests |
-| **0.8.8** | Semantic fixes, compiler/VM 171-builtin sync, variadic min-arity, 17 integration tests, chrono fix |
+| **0.8.8** | Semantic fixes, compiler/VM builtin sync, variadic min-arity, 17 integration tests, chrono fix |
 | **0.8.7** | Cron force_run bugfix, Memory Tree L2 global summary, mtree_stats |
 | **0.8.6** | Memory Tree (L0/L1/L2), `call_pattern()`, cron user-pattern dispatch |
 | **0.8.5** | Cron scheduler, goals/todos/preferences/approval builtins, 6 critical bugfixes |
@@ -257,7 +258,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete. 21 development narads (work orders) delivered. 171 builtins, 33 test files, 78 golden-file examples, 63 ADRs.
+All 8 milestones and 8+ phases complete. 21 development narads (work orders) delivered. 142 builtins, 33 test files, 78 golden-file examples, 63 ADRs.
 
 ### Next
 

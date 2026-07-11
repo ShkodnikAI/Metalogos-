@@ -12,6 +12,8 @@ pub enum Declaration {
     Template(TemplateDecl),
     /// `db { url: ..., pool_size: 10 }` (Phase 6.3)
     Db(DbDecl),
+    /// `schema name { table T { col: Type modifiers... } ... }` (Problem C)
+    Schema(SchemaDecl),
     /// `memory { persist: "./data/memory.db" }` (Phase 7.6)
     Memory(MemoryDecl),
     /// `import std/string as str` or `import ./my_utils`
@@ -130,6 +132,41 @@ pub struct DbDecl {
     pub url: Option<Expr>,
     pub pool_size: Option<u32>,
     pub migrate: Option<String>,
+}
+
+// ── Schema (Problem C: schema-as-code) ──────────────────────────────
+
+/// Column modifier for schema table definitions.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ColumnModifier {
+    PrimaryKey,
+    AutoIncrement,
+    Nullable,
+    /// references(table.field)
+    References(String, String),
+}
+
+/// Column definition inside a schema table.
+#[derive(Debug, Clone)]
+pub struct SchemaColumn {
+    pub name: String,
+    pub col_type: String,
+    pub modifiers: Vec<ColumnModifier>,
+    pub default: Option<String>, // Raw SQL default expression
+}
+
+/// Table definition inside a schema block.
+#[derive(Debug, Clone)]
+pub struct SchemaTable {
+    pub name: String,
+    pub columns: Vec<SchemaColumn>,
+}
+
+/// `schema osp_analysis { table analysis { id: Int primary_key auto_increment, ... } }`
+#[derive(Debug, Clone)]
+pub struct SchemaDecl {
+    pub name: String,
+    pub tables: Vec<SchemaTable>,
 }
 
 // ── Memory Config (Phase 7.6) ──────────────────────────────

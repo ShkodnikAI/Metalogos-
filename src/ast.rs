@@ -14,6 +14,8 @@ pub enum Declaration {
     Db(DbDecl),
     /// `schema name { table T { col: Type modifiers... } ... }` (Problem C)
     Schema(SchemaDecl),
+    /// `skill_index osp { tier 1 always [...], tier 2 when_matches [...], budget: 25000 tokens, truncation: whole_skill_only }` (Problem A)
+    SkillIndex(SkillIndexDecl),
     /// `memory { persist: "./data/memory.db" }` (Phase 7.6)
     Memory(MemoryDecl),
     /// `import std/string as str` or `import ./my_utils`
@@ -132,6 +134,40 @@ pub struct DbDecl {
     pub url: Option<Expr>,
     pub pool_size: Option<u32>,
     pub migrate: Option<String>,
+}
+
+// ── Skill Index (Problem A: tiered skill index) ──────────────────────
+
+/// A trigger rule for tier 2/3: match skill if any trigger appears in query.
+#[derive(Debug, Clone)]
+pub struct SkillTriggerRule {
+    pub skill: String,
+    pub triggers: Vec<String>,
+}
+
+/// A tier within a skill_index.
+#[derive(Debug, Clone)]
+pub struct SkillTier {
+    pub level: u32,
+    pub mode: String, // "always" or "when_matches"
+    pub skills: Vec<String>, // for "always": skill names; for "when_matches": not used directly
+    pub rules: Vec<SkillTriggerRule>, // for "when_matches": trigger rules
+}
+
+/// Truncation mode for fit_to_budget.
+#[derive(Debug, Clone)]
+pub enum TruncationMode {
+    WholeSkillOnly,
+    TruncateAtBoundary,
+}
+
+/// `skill_index osp { tier 1 always [...], tier 2 when_matches [...], budget: 25000 tokens, truncation: whole_skill_only }`
+#[derive(Debug, Clone)]
+pub struct SkillIndexDecl {
+    pub name: String,
+    pub tiers: Vec<SkillTier>,
+    pub budget: Option<f64>,
+    pub truncation: Option<TruncationMode>,
 }
 
 // ── Schema (Problem C: schema-as-code) ──────────────────────────────

@@ -585,6 +585,8 @@ pub struct Interpreter {
     /// Resume target: if Some((flow_name, checkpoint_name)), the flow should
     /// skip steps until reaching the step after this checkpoint.
     resume_target: Option<(String, String)>,
+    /// Problem A: registered skill indices
+    skill_indices: HashMap<String, crate::ast::SkillIndexDecl>,
     /// Наряд №4: LLM routing config (providers, circuit breaker, failover).
     /// If None → backward compatible (env vars, single provider).
     llm_config: Option<crate::ast::LlmConfigDecl>,
@@ -665,6 +667,7 @@ impl Interpreter {
             checkpoint_db: std::sync::Mutex::new(None),
             checkpoint_mem: std::sync::Mutex::new(HashMap::new()),
             resume_target: None,
+            skill_indices: HashMap::new(),
             llm_config: None,
             smart_router: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }
@@ -1389,6 +1392,9 @@ impl Interpreter {
                 Declaration::Schema(schema) => {
                     self.apply_schema(&schema)?;
                 }
+                Declaration::SkillIndex(idx) => {
+                    self.skill_indices.insert(idx.name.clone(), idx);
+                }
             }
         }
 
@@ -1673,6 +1679,9 @@ impl Interpreter {
                 }
                 Declaration::Schema(schema) => {
                     self.apply_schema(&schema)?;
+                }
+                Declaration::SkillIndex(idx) => {
+                    self.skill_indices.insert(idx.name.clone(), idx);
                 }
             }
         }
@@ -1992,6 +2001,55 @@ impl Interpreter {
 
         if name == "find" {
             return self.invoke_find(args);
+        }
+
+        // Problem A: resolve_skill_index(dept) — main invoke path
+        if name == "resolve_skill_index" {
+            let dept = match args.get(0) {
+                Some(Value::String(s)) => s.clone(),
+                _ => return Err("resolve_skill_index() expects a department name (String)".to_string()),
+            };
+            let idx = self.skill_indices.get(&dept)
+                .ok_or_else(|| format!("resolve_skill_index(): no skill_index declared for '{}'", dept))?;
+            let mut fields = HashMap::new();
+            let tier1: Vec<Value> = idx.tiers.iter()
+                .filter(|t| t.mode == "always")
+                .flat_map(|t| t.skills.iter().map(|s| Value::String(s.clone())))
+                .collect();
+            fields.insert("tier1".to_string(), Value::List(tier1));
+            for tier in &idx.tiers {
+                if tier.mode == "when_matches" {
+                    let rules: Vec<Value> = tier.rules.iter().map(|r| {
+                        let mut f = HashMap::new();
+                        f.insert("skill".to_string(), Value::String(r.skill.clone()));
+                        f.insert("triggers".to_string(), Value::List(
+                            r.triggers.iter().map(|t| Value::String(t.clone())).collect()
+                        ));
+                        Value::Struct { type_name: "TriggerRule".to_string(), fields: f }
+                    }).collect();
+                    fields.insert(format!("tier{}", tier.level), Value::List(rules));
+                }
+            }
+            if let Some(b) = idx.budget {
+                fields.insert("budget".to_string(), Value::Float(b));
+            }
+            if let Some(ref t) = idx.truncation {
+                let mode_str = match t {
+                    TruncationMode::WholeSkillOnly => "whole_skill_only",
+                    TruncationMode::TruncateAtBoundary => "truncate_at_boundary",
+                };
+                fields.insert("truncation".to_string(), Value::String(mode_str.to_string()));
+            }
+            return Ok(Value::Struct { type_name: format!("SkillIndex_{}", dept), fields });
+        }
+
+        // Problem A: fit_to_budget(list) — MVP: return list as-is
+        if name == "fit_to_budget" {
+            let list = match args.get(0) {
+                Some(Value::List(items)) => items.clone(),
+                _ => return Err("fit_to_budget() expects first argument to be a List".to_string()),
+            };
+            return Ok(Value::List(list));
         }
 
         // Check learnable patterns
@@ -3939,6 +3997,60 @@ impl Interpreter {
                     let rowid: i64 = conn.query_row("SELECT last_insert_rowid()", [], |row| row.get(0))
                         .unwrap_or(0);
                     return Ok(Value::Float(rowid as f64));
+                }
+
+                // Problem A: resolve_skill_index(dept) — returns registered index as Value::Struct
+                if name == "resolve_skill_index" {
+                    let dept = match eval_args.get(0) {
+                        Some(Value::String(s)) => s.clone(),
+                        _ => return Err("resolve_skill_index() expects a department name (String)".to_string()),
+                    };
+                    let idx = self.skill_indices.get(&dept)
+                        .ok_or_else(|| format!("resolve_skill_index(): no skill_index declared for '{}'", dept))?;
+                    // Convert to Value::Struct for field access
+                    let mut fields = HashMap::new();
+                    // tier1: list of always-skill names
+                    let tier1: Vec<Value> = idx.tiers.iter()
+                        .filter(|t| t.mode == "always")
+                        .flat_map(|t| t.skills.iter().map(|s| Value::String(s.clone())))
+                        .collect();
+                    fields.insert("tier1".to_string(), Value::List(tier1));
+                    // tier2+: list of trigger-rule structs
+                    for tier in &idx.tiers {
+                        if tier.mode == "when_matches" {
+                            let rules: Vec<Value> = tier.rules.iter().map(|r| {
+                                let mut f = HashMap::new();
+                                f.insert("skill".to_string(), Value::String(r.skill.clone()));
+                                f.insert("triggers".to_string(), Value::List(
+                                    r.triggers.iter().map(|t| Value::String(t.clone())).collect()
+                                ));
+                                Value::Struct { type_name: "TriggerRule".to_string(), fields: f }
+                            }).collect();
+                            fields.insert(format!("tier{}", tier.level), Value::List(rules));
+                        }
+                    }
+                    // budget
+                    if let Some(b) = idx.budget {
+                        fields.insert("budget".to_string(), Value::Float(b));
+                    }
+                    // truncation
+                    if let Some(ref t) = idx.truncation {
+                        let mode_str = match t {
+                            TruncationMode::WholeSkillOnly => "whole_skill_only",
+                            TruncationMode::TruncateAtBoundary => "truncate_at_boundary",
+                        };
+                        fields.insert("truncation".to_string(), Value::String(mode_str.to_string()));
+                    }
+                    return Ok(Value::Struct { type_name: format!("SkillIndex_{}", dept), fields });
+                }
+
+                // Problem A: fit_to_budget(list, budget, mode) — MVP: return list as-is
+                if name == "fit_to_budget" {
+                    let list = match eval_args.get(0) {
+                        Some(Value::List(items)) => items.clone(),
+                        _ => return Err("fit_to_budget() expects first argument to be a List".to_string()),
+                    };
+                    return Ok(Value::List(list));
                 }
 
                 // Check learnable patterns first

@@ -161,6 +161,14 @@ impl Vm {
                     for _ in 0..*arity {
                         args.insert(0, stack.pop().unwrap_or(Value::Unit));
                     }
+                    // Problem B: map(list, "pattern_name") — needs pattern table access
+                    if name == "map" {
+                        if let Ok(result) = self.vm_map(&args, &program) {
+                            stack.push(result);
+                            ip += 1;
+                            continue;
+                        }
+                    }
                     let result = self.call_builtin(name, &args)?;
                     stack.push(result);
                     ip += 1;
@@ -632,6 +640,14 @@ impl Vm {
                     for _ in 0..*arity {
                         args.insert(0, stack.pop().unwrap_or(Value::Unit));
                     }
+                    // Problem B: map(list, "pattern_name") — needs pattern table access
+                    if name == "map" {
+                        if let Ok(result) = self.vm_map(&args, program) {
+                            stack.push(result);
+                            ip += 1;
+                            continue;
+                        }
+                    }
                     let result = self.call_builtin(name, &args)?;
                     stack.push(result);
                     ip += 1;
@@ -753,6 +769,28 @@ impl Vm {
                     stack.push(val);
                     ip += 1;
                 }
+                // Problem B: IndexAccess was missing from execute_code.
+                Instruction::IndexAccess => {
+                    let idx = stack.pop().unwrap_or(Value::Unit);
+                    let base = stack.pop().unwrap_or(Value::Unit);
+                    let result = match (&base, &idx) {
+                        (Value::List(items), Value::Float(f)) => {
+                            let i = *f as isize;
+                            if i < 0 {
+                                let abs_i = items.len().wrapping_sub((-i) as usize);
+                                items.get(abs_i).cloned().unwrap_or(Value::Unit)
+                            } else {
+                                items.get(i as usize).cloned().unwrap_or(Value::Unit)
+                            }
+                        }
+                        (Value::Struct { fields, .. }, Value::String(key)) => {
+                            fields.get(key).cloned().unwrap_or(Value::Unit)
+                        }
+                        _ => Value::Unit,
+                    };
+                    stack.push(result);
+                    ip += 1;
+                }
                 Instruction::Collapse(required_type) => {
                     let val = stack.pop().unwrap_or(Value::Unit);
                     let collapsed = self.maybe_collapse(&val, required_type);
@@ -786,6 +824,36 @@ impl Vm {
     }
 
     /// Call a built-in function by name.
+    /// Problem B: map(list, "pattern_name") — applies a compiled pattern to each list element.
+    /// Needed because map requires pattern table access (not available to regular builtins).
+    fn vm_map(&self, args: &[Value], program: &Program) -> Result<Value, String> {
+        if !self.collections_loaded {
+            return Err("map() requires 'import std/collections'".to_string());
+        }
+        let list = match args.get(0) {
+            Some(Value::List(items)) => items.clone(),
+            _ => return Err("map() expects first argument to be a List".to_string()),
+        };
+        let pattern_name = match args.get(1) {
+            Some(Value::String(s)) => s.clone(),
+            _ => return Err("map() expects second argument to be a pattern name (String)".to_string()),
+        };
+        let pattern = self.patterns.iter().find(|p| p.name == pattern_name)
+            .ok_or_else(|| format!("map(): pattern '{}' not found", pattern_name))?
+            .clone();
+        if pattern.param_count != 1 {
+            return Err(format!("map(): pattern '{}' must accept exactly 1 argument, got {}", pattern_name, pattern.param_count));
+        }
+        let mut results = Vec::new();
+        for item in &list {
+            let mut item_stack: Vec<Value> = vec![item.clone()];
+            let mut item_cs: Vec<CallFrame> = vec![CallFrame { return_ip: 0, base_bp: 0 }];
+            let result = self.execute_code(&pattern.code, &mut item_stack, &mut item_cs, program)?;
+            results.push(result);
+        }
+        Ok(Value::List(results))
+    }
+
     fn call_builtin(&self, name: &str, args: &[Value]) -> Result<Value, String> {
         if name == "recall" {
             let query = match args.get(0) {
@@ -798,16 +866,6 @@ impl Vm {
                 0.0
             };
             return Ok(Value::String(self.recall(&query, min_conf)));
-        }
-
-        // Collections operations
-        if self.collections_loaded {
-            match name {
-                "map" | "filter" | "reduce" => {
-                    return Err(format!("VM: collection op '{}' not yet implemented in VM path", name));
-                }
-                _ => {}
-            }
         }
 
         if let Some(builtin_fn) = self.builtins.get(name) {

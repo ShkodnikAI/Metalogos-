@@ -316,6 +316,11 @@ to_int(3.9)        // 3.0
 | `len(list)` | `List -> Float` | Float | Количество элементов |
 | `length(list)` | `List -> Float` | Float | Аналог `len()` |
 | `reverse(list)` | `List -> List` | List | Разворачивает список |
+| `map(list, "pattern")` | `List, String -> List` | List | Применяет паттерн к каждому элементу (требует `import std/collections`) |
+| `zip(a, b)` | `List, List -> List` | List | Попарное объединение в `Pair{a, b}` |
+| `sort_by(list, "field", desc)` | `List, String, Float -> List` | List | Сортировка структур по полю (desc=1.0 → убывание) |
+| `filter(list, "field", value)` | `List, String, Value -> List` | List | Фильтрация: field == value |
+| `reduce(list, "field", init)` | `List, String, Float -> Float` | Float | Сумма значений поля по списку |
 
 **Примеры:**
 ```mlog
@@ -326,6 +331,11 @@ first(items)           // 10.0
 last(items)            // 30.0
 len(items)             // 3.0
 reverse(items)         // [30.0, 20.0, 10.0]
+
+import std/collections
+let scored = map(actors, "ComputePotential")
+let paired = zip(actors, scored)
+let ranked = sort_by(paired, "b", 1.0)
 ```
 
 ### 4.4. Преобразование типов

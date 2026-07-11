@@ -44,6 +44,7 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::mlogserver_decl => declarations.push(parse_mlogserver_decl(inner_pair)),
                 Rule::template_decl => declarations.push(parse_template_decl_with_body(inner_pair, &template_bodies)),
                 Rule::db_decl => declarations.push(parse_db_decl(inner_pair)),
+                Rule::schema_decl => declarations.push(parse_schema_decl(inner_pair)),
                 Rule::memory_decl => declarations.push(parse_memory_decl(inner_pair)),
                 Rule::import_decl => declarations.push(parse_import_decl(inner_pair)),
                 Rule::entity_type_decl => declarations.push(parse_entity_type_decl(inner_pair)),
@@ -318,6 +319,88 @@ fn parse_db_decl(pair: Pair<Rule>) -> Declaration {
         .map(|s| s[1..s.len()-1].to_string());
 
     Declaration::Db(DbDecl { url, pool_size, migrate })
+}
+
+// ── Schema (Problem C: schema-as-code) ──────────────────────────────
+
+fn parse_schema_decl(pair: Pair<Rule>) -> Declaration {
+    let mut name = String::new();
+    let mut tables = Vec::new();
+
+    for child in pair.into_inner() {
+        match child.as_rule() {
+            Rule::IDENT => name = child.as_str().to_string(),
+            Rule::schema_table => {
+                tables.push(parse_schema_table(child));
+            }
+            _ => {}
+        }
+    }
+
+    Declaration::Schema(SchemaDecl { name, tables })
+}
+
+fn parse_schema_table(pair: Pair<Rule>) -> SchemaTable {
+    let mut table_name = String::new();
+    let mut columns = Vec::new();
+
+    for child in pair.into_inner() {
+        match child.as_rule() {
+            Rule::IDENT => table_name = child.as_str().to_string(),
+            Rule::schema_column => {
+                columns.push(parse_schema_column(child));
+            }
+            _ => {}
+        }
+    }
+
+    SchemaTable { name: table_name, columns }
+}
+
+fn parse_schema_column(pair: Pair<Rule>) -> SchemaColumn {
+    let mut col_name = String::new();
+    let mut col_type = String::new();
+    let mut modifiers = Vec::new();
+    let mut default_val: Option<String> = None;
+
+    for child in pair.into_inner() {
+        match child.as_rule() {
+            Rule::IDENT => col_name = child.as_str().to_string(),
+            Rule::schema_col_type => col_type = child.as_str().to_string(),
+            Rule::schema_modifiers => {
+                // Iterate into the modifiers group to get individual schema_modifier pairs
+                for mod_child in child.into_inner() {
+                    let mod_str = mod_child.as_str();
+                    if mod_str == "primary_key" {
+                        modifiers.push(ColumnModifier::PrimaryKey);
+                    } else if mod_str == "auto_increment" {
+                        modifiers.push(ColumnModifier::AutoIncrement);
+                    } else if mod_str == "nullable" {
+                        modifiers.push(ColumnModifier::Nullable);
+                    } else if mod_str.starts_with("references") {
+                        // Parse references(table.field)
+                        let inner: Vec<&str> = mod_str.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '.').collect();
+                        let idents: Vec<&str> = inner.iter().filter(|s| !s.is_empty() && **s != "references").copied().collect();
+                        if idents.len() >= 2 {
+                            modifiers.push(ColumnModifier::References(idents[0].to_string(), idents[1].to_string()));
+                        }
+                    }
+                }
+            }
+            Rule::schema_default => {
+                let default_str = child.as_str();
+                // Extract content between parentheses
+                if let Some(start) = default_str.find('(') {
+                    if let Some(end) = default_str.rfind(')') {
+                        default_val = Some(default_str[start+1..end].to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    SchemaColumn { name: col_name, col_type, modifiers, default: default_val }
 }
 
 // ── Memory Config (Phase 7.6) ──────────────────────────────────────

@@ -28,6 +28,17 @@ All notable changes to the Metalogos project.
 - Интеграционные тесты: schema + db_insert + query round-trip, additive migration
 - **Ограничение**: schema DDL и db_insert работают только в tree-walking режиме (требуют SQLite connection). VM/JIT путь отложен.
 
+### Problem A — Tiered Skill Index (ADR-0058)
+
+- Новая декларация `skill_index name { tier N always [...] | tier N when_matches [...] budget: N tokens truncation: mode }`
+- AST: SkillIndexDecl, SkillTier, SkillTriggerRule, TruncationMode
+- Grammar: 12 new PEG rules (skill_index_decl, skill_tier, tier_always_list, tier_matches_list, etc.)
+- Parser: 2 new parse functions
+- Interpreter: `skill_indices` HashMap, `resolve_skill_index` + `fit_to_budget` builtins
+- `fit_to_budget` MVP: pass-through (полная реализация с file I/O отложена)
+- 5 интеграционных тестов: базовая загрузка, trigger matching, budget/truncation, error handling, 3 tiers
+- STOP Trigger #4 задокументирован: бюджет per-model, не глобальная константа (известное ограничение MVP)
+
 ---
 
 ## [0.9.0] — 2026-07-07

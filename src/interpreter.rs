@@ -576,6 +576,9 @@ pub struct Interpreter {
     /// Conversation configuration (ADR-0053).
     /// Set by `conversation { ttl: N max_messages: N compress_after: N }`.
     conversation_config: ConversationConfig,
+    /// sqz-inspired P3: token budgets per learnable pattern.
+    /// Set by `context_budget { pattern: "name", limit: 4096 }`.
+    context_budgets: std::collections::HashMap<String, Option<f64>>,
     /// ADR-0056: Path to checkpoint SQLite database (for lifecycle control).
     /// Set by `memory { persist: "path" }` — checkpoints use same directory.
     /// None = in-memory only (checkpoints stored in HashMap, lost on restart).
@@ -664,6 +667,7 @@ impl Interpreter {
             event_next_id: std::sync::atomic::AtomicU64::new(1),
             conversations: std::sync::Mutex::new(HashMap::new()),
             conversation_config: ConversationConfig::default(),
+            context_budgets: std::collections::HashMap::new(),
             checkpoint_db: std::sync::Mutex::new(None),
             checkpoint_mem: std::sync::Mutex::new(HashMap::new()),
             resume_target: None,
@@ -1359,6 +1363,10 @@ impl Interpreter {
                         compress_after: c.compress_after,
                     };
                 }
+                Declaration::ContextBudget(b) => {
+                    // sqz-inspired P3: store token budget for a learnable pattern
+                    self.context_budgets.insert(b.pattern_name.clone(), b.limit);
+                }
                 Declaration::LlmConfig(config) => {
                     // Наряд №4: store LLM config and create smart router
                     let router = llm::SmartRouter::from_config(&config);
@@ -1650,6 +1658,9 @@ impl Interpreter {
                         max_messages: c.max_messages,
                         compress_after: c.compress_after,
                     };
+                }
+                Declaration::ContextBudget(b) => {
+                    self.context_budgets.insert(b.pattern_name.clone(), b.limit);
                 }
                 Declaration::LlmConfig(config) => {
                     // Наряд №4: store LLM config and create smart router

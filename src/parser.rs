@@ -63,6 +63,7 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::mutate_decl => declarations.push(parse_mutate_decl(inner_pair)),
                 Rule::eval_decl => declarations.push(parse_eval_decl(inner_pair)),
                 Rule::conversation_decl => declarations.push(parse_conversation_decl(inner_pair)),
+                Rule::context_budget_decl => declarations.push(parse_context_budget_decl(inner_pair)),
                 Rule::llm_decl => declarations.push(parse_llm_decl(inner_pair)),
                 Rule::tool_decl => declarations.push(parse_tool_decl(inner_pair)),
                 Rule::learnable_pattern_decl => declarations.push(parse_learnable_pattern_decl(inner_pair)),
@@ -954,6 +955,38 @@ fn parse_conversation_decl(pair: Pair<Rule>) -> Declaration {
         .unwrap_or(20);
 
     Declaration::Conversation(ConversationDecl { ttl, max_messages, compress_after })
+}
+
+// ── Context Budget (sqz-inspired P3) ──────────────────────────────
+
+fn parse_context_budget_decl(pair: Pair<Rule>) -> Declaration {
+    use crate::ast::ContextBudgetDecl;
+    let children: Vec<Pair<Rule>> = pair.into_inner()
+        .filter(|c| c.as_rule() == Rule::context_budget_body)
+        .flat_map(|c| c.into_inner())
+        .collect();
+
+    let pattern_name = children.iter()
+        .find(|c| c.as_rule() == Rule::context_budget_pattern)
+        .and_then(|c| find_child_str(&children_of(c), Rule::STRING_LITERAL))
+        .map(|s| s[1..s.len()-1].to_string())
+        .unwrap_or_default();
+
+    let limit = children.iter()
+        .find(|c| c.as_rule() == Rule::context_budget_limit)
+        .and_then(|c| {
+            let expr_children = children_of(c);
+            for p in &expr_children {
+                let s = p.as_str();
+                if s == "limit" || s == ":" { continue; }
+                if let Ok(v) = s.parse::<f64>() {
+                    return Some(v);
+                }
+            }
+            None
+        });
+
+    Declaration::ContextBudget(ContextBudgetDecl { pattern_name, limit })
 }
 
 // ── LLM Config (Наряд №4: Smart LLM Routing) ──────────────────────────

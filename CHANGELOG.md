@@ -2,6 +2,50 @@
 
 All notable changes to the Metalogos project.
 
+## [0.9.3] — 2026-07-12
+
+**sqz-inspired builtins и declaration (P1+P2+P3).**
+
+Концепции заимствованы из https://github.com/ojuschugh1/sqz (ELv2 — код НЕ копировался, только идеи).
+
+### P1 — Строковые/списковые утилиты (10 builtin'ов)
+
+- `squeeze(s, chars)` — схлопнуть идентичные соседние символы (аналог Ruby String#squeeze).
+- `dedup(list)` — удалить дубликаты, сохраняя порядок первого вхождения. Сравнение через JSON для сложных типов.
+- `condense(list)` — схлопнуть идентичные соседние строки с подсчётом повторов (формат: элемент, "×N").
+- `strip(s, chars)` — удалить символы с обоих концов строки (аналог Python str.strip).
+- `chomp(s)` — удалить один trailing newline (\n или \r\n, аналог Ruby String#chomp).
+- `repeat(s, n)` — повторить строку n раз. Проверка: n >= 0, целый.
+- `pad_left(s, n, fill)` / `pad_right(s, n, fill)` — дополнить строку символом fill до длины n.
+- `lines(s)` — разбить на список строк по \n, без trailing пустого элемента.
+- `words(s)` — разбить на список слов по whitespace.
+
+### P2 — TOON encoding + content-addressed refs
+
+- `toon_encode(value)` — кодировать любое значение в TOON (Token-Optimized Object Notation). Префикс `TOON:`, ключи без кавычек, non-ASCII → `\u{XXXX}`. Lossless.
+- `toon_decode(s)` — декодировать TOON обратно в Value. Recursive descent parser. Проверка префикса, валидация JSON-like синтаксиса.
+- `ref(content)` — SHA-256 хэш, сохранить в KV-хранилище (`__ref:HASH`), вернуть hex-строку (64 символа). Idempotent (INSERT OR IGNORE).
+- `deref(hash)` — восстановить содержимое по хэшу. Валидация формата (64 hex символов), ошибка если не найден.
+
+### P3 — Token awareness
+
+- `token_count(text)` — оценка количества токенов: кириллица chars/2, латиница chars/4, порог 50%.
+- `context_budget` — новое объявление верхнего уровня: `context_budget { pattern: "name", limit: 4096 }`. Хранит токенный бюджет для learnable pattern'ов в `Interpreter.context_budgets` HashMap.
+
+### Изменённые файлы
+
+- `src/builtins.rs` — 15 новых функций + 52 теста.
+- `src/grammar.pest` — правило `context_budget_decl`.
+- `src/ast.rs` — `ContextBudgetDecl` struct + `Declaration::ContextBudget` variant.
+- `src/parser.rs` — `parse_context_budget_decl`.
+- `src/interpreter.rs` — обработка `ContextBudget` в `run()` и `clone_definitions_into()`, поле `context_budgets`.
+- `src/compiler.rs` — `ContextBudget` в catch-all arms (pass1 + pass2).
+
+### Тесты
+
+- 52 новых теста в `mod tests_sqz_builtins`. Все pass.
+- Итого: 196 passed, 3 failed (pre-existing), 3 ignored.
+
 ## [0.9.2] — 2026-07-12
 
 **Заплатка: исправление 5 ошибок компиляции E0004 (non-exhaustive patterns) после Problem A/B/C/D/E.**

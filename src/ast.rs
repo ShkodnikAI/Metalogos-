@@ -62,6 +62,8 @@ pub enum Declaration {
     /// `llm { providers: [...], default_model: "...", failover: auto, circuit_breaker: 3, timeout: 30 }`
     /// (Наряд №4: Smart LLM Routing)
     LlmConfig(LlmConfigDecl),
+    /// `context_budget { pattern: "name", limit: 4096 }` (sqz-inspired P3)
+    ContextBudget(ContextBudgetDecl),
 }
 
 // ── LLM Config (Наряд №4: Smart LLM Routing) ──────────────────────────────
@@ -459,6 +461,19 @@ pub struct ConversationDecl {
     /// After this many messages, older messages are compressed via LLM summarization.
     /// Default: 20.
     pub compress_after: usize,
+}
+
+// ── Context Budget (sqz-inspired P3) ────────────────────────────────
+
+/// Token budget for a learnable pattern's LLM call.
+/// `context_budget { pattern: "summarize_text", limit: 4096 }`
+#[derive(Debug, Clone)]
+pub struct ContextBudgetDecl {
+    /// Name of the learnable pattern this budget applies to.
+    pub pattern_name: String,
+    /// Maximum token count for the prompt. Evaluated at runtime.
+    /// If None, no limit is enforced (budget is informational only).
+    pub limit: Option<f64>,
 }
 
 // ── Learnable Pattern (M3) ────────────────────────────────────────────

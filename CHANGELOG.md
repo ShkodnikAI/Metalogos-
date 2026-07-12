@@ -2,6 +2,16 @@
 
 All notable changes to the Metalogos project.
 
+## [0.9.2] — 2026-07-12
+
+**Заплатка: исправление 5 ошибок компиляции E0004 (non-exhaustive patterns) после Problem A/B/C/D/E.**
+
+- `compiler.rs`: `BinOp::And`/`Or` — добавлена явная ветка с ошибкой компиляции (short-circuit evaluation не реализован в VM bytecode, требуется tree-walking interpreter).
+- `vm.rs` main loop: `Instruction::MakeList`, `ListLen`, `Pop`, `StartsWith` — добавлены ветки `unimplemented!` с поясняющим сообщением (VM bytecode support отложен).
+- `vm.rs` `eval_branch_condition`: `ConditionOp::Ne` — реализована семантика `!=` (по аналогии с `Eq`).
+- `vm.rs` `eval_rule_condition`: `&ConditionOp::Ne` — реализована семантика `!=` (по аналогии с `Eq`).
+- `vm.rs` `eval_binop` Float branch: `BinOp::And`/`Or` — добавлена ветка, возвращающая runtime-ошибку (булева логика некорректна для Float operands).
+
 ## [0.9.1] — 2026-07-12
 
 **Наряд 4-примитивов: Problems B + D (Problem B: aggregation, Problem D: webhook diagnosis).**

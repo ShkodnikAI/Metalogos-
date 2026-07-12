@@ -5,10 +5,10 @@ db { url: "sqlite::memory:" }
 
 schema test_dept {
   table analysis {
-    id: Int primary_key auto_increment
-    topic: String
-    full_result: Text
-    status: String default("drafted")
+    id: Int primary_key auto_increment,
+    topic: String,
+    full_result: Text,
+    status: String default("drafted"),
     created_at: DateTime default(now())
   }
 }

@@ -10,13 +10,13 @@ mod tests {
     fn skill_index_basic_loading() {
         let source = r#"
 skill_index test_dept {
-  tier 1 always [
-    "core_skill_a", "core_skill_b"
-  ]
-  tier 2 when_matches [
-    { skill: "market_skill", triggers: ["рынок", "актив", "товар"] }
-  ]
-  budget: 25000 tokens
+  tier 1 always {
+    ["core_skill_a", "core_skill_b"]
+  }
+  tier 2 when_matches {
+    [{ skill: "market_skill", triggers: ["рынок", "актив", "товар"] }]
+  }
+  budget: 25000 tokens,
   truncation: whole_skill_only
 }
 
@@ -26,11 +26,9 @@ pattern GetTier1(dept: String) -> String {
   return get(t1, 0)
 }
 
-flow Main {
-  -> GetTier1("test_dept") -> output
-}
+flow Main { input: String = GetTier1("test_dept") -> output }
 "#;
-        let result = run_program(source.to_string()).expect("execution failed");
+        let result = run_program(source).expect("execution failed");
         assert_eq!(result.unwrap_or_default().trim(), "core_skill_a");
     }
 
@@ -38,13 +36,15 @@ flow Main {
     fn skill_index_trigger_matching() {
         let source = r#"
 skill_index test_dept {
-  tier 1 always [
-    "deconstruct"
-  ]
-  tier 2 when_matches [
-    { skill: "market_analysis", triggers: ["рынок", "актив", "валют"] },
-    { skill: "leader_analysis", triggers: ["персона", "лидер"] }
-  ]
+  tier 1 always {
+    ["deconstruct"]
+  }
+  tier 2 when_matches {
+    [
+      { skill: "market_analysis", triggers: ["рынок", "актив", "валют"] },
+      { skill: "leader_analysis", triggers: ["персона", "лидер"] }
+    ]
+  }
 }
 
 pattern MatchSkills(dept: String, query: String) -> String {
@@ -58,11 +58,9 @@ pattern MatchSkills(dept: String, query: String) -> String {
   return result
 }
 
-flow Main {
-  input: String = "проанализируй рынок и валюту" -> MatchSkills("test_dept") -> output
-}
+flow Main { input: String = MatchSkills("test_dept", "проанализируй рынок и валюту") -> output }
 "#;
-        let result = run_program(source.to_string()).expect("execution failed");
+        let result = run_program(source).expect("execution failed");
         assert_eq!(result.unwrap_or_default().trim(), "deconstruct+market_analysis");
     }
 
@@ -70,10 +68,10 @@ flow Main {
     fn skill_index_budget_and_truncation() {
         let source = r#"
 skill_index osp {
-  tier 1 always [
-    "deconstruct", "awareness-frame"
-  ]
-  budget: 15000 tokens
+  tier 1 always {
+    ["deconstruct", "awareness-frame"]
+  }
+  budget: 15000 tokens,
   truncation: whole_skill_only
 }
 
@@ -82,11 +80,9 @@ pattern GetBudget(dept: String) -> String {
   return to_string(idx.budget) + ":" + idx.truncation
 }
 
-flow Main {
-  -> GetBudget("osp") -> output
-}
+flow Main { input: String = GetBudget("osp") -> output }
 "#;
-        let result = run_program(source.to_string()).expect("execution failed");
+        let result = run_program(source).expect("execution failed");
         assert_eq!(result.unwrap_or_default().trim(), "15000:whole_skill_only");
     }
 
@@ -98,11 +94,9 @@ pattern TryResolve(dept: String) -> String {
   return "ok"
 }
 
-flow Main {
-  -> TryResolve("nonexistent") -> output
-}
+flow Main { input: String = TryResolve("nonexistent") -> output }
 "#;
-        let result = run_program(source.to_string());
+        let result = run_program(source);
         assert!(result.is_err(), "expected error for unknown skill_index department");
         let err = result.unwrap_err();
         assert!(err.contains("no skill_index declared"), "error should mention missing declaration: {}", err);
@@ -112,15 +106,15 @@ flow Main {
     fn skill_index_three_tiers() {
         let source = r#"
 skill_index full_dept {
-  tier 1 always [
-    "core"
-  ]
-  tier 2 when_matches [
-    { skill: "t2_skill", triggers: ["рынок"] }
-  ]
-  tier 3 when_matches [
-    { skill: "t3_skill", triggers: ["контр-анализ", "redteam"] }
-  ]
+  tier 1 always {
+    ["core"]
+  }
+  tier 2 when_matches {
+    [{ skill: "t2_skill", triggers: ["рынок"] }]
+  }
+  tier 3 when_matches {
+    [{ skill: "t3_skill", triggers: ["контр-анализ", "redteam"] }]
+  }
 }
 
 pattern CheckTier3(dept: String) -> String {
@@ -130,11 +124,9 @@ pattern CheckTier3(dept: String) -> String {
   return rule.skill
 }
 
-flow Main {
-  -> CheckTier3("full_dept") -> output
-}
+flow Main { input: String = CheckTier3("full_dept") -> output }
 "#;
-        let result = run_program(source.to_string()).expect("execution failed");
+        let result = run_program(source).expect("execution failed");
         assert_eq!(result.unwrap_or_default().trim(), "t3_skill");
     }
 }

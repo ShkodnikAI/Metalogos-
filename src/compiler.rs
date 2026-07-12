@@ -394,6 +394,14 @@ impl Compiler {
                     BinOp::Le => code.push(Instruction::CmpLe),
                     BinOp::Eq => code.push(Instruction::CmpEq),
                     BinOp::Ne => code.push(Instruction::CmpNe),
+                    // And/Or require short-circuit evaluation; VM bytecode support
+                    // deferred — use tree-walking interpreter for these operators.
+                    BinOp::And | BinOp::Or => {
+                        return Err(format!(
+                            "compile: {:?} requires short-circuit evaluation, not yet supported in VM bytecode (use tree-walking interpreter)",
+                            op
+                        ));
+                    }
                 }
             }
             Expr::IfElse(cond, then_expr, else_expr) => {

@@ -172,6 +172,25 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec { name: "reduce", arity: 0, category: "list" },
     BuiltinSpec { name: "resolve_skill_index", arity: 1, category: "skill" },
     BuiltinSpec { name: "fit_to_budget", arity: 0, category: "skill" },
+    // ── sqz-inspired: String/List utilities (P1) ──
+    BuiltinSpec { name: "squeeze", arity: 2, category: "string" },
+    BuiltinSpec { name: "dedup", arity: 1, category: "list" },
+    BuiltinSpec { name: "condense", arity: 1, category: "list" },
+    BuiltinSpec { name: "strip", arity: 2, category: "string" },
+    BuiltinSpec { name: "chomp", arity: 1, category: "string" },
+    BuiltinSpec { name: "repeat", arity: 2, category: "string" },
+    BuiltinSpec { name: "pad_left", arity: 3, category: "string" },
+    BuiltinSpec { name: "pad_right", arity: 3, category: "string" },
+    BuiltinSpec { name: "lines", arity: 1, category: "string" },
+    BuiltinSpec { name: "words", arity: 1, category: "string" },
+    // ── sqz-inspired: TOON encoding (P2) ──
+    BuiltinSpec { name: "toon_encode", arity: 1, category: "encoding" },
+    BuiltinSpec { name: "toon_decode", arity: 1, category: "encoding" },
+    // ── sqz-inspired: Content-addressed refs (P2) ──
+    BuiltinSpec { name: "ref", arity: 1, category: "memory" },
+    BuiltinSpec { name: "deref", arity: 1, category: "memory" },
+    // ── sqz-inspired: Token awareness (P3) ──
+    BuiltinSpec { name: "token_count", arity: 1, category: "string" },
 ];
 
 /// Total number of registered builtins.
@@ -467,7 +486,25 @@ impl Builtins {
         funcs.insert("trace_end".to_string(), builtin_trace_end as BuiltinFn);
         funcs.insert("assert_eq".to_string(), builtin_assert_eq as BuiltinFn);
         funcs.insert("assert_contains".to_string(), builtin_assert_contains as BuiltinFn);
-
+        // ── sqz-inspired: String/List utilities (P1) ──
+        funcs.insert("squeeze".to_string(), builtin_squeeze as BuiltinFn);
+        funcs.insert("dedup".to_string(), builtin_dedup as BuiltinFn);
+        funcs.insert("condense".to_string(), builtin_condense as BuiltinFn);
+        funcs.insert("strip".to_string(), builtin_strip as BuiltinFn);
+        funcs.insert("chomp".to_string(), builtin_chomp as BuiltinFn);
+        funcs.insert("repeat".to_string(), builtin_repeat as BuiltinFn);
+        funcs.insert("pad_left".to_string(), builtin_pad_left as BuiltinFn);
+        funcs.insert("pad_right".to_string(), builtin_pad_right as BuiltinFn);
+        funcs.insert("lines".to_string(), builtin_lines as BuiltinFn);
+        funcs.insert("words".to_string(), builtin_words as BuiltinFn);
+        // ── sqz-inspired: TOON encoding (P2) ──
+        funcs.insert("toon_encode".to_string(), builtin_toon_encode as BuiltinFn);
+        funcs.insert("toon_decode".to_string(), builtin_toon_decode as BuiltinFn);
+        // ── sqz-inspired: Content-addressed refs (P2) ──
+        funcs.insert("ref".to_string(), builtin_content_ref as BuiltinFn);
+        funcs.insert("deref".to_string(), builtin_content_deref as BuiltinFn);
+        // ── sqz-inspired: Token awareness (P3) ──
+        funcs.insert("token_count".to_string(), builtin_token_count as BuiltinFn);
         Builtins { funcs }
     }
 
@@ -2460,8 +2497,8 @@ fn builtin_escape_js(args: &[Value]) -> Result<Value, String> {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            '\u{2028}' => out.push_str("\\u2028"), // line separator
-            '\u{2029}' => out.push_str("\\u2029"), // paragraph separator
+            '\u{2028}' => out.push_str("\\u{2028}"), // line separator
+            '\u{2029}' => out.push_str("\\u{2029}"), // paragraph separator
             '\0' => out.push_str("\\0"),
             _ => out.push(c),
         }
@@ -5652,4 +5689,962 @@ fn chrono_now_timestamp() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+
+// ════════════════════════════════════════════════════════════════════
+// sqz-inspired builtins (P1 + P2 + P3)
+// Source concept: https://github.com/ojuschugh1/sqz (ELv2 — no code copied)
+// ════════════════════════════════════════════════════════════════════
+
+// ── P1: String/List utilities ──────────────────────────────────────
+
+/// `squeeze(s, chars)` — collapse consecutive identical characters from `chars`.
+fn builtin_squeeze(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("squeeze", args, 0)?;
+    let chars = expect_string_arg("squeeze", args, 1)?;
+    if chars.is_empty() {
+        return Ok(Value::String(s));
+    }
+    let char_set: std::collections::HashSet<char> = chars.chars().collect();
+    let mut result = String::with_capacity(s.len());
+    let mut prev: Option<char> = None;
+    for c in s.chars() {
+        if char_set.contains(&c) && prev == Some(c) {
+            continue; // skip consecutive duplicate
+        }
+        result.push(c);
+        prev = Some(c);
+    }
+    Ok(Value::String(result))
+}
+
+/// `dedup(list)` — remove duplicate elements, preserving first-occurrence order.
+fn builtin_dedup(args: &[Value]) -> Result<Value, String> {
+    let list = match args.get(0) {
+        Some(Value::List(items)) => items.clone(),
+        Some(other) => return Err(format!("dedup() expected List argument, got {}", other.type_name())),
+        None => return Err("dedup() requires 1 argument".to_string()),
+    };
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut result = Vec::new();
+    for item in &list {
+        let key = match item {
+            Value::String(s) => s.clone(),
+            Value::Float(f) => format!("{}", f),
+            Value::Bool(b) => format!("{}", b),
+            other => {
+                // Use JSON representation for complex types
+                let json = mlog_value_to_json(other);
+                serde_json::to_string(&json).unwrap_or_else(|_| format!("{}", other))
+            }
+        };
+        if seen.insert(key) {
+            result.push(item.clone());
+        }
+    }
+    Ok(Value::List(result))
+}
+
+/// `condense(list)` — collapse consecutive identical string elements with count.
+/// Example: ["a","a","b"] -> ["a","x2","b"]
+fn builtin_condense(args: &[Value]) -> Result<Value, String> {
+    let list = match args.get(0) {
+        Some(Value::List(items)) => items.clone(),
+        Some(other) => return Err(format!("condense() expected List argument, got {}", other.type_name())),
+        None => return Err("condense() requires 1 argument".to_string()),
+    };
+    let mut result: Vec<Value> = Vec::new();
+    let mut i = 0;
+    while i < list.len() {
+        let current = match &list[i] {
+            Value::String(s) => s.clone(),
+            other => return Err(format!(
+                "condense() all elements must be String, got {} at index {}",
+                other.type_name(), i
+            )),
+        };
+        let mut count: usize = 1;
+        while i + count < list.len() {
+            if let Value::String(ref next) = list[i + count] {
+                if next == &current {
+                    count += 1;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        result.push(Value::String(current.clone()));
+        if count > 1 {
+            result.push(Value::String(format!("\u{00d7}{}", count)));
+        }
+        i += count;
+    }
+    Ok(Value::List(result))
+}
+
+/// `strip(s, chars)` — remove characters from both ends of string.
+fn builtin_strip(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("strip", args, 0)?;
+    let chars = expect_string_arg("strip", args, 1)?;
+    if chars.is_empty() {
+        return Ok(Value::String(s));
+    }
+    let char_set: std::collections::HashSet<char> = chars.chars().collect();
+    let start = s.chars().take_while(|c| char_set.contains(c)).count();
+    let end = s.chars().rev().take_while(|c| char_set.contains(c)).count();
+    let s_chars: Vec<char> = s.chars().collect();
+    let trimmed: String = s_chars[start..s_chars.len().saturating_sub(end)].iter().collect();
+    Ok(Value::String(trimmed))
+}
+
+/// `chomp(s)` — remove a single trailing newline (\n or \r\n).
+fn builtin_chomp(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("chomp", args, 0)?;
+    let trimmed = if s.ends_with("\r\n") {
+        &s[..s.len() - 2]
+    } else if s.ends_with('\n') {
+        &s[..s.len() - 1]
+    } else {
+        &s[..]
+    };
+    Ok(Value::String(trimmed.to_string()))
+}
+
+/// `repeat(s, n)` — repeat string n times.
+fn builtin_repeat(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("repeat", args, 0)?;
+    let n = expect_float_arg("repeat", args, 1)?;
+    if n < 0.0 {
+        return Err("repeat() count must be non-negative".to_string());
+    }
+    let n_int = n as usize;
+    if (n - n_int as f64).abs() > 1e-9 {
+        return Err("repeat() count must be an integer".to_string());
+    }
+    Ok(Value::String(s.repeat(n_int)))
+}
+
+/// `pad_left(s, n, fill)` — left-pad string with fill character to length n.
+fn builtin_pad_left(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("pad_left", args, 0)?;
+    let n = expect_float_arg("pad_left", args, 1)?;
+    let fill = expect_string_arg("pad_left", args, 2)?;
+    if n < 0.0 {
+        return Err("pad_left() width must be non-negative".to_string());
+    }
+    let n_int = n as usize;
+    let fill_char = fill.chars().next().unwrap_or(' ');
+    let s_len = s.chars().count();
+    if s_len >= n_int {
+        return Ok(Value::String(s));
+    }
+    let padding_len = n_int - s_len;
+    let padding: String = std::iter::repeat(fill_char).take(padding_len).collect();
+    Ok(Value::String(format!("{}{}", padding, s)))
+}
+
+/// `pad_right(s, n, fill)` — right-pad string with fill character to length n.
+fn builtin_pad_right(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("pad_right", args, 0)?;
+    let n = expect_float_arg("pad_right", args, 1)?;
+    let fill = expect_string_arg("pad_right", args, 2)?;
+    if n < 0.0 {
+        return Err("pad_right() width must be non-negative".to_string());
+    }
+    let n_int = n as usize;
+    let fill_char = fill.chars().next().unwrap_or(' ');
+    let s_len = s.chars().count();
+    if s_len >= n_int {
+        return Ok(Value::String(s));
+    }
+    let padding_len = n_int - s_len;
+    let padding: String = std::iter::repeat(fill_char).take(padding_len).collect();
+    Ok(Value::String(format!("{}{}", s, padding)))
+}
+
+/// `lines(s)` — split string into list of lines (no trailing empty element).
+fn builtin_lines(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("lines", args, 0)?;
+    if s.is_empty() {
+        return Ok(Value::List(vec![]));
+    }
+    let mut items: Vec<Value> = s
+        .split('\n')
+        .map(|line| {
+            // Handle \r\n: strip trailing \r from each line
+            let trimmed = line.strip_suffix('\r').unwrap_or(line);
+            Value::String(trimmed.to_string())
+        })
+        .collect();
+    // Remove trailing empty element caused by trailing newline
+    if s.ends_with('\n') {
+        if items.last().map_or(false, |v| matches!(v, Value::String(s) if s.is_empty())) {
+            items.pop();
+        }
+    }
+    Ok(Value::List(items))
+}
+
+/// `words(s)` — split string into list of words by whitespace.
+fn builtin_words(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("words", args, 0)?;
+    let items: Vec<Value> = s
+        .split_whitespace()
+        .map(|w| Value::String(w.to_string()))
+        .collect();
+    Ok(Value::List(items))
+}
+
+// ── P2: TOON encoding ──────────────────────────────────────────────
+
+/// Check if a string is a "simple" identifier (no quoting needed in TOON).
+fn toon_is_simple(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// Escape a string for TOON: non-ASCII -> \uXXXX, quotes -> \", backslash -> \\
+fn toon_escape_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 2);
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            _ if c.is_ascii() => out.push(c),
+            _ => {
+                let code = c as u32;
+                out.push_str(&format!("\\u{{{:04x}}}", code));
+            }
+        }
+    }
+    out
+}
+
+/// Encode a Value to TOON format (recursive).
+fn value_to_toon(val: &Value) -> String {
+    match val {
+        Value::String(s) => {
+            if toon_is_simple(s) {
+                format!("s\"{}\"", s)
+            } else {
+                format!("s\"{}\"", toon_escape_string(s))
+            }
+        }
+        Value::Float(f) => {
+            if *f == f.floor() && f.abs() < 1e15 {
+                format!("{}", *f as i64)
+            } else {
+                format!("{}", f)
+            }
+        }
+        Value::Bool(b) => (if *b { "true" } else { "false" }).to_string(),
+        Value::Unit => "null".to_string(),
+        Value::List(items) => {
+            let inner: Vec<String> = items.iter().map(value_to_toon).collect();
+            format!("[{}]", inner.join(","))
+        }
+        Value::Struct { fields, .. } => {
+            let pairs: Vec<String> = fields
+                .iter()
+                .map(|(k, v)| {
+                    let key = if toon_is_simple(k) {
+                        k.clone()
+                    } else {
+                        format!("s\"{}\"", toon_escape_string(k))
+                    };
+                    format!("{}:{}", key, value_to_toon(v))
+                })
+                .collect();
+            format!("{{{}}}", pairs.join(","))
+        }
+        other => format!("s\"{}\"", toon_escape_string(&format!("{}", other))),
+    }
+}
+
+/// `toon_encode(value)` — encode any value to TOON (Token-Optimized Object Notation).
+fn builtin_toon_encode(args: &[Value]) -> Result<Value, String> {
+    if args.is_empty() {
+        return Err("toon_encode() requires 1 argument".to_string());
+    }
+    let encoded = value_to_toon(&args[0]);
+    Ok(Value::String(format!("TOON:{}", encoded)))
+}
+
+/// Decode a TOON string back into a Value. Recursive descent parser.
+fn parse_toon_value(input: &str, pos: &mut usize) -> Result<Value, String> {
+    let bytes = input.as_bytes();
+    if *pos >= bytes.len() {
+        return Err("toon_decode: unexpected end of input".to_string());
+    }
+
+    match bytes[*pos] {
+        b't' => {
+            // true
+            if input[*pos..].starts_with("true") {
+                *pos += 4;
+                return Ok(Value::Bool(true));
+            }
+            Err(format!("toon_decode: invalid token at position {}", pos))
+        }
+        b'f' => {
+            // false
+            if input[*pos..].starts_with("false") {
+                *pos += 5;
+                return Ok(Value::Bool(false));
+            }
+            Err(format!("toon_decode: invalid token at position {}", pos))
+        }
+        b'n' => {
+            // null
+            if input[*pos..].starts_with("null") {
+                *pos += 4;
+                return Ok(Value::Unit);
+            }
+            Err(format!("toon_decode: invalid token at position {}", pos))
+        }
+        b's' => {
+            // s"..." — quoted string
+            if *pos + 1 >= bytes.len() || bytes[*pos + 1] != b'"' {
+                return Err(format!("toon_decode: expected s\"...\" at position {}", pos));
+            }
+            *pos += 2; // skip s"
+            let mut result = String::new();
+            while *pos < bytes.len() {
+                match bytes[*pos] {
+                    b'"' => {
+                        *pos += 1;
+                        return Ok(Value::String(result));
+                    }
+                    b'\\' => {
+                        *pos += 1;
+                        if *pos >= bytes.len() {
+                            return Err("toon_decode: unterminated escape".to_string());
+                        }
+                        match bytes[*pos] {
+                            b'"' => { result.push('"'); *pos += 1; }
+                            b'\\' => { result.push('\\'); *pos += 1; }
+                            b'n' => { result.push('\n'); *pos += 1; }
+                            b't' => { result.push('\t'); *pos += 1; }
+                            b'r' => { result.push('\r'); *pos += 1; }
+                            b'u' => {
+                                // \u{XXXX}
+                                *pos += 1;
+                                if *pos >= bytes.len() || bytes[*pos] != b'{' {
+                                    return Err(format!("toon_decode: expected {{ after \\u at position {}", pos));
+                                }
+                                *pos += 1;
+                                let hex_start = *pos;
+                                while *pos < bytes.len() && bytes[*pos] != b'}' {
+                                    *pos += 1;
+                                }
+                                if *pos >= bytes.len() {
+                                    return Err("toon_decode: unterminated \\u{{...}}".to_string());
+                                }
+                                let hex_str = &input[hex_start..*pos];
+                                *pos += 1; // skip }
+                                let code_point = u32::from_str_radix(hex_str, 16)
+                                    .map_err(|e| format!("toon_decode: invalid unicode escape: {}", e))?;
+                                if let Some(c) = char::from_u32(code_point) {
+                                    result.push(c);
+                                } else {
+                                    return Err(format!("toon_decode: invalid unicode code point: {:x}", code_point));
+                                }
+                            }
+                            other => {
+                                result.push(other as char);
+                                *pos += 1;
+                            }
+                        }
+                    }
+                    other => {
+                        result.push(other as char);
+                        *pos += 1;
+                    }
+                }
+            }
+            Err("toon_decode: unterminated string".to_string())
+        }
+        b'[' => {
+            // Array
+            *pos += 1;
+            let mut items = Vec::new();
+            while *pos < bytes.len() && bytes[*pos] != b']' {
+                if bytes[*pos] == b',' {
+                    *pos += 1;
+                    continue;
+                }
+                items.push(parse_toon_value(input, pos)?);
+            }
+            if *pos >= bytes.len() {
+                return Err("toon_decode: unterminated array".to_string());
+            }
+            *pos += 1; // skip ]
+            Ok(Value::List(items))
+        }
+        b'{' => {
+            // Object -> Struct
+            *pos += 1;
+            let mut fields = std::collections::HashMap::new();
+            while *pos < bytes.len() && bytes[*pos] != b'}' {
+                if bytes[*pos] == b',' {
+                    *pos += 1;
+                    continue;
+                }
+                // Parse key
+                let key = if bytes[*pos] == b's' && *pos + 1 < bytes.len() && bytes[*pos + 1] == b'"' {
+                    // s"key"
+                    *pos += 2;
+                    let mut k = String::new();
+                    while *pos < bytes.len() && bytes[*pos] != b'"' {
+                        if bytes[*pos] == b'\\' {
+                            *pos += 1;
+                            if *pos < bytes.len() {
+                                k.push(bytes[*pos] as char);
+                                *pos += 1;
+                            }
+                        } else {
+                            k.push(bytes[*pos] as char);
+                            *pos += 1;
+                        }
+                    }
+                    if *pos < bytes.len() { *pos += 1; } // skip closing "
+                    k
+                } else {
+                    // bare identifier
+                    let start = *pos;
+                    while *pos < bytes.len() && (bytes[*pos].is_ascii_alphanumeric() || bytes[*pos] == b'_' || bytes[*pos] == b'-') {
+                        *pos += 1;
+                    }
+                    input[start..*pos].to_string()
+                };
+                // Expect ':'
+                if *pos >= bytes.len() || bytes[*pos] != b':' {
+                    return Err(format!("toon_decode: expected ':' after key '{}' at position {}", key, pos));
+                }
+                *pos += 1;
+                // Parse value
+                let val = parse_toon_value(input, pos)?;
+                fields.insert(key, val);
+            }
+            if *pos >= bytes.len() {
+                return Err("toon_decode: unterminated object".to_string());
+            }
+            *pos += 1; // skip }
+            Ok(Value::Struct { type_name: "TOON".to_string(), fields })
+        }
+        b'-' | b'0'..=b'9' => {
+            // Number
+            let start = *pos;
+            if bytes[*pos] == b'-' { *pos += 1; }
+            while *pos < bytes.len() && (bytes[*pos].is_ascii_digit() || bytes[*pos] == b'.') {
+                *pos += 1;
+            }
+            let num_str = &input[start..*pos];
+            let f: f64 = num_str.parse()
+                .map_err(|e| format!("toon_decode: invalid number '{}' at position {}: {}", num_str, start, e))?;
+            Ok(Value::Float(f))
+        }
+        other => {
+            Err(format!("toon_decode: unexpected character '{}' at position {}", other as char, pos))
+        }
+    }
+}
+
+/// `toon_decode(s)` — decode TOON string back to Value.
+fn builtin_toon_decode(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("toon_decode", args, 0)?;
+    if !s.starts_with("TOON:") {
+        return Err("toon_decode: input must start with 'TOON:'".to_string());
+    }
+    let payload = &s[5..];
+    let mut pos = 0;
+    let value = parse_toon_value(payload, &mut pos)?;
+    // Skip trailing whitespace
+    while pos < payload.len() && payload.as_bytes()[pos] == b' ' {
+        pos += 1;
+    }
+    if pos < payload.len() {
+        return Err(format!("toon_decode: unexpected trailing data at position {}", 5 + pos));
+    }
+    Ok(value)
+}
+
+// ── P2: Content-addressed refs ─────────────────────────────────────
+
+/// `ref(content)` — compute SHA-256 hash, store in KV, return hash string. Idempotent.
+fn builtin_content_ref(args: &[Value]) -> Result<Value, String> {
+    let content = expect_string_arg("ref", args, 0)?;
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    hasher.update(content.as_bytes());
+    let hash = hex::encode(hasher.finalize());
+    let key = format!("__ref:{}", hash);
+    // Only set if not already present (idempotent)
+    let store = kv_store().lock().map_err(|e| format!("ref() lock error: {}", e))?;
+    if !store.contains_key(&key) {
+        drop(store); // release read lock
+        let mut store = kv_store().lock().map_err(|e| format!("ref() lock error: {}", e))?;
+        store.insert(key.clone(), content.clone());
+        // Write-through to SQLite if available
+        if let Ok(sqlite_guard) = kv_sqlite().lock() {
+            if let Some(ref conn) = *sqlite_guard {
+                let _ = conn.execute(
+                    "INSERT OR IGNORE INTO kv_store (key, value) VALUES (?1, ?2)",
+                    rusqlite::params![key, content],
+                );
+            }
+        }
+    }
+    Ok(Value::String(hash))
+}
+
+/// `deref(hash)` — retrieve content by SHA-256 hash from ref store.
+fn builtin_content_deref(args: &[Value]) -> Result<Value, String> {
+    let hash = expect_string_arg("deref", args, 0)?;
+    if hash.len() != 64 {
+        return Err("deref: invalid hash format, expected 64-char hex string".to_string());
+    }
+    if !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("deref: invalid hash format, expected hex characters only".to_string());
+    }
+    let key = format!("__ref:{}", hash);
+    let store = kv_store().lock().map_err(|e| format!("deref() lock error: {}", e))?;
+    match store.get(&key) {
+        Some(content) => Ok(Value::String(content.clone())),
+        None => Err("deref: hash not found in ref store".to_string()),
+    }
+}
+
+// ── P3: Token awareness ────────────────────────────────────────────
+
+/// `token_count(text)` — estimate token count. Cyrillic: chars/2, Latin: chars/4.
+fn builtin_token_count(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("token_count", args, 0)?;
+    if s.is_empty() {
+        return Ok(Value::Float(0.0));
+    }
+    let total_chars = s.chars().count();
+    let cyrillic_chars = s.chars().filter(|c| matches!(c, '\u{0400}'..='\u{04FF}')).count();
+    // If >=50% Cyrillic, use /2 divisor; else /4
+    let divisor = if total_chars > 0 && (cyrillic_chars as f64 / total_chars as f64) >= 0.5 {
+        2.0
+    } else {
+        4.0
+    };
+    let tokens = (total_chars as f64 / divisor).ceil();
+    Ok(Value::Float(tokens))
+}
+
+// ── Tests ──────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests_sqz_builtins {
+    use super::*;
+
+    /// Helper: compare two Values via their JSON representation
+    /// (Value does not implement PartialEq due to Subgraph variant).
+    fn assert_vals_eq(actual: &Value, expected: &Value, label: &str) {
+        let a = serde_json::to_string(&mlog_value_to_json(actual)).unwrap();
+        let e = serde_json::to_string(&mlog_value_to_json(expected)).unwrap();
+        assert_eq!(a, e, "{}", label);
+    }
+
+    /// Helper: extract String from Value, panic if not String.
+    fn as_str(v: &Value) -> &str {
+        match v {
+            Value::String(s) => s,
+            other => panic!("expected String, got {}", other.type_name()),
+        }
+    }
+
+    /// Helper: extract Float from Value, panic if not Float.
+    fn as_f64(v: &Value) -> f64 {
+        match v {
+            Value::Float(f) => *f,
+            other => panic!("expected Float, got {}", other.type_name()),
+        }
+    }
+
+    // ── P1 tests ──
+
+    #[test]
+    fn test_squeeze_basic() {
+        let r = builtin_squeeze(&[Value::String("aaabbbccc".into()), Value::String("abc".into())]).unwrap();
+        assert_vals_eq(&r, &Value::String("abc".into()), "squeeze_basic");
+    }
+
+    #[test]
+    fn test_squeeze_partial() {
+        let r = builtin_squeeze(&[Value::String("aaabbbccc".into()), Value::String("ab".into())]).unwrap();
+        assert_vals_eq(&r, &Value::String("abccc".into()), "squeeze_partial");
+    }
+
+    #[test]
+    fn test_squeeze_empty_chars() {
+        let r = builtin_squeeze(&[Value::String("hello".into()), Value::String("".into())]).unwrap();
+        assert_vals_eq(&r, &Value::String("hello".into()), "squeeze_empty_chars");
+    }
+
+    #[test]
+    fn test_squeeze_empty_string() {
+        let r = builtin_squeeze(&[Value::String("".into()), Value::String("a".into())]).unwrap();
+        assert_vals_eq(&r, &Value::String("".into()), "squeeze_empty_string");
+    }
+
+    #[test]
+    fn test_dedup_basic() {
+        let r = builtin_dedup(&[Value::List(vec![
+            Value::Float(1.0), Value::Float(1.0), Value::Float(2.0), Value::Float(2.0), Value::Float(3.0),
+        ])]).unwrap();
+        assert_vals_eq(&r, &Value::List(vec![
+            Value::Float(1.0), Value::Float(2.0), Value::Float(3.0),
+        ]), "dedup_basic");
+    }
+
+    #[test]
+    fn test_dedup_strings() {
+        let r = builtin_dedup(&[Value::List(vec![
+            Value::String("a".into()), Value::String("b".into()), Value::String("a".into()), Value::String("c".into()),
+        ])]).unwrap();
+        assert_vals_eq(&r, &Value::List(vec![
+            Value::String("a".into()), Value::String("b".into()), Value::String("c".into()),
+        ]), "dedup_strings");
+    }
+
+    #[test]
+    fn test_dedup_empty() {
+        let r = builtin_dedup(&[Value::List(vec![])]).unwrap();
+        assert_vals_eq(&r, &Value::List(vec![]), "dedup_empty");
+    }
+
+    #[test]
+    fn test_condense_basic() {
+        let r = builtin_condense(&[Value::List(vec![
+            Value::String("error".into()), Value::String("error".into()), Value::String("error".into()),
+            Value::String("warn".into()), Value::String("info".into()),
+        ])]).unwrap();
+        assert_vals_eq(&r, &Value::List(vec![
+            Value::String("error".into()), Value::String("\u{00d7}3".into()),
+            Value::String("warn".into()), Value::String("info".into()),
+        ]), "condense_basic");
+    }
+
+    #[test]
+    fn test_condense_repeating_groups() {
+        let r = builtin_condense(&[Value::List(vec![
+            Value::String("a".into()), Value::String("a".into()),
+            Value::String("b".into()), Value::String("b".into()), Value::String("b".into()),
+            Value::String("a".into()),
+        ])]).unwrap();
+        assert_vals_eq(&r, &Value::List(vec![
+            Value::String("a".into()), Value::String("\u{00d7}2".into()),
+            Value::String("b".into()), Value::String("\u{00d7}3".into()),
+            Value::String("a".into()),
+        ]), "condense_repeating_groups");
+    }
+
+    #[test]
+    fn test_condense_single() {
+        let r = builtin_condense(&[Value::List(vec![Value::String("single".into())])]).unwrap();
+        assert_vals_eq(&r, &Value::List(vec![Value::String("single".into())]), "condense_single");
+    }
+
+    #[test]
+    fn test_strip_basic() {
+        let r = builtin_strip(&[Value::String("///hello///".into()), Value::String("/".into())]).unwrap();
+        assert_vals_eq(&r, &Value::String("hello".into()), "strip_basic");
+    }
+
+    #[test]
+    fn test_strip_whitespace() {
+        let r = builtin_strip(&[Value::String("  hello  ".into()), Value::String(" ".into())]).unwrap();
+        assert_vals_eq(&r, &Value::String("hello".into()), "strip_whitespace");
+    }
+
+    #[test]
+    fn test_strip_no_match() {
+        let r = builtin_strip(&[Value::String("abc".into()), Value::String("x".into())]).unwrap();
+        assert_vals_eq(&r, &Value::String("abc".into()), "strip_no_match");
+    }
+
+    #[test]
+    fn test_chomp_newline() {
+        let r = builtin_chomp(&[Value::String("hello\n".into())]).unwrap();
+        assert_vals_eq(&r, &Value::String("hello".into()), "chomp_newline");
+    }
+
+    #[test]
+    fn test_chomp_crlf() {
+        let r = builtin_chomp(&[Value::String("hello\r\n".into())]).unwrap();
+        assert_vals_eq(&r, &Value::String("hello".into()), "chomp_crlf");
+    }
+
+    #[test]
+    fn test_chomp_no_newline() {
+        let r = builtin_chomp(&[Value::String("hello".into())]).unwrap();
+        assert_vals_eq(&r, &Value::String("hello".into()), "chomp_no_newline");
+    }
+
+    #[test]
+    fn test_chomp_double_newline() {
+        let r = builtin_chomp(&[Value::String("hello\n\n".into())]).unwrap();
+        assert_vals_eq(&r, &Value::String("hello\n".into()), "chomp_double_newline");
+    }
+
+    #[test]
+    fn test_repeat_basic() {
+        let r = builtin_repeat(&[Value::String("-".into()), Value::Float(10.0)]).unwrap();
+        assert_vals_eq(&r, &Value::String("----------".into()), "repeat_basic");
+    }
+
+    #[test]
+    fn test_repeat_multiple() {
+        let r = builtin_repeat(&[Value::String("ab".into()), Value::Float(3.0)]).unwrap();
+        assert_vals_eq(&r, &Value::String("ababab".into()), "repeat_multiple");
+    }
+
+    #[test]
+    fn test_repeat_zero() {
+        let r = builtin_repeat(&[Value::String("x".into()), Value::Float(0.0)]).unwrap();
+        assert_vals_eq(&r, &Value::String("".into()), "repeat_zero");
+    }
+
+    #[test]
+    fn test_repeat_negative() {
+        assert!(builtin_repeat(&[Value::String("x".into()), Value::Float(-1.0)]).is_err());
+    }
+
+    #[test]
+    fn test_repeat_non_integer() {
+        assert!(builtin_repeat(&[Value::String("x".into()), Value::Float(2.5)]).is_err());
+    }
+
+    #[test]
+    fn test_pad_left_basic() {
+        let r = builtin_pad_left(&[Value::String("42".into()), Value::Float(5.0), Value::String("0".into())]).unwrap();
+        assert_vals_eq(&r, &Value::String("00042".into()), "pad_left_basic");
+    }
+
+    #[test]
+    fn test_pad_left_noop() {
+        let r = builtin_pad_left(&[Value::String("hello".into()), Value::Float(3.0), Value::String("x".into())]).unwrap();
+        assert_vals_eq(&r, &Value::String("hello".into()), "pad_left_noop");
+    }
+
+    #[test]
+    fn test_pad_right_basic() {
+        let r = builtin_pad_right(&[Value::String("name".into()), Value::Float(10.0), Value::String(".".into())]).unwrap();
+        assert_vals_eq(&r, &Value::String("name......".into()), "pad_right_basic"); // 4+6=10
+    }
+
+    #[test]
+    fn test_lines_basic() {
+        let r = builtin_lines(&[Value::String("a\nb\nc".into())]).unwrap();
+        assert_vals_eq(&r, &Value::List(vec![
+            Value::String("a".into()), Value::String("b".into()), Value::String("c".into()),
+        ]), "lines_basic");
+    }
+
+    #[test]
+    fn test_lines_trailing_newline() {
+        let r = builtin_lines(&[Value::String("hello\nworld\n".into())]).unwrap();
+        assert_vals_eq(&r, &Value::List(vec![
+            Value::String("hello".into()), Value::String("world".into()),
+        ]), "lines_trailing_newline");
+    }
+
+    #[test]
+    fn test_lines_empty() {
+        let r = builtin_lines(&[Value::String("".into())]).unwrap();
+        assert_vals_eq(&r, &Value::List(vec![]), "lines_empty");
+    }
+
+    #[test]
+    fn test_words_basic() {
+        let r = builtin_words(&[Value::String("hello world".into())]).unwrap();
+        assert_vals_eq(&r, &Value::List(vec![
+            Value::String("hello".into()), Value::String("world".into()),
+        ]), "words_basic");
+    }
+
+    #[test]
+    fn test_words_extra_whitespace() {
+        let r = builtin_words(&[Value::String("  a  b  c  ".into())]).unwrap();
+        assert_vals_eq(&r, &Value::List(vec![
+            Value::String("a".into()), Value::String("b".into()), Value::String("c".into()),
+        ]), "words_extra_whitespace");
+    }
+
+    #[test]
+    fn test_words_empty() {
+        let r = builtin_words(&[Value::String("".into())]).unwrap();
+        assert_vals_eq(&r, &Value::List(vec![]), "words_empty");
+    }
+
+    // ── P2 tests: TOON ──
+
+    #[test]
+    fn test_toon_encode_string() {
+        let r = builtin_toon_encode(&[Value::String("hello".into())]).unwrap();
+        assert_eq!(as_str(&r), "TOON:s\"hello\"");
+    }
+
+    #[test]
+    fn test_toon_encode_float() {
+        let r = builtin_toon_encode(&[Value::Float(42.0)]).unwrap();
+        assert_eq!(as_str(&r), "TOON:42");
+    }
+
+    #[test]
+    fn test_toon_encode_list() {
+        let r = builtin_toon_encode(&[Value::List(vec![Value::Float(1.0), Value::Float(2.0), Value::Float(3.0)])]).unwrap();
+        assert_eq!(as_str(&r), "TOON:[1,2,3]");
+    }
+
+    #[test]
+    fn test_toon_encode_bool() {
+        let r = builtin_toon_encode(&[Value::Bool(true)]).unwrap();
+        assert_eq!(as_str(&r), "TOON:true");
+    }
+
+    #[test]
+    fn test_toon_encode_null() {
+        let r = builtin_toon_encode(&[Value::Unit]).unwrap();
+        assert_eq!(as_str(&r), "TOON:null");
+    }
+
+    #[test]
+    fn test_toon_encode_struct() {
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("name".to_string(), Value::String("Alice".into()));
+        fields.insert("age".to_string(), Value::Float(30.0));
+        let r = builtin_toon_encode(&[Value::Struct { type_name: "Person".into(), fields }]).unwrap();
+        let s = as_str(&r);
+        assert!(s.starts_with("TOON:{"));
+        assert!(s.contains("name:s\"Alice\""));
+        assert!(s.contains("age:30"));
+        assert!(s.ends_with("}"));
+    }
+
+    #[test]
+    fn test_toon_roundtrip_string() {
+        let original = Value::String("hello world".into());
+        let encoded = builtin_toon_encode(&[original.clone()]).unwrap();
+        let decoded = builtin_toon_decode(&[encoded]).unwrap();
+        assert_vals_eq(&original, &decoded, "roundtrip_string");
+    }
+
+    #[test]
+    fn test_toon_roundtrip_float() {
+        let original = Value::Float(3.14);
+        let encoded = builtin_toon_encode(&[original.clone()]).unwrap();
+        let decoded = builtin_toon_decode(&[encoded]).unwrap();
+        assert_vals_eq(&original, &decoded, "roundtrip_float");
+    }
+
+    #[test]
+    fn test_toon_roundtrip_list() {
+        let original = Value::List(vec![Value::Float(1.0), Value::String("ok".into()), Value::Bool(false)]);
+        let encoded = builtin_toon_encode(&[original.clone()]).unwrap();
+        let decoded = builtin_toon_decode(&[encoded]).unwrap();
+        assert_vals_eq(&original, &decoded, "roundtrip_list");
+    }
+
+    #[test]
+    fn test_toon_roundtrip_struct() {
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("x".to_string(), Value::Float(1.0));
+        let original = Value::Struct { type_name: "P".into(), fields };
+        let encoded = builtin_toon_encode(&[original.clone()]).unwrap();
+        let decoded = builtin_toon_decode(&[encoded]).unwrap();
+        // Compare JSON representations (type_name may differ: "P" vs "TOON")
+        assert_eq!(
+            serde_json::to_string(&mlog_value_to_json(&original)).unwrap(),
+            serde_json::to_string(&mlog_value_to_json(&decoded)).unwrap(),
+            "roundtrip_struct JSON mismatch"
+        );
+    }
+
+    #[test]
+    fn test_toon_roundtrip_cyrillic() {
+        let original = Value::String("\u{041f}\u{0440}\u{0438}\u{0432}\u{0435}\u{0442}".into());
+        let encoded = builtin_toon_encode(&[original.clone()]).unwrap();
+        let decoded = builtin_toon_decode(&[encoded]).unwrap();
+        assert_vals_eq(&original, &decoded, "roundtrip_cyrillic");
+    }
+
+    #[test]
+    fn test_toon_decode_no_prefix() {
+        let r = builtin_toon_decode(&[Value::String("invalid".into())]);
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn test_toon_decode_invalid() {
+        let r = builtin_toon_decode(&[Value::String("TOON:{{broken".into())]);
+        assert!(r.is_err());
+    }
+
+    // ── P2 tests: ref/deref ──
+
+    #[test]
+    fn test_ref_deref_roundtrip() {
+        let content = "hello world test roundtrip";
+        let hash_val = builtin_content_ref(&[Value::String(content.into())]).unwrap();
+        let hash_str = as_str(&hash_val);
+        assert_eq!(hash_str.len(), 64); // SHA-256 hex = 64 chars
+        let derefed = builtin_content_deref(&[Value::String(hash_str.to_string())]).unwrap();
+        assert_eq!(as_str(&derefed), content);
+    }
+
+    #[test]
+    fn test_ref_idempotent() {
+        let content = "idempotent test content";
+        let h1 = builtin_content_ref(&[Value::String(content.into())]).unwrap();
+        let h2 = builtin_content_ref(&[Value::String(content.into())]).unwrap();
+        assert_eq!(as_str(&h1), as_str(&h2)); // same hash
+    }
+
+    #[test]
+    fn test_deref_not_found() {
+        let r = builtin_content_deref(&[Value::String("a".repeat(64))]);
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn test_deref_invalid_format() {
+        assert!(builtin_content_deref(&[Value::String("tooshort".into())]).is_err());
+        assert!(builtin_content_deref(&[Value::String("zz".repeat(32).into())]).is_err());
+    }
+
+    // ── P3 tests: token_count ──
+
+    #[test]
+    fn test_token_count_ascii() {
+        // "hello world" = 11 chars, /4 = 2.75, ceil = 3
+        let r = builtin_token_count(&[Value::String("hello world".into())]).unwrap();
+        assert_eq!(as_f64(&r), 3.0);
+    }
+
+    #[test]
+    fn test_token_count_cyrillic() {
+        // 10 cyrillic chars + 1 space, /2 = 5
+        let r = builtin_token_count(&[Value::String("\u{041f}\u{0440}\u{0438}\u{0432}\u{0435}\u{0442} \u{043c}\u{0438}\u{0440}".into())]).unwrap();
+        assert_eq!(as_f64(&r), 5.0);
+    }
+
+    #[test]
+    fn test_token_count_empty() {
+        let r = builtin_token_count(&[Value::String("".into())]).unwrap();
+        assert_eq!(as_f64(&r), 0.0);
+    }
+
+    #[test]
+    fn test_token_count_mixed() {
+        // "Hello мир" = 9 chars, 3 cyrillic = 33%, < 50% so /4 = 2.25, ceil = 3
+        let r = builtin_token_count(&[Value::String("Hello \u{043c}\u{0438}\u{0440}".into())]).unwrap();
+        assert_eq!(as_f64(&r), 3.0);
+    }
 }

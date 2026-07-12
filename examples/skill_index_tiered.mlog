@@ -1,0 +1,21 @@
+// Problem A: tiered skill_index — golden test
+// Tests skill_index declaration, resolve/fit builtins, tier1 access
+
+skill_index test_dept {
+  tier 1 always {
+    ["core_skill_a", "core_skill_b"]
+  }
+  tier 2 when_matches {
+    [{ skill: "market_skill", triggers: ["рынок", "актив", "товар"] }]
+  }
+  budget: 25000 tokens,
+  truncation: whole_skill_only
+}
+
+pattern GetFirstSkill(dept: String) -> String {
+  let idx = resolve_skill_index(dept)
+  let t1 = idx.tier1
+  return get(t1, 0)
+}
+
+flow Main { input: String = GetFirstSkill("test_dept") -> output }

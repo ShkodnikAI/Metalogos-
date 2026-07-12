@@ -349,34 +349,42 @@ fn parse_skill_index_decl(pair: Pair<Rule>) -> Declaration {
     let mut budget: Option<f64> = None;
     let mut truncation: Option<TruncationMode> = None;
 
+    // skill_index_decl = { "skill_index" ~ IDENT ~ LBRACE ~ skill_index_body ~ RBRACE }
+    // skill_index_body  = { skill_tier* ~ skill_budget? ~ (COMMA ~ skill_truncation)? }
+    // The tiers, budget, truncation are nested inside skill_index_body.
     for child in pair.into_inner() {
         match child.as_rule() {
             Rule::IDENT => name = child.as_str().to_string(),
-            Rule::skill_tier => {
-                tiers.push(parse_skill_tier(child));
-            }
-            Rule::skill_budget => {
-                // Extract the INT from "budget 25000 tokens"
-                let budget_str = child.as_str();
-                if let Some(start) = budget_str.find(' ') {
-                    let num_part = &budget_str[start+1..];
-                    // Find "tokens" and take the number before it
-                    if let Some(end) = num_part.find(' ') {
-                        if let Ok(val) = num_part[..end].trim().parse::<f64>() {
-                            budget = Some(val);
+            Rule::skill_index_body => {
+                // Drill into the body wrapper
+                for body_child in child.into_inner() {
+                    match body_child.as_rule() {
+                        Rule::skill_tier => {
+                            tiers.push(parse_skill_tier(body_child));
                         }
-                    }
-                }
-            }
-            Rule::skill_truncation => {
-                let trunc_str = child.as_str();
-                // Extract IDENT after "truncation:"
-                if let Some(pos) = trunc_str.find(':') {
-                    let mode = trunc_str[pos+1..].trim();
-                    if mode == "whole_skill_only" {
-                        truncation = Some(TruncationMode::WholeSkillOnly);
-                    } else {
-                        truncation = Some(TruncationMode::TruncateAtBoundary);
+                        Rule::skill_budget => {
+                            let budget_str = body_child.as_str();
+                            if let Some(start) = budget_str.find(' ') {
+                                let num_part = &budget_str[start+1..];
+                                if let Some(end) = num_part.find(' ') {
+                                    if let Ok(val) = num_part[..end].trim().parse::<f64>() {
+                                        budget = Some(val);
+                                    }
+                                }
+                            }
+                        }
+                        Rule::skill_truncation => {
+                            let trunc_str = body_child.as_str();
+                            if let Some(pos) = trunc_str.find(':') {
+                                let mode = trunc_str[pos+1..].trim();
+                                if mode == "whole_skill_only" {
+                                    truncation = Some(TruncationMode::WholeSkillOnly);
+                                } else {
+                                    truncation = Some(TruncationMode::TruncateAtBoundary);
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -393,52 +401,77 @@ fn parse_skill_tier(pair: Pair<Rule>) -> SkillTier {
     let mut skills = Vec::new();
     let mut rules = Vec::new();
 
+    // skill_tier_mode is a silent rule (_{}) in grammar.pest, so it won't
+    // appear as a child Pair. Extract mode from the raw pair text instead.
+    let raw = pair.as_str();
+    if raw.contains("when_matches") {
+        mode = "when_matches".to_string();
+    } else if raw.contains("always") {
+        mode = "always".to_string();
+    }
+
     for child in pair.into_inner() {
         match child.as_rule() {
             Rule::INT => {
                 level = child.as_str().parse().unwrap_or(0);
             }
-            Rule::skill_tier_mode => {
-                mode = child.as_str().to_string();
-            }
-            Rule::tier_always_list => {
-                // Extract STRING_LITERAL children
-                for str_child in child.into_inner() {
-                    if str_child.as_rule() == Rule::STRING_LITERAL {
-                        let s = str_child.as_str();
-                        skills.push(s[1..s.len()-1].to_string()); // strip quotes
-                    }
-                }
-            }
-            Rule::tier_matches_list => {
-                for rule_child in child.into_inner() {
-                    if rule_child.as_rule() == Rule::tier_match_rule {
-                        let mut skill_name = String::new();
-                        let mut triggers = Vec::new();
-                        for inner in rule_child.into_inner() {
-                            match inner.as_rule() {
-                                Rule::tier_match_skill => {
-                                    // "skill" : "name"
-                                    for innermost in inner.into_inner() {
-                                        if innermost.as_rule() == Rule::STRING_LITERAL {
-                                            let s = innermost.as_str();
-                                            skill_name = s[1..s.len()-1].to_string();
+            Rule::skill_tier_content => {
+                // skill_tier_content = { tier_always_list | tier_matches_list }
+                for content_child in child.into_inner() {
+                    match content_child.as_rule() {
+                        Rule::tier_always_list => {
+                            for str_child in content_child.into_inner() {
+                                if str_child.as_rule() == Rule::STRING_LITERAL {
+                                    let s = str_child.as_str();
+                                    skills.push(s[1..s.len()-1].to_string());
+                                } else if str_child.as_rule() == Rule::string_list {
+                                    for lit in str_child.into_inner() {
+                                        if lit.as_rule() == Rule::STRING_LITERAL {
+                                            let s = lit.as_str();
+                                            skills.push(s[1..s.len()-1].to_string());
                                         }
                                     }
                                 }
-                                Rule::tier_match_triggers => {
-                                    // "triggers" : [ ... ]
-                                    for trig_child in inner.into_inner() {
-                                        if trig_child.as_rule() == Rule::STRING_LITERAL {
-                                            let s = trig_child.as_str();
-                                            triggers.push(s[1..s.len()-1].to_string());
-                                        }
-                                    }
-                                }
-                                _ => {}
                             }
                         }
-                        rules.push(SkillTriggerRule { skill: skill_name, triggers });
+                        Rule::tier_matches_list => {
+                            for rule_child in content_child.into_inner() {
+                                if rule_child.as_rule() == Rule::tier_match_rule {
+                                    let mut skill_name = String::new();
+                                    let mut triggers = Vec::new();
+                                    for inner in rule_child.into_inner() {
+                                        match inner.as_rule() {
+                                            Rule::tier_match_skill => {
+                                                for innermost in inner.into_inner() {
+                                                    if innermost.as_rule() == Rule::STRING_LITERAL {
+                                                        let s = innermost.as_str();
+                                                        skill_name = s[1..s.len()-1].to_string();
+                                                    }
+                                                }
+                                            }
+                                            Rule::tier_match_triggers => {
+                                                for trig_child in inner.into_inner() {
+                                                    if trig_child.as_rule() == Rule::STRING_LITERAL {
+                                                        let s = trig_child.as_str();
+                                                        triggers.push(s[1..s.len()-1].to_string());
+                                                    } else if trig_child.as_rule() == Rule::string_list {
+                                                        for lit in trig_child.into_inner() {
+                                                            if lit.as_rule() == Rule::STRING_LITERAL {
+                                                                let s = lit.as_str();
+                                                                triggers.push(s[1..s.len()-1].to_string());
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                    rules.push(SkillTriggerRule { skill: skill_name, triggers });
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -2037,10 +2070,14 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
                     // Field access: payload.chat_id
                     base = Expr::FieldAccess(Box::new(base), pair_str(child));
                 } else if child.as_rule() == Rule::LBRACKET {
-                    // Index access: items[0] — find matching RBRACKET
-                    let inner = children_of(child);
-                    if let Some(expr_pair) = inner.iter().find(|c| c.as_rule() == Rule::expression) {
-                        base = Expr::IndexAccess(Box::new(base), Box::new(parse_expression(expr_pair.clone())));
+                    // Index access: items[0]
+                    // LBRACKET is atomic (@{...}) — cannot drill into it.
+                    // The expression is the NEXT child, RBRACKET is after that.
+                    if i + 2 < children.len() {
+                        let expr_child = &children[i + 1];
+                        if expr_child.as_rule() == Rule::expression {
+                            base = Expr::IndexAccess(Box::new(base), Box::new(parse_expression(expr_child.clone())));
+                        }
                     }
                 }
                 i += 1;

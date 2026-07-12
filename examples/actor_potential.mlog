@@ -5,26 +5,26 @@
 import std/collections
 
 entity Actor {
-  name: String
-  A: Float
-  R: Float
-  S: Float
-  L: Float
-  E: Float
+  name: String,
+  A: Float,
+  R: Float,
+  S: Float,
+  L: Float,
+  E: Float,
   E_mod: Float
 }
 
 entity actors: List = [
   { name: "RF", A: 2.0, R: 3.0, S: 1.0, L: 1.0, E: 1.0, E_mod: 1.0 },
   { name: "UA", A: 3.0, R: 2.0, S: 1.0, L: 1.0, E: 1.0, E_mod: 1.0 },
-  { name: "CN", A: 2.0, R: 2.0, S: 2.0, L: 1.0, E: 1.0, E_mod: 1.0 },
+  { name: "CN", A: 2.0, R: 2.0, S: 2.0, L: 1.0, E: 1.0, E_mod: 1.0 }
 ]
 
 pattern ComputePotential(a: Actor) -> Float {
   return a.A * a.R * a.S * a.L * a.E * a.E_mod
 }
 
-flow Main {
+pattern RankActors(actors: List) -> String {
   let scored = map(actors, "ComputePotential")
   let paired = zip(actors, scored)
   let ranked = sort_by(paired, "b", 1.0)
@@ -32,4 +32,8 @@ flow Main {
   let second = ranked[1]
   let differential = top.b - second.b
   return top.a.name + ", P=" + to_string(top.b) + ", D=" + to_string(differential)
+}
+
+flow Main {
+  input: List = actors -> RankActors -> output
 }

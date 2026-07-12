@@ -2,7 +2,7 @@
 // Tests that the language mechanism for webhook processing is sound.
 // The production routing issue is architectural (reverse_proxy.py), not linguistic.
 
-flow Main {
+pattern TestWebhookParsing(_trigger: String) -> String {
   // Mock Telegram update: regular message
   let update1 = parse_json("{\"update_id\":1,\"message\":{\"message_id\":1,\"from\":{\"id\":123,\"first_name\":\"Test\"},\"chat\":{\"id\":123},\"text\":\"Hello\",\"date\":1720000000}}")
 
@@ -20,4 +20,8 @@ flow Main {
   let topic = json_get(wad, "topic")
 
   return text + "|" + first_name + "|" + action + "|" + topic
+}
+
+flow Main {
+  input: String = "" -> TestWebhookParsing -> output
 }

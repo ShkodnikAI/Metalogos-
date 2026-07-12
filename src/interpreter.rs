@@ -1905,7 +1905,10 @@ impl Interpreter {
         }
 
         // If no resume, evaluate the source expression
-        let mut current = current.unwrap_or_else(|| self.eval_expr(&flow.source).unwrap_or(Value::Unit));
+        let mut current = match current {
+            Some(v) => v,
+            None => self.eval_expr(&flow.source)?,
+        };
 
         // ADR-0056: Build reverse map: step_index -> checkpoint names at that position
         let mut checkpoint_at: HashMap<usize, Vec<String>> = HashMap::new();

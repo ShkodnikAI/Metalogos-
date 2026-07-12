@@ -565,6 +565,22 @@ impl Vm {
                 Instruction::Halt => {
                     break;
                 }
+
+                // ── Collection / List instructions (Наряд №18, №21) ──
+                // VM bytecode support for these is deferred; the tree-walking
+                // interpreter handles Problem A/B collection builtins natively.
+                Instruction::MakeList(_) => {
+                    unimplemented!("MakeList: VM bytecode support deferred, use tree-walking interpreter for Problem A/B features")
+                }
+                Instruction::ListLen => {
+                    unimplemented!("ListLen: VM bytecode support deferred, use tree-walking interpreter for Problem A/B features")
+                }
+                Instruction::Pop => {
+                    unimplemented!("Pop: VM bytecode support deferred, use tree-walking interpreter for Problem A/B features")
+                }
+                Instruction::StartsWith => {
+                    unimplemented!("StartsWith: VM bytecode support deferred, use tree-walking interpreter for Problem A/B features")
+                }
             }
         }
 
@@ -967,6 +983,7 @@ impl Vm {
             ConditionOp::Ge => fv >= tv,
             ConditionOp::Le => fv <= tv,
             ConditionOp::Eq => fv == tv,
+            ConditionOp::Ne => fv != tv,
         })
     }
 
@@ -1058,6 +1075,7 @@ impl Vm {
                     ConditionOp::Ge => lf >= rf,
                     ConditionOp::Le => lf <= rf,
                     ConditionOp::Eq => lf == rf,
+                    ConditionOp::Ne => lf != rf,
                 })
             }
         }
@@ -1219,6 +1237,10 @@ impl Vm {
                 crate::ast::BinOp::Le => Ok(Value::Float(if a <= b { 1.0 } else { 0.0 })),
                 crate::ast::BinOp::Eq => Ok(Value::Float(if a == b { 1.0 } else { 0.0 })),
                 crate::ast::BinOp::Ne => Ok(Value::Float(if a != b { 1.0 } else { 0.0 })),
+                // And/Or are boolean logic operators, not valid for Float operands directly.
+                crate::ast::BinOp::And | crate::ast::BinOp::Or => {
+                    Err(format!("BinOp::{:?} not valid for Float operands", op))
+                }
             },
             (l, r) => Err(format!(
                 "type mismatch: {} {:?} {}",

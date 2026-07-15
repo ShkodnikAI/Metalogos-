@@ -1,0 +1,31 @@
+// AgentSkillOS-inspired: DAG phase extraction + topo sort (ADR-0062)
+// Demonstrates dag_phases() and topo_sort() builtins
+
+pattern Demo() -> String {
+  // Build a DAG: extract and load have no deps (parallel),
+  // transform depends on both, validate depends on transform
+  let dag = [
+    { id: "extract", depends_on: [] },
+    { id: "load", depends_on: [] },
+    { id: "transform", depends_on: ["extract", "load"] },
+    { id: "validate", depends_on: ["transform"] }
+  ]
+
+  let phases = dag_phases(dag)
+  let order = topo_sort(dag)
+
+  let phase0 = get(phases, 0)
+  let phase1 = get(phases, 1)
+  let phase2 = get(phases, 2)
+
+  let p0names = join(phase0, ",")
+  let p1names = join(phase1, ",")
+  let p2names = join(phase2, ",")
+  let onames = join(order, ",")
+
+  return "phase 0: " + p0names + "\nphase 1: " + p1names + "\nphase 2: " + p2names + "\norder: " + onames
+}
+
+flow Main {
+  input: String = "" -> Demo -> output
+}

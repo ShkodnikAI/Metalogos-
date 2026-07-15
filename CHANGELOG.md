@@ -2,6 +2,31 @@
 
 All notable changes to the Metalogos project.
 
+## [0.9.4] — 2026-07-16
+
+**AgentSkillOS-inspired: Recipe system + DAG orchestration builtins (ADR-0062).**
+
+Концепции заимствованы из https://github.com/ynulihao/AgentSkillOS (MIT — код НЕ копировался, только идеи).
+
+### Новые builtins (5)
+
+- `recipe_save(name, description, skills, plan)` — построить рецепт (struct с key + recipe), для сохранения через `kv_set`. Возвращает `{key: "__recipe:<name>", recipe: {...}}`.
+- `recipe_search(query)` — placeholder для семантического поиска рецептов. Возвращает пустой список (требует embedding infrastructure).
+- `recipe_list()` — placeholder для списка рецептов. Возвращает пустой список (требует KV access из builtin context).
+- `dag_phases(dag)` — извлечь параллельные фазы выполнения из DAG. Вход: список `{id, depends_on}`. Выход: список фаз (списков ID). Kahn's algorithm + детекция циклов.
+- `topo_sort(dag)` — топологическая сортировка DAG. Тот же формат входа. Выход: плоский список ID в порядке зависимостей.
+
+### Изменённые файлы
+
+- `src/builtins.rs` — 5 новых builtin'ов + 13 тестов (~300 строк).
+- `docs/adr/0062-agentskillos-recipe-dag.md` — ADR с описанием архитектуры.
+- `examples/dag_demo.mlog` + `.expected` — golden test для dag_phases/topo_sort.
+
+### Ограничения
+
+- `recipe_search`/`recipe_list` — placeholders, полная реализация требует доступа к KV-хранилищу из builtin context.
+- Нет семантического поиска рецептов (требует embeddings).
+
 ## [0.9.3] — 2026-07-12
 
 **sqz-inspired builtins и declaration (P1+P2+P3).**

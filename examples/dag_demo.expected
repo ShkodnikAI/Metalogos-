@@ -1,0 +1,4 @@
+phase 0: extract,load
+phase 1: transform
+phase 2: validate
+order: extract,load,transform,validate

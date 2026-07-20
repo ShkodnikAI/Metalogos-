@@ -197,6 +197,15 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec { name: "recipe_list", arity: 0, category: "recipe" },
     BuiltinSpec { name: "dag_phases", arity: 1, category: "orchestration" },
     BuiltinSpec { name: "topo_sort", arity: 1, category: "orchestration" },
+    // ── OpenPlanter-inspired: Fuzzy matching, safe editing, agent utilities (ADR-0063) ──
+    BuiltinSpec { name: "fuzzy_match", arity: 2, category: "string" },
+    BuiltinSpec { name: "fuzzy_find_best", arity: 2, category: "string" },
+    BuiltinSpec { name: "hashline_read", arity: 1, category: "string" },
+    BuiltinSpec { name: "hashline_edit", arity: 2, category: "string" },
+    BuiltinSpec { name: "compact_list", arity: 3, category: "list" },
+    BuiltinSpec { name: "budget_check", arity: 2, category: "meta" },
+    BuiltinSpec { name: "replay_snapshot", arity: 1, category: "meta" },
+    BuiltinSpec { name: "policy_check", arity: 1, category: "meta" },
 ];
 
 /// Total number of registered builtins.
@@ -517,6 +526,15 @@ impl Builtins {
         funcs.insert("recipe_list".to_string(), builtin_recipe_list as BuiltinFn);
         funcs.insert("dag_phases".to_string(), builtin_dag_phases as BuiltinFn);
         funcs.insert("topo_sort".to_string(), builtin_topo_sort as BuiltinFn);
+        // ── OpenPlanter-inspired: Fuzzy matching, safe editing, agent utilities (ADR-0063) ──
+        funcs.insert("fuzzy_match".to_string(), builtin_fuzzy_match as BuiltinFn);
+        funcs.insert("fuzzy_find_best".to_string(), builtin_fuzzy_find_best as BuiltinFn);
+        funcs.insert("hashline_read".to_string(), builtin_hashline_read as BuiltinFn);
+        funcs.insert("hashline_edit".to_string(), builtin_hashline_edit as BuiltinFn);
+        funcs.insert("compact_list".to_string(), builtin_compact_list as BuiltinFn);
+        funcs.insert("budget_check".to_string(), builtin_budget_check as BuiltinFn);
+        funcs.insert("replay_snapshot".to_string(), builtin_replay_snapshot as BuiltinFn);
+        funcs.insert("policy_check".to_string(), builtin_policy_check as BuiltinFn);
         Builtins { funcs }
     }
 
@@ -2623,6 +2641,285 @@ fn builtin_web_search(args: &[Value]) -> Result<Value, String> {
 /// Usage: make_list("red", "green", "blue") -> List ["red", "green", "blue"]
 fn builtin_make_list(args: &[Value]) -> Result<Value, String> {
     Ok(Value::List(args.to_vec()))
+}
+
+// ── OpenPlanter-inspired: Fuzzy matching, safe editing, agent utilities (ADR-0063) ──
+
+/// `fuzzy_match(a, b)` — Jaro-Winkler similarity between two strings (0.0..1.0).
+/// Ported from OpenPlanter's wiki/matching.rs NameRegistry pattern.
+fn builtin_fuzzy_match(args: &[Value]) -> Result<Value, String> {
+    let a = expect_string_arg("fuzzy_match", args, 0)?;
+    let b = expect_string_arg("fuzzy_match", args, 1)?;
+    let score = strsim::jaro_winkler(&a, &b);
+    Ok(Value::Float(score))
+}
+
+/// `fuzzy_find_best(query, candidates)` — find the best match for `query` in a list of candidate strings.
+/// Returns a struct { index, candidate, score } or Unit if list is empty.
+fn builtin_fuzzy_find_best(args: &[Value]) -> Result<Value, String> {
+    let query = expect_string_arg("fuzzy_find_best", args, 0)?;
+    let candidates = expect_list_arg("fuzzy_find_best", args, 1)?;
+    if candidates.is_empty() {
+        return Ok(Value::Unit);
+    }
+    let mut best_idx = 0usize;
+    let mut best_score = 0.0f64;
+    let mut best_candidate = String::new();
+    for (i, v) in candidates.iter().enumerate() {
+        let c = format!("{}", v);
+        let score = strsim::jaro_winkler(&query, &c);
+        if score > best_score {
+            best_score = score;
+            best_idx = i;
+            best_candidate = c;
+        }
+    }
+    Ok(make_struct("FuzzyMatch", vec![
+        ("index", Value::Float(best_idx as f64)),
+        ("candidate", Value::String(best_candidate)),
+        ("score", Value::Float(best_score)),
+    ]))
+}
+
+/// Compute a 2-char hex hash for a line (whitespace-normalized),
+/// mimicking OpenPlanter's hashline system for content-verified editing.
+fn compute_line_hash(line: &str) -> String {
+    let normalized: String = line.split_whitespace().collect();
+    let hash = crc32fast::hash(normalized.as_bytes());
+    format!("{:02x}", hash & 0xFF)
+}
+
+/// `hashline_read(text)` — annotate each line with a 2-char CRC32 hash prefix.
+/// Output format: "N:HH|content" per line.
+/// Inspired by OpenPlanter's tools.py hashline system for safe LLM editing.
+fn builtin_hashline_read(args: &[Value]) -> Result<Value, String> {
+    let text = expect_string_arg("hashline_read", args, 0)?;
+    let mut out = String::new();
+    for (i, line) in text.lines().enumerate() {
+        let hash = compute_line_hash(line);
+        out.push_str(&format!("{}:{}|{}\n", i + 1, hash, line));
+    }
+    Ok(Value::String(out))
+}
+
+/// `hashline_edit(text, edits)` — apply edits to text using hashline-verified line references.
+/// `edits` is a list of structs, each with an `op` field ("set_line", "replace_lines", "insert_after")
+/// and corresponding fields.
+///   - set_line: { op: "set_line", ref: "N:HH", content: "new content" }
+///   - replace_lines: { op: "replace_lines", start_ref: "N:HH", end_ref: "M:HH", content: "replacement" }
+///   - insert_after: { op: "insert_after", ref: "N:HH", content: "new line" }
+/// Returns the modified text. Errors if hash mismatch (stale reference).
+fn builtin_hashline_edit(args: &[Value]) -> Result<Value, String> {
+    let text = expect_string_arg("hashline_edit", args, 0)?;
+    let edits = expect_list_arg("hashline_edit", args, 1)?;
+    let mut lines: Vec<String> = text.lines().map(String::from).collect();
+
+    for edit in &edits {
+        let edit_json = mlog_value_to_json(edit);
+        let op = edit_json.get("op").and_then(|v| v.as_str()).unwrap_or("");
+        match op {
+            "set_line" => {
+                let line_ref = edit_json.get("ref").and_then(|v| v.as_str()).unwrap_or("");
+                let content = edit_json.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let (line_num, expected_hash) = parse_line_ref(line_ref)?;
+                let idx = line_num - 1;
+                if idx >= lines.len() {
+                    return Err(format!("hashline_edit: line {} out of bounds ({} lines)", line_num, lines.len()));
+                }
+                let actual_hash = compute_line_hash(&lines[idx]);
+                if actual_hash != expected_hash {
+                    return Err(format!(
+                        "hashline_edit: hash mismatch at line {} (expected {}, got {}). Line may have changed.",
+                        line_num, expected_hash, actual_hash
+                    ));
+                }
+                lines[idx] = content.to_string();
+            }
+            "replace_lines" => {
+                let start_ref = edit_json.get("start_ref").and_then(|v| v.as_str()).unwrap_or("");
+                let end_ref = edit_json.get("end_ref").and_then(|v| v.as_str()).unwrap_or("");
+                let content = edit_json.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let (start_num, start_hash) = parse_line_ref(start_ref)?;
+                let (end_num, end_hash) = parse_line_ref(end_ref)?;
+                let si = start_num - 1;
+                let ei = end_num;
+                if si >= lines.len() || ei > lines.len() {
+                    return Err(format!("hashline_edit: replace range {}..{} out of bounds", start_num, end_num));
+                }
+                let actual_start = compute_line_hash(&lines[si]);
+                let actual_end = compute_line_hash(&lines[ei - 1]);
+                if actual_start != start_hash || actual_end != end_hash {
+                    return Err(format!(
+                        "hashline_edit: hash mismatch in replace range {}..{}",
+                        start_num, end_num
+                    ));
+                }
+                let replacement: Vec<String> = content.lines().map(String::from).collect();
+                lines.splice(si..ei, replacement);
+            }
+            "insert_after" => {
+                let line_ref = edit_json.get("ref").and_then(|v| v.as_str()).unwrap_or("");
+                let content = edit_json.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let (line_num, expected_hash) = parse_line_ref(line_ref)?;
+                let idx = line_num; // insert AFTER this line
+                if idx > lines.len() {
+                    return Err(format!("hashline_edit: insert_after line {} out of bounds", line_num));
+                }
+                if line_num > 0 && (line_num - 1) < lines.len() {
+                    let actual_hash = compute_line_hash(&lines[line_num - 1]);
+                    if actual_hash != expected_hash {
+                        return Err(format!(
+                            "hashline_edit: hash mismatch at line {} (expected {}, got {})",
+                            line_num, expected_hash, actual_hash
+                        ));
+                    }
+                }
+                let new_lines: Vec<String> = content.lines().map(String::from).collect();
+                for (i, nl) in new_lines.into_iter().enumerate() {
+                    lines.insert(idx + i, nl);
+                }
+            }
+            _ => {
+                return Err(format!("hashline_edit: unknown op '{}'. Use set_line, replace_lines, or insert_after.", op));
+            }
+        }
+    }
+
+    Ok(Value::String(lines.join("\n")))
+}
+
+/// Parse a line reference "N:HH" into (line_number, hash_hex).
+fn parse_line_ref(line_ref: &str) -> Result<(usize, String), String> {
+    let parts: Vec<&str> = line_ref.splitn(2, ':').collect();
+    if parts.len() != 2 {
+        return Err(format!("hashline_edit: invalid line ref '{}', expected N:HH format", line_ref));
+    }
+    let line_num: usize = parts[0].parse()
+        .map_err(|_| format!("hashline_edit: invalid line number '{}' in ref '{}'", parts[0], line_ref))?;
+    let hash = parts[1].to_string();
+    if hash.len() != 2 {
+        return Err(format!("hashline_edit: hash must be 2 hex chars, got '{}' in ref '{}'", hash, line_ref));
+    }
+    Ok((line_num, hash))
+}
+
+/// `compact_list(items, keep_first, keep_last)` — context condensation for lists.
+/// Protects the first `keep_first` and last `keep_last` items, replaces middle items
+/// with a single placeholder struct { compacted: true, removed_count: N }.
+/// Inspired by OpenPlanter's compact_messages() for managing long conversation histories.
+fn builtin_compact_list(args: &[Value]) -> Result<Value, String> {
+    let items = expect_list_arg("compact_list", args, 0)?;
+    let keep_first = expect_float_arg("compact_list", args, 1)? as usize;
+    let keep_last = expect_float_arg("compact_list", args, 2)? as usize;
+    let total = items.len();
+    if total <= keep_first + keep_last {
+        // Nothing to compact
+        return Ok(Value::List(items));
+    }
+    let mut result: Vec<Value> = Vec::new();
+    // Keep first N
+    for item in items.iter().take(keep_first) {
+        result.push(item.clone());
+    }
+    // Insert compacted placeholder
+    let removed = total - keep_first - keep_last;
+    result.push(make_struct("Compacted", vec![
+        ("compacted", Value::Bool(true)),
+        ("removed_count", Value::Float(removed as f64)),
+    ]));
+    // Keep last N
+    let last_start = total - keep_last;
+    for item in items.iter().skip(last_start) {
+        result.push(item.clone());
+    }
+    Ok(Value::List(result))
+}
+
+/// `budget_check(step, total_steps)` — returns a budget status struct.
+///   - remaining >= 50%: level = "ok"
+///   - remaining >= 25%: level = "warning"
+///   - remaining < 25%: level = "critical"
+/// Inspired by OpenPlanter's engine.py budget awareness system.
+fn builtin_budget_check(args: &[Value]) -> Result<Value, String> {
+    let step = expect_float_arg("budget_check", args, 0)? as usize;
+    let total_steps = expect_float_arg("budget_check", args, 1)? as usize;
+    if total_steps == 0 {
+        return Err("budget_check: total_steps must be > 0".to_string());
+    }
+    if step > total_steps {
+        return Err(format!("budget_check: step {} exceeds total_steps {}", step, total_steps));
+    }
+    let remaining = total_steps - step;
+    let pct = (remaining as f64) / (total_steps as f64) * 100.0;
+    let level = if pct >= 50.0 {
+        "ok"
+    } else if pct >= 25.0 {
+        "warning"
+    } else {
+        "critical"
+    };
+    Ok(make_struct("BudgetStatus", vec![
+        ("step", Value::Float(step as f64)),
+        ("total", Value::Float(total_steps as f64)),
+        ("remaining", Value::Float(remaining as f64)),
+        ("pct_remaining", Value::Float(pct)),
+        ("level", Value::String(level.to_string())),
+    ]))
+}
+
+/// `replay_snapshot(data)` — delta-encoded replay log helper.
+/// Takes a list of items (messages, events, etc.) and returns a struct with:
+///   - seq: 0 (first snapshot)
+///   - count: number of items
+///   - snapshot: JSON string of the full list
+/// Subsequent calls should use the returned count to determine delta.
+/// Inspired by OpenPlanter's ReplayLogger (seq 0 = full, seq N = delta).
+fn builtin_replay_snapshot(args: &[Value]) -> Result<Value, String> {
+    let data = expect_list_arg("replay_snapshot", args, 0)?;
+    let json_items: Vec<serde_json::Value> = data.iter()
+        .map(|v| mlog_value_to_json(v))
+        .collect();
+    let snapshot = serde_json::to_string(&json_items)
+        .map_err(|e| format!("replay_snapshot: JSON serialization error: {}", e))?;
+    Ok(make_struct("ReplaySnapshot", vec![
+        ("seq", Value::Float(0.0)),
+        ("count", Value::Float(data.len() as f64)),
+        ("snapshot", Value::String(snapshot)),
+    ]))
+}
+
+/// `policy_check(command)` — runtime policy enforcement for shell commands.
+/// Checks a command string against safety policies:
+///   - Blocks heredoc syntax (<<)
+///   - Blocks interactive TUI programs (vim, nano, less, more, top, htop, vi)
+///   - Trims leading/trailing whitespace
+/// Returns a struct { allowed: bool, reason: "..." }.
+/// Inspired by OpenPlanter's _runtime_policy_check in engine.py.
+fn builtin_policy_check(args: &[Value]) -> Result<Value, String> {
+    let command = expect_string_arg("policy_check", args, 0)?;
+    let cmd_trimmed = command.trim();
+    // Check heredoc
+    if cmd_trimmed.contains("<<") {
+        return Ok(make_struct("PolicyResult", vec![
+            ("allowed", Value::Bool(false)),
+            ("reason", Value::String("blocked: heredoc syntax (<<) detected".to_string())),
+        ]));
+    }
+    // Check interactive programs
+    let interactive_patterns = ["vim", "vi ", "nano", "less ", "more ", "top", "htop", "emacs"];
+    let first_word = cmd_trimmed.split_whitespace().next().unwrap_or("");
+    for pattern in &interactive_patterns {
+        if first_word == *pattern || first_word.starts_with(&format!("{}", pattern)) {
+            return Ok(make_struct("PolicyResult", vec![
+                ("allowed", Value::Bool(false)),
+                ("reason", Value::String(format!("blocked: interactive program '{}' detected", first_word))),
+            ]));
+        }
+    }
+    Ok(make_struct("PolicyResult", vec![
+        ("allowed", Value::Bool(true)),
+        ("reason", Value::String("ok".to_string())),
+    ]))
 }
 
 #[cfg(test)]
@@ -7158,5 +7455,298 @@ mod tests_sqz_builtins {
     fn test_topo_sort_empty() {
         let r = builtin_topo_sort(&[Value::List(vec![])]).unwrap();
         assert_vals_eq(&r, &Value::List(vec![]), "empty DAG returns empty list");
+    }
+
+    // ── OpenPlanter-inspired tests (ADR-0063) ──
+
+    #[test]
+    fn test_fuzzy_match_identical() {
+        let r = builtin_fuzzy_match(&[
+            Value::String("hello".to_string()),
+            Value::String("hello".to_string()),
+        ]).unwrap();
+        assert_vals_eq(&r, &Value::Float(1.0), "identical strings = 1.0");
+    }
+
+    #[test]
+    fn test_fuzzy_match_similar() {
+        let r = builtin_fuzzy_match(&[
+            Value::String("martin".to_string()),
+            Value::String("martina".to_string()),
+        ]).unwrap();
+        if let Value::Float(score) = r {
+            assert!(score > 0.9, "martin vs martina should be > 0.9, got {}", score);
+            assert!(score < 1.0, "similar but not identical, got {}", score);
+        } else {
+            panic!("fuzzy_match should return Float");
+        }
+    }
+
+    #[test]
+    fn test_fuzzy_match_different() {
+        let r = builtin_fuzzy_match(&[
+            Value::String("abc".to_string()),
+            Value::String("xyz".to_string()),
+        ]).unwrap();
+        if let Value::Float(score) = r {
+            assert!(score < 0.5, "abc vs xyz should be < 0.5, got {}", score);
+        } else {
+            panic!("fuzzy_match should return Float");
+        }
+    }
+
+    #[test]
+    fn test_fuzzy_find_best() {
+        let r = builtin_fuzzy_find_best(&[
+            Value::String("Mikhail".to_string()),
+            Value::List(vec![
+                Value::String("Michele".to_string()),
+                Value::String("Mikael".to_string()),
+                Value::String("John".to_string()),
+            ]),
+        ]).unwrap();
+        if let Value::Struct { fields, .. } = r {
+            let score = match &fields["score"] {
+                Value::Float(f) => *f,
+                _ => panic!("score should be Float"),
+            };
+            assert!(score > 0.7, "best match for Mikhail should score > 0.7, got {}", score);
+            assert_eq!(fields["index"], Value::Float(1.0)); // Mikael at index 1
+        } else {
+            panic!("fuzzy_find_best should return Struct");
+        }
+    }
+
+    #[test]
+    fn test_fuzzy_find_best_empty() {
+        let r = builtin_fuzzy_find_best(&[
+            Value::String("test".to_string()),
+            Value::List(vec![]),
+        ]).unwrap();
+        assert_vals_eq(&r, &Value::Unit, "empty list returns Unit");
+    }
+
+    #[test]
+    fn test_hashline_read() {
+        let r = builtin_hashline_read(&[
+            Value::String("hello world\nfoo bar".to_string()),
+        ]).unwrap();
+        if let Value::String(s) = r {
+            let lines: Vec<&str> = s.lines().collect();
+            assert_eq!(lines.len(), 2);
+            // Line 1 should start with "1:" and contain "hello world"
+            assert!(lines[0].starts_with("1:"), "line 1 should start with 1:, got: {}", lines[0]);
+            assert!(lines[0].contains("hello world"), "should contain original content");
+            // Line 2 should start with "2:"
+            assert!(lines[1].starts_with("2:"), "line 2 should start with 2:");
+            assert!(lines[1].contains("foo bar"));
+        } else {
+            panic!("hashline_read should return String");
+        }
+    }
+
+    #[test]
+    fn test_hashline_read_empty() {
+        let r = builtin_hashline_read(&[Value::String(String::new())]).unwrap();
+        assert_vals_eq(&r, &Value::String(String::new()), "empty input = empty output");
+    }
+
+    #[test]
+    fn test_hashline_edit_set_line() {
+        // First get hashline-annotated text
+        let annotated = builtin_hashline_read(&[
+            Value::String("line one\nline two\nline three".to_string()),
+        ]).unwrap();
+        let ann_str = format!("{}", annotated);
+        // Extract ref for line 2 (e.g. "2:ab")
+        let line2_ref = ann_str.lines().nth(1).unwrap();
+        let hash_part: String = line2_ref.chars().take_while(|c| *c != '|').collect();
+        // Now edit using that ref
+        let r = builtin_hashline_edit(&[
+            Value::String("line one\nline two\nline three".to_string()),
+            Value::List(vec![
+                Value::Struct {
+                    type_name: "Edit".to_string(),
+                    fields: vec![
+                        ("op".to_string(), Value::String("set_line".to_string())),
+                        ("ref".to_string(), Value::String(hash_part.trim().to_string())),
+                        ("content".to_string(), Value::String("replaced line".to_string())),
+                    ].into_iter().collect(),
+                },
+            ]),
+        ]).unwrap();
+        if let Value::String(s) = r {
+            let lines: Vec<&str> = s.lines().collect();
+            assert_eq!(lines[0], "line one");
+            assert_eq!(lines[1], "replaced line");
+            assert_eq!(lines[2], "line three");
+        } else {
+            panic!("hashline_edit should return String");
+        }
+    }
+
+    #[test]
+    fn test_hashline_edit_hash_mismatch() {
+        let r = builtin_hashline_edit(&[
+            Value::String("original line".to_string()),
+            Value::List(vec![
+                Value::Struct {
+                    type_name: "Edit".to_string(),
+                    fields: vec![
+                        ("op".to_string(), Value::String("set_line".to_string())),
+                        ("ref".to_string(), Value::String("1:ff".to_string())),
+                        ("content".to_string(), Value::String("new".to_string())),
+                    ].into_iter().collect(),
+                },
+            ]),
+        ]);
+        assert!(r.is_err(), "should error on hash mismatch");
+        assert!(r.unwrap_err().contains("hash mismatch"), "error should mention hash mismatch");
+    }
+
+    #[test]
+    fn test_compact_list_no_compaction_needed() {
+        let items = Value::List(vec![
+            Value::String("a".to_string()),
+            Value::String("b".to_string()),
+        ]);
+        let r = builtin_compact_list(&[items, Value::Float(5.0), Value::Float(5.0)]).unwrap();
+        // Total (2) <= keep_first(5) + keep_last(5), so no compaction
+        if let Value::List(items) = r {
+            assert_eq!(items.len(), 2);
+        } else {
+            panic!("should return List");
+        }
+    }
+
+    #[test]
+    fn test_compact_list_compacts_middle() {
+        let items = Value::List(vec![
+            Value::Float(1.0),
+            Value::Float(2.0),
+            Value::Float(3.0),
+            Value::Float(4.0),
+            Value::Float(5.0),
+        ]);
+        let r = builtin_compact_list(&[items, Value::Float(1.0), Value::Float(1.0)]).unwrap();
+        if let Value::List(list) = r {
+            assert_eq!(list.len(), 3, "should have first + compacted + last");
+            assert_vals_eq(&list[0], &Value::Float(1.0), "first item preserved");
+            assert_vals_eq(&list[2], &Value::Float(5.0), "last item preserved");
+            // Middle should be a Compacted struct
+            if let Value::Struct { fields, .. } = &list[1] {
+                assert_eq!(fields["compacted"], Value::Bool(true));
+                assert_eq!(fields["removed_count"], Value::Float(3.0));
+            } else {
+                panic!("middle item should be Compacted struct");
+            }
+        } else {
+            panic!("should return List");
+        }
+    }
+
+    #[test]
+    fn test_budget_check_ok() {
+        let r = builtin_budget_check(&[Value::Float(2.0), Value::Float(10.0)]).unwrap();
+        if let Value::Struct { fields, .. } = r {
+            assert_eq!(fields["level"], Value::String("ok".to_string()));
+            assert_eq!(fields["remaining"], Value::Float(8.0));
+        } else {
+            panic!("should return struct");
+        }
+    }
+
+    #[test]
+    fn test_budget_check_warning() {
+        let r = builtin_budget_check(&[Value::Float(6.0), Value::Float(10.0)]).unwrap();
+        if let Value::Struct { fields, .. } = r {
+            assert_eq!(fields["level"], Value::String("warning".to_string()));
+        } else {
+            panic!("should return struct");
+        }
+    }
+
+    #[test]
+    fn test_budget_check_critical() {
+        let r = builtin_budget_check(&[Value::Float(9.0), Value::Float(10.0)]).unwrap();
+        if let Value::Struct { fields, .. } = r {
+            assert_eq!(fields["level"], Value::String("critical".to_string()));
+        } else {
+            panic!("should return struct");
+        }
+    }
+
+    #[test]
+    fn test_budget_check_zero_total() {
+        let r = builtin_budget_check(&[Value::Float(1.0), Value::Float(0.0)]);
+        assert!(r.is_err(), "total_steps=0 should error");
+    }
+
+    #[test]
+    fn test_replay_snapshot() {
+        let r = builtin_replay_snapshot(&[
+            Value::List(vec![
+                Value::String("msg1".to_string()),
+                Value::String("msg2".to_string()),
+            ]),
+        ]).unwrap();
+        if let Value::Struct { fields, .. } = r {
+            assert_eq!(fields["seq"], Value::Float(0.0));
+            assert_eq!(fields["count"], Value::Float(2.0));
+            assert!(fields.contains_key("snapshot"));
+        } else {
+            panic!("should return struct");
+        }
+    }
+
+    #[test]
+    fn test_policy_check_allowed() {
+        let r = builtin_policy_check(&[
+            Value::String("ls -la".to_string()),
+        ]).unwrap();
+        if let Value::Struct { fields, .. } = r {
+            assert_eq!(fields["allowed"], Value::Bool(true));
+        } else {
+            panic!("should return struct");
+        }
+    }
+
+    #[test]
+    fn test_policy_check_heredoc() {
+        let r = builtin_policy_check(&[
+            Value::String("cat << EOF".to_string()),
+        ]).unwrap();
+        if let Value::Struct { fields, .. } = r {
+            assert_eq!(fields["allowed"], Value::Bool(false));
+            assert!(format!("{}", fields["reason"]).contains("heredoc"));
+        } else {
+            panic!("should return struct");
+        }
+    }
+
+    #[test]
+    fn test_policy_check_interactive() {
+        let r = builtin_policy_check(&[
+            Value::String("vim file.txt".to_string()),
+        ]).unwrap();
+        if let Value::Struct { fields, .. } = r {
+            assert_eq!(fields["allowed"], Value::Bool(false));
+            assert!(format!("{}", fields["reason"]).contains("interactive"));
+        } else {
+            panic!("should return struct");
+        }
+    }
+
+    #[test]
+    fn test_policy_check_whitespace() {
+        // Leading/trailing whitespace should be trimmed
+        let r = builtin_policy_check(&[
+            Value::String("   echo hello   ".to_string()),
+        ]).unwrap();
+        if let Value::Struct { fields, .. } = r {
+            assert_eq!(fields["allowed"], Value::Bool(true));
+        } else {
+            panic!("should return struct");
+        }
     }
 }

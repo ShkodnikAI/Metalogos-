@@ -2,6 +2,43 @@
 
 All notable changes to the Metalogos project.
 
+## [0.9.5] — 2026-07-21
+
+**OpenPlanter-inspired: Agent utility builtins (ADR-0063).**
+
+Концепции заимствованы из https://github.com/ShinMegamiBoson/OpenPlanter (MIT — код НЕ копировался, только идеи).
+
+### Новые зависимости
+
+- `strsim = "0.11"` — Jaro-Winkler нечёткое сравнение строк
+- `crc32fast = "1.4"` — быстрая CRC32-хеширование
+
+### Новые builtins (8)
+
+**Нечёткое сравнение (fuzzy matching):**
+
+- `fuzzy_match(a, b)` — Jaro-Winkler сходство двух строк (0.0..1.0). Основано на OpenPlanter `wiki/matching.rs::NameRegistry`.
+- `fuzzy_find_best(query, candidates)` — лучший матч из списка кандидатов → `FuzzyMatch{index, candidate, score}`.
+
+**Контент-верифицированное редактирование (hashlines):**
+
+- `hashline_read(text)` — аннотировать строки 2-символьным CRC32-хешем: `N:HH|content`. Предотвращает LLM-редактирование устаревшего контента.
+- `hashline_edit(text, edits)` — редактирование с верификацией хешей. 3 операции: `set_line`, `replace_lines`, `insert_after`. Ошибка при несовпадении хеша.
+
+**Утилиты агента:**
+
+- `compact_list(items, keep_first, keep_last)` — контекстная компактификация: защита головных/хвостовых элементов, среда схлопывается в `Compacted{compacted: true, removed_count: N}`. Аналог OpenPlanter `compact_messages()`.
+- `budget_check(step, total_steps)` — осведомлённость о бюджете → `BudgetStatus{step, total, remaining, pct_remaining, level}`. Уровни: "ok" (≥50%), "warning" (≥25%), "critical" (<25%).
+- `replay_snapshot(data)` — дельта-логирование: seq 0 = полный снапшот → `ReplaySnapshot{seq, count, snapshot}`. Аналог OpenPlanter `ReplayLogger`.
+- `policy_check(command)` — проверка безопасности shell-команды → `PolicyResult{allowed, reason}`. Блокирует heredoc (`<<`) и интерактивные программы (vim, nano, less и т.д.).
+
+### Изменённые файлы
+
+- `src/builtins.rs` — 8 новых builtin'ов + 2 helper'а + 20 тестов (~590 строк).
+- `Cargo.toml` — версия 0.9.5, зависимости `strsim`, `crc32fast`.
+- `docs/adr/0063-openplanter-agent-utilities.md` — ADR.
+- `examples/openplanter_demo.mlog` — демонстрация всех 8 builtin'ов.
+
 ## [0.9.4] — 2026-07-16
 
 **AgentSkillOS-inspired: Recipe system + DAG orchestration builtins (ADR-0062).**

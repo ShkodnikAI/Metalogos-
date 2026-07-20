@@ -1,0 +1,50 @@
+# OpenPlanter-inspired builtins demo (v0.9.5)
+
+# ── fuzzy_match: Jaro-Winkler similarity ──
+let score = fuzzy_match("metalogos", "metalogus")
+print("Similarity metalogos vs metalogus: " + str(score))
+
+let exact = fuzzy_match("hello", "hello")
+print("Exact match: " + str(exact))
+
+# ── fuzzy_find_best: best match from candidates ──
+let candidates = ["Michele", "Mikael", "John", "Mikhail"]
+let best = fuzzy_find_best("Mikhail", candidates)
+print("Best match: " + best.candidate + " (score: " + str(best.score) + ")")
+
+# ── hashline_read: content-addressed line annotation ──
+let code = "fn main() {\n    println!(\"Hello\");\n}"
+let annotated = hashline_read(code)
+print(annotated)
+
+# ── budget_check: step budget awareness ──
+let status1 = budget_check(2, 10)
+print("Step 2/10: " + status1.level + " (" + str(status1.pct_remaining) + "% remaining)")
+
+let status2 = budget_check(8, 10)
+print("Step 8/10: " + status2.level)
+
+let status3 = budget_check(9, 10)
+print("Step 9/10: " + status3.level)
+
+# ── compact_list: context condensation ──
+let items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+let compacted = compact_list(items, 2, 2)
+print("Compacted list has " + str(len(compacted)) + " items (was 10)")
+
+# ── policy_check: shell command safety ──
+let safe = policy_check("ls -la")
+print("ls -la: allowed=" + str(safe.allowed))
+
+let blocked1 = policy_check("cat << EOF")
+print("heredoc: allowed=" + str(blocked1.allowed) + " reason=" + blocked1.reason)
+
+let blocked2 = policy_check("vim file.txt")
+print("vim: allowed=" + str(blocked2.allowed) + " reason=" + blocked2.reason)
+
+# ── replay_snapshot: delta-encoded log ──
+let events = ["user said hello", "bot replied"]
+let snap = replay_snapshot(events)
+print("Snapshot seq=" + str(snap.seq) + " count=" + str(snap.count))
+
+print("Done.")

@@ -7,7 +7,7 @@
 **AI-native programming language with security by design. Written in Rust.**
 
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/v0.9.1-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
+[![Version](https://img.shields.io/badge/v0.9.5-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
 [![CI](https://img.shields.io/badge/CI-passing-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 
@@ -96,9 +96,9 @@ Every item in the OWASP Top 10 (2021) is addressed at the language level: type-s
 - **Bytecode VM** — 44 instructions, stack-based, used for `mlog compile` + `mlog run file.mbc`
 - **JIT** — Cranelift-based code generation (experimental)
 
-### 142 Built-in Functions
+### 177 Built-in Functions
 
-String ops, math, collections, type conversion, LLM/AI, HTTP, JSON, file I/O, KV store, session memory, encryption, authentication, HTTP server, templates, databases, Telegram/Discord bots, time/date/calendar, geolocation, weather, reminders, cron, goals, todos, memory tree, preferences, approval workflows, and more. See [REFERENCE.md](REFERENCE.md) for the full list.
+String ops, math, collections, type conversion, LLM/AI, HTTP, JSON, file I/O, KV store, session memory, encryption, authentication, HTTP server, templates, databases, Telegram/Discord bots, time/date/calendar, geolocation, weather, reminders, cron, goals, todos, memory tree, preferences, approval workflows, **fuzzy matching, hashline editing, context compaction, budget awareness, replay logging, policy enforcement**, and more. See [REFERENCE.md](REFERENCE.md) for the full list.
 
 ### Human Intelligence Layer
 
@@ -113,7 +113,20 @@ let reply = human_respond("Alice", "How is my project going?")
 
 ### Cron Scheduler
 
-Real 5-field cron expressions, recurring and one-shot jobs, dispatches both builtins and user patterns:
+Fuzzy matching (Jaro-Winkler), content-verified hashline editing (CRC32), context compaction, budget awareness, replay logging, shell policy enforcement:
+
+```mlog
+fuzzy_match("metalogos", "metalogus")           // 0.96
+fuzzy_find_best("Mikhail", ["Michele", "Mikael"])  // FuzzyMatch{index:1, candidate:"Mikael", score:0.82}
+hashline_read(code)                                  // "1:3f|fn main() {"
+hashline_edit(text, [{op:"set_line", ref:"3:ab", content:"..."}])
+compact_list(messages, 2, 4)                          // protect head/tail, compress middle
+budget_check(8, 10)                                   // BudgetStatus{level:"warning", pct_remaining:20}
+policy_check("vim file.txt")                          // PolicyResult{allowed:false, reason:"blocked: interactive..."}
+replay_snapshot(events)                              // ReplaySnapshot{seq:0, count:5, snapshot:"..."}
+```
+
+Cron scheduler, recurring and one-shot jobs, dispatches both builtins and user patterns:
 
 ```mlog
 cron_run("*/30 * * * *", "HealthCheck")     // every 30 min
@@ -186,11 +199,11 @@ Pre-built Linux x86_64 binaries are available from [GitHub Actions](https://gith
 |---|---|---|
 | Parser | Pest 2.7 PEG grammar (346 rules) | 2 176 |
 | AST | 24 Declaration, 14 Expr, 12 Statement, 4 MatchArm | 731 |
-| Compiler | Bytecode, 142 builtins indexed | 659 |
+| Compiler | Bytecode, 177 builtins indexed | 659 |
 | Semantic analysis | Opaque types, arity checking, security audit | 446 |
 | Interpreter | Tree-walking, full feature support | 4 281 |
 | VM | 44 instructions, stack-based | 1 268 |
-| Built-in functions | 142 function definitions | 5 655 |
+| Built-in functions | 177 function definitions | 6 245 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 1 446 |
 | LLM backend | Trait + mock + real providers | 1 421 |
 | Memory store | Semantic memory with decay + KV store | 1 173 |
@@ -202,18 +215,18 @@ Pre-built Linux x86_64 binaries are available from [GitHub Actions](https://gith
 
 ```
 Metalogos-/
-├── Cargo.toml                  # v0.9.1
+├── Cargo.toml                  # v0.9.5
 ├── src/
 │   ├── grammar.pest             # PEG grammar (346 rules)
 │   ├── ast.rs                   # AST definitions
 │   ├── parser.rs                # Pest tokens -> AST
 │   ├── semantic.rs              # Semantic analysis + opaque type enforcement
 │   ├── interpreter.rs           # Tree-walking interpreter
-│   ├── compiler.rs              # Bytecode compiler (142 builtins)
+│   ├── compiler.rs              # Bytecode compiler (177 builtins)
 │   ├── bytecode.rs              # 44 VM instructions
 │   ├── vm.rs                    # Bytecode VM executor
 │   ├── jit.rs                   # JIT via Cranelift
-│   ├── builtins.rs              # 142 built-in functions
+│   ├── builtins.rs              # 177 built-in functions
 │   ├── server.rs                # Axum HTTP server + cron scheduler
 │   ├── llm.rs                   # LLM backend trait + providers
 │   ├── memory_store.rs          # Semantic memory + KV store
@@ -234,7 +247,10 @@ Metalogos-/
 
 | Version | Highlights |
 |---|---|
-| **0.9.1** | Collection ops sync (142 builtins), BUILTIN_REGISTRY as single source of truth, line counts refreshed |
+| **0.9.5** | OpenPlanter-inspired: fuzzy matching, hashline editing, compact_list, budget_check, replay_snapshot, policy_check (ADR-0063) |
+| **0.9.4** | AgentSkillOS: recipe system, DAG orchestration (ADR-0062) |
+| **0.9.3** | sqz-inspired string/list/token utilities (ADR-0058+) |
+| **0.9.1** | Collection ops sync (142 builtins), BUILTIN_REGISTRY SSOT |
 | **0.8.9** | Fix: else-branch parsing (else dropped silently), Fix: BlockIfElse mutation loss, 4 contract tests |
 | **0.8.8** | Semantic fixes, compiler/VM builtin sync, variadic min-arity, 17 integration tests, chrono fix |
 | **0.8.7** | Cron force_run bugfix, Memory Tree L2 global summary, mtree_stats |
@@ -258,7 +274,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete. 21 development narads (work orders) delivered. 142 builtins, 33 test files, 78 golden-file examples, 63 ADRs.
+All 8 milestones and 8+ phases complete. 21+ development narads (work orders) delivered. 177 builtins, 33 test files, 78+ golden-file examples, 64 ADRs.
 
 ### Next
 

@@ -2645,6 +2645,15 @@ fn builtin_make_list(args: &[Value]) -> Result<Value, String> {
 
 // ── OpenPlanter-inspired: Fuzzy matching, safe editing, agent utilities (ADR-0063) ──
 
+/// Helper: build a Value::Struct from a type name and a list of (key, value) pairs.
+fn make_struct(type_name: &str, fields: Vec<(&str, Value)>) -> Value {
+    let mut map = std::collections::HashMap::new();
+    for (k, v) in fields {
+        map.insert(k.to_string(), v);
+    }
+    Value::Struct { type_name: type_name.to_string(), fields: map }
+}
+
 /// `fuzzy_match(a, b)` — Jaro-Winkler similarity between two strings (0.0..1.0).
 /// Ported from OpenPlanter's wiki/matching.rs NameRegistry pattern.
 fn builtin_fuzzy_match(args: &[Value]) -> Result<Value, String> {
@@ -2926,14 +2935,6 @@ fn builtin_policy_check(args: &[Value]) -> Result<Value, String> {
 mod tests {
     use super::*;
 
-    fn make_struct(fields: Vec<(&str, Value)>) -> Value {
-        let mut map = std::collections::HashMap::new();
-        for (k, v) in fields {
-            map.insert(k.to_string(), v);
-        }
-        Value::Struct { type_name: "Test".to_string(), fields: map }
-    }
-
     fn is_string(val: &Value, expected: &str) -> bool {
         matches!(val, Value::String(s) if s == expected)
     }
@@ -2948,7 +2949,7 @@ mod tests {
 
     #[test]
     fn test_json_get_existing_field() {
-        let obj = make_struct(vec![
+        let obj = make_struct("Test", vec![
             ("name", Value::String("Alice".to_string())),
             ("age", Value::Float(25.0)),
         ]);
@@ -2958,14 +2959,14 @@ mod tests {
 
     #[test]
     fn test_json_get_missing_field_returns_unit() {
-        let obj = make_struct(vec![("name", Value::String("Alice".to_string()))]);
+        let obj = make_struct("Test", vec![("name", Value::String("Alice".to_string()))]);
         let result = builtin_json_get(&[obj, Value::String("voice".to_string())]).unwrap();
         assert!(is_unit(&result), "expected Unit, got {:?}", result.type_name());
     }
 
     #[test]
     fn test_json_get_missing_field_returns_custom_default() {
-        let obj = make_struct(vec![("name", Value::String("Alice".to_string()))]);
+        let obj = make_struct("Test", vec![("name", Value::String("Alice".to_string()))]);
         let result = builtin_json_get(&[
             obj,
             Value::String("voice".to_string()),
@@ -2976,8 +2977,8 @@ mod tests {
 
     #[test]
     fn test_json_get_nested_path() {
-        let inner = make_struct(vec![("file_id", Value::String("abc123".to_string()))]);
-        let obj = make_struct(vec![("voice", inner)]);
+        let inner = make_struct("Test", vec![("file_id", Value::String("abc123".to_string()))]);
+        let obj = make_struct("Test", vec![("voice", inner)]);
         let result = builtin_json_get(&[
             obj,
             Value::String("voice.file_id".to_string()),
@@ -2987,7 +2988,7 @@ mod tests {
 
     #[test]
     fn test_json_get_nested_path_missing() {
-        let obj = make_struct(vec![("text", Value::String("hello".to_string()))]);
+        let obj = make_struct("Test", vec![("text", Value::String("hello".to_string()))]);
         let result = builtin_json_get(&[
             obj,
             Value::String("voice.file_id".to_string()),
@@ -3009,29 +3010,29 @@ mod tests {
 
     #[test]
     fn test_has_field_existing() {
-        let obj = make_struct(vec![("voice", Value::String("data".to_string()))]);
+        let obj = make_struct("Test", vec![("voice", Value::String("data".to_string()))]);
         let result = builtin_has_field(&[obj, Value::String("voice".to_string())]).unwrap();
         assert!(is_float(&result, 1.0));
     }
 
     #[test]
     fn test_has_field_missing() {
-        let obj = make_struct(vec![("text", Value::String("hi".to_string()))]);
+        let obj = make_struct("Test", vec![("text", Value::String("hi".to_string()))]);
         let result = builtin_has_field(&[obj, Value::String("voice".to_string())]).unwrap();
         assert!(is_float(&result, 0.0));
     }
 
     #[test]
     fn test_has_field_nested() {
-        let inner = make_struct(vec![("file_id", Value::String("x".to_string()))]);
-        let obj = make_struct(vec![("voice", inner)]);
+        let inner = make_struct("Test", vec![("file_id", Value::String("x".to_string()))]);
+        let obj = make_struct("Test", vec![("voice", inner)]);
         let result = builtin_has_field(&[obj, Value::String("voice.file_id".to_string())]).unwrap();
         assert!(is_float(&result, 1.0));
     }
 
     #[test]
     fn test_json_encode_roundtrip() {
-        let obj = make_struct(vec![
+        let obj = make_struct("Test", vec![
             ("key", Value::String("value".to_string())),
             ("num", Value::Float(42.0)),
         ]);

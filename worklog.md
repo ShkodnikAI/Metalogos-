@@ -198,3 +198,23 @@ Stage Summary:
 - All docs now reflect v0.8.8
 - Pushed 3 commits to origin/main (51acf16..e7a5cfa)
 - CI will rebuild with chrono fix
+
+---
+Task ID: 18
+Agent: main
+Task: v0.9.5 — OpenPlanter-inspired agent utility builtins
+
+Work Log:
+- Researched OpenPlanter repo (MIT, recursive LLM investigation agent in Rust+Python)
+- Identified 18 features, selected 8 most applicable for Metalogos builtins
+- Added strsim + crc32fast dependencies to Cargo.toml
+- Implemented 8 builtins in src/builtins.rs: fuzzy_match, fuzzy_find_best, hashline_read, hashline_edit, compact_list, budget_check, replay_snapshot, policy_check
+- Added 2 helper functions (compute_line_hash, parse_line_ref) + 20 unit tests
+- Created ADR-0063, updated CHANGELOG, README, created examples/openplanter_demo.mlog
+- Committed as addfa22, pushed to origin/main
+- No Rust toolchain available in environment — binary rebuild required locally
+
+Stage Summary:
+- v0.9.5: 8 new builtins, 20 tests, ~590 lines added
+- Total builtins: 177 (was 169)
+- Commit: addfa22, pushed to origin/main

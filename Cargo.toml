@@ -1,6 +1,6 @@
 [package]
 name = "metalogos"
-version = "0.9.4"
+version = "0.9.5"
 edition = "2021"
 description = "METALOGOS — AI-native programming language with security by design"
 
@@ -51,6 +51,10 @@ chrono = "0.4"
 
 # v0.8.10: Memory Graph — petgraph for knowledge graph operations
 petgraph = "0.7"
+
+# v0.9.5: OpenPlanter-inspired features
+strsim = "0.11"
+crc32fast = "1.4"
 
 [dev-dependencies]
 tempfile = "3"

@@ -6633,13 +6633,10 @@ fn builtin_recipe_save(args: &[Value]) -> Result<Value, String> {
 
     // Return the recipe as a Struct for the caller; actual KV persistence
     // happens when the caller does kv_set(kv_key, recipe_str).
-    // For convenience, we return the key and the recipe JSON.
-    let result = serde_json::json!({
-        "key": kv_key,
-        "recipe": recipe
-    });
-    json_to_mlog_value(&result)
-        .ok_or_else(|| "recipe_save: failed to build result struct".into())
+    Ok(make_struct("RecipeSaveResult", vec![
+        ("key", Value::String(kv_key)),
+        ("recipe", Value::String(recipe_str)),
+    ]))
 }
 
 /// `recipe_search(query)` — search recipes by description similarity (substring match).

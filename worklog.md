@@ -218,3 +218,20 @@ Stage Summary:
 - v0.9.5: 8 new builtins, 20 tests, ~590 lines added
 - Total builtins: 177 (was 169)
 - Commit: addfa22, pushed to origin/main
+---
+Task ID: O-1
+Agent: main
+Task: Наряд O-1 — закрыть порт-гонку, переход на mlog 0.9.5
+
+Work Log:
+- Клонирован FOSVED-office-v2
+- Предусловия: main=9ef0a4e, chore/mlog-0.9.5=a447101
+- Ветка feat/o1-mlog095-hostbind от chore/mlog-0.9.5
+- A.1: host: 127.0.0.1 добавлен в mlogserver
+- A.2: llm_proxy.py:4735 0.0.0.0 → 127.0.0.1
+- Локально: mlog 0.9.5, 0 parse error, listening on 127.0.0.1:10001
+- git diff --stat = 2 файла
+- Запушено fffb728
+
+Stage Summary:
+- Блок A выполнен, ветка готова к мёржу после разрешения аудитора

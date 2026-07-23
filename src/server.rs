@@ -200,6 +200,7 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
     };
 
     let port = config.port;
+    let host = config.host.clone().unwrap_or_else(|| "0.0.0.0".to_string());
     let state = build_state(config, interp).await;
     let app = build_router(state.clone());
 
@@ -275,9 +276,9 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
         }
     });
 
-    println!("mlog serve: listening on 0.0.0.0:{}", port);
+    println!("mlog serve: listening on {}:{}", host, port);
     println!("mlog serve: scheduler active (5s interval — reminders + cron)");
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
+    let listener = tokio::net::TcpListener::bind(format!("{}:{}", host, port)).await?;
     axum::serve(listener, app).await?;
     Ok(())
 }

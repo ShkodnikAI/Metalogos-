@@ -51,8 +51,9 @@ HOOK_KW       = @{ "hook" }
 // server { port: 8080  middleware: [session, csrf, security_headers]  route "/path" method=GET requires=[role] { body } }
 // "server" is an alias for "mlogserver" (Наряд №7 final integration)
 mlogserver_decl    = { "mlogserver" ~ LBRACE ~ mlogserver_body ~ RBRACE | "server" ~ LBRACE ~ mlogserver_body ~ RBRACE }
-mlogserver_body    = { mlogserver_port? ~ mlogserver_middleware? ~ route_decl* ~ WHITESPACE* }
+mlogserver_body    = { mlogserver_port? ~ mlogserver_host? ~ mlogserver_middleware? ~ route_decl* ~ WHITESPACE* }
 mlogserver_port    = { "port" ~ COLON ~ INT }
+mlogserver_host    = { "host" ~ COLON ~ STRING_LITERAL }
 mlogserver_middleware = { "middleware" ~ COLON ~ LBRACKET ~ ident_list? ~ RBRACKET }
 route_decl         = { "route" ~ STRING_LITERAL ~ "method" ~ ASSIGN ~ IDENT ~ route_requires? ~ LBRACE ~ statement* ~ RBRACE }
 route_requires     = { "requires" ~ ASSIGN ~ LBRACKET ~ ident_list? ~ RBRACKET }
@@ -265,7 +266,7 @@ flow_step     = { ARROW ~ (checkpoint_call | step_ident) }
 checkpoint_call = { CHECKPOINT_KW ~ "(" ~ STRING_LITERAL ~ ")" }
 CHECKPOINT_KW = @{ "checkpoint" }
 branch_def    = { step_ident ~ LBRACE ~ branch* ~ RBRACE }
-step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "adapt" | "add_example" | "relate" | "sandbox" | "mutate" | "eval" | "dataset" | "metric" | "threshold" | "allowed" | "forbidden" | "timeout" | "rollback_if" | "accuracy" | "to" | "as" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or" | "each" | "while" | "server" | "mlogserver" | "template" | "route" | "middleware" | "port" | "method" | "requires" | "db" | "schema" | "table" | "migrate" | "pool_size" | "memory" | "persist" | "kv" | "type" | "else" | "hook" | "before_pattern" | "after_pattern" | "match" | "starts_with" | "conversation" | "tool" | "checkpoint" | "llm" | "providers" | "default_model" | "failover" | "circuit_breaker" | "alias" | "provider" | "key" | "url" | "break" | "continue" | "skill_index" | "tier" | "when_matches" | "always" | "triggers" | "skill" | "budget" | "tokens" | "truncation" | "context_budget" | "limit") ~ IDENT }
+step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "adapt" | "add_example" | "relate" | "sandbox" | "mutate" | "eval" | "dataset" | "metric" | "threshold" | "allowed" | "forbidden" | "timeout" | "rollback_if" | "accuracy" | "to" | "as" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or" | "each" | "while" | "server" | "mlogserver" | "template" | "route" | "middleware" | "port" | "method" | "requires" | "db" | "schema" | "table" | "migrate" | "pool_size" | "memory" | "persist" | "kv" | "type" | "else" | "hook" | "before_pattern" | "after_pattern" | "match" | "starts_with" | "conversation" | "tool" | "checkpoint" | "llm" | "providers" | "default_model" | "failover" | "circuit_breaker" | "alias" | "provider" | "key" | "url" | "break" | "continue" | "skill_index" | "tier" | "when_matches" | "always" | "triggers" | "skill" | "budget" | "tokens" | "truncation" | "context_budget" | "limit" | "host") ~ IDENT }
 branch        = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
 branch_condition = { IDENT ~ "." ~ IDENT ~ compare_op ~ expression }
 

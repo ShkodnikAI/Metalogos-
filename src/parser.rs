@@ -114,6 +114,11 @@ fn parse_mlogserver_decl(pair: Pair<Rule>) -> Declaration {
         .and_then(|s| s.parse().ok())
         .unwrap_or(8080);
 
+    let host: Option<String> = body_children.iter()
+        .find(|c| c.as_rule() == Rule::mlogserver_host)
+        .and_then(|c| find_child_str(&children_of(c), Rule::STRING_LITERAL))
+        .map(|s| s.trim_matches('"').to_string());
+
     let mut middleware = Vec::new();
     for child in &body_children {
         if child.as_rule() == Rule::mlogserver_middleware {
@@ -131,7 +136,7 @@ fn parse_mlogserver_decl(pair: Pair<Rule>) -> Declaration {
         .map(|c| parse_route_decl(c.clone()))
         .collect();
 
-    Declaration::MlogServer(MlogServerDecl { port, middleware, routes })
+    Declaration::MlogServer(MlogServerDecl { port, host, middleware, routes })
 }
 
 fn parse_route_decl(pair: Pair<Rule>) -> RouteDecl {

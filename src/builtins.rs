@@ -6932,33 +6932,78 @@ fn builtin_semantic_search(args: &[Value]) -> Result<Value, String> {
     Ok(Value::List(results))
 }
 
-/// `config_load(path)` — load a JSON config file and return as struct.
+/// `config_load(path)` — load a JSON or YAML config file and return as struct.
 ///
 /// Inspired by obsidian-mind's vault-manifest.json pattern:
 /// a single coordination file that all layers read from.
 ///
-/// Loads a JSON file from disk, parses it, and converts to a Metalogos
-/// struct. The type_name is derived from the filename stem
-/// (e.g., "vault-manifest.json" → type "vault-manifest").
+/// Loads a file from disk, auto-detecting format by extension:
+/// - .yaml / .yml → parsed as YAML
+/// - .json / other → parsed as JSON
 ///
-/// This enables the manifest/coordination-point pattern where one file
-/// defines version, boundaries, and schema for the entire program —
-/// exactly how obsidian-mind uses vault-manifest.json.
+/// The result is converted to a Metalogos struct. The type_name is derived
+/// from the filename stem (e.g., "vault-manifest.json" → type "vault-manifest").
 fn builtin_config_load(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("config_load", args, 0)?;
 
     let content = std::fs::read_to_string(&path)
         .map_err(|e| format!("config_load: cannot read '{}': {}", path, e))?;
 
-    let parsed: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("config_load: JSON parse error in '{}': {}", path, e))?;
-
     let type_name = std::path::Path::new(&path)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("Config");
 
+    // Auto-detect format by extension
+    let is_yaml = path.to_lowercase().ends_with(".yaml") || path.to_lowercase().ends_with(".yml");
+
+    let parsed: serde_json::Value = if is_yaml {
+        let yaml_val: serde_yaml::Value = serde_yaml::from_str(&content)
+            .map_err(|e| format!("config_load: YAML parse error in '{}': {}", path, e))?;
+        // Convert serde_yaml::Value to serde_json::Value for unified processing
+        yaml_to_json_value(&yaml_val)
+    } else {
+        serde_json::from_str(&content)
+            .map_err(|e| format!("config_load: JSON parse error in '{}': {}", path, e))?
+    };
+
     Ok(json_value_to_mlog_value_with_type(&parsed, type_name))
+}
+
+/// Convert serde_yaml::Value to serde_json::Value for unified config processing.
+fn yaml_to_json_value(yaml: &serde_yaml::Value) -> serde_json::Value {
+    match yaml {
+        serde_yaml::Value::Null => serde_json::Value::Null,
+        serde_yaml::Value::Bool(b) => serde_json::Value::Bool(*b),
+        serde_yaml::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                serde_json::Value::Number(i.into())
+            } else if let Some(f) = n.as_f64() {
+                serde_json::Number::from_f64(f)
+                    .map(serde_json::Value::Number)
+                    .unwrap_or(serde_json::Value::Null)
+            } else {
+                serde_json::Value::Null
+            }
+        }
+        serde_yaml::Value::String(s) => serde_json::Value::String(s.clone()),
+        serde_yaml::Value::Sequence(seq) => {
+            serde_json::Value::Array(seq.iter().map(yaml_to_json_value).collect())
+        }
+        serde_yaml::Value::Mapping(map) => {
+            let mut obj = serde_json::Map::new();
+            for (k, v) in map {
+                if let Some(key_str) = k.as_str() {
+                    obj.insert(key_str.to_string(), yaml_to_json_value(v));
+                }
+            }
+            serde_json::Value::Object(obj)
+        }
+        serde_yaml::Value::Tagged(tagged) => {
+            // YAML tags — just convert the value, ignoring the tag
+            yaml_to_json_value(&tagged.value)
+        }
+    }
 }
 
 /// Like json_value_to_mlog_value but with a custom type_name for the root struct.

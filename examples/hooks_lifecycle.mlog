@@ -1,0 +1,63 @@
+// ── O-2 Demo: 5 lifecycle hooks ──────────────────────────────
+// Inspired by obsidian-mind's 5-point hook pipeline.
+// This file demonstrates all 5 hook lifecycle points.
+
+// 1. on_session_start — fires once at program start
+hook on_session_start {
+    mem_set("session_start_time", now_iso())
+    mem_set("write_log", "")
+}
+
+// 2. on_write — fires before every mutating builtin
+hook on_write {
+    let current = mem_get("write_log")
+    mem_set("write_log", current + " | " + target)
+}
+
+// 3. before_pattern — fires before every pattern call
+hook before_pattern {
+    let count_str = mem_get("pattern_count")
+    let count = to_float(count_str) + 1.0
+    mem_set("pattern_count", to_string(count))
+}
+
+// 4. after_pattern — fires after every pattern returns
+hook after_pattern {
+    let log = mem_get("call_log")
+    mem_set("call_log", log + " | " + pattern_name)
+}
+
+// 5. on_session_end — fires once at program end
+hook on_session_end {
+    let end_time = now_iso()
+    let start = mem_get("session_start_time")
+    let writes = mem_get("write_log")
+    let calls = mem_get("pattern_count")
+    let call_log = mem_get("call_log")
+    print("Session: " + start + " -> " + end_time)
+    print("Pattern calls: " + calls)
+    print("Write targets:" + writes)
+    print("Call sequence:" + call_log)
+}
+
+// ── Test patterns ──────────────────────────────────────────────
+pattern Greet(name: String) -> String {
+    return "Hello, " + name + "!"
+}
+
+pattern Add(a: Float, b: Float) -> Float {
+    return a + b
+}
+
+// Initialize counters
+mem_set("pattern_count", "0")
+mem_set("call_log", "")
+
+// These will trigger hooks
+let g1 = Greet("Alice")
+let g2 = Greet("Bob")
+let sum = Add(3.0, 4.0)
+
+print(g1)
+print(g2)
+print(to_string(sum))

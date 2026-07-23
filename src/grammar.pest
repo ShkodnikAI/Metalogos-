@@ -42,9 +42,12 @@ TOOL_KW      = @{ "tool" }
 // Variables available inside hook body:
 //   pattern_name (String), args (List), result (after only), confidence (after only)
 hook_decl     = { HOOK_KW ~ hook_kind ~ LBRACE ~ statement* ~ RBRACE }
-hook_kind     = _{ BEFORE_PATTERN_KW | AFTER_PATTERN_KW }
-BEFORE_PATTERN_KW = @{ "before_pattern" }
-AFTER_PATTERN_KW  = @{ "after_pattern" }
+hook_kind     = _{ BEFORE_PATTERN_KW | AFTER_PATTERN_KW | ON_SESSION_START_KW | ON_WRITE_KW | ON_SESSION_END_KW }
+BEFORE_PATTERN_KW    = @{ "before_pattern" }
+AFTER_PATTERN_KW     = @{ "after_pattern" }
+ON_SESSION_START_KW  = @{ "on_session_start" }
+ON_WRITE_KW          = @{ "on_write" }
+ON_SESSION_END_KW    = @{ "on_session_end" }
 HOOK_KW       = @{ "hook" }
 
 // ── MlogServer (Phase 6.1) ──────────────────────────────────────
@@ -266,7 +269,7 @@ flow_step     = { ARROW ~ (checkpoint_call | step_ident) }
 checkpoint_call = { CHECKPOINT_KW ~ "(" ~ STRING_LITERAL ~ ")" }
 CHECKPOINT_KW = @{ "checkpoint" }
 branch_def    = { step_ident ~ LBRACE ~ branch* ~ RBRACE }
-step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "adapt" | "add_example" | "relate" | "sandbox" | "mutate" | "eval" | "dataset" | "metric" | "threshold" | "allowed" | "forbidden" | "timeout" | "rollback_if" | "accuracy" | "to" | "as" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or" | "each" | "while" | "server" | "mlogserver" | "template" | "route" | "middleware" | "port" | "method" | "requires" | "db" | "schema" | "table" | "migrate" | "pool_size" | "memory" | "persist" | "kv" | "type" | "else" | "hook" | "before_pattern" | "after_pattern" | "match" | "starts_with" | "conversation" | "tool" | "checkpoint" | "llm" | "providers" | "default_model" | "failover" | "circuit_breaker" | "alias" | "provider" | "key" | "url" | "break" | "continue" | "skill_index" | "tier" | "when_matches" | "always" | "triggers" | "skill" | "budget" | "tokens" | "truncation" | "context_budget" | "limit" | "host") ~ IDENT }
+step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "adapt" | "add_example" | "relate" | "sandbox" | "mutate" | "eval" | "dataset" | "metric" | "threshold" | "allowed" | "forbidden" | "timeout" | "rollback_if" | "accuracy" | "to" | "as" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or" | "each" | "while" | "server" | "mlogserver" | "template" | "route" | "middleware" | "port" | "method" | "requires" | "db" | "schema" | "table" | "migrate" | "pool_size" | "memory" | "persist" | "kv" | "type" | "else" | "hook" | "before_pattern" | "after_pattern" | "on_session_start" | "on_write" | "on_session_end" | "match" | "starts_with" | "conversation" | "tool" | "checkpoint" | "llm" | "providers" | "default_model" | "failover" | "circuit_breaker" | "alias" | "provider" | "key" | "url" | "break" | "continue" | "skill_index" | "tier" | "when_matches" | "always" | "triggers" | "skill" | "budget" | "tokens" | "truncation" | "context_budget" | "limit" | "host") ~ IDENT }
 branch        = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
 branch_condition = { IDENT ~ "." ~ IDENT ~ compare_op ~ expression }
 

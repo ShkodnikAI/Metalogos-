@@ -830,8 +830,14 @@ fn parse_hook_decl(pair: Pair<Rule>) -> Declaration {
             let kind_children = children_of(c);
             if kind_children.iter().any(|kc| kc.as_rule() == Rule::BEFORE_PATTERN_KW) {
                 HookPhase::BeforePattern
-            } else {
+            } else if kind_children.iter().any(|kc| kc.as_rule() == Rule::AFTER_PATTERN_KW) {
                 HookPhase::AfterPattern
+            } else if kind_children.iter().any(|kc| kc.as_rule() == Rule::ON_SESSION_START_KW) {
+                HookPhase::OnSessionStart
+            } else if kind_children.iter().any(|kc| kc.as_rule() == Rule::ON_WRITE_KW) {
+                HookPhase::OnWrite
+            } else {
+                HookPhase::OnSessionEnd
             }
         })
         .unwrap_or(HookPhase::BeforePattern);

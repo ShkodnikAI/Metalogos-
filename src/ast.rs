@@ -358,20 +358,32 @@ pub struct SandboxDecl {
     pub timeout: i64,
 }
 
-// ── Hook (ADR-0045): before_pattern / after_pattern ──────────────────────
+// ── Hook (ADR-0045 + O-2): lifecycle hooks ──────────────────────────────
 
-/// Hook phase: before or after pattern invocation.
+/// Hook phase: 5 lifecycle points inspired by obsidian-mind.
+/// before_pattern / after_pattern fire around every pattern invocation (ADR-0045).
+/// on_session_start fires once at interpreter run() entry.
+/// on_write fires before every mutating builtin (mem_set, mtree_store, db_execute, write_file, append_file).
+/// on_session_end fires once at interpreter run() exit.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HookPhase {
     /// Execute statements BEFORE the pattern is invoked.
     BeforePattern,
     /// Execute statements AFTER the pattern returns.
     AfterPattern,
+    /// Execute statements once at session start (beginning of run()).
+    OnSessionStart,
+    /// Execute statements BEFORE every write builtin (mem_set, mtree_store, db_execute, write_file, append_file).
+    OnWrite,
+    /// Execute statements once at session end (end of run()).
+    OnSessionEnd,
 }
 
 /// `hook before_pattern { <statements> }` or `hook after_pattern { <statements> }`
-/// Variables available in hook body: pattern_name (String), args (List),
-/// result (after only), confidence (after only).
+/// `hook on_session_start { <statements> }` or `hook on_write { <statements> }` or `hook on_session_end { <statements> }`
+/// Variables available in hook body depend on phase:
+///   pattern hooks: pattern_name (String), args (List), result (after only), confidence (after only)
+///   on_write: target (String), args (List)
 #[derive(Debug, Clone)]
 pub struct HookDecl {
     pub phase: HookPhase,

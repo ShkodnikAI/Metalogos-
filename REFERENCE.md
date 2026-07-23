@@ -763,14 +763,29 @@ llm {
 }
 ```
 
-### 5.12. Hook (хуки паттернов)
+### 5.12. Hook (lifecycle hooks, ADR-0045 + ADR-0064)
+
+5 lifecycle points (inspired by obsidian-mind):
+
+| Hook | Точка срабатывания | Переменные |
+|------|-------------------|-------------|
+| `hook on_session_start { ... }` | Начало `run()` | (нет) |
+| `hook on_write { ... }` | Перед write-билтинами | `target`, `args` |
+| `hook before_pattern { ... }` | Перед вызовом паттерна | `pattern_name`, `args` |
+| `hook after_pattern { ... }` | После возврата паттерна | `pattern_name`, `args`, `result`, `confidence` |
+| `hook on_session_end { ... }` | Конец `run()` | (нет) |
+
+Write-билтины (триггерят `on_write`): `mem_set`, `mtree_store`, `db_execute`, `write_file`, `append_file`.
 
 ```mlog
+hook on_session_start { mem_set("start_time", now_iso()) }
+hook on_write { print("WRITE: " + target) }
 hook before_pattern { print("calling: " + pattern_name) }
-hook after_pattern { print("result: " + to_string(result) + " confidence: " + to_string(confidence)) }
+hook after_pattern { print("result: " + to_string(result)) }
+hook on_session_end { print("Session done") }
 ```
 
-Переменные внутри хука: `pattern_name`, `args`, `result` (только after), `confidence` (только after).
+Ошибки в хуках игнорируются (advisory, не blocking).
 
 ### 5.13. Tool (абстракция инструментов)
 

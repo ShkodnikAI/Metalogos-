@@ -235,3 +235,23 @@ Work Log:
 
 Stage Summary:
 - Блок A выполнен, ветка готова к мёржу после разрешения аудитора
+---
+Task ID: ML-2
+Agent: main
+Task: v0.10.0 — vault/memory builtins inspired by obsidian-mind
+
+Work Log:
+- Изучен паттерн регистрации builtins (BUILTIN_REGISTRY + Builtins::new)
+- Изучен EmbeddingManager (OpenAI + TF-IDF fallback, cosine_similarity)
+- Добавлен semantic_search(query, documents, top_k) → Vec<SearchResult>
+- Добавлен config_load(path) → struct (JSON файл в Metalogos struct)
+- Добавлен vault_validate(config, required_fields) → ValidationResult
+- BUILTIN_REGISTRY: +3 entries (category vault)
+- Version bumped 0.9.5 → 0.10.0
+- README badge + CHANGELOG updated
+- cargo build --release --bin mlog: 0 errors, 18 warnings (pre-existing)
+- Pushed to origin/main: 620803f
+
+Stage Summary:
+- 3 новых builtin, бинарник mlog 0.10.0 собран
+- Бинарник в target/release/mlog (не скопирован в FOSVED — repo отсутствует)

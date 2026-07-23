@@ -104,6 +104,7 @@ pub struct LlmConfigDecl {
 #[derive(Debug, Clone)]
 pub struct MlogServerDecl {
     pub port: u16,
+    pub host: Option<String>,
     pub middleware: Vec<String>,
     pub routes: Vec<RouteDecl>,
 }

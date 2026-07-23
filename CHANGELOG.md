@@ -2,6 +2,23 @@
 
 All notable changes to the Metalogos project.
 
+## [0.9.6] — 2026-07-23
+
+**Narad ML-1: host key in mlogserver + json_get NULL fix.**
+
+### Bug fixes
+
+- **mlogserver `host:` key** (баг №2): блок `mlogserver` теперь принимает опциональный ключ `host: "127.0.0.1"` для биндинга на указанный адрес вместо жёстко зашитого `0.0.0.0`. Закрывает гонку портов на Render. Обратная совместимость: отсутствие `host:` → дефолт `"0.0.0.0"`.
+- **`json_get` SQL NULL** (баг №1): `json_get(row, key, default)` теперь возвращает `default`, когда значение поля — SQL NULL (`Value::Unit`). Раньше возвращал `Unit`, что вызывало `type mismatch` при конкатенации `String + Unit`. Двухаргументная форма (без default) не изменена.
+
+### Изменённые файлы
+
+- `src/grammar.pest` — правило `mlogserver_host`, `"host"` в `step_ident` исключениях
+- `src/ast.rs` — поле `host: Option<String>` в `MlogServerDecl`
+- `src/parser.rs` — разбор `host` в `parse_mlogserver_decl`
+- `src/server.rs` — биндинг на `config.host` с fallback `"0.0.0.0"`
+- `src/builtins.rs` — проверка `Value::Unit` в 3-аргументной ветке `json_get`
+
 ## [0.9.5] — 2026-07-21
 
 **OpenPlanter-inspired: Agent utility builtins (ADR-0063).**

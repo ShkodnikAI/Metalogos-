@@ -555,11 +555,15 @@ pub struct Interpreter {
     /// Key = hash(effective_prompt + input), Value = cached response + timestamp.
     /// Checked before every LLM call for learnable patterns with cache: true.
     llm_cache: std::sync::Mutex<HashMap<u64, LlmCacheEntry>>,
-    /// Registered hooks (ADR-0045): before_pattern and after_pattern.
-    /// Stored in declaration order; all before hooks fire before every pattern invocation,
-    /// all after hooks fire after every pattern invocation.
+    /// Registered hooks (ADR-0045 + O-2): 5 lifecycle points.
+    /// Pattern hooks fire around every pattern invocation.
+    /// Session hooks fire once at run() entry/exit.
+    /// Write hooks fire before every mutating builtin.
     hooks_before: Vec<HookDecl>,
     hooks_after: Vec<HookDecl>,
+    hooks_session_start: Vec<HookDecl>,
+    hooks_on_write: Vec<HookDecl>,
+    hooks_session_end: Vec<HookDecl>,
     /// Eval blocks (ADR-0050): collected during run(), executed by run_eval_blocks().
     eval_blocks: Vec<EvalDecl>,
     /// Per-pattern runtime statistics (ADR-0051): calls, confidence, cache hits, adapt info.
@@ -661,6 +665,9 @@ impl Interpreter {
             llm_cache: std::sync::Mutex::new(HashMap::new()),
             hooks_before: Vec::new(),
             hooks_after: Vec::new(),
+            hooks_session_start: Vec::new(),
+            hooks_on_write: Vec::new(),
+            hooks_session_end: Vec::new(),
             eval_blocks: Vec::new(),
             pattern_stats: std::sync::Mutex::new(std::collections::HashMap::new()),
             event_log: std::sync::Mutex::new(Vec::new()),
@@ -1173,7 +1180,34 @@ impl Interpreter {
     pub fn run(&mut self, declarations: Vec<Declaration>) -> Result<Option<String>, String> {
         let mut output: Option<String> = None;
 
-        for decl in declarations {
+        // O-2: Fire on_session_start hooks (first pass: register them, then fire)
+        // We do a two-phase approach: first collect all declarations to register hooks,
+        // then fire session_start, then process remaining declarations.
+        // Simpler approach: fire session_start hooks AFTER all declarations are registered.
+        // We split: first pass registers all hooks, second pass fires session_start then processes the rest.
+        let mut remaining_decls = Vec::new();
+        for decl in &declarations {
+            match decl {
+                Declaration::Hook(h) => {
+                    match h.phase {
+                        HookPhase::OnSessionStart => self.hooks_session_start.push(h.clone()),
+                        HookPhase::OnWrite => self.hooks_on_write.push(h.clone()),
+                        HookPhase::OnSessionEnd => self.hooks_session_end.push(h.clone()),
+                        HookPhase::BeforePattern => self.hooks_before.push(h.clone()),
+                        HookPhase::AfterPattern => self.hooks_after.push(h.clone()),
+                    }
+                }
+                _ => remaining_decls.push(decl.clone()),
+            }
+        }
+
+        // Fire on_session_start hooks
+        for hook in &self.hooks_session_start {
+            let mut hook_env = HashMap::new();
+            let _ = self.eval_statements(&hook.body, &mut hook_env);
+        }
+
+        for decl in remaining_decls {
             match decl {
                 Declaration::Import(import) => {
                     self.handle_import(&import)?;
@@ -1327,10 +1361,13 @@ impl Interpreter {
                     self.sandboxes.insert(s.name.clone(), s);
                 }
                 Declaration::Hook(h) => {
-                    // ADR-0045: register hooks in declaration order
+                    // ADR-0045 + O-2: register hooks in declaration order by phase
                     match h.phase {
                         HookPhase::BeforePattern => self.hooks_before.push(h),
                         HookPhase::AfterPattern => self.hooks_after.push(h),
+                        HookPhase::OnSessionStart => self.hooks_session_start.push(h),
+                        HookPhase::OnWrite => self.hooks_on_write.push(h),
+                        HookPhase::OnSessionEnd => self.hooks_session_end.push(h),
                     }
                 }
                 Declaration::Mutate(m) => {
@@ -1404,6 +1441,12 @@ impl Interpreter {
                     self.skill_indices.insert(idx.name.clone(), idx);
                 }
             }
+        }
+
+        // O-2: Fire on_session_end hooks
+        for hook in &self.hooks_session_end {
+            let mut hook_env = HashMap::new();
+            let _ = self.eval_statements(&hook.body, &mut hook_env);
         }
 
         Ok(output)
@@ -1640,6 +1683,9 @@ impl Interpreter {
                     match h.phase {
                         HookPhase::BeforePattern => self.hooks_before.push(h),
                         HookPhase::AfterPattern => self.hooks_after.push(h),
+                        HookPhase::OnSessionStart => self.hooks_session_start.push(h),
+                        HookPhase::OnWrite => self.hooks_on_write.push(h),
+                        HookPhase::OnSessionEnd => self.hooks_session_end.push(h),
                     }
                 }
                 Declaration::MlogServer(srv) => {
@@ -2098,6 +2144,10 @@ impl Interpreter {
                     }
                 }
             }
+            // O-2: Fire on_write hooks before mutating builtins
+            if Self::is_write_builtin(name) {
+                self.fire_on_write_hooks(name, &args);
+            }
             return builtin_fn(&args);
         }
 
@@ -2125,6 +2175,30 @@ impl Interpreter {
     }
 
     /// ADR-0045: Execute a pattern invocation wrapped with before/after hooks.
+    /// O-2: Fire on_write hooks before mutating builtins.
+    /// Write builtins: mem_set, mtree_store, db_execute, write_file, append_file.
+    fn fire_on_write_hooks(&self, target: &str, args: &[Value]) {
+        if self.hooks_on_write.is_empty() {
+            return;
+        }
+        let mut hook_env = HashMap::new();
+        hook_env.insert("target".to_string(), Value::String(target.to_string()));
+        hook_env.insert("args".to_string(), Value::List(args.to_vec()));
+        for hook in &self.hooks_on_write {
+            // Ignore hook errors — hooks are advisory, not blocking
+            let _ = self.eval_statements(&hook.body, &mut hook_env);
+        }
+    }
+
+    /// Write-builtin names that trigger on_write hooks.
+    const WRITE_BUILTINS: &'static [&'static str] = &[
+        "mem_set", "mtree_store", "db_execute", "write_file", "append_file",
+    ];
+
+    fn is_write_builtin(name: &str) -> bool {
+        Self::WRITE_BUILTINS.contains(&name)
+    }
+
     /// Injects hook variables: pattern_name (String), args (List),
     /// result (after only), confidence (after only).
     /// Builtins are NOT wrapped — only user-defined patterns and learnable patterns.
@@ -3242,6 +3316,15 @@ impl Interpreter {
         for h in &self.hooks_after {
             decls.push(Declaration::Hook(h.clone()));
         }
+        for h in &self.hooks_session_start {
+            decls.push(Declaration::Hook(h.clone()));
+        }
+        for h in &self.hooks_on_write {
+            decls.push(Declaration::Hook(h.clone()));
+        }
+        for h in &self.hooks_session_end {
+            decls.push(Declaration::Hook(h.clone()));
+        }
         decls
     }
 
@@ -3288,12 +3371,21 @@ impl Interpreter {
         // EmbeddingManager is cheap to clone; it lazily initializes backends.
         // We don't clone the internal cache/embeddings — each interpreter builds its own.
 
-        // Наряд №12 Bug 1: Copy hooks so they work in route handlers
+        // Наряд №12 Bug 1 + O-2: Copy all hook types so they work in route handlers
         for h in &self.hooks_before {
             target.hooks_before.push(h.clone());
         }
         for h in &self.hooks_after {
             target.hooks_after.push(h.clone());
+        }
+        for h in &self.hooks_session_start {
+            target.hooks_session_start.push(h.clone());
+        }
+        for h in &self.hooks_on_write {
+            target.hooks_on_write.push(h.clone());
+        }
+        for h in &self.hooks_session_end {
+            target.hooks_session_end.push(h.clone());
         }
         // ADR-0053: copy conversation config (conversations themselves are per-session)
         target.conversation_config = self.conversation_config.clone();
@@ -3765,6 +3857,10 @@ impl Interpreter {
                             }
                         }
                     }
+                    // O-2: Fire on_write hooks before mutating builtins
+                    if Self::is_write_builtin(&function) {
+                        self.fire_on_write_hooks(&function, &eval_args);
+                    }
                     return builtin_fn(&eval_args);
                 }
                 // Look up compiled pattern.
@@ -4078,6 +4174,10 @@ impl Interpreter {
 
                 // Check builtins
                 if let Some(builtin_fn) = self.builtins.get(name) {
+                    // O-2: Fire on_write hooks before mutating builtins
+                    if Self::is_write_builtin(name) {
+                        self.fire_on_write_hooks(name, &eval_args);
+                    }
                     let result = builtin_fn(&eval_args);
                     // Phase 7.5: Audit log for unsafe_html rendering
                     if name == "render" {

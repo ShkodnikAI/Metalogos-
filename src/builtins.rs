@@ -1,6 +1,7 @@
 // ── Built-in functions for METALOGOS M1+M2 ────────────────────────────
 
 use crate::interpreter::{Value, SecretString};
+use crate::embeddings::{EmbeddingManager, cosine_similarity};
 
 pub type BuiltinFn = fn(&[Value]) -> Result<Value, String>;
 
@@ -206,6 +207,10 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec { name: "budget_check", arity: 2, category: "meta" },
     BuiltinSpec { name: "replay_snapshot", arity: 1, category: "meta" },
     BuiltinSpec { name: "policy_check", arity: 1, category: "meta" },
+    // ── obsidian-mind inspired: Vault/memory (v0.10.0) ──
+    BuiltinSpec { name: "semantic_search", arity: 3, category: "vault" },
+    BuiltinSpec { name: "config_load", arity: 1, category: "vault" },
+    BuiltinSpec { name: "vault_validate", arity: 2, category: "vault" },
 ];
 
 /// Total number of registered builtins.
@@ -535,6 +540,11 @@ impl Builtins {
         funcs.insert("budget_check".to_string(), builtin_budget_check as BuiltinFn);
         funcs.insert("replay_snapshot".to_string(), builtin_replay_snapshot as BuiltinFn);
         funcs.insert("policy_check".to_string(), builtin_policy_check as BuiltinFn);
+
+        // ── obsidian-mind inspired: Vault/memory (v0.10.0) ──
+        funcs.insert("semantic_search".to_string(), builtin_semantic_search as BuiltinFn);
+        funcs.insert("config_load".to_string(), builtin_config_load as BuiltinFn);
+        funcs.insert("vault_validate".to_string(), builtin_vault_validate as BuiltinFn);
         Builtins { funcs }
     }
 
@@ -6845,6 +6855,157 @@ fn builtin_topo_sort(args: &[Value]) -> Result<Value, String> {
     }
 
     Ok(Value::List(result.into_iter().map(Value::String).collect()))
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ── obsidian-mind inspired: Vault/memory builtins (v0.10.0) ─────
+// ════════════════════════════════════════════════════════════════════
+
+/// `semantic_search(query, documents, top_k)` — semantic similarity search.
+///
+/// Inspired by obsidian-mind's QMD semantic search layer.
+/// Embeds the query and each document, returns top_k results as structs:
+///   { index, text, score }
+///
+/// Uses the same EmbeddingManager as the rest of Metalogos:
+/// - OpenAI text-embedding-3-small if METALOGOS_EMBEDDING_API_KEY is set
+/// - TF-IDF fallback otherwise (no API needed)
+///
+/// # Arguments
+/// * `query` — search query string
+/// * `documents` — list of document strings to search through
+/// * `top_k` — number of results to return
+fn builtin_semantic_search(args: &[Value]) -> Result<Value, String> {
+    let query = expect_string_arg("semantic_search", args, 0)?;
+    let documents = expect_list_arg("semantic_search", args, 1)?;
+    let top_k = expect_string_arg("semantic_search", args, 2)?;
+    let top_k: usize = top_k.parse().map_err(|_| {
+        format!("semantic_search: top_k must be a number string, got '{}'", args[2])
+    })?;
+
+    if documents.is_empty() {
+        return Ok(Value::List(vec![]));
+    }
+
+    // Create embedding manager (reads METALOGOS_EMBEDDING_PROVIDER env)
+    let mgr = EmbeddingManager::new();
+
+    // Embed the query
+    let query_vec = mgr.embed(&query)
+        .map_err(|e| format!("semantic_search: failed to embed query: {}", e))?;
+
+    // Score each document
+    let mut scored: Vec<(usize, f32, String)> = Vec::with_capacity(documents.len());
+    for (i, doc_val) in documents.iter().enumerate() {
+        let doc_text = format!("{}", doc_val);
+        if doc_text.is_empty() {
+            continue;
+        }
+        match mgr.embed(&doc_text) {
+            Ok(doc_vec) => {
+                let sim = cosine_similarity(&query_vec, &doc_vec);
+                scored.push((i, sim, doc_text));
+            }
+            Err(e) => {
+                // Skip documents that fail to embed rather than aborting
+                eprintln!("[semantic_search] skip doc {}: {}", i, e);
+            }
+        }
+    }
+
+    // Sort by similarity descending, take top_k
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    scored.truncate(top_k);
+
+    // Build result structs
+    let results: Vec<Value> = scored
+        .into_iter()
+        .map(|(index, score, text)| {
+            make_struct("SearchResult", vec![
+                ("index", Value::Float(index as f64)),
+                ("text", Value::String(text)),
+                ("score", Value::Float(score as f64)),
+            ])
+        })
+        .collect();
+
+    Ok(Value::List(results))
+}
+
+/// `config_load(path)` — load a JSON config file and return as struct.
+///
+/// Inspired by obsidian-mind's vault-manifest.json pattern:
+/// a single coordination file that all layers read from.
+///
+/// Loads a JSON file from disk, parses it, and converts to a Metalogos
+/// struct. The type_name is derived from the filename stem
+/// (e.g., "vault-manifest.json" → type "vault-manifest").
+///
+/// This enables the manifest/coordination-point pattern where one file
+/// defines version, boundaries, and schema for the entire program —
+/// exactly how obsidian-mind uses vault-manifest.json.
+fn builtin_config_load(args: &[Value]) -> Result<Value, String> {
+    let path = expect_string_arg("config_load", args, 0)?;
+
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("config_load: cannot read '{}': {}", path, e))?;
+
+    let parsed: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("config_load: JSON parse error in '{}': {}", path, e))?;
+
+    let type_name = std::path::Path::new(&path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Config");
+
+    Ok(json_value_to_mlog_value_with_type(&parsed, type_name))
+}
+
+/// Like json_value_to_mlog_value but with a custom type_name for the root struct.
+fn json_value_to_mlog_value_with_type(json: &serde_json::Value, type_name: &str) -> Value {
+    match json {
+        serde_json::Value::String(s) => Value::String(s.clone()),
+        serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
+        serde_json::Value::Bool(b) => Value::Bool(*b),
+        serde_json::Value::Null => Value::Unit,
+        serde_json::Value::Array(arr) => {
+            Value::List(arr.iter().map(|v| json_value_to_mlog_value_with_type(v, type_name)).collect())
+        }
+        serde_json::Value::Object(obj) => {
+            let mut fields = std::collections::HashMap::new();
+            for (k, v) in obj {
+                fields.insert(k.clone(), json_value_to_mlog_value_with_type(v, type_name));
+            }
+            Value::Struct { type_name: type_name.to_string(), fields }
+        }
+    }
+}
+
+/// `vault_validate(config, required_fields)` — validate a loaded config against required fields.
+///
+/// Inspired by obsidian-mind's frontmatter_required validation.
+/// Checks that a config struct contains all specified required fields.
+/// Returns a struct { valid, missing }.
+///
+/// # Arguments
+/// * `config` — a struct (e.g., from config_load)
+/// * `required_fields` — list of field names that must be present
+fn builtin_vault_validate(args: &[Value]) -> Result<Value, String> {
+    let fields_list = expect_list_arg("vault_validate", args, 1)?;
+    let required: Vec<String> = fields_list.iter().map(|v| format!("{}", v)).collect();
+
+    let missing: Vec<String> = match &args[0] {
+        Value::Struct { fields, .. } => {
+            required.into_iter().filter(|f| !fields.contains_key(f)).collect()
+        }
+        Value::Unit => required, // everything is missing
+        _ => return Err("vault_validate: first argument must be a struct".to_string()),
+    };
+
+    Ok(make_struct("ValidationResult", vec![
+        ("valid", Value::Bool(missing.is_empty())),
+        ("missing", Value::List(missing.into_iter().map(Value::String).collect())),
+    ]))
 }
 
 // ── Tests ──────────────────────────────────────────────────────────

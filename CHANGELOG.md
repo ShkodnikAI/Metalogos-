@@ -2,6 +2,25 @@
 
 All notable changes to the Metalogos project.
 
+## [0.10.0] — 2026-07-23
+
+**Vault/memory builtins inspired by [obsidian-mind](https://github.com/breferrari/obsidian-mind) (MIT — код НЕ копировался, только архитектурные концепции).**
+
+### Новые builtins (3)
+
+**Семантический поиск:**
+
+- `semantic_search(query, documents, top_k)` — семантический поиск по списку документов. Возвращает список `SearchResult{index, text, score}`. Использует EmbeddingManager: OpenAI text-embedding-3-small если `METALOGOS_EMBEDDING_API_KEY` задан, иначе TF-IDF fallback. Вдохновлён QMD semantic search из obsidian-mind.
+
+**Конфигурация и валидация:**
+
+- `config_load(path)` — загрузка JSON-файла конфигурации в struct. Имя типа берётся из имени файла (stem). Вдохновлён vault-manifest.json — coordination point pattern из obsidian-mind.
+- `vault_validate(config, required_fields)` — проверка, что struct содержит все указанные обязательные поля. Возвращает `ValidationResult{valid, missing}`. Вдохновлён frontmatter_required из obsidian-mind.
+
+### Изменённые файлы
+
+- `src/builtins.rs` — 3 новых builtin (semantic_search, config_load, vault_validate), импорт EmbeddingManager, BUILTIN_REGISTRY entries
+
 ## [0.9.6] — 2026-07-23
 
 **Narad ML-1: host key in mlogserver + json_get NULL fix.**

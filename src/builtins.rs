@@ -1606,6 +1606,10 @@ fn builtin_json_get(args: &[Value]) -> Result<Value, String> {
             }
             return Ok(default_val);
         }
+        // SQL NULL / missing value maps to Value::Unit; treat as "use default"
+        if matches!(current, Value::Unit) {
+            return Ok(default_val);
+        }
         Ok(current.clone())
     } else {
         // 2-argument form: return the found value or Unit if not found

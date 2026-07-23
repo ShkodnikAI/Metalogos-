@@ -411,8 +411,8 @@ let data = http_get("https://api.example.com/users", env("API_TOKEN"))
 |---------|-----------|---------|----------|
 | `parse_json(text)` | `String -> Struct\|List\|String\|Float\|Bool\|Unit` | Any | Парсит JSON-строку. Объекты → Struct с `type_name: "Json"`, массивы → List, `null` → Unit |
 | `json_encode(value)` | `Any -> String` | String | Сериализует значение в JSON-строку. Поддерживает String, Float, Bool, Unit→null, List→array, Struct→object |
-| `json_get(obj, field_path)` | `Struct, String -> Value` | Value | Доступ к полю по dot-path. Возвращает **реальное значение** (в т.ч. String). Если поле отсутствует — возвращает Unit. Поддерживает dot-path: `"voice.file_id"` |
-| `json_get(obj, field_path, default)` | `Struct, String, Value -> Value` | Value | С дефолтным значением при отсутствии поля |
+| `json_get(obj, field_path)` | `Struct, String -> Value` | Value | Доступ к полю по dot-path. Возвращает **реальное значение** (в т.ч. String). Если поле отсутствует или SQL NULL — возвращает Unit. Поддерживает dot-path: `"voice.file_id"` |
+| `json_get(obj, field_path, default)` | `Struct, String, Value -> Value` | Value | С дефолтным значением при отсутствии поля или SQL NULL (v0.9.6) |
 | `has_field(obj, field_path)` | `Struct, String -> Float` | Float | `1.0` если поле существует, `0.0` если нет. Поддерживает dot-path |
 | `escape_json(text)` | `String -> String` | String | Экранирует спецсимволы для встраивания в JSON |
 
@@ -680,6 +680,7 @@ rule If(status contains "error") then alert.level = "high" with priority = 10
 ```mlog
 server {
   port: 8080
+  host: "127.0.0.1"
   middleware: [session, csrf, security_headers]
 
   route "/" method=GET {
@@ -694,6 +695,7 @@ server {
 
 Ключевое слово `server` — синоним `mlogserver`.
 
+Ключи: `port` (Int, дефолт 8080), `host` (String, опционально, дефолт `"0.0.0.0"`), `middleware`, `route`.
 Доступные middleware: `session`, `csrf`, `security_headers`.
 
 ### 5.7. Template (HTML-шаблон)

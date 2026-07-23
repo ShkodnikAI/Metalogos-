@@ -7,7 +7,7 @@
 **AI-native programming language with security by design. Written in Rust.**
 
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/v0.10.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
+[![Version](https://img.shields.io/badge/v0.11.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
 [![CI](https://img.shields.io/badge/CI-passing-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 
@@ -199,23 +199,23 @@ Pre-built Linux x86_64 binaries are available from [GitHub Actions](https://gith
 |---|---|---|
 | Parser | Pest 2.7 PEG grammar (346 rules) | 2 176 |
 | AST | 24 Declaration, 14 Expr, 12 Statement, 4 MatchArm | 731 |
-| Compiler | Bytecode, 177 builtins indexed | 659 |
+| Compiler | Bytecode, 176 builtins indexed | 659 |
 | Semantic analysis | Opaque types, arity checking, security audit | 446 |
-| Interpreter | Tree-walking, full feature support | 4 281 |
+| Interpreter | Tree-walking, full feature support | 4 395 |
 | VM | 44 instructions, stack-based | 1 268 |
-| Built-in functions | 177 function definitions | 6 245 |
+| Built-in functions | 176 function definitions | 8 010 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 1 446 |
 | LLM backend | Trait + mock + real providers | 1 421 |
 | Memory store | Semantic memory with decay + KV store | 1 173 |
 | Security audit | Static OWASP analysis | 1 075 |
 | Embeddings | Cosine similarity search | 601 |
-| **Total** | | **~23 200** |
+| **Total** | | **~25 755** |
 
 ### Project Structure
 
 ```
 Metalogos-/
-├── Cargo.toml                  # v0.9.5
+├── Cargo.toml                  # v0.11.0
 ├── src/
 │   ├── grammar.pest             # PEG grammar (346 rules)
 │   ├── ast.rs                   # AST definitions
@@ -235,7 +235,7 @@ Metalogos-/
 ├── tests/                       # 33 integration test files (incl. phase23 v0.9.1 else-branch contracts)
 ├── examples/                    # 78 .mlog programs with golden tests
 ├── std/                         # Standard library (string, math, collections)
-├── docs/adr/                    # 63 Architecture Decision Records
+├── docs/adr/                    # 65 Architecture Decision Records
 ├── FOSVED-office-v2/            # Submodule: AI office with 14 departments
 ├── REFERENCE.md                 # Full builtin reference (RU)
 └── CHANGELOG.md                 # Version history
@@ -247,6 +247,8 @@ Metalogos-/
 
 | Version | Highlights |
 |---|---|
+| **0.11.0** | obsidian-mind inspired: 5 lifecycle hooks, config_load YAML support (ADR-0064, ADR-0065) |
+| **0.10.0** | obsidian-mind inspired: semantic_search, config_load, vault_validate |
 | **0.9.5** | OpenPlanter-inspired: fuzzy matching, hashline editing, compact_list, budget_check, replay_snapshot, policy_check (ADR-0063) |
 | **0.9.4** | AgentSkillOS: recipe system, DAG orchestration (ADR-0062) |
 | **0.9.3** | sqz-inspired string/list/token utilities (ADR-0058+) |
@@ -274,7 +276,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete. 21+ development narads (work orders) delivered. 177 builtins, 33 test files, 78+ golden-file examples, 64 ADRs.
+All 8 milestones and 8+ phases complete. 22+ development narads (work orders) delivered. 176 builtins, 33 test files, 79+ golden-file examples, 65 ADRs.
 
 ### Next
 

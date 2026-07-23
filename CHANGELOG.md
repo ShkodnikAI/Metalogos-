@@ -2,6 +2,39 @@
 
 All notable changes to the Metalogos project.
 
+## [0.11.0] — 2026-07-23
+
+**Lifecycle hooks + YAML config (Наряд O-2).**
+
+Расширение lifecycle hooks с 2 до 5 точек и поддержка YAML в config_load. Концепции вдохновлены [obsidian-mind](https://github.com/breferrari/obsidian-mind) (TypeScript, 3.5k★, MIT — код НЕ копировался, только архитектурные концепции).
+
+### Lifecycle hooks (2 → 5)
+
+- `hook on_session_start { ... }` — срабатывает один раз в начале `run()`, после регистрации всех деклараций.
+- `hook on_write { ... }` — срабатывает перед каждым мутирующим билтином (mem_set, mtree_store, db_execute, write_file, append_file). Переменные: `target` (String), `args` (List).
+- `hook on_session_end { ... }` — срабатывает один раз в конце `run()`.
+- Существующие `before_pattern` / `after_pattern` без изменений (ADR-0045).
+
+### config_load — поддержка YAML
+
+- `config_load(path)` теперь автоматически определяет формат по расширению: `.yaml`/`.yml` → YAML, иначе → JSON.
+
+### Новые зависимости
+
+- `serde_yaml = "0.9"` — парсинг YAML конфигов.
+
+### Изменённые файлы
+
+- `src/grammar.pest` — 3 новых токена (on_session_start, on_write, on_session_end), расширен hook_kind, step_ident negative lookahead
+- `src/ast.rs` — HookPhase: 2 → 5 вариантов (OnSessionStart, OnWrite, OnSessionEnd)
+- `src/parser.rs` — parse_hook_decl: обработка 5 точек
+- `src/interpreter.rs` — 3 новых поля, two-phase run(), fire_on_write_hooks() в 3 точках вызова
+- `src/builtins.rs` — config_load: YAML поддержка + yaml_to_json_value() helper
+- `Cargo.toml` — версия 0.11.0, serde_yaml
+- `docs/adr/0064-obsidian-mind-lifecycle-hooks.md` — АДР
+- `docs/adr/0065-config-load-yaml.md` — АДР
+- `examples/hooks_lifecycle.mlog` — демо всех 5 lifecycle hooks
+
 ## [0.10.0] — 2026-07-23
 
 **Vault/memory builtins inspired by [obsidian-mind](https://github.com/breferrari/obsidian-mind) (MIT — код НЕ копировался, только архитектурные концепции).**

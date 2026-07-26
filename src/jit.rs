@@ -281,6 +281,9 @@ impl JitCompiler {
         // the behavior is undefined — but the VM never does so, because it
         // dispatches to `call_jit` only with the same arity it used when
         // requesting compilation.
+        // SAFETY: Cranelift JIT — required for calling machine code compiled at runtime.
+        // Invariants documented above (lines 264–283) guarantee the transmute
+        // signatures match the compiled function's actual ABI.
         unsafe {
             match args.len() {
                 0 => {

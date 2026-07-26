@@ -10,11 +10,11 @@
 // - Bot integration (Telegram webhooks)
 
 use axum::{
-    Router,
     extract::State,
-    http::{HeaderMap, HeaderValue, StatusCode, Uri, header, Method},
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode, Uri},
     response::{Html as AxumHtml, IntoResponse, Response},
-    routing::{get, post, put, delete, any},
+    routing::{any, delete, get, post, put},
+    Router,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -36,8 +36,12 @@ fn cron_field_matches(field: &str, value: u32) -> bool {
         }
         if let Some(step_str) = part.strip_prefix("*/") {
             if let Ok(step) = step_str.parse::<u32>() {
-                if step == 0 { continue; }
-                if value % step == 0 { return true; }
+                if step == 0 {
+                    continue;
+                }
+                if value % step == 0 {
+                    return true;
+                }
             }
             continue;
         }
@@ -50,7 +54,9 @@ fn cron_field_matches(field: &str, value: u32) -> bool {
             } else {
                 1
             };
-            if step == 0 { continue; }
+            if step == 0 {
+                continue;
+            }
             let bounds: Vec<&str> = range_str.split('-').collect();
             if bounds.len() == 2 {
                 if let (Ok(lo), Ok(hi)) = (bounds[0].parse::<u32>(), bounds[1].parse::<u32>()) {
@@ -63,7 +69,9 @@ fn cron_field_matches(field: &str, value: u32) -> bool {
         }
         // Plain number
         if let Ok(n) = part.parse::<u32>() {
-            if n == value { return true; }
+            if n == value {
+                return true;
+            }
         }
     }
     false
@@ -80,8 +88,8 @@ fn cron_expr_matches(expr: &str) -> bool {
     let now = chrono::Local::now();
     let min = now.minute();
     let hour = now.hour();
-    let dom = now.day();          // 1-31
-    let month = now.month();       // 1-12
+    let dom = now.day(); // 1-31
+    let month = now.month(); // 1-12
     let dow = now.weekday().num_days_from_sunday(); // 0=Sun
 
     cron_field_matches(parts[0], min)
@@ -133,7 +141,8 @@ pub struct ServerState {
     /// In-memory session cache (kept for fast lookouts, authoritative source is SQLite).
     pub sessions: Arc<RwLock<HashMap<String, SessionEntry>>>,
     /// CSRF token store for double-submit validation.
-    pub csrf_tokens: Arc<RwLock<HashMap<String, String>>>,
+    /// Value: (session_id, created_at) — used for TTL enforcement (15 min, see Наряд №29 §2.2).
+    pub csrf_tokens: Arc<RwLock<HashMap<String, (String, std::time::Instant)>>>,
     /// HMAC signing key for session cookies.
     pub hmac_key: Arc<Vec<u8>>,
     /// Audit log entries.
@@ -168,8 +177,7 @@ pub struct SessionEntry {
 /// Parse source, build Axum router, start server on configured port.
 /// This is the entry point for `mlog serve <file>`.
 pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let declarations = crate::parser::parse(source)
-        .map_err(|e| format!("parse error: {}", e))?;
+    let declarations = crate::parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
 
     let mut interp = Interpreter::new();
     // Run declarations to populate templates, patterns, etc. (skip flows)
@@ -201,7 +209,7 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
 
     let port = config.port;
     let host = config.host.clone().unwrap_or_else(|| "0.0.0.0".to_string());
-    let state = build_state(config, interp).await;
+    let state = build_state(config, interp).await?;
     let app = build_router(state.clone());
 
     // v0.8.2 — Background reminder scheduler (checks every 5 seconds)
@@ -224,10 +232,23 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
             if let Ok(crate::interpreter::Value::List(items)) = check_result {
                 for item in &items {
                     if let crate::interpreter::Value::Struct { fields, .. } = item {
-                        let msg = fields.get("message").map(|v| format!("{}", v)).unwrap_or_default();
-                        let rtype = fields.get("type").map(|v| format!("{}", v)).unwrap_or_default();
-                        eprintln!("[scheduler] due {}: [{}] {}", rtype, msg,
-                            fields.get("data").map(|v| format!("{}", v)).unwrap_or_default());
+                        let msg = fields
+                            .get("message")
+                            .map(|v| format!("{}", v))
+                            .unwrap_or_default();
+                        let rtype = fields
+                            .get("type")
+                            .map(|v| format!("{}", v))
+                            .unwrap_or_default();
+                        eprintln!(
+                            "[scheduler] due {}: [{}] {}",
+                            rtype,
+                            msg,
+                            fields
+                                .get("data")
+                                .map(|v| format!("{}", v))
+                                .unwrap_or_default()
+                        );
                     }
                 }
             }
@@ -244,13 +265,26 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
             if let Ok(crate::interpreter::Value::List(jobs)) = cron_check {
                 for job in &jobs {
                     if let crate::interpreter::Value::Struct { fields, .. } = job {
-                        let job_id = fields.get("id").map(|v| format!("{}", v)).unwrap_or_default();
-                        let cron_expr = fields.get("cron_expr").map(|v| format!("{}", v)).unwrap_or_default();
-                        let enabled = fields.get("enabled").map(|v| format!("{}", v)) == Some("1".to_string());
-                        let force_run = fields.get("force_run").map(|v| format!("{}", v)) == Some("1".to_string());
-                        let prompt = fields.get("prompt").map(|v| format!("{}", v)).unwrap_or_default();
+                        let job_id = fields
+                            .get("id")
+                            .map(|v| format!("{}", v))
+                            .unwrap_or_default();
+                        let cron_expr = fields
+                            .get("cron_expr")
+                            .map(|v| format!("{}", v))
+                            .unwrap_or_default();
+                        let enabled = fields.get("enabled").map(|v| format!("{}", v))
+                            == Some("1".to_string());
+                        let force_run = fields.get("force_run").map(|v| format!("{}", v))
+                            == Some("1".to_string());
+                        let prompt = fields
+                            .get("prompt")
+                            .map(|v| format!("{}", v))
+                            .unwrap_or_default();
 
-                        if !enabled { continue; }
+                        if !enabled {
+                            continue;
+                        }
 
                         let should_fire = force_run || cron_expr_matches(&cron_expr);
                         if should_fire {
@@ -265,7 +299,9 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
                             }
                             // Reset force_run, increment run_count, set last_run
                             if let Some(mark_fn) = interp.get_builtin("cron_mark_fired") {
-                                if let Err(e) = mark_fn(&[crate::interpreter::Value::String(job_id)]) {
+                                if let Err(e) =
+                                    mark_fn(&[crate::interpreter::Value::String(job_id)])
+                                {
                                     eprintln!("[cron] mark_fired error: {}", e);
                                 }
                             }
@@ -276,8 +312,27 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
         }
     });
 
+    // Наряд №29 §2.2 — Background CSRF token cleanup task (every 60s).
+    // Evicts tokens older than 15 minutes from the in-memory store.
+    let csrf_state = state.clone();
+    tokio::spawn(async move {
+        let ttl = std::time::Duration::from_secs(900); // 15 minutes
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            let now = std::time::Instant::now();
+            let mut tokens = csrf_state.csrf_tokens.write().await;
+            let before = tokens.len();
+            tokens.retain(|_token, (_sid, created_at)| now.duration_since(*created_at) < ttl);
+            let removed = before - tokens.len();
+            if removed > 0 {
+                eprintln!("[csrf-cleanup] evicted {} expired token(s)", removed);
+            }
+        }
+    });
+
     println!("mlog serve: listening on {}:{}", host, port);
     println!("mlog serve: scheduler active (5s interval — reminders + cron)");
+    println!("mlog serve: CSRF token cleanup active (60s interval, 15-min TTL)");
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", host, port)).await?;
     axum::serve(listener, app).await?;
     Ok(())
@@ -285,14 +340,24 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
 
 /// Start server on a random port for integration testing.
 /// Returns (port, join_handle).
-pub async fn run_test_server(source: &str) -> Result<(u16, tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>), Box<dyn std::error::Error + Send + Sync>> {
-    let declarations = crate::parser::parse(source)
-        .map_err(|e| format!("parse error: {}", e))?;
+pub async fn run_test_server(
+    source: &str,
+) -> Result<
+    (
+        u16,
+        tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+    ),
+    Box<dyn std::error::Error + Send + Sync>,
+> {
+    let declarations = crate::parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
 
-    let server_config = declarations.iter().find_map(|d| match d {
-        Declaration::MlogServer(s) => Some(s.clone()),
-        _ => None,
-    }).ok_or("no mlogserver block")?;
+    let server_config = declarations
+        .iter()
+        .find_map(|d| match d {
+            Declaration::MlogServer(s) => Some(s.clone()),
+            _ => None,
+        })
+        .ok_or("no mlogserver block")?;
 
     let mut interp = Interpreter::new();
     for decl in declarations {
@@ -308,7 +373,7 @@ pub async fn run_test_server(source: &str) -> Result<(u16, tokio::task::JoinHand
     let mut config = server_config.clone();
     config.port = 0;
 
-    let state = build_state(config.clone(), interp).await;
+    let state = build_state(config.clone(), interp).await?;
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await?;
@@ -324,19 +389,23 @@ pub async fn run_test_server(source: &str) -> Result<(u16, tokio::task::JoinHand
 
 // ── Internal: Build State ──────────────────────────────────────────
 
-async fn build_state(config: MlogServerDecl, interp: Interpreter) -> ServerState {
-    // Generate HMAC key
-    let hmac_key = generate_hmac_key();
+async fn build_state(
+    config: MlogServerDecl,
+    interp: Interpreter,
+) -> Result<ServerState, Box<dyn std::error::Error + Send + Sync>> {
+    // Наряд №29 §2.1: HMAC key from env (METALOGOS_HMAC_KEY) or random fallback.
+    // Never panics — random fallback logs WARNING and continues.
+    let hmac_key = load_hmac_key();
 
     // Collect templates from interpreter
     let templates_map = interp.get_templates().clone();
 
-    // Phase 7.4: SQLite session store (in-memory for this server instance)
+    // Наряд №29 §2.3: SQLite init returns Result instead of panicking.
     let conn = rusqlite::Connection::open_in_memory()
-        .expect("Failed to open SQLite in-memory database");
-    init_session_db(&conn).expect("Failed to create sessions table");
+        .map_err(|e| format!("Failed to open SQLite in-memory database: {}", e))?;
+    init_session_db(&conn).map_err(|e| format!("Failed to create sessions table: {}", e))?;
 
-    ServerState {
+    Ok(ServerState {
         sessions: Arc::new(RwLock::new(HashMap::new())),
         csrf_tokens: Arc::new(RwLock::new(HashMap::new())),
         hmac_key: Arc::new(hmac_key),
@@ -349,7 +418,7 @@ async fn build_state(config: MlogServerDecl, interp: Interpreter) -> ServerState
         middleware: config.middleware.clone(),
         db: Arc::new(tokio::sync::Mutex::new(conn)),
         rate_limits: Arc::new(RwLock::new(HashMap::new())),
-    }
+    })
 }
 
 fn build_router(state: ServerState) -> Router {
@@ -357,17 +426,22 @@ fn build_router(state: ServerState) -> Router {
 
     // Add security headers layer (always applied)
     app = app.layer(SetResponseHeaderLayer::if_not_present(
-        header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"),
+        header::X_FRAME_OPTIONS,
+        HeaderValue::from_static("DENY"),
     ));
     app = app.layer(SetResponseHeaderLayer::if_not_present(
-        header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"),
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
     ));
     app = app.layer(SetResponseHeaderLayer::if_not_present(
-        header::STRICT_TRANSPORT_SECURITY, HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+        header::STRICT_TRANSPORT_SECURITY,
+        HeaderValue::from_static("max-age=31536000; includeSubDomains"),
     ));
     app = app.layer(SetResponseHeaderLayer::if_not_present(
         header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"),
+        HeaderValue::from_static(
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'",
+        ),
     ));
 
     // Register routes
@@ -400,11 +474,14 @@ async fn route_handler(
     let client_ip = extract_client_ip(&headers);
 
     // 0b. Bug 2.1 fix: parse query string from URI
-    let query: std::collections::HashMap<String, String> = uri.query()
+    let query: std::collections::HashMap<String, String> = uri
+        .query()
         .map(|q| {
             q.split('&')
                 .filter_map(|pair| {
-                    if pair.is_empty() { return None; }
+                    if pair.is_empty() {
+                        return None;
+                    }
                     let mut parts = pair.splitn(2, '=');
                     let key = parts.next()?;
                     let val = parts.next().unwrap_or("");
@@ -434,6 +511,8 @@ async fn route_handler(
     }
 
     // 3. Session expiry check (Phase 7.4: SQLite-backed)
+    // Наряд №29 §2.2: capture raw session_id for later CSRF token binding.
+    let mut raw_session_id: Option<String> = None;
     if state.middleware.contains(&"session".to_string()) {
         if let Some(session_id) = extract_session_cookie(&headers) {
             // Verify HMAC signature first
@@ -442,14 +521,16 @@ async fn route_handler(
                 if let Err(resp) = validate_session_in_db(&state, &raw_id).await {
                     return resp;
                 }
+                raw_session_id = Some(raw_id);
             }
         }
     }
 
     // 4. Find matching route by path AND method
-    let matched_route = state.routes.iter().find(|r| {
-        r.path == uri.path() && r.method == method.as_str()
-    });
+    let matched_route = state
+        .routes
+        .iter()
+        .find(|r| r.path == uri.path() && r.method == method.as_str());
 
     if let Some(route) = matched_route {
         // Role check
@@ -468,20 +549,23 @@ async fn route_handler(
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Handler error: {}", e),
-            ).into_response(),
+            )
+                .into_response(),
         };
 
         // 5. On GET with CSRF middleware, generate and set CSRF token cookie (Phase 7.4)
+        // Наряд №29 §2.2: store (session_id, created_at) for TTL enforcement.
         if method == Method::GET && state.middleware.contains(&"csrf".to_string()) {
             let token = generate_csrf_token();
             {
                 let mut tokens = state.csrf_tokens.write().await;
-                tokens.insert(token.clone(), token.clone());
+                let session_id_for_csrf = raw_session_id.clone().unwrap_or_default();
+                tokens.insert(
+                    token.clone(),
+                    (session_id_for_csrf, std::time::Instant::now()),
+                );
             }
-            let cookie_value = format!(
-                "_mlog_csrf={}; HttpOnly; SameSite=Strict; Path=/",
-                token
-            );
+            let cookie_value = format!("_mlog_csrf={}; HttpOnly; SameSite=Strict; Path=/", token);
             if let Ok(val) = HeaderValue::from_str(&cookie_value) {
                 response.headers_mut().append(header::SET_COOKIE, val);
             }
@@ -505,30 +589,60 @@ pub fn generate_csrf_token() -> String {
 
 async fn check_csrf(state: &ServerState, headers: &HeaderMap) -> Result<(), Response> {
     // Read CSRF token from cookie
-    let cookie_token = headers.get("cookie")
+    let cookie_token = headers
+        .get("cookie")
         .and_then(|c| c.to_str().ok())
         .and_then(|s| extract_cookie(s, "_mlog_csrf"));
 
     // Read CSRF token from header (X-CSRF-Token) or form field (_csrf)
-    let header_token = headers.get("x-csrf-token")
+    let header_token = headers
+        .get("x-csrf-token")
         .and_then(|t| t.to_str().ok())
         .map(|s| s.to_string())
         .or_else(|| {
             // Also check content-type for form data with _csrf field
-            headers.get("x-csrf-field")
+            headers
+                .get("x-csrf-field")
                 .and_then(|t| t.to_str().ok())
                 .map(|s| s.to_string())
         });
 
     match (cookie_token, header_token) {
-        (Some(cookie), Some(header)) if cookie == header => Ok(()),
+        (Some(cookie), Some(header)) if cookie == header => {
+            // Наряд №29 §2.2: enforce 15-minute TTL on server-issued tokens.
+            // If the token is present in our store, verify it has not expired.
+            // If absent (e.g. server restarted, or stateless double-submit client),
+            // accept — this preserves the original Phase 7.4 behavior.
+            let now = std::time::Instant::now();
+            let ttl = std::time::Duration::from_secs(900); // 15 minutes
+            let mut tokens = state.csrf_tokens.write().await;
+            if let Some((_session_id, created_at)) = tokens.get(&cookie) {
+                if now.duration_since(*created_at) < ttl {
+                    Ok(())
+                } else {
+                    // Expired — evict and reject.
+                    tokens.remove(&cookie);
+                    drop(tokens);
+                    let mut log = state.audit_log.write().await;
+                    log.push("[CSRF] Rejected: token expired (>15 min)".to_string());
+                    Err((StatusCode::FORBIDDEN, "403 Forbidden: CSRF token expired")
+                        .into_response())
+                }
+            } else {
+                Ok(())
+            }
+        }
         _ => {
             // Log to audit
             {
                 let mut log = state.audit_log.write().await;
                 log.push("[CSRF] Rejected: missing or mismatched CSRF token".to_string());
             }
-            Err((StatusCode::FORBIDDEN, "403 Forbidden: CSRF token validation failed").into_response())
+            Err((
+                StatusCode::FORBIDDEN,
+                "403 Forbidden: CSRF token validation failed",
+            )
+                .into_response())
         }
     }
 }
@@ -549,18 +663,21 @@ fn extract_cookie(cookie_header: &str, name: &str) -> Option<String> {
 
 /// Extract the session cookie (unsigned) from the Cookie header.
 fn extract_session_cookie(headers: &HeaderMap) -> Option<String> {
-    headers.get("cookie")
+    headers
+        .get("cookie")
         .and_then(|c| c.to_str().ok())
         .and_then(|s| extract_cookie(s, "_mlog_session"))
 }
 
 /// Extract client IP from headers (x-forwarded-for or x-real-ip).
 fn extract_client_ip(headers: &HeaderMap) -> String {
-    headers.get("x-forwarded-for")
+    headers
+        .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.split(',').next().unwrap_or("unknown").trim().to_string())
         .or_else(|| {
-            headers.get("x-real-ip")
+            headers
+                .get("x-real-ip")
                 .and_then(|v| v.to_str().ok())
                 .map(|s| s.to_string())
         })
@@ -586,12 +703,16 @@ pub async fn check_rate_limit(
     if entries.len() >= max_per_minute {
         {
             let mut log = state.audit_log.write().await;
-            log.push(format!("[RATE_LIMIT] Rejected: {} exceeded {} req/min", ip, max_per_minute));
+            log.push(format!(
+                "[RATE_LIMIT] Rejected: {} exceeded {} req/min",
+                ip, max_per_minute
+            ));
         }
         return Err((
             StatusCode::TOO_MANY_REQUESTS,
             "429 Too Many Requests: rate limit exceeded",
-        ).into_response());
+        )
+            .into_response());
     }
 
     entries.push(now);
@@ -600,7 +721,11 @@ pub async fn check_rate_limit(
 
 // ── Session & Role Middleware ────────────────────────────────────────
 
-async fn check_roles(state: &ServerState, headers: &HeaderMap, required_roles: &[String]) -> Result<(), Response> {
+async fn check_roles(
+    state: &ServerState,
+    headers: &HeaderMap,
+    required_roles: &[String],
+) -> Result<(), Response> {
     let session_cookie = extract_session_cookie(headers);
 
     let raw_id = match session_cookie {
@@ -611,7 +736,11 @@ async fn check_roles(state: &ServerState, headers: &HeaderMap, required_roles: &
                 None => {
                     let mut log = state.audit_log.write().await;
                     log.push("[AUTH] Rejected: tampered session cookie".to_string());
-                    return Err((StatusCode::UNAUTHORIZED, "401 Unauthorized: invalid session signature").into_response());
+                    return Err((
+                        StatusCode::UNAUTHORIZED,
+                        "401 Unauthorized: invalid session signature",
+                    )
+                        .into_response());
                 }
             }
         }
@@ -626,7 +755,11 @@ async fn check_roles(state: &ServerState, headers: &HeaderMap, required_roles: &
     let sessions = state.sessions.read().await;
     if let Some(entry) = sessions.get(&raw_id) {
         if entry.expires < std::time::Instant::now() {
-            return Err((StatusCode::UNAUTHORIZED, "401 Unauthorized: session expired").into_response());
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "401 Unauthorized: session expired",
+            )
+                .into_response());
         }
         let has_role = required_roles.iter().any(|role| entry.roles.contains(role));
         if has_role {
@@ -634,9 +767,16 @@ async fn check_roles(state: &ServerState, headers: &HeaderMap, required_roles: &
         } else {
             drop(sessions);
             let mut log = state.audit_log.write().await;
-            log.push(format!("[AUTH] Rejected: insufficient roles (need {:?}, have {:?})",
-                required_roles, Vec::<String>::new()));
-            Err((StatusCode::FORBIDDEN, "403 Forbidden: insufficient permissions").into_response())
+            log.push(format!(
+                "[AUTH] Rejected: insufficient roles (need {:?}, have {:?})",
+                required_roles,
+                Vec::<String>::new()
+            ));
+            Err((
+                StatusCode::FORBIDDEN,
+                "403 Forbidden: insufficient permissions",
+            )
+                .into_response())
         }
     } else {
         // Fall through to SQLite check
@@ -644,7 +784,11 @@ async fn check_roles(state: &ServerState, headers: &HeaderMap, required_roles: &
         validate_session_in_db(&state, &raw_id).await?;
         // If valid but not in memory cache, load from DB
         // For simplicity, reject here — session needs re-login
-        Err((StatusCode::UNAUTHORIZED, "401 Unauthorized: session not found in cache").into_response())
+        Err((
+            StatusCode::UNAUTHORIZED,
+            "401 Unauthorized: session not found in cache",
+        )
+            .into_response())
     }
 }
 
@@ -670,7 +814,7 @@ pub fn init_session_db(conn: &rusqlite::Connection) -> Result<(), rusqlite::Erro
             pattern TEXT,
             result TEXT,
             sandbox TEXT
-        );"
+        );",
     )?;
     Ok(())
 }
@@ -717,11 +861,17 @@ pub async fn validate_session_in_db(state: &ServerState, session_id: &str) -> Re
         Err(rusqlite::Error::QueryReturnedNoRows) => {
             let mut log = state.audit_log.write().await;
             log.push("[AUTH] Rejected: session expired or not found in DB".to_string());
-            Err((StatusCode::UNAUTHORIZED, "401 Unauthorized: session expired").into_response())
+            Err((
+                StatusCode::UNAUTHORIZED,
+                "401 Unauthorized: session expired",
+            )
+                .into_response())
         }
-        Err(e) => {
-            Err((StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {}", e)).into_response())
-        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+            .into_response()),
     }
 }
 
@@ -731,8 +881,11 @@ pub async fn delete_session_db(
     session_id: &str,
 ) -> Result<(), String> {
     let conn = conn.lock().await;
-    conn.execute("DELETE FROM sessions WHERE id = ?1", rusqlite::params![session_id])
-        .map_err(|e| format!("Failed to delete session: {}", e))?;
+    conn.execute(
+        "DELETE FROM sessions WHERE id = ?1",
+        rusqlite::params![session_id],
+    )
+    .map_err(|e| format!("Failed to delete session: {}", e))?;
     Ok(())
 }
 
@@ -746,7 +899,11 @@ pub async fn clean_expired_sessions_db(
         .as_secs() as i64;
 
     let conn = conn.lock().await;
-    let deleted = conn.execute("DELETE FROM sessions WHERE expires_at <= ?1", rusqlite::params![now])
+    let deleted = conn
+        .execute(
+            "DELETE FROM sessions WHERE expires_at <= ?1",
+            rusqlite::params![now],
+        )
         .map_err(|e| format!("Failed to clean expired sessions: {}", e))?;
     Ok(deleted)
 }
@@ -774,9 +931,7 @@ pub fn json_value_to_value(val: &serde_json::Value) -> Value {
         serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
         serde_json::Value::Bool(b) => Value::Bool(*b),
         serde_json::Value::Null => Value::Unit,
-        serde_json::Value::Array(arr) => {
-            Value::List(arr.iter().map(json_value_to_value).collect())
-        }
+        serde_json::Value::Array(arr) => Value::List(arr.iter().map(json_value_to_value).collect()),
         serde_json::Value::Object(map) => {
             let fields: HashMap<String, Value> = map
                 .iter()
@@ -811,7 +966,9 @@ async fn execute_route_body(
 
     // Initialize memory persistence (per-request SQLite connection to shared DB)
     if let Some(ref persist_path) = state.memory_persist {
-        interp.configure_memory(&MemoryDecl { persist: Some(persist_path.clone()) });
+        interp.configure_memory(&MemoryDecl {
+            persist: Some(persist_path.clone()),
+        });
     }
 
     // Initialize DB connection for per-request interpreter (query() / db_execute())
@@ -849,7 +1006,11 @@ async fn execute_route_body(
     let mut env = HashMap::new();
     for stmt in body_stmts {
         match stmt {
-            Statement::LetBinding { name, value, mutable: _ } => {
+            Statement::LetBinding {
+                name,
+                value,
+                mutable: _,
+            } => {
                 let val = interp.eval_expr_with_env(value, &env)?;
                 env.insert(name.clone(), val);
             }
@@ -876,7 +1037,12 @@ async fn execute_route_body(
                 }
             }
             // Block-level if/else (Наряд №2 + final integration)
-            Statement::IfElseBlock { condition, then_body, else_ifs, else_body } => {
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+            } => {
                 let cond_val = interp.eval_expr_with_env(condition, &env)?;
                 let branch = if cond_val.as_bool().unwrap_or(false) {
                     Some(then_body.as_slice())
@@ -900,7 +1066,11 @@ async fn execute_route_body(
                                 flush_audit_to_db(state, &mut interp).await;
                                 return Ok(value_to_response(val));
                             }
-                            Statement::LetBinding { name, value, mutable: _ } => {
+                            Statement::LetBinding {
+                                name,
+                                value,
+                                mutable: _,
+                            } => {
                                 let val = interp.eval_expr_with_env(value, &env)?;
                                 env.insert(name.clone(), val);
                             }
@@ -911,7 +1081,9 @@ async fn execute_route_body(
                                     return Ok(value_to_response(val));
                                 }
                             }
-                            _ => { interp.eval_statements(&[s.clone()], &mut env)?; }
+                            _ => {
+                                interp.eval_statements(&[s.clone()], &mut env)?;
+                            }
                         }
                     }
                 }
@@ -984,19 +1156,29 @@ fn parse_audit_entry(entry: &str) -> (String, Option<String>, Option<String>) {
     if let Some(rest) = entry.strip_prefix("[AUDIT] ") {
         let parts: Vec<&str> = rest.splitn(2, ' ').collect();
         let action = parts[0].to_string();
-        let detail = if parts.len() > 1 { Some(parts[1].to_string()) } else { None };
+        let detail = if parts.len() > 1 {
+            Some(parts[1].to_string())
+        } else {
+            None
+        };
 
         match action.as_str() {
             "adapt" | "mutate" => {
                 // Extract pattern name (first word of detail)
-                let pattern = detail.as_ref().and_then(|d| d.split(':').next()).map(|s| s.trim().to_string());
-                let result = detail.as_ref().and_then(|d| {
-                    d.splitn(2, ':').nth(1).map(|s| s.trim().to_string())
-                });
+                let pattern = detail
+                    .as_ref()
+                    .and_then(|d| d.split(':').next())
+                    .map(|s| s.trim().to_string());
+                let result = detail
+                    .as_ref()
+                    .and_then(|d| d.splitn(2, ':').nth(1).map(|s| s.trim().to_string()));
                 (action, pattern, result)
             }
             "unsafe_html" => {
-                let pattern = detail.as_ref().and_then(|d| d.split('\'').nth(1)).map(|s| s.to_string());
+                let pattern = detail
+                    .as_ref()
+                    .and_then(|d| d.split('\'').nth(1))
+                    .map(|s| s.to_string());
                 (action, pattern, None)
             }
             _ => (action, None, None),
@@ -1012,23 +1194,18 @@ fn value_to_response(val: Value) -> Response {
             let code = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
             (code, body).into_response()
         }
-        Value::Html(html) => {
-            AxumHtml(html).into_response()
-        }
-        Value::String(s) => {
-            (StatusCode::OK, s).into_response()
-        }
-        Value::Unit => {
-            StatusCode::OK.into_response()
-        }
-        other => {
-            (StatusCode::OK, format!("{}", other)).into_response()
-        }
+        Value::Html(html) => AxumHtml(html).into_response(),
+        Value::String(s) => (StatusCode::OK, s).into_response(),
+        Value::Unit => StatusCode::OK.into_response(),
+        other => (StatusCode::OK, format!("{}", other)).into_response(),
     }
 }
 
 // ── HMAC Helpers ───────────────────────────────────────────────────
 
+// Note: `generate_hmac_key` is retained for tests (random key generation).
+// Production code now uses `load_hmac_key` which reads METALOGOS_HMAC_KEY env var.
+#[allow(dead_code)]
 fn generate_hmac_key() -> Vec<u8> {
     use rand::Rng;
     let mut key = vec![0u8; 32];
@@ -1036,12 +1213,93 @@ fn generate_hmac_key() -> Vec<u8> {
     key
 }
 
+/// Наряд №29 §2.1 — Load HMAC signing key.
+///
+/// Priority:
+/// 1. `METALOGOS_HMAC_KEY` env var (hex-encoded, 64 hex chars = 32 bytes).
+///    Allows session cookies to survive restarts.
+/// 2. Random fallback (`rand::thread_rng().gen::<[u8; 32]>()`),
+///    with a WARNING log. Sessions will be invalidated on restart.
+///
+/// Never panics — returns a valid 32-byte key in all cases.
+fn load_hmac_key() -> Vec<u8> {
+    const EXPECTED_HEX_LEN: usize = 64; // 32 bytes * 2 hex chars
+    const EXPECTED_BYTE_LEN: usize = 32;
+
+    match std::env::var("METALOGOS_HMAC_KEY") {
+        Ok(hex_str) => {
+            let hex_str = hex_str.trim();
+            if hex_str.len() != EXPECTED_HEX_LEN {
+                eprintln!(
+                    "[WARN] METALOGOS_HMAC_KEY has length {} (expected {} hex chars / 32 bytes) \
+                     — generating random key; sessions will not survive restart",
+                    hex_str.len(),
+                    EXPECTED_HEX_LEN
+                );
+            } else {
+                match hex::decode(hex_str) {
+                    Ok(bytes) if bytes.len() == EXPECTED_BYTE_LEN => {
+                        eprintln!(
+                            "[INFO] METALOGOS_HMAC_KEY loaded from env ({} bytes)",
+                            bytes.len()
+                        );
+                        return bytes;
+                    }
+                    Ok(bytes) => {
+                        eprintln!(
+                            "[WARN] METALOGOS_HMAC_KEY decoded to {} bytes (expected {}) \
+                             — generating random key; sessions will not survive restart",
+                            bytes.len(),
+                            EXPECTED_BYTE_LEN
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "[WARN] METALOGOS_HMAC_KEY is not valid hex: {} \
+                             — generating random key; sessions will not survive restart",
+                            e
+                        );
+                    }
+                }
+            }
+        }
+        Err(std::env::VarError::NotPresent) => {
+            eprintln!(
+                "[WARN] METALOGOS_HMAC_KEY env var not set \
+                 — generating random key; sessions will not survive restart"
+            );
+        }
+        Err(std::env::VarError::NotUnicode(_)) => {
+            eprintln!(
+                "[WARN] METALOGOS_HMAC_KEY env var is not valid UTF-8 \
+                 — generating random key; sessions will not survive restart"
+            );
+        }
+    }
+
+    // Fallback: generate random 32-byte key using rand 0.8 API.
+    use rand::{thread_rng, Rng};
+    let key: [u8; 32] = thread_rng().gen();
+    key.to_vec()
+}
+
 pub fn sign_cookie(value: &str, key: &[u8]) -> String {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
     type HmacSha256 = Hmac<Sha256>;
 
-    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC key error");
+    // SHA256 HMAC accepts any key length, so new_from_slice never errors here.
+    // Use a fallback to avoid panicking on the (theoretically impossible) error case.
+    let mut mac = match HmacSha256::new_from_slice(key) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!(
+                "[security] HMAC sign failed (invalid key length: {}): using unsigned value",
+                e
+            );
+            return value.to_string();
+        }
+    };
     mac.update(value.as_bytes());
     let result = mac.finalize();
     let signature = hex::encode(result.into_bytes());
@@ -1060,7 +1318,16 @@ pub fn verify_cookie(cookie: &str, key: &[u8]) -> Option<String> {
     let signature = parts[0];
     let value = parts[1];
 
-    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC key error");
+    let mut mac = match HmacSha256::new_from_slice(key) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!(
+                "[security] HMAC verify failed (invalid key length: {}): rejecting cookie",
+                e
+            );
+            return None;
+        }
+    };
     mac.update(value.as_bytes());
     let expected = hex::encode(mac.finalize().into_bytes());
 
@@ -1076,10 +1343,10 @@ pub fn verify_cookie(cookie: &str, key: &[u8]) -> Option<String> {
 /// Escape HTML special characters to prevent XSS.
 pub fn escape_html(s: &str) -> String {
     s.replace('&', "&amp;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
-     .replace('"', "&quot;")
-     .replace('\'', "&#x27;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
 }
 
 /// Simple template rendering: replace {{ var }} with escaped values.
@@ -1132,10 +1399,14 @@ mod tests {
 
     #[test]
     fn test_escape_html_prevents_xss() {
-        assert_eq!(escape_html("<script>alert(1)</script>"),
-                   "&lt;script&gt;alert(1)&lt;/script&gt;");
-        assert_eq!(escape_html("Hello & \"world\""),
-                   "Hello &amp; &quot;world&quot;");
+        assert_eq!(
+            escape_html("<script>alert(1)</script>"),
+            "&lt;script&gt;alert(1)&lt;/script&gt;"
+        );
+        assert_eq!(
+            escape_html("Hello & \"world\""),
+            "Hello &amp; &quot;world&quot;"
+        );
     }
 
     #[test]
@@ -1164,7 +1435,9 @@ mod tests {
         assert_eq!(html.type_name(), "Html");
         assert_eq!(format!("{}", html), "[Html]");
 
-        let secret = Value::Secret(crate::interpreter::SecretString::new("my-api-key".to_string()));
+        let secret = Value::Secret(crate::interpreter::SecretString::new(
+            "my-api-key".to_string(),
+        ));
         assert_eq!(secret.type_name(), "Secret");
         assert_eq!(format!("{}", secret), "[Secret]");
 
@@ -1205,16 +1478,18 @@ mod tests {
         let token = generate_csrf_token();
 
         // Store token in state (simulating cookie set on previous GET)
+        // Наряд №29 §2.2: value tuple is (session_id, created_at).
         {
             let mut tokens = state.csrf_tokens.write().await;
-            tokens.insert(token.clone(), token.clone());
+            tokens.insert(token.clone(), (String::new(), std::time::Instant::now()));
         }
 
         // Simulate POST with matching cookie and header
         let mut headers = HeaderMap::new();
-        headers.insert("cookie", HeaderValue::from_str(
-            &format!("_mlog_csrf={}", token)
-        ).unwrap());
+        headers.insert(
+            "cookie",
+            HeaderValue::from_str(&format!("_mlog_csrf={}", token)).unwrap(),
+        );
         headers.insert("x-csrf-token", HeaderValue::from_str(&token).unwrap());
 
         let result = check_csrf(&state, &headers).await;
@@ -1228,10 +1503,14 @@ mod tests {
 
         // Cookie has one token, header has different one
         let mut headers = HeaderMap::new();
-        headers.insert("cookie", HeaderValue::from_str(
-            &format!("_mlog_csrf={}", token)
-        ).unwrap());
-        headers.insert("x-csrf-token", HeaderValue::from_str("wrong_token_value").unwrap());
+        headers.insert(
+            "cookie",
+            HeaderValue::from_str(&format!("_mlog_csrf={}", token)).unwrap(),
+        );
+        headers.insert(
+            "x-csrf-token",
+            HeaderValue::from_str("wrong_token_value").unwrap(),
+        );
 
         let result = check_csrf(&state, &headers).await;
         assert!(result.is_err());
@@ -1384,25 +1663,32 @@ mod tests {
 
         // Verify expired is gone, valid remains
         let conn = state.db.lock().await;
-        let expired_exists: bool = conn.query_row(
-            "SELECT COUNT(*) FROM sessions WHERE id = 'expired-1'",
-            [],
-            |row| row.get(0),
-        ).unwrap();
+        let expired_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sessions WHERE id = 'expired-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(expired_exists, false);
 
-        let valid_exists: bool = conn.query_row(
-            "SELECT COUNT(*) FROM sessions WHERE id = 'valid-1'",
-            [],
-            |row| row.get(0),
-        ).unwrap();
+        let valid_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sessions WHERE id = 'valid-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(valid_exists, true);
     }
 
     #[test]
     fn test_74_extract_client_ip_from_headers() {
         let mut headers = HeaderMap::new();
-        headers.insert("x-forwarded-for", HeaderValue::from_static("10.0.0.1, 172.16.0.1"));
+        headers.insert(
+            "x-forwarded-for",
+            HeaderValue::from_static("10.0.0.1, 172.16.0.1"),
+        );
         assert_eq!(extract_client_ip(&headers), "10.0.0.1");
 
         let mut headers2 = HeaderMap::new();
@@ -1439,7 +1725,11 @@ mod tests {
             memory_persist: None,
             interpreter: Arc::new(RwLock::new(Interpreter::new())),
             routes: Vec::new(),
-            middleware: vec!["session".to_string(), "csrf".to_string(), "rate_limit".to_string()],
+            middleware: vec![
+                "session".to_string(),
+                "csrf".to_string(),
+                "rate_limit".to_string(),
+            ],
             db: Arc::new(tokio::sync::Mutex::new(conn)),
             rate_limits: Arc::new(RwLock::new(HashMap::new())),
         }

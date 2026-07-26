@@ -6,8 +6,8 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use crate::ast::*;
 use crate::ast::CompareOp as AstCompareOp;
+use crate::ast::*;
 use crate::bytecode::*;
 use crate::interpreter::Value;
 
@@ -37,14 +37,10 @@ pub struct Compiler {
     sandboxes: HashMap<String, SandboxDecl>,
 }
 
-
-
 impl Compiler {
     /// Create a new compiler with default settings.
     pub fn new() -> Self {
-        Self::with_std_root(
-            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-        )
+        Self::with_std_root(std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
     }
 
     /// Create a compiler with a custom std root directory for import resolution.
@@ -92,10 +88,13 @@ impl Compiler {
         let program = Program {
             // Build globals list with actual names (indexed by slot)
             globals: (0..self.next_global)
-                .map(|i| self.global_slots.iter()
-                    .find(|(_, &slot)| slot == i)
-                    .map(|(name, _)| name.clone())
-                    .unwrap_or_default())
+                .map(|i| {
+                    self.global_slots
+                        .iter()
+                        .find(|(_, &slot)| slot == i)
+                        .map(|(name, _)| name.clone())
+                        .unwrap_or_default()
+                })
                 .collect(),
             patterns: Vec::new(), // will be filled from pass1 data
             learnables: Vec::new(),
@@ -141,10 +140,22 @@ impl Compiler {
                 Declaration::Sandbox(s) => {
                     self.sandboxes.insert(s.name.clone(), s.clone());
                 }
-                Declaration::Adapt(_) | Declaration::Relate(_) | Declaration::Mutate(_) | Declaration::Forget(_) => {
+                Declaration::Adapt(_)
+                | Declaration::Relate(_)
+                | Declaration::Mutate(_)
+                | Declaration::Forget(_) => {
                     // Handled in pass2
                 }
-                Declaration::MlogServer(_) | Declaration::Template(_) | Declaration::Db(_) | Declaration::Schema(_) | Declaration::SkillIndex(_) | Declaration::Memory(_) | Declaration::Conversation(_) | Declaration::ContextBudget(_) | Declaration::Tool(_) | Declaration::LlmConfig(_) => {
+                Declaration::MlogServer(_)
+                | Declaration::Template(_)
+                | Declaration::Db(_)
+                | Declaration::Schema(_)
+                | Declaration::SkillIndex(_)
+                | Declaration::Memory(_)
+                | Declaration::Conversation(_)
+                | Declaration::ContextBudget(_)
+                | Declaration::Tool(_)
+                | Declaration::LlmConfig(_) => {
                     // Phase 6: handled elsewhere
                 }
                 _ => {}
@@ -167,7 +178,9 @@ impl Compiler {
                 }
                 Declaration::EntityRecord(e) => {
                     // Evaluate each field initializer, create struct, store globally
-                    let field_names = self.struct_fields.get(&e.type_name)
+                    let field_names = self
+                        .struct_fields
+                        .get(&e.type_name)
                         .ok_or_else(|| format!("compile: unknown struct type: {}", e.type_name))?;
 
                     // Push field values in field order
@@ -181,7 +194,10 @@ impl Compiler {
                     }
 
                     let slot = self.global_slots[&e.name];
-                    code.push(Instruction::MakeStruct(e.type_name.clone(), field_names.clone()));
+                    code.push(Instruction::MakeStruct(
+                        e.type_name.clone(),
+                        field_names.clone(),
+                    ));
                     code.push(Instruction::StoreGlobal(slot));
                 }
                 Declaration::EntitySimple(e) => {
@@ -191,7 +207,9 @@ impl Compiler {
                 }
                 Declaration::Pattern(p) => {
                     // Compile pattern body with parameter names as locals
-                    let mut locals: HashMap<String, usize> = p.params.iter()
+                    let mut locals: HashMap<String, usize> = p
+                        .params
+                        .iter()
                         .enumerate()
                         .map(|(i, param)| (param.name.clone(), i))
                         .collect();
@@ -200,7 +218,11 @@ impl Compiler {
                     let compiled = CompiledFn {
                         name: p.name.clone(),
                         param_count: p.params.len(),
-                        param_types: p.params.iter().map(|param| param.type_name.clone()).collect(),
+                        param_types: p
+                            .params
+                            .iter()
+                            .map(|param| param.type_name.clone())
+                            .collect(),
                         code: fn_code,
                         is_pure,
                     };
@@ -292,7 +314,8 @@ impl Compiler {
                     let source_expr = self.compile_flow_expr(&f.source);
                     let mut branch_defs = Vec::new();
                     for (step_name, branches) in &f.branch_defs {
-                        let compiled_branches: Vec<BranchDef> = branches.iter()
+                        let compiled_branches: Vec<BranchDef> = branches
+                            .iter()
                             .map(|b| {
                                 let op = match b.condition.op {
                                     AstCompareOp::Gt => ConditionOp::Gt,
@@ -324,8 +347,18 @@ impl Compiler {
                 Declaration::Import(_) => {
                     // Already resolved in import preprocessing
                 }
-                Declaration::MlogServer(_) | Declaration::Template(_) | Declaration::Db(_) | Declaration::Schema(_) | Declaration::SkillIndex(_) | Declaration::Memory(_)
-                | Declaration::Hook(_) | Declaration::Eval(_) | Declaration::Conversation(_) | Declaration::ContextBudget(_) | Declaration::Tool(_) | Declaration::LlmConfig(_) => {
+                Declaration::MlogServer(_)
+                | Declaration::Template(_)
+                | Declaration::Db(_)
+                | Declaration::Schema(_)
+                | Declaration::SkillIndex(_)
+                | Declaration::Memory(_)
+                | Declaration::Hook(_)
+                | Declaration::Eval(_)
+                | Declaration::Conversation(_)
+                | Declaration::ContextBudget(_)
+                | Declaration::Tool(_)
+                | Declaration::LlmConfig(_) => {
                     // Phase 6+: no bytecode instruction needed
                 }
             }
@@ -341,7 +374,12 @@ impl Compiler {
     }
 
     /// Compile an AST expression into stack instructions with a locals map.
-    fn compile_expr_with_locals(&self, expr: &Expr, code: &mut Vec<Instruction>, locals: &HashMap<String, usize>) -> Result<(), String> {
+    fn compile_expr_with_locals(
+        &self,
+        expr: &Expr,
+        code: &mut Vec<Instruction>,
+        locals: &HashMap<String, usize>,
+    ) -> Result<(), String> {
         match expr {
             Expr::StringLit(s) => {
                 code.push(Instruction::Const(Value::String(s.clone())));
@@ -410,12 +448,12 @@ impl Compiler {
                 // Jump to else branch if falsy
                 let jump_to_else = code.len();
                 code.push(Instruction::JumpIfNot(0)); // placeholder
-                // Compile then branch
+                                                      // Compile then branch
                 self.compile_expr_with_locals(then_expr, code, locals)?;
                 // Jump past else branch
                 let jump_to_end = code.len();
                 code.push(Instruction::Jump(0)); // placeholder
-                // Patch: else branch starts here
+                                                 // Patch: else branch starts here
                 let else_start = code.len();
                 if let Some(Instruction::JumpIfNot(ref mut target)) = code.get_mut(jump_to_else) {
                     *target = else_start;
@@ -432,7 +470,11 @@ impl Compiler {
             Expr::BoolLit(b) => {
                 code.push(Instruction::Const(Value::Float(if *b { 1.0 } else { 0.0 })));
             }
-            Expr::QualifiedCall { module: _, function: _, args: _ } => {
+            Expr::QualifiedCall {
+                module: _,
+                function: _,
+                args: _,
+            } => {
                 return Err("compile: qualified calls not yet supported in bytecode".to_string());
             }
             Expr::List(items) => {
@@ -472,13 +514,21 @@ impl Compiler {
 
     /// Compile a pattern body with parameter names as locals.
     /// Phase 5.1: also handles let bindings, assigning additional local slots.
-    fn compile_pattern_body_with_locals(&self, body: &[Statement], locals: &mut HashMap<String, usize>) -> Result<Vec<Instruction>, String> {
+    fn compile_pattern_body_with_locals(
+        &self,
+        body: &[Statement],
+        locals: &mut HashMap<String, usize>,
+    ) -> Result<Vec<Instruction>, String> {
         let mut code = Vec::new();
         let mut next_slot = locals.len();
         for stmt in body {
             match stmt {
                 // Fix 1: use Statement::LetBinding { name, value } instead of Statement::Let(name, expr)
-                Statement::LetBinding { name, value, mutable: _ } => {
+                Statement::LetBinding {
+                    name,
+                    value,
+                    mutable: _,
+                } => {
                     let slot = next_slot;
                     next_slot += 1;
                     locals.insert(name.clone(), slot);
@@ -490,7 +540,11 @@ impl Compiler {
                     code.push(Instruction::Return);
                 }
                 // Наряд №14: match — compiled as chained if-jump-else (simplified)
-                Statement::Match { scrutinee, arms, else_body } => {
+                Statement::Match {
+                    scrutinee,
+                    arms,
+                    else_body,
+                } => {
                     self.compile_expr_with_locals(scrutinee, &mut code, locals)?;
                     // For now, store scrutinee and evaluate arms via tree-walking fallback.
                     // Full bytecode match compilation is deferred — the VM path uses
@@ -531,12 +585,10 @@ impl Compiler {
     /// Compile a rule into CompiledRule.
     fn compile_rule(&self, rule: &RuleDecl) -> Result<CompiledRule, String> {
         let condition = match &rule.condition {
-            Condition::Contains { left, right } => {
-                RuleCondition::Contains {
-                    left: self.rule_value_expr(left),
-                    right: self.rule_value_expr(right),
-                }
-            }
+            Condition::Contains { left, right } => RuleCondition::Contains {
+                left: self.rule_value_expr(left),
+                right: self.rule_value_expr(right),
+            },
             Condition::Compare { left, op, right } => {
                 RuleCondition::Compare {
                     left: self.rule_value_expr(left),
@@ -600,19 +652,19 @@ impl Compiler {
         }
         for instr in code {
             match instr {
-                Instruction::LoadLocal(_) |
-                Instruction::Const(_) |
-                Instruction::Add |
-                Instruction::Sub |
-                Instruction::Mul |
-                Instruction::Div |
-                Instruction::CmpGt |
-                Instruction::CmpLt |
-                Instruction::CmpGe |
-                Instruction::CmpLe |
-                Instruction::CmpEq |
-                Instruction::CmpNe |
-                Instruction::Return => {}
+                Instruction::LoadLocal(_)
+                | Instruction::Const(_)
+                | Instruction::Add
+                | Instruction::Sub
+                | Instruction::Mul
+                | Instruction::Div
+                | Instruction::CmpGt
+                | Instruction::CmpLt
+                | Instruction::CmpGe
+                | Instruction::CmpLe
+                | Instruction::CmpEq
+                | Instruction::CmpNe
+                | Instruction::Return => {}
                 _ => return false,
             }
         }
@@ -640,11 +692,12 @@ impl Compiler {
         }
 
         let file_path = self.std_root.join(module_path).with_extension("mlog");
-        let source = std::fs::read_to_string(&file_path)
-            .map_err(|e| format!(
+        let source = std::fs::read_to_string(&file_path).map_err(|e| {
+            format!(
                 "import '{}': cannot read {:?}: {}",
                 module_path, file_path, e
-            ))?;
+            )
+        })?;
 
         let mut declarations = crate::parser::parse(&source)
             .map_err(|e| format!("import '{}': parse error: {}", module_path, e))?;

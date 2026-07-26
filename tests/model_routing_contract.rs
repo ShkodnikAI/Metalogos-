@@ -41,14 +41,20 @@ fn test_model_routing_resolves_alias_via_env() {
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));
 
-    let _ = interp.run(vec![
-        make_model_learnable_decl("FastClassify", "Classify text", Some("fast")),
-    ]).unwrap();
+    let _ = interp
+        .run(vec![make_model_learnable_decl(
+            "FastClassify",
+            "Classify text",
+            Some("fast"),
+        )])
+        .unwrap();
 
-    let _ = interp.eval_expr(&Expr::FnCall(
-        "FastClassify".to_string(),
-        vec![Expr::StringLit("hello".to_string())],
-    )).unwrap();
+    let _ = interp
+        .eval_expr(&Expr::FnCall(
+            "FastClassify".to_string(),
+            vec![Expr::StringLit("hello".to_string())],
+        ))
+        .unwrap();
 
     let last_model = MockLlm::last_model();
     assert_eq!(
@@ -72,30 +78,38 @@ fn test_model_routing_different_aliases_resolve_independently() {
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));
 
-    let _ = interp.run(vec![
-        make_model_learnable_decl("Fast", "Quick classify", Some("fast")),
-        make_model_learnable_decl("Strong", "Deep analysis", Some("strong")),
-    ]).unwrap();
+    let _ = interp
+        .run(vec![
+            make_model_learnable_decl("Fast", "Quick classify", Some("fast")),
+            make_model_learnable_decl("Strong", "Deep analysis", Some("strong")),
+        ])
+        .unwrap();
 
     // Call Fast pattern → should resolve "fast" to "model-a"
-    let _ = interp.eval_expr(&Expr::FnCall(
-        "Fast".to_string(),
-        vec![Expr::StringLit("input".to_string())],
-    )).unwrap();
+    let _ = interp
+        .eval_expr(&Expr::FnCall(
+            "Fast".to_string(),
+            vec![Expr::StringLit("input".to_string())],
+        ))
+        .unwrap();
     assert_eq!(
-        MockLlm::last_model(), "model-a",
+        MockLlm::last_model(),
+        "model-a",
         "C2a: 'fast' alias should resolve to 'model-a'"
     );
 
     MockLlm::reset_last_model();
 
     // Call Strong pattern → should resolve "strong" to "model-b"
-    let _ = interp.eval_expr(&Expr::FnCall(
-        "Strong".to_string(),
-        vec![Expr::StringLit("input".to_string())],
-    )).unwrap();
+    let _ = interp
+        .eval_expr(&Expr::FnCall(
+            "Strong".to_string(),
+            vec![Expr::StringLit("input".to_string())],
+        ))
+        .unwrap();
     assert_eq!(
-        MockLlm::last_model(), "model-b",
+        MockLlm::last_model(),
+        "model-b",
         "C2b: 'strong' alias should resolve to 'model-b'"
     );
 
@@ -115,14 +129,20 @@ fn test_model_routing_passthrough_without_env() {
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));
 
-    let _ = interp.run(vec![
-        make_model_learnable_decl("Direct", "Direct model", Some("unknown")),
-    ]).unwrap();
+    let _ = interp
+        .run(vec![make_model_learnable_decl(
+            "Direct",
+            "Direct model",
+            Some("unknown"),
+        )])
+        .unwrap();
 
-    let _ = interp.eval_expr(&Expr::FnCall(
-        "Direct".to_string(),
-        vec![Expr::StringLit("test".to_string())],
-    )).unwrap();
+    let _ = interp
+        .eval_expr(&Expr::FnCall(
+            "Direct".to_string(),
+            vec![Expr::StringLit("test".to_string())],
+        ))
+        .unwrap();
 
     let last_model = MockLlm::last_model();
     assert_eq!(
@@ -142,14 +162,20 @@ fn test_model_routing_no_field_no_override() {
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));
 
-    let _ = interp.run(vec![
-        make_model_learnable_decl("Default", "Default model", None),
-    ]).unwrap();
+    let _ = interp
+        .run(vec![make_model_learnable_decl(
+            "Default",
+            "Default model",
+            None,
+        )])
+        .unwrap();
 
-    let _ = interp.eval_expr(&Expr::FnCall(
-        "Default".to_string(),
-        vec![Expr::StringLit("test".to_string())],
-    )).unwrap();
+    let _ = interp
+        .eval_expr(&Expr::FnCall(
+            "Default".to_string(),
+            vec![Expr::StringLit("test".to_string())],
+        ))
+        .unwrap();
 
     let last_model = MockLlm::last_model();
     assert_eq!(
@@ -170,17 +196,24 @@ fn test_model_routing_user_defined_alias() {
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));
 
-    let _ = interp.run(vec![
-        make_model_learnable_decl("Cheap", "Budget classify", Some("cheap")),
-    ]).unwrap();
+    let _ = interp
+        .run(vec![make_model_learnable_decl(
+            "Cheap",
+            "Budget classify",
+            Some("cheap"),
+        )])
+        .unwrap();
 
-    let _ = interp.eval_expr(&Expr::FnCall(
-        "Cheap".to_string(),
-        vec![Expr::StringLit("input".to_string())],
-    )).unwrap();
+    let _ = interp
+        .eval_expr(&Expr::FnCall(
+            "Cheap".to_string(),
+            vec![Expr::StringLit("input".to_string())],
+        ))
+        .unwrap();
 
     assert_eq!(
-        MockLlm::last_model(), "gpt-4o-mini",
+        MockLlm::last_model(),
+        "gpt-4o-mini",
         "C5: 'cheap' alias should resolve to 'gpt-4o-mini'"
     );
 
@@ -199,17 +232,24 @@ fn test_model_routing_direct_model_name() {
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));
 
-    let _ = interp.run(vec![
-        make_model_learnable_decl("Gpt4o", "GPT-4o task", Some("gpt-4o")),
-    ]).unwrap();
+    let _ = interp
+        .run(vec![make_model_learnable_decl(
+            "Gpt4o",
+            "GPT-4o task",
+            Some("gpt-4o"),
+        )])
+        .unwrap();
 
-    let _ = interp.eval_expr(&Expr::FnCall(
-        "Gpt4o".to_string(),
-        vec![Expr::StringLit("test".to_string())],
-    )).unwrap();
+    let _ = interp
+        .eval_expr(&Expr::FnCall(
+            "Gpt4o".to_string(),
+            vec![Expr::StringLit("test".to_string())],
+        ))
+        .unwrap();
 
     assert_eq!(
-        MockLlm::last_model(), "gpt-4o",
+        MockLlm::last_model(),
+        "gpt-4o",
         "C6: 'gpt-4o' without env should be passed as-is"
     );
 }

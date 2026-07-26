@@ -206,8 +206,15 @@ pub struct CompiledRule {
 /// Condition expression for a rule.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RuleCondition {
-    Contains { left: RuleValueExpr, right: RuleValueExpr },
-    Compare { left: RuleValueExpr, op: ConditionOp, right: RuleValueExpr },
+    Contains {
+        left: RuleValueExpr,
+        right: RuleValueExpr,
+    },
+    Compare {
+        left: RuleValueExpr,
+        op: ConditionOp,
+        right: RuleValueExpr,
+    },
 }
 
 /// Value expression inside a rule (simplified — only ident/lit/field-access).

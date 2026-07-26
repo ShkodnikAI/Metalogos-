@@ -40,7 +40,10 @@ fn check_duplicate_entity_type() {
     "#;
     let result = metalogos::check_program(source).unwrap();
     assert!(!result.is_ok());
-    assert!(result.errors.iter().any(|e| e.contains("duplicate entity type")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("duplicate entity type")));
 }
 
 #[test]

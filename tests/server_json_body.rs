@@ -162,7 +162,8 @@ fn test_json_to_value_deeply_nested() {
 #[tokio::test]
 async fn test_webhook_telegram_contract() {
     let (port, _handle) = metalogos::server::run_test_server(SOURCE_WEBHOOK)
-        .await.expect("server should start");
+        .await
+        .expect("server should start");
 
     let url = format!("http://127.0.0.1:{}/webhook", port);
     let client = reqwest::Client::new();
@@ -186,7 +187,8 @@ async fn test_webhook_telegram_contract() {
 #[tokio::test]
 async fn test_webhook_flat_json() {
     let (port, _handle) = metalogos::server::run_test_server(SOURCE_FLAT_JSON)
-        .await.expect("server should start");
+        .await
+        .expect("server should start");
 
     let url = format!("http://127.0.0.1:{}/echo", port);
     let client = reqwest::Client::new();
@@ -215,7 +217,8 @@ mlogserver {
 }
 "#;
     let (port, _handle) = metalogos::server::run_test_server(source)
-        .await.expect("server should start");
+        .await
+        .expect("server should start");
 
     let url = format!("http://127.0.0.1:{}/items", port);
     let client = reqwest::Client::new();
@@ -234,15 +237,12 @@ mlogserver {
 #[tokio::test]
 async fn test_webhook_empty_body_returns_empty_struct() {
     let (port, _handle) = metalogos::server::run_test_server(SOURCE_WEBHOOK)
-        .await.expect("server should start");
+        .await
+        .expect("server should start");
 
     let url = format!("http://127.0.0.1:{}/webhook", port);
     let client = reqwest::Client::new();
-    let resp = client
-        .post(&url)
-        .send()
-        .await
-        .unwrap();
+    let resp = client.post(&url).send().await.unwrap();
 
     // Empty body: json_body() returns empty struct
     // data.message.text → field not found → error → 500
@@ -262,7 +262,8 @@ mlogserver {
 }
 "#;
     let (port, _handle) = metalogos::server::run_test_server(source)
-        .await.expect("server should start");
+        .await
+        .expect("server should start");
 
     let url = format!("http://127.0.0.1:{}/check", port);
     let client = reqwest::Client::new();
@@ -291,7 +292,8 @@ mlogserver {
 }
 "#;
     let (port, _handle) = metalogos::server::run_test_server(source)
-        .await.expect("server should start");
+        .await
+        .expect("server should start");
 
     let url = format!("http://127.0.0.1:{}/null", port);
     let client = reqwest::Client::new();

@@ -11,8 +11,8 @@ use metalogos::semantic::{self, AnalysisResult};
 fn run_source(source: &str) -> Result<String, String> {
     let decls = parser::parse(source).map_err(|e| format!("parse: {}", e))?;
     let mut interp = Interpreter::new();
-    interp.run(decls)?;
-    Ok(format!("{}", interp.get_last_value()))
+    let result = interp.run(decls)?;
+    Ok(result.unwrap_or_default())
 }
 
 /// Helper: semantic check only.
@@ -37,7 +37,11 @@ fn test_cron_add_list_remove() {
     let result = run_source(source);
     assert!(result.is_ok(), "cron_add+list failed: {:?}", result);
     let output = result.unwrap();
-    assert!(output.contains("cron_"), "expected cron_ id, got: {}", output);
+    assert!(
+        output.contains("cron_"),
+        "expected cron_ id, got: {}",
+        output
+    );
 }
 
 #[test]
@@ -50,7 +54,10 @@ fn test_cron_remove() {
     "#;
     let result = run_source(source);
     assert!(result.is_ok(), "cron_remove failed: {:?}", result);
-    assert!(result.unwrap().contains("removed"), "expected 'removed' status");
+    assert!(
+        result.unwrap().contains("removed"),
+        "expected 'removed' status"
+    );
 }
 
 #[test]
@@ -125,8 +132,11 @@ fn test_mtree_store_retrieve_forget() {
     assert!(result.is_ok(), "mtree_store/retrieve failed: {:?}", result);
     let output = result.unwrap();
     // Should find at least one result mentioning Alice
-    assert!(output.contains("Alice") || output.contains("Google"),
-        "expected retrieval to find relevant entry, got: {}", output);
+    assert!(
+        output.contains("Alice") || output.contains("Google"),
+        "expected retrieval to find relevant entry, got: {}",
+        output
+    );
 }
 
 #[test]
@@ -163,8 +173,11 @@ fn test_mtree_summarize_l1_l2() {
     assert!(result.is_ok(), "mtree_summarize failed: {:?}", result);
     let output = result.unwrap();
     // With 11 L0 entries, batch of 10 → 1 L1 promoted, 1 L0 remaining
-    assert!(output.contains("l0_promoted") || output.contains("promoted"),
-        "expected promotion status, got: {}", output);
+    assert!(
+        output.contains("l0_promoted") || output.contains("promoted"),
+        "expected promotion status, got: {}",
+        output
+    );
 }
 
 #[test]
@@ -177,7 +190,10 @@ fn test_mtree_forget() {
     "#;
     let result = run_source(source);
     assert!(result.is_ok(), "mtree_forget failed: {:?}", result);
-    assert!(result.unwrap().contains("removed"), "expected 'removed' status");
+    assert!(
+        result.unwrap().contains("removed"),
+        "expected 'removed' status"
+    );
 }
 
 #[test]
@@ -227,8 +243,11 @@ fn test_memory_score() {
     assert!(result.is_ok(), "memory_score failed: {:?}", result);
     // High entity density should give score > 0.3
     let output = result.unwrap();
-    assert!(output.contains("MemoryScore") || output.contains("score"),
-        "expected MemoryScore struct, got: {}", output);
+    assert!(
+        output.contains("MemoryScore") || output.contains("score"),
+        "expected MemoryScore struct, got: {}",
+        output
+    );
 }
 
 #[test]
@@ -241,7 +260,10 @@ fn test_compress_html() {
     let result = run_source(source);
     assert!(result.is_ok(), "compress_html failed: {:?}", result);
     let output = result.unwrap();
-    assert!(!output.contains("<script>"), "script tags should be stripped");
+    assert!(
+        !output.contains("<script>"),
+        "script tags should be stripped"
+    );
     assert!(output.contains("Hello World"), "text content should remain");
 }
 
@@ -255,7 +277,11 @@ fn test_learn_preference_and_profile() {
         print(profile)
     "#;
     let result = run_source(source);
-    assert!(result.is_ok(), "learn_preference/get_profile failed: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "learn_preference/get_profile failed: {:?}",
+        result
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -271,9 +297,15 @@ fn test_semantic_send_message_arity() {
         }
     "#;
     let result = semantic_check(source);
-    assert!(!result.errors.is_empty(), "expected arity error for send_message()");
-    assert!(result.errors.iter().any(|e| e.contains("send_message")),
-        "expected send_message in error, got: {:?}", result.errors);
+    assert!(
+        !result.errors.is_empty(),
+        "expected arity error for send_message()"
+    );
+    assert!(
+        result.errors.iter().any(|e| e.contains("send_message")),
+        "expected send_message in error, got: {:?}",
+        result.errors
+    );
 }
 
 #[test]
@@ -284,7 +316,10 @@ fn test_semantic_edit_message_text_arity() {
         }
     "#;
     let result = semantic_check(source);
-    assert!(!result.errors.is_empty(), "expected arity error for edit_message_text()");
+    assert!(
+        !result.errors.is_empty(),
+        "expected arity error for edit_message_text()"
+    );
 }
 
 #[test]
@@ -295,9 +330,15 @@ fn test_semantic_session_logout_arity() {
         }
     "#;
     let result = semantic_check(source);
-    assert!(!result.errors.is_empty(), "expected arity error for session_logout()");
-    assert!(result.errors.iter().any(|e| e.contains("session_logout")),
-        "expected session_logout in error, got: {:?}", result.errors);
+    assert!(
+        !result.errors.is_empty(),
+        "expected arity error for session_logout()"
+    );
+    assert!(
+        result.errors.iter().any(|e| e.contains("session_logout")),
+        "expected session_logout in error, got: {:?}",
+        result.errors
+    );
 }
 
 #[test]
@@ -308,7 +349,10 @@ fn test_semantic_tts_send_arity() {
         }
     "#;
     let result = semantic_check(source);
-    assert!(!result.errors.is_empty(), "expected arity error for tts_send()");
+    assert!(
+        !result.errors.is_empty(),
+        "expected arity error for tts_send()"
+    );
 }
 
 #[test]
@@ -319,7 +363,10 @@ fn test_semantic_whisper_transcribe_arity() {
         }
     "#;
     let result = semantic_check(source);
-    assert!(!result.errors.is_empty(), "expected arity error for whisper_transcribe()");
+    assert!(
+        !result.errors.is_empty(),
+        "expected arity error for whisper_transcribe()"
+    );
 }
 
 #[test]
@@ -336,6 +383,14 @@ fn test_semantic_correct_arity_no_error() {
         }
     "#;
     let result = semantic_check(source);
-    let arity_errors: Vec<_> = result.errors.iter().filter(|e| e.contains("arity") || e.contains("expects")).collect();
-    assert!(arity_errors.is_empty(), "unexpected arity errors: {:?}", arity_errors);
+    let arity_errors: Vec<_> = result
+        .errors
+        .iter()
+        .filter(|e| e.contains("arity") || e.contains("expects"))
+        .collect();
+    assert!(
+        arity_errors.is_empty(),
+        "unexpected arity errors: {:?}",
+        arity_errors
+    );
 }

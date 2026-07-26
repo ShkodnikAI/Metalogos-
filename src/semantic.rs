@@ -58,13 +58,7 @@ impl AnalysisResult {
 }
 
 /// Valid middleware names for mlogserver blocks.
-const VALID_MIDDLEWARE: &[&str] = &[
-    "session",
-    "csrf",
-    "security_headers",
-    "rate_limit",
-    "cors",
-];
+const VALID_MIDDLEWARE: &[&str] = &["session", "csrf", "security_headers", "rate_limit", "cors"];
 
 /// Valid HTTP methods for route declarations.
 const VALID_METHODS: &[&str] = &["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
@@ -98,7 +92,9 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         match decl {
             Declaration::EntityType(e) => {
                 if !entity_types.insert(e.name.clone()) {
-                    result.errors.push(format!("duplicate entity type: {}", e.name));
+                    result
+                        .errors
+                        .push(format!("duplicate entity type: {}", e.name));
                 }
             }
             Declaration::EntityRecord(e) => {
@@ -118,7 +114,9 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
             }
             Declaration::LearnablePattern(lp) => {
                 if !learnable_names.insert(lp.name.clone()) {
-                    result.errors.push(format!("duplicate learnable pattern: {}", lp.name));
+                    result
+                        .errors
+                        .push(format!("duplicate learnable pattern: {}", lp.name));
                 }
             }
             Declaration::Flow(f) => {
@@ -162,7 +160,17 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                 }
             }
             Declaration::EntitySimple(e) => {
-                let known_primitives = ["String", "Float", "Bool", "Html", "Query", "Secret", "Encrypted", "Hash", "Session"];
+                let known_primitives = [
+                    "String",
+                    "Float",
+                    "Bool",
+                    "Html",
+                    "Query",
+                    "Secret",
+                    "Encrypted",
+                    "Hash",
+                    "Session",
+                ];
                 if !known_primitives.contains(&e.type_name.as_str())
                     && !entity_types.contains(&e.type_name)
                 {
@@ -273,7 +281,10 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                     );
                 }
                 // Warn if POST routes but no csrf middleware
-                let has_post = srv.routes.iter().any(|r| r.method == "POST" || r.method == "PUT" || r.method == "DELETE");
+                let has_post = srv
+                    .routes
+                    .iter()
+                    .any(|r| r.method == "POST" || r.method == "PUT" || r.method == "DELETE");
                 if has_post && !srv.middleware.contains(&"csrf".to_string()) {
                     result.warnings.push(
                         "mlogserver: has mutating routes but no 'csrf' middleware — recommend adding it".to_string()
@@ -347,7 +358,10 @@ mod tests {
         let decls = crate::parser::parse(source).unwrap();
         let result = check_program(&decls);
         assert!(!result.is_ok());
-        assert!(result.errors.iter().any(|e| e.contains("duplicate pattern")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.contains("duplicate pattern")));
     }
 
     // ── Phase 6 semantic tests ────────────────────────────────
@@ -377,7 +391,10 @@ mlogserver {
         let decls = crate::parser::parse(source).unwrap();
         let result = check_program(&decls);
         assert!(!result.is_ok());
-        assert!(result.errors.iter().any(|e| e.contains("unknown middleware")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.contains("unknown middleware")));
     }
 
     #[test]
@@ -390,7 +407,10 @@ mlogserver {
         let decls = crate::parser::parse(source).unwrap();
         let result = check_program(&decls);
         assert!(!result.is_ok());
-        assert!(result.errors.iter().any(|e| e.contains("unknown HTTP method")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.contains("unknown HTTP method")));
     }
 
     #[test]
@@ -403,7 +423,10 @@ mlogserver {
         let decls = crate::parser::parse(source).unwrap();
         let result = check_program(&decls);
         assert!(result.is_ok()); // Only warning, not error
-        assert!(result.warnings.iter().any(|w| w.contains("security_headers")));
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| w.contains("security_headers")));
     }
 
     #[test]
@@ -442,6 +465,9 @@ template Page(title: String) -> Secret {
         let decls = crate::parser::parse(source).unwrap();
         let result = check_program(&decls);
         assert!(!result.is_ok());
-        assert!(result.errors.iter().any(|e| e.contains("only Html is supported")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.contains("only Html is supported")));
     }
 }

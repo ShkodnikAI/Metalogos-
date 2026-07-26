@@ -54,7 +54,11 @@ impl OpenAIEmbedding {
             .build()
             .map_err(|e| format!("HTTP client build error: {}", e))?;
 
-        Ok(OpenAIEmbedding { api_key, model, client })
+        Ok(OpenAIEmbedding {
+            api_key,
+            model,
+            client,
+        })
     }
 
     /// Create with explicit configuration (for testing).
@@ -65,7 +69,11 @@ impl OpenAIEmbedding {
             .build()
             .map_err(|e| format!("HTTP client build error: {}", e))?;
 
-        Ok(OpenAIEmbedding { api_key, model, client })
+        Ok(OpenAIEmbedding {
+            api_key,
+            model,
+            client,
+        })
     }
 
     /// Call the OpenAI embeddings API.
@@ -77,7 +85,8 @@ impl OpenAIEmbedding {
             "encoding_format": "float"
         });
 
-        let response = self.client
+        let response = self
+            .client
             .post("https://api.openai.com/v1/embeddings")
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("content-type", "application/json")
@@ -126,7 +135,12 @@ fn parse_openai_embeddings_response(raw: &str) -> Result<Vec<f32>, String> {
         .and_then(|arr| arr.first())
         .and_then(|item| item.get("embedding"))
         .and_then(|e| e.as_array())
-        .map(|vec| vec.iter().filter_map(|v| v.as_f64()).map(|v| v as f32).collect())
+        .map(|vec| {
+            vec.iter()
+                .filter_map(|v| v.as_f64())
+                .map(|v| v as f32)
+                .collect()
+        })
         .ok_or_else(|| {
             format!(
                 "Unexpected OpenAI embeddings response format: {}",
@@ -182,7 +196,7 @@ impl TfidfEmbedding {
             .map(|c| if c.is_alphanumeric() { c } else { ' ' })
             .collect::<String>()
             .split_whitespace()
-            .filter(|w| w.chars().count() > 1)  // ignore single-char tokens (char-count, not byte-count)
+            .filter(|w| w.chars().count() > 1) // ignore single-char tokens (char-count, not byte-count)
             .map(|w| w.to_string())
             .collect()
     }
@@ -211,7 +225,7 @@ impl TfidfEmbedding {
                 let idx = inner.vocab.len();
                 inner.vocab.insert(token.clone(), idx);
             }
-            max_idx = max_idx.max(*inner.vocab.get(token).unwrap());
+            max_idx = max_idx.max(*inner.vocab.get(token).unwrap_or(&0));
         }
 
         // Use at least TFIDF_EMBEDDING_DIM dimensions
@@ -253,7 +267,10 @@ impl TfidfEmbedding {
 impl EmbeddingBackend for TfidfEmbedding {
     fn embed(&self, text: &str) -> Result<Vec<f32>, String> {
         // Interior mutability: lock mutex, compute TF-IDF, grow vocabulary
-        let mut inner = self.inner.lock().map_err(|e| format!("TF-IDF lock error: {}", e))?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| format!("TF-IDF lock error: {}", e))?;
         Ok(Self::compute_tfidf(&mut inner, text))
     }
 
@@ -262,7 +279,7 @@ impl EmbeddingBackend for TfidfEmbedding {
     }
 
     fn dimension(&self) -> usize {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         inner.vocab.len().max(TFIDF_EMBEDDING_DIM)
     }
 }
@@ -311,21 +328,22 @@ impl EmbeddingManager {
             .to_lowercase();
 
         match provider.as_str() {
-            "openai" => {
-                match OpenAIEmbedding::new() {
-                    Ok(backend) => EmbeddingManager {
-                        backend: Box::new(backend),
-                        is_api: true,
-                    },
-                    Err(e) => {
-                        eprintln!("[embeddings] OpenAI unavailable ({}), falling back to TF-IDF", e);
-                        EmbeddingManager {
-                            backend: Box::new(TfidfEmbedding::new()),
-                            is_api: false,
-                        }
+            "openai" => match OpenAIEmbedding::new() {
+                Ok(backend) => EmbeddingManager {
+                    backend: Box::new(backend),
+                    is_api: true,
+                },
+                Err(e) => {
+                    eprintln!(
+                        "[embeddings] OpenAI unavailable ({}), falling back to TF-IDF",
+                        e
+                    );
+                    EmbeddingManager {
+                        backend: Box::new(TfidfEmbedding::new()),
+                        is_api: false,
                     }
                 }
-            }
+            },
             _ => EmbeddingManager {
                 backend: Box::new(TfidfEmbedding::new()),
                 is_api: false,
@@ -366,7 +384,8 @@ fn truncate_response(s: &str, max_len: usize) -> String {
         s.to_string()
     } else {
         // Unicode-safe: find char boundary to avoid mid-character slice panic
-        let end = s.char_indices()
+        let end = s
+            .char_indices()
             .take_while(|(i, _)| *i < max_len)
             .last()
             .map(|(i, c)| i + c.len_utf8())
@@ -442,7 +461,11 @@ mod tests {
         let v2 = tfidf.embed("the cat sat on the mat").unwrap();
         // Should be very similar (identical if no IDF change)
         let sim = cosine_similarity(&v1, &v2);
-        assert!(sim > 0.9, "Same text should have high similarity, got {}", sim);
+        assert!(
+            sim > 0.9,
+            "Same text should have high similarity, got {}",
+            sim
+        );
     }
 
     #[test]
@@ -452,7 +475,11 @@ mod tests {
         let v2 = tfidf.embed("quantum physics equations").unwrap();
         let sim = cosine_similarity(&v1, &v2);
         // Different topics with no shared words → orthogonal vectors → similarity ~0
-        assert!(sim < 0.5, "Different topics should have low similarity, got {}", sim);
+        assert!(
+            sim < 0.5,
+            "Different topics should have low similarity, got {}",
+            sim
+        );
     }
 
     #[test]
@@ -535,7 +562,10 @@ mod tests {
 
     #[test]
     fn test_openai_embedding_with_config() {
-        let result = OpenAIEmbedding::with_config("sk-test".to_string(), "text-embedding-3-small".to_string());
+        let result = OpenAIEmbedding::with_config(
+            "sk-test".to_string(),
+            "text-embedding-3-small".to_string(),
+        );
         assert!(result.is_ok());
         let emb = result.unwrap();
         assert_eq!(emb.dimension(), OPENAI_EMBEDDING_DIM);
@@ -572,7 +602,11 @@ mod tests {
         let v2 = tfidf.embed("the cat sat on the mat").unwrap();
         // "the cat sat" shares words with the longer text
         let sim = cosine_similarity(&v1, &v2);
-        assert!(sim > 0.5, "Shared words should give similarity > 0.5, got {}", sim);
+        assert!(
+            sim > 0.5,
+            "Shared words should give similarity > 0.5, got {}",
+            sim
+        );
     }
 
     #[test]
@@ -585,7 +619,11 @@ mod tests {
         // "feline" and "sitting" are in vocab now (added by second embed)
         // but at different indices than "the cat sat" words → orthogonal
         let sim = cosine_similarity(&tfidf.embed("the cat sat").unwrap(), &v2);
-        assert!(sim < 0.3, "Disjoint words should give near-zero similarity, got {}", sim);
+        assert!(
+            sim < 0.3,
+            "Disjoint words should give near-zero similarity, got {}",
+            sim
+        );
     }
 
     #[test]
@@ -595,7 +633,9 @@ mod tests {
         assert!(!v1.is_empty());
         // Different words also get added
         let v2 = tfidf.embed("quantum physics").unwrap();
-        assert!(!v2.iter().all(|x| *x == 0.0),
-            "Second embed should add new words to vocab and produce non-zero vector");
+        assert!(
+            !v2.iter().all(|x| *x == 0.0),
+            "Second embed should add new words to vocab and produce non-zero vector"
+        );
     }
 }

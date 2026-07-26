@@ -43,6 +43,9 @@ zeroize = "1"
 # Phase 7.4: Real sessions & CSRF
 rusqlite = { version = "0.31", features = ["bundled"] }
 
+# Наряд №29 §5.1: Lock-free concurrent HashMap for hot paths
+dashmap = "6.1"
+
 # Наряд №4: Global lazy static for LLM usage tracking
 once_cell = "1"
 

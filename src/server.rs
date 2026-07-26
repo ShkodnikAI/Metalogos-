@@ -16,6 +16,7 @@ use axum::{
     routing::{any, delete, get, post, put},
     Router,
 };
+use dashmap::DashMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -135,14 +136,16 @@ fn _assert_state_send_sync(state: ServerState) {
 
 // ── Server State ──────────────────────────────────────────────────
 
-/// Shared mutable server state, protected by tokio::RwLock / std::sync::Mutex.
+/// Shared mutable server state.
+/// Наряд №29 §5.1: hot-path maps (sessions, csrf_tokens, rate_limits)
+/// use DashMap (lock-free) instead of Arc<RwLock<HashMap>>.
 #[derive(Clone)]
 pub struct ServerState {
-    /// In-memory session cache (kept for fast lookouts, authoritative source is SQLite).
-    pub sessions: Arc<RwLock<HashMap<String, SessionEntry>>>,
+    /// In-memory session cache (kept for fast lookups, authoritative source is SQLite).
+    pub sessions: Arc<DashMap<String, SessionEntry>>,
     /// CSRF token store for double-submit validation.
     /// Value: (session_id, created_at) — used for TTL enforcement (15 min, see Наряд №29 §2.2).
-    pub csrf_tokens: Arc<RwLock<HashMap<String, (String, std::time::Instant)>>>,
+    pub csrf_tokens: Arc<DashMap<String, (String, std::time::Instant)>>,
     /// HMAC signing key for session cookies.
     pub hmac_key: Arc<Vec<u8>>,
     /// Audit log entries.
@@ -162,7 +165,7 @@ pub struct ServerState {
     /// SQLite connection for session persistence (Phase 7.4).
     pub db: Arc<tokio::sync::Mutex<rusqlite::Connection>>,
     /// Rate-limit tracker: IP → Vec<Instant> (Phase 7.4).
-    pub rate_limits: Arc<RwLock<HashMap<String, Vec<std::time::Instant>>>>,
+    pub rate_limits: Arc<DashMap<String, Vec<std::time::Instant>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -320,10 +323,9 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
             let now = std::time::Instant::now();
-            let mut tokens = csrf_state.csrf_tokens.write().await;
-            let before = tokens.len();
-            tokens.retain(|_token, (_sid, created_at)| now.duration_since(*created_at) < ttl);
-            let removed = before - tokens.len();
+            let before = csrf_state.csrf_tokens.len();
+            csrf_state.csrf_tokens.retain(|_token, (_sid, created_at)| now.duration_since(*created_at) < ttl);
+            let removed = before - csrf_state.csrf_tokens.len();
             if removed > 0 {
                 eprintln!("[csrf-cleanup] evicted {} expired token(s)", removed);
             }
@@ -406,8 +408,8 @@ async fn build_state(
     init_session_db(&conn).map_err(|e| format!("Failed to create sessions table: {}", e))?;
 
     Ok(ServerState {
-        sessions: Arc::new(RwLock::new(HashMap::new())),
-        csrf_tokens: Arc::new(RwLock::new(HashMap::new())),
+        sessions: Arc::new(DashMap::new()),
+        csrf_tokens: Arc::new(DashMap::new()),
         hmac_key: Arc::new(hmac_key),
         audit_log: Arc::new(RwLock::new(Vec::new())),
         templates: Arc::new(RwLock::new(templates_map)),
@@ -417,7 +419,7 @@ async fn build_state(
         routes: config.routes.clone(),
         middleware: config.middleware.clone(),
         db: Arc::new(tokio::sync::Mutex::new(conn)),
-        rate_limits: Arc::new(RwLock::new(HashMap::new())),
+        rate_limits: Arc::new(DashMap::new()),
     })
 }
 
@@ -557,14 +559,11 @@ async fn route_handler(
         // Наряд №29 §2.2: store (session_id, created_at) for TTL enforcement.
         if method == Method::GET && state.middleware.contains(&"csrf".to_string()) {
             let token = generate_csrf_token();
-            {
-                let mut tokens = state.csrf_tokens.write().await;
-                let session_id_for_csrf = raw_session_id.clone().unwrap_or_default();
-                tokens.insert(
-                    token.clone(),
-                    (session_id_for_csrf, std::time::Instant::now()),
-                );
-            }
+            let session_id_for_csrf = raw_session_id.clone().unwrap_or_default();
+            state.csrf_tokens.insert(
+                token.clone(),
+                (session_id_for_csrf, std::time::Instant::now()),
+            );
             let cookie_value = format!("_mlog_csrf={}; HttpOnly; SameSite=Strict; Path=/", token);
             if let Ok(val) = HeaderValue::from_str(&cookie_value) {
                 response.headers_mut().append(header::SET_COOKIE, val);
@@ -615,19 +614,15 @@ async fn check_csrf(state: &ServerState, headers: &HeaderMap) -> Result<(), Resp
             // accept — this preserves the original Phase 7.4 behavior.
             let now = std::time::Instant::now();
             let ttl = std::time::Duration::from_secs(900); // 15 minutes
-            let mut tokens = state.csrf_tokens.write().await;
-            if let Some((_session_id, created_at)) = tokens.get(&cookie) {
-                if now.duration_since(*created_at) < ttl {
-                    Ok(())
-                } else {
-                    // Expired — evict and reject.
-                    tokens.remove(&cookie);
-                    drop(tokens);
-                    let mut log = state.audit_log.write().await;
-                    log.push("[CSRF] Rejected: token expired (>15 min)".to_string());
-                    Err((StatusCode::FORBIDDEN, "403 Forbidden: CSRF token expired")
-                        .into_response())
-                }
+            let token_expired = state.csrf_tokens.get(&cookie)
+                .map(|r| now.duration_since(r.value().1) >= ttl)
+                .unwrap_or(false);
+            if token_expired {
+                state.csrf_tokens.remove(&cookie);
+                let mut log = state.audit_log.write().await;
+                log.push("[CSRF] Rejected: token expired (>15 min)".to_string());
+                Err((StatusCode::FORBIDDEN, "403 Forbidden: CSRF token expired")
+                    .into_response())
             } else {
                 Ok(())
             }
@@ -692,11 +687,10 @@ pub async fn check_rate_limit(
     ip: &str,
     max_per_minute: usize,
 ) -> Result<(), Response> {
-    let mut limits = state.rate_limits.write().await;
     let now = std::time::Instant::now();
     let window_start = now - std::time::Duration::from_secs(60);
 
-    let entries = limits.entry(ip.to_string()).or_default();
+    let mut entries = state.rate_limits.entry(ip.to_string()).or_default();
     // Remove entries outside the 60-second window
     entries.retain(|&t| t > window_start);
 
@@ -752,8 +746,8 @@ async fn check_roles(
     };
 
     // Check in-memory cache first, then SQLite
-    let sessions = state.sessions.read().await;
-    if let Some(entry) = sessions.get(&raw_id) {
+    let session_ref = state.sessions.get(&raw_id);
+    if let Some(entry) = session_ref.as_deref() {
         if entry.expires < std::time::Instant::now() {
             return Err((
                 StatusCode::UNAUTHORIZED,
@@ -765,7 +759,7 @@ async fn check_roles(
         if has_role {
             Ok(())
         } else {
-            drop(sessions);
+            drop(session_ref);
             let mut log = state.audit_log.write().await;
             log.push(format!(
                 "[AUTH] Rejected: insufficient roles (need {:?}, have {:?})",
@@ -780,7 +774,7 @@ async fn check_roles(
         }
     } else {
         // Fall through to SQLite check
-        drop(sessions);
+        drop(session_ref);
         validate_session_in_db(&state, &raw_id).await?;
         // If valid but not in memory cache, load from DB
         // For simplicity, reject here — session needs re-login
@@ -994,9 +988,8 @@ async fn execute_route_body(
     if state.middleware.contains(&"session".to_string()) {
         if let Some(session_id) = extract_session_cookie(_headers) {
             if let Some(raw_id) = verify_cookie(&session_id, &state.hmac_key) {
-                let sessions = state.sessions.read().await;
-                if let Some(entry) = sessions.get(&raw_id) {
-                    interp.set_server_user_roles(entry.roles.clone());
+                if let Some(entry) = state.sessions.get(&raw_id) {
+                    interp.set_server_user_roles(entry.value().roles.clone());
                 }
             }
         }
@@ -1479,10 +1472,7 @@ mod tests {
 
         // Store token in state (simulating cookie set on previous GET)
         // Наряд №29 §2.2: value tuple is (session_id, created_at).
-        {
-            let mut tokens = state.csrf_tokens.write().await;
-            tokens.insert(token.clone(), (String::new(), std::time::Instant::now()));
-        }
+        state.csrf_tokens.insert(token.clone(), (String::new(), std::time::Instant::now()));
 
         // Simulate POST with matching cookie and header
         let mut headers = HeaderMap::new();
@@ -1716,8 +1706,8 @@ mod tests {
         init_session_db(&conn).unwrap();
 
         ServerState {
-            sessions: Arc::new(RwLock::new(HashMap::new())),
-            csrf_tokens: Arc::new(RwLock::new(HashMap::new())),
+            sessions: Arc::new(DashMap::new()),
+            csrf_tokens: Arc::new(DashMap::new()),
             hmac_key: Arc::new(generate_hmac_key()),
             audit_log: Arc::new(RwLock::new(Vec::new())),
             templates: Arc::new(RwLock::new(HashMap::new())),
@@ -1731,7 +1721,7 @@ mod tests {
                 "rate_limit".to_string(),
             ],
             db: Arc::new(tokio::sync::Mutex::new(conn)),
-            rate_limits: Arc::new(RwLock::new(HashMap::new())),
+            rate_limits: Arc::new(DashMap::new()),
         }
     }
 }

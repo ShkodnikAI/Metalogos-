@@ -8,6 +8,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
+/// Acquire a mutex lock, converting poison errors to a user-friendly message.
+/// Used in functions that return `Result<_, String>` (Наряд №29 §3.4).
+fn lock_or_err<'a, T>(
+    guard: Result<
+        std::sync::MutexGuard<'a, T>,
+        std::sync::PoisonError<std::sync::MutexGuard<'a, T>>,
+    >,
+) -> Result<std::sync::MutexGuard<'a, T>, String> {
+    guard.map_err(|e| format!("lock poisoned: {}", e))
+}
+
 /// A trait for LLM backends — allows swapping between real and mock.
 pub trait LlmBackend: Send + Sync {
     /// Call the LLM with a prompt + input text. Returns the model's text response.
@@ -17,7 +28,12 @@ pub trait LlmBackend: Send + Sync {
     /// Default implementation ignores the override and delegates to `call()`.
     /// Real backends use the override model in the API JSON body;
     /// MockLlm records it for contract tests.
-    fn call_with_model(&self, prompt: &str, input: &str, _model: Option<&str>) -> Result<String, String> {
+    fn call_with_model(
+        &self,
+        prompt: &str,
+        input: &str,
+        _model: Option<&str>,
+    ) -> Result<String, String> {
         self.call(prompt, input)
     }
 }
@@ -52,13 +68,18 @@ impl MockLlm {
 
     /// Reset the last-model tracker to empty.
     pub fn reset_last_model() {
-        *MOCK_LLM_LAST_MODEL.lock().unwrap() = String::new();
+        *MOCK_LLM_LAST_MODEL
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = String::new();
     }
 
     /// Get the last model override passed to call_with_model().
     /// Empty string if no override was used or call() was called directly.
     pub fn last_model() -> String {
-        MOCK_LLM_LAST_MODEL.lock().unwrap().clone()
+        MOCK_LLM_LAST_MODEL
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 }
 
@@ -68,13 +89,18 @@ impl LlmBackend for MockLlm {
         Ok(prompt.to_string())
     }
 
-    fn call_with_model(&self, prompt: &str, input: &str, model: Option<&str>) -> Result<String, String> {
+    fn call_with_model(
+        &self,
+        prompt: &str,
+        input: &str,
+        model: Option<&str>,
+    ) -> Result<String, String> {
         MOCK_LLM_CALL_COUNT.fetch_add(1, Ordering::SeqCst);
         // Record model for contract tests
         if let Some(m) = model {
-            *MOCK_LLM_LAST_MODEL.lock().unwrap() = m.to_string();
+            *lock_or_err(MOCK_LLM_LAST_MODEL.lock())? = m.to_string();
         } else {
-            *MOCK_LLM_LAST_MODEL.lock().unwrap() = String::new();
+            *lock_or_err(MOCK_LLM_LAST_MODEL.lock())? = String::new();
         }
         Ok(prompt.to_string())
     }
@@ -233,7 +259,12 @@ impl LlmBackend for RealLlm {
     /// ADR-0048: Call with per-pattern model override.
     /// If a model override is provided and differs from the global model,
     /// clone self with the overridden model and call through that.
-    fn call_with_model(&self, prompt: &str, input: &str, model: Option<&str>) -> Result<String, String> {
+    fn call_with_model(
+        &self,
+        prompt: &str,
+        input: &str,
+        model: Option<&str>,
+    ) -> Result<String, String> {
         match model {
             Some(m) if m != self.model => {
                 let mut backend = self.clone();
@@ -434,15 +465,14 @@ impl RealLlm {
 
 /// Parse Anthropic response: `{ "content": [{ "type": "text", "text": "..." }] }`
 fn parse_anthropic_response(raw: &str) -> Result<String, String> {
-    let json: serde_json::Value = serde_json::from_str(raw)
-        .map_err(|e| format!("Failed to parse Anthropic JSON: {}", e))?;
+    let json: serde_json::Value =
+        serde_json::from_str(raw).map_err(|e| format!("Failed to parse Anthropic JSON: {}", e))?;
 
     json.get("content")
         .and_then(|c| c.as_array())
         .and_then(|arr| {
-            arr.iter().find(|item| {
-                item.get("type").and_then(|t| t.as_str()) == Some("text")
-            })
+            arr.iter()
+                .find(|item| item.get("type").and_then(|t| t.as_str()) == Some("text"))
         })
         .and_then(|item| item.get("text"))
         .and_then(|t| t.as_str())
@@ -457,8 +487,8 @@ fn parse_anthropic_response(raw: &str) -> Result<String, String> {
 
 /// Parse OpenAI response: `{ "choices": [{ "message": { "content": "..." } }] }`
 fn parse_openai_response(raw: &str) -> Result<String, String> {
-    let json: serde_json::Value = serde_json::from_str(raw)
-        .map_err(|e| format!("Failed to parse OpenAI JSON: {}", e))?;
+    let json: serde_json::Value =
+        serde_json::from_str(raw).map_err(|e| format!("Failed to parse OpenAI JSON: {}", e))?;
 
     json.get("choices")
         .and_then(|c| c.as_array())
@@ -467,28 +497,18 @@ fn parse_openai_response(raw: &str) -> Result<String, String> {
         .and_then(|msg| msg.get("content"))
         .and_then(|c| c.as_str())
         .map(|t| t.trim().to_string())
-        .ok_or_else(|| {
-            format!(
-                "Unexpected OpenAI response format: {}",
-                truncate(raw, 300)
-            )
-        })
+        .ok_or_else(|| format!("Unexpected OpenAI response format: {}", truncate(raw, 300)))
 }
 
 /// Parse Ollama response: `{ "response": "..." }`
 fn parse_ollama_response(raw: &str) -> Result<String, String> {
-    let json: serde_json::Value = serde_json::from_str(raw)
-        .map_err(|e| format!("Failed to parse Ollama JSON: {}", e))?;
+    let json: serde_json::Value =
+        serde_json::from_str(raw).map_err(|e| format!("Failed to parse Ollama JSON: {}", e))?;
 
     json.get("response")
         .and_then(|r| r.as_str())
         .map(|t| t.trim().to_string())
-        .ok_or_else(|| {
-            format!(
-                "Unexpected Ollama response format: {}",
-                truncate(raw, 300)
-            )
-        })
+        .ok_or_else(|| format!("Unexpected Ollama response format: {}", truncate(raw, 300)))
 }
 
 // ── Retry Helpers ──────────────────────────────────────────────────
@@ -733,7 +753,10 @@ impl LlmUsageTracker {
             total_tokens: StdMutex::new(0),
             total_errors: StdMutex::new(0),
             providers: StdMutex::new(
-                provider_names.iter().map(|_| ProviderHealth::new(circuit_threshold)).collect()
+                provider_names
+                    .iter()
+                    .map(|_| ProviderHealth::new(circuit_threshold))
+                    .collect(),
             ),
             provider_names,
             provider_calls: StdMutex::new(vec![0; n]),
@@ -747,7 +770,13 @@ impl LlmUsageTracker {
         self.provider_names.len()
     }
 
-    pub fn record_call(&self, provider_idx: usize, success: bool, prompt_chars: usize, latency_ms: u64) {
+    pub fn record_call(
+        &self,
+        provider_idx: usize,
+        success: bool,
+        prompt_chars: usize,
+        latency_ms: u64,
+    ) {
         if let Ok(mut providers) = self.providers.lock() {
             if provider_idx < providers.len() {
                 providers[provider_idx].record(success);
@@ -755,24 +784,38 @@ impl LlmUsageTracker {
         }
         // Estimate tokens: chars / 4
         let tokens = (prompt_chars / 4) as u64;
-        if let Ok(mut total_calls) = self.total_calls.lock() { *total_calls += 1; }
-        if let Ok(mut total_tokens) = self.total_tokens.lock() { *total_tokens += tokens; }
+        if let Ok(mut total_calls) = self.total_calls.lock() {
+            *total_calls += 1;
+        }
+        if let Ok(mut total_tokens) = self.total_tokens.lock() {
+            *total_tokens += tokens;
+        }
         if !success {
-            if let Ok(mut total_errors) = self.total_errors.lock() { *total_errors += 1; }
+            if let Ok(mut total_errors) = self.total_errors.lock() {
+                *total_errors += 1;
+            }
         }
         if let Ok(mut pc) = self.provider_calls.lock() {
-            if provider_idx < pc.len() { pc[provider_idx] += 1; }
+            if provider_idx < pc.len() {
+                pc[provider_idx] += 1;
+            }
         }
         if let Ok(mut pt) = self.provider_tokens.lock() {
-            if provider_idx < pt.len() { pt[provider_idx] += tokens; }
+            if provider_idx < pt.len() {
+                pt[provider_idx] += tokens;
+            }
         }
         if !success {
             if let Ok(mut pe) = self.provider_errors.lock() {
-                if provider_idx < pe.len() { pe[provider_idx] += 1; }
+                if provider_idx < pe.len() {
+                    pe[provider_idx] += 1;
+                }
             }
         }
         if let Ok(mut pl) = self.provider_latencies.lock() {
-            if provider_idx < pl.len() { pl[provider_idx] = pl[provider_idx].saturating_add(latency_ms); }
+            if provider_idx < pl.len() {
+                pl[provider_idx] = pl[provider_idx].saturating_add(latency_ms);
+            }
         }
     }
 
@@ -804,11 +847,31 @@ impl LlmUsageTracker {
 
         let mut provider_reports = Vec::new();
         for i in 0..self.provider_names.len() {
-            let calls = self.provider_calls.lock().map(|g| g.get(i).copied().unwrap_or(0)).unwrap_or(0);
-            let tokens = self.provider_tokens.lock().map(|g| g.get(i).copied().unwrap_or(0)).unwrap_or(0);
-            let errors = self.provider_errors.lock().map(|g| g.get(i).copied().unwrap_or(0)).unwrap_or(0);
-            let total_lat = self.provider_latencies.lock().map(|g| g.get(i).copied().unwrap_or(0)).unwrap_or(0);
-            let avg_lat = if calls > 0 { total_lat as f64 / calls as f64 } else { 0.0 };
+            let calls = self
+                .provider_calls
+                .lock()
+                .map(|g| g.get(i).copied().unwrap_or(0))
+                .unwrap_or(0);
+            let tokens = self
+                .provider_tokens
+                .lock()
+                .map(|g| g.get(i).copied().unwrap_or(0))
+                .unwrap_or(0);
+            let errors = self
+                .provider_errors
+                .lock()
+                .map(|g| g.get(i).copied().unwrap_or(0))
+                .unwrap_or(0);
+            let total_lat = self
+                .provider_latencies
+                .lock()
+                .map(|g| g.get(i).copied().unwrap_or(0))
+                .unwrap_or(0);
+            let avg_lat = if calls > 0 {
+                total_lat as f64 / calls as f64
+            } else {
+                0.0
+            };
             let health = self.health_score(i);
 
             provider_reports.push(ProviderUsage {
@@ -856,12 +919,15 @@ pub struct SmartRouter {
 impl SmartRouter {
     /// Create a SmartRouter from an LlmConfigDecl.
     pub fn from_config(config: &crate::ast::LlmConfigDecl) -> Self {
-        let provider_names: Vec<String> = config.providers.iter().map(|p| p.alias.clone()).collect();
+        let provider_names: Vec<String> =
+            config.providers.iter().map(|p| p.alias.clone()).collect();
         let circuit_threshold = config.circuit_breaker;
-        let providers: Vec<(String, String, Option<String>, Option<String>)> = config.providers.iter().map(|p| {
-            // Evaluate key expression: if it's env("KEY"), resolve at runtime
-            let key = p.key.as_ref().and_then(|expr| {
-                match expr {
+        let providers: Vec<(String, String, Option<String>, Option<String>)> = config
+            .providers
+            .iter()
+            .map(|p| {
+                // Evaluate key expression: if it's env("KEY"), resolve at runtime
+                let key = p.key.as_ref().and_then(|expr| match expr {
                     crate::ast::Expr::FnCall(name, args) if name == "env" => {
                         args.first().and_then(|a| {
                             if let crate::ast::Expr::StringLit(s) = a {
@@ -873,10 +939,10 @@ impl SmartRouter {
                     }
                     crate::ast::Expr::StringLit(s) => Some(s.clone()),
                     _ => None,
-                }
-            });
-            (p.alias.clone(), p.provider.clone(), key, p.url.clone())
-        }).collect();
+                });
+                (p.alias.clone(), p.provider.clone(), key, p.url.clone())
+            })
+            .collect();
 
         SmartRouter {
             providers,
@@ -891,7 +957,12 @@ impl SmartRouter {
     /// 1. Pick best available provider (by health_score)
     /// 2. Try it; on failure, try next available provider (failover)
     /// 3. Track usage for each attempt
-    pub fn call(&self, prompt: &str, input: &str, model_override: Option<&str>) -> Result<String, String> {
+    pub fn call(
+        &self,
+        prompt: &str,
+        input: &str,
+        model_override: Option<&str>,
+    ) -> Result<String, String> {
         if self.providers.is_empty() {
             // No providers configured — fall back to legacy behavior
             let backend = create_llm_backend();
@@ -929,7 +1000,8 @@ impl SmartRouter {
 
             let latency_ms = start.elapsed().as_millis() as u64;
             let success = result.is_ok();
-            self.tracker.record_call(idx, success, effective_prompt_len, latency_ms);
+            self.tracker
+                .record_call(idx, success, effective_prompt_len, latency_ms);
             // Also record to global tracker for llm_usage() builtin
             if let Ok(global) = GLOBAL_LLM_USAGE.lock() {
                 global.record_call(idx, success, effective_prompt_len, latency_ms);
@@ -1002,9 +1074,15 @@ impl SmartRouter {
                     .send()
                     .map_err(|e| format!("Anthropic request failed: {}", e))?;
                 let status = resp.status();
-                let text = resp.text().map_err(|e| format!("Response read error: {}", e))?;
+                let text = resp
+                    .text()
+                    .map_err(|e| format!("Response read error: {}", e))?;
                 if !status.is_success() {
-                    return Err(format!("Anthropic API error ({}): {}", status.as_u16(), truncate(&text, 500)));
+                    return Err(format!(
+                        "Anthropic API error ({}): {}",
+                        status.as_u16(),
+                        truncate(&text, 500)
+                    ));
                 }
                 parse_anthropic_response(&text)
             }
@@ -1021,9 +1099,15 @@ impl SmartRouter {
                     .send()
                     .map_err(|e| format!("Ollama request failed: {}", e))?;
                 let status = resp.status();
-                let text = resp.text().map_err(|e| format!("Response read error: {}", e))?;
+                let text = resp
+                    .text()
+                    .map_err(|e| format!("Response read error: {}", e))?;
                 if !status.is_success() {
-                    return Err(format!("Ollama API error ({}): {}", status.as_u16(), truncate(&text, 500)));
+                    return Err(format!(
+                        "Ollama API error ({}): {}",
+                        status.as_u16(),
+                        truncate(&text, 500)
+                    ));
                 }
                 parse_ollama_response(&text)
             }
@@ -1037,11 +1121,20 @@ impl SmartRouter {
                 if let Some(k) = key {
                     req = req.header("Authorization", format!("Bearer {}", k));
                 }
-                let resp = req.send().map_err(|e| format!("{} request failed: {}", provider_type, e))?;
+                let resp = req
+                    .send()
+                    .map_err(|e| format!("{} request failed: {}", provider_type, e))?;
                 let status = resp.status();
-                let text = resp.text().map_err(|e| format!("Response read error: {}", e))?;
+                let text = resp
+                    .text()
+                    .map_err(|e| format!("Response read error: {}", e))?;
                 if !status.is_success() {
-                    return Err(format!("{} API error ({}): {}", provider_type, status.as_u16(), truncate(&text, 500)));
+                    return Err(format!(
+                        "{} API error ({}): {}",
+                        provider_type,
+                        status.as_u16(),
+                        truncate(&text, 500)
+                    ));
                 }
                 parse_openai_response(&text)
             }
@@ -1068,7 +1161,10 @@ impl SmartRouter {
                 "cerebras" => "https://api.cerebras.ai/v1/chat/completions".to_string(),
                 "nvidia" => "https://integrate.api.nvidia.com/v1/chat/completions".to_string(),
                 "openrouter" => "https://openrouter.ai/api/v1/chat/completions".to_string(),
-                "google" => "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions".to_string(),
+                "google" => {
+                    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+                        .to_string()
+                }
                 other => format!("https://{}/v1/chat/completions", other),
             }
         }
@@ -1157,16 +1253,28 @@ mod tests {
 
     #[test]
     fn test_default_models() {
-        assert_eq!(Provider::Anthropic.default_model(), "claude-sonnet-4-20250514");
+        assert_eq!(
+            Provider::Anthropic.default_model(),
+            "claude-sonnet-4-20250514"
+        );
         assert_eq!(Provider::OpenAI.default_model(), "gpt-4o");
         assert_eq!(Provider::Ollama.default_model(), "llama3");
     }
 
     #[test]
     fn test_endpoint_urls() {
-        assert_eq!(Provider::Anthropic.endpoint(), "https://api.anthropic.com/v1/messages");
-        assert_eq!(Provider::OpenAI.endpoint(), "https://api.openai.com/v1/chat/completions");
-        assert_eq!(Provider::Ollama.endpoint(), "http://localhost:11434/api/generate");
+        assert_eq!(
+            Provider::Anthropic.endpoint(),
+            "https://api.anthropic.com/v1/messages"
+        );
+        assert_eq!(
+            Provider::OpenAI.endpoint(),
+            "https://api.openai.com/v1/chat/completions"
+        );
+        assert_eq!(
+            Provider::Ollama.endpoint(),
+            "http://localhost:11434/api/generate"
+        );
     }
 
     #[test]
@@ -1233,7 +1341,9 @@ mod tests {
         assert!(is_client_error("OpenAI API error (400): Bad Request"));
         assert!(is_client_error("Anthropic API error (401): Unauthorized"));
         assert!(!is_client_error("OpenAI API error (429): Rate limit"));
-        assert!(!is_client_error("OpenAI API error (500): Internal Server Error"));
+        assert!(!is_client_error(
+            "OpenAI API error (500): Internal Server Error"
+        ));
     }
 
     #[test]
@@ -1342,7 +1452,10 @@ mod tests {
     fn test_resolve_model_direct_model_name() {
         // "claude-sonnet-4-20250514" is a real model name, not an alias
         env::remove_var("METALOGOS_LLM_MODEL_claude-sonnet-4-20250514");
-        assert_eq!(resolve_model("claude-sonnet-4-20250514"), "claude-sonnet-4-20250514");
+        assert_eq!(
+            resolve_model("claude-sonnet-4-20250514"),
+            "claude-sonnet-4-20250514"
+        );
     }
 
     #[test]
@@ -1366,8 +1479,7 @@ mod tests {
     #[test]
     #[ignore] // METALOGOS_MOCK_LLM=false METALOGOS_LLM_PROVIDER=openai METALOGOS_API_KEY=sk-xxx cargo test -- --ignored
     fn test_real_llm_openai_classify() {
-        let api_key = env::var("METALOGOS_API_KEY")
-            .expect("METALOGOS_API_KEY must be set");
+        let api_key = env::var("METALOGOS_API_KEY").expect("METALOGOS_API_KEY must be set");
         let llm = RealLlm::with_config(
             Provider::OpenAI,
             env::var("METALOGOS_LLM_MODEL").unwrap_or_else(|_| "gpt-4o".to_string()),
@@ -1378,15 +1490,17 @@ mod tests {
             "ваш сервис ужасен",
         );
         let response = result.expect("OpenAI LLM call should succeed");
-        assert!(response.to_lowercase().contains("complaint"),
-            "Expected 'complaint', got: {}", response);
+        assert!(
+            response.to_lowercase().contains("complaint"),
+            "Expected 'complaint', got: {}",
+            response
+        );
     }
 
     #[test]
     #[ignore] // METALOGOS_MOCK_LLM=false METALOGOS_LLM_PROVIDER=anthropic METALOGOS_API_KEY=sk-ant-xxx cargo test -- --ignored
     fn test_real_llm_anthropic_classify() {
-        let api_key = env::var("METALOGOS_API_KEY")
-            .expect("METALOGOS_API_KEY must be set");
+        let api_key = env::var("METALOGOS_API_KEY").expect("METALOGOS_API_KEY must be set");
         let llm = RealLlm::with_config(
             Provider::Anthropic,
             env::var("METALOGOS_LLM_MODEL")
@@ -1398,8 +1512,11 @@ mod tests {
             "ваш сервис ужасен",
         );
         let response = result.expect("Anthropic LLM call should succeed");
-        assert!(response.to_lowercase().contains("complaint"),
-            "Expected 'complaint', got: {}", response);
+        assert!(
+            response.to_lowercase().contains("complaint"),
+            "Expected 'complaint', got: {}",
+            response
+        );
     }
 
     #[test]
@@ -1415,7 +1532,10 @@ mod tests {
             "ваш сервис ужасен",
         );
         let response = result.expect("Ollama LLM call should succeed");
-        assert!(response.to_lowercase().contains("complaint"),
-            "Expected 'complaint', got: {}", response);
+        assert!(
+            response.to_lowercase().contains("complaint"),
+            "Expected 'complaint', got: {}",
+            response
+        );
     }
 }

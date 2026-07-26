@@ -48,7 +48,10 @@ fn test_hook_before_pattern_fires() {
 
     let interp = run_source(source).unwrap();
     let val = kv_get(&interp, "hook_fired");
-    assert_eq!(val, "yes", "C1: before_pattern hook should set hook_fired to 'yes'");
+    assert_eq!(
+        val, "yes",
+        "C1: before_pattern hook should set hook_fired to 'yes'"
+    );
 }
 
 // ── C2: after_pattern hook fires, receives result ─────────────────────
@@ -113,7 +116,10 @@ fn test_hook_error_does_not_block() {
     "#;
 
     let result = run_source(source);
-    assert!(result.is_ok(), "C4: program should execute despite hook error");
+    assert!(
+        result.is_ok(),
+        "C4: program should execute despite hook error"
+    );
 }
 
 // ── C5: Hooks do NOT fire on builtin calls ──────────────────────────
@@ -135,7 +141,10 @@ fn test_hooks_do_not_fire_on_builtins() {
 
     let interp = run_source(source).unwrap();
     let val = kv_get(&interp, "hook_count");
-    assert_eq!(val, "1", "C5: hook should fire exactly once (for Process), not for upper/len");
+    assert_eq!(
+        val, "1",
+        "C5: hook should fire exactly once (for Process), not for upper/len"
+    );
 }
 
 // ── C6: Multiple before hooks fire in declaration order ──────────────
@@ -158,5 +167,8 @@ fn test_multiple_hooks_in_order() {
 
     let interp = run_source(source).unwrap();
     let val = kv_get(&interp, "hook_log");
-    assert_eq!(val, "|1|2", "C6: multiple before hooks should fire in declaration order");
+    assert_eq!(
+        val, "|1|2",
+        "C6: multiple before hooks should fire in declaration order"
+    );
 }

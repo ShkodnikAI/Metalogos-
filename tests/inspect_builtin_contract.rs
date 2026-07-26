@@ -36,7 +36,10 @@ fn test_inspect_calls_count() {
     let interp = run_source(source).unwrap();
     let stats = interp.inspect_pattern("Hello");
     assert_eq!(stats.get_field("calls").unwrap().as_float().unwrap(), 3.0);
-    assert_eq!(stats.get_field("is_learnable").unwrap().as_float().unwrap(), 0.0);
+    assert_eq!(
+        stats.get_field("is_learnable").unwrap().as_float().unwrap(),
+        0.0
+    );
 }
 
 // ── Test 2: inspect() on non-invoked learnable pattern -> all zeros ───────
@@ -52,13 +55,42 @@ fn test_inspect_non_invoked() {
     let interp = run_source(source).unwrap();
     let stats = interp.inspect_pattern("Unused");
     assert_eq!(stats.get_field("calls").unwrap().as_float().unwrap(), 0.0);
-    assert_eq!(stats.get_field("avg_confidence").unwrap().as_float().unwrap(), 0.0);
-    assert_eq!(stats.get_field("cache_hits").unwrap().as_float().unwrap(), 0.0);
-    assert_eq!(stats.get_field("cache_misses").unwrap().as_float().unwrap(), 0.0);
-    assert_eq!(stats.get_field("last_adapt").unwrap().as_float().unwrap(), 0.0);
-    assert_eq!(stats.get_field("last_call").unwrap().as_float().unwrap(), 0.0);
-    assert_eq!(stats.get_field("examples_count").unwrap().as_float().unwrap(), 0.0);
-    assert_eq!(stats.get_field("is_learnable").unwrap().as_float().unwrap(), 1.0);
+    assert_eq!(
+        stats
+            .get_field("avg_confidence")
+            .unwrap()
+            .as_float()
+            .unwrap(),
+        0.0
+    );
+    assert_eq!(
+        stats.get_field("cache_hits").unwrap().as_float().unwrap(),
+        0.0
+    );
+    assert_eq!(
+        stats.get_field("cache_misses").unwrap().as_float().unwrap(),
+        0.0
+    );
+    assert_eq!(
+        stats.get_field("last_adapt").unwrap().as_float().unwrap(),
+        0.0
+    );
+    assert_eq!(
+        stats.get_field("last_call").unwrap().as_float().unwrap(),
+        0.0
+    );
+    assert_eq!(
+        stats
+            .get_field("examples_count")
+            .unwrap()
+            .as_float()
+            .unwrap(),
+        0.0
+    );
+    assert_eq!(
+        stats.get_field("is_learnable").unwrap().as_float().unwrap(),
+        1.0
+    );
 }
 
 // ── Test 3: inspect() returns correct field names and type ────────────
@@ -77,8 +109,14 @@ fn test_inspect_field_names() {
     assert_eq!(stats.type_name(), "Struct");
     // Should have all 8 fields
     let fields = [
-        "calls", "avg_confidence", "cache_hits", "cache_misses",
-        "last_adapt", "last_call", "examples_count", "is_learnable",
+        "calls",
+        "avg_confidence",
+        "cache_hits",
+        "cache_misses",
+        "last_adapt",
+        "last_call",
+        "examples_count",
+        "is_learnable",
     ];
     for field in &fields {
         assert!(stats.get_field(field).is_ok(), "missing field: {}", field);
@@ -101,10 +139,21 @@ fn test_inspect_adapt_examples_count() {
 
     let interp = run_source(source).unwrap();
     let stats = interp.inspect_pattern("Sentiment");
-    assert_eq!(stats.get_field("examples_count").unwrap().as_float().unwrap(), 2.0);
+    assert_eq!(
+        stats
+            .get_field("examples_count")
+            .unwrap()
+            .as_float()
+            .unwrap(),
+        2.0
+    );
     // last_adapt should be non-zero (recent timestamp)
     let last_adapt = stats.get_field("last_adapt").unwrap().as_float().unwrap();
-    assert!(last_adapt > 0.0, "last_adapt should be > 0, got {}", last_adapt);
+    assert!(
+        last_adapt > 0.0,
+        "last_adapt should be > 0, got {}",
+        last_adapt
+    );
 }
 
 // ── Test 5: Few-shot match counts as cache hit ──────────────────────────
@@ -128,8 +177,14 @@ fn test_inspect_few_shot_cache_hit() {
     let interp = run_source(source).unwrap();
     let stats = interp.inspect_pattern("Route");
     assert_eq!(stats.get_field("calls").unwrap().as_float().unwrap(), 3.0);
-    assert_eq!(stats.get_field("cache_hits").unwrap().as_float().unwrap(), 2.0);
-    assert_eq!(stats.get_field("cache_misses").unwrap().as_float().unwrap(), 1.0);
+    assert_eq!(
+        stats.get_field("cache_hits").unwrap().as_float().unwrap(),
+        2.0
+    );
+    assert_eq!(
+        stats.get_field("cache_misses").unwrap().as_float().unwrap(),
+        1.0
+    );
 }
 
 // ── Test 6: Multiple patterns tracked independently ─────────────────────
@@ -180,6 +235,9 @@ fn test_inspect_regular_pattern_is_learnable() {
 
     let interp = run_source(source).unwrap();
     let stats = interp.inspect_pattern("Greet");
-    assert_eq!(stats.get_field("is_learnable").unwrap().as_float().unwrap(), 0.0);
+    assert_eq!(
+        stats.get_field("is_learnable").unwrap().as_float().unwrap(),
+        0.0
+    );
     assert_eq!(stats.get_field("calls").unwrap().as_float().unwrap(), 1.0);
 }

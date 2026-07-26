@@ -38,19 +38,34 @@ mlogserver {
 }
 "#;
     let decls = metalogos::parser::parse(source).unwrap();
-    assert!(decls.len() >= 3, "Should have at least 3 declarations (memory, pattern, mlogserver)");
+    assert!(
+        decls.len() >= 3,
+        "Should have at least 3 declarations (memory, pattern, mlogserver)"
+    );
 
     // Verify memory declaration
-    assert!(decls.iter().any(|d| matches!(d, metalogos::ast::Declaration::Memory(_))),
-        "Should have Memory declaration");
+    assert!(
+        decls
+            .iter()
+            .any(|d| matches!(d, metalogos::ast::Declaration::Memory(_))),
+        "Should have Memory declaration"
+    );
 
     // Verify pattern declaration
-    assert!(decls.iter().any(|d| matches!(d, metalogos::ast::Declaration::Pattern(_))),
-        "Should have Pattern declaration");
+    assert!(
+        decls
+            .iter()
+            .any(|d| matches!(d, metalogos::ast::Declaration::Pattern(_))),
+        "Should have Pattern declaration"
+    );
 
     // Verify mlogserver declaration
-    assert!(decls.iter().any(|d| matches!(d, metalogos::ast::Declaration::MlogServer(_))),
-        "Should have MlogServer declaration");
+    assert!(
+        decls
+            .iter()
+            .any(|d| matches!(d, metalogos::ast::Declaration::MlogServer(_))),
+        "Should have MlogServer declaration"
+    );
 }
 
 // ── Pattern body: memorize() callable form ────────────────────────
@@ -79,7 +94,9 @@ fn test_dod_env_in_pattern() {
     let interp = metalogos::interpreter::Interpreter::new();
     let result = interp.eval_expr(&metalogos::ast::Expr::FnCall(
         "env".to_string(),
-        vec![metalogos::ast::Expr::StringLit("TEST_TELEGRAM_TOKEN".to_string())],
+        vec![metalogos::ast::Expr::StringLit(
+            "TEST_TELEGRAM_TOKEN".to_string(),
+        )],
     ));
     match result {
         Ok(metalogos::interpreter::Value::String(s)) => {
@@ -105,8 +122,11 @@ fn test_dod_http_post_builtin_registered() {
     // Should fail (not a valid URL) but NOT panic with "undefined pattern or builtin"
     match result {
         Err(msg) => {
-            assert!(msg.contains("http_post"),
-                "Error should mention http_post, got: {}", msg);
+            assert!(
+                msg.contains("http_post"),
+                "Error should mention http_post, got: {}",
+                msg
+            );
         }
         Ok(v) => panic!("Expected error for invalid URL, got: {:?}", v),
     }
@@ -136,8 +156,10 @@ fn test_dod_memorize_callable() {
     ));
     match recall_result {
         Ok(metalogos::interpreter::Value::String(s)) => {
-            assert_eq!(s, "user likes spicy food",
-                "recall after memorize() should find the entry");
+            assert_eq!(
+                s, "user likes spicy food",
+                "recall after memorize() should find the entry"
+            );
         }
         other => panic!("recall should return String, got: {:?}", other),
     }
@@ -159,7 +181,8 @@ mlogserver {
 }
 "#;
     let (port, _handle) = metalogos::server::run_test_server(source)
-        .await.expect("server should start");
+        .await
+        .expect("server should start");
 
     let url = format!("http://127.0.0.1:{}/webhook", port);
     let client = reqwest::Client::new();
@@ -206,8 +229,11 @@ flow Main {{ input: String = r -> output }}
         db_str
     );
     let result2 = metalogos::run_program(&source2).unwrap();
-    assert_eq!(result2, Some("user likes spicy food".to_string()),
-        "E2E: memorize() callable → SQLite → recall() should persist");
+    assert_eq!(
+        result2,
+        Some("user likes spicy food".to_string()),
+        "E2E: memorize() callable → SQLite → recall() should persist"
+    );
 }
 
 // ── http_post() mock: hit httpbin for real HTTP test ─────────────

@@ -198,7 +198,11 @@ fn test_tool_undefined_error() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     // QualifiedCall checks module_namespaces first
-    assert!(err.contains("undefined module"), "expected 'undefined module' in error, got: {}", err);
+    assert!(
+        err.contains("undefined module"),
+        "expected 'undefined module' in error, got: {}",
+        err
+    );
 }
 
 // ── Test 9: tool with 3 methods (telegram-like) ────────────────────

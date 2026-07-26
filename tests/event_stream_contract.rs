@@ -11,7 +11,7 @@
 // 8. Event IDs are auto-incrementing
 // 9. Multiple event types in single run
 
-use metalogos::interpreter::{Interpreter, Event};
+use metalogos::interpreter::{Event, Interpreter};
 use metalogos::parser;
 use std::time::SystemTime;
 
@@ -36,10 +36,19 @@ fn test_event_memorize() {
     assert_eq!(interp.event_count(Some("memory_store")), 2);
 
     let events = interp.get_events();
-    let store_events: Vec<&Event> = events.iter().filter(|e| e.event_type == "memory_store").collect();
-    assert_eq!(store_events[0].data.get("key_preview").unwrap(), "test fact");
+    let store_events: Vec<&Event> = events
+        .iter()
+        .filter(|e| e.event_type == "memory_store")
+        .collect();
+    assert_eq!(
+        store_events[0].data.get("key_preview").unwrap(),
+        "test fact"
+    );
     assert_eq!(store_events[0].data.get("priority").unwrap(), "0.8");
-    assert_eq!(store_events[1].data.get("key_preview").unwrap(), "another fact");
+    assert_eq!(
+        store_events[1].data.get("key_preview").unwrap(),
+        "another fact"
+    );
 }
 
 // ── Test 2: pattern call emits pattern_call event ────────────────────────
@@ -58,7 +67,10 @@ fn test_event_pattern_call() {
     assert_eq!(interp.event_count(Some("pattern_call")), 1);
 
     let events = interp.get_events();
-    let pc: &Event = events.iter().find(|e| e.event_type == "pattern_call").unwrap();
+    let pc: &Event = events
+        .iter()
+        .find(|e| e.event_type == "pattern_call")
+        .unwrap();
     assert_eq!(pc.source, "Hello");
     assert_eq!(pc.data.get("name").unwrap(), "Hello");
     assert_eq!(pc.data.get("cache_hit").unwrap(), "false");
@@ -136,7 +148,7 @@ fn test_events_since() {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64)
-            .saturating_sub(60_000)
+            .saturating_sub(60_000),
     );
     assert!(events.len() >= 1, "expected at least 1 recent event");
 
@@ -158,7 +170,11 @@ fn test_event_sum() {
     let interp = run_source(source).unwrap();
     // Sum of priorities: 0.8 + 0.5 + 0.3 = 1.6
     let sum = interp.event_sum("memory_store", "priority");
-    assert!((sum - 1.6).abs() < 0.001, "expected priority sum 1.6, got {}", sum);
+    assert!(
+        (sum - 1.6).abs() < 0.001,
+        "expected priority sum 1.6, got {}",
+        sum
+    );
 
     // Sum of nonexistent field = 0.0
     let zero = interp.event_sum("memory_store", "nonexistent");
@@ -181,9 +197,14 @@ fn test_event_auto_increment_ids() {
 
     // IDs should be strictly increasing
     for i in 1..events.len() {
-        assert!(events[i].id > events[i - 1].id,
+        assert!(
+            events[i].id > events[i - 1].id,
             "event {} id ({}) should be > event {} id ({})",
-            i, events[i].id, i - 1, events[i - 1].id);
+            i,
+            events[i].id,
+            i - 1,
+            events[i - 1].id
+        );
     }
     // First ID should be >= 1 (AtomicU64 starts at 1)
     assert!(events[0].id >= 1);

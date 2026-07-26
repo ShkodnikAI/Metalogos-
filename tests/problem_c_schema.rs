@@ -30,9 +30,13 @@ flow Main {
   input: String = "test_topic" -> InsertAndQuery -> output
 }
 "#;
-        let result = run_program(source.to_string()).expect("execution failed");
+        let result = run_program(source).expect("execution failed");
         let output = result.unwrap_or_default();
-        assert_eq!(output.trim(), "test_topic", "schema + db_insert + query round-trip failed");
+        assert_eq!(
+            output.trim(),
+            "test_topic",
+            "schema + db_insert + query round-trip failed"
+        );
     }
 
     #[test]
@@ -61,9 +65,13 @@ flow Main {
   input: String = "widget" -> InsertAndRead -> output
 }
 "#;
-        let result = run_program(source.to_string()).expect("execution failed");
+        let result = run_program(source).expect("execution failed");
         let output = result.unwrap_or_default();
-        assert_eq!(output.trim(), "widget:9.99", "schema with all modifiers failed");
+        assert_eq!(
+            output.trim(),
+            "widget:9.99",
+            "schema with all modifiers failed"
+        );
     }
 
     #[test]
@@ -102,8 +110,12 @@ flow Main {
   -> TestAdditive -> output
 }
 "#;
-        let result = run_program(source.to_string()).expect("execution failed");
+        let result = run_program(source).expect("execution failed");
         let output = result.unwrap_or_default();
-        assert_eq!(output.trim(), "first+bonus", "additive schema migration failed");
+        assert_eq!(
+            output.trim(),
+            "first+bonus",
+            "additive schema migration failed"
+        );
     }
 }

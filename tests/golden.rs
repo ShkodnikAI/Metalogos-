@@ -37,7 +37,10 @@ fn all_golden_tests_pass() {
 
     let pairs = collect_pairs(&examples_dir);
 
-    assert!(!pairs.is_empty(), "no .mlog/.expected pairs found in examples/");
+    assert!(
+        !pairs.is_empty(),
+        "no .mlog/.expected pairs found in examples/"
+    );
 
     for (mlog_path, expected_path) in &pairs {
         let source = fs::read_to_string(mlog_path)

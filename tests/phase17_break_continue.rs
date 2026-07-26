@@ -1,7 +1,7 @@
 // ── Наряд №17: break, continue, each-with-index ──────────────────────
 // Tests for loop control flow constructs and indexed iteration.
 
-use metalogos::ast::*;
+use metalogos::ast::{Declaration, Statement};
 use metalogos::interpreter::{Interpreter, Value};
 use metalogos::parser;
 
@@ -10,8 +10,7 @@ fn call_pattern(source: &str, pattern_name: &str, args: Vec<Value>) -> Result<Va
     let decls = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
     let mut interp = Interpreter::new();
     interp.run(decls)?;
-    let call_expr = Expr::FnCall(pattern_name.to_string(), args);
-    interp.eval_expr(&call_expr)
+    interp.call_pattern(pattern_name, &args)
 }
 
 // ── З-17.1: break ──────────────────────────────────────────────────
@@ -30,13 +29,16 @@ pattern find_first_even(items: List) -> String {
     return result
 }
 "#;
-    let val = call_pattern(source, "find_first_even", vec![
-        Value::List(vec![
+    let val = call_pattern(
+        source,
+        "find_first_even",
+        vec![Value::List(vec![
             Value::String("1".to_string()),
             Value::String("2".to_string()),
             Value::String("3".to_string()),
-        ]),
-    ]).unwrap();
+        ])],
+    )
+    .unwrap();
     match val {
         Value::String(s) => assert_eq!(s, "2"),
         other => panic!("expected String, got {:?}", other),
@@ -60,13 +62,16 @@ pattern break_in_if(items: List) -> String {
     return found
 }
 "#;
-    let val = call_pattern(source, "break_in_if", vec![
-        Value::List(vec![
+    let val = call_pattern(
+        source,
+        "break_in_if",
+        vec![Value::List(vec![
             Value::String("a".to_string()),
             Value::String("target".to_string()),
             Value::String("b".to_string()),
-        ]),
-    ]).unwrap();
+        ])],
+    )
+    .unwrap();
     match val {
         Value::String(s) => assert_eq!(s, "yes"),
         other => panic!("expected String, got {:?}", other),
@@ -106,7 +111,9 @@ pattern bad_break() -> String {
 "#;
     let result = call_pattern(source, "bad_break", vec![]);
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("break/continue used outside of a loop"));
+    assert!(result
+        .unwrap_err()
+        .contains("break/continue used outside of a loop"));
 }
 
 // ── З-17.2: continue ───────────────────────────────────────────────
@@ -128,14 +135,17 @@ pattern skip_odds(items: List) -> String {
     return result
 }
 "#;
-    let val = call_pattern(source, "skip_odds", vec![
-        Value::List(vec![
+    let val = call_pattern(
+        source,
+        "skip_odds",
+        vec![Value::List(vec![
             Value::String("1".to_string()),
             Value::String("2".to_string()),
             Value::String("3".to_string()),
             Value::String("4".to_string()),
-        ]),
-    ]).unwrap();
+        ])],
+    )
+    .unwrap();
     match val {
         Value::String(s) => assert_eq!(s, "24"),
         other => panic!("expected String, got {:?}", other),
@@ -182,13 +192,16 @@ pattern continue_nested(items: List) -> String {
     return result
 }
 "#;
-    let val = call_pattern(source, "continue_nested", vec![
-        Value::List(vec![
+    let val = call_pattern(
+        source,
+        "continue_nested",
+        vec![Value::List(vec![
             Value::String("a".to_string()),
             Value::String("skip".to_string()),
             Value::String("b".to_string()),
-        ]),
-    ]).unwrap();
+        ])],
+    )
+    .unwrap();
     match val {
         Value::String(s) => assert_eq!(s, "ab"),
         other => panic!("expected String, got {:?}", other),
@@ -208,13 +221,16 @@ pattern indexed(items: List) -> String {
     return result
 }
 "#;
-    let val = call_pattern(source, "indexed", vec![
-        Value::List(vec![
+    let val = call_pattern(
+        source,
+        "indexed",
+        vec![Value::List(vec![
             Value::String("a".to_string()),
             Value::String("b".to_string()),
             Value::String("c".to_string()),
-        ]),
-    ]).unwrap();
+        ])],
+    )
+    .unwrap();
     match val {
         Value::String(s) => assert_eq!(s, "0:a 1:b 2:c "),
         other => panic!("expected String '0:a 1:b 2:c ', got {:?}", other),
@@ -235,14 +251,17 @@ pattern indexed_break(items: List) -> String {
     return result
 }
 "#;
-    let val = call_pattern(source, "indexed_break", vec![
-        Value::List(vec![
+    let val = call_pattern(
+        source,
+        "indexed_break",
+        vec![Value::List(vec![
             Value::String("a".to_string()),
             Value::String("b".to_string()),
             Value::String("c".to_string()),
             Value::String("d".to_string()),
-        ]),
-    ]).unwrap();
+        ])],
+    )
+    .unwrap();
     match val {
         Value::String(s) => assert_eq!(s, "ab"), // stops at index 2
         other => panic!("expected String 'ab', got {:?}", other),
@@ -263,13 +282,16 @@ pattern indexed_continue(items: List) -> String {
     return result
 }
 "#;
-    let val = call_pattern(source, "indexed_continue", vec![
-        Value::List(vec![
+    let val = call_pattern(
+        source,
+        "indexed_continue",
+        vec![Value::List(vec![
             Value::String("a".to_string()),
             Value::String("SKIP".to_string()),
             Value::String("c".to_string()),
-        ]),
-    ]).unwrap();
+        ])],
+    )
+    .unwrap();
     match val {
         Value::String(s) => assert_eq!(s, "ac"),
         other => panic!("expected String 'ac', got {:?}", other),
@@ -330,7 +352,9 @@ pattern test() -> String {
 "#;
     let decls = parser::parse(source).expect("parse failed");
     if let Declaration::Pattern(p) = &decls[0] {
-        assert!(matches!(p.body[0], Statement::EachWithIndex { ref index_var, ref item_var, .. } if index_var == "i" && item_var == "item"));
+        assert!(
+            matches!(p.body[0], Statement::EachWithIndex { ref index_var, ref item_var, .. } if index_var == "i" && item_var == "item")
+        );
     }
 }
 
@@ -353,13 +377,16 @@ pattern break_via_match(items: List) -> String {
     return result
 }
 "#;
-    let val = call_pattern(source, "break_via_match", vec![
-        Value::List(vec![
+    let val = call_pattern(
+        source,
+        "break_via_match",
+        vec![Value::List(vec![
             Value::String("a".to_string()),
             Value::String("stop".to_string()),
             Value::String("b".to_string()),
-        ]),
-    ]).unwrap();
+        ])],
+    )
+    .unwrap();
     match val {
         Value::String(s) => assert_eq!(s, "a"),
         other => panic!("expected String 'a', got {:?}", other),
@@ -384,13 +411,16 @@ pattern continue_via_match(items: List) -> String {
     return result
 }
 "#;
-    let val = call_pattern(source, "continue_via_match", vec![
-        Value::List(vec![
+    let val = call_pattern(
+        source,
+        "continue_via_match",
+        vec![Value::List(vec![
             Value::String("a".to_string()),
             Value::String("skip".to_string()),
             Value::String("b".to_string()),
-        ]),
-    ]).unwrap();
+        ])],
+    )
+    .unwrap();
     match val {
         Value::String(s) => assert_eq!(s, "ab"),
         other => panic!("expected String 'ab', got {:?}", other),

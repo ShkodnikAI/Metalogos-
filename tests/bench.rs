@@ -84,8 +84,10 @@ fn benchmark_vm_vs_tree_walking() {
     eprintln!("║ Steps  ║ TW (µs)     ║ VM (µs)    ║ Speedup              ║");
     eprintln!("╠════════╬════════════╬════════════╬═══════════════════════╣");
     for (steps, tw_us, vm_us, speedup) in &results {
-        eprintln!("║ {:>6} ║ {:>10} ║ {:>10} ║ {:>18.2}x     ║",
-            steps, tw_us, vm_us, speedup);
+        eprintln!(
+            "║ {:>6} ║ {:>10} ║ {:>10} ║ {:>18.2}x     ║",
+            steps, tw_us, vm_us, speedup
+        );
     }
     eprintln!("╚════════╩════════════╩════════════╩═══════════════════════╝\n");
 
@@ -94,9 +96,18 @@ fn benchmark_vm_vs_tree_walking() {
     let (tw_result, _) = bench_tw(&largest, base_dir);
     let (vm_result, _) = bench_vm(&largest, base_dir);
 
-    let tw_out = tw_result.expect("TW failed").map(|s| s.trim_end().to_string()).unwrap_or_default();
-    let vm_out = vm_result.expect("VM failed").map(|s| s.trim_end().to_string()).unwrap_or_default();
-    assert_eq!(tw_out, vm_out, "Benchmark correctness: TW and VM outputs differ");
+    let tw_out = tw_result
+        .expect("TW failed")
+        .map(|s| s.trim_end().to_string())
+        .unwrap_or_default();
+    let vm_out = vm_result
+        .expect("VM failed")
+        .map(|s| s.trim_end().to_string())
+        .unwrap_or_default();
+    assert_eq!(
+        tw_out, vm_out,
+        "Benchmark correctness: TW and VM outputs differ"
+    );
 }
 
 /// Also benchmark with the existing golden examples to confirm real-world parity.
@@ -131,7 +142,9 @@ fn benchmark_golden_examples_both_paths() {
 
     if count > 0 {
         let speedup = total_tw as f64 / total_vm as f64;
-        eprintln!("\nGolden examples ({}) — Total TW: {}µs, Total VM: {}µs, Speedup: {:.2}x",
-            count, total_tw, total_vm, speedup);
+        eprintln!(
+            "\nGolden examples ({}) — Total TW: {}µs, Total VM: {}µs, Speedup: {:.2}x",
+            count, total_tw, total_vm, speedup
+        );
     }
 }

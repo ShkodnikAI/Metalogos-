@@ -3247,7 +3247,10 @@ impl Interpreter {
 
     /// Take the audit log messages (consuming them).
     pub fn take_audit_log(&mut self) -> Vec<String> {
-        self.audit_log.get_mut().map(|v| v.drain(..).collect()).unwrap_or_default()
+        self.audit_log
+            .get_mut()
+            .map(|v| v.drain(..).collect())
+            .unwrap_or_default()
     }
 
     /// Get a variable value by name (for testing).

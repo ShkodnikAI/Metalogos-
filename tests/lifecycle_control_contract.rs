@@ -73,7 +73,11 @@ fn test_resume_continues_from_checkpoint() {
     interp.set_resume_target("TestFlow", "mid");
     let output = rerun_on(&mut interp, source).unwrap();
     // After Step1, value is "S1:data". Resume skips Step1, runs Step2 → "S2:S1:data"
-    assert_eq!(output, Some("S2:S1:data".to_string()), "C2: resume should continue from Step2, getting 'S1:data' as input from checkpoint");
+    assert_eq!(
+        output,
+        Some("S2:S1:data".to_string()),
+        "C2: resume should continue from Step2, getting 'S1:data' as input from checkpoint"
+    );
 }
 
 // ── C3: Multiple checkpoints in one flow ───────────────────────────────
@@ -135,7 +139,11 @@ fn test_delete_checkpoint() {
     assert_eq!(interp.list_checkpoints("F").unwrap().len(), 1);
 
     interp.delete_checkpoint("F", "save").unwrap();
-    assert_eq!(interp.list_checkpoints("F").unwrap().len(), 0, "C5: checkpoint should be deleted");
+    assert_eq!(
+        interp.list_checkpoints("F").unwrap().len(),
+        0,
+        "C5: checkpoint should be deleted"
+    );
 }
 
 // ── C6: Resume from nonexistent checkpoint returns error ──────────────
@@ -152,7 +160,10 @@ fn test_resume_nonexistent_checkpoint() {
     let mut interp = Interpreter::new();
     interp.set_resume_target("F", "nonexistent");
     let result = interp.run(declarations);
-    assert!(result.is_err(), "C6: resume from nonexistent checkpoint should fail");
+    assert!(
+        result.is_err(),
+        "C6: resume from nonexistent checkpoint should fail"
+    );
     assert!(result.unwrap_err().contains("nonexistent"));
 }
 
@@ -173,7 +184,11 @@ fn test_flow_without_checkpoints_backward_compat() {
 
     // Should parse and run without errors; no checkpoints saved
     let interp = run_source(source).unwrap();
-    assert_eq!(interp.list_checkpoints("F").unwrap().len(), 0, "C7: no checkpoints for flow without checkpoint()");
+    assert_eq!(
+        interp.list_checkpoints("F").unwrap().len(),
+        0,
+        "C7: no checkpoints for flow without checkpoint()"
+    );
 }
 
 // ── C8: Checkpoint captures current value correctly ───────────────────
@@ -198,7 +213,11 @@ fn test_checkpoint_captures_value() {
     interp.set_resume_target("F", "after_prefix");
     let output = rerun_on(&mut interp, source).unwrap();
     // After Prefix, value is "PRE:test". Suffix adds ":POST" → "PRE:test:POST"
-    assert_eq!(output, Some("PRE:test:POST".to_string()), "C8: resumed flow should get correct value from checkpoint");
+    assert_eq!(
+        output,
+        Some("PRE:test:POST".to_string()),
+        "C8: resumed flow should get correct value from checkpoint"
+    );
 }
 
 // ── C9: Resume restores variable scope ─────────────────────────────────
@@ -224,7 +243,11 @@ fn test_resume_restores_variables() {
     // Resume from "after_s1" — variables restored, Step2 reads mem_get("flow_state")
     interp.set_resume_target("F", "after_s1");
     let output = rerun_on(&mut interp, source).unwrap();
-    assert_eq!(output, Some("data:running".to_string()), "C9: resumed flow should have variables restored from checkpoint");
+    assert_eq!(
+        output,
+        Some("data:running".to_string()),
+        "C9: resumed flow should have variables restored from checkpoint"
+    );
 }
 
 // ── C10: Reset checkpoints clears all ──────────────────────────────────
@@ -241,5 +264,9 @@ fn test_reset_checkpoints() {
     assert_eq!(interp.list_checkpoints("F").unwrap().len(), 2);
 
     interp.reset_checkpoints();
-    assert_eq!(interp.list_checkpoints("F").unwrap().len(), 0, "C10: reset should clear all checkpoints");
+    assert_eq!(
+        interp.list_checkpoints("F").unwrap().len(),
+        0,
+        "C10: reset should clear all checkpoints"
+    );
 }

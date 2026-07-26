@@ -24,23 +24,32 @@ fn test_76_sqlite_memorize_and_recall() {
         .unwrap()
         .as_secs() as i64;
 
-    store.memorize(MemoryEntry {
-        id: None,
-        value: "the cat sat on the mat".to_string(),
-        priority: 1.0,
-        timestamp: now,
-        decay_rate: 0.01,
-        confidence: 1.0,
-        embedding: Vec::new(),
-    }).unwrap();
+    store
+        .memorize(MemoryEntry {
+            id: None,
+            value: "the cat sat on the mat".to_string(),
+            priority: 1.0,
+            timestamp: now,
+            decay_rate: 0.01,
+            confidence: 1.0,
+            embedding: Vec::new(),
+        })
+        .unwrap();
 
     assert_eq!(store.count(), 1, "C1: count should be 1 after memorize");
 
     let result = store.recall("cat sat", &[], 0.3);
     assert!(result.is_some(), "C1: should recall stored fact");
     let (entry, score) = result.unwrap();
-    assert_eq!(entry.value, "the cat sat on the mat", "C1: exact value match");
-    assert!(score >= 0.3, "C1: score should exceed min_confidence, got {}", score);
+    assert_eq!(
+        entry.value, "the cat sat on the mat",
+        "C1: exact value match"
+    );
+    assert!(
+        score >= 0.3,
+        "C1: score should exceed min_confidence, got {}",
+        score
+    );
 }
 
 // ── C2: Persistence across restart ───────────────────────────────────
@@ -60,24 +69,28 @@ fn test_76_persistence_across_restart() {
     // Session 1: memorize
     {
         let mut store = SqliteStore::open(&path).unwrap();
-        store.memorize(MemoryEntry {
-            id: None,
-            value: "persistent fact about the universe".to_string(),
-            priority: 0.9,
-            timestamp: now(),
-            decay_rate: 0.01,
-            confidence: 0.9,
-            embedding: Vec::new(),
-        }).unwrap();
-        store.memorize(MemoryEntry {
-            id: None,
-            value: "another fact that should survive".to_string(),
-            priority: 0.8,
-            timestamp: now(),
-            decay_rate: 0.01,
-            confidence: 0.8,
-            embedding: Vec::new(),
-        }).unwrap();
+        store
+            .memorize(MemoryEntry {
+                id: None,
+                value: "persistent fact about the universe".to_string(),
+                priority: 0.9,
+                timestamp: now(),
+                decay_rate: 0.01,
+                confidence: 0.9,
+                embedding: Vec::new(),
+            })
+            .unwrap();
+        store
+            .memorize(MemoryEntry {
+                id: None,
+                value: "another fact that should survive".to_string(),
+                priority: 0.8,
+                timestamp: now(),
+                decay_rate: 0.01,
+                confidence: 0.8,
+                embedding: Vec::new(),
+            })
+            .unwrap();
         assert_eq!(store.count(), 2);
     } // store dropped — connection closed
 
@@ -108,15 +121,17 @@ fn test_76_inmemory_default_no_persist() {
         .unwrap()
         .as_secs() as i64;
 
-    store.memorize(MemoryEntry {
-        id: None,
-        value: "in-memory fact".to_string(),
-        priority: 1.0,
-        timestamp: now,
-        decay_rate: 0.01,
-        confidence: 1.0,
-        embedding: Vec::new(),
-    }).unwrap();
+    store
+        .memorize(MemoryEntry {
+            id: None,
+            value: "in-memory fact".to_string(),
+            priority: 1.0,
+            timestamp: now,
+            decay_rate: 0.01,
+            confidence: 1.0,
+            embedding: Vec::new(),
+        })
+        .unwrap();
 
     assert_eq!(store.count(), 1, "C3: in-memory count should be 1");
 
@@ -140,15 +155,17 @@ fn test_76_decay_formula() {
         .unwrap()
         .as_secs() as i64;
 
-    store.memorize(MemoryEntry {
-        id: None,
-        value: "decaying entry".to_string(),
-        priority: 1.0,
-        timestamp: now - 2 * 86400, // 2 days ago
-        decay_rate: 0.1,
-        confidence: 1.0,
-        embedding: Vec::new(),
-    }).unwrap();
+    store
+        .memorize(MemoryEntry {
+            id: None,
+            value: "decaying entry".to_string(),
+            priority: 1.0,
+            timestamp: now - 2 * 86400, // 2 days ago
+            decay_rate: 0.1,
+            confidence: 1.0,
+            embedding: Vec::new(),
+        })
+        .unwrap();
 
     let count = store.decay();
     assert_eq!(count, 1, "C4: exactly one entry should be decayed");
@@ -162,7 +179,8 @@ fn test_76_decay_formula() {
     assert!(
         (actual - expected).abs() < 0.01,
         "C4: decayed priority should be ~exp(-0.2) ≈ {:.4}, got {:.4}",
-        expected, actual
+        expected,
+        actual
     );
 }
 
@@ -180,33 +198,40 @@ fn test_76_forget_removes_entries() {
         .as_secs() as i64;
 
     // Old entry (should be forgotten)
-    store.memorize(MemoryEntry {
-        id: None,
-        value: "old fact to forget".to_string(),
-        priority: 1.0,
-        timestamp: now - 200000,
-        decay_rate: 0.01,
-        confidence: 1.0,
-        embedding: Vec::new(),
-    }).unwrap();
+    store
+        .memorize(MemoryEntry {
+            id: None,
+            value: "old fact to forget".to_string(),
+            priority: 1.0,
+            timestamp: now - 200000,
+            decay_rate: 0.01,
+            confidence: 1.0,
+            embedding: Vec::new(),
+        })
+        .unwrap();
 
     // New entry (should NOT be forgotten)
-    store.memorize(MemoryEntry {
-        id: None,
-        value: "new fact to forget".to_string(),
-        priority: 1.0,
-        timestamp: now,
-        decay_rate: 0.01,
-        confidence: 1.0,
-        embedding: Vec::new(),
-    }).unwrap();
+    store
+        .memorize(MemoryEntry {
+            id: None,
+            value: "new fact to forget".to_string(),
+            priority: 1.0,
+            timestamp: now,
+            decay_rate: 0.01,
+            confidence: 1.0,
+            embedding: Vec::new(),
+        })
+        .unwrap();
 
     assert_eq!(store.count(), 2);
     store.forget("to forget", now); // cutoff = now, old entry has timestamp < now
     assert_eq!(store.count(), 1, "C5: only old entry should be removed");
 
     let entries = store.all_entries();
-    assert_eq!(entries[0].value, "new fact to forget", "C5: new entry survives");
+    assert_eq!(
+        entries[0].value, "new fact to forget",
+        "C5: new entry survives"
+    );
 }
 
 // ── C6: KG persist + walk across restart ──────────────────────────────
@@ -228,15 +253,32 @@ fn test_76_kg_persistence_and_walk() {
     // Session 2: walk should reach transitive nodes
     {
         let kg = SqliteKg::open(&path).unwrap();
-        assert_eq!(kg.edge_count(), 3, "C6: edges should persist across restart");
+        assert_eq!(
+            kg.edge_count(),
+            3,
+            "C6: edges should persist across restart"
+        );
 
         let edges = kg.edges_for("bob");
-        assert_eq!(edges.len(), 2, "C6: bob should have 2 connections (alice + charlie)");
+        assert_eq!(
+            edges.len(),
+            2,
+            "C6: bob should have 2 connections (alice + charlie)"
+        );
 
         let walk = kg.walk("alice", 5);
-        assert!(walk.iter().any(|(_, v, _)| v == "bob"), "C6: walk reaches bob");
-        assert!(walk.iter().any(|(_, v, _)| v == "charlie"), "C6: walk reaches charlie");
-        assert!(walk.iter().any(|(_, v, _)| v == "diana"), "C6: walk reaches diana");
+        assert!(
+            walk.iter().any(|(_, v, _)| v == "bob"),
+            "C6: walk reaches bob"
+        );
+        assert!(
+            walk.iter().any(|(_, v, _)| v == "charlie"),
+            "C6: walk reaches charlie"
+        );
+        assert!(
+            walk.iter().any(|(_, v, _)| v == "diana"),
+            "C6: walk reaches diana"
+        );
     }
 }
 
@@ -255,21 +297,26 @@ fn test_76_embedding_blob_roundtrip() {
 
     let embedding = vec![0.15_f32, -0.23, 0.87, 0.01, -0.55, 0.42];
 
-    store.memorize(MemoryEntry {
-        id: None,
-        value: "embedded fact".to_string(),
-        priority: 1.0,
-        timestamp: now,
-        decay_rate: 0.01,
-        confidence: 1.0,
-        embedding: embedding.clone(),
-    }).unwrap();
+    store
+        .memorize(MemoryEntry {
+            id: None,
+            value: "embedded fact".to_string(),
+            priority: 1.0,
+            timestamp: now,
+            decay_rate: 0.01,
+            confidence: 1.0,
+            embedding: embedding.clone(),
+        })
+        .unwrap();
 
     // Reopen to verify BLOB persistence
     let store = SqliteStore::open(&path).unwrap();
     let entries = store.all_entries();
     assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0].embedding, embedding, "C7: embedding should roundtrip through BLOB");
+    assert_eq!(
+        entries[0].embedding, embedding,
+        "C7: embedding should roundtrip through BLOB"
+    );
     assert_eq!(entries[0].embedding.len(), 6);
 }
 
@@ -286,19 +333,25 @@ fn test_76_no_persist_data_lost() {
     // Session 1
     {
         let mut store = InMemoryStore::new();
-        store.memorize(MemoryEntry {
-            id: None,
-            value: "ephemeral data".to_string(),
-            priority: 1.0,
-            timestamp: now,
-            decay_rate: 0.01,
-            confidence: 1.0,
-            embedding: Vec::new(),
-        }).unwrap();
+        store
+            .memorize(MemoryEntry {
+                id: None,
+                value: "ephemeral data".to_string(),
+                priority: 1.0,
+                timestamp: now,
+                decay_rate: 0.01,
+                confidence: 1.0,
+                embedding: Vec::new(),
+            })
+            .unwrap();
         assert_eq!(store.count(), 1);
     } // store dropped — data gone
 
     // Session 2: new store has no data
     let store = InMemoryStore::new();
-    assert_eq!(store.count(), 0, "C8: in-memory store should be empty after 'restart'");
+    assert_eq!(
+        store.count(),
+        0,
+        "C8: in-memory store should be empty after 'restart'"
+    );
 }

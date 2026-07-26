@@ -23,9 +23,21 @@ fn self_host_lexer_tokenizes_m1_hello() {
     let expected_path = project_dir.join("examples/p4_self_host_lexer.expected");
 
     // Verify files exist
-    assert!(lexer_path.exists(), "lexer.mlog not found at {:?}", lexer_path);
-    assert!(input_path.exists(), "input file not found at {:?}", input_path);
-    assert!(expected_path.exists(), "expected file not found at {:?}", expected_path);
+    assert!(
+        lexer_path.exists(),
+        "lexer.mlog not found at {:?}",
+        lexer_path
+    );
+    assert!(
+        input_path.exists(),
+        "input file not found at {:?}",
+        input_path
+    );
+    assert!(
+        expected_path.exists(),
+        "expected file not found at {:?}",
+        expected_path
+    );
 
     let input_content = fs::read_to_string(&input_path)
         .unwrap_or_else(|e| panic!("cannot read {:?}: {}", input_path, e));
@@ -44,7 +56,8 @@ fn self_host_lexer_tokenizes_m1_hello() {
 
     // Write input to stdin
     if let Some(stdin) = output.stdin.as_mut() {
-        stdin.write_all(input_content.as_bytes())
+        stdin
+            .write_all(input_content.as_bytes())
             .expect("failed to write to stdin");
     }
 

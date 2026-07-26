@@ -32,7 +32,7 @@ pub enum Declaration {
     Memorize(MemorizeDecl),
     /// `forget "query" after 30.days`
     Forget(ForgetDecl),
-        /// `fluid x = Float[42.0][0.9] or String["answer"][0.1]`
+    /// `fluid x = Float[42.0][0.9] or String["answer"][0.1]`
     Fluid(FluidDecl),
     /// `adapt PatternName add_example("input", "output")`
     Adapt(AdaptDecl),
@@ -113,7 +113,7 @@ pub struct MlogServerDecl {
 #[derive(Debug, Clone)]
 pub struct RouteDecl {
     pub path: String,
-    pub method: String,       // "GET", "POST", "PUT", "DELETE"
+    pub method: String,        // "GET", "POST", "PUT", "DELETE"
     pub requires: Vec<String>, // role names
     pub body: Vec<Statement>,
 }
@@ -152,7 +152,7 @@ pub struct SkillTriggerRule {
 #[derive(Debug, Clone)]
 pub struct SkillTier {
     pub level: u32,
-    pub mode: String, // "always" or "when_matches"
+    pub mode: String,                 // "always" or "when_matches"
     pub skills: Vec<String>, // for "always": skill names; for "when_matches": not used directly
     pub rules: Vec<SkillTriggerRule>, // for "when_matches": trigger rules
 }
@@ -282,8 +282,15 @@ pub struct RuleDecl {
 
 #[derive(Debug, Clone)]
 pub enum Condition {
-    Contains { left: Expr, right: Expr },
-    Compare { left: Expr, op: CompareOp, right: Expr },
+    Contains {
+        left: Expr,
+        right: Expr,
+    },
+    Compare {
+        left: Expr,
+        op: CompareOp,
+        right: Expr,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -592,12 +599,31 @@ pub struct Param {
 
 #[derive(Debug, Clone)]
 pub enum Statement {
-    LetBinding { name: String, value: Expr, mutable: bool },
-    Assign { name: String, value: Expr },
-    Each { variable: String, iterable: Expr, body: Vec<Statement> },
+    LetBinding {
+        name: String,
+        value: Expr,
+        mutable: bool,
+    },
+    Assign {
+        name: String,
+        value: Expr,
+    },
+    Each {
+        variable: String,
+        iterable: Expr,
+        body: Vec<Statement>,
+    },
     /// `each i, item in list { ... }` — iteration with index (Наряд №17.3)
-    EachWithIndex { index_var: String, item_var: String, iterable: Expr, body: Vec<Statement> },
-    While { condition: Expr, body: Vec<Statement> },
+    EachWithIndex {
+        index_var: String,
+        item_var: String,
+        iterable: Expr,
+        body: Vec<Statement>,
+    },
+    While {
+        condition: Expr,
+        body: Vec<Statement>,
+    },
     /// Block-style if: `if expr { stmts } else if expr { stmts } else { stmts }` (v0.5.0)
     IfElseBlock {
         condition: Expr,
@@ -685,7 +711,11 @@ pub enum Expr {
     FieldAccess(Box<Expr>, String),
     FnCall(String, Vec<Expr>),
     /// Qualified call: `module.function(args)` — resolved through namespace imports.
-    QualifiedCall { module: String, function: String, args: Vec<Expr> },
+    QualifiedCall {
+        module: String,
+        function: String,
+        args: Vec<Expr>,
+    },
     BinaryOp(Box<Expr>, BinOp, Box<Expr>),
     IfElse(Box<Expr>, Box<Expr>, Box<Expr>),
     List(Vec<Expr>),

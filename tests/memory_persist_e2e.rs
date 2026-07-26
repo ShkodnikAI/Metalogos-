@@ -36,7 +36,8 @@ fn make_source_inmemory() -> String {
 memorize "ephemeral data" with priority=0.5
 entity r: String = recall("ephemeral")
 flow Main { input: String = r -> output }
-"#.to_string()
+"#
+    .to_string()
 }
 
 // ── E2E-1: memorize → recall across two run_program calls ────────
@@ -50,12 +51,20 @@ fn test_e2e_persist_memorize_then_recall() {
     // Session 1: memorize
     let source1 = make_source_memorize(db_str);
     let result1 = metalogos::run_program(&source1);
-    assert!(result1.is_ok(), "Session 1 should succeed: {:?}", result1.err());
+    assert!(
+        result1.is_ok(),
+        "Session 1 should succeed: {:?}",
+        result1.err()
+    );
 
     // Session 2: recall (new Interpreter, same DB file)
     let source2 = make_source_recall(db_str);
     let result2 = metalogos::run_program(&source2);
-    assert!(result2.is_ok(), "Session 2 should succeed: {:?}", result2.err());
+    assert!(
+        result2.is_ok(),
+        "Session 2 should succeed: {:?}",
+        result2.err()
+    );
 
     // Flow output should be the recalled value
     let output = result2.unwrap();
@@ -119,7 +128,11 @@ flow Main {{ input: String = r1 -> output }}
         db_str
     );
     let result = metalogos::run_program(&source2);
-    assert!(result.is_ok(), "Session 2 should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Session 2 should succeed: {:?}",
+        result.err()
+    );
     // r1 should recall "user likes spicy food" from session 1
     assert_eq!(result.unwrap(), Some("user likes spicy food".to_string()));
 }
@@ -281,7 +294,11 @@ relate "bob" to "charlie" as "colleague"
         db_str
     );
     let result1 = metalogos::run_program(&source1);
-    assert!(result1.is_ok(), "Session 1 should succeed: {:?}", result1.err());
+    assert!(
+        result1.is_ok(),
+        "Session 1 should succeed: {:?}",
+        result1.err()
+    );
 
     // Session 2: recall alice — should include graph edges
     let source2 = format!(

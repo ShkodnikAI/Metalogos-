@@ -20,7 +20,9 @@ fn compile_and_run(source: &str) -> Result<Option<String>, String> {
 
 /// Helper: compile and verify it succeeds (no error).
 fn compile_ok(source: &str) {
-    let decls = parser::parse(source).map_err(|e| format!("parse: {}", e)).unwrap();
+    let decls = parser::parse(source)
+        .map_err(|e| format!("parse: {}", e))
+        .unwrap();
     let mut compiler = Compiler::new();
     compiler.compile(decls).expect("compile should succeed");
 }
@@ -380,7 +382,10 @@ pattern use_upper(x: String) -> String {
     // If indices don't match, VM will call wrong builtin or panic
     let mut vm = Vm::new();
     let result = vm.run(program);
-    assert!(result.is_ok(), "VM should run successfully with matching builtin indices");
+    assert!(
+        result.is_ok(),
+        "VM should run successfully with matching builtin indices"
+    );
 }
 
 // ── З-18.13: Full compile+run for simple pattern ───────────────────
@@ -394,5 +399,9 @@ pattern add(a: Float, b: Float) -> Float {
 entity result: String = str(add(3.0, 4.0))
 "#;
     let result = compile_and_run(source);
-    assert!(result.is_ok(), "compile+run should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "compile+run should succeed: {:?}",
+        result.err()
+    );
 }

@@ -27,8 +27,11 @@ mod tests {
         ]);
         match result {
             Ok(Value::String(_)) => {}
-            Err(e) => assert!(e.contains("request failed") || e.contains("returned status"),
-                "Unexpected error type: {}", e),
+            Err(e) => assert!(
+                e.contains("request failed") || e.contains("returned status"),
+                "Unexpected error type: {}",
+                e
+            ),
             other => panic!("Unexpected return type: {:?}", other),
         }
     }
@@ -43,12 +46,18 @@ mod tests {
         let http_post = builtins.get("http_post").expect("http_post builtin exists");
 
         let mut fields = HashMap::new();
-        fields.insert("Authorization".to_string(), Value::String("Bearer test-token".to_string()));
+        fields.insert(
+            "Authorization".to_string(),
+            Value::String("Bearer test-token".to_string()),
+        );
         let result = http_post(&[
             Value::String("https://httpbin.org/post".to_string()),
             Value::String("{\"test\": true}".to_string()),
             Value::String("application/json".to_string()),
-            Value::Struct { type_name: "Headers".to_string(), fields },
+            Value::Struct {
+                type_name: "Headers".to_string(),
+                fields,
+            },
         ]);
         match result {
             Ok(_) | Err(_) => {}
@@ -89,7 +98,9 @@ mod tests {
             Value::Float(42.0),
         ]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("4th arg must be String (JSON) or Struct"));
+        assert!(result
+            .unwrap_err()
+            .contains("4th arg must be String (JSON) or Struct"));
     }
 
     // ── Bug 3: __replace() UTF-8 / Cyrillic safety ──
@@ -106,7 +117,8 @@ mod tests {
             Value::String("Привет, мир!".to_string()),
             Value::String("мир".to_string()),
             Value::String("свет".to_string()),
-        ]).expect("__replace should not panic on Cyrillic");
+        ])
+        .expect("__replace should not panic on Cyrillic");
 
         match result {
             Value::String(s) => assert_eq!(s, "Привет, свет!"),
@@ -126,7 +138,8 @@ mod tests {
             Value::String("Работа завершена 🎉".to_string()),
             Value::String("🎉".to_string()),
             Value::String("✅".to_string()),
-        ]).expect("replace should handle multi-byte UTF-8");
+        ])
+        .expect("replace should handle multi-byte UTF-8");
 
         match result {
             Value::String(s) => assert_eq!(s, "Работа завершена ✅"),
@@ -146,7 +159,8 @@ mod tests {
             Value::String("да да нет да".to_string()),
             Value::String("да".to_string()),
             Value::String("maybe".to_string()),
-        ]).expect("__replace should handle multiple Cyrillic occurrences");
+        ])
+        .expect("__replace should handle multiple Cyrillic occurrences");
 
         match result {
             Value::String(s) => assert_eq!(s, "maybe maybe нет maybe"),
@@ -166,7 +180,8 @@ mod tests {
             Value::String("Привет".to_string()),
             Value::String("".to_string()),
             Value::String("X".to_string()),
-        ]).expect("replace with empty pattern should not panic");
+        ])
+        .expect("replace with empty pattern should not panic");
 
         match result {
             Value::String(s) => assert_eq!(s, "Привет"),
@@ -186,7 +201,8 @@ mod tests {
             Value::String("Привет мир".to_string()),
             Value::String("xyz".to_string()),
             Value::String("ABC".to_string()),
-        ]).expect("replace with no match should not panic");
+        ])
+        .expect("replace with no match should not panic");
 
         match result {
             Value::String(s) => assert_eq!(s, "Привет мир"),
@@ -198,7 +214,7 @@ mod tests {
 
     #[test]
     fn test_bug4_resolve_endpoint_openai_default() {
-        use metalogos::llm::{RealLlm, Provider};
+        use metalogos::llm::{Provider, RealLlm};
 
         let llm = RealLlm::with_config(Provider::OpenAI, "gpt-4o".to_string(), None);
         assert_eq!(
@@ -209,7 +225,7 @@ mod tests {
 
     #[test]
     fn test_bug4_resolve_endpoint_openai_custom() {
-        use metalogos::llm::{RealLlm, Provider};
+        use metalogos::llm::{Provider, RealLlm};
 
         let mut llm = RealLlm::with_config(Provider::OpenAI, "gpt-4o".to_string(), None);
         llm.base_url = Some("https://my-proxy.example.com/v1".to_string());
@@ -220,7 +236,7 @@ mod tests {
 
     #[test]
     fn test_bug4_resolve_endpoint_openai_custom_trailing_slash() {
-        use metalogos::llm::{RealLlm, Provider};
+        use metalogos::llm::{Provider, RealLlm};
 
         let mut llm = RealLlm::with_config(Provider::OpenAI, "gpt-4o".to_string(), None);
         llm.base_url = Some("https://my-proxy.example.com/v1/".to_string());
@@ -231,9 +247,13 @@ mod tests {
 
     #[test]
     fn test_bug4_resolve_endpoint_anthropic_default() {
-        use metalogos::llm::{RealLlm, Provider};
+        use metalogos::llm::{Provider, RealLlm};
 
-        let llm = RealLlm::with_config(Provider::Anthropic, "claude-sonnet-4-20250514".to_string(), None);
+        let llm = RealLlm::with_config(
+            Provider::Anthropic,
+            "claude-sonnet-4-20250514".to_string(),
+            None,
+        );
         assert_eq!(
             llm.resolve_endpoint(),
             "https://api.anthropic.com/v1/messages"
@@ -242,9 +262,13 @@ mod tests {
 
     #[test]
     fn test_bug4_resolve_endpoint_anthropic_custom() {
-        use metalogos::llm::{RealLlm, Provider};
+        use metalogos::llm::{Provider, RealLlm};
 
-        let mut llm = RealLlm::with_config(Provider::Anthropic, "claude-sonnet-4-20250514".to_string(), None);
+        let mut llm = RealLlm::with_config(
+            Provider::Anthropic,
+            "claude-sonnet-4-20250514".to_string(),
+            None,
+        );
         llm.base_url = Some("https://claude-proxy.internal".to_string());
 
         let endpoint = llm.resolve_endpoint();
@@ -253,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_bug4_resolve_endpoint_ollama_default() {
-        use metalogos::llm::{RealLlm, Provider};
+        use metalogos::llm::{Provider, RealLlm};
 
         let llm = RealLlm::with_config(Provider::Ollama, "llama3".to_string(), None);
         assert_eq!(
@@ -264,7 +288,7 @@ mod tests {
 
     #[test]
     fn test_bug4_resolve_endpoint_ollama_custom() {
-        use metalogos::llm::{RealLlm, Provider};
+        use metalogos::llm::{Provider, RealLlm};
 
         let mut llm = RealLlm::with_config(Provider::Ollama, "llama3".to_string(), None);
         llm.base_url = Some("http://ollama-server:11434".to_string());

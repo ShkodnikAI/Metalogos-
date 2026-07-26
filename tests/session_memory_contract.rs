@@ -11,8 +11,8 @@ use metalogos::interpreter::Interpreter;
 fn run_mlog(source: &str) -> Result<Option<String>, String> {
     metalogos::builtins::reset_session_store(); // isolate tests
     let mut interp = Interpreter::new();
-    let declarations = metalogos::parser::parse(source)
-        .map_err(|e| format!("parse error: {}", e))?;
+    let declarations =
+        metalogos::parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
     interp.run(declarations)
 }
 

@@ -9,11 +9,24 @@ use zeroize::Zeroizing;
 
 use crate::ast::*;
 use crate::builtins::Builtins;
-use crate::embeddings::EmbeddingManager;
 #[allow(unused_imports)]
 use crate::embeddings::cosine_similarity;
-use crate::memory_store::{MemoryEntry, MemoryStore, KgStore, InMemoryStore, InMemoryKg, SqliteStore, SqliteKg};
+use crate::embeddings::EmbeddingManager;
 use crate::llm;
+use crate::memory_store::{
+    InMemoryKg, InMemoryStore, KgStore, MemoryEntry, MemoryStore, SqliteKg, SqliteStore,
+};
+
+/// Acquire a mutex lock, converting poison errors to a user-friendly message.
+/// Used in functions that return `Result<_, String>`.
+fn lock_or_err<'a, T>(
+    guard: Result<
+        std::sync::MutexGuard<'a, T>,
+        std::sync::PoisonError<std::sync::MutexGuard<'a, T>>,
+    >,
+) -> Result<std::sync::MutexGuard<'a, T>, String> {
+    guard.map_err(|e| format!("lock poisoned: {}", e))
+}
 
 /// A single variant inside a Fluid value (runtime). Contains a concrete
 /// value, its declared type name, and a confidence score (0.0..1.0).
@@ -89,7 +102,10 @@ pub enum Value {
     /// Opaque session data (Phase 6.5)
     Session(std::collections::HashMap<String, String>),
     /// HTTP response value (Phase 6.1)
-    HttpResponse { status: u16, body: String },
+    HttpResponse {
+        status: u16,
+        body: String,
+    },
     /// Graph subgraph — opaque first-class graph value (V3).
     /// Contains a serializable GraphSnapshot that can be passed between functions.
     Subgraph(crate::memory_graph::GraphSnapshot),
@@ -105,7 +121,9 @@ impl std::fmt::Display for Value {
                 write!(f, "{} {{", type_name)?;
                 let pairs: Vec<_> = fields.iter().collect();
                 for (i, (k, v)) in pairs.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}: {}", k, v)?;
                 }
                 write!(f, "}}")
@@ -113,7 +131,9 @@ impl std::fmt::Display for Value {
             Value::List(items) => {
                 write!(f, "[")?;
                 for (i, item) in items.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}", item)?;
                 }
                 write!(f, "]")
@@ -121,7 +141,9 @@ impl std::fmt::Display for Value {
             Value::Fluid(variants) => {
                 // Display as the highest-confidence variant
                 let best = variants.iter().max_by(|a, b| {
-                    a.confidence.partial_cmp(&b.confidence).unwrap_or(std::cmp::Ordering::Equal)
+                    a.confidence
+                        .partial_cmp(&b.confidence)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 });
                 match best {
                     Some(v) => write!(f, "{}", v.value),
@@ -136,7 +158,12 @@ impl std::fmt::Display for Value {
             Value::Hash(_) => write!(f, "[Hash]"),
             Value::Session(_) => write!(f, "[Session]"),
             Value::HttpResponse { status, .. } => write!(f, "[HttpResponse {}]", status),
-            Value::Subgraph(snap) => write!(f, "[Subgraph {} nodes, {} edges]", snap.nodes.len(), snap.edges.len()),
+            Value::Subgraph(snap) => write!(
+                f,
+                "[Subgraph {} nodes, {} edges]",
+                snap.nodes.len(),
+                snap.edges.len()
+            ),
         }
     }
 }
@@ -165,9 +192,14 @@ impl Value {
     /// Get a field value from a struct. Returns Err if not a struct or field missing.
     pub fn get_field(&self, field: &str) -> Result<&Value, String> {
         match self {
-            Value::Struct { fields, .. } => fields.get(field)
+            Value::Struct { fields, .. } => fields
+                .get(field)
                 .ok_or_else(|| format!("field '{}' not found on struct", field)),
-            _ => Err(format!("cannot access field '{}' on non-struct value ({})", field, self.type_name())),
+            _ => Err(format!(
+                "cannot access field '{}' on non-struct value ({})",
+                field,
+                self.type_name()
+            )),
         }
     }
 
@@ -191,7 +223,8 @@ impl Value {
         match self {
             Value::Float(f) => Ok(*f),
             Value::Bool(b) => Ok(if *b { 1.0 } else { 0.0 }),
-            Value::String(s) => s.parse::<f64>()
+            Value::String(s) => s
+                .parse::<f64>()
                 .map_err(|_| format!("cannot convert '{}' to Float", s)),
             _ => Err(format!("cannot convert {} to Float", self.type_name())),
         }
@@ -434,14 +467,27 @@ impl EvalResult {
         let mut lines = Vec::new();
         lines.push(format!("Eval: {}", self.pattern_name));
         lines.push(format!("  Dataset: {} examples", self.total));
-        lines.push(format!("  Accuracy: {:.1}% ({}/{})", self.accuracy * 100.0, self.correct, self.total));
+        lines.push(format!(
+            "  Accuracy: {:.1}% ({}/{})",
+            self.accuracy * 100.0,
+            self.correct,
+            self.total
+        ));
         lines.push(format!("  Threshold: {}", self.threshold));
-        lines.push(format!("  Result: {}", if self.passed { "PASS" } else { "FAIL (below threshold)" }));
+        lines.push(format!(
+            "  Result: {}",
+            if self.passed {
+                "PASS"
+            } else {
+                "FAIL (below threshold)"
+            }
+        ));
 
         // Confusion matrix
         if !self.confusion.is_empty() {
             // Collect all unique labels
-            let mut all_labels: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+            let mut all_labels: std::collections::BTreeSet<String> =
+                std::collections::BTreeSet::new();
             for (expected, predictions) in &self.confusion {
                 all_labels.insert(expected.clone());
                 for pred in predictions.keys() {
@@ -452,19 +498,35 @@ impl EvalResult {
             let labels: Vec<&String> = all_labels.iter().collect();
 
             // Header row
-            let header = format!("  {:12} {}", "", labels.iter().map(|l| format!("{:>12}", l)).collect::<Vec<_>>().join(" "));
+            let header = format!(
+                "  {:12} {}",
+                "",
+                labels
+                    .iter()
+                    .map(|l| format!("{:>12}", l))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
             lines.push(header);
 
             // Data rows
             for expected in &labels {
-                let row = format!("  {:12} {}", expected,
-                    labels.iter().map(|pred| {
-                        let count = self.confusion.get(*expected)
-                            .and_then(|m| m.get(*pred))
-                            .copied()
-                            .unwrap_or(0);
-                        format!("{:>12}", count)
-                    }).collect::<Vec<_>>().join(" ")
+                let row = format!(
+                    "  {:12} {}",
+                    expected,
+                    labels
+                        .iter()
+                        .map(|pred| {
+                            let count = self
+                                .confusion
+                                .get(*expected)
+                                .and_then(|m| m.get(*pred))
+                                .copied()
+                                .unwrap_or(0);
+                            format!("{:>12}", count)
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ")
                 );
                 lines.push(row);
             }
@@ -475,13 +537,19 @@ impl EvalResult {
             lines.push(String::new());
             lines.push("  Failing examples (suggest adapt):".to_string());
             for (input, expected, actual) in &self.failures {
-                lines.push(format!("    - {:?} -> expected {:?}, got {:?}", input, expected, actual));
+                lines.push(format!(
+                    "    - {:?} -> expected {:?}, got {:?}",
+                    input, expected, actual
+                ));
             }
             // Generate adapt suggestions
             lines.push(String::new());
             lines.push("  Suggested adapt commands:".to_string());
             for (input, expected, _actual) in &self.failures {
-                lines.push(format!("    adapt {} add_example({:?}, {:?})", self.pattern_name, input, expected));
+                lines.push(format!(
+                    "    adapt {} add_example({:?}, {:?})",
+                    self.pattern_name, input, expected
+                ));
             }
         }
 
@@ -620,9 +688,15 @@ pub(crate) enum ControlFlow {
 }
 
 impl ControlFlow {
-    fn is_break(&self) -> bool { matches!(self, ControlFlow::Break) }
-    fn is_continue(&self) -> bool { matches!(self, ControlFlow::ContinueLoop) }
-    fn is_return(&self) -> bool { matches!(self, ControlFlow::Return(_)) }
+    fn is_break(&self) -> bool {
+        matches!(self, ControlFlow::Break)
+    }
+    fn is_continue(&self) -> bool {
+        matches!(self, ControlFlow::ContinueLoop)
+    }
+    fn is_return(&self) -> bool {
+        matches!(self, ControlFlow::Return(_))
+    }
     /// Extract the inner value if this is ContinueNormal or Return.
     fn into_value(self) -> Value {
         match self {
@@ -737,13 +811,24 @@ impl Interpreter {
     /// Push an audit log entry (Phase 7.5).
     /// Uses Mutex for interior mutability so it can be called from `&self` methods.
     pub fn push_audit(&self, entry: String) {
-        self.audit_log.lock().unwrap().push(entry);
+        self.audit_log
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(entry);
     }
 
     /// ADR-0052: Emit an event to the event stream.
     /// Thread-safe: appends to event_log behind Mutex, auto-increments ID.
-    fn emit_event(&self, event_type: &str, source: &str, data: HashMap<String, String>, duration_ms: Option<u64>) {
-        let id = self.event_next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    fn emit_event(
+        &self,
+        event_type: &str,
+        source: &str,
+        data: HashMap<String, String>,
+        duration_ms: Option<u64>,
+    ) {
+        let id = self
+            .event_next_id
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
@@ -777,7 +862,10 @@ impl Interpreter {
     /// Returns events with timestamp >= since_ms (milliseconds).
     pub fn events_since_ms(&self, since_ms: u64) -> Vec<Event> {
         if let Ok(log) = self.event_log.lock() {
-            log.iter().filter(|e| e.timestamp >= since_ms).cloned().collect()
+            log.iter()
+                .filter(|e| e.timestamp >= since_ms)
+                .cloned()
+                .collect()
         } else {
             Vec::new()
         }
@@ -785,7 +873,10 @@ impl Interpreter {
 
     /// ADR-0052: Get a reference to the full event log (for test access).
     pub fn get_events(&self) -> Vec<Event> {
-        self.event_log.lock().map(|log| log.clone()).unwrap_or_default()
+        self.event_log
+            .lock()
+            .map(|log| log.clone())
+            .unwrap_or_default()
     }
 
     /// ADR-0052: Sum a numeric field across events of a given type.
@@ -812,7 +903,11 @@ impl Interpreter {
             match SqliteStore::open(&db_path) {
                 Ok(sqlite_store) => {
                     // Migrate existing in-memory data to SQLite
-                    let existing = self.memory.lock().unwrap().all_entries();
+                    let existing = self
+                        .memory
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .all_entries();
                     let mut new_store: Box<dyn MemoryStore> = Box::new(sqlite_store);
                     for entry in existing {
                         let _ = new_store.memorize(entry);
@@ -820,8 +915,11 @@ impl Interpreter {
                     self.memory = std::sync::Mutex::new(new_store);
 
                     // Migrate KG edges to SQLite (sharing the same DB file)
-                    let existing_edges: Vec<(String, String, String, f64)> =
-                        self.kg.lock().unwrap().all_edges();
+                    let existing_edges: Vec<(String, String, String, f64)> = self
+                        .kg
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .all_edges();
                     if let Ok(sqlite_kg) = SqliteKg::open(&db_path) {
                         let mut new_kg: Box<dyn KgStore> = Box::new(sqlite_kg);
                         for (from, to, relation, weight) in existing_edges {
@@ -850,13 +948,16 @@ impl Interpreter {
                                 state_json TEXT NOT NULL,
                                 created_at INTEGER NOT NULL,
                                 PRIMARY KEY (flow_name, checkpoint_name)
-                            )"
+                            )",
                         );
-                        *self.checkpoint_db.lock().unwrap() = Some(conn);
+                        *self.checkpoint_db.lock().unwrap_or_else(|e| e.into_inner()) = Some(conn);
                     }
                 }
                 Err(e) => {
-                    eprintln!("[memory] Failed to open persistent store '{}': {}. Using in-memory.", path, e);
+                    eprintln!(
+                        "[memory] Failed to open persistent store '{}': {}. Using in-memory.",
+                        path, e
+                    );
                 }
             }
         }
@@ -877,9 +978,13 @@ impl Interpreter {
 
     /// Problem C: Apply schema declaration — CREATE TABLE IF NOT EXISTS for each table.
     fn apply_schema(&self, schema: &SchemaDecl) -> Result<(), String> {
-        let guard = self.db_conn.lock().map_err(|e| format!("db lock error: {}", e))?;
+        let guard = self
+            .db_conn
+            .lock()
+            .map_err(|e| format!("db lock error: {}", e))?;
         let conn = guard.as_ref().ok_or_else(|| {
-            "schema declaration requires a db connection. Declare db { url: \"...\" } first.".to_string()
+            "schema declaration requires a db connection. Declare db { url: \"...\" } first."
+                .to_string()
         })?;
 
         for table in &schema.tables {
@@ -907,8 +1012,13 @@ impl Interpreter {
                 }
                 col_defs.push(def);
             }
-            let sql = format!("CREATE TABLE IF NOT EXISTS {} ({})", table.name, col_defs.join(", "));
-            conn.execute(&sql, []).map_err(|e| format!("schema migration error for table '{}': {}", table.name, e))?;
+            let sql = format!(
+                "CREATE TABLE IF NOT EXISTS {} ({})",
+                table.name,
+                col_defs.join(", ")
+            );
+            conn.execute(&sql, [])
+                .map_err(|e| format!("schema migration error for table '{}': {}", table.name, e))?;
         }
 
         Ok(())
@@ -943,14 +1053,17 @@ impl Interpreter {
             let path = url.trim_start_matches("sqlite:");
             rusqlite::Connection::open(path)
         } else {
-            eprintln!("[db] Unsupported URL scheme: '{}'. Use 'sqlite::memory:' or 'sqlite:path.db'", url);
+            eprintln!(
+                "[db] Unsupported URL scheme: '{}'. Use 'sqlite::memory:' or 'sqlite:path.db'",
+                url
+            );
             return;
         };
         match conn {
             Ok(c) => {
                 // Enable WAL mode for better concurrent read performance
                 let _ = c.execute_batch("PRAGMA journal_mode=WAL;");
-                let mut guard = self.db_conn.lock().unwrap();
+                let mut guard = self.db_conn.lock().unwrap_or_else(|e| e.into_inner());
                 *guard = Some(c);
                 // Store resolved URL for per-request interpreter reconnection
                 self.db_url = Some(url.clone());
@@ -969,24 +1082,35 @@ impl Interpreter {
     fn invoke_query(&self, args: &[Value]) -> Result<Value, String> {
         let sql = match args.first() {
             Some(Value::String(s)) => s.clone(),
-            Some(other) => return Err(format!("query() expected String SQL, got {}", other.type_name())),
+            Some(other) => {
+                return Err(format!(
+                    "query() expected String SQL, got {}",
+                    other.type_name()
+                ))
+            }
             None => return Err("query() requires at least 1 argument (SQL string)".to_string()),
         };
         let params: Vec<String> = if args.len() > 1 {
             match &args[1] {
-                Value::List(items) => items.iter().filter_map(|v| match v {
-                    Value::String(s) => Some(s.clone()),
-                    Value::Float(n) => Some(format!("{}", n)),
-                    Value::Bool(b) => Some(format!("{}", b)),
-                    _ => None,
-                }).collect(),
+                Value::List(items) => items
+                    .iter()
+                    .filter_map(|v| match v {
+                        Value::String(s) => Some(s.clone()),
+                        Value::Float(n) => Some(format!("{}", n)),
+                        Value::Bool(b) => Some(format!("{}", b)),
+                        _ => None,
+                    })
+                    .collect(),
                 _ => Vec::new(),
             }
         } else {
             Vec::new()
         };
 
-        let guard = self.db_conn.lock().map_err(|e| format!("db lock error: {}", e))?;
+        let guard = self
+            .db_conn
+            .lock()
+            .map_err(|e| format!("db lock error: {}", e))?;
         let conn = guard.as_ref().ok_or_else(|| {
             "query() error: no database connection. Declare db { url: \"sqlite::memory:\" } first.".to_string()
         })?;
@@ -994,38 +1118,48 @@ impl Interpreter {
         let sql_upper = sql.trim().to_uppercase();
         if sql_upper.starts_with("SELECT") || sql_upper.starts_with("PRAGMA") {
             // SELECT/PRAGMA → List of Struct
-            let mut stmt = conn.prepare(&sql)
+            let mut stmt = conn
+                .prepare(&sql)
                 .map_err(|e| format!("query() SQL error: {}", e))?;
-            let col_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
-            let rows: Vec<Value> = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
-                let mut fields = std::collections::HashMap::new();
-                for (i, col) in col_names.iter().enumerate() {
-                    let val: Value = match row.get_ref(i) {
-                        Ok(rusqlite::types::ValueRef::Null) => Value::Unit,
-                        Ok(rusqlite::types::ValueRef::Integer(n)) => {
-                            // Heuristic: if the column name suggests it's an ID or count, keep as Float
-                            Value::Float(n as f64)
-                        }
-                        Ok(rusqlite::types::ValueRef::Real(f)) => Value::Float(f),
-                        Ok(rusqlite::types::ValueRef::Text(s)) => {
-                            Value::String(String::from_utf8_lossy(s).to_string())
-                        }
-                        Ok(rusqlite::types::ValueRef::Blob(b)) => {
-                            // Encode blobs as hex strings
-                            Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
-                        }
-                        Err(_) => Value::Unit,
-                    };
-                    fields.insert(col.clone(), val);
-                }
-                Ok(Value::Struct { type_name: "Row".to_string(), fields })
-            }).map_err(|e| format!("query() execution error: {}", e))?
-            .filter_map(|r| r.ok())
-            .collect();
+            let col_names: Vec<String> =
+                stmt.column_names().iter().map(|s| s.to_string()).collect();
+            let rows: Vec<Value> = stmt
+                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
+                    let mut fields = std::collections::HashMap::new();
+                    for (i, col) in col_names.iter().enumerate() {
+                        let val: Value = match row.get_ref(i) {
+                            Ok(rusqlite::types::ValueRef::Null) => Value::Unit,
+                            Ok(rusqlite::types::ValueRef::Integer(n)) => {
+                                // Heuristic: if the column name suggests it's an ID or count, keep as Float
+                                Value::Float(n as f64)
+                            }
+                            Ok(rusqlite::types::ValueRef::Real(f)) => Value::Float(f),
+                            Ok(rusqlite::types::ValueRef::Text(s)) => {
+                                Value::String(String::from_utf8_lossy(s).to_string())
+                            }
+                            Ok(rusqlite::types::ValueRef::Blob(b)) => {
+                                // Encode blobs as hex strings
+                                Value::String(
+                                    b.iter().map(|byte| format!("{:02x}", byte)).collect(),
+                                )
+                            }
+                            Err(_) => Value::Unit,
+                        };
+                        fields.insert(col.clone(), val);
+                    }
+                    Ok(Value::Struct {
+                        type_name: "Row".to_string(),
+                        fields,
+                    })
+                })
+                .map_err(|e| format!("query() execution error: {}", e))?
+                .filter_map(|r| r.ok())
+                .collect();
             Ok(Value::List(rows))
         } else {
             // INSERT/UPDATE/DELETE/CREATE/ALTER/etc. → affected row count as String
-            let affected = conn.execute(&sql, rusqlite::params_from_iter(params.iter()))
+            let affected = conn
+                .execute(&sql, rusqlite::params_from_iter(params.iter()))
                 .map_err(|e| format!("query() SQL error: {}", e))?;
             Ok(Value::String(affected.to_string()))
         }
@@ -1035,14 +1169,25 @@ impl Interpreter {
     fn invoke_db_execute(&self, args: &[Value]) -> Result<Value, String> {
         let sql = match args.first() {
             Some(Value::String(s)) => s.clone(),
-            Some(other) => return Err(format!("db_execute() expected String SQL, got {}", other.type_name())),
-            None => return Err("db_execute() requires at least 1 argument (SQL string)".to_string()),
+            Some(other) => {
+                return Err(format!(
+                    "db_execute() expected String SQL, got {}",
+                    other.type_name()
+                ))
+            }
+            None => {
+                return Err("db_execute() requires at least 1 argument (SQL string)".to_string())
+            }
         };
-        let guard = self.db_conn.lock().map_err(|e| format!("db lock error: {}", e))?;
+        let guard = self
+            .db_conn
+            .lock()
+            .map_err(|e| format!("db lock error: {}", e))?;
         let conn = guard.as_ref().ok_or_else(|| {
             "db_execute() error: no database connection. Declare db { url: \"sqlite::memory:\" } first.".to_string()
         })?;
-        let affected = conn.execute(&sql, [])
+        let affected = conn
+            .execute(&sql, [])
             .map_err(|e| format!("db_execute() SQL error: {}", e))?;
         Ok(Value::String(affected.to_string()))
     }
@@ -1053,37 +1198,59 @@ impl Interpreter {
     fn invoke_query_scalar(&self, args: &[Value]) -> Result<Value, String> {
         let sql = match args.first() {
             Some(Value::String(s)) => s.clone(),
-            Some(other) => return Err(format!("query_scalar() expected String SQL, got {}", other.type_name())),
-            None => return Err("query_scalar() requires at least 1 argument (SQL string)".to_string()),
+            Some(other) => {
+                return Err(format!(
+                    "query_scalar() expected String SQL, got {}",
+                    other.type_name()
+                ))
+            }
+            None => {
+                return Err("query_scalar() requires at least 1 argument (SQL string)".to_string())
+            }
         };
         let params: Vec<String> = if args.len() > 1 {
             match &args[1] {
-                Value::List(items) => items.iter().filter_map(|v| match v {
-                    Value::String(s) => Some(s.clone()),
-                    Value::Float(n) => Some(format!("{}", n)),
-                    Value::Bool(b) => Some(format!("{}", b)),
-                    _ => None,
-                }).collect(),
+                Value::List(items) => items
+                    .iter()
+                    .filter_map(|v| match v {
+                        Value::String(s) => Some(s.clone()),
+                        Value::Float(n) => Some(format!("{}", n)),
+                        Value::Bool(b) => Some(format!("{}", b)),
+                        _ => None,
+                    })
+                    .collect(),
                 _ => Vec::new(),
             }
-        } else { Vec::new() };
+        } else {
+            Vec::new()
+        };
 
-        let guard = self.db_conn.lock().map_err(|e| format!("db lock error: {}", e))?;
-        let conn = guard.as_ref().ok_or_else(|| {
-            "query_scalar() error: no database connection.".to_string()
-        })?;
+        let guard = self
+            .db_conn
+            .lock()
+            .map_err(|e| format!("db lock error: {}", e))?;
+        let conn = guard
+            .as_ref()
+            .ok_or_else(|| "query_scalar() error: no database connection.".to_string())?;
 
-        let mut stmt = conn.prepare(&sql)
+        let mut stmt = conn
+            .prepare(&sql)
             .map_err(|e| format!("query_scalar() SQL error: {}", e))?;
-        let mut rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
-            row.get_ref(0).map(|v| match v {
-                rusqlite::types::ValueRef::Null => Value::Unit,
-                rusqlite::types::ValueRef::Integer(n) => Value::Float(n as f64),
-                rusqlite::types::ValueRef::Real(f) => Value::Float(f),
-                rusqlite::types::ValueRef::Text(s) => Value::String(String::from_utf8_lossy(s).to_string()),
-                rusqlite::types::ValueRef::Blob(b) => Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect()),
+        let mut rows = stmt
+            .query_map(rusqlite::params_from_iter(params.iter()), |row| {
+                row.get_ref(0).map(|v| match v {
+                    rusqlite::types::ValueRef::Null => Value::Unit,
+                    rusqlite::types::ValueRef::Integer(n) => Value::Float(n as f64),
+                    rusqlite::types::ValueRef::Real(f) => Value::Float(f),
+                    rusqlite::types::ValueRef::Text(s) => {
+                        Value::String(String::from_utf8_lossy(s).to_string())
+                    }
+                    rusqlite::types::ValueRef::Blob(b) => {
+                        Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
+                    }
+                })
             })
-        }).map_err(|e| format!("query_scalar() execution error: {}", e))?;
+            .map_err(|e| format!("query_scalar() execution error: {}", e))?;
 
         match rows.next() {
             Some(Ok(val)) => Ok(val),
@@ -1098,44 +1265,64 @@ impl Interpreter {
     fn invoke_query_row(&self, args: &[Value]) -> Result<Value, String> {
         let sql = match args.first() {
             Some(Value::String(s)) => s.clone(),
-            Some(other) => return Err(format!("query_row() expected String SQL, got {}", other.type_name())),
+            Some(other) => {
+                return Err(format!(
+                    "query_row() expected String SQL, got {}",
+                    other.type_name()
+                ))
+            }
             None => return Err("query_row() requires at least 1 argument (SQL string)".to_string()),
         };
         let params: Vec<String> = if args.len() > 1 {
             match &args[1] {
-                Value::List(items) => items.iter().filter_map(|v| match v {
-                    Value::String(s) => Some(s.clone()),
-                    Value::Float(n) => Some(format!("{}", n)),
-                    Value::Bool(b) => Some(format!("{}", b)),
-                    _ => None,
-                }).collect(),
+                Value::List(items) => items
+                    .iter()
+                    .filter_map(|v| match v {
+                        Value::String(s) => Some(s.clone()),
+                        Value::Float(n) => Some(format!("{}", n)),
+                        Value::Bool(b) => Some(format!("{}", b)),
+                        _ => None,
+                    })
+                    .collect(),
                 _ => Vec::new(),
             }
-        } else { Vec::new() };
+        } else {
+            Vec::new()
+        };
 
-        let guard = self.db_conn.lock().map_err(|e| format!("db lock error: {}", e))?;
-        let conn = guard.as_ref().ok_or_else(|| {
-            "query_row() error: no database connection.".to_string()
-        })?;
+        let guard = self
+            .db_conn
+            .lock()
+            .map_err(|e| format!("db lock error: {}", e))?;
+        let conn = guard
+            .as_ref()
+            .ok_or_else(|| "query_row() error: no database connection.".to_string())?;
 
-        let mut stmt = conn.prepare(&sql)
+        let mut stmt = conn
+            .prepare(&sql)
             .map_err(|e| format!("query_row() SQL error: {}", e))?;
         let col_count = stmt.column_count();
-        let mut rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
-            let mut vals = Vec::with_capacity(col_count);
-            for i in 0..col_count {
-                let val = match row.get_ref(i) {
-                    Ok(rusqlite::types::ValueRef::Null) => Value::Unit,
-                    Ok(rusqlite::types::ValueRef::Integer(n)) => Value::Float(n as f64),
-                    Ok(rusqlite::types::ValueRef::Real(f)) => Value::Float(f),
-                    Ok(rusqlite::types::ValueRef::Text(s)) => Value::String(String::from_utf8_lossy(s).to_string()),
-                    Ok(rusqlite::types::ValueRef::Blob(b)) => Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect()),
-                    Err(_) => Value::Unit,
-                };
-                vals.push(val);
-            }
-            Ok(vals)
-        }).map_err(|e| format!("query_row() execution error: {}", e))?;
+        let mut rows = stmt
+            .query_map(rusqlite::params_from_iter(params.iter()), |row| {
+                let mut vals = Vec::with_capacity(col_count);
+                for i in 0..col_count {
+                    let val = match row.get_ref(i) {
+                        Ok(rusqlite::types::ValueRef::Null) => Value::Unit,
+                        Ok(rusqlite::types::ValueRef::Integer(n)) => Value::Float(n as f64),
+                        Ok(rusqlite::types::ValueRef::Real(f)) => Value::Float(f),
+                        Ok(rusqlite::types::ValueRef::Text(s)) => {
+                            Value::String(String::from_utf8_lossy(s).to_string())
+                        }
+                        Ok(rusqlite::types::ValueRef::Blob(b)) => {
+                            Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
+                        }
+                        Err(_) => Value::Unit,
+                    };
+                    vals.push(val);
+                }
+                Ok(vals)
+            })
+            .map_err(|e| format!("query_row() execution error: {}", e))?;
 
         match rows.next() {
             Some(Ok(vals)) => Ok(Value::List(vals)),
@@ -1162,7 +1349,7 @@ impl Interpreter {
                         let _ = c.execute_batch("PRAGMA journal_mode=WAL;");
                         // For file DBs, each request gets its own connection
                         // (don't overwrite the shared Arc for in-memory)
-                        let mut guard = self.db_conn.lock().unwrap();
+                        let mut guard = self.db_conn.lock().unwrap_or_else(|e| e.into_inner());
                         // Only set if no connection yet (in-memory may have set it)
                         if guard.is_none() {
                             *guard = Some(c);
@@ -1188,15 +1375,13 @@ impl Interpreter {
         let mut remaining_decls = Vec::new();
         for decl in &declarations {
             match decl {
-                Declaration::Hook(h) => {
-                    match h.phase {
-                        HookPhase::OnSessionStart => self.hooks_session_start.push(h.clone()),
-                        HookPhase::OnWrite => self.hooks_on_write.push(h.clone()),
-                        HookPhase::OnSessionEnd => self.hooks_session_end.push(h.clone()),
-                        HookPhase::BeforePattern => self.hooks_before.push(h.clone()),
-                        HookPhase::AfterPattern => self.hooks_after.push(h.clone()),
-                    }
-                }
+                Declaration::Hook(h) => match h.phase {
+                    HookPhase::OnSessionStart => self.hooks_session_start.push(h.clone()),
+                    HookPhase::OnWrite => self.hooks_on_write.push(h.clone()),
+                    HookPhase::OnSessionEnd => self.hooks_session_end.push(h.clone()),
+                    HookPhase::BeforePattern => self.hooks_before.push(h.clone()),
+                    HookPhase::AfterPattern => self.hooks_after.push(h.clone()),
+                },
                 _ => remaining_decls.push(decl.clone()),
             }
         }
@@ -1213,10 +1398,13 @@ impl Interpreter {
                     self.handle_import(&import)?;
                 }
                 Declaration::EntityType(e) => {
-                    self.struct_types.insert(e.name.clone(), StructType {
-                        name: e.name.clone(),
-                        fields: e.fields,
-                    });
+                    self.struct_types.insert(
+                        e.name.clone(),
+                        StructType {
+                            name: e.name.clone(),
+                            fields: e.fields,
+                        },
+                    );
                 }
                 Declaration::EntityRecord(e) => {
                     let value = self.instantiate_struct(&e.type_name, &e.fields)?;
@@ -1239,7 +1427,7 @@ impl Interpreter {
                         .map(|d| d.as_secs() as i64)
                         .unwrap_or(0);
                     let embedding = self.embedding_manager.embed(&value_str).unwrap_or_default();
-                    let _ = self.memory.lock().unwrap().memorize(MemoryEntry {
+                    let _ = lock_or_err(self.memory.lock())?.memorize(MemoryEntry {
                         id: None,
                         value: value_str.clone(),
                         priority: m.priority,
@@ -1249,7 +1437,11 @@ impl Interpreter {
                         embedding,
                     });
                     // ADR-0052: emit memory_store event
-                    let preview = if value_str.len() > 30 { &value_str[..30] } else { &value_str };
+                    let preview = if value_str.len() > 30 {
+                        &value_str[..30]
+                    } else {
+                        &value_str
+                    };
                     let mut data = HashMap::new();
                     data.insert("key_preview".to_string(), preview.to_string());
                     data.insert("priority".to_string(), m.priority.to_string());
@@ -1265,7 +1457,7 @@ impl Interpreter {
                         .map(|d| d.as_secs() as i64)
                         .unwrap_or(0);
                     let cutoff = now - (f.days * 86400);
-                    self.memory.lock().unwrap().forget(&query_str, cutoff);
+                    lock_or_err(self.memory.lock())?.forget(&query_str, cutoff);
                 }
                 Declaration::Pattern(p) => {
                     self.patterns.insert(
@@ -1304,9 +1496,14 @@ impl Interpreter {
                         other => format!("{}", other),
                     };
                     if let Some(learnable) = self.learnable_patterns.get_mut(&a.pattern_name) {
-                        learnable.few_shot.push((input_str.clone(), output_str.clone()));
+                        learnable
+                            .few_shot
+                            .push((input_str.clone(), output_str.clone()));
                     } else {
-                        return Err(format!("adapt: learnable pattern '{}' not found", a.pattern_name));
+                        return Err(format!(
+                            "adapt: learnable pattern '{}' not found",
+                            a.pattern_name
+                        ));
                     }
                     // ADR-0051: update pattern stats for inspect()
                     {
@@ -1314,8 +1511,10 @@ impl Interpreter {
                             .duration_since(UNIX_EPOCH)
                             .map(|d| d.as_secs() as i64)
                             .unwrap_or(0);
-                        let mut stats = self.pattern_stats.lock().unwrap();
-                        let entry = stats.entry(a.pattern_name.clone()).or_insert_with(PatternStats::new);
+                        let mut stats = lock_or_err(self.pattern_stats.lock())?;
+                        let entry = stats
+                            .entry(a.pattern_name.clone())
+                            .or_insert_with(PatternStats::new);
                         entry.last_adapt = now;
                         entry.examples_count += 1;
                     }
@@ -1325,7 +1524,9 @@ impl Interpreter {
                         a.pattern_name, input_str, output_str
                     ));
                     // ADR-0052: emit adapt event
-                    let examples_count = self.learnable_patterns.get(&a.pattern_name)
+                    let examples_count = self
+                        .learnable_patterns
+                        .get(&a.pattern_name)
                         .map(|lp| lp.few_shot.len())
                         .unwrap_or(0);
                     let mut data = HashMap::new();
@@ -1344,7 +1545,8 @@ impl Interpreter {
                             confidence: v.confidence,
                         });
                     }
-                    self.variables.insert(fl.name.clone(), Value::Fluid(variants));
+                    self.variables
+                        .insert(fl.name.clone(), Value::Fluid(variants));
                 }
                 Declaration::Relate(r) => {
                     let from_str = match self.eval_expr(&r.from)? {
@@ -1355,7 +1557,8 @@ impl Interpreter {
                         Value::String(s) => s,
                         other => format!("{}", other),
                     };
-                    let _ = self.kg.lock().unwrap().relate(&from_str, &to_str, &r.relation, 1.0);
+                    let _ =
+                        lock_or_err(self.kg.lock())?.relate(&from_str, &to_str, &r.relation, 1.0);
                 }
                 Declaration::Sandbox(s) => {
                     self.sandboxes.insert(s.name.clone(), s);
@@ -1418,7 +1621,8 @@ impl Interpreter {
                     // Tool methods are stored as "toolname.methodname" to
                     // avoid namespace collisions between tools with same method names.
                     // tool.method(args) resolves via QualifiedCall.
-                    self.module_namespaces.insert(t.name.clone(), format!("tool:{}", t.name));
+                    self.module_namespaces
+                        .insert(t.name.clone(), format!("tool:{}", t.name));
                     for method in &t.methods {
                         let qualified_name = format!("{}.{}", t.name, method.name);
                         self.patterns.insert(
@@ -1454,14 +1658,17 @@ impl Interpreter {
 
     /// Instantiate a struct from a type name and field initializers.
     fn instantiate_struct(&self, type_name: &str, inits: &[FieldInit]) -> Result<Value, String> {
-        let struct_type = self.struct_types.get(type_name)
+        let struct_type = self
+            .struct_types
+            .get(type_name)
             .ok_or_else(|| format!("unknown struct type: {}", type_name))?
             .clone();
 
         let mut fields = HashMap::new();
         for fd in &struct_type.fields {
             // Look for an initializer
-            let init_val = inits.iter()
+            let init_val = inits
+                .iter()
                 .find(|fi| fi.name == fd.name)
                 .map(|fi| self.eval_expr(&fi.value));
 
@@ -1479,7 +1686,10 @@ impl Interpreter {
             fields.insert(fd.name.clone(), value);
         }
 
-        Ok(Value::Struct { type_name: type_name.to_string(), fields })
+        Ok(Value::Struct {
+            type_name: type_name.to_string(),
+            fields,
+        })
     }
 
     /// Handle an import declaration: load module, register namespace or merge globally.
@@ -1487,8 +1697,13 @@ impl Interpreter {
         let module_path = &import.path;
 
         // Register namespace mapping (alias or path itself for global merge)
-        let alias = import.alias.as_ref().cloned().unwrap_or_else(|| module_path.clone());
-        self.module_namespaces.insert(alias.clone(), module_path.clone());
+        let alias = import
+            .alias
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| module_path.clone());
+        self.module_namespaces
+            .insert(alias.clone(), module_path.clone());
 
         // Load the module file and execute its declarations into this interpreter
         self.load_module(module_path)?;
@@ -1529,7 +1744,10 @@ impl Interpreter {
         };
 
         let source = std::fs::read_to_string(&file_path).map_err(|e| {
-            format!("cannot import module '{}': {} (tried {:?})", module_path, e, file_path)
+            format!(
+                "cannot import module '{}': {} (tried {:?})",
+                module_path, e, file_path
+            )
         })?;
 
         // Parse the module source
@@ -1544,10 +1762,13 @@ impl Interpreter {
                     self.handle_import(&sub_import)?;
                 }
                 Declaration::EntityType(e) => {
-                    self.struct_types.insert(e.name.clone(), StructType {
-                        name: e.name.clone(),
-                        fields: e.fields,
-                    });
+                    self.struct_types.insert(
+                        e.name.clone(),
+                        StructType {
+                            name: e.name.clone(),
+                            fields: e.fields,
+                        },
+                    );
                 }
                 Declaration::EntityRecord(e) => {
                     let value = self.instantiate_struct(&e.type_name, &e.fields)?;
@@ -1558,25 +1779,31 @@ impl Interpreter {
                     self.variables.insert(e.name.clone(), value);
                 }
                 Declaration::Pattern(p) => {
-                    self.patterns.insert(p.name.clone(), CompiledPattern {
-                        params: p.params.clone(),
-                        body: p.body.clone(),
-                    });
+                    self.patterns.insert(
+                        p.name.clone(),
+                        CompiledPattern {
+                            params: p.params.clone(),
+                            body: p.body.clone(),
+                        },
+                    );
                 }
                 Declaration::LearnablePattern(lp) => {
-                    self.learnable_patterns.insert(lp.name.clone(), CompiledLearnable {
-                        params: lp.params.clone(),
-                        prompt: lp.prompt.clone(),
-                        few_shot: Vec::new(),
-                        context: lp.context.clone(),
-                        context_strategy: lp.context_strategy.clone(),
-                        max_context_tokens: lp.max_context_tokens,
-                        max_tokens: lp.max_tokens,
-                        cache: lp.cache,
-                        cache_ttl: lp.cache_ttl,
-                        model: lp.model.clone(),
-                        conversation: lp.conversation.clone(),
-                    });
+                    self.learnable_patterns.insert(
+                        lp.name.clone(),
+                        CompiledLearnable {
+                            params: lp.params.clone(),
+                            prompt: lp.prompt.clone(),
+                            few_shot: Vec::new(),
+                            context: lp.context.clone(),
+                            context_strategy: lp.context_strategy.clone(),
+                            max_context_tokens: lp.max_context_tokens,
+                            max_tokens: lp.max_tokens,
+                            cache: lp.cache,
+                            cache_ttl: lp.cache_ttl,
+                            model: lp.model.clone(),
+                            conversation: lp.conversation.clone(),
+                        },
+                    );
                 }
                 Declaration::Rule(r) => self.rules.push(r),
                 Declaration::Memorize(m) => {
@@ -1589,7 +1816,7 @@ impl Interpreter {
                         .map(|d| d.as_secs() as i64)
                         .unwrap_or(0);
                     let embedding = self.embedding_manager.embed(&value_str).unwrap_or_default();
-                    let _ = self.memory.lock().unwrap().memorize(MemoryEntry {
+                    let _ = lock_or_err(self.memory.lock())?.memorize(MemoryEntry {
                         id: None,
                         value: value_str.clone(),
                         priority: m.priority,
@@ -1599,7 +1826,11 @@ impl Interpreter {
                         embedding,
                     });
                     // ADR-0052: emit memory_store event
-                    let preview = if value_str.len() > 30 { &value_str[..30] } else { &value_str };
+                    let preview = if value_str.len() > 30 {
+                        &value_str[..30]
+                    } else {
+                        &value_str
+                    };
                     let mut data = HashMap::new();
                     data.insert("key_preview".to_string(), preview.to_string());
                     data.insert("priority".to_string(), m.priority.to_string());
@@ -1615,7 +1846,7 @@ impl Interpreter {
                         .map(|d| d.as_secs() as i64)
                         .unwrap_or(0);
                     let cutoff = now - (f.days * 86400);
-                    self.memory.lock().unwrap().forget(&query_str, cutoff);
+                    lock_or_err(self.memory.lock())?.forget(&query_str, cutoff);
                 }
                 Declaration::Fluid(fl) => {
                     let mut variants = Vec::new();
@@ -1627,7 +1858,8 @@ impl Interpreter {
                             confidence: v.confidence,
                         });
                     }
-                    self.variables.insert(fl.name.clone(), Value::Fluid(variants));
+                    self.variables
+                        .insert(fl.name.clone(), Value::Fluid(variants));
                 }
                 Declaration::Relate(r) => {
                     let from_str = match self.eval_expr(&r.from)? {
@@ -1638,7 +1870,8 @@ impl Interpreter {
                         Value::String(s) => s,
                         other => format!("{}", other),
                     };
-                    let _ = self.kg.lock().unwrap().relate(&from_str, &to_str, &r.relation, 1.0);
+                    let _ =
+                        lock_or_err(self.kg.lock())?.relate(&from_str, &to_str, &r.relation, 1.0);
                 }
                 Declaration::Adapt(a) => {
                     let input_str = match self.eval_expr(&a.input_example)? {
@@ -1658,8 +1891,10 @@ impl Interpreter {
                             .duration_since(UNIX_EPOCH)
                             .map(|d| d.as_secs() as i64)
                             .unwrap_or(0);
-                        let mut stats = self.pattern_stats.lock().unwrap();
-                        let entry = stats.entry(a.pattern_name.clone()).or_insert_with(PatternStats::new);
+                        let mut stats = lock_or_err(self.pattern_stats.lock())?;
+                        let entry = stats
+                            .entry(a.pattern_name.clone())
+                            .or_insert_with(PatternStats::new);
                         entry.last_adapt = now;
                         entry.examples_count += 1;
                     }
@@ -1679,15 +1914,13 @@ impl Interpreter {
                 Declaration::Sandbox(s) => {
                     self.sandboxes.insert(s.name.clone(), s);
                 }
-                Declaration::Hook(h) => {
-                    match h.phase {
-                        HookPhase::BeforePattern => self.hooks_before.push(h),
-                        HookPhase::AfterPattern => self.hooks_after.push(h),
-                        HookPhase::OnSessionStart => self.hooks_session_start.push(h),
-                        HookPhase::OnWrite => self.hooks_on_write.push(h),
-                        HookPhase::OnSessionEnd => self.hooks_session_end.push(h),
-                    }
-                }
+                Declaration::Hook(h) => match h.phase {
+                    HookPhase::BeforePattern => self.hooks_before.push(h),
+                    HookPhase::AfterPattern => self.hooks_after.push(h),
+                    HookPhase::OnSessionStart => self.hooks_session_start.push(h),
+                    HookPhase::OnWrite => self.hooks_on_write.push(h),
+                    HookPhase::OnSessionEnd => self.hooks_session_end.push(h),
+                },
                 Declaration::MlogServer(srv) => {
                     self.server_config = Some(srv);
                 }
@@ -1718,7 +1951,8 @@ impl Interpreter {
                 }
                 Declaration::Tool(t) => {
                     // ADR-0054: register tool as namespace + compile methods as qualified patterns
-                    self.module_namespaces.insert(t.name.clone(), format!("tool:{}", t.name));
+                    self.module_namespaces
+                        .insert(t.name.clone(), format!("tool:{}", t.name));
                     for method in &t.methods {
                         let qualified_name = format!("{}.{}", t.name, method.name);
                         self.patterns.insert(
@@ -1762,7 +1996,9 @@ impl Interpreter {
                 // We need to mutate the entity in variables
                 // The target is an Ident (entity name), field is the field name
                 if let Expr::Ident(name) = &rule.target {
-                    let entity = self.variables.get_mut(name)
+                    let entity = self
+                        .variables
+                        .get_mut(name)
                         .ok_or_else(|| format!("rule target '{}' not found", name))?;
                     entity.set_field(&rule.field, value_val)?;
                 }
@@ -1772,18 +2008,32 @@ impl Interpreter {
     }
 
     /// Evaluate a rule condition.
-    fn eval_condition(&self, cond: &Condition, env: &HashMap<String, Value>) -> Result<bool, String> {
+    fn eval_condition(
+        &self,
+        cond: &Condition,
+        env: &HashMap<String, Value>,
+    ) -> Result<bool, String> {
         match cond {
             Condition::Contains { left, right } => {
                 let lv = self.eval_expr_with_env(left, env)?;
                 let rv = self.eval_expr_with_env(right, env)?;
                 let ls = match &lv {
                     Value::String(s) => s.clone(),
-                    other => return Err(format!("contains: left must be String, got {}", other.type_name())),
+                    other => {
+                        return Err(format!(
+                            "contains: left must be String, got {}",
+                            other.type_name()
+                        ))
+                    }
                 };
                 let rs = match &rv {
                     Value::String(s) => s.clone(),
-                    other => return Err(format!("contains: right must be String, got {}", other.type_name())),
+                    other => {
+                        return Err(format!(
+                            "contains: right must be String, got {}",
+                            other.type_name()
+                        ))
+                    }
                 };
                 Ok(ls.contains(&rs))
             }
@@ -1830,7 +2080,11 @@ impl Interpreter {
             .map_err(|e| format!("checkpoint serialization error: {}", e))?;
 
         // Try SQLite first
-        if let Some(ref conn) = *self.checkpoint_db.lock().map_err(|e| format!("checkpoint lock: {}", e))? {
+        if let Some(ref conn) = *self
+            .checkpoint_db
+            .lock()
+            .map_err(|e| format!("checkpoint lock: {}", e))?
+        {
             conn.execute(
                 "INSERT OR REPLACE INTO checkpoints (flow_name, checkpoint_name, step_index, state_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
                 rusqlite::params![flow_name, checkpoint_name, step_index as i64, state_json, ts],
@@ -1838,24 +2092,35 @@ impl Interpreter {
         } else {
             // Fallback: in-memory
             let key = format!("{}:{}", flow_name, checkpoint_name);
-            self.checkpoint_mem.lock().map_err(|e| format!("checkpoint lock: {}", e))?.insert(key, data);
+            self.checkpoint_mem
+                .lock()
+                .map_err(|e| format!("checkpoint lock: {}", e))?
+                .insert(key, data);
         }
 
         Ok(())
     }
 
     /// ADR-0056: Load a checkpoint for a flow. Returns None if not found.
-    fn load_checkpoint(&self, flow_name: &str, checkpoint_name: &str) -> Result<Option<CheckpointData>, String> {
+    fn load_checkpoint(
+        &self,
+        flow_name: &str,
+        checkpoint_name: &str,
+    ) -> Result<Option<CheckpointData>, String> {
         // Try SQLite first
-        if let Some(ref conn) = *self.checkpoint_db.lock().map_err(|e| format!("checkpoint lock: {}", e))? {
+        if let Some(ref conn) = *self
+            .checkpoint_db
+            .lock()
+            .map_err(|e| format!("checkpoint lock: {}", e))?
+        {
             let mut stmt = conn.prepare(
                 "SELECT state_json FROM checkpoints WHERE flow_name = ?1 AND checkpoint_name = ?2"
             ).map_err(|e| format!("checkpoint load error: {}", e))?;
 
-            let result: Result<String, _> = stmt.query_row(
-                rusqlite::params![flow_name, checkpoint_name],
-                |row| row.get(0),
-            );
+            let result: Result<String, _> = stmt
+                .query_row(rusqlite::params![flow_name, checkpoint_name], |row| {
+                    row.get(0)
+                });
 
             match result {
                 Ok(state_json) => {
@@ -1869,7 +2134,12 @@ impl Interpreter {
         } else {
             // Fallback: in-memory
             let key = format!("{}:{}", flow_name, checkpoint_name);
-            Ok(self.checkpoint_mem.lock().map_err(|e| format!("checkpoint lock: {}", e))?.get(&key).cloned())
+            Ok(self
+                .checkpoint_mem
+                .lock()
+                .map_err(|e| format!("checkpoint lock: {}", e))?
+                .get(&key)
+                .cloned())
         }
     }
 
@@ -1882,23 +2152,37 @@ impl Interpreter {
     /// ADR-0056: List all checkpoints for a flow (public for tests and CLI).
     /// Returns Vec of (checkpoint_name, step_index, created_at).
     pub fn list_checkpoints(&self, flow_name: &str) -> Result<Vec<(String, usize, i64)>, String> {
-        if let Some(ref conn) = *self.checkpoint_db.lock().map_err(|e| format!("checkpoint lock: {}", e))? {
+        if let Some(ref conn) = *self
+            .checkpoint_db
+            .lock()
+            .map_err(|e| format!("checkpoint lock: {}", e))?
+        {
             let mut stmt = conn.prepare(
                 "SELECT checkpoint_name, step_index, created_at FROM checkpoints WHERE flow_name = ?1 ORDER BY step_index"
             ).map_err(|e| format!("checkpoint list error: {}", e))?;
 
-            let rows = stmt.query_map(rusqlite::params![flow_name], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize, row.get::<_, i64>(2)?))
-            }).map_err(|e| format!("checkpoint list error: {}", e))?
-              .collect::<Result<Vec<_>, _>>()
-              .map_err(|e| format!("checkpoint list error: {}", e))?;
+            let rows = stmt
+                .query_map(rusqlite::params![flow_name], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)? as usize,
+                        row.get::<_, i64>(2)?,
+                    ))
+                })
+                .map_err(|e| format!("checkpoint list error: {}", e))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| format!("checkpoint list error: {}", e))?;
 
             Ok(rows)
         } else {
             // In-memory fallback
-            let mem = self.checkpoint_mem.lock().map_err(|e| format!("checkpoint lock: {}", e))?;
+            let mem = self
+                .checkpoint_mem
+                .lock()
+                .map_err(|e| format!("checkpoint lock: {}", e))?;
             let prefix = format!("{}:", flow_name);
-            let mut results: Vec<(String, usize, i64)> = mem.iter()
+            let mut results: Vec<(String, usize, i64)> = mem
+                .iter()
                 .filter(|(k, _)| k.starts_with(&prefix))
                 .map(|(_k, v)| (v.checkpoint_name.clone(), v.step_index, v.created_at))
                 .collect();
@@ -1909,14 +2193,22 @@ impl Interpreter {
 
     /// ADR-0056: Delete a specific checkpoint (public for tests and cleanup).
     pub fn delete_checkpoint(&self, flow_name: &str, checkpoint_name: &str) -> Result<(), String> {
-        if let Some(ref conn) = *self.checkpoint_db.lock().map_err(|e| format!("checkpoint lock: {}", e))? {
+        if let Some(ref conn) = *self
+            .checkpoint_db
+            .lock()
+            .map_err(|e| format!("checkpoint lock: {}", e))?
+        {
             conn.execute(
                 "DELETE FROM checkpoints WHERE flow_name = ?1 AND checkpoint_name = ?2",
                 rusqlite::params![flow_name, checkpoint_name],
-            ).map_err(|e| format!("checkpoint delete error: {}", e))?;
+            )
+            .map_err(|e| format!("checkpoint delete error: {}", e))?;
         } else {
             let key = format!("{}:{}", flow_name, checkpoint_name);
-            self.checkpoint_mem.lock().map_err(|e| format!("checkpoint lock: {}", e))?.remove(&key);
+            self.checkpoint_mem
+                .lock()
+                .map_err(|e| format!("checkpoint lock: {}", e))?
+                .remove(&key);
         }
         Ok(())
     }
@@ -1954,7 +2246,10 @@ impl Interpreter {
                     start_idx = data.step_index + 1;
                     current = Some(data.current_value);
                 } else {
-                    return Err(format!("checkpoint '{}' not found for flow '{}'", target_cp, flow.name));
+                    return Err(format!(
+                        "checkpoint '{}' not found for flow '{}'",
+                        target_cp, flow.name
+                    ));
                 }
                 // Clear resume target (one-shot)
                 self.resume_target = None;
@@ -1970,7 +2265,10 @@ impl Interpreter {
         // ADR-0056: Build reverse map: step_index -> checkpoint names at that position
         let mut checkpoint_at: HashMap<usize, Vec<String>> = HashMap::new();
         for (cp_name, &step_idx) in &flow.checkpoints {
-            checkpoint_at.entry(step_idx).or_default().push(cp_name.clone());
+            checkpoint_at
+                .entry(step_idx)
+                .or_default()
+                .push(cp_name.clone());
         }
 
         // Execute pipeline steps, starting from start_idx (0 for fresh run)
@@ -2008,9 +2306,14 @@ impl Interpreter {
     }
 
     /// Evaluate a branch condition: `target.field op threshold`
-    fn eval_branch_condition(&self, cond: &BranchCondition, current: &Value) -> Result<bool, String> {
+    fn eval_branch_condition(
+        &self,
+        cond: &BranchCondition,
+        current: &Value,
+    ) -> Result<bool, String> {
         // The target in branch_condition is the flow input value (current)
-        let field_val = current.get_field(&cond.field)
+        let field_val = current
+            .get_field(&cond.field)
             .map_err(|e| format!("branch condition: {}", e))?
             .clone();
         let threshold = self.eval_expr(&cond.threshold)?;
@@ -2037,7 +2340,8 @@ impl Interpreter {
 
         // ADR-0045/Phase 7.1: server-context builtins (flow step dispatch)
         if name == "query_param" {
-            let param_name = args.get(0)
+            let param_name = args
+                .get(0)
                 .and_then(|v| match v {
                     Value::String(s) => Some(s.clone()),
                     _ => None,
@@ -2067,26 +2371,49 @@ impl Interpreter {
         if name == "resolve_skill_index" {
             let dept = match args.get(0) {
                 Some(Value::String(s)) => s.clone(),
-                _ => return Err("resolve_skill_index() expects a department name (String)".to_string()),
+                _ => {
+                    return Err(
+                        "resolve_skill_index() expects a department name (String)".to_string()
+                    )
+                }
             };
-            let idx = self.skill_indices.get(&dept)
-                .ok_or_else(|| format!("resolve_skill_index(): no skill_index declared for '{}'", dept))?;
+            let idx = self.skill_indices.get(&dept).ok_or_else(|| {
+                format!(
+                    "resolve_skill_index(): no skill_index declared for '{}'",
+                    dept
+                )
+            })?;
             let mut fields = HashMap::new();
-            let tier1: Vec<Value> = idx.tiers.iter()
+            let tier1: Vec<Value> = idx
+                .tiers
+                .iter()
                 .filter(|t| t.mode == "always")
                 .flat_map(|t| t.skills.iter().map(|s| Value::String(s.clone())))
                 .collect();
             fields.insert("tier1".to_string(), Value::List(tier1));
             for tier in &idx.tiers {
                 if tier.mode == "when_matches" {
-                    let rules: Vec<Value> = tier.rules.iter().map(|r| {
-                        let mut f = HashMap::new();
-                        f.insert("skill".to_string(), Value::String(r.skill.clone()));
-                        f.insert("triggers".to_string(), Value::List(
-                            r.triggers.iter().map(|t| Value::String(t.clone())).collect()
-                        ));
-                        Value::Struct { type_name: "TriggerRule".to_string(), fields: f }
-                    }).collect();
+                    let rules: Vec<Value> = tier
+                        .rules
+                        .iter()
+                        .map(|r| {
+                            let mut f = HashMap::new();
+                            f.insert("skill".to_string(), Value::String(r.skill.clone()));
+                            f.insert(
+                                "triggers".to_string(),
+                                Value::List(
+                                    r.triggers
+                                        .iter()
+                                        .map(|t| Value::String(t.clone()))
+                                        .collect(),
+                                ),
+                            );
+                            Value::Struct {
+                                type_name: "TriggerRule".to_string(),
+                                fields: f,
+                            }
+                        })
+                        .collect();
                     fields.insert(format!("tier{}", tier.level), Value::List(rules));
                 }
             }
@@ -2098,9 +2425,15 @@ impl Interpreter {
                     TruncationMode::WholeSkillOnly => "whole_skill_only",
                     TruncationMode::TruncateAtBoundary => "truncate_at_boundary",
                 };
-                fields.insert("truncation".to_string(), Value::String(mode_str.to_string()));
+                fields.insert(
+                    "truncation".to_string(),
+                    Value::String(mode_str.to_string()),
+                );
             }
-            return Ok(Value::Struct { type_name: format!("SkillIndex_{}", dept), fields });
+            return Ok(Value::Struct {
+                type_name: format!("SkillIndex_{}", dept),
+                fields,
+            });
         }
 
         // Problem A: fit_to_budget(list) — MVP: return list as-is
@@ -2126,9 +2459,14 @@ impl Interpreter {
             // Phase 7.5: Sandbox enforcement — filesystem isolation
             if let Some(ref sb) = self.active_sandbox {
                 if sb.forbidden.iter().any(|f| f == "filesystem") {
-                    if matches!(name,
-                        "read_file" | "write_file" | "append_file"
-                        | "delete_file" | "file_exists" | "list_dir"
+                    if matches!(
+                        name,
+                        "read_file"
+                            | "write_file"
+                            | "append_file"
+                            | "delete_file"
+                            | "file_exists"
+                            | "list_dir"
                     ) {
                         return Err(format!(
                             "filesystem access forbidden in sandbox '{}'",
@@ -2137,10 +2475,7 @@ impl Interpreter {
                     }
                     // Наряд №17 Г.2: also enforce exec() in sandbox
                     if name == "exec" {
-                        return Err(format!(
-                            "exec() forbidden in sandbox '{}'",
-                            sb.name
-                        ));
+                        return Err(format!("exec() forbidden in sandbox '{}'", sb.name));
                     }
                 }
             }
@@ -2154,7 +2489,12 @@ impl Interpreter {
         // Look up compiled pattern
         let pattern = match self.patterns.get(name) {
             Some(p) => p.clone(),
-            None => return Ok(Value::String(format!("[ERROR: unknown function '{}']", name))),
+            None => {
+                return Ok(Value::String(format!(
+                    "[ERROR: unknown function '{}']",
+                    name
+                )))
+            }
         };
 
         if args.len() != pattern.params.len() {
@@ -2192,7 +2532,11 @@ impl Interpreter {
 
     /// Write-builtin names that trigger on_write hooks.
     const WRITE_BUILTINS: &'static [&'static str] = &[
-        "mem_set", "mtree_store", "db_execute", "write_file", "append_file",
+        "mem_set",
+        "mtree_store",
+        "db_execute",
+        "write_file",
+        "append_file",
     ];
 
     fn is_write_builtin(name: &str) -> bool {
@@ -2241,9 +2585,10 @@ impl Interpreter {
                     hook_env.insert("result".to_string(), val.clone());
                     // Extract confidence for Fluid results, default 1.0
                     let conf = match val {
-                        Value::Fluid(variants) => {
-                            variants.iter().map(|v| v.confidence).fold(0.0_f64, f64::max)
-                        }
+                        Value::Fluid(variants) => variants
+                            .iter()
+                            .map(|v| v.confidence)
+                            .fold(0.0_f64, f64::max),
                         _ => 1.0,
                     };
                     hook_env.insert("confidence".to_string(), Value::Float(conf));
@@ -2328,7 +2673,8 @@ impl Interpreter {
                             if seen.contains(&entry.value) {
                                 continue;
                             }
-                            let score = if entry.embedding.is_empty() || query_embedding.is_empty() {
+                            let score = if entry.embedding.is_empty() || query_embedding.is_empty()
+                            {
                                 if entry.value.to_lowercase().contains(&query.to_lowercase()) {
                                     0.5
                                 } else {
@@ -2344,7 +2690,9 @@ impl Interpreter {
                                 scored.push((entry.value, score));
                             }
                         }
-                        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                        scored.sort_by(|a, b| {
+                            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+                        });
                         for (fact, _score) in scored.iter().take(limit) {
                             facts.push(fact.clone());
                         }
@@ -2427,7 +2775,12 @@ impl Interpreter {
     }
 
     /// Invoke a learnable pattern using pre-collapsed arguments.
-    fn invoke_learnable_with_env(&self, pattern_name: &str, learnable: &CompiledLearnable, args: &[Value]) -> Result<Value, String> {
+    fn invoke_learnable_with_env(
+        &self,
+        pattern_name: &str,
+        learnable: &CompiledLearnable,
+        args: &[Value],
+    ) -> Result<Value, String> {
         // Build input string from arguments
         let input_parts: Vec<String> = args.iter().map(|a| format!("{}", a)).collect();
         let input = input_parts.join(", ");
@@ -2444,10 +2797,7 @@ impl Interpreter {
         // Phase 7.5: Sandbox enforcement — network isolation
         if let Some(ref sb) = self.active_sandbox {
             if sb.forbidden.iter().any(|f| f == "network") {
-                return Err(format!(
-                    "network access forbidden in sandbox '{}'",
-                    sb.name
-                ));
+                return Err(format!("network access forbidden in sandbox '{}'", sb.name));
             }
         }
 
@@ -2469,7 +2819,10 @@ impl Interpreter {
         let start = SystemTime::now();
 
         // Наряд №4: Use SmartRouter if llm config is present, otherwise legacy backend
-        let resolved_model = learnable.model.as_ref().map(|alias| llm::resolve_model(alias));
+        let resolved_model = learnable
+            .model
+            .as_ref()
+            .map(|alias| llm::resolve_model(alias));
         let response = match self.smart_router.lock() {
             Ok(guard) => {
                 if let Some(ref router) = *guard {
@@ -2489,10 +2842,7 @@ impl Interpreter {
         if let Some(ref sb) = self.active_sandbox {
             let elapsed = start.elapsed().unwrap_or_default();
             if sb.timeout > 0 && elapsed.as_secs() >= sb.timeout as u64 {
-                return Err(format!(
-                    "operation timed out in sandbox '{}'",
-                    sb.name
-                ));
+                return Err(format!("operation timed out in sandbox '{}'", sb.name));
             }
         }
 
@@ -2508,7 +2858,10 @@ impl Interpreter {
                 created_at: now,
                 ttl: learnable.cache_ttl,
             };
-            let mut cache = self.llm_cache.lock().map_err(|e| format!("llm_cache lock error: {}", e))?;
+            let mut cache = self
+                .llm_cache
+                .lock()
+                .map_err(|e| format!("llm_cache lock error: {}", e))?;
             // Persist before inserting (entry is moved into cache.insert)
             self.llm_cache_persist(&cache_key, &entry);
             cache.insert(cache_key, entry);
@@ -2536,8 +2889,8 @@ impl Interpreter {
 
     /// ADR-0047: Compute a cache key from prompt + input using simple SipHash.
     fn compute_cache_key(&self, prompt: &str, input: &str) -> u64 {
-        use std::hash::{Hash, Hasher};
         use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
         let mut hasher = DefaultHasher::new();
         prompt.hash(&mut hasher);
         input.hash(&mut hasher);
@@ -2556,7 +2909,11 @@ impl Interpreter {
             .unwrap_or(0);
 
         // Check TTL — use the entry's own TTL if set, otherwise use the provided default
-        let effective_ttl = if entry.ttl > 0 { entry.ttl as i64 } else { ttl as i64 };
+        let effective_ttl = if entry.ttl > 0 {
+            entry.ttl as i64
+        } else {
+            ttl as i64
+        };
         if now - entry.created_at > effective_ttl {
             cache.remove(key); // expired — evict
             return None;
@@ -2614,7 +2971,10 @@ impl Interpreter {
                 for (k, v) in obj {
                     fields.insert(k.clone(), self.json_value_to_value(v));
                 }
-                Value::Struct { type_name: "Json".to_string(), fields }
+                Value::Struct {
+                    type_name: "Json".to_string(),
+                    fields,
+                }
             }
         }
     }
@@ -2630,7 +2990,12 @@ impl Interpreter {
 
         let query = match &args[0] {
             Value::String(s) => s.clone(),
-            other => return Err(format!("recall() expected String argument, got {}", other.type_name())),
+            other => {
+                return Err(format!(
+                    "recall() expected String argument, got {}",
+                    other.type_name()
+                ))
+            }
         };
 
         let min_confidence = if args.len() > 1 {
@@ -2643,10 +3008,10 @@ impl Interpreter {
         let query_embedding = self.embedding_manager.embed(&query).unwrap_or_default();
 
         // Use MemoryStore trait for recall (handles both InMemory and SQLite)
-        match self.memory.lock().unwrap().recall(&query, &query_embedding, min_confidence) {
+        match lock_or_err(self.memory.lock())?.recall(&query, &query_embedding, min_confidence) {
             Some((entry, _score)) => {
                 // Walk the knowledge graph for related memories
-                let edges = self.kg.lock().unwrap().edges_for(&entry.value);
+                let edges = lock_or_err(self.kg.lock())?.edges_for(&entry.value);
                 if edges.is_empty() {
                     Ok(Value::String(entry.value.clone()))
                 } else {
@@ -2676,7 +3041,12 @@ impl Interpreter {
         };
         let op_str = match args.get(2) {
             Some(Value::String(s)) => s.clone(),
-            _ => return Err("find() requires operator as third argument (String: gt/lt/ge/le/eq)".to_string()),
+            _ => {
+                return Err(
+                    "find() requires operator as third argument (String: gt/lt/ge/le/eq)"
+                        .to_string(),
+                )
+            }
         };
         let threshold = match args.get(3) {
             Some(Value::Float(f)) => *f,
@@ -2685,7 +3055,11 @@ impl Interpreter {
 
         // Search all variables for entities of the matching type
         for (_name, value) in &self.variables {
-            if let Value::Struct { type_name: tn, fields } = value {
+            if let Value::Struct {
+                type_name: tn,
+                fields,
+            } = value
+            {
                 if tn == &type_name {
                     if let Some(field_val) = fields.get(&field_name) {
                         if let Ok(fv) = field_val.as_float() {
@@ -2719,7 +3093,12 @@ impl Interpreter {
         }
         let value_str = match &args[0] {
             Value::String(s) => s.clone(),
-            other => return Err(format!("memorize() expected String as first arg, got {}", other.type_name())),
+            other => {
+                return Err(format!(
+                    "memorize() expected String as first arg, got {}",
+                    other.type_name()
+                ))
+            }
         };
         let priority = if args.len() > 1 {
             args[1].as_float().unwrap_or(1.0)
@@ -2731,7 +3110,7 @@ impl Interpreter {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
         let embedding = self.embedding_manager.embed(&value_str).unwrap_or_default();
-        match self.memory.lock().unwrap().memorize(MemoryEntry {
+        match lock_or_err(self.memory.lock())?.memorize(MemoryEntry {
             id: None,
             value: value_str.clone(),
             priority,
@@ -2740,8 +3119,8 @@ impl Interpreter {
             confidence: priority,
             embedding,
         }) {
-            Ok(id) => { /* Bug 2.3 fix: removed eprintln stdout leak in HTTP context */ },
-            Err(_) => { /* silent — don't leak to stdout in HTTP context */ },
+            Ok(id) => { /* Bug 2.3 fix: removed eprintln stdout leak in HTTP context */ }
+            Err(_) => { /* silent — don't leak to stdout in HTTP context */ }
         }
         Ok(Value::Unit)
     }
@@ -2754,7 +3133,12 @@ impl Interpreter {
         }
         let query_str = match &args[0] {
             Value::String(s) => s.clone(),
-            other => return Err(format!("forget() expected String as first arg, got {}", other.type_name())),
+            other => {
+                return Err(format!(
+                    "forget() expected String as first arg, got {}",
+                    other.type_name()
+                ))
+            }
         };
         let days = if args.len() > 1 {
             args[1].as_float().unwrap_or(30.0) as i64
@@ -2766,7 +3150,7 @@ impl Interpreter {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
         let cutoff = now - (days * 86400);
-        self.memory.lock().unwrap().forget(&query_str, cutoff);
+        lock_or_err(self.memory.lock())?.forget(&query_str, cutoff);
         Ok(Value::Unit)
     }
 
@@ -2789,7 +3173,9 @@ impl Interpreter {
         let num_examples = evaluated_examples.len();
 
         // Now borrow the learnable pattern mutably
-        let learnable = self.learnable_patterns.get_mut(&m.pattern_name)
+        let learnable = self
+            .learnable_patterns
+            .get_mut(&m.pattern_name)
             .ok_or_else(|| format!("mutate: learnable pattern '{}' not found", m.pattern_name))?;
 
         // Save original few-shot for rollback
@@ -2807,7 +3193,7 @@ impl Interpreter {
                 match op {
                     CompareOp::Lt => accuracy >= *threshold,
                     CompareOp::Le => accuracy > *threshold,
-                    CompareOp::Gt => false,  // accuracy >= threshold is the "kept" condition
+                    CompareOp::Gt => false, // accuracy >= threshold is the "kept" condition
                     CompareOp::Ge => false,
                     CompareOp::Eq => (accuracy - threshold).abs() < 1e-9,
                     CompareOp::Ne => (accuracy - threshold).abs() >= 1e-9,
@@ -2818,9 +3204,12 @@ impl Interpreter {
 
         if kept {
             // Keep the new examples (already in place)
-            let msg = Ok(format!("[MUTATE] {}: accuracy={}, kept (>= {:.1})",
-                m.pattern_name, accuracy,
-                m.rollback_threshold.unwrap_or(0.0)));
+            let msg = Ok(format!(
+                "[MUTATE] {}: accuracy={}, kept (>= {:.1})",
+                m.pattern_name,
+                accuracy,
+                m.rollback_threshold.unwrap_or(0.0)
+            ));
             // Phase 7.5: Audit log for mutate operations (after releasing mutable borrow)
             self.push_audit(format!(
                 "[AUDIT] mutate {}: {} examples, accuracy={}",
@@ -2829,12 +3218,19 @@ impl Interpreter {
             msg
         } else {
             // Rollback: restore original few-shot
-            let learnable = self.learnable_patterns.get_mut(&m.pattern_name)
-                .ok_or_else(|| format!("mutate: learnable pattern '{}' not found", m.pattern_name))?;
+            let learnable = self
+                .learnable_patterns
+                .get_mut(&m.pattern_name)
+                .ok_or_else(|| {
+                    format!("mutate: learnable pattern '{}' not found", m.pattern_name)
+                })?;
             learnable.few_shot = original_few_shot;
-            let msg = Ok(format!("[MUTATE] {}: accuracy={}, rolled back (below {:.1})",
-                m.pattern_name, accuracy,
-                m.rollback_threshold.unwrap_or(0.0)));
+            let msg = Ok(format!(
+                "[MUTATE] {}: accuracy={}, rolled back (below {:.1})",
+                m.pattern_name,
+                accuracy,
+                m.rollback_threshold.unwrap_or(0.0)
+            ));
             // Phase 7.5: Audit log for mutate operations (rolled back)
             self.push_audit(format!(
                 "[AUDIT] mutate {}: {} examples, accuracy={} (rolled back)",
@@ -2851,7 +3247,7 @@ impl Interpreter {
 
     /// Take the audit log messages (consuming them).
     pub fn take_audit_log(&mut self) -> Vec<String> {
-        self.audit_log.get_mut().unwrap().drain(..).collect()
+        self.audit_log.get_mut().map(|v| v.drain(..).collect()).unwrap_or_default()
     }
 
     /// Get a variable value by name (for testing).
@@ -2875,11 +3271,15 @@ impl Interpreter {
     /// Run a single eval block: invoke learnable pattern on each dataset example,
     /// compare with expected, compute accuracy and confusion matrix.
     fn run_single_eval(&self, eval_decl: &EvalDecl) -> Result<EvalResult, String> {
-        let learnable = self.learnable_patterns.get(&eval_decl.pattern_name)
-            .ok_or_else(|| format!(
-                "eval: learnable pattern '{}' not found",
-                eval_decl.pattern_name
-            ))?;
+        let learnable = self
+            .learnable_patterns
+            .get(&eval_decl.pattern_name)
+            .ok_or_else(|| {
+                format!(
+                    "eval: learnable pattern '{}' not found",
+                    eval_decl.pattern_name
+                )
+            })?;
 
         let mut correct = 0usize;
         let mut confusion: HashMap<String, HashMap<String, usize>> = HashMap::new();
@@ -2890,14 +3290,16 @@ impl Interpreter {
             let args = vec![Value::String(input_str.clone())];
 
             // Invoke the learnable pattern
-            let actual_value = self.invoke_learnable_with_env(&eval_decl.pattern_name, learnable, &args)?;
+            let actual_value =
+                self.invoke_learnable_with_env(&eval_decl.pattern_name, learnable, &args)?;
             let actual_label = match actual_value {
                 Value::String(s) => s.trim().to_string(),
                 other => format!("{}", other),
             };
 
             // Record in confusion matrix
-            let pred_entry = confusion.entry(expected_label.clone())
+            let pred_entry = confusion
+                .entry(expected_label.clone())
                 .or_default()
                 .entry(actual_label.clone())
                 .or_insert(0);
@@ -2942,7 +3344,8 @@ impl Interpreter {
         if total_chars == 0 {
             return 0;
         }
-        let cyrillic_count = text.chars()
+        let cyrillic_count = text
+            .chars()
             .filter(|c| *c >= '\u{0400}' && *c <= '\u{04FF}')
             .count();
         let cyrillic_ratio = cyrillic_count as f64 / total_chars as f64;
@@ -2960,7 +3363,9 @@ impl Interpreter {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
         if let Ok(mut stats) = self.pattern_stats.lock() {
-            let entry = stats.entry(name.to_string()).or_insert_with(PatternStats::new);
+            let entry = stats
+                .entry(name.to_string())
+                .or_insert_with(PatternStats::new);
             entry.calls += 1;
             entry.confidence_sum += 1.0; // Default confidence for non-Fluid results
             if cache_hit {
@@ -2971,7 +3376,14 @@ impl Interpreter {
         // ADR-0052: emit pattern_call event
         let mut data = HashMap::new();
         data.insert("name".to_string(), name.to_string());
-        data.insert("cache_hit".to_string(), if cache_hit { "true".to_string() } else { "false".to_string() });
+        data.insert(
+            "cache_hit".to_string(),
+            if cache_hit {
+                "true".to_string()
+            } else {
+                "false".to_string()
+            },
+        );
         self.emit_event("pattern_call", name, data, None);
     }
 
@@ -2981,7 +3393,12 @@ impl Interpreter {
     fn invoke_inspect(&self, args: &[Value]) -> Result<Value, String> {
         let pattern_name = match args.first() {
             Some(Value::String(s)) => s.clone(),
-            Some(other) => return Err(format!("inspect() expected String pattern name, got {}", other.type_name())),
+            Some(other) => {
+                return Err(format!(
+                    "inspect() expected String pattern name, got {}",
+                    other.type_name()
+                ))
+            }
             None => return Err("inspect() requires 1 argument (pattern name)".to_string()),
         };
 
@@ -2994,13 +3411,18 @@ impl Interpreter {
 
         // Look up stats
         let stats = match self.pattern_stats.lock() {
-            Ok(stats) => stats.get(&pattern_name).cloned().unwrap_or_else(PatternStats::new),
+            Ok(stats) => stats
+                .get(&pattern_name)
+                .cloned()
+                .unwrap_or_else(PatternStats::new),
             Err(_) => PatternStats::new(),
         };
 
         // If the pattern exists in learnable_patterns, get its current few_shot count
         // (which may differ from examples_count if few-shot was added outside adapt)
-        let actual_examples = self.learnable_patterns.get(&pattern_name)
+        let actual_examples = self
+            .learnable_patterns
+            .get(&pattern_name)
             .map(|lp| lp.few_shot.len() as u64)
             .unwrap_or(stats.examples_count);
 
@@ -3008,13 +3430,34 @@ impl Interpreter {
 
         let mut fields = std::collections::HashMap::new();
         fields.insert("calls".to_string(), Value::Float(stats.calls as f64));
-        fields.insert("avg_confidence".to_string(), Value::Float(stats.avg_confidence()));
-        fields.insert("cache_hits".to_string(), Value::Float(stats.cache_hits as f64));
-        fields.insert("cache_misses".to_string(), Value::Float(cache_misses as f64));
-        fields.insert("last_adapt".to_string(), Value::Float(stats.last_adapt as f64));
-        fields.insert("last_call".to_string(), Value::Float(stats.last_call as f64));
-        fields.insert("examples_count".to_string(), Value::Float(actual_examples as f64));
-        fields.insert("is_learnable".to_string(), Value::Float(if is_learnable { 1.0 } else { 0.0 }));
+        fields.insert(
+            "avg_confidence".to_string(),
+            Value::Float(stats.avg_confidence()),
+        );
+        fields.insert(
+            "cache_hits".to_string(),
+            Value::Float(stats.cache_hits as f64),
+        );
+        fields.insert(
+            "cache_misses".to_string(),
+            Value::Float(cache_misses as f64),
+        );
+        fields.insert(
+            "last_adapt".to_string(),
+            Value::Float(stats.last_adapt as f64),
+        );
+        fields.insert(
+            "last_call".to_string(),
+            Value::Float(stats.last_call as f64),
+        );
+        fields.insert(
+            "examples_count".to_string(),
+            Value::Float(actual_examples as f64),
+        );
+        fields.insert(
+            "is_learnable".to_string(),
+            Value::Float(if is_learnable { 1.0 } else { 0.0 }),
+        );
 
         Ok(Value::Struct {
             type_name: "PatternStats".to_string(),
@@ -3042,7 +3485,9 @@ impl Interpreter {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
-        let mut convs = self.conversations.lock()
+        let mut convs = self
+            .conversations
+            .lock()
             .map_err(|e| format!("conv_start() lock error: {}", e))?;
         convs.entry(id.clone()).or_insert_with(|| Conversation {
             id: id.clone(),
@@ -3074,9 +3519,12 @@ impl Interpreter {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        let mut convs = self.conversations.lock()
+        let mut convs = self
+            .conversations
+            .lock()
             .map_err(|e| format!("conv_add() lock error: {}", e))?;
-        let conv = convs.get_mut(&id)
+        let conv = convs
+            .get_mut(&id)
             .ok_or_else(|| format!("conv_add() conversation '{}' not found", id))?;
 
         // Enforce max_messages: if at limit, remove oldest message
@@ -3105,9 +3553,12 @@ impl Interpreter {
             Some(Value::String(s)) => s.clone(),
             _ => return Err("conv_history() requires 1 argument (id: String)".to_string()),
         };
-        let convs = self.conversations.lock()
+        let convs = self
+            .conversations
+            .lock()
             .map_err(|e| format!("conv_history() lock error: {}", e))?;
-        let conv = convs.get(&id)
+        let conv = convs
+            .get(&id)
             .ok_or_else(|| format!("conv_history() conversation '{}' not found", id))?;
 
         let mut list = Vec::new();
@@ -3116,7 +3567,10 @@ impl Interpreter {
             fields.insert("role".to_string(), Value::String(msg.role.clone()));
             fields.insert("text".to_string(), Value::String(msg.text.clone()));
             fields.insert("timestamp".to_string(), Value::Float(msg.timestamp as f64));
-            list.push(Value::Struct { type_name: "Message".to_string(), fields });
+            list.push(Value::Struct {
+                type_name: "Message".to_string(),
+                fields,
+            });
         }
         Ok(Value::List(list))
     }
@@ -3127,9 +3581,12 @@ impl Interpreter {
             Some(Value::String(s)) => s.clone(),
             _ => return Err("conv_context() requires 1 argument (id: String)".to_string()),
         };
-        let convs = self.conversations.lock()
+        let convs = self
+            .conversations
+            .lock()
             .map_err(|e| format!("conv_context() lock error: {}", e))?;
-        let conv = convs.get(&id)
+        let conv = convs
+            .get(&id)
             .ok_or_else(|| format!("conv_context() conversation '{}' not found", id))?;
 
         let mut parts = Vec::new();
@@ -3145,7 +3602,9 @@ impl Interpreter {
             Some(Value::String(s)) => s.clone(),
             _ => return Err("conv_end() requires 1 argument (id: String)".to_string()),
         };
-        let mut convs = self.conversations.lock()
+        let mut convs = self
+            .conversations
+            .lock()
             .map_err(|e| format!("conv_end() lock error: {}", e))?;
         convs.remove(&id);
         Ok(Value::String("ok".to_string()))
@@ -3171,7 +3630,8 @@ impl Interpreter {
         let old_messages: Vec<ConvMessage> = conv.messages.drain(..old_count).collect();
 
         // Build text from old messages for summarization
-        let old_text: Vec<String> = old_messages.iter()
+        let old_text: Vec<String> = old_messages
+            .iter()
             .map(|m| format!("{}: {}", m.role, m.text))
             .collect();
         let text_to_summarize = old_text.join("\n");
@@ -3179,7 +3639,10 @@ impl Interpreter {
         // Attempt LLM summarization. On failure, keep a simple prefix summary.
         let summary = match self.summarize_conversation(&text_to_summarize) {
             Ok(s) => s,
-            Err(_) => format!("[Previous conversation summary: {} messages omitted]", old_count),
+            Err(_) => format!(
+                "[Previous conversation summary: {} messages omitted]",
+                old_count
+            ),
         };
 
         // Prepend summary as a system message
@@ -3187,11 +3650,14 @@ impl Interpreter {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
-        conv.messages.insert(0, ConvMessage {
-            role: "system".to_string(),
-            text: summary,
-            timestamp: now,
-        });
+        conv.messages.insert(
+            0,
+            ConvMessage {
+                role: "system".to_string(),
+                text: summary,
+                timestamp: now,
+            },
+        );
     }
 
     /// Summarize conversation text via LLM call.
@@ -3255,7 +3721,9 @@ impl Interpreter {
         if args.len() != pattern.params.len() {
             return Err(format!(
                 "call_pattern: '{}' expects {} args, got {}",
-                name, pattern.params.len(), args.len()
+                name,
+                pattern.params.len(),
+                args.len()
             ));
         }
         let mut local_env = self.bind_and_collapse(&pattern.params, args)?;
@@ -3341,7 +3809,10 @@ impl Interpreter {
             target.patterns.entry(k.clone()).or_insert(v.clone());
         }
         for (k, v) in &self.learnable_patterns {
-            target.learnable_patterns.entry(k.clone()).or_insert(v.clone());
+            target
+                .learnable_patterns
+                .entry(k.clone())
+                .or_insert(v.clone());
         }
         for r in &self.rules {
             target.rules.push(r.clone());
@@ -3350,7 +3821,10 @@ impl Interpreter {
             target.sandboxes.entry(k.clone()).or_insert(v.clone());
         }
         for (k, v) in &self.module_namespaces {
-            target.module_namespaces.entry(k.clone()).or_insert(v.clone());
+            target
+                .module_namespaces
+                .entry(k.clone())
+                .or_insert(v.clone());
         }
         for (k, v) in &self.templates {
             target.templates.entry(k.clone()).or_insert(v.clone());
@@ -3500,7 +3974,11 @@ impl Interpreter {
 
         for stmt in stmts {
             match stmt {
-                Statement::LetBinding { name, value, mutable } => {
+                Statement::LetBinding {
+                    name,
+                    value,
+                    mutable,
+                } => {
                     let val = self.eval_expr_with_env(value, env)?;
                     if *mutable {
                         mutable_vars.insert(name.clone());
@@ -3514,11 +3992,17 @@ impl Interpreter {
                     let val = self.eval_expr_with_env(value, env)?;
                     env.insert(name.clone(), val);
                 }
-                Statement::Each { variable, iterable, body } => {
+                Statement::Each {
+                    variable,
+                    iterable,
+                    body,
+                } => {
                     let iter_val = self.eval_expr_with_env(iterable, env)?;
                     let items = match iter_val {
                         Value::List(items) => items,
-                        other => return Err(format!("each: expected List, got {}", other.type_name())),
+                        other => {
+                            return Err(format!("each: expected List, got {}", other.type_name()))
+                        }
                     };
                     if self.active_sandbox.is_some() && (items.len() as u64) > iter_limit {
                         return Err(format!(
@@ -3548,11 +4032,18 @@ impl Interpreter {
                     }
                 }
                 // Наряд №17.3: each i, item in list { ... }
-                Statement::EachWithIndex { index_var, item_var, iterable, body } => {
+                Statement::EachWithIndex {
+                    index_var,
+                    item_var,
+                    iterable,
+                    body,
+                } => {
                     let iter_val = self.eval_expr_with_env(iterable, env)?;
                     let items = match iter_val {
                         Value::List(items) => items,
-                        other => return Err(format!("each: expected List, got {}", other.type_name())),
+                        other => {
+                            return Err(format!("each: expected List, got {}", other.type_name()))
+                        }
                     };
                     if self.active_sandbox.is_some() && (items.len() as u64) > iter_limit {
                         return Err(format!(
@@ -3605,7 +4096,10 @@ impl Interpreter {
                         let cf = self.eval_statements_cf(body, env, mutable_vars)?;
                         match cf {
                             ControlFlow::Break => break,
-                            ControlFlow::ContinueLoop => { iterations += 1; continue; }
+                            ControlFlow::ContinueLoop => {
+                                iterations += 1;
+                                continue;
+                            }
                             ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
                             ControlFlow::ContinueNormal(v) => {
                                 if !matches!(v, Value::Unit) {
@@ -3616,7 +4110,12 @@ impl Interpreter {
                         iterations += 1;
                     }
                 }
-                Statement::IfElseBlock { condition, then_body, else_ifs, else_body } => {
+                Statement::IfElseBlock {
+                    condition,
+                    then_body,
+                    else_ifs,
+                    else_body,
+                } => {
                     let cond_val = self.eval_expr_with_env(condition, env)?;
                     if cond_val.as_bool()? {
                         eval_block!(then_body, env);
@@ -3647,15 +4146,23 @@ impl Interpreter {
                         eval_block!(body, env);
                     }
                 }
-                Statement::Match { scrutinee, ref arms, ref else_body } => {
+                Statement::Match {
+                    scrutinee,
+                    ref arms,
+                    ref else_body,
+                } => {
                     let scrutinee_val = self.eval_expr_with_env(scrutinee, env)?;
                     let scrutinee_str = format!("{}", scrutinee_val);
                     let mut matched = false;
                     for arm in arms {
                         let arm_matches = match arm {
                             MatchArm::Exact(val, _) => scrutinee_str == *val,
-                            MatchArm::StartsWith(prefix, _) => scrutinee_str.starts_with(prefix.as_str()),
-                            MatchArm::Contains(substr, _) => scrutinee_str.contains(substr.as_str()),
+                            MatchArm::StartsWith(prefix, _) => {
+                                scrutinee_str.starts_with(prefix.as_str())
+                            }
+                            MatchArm::Contains(substr, _) => {
+                                scrutinee_str.contains(substr.as_str())
+                            }
                             MatchArm::Compare(op, threshold, _) => {
                                 let threshold_val = self.eval_expr_with_env(threshold, env)?;
                                 match Self::compare_values(&scrutinee_val, op, &threshold_val) {
@@ -3728,10 +4235,18 @@ impl Interpreter {
                 for (k, v) in fields {
                     resolved.insert(k.clone(), self.eval_expr_with_env(v, env)?);
                 }
-                Ok(Value::Struct { type_name: "Struct".to_string(), fields: resolved })
+                Ok(Value::Struct {
+                    type_name: "Struct".to_string(),
+                    fields: resolved,
+                })
             }
             // Наряд №14 P0-3: block if/else as expression
-            Expr::BlockIfElse { condition, ref then_body, ref else_ifs, ref else_body } => {
+            Expr::BlockIfElse {
+                condition,
+                ref then_body,
+                ref else_ifs,
+                ref else_body,
+            } => {
                 let cond_val = self.eval_expr_with_env(condition, env)?;
                 if cond_val.as_bool()? {
                     let mut local_env = env.clone();
@@ -3751,15 +4266,13 @@ impl Interpreter {
                 Ok(Value::Unit)
             }
             // Наряд №14 P1-4: try expression — catch errors, return Unit
-            Expr::Try(inner) => {
-                match self.eval_expr_with_env(inner, env) {
-                    Ok(val) => Ok(val),
-                    Err(e) => {
-                        eprintln!("[try] caught error: {}", e);
-                        Ok(Value::Unit)
-                    }
+            Expr::Try(inner) => match self.eval_expr_with_env(inner, env) {
+                Ok(val) => Ok(val),
+                Err(e) => {
+                    eprintln!("[try] caught error: {}", e);
+                    Ok(Value::Unit)
                 }
-            }
+            },
             Expr::IfElse(cond, then_br, else_br) => {
                 let cond_val = self.eval_expr_with_env(cond, env)?;
                 if cond_val.as_bool()? {
@@ -3784,42 +4297,58 @@ impl Interpreter {
                         let idx = *f as isize;
                         if idx < 0 {
                             let idx = items.len().wrapping_sub((-idx) as usize);
-                            items.get(idx).cloned()
+                            items
+                                .get(idx)
+                                .cloned()
                                 .ok_or_else(|| format!("list index out of bounds: {}", idx))
                         } else {
-                            items.get(idx as usize).cloned()
+                            items
+                                .get(idx as usize)
+                                .cloned()
                                 .ok_or_else(|| format!("list index out of bounds: {}", idx))
                         }
                     }
-                    (Value::Struct { fields, .. }, Value::String(key)) => {
-                        fields.get(key).cloned()
-                            .ok_or_else(|| format!("struct has no field '{}'", key))
-                    }
+                    (Value::Struct { fields, .. }, Value::String(key)) => fields
+                        .get(key)
+                        .cloned()
+                        .ok_or_else(|| format!("struct has no field '{}'", key)),
                     (Value::String(s), Value::Float(f)) => {
                         let idx = *f as isize;
                         if idx < 0 {
                             // Unicode-aware: use chars().count() for character length, not s.len() (bytes)
                             let char_len = s.chars().count();
                             let abs_idx = char_len.wrapping_sub((-idx) as usize);
-                            Ok(Value::String(s.chars().nth(abs_idx).unwrap_or('\0').to_string()))
+                            Ok(Value::String(
+                                s.chars().nth(abs_idx).unwrap_or('\0').to_string(),
+                            ))
                         } else {
-                            Ok(Value::String(s.chars().nth(idx as usize).unwrap_or('\0').to_string()))
+                            Ok(Value::String(
+                                s.chars().nth(idx as usize).unwrap_or('\0').to_string(),
+                            ))
                         }
                     }
                     _ => Err(format!(
                         "index access: expected List[Int] or Struct[String], got {}[{}]",
-                        base_val.type_name(), idx_val.type_name()
+                        base_val.type_name(),
+                        idx_val.type_name()
                     )),
                 }
             }
-            Expr::QualifiedCall { module, function, args } => {
+            Expr::QualifiedCall {
+                module,
+                function,
+                args,
+            } => {
                 let mut eval_args = Vec::new();
                 for arg in args {
                     eval_args.push(self.eval_expr_with_env(arg, env)?);
                 }
                 // Verify the module namespace was imported
                 if !self.module_namespaces.contains_key(module) {
-                    return Err(format!("undefined module: '{}' (did you import it?)", module));
+                    return Err(format!(
+                        "undefined module: '{}' (did you import it?)",
+                        module
+                    ));
                 }
                 // Patterns from imported modules are merged into self.patterns.
                 // Resolve as if it were a regular FnCall with the function name.
@@ -3839,9 +4368,14 @@ impl Interpreter {
                     // Phase 7.5: Sandbox enforcement — filesystem isolation
                     if let Some(ref sb) = self.active_sandbox {
                         if sb.forbidden.iter().any(|f| f == "filesystem") {
-                            if matches!(function.as_str(),
-                                "read_file" | "write_file" | "append_file"
-                                | "delete_file" | "file_exists" | "list_dir"
+                            if matches!(
+                                function.as_str(),
+                                "read_file"
+                                    | "write_file"
+                                    | "append_file"
+                                    | "delete_file"
+                                    | "file_exists"
+                                    | "list_dir"
                             ) {
                                 return Err(format!(
                                     "filesystem access forbidden in sandbox '{}'",
@@ -3850,10 +4384,7 @@ impl Interpreter {
                             }
                             // Наряд №17 Г.2: also enforce exec() in sandbox
                             if function == "exec" {
-                                return Err(format!(
-                                    "exec() forbidden in sandbox '{}'",
-                                    sb.name
-                                ));
+                                return Err(format!("exec() forbidden in sandbox '{}'", sb.name));
                             }
                         }
                     }
@@ -3870,19 +4401,26 @@ impl Interpreter {
                 let is_tool = namespace.map_or(false, |ns| ns.starts_with("tool:"));
                 let qualified_key = format!("{}.{}", module, function);
                 let pattern = if is_tool {
-                    self.patterns.get(&qualified_key)
-                        .cloned()
-                        .ok_or_else(|| format!("undefined method '{}' in tool '{}'", function, module))?
+                    self.patterns.get(&qualified_key).cloned().ok_or_else(|| {
+                        format!("undefined method '{}' in tool '{}'", function, module)
+                    })?
                 } else {
                     match self.patterns.get(function) {
                         Some(p) => p.clone(),
-                        None => return Err(format!("undefined pattern '{}' in module '{}'", function, module)),
+                        None => {
+                            return Err(format!(
+                                "undefined pattern '{}' in module '{}'",
+                                function, module
+                            ))
+                        }
                     }
                 };
                 if eval_args.len() != pattern.params.len() {
                     return Err(format!(
                         "pattern {} expects {} arguments, got {}",
-                        function, pattern.params.len(), eval_args.len()
+                        function,
+                        pattern.params.len(),
+                        eval_args.len()
                     ));
                 }
                 let mut local_env = self.bind_and_collapse(&pattern.params, &eval_args)?;
@@ -3922,8 +4460,15 @@ impl Interpreter {
                 if name == "events_since" {
                     let seconds = match eval_args.first() {
                         Some(Value::Float(s)) => *s,
-                        Some(other) => return Err(format!("events_since() expected Float, got {}", other.type_name())),
-                        None => return Err("events_since() requires 1 argument (seconds)".to_string()),
+                        Some(other) => {
+                            return Err(format!(
+                                "events_since() expected Float, got {}",
+                                other.type_name()
+                            ))
+                        }
+                        None => {
+                            return Err("events_since() requires 1 argument (seconds)".to_string())
+                        }
                     };
                     let now_ms = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
@@ -3938,11 +4483,17 @@ impl Interpreter {
                         fields.insert("timestamp".to_string(), Value::Float(ev.timestamp as f64));
                         fields.insert("event_type".to_string(), Value::String(ev.event_type));
                         fields.insert("source".to_string(), Value::String(ev.source));
-                        fields.insert("data_json".to_string(), Value::String(format!("{:?}", ev.data)));
+                        fields.insert(
+                            "data_json".to_string(),
+                            Value::String(format!("{:?}", ev.data)),
+                        );
                         if let Some(dur) = ev.duration_ms {
                             fields.insert("duration_ms".to_string(), Value::Float(dur as f64));
                         }
-                        list.push(Value::Struct { type_name: "Event".to_string(), fields });
+                        list.push(Value::Struct {
+                            type_name: "Event".to_string(),
+                            fields,
+                        });
                     }
                     return Ok(Value::List(list));
                 }
@@ -3989,7 +4540,8 @@ impl Interpreter {
 
                 // Bug 2.1 fix: query_param() — intercept to access server_query_params
                 if name == "query_param" {
-                    let param_name = eval_args.get(0)
+                    let param_name = eval_args
+                        .get(0)
                         .and_then(|v| match v {
                             Value::String(s) => Some(s.clone()),
                             _ => None,
@@ -4004,7 +4556,8 @@ impl Interpreter {
 
                 // Наряд №14 P2-6: require() — RBAC check
                 if name == "require" {
-                    let role = eval_args.get(0)
+                    let role = eval_args
+                        .get(0)
                         .and_then(|v| match v {
                             Value::String(s) => Some(s.clone()),
                             _ => None,
@@ -4013,7 +4566,10 @@ impl Interpreter {
                     if self.server_user_roles.contains(&role) {
                         return Ok(Value::Bool(true));
                     }
-                    return Err(format!("require('{}'): access denied — user has roles {:?}", role, self.server_user_roles));
+                    return Err(format!(
+                        "require('{}'): access denied — user has roles {:?}",
+                        role, self.server_user_roles
+                    ));
                 }
 
                 // Check memorize() — callable form (Definition of Done)
@@ -4053,18 +4609,28 @@ impl Interpreter {
                     };
                     let pattern_name = match eval_args.get(1) {
                         Some(Value::String(s)) => s.clone(),
-                        _ => return Err("map() expects second argument to be a pattern name (String)".to_string()),
+                        _ => {
+                            return Err(
+                                "map() expects second argument to be a pattern name (String)"
+                                    .to_string(),
+                            )
+                        }
                     };
                     let pattern = match self.patterns.get(&pattern_name) {
                         Some(p) => p.clone(),
                         None => return Err(format!("map(): pattern '{}' not found", pattern_name)),
                     };
                     if pattern.params.len() != 1 {
-                        return Err(format!("map(): pattern '{}' must accept exactly 1 argument, got {}", pattern_name, pattern.params.len()));
+                        return Err(format!(
+                            "map(): pattern '{}' must accept exactly 1 argument, got {}",
+                            pattern_name,
+                            pattern.params.len()
+                        ));
                     }
                     let mut results = Vec::new();
                     for item in &list {
-                        let mut local_env = self.bind_and_collapse(&pattern.params, &[item.clone()])?;
+                        let mut local_env =
+                            self.bind_and_collapse(&pattern.params, &[item.clone()])?;
                         let result = self.eval_statements(&pattern.body, &mut local_env)?;
                         results.push(result);
                     }
@@ -4073,38 +4639,56 @@ impl Interpreter {
 
                 // Problem C (reverse-iteration): db_insert(table, struct) — needs db_conn
                 if name == "db_insert" {
-                    let table = match eval_args.get(0) {
-                        Some(Value::String(s)) => s.clone(),
-                        _ => return Err("db_insert() expects first argument to be a table name (String)".to_string()),
-                    };
+                    let table =
+                        match eval_args.get(0) {
+                            Some(Value::String(s)) => s.clone(),
+                            _ => return Err(
+                                "db_insert() expects first argument to be a table name (String)"
+                                    .to_string(),
+                            ),
+                        };
                     let fields = match eval_args.get(1) {
                         Some(Value::Struct { fields, .. }) => fields.clone(),
                         _ => return Err("db_insert() expects second argument to be a Struct { field: value, ... }".to_string()),
                     };
-                    let guard = self.db_conn.lock().map_err(|e| format!("db lock error: {}", e))?;
+                    let guard = self
+                        .db_conn
+                        .lock()
+                        .map_err(|e| format!("db lock error: {}", e))?;
                     let conn = guard.as_ref().ok_or_else(|| {
                         "db_insert() error: no database connection. Declare db { url: \"sqlite::memory:\" } first.".to_string()
                     })?;
                     let col_names: Vec<String> = fields.keys().cloned().collect();
-                    let placeholders: Vec<String> = col_names.iter().map(|_| "?".to_string()).collect();
-                    let sql = format!("INSERT INTO {} ({}) VALUES ({})",
+                    let placeholders: Vec<String> =
+                        col_names.iter().map(|_| "?".to_string()).collect();
+                    let sql = format!(
+                        "INSERT INTO {} ({}) VALUES ({})",
                         table,
                         col_names.join(", "),
-                        placeholders.join(", "));
-                    let params: Vec<Box<dyn rusqlite::types::ToSql>> = fields.values().map(|v| {
-                        match v {
-                            Value::String(s) => Box::new(s.clone()) as Box<dyn rusqlite::types::ToSql>,
-                            Value::Float(f) => Box::new(*f) as Box<dyn rusqlite::types::ToSql>,
-                            Value::Bool(b) => Box::new(*b) as Box<dyn rusqlite::types::ToSql>,
-                            Value::Unit => Box::new(Option::<String>::None) as Box<dyn rusqlite::types::ToSql>,
-                            other => Box::new(format!("{}", other)) as Box<dyn rusqlite::types::ToSql>,
-                        }
-                    }).collect();
-                    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+                        placeholders.join(", ")
+                    );
+                    let params: Vec<Box<dyn rusqlite::types::ToSql>> =
+                        fields
+                            .values()
+                            .map(|v| match v {
+                                Value::String(s) => {
+                                    Box::new(s.clone()) as Box<dyn rusqlite::types::ToSql>
+                                }
+                                Value::Float(f) => Box::new(*f) as Box<dyn rusqlite::types::ToSql>,
+                                Value::Bool(b) => Box::new(*b) as Box<dyn rusqlite::types::ToSql>,
+                                Value::Unit => Box::new(Option::<String>::None)
+                                    as Box<dyn rusqlite::types::ToSql>,
+                                other => Box::new(format!("{}", other))
+                                    as Box<dyn rusqlite::types::ToSql>,
+                            })
+                            .collect();
+                    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                        params.iter().map(|p| p.as_ref()).collect();
                     conn.execute(&sql, param_refs.as_slice())
                         .map_err(|e| format!("db_insert() SQL error: {}", e))?;
                     // Return last inserted rowid
-                    let rowid: i64 = conn.query_row("SELECT last_insert_rowid()", [], |row| row.get(0))
+                    let rowid: i64 = conn
+                        .query_row("SELECT last_insert_rowid()", [], |row| row.get(0))
                         .unwrap_or(0);
                     return Ok(Value::Float(rowid as f64));
                 }
@@ -4113,14 +4697,23 @@ impl Interpreter {
                 if name == "resolve_skill_index" {
                     let dept = match eval_args.get(0) {
                         Some(Value::String(s)) => s.clone(),
-                        _ => return Err("resolve_skill_index() expects a department name (String)".to_string()),
+                        _ => {
+                            return Err("resolve_skill_index() expects a department name (String)"
+                                .to_string())
+                        }
                     };
-                    let idx = self.skill_indices.get(&dept)
-                        .ok_or_else(|| format!("resolve_skill_index(): no skill_index declared for '{}'", dept))?;
+                    let idx = self.skill_indices.get(&dept).ok_or_else(|| {
+                        format!(
+                            "resolve_skill_index(): no skill_index declared for '{}'",
+                            dept
+                        )
+                    })?;
                     // Convert to Value::Struct for field access
                     let mut fields = HashMap::new();
                     // tier1: list of always-skill names
-                    let tier1: Vec<Value> = idx.tiers.iter()
+                    let tier1: Vec<Value> = idx
+                        .tiers
+                        .iter()
                         .filter(|t| t.mode == "always")
                         .flat_map(|t| t.skills.iter().map(|s| Value::String(s.clone())))
                         .collect();
@@ -4128,14 +4721,27 @@ impl Interpreter {
                     // tier2+: list of trigger-rule structs
                     for tier in &idx.tiers {
                         if tier.mode == "when_matches" {
-                            let rules: Vec<Value> = tier.rules.iter().map(|r| {
-                                let mut f = HashMap::new();
-                                f.insert("skill".to_string(), Value::String(r.skill.clone()));
-                                f.insert("triggers".to_string(), Value::List(
-                                    r.triggers.iter().map(|t| Value::String(t.clone())).collect()
-                                ));
-                                Value::Struct { type_name: "TriggerRule".to_string(), fields: f }
-                            }).collect();
+                            let rules: Vec<Value> = tier
+                                .rules
+                                .iter()
+                                .map(|r| {
+                                    let mut f = HashMap::new();
+                                    f.insert("skill".to_string(), Value::String(r.skill.clone()));
+                                    f.insert(
+                                        "triggers".to_string(),
+                                        Value::List(
+                                            r.triggers
+                                                .iter()
+                                                .map(|t| Value::String(t.clone()))
+                                                .collect(),
+                                        ),
+                                    );
+                                    Value::Struct {
+                                        type_name: "TriggerRule".to_string(),
+                                        fields: f,
+                                    }
+                                })
+                                .collect();
                             fields.insert(format!("tier{}", tier.level), Value::List(rules));
                         }
                     }
@@ -4149,16 +4755,26 @@ impl Interpreter {
                             TruncationMode::WholeSkillOnly => "whole_skill_only",
                             TruncationMode::TruncateAtBoundary => "truncate_at_boundary",
                         };
-                        fields.insert("truncation".to_string(), Value::String(mode_str.to_string()));
+                        fields.insert(
+                            "truncation".to_string(),
+                            Value::String(mode_str.to_string()),
+                        );
                     }
-                    return Ok(Value::Struct { type_name: format!("SkillIndex_{}", dept), fields });
+                    return Ok(Value::Struct {
+                        type_name: format!("SkillIndex_{}", dept),
+                        fields,
+                    });
                 }
 
                 // Problem A: fit_to_budget(list, budget, mode) — MVP: return list as-is
                 if name == "fit_to_budget" {
                     let list = match eval_args.get(0) {
                         Some(Value::List(items)) => items.clone(),
-                        _ => return Err("fit_to_budget() expects first argument to be a List".to_string()),
+                        _ => {
+                            return Err(
+                                "fit_to_budget() expects first argument to be a List".to_string()
+                            )
+                        }
                     };
                     return Ok(Value::List(list));
                 }
@@ -4182,7 +4798,8 @@ impl Interpreter {
                     // Phase 7.5: Audit log for unsafe_html rendering
                     if name == "render" {
                         if let Ok(Value::Html(_)) = &result {
-                            let template_name = eval_args.first()
+                            let template_name = eval_args
+                                .first()
                                 .map(|a| format!("{}", a))
                                 .unwrap_or_else(|| "unknown".to_string());
                             self.push_audit(format!(
@@ -4197,7 +4814,12 @@ impl Interpreter {
                 // Look up compiled pattern
                 let pattern = match self.patterns.get(name) {
                     Some(p) => p.clone(),
-                    None => return Ok(Value::String(format!("[ERROR: unknown function '{}']", name))),
+                    None => {
+                        return Ok(Value::String(format!(
+                            "[ERROR: unknown function '{}']",
+                            name
+                        )))
+                    }
                 };
 
                 if eval_args.len() != pattern.params.len() {
@@ -4219,13 +4841,17 @@ impl Interpreter {
                 // Short-circuit for logical operators: and/or
                 if matches!(op, BinOp::And) {
                     let l = self.eval_expr_with_env(left, env)?;
-                    if !Self::is_truthy(&l) { return Ok(Value::Bool(false)); }
+                    if !Self::is_truthy(&l) {
+                        return Ok(Value::Bool(false));
+                    }
                     let r = self.eval_expr_with_env(right, env)?;
                     return Ok(Value::Bool(Self::is_truthy(&r)));
                 }
                 if matches!(op, BinOp::Or) {
                     let l = self.eval_expr_with_env(left, env)?;
-                    if Self::is_truthy(&l) { return Ok(Value::Bool(true)); }
+                    if Self::is_truthy(&l) {
+                        return Ok(Value::Bool(true));
+                    }
                     let r = self.eval_expr_with_env(right, env)?;
                     return Ok(Value::Bool(Self::is_truthy(&r)));
                 }
@@ -4251,10 +4877,12 @@ impl Interpreter {
         match value {
             Value::Fluid(variants) => {
                 // Find the best matching variant for the required type
-                let best = variants.iter()
+                let best = variants
+                    .iter()
                     .filter(|v| v.type_name == required_type)
                     .max_by(|a, b| {
-                        a.confidence.partial_cmp(&b.confidence)
+                        a.confidence
+                            .partial_cmp(&b.confidence)
                             .unwrap_or(std::cmp::Ordering::Equal)
                     });
 
@@ -4296,26 +4924,39 @@ impl Interpreter {
     /// Returns a new Vec of arguments where Fluid values have been collapsed
     /// to the type required by the corresponding parameter.
     fn collapse_args(&self, params: &[Param], args: &[Value]) -> Vec<Value> {
-        params.iter().zip(args.iter())
+        params
+            .iter()
+            .zip(args.iter())
             .map(|(p, a)| {
-                self.maybe_collapse(a, &p.type_name).unwrap_or_else(|_| a.clone())
+                self.maybe_collapse(a, &p.type_name)
+                    .unwrap_or_else(|_| a.clone())
             })
             .collect()
     }
 
     /// Check if a value is an opaque type that cannot be concatenated.
     fn is_opaque_type(v: &Value) -> bool {
-        matches!(v,
-            Value::Html(_) | Value::Query(_) | Value::Secret(_) |
-            Value::Encrypted(_) | Value::Hash(_) | Value::Subgraph(_)
+        matches!(
+            v,
+            Value::Html(_)
+                | Value::Query(_)
+                | Value::Secret(_)
+                | Value::Encrypted(_)
+                | Value::Hash(_)
+                | Value::Subgraph(_)
         )
     }
 
     /// Check if a value is an opaque type that cannot be printed.
     fn is_nonprintable_type(v: &Value) -> bool {
-        matches!(v,
-            Value::Html(_) | Value::Query(_) | Value::Secret(_) |
-            Value::Encrypted(_) | Value::Hash(_) | Value::Subgraph(_)
+        matches!(
+            v,
+            Value::Html(_)
+                | Value::Query(_)
+                | Value::Secret(_)
+                | Value::Encrypted(_)
+                | Value::Hash(_)
+                | Value::Subgraph(_)
         )
     }
 
@@ -4333,10 +4974,16 @@ impl Interpreter {
         // Enforce opaque type restrictions for Add (concatenation)
         if matches!(op, BinOp::Add) {
             if Self::is_opaque_type(&left) {
-                return Err(format!("cannot concatenate opaque type {}", left.type_name()));
+                return Err(format!(
+                    "cannot concatenate opaque type {}",
+                    left.type_name()
+                ));
             }
             if Self::is_opaque_type(&right) {
-                return Err(format!("cannot concatenate opaque type {}", right.type_name()));
+                return Err(format!(
+                    "cannot concatenate opaque type {}",
+                    right.type_name()
+                ));
             }
         }
         match (op, left, right) {
@@ -4346,7 +4993,8 @@ impl Interpreter {
                 if result.len() > Self::MAX_STRING_LENGTH {
                     return Err(format!(
                         "string length {} exceeds maximum allowed {}",
-                        result.len(), Self::MAX_STRING_LENGTH
+                        result.len(),
+                        Self::MAX_STRING_LENGTH
                     ));
                 }
                 Ok(Value::String(result))
@@ -4378,10 +5026,15 @@ impl Interpreter {
             (BinOp::Ne, Value::Unit, Value::Unit) => Ok(Value::Bool(false)),
             (BinOp::Ne, Value::Unit, _) | (BinOp::Ne, _, Value::Unit) => Ok(Value::Bool(true)),
             (BinOp::Add, l, r) => {
-                eprintln!("[WARNING] implicit Unit→String conversion in '+' operation: {} + {}", l.type_name(), r.type_name());
+                eprintln!(
+                    "[WARNING] implicit Unit→String conversion in '+' operation: {} + {}",
+                    l.type_name(),
+                    r.type_name()
+                );
                 Err(format!(
                     "type mismatch in string concatenation: {} + {} (use to_string() explicitly)",
-                    l.type_name(), r.type_name()
+                    l.type_name(),
+                    r.type_name()
                 ))
             }
             (_, l, r) => Err(format!(

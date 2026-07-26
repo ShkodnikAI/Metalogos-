@@ -2,10 +2,10 @@
 // Replaces flat L0/L1/L2 JSON array with a proper directed graph.
 // Borrowed: petgraph (MIT) from crates.io for all graph algorithms.
 
+use petgraph::algo::{connected_components, dijkstra};
 use petgraph::graph::{DiGraph, NodeIndex};
-use petgraph::algo::{dijkstra, connected_components};
 use petgraph::visit::EdgeRef;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Relation types between memory nodes.
@@ -127,10 +127,29 @@ impl MemoryGraph {
 
     /// Add a directed edge between two nodes by id.
     /// Returns Ok(()) or Err if source/target not found.
-    pub fn add_edge(&mut self, source_id: &str, target_id: &str, relation: Relation, weight: f64) -> Result<(), String> {
-        let src = self.id_index.get(source_id).ok_or_else(|| format!("node not found: {}", source_id))?;
-        let tgt = self.id_index.get(target_id).ok_or_else(|| format!("node not found: {}", target_id))?;
-        self.graph.add_edge(*src, *tgt, MemoryEdge { relation, weight: weight.clamp(0.0, 1.0) });
+    pub fn add_edge(
+        &mut self,
+        source_id: &str,
+        target_id: &str,
+        relation: Relation,
+        weight: f64,
+    ) -> Result<(), String> {
+        let src = self
+            .id_index
+            .get(source_id)
+            .ok_or_else(|| format!("node not found: {}", source_id))?;
+        let tgt = self
+            .id_index
+            .get(target_id)
+            .ok_or_else(|| format!("node not found: {}", target_id))?;
+        self.graph.add_edge(
+            *src,
+            *tgt,
+            MemoryEdge {
+                relation,
+                weight: weight.clamp(0.0, 1.0),
+            },
+        );
         Ok(())
     }
 
@@ -146,7 +165,8 @@ impl MemoryGraph {
 
     /// Get all edges as (source_node, target_node, edge) triples.
     pub fn edges(&self) -> Vec<(&MemoryNode, &MemoryNode, &MemoryEdge)> {
-        self.graph.edge_indices()
+        self.graph
+            .edge_indices()
             .filter_map(|ei| {
                 let (src, tgt) = self.graph.edge_endpoints(ei)?;
                 Some((&self.graph[src], &self.graph[tgt], &self.graph[ei]))
@@ -171,14 +191,19 @@ impl MemoryGraph {
             if d > 0 && d <= depth {
                 result.push((&self.graph[node], d));
             }
-            if d >= depth { continue; }
+            if d >= depth {
+                continue;
+            }
             for neighbor in self.graph.neighbors(node) {
                 if !visited.contains_key(&neighbor) {
                     visited.insert(neighbor, d + 1);
                     queue.push_back((neighbor, d + 1));
                 }
             }
-            for neighbor in self.graph.neighbors_directed(node, petgraph::Direction::Incoming) {
+            for neighbor in self
+                .graph
+                .neighbors_directed(node, petgraph::Direction::Incoming)
+            {
                 if !visited.contains_key(&neighbor) {
                     visited.insert(neighbor, d + 1);
                     queue.push_back((neighbor, d + 1));
@@ -205,7 +230,10 @@ impl MemoryGraph {
         while current != from {
             let current_score = scores[&current];
             let mut found = false;
-            for edge in self.graph.edges_directed(current, petgraph::Direction::Incoming) {
+            for edge in self
+                .graph
+                .edges_directed(current, petgraph::Direction::Incoming)
+            {
                 let parent = edge.source();
                 if let Some(&ps) = scores.get(&parent) {
                     if (ps + 1.0 - current_score).abs() < 0.001 {
@@ -216,7 +244,9 @@ impl MemoryGraph {
                     }
                 }
             }
-            if !found { return None; }
+            if !found {
+                return None;
+            }
         }
         path.reverse();
         Some(path)
@@ -244,7 +274,10 @@ impl MemoryGraph {
 
     /// Total character count across all nodes.
     pub fn total_chars(&self) -> usize {
-        self.graph.node_indices().map(|i| self.graph[i].text.len()).sum()
+        self.graph
+            .node_indices()
+            .map(|i| self.graph[i].text.len())
+            .sum()
     }
 
     /// Number of nodes, edges, connected components.
@@ -255,22 +288,31 @@ impl MemoryGraph {
 
     fn weakly_connected_components(&self) -> usize {
         use petgraph::visit::NodeIndexable;
-        if self.graph.node_count() == 0 { return 0; }
+        if self.graph.node_count() == 0 {
+            return 0;
+        }
         let mut visited = vec![false; self.graph.node_bound()];
         let mut components = 0usize;
         for start in self.graph.node_indices() {
-            if visited[start.index()] { continue; }
+            if visited[start.index()] {
+                continue;
+            }
             components += 1;
             let mut stack = vec![start];
             while let Some(node) = stack.pop() {
-                if visited[node.index()] { continue; }
+                if visited[node.index()] {
+                    continue;
+                }
                 visited[node.index()] = true;
                 for neighbor in self.graph.neighbors(node) {
                     if !visited[neighbor.index()] {
                         stack.push(neighbor);
                     }
                 }
-                for neighbor in self.graph.neighbors_directed(node, petgraph::Direction::Incoming) {
+                for neighbor in self
+                    .graph
+                    .neighbors_directed(node, petgraph::Direction::Incoming)
+                {
                     if !visited[neighbor.index()] {
                         stack.push(neighbor);
                     }
@@ -290,7 +332,11 @@ impl MemoryGraph {
         let mut changed = 0usize;
         for idx in self.graph.node_indices() {
             let node = &mut self.graph[idx];
-            let reference = if node.last_accessed > 0 { node.last_accessed } else { node.created_at };
+            let reference = if node.last_accessed > 0 {
+                node.last_accessed
+            } else {
+                node.created_at
+            };
             let delta_secs = (now - reference).max(0) as f64;
             let delta_hours = delta_secs / 3600.0;
             if delta_hours > 0.0 {
@@ -340,7 +386,9 @@ impl MemoryGraph {
     pub fn prune(&mut self, threshold: f64, min_age_hours: f64, now: i64) -> usize {
         let min_age_secs = (min_age_hours * 3600.0) as i64;
         // Collect ids to remove (can't modify while iterating)
-        let to_remove: Vec<String> = self.graph.node_indices()
+        let to_remove: Vec<String> = self
+            .graph
+            .node_indices()
             .filter(|&idx| {
                 let node = &self.graph[idx];
                 if node.score < threshold {
@@ -366,7 +414,13 @@ impl MemoryGraph {
     /// If the updated node has Contradicts edges, the system keeps the belief with
     /// higher score (or newer timestamp if scores are equal) and demotes the loser.
     /// Returns a struct describing what happened: { action, superseded_id?, winner_id }.
-    pub fn revise(&mut self, id: &str, new_text: &str, new_score: f64, now: i64) -> Option<ReviseResult> {
+    pub fn revise(
+        &mut self,
+        id: &str,
+        new_text: &str,
+        new_score: f64,
+        now: i64,
+    ) -> Option<ReviseResult> {
         let idx = match self.id_index.get(id) {
             Some(&i) => i,
             None => return None,
@@ -380,16 +434,21 @@ impl MemoryGraph {
         node.access_count = node.access_count.saturating_add(1);
 
         // Find Contradicts edges FROM and TO this node
-        let contradicted_ids: Vec<String> = self.graph.edges(idx)
+        let contradicted_ids: Vec<String> = self
+            .graph
+            .edges(idx)
             .filter(|e| matches!(e.weight().relation, Relation::Contradicts))
             .map(|e| self.graph[e.target()].id.clone())
             .collect();
-        let contradicted_by: Vec<String> = self.graph.edges_directed(idx, petgraph::Direction::Incoming)
+        let contradicted_by: Vec<String> = self
+            .graph
+            .edges_directed(idx, petgraph::Direction::Incoming)
             .filter(|e| matches!(e.weight().relation, Relation::Contradicts))
             .map(|e| self.graph[e.source()].id.clone())
             .collect();
 
-        let all_contradictions: Vec<String> = contradicted_ids.into_iter()
+        let all_contradictions: Vec<String> = contradicted_ids
+            .into_iter()
             .chain(contradicted_by.into_iter())
             .filter(|cid| cid != id)
             .collect();
@@ -407,11 +466,11 @@ impl MemoryGraph {
         for cid in &all_contradictions {
             if let Some(&other_idx) = self.id_index.get(cid) {
                 let other_score = self.graph[other_idx].score;
-                let other_time = self.graph[other_idx].last_accessed.max(self.graph[other_idx].created_at);
+                let other_time = self.graph[other_idx]
+                    .last_accessed
+                    .max(self.graph[other_idx].created_at);
 
-                if new_score > other_score
-                    || (new_score == other_score && now > other_time)
-                {
+                if new_score > other_score || (new_score == other_score && now > other_time) {
                     // We win — demote the other
                     self.graph[other_idx].score *= 0.3;
                     // Add Supersedes edge from us to them
@@ -431,7 +490,11 @@ impl MemoryGraph {
         }
 
         Some(ReviseResult {
-            action: if superseded.is_some() { "superseded_rival".to_string() } else { "updated".to_string() },
+            action: if superseded.is_some() {
+                "superseded_rival".to_string()
+            } else {
+                "updated".to_string()
+            },
             superseded_id: superseded,
             winner_id: id.to_string(),
         })
@@ -441,13 +504,18 @@ impl MemoryGraph {
     /// Returns a GraphSnapshot (serializable).
     pub fn subgraph(&self, ids: &[String]) -> GraphSnapshot {
         let id_set: std::collections::HashSet<&str> = ids.iter().map(|s| s.as_str()).collect();
-        let nodes: Vec<MemoryNode> = self.graph.node_indices()
+        let nodes: Vec<MemoryNode> = self
+            .graph
+            .node_indices()
             .filter(|i| id_set.contains(self.graph[*i].id.as_str()))
             .map(|i| self.graph[i].clone())
             .collect();
 
-        let edge_ids: std::collections::HashSet<String> = id_set.iter().map(|s| s.to_string()).collect();
-        let edges: Vec<GraphEdgeRecord> = self.graph.edge_indices()
+        let edge_ids: std::collections::HashSet<String> =
+            id_set.iter().map(|s| s.to_string()).collect();
+        let edges: Vec<GraphEdgeRecord> = self
+            .graph
+            .edge_indices()
             .filter_map(|ei| {
                 let (src, tgt) = self.graph.edge_endpoints(ei)?;
                 let src_id = &self.graph[src].id;
@@ -472,17 +540,25 @@ impl MemoryGraph {
     /// Serialize to JSON for KV storage.
     pub fn to_json(&self) -> String {
         let snapshot = GraphSnapshot {
-            nodes: self.graph.node_indices().map(|i| self.graph[i].clone()).collect(),
-            edges: self.graph.edge_indices().filter_map(|ei| {
-                let (src, tgt) = self.graph.edge_endpoints(ei)?;
-                let edge = &self.graph[ei];
-                Some(GraphEdgeRecord {
-                    source_id: self.graph[src].id.clone(),
-                    target_id: self.graph[tgt].id.clone(),
-                    relation: edge.relation.as_str().to_string(),
-                    weight: edge.weight,
+            nodes: self
+                .graph
+                .node_indices()
+                .map(|i| self.graph[i].clone())
+                .collect(),
+            edges: self
+                .graph
+                .edge_indices()
+                .filter_map(|ei| {
+                    let (src, tgt) = self.graph.edge_endpoints(ei)?;
+                    let edge = &self.graph[ei];
+                    Some(GraphEdgeRecord {
+                        source_id: self.graph[src].id.clone(),
+                        target_id: self.graph[tgt].id.clone(),
+                        relation: edge.relation.as_str().to_string(),
+                        weight: edge.weight,
+                    })
                 })
-            }).collect(),
+                .collect(),
         };
         serde_json::to_string(&snapshot).unwrap_or_else(|_| "[]".to_string())
     }
@@ -512,7 +588,9 @@ pub fn keyword_relevance(text: &str, query: &str) -> f64 {
     let text_lower = text.to_lowercase();
     let query_lower = query.to_lowercase();
     let query_words: std::collections::HashSet<&str> = query_lower.split_whitespace().collect();
-    if query_words.is_empty() { return 0.0; }
+    if query_words.is_empty() {
+        return 0.0;
+    }
     let text_words: std::collections::HashSet<&str> = text_lower.split_whitespace().collect();
     let overlap: usize = query_words.intersection(&text_words).count();
     overlap as f64 / query_words.len() as f64
@@ -520,8 +598,14 @@ pub fn keyword_relevance(text: &str, query: &str) -> f64 {
 
 /// Search nodes by keyword relevance, optionally filtered by level.
 /// Returns (node_id, text, level, score, relevance) sorted by composite score.
-pub fn graph_search(graph: &MemoryGraph, query: &str, limit: usize, filter_level: Option<&str>) -> Vec<(String, String, String, f64, f64)> {
-    let mut scored: Vec<(f64, &MemoryNode)> = graph.nodes()
+pub fn graph_search(
+    graph: &MemoryGraph,
+    query: &str,
+    limit: usize,
+    filter_level: Option<&str>,
+) -> Vec<(String, String, String, f64, f64)> {
+    let mut scored: Vec<(f64, &MemoryNode)> = graph
+        .nodes()
         .into_iter()
         .filter(|n| {
             if let Some(level) = filter_level {
@@ -545,9 +629,18 @@ pub fn graph_search(graph: &MemoryGraph, query: &str, limit: usize, filter_level
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
     scored.truncate(limit);
 
-    scored.into_iter().map(|(relevance, n)| {
-        (n.id.clone(), n.text.clone(), n.level.clone(), n.score, relevance)
-    }).collect()
+    scored
+        .into_iter()
+        .map(|(relevance, n)| {
+            (
+                n.id.clone(),
+                n.text.clone(),
+                n.level.clone(),
+                n.score,
+                relevance,
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -576,9 +669,39 @@ mod tests {
     #[test]
     fn test_add_edge_and_neighbors() {
         let mut g = MemoryGraph::new();
-        g.add_node(MemoryNode { id: "a".into(), text: "alpha".into(), level: "L0".into(), score: 0.5, created_at: 1, source: "t".into(), tags: vec![], last_accessed: 0, access_count: 0 });
-        g.add_node(MemoryNode { id: "b".into(), text: "beta".into(), level: "L0".into(), score: 0.5, created_at: 2, source: "t".into(), tags: vec![], last_accessed: 0, access_count: 0 });
-        g.add_node(MemoryNode { id: "c".into(), text: "gamma".into(), level: "L0".into(), score: 0.5, created_at: 3, source: "t".into(), tags: vec![], last_accessed: 0, access_count: 0 });
+        g.add_node(MemoryNode {
+            id: "a".into(),
+            text: "alpha".into(),
+            level: "L0".into(),
+            score: 0.5,
+            created_at: 1,
+            source: "t".into(),
+            tags: vec![],
+            last_accessed: 0,
+            access_count: 0,
+        });
+        g.add_node(MemoryNode {
+            id: "b".into(),
+            text: "beta".into(),
+            level: "L0".into(),
+            score: 0.5,
+            created_at: 2,
+            source: "t".into(),
+            tags: vec![],
+            last_accessed: 0,
+            access_count: 0,
+        });
+        g.add_node(MemoryNode {
+            id: "c".into(),
+            text: "gamma".into(),
+            level: "L0".into(),
+            score: 0.5,
+            created_at: 3,
+            source: "t".into(),
+            tags: vec![],
+            last_accessed: 0,
+            access_count: 0,
+        });
         g.add_edge("a", "b", Relation::DerivedFrom, 0.9).unwrap();
         g.add_edge("b", "c", Relation::RelatedTo, 0.5).unwrap();
 
@@ -592,9 +715,39 @@ mod tests {
     #[test]
     fn test_shortest_path() {
         let mut g = MemoryGraph::new();
-        g.add_node(MemoryNode { id: "x".into(), text: "".into(), level: "L0".into(), score: 0.0, created_at: 0, source: "".into(), tags: vec![], last_accessed: 0, access_count: 0 });
-        g.add_node(MemoryNode { id: "y".into(), text: "".into(), level: "L0".into(), score: 0.0, created_at: 0, source: "".into(), tags: vec![], last_accessed: 0, access_count: 0 });
-        g.add_node(MemoryNode { id: "z".into(), text: "".into(), level: "L0".into(), score: 0.0, created_at: 0, source: "".into(), tags: vec![], last_accessed: 0, access_count: 0 });
+        g.add_node(MemoryNode {
+            id: "x".into(),
+            text: "".into(),
+            level: "L0".into(),
+            score: 0.0,
+            created_at: 0,
+            source: "".into(),
+            tags: vec![],
+            last_accessed: 0,
+            access_count: 0,
+        });
+        g.add_node(MemoryNode {
+            id: "y".into(),
+            text: "".into(),
+            level: "L0".into(),
+            score: 0.0,
+            created_at: 0,
+            source: "".into(),
+            tags: vec![],
+            last_accessed: 0,
+            access_count: 0,
+        });
+        g.add_node(MemoryNode {
+            id: "z".into(),
+            text: "".into(),
+            level: "L0".into(),
+            score: 0.0,
+            created_at: 0,
+            source: "".into(),
+            tags: vec![],
+            last_accessed: 0,
+            access_count: 0,
+        });
         g.add_edge("x", "y", Relation::RelatedTo, 1.0).unwrap();
         g.add_edge("y", "z", Relation::RelatedTo, 1.0).unwrap();
 
@@ -607,8 +760,28 @@ mod tests {
     #[test]
     fn test_serialize_roundtrip() {
         let mut g = MemoryGraph::new();
-        g.add_node(MemoryNode { id: "n1".into(), text: "text1".into(), level: "L0".into(), score: 0.7, created_at: 100, source: "s".into(), tags: vec!["tag1".into()], last_accessed: 0, access_count: 0 });
-        g.add_node(MemoryNode { id: "n2".into(), text: "text2".into(), level: "L1".into(), score: 0.9, created_at: 200, source: "s".into(), tags: vec![], last_accessed: 0, access_count: 0 });
+        g.add_node(MemoryNode {
+            id: "n1".into(),
+            text: "text1".into(),
+            level: "L0".into(),
+            score: 0.7,
+            created_at: 100,
+            source: "s".into(),
+            tags: vec!["tag1".into()],
+            last_accessed: 0,
+            access_count: 0,
+        });
+        g.add_node(MemoryNode {
+            id: "n2".into(),
+            text: "text2".into(),
+            level: "L1".into(),
+            score: 0.9,
+            created_at: 200,
+            source: "s".into(),
+            tags: vec![],
+            last_accessed: 0,
+            access_count: 0,
+        });
         g.add_edge("n1", "n2", Relation::DerivedFrom, 0.8).unwrap();
 
         let json = g.to_json();
@@ -621,8 +794,28 @@ mod tests {
     #[test]
     fn test_remove_node_cleans_edges() {
         let mut g = MemoryGraph::new();
-        g.add_node(MemoryNode { id: "a".into(), text: "".into(), level: "L0".into(), score: 0.0, created_at: 0, source: "".into(), tags: vec![], last_accessed: 0, access_count: 0 });
-        g.add_node(MemoryNode { id: "b".into(), text: "".into(), level: "L0".into(), score: 0.0, created_at: 0, source: "".into(), tags: vec![], last_accessed: 0, access_count: 0 });
+        g.add_node(MemoryNode {
+            id: "a".into(),
+            text: "".into(),
+            level: "L0".into(),
+            score: 0.0,
+            created_at: 0,
+            source: "".into(),
+            tags: vec![],
+            last_accessed: 0,
+            access_count: 0,
+        });
+        g.add_node(MemoryNode {
+            id: "b".into(),
+            text: "".into(),
+            level: "L0".into(),
+            score: 0.0,
+            created_at: 0,
+            source: "".into(),
+            tags: vec![],
+            last_accessed: 0,
+            access_count: 0,
+        });
         g.add_edge("a", "b", Relation::RelatedTo, 0.5).unwrap();
         assert_eq!(g.edges().len(), 1);
         g.remove_node("a");
@@ -640,8 +833,28 @@ mod tests {
     #[test]
     fn test_decay_reduces_old_scores() {
         let mut g = MemoryGraph::new();
-        g.add_node(MemoryNode { id: "old".into(), text: "old data".into(), level: "L0".into(), score: 0.8, created_at: 0, source: "".into(), tags: vec![], last_accessed: 0, access_count: 0 });
-        g.add_node(MemoryNode { id: "fresh".into(), text: "new data".into(), level: "L0".into(), score: 0.8, created_at: 100000, source: "".into(), tags: vec![], last_accessed: 0, access_count: 0 });
+        g.add_node(MemoryNode {
+            id: "old".into(),
+            text: "old data".into(),
+            level: "L0".into(),
+            score: 0.8,
+            created_at: 0,
+            source: "".into(),
+            tags: vec![],
+            last_accessed: 0,
+            access_count: 0,
+        });
+        g.add_node(MemoryNode {
+            id: "fresh".into(),
+            text: "new data".into(),
+            level: "L0".into(),
+            score: 0.8,
+            created_at: 100000,
+            source: "".into(),
+            tags: vec![],
+            last_accessed: 0,
+            access_count: 0,
+        });
         // Simulate 100 hours passed for old node, 0 for fresh
         let changed = g.decay(0.1, 360000); // 100 hours
         assert_eq!(changed, 1); // only "old" should decay (fresh has created_at close to now)
@@ -651,7 +864,17 @@ mod tests {
     #[test]
     fn test_boost_increases_score_and_touches() {
         let mut g = MemoryGraph::new();
-        g.add_node(MemoryNode { id: "x".into(), text: "data".into(), level: "L0".into(), score: 0.5, created_at: 1000, source: "".into(), tags: vec![], last_accessed: 0, access_count: 0 });
+        g.add_node(MemoryNode {
+            id: "x".into(),
+            text: "data".into(),
+            level: "L0".into(),
+            score: 0.5,
+            created_at: 1000,
+            source: "".into(),
+            tags: vec![],
+            last_accessed: 0,
+            access_count: 0,
+        });
         assert!(g.boost("x", 0.3, 2000));
         let node = g.get_node("x").unwrap();
         assert_eq!(node.score, 0.8);
@@ -666,8 +889,28 @@ mod tests {
     #[test]
     fn test_prune_removes_low_score_old_nodes() {
         let mut g = MemoryGraph::new();
-        g.add_node(MemoryNode { id: "dead".into(), text: "junk".into(), level: "L0".into(), score: 0.01, created_at: 0, source: "".into(), tags: vec![], last_accessed: 0, access_count: 0 });
-        g.add_node(MemoryNode { id: "alive".into(), text: "important".into(), level: "L0".into(), score: 0.8, created_at: 0, source: "".into(), tags: vec![], last_accessed: 0, access_count: 0 });
+        g.add_node(MemoryNode {
+            id: "dead".into(),
+            text: "junk".into(),
+            level: "L0".into(),
+            score: 0.01,
+            created_at: 0,
+            source: "".into(),
+            tags: vec![],
+            last_accessed: 0,
+            access_count: 0,
+        });
+        g.add_node(MemoryNode {
+            id: "alive".into(),
+            text: "important".into(),
+            level: "L0".into(),
+            score: 0.8,
+            created_at: 0,
+            source: "".into(),
+            tags: vec![],
+            last_accessed: 0,
+            access_count: 0,
+        });
         // Prune: threshold 0.05, min_age 1 hour, now = 7200 (2 hours)
         let removed = g.prune(0.05, 1.0, 7200);
         assert_eq!(removed, 1);
@@ -678,7 +921,17 @@ mod tests {
     #[test]
     fn test_touch_updates_metadata() {
         let mut g = MemoryGraph::new();
-        g.add_node(MemoryNode { id: "t".into(), text: "test".into(), level: "L0".into(), score: 0.5, created_at: 100, source: "".into(), tags: vec![], last_accessed: 0, access_count: 0 });
+        g.add_node(MemoryNode {
+            id: "t".into(),
+            text: "test".into(),
+            level: "L0".into(),
+            score: 0.5,
+            created_at: 100,
+            source: "".into(),
+            tags: vec![],
+            last_accessed: 0,
+            access_count: 0,
+        });
         assert!(g.touch("t", 500));
         let node = g.get_node("t").unwrap();
         assert_eq!(node.last_accessed, 500);

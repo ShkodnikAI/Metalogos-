@@ -157,18 +157,18 @@ fn test_none_strategy_no_compression() {
     // We can verify by memorizing facts and checking the prompt.
     let mut source = String::from("");
     for i in 0..5 {
-        source.push_str(&format!(
-            "memorize \"fact {}\"\n", i
-        ));
+        source.push_str(&format!("memorize \"fact {}\"\n", i));
     }
-    source.push_str(r#"
+    source.push_str(
+        r#"
         learnable pattern P(text: String) -> String {
             prompt: "analyze"
             context: auto
             context_strategy: none
             max_context_tokens: 1
         }
-    "#);
+    "#,
+    );
 
     // This should parse and run without error
     let interp = run_source(&source).unwrap();
@@ -185,18 +185,18 @@ fn test_compress_no_overflow() {
     // no compression should be needed (context fits within budget).
     let mut source = String::from("");
     for i in 0..5 {
-        source.push_str(&format!(
-            "memorize \"short fact {}\"\n", i
-        ));
+        source.push_str(&format!("memorize \"short fact {}\"\n", i));
     }
-    source.push_str(r#"
+    source.push_str(
+        r#"
         learnable pattern P(text: String) -> String {
             prompt: "analyze"
             context: auto
             context_strategy: compress
             max_context_tokens: 10000
         }
-    "#);
+    "#,
+    );
 
     let result = run_source(&source);
     assert!(result.is_ok(), "Should parse and run without error");

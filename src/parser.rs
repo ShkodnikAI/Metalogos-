@@ -4022,4 +4022,794 @@ mod tests {
         let result = parse("pattern P() -> String { return \"unclosed }");
         assert!(result.is_err());
     }
+
+    // ── Narjad 29 Block 6.1: Additional unit tests ──────────────────────
+
+    // ── Literals ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_int_literal_returns_floatlit() {
+        // INT is parsed as FloatLit per parse_expression primary_expr branch
+        let src = "pattern P() -> Float { return 42 }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::Return(Expr::FloatLit(v)) => assert_eq!(*v, 42.0),
+                other => panic!("expected FloatLit(42.0), got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_boolean_false_literal() {
+        let src = "pattern P() -> Bool { return false }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::Return(Expr::BoolLit(b)) => assert!(!*b, "expected false"),
+                other => panic!("expected BoolLit(false), got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_empty_list_literal() {
+        let src = "pattern P() -> List { let x = [] return 0.0 }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::List(items) => assert!(items.is_empty(), "expected empty list"),
+                    other => panic!("expected List, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_list_of_strings() {
+        let src = "pattern P() -> List { let xs = [\"a\", \"b\", \"c\"] return 0.0 }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::List(items) => {
+                        assert_eq!(items.len(), 3);
+                        assert!(matches!(items[0], Expr::StringLit(_)));
+                    }
+                    other => panic!("expected List, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_list_of_bools() {
+        let src = "pattern P() -> List { let xs = [true, false] return 0.0 }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::List(items) => assert_eq!(items.len(), 2),
+                    other => panic!("expected List, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_struct_literal_expression() {
+        let src = "pattern P() -> Map { let x = { key: \"val\" } return 0.0 }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::StructLit(fields) => {
+                        assert_eq!(fields.len(), 1);
+                        assert!(fields.contains_key("key"));
+                    }
+                    other => panic!("expected StructLit, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    // ── Match statement ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_match_with_exact_arm() {
+        let src = "pattern P(s: String) -> Float { match s { \"a\" then { return 1.0 } } return 0.0 }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            // body: [match_stmt, return]
+            assert_eq!(p.body.len(), 2);
+            match &p.body[0] {
+                Statement::Match { arms, .. } => {
+                    assert_eq!(arms.len(), 1);
+                    assert!(matches!(arms[0], MatchArm::Exact(_, _)));
+                }
+                other => panic!("expected Match, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_with_multiple_exact_arms() {
+        let src = "pattern P(s: String) -> Float { match s { \"a\" then { return 1.0 } \"b\" then { return 2.0 } } return 0.0 }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::Match { arms, .. } => {
+                    assert_eq!(arms.len(), 2);
+                }
+                other => panic!("expected Match, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_with_starts_with_arm() {
+        let src = "pattern P(s: String) -> Float { match s { starts_with \"pre\" then { return 1.0 } } return 0.0 }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::Match { arms, .. } => {
+                    assert_eq!(arms.len(), 1);
+                    assert!(matches!(arms[0], MatchArm::StartsWith(_, _)));
+                }
+                other => panic!("expected Match, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_with_contains_arm() {
+        let src = "pattern P(s: String) -> Float { match s { contains \"x\" then { return 1.0 } } return 0.0 }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::Match { arms, .. } => {
+                    assert_eq!(arms.len(), 1);
+                    assert!(matches!(arms[0], MatchArm::Contains(_, _)));
+                }
+                other => panic!("expected Match, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_with_compare_arm() {
+        let src = "pattern P(s: Float) -> Float { match s { > 0.5 then { return 1.0 } } return 0.0 }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::Match { arms, .. } => {
+                    assert_eq!(arms.len(), 1);
+                    assert!(matches!(arms[0], MatchArm::Compare(_, _, _)));
+                }
+                other => panic!("expected Match, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_match_with_else() {
+        let src = "pattern P(s: String) -> Float { match s { \"a\" then { return 1.0 } else { return 0.0 } } return 0.0 }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::Match {
+                    arms, else_body, ..
+                } => {
+                    assert_eq!(arms.len(), 1);
+                    assert!(else_body.is_some(), "expected else body");
+                }
+                other => panic!("expected Match, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    // ── Control flow ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_if_then_no_else() {
+        // Single-branch if-then (no else) → Statement::IfThen
+        let src = "pattern P(x: Float) -> Float { if x > 0.0 then { return x } return 0.0 }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            // body: [if_then, return]
+            assert_eq!(p.body.len(), 2);
+            assert!(matches!(&p.body[0], Statement::IfThen(_, _)));
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_if_else_if_else_chain() {
+        let src = "pattern P(x: Float) -> Float { if x > 0.0 { return 1.0 } else if x < 0.0 { return 2.0 } else { return 0.0 } }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            assert_eq!(p.body.len(), 1);
+            match &p.body[0] {
+                Statement::IfElseBlock {
+                    else_ifs, else_body, ..
+                } => {
+                    assert_eq!(else_ifs.len(), 1);
+                    assert!(else_body.is_some());
+                }
+                other => panic!("expected IfElseBlock, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_each_with_index() {
+        let src = "pattern P(items: List) -> Float { let total = 0.0 each i, item in items { total = total + 1.0 } return total }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            // body: let_binding, each_with_index, return
+            assert_eq!(p.body.len(), 3);
+            let mut found = false;
+            for s in &p.body {
+                if let Statement::EachWithIndex {
+                    index_var,
+                    item_var,
+                    ..
+                } = s
+                {
+                    assert_eq!(index_var, "i");
+                    assert_eq!(item_var, "item");
+                    found = true;
+                }
+            }
+            assert!(found, "expected EachWithIndex statement");
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    // ── Binary operators ────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_logical_and_expr() {
+        let src = "pattern P(a: Bool, b: Bool) -> Bool { let x = a and b return x }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::BinaryOp(_, op, _) => assert!(matches!(op, BinOp::And)),
+                    other => panic!("expected BinaryOp, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_logical_or_expr() {
+        let src = "pattern P(a: Bool, b: Bool) -> Bool { let x = a or b return x }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::BinaryOp(_, op, _) => assert!(matches!(op, BinOp::Or)),
+                    other => panic!("expected BinaryOp, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_subtraction_operator() {
+        let src = "pattern P(a: Float, b: Float) -> Float { let x = a - b return x }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::BinaryOp(_, op, _) => assert!(matches!(op, BinOp::Sub)),
+                    other => panic!("expected BinaryOp, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_division_operator() {
+        let src = "pattern P(a: Float, b: Float) -> Float { let x = a / b return x }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::BinaryOp(_, op, _) => assert!(matches!(op, BinOp::Div)),
+                    other => panic!("expected BinaryOp, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_equality_operator() {
+        let src = "pattern P(a: Float, b: Float) -> Bool { let x = a == b return x }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::BinaryOp(_, op, _) => assert!(matches!(op, BinOp::Eq)),
+                    other => panic!("expected BinaryOp, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_inequality_operator() {
+        let src = "pattern P(a: Float, b: Float) -> Bool { let x = a != b return x }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::BinaryOp(_, op, _) => assert!(matches!(op, BinOp::Ne)),
+                    other => panic!("expected BinaryOp, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_greater_equal_operator() {
+        let src = "pattern P(a: Float, b: Float) -> Bool { let x = a >= b return x }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::BinaryOp(_, op, _) => assert!(matches!(op, BinOp::Ge)),
+                    other => panic!("expected BinaryOp, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_less_equal_operator() {
+        let src = "pattern P(a: Float, b: Float) -> Bool { let x = a <= b return x }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::BinaryOp(_, op, _) => assert!(matches!(op, BinOp::Le)),
+                    other => panic!("expected BinaryOp, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_less_than_operator() {
+        let src = "pattern P(a: Float, b: Float) -> Bool { let x = a < b return x }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::BinaryOp(_, op, _) => assert!(matches!(op, BinOp::Lt)),
+                    other => panic!("expected BinaryOp, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    // ── Expressions: access & calls ─────────────────────────────────────
+
+    #[test]
+    fn test_parse_chained_field_access() {
+        let src = "pattern P(m: Message) -> Float { let x = m.body.urgency return x }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::FieldAccess(base, field) => {
+                        assert_eq!(field, "urgency");
+                        assert!(matches!(base.as_ref(), Expr::FieldAccess(_, _)));
+                    }
+                    other => panic!("expected FieldAccess, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_index_access_expression() {
+        let src = "pattern P(items: List) -> Float { let x = items[0] return x }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::IndexAccess(_, idx) => {
+                        assert!(matches!(idx.as_ref(), Expr::FloatLit(_)));
+                    }
+                    other => panic!("expected IndexAccess, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_nested_function_call() {
+        let src = "pattern P(s: String) -> String { let x = upper(lower(s)) return x }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::FnCall(name, args) => {
+                        assert_eq!(name, "upper");
+                        assert_eq!(args.len(), 1);
+                        assert!(matches!(args[0], Expr::FnCall(_, _)));
+                    }
+                    other => panic!("expected FnCall, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_function_call_with_multiple_args() {
+        let src = "pattern P(a: Float, b: Float, c: Float) -> Float { let x = f(a, b, c) return x }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::FnCall(name, args) => {
+                        assert_eq!(name, "f");
+                        assert_eq!(args.len(), 3);
+                    }
+                    other => panic!("expected FnCall, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_try_expression() {
+        let src = "pattern P(s: String) -> String { let x = try upper(s) return x }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::Try(inner) => {
+                        assert!(matches!(inner.as_ref(), Expr::FnCall(_, _)));
+                    }
+                    other => panic!("expected Try, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_let_binding_with_string_value() {
+        let src = "pattern P() -> String { let name = \"Alice\" return name }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { name, value, .. } => {
+                    assert_eq!(name, "name");
+                    match value {
+                        Expr::StringLit(s) => assert_eq!(s, "Alice"),
+                        other => panic!("expected StringLit, got {:?}", other),
+                    }
+                }
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_let_binding_with_function_call_value() {
+        let src = "pattern P(s: String) -> String { let x = upper(s) return x }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::FnCall(name, args) => {
+                        assert_eq!(name, "upper");
+                        assert_eq!(args.len(), 1);
+                    }
+                    other => panic!("expected FnCall, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_let_binding_with_bool_value() {
+        let src = "pattern P() -> Bool { let flag = true return flag }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::LetBinding { value, .. } => match value {
+                    Expr::BoolLit(b) => assert!(*b, "expected true"),
+                    other => panic!("expected BoolLit, got {:?}", other),
+                },
+                other => panic!("expected LetBinding, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    // ── Pattern body variants ───────────────────────────────────────────
+
+    #[test]
+    fn test_parse_pattern_with_three_params() {
+        let src = "pattern Add3(a: Float, b: Float, c: Float) -> Float { return a }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            assert_eq!(p.name, "Add3");
+            assert_eq!(p.params.len(), 3);
+            assert_eq!(p.params[0].name, "a");
+            assert_eq!(p.params[1].name, "b");
+            assert_eq!(p.params[2].name, "c");
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_comment_inside_pattern_body() {
+        let src = "pattern P() -> Float { // first comment\n let x = 1.0 // second comment\n return x }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            // Comments should be filtered out, leaving only 2 statements
+            assert_eq!(p.body.len(), 2);
+            assert!(matches!(&p.body[0], Statement::LetBinding { .. }));
+            assert!(matches!(&p.body[1], Statement::Return(_)));
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_return_with_arithmetic_expression() {
+        let src = "pattern P(a: Float, b: Float, c: Float) -> Float { return a + b * c }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            match &p.body[0] {
+                Statement::Return(Expr::BinaryOp(_, op, _)) => {
+                    // Top-level should be Add (multiplication binds tighter)
+                    assert!(matches!(op, BinOp::Add));
+                }
+                other => panic!("expected Return(BinaryOp), got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_while_with_assignment_inside() {
+        let src = "pattern P() -> Float { let i = 0.0 while i < 10.0 { i = i + 1.0 } return i }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Pattern(p) = &decls[0] {
+            // body: let, while, return
+            assert_eq!(p.body.len(), 3);
+            match &p.body[1] {
+                Statement::While { body, .. } => {
+                    assert_eq!(body.len(), 1);
+                    assert!(matches!(body[0], Statement::Assign { .. }));
+                }
+                other => panic!("expected While, got {:?}", other),
+            }
+        } else {
+            panic!("expected Pattern");
+        }
+    }
+
+    // ── MlogServer (Phase 6.1) ──────────────────────────────────────────
+
+    #[test]
+    fn test_parse_mlogserver_with_middleware_list() {
+        let src = "mlogserver { port: 8080 middleware: [session, csrf, security_headers] }";
+        let decls = parse(src).unwrap();
+        if let Declaration::MlogServer(s) = &decls[0] {
+            assert_eq!(s.port, 8080);
+            assert_eq!(s.middleware.len(), 3);
+            assert_eq!(s.middleware[0], "session");
+            assert_eq!(s.middleware[1], "csrf");
+            assert_eq!(s.middleware[2], "security_headers");
+        } else {
+            panic!("expected MlogServer");
+        }
+    }
+
+    #[test]
+    fn test_parse_mlogserver_with_route() {
+        let src = "mlogserver { port: 8080 route \"/health\" method=GET { respond(\"ok\") } }";
+        let decls = parse(src).unwrap();
+        if let Declaration::MlogServer(s) = &decls[0] {
+            assert_eq!(s.routes.len(), 1);
+            assert_eq!(s.routes[0].path, "/health");
+            assert_eq!(s.routes[0].method, "GET");
+            assert_eq!(s.routes[0].body.len(), 1);
+        } else {
+            panic!("expected MlogServer");
+        }
+    }
+
+    #[test]
+    fn test_parse_mlogserver_with_route_and_requires() {
+        let src = "mlogserver { port: 8080 route \"/admin\" method=POST requires=[admin] { respond(\"ok\") } }";
+        let decls = parse(src).unwrap();
+        if let Declaration::MlogServer(s) = &decls[0] {
+            assert_eq!(s.routes[0].path, "/admin");
+            assert_eq!(s.routes[0].method, "POST");
+            assert_eq!(s.routes[0].requires.len(), 1);
+            assert_eq!(s.routes[0].requires[0], "admin");
+        } else {
+            panic!("expected MlogServer");
+        }
+    }
+
+    // ── Templates (Phase 6.2) ───────────────────────────────────────────
+
+    #[test]
+    fn test_parse_template_empty_body() {
+        let src = "template Empty() -> Html { }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Template(t) = &decls[0] {
+            assert_eq!(t.name, "Empty");
+            assert_eq!(t.return_type, "Html");
+            assert!(
+                t.body.trim().is_empty(),
+                "expected empty body, got {:?}",
+                t.body
+            );
+        } else {
+            panic!("expected Template");
+        }
+    }
+
+    #[test]
+    fn test_parse_template_with_braces_in_body() {
+        // Body contains { and } (CSS rule) — exercises preprocess_templates
+        let src = "template Styled() -> Html { <style>.x { color: red; }</style> }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Template(t) = &decls[0] {
+            assert_eq!(t.name, "Styled");
+            assert!(
+                t.body.contains("color: red"),
+                "body should contain CSS, got {:?}",
+                t.body
+            );
+            assert!(
+                t.body.contains('}'),
+                "body should contain closing brace"
+            );
+        } else {
+            panic!("expected Template");
+        }
+    }
+
+    #[test]
+    fn test_parse_template_two_params() {
+        let src = "template Page(title: String, body: String) -> Html { <html><h1>{{ title }}</h1>{{ body }}</html> }";
+        let decls = parse(src).unwrap();
+        if let Declaration::Template(t) = &decls[0] {
+            assert_eq!(t.name, "Page");
+            assert_eq!(t.params.len(), 2);
+            assert_eq!(t.params[0].name, "title");
+            assert_eq!(t.params[1].name, "body");
+            assert!(t.body.contains("title"));
+            assert!(t.body.contains("body"));
+        } else {
+            panic!("expected Template");
+        }
+    }
+
+    // ── Additional error cases ──────────────────────────────────────────
+
+    #[test]
+    fn test_parse_error_unclosed_list_bracket() {
+        let result = parse("pattern P() -> List { let x = [1.0, 2.0 return x }");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_error_invalid_pattern_name() {
+        // "123" is not a valid IDENT
+        let result = parse("pattern 123() -> Float { return 1.0 }");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_error_unclosed_pattern_body() {
+        let result = parse("pattern P() -> Float { return 1.0");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_error_missing_pattern_name() {
+        let result = parse("pattern () -> Float { return 1.0 }");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_error_unclosed_route_body() {
+        let result = parse("mlogserver { port: 8080 route \"/x\" method=GET { respond(\"ok\") }");
+        assert!(result.is_err());
+    }
 }

@@ -16,6 +16,12 @@ pub enum RuntimeError {
     #[error("lock poisoned: {0}")]
     Lock(String),
 
+    #[error("sqlite error: {0}")]
+    Sqlite(String),
+
+    #[error("config error: {0}")]
+    Config(String),
+
     #[error("sandbox violation")]
     Sandbox,
 }
@@ -24,4 +30,14 @@ impl RuntimeError {
     pub fn parse_msg(rule: &str, detail: &str) -> Self {
         Self::Parse(format!("{}: {}", rule, detail))
     }
+}
+
+/// Helper macro for acquiring mutex/rwlock guards in production code.
+/// Replaces `.lock().unwrap()` with proper error propagation.
+/// Наряд №29 §3.3
+#[macro_export]
+macro_rules! lock_or_err {
+    ($lock_expr:expr) => {
+        $lock_expr.lock().map_err(|e| $crate::error::RuntimeError::Lock(e.to_string()))
+    };
 }

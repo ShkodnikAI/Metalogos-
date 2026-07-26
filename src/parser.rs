@@ -3514,7 +3514,11 @@ mod tests {
         if let Declaration::Pattern(p) = &decls[0] {
             assert_eq!(p.body.len(), 2);
             match &p.body[0] {
-                Statement::LetBinding { name, value, mutable } => {
+                Statement::LetBinding {
+                    name,
+                    value,
+                    mutable,
+                } => {
                     assert_eq!(name, "x");
                     assert!(!*mutable);
                     match value {
@@ -3659,7 +3663,8 @@ mod tests {
 
     #[test]
     fn test_parse_break_continue() {
-        let src = "pattern P() -> Float { while true { break } while false { continue } return 0.0 }";
+        let src =
+            "pattern P() -> Float { while true { break } while false { continue } return 0.0 }";
         let decls = parse(src).unwrap();
         if let Declaration::Pattern(p) = &decls[0] {
             // while + break, while + continue, return

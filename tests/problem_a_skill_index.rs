@@ -61,7 +61,10 @@ pattern MatchSkills(dept: String, query: String) -> String {
 flow Main { input: String = MatchSkills("test_dept", "проанализируй рынок и валюту") -> output }
 "#;
         let result = run_program(source).expect("execution failed");
-        assert_eq!(result.unwrap_or_default().trim(), "deconstruct+market_analysis");
+        assert_eq!(
+            result.unwrap_or_default().trim(),
+            "deconstruct+market_analysis"
+        );
     }
 
     #[test]
@@ -97,9 +100,16 @@ pattern TryResolve(dept: String) -> String {
 flow Main { input: String = TryResolve("nonexistent") -> output }
 "#;
         let result = run_program(source);
-        assert!(result.is_err(), "expected error for unknown skill_index department");
+        assert!(
+            result.is_err(),
+            "expected error for unknown skill_index department"
+        );
         let err = result.unwrap_err();
-        assert!(err.contains("no skill_index declared"), "error should mention missing declaration: {}", err);
+        assert!(
+            err.contains("no skill_index declared"),
+            "error should mention missing declaration: {}",
+            err
+        );
     }
 
     #[test]

@@ -249,30 +249,60 @@ impl JitCompiler {
 
     /// Call a JIT-compiled pattern with the given f64 arguments.
     /// Dispatches to the correct arity-specific transmute.
+    /// Returns `Err` for unsupported arities instead of panicking (Наряд №29 §3.4).
     #[inline]
-    pub fn call_jit(ptr: JitFnPtr, args: &[f64]) -> f64 {
+    pub fn call_jit(ptr: JitFnPtr, args: &[f64]) -> Result<f64, String> {
+        // SAFETY: `ptr` is a `JitFnPtr` (`*const u8`) previously obtained from
+        // `JitCompiler::compile_pattern` / `ensure_compiled`, which stores the
+        // address returned by Cranelift's `JITModule::get_finalized_function`.
+        // Cranelift allocates the function in executable memory with a stable
+        // ABI: each compiled pattern takes N `f64` arguments (passed in the
+        // platform's standard floating-point registers) and returns a single
+        // `f64`, matching the function pointer type we transmute to below.
+        //
+        // Invariants that must hold for this transmute to be sound:
+        //   1. `ptr` is non-null and points to live, finalized JIT code owned
+        //      by the `JITModule` (lifetime tied to the `JitCompiler`). The
+        //      compiler is kept alive for the entire VM run, so the code is
+        //      never unmapped while a `JitFnPtr` is outstanding.
+        //   2. The arity selected by `args.len()` matches the arity of the
+        //      function that was compiled into `ptr`. `is_jit_eligible`
+        //      rejects patterns with arity > 3, and `compile_pattern`
+        //      emits a signature with exactly as many `F64` parameters as the
+        //      source pattern declares, so the transmuted signature is
+        //      representation-compatible with the compiled code.
+        //   3. `ptr` has the same width as a function pointer on the target
+        //      platform (both are pointer-sized), so `mem::transmute` between
+        //      `*const u8` and `fn(...) -> f64` is a no-op bit-cast.
+        //
+        // The match arms below select the transmuted signature by the runtime
+        // argument count; if a caller violates invariant (2) by passing a
+        // different number of arguments than the compiled function expects,
+        // the behavior is undefined — but the VM never does so, because it
+        // dispatches to `call_jit` only with the same arity it used when
+        // requesting compilation.
         unsafe {
             match args.len() {
                 0 => {
                     let f: fn() -> f64 = std::mem::transmute(ptr);
-                    f()
+                    Ok(f())
                 }
                 1 => {
                     let f: fn(f64) -> f64 = std::mem::transmute(ptr);
-                    f(args[0])
+                    Ok(f(args[0]))
                 }
                 2 => {
                     let f: fn(f64, f64) -> f64 = std::mem::transmute(ptr);
-                    f(args[0], args[1])
+                    Ok(f(args[0], args[1]))
                 }
                 3 => {
                     let f: fn(f64, f64, f64) -> f64 = std::mem::transmute(ptr);
-                    f(args[0], args[1], args[2])
+                    Ok(f(args[0], args[1], args[2]))
                 }
                 _ => {
                     // Unsupported arity — this should not happen because
                     // is_jit_eligible rejects patterns we can't compile
-                    panic!("JIT: unsupported arity {}", args.len())
+                    Err(String::from("JIT: unsupported arity"))
                 }
             }
         }

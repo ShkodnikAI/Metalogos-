@@ -108,7 +108,9 @@ mod phase6_encryption_tests {
 
     #[test]
     fn test_64_secret_type_opaque() {
-        let secret = Value::Secret(metalogos::interpreter::SecretString::new("my-api-key".to_string()));
+        let secret = Value::Secret(metalogos::interpreter::SecretString::new(
+            "my-api-key".to_string(),
+        ));
         assert_eq!(secret.type_name(), "Secret");
         // Display must NOT expose the value
         assert_eq!(format!("{}", secret), "[Secret]");
@@ -159,8 +161,8 @@ mod phase6_encryption_tests {
 
 #[cfg(test)]
 mod phase73_real_encryption_contracts {
-    use metalogos::interpreter::Value;
     use metalogos::builtins::Builtins;
+    use metalogos::interpreter::Value;
 
     /// Helper: call a builtin by name
     fn call_builtin(name: &str, args: &[Value]) -> Result<Value, String> {
@@ -175,22 +177,29 @@ mod phase73_real_encryption_contracts {
     #[test]
     fn test_73_verify_correct_password() {
         // Step 1: hash a password
-        let hash_result = call_builtin("hash_password", &[
-            Value::String("correct_password".to_string()),
-        ]);
+        let hash_result = call_builtin(
+            "hash_password",
+            &[Value::String("correct_password".to_string())],
+        );
         let hash_val = match hash_result {
             Ok(Value::Hash(h)) => h,
             other => panic!("hash_password() should return Hash, got: {:?}", other),
         };
 
         // Step 2: verify with correct password — returns true
-        let verify_result = call_builtin("verify_password", &[
-            Value::String("correct_password".to_string()),
-            Value::Hash(hash_val),
-        ]);
+        let verify_result = call_builtin(
+            "verify_password",
+            &[
+                Value::String("correct_password".to_string()),
+                Value::Hash(hash_val),
+            ],
+        );
         match verify_result {
             Ok(Value::Bool(true)) => {} // Expected
-            other => panic!("verify(correct_password, hash) should return true, got: {:?}", other),
+            other => panic!(
+                "verify(correct_password, hash) should return true, got: {:?}",
+                other
+            ),
         }
     }
 
@@ -198,19 +207,23 @@ mod phase73_real_encryption_contracts {
     #[test]
     fn test_73_verify_wrong_password_returns_false() {
         // Generate a real hash
-        let hash_result = call_builtin("hash_password", &[
-            Value::String("correct_password".to_string()),
-        ]);
+        let hash_result = call_builtin(
+            "hash_password",
+            &[Value::String("correct_password".to_string())],
+        );
         let hash_val = match hash_result {
             Ok(Value::Hash(h)) => h,
             other => panic!("hash_password() should return Hash, got: {:?}", other),
         };
 
         // Verify with WRONG password → should return false, not panic
-        let result = call_builtin("verify_password", &[
-            Value::String("wrong_password".to_string()),
-            Value::Hash(hash_val),
-        ]);
+        let result = call_builtin(
+            "verify_password",
+            &[
+                Value::String("wrong_password".to_string()),
+                Value::Hash(hash_val),
+            ],
+        );
         match result {
             Ok(Value::Bool(false)) => {} // Expected
             Ok(Value::Bool(true)) => panic!("verify(wrong) should return false, got true"),
@@ -230,10 +243,15 @@ mod phase73_real_encryption_contracts {
 
         // Step 2: encrypt("secret data", key)
         let plaintext = "My highly confidential data";
-        let encrypt_result = call_builtin("encrypt", &[
-            Value::String(plaintext.to_string()),
-            Value::Secret(metalogos::interpreter::SecretString::new(key.as_str().to_string())),
-        ]);
+        let encrypt_result = call_builtin(
+            "encrypt",
+            &[
+                Value::String(plaintext.to_string()),
+                Value::Secret(metalogos::interpreter::SecretString::new(
+                    key.as_str().to_string(),
+                )),
+            ],
+        );
         let encrypted = match encrypt_result {
             Ok(Value::Encrypted(data)) => data,
             other => panic!("encrypt() should return Encrypted, got: {:?}", other),
@@ -245,10 +263,15 @@ mod phase73_real_encryption_contracts {
         assert!(encrypted.len() > plaintext.len());
 
         // Step 3: decrypt(encrypted, key) → original plaintext
-        let decrypt_result = call_builtin("decrypt", &[
-            Value::Encrypted(encrypted),
-            Value::Secret(metalogos::interpreter::SecretString::new(key.as_str().to_string())),
-        ]);
+        let decrypt_result = call_builtin(
+            "decrypt",
+            &[
+                Value::Encrypted(encrypted),
+                Value::Secret(metalogos::interpreter::SecretString::new(
+                    key.as_str().to_string(),
+                )),
+            ],
+        );
         match decrypt_result {
             Ok(Value::String(s)) => assert_eq!(s, plaintext),
             other => panic!("decrypt() should return original String, got: {:?}", other),
@@ -265,10 +288,15 @@ mod phase73_real_encryption_contracts {
             other => panic!("generate_key() should return Secret, got: {:?}", other),
         };
 
-        let encrypt_result = call_builtin("encrypt", &[
-            Value::String("secret message".to_string()),
-            Value::Secret(metalogos::interpreter::SecretString::new(key1.as_str().to_string())),
-        ]);
+        let encrypt_result = call_builtin(
+            "encrypt",
+            &[
+                Value::String("secret message".to_string()),
+                Value::Secret(metalogos::interpreter::SecretString::new(
+                    key1.as_str().to_string(),
+                )),
+            ],
+        );
         let encrypted = match encrypt_result {
             Ok(Value::Encrypted(data)) => data,
             other => panic!("encrypt() should return Encrypted, got: {:?}", other),
@@ -282,14 +310,22 @@ mod phase73_real_encryption_contracts {
         };
 
         // Decrypt with wrong key → should return Err, not panic
-        let decrypt_result = call_builtin("decrypt", &[
-            Value::Encrypted(encrypted),
-            Value::Secret(metalogos::interpreter::SecretString::new(key2.as_str().to_string())),
-        ]);
+        let decrypt_result = call_builtin(
+            "decrypt",
+            &[
+                Value::Encrypted(encrypted),
+                Value::Secret(metalogos::interpreter::SecretString::new(
+                    key2.as_str().to_string(),
+                )),
+            ],
+        );
         match decrypt_result {
             Err(msg) => {
-                assert!(msg.contains("decrypt() failed"),
-                    "decrypt with wrong key should return error, got: {}", msg);
+                assert!(
+                    msg.contains("decrypt() failed"),
+                    "decrypt with wrong key should return error, got: {}",
+                    msg
+                );
             }
             Ok(v) => panic!("decrypt with wrong key should fail, but got: {:?}", v),
         }
@@ -313,12 +349,18 @@ mod phase73_real_encryption_contracts {
     /// Contract: print(Secret) should error
     #[test]
     fn test_73_print_secret_errors() {
-        let result = call_builtin("print", &[
-            Value::Secret(metalogos::interpreter::SecretString::new("hidden".to_string())),
-        ]);
+        let result = call_builtin(
+            "print",
+            &[Value::Secret(metalogos::interpreter::SecretString::new(
+                "hidden".to_string(),
+            ))],
+        );
         match result {
-            Err(msg) => assert!(msg.contains("expected String"),
-                "print(Secret) should error, got: {}", msg),
+            Err(msg) => assert!(
+                msg.contains("expected String"),
+                "print(Secret) should error, got: {}",
+                msg
+            ),
             Ok(v) => panic!("print(Secret) should error, but got: {:?}", v),
         }
     }
@@ -326,16 +368,20 @@ mod phase73_real_encryption_contracts {
     /// Contract: hash_password output format is PHC argon2id string
     #[test]
     fn test_73_hash_password_format() {
-        let result = call_builtin("hash_password", &[
-            Value::String("test_pass".to_string()),
-        ]);
+        let result = call_builtin("hash_password", &[Value::String("test_pass".to_string())]);
         match result {
             Ok(Value::Hash(h)) => {
                 // PHC format: $argon2id$v=19$m=...
-                assert!(h.starts_with("$argon2id$"),
-                    "Hash should start with $argon2id$, got: {}", h);
-                assert!(h.contains("$v=19$"),
-                    "Hash should contain version $v=19$, got: {}", h);
+                assert!(
+                    h.starts_with("$argon2id$"),
+                    "Hash should start with $argon2id$, got: {}",
+                    h
+                );
+                assert!(
+                    h.contains("$v=19$"),
+                    "Hash should contain version $v=19$, got: {}",
+                    h
+                );
             }
             other => panic!("hash_password() should return Hash, got: {:?}", other),
         }
@@ -349,7 +395,10 @@ mod phase73_real_encryption_contracts {
 
         match (h1, h2) {
             (Ok(Value::Hash(a)), Ok(Value::Hash(b))) => {
-                assert_ne!(a, b, "Two hashes of same password should differ (random salt)");
+                assert_ne!(
+                    a, b,
+                    "Two hashes of same password should differ (random salt)"
+                );
             }
             other => panic!("Both should return Hash, got: {:?}", other),
         }
@@ -423,14 +472,20 @@ mod phase6_xss_prevention_tests {
 
     #[test]
     fn test_html_escaping_quotes() {
-        assert_eq!(server::escape_html(r#"value="test""#), r#"value=&quot;test&quot;"#);
+        assert_eq!(
+            server::escape_html(r#"value="test""#),
+            r#"value=&quot;test&quot;"#
+        );
     }
 
     #[test]
     fn test_template_xss_prevention() {
         let template = "<div>{{content}}</div>";
         let mut vars = std::collections::HashMap::new();
-        vars.insert("content".to_string(), "<script>alert(1)</script>".to_string());
+        vars.insert(
+            "content".to_string(),
+            "<script>alert(1)</script>".to_string(),
+        );
         let result = server::render_template(template, &vars);
         assert!(!result.contains("<script>"));
         assert!(result.contains("&lt;script&gt;"));

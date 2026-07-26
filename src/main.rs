@@ -8,7 +8,7 @@ use clap::Parser;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 use std::fs;
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, IsTerminal};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -180,7 +180,12 @@ fn cmd_compile(file: PathBuf) {
     let mbc_path = file.with_extension("mbc");
     match fs::write(&mbc_path, &bytecode) {
         Ok(_) => {
-            println!("Compiled {} -> {} ({} bytes)", file.display(), mbc_path.display(), bytecode.len());
+            println!(
+                "Compiled {} -> {} ({} bytes)",
+                file.display(),
+                mbc_path.display(),
+                bytecode.len()
+            );
         }
         Err(e) => {
             eprintln!("error: cannot write {:?}: {}", mbc_path, e);
@@ -424,16 +429,13 @@ fn dirs_home() -> std::path::PathBuf {
 /// Check if stdin is a terminal (tty).
 /// Returns true if stdin is piped/redirected (non-interactive).
 fn stdin_is_piped() -> bool {
-    if std::env::var("METALOGOS_FORCE_PIPE").map(|v| v == "1" || v == "true").unwrap_or(false) {
+    if std::env::var("METALOGOS_FORCE_PIPE")
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false)
+    {
         return true;
     }
-    #[cfg(unix)]
-    {
-        // Use raw isatty syscall on Unix
-        unsafe { libc::isatty(0) != 1 }
-    }
-    #[cfg(not(unix))]
-    {
-        false
-    }
+    // `IsTerminal` is stable since Rust 1.70 and works on all platforms,
+    // so no `#[cfg(unix)]` branching or `unsafe libc::isatty` is needed.
+    !std::io::stdin().is_terminal()
 }

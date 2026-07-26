@@ -1,7 +1,8 @@
 // ── Built-in functions for METALOGOS M1+M2 ────────────────────────────
 
-use crate::interpreter::{Value, SecretString};
-use crate::embeddings::{EmbeddingManager, cosine_similarity};
+use crate::embeddings::{cosine_similarity, EmbeddingManager};
+use crate::interpreter::{SecretString, Value};
+use chrono::{Datelike, TimeZone, Timelike};
 
 pub type BuiltinFn = fn(&[Value]) -> Result<Value, String>;
 
@@ -9,7 +10,6 @@ pub type BuiltinFn = fn(&[Value]) -> Result<Value, String>;
 pub struct Builtins {
     funcs: std::collections::HashMap<String, BuiltinFn>,
 }
-
 
 /// Metadata for a single builtin function.
 /// This is the SINGLE SOURCE OF TRUTH for all builtin metadata.
@@ -21,7 +21,7 @@ pub struct Builtins {
 #[derive(Debug, Clone)]
 pub struct BuiltinSpec {
     pub name: &'static str,
-    pub arity: usize,        // 0 = variadic
+    pub arity: usize, // 0 = variadic
     pub category: &'static str,
 }
 
@@ -30,187 +30,879 @@ pub struct BuiltinSpec {
 /// To add a new builtin: append a `BuiltinSpec` row here,
 /// add the handler in Builtins::new(), and you're done.
 pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
-    BuiltinSpec { name: "upper", arity: 1, category: "string" },
-    BuiltinSpec { name: "lower", arity: 1, category: "string" },
-    BuiltinSpec { name: "len", arity: 1, category: "string" },
-    BuiltinSpec { name: "str", arity: 1, category: "string" },
-    BuiltinSpec { name: "print", arity: 1, category: "io" },
-    BuiltinSpec { name: "contains", arity: 2, category: "string" },
-    BuiltinSpec { name: "float", arity: 1, category: "convert" },
-    BuiltinSpec { name: "to_string", arity: 1, category: "convert" },
-    BuiltinSpec { name: "get", arity: 2, category: "list" },
-    BuiltinSpec { name: "push", arity: 2, category: "list" },
-    BuiltinSpec { name: "index_of", arity: 2, category: "string" },
-    BuiltinSpec { name: "substring", arity: 3, category: "string" },
-    BuiltinSpec { name: "char_at", arity: 2, category: "string" },
-    BuiltinSpec { name: "starts_with", arity: 2, category: "string" },
-    BuiltinSpec { name: "ends_with", arity: 2, category: "string" },
-    BuiltinSpec { name: "to_float", arity: 1, category: "convert" },
-    BuiltinSpec { name: "confidence", arity: 1, category: "fluid" },
-    BuiltinSpec { name: "trim", arity: 1, category: "string" },
-    BuiltinSpec { name: "replace", arity: 3, category: "string" },
-    BuiltinSpec { name: "split", arity: 2, category: "string" },
-    BuiltinSpec { name: "join", arity: 2, category: "string" },
-    BuiltinSpec { name: "length", arity: 1, category: "string" },
-    BuiltinSpec { name: "to_int", arity: 1, category: "convert" },
-    BuiltinSpec { name: "reverse", arity: 1, category: "string" },
-    BuiltinSpec { name: "escape_html", arity: 1, category: "string" },
-    BuiltinSpec { name: "escape_json", arity: 1, category: "string" },
-    BuiltinSpec { name: "__trim", arity: 1, category: "std" },
-    BuiltinSpec { name: "__replace", arity: 3, category: "std" },
-    BuiltinSpec { name: "__split", arity: 2, category: "std" },
-    BuiltinSpec { name: "__join", arity: 2, category: "std" },
-    BuiltinSpec { name: "__abs", arity: 1, category: "std" },
-    BuiltinSpec { name: "__min", arity: 2, category: "std" },
-    BuiltinSpec { name: "__max", arity: 2, category: "std" },
-    BuiltinSpec { name: "__clamp", arity: 3, category: "std" },
-    BuiltinSpec { name: "__round", arity: 1, category: "std" },
-    BuiltinSpec { name: "__first", arity: 1, category: "std" },
-    BuiltinSpec { name: "__last", arity: 1, category: "std" },
-    BuiltinSpec { name: "__push", arity: 2, category: "std" },
-    BuiltinSpec { name: "__list_len", arity: 1, category: "std" },
-    BuiltinSpec { name: "abs", arity: 1, category: "math" },
-    BuiltinSpec { name: "min", arity: 2, category: "math" },
-    BuiltinSpec { name: "max", arity: 2, category: "math" },
-    BuiltinSpec { name: "clamp", arity: 3, category: "math" },
-    BuiltinSpec { name: "round", arity: 1, category: "math" },
-    BuiltinSpec { name: "respond", arity: 1, category: "web" },
-    BuiltinSpec { name: "respond_html", arity: 1, category: "web" },
-    BuiltinSpec { name: "form_data", arity: 1, category: "web" },
-    BuiltinSpec { name: "json_body", arity: 0, category: "web" },
-    BuiltinSpec { name: "query_param", arity: 1, category: "web" },
-    BuiltinSpec { name: "render", arity: 2, category: "web" },
-    BuiltinSpec { name: "http_get", arity: 1, category: "web" },
-    BuiltinSpec { name: "http_post", arity: 2, category: "web" },
-    BuiltinSpec { name: "http_post_multipart", arity: 2, category: "web" },
-    BuiltinSpec { name: "require", arity: 0, category: "web" },
-    BuiltinSpec { name: "parse_json", arity: 1, category: "json" },
-    BuiltinSpec { name: "json_encode", arity: 1, category: "json" },
-    BuiltinSpec { name: "json_get", arity: 2, category: "json" },
-    BuiltinSpec { name: "has_field", arity: 2, category: "json" },
-    BuiltinSpec { name: "env", arity: 1, category: "system" },
-    BuiltinSpec { name: "hash_password", arity: 1, category: "crypto" },
-    BuiltinSpec { name: "verify_password", arity: 2, category: "crypto" },
-    BuiltinSpec { name: "encrypt", arity: 2, category: "crypto" },
-    BuiltinSpec { name: "decrypt", arity: 2, category: "crypto" },
-    BuiltinSpec { name: "generate_key", arity: 0, category: "crypto" },
-    BuiltinSpec { name: "authenticate", arity: 2, category: "auth" },
-    BuiltinSpec { name: "session_login", arity: 2, category: "auth" },
-    BuiltinSpec { name: "session_logout", arity: 1, category: "auth" },
-    BuiltinSpec { name: "query", arity: 1, category: "db" },
-    BuiltinSpec { name: "db_execute", arity: 1, category: "db" },
-    BuiltinSpec { name: "call_llm", arity: 0, category: "llm" },
-    BuiltinSpec { name: "call_claude", arity: 0, category: "llm" },
-    BuiltinSpec { name: "llm_usage", arity: 0, category: "llm" },
-    BuiltinSpec { name: "kv_set", arity: 2, category: "memory" },
-    BuiltinSpec { name: "kv_get", arity: 1, category: "memory" },
-    BuiltinSpec { name: "kv_delete", arity: 1, category: "memory" },
-    BuiltinSpec { name: "kv_exists", arity: 1, category: "memory" },
-    BuiltinSpec { name: "kv_list", arity: 0, category: "memory" },
-    BuiltinSpec { name: "mem_set", arity: 2, category: "memory" },
-    BuiltinSpec { name: "mem_get", arity: 1, category: "memory" },
-    BuiltinSpec { name: "mem_delete", arity: 1, category: "memory" },
-    BuiltinSpec { name: "session_set", arity: 2, category: "memory" },
-    BuiltinSpec { name: "session_get", arity: 1, category: "memory" },
-    BuiltinSpec { name: "session_clear", arity: 0, category: "memory" },
-    BuiltinSpec { name: "read_file", arity: 1, category: "io" },
-    BuiltinSpec { name: "write_file", arity: 2, category: "io" },
-    BuiltinSpec { name: "append_file", arity: 2, category: "io" },
-    BuiltinSpec { name: "delete_file", arity: 1, category: "io" },
-    BuiltinSpec { name: "file_exists", arity: 1, category: "io" },
-    BuiltinSpec { name: "list_dir", arity: 1, category: "io" },
-    BuiltinSpec { name: "now", arity: 0, category: "time" },
-    BuiltinSpec { name: "send_message", arity: 2, category: "bot" },
-    BuiltinSpec { name: "whisper_transcribe", arity: 1, category: "voice" },
-    BuiltinSpec { name: "tts_send", arity: 2, category: "voice" },
-    BuiltinSpec { name: "recall", arity: 0, category: "stateful" },
-    BuiltinSpec { name: "memorize", arity: 0, category: "stateful" },
-    BuiltinSpec { name: "forget", arity: 0, category: "stateful" },
-    BuiltinSpec { name: "find", arity: 4, category: "stateful" },
-    BuiltinSpec { name: "inspect", arity: 1, category: "stateful" },
-    BuiltinSpec { name: "conv_start", arity: 1, category: "stateful" },
-    BuiltinSpec { name: "conv_add", arity: 3, category: "stateful" },
-    BuiltinSpec { name: "conv_history", arity: 1, category: "stateful" },
-    BuiltinSpec { name: "conv_context", arity: 1, category: "stateful" },
-    BuiltinSpec { name: "conv_end", arity: 1, category: "stateful" },
-    BuiltinSpec { name: "event_count", arity: 0, category: "stateful" },
-    BuiltinSpec { name: "events_since", arity: 1, category: "stateful" },
-    BuiltinSpec { name: "event_sum", arity: 2, category: "stateful" },
-    BuiltinSpec { name: "query_scalar", arity: 0, category: "stateful" },
-    BuiltinSpec { name: "query_row", arity: 0, category: "stateful" },
-    BuiltinSpec { name: "graph_query", arity: 0, category: "graph" },
-    BuiltinSpec { name: "graph_path", arity: 0, category: "graph" },
-    BuiltinSpec { name: "graph_neighbors", arity: 0, category: "graph" },
-    BuiltinSpec { name: "memory_decay", arity: 0, category: "graph" },
-    BuiltinSpec { name: "memory_boost", arity: 0, category: "graph" },
-    BuiltinSpec { name: "memory_prune", arity: 0, category: "graph" },
-    BuiltinSpec { name: "memory_revise", arity: 0, category: "graph" },
-    BuiltinSpec { name: "subgraph_extract", arity: 0, category: "graph" },
-    BuiltinSpec { name: "subgraph_nodes", arity: 0, category: "graph" },
-    BuiltinSpec { name: "subgraph_json", arity: 0, category: "graph" },
-    BuiltinSpec { name: "trace_start", arity: 0, category: "graph" },
-    BuiltinSpec { name: "trace_end", arity: 0, category: "graph" },
-    BuiltinSpec { name: "mtree_summarize", arity: 0, category: "mtree" },
-    BuiltinSpec { name: "mtree_retrieve", arity: 0, category: "mtree" },
-    BuiltinSpec { name: "mtree_stats", arity: 0, category: "mtree" },
-    BuiltinSpec { name: "cron_mark_fired", arity: 1, category: "cron" },
-    BuiltinSpec { name: "request_body", arity: 0, category: "web" },
-    BuiltinSpec { name: "stdin", arity: 0, category: "stub" },
-    BuiltinSpec { name: "split_tokens", arity: 0, category: "stub" },
-    BuiltinSpec { name: "if_eq", arity: 3, category: "stub" },
-    BuiltinSpec { name: "newline", arity: 0, category: "stub" },
-    BuiltinSpec { name: "is_string_token", arity: 1, category: "stub" },
-    BuiltinSpec { name: "assert_eq", arity: 2, category: "test" },
-    BuiltinSpec { name: "assert_contains", arity: 2, category: "test" },
-    BuiltinSpec { name: "base64_encode", arity: 1, category: "encoding" },
-    BuiltinSpec { name: "base64_decode", arity: 1, category: "encoding" },
-    BuiltinSpec { name: "db_insert", arity: 0, category: "db" },
+    BuiltinSpec {
+        name: "upper",
+        arity: 1,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "lower",
+        arity: 1,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "len",
+        arity: 1,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "str",
+        arity: 1,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "print",
+        arity: 1,
+        category: "io",
+    },
+    BuiltinSpec {
+        name: "contains",
+        arity: 2,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "float",
+        arity: 1,
+        category: "convert",
+    },
+    BuiltinSpec {
+        name: "to_string",
+        arity: 1,
+        category: "convert",
+    },
+    BuiltinSpec {
+        name: "get",
+        arity: 2,
+        category: "list",
+    },
+    BuiltinSpec {
+        name: "push",
+        arity: 2,
+        category: "list",
+    },
+    BuiltinSpec {
+        name: "index_of",
+        arity: 2,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "substring",
+        arity: 3,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "char_at",
+        arity: 2,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "starts_with",
+        arity: 2,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "ends_with",
+        arity: 2,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "to_float",
+        arity: 1,
+        category: "convert",
+    },
+    BuiltinSpec {
+        name: "confidence",
+        arity: 1,
+        category: "fluid",
+    },
+    BuiltinSpec {
+        name: "trim",
+        arity: 1,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "replace",
+        arity: 3,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "split",
+        arity: 2,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "join",
+        arity: 2,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "length",
+        arity: 1,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "to_int",
+        arity: 1,
+        category: "convert",
+    },
+    BuiltinSpec {
+        name: "reverse",
+        arity: 1,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "escape_html",
+        arity: 1,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "escape_json",
+        arity: 1,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "__trim",
+        arity: 1,
+        category: "std",
+    },
+    BuiltinSpec {
+        name: "__replace",
+        arity: 3,
+        category: "std",
+    },
+    BuiltinSpec {
+        name: "__split",
+        arity: 2,
+        category: "std",
+    },
+    BuiltinSpec {
+        name: "__join",
+        arity: 2,
+        category: "std",
+    },
+    BuiltinSpec {
+        name: "__abs",
+        arity: 1,
+        category: "std",
+    },
+    BuiltinSpec {
+        name: "__min",
+        arity: 2,
+        category: "std",
+    },
+    BuiltinSpec {
+        name: "__max",
+        arity: 2,
+        category: "std",
+    },
+    BuiltinSpec {
+        name: "__clamp",
+        arity: 3,
+        category: "std",
+    },
+    BuiltinSpec {
+        name: "__round",
+        arity: 1,
+        category: "std",
+    },
+    BuiltinSpec {
+        name: "__first",
+        arity: 1,
+        category: "std",
+    },
+    BuiltinSpec {
+        name: "__last",
+        arity: 1,
+        category: "std",
+    },
+    BuiltinSpec {
+        name: "__push",
+        arity: 2,
+        category: "std",
+    },
+    BuiltinSpec {
+        name: "__list_len",
+        arity: 1,
+        category: "std",
+    },
+    BuiltinSpec {
+        name: "abs",
+        arity: 1,
+        category: "math",
+    },
+    BuiltinSpec {
+        name: "min",
+        arity: 2,
+        category: "math",
+    },
+    BuiltinSpec {
+        name: "max",
+        arity: 2,
+        category: "math",
+    },
+    BuiltinSpec {
+        name: "clamp",
+        arity: 3,
+        category: "math",
+    },
+    BuiltinSpec {
+        name: "round",
+        arity: 1,
+        category: "math",
+    },
+    BuiltinSpec {
+        name: "respond",
+        arity: 1,
+        category: "web",
+    },
+    BuiltinSpec {
+        name: "respond_html",
+        arity: 1,
+        category: "web",
+    },
+    BuiltinSpec {
+        name: "form_data",
+        arity: 1,
+        category: "web",
+    },
+    BuiltinSpec {
+        name: "json_body",
+        arity: 0,
+        category: "web",
+    },
+    BuiltinSpec {
+        name: "query_param",
+        arity: 1,
+        category: "web",
+    },
+    BuiltinSpec {
+        name: "render",
+        arity: 2,
+        category: "web",
+    },
+    BuiltinSpec {
+        name: "http_get",
+        arity: 1,
+        category: "web",
+    },
+    BuiltinSpec {
+        name: "http_post",
+        arity: 2,
+        category: "web",
+    },
+    BuiltinSpec {
+        name: "http_post_multipart",
+        arity: 2,
+        category: "web",
+    },
+    BuiltinSpec {
+        name: "require",
+        arity: 0,
+        category: "web",
+    },
+    BuiltinSpec {
+        name: "parse_json",
+        arity: 1,
+        category: "json",
+    },
+    BuiltinSpec {
+        name: "json_encode",
+        arity: 1,
+        category: "json",
+    },
+    BuiltinSpec {
+        name: "json_get",
+        arity: 2,
+        category: "json",
+    },
+    BuiltinSpec {
+        name: "has_field",
+        arity: 2,
+        category: "json",
+    },
+    BuiltinSpec {
+        name: "env",
+        arity: 1,
+        category: "system",
+    },
+    BuiltinSpec {
+        name: "hash_password",
+        arity: 1,
+        category: "crypto",
+    },
+    BuiltinSpec {
+        name: "verify_password",
+        arity: 2,
+        category: "crypto",
+    },
+    BuiltinSpec {
+        name: "encrypt",
+        arity: 2,
+        category: "crypto",
+    },
+    BuiltinSpec {
+        name: "decrypt",
+        arity: 2,
+        category: "crypto",
+    },
+    BuiltinSpec {
+        name: "generate_key",
+        arity: 0,
+        category: "crypto",
+    },
+    BuiltinSpec {
+        name: "authenticate",
+        arity: 2,
+        category: "auth",
+    },
+    BuiltinSpec {
+        name: "session_login",
+        arity: 2,
+        category: "auth",
+    },
+    BuiltinSpec {
+        name: "session_logout",
+        arity: 1,
+        category: "auth",
+    },
+    BuiltinSpec {
+        name: "query",
+        arity: 1,
+        category: "db",
+    },
+    BuiltinSpec {
+        name: "db_execute",
+        arity: 1,
+        category: "db",
+    },
+    BuiltinSpec {
+        name: "call_llm",
+        arity: 0,
+        category: "llm",
+    },
+    BuiltinSpec {
+        name: "call_claude",
+        arity: 0,
+        category: "llm",
+    },
+    BuiltinSpec {
+        name: "llm_usage",
+        arity: 0,
+        category: "llm",
+    },
+    BuiltinSpec {
+        name: "kv_set",
+        arity: 2,
+        category: "memory",
+    },
+    BuiltinSpec {
+        name: "kv_get",
+        arity: 1,
+        category: "memory",
+    },
+    BuiltinSpec {
+        name: "kv_delete",
+        arity: 1,
+        category: "memory",
+    },
+    BuiltinSpec {
+        name: "kv_exists",
+        arity: 1,
+        category: "memory",
+    },
+    BuiltinSpec {
+        name: "kv_list",
+        arity: 0,
+        category: "memory",
+    },
+    BuiltinSpec {
+        name: "mem_set",
+        arity: 2,
+        category: "memory",
+    },
+    BuiltinSpec {
+        name: "mem_get",
+        arity: 1,
+        category: "memory",
+    },
+    BuiltinSpec {
+        name: "mem_delete",
+        arity: 1,
+        category: "memory",
+    },
+    BuiltinSpec {
+        name: "session_set",
+        arity: 2,
+        category: "memory",
+    },
+    BuiltinSpec {
+        name: "session_get",
+        arity: 1,
+        category: "memory",
+    },
+    BuiltinSpec {
+        name: "session_clear",
+        arity: 0,
+        category: "memory",
+    },
+    BuiltinSpec {
+        name: "read_file",
+        arity: 1,
+        category: "io",
+    },
+    BuiltinSpec {
+        name: "write_file",
+        arity: 2,
+        category: "io",
+    },
+    BuiltinSpec {
+        name: "append_file",
+        arity: 2,
+        category: "io",
+    },
+    BuiltinSpec {
+        name: "delete_file",
+        arity: 1,
+        category: "io",
+    },
+    BuiltinSpec {
+        name: "file_exists",
+        arity: 1,
+        category: "io",
+    },
+    BuiltinSpec {
+        name: "list_dir",
+        arity: 1,
+        category: "io",
+    },
+    BuiltinSpec {
+        name: "now",
+        arity: 0,
+        category: "time",
+    },
+    BuiltinSpec {
+        name: "send_message",
+        arity: 2,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "whisper_transcribe",
+        arity: 1,
+        category: "voice",
+    },
+    BuiltinSpec {
+        name: "tts_send",
+        arity: 2,
+        category: "voice",
+    },
+    BuiltinSpec {
+        name: "recall",
+        arity: 0,
+        category: "stateful",
+    },
+    BuiltinSpec {
+        name: "memorize",
+        arity: 0,
+        category: "stateful",
+    },
+    BuiltinSpec {
+        name: "forget",
+        arity: 0,
+        category: "stateful",
+    },
+    BuiltinSpec {
+        name: "find",
+        arity: 4,
+        category: "stateful",
+    },
+    BuiltinSpec {
+        name: "inspect",
+        arity: 1,
+        category: "stateful",
+    },
+    BuiltinSpec {
+        name: "conv_start",
+        arity: 1,
+        category: "stateful",
+    },
+    BuiltinSpec {
+        name: "conv_add",
+        arity: 3,
+        category: "stateful",
+    },
+    BuiltinSpec {
+        name: "conv_history",
+        arity: 1,
+        category: "stateful",
+    },
+    BuiltinSpec {
+        name: "conv_context",
+        arity: 1,
+        category: "stateful",
+    },
+    BuiltinSpec {
+        name: "conv_end",
+        arity: 1,
+        category: "stateful",
+    },
+    BuiltinSpec {
+        name: "event_count",
+        arity: 0,
+        category: "stateful",
+    },
+    BuiltinSpec {
+        name: "events_since",
+        arity: 1,
+        category: "stateful",
+    },
+    BuiltinSpec {
+        name: "event_sum",
+        arity: 2,
+        category: "stateful",
+    },
+    BuiltinSpec {
+        name: "query_scalar",
+        arity: 0,
+        category: "stateful",
+    },
+    BuiltinSpec {
+        name: "query_row",
+        arity: 0,
+        category: "stateful",
+    },
+    BuiltinSpec {
+        name: "graph_query",
+        arity: 0,
+        category: "graph",
+    },
+    BuiltinSpec {
+        name: "graph_path",
+        arity: 0,
+        category: "graph",
+    },
+    BuiltinSpec {
+        name: "graph_neighbors",
+        arity: 0,
+        category: "graph",
+    },
+    BuiltinSpec {
+        name: "memory_decay",
+        arity: 0,
+        category: "graph",
+    },
+    BuiltinSpec {
+        name: "memory_boost",
+        arity: 0,
+        category: "graph",
+    },
+    BuiltinSpec {
+        name: "memory_prune",
+        arity: 0,
+        category: "graph",
+    },
+    BuiltinSpec {
+        name: "memory_revise",
+        arity: 0,
+        category: "graph",
+    },
+    BuiltinSpec {
+        name: "subgraph_extract",
+        arity: 0,
+        category: "graph",
+    },
+    BuiltinSpec {
+        name: "subgraph_nodes",
+        arity: 0,
+        category: "graph",
+    },
+    BuiltinSpec {
+        name: "subgraph_json",
+        arity: 0,
+        category: "graph",
+    },
+    BuiltinSpec {
+        name: "trace_start",
+        arity: 0,
+        category: "graph",
+    },
+    BuiltinSpec {
+        name: "trace_end",
+        arity: 0,
+        category: "graph",
+    },
+    BuiltinSpec {
+        name: "mtree_summarize",
+        arity: 0,
+        category: "mtree",
+    },
+    BuiltinSpec {
+        name: "mtree_retrieve",
+        arity: 0,
+        category: "mtree",
+    },
+    BuiltinSpec {
+        name: "mtree_stats",
+        arity: 0,
+        category: "mtree",
+    },
+    BuiltinSpec {
+        name: "cron_mark_fired",
+        arity: 1,
+        category: "cron",
+    },
+    BuiltinSpec {
+        name: "request_body",
+        arity: 0,
+        category: "web",
+    },
+    BuiltinSpec {
+        name: "stdin",
+        arity: 0,
+        category: "stub",
+    },
+    BuiltinSpec {
+        name: "split_tokens",
+        arity: 0,
+        category: "stub",
+    },
+    BuiltinSpec {
+        name: "if_eq",
+        arity: 3,
+        category: "stub",
+    },
+    BuiltinSpec {
+        name: "newline",
+        arity: 0,
+        category: "stub",
+    },
+    BuiltinSpec {
+        name: "is_string_token",
+        arity: 1,
+        category: "stub",
+    },
+    BuiltinSpec {
+        name: "assert_eq",
+        arity: 2,
+        category: "test",
+    },
+    BuiltinSpec {
+        name: "assert_contains",
+        arity: 2,
+        category: "test",
+    },
+    BuiltinSpec {
+        name: "base64_encode",
+        arity: 1,
+        category: "encoding",
+    },
+    BuiltinSpec {
+        name: "base64_decode",
+        arity: 1,
+        category: "encoding",
+    },
+    BuiltinSpec {
+        name: "db_insert",
+        arity: 0,
+        category: "db",
+    },
     // Problem B: collection ops — variadic arity (compiler uses actual arg count)
-    BuiltinSpec { name: "map", arity: 0, category: "list" },
-    BuiltinSpec { name: "zip", arity: 0, category: "list" },
-    BuiltinSpec { name: "sort_by", arity: 0, category: "list" },
-    BuiltinSpec { name: "filter", arity: 0, category: "list" },
-    BuiltinSpec { name: "reduce", arity: 0, category: "list" },
-    BuiltinSpec { name: "resolve_skill_index", arity: 1, category: "skill" },
-    BuiltinSpec { name: "fit_to_budget", arity: 0, category: "skill" },
+    BuiltinSpec {
+        name: "map",
+        arity: 0,
+        category: "list",
+    },
+    BuiltinSpec {
+        name: "zip",
+        arity: 0,
+        category: "list",
+    },
+    BuiltinSpec {
+        name: "sort_by",
+        arity: 0,
+        category: "list",
+    },
+    BuiltinSpec {
+        name: "filter",
+        arity: 0,
+        category: "list",
+    },
+    BuiltinSpec {
+        name: "reduce",
+        arity: 0,
+        category: "list",
+    },
+    BuiltinSpec {
+        name: "resolve_skill_index",
+        arity: 1,
+        category: "skill",
+    },
+    BuiltinSpec {
+        name: "fit_to_budget",
+        arity: 0,
+        category: "skill",
+    },
     // ── sqz-inspired: String/List utilities (P1) ──
-    BuiltinSpec { name: "squeeze", arity: 2, category: "string" },
-    BuiltinSpec { name: "dedup", arity: 1, category: "list" },
-    BuiltinSpec { name: "condense", arity: 1, category: "list" },
-    BuiltinSpec { name: "strip", arity: 2, category: "string" },
-    BuiltinSpec { name: "chomp", arity: 1, category: "string" },
-    BuiltinSpec { name: "repeat", arity: 2, category: "string" },
-    BuiltinSpec { name: "pad_left", arity: 3, category: "string" },
-    BuiltinSpec { name: "pad_right", arity: 3, category: "string" },
-    BuiltinSpec { name: "lines", arity: 1, category: "string" },
-    BuiltinSpec { name: "words", arity: 1, category: "string" },
+    BuiltinSpec {
+        name: "squeeze",
+        arity: 2,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "dedup",
+        arity: 1,
+        category: "list",
+    },
+    BuiltinSpec {
+        name: "condense",
+        arity: 1,
+        category: "list",
+    },
+    BuiltinSpec {
+        name: "strip",
+        arity: 2,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "chomp",
+        arity: 1,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "repeat",
+        arity: 2,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "pad_left",
+        arity: 3,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "pad_right",
+        arity: 3,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "lines",
+        arity: 1,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "words",
+        arity: 1,
+        category: "string",
+    },
     // ── sqz-inspired: TOON encoding (P2) ──
-    BuiltinSpec { name: "toon_encode", arity: 1, category: "encoding" },
-    BuiltinSpec { name: "toon_decode", arity: 1, category: "encoding" },
+    BuiltinSpec {
+        name: "toon_encode",
+        arity: 1,
+        category: "encoding",
+    },
+    BuiltinSpec {
+        name: "toon_decode",
+        arity: 1,
+        category: "encoding",
+    },
     // ── sqz-inspired: Content-addressed refs (P2) ──
-    BuiltinSpec { name: "ref", arity: 1, category: "memory" },
-    BuiltinSpec { name: "deref", arity: 1, category: "memory" },
+    BuiltinSpec {
+        name: "ref",
+        arity: 1,
+        category: "memory",
+    },
+    BuiltinSpec {
+        name: "deref",
+        arity: 1,
+        category: "memory",
+    },
     // ── sqz-inspired: Token awareness (P3) ──
-    BuiltinSpec { name: "token_count", arity: 1, category: "string" },
+    BuiltinSpec {
+        name: "token_count",
+        arity: 1,
+        category: "string",
+    },
     // ── AgentSkillOS-inspired: Recipe system + DAG orchestration (ADR-0062) ──
-    BuiltinSpec { name: "recipe_save", arity: 0, category: "recipe" },
-    BuiltinSpec { name: "recipe_search", arity: 0, category: "recipe" },
-    BuiltinSpec { name: "recipe_list", arity: 0, category: "recipe" },
-    BuiltinSpec { name: "dag_phases", arity: 1, category: "orchestration" },
-    BuiltinSpec { name: "topo_sort", arity: 1, category: "orchestration" },
+    BuiltinSpec {
+        name: "recipe_save",
+        arity: 0,
+        category: "recipe",
+    },
+    BuiltinSpec {
+        name: "recipe_search",
+        arity: 0,
+        category: "recipe",
+    },
+    BuiltinSpec {
+        name: "recipe_list",
+        arity: 0,
+        category: "recipe",
+    },
+    BuiltinSpec {
+        name: "dag_phases",
+        arity: 1,
+        category: "orchestration",
+    },
+    BuiltinSpec {
+        name: "topo_sort",
+        arity: 1,
+        category: "orchestration",
+    },
     // ── OpenPlanter-inspired: Fuzzy matching, safe editing, agent utilities (ADR-0063) ──
-    BuiltinSpec { name: "fuzzy_match", arity: 2, category: "string" },
-    BuiltinSpec { name: "fuzzy_find_best", arity: 2, category: "string" },
-    BuiltinSpec { name: "hashline_read", arity: 1, category: "string" },
-    BuiltinSpec { name: "hashline_edit", arity: 2, category: "string" },
-    BuiltinSpec { name: "compact_list", arity: 3, category: "list" },
-    BuiltinSpec { name: "budget_check", arity: 2, category: "meta" },
-    BuiltinSpec { name: "replay_snapshot", arity: 1, category: "meta" },
-    BuiltinSpec { name: "policy_check", arity: 1, category: "meta" },
+    BuiltinSpec {
+        name: "fuzzy_match",
+        arity: 2,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "fuzzy_find_best",
+        arity: 2,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "hashline_read",
+        arity: 1,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "hashline_edit",
+        arity: 2,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "compact_list",
+        arity: 3,
+        category: "list",
+    },
+    BuiltinSpec {
+        name: "budget_check",
+        arity: 2,
+        category: "meta",
+    },
+    BuiltinSpec {
+        name: "replay_snapshot",
+        arity: 1,
+        category: "meta",
+    },
+    BuiltinSpec {
+        name: "policy_check",
+        arity: 1,
+        category: "meta",
+    },
     // ── obsidian-mind inspired: Vault/memory (v0.10.0) ──
-    BuiltinSpec { name: "semantic_search", arity: 3, category: "vault" },
-    BuiltinSpec { name: "config_load", arity: 1, category: "vault" },
-    BuiltinSpec { name: "vault_validate", arity: 2, category: "vault" },
+    BuiltinSpec {
+        name: "semantic_search",
+        arity: 3,
+        category: "vault",
+    },
+    BuiltinSpec {
+        name: "config_load",
+        arity: 1,
+        category: "vault",
+    },
+    BuiltinSpec {
+        name: "vault_validate",
+        arity: 2,
+        category: "vault",
+    },
 ];
 
 /// Total number of registered builtins.
@@ -220,19 +912,27 @@ pub fn builtin_count() -> usize {
 
 /// Ordered list of builtin names (parallel to compiler index table).
 pub fn builtin_names() -> Vec<String> {
-    BUILTIN_REGISTRY.iter().map(|s| s.name.to_string()).collect()
+    BUILTIN_REGISTRY
+        .iter()
+        .map(|s| s.name.to_string())
+        .collect()
 }
 
 /// Name → bytecode index mapping for the compiler.
 pub fn builtin_indices() -> std::collections::HashMap<String, usize> {
-    BUILTIN_REGISTRY.iter().enumerate()
+    BUILTIN_REGISTRY
+        .iter()
+        .enumerate()
         .map(|(i, s)| (s.name.to_string(), i))
         .collect()
 }
 
 /// Set of all builtin names for semantic validation.
 pub fn builtin_name_set() -> std::collections::HashSet<String> {
-    BUILTIN_REGISTRY.iter().map(|s| s.name.to_string()).collect()
+    BUILTIN_REGISTRY
+        .iter()
+        .map(|s| s.name.to_string())
+        .collect()
 }
 
 /// Name → arity mapping. 0 = variadic (skip check).
@@ -289,7 +989,10 @@ impl Builtins {
 
         // Phase 6.1 — HTTP server stubs
         funcs.insert("respond".to_string(), builtin_respond as BuiltinFn);
-        funcs.insert("respond_html".to_string(), builtin_respond_html as BuiltinFn);
+        funcs.insert(
+            "respond_html".to_string(),
+            builtin_respond_html as BuiltinFn,
+        );
         funcs.insert("form_data".to_string(), builtin_form_data as BuiltinFn);
         funcs.insert("json_body".to_string(), builtin_json_body as BuiltinFn);
         funcs.insert("query_param".to_string(), builtin_query_param as BuiltinFn);
@@ -303,21 +1006,48 @@ impl Builtins {
         funcs.insert("db_execute".to_string(), builtin_db_execute as BuiltinFn);
 
         // Phase 6.4 — Encryption stubs
-        funcs.insert("hash_password".to_string(), builtin_hash_password as BuiltinFn);
-        funcs.insert("verify_password".to_string(), builtin_verify_password as BuiltinFn);
+        funcs.insert(
+            "hash_password".to_string(),
+            builtin_hash_password as BuiltinFn,
+        );
+        funcs.insert(
+            "verify_password".to_string(),
+            builtin_verify_password as BuiltinFn,
+        );
         funcs.insert("encrypt".to_string(), builtin_encrypt as BuiltinFn);
         funcs.insert("decrypt".to_string(), builtin_decrypt as BuiltinFn);
-        funcs.insert("generate_key".to_string(), builtin_generate_key as BuiltinFn);
+        funcs.insert(
+            "generate_key".to_string(),
+            builtin_generate_key as BuiltinFn,
+        );
 
         // Phase 6.5 — Auth stubs
-        funcs.insert("authenticate".to_string(), builtin_authenticate as BuiltinFn);
-        funcs.insert("session_login".to_string(), builtin_session_login as BuiltinFn);
-        funcs.insert("session_logout".to_string(), builtin_session_logout as BuiltinFn);
+        funcs.insert(
+            "authenticate".to_string(),
+            builtin_authenticate as BuiltinFn,
+        );
+        funcs.insert(
+            "session_login".to_string(),
+            builtin_session_login as BuiltinFn,
+        );
+        funcs.insert(
+            "session_logout".to_string(),
+            builtin_session_logout as BuiltinFn,
+        );
 
         // Phase 6.6 — Bot stubs
-        funcs.insert("send_message".to_string(), builtin_send_message as BuiltinFn);
-        funcs.insert("answer_callback_query".to_string(), builtin_answer_callback_query as BuiltinFn);
-        funcs.insert("edit_message_text".to_string(), builtin_edit_message_text as BuiltinFn);
+        funcs.insert(
+            "send_message".to_string(),
+            builtin_send_message as BuiltinFn,
+        );
+        funcs.insert(
+            "answer_callback_query".to_string(),
+            builtin_answer_callback_query as BuiltinFn,
+        );
+        funcs.insert(
+            "edit_message_text".to_string(),
+            builtin_edit_message_text as BuiltinFn,
+        );
         funcs.insert("require".to_string(), builtin_require as BuiltinFn);
 
         // Definition of Done — outgoing HTTP
@@ -375,16 +1105,31 @@ impl Builtins {
         // ADR-0049 — session memory (temporary per-session KV store)
         funcs.insert("session_set".to_string(), builtin_session_set as BuiltinFn);
         funcs.insert("session_get".to_string(), builtin_session_get as BuiltinFn);
-        funcs.insert("session_clear".to_string(), builtin_session_clear as BuiltinFn);
+        funcs.insert(
+            "session_clear".to_string(),
+            builtin_session_clear as BuiltinFn,
+        );
 
         // Voice pipeline builtins (Phase 7.8)
-        funcs.insert("http_post_multipart".to_string(), builtin_http_post_multipart as BuiltinFn);
-        funcs.insert("whisper_transcribe".to_string(), builtin_whisper_transcribe as BuiltinFn);
+        funcs.insert(
+            "http_post_multipart".to_string(),
+            builtin_http_post_multipart as BuiltinFn,
+        );
+        funcs.insert(
+            "whisper_transcribe".to_string(),
+            builtin_whisper_transcribe as BuiltinFn,
+        );
         funcs.insert("tts_send".to_string(), builtin_tts_send as BuiltinFn);
 
         // Наряд 17: utility builtins — base64, exec, escape_js, dict operations, type_of
-        funcs.insert("base64_encode".to_string(), builtin_base64_encode as BuiltinFn);
-        funcs.insert("base64_decode".to_string(), builtin_base64_decode as BuiltinFn);
+        funcs.insert(
+            "base64_encode".to_string(),
+            builtin_base64_encode as BuiltinFn,
+        );
+        funcs.insert(
+            "base64_decode".to_string(),
+            builtin_base64_decode as BuiltinFn,
+        );
         funcs.insert("exec".to_string(), builtin_exec as BuiltinFn);
         funcs.insert("escape_js".to_string(), builtin_escape_js as BuiltinFn);
         funcs.insert("dict_get".to_string(), builtin_json_get as BuiltinFn); // alias
@@ -406,24 +1151,54 @@ impl Builtins {
         funcs.insert("format_date".to_string(), builtin_format_date as BuiltinFn);
         // v0.8.0 — Time / Date / Calendar (additional)
         funcs.insert("date_parts".to_string(), builtin_date_parts as BuiltinFn);
-        funcs.insert("days_between".to_string(), builtin_days_between as BuiltinFn);
-        funcs.insert("days_in_month".to_string(), builtin_days_in_month as BuiltinFn);
-        funcs.insert("is_leap_year".to_string(), builtin_is_leap_year as BuiltinFn);
+        funcs.insert(
+            "days_between".to_string(),
+            builtin_days_between as BuiltinFn,
+        );
+        funcs.insert(
+            "days_in_month".to_string(),
+            builtin_days_in_month as BuiltinFn,
+        );
+        funcs.insert(
+            "is_leap_year".to_string(),
+            builtin_is_leap_year as BuiltinFn,
+        );
         funcs.insert("add_days".to_string(), builtin_add_days as BuiltinFn);
         funcs.insert("add_hours".to_string(), builtin_add_hours as BuiltinFn);
-        funcs.insert("weekday_name".to_string(), builtin_weekday_name as BuiltinFn);
+        funcs.insert(
+            "weekday_name".to_string(),
+            builtin_weekday_name as BuiltinFn,
+        );
         // v0.8.0 — Geolocation
         funcs.insert("geo_ip".to_string(), builtin_geo_ip as BuiltinFn);
-        funcs.insert("geo_distance".to_string(), builtin_geo_distance as BuiltinFn);
+        funcs.insert(
+            "geo_distance".to_string(),
+            builtin_geo_distance as BuiltinFn,
+        );
         // v0.8.0 — Weather (Open-Meteo, free, no API key)
         funcs.insert("weather".to_string(), builtin_weather as BuiltinFn);
-        funcs.insert("weather_forecast".to_string(), builtin_weather_forecast as BuiltinFn);
+        funcs.insert(
+            "weather_forecast".to_string(),
+            builtin_weather_forecast as BuiltinFn,
+        );
         // v0.8.0 — Reminders
         funcs.insert("remind".to_string(), builtin_remind as BuiltinFn);
-        funcs.insert("remind_recurring".to_string(), builtin_remind_recurring as BuiltinFn);
-        funcs.insert("cancel_remind".to_string(), builtin_cancel_remind as BuiltinFn);
-        funcs.insert("list_reminders".to_string(), builtin_list_reminders as BuiltinFn);
-        funcs.insert("check_reminders".to_string(), builtin_check_reminders as BuiltinFn);
+        funcs.insert(
+            "remind_recurring".to_string(),
+            builtin_remind_recurring as BuiltinFn,
+        );
+        funcs.insert(
+            "cancel_remind".to_string(),
+            builtin_cancel_remind as BuiltinFn,
+        );
+        funcs.insert(
+            "list_reminders".to_string(),
+            builtin_list_reminders as BuiltinFn,
+        );
+        funcs.insert(
+            "check_reminders".to_string(),
+            builtin_check_reminders as BuiltinFn,
+        );
         // request_body() alias for json_body() — common in web frameworks
         funcs.insert("request_body".to_string(), builtin_json_body as BuiltinFn);
         // Public first/last (without __ prefix)
@@ -431,14 +1206,35 @@ impl Builtins {
         funcs.insert("last".to_string(), builtin_last as BuiltinFn);
 
         // v0.8.1 — OpenHuman-inspired Human Intelligence builtins
-        funcs.insert("human_create".to_string(), builtin_human_create as BuiltinFn);
+        funcs.insert(
+            "human_create".to_string(),
+            builtin_human_create as BuiltinFn,
+        );
         funcs.insert("human_mood".to_string(), builtin_human_mood as BuiltinFn);
-        funcs.insert("human_remember".to_string(), builtin_human_remember as BuiltinFn);
-        funcs.insert("human_forget".to_string(), builtin_human_forget as BuiltinFn);
-        funcs.insert("human_recall".to_string(), builtin_human_recall as BuiltinFn);
-        funcs.insert("human_respond".to_string(), builtin_human_respond as BuiltinFn);
-        funcs.insert("human_personas".to_string(), builtin_human_personas as BuiltinFn);
-        funcs.insert("human_delete".to_string(), builtin_human_delete as BuiltinFn);
+        funcs.insert(
+            "human_remember".to_string(),
+            builtin_human_remember as BuiltinFn,
+        );
+        funcs.insert(
+            "human_forget".to_string(),
+            builtin_human_forget as BuiltinFn,
+        );
+        funcs.insert(
+            "human_recall".to_string(),
+            builtin_human_recall as BuiltinFn,
+        );
+        funcs.insert(
+            "human_respond".to_string(),
+            builtin_human_respond as BuiltinFn,
+        );
+        funcs.insert(
+            "human_personas".to_string(),
+            builtin_human_personas as BuiltinFn,
+        );
+        funcs.insert(
+            "human_delete".to_string(),
+            builtin_human_delete as BuiltinFn,
+        );
 
         // Problem B (Наряд reverse-iteration): list aggregation
         funcs.insert("zip".to_string(), builtin_zip as BuiltinFn);
@@ -446,66 +1242,135 @@ impl Builtins {
         funcs.insert("filter".to_string(), builtin_filter as BuiltinFn);
         funcs.insert("reduce".to_string(), builtin_reduce as BuiltinFn);
         // Problem D helper + Problem A helper
-        funcs.insert("extract_param".to_string(), builtin_extract_param as BuiltinFn);
-        funcs.insert("estimate_tokens".to_string(), builtin_estimate_tokens as BuiltinFn);
+        funcs.insert(
+            "extract_param".to_string(),
+            builtin_extract_param as BuiltinFn,
+        );
+        funcs.insert(
+            "estimate_tokens".to_string(),
+            builtin_estimate_tokens as BuiltinFn,
+        );
         // Problem A (reverse-iteration): skill index helpers
         funcs.insert("matches_any".to_string(), builtin_matches_any as BuiltinFn);
-        funcs.insert("read_file_tokens".to_string(), builtin_read_file_tokens as BuiltinFn);
+        funcs.insert(
+            "read_file_tokens".to_string(),
+            builtin_read_file_tokens as BuiltinFn,
+        );
 
         // ── OpenHuman-inspired: Scheduling (Tier 1 #1) ──
         funcs.insert("cron_add".to_string(), builtin_cron_add as BuiltinFn);
         funcs.insert("cron_list".to_string(), builtin_cron_list as BuiltinFn);
         funcs.insert("cron_remove".to_string(), builtin_cron_remove as BuiltinFn);
         funcs.insert("cron_run".to_string(), builtin_cron_run as BuiltinFn);
-        funcs.insert("cron_mark_fired".to_string(), builtin_cron_mark_fired as BuiltinFn);
+        funcs.insert(
+            "cron_mark_fired".to_string(),
+            builtin_cron_mark_fired as BuiltinFn,
+        );
 
         // ── OpenHuman-inspired: Approval Gate (Tier 1 #10) ──
-        funcs.insert("ask_approval".to_string(), builtin_ask_approval as BuiltinFn);
+        funcs.insert(
+            "ask_approval".to_string(),
+            builtin_ask_approval as BuiltinFn,
+        );
 
         // ── OpenHuman-inspired: Goals & Todos (Tier 1 #5, #6) ──
         funcs.insert("goal_set".to_string(), builtin_goal_set as BuiltinFn);
         funcs.insert("goal_get".to_string(), builtin_goal_get as BuiltinFn);
-        funcs.insert("goal_complete".to_string(), builtin_goal_complete as BuiltinFn);
+        funcs.insert(
+            "goal_complete".to_string(),
+            builtin_goal_complete as BuiltinFn,
+        );
         funcs.insert("goals_list".to_string(), builtin_goals_list as BuiltinFn);
         funcs.insert("goals_add".to_string(), builtin_goals_add as BuiltinFn);
-        funcs.insert("goals_reflect".to_string(), builtin_goals_reflect as BuiltinFn);
+        funcs.insert(
+            "goals_reflect".to_string(),
+            builtin_goals_reflect as BuiltinFn,
+        );
         funcs.insert("todo_add".to_string(), builtin_todo_add as BuiltinFn);
         funcs.insert("todo_update".to_string(), builtin_todo_update as BuiltinFn);
         funcs.insert("todo_list".to_string(), builtin_todo_list as BuiltinFn);
 
         // ── OpenHuman-inspired: Entity Extraction (Tier 1 #4) ──
-        funcs.insert("extract_entities".to_string(), builtin_extract_entities as BuiltinFn);
+        funcs.insert(
+            "extract_entities".to_string(),
+            builtin_extract_entities as BuiltinFn,
+        );
 
         // ── OpenHuman-inspired: Memory Scoring (Tier 1 #3) ──
-        funcs.insert("memory_score".to_string(), builtin_memory_score as BuiltinFn);
+        funcs.insert(
+            "memory_score".to_string(),
+            builtin_memory_score as BuiltinFn,
+        );
 
         // ── OpenHuman-inspired: Token Compression — HTML (Tier 1 #2) ──
-        funcs.insert("compress_html".to_string(), builtin_compress_html as BuiltinFn);
+        funcs.insert(
+            "compress_html".to_string(),
+            builtin_compress_html as BuiltinFn,
+        );
 
         // ── OpenHuman-inspired: Personalization (Tier 2 #12) ──
-        funcs.insert("learn_preference".to_string(), builtin_learn_preference as BuiltinFn);
+        funcs.insert(
+            "learn_preference".to_string(),
+            builtin_learn_preference as BuiltinFn,
+        );
         funcs.insert("get_profile".to_string(), builtin_get_profile as BuiltinFn);
 
         // ── Memory Tree (OpenHuman-inspired Tier 1 #9) ──
         funcs.insert("mtree_store".to_string(), builtin_mtree_store as BuiltinFn);
-        funcs.insert("mtree_retrieve".to_string(), builtin_mtree_retrieve as BuiltinFn);
-        funcs.insert("mtree_forget".to_string(), builtin_mtree_forget as BuiltinFn);
-        funcs.insert("mtree_summarize".to_string(), builtin_mtree_summarize as BuiltinFn);
+        funcs.insert(
+            "mtree_retrieve".to_string(),
+            builtin_mtree_retrieve as BuiltinFn,
+        );
+        funcs.insert(
+            "mtree_forget".to_string(),
+            builtin_mtree_forget as BuiltinFn,
+        );
+        funcs.insert(
+            "mtree_summarize".to_string(),
+            builtin_mtree_summarize as BuiltinFn,
+        );
         funcs.insert("mtree_stats".to_string(), builtin_mtree_stats as BuiltinFn);
         funcs.insert("graph_query".to_string(), builtin_graph_query as BuiltinFn);
         funcs.insert("graph_path".to_string(), builtin_graph_path as BuiltinFn);
-        funcs.insert("graph_neighbors".to_string(), builtin_graph_neighbors as BuiltinFn);
-        funcs.insert("memory_decay".to_string(), builtin_memory_decay as BuiltinFn);
-        funcs.insert("memory_boost".to_string(), builtin_memory_boost as BuiltinFn);
-        funcs.insert("memory_prune".to_string(), builtin_memory_prune as BuiltinFn);
-        funcs.insert("memory_revise".to_string(), builtin_memory_revise as BuiltinFn);
-        funcs.insert("subgraph_extract".to_string(), builtin_subgraph_extract as BuiltinFn);
-        funcs.insert("subgraph_nodes".to_string(), builtin_subgraph_nodes as BuiltinFn);
-        funcs.insert("subgraph_json".to_string(), builtin_subgraph_json as BuiltinFn);
+        funcs.insert(
+            "graph_neighbors".to_string(),
+            builtin_graph_neighbors as BuiltinFn,
+        );
+        funcs.insert(
+            "memory_decay".to_string(),
+            builtin_memory_decay as BuiltinFn,
+        );
+        funcs.insert(
+            "memory_boost".to_string(),
+            builtin_memory_boost as BuiltinFn,
+        );
+        funcs.insert(
+            "memory_prune".to_string(),
+            builtin_memory_prune as BuiltinFn,
+        );
+        funcs.insert(
+            "memory_revise".to_string(),
+            builtin_memory_revise as BuiltinFn,
+        );
+        funcs.insert(
+            "subgraph_extract".to_string(),
+            builtin_subgraph_extract as BuiltinFn,
+        );
+        funcs.insert(
+            "subgraph_nodes".to_string(),
+            builtin_subgraph_nodes as BuiltinFn,
+        );
+        funcs.insert(
+            "subgraph_json".to_string(),
+            builtin_subgraph_json as BuiltinFn,
+        );
         funcs.insert("trace_start".to_string(), builtin_trace_start as BuiltinFn);
         funcs.insert("trace_end".to_string(), builtin_trace_end as BuiltinFn);
         funcs.insert("assert_eq".to_string(), builtin_assert_eq as BuiltinFn);
-        funcs.insert("assert_contains".to_string(), builtin_assert_contains as BuiltinFn);
+        funcs.insert(
+            "assert_contains".to_string(),
+            builtin_assert_contains as BuiltinFn,
+        );
         // ── sqz-inspired: String/List utilities (P1) ──
         funcs.insert("squeeze".to_string(), builtin_squeeze as BuiltinFn);
         funcs.insert("dedup".to_string(), builtin_dedup as BuiltinFn);
@@ -527,24 +1392,54 @@ impl Builtins {
         funcs.insert("token_count".to_string(), builtin_token_count as BuiltinFn);
         // ── AgentSkillOS-inspired: Recipe system + DAG orchestration (ADR-0062) ──
         funcs.insert("recipe_save".to_string(), builtin_recipe_save as BuiltinFn);
-        funcs.insert("recipe_search".to_string(), builtin_recipe_search as BuiltinFn);
+        funcs.insert(
+            "recipe_search".to_string(),
+            builtin_recipe_search as BuiltinFn,
+        );
         funcs.insert("recipe_list".to_string(), builtin_recipe_list as BuiltinFn);
         funcs.insert("dag_phases".to_string(), builtin_dag_phases as BuiltinFn);
         funcs.insert("topo_sort".to_string(), builtin_topo_sort as BuiltinFn);
         // ── OpenPlanter-inspired: Fuzzy matching, safe editing, agent utilities (ADR-0063) ──
         funcs.insert("fuzzy_match".to_string(), builtin_fuzzy_match as BuiltinFn);
-        funcs.insert("fuzzy_find_best".to_string(), builtin_fuzzy_find_best as BuiltinFn);
-        funcs.insert("hashline_read".to_string(), builtin_hashline_read as BuiltinFn);
-        funcs.insert("hashline_edit".to_string(), builtin_hashline_edit as BuiltinFn);
-        funcs.insert("compact_list".to_string(), builtin_compact_list as BuiltinFn);
-        funcs.insert("budget_check".to_string(), builtin_budget_check as BuiltinFn);
-        funcs.insert("replay_snapshot".to_string(), builtin_replay_snapshot as BuiltinFn);
-        funcs.insert("policy_check".to_string(), builtin_policy_check as BuiltinFn);
+        funcs.insert(
+            "fuzzy_find_best".to_string(),
+            builtin_fuzzy_find_best as BuiltinFn,
+        );
+        funcs.insert(
+            "hashline_read".to_string(),
+            builtin_hashline_read as BuiltinFn,
+        );
+        funcs.insert(
+            "hashline_edit".to_string(),
+            builtin_hashline_edit as BuiltinFn,
+        );
+        funcs.insert(
+            "compact_list".to_string(),
+            builtin_compact_list as BuiltinFn,
+        );
+        funcs.insert(
+            "budget_check".to_string(),
+            builtin_budget_check as BuiltinFn,
+        );
+        funcs.insert(
+            "replay_snapshot".to_string(),
+            builtin_replay_snapshot as BuiltinFn,
+        );
+        funcs.insert(
+            "policy_check".to_string(),
+            builtin_policy_check as BuiltinFn,
+        );
 
         // ── obsidian-mind inspired: Vault/memory (v0.10.0) ──
-        funcs.insert("semantic_search".to_string(), builtin_semantic_search as BuiltinFn);
+        funcs.insert(
+            "semantic_search".to_string(),
+            builtin_semantic_search as BuiltinFn,
+        );
         funcs.insert("config_load".to_string(), builtin_config_load as BuiltinFn);
-        funcs.insert("vault_validate".to_string(), builtin_vault_validate as BuiltinFn);
+        funcs.insert(
+            "vault_validate".to_string(),
+            builtin_vault_validate as BuiltinFn,
+        );
         Builtins { funcs }
     }
 
@@ -552,13 +1447,17 @@ impl Builtins {
     #[cfg(debug_assertions)]
     fn check_registry_sync(&self) {
         for spec in BUILTIN_REGISTRY.iter() {
-            if spec.category != "stateful" && spec.category != "stub"
-                && spec.category != "graph" && spec.category != "mtree"
-                && spec.category != "cron" && spec.category != "test"
+            if spec.category != "stateful"
+                && spec.category != "stub"
+                && spec.category != "graph"
+                && spec.category != "mtree"
+                && spec.category != "cron"
+                && spec.category != "test"
             {
                 assert!(
                     self.funcs.contains_key(spec.name),
-                    "BUILTIN_REGISTRY '{}' has no handler in Builtins::new()", spec.name
+                    "BUILTIN_REGISTRY '{}' has no handler in Builtins::new()",
+                    spec.name
                 );
             }
         }
@@ -612,7 +1511,8 @@ fn builtin_contains(args: &[Value]) -> Result<Value, String> {
 fn builtin_float(args: &[Value]) -> Result<Value, String> {
     match args.get(0) {
         Some(Value::Float(f)) => Ok(Value::Float(*f)),
-        Some(Value::String(s)) => s.parse::<f64>()
+        Some(Value::String(s)) => s
+            .parse::<f64>()
             .map(Value::Float)
             .map_err(|_| format!("float() cannot parse '{}'", s)),
         _ => Err("float() requires 1 argument".to_string()),
@@ -636,10 +1536,13 @@ fn builtin_get(args: &[Value]) -> Result<Value, String> {
         Some(Value::Float(f)) => *f as usize,
         _ => return Err("get() requires Float index as second argument".to_string()),
     };
-    list.get(index).cloned().ok_or_else(|| format!(
-        "get() index {} out of bounds (list has {} elements)",
-        index, list.len()
-    ))
+    list.get(index).cloned().ok_or_else(|| {
+        format!(
+            "get() index {} out of bounds (list has {} elements)",
+            index,
+            list.len()
+        )
+    })
 }
 
 fn builtin_push(args: &[Value]) -> Result<Value, String> {
@@ -717,7 +1620,8 @@ fn builtin_ends_with(args: &[Value]) -> Result<Value, String> {
 fn builtin_to_float(args: &[Value]) -> Result<Value, String> {
     match args.get(0) {
         Some(Value::Float(f)) => Ok(Value::Float(*f)),
-        Some(Value::String(s)) => Ok(s.parse::<f64>()
+        Some(Value::String(s)) => Ok(s
+            .parse::<f64>()
             .map(Value::Float)
             .unwrap_or(Value::Float(0.0))), // soft-failure: return 0.0 on parse error
         Some(Value::Bool(b)) => Ok(Value::Float(if *b { 1.0 } else { 0.0 })),
@@ -728,7 +1632,9 @@ fn builtin_to_float(args: &[Value]) -> Result<Value, String> {
 fn builtin_confidence(args: &[Value]) -> Result<Value, String> {
     match args.get(0) {
         Some(Value::Fluid(variants)) => {
-            let best = variants.iter().map(|v| v.confidence)
+            let best = variants
+                .iter()
+                .map(|v| v.confidence)
                 .fold(0.0_f64, f64::max);
             Ok(Value::Float(best))
         }
@@ -741,26 +1647,34 @@ fn builtin_confidence(args: &[Value]) -> Result<Value, String> {
 
 fn expect_float_arg(fn_name: &str, args: &[Value], index: usize) -> Result<f64, String> {
     if args.len() <= index {
-        return Err(format!("{}() requires an argument at position {}", fn_name, index));
+        return Err(format!(
+            "{}() requires an argument at position {}",
+            fn_name, index
+        ));
     }
     match &args[index] {
         Value::Float(f) => Ok(*f),
         other => Err(format!(
             "{}() expected Float argument, got {}",
-            fn_name, other.type_name()
+            fn_name,
+            other.type_name()
         )),
     }
 }
 
 fn expect_string_arg(fn_name: &str, args: &[Value], index: usize) -> Result<String, String> {
     if args.len() <= index {
-        return Err(format!("{}() requires an argument at position {}", fn_name, index));
+        return Err(format!(
+            "{}() requires an argument at position {}",
+            fn_name, index
+        ));
     }
     match &args[index] {
         Value::String(s) => Ok(s.clone()),
         other => Err(format!(
             "{}() expected String argument, got {}",
-            fn_name, other.type_name()
+            fn_name,
+            other.type_name()
         )),
     }
 }
@@ -786,7 +1700,9 @@ fn builtin_split(args: &[Value]) -> Result<Value, String> {
     let items: Vec<Value> = if sep.is_empty() {
         s.chars().map(|c| Value::String(c.to_string())).collect()
     } else {
-        s.split(&sep).map(|part| Value::String(part.to_string())).collect()
+        s.split(&sep)
+            .map(|part| Value::String(part.to_string()))
+            .collect()
     };
     Ok(Value::List(items))
 }
@@ -893,7 +1809,7 @@ fn builtin_respond_html(args: &[Value]) -> Result<Value, String> {
 
 fn builtin_form_data(args: &[Value]) -> Result<Value, String> {
     let _ = args; // no args needed
-    // In non-server context, return empty form data struct
+                  // In non-server context, return empty form data struct
     Ok(Value::Struct {
         type_name: "FormData".to_string(),
         fields: std::collections::HashMap::new(),
@@ -902,7 +1818,7 @@ fn builtin_form_data(args: &[Value]) -> Result<Value, String> {
 
 fn builtin_json_body(args: &[Value]) -> Result<Value, String> {
     let _ = args; // no args needed
-    // In non-server context, return empty json body struct
+                  // In non-server context, return empty json body struct
     Ok(Value::Struct {
         type_name: "JsonBody".to_string(),
         fields: std::collections::HashMap::new(),
@@ -918,7 +1834,12 @@ fn builtin_query_param(args: &[Value]) -> Result<Value, String> {
     } else {
         match &args[0] {
             Value::String(s) => s.clone(),
-            other => return Err(format!("query_param() expected String, got {}", other.type_name())),
+            other => {
+                return Err(format!(
+                    "query_param() expected String, got {}",
+                    other.type_name()
+                ))
+            }
         }
     };
     // Stub — real implementation is special-cased in interpreter FnCall dispatch
@@ -942,7 +1863,12 @@ fn builtin_render(args: &[Value]) -> Result<Value, String> {
     while i + 1 < args.len() {
         let key = match &args[i] {
             Value::String(s) => s.clone(),
-            other => return Err(format!("render() key must be String, got {}", other.type_name())),
+            other => {
+                return Err(format!(
+                    "render() key must be String, got {}",
+                    other.type_name()
+                ))
+            }
         };
         let val = match &args[i + 1] {
             Value::String(s) => s.clone(),
@@ -957,8 +1883,11 @@ fn builtin_render(args: &[Value]) -> Result<Value, String> {
     html.push_str(&escape_html_chars(&template_name));
     html.push_str("\">");
     for (key, val) in &vars {
-        html.push_str(&format!("<span data-key=\"{}\">{}</span>",
-            escape_html_chars(key), escape_html_chars(val)));
+        html.push_str(&format!(
+            "<span data-key=\"{}\">{}</span>",
+            escape_html_chars(key),
+            escape_html_chars(val)
+        ));
     }
     html.push_str("</div>");
 
@@ -989,8 +1918,15 @@ fn escape_html_chars(s: &str) -> String {
 /// Parse a status line like "200 OK" into (status_code, body).
 fn parse_status_line(status_body: &str) -> (u16, String) {
     let parts: Vec<&str> = status_body.splitn(2, ' ').collect();
-    let status = parts.first().and_then(|s| s.parse::<u16>().ok()).unwrap_or(200);
-    let body = if parts.len() > 1 { parts[1].to_string() } else { String::new() };
+    let status = parts
+        .first()
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(200);
+    let body = if parts.len() > 1 {
+        parts[1].to_string()
+    } else {
+        String::new()
+    };
     (status, body)
 }
 
@@ -1000,7 +1936,11 @@ fn builtin_query(args: &[Value]) -> Result<Value, String> {
     let sql = expect_string_arg("query", args, 0)?;
     // Wrap SQL in opaque Query value — prevents string concatenation or printing
     // In interpreter mode, store the SQL for later mock execution
-    let _params = if args.len() > 1 { &args[1] } else { &Value::Unit };
+    let _params = if args.len() > 1 {
+        &args[1]
+    } else {
+        &Value::Unit
+    };
     Ok(Value::Query(sql))
 }
 
@@ -1023,7 +1963,7 @@ fn builtin_env(args: &[Value]) -> Result<Value, String> {
 fn builtin_hash_password(args: &[Value]) -> Result<Value, String> {
     let password = expect_string_arg("hash_password", args, 0)?;
     // Argon2id with random salt — real password hashing (Phase 7.3)
-    use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
+    use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
     use rand::rngs::OsRng;
 
     let salt = SaltString::generate(&mut OsRng);
@@ -1038,11 +1978,16 @@ fn builtin_verify_password(args: &[Value]) -> Result<Value, String> {
     let password = expect_string_arg("verify_password", args, 0)?;
     let hash_str = match args.get(1) {
         Some(Value::Hash(h)) => h.as_str(),
-        Some(other) => return Err(format!("verify_password() expected Hash as second arg, got {}", other.type_name())),
+        Some(other) => {
+            return Err(format!(
+                "verify_password() expected Hash as second arg, got {}",
+                other.type_name()
+            ))
+        }
         None => return Err("verify_password() requires 2 arguments".to_string()),
     };
     // Real Argon2id verification with constant-time comparison (Phase 7.3)
-    use argon2::{Argon2, PasswordVerifier, password_hash::PasswordHash};
+    use argon2::{password_hash::PasswordHash, Argon2, PasswordVerifier};
 
     let argon2 = Argon2::default();
     match PasswordHash::new(hash_str) {
@@ -1062,17 +2007,25 @@ fn builtin_encrypt(args: &[Value]) -> Result<Value, String> {
     let data = expect_string_arg("encrypt", args, 0)?;
     let key_str = match args.get(1) {
         Some(Value::Secret(zs)) => zs.as_str(),
-        Some(other) => return Err(format!("encrypt() expected Secret as second arg, got {}", other.type_name())),
+        Some(other) => {
+            return Err(format!(
+                "encrypt() expected Secret as second arg, got {}",
+                other.type_name()
+            ))
+        }
         None => return Err("encrypt() requires 2 arguments".to_string()),
     };
     // Real AES-256-GCM with random 96-bit nonce (Phase 7.3)
-    use aes_gcm::{Aes256Gcm, AeadCore, Key};
     use aes_gcm::aead::{Aead, KeyInit, OsRng};
+    use aes_gcm::{AeadCore, Aes256Gcm, Key};
 
     let key_bytes = hex::decode(key_str)
         .map_err(|e| format!("encrypt() invalid key format (expected hex): {}", e))?;
     if key_bytes.len() != 32 {
-        return Err(format!("encrypt() key must be 256-bit (64 hex chars), got {} bytes", key_bytes.len()));
+        return Err(format!(
+            "encrypt() key must be 256-bit (64 hex chars), got {} bytes",
+            key_bytes.len()
+        ));
     }
     let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
     let cipher = Aes256Gcm::new(key);
@@ -1092,18 +2045,28 @@ fn builtin_encrypt(args: &[Value]) -> Result<Value, String> {
 fn builtin_decrypt(args: &[Value]) -> Result<Value, String> {
     let encrypted = match args.get(0) {
         Some(Value::Encrypted(data)) => data.clone(),
-        Some(other) => return Err(format!("decrypt() expected Encrypted as first arg, got {}", other.type_name())),
+        Some(other) => {
+            return Err(format!(
+                "decrypt() expected Encrypted as first arg, got {}",
+                other.type_name()
+            ))
+        }
         None => return Err("decrypt() requires 2 arguments".to_string()),
     };
     let key_str = match args.get(1) {
         Some(Value::Secret(zs)) => zs.as_str(),
-        Some(other) => return Err(format!("decrypt() expected Secret as second arg, got {}", other.type_name())),
+        Some(other) => {
+            return Err(format!(
+                "decrypt() expected Secret as second arg, got {}",
+                other.type_name()
+            ))
+        }
         None => return Err("decrypt() requires 2 arguments".to_string()),
     };
     // Real AES-256-GCM decryption (Phase 7.3)
     // Encrypted format: nonce (12 bytes) || ciphertext_with_tag
-    use aes_gcm::{Aes256Gcm, Key, Nonce};
     use aes_gcm::aead::{Aead, KeyInit};
+    use aes_gcm::{Aes256Gcm, Key, Nonce};
 
     if encrypted.len() < 13 {
         // Need at least 12 (nonce) + 1 (tag minimum)
@@ -1113,7 +2076,10 @@ fn builtin_decrypt(args: &[Value]) -> Result<Value, String> {
     let key_bytes = hex::decode(key_str)
         .map_err(|e| format!("decrypt() invalid key format (expected hex): {}", e))?;
     if key_bytes.len() != 32 {
-        return Err(format!("decrypt() key must be 256-bit (64 hex chars), got {} bytes", key_bytes.len()));
+        return Err(format!(
+            "decrypt() key must be 256-bit (64 hex chars), got {} bytes",
+            key_bytes.len()
+        ));
     }
 
     let (nonce_bytes, ciphertext) = encrypted.split_at(12);
@@ -1122,19 +2088,17 @@ fn builtin_decrypt(args: &[Value]) -> Result<Value, String> {
     let cipher = Aes256Gcm::new(key);
 
     match cipher.decrypt(nonce, ciphertext) {
-        Ok(plaintext) => {
-            match String::from_utf8(plaintext) {
-                Ok(s) => Ok(Value::String(s)),
-                Err(_) => Err("decrypt() decrypted data is not valid UTF-8".to_string()),
-            }
-        }
+        Ok(plaintext) => match String::from_utf8(plaintext) {
+            Ok(s) => Ok(Value::String(s)),
+            Err(_) => Err("decrypt() decrypted data is not valid UTF-8".to_string()),
+        },
         Err(_) => Err("decrypt() failed: incorrect key or corrupted data".to_string()),
     }
 }
 
 fn builtin_generate_key(args: &[Value]) -> Result<Value, String> {
     let _ = args; // no args needed
-    // Generate a real 256-bit random key (Phase 7.3)
+                  // Generate a real 256-bit random key (Phase 7.3)
     use rand::RngCore;
 
     let mut key_bytes = [0u8; 32];
@@ -1150,7 +2114,12 @@ fn builtin_authenticate(args: &[Value]) -> Result<Value, String> {
     let _password = match args.get(1) {
         Some(Value::Secret(_)) => true,
         Some(Value::String(_)) => true,
-        Some(other) => return Err(format!("authenticate() expected Secret or String as password, got {}", other.type_name())),
+        Some(other) => {
+            return Err(format!(
+                "authenticate() expected Secret or String as password, got {}",
+                other.type_name()
+            ))
+        }
         None => return Err("authenticate() requires 2 arguments (email, password)".to_string()),
     };
     // In interpreter mode, always fail (mock)
@@ -1166,7 +2135,12 @@ fn builtin_session_login(args: &[Value]) -> Result<Value, String> {
 fn builtin_session_logout(args: &[Value]) -> Result<Value, String> {
     let _session = match args.get(0) {
         Some(Value::Session(_)) => true,
-        Some(other) => return Err(format!("session_logout() expected Session, got {}", other.type_name())),
+        Some(other) => {
+            return Err(format!(
+                "session_logout() expected Session, got {}",
+                other.type_name()
+            ))
+        }
         None => return Err("session_logout() requires 1 argument".to_string()),
     };
     Ok(Value::Unit)
@@ -1187,9 +2161,8 @@ fn value_to_json(val: &Value) -> Result<serde_json::Value, String> {
         }
         Value::Bool(b) => Ok(serde_json::Value::Bool(*b)),
         Value::List(items) => {
-            let arr: Vec<serde_json::Value> = items.iter()
-                .map(value_to_json)
-                .collect::<Result<_, _>>()?;
+            let arr: Vec<serde_json::Value> =
+                items.iter().map(value_to_json).collect::<Result<_, _>>()?;
             Ok(serde_json::Value::Array(arr))
         }
         Value::Struct { fields, .. } => {
@@ -1215,13 +2188,27 @@ fn builtin_send_message(args: &[Value]) -> Result<Value, String> {
                 serde_json::json!(*f)
             }
         }
-        Some(other) => return Err(format!("send_message() expected String or Float as chat_id, got {}", other.type_name())),
-        None => return Err("send_message() requires at least 2 arguments (chat_id, text)".to_string()),
+        Some(other) => {
+            return Err(format!(
+                "send_message() expected String or Float as chat_id, got {}",
+                other.type_name()
+            ))
+        }
+        None => {
+            return Err("send_message() requires at least 2 arguments (chat_id, text)".to_string())
+        }
     };
     let text = match args.get(1) {
         Some(Value::String(s)) => s.clone(),
-        Some(other) => return Err(format!("send_message() expected String as text, got {}", other.type_name())),
-        None => return Err("send_message() requires at least 2 arguments (chat_id, text)".to_string()),
+        Some(other) => {
+            return Err(format!(
+                "send_message() expected String as text, got {}",
+                other.type_name()
+            ))
+        }
+        None => {
+            return Err("send_message() requires at least 2 arguments (chat_id, text)".to_string())
+        }
     };
 
     // Try to send via Telegram API if BOT_TOKEN env var is set
@@ -1248,7 +2235,10 @@ fn builtin_send_message(args: &[Value]) -> Result<Value, String> {
         .map_err(|e| format!("send_message(): client error: {}", e))?;
 
     let resp = client
-        .post(format!("https://api.telegram.org/bot{}/sendMessage", bot_token))
+        .post(format!(
+            "https://api.telegram.org/bot{}/sendMessage",
+            bot_token
+        ))
         .header("Content-Type", "application/json")
         .body(body.to_string())
         .send()
@@ -1258,7 +2248,10 @@ fn builtin_send_message(args: &[Value]) -> Result<Value, String> {
     let resp_body = resp.text().unwrap_or_default();
 
     if status >= 400 {
-        return Err(format!("send_message(): Telegram status {}: {}", status, resp_body));
+        return Err(format!(
+            "send_message(): Telegram status {}: {}",
+            status, resp_body
+        ));
     }
 
     Ok(Value::String(resp_body))
@@ -1279,7 +2272,10 @@ fn builtin_answer_callback_query(args: &[Value]) -> Result<Value, String> {
     };
     let bot_token = std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default();
     if bot_token.is_empty() {
-        eprintln!("[AUDIT] answer_callback_query id={}: {}", callback_query_id, text);
+        eprintln!(
+            "[AUDIT] answer_callback_query id={}: {}",
+            callback_query_id, text
+        );
         return Ok(Value::Unit);
     }
     let body = serde_json::json!({
@@ -1289,15 +2285,24 @@ fn builtin_answer_callback_query(args: &[Value]) -> Result<Value, String> {
     });
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .build().map_err(|e| format!("answer_callback_query(): client error: {}", e))?;
-    let resp = client.post(format!("https://api.telegram.org/bot{}/answerCallbackQuery", bot_token))
+        .build()
+        .map_err(|e| format!("answer_callback_query(): client error: {}", e))?;
+    let resp = client
+        .post(format!(
+            "https://api.telegram.org/bot{}/answerCallbackQuery",
+            bot_token
+        ))
         .header("Content-Type", "application/json")
-        .body(body.to_string()).send()
+        .body(body.to_string())
+        .send()
         .map_err(|e| format!("answer_callback_query(): request failed: {}", e))?;
     let status = resp.status().as_u16();
     let resp_body = resp.text().unwrap_or_default();
     if status >= 400 {
-        return Err(format!("answer_callback_query(): Telegram status {}: {}", status, resp_body));
+        return Err(format!(
+            "answer_callback_query(): Telegram status {}: {}",
+            status, resp_body
+        ));
     }
     Ok(Value::String(resp_body))
 }
@@ -1317,7 +2322,10 @@ fn builtin_edit_message_text(args: &[Value]) -> Result<Value, String> {
     let text = expect_string_arg("edit_message_text", args, 2)?;
     let bot_token = std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default();
     if bot_token.is_empty() {
-        eprintln!("[AUDIT] edit_message_text chat_id={}: {}", chat_id_val, text);
+        eprintln!(
+            "[AUDIT] edit_message_text chat_id={}: {}",
+            chat_id_val, text
+        );
         return Ok(Value::Unit);
     }
     let mut body = serde_json::json!({
@@ -1331,15 +2339,24 @@ fn builtin_edit_message_text(args: &[Value]) -> Result<Value, String> {
     }
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .build().map_err(|e| format!("edit_message_text(): client error: {}", e))?;
-    let resp = client.post(format!("https://api.telegram.org/bot{}/editMessageText", bot_token))
+        .build()
+        .map_err(|e| format!("edit_message_text(): client error: {}", e))?;
+    let resp = client
+        .post(format!(
+            "https://api.telegram.org/bot{}/editMessageText",
+            bot_token
+        ))
         .header("Content-Type", "application/json")
-        .body(body.to_string()).send()
+        .body(body.to_string())
+        .send()
         .map_err(|e| format!("edit_message_text(): request failed: {}", e))?;
     let status = resp.status().as_u16();
     let resp_body = resp.text().unwrap_or_default();
     if status >= 400 {
-        return Err(format!("edit_message_text(): Telegram status {}: {}", status, resp_body));
+        return Err(format!(
+            "edit_message_text(): Telegram status {}: {}",
+            status, resp_body
+        ));
     }
     Ok(Value::String(resp_body))
 }
@@ -1354,13 +2371,23 @@ fn builtin_edit_message_text(args: &[Value]) -> Result<Value, String> {
 fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
     let url = match args.get(0) {
         Some(Value::String(s)) => s.clone(),
-        Some(other) => return Err(format!("http_post() expected String as url, got {}", other.type_name())),
+        Some(other) => {
+            return Err(format!(
+                "http_post() expected String as url, got {}",
+                other.type_name()
+            ))
+        }
         None => return Err("http_post() requires at least 1 argument (url)".to_string()),
     };
 
     let body = match args.get(1) {
         Some(Value::String(s)) => s.clone(),
-        Some(other) => return Err(format!("http_post() expected String as body, got {}", other.type_name())),
+        Some(other) => {
+            return Err(format!(
+                "http_post() expected String as body, got {}",
+                other.type_name()
+            ))
+        }
         None => return Err("http_post() requires at least 2 arguments (url, body)".to_string()),
     };
 
@@ -1425,22 +2452,23 @@ fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
         }
     }
 
-    let resp = req
-        .send()
-        .map_err(|e| {
-            let err_str = e.to_string();
-            if err_str.contains("timeout") || err_str.contains("timed out") {
-                format!("ERROR: http timeout after {}s", timeout_secs)
-            } else {
-                format!("http_post() request failed: {}", e)
-            }
-        })?;
+    let resp = req.send().map_err(|e| {
+        let err_str = e.to_string();
+        if err_str.contains("timeout") || err_str.contains("timed out") {
+            format!("ERROR: http timeout after {}s", timeout_secs)
+        } else {
+            format!("http_post() request failed: {}", e)
+        }
+    })?;
 
     let status = resp.status().as_u16();
     let resp_body = resp.text().unwrap_or_default();
 
     if status >= 400 {
-        return Err(format!("http_post() returned status {}: {}", status, resp_body));
+        return Err(format!(
+            "http_post() returned status {}: {}",
+            status, resp_body
+        ));
     }
 
     Ok(Value::String(resp_body))
@@ -1479,7 +2507,10 @@ fn builtin_call_claude(args: &[Value]) -> Result<Value, String> {
     let resp_body = resp.text().unwrap_or_default();
 
     if status >= 400 {
-        return Err(format!("call_claude() returned status {}: {}", status, resp_body));
+        return Err(format!(
+            "call_claude() returned status {}: {}",
+            status, resp_body
+        ));
     }
 
     // Parse response and extract content[0].text
@@ -1519,8 +2550,8 @@ fn builtin_escape_json(args: &[Value]) -> Result<Value, String> {
 /// Usage: parse_json(text) -> Struct|List|String|Float|Bool|Unit
 fn builtin_parse_json(args: &[Value]) -> Result<Value, String> {
     let text = expect_string_arg("parse_json", args, 0)?;
-    let parsed: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| format!("parse_json() error: {}", e))?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("parse_json() error: {}", e))?;
     Ok(json_value_to_mlog_value(&parsed))
 }
 
@@ -1539,7 +2570,10 @@ fn json_value_to_mlog_value(json: &serde_json::Value) -> Value {
             for (k, v) in obj {
                 fields.insert(k.clone(), json_value_to_mlog_value(v));
             }
-            Value::Struct { type_name: "Json".to_string(), fields }
+            Value::Struct {
+                type_name: "Json".to_string(),
+                fields,
+            }
         }
     }
 }
@@ -1589,7 +2623,9 @@ fn builtin_json_encode(args: &[Value]) -> Result<Value, String> {
 fn builtin_json_get(args: &[Value]) -> Result<Value, String> {
     let obj = match args.get(0) {
         Some(v) => v,
-        None => return Err("json_get() requires at least 2 arguments (obj, field_path)".to_string()),
+        None => {
+            return Err("json_get() requires at least 2 arguments (obj, field_path)".to_string())
+        }
     };
     let path = expect_string_arg("json_get", args, 1)?;
     // Bug 2.2 fix: when no default is provided, return the found value directly
@@ -1602,7 +2638,10 @@ fn builtin_json_get(args: &[Value]) -> Result<Value, String> {
         for segment in path.split('.') {
             // Try struct field access first
             match current.get_field(segment) {
-                Ok(val) => { current = val; continue; }
+                Ok(val) => {
+                    current = val;
+                    continue;
+                }
                 Err(_) => {}
             }
             // If struct field not found, try numeric array index (Наряд №24 B4)
@@ -1627,7 +2666,10 @@ fn builtin_json_get(args: &[Value]) -> Result<Value, String> {
         for segment in path.split('.') {
             // Try struct field access first
             match current.get_field(segment) {
-                Ok(val) => { current = val; continue; }
+                Ok(val) => {
+                    current = val;
+                    continue;
+                }
                 Err(_) => {}
             }
             // If struct field not found, try numeric array index (Наряд №24 B4)
@@ -1677,7 +2719,12 @@ fn builtin_has_field(args: &[Value]) -> Result<Value, String> {
 fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
     let url = match args.get(0) {
         Some(Value::String(s)) => s.clone(),
-        Some(other) => return Err(format!("http_get() expected String as url, got {}", other.type_name())),
+        Some(other) => {
+            return Err(format!(
+                "http_get() expected String as url, got {}",
+                other.type_name()
+            ))
+        }
         None => return Err("http_get() requires 1 argument (url)".to_string()),
     };
 
@@ -1728,22 +2775,23 @@ fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
         }
     }
 
-    let resp = req
-        .send()
-        .map_err(|e| {
-            let err_str = e.to_string();
-            if err_str.contains("timeout") || err_str.contains("timed out") {
-                format!("ERROR: http timeout after {}s", timeout_secs)
-            } else {
-                format!("http_get() request failed: {}", e)
-            }
-        })?;
+    let resp = req.send().map_err(|e| {
+        let err_str = e.to_string();
+        if err_str.contains("timeout") || err_str.contains("timed out") {
+            format!("ERROR: http timeout after {}s", timeout_secs)
+        } else {
+            format!("http_get() request failed: {}", e)
+        }
+    })?;
 
     let status = resp.status().as_u16();
     let resp_body = resp.text().unwrap_or_default();
 
     if status >= 400 {
-        return Err(format!("http_get() returned status {}: {}", status, resp_body));
+        return Err(format!(
+            "http_get() returned status {}: {}",
+            status, resp_body
+        ));
     }
 
     Ok(Value::String(resp_body))
@@ -1777,7 +2825,10 @@ fn builtin_require(args: &[Value]) -> Result<Value, String> {
             };
             Err(format!("require assertion failed: {}", msg))
         }
-        other => Err(format!("require() expected Bool, got {}", other.type_name())),
+        other => Err(format!(
+            "require() expected Bool, got {}",
+            other.type_name()
+        )),
     }
 }
 
@@ -1788,7 +2839,10 @@ fn builtin_length(args: &[Value]) -> Result<Value, String> {
     match args.get(0) {
         Some(Value::String(s)) => Ok(Value::Float(s.chars().count() as f64)),
         Some(Value::List(items)) => Ok(Value::Float(items.len() as f64)),
-        other => Err(format!("length() requires String or List, got {}", other.as_ref().map(|v| v.type_name()).unwrap_or("none"))),
+        other => Err(format!(
+            "length() requires String or List, got {}",
+            other.as_ref().map(|v| v.type_name()).unwrap_or("none")
+        )),
     }
 }
 
@@ -1814,15 +2868,16 @@ fn builtin_to_int(args: &[Value]) -> Result<Value, String> {
 /// `reverse(s)` — reverse a string or list.
 fn builtin_reverse(args: &[Value]) -> Result<Value, String> {
     match args.get(0) {
-        Some(Value::String(s)) => {
-            Ok(Value::String(s.chars().rev().collect()))
-        }
+        Some(Value::String(s)) => Ok(Value::String(s.chars().rev().collect())),
         Some(Value::List(items)) => {
             let mut rev = items.clone();
             rev.reverse();
             Ok(Value::List(rev))
         }
-        other => Err(format!("reverse() requires String or List, got {}", other.as_ref().map(|v| v.type_name()).unwrap_or("none"))),
+        other => Err(format!(
+            "reverse() requires String or List, got {}",
+            other.as_ref().map(|v| v.type_name()).unwrap_or("none")
+        )),
     }
 }
 
@@ -1834,7 +2889,12 @@ fn builtin_reverse(args: &[Value]) -> Result<Value, String> {
 fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
     let prompt = match args.get(0) {
         Some(Value::String(s)) => s.clone(),
-        Some(other) => return Err(format!("call_llm() expected String as prompt, got {}", other.type_name())),
+        Some(other) => {
+            return Err(format!(
+                "call_llm() expected String as prompt, got {}",
+                other.type_name()
+            ))
+        }
         None => return Err("call_llm() requires at least 1 argument (prompt)".to_string()),
     };
     let input = match args.get(1) {
@@ -1853,7 +2913,8 @@ fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
     } else {
         // Real LLM call
         let backend = crate::llm::create_llm_backend();
-        backend.call(&prompt, &input)
+        backend
+            .call(&prompt, &input)
             .map(Value::String)
             .map_err(|e| format!("call_llm() failed: {}", e))
     }
@@ -1868,7 +2929,8 @@ fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
 use std::sync::Mutex as StdMutex;
 
 /// Global KV store — lazy_static pattern using std::sync::OnceLock (Rust 1.70+).
-static KV_STORE: std::sync::OnceLock<StdMutex<std::collections::HashMap<String, String>>> = std::sync::OnceLock::new();
+static KV_STORE: std::sync::OnceLock<StdMutex<std::collections::HashMap<String, String>>> =
+    std::sync::OnceLock::new();
 
 fn kv_store() -> &'static StdMutex<std::collections::HashMap<String, String>> {
     KV_STORE.get_or_init(|| StdMutex::new(std::collections::HashMap::new()))
@@ -1877,7 +2939,8 @@ fn kv_store() -> &'static StdMutex<std::collections::HashMap<String, String>> {
 /// Global SQLite KV persistence backend.
 /// Initialized by init_kv_persist() when memory { persist: "..." } is configured.
 /// Uses std::sync::Mutex (same thread model as KV_STORE).
-static KV_SQLITE: std::sync::OnceLock<StdMutex<Option<rusqlite::Connection>>> = std::sync::OnceLock::new();
+static KV_SQLITE: std::sync::OnceLock<StdMutex<Option<rusqlite::Connection>>> =
+    std::sync::OnceLock::new();
 
 fn kv_sqlite() -> &'static StdMutex<Option<rusqlite::Connection>> {
     KV_SQLITE.get_or_init(|| StdMutex::new(None))
@@ -1891,18 +2954,22 @@ pub fn init_kv_persist(db_path: &str) -> Result<(), String> {
     let conn = rusqlite::Connection::open(db_path)
         .map_err(|e| format!("[kv_store] Failed to open database '{}': {}", db_path, e))?;
     conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
-    ).map_err(|e| format!("[kv_store] Failed to create table: {}", e))?;
+        "CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+    )
+    .map_err(|e| format!("[kv_store] Failed to create table: {}", e))?;
 
     // Load existing KV pairs into in-memory HashMap (write-through cache warmup)
     {
-        let mut stmt = conn.prepare("SELECT key, value FROM kv_store")
+        let mut stmt = conn
+            .prepare("SELECT key, value FROM kv_store")
             .map_err(|e| format!("[kv_store] Failed to query: {}", e))?;
-        let rows: Vec<(String, String)> = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        }).map_err(|e| format!("[kv_store] Failed to iterate: {}", e))?
-        .filter_map(|r| r.ok())
-        .collect();
+        let rows: Vec<(String, String)> = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| format!("[kv_store] Failed to iterate: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
 
         // Merge into in-memory store (SQLite is authoritative on init)
         if let Ok(mut store) = kv_store().lock() {
@@ -1913,7 +2980,8 @@ pub fn init_kv_persist(db_path: &str) -> Result<(), String> {
     } // stmt is dropped here, releasing borrow on conn
 
     // Store the connection globally
-    let mut sqlite_guard = kv_sqlite().lock()
+    let mut sqlite_guard = kv_sqlite()
+        .lock()
         .map_err(|e| format!("[kv_store] lock error: {}", e))?;
     *sqlite_guard = Some(conn);
     eprintln!("[kv_store] SQLite persistence enabled: {}", db_path);
@@ -1928,7 +2996,9 @@ fn builtin_kv_set(args: &[Value]) -> Result<Value, String> {
         Some(other) => format!("{}", other),
         None => return Err("kv_set() requires 2 arguments (key, value)".to_string()),
     };
-    let mut store = kv_store().lock().map_err(|e| format!("kv_set() lock error: {}", e))?;
+    let mut store = kv_store()
+        .lock()
+        .map_err(|e| format!("kv_set() lock error: {}", e))?;
     store.insert(key.clone(), value.clone());
     // Write-through to SQLite if available
     if let Ok(sqlite_guard) = kv_sqlite().lock() {
@@ -1945,19 +3015,26 @@ fn builtin_kv_set(args: &[Value]) -> Result<Value, String> {
 /// `kv_get(key)` — retrieve a value by key. Returns empty string if not found.
 fn builtin_kv_get(args: &[Value]) -> Result<Value, String> {
     let key = expect_string_arg("kv_get", args, 0)?;
-    let store = kv_store().lock().map_err(|e| format!("kv_get() lock error: {}", e))?;
+    let store = kv_store()
+        .lock()
+        .map_err(|e| format!("kv_get() lock error: {}", e))?;
     Ok(Value::String(store.get(&key).cloned().unwrap_or_default()))
 }
 
 /// `kv_delete(key)` — remove a key-value pair.
 fn builtin_kv_delete(args: &[Value]) -> Result<Value, String> {
     let key = expect_string_arg("kv_delete", args, 0)?;
-    let mut store = kv_store().lock().map_err(|e| format!("kv_delete() lock error: {}", e))?;
+    let mut store = kv_store()
+        .lock()
+        .map_err(|e| format!("kv_delete() lock error: {}", e))?;
     store.remove(&key);
     // Write-through delete to SQLite if available
     if let Ok(sqlite_guard) = kv_sqlite().lock() {
         if let Some(ref conn) = *sqlite_guard {
-            let _ = conn.execute("DELETE FROM kv_store WHERE key = ?1", rusqlite::params![key]);
+            let _ = conn.execute(
+                "DELETE FROM kv_store WHERE key = ?1",
+                rusqlite::params![key],
+            );
         }
     }
     Ok(Value::Unit)
@@ -1966,14 +3043,18 @@ fn builtin_kv_delete(args: &[Value]) -> Result<Value, String> {
 /// `kv_exists(key)` — check if a key exists. Returns Bool.
 fn builtin_kv_exists(args: &[Value]) -> Result<Value, String> {
     let key = expect_string_arg("kv_exists", args, 0)?;
-    let store = kv_store().lock().map_err(|e| format!("kv_exists() lock error: {}", e))?;
+    let store = kv_store()
+        .lock()
+        .map_err(|e| format!("kv_exists() lock error: {}", e))?;
     Ok(Value::Bool(store.contains_key(&key)))
 }
 
 /// `kv_list()` — list all keys. Returns List of Strings.
 fn builtin_kv_list(args: &[Value]) -> Result<Value, String> {
     let _ = args;
-    let store = kv_store().lock().map_err(|e| format!("kv_list() lock error: {}", e))?;
+    let store = kv_store()
+        .lock()
+        .map_err(|e| format!("kv_list() lock error: {}", e))?;
     let keys: Vec<Value> = store.keys().cloned().map(Value::String).collect();
     Ok(Value::List(keys))
 }
@@ -1992,7 +3073,9 @@ fn builtin_mem_set(args: &[Value]) -> Result<Value, String> {
         Some(other) => format!("{}", other),
         None => return Err("mem_set() requires 2 arguments (key, value)".to_string()),
     };
-    let mut store = kv_store().lock().map_err(|e| format!("mem_set() lock error: {}", e))?;
+    let mut store = kv_store()
+        .lock()
+        .map_err(|e| format!("mem_set() lock error: {}", e))?;
     store.insert(key.clone(), value.clone());
     // Write-through to SQLite if available
     if let Ok(sqlite_guard) = kv_sqlite().lock() {
@@ -2010,19 +3093,26 @@ fn builtin_mem_set(args: &[Value]) -> Result<Value, String> {
 /// Returns the value or empty string if not found.
 fn builtin_mem_get(args: &[Value]) -> Result<Value, String> {
     let key = expect_string_arg("mem_get", args, 0)?;
-    let store = kv_store().lock().map_err(|e| format!("mem_get() lock error: {}", e))?;
+    let store = kv_store()
+        .lock()
+        .map_err(|e| format!("mem_get() lock error: {}", e))?;
     Ok(Value::String(store.get(&key).cloned().unwrap_or_default()))
 }
 
 /// `mem_delete(key)` — remove a key-value pair. Returns the deleted value or empty string.
 fn builtin_mem_delete(args: &[Value]) -> Result<Value, String> {
     let key = expect_string_arg("mem_delete", args, 0)?;
-    let mut store = kv_store().lock().map_err(|e| format!("mem_delete() lock error: {}", e))?;
+    let mut store = kv_store()
+        .lock()
+        .map_err(|e| format!("mem_delete() lock error: {}", e))?;
     let removed = store.remove(&key);
     // Write-through delete to SQLite if available
     if let Ok(sqlite_guard) = kv_sqlite().lock() {
         if let Some(ref conn) = *sqlite_guard {
-            let _ = conn.execute("DELETE FROM kv_store WHERE key = ?1", rusqlite::params![key]);
+            let _ = conn.execute(
+                "DELETE FROM kv_store WHERE key = ?1",
+                rusqlite::params![key],
+            );
         }
     }
     Ok(Value::String(removed.unwrap_or_default()))
@@ -2040,9 +3130,13 @@ fn builtin_mem_delete(args: &[Value]) -> Result<Value, String> {
 
 /// Global session store — lazy_static pattern using std::sync::OnceLock.
 /// Outer key = session_id, inner key = data key, inner value = data value.
-static SESSION_STORE: std::sync::OnceLock<StdMutex<std::collections::HashMap<String, std::collections::HashMap<String, String>>>> = std::sync::OnceLock::new();
+static SESSION_STORE: std::sync::OnceLock<
+    StdMutex<std::collections::HashMap<String, std::collections::HashMap<String, String>>>,
+> = std::sync::OnceLock::new();
 
-fn session_store() -> &'static StdMutex<std::collections::HashMap<String, std::collections::HashMap<String, String>>> {
+fn session_store(
+) -> &'static StdMutex<std::collections::HashMap<String, std::collections::HashMap<String, String>>>
+{
     SESSION_STORE.get_or_init(|| StdMutex::new(std::collections::HashMap::new()))
 }
 
@@ -2060,7 +3154,8 @@ pub fn session_store_count() -> usize {
 
 /// Get the number of keys in a specific session. Used by contract tests.
 pub fn session_key_count(session_id: &str) -> usize {
-    session_store().lock()
+    session_store()
+        .lock()
         .ok()
         .and_then(|s| s.get(session_id).map(|m| m.len()))
         .unwrap_or(0)
@@ -2074,10 +3169,17 @@ fn builtin_session_set(args: &[Value]) -> Result<Value, String> {
     let value = match args.get(2) {
         Some(Value::String(s)) => s.clone(),
         Some(other) => format!("{}", other),
-        None => return Err("session_set() requires 3 arguments (session_id, key, value)".to_string()),
+        None => {
+            return Err("session_set() requires 3 arguments (session_id, key, value)".to_string())
+        }
     };
-    let mut store = session_store().lock().map_err(|e| format!("session_set() lock error: {}", e))?;
-    store.entry(session_id).or_default().insert(key.clone(), value.clone());
+    let mut store = session_store()
+        .lock()
+        .map_err(|e| format!("session_set() lock error: {}", e))?;
+    store
+        .entry(session_id)
+        .or_default()
+        .insert(key.clone(), value.clone());
     Ok(Value::String(value))
 }
 
@@ -2086,8 +3188,11 @@ fn builtin_session_set(args: &[Value]) -> Result<Value, String> {
 fn builtin_session_get(args: &[Value]) -> Result<Value, String> {
     let session_id = expect_string_arg("session_get", args, 0)?;
     let key = expect_string_arg("session_get", args, 1)?;
-    let store = session_store().lock().map_err(|e| format!("session_get() lock error: {}", e))?;
-    let value = store.get(&session_id)
+    let store = session_store()
+        .lock()
+        .map_err(|e| format!("session_get() lock error: {}", e))?;
+    let value = store
+        .get(&session_id)
         .and_then(|session| session.get(&key).cloned())
         .unwrap_or_default();
     Ok(Value::String(value))
@@ -2097,7 +3202,9 @@ fn builtin_session_get(args: &[Value]) -> Result<Value, String> {
 /// Returns "ok". No-op if session doesn't exist.
 fn builtin_session_clear(args: &[Value]) -> Result<Value, String> {
     let session_id = expect_string_arg("session_clear", args, 0)?;
-    let mut store = session_store().lock().map_err(|e| format!("session_clear() lock error: {}", e))?;
+    let mut store = session_store()
+        .lock()
+        .map_err(|e| format!("session_clear() lock error: {}", e))?;
     store.remove(&session_id);
     Ok(Value::String("ok".to_string()))
 }
@@ -2111,12 +3218,18 @@ fn sandbox_path(path: &str) -> Result<std::path::PathBuf, String> {
     let p = std::path::Path::new(path);
     // Reject absolute paths
     if p.is_absolute() {
-        return Err(format!("file I/O sandbox: absolute paths not allowed: '{}'", path));
+        return Err(format!(
+            "file I/O sandbox: absolute paths not allowed: '{}'",
+            path
+        ));
     }
     // Reject path traversal
     for component in p.components() {
         if let std::path::Component::ParentDir = component {
-            return Err(format!("file I/O sandbox: path traversal ('..') not allowed: '{}'", path));
+            return Err(format!(
+                "file I/O sandbox: path traversal ('..') not allowed: '{}'",
+                path
+            ));
         }
     }
     Ok(std::path::PathBuf::from(path))
@@ -2225,9 +3338,9 @@ fn builtin_list_dir(args: &[Value]) -> Result<Value, String> {
     let entries: Vec<Value> = std::fs::read_dir(&safe_path)
         .map_err(|e| format!("list_dir('{}'): {}", path, e))?
         .filter_map(|entry| {
-            entry.ok().map(|e| {
-                Value::String(e.file_name().to_string_lossy().to_string())
-            })
+            entry
+                .ok()
+                .map(|e| Value::String(e.file_name().to_string_lossy().to_string()))
         })
         .collect();
     Ok(Value::List(entries))
@@ -2240,22 +3353,32 @@ fn builtin_llm_usage(_args: &[Value]) -> Result<Value, String> {
 
     let mut fields = std::collections::HashMap::new();
     fields.insert("total_calls".to_string(), Value::Float(report.total_calls));
-    fields.insert("total_tokens".to_string(), Value::Float(report.total_tokens));
-    fields.insert("total_errors".to_string(), Value::Float(report.total_errors));
+    fields.insert(
+        "total_tokens".to_string(),
+        Value::Float(report.total_tokens),
+    );
+    fields.insert(
+        "total_errors".to_string(),
+        Value::Float(report.total_errors),
+    );
 
-    let providers: Vec<Value> = report.providers.iter().map(|p| {
-        let mut pf = std::collections::HashMap::new();
-        pf.insert("alias".to_string(), Value::String(p.alias.clone()));
-        pf.insert("calls".to_string(), Value::Float(p.calls as f64));
-        pf.insert("tokens".to_string(), Value::Float(p.tokens as f64));
-        pf.insert("errors".to_string(), Value::Float(p.errors as f64));
-        pf.insert("avg_latency_ms".to_string(), Value::Float(p.avg_latency_ms));
-        pf.insert("health_score".to_string(), Value::Float(p.health_score));
-        Value::Struct {
-            type_name: "ProviderUsage".to_string(),
-            fields: pf,
-        }
-    }).collect();
+    let providers: Vec<Value> = report
+        .providers
+        .iter()
+        .map(|p| {
+            let mut pf = std::collections::HashMap::new();
+            pf.insert("alias".to_string(), Value::String(p.alias.clone()));
+            pf.insert("calls".to_string(), Value::Float(p.calls as f64));
+            pf.insert("tokens".to_string(), Value::Float(p.tokens as f64));
+            pf.insert("errors".to_string(), Value::Float(p.errors as f64));
+            pf.insert("avg_latency_ms".to_string(), Value::Float(p.avg_latency_ms));
+            pf.insert("health_score".to_string(), Value::Float(p.health_score));
+            Value::Struct {
+                type_name: "ProviderUsage".to_string(),
+                fields: pf,
+            }
+        })
+        .collect();
     fields.insert("providers".to_string(), Value::List(providers));
 
     Ok(Value::Struct {
@@ -2270,11 +3393,17 @@ fn builtin_http_post_multipart(args: &[Value]) -> Result<Value, String> {
     let url = expect_string_arg("http_post_multipart", args, 0)?;
     let fields = match args.get(1) {
         Some(Value::Struct { fields, .. }) => fields.clone(),
-        _ => return Err("http_post_multipart() requires Struct as 2nd argument (fields)".to_string()),
+        _ => {
+            return Err(
+                "http_post_multipart() requires Struct as 2nd argument (fields)".to_string(),
+            )
+        }
     };
     let files = match args.get(2) {
         Some(Value::Struct { fields, .. }) => fields.clone(),
-        _ => return Err("http_post_multipart() requires Struct as 3rd argument (files)".to_string()),
+        _ => {
+            return Err("http_post_multipart() requires Struct as 3rd argument (files)".to_string())
+        }
     };
 
     let client = reqwest::blocking::Client::builder()
@@ -2294,8 +3423,9 @@ fn builtin_http_post_multipart(args: &[Value]) -> Result<Value, String> {
     // Add file fields
     for (key, val) in &files {
         if let Value::String(path) = val {
-            let file_bytes = std::fs::read(path)
-                .map_err(|e| format!("http_post_multipart(): cannot read file '{}': {}", path, e))?;
+            let file_bytes = std::fs::read(path).map_err(|e| {
+                format!("http_post_multipart(): cannot read file '{}': {}", path, e)
+            })?;
             let file_name = std::path::Path::new(path)
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -2306,14 +3436,20 @@ fn builtin_http_post_multipart(args: &[Value]) -> Result<Value, String> {
         }
     }
 
-    let resp = client.post(&url).multipart(form).send()
+    let resp = client
+        .post(&url)
+        .multipart(form)
+        .send()
         .map_err(|e| format!("http_post_multipart(): request failed: {}", e))?;
 
     let status = resp.status().as_u16();
     let resp_body = resp.text().unwrap_or_default();
 
     if status >= 400 {
-        return Err(format!("http_post_multipart() returned status {}: {}", status, resp_body));
+        return Err(format!(
+            "http_post_multipart() returned status {}: {}",
+            status, resp_body
+        ));
     }
 
     Ok(Value::String(resp_body))
@@ -2334,13 +3470,19 @@ fn builtin_whisper_transcribe(args: &[Value]) -> Result<Value, String> {
         .build()
         .map_err(|e| format!("whisper_transcribe(): client error: {}", e))?;
 
-    let get_file_url = format!("https://api.telegram.org/bot{}/getFile?file_id={}", bot_token, file_id);
-    let tg_resp = tg_client.get(&get_file_url).send()
+    let get_file_url = format!(
+        "https://api.telegram.org/bot{}/getFile?file_id={}",
+        bot_token, file_id
+    );
+    let tg_resp = tg_client
+        .get(&get_file_url)
+        .send()
         .map_err(|e| format!("whisper_transcribe(): Telegram getFile failed: {}", e))?;
     let tg_body: serde_json::Value = serde_json::from_str(&tg_resp.text().unwrap_or_default())
         .map_err(|e| format!("whisper_transcribe(): Telegram response parse error: {}", e))?;
 
-    let file_path = tg_body.get("result")
+    let file_path = tg_body
+        .get("result")
         .and_then(|r| r.get("file_path"))
         .and_then(|p| p.as_str())
         .unwrap_or("")
@@ -2351,8 +3493,13 @@ fn builtin_whisper_transcribe(args: &[Value]) -> Result<Value, String> {
     }
 
     // Step 2: Download the file
-    let download_url = format!("https://api.telegram.org/file/bot{}/{}", bot_token, file_path);
-    let audio_bytes = tg_client.get(&download_url).send()
+    let download_url = format!(
+        "https://api.telegram.org/file/bot{}/{}",
+        bot_token, file_path
+    );
+    let audio_bytes = tg_client
+        .get(&download_url)
+        .send()
         .map_err(|e| format!("whisper_transcribe(): download failed: {}", e))?
         .bytes()
         .map_err(|e| format!("whisper_transcribe(): read bytes failed: {}", e))?;
@@ -2364,7 +3511,8 @@ fn builtin_whisper_transcribe(args: &[Value]) -> Result<Value, String> {
             "Authorization".to_string(),
             format!("Bearer {}", whisper_key),
         ),
-        _ => ( // openai
+        _ => (
+            // openai
             "https://api.openai.com/v1/audio/transcriptions".to_string(),
             "Authorization".to_string(),
             format!("Bearer {}", whisper_key),
@@ -2377,14 +3525,19 @@ fn builtin_whisper_transcribe(args: &[Value]) -> Result<Value, String> {
         .build()
         .map_err(|e| format!("whisper_transcribe(): whisper client error: {}", e))?;
 
-    let model = if provider == "groq" { "whisper-large-v3" } else { "whisper-1" };
+    let model = if provider == "groq" {
+        "whisper-large-v3"
+    } else {
+        "whisper-1"
+    };
     let mut form = reqwest::blocking::multipart::Form::new();
     form = form.text("model", model.to_string());
-    let part = reqwest::blocking::multipart::Part::bytes(audio_bytes.to_vec())
-        .file_name("audio.ogg");
+    let part =
+        reqwest::blocking::multipart::Part::bytes(audio_bytes.to_vec()).file_name("audio.ogg");
     form = form.part("file", part);
 
-    let whisper_resp = whisper_client.post(&api_url)
+    let whisper_resp = whisper_client
+        .post(&api_url)
         .header(auth_header, auth_value)
         .multipart(form)
         .send()
@@ -2394,13 +3547,20 @@ fn builtin_whisper_transcribe(args: &[Value]) -> Result<Value, String> {
     let whisper_body = whisper_resp.text().unwrap_or_default();
 
     if status >= 400 {
-        return Err(format!("whisper_transcribe(): whisper API status {}: {}", status, whisper_body));
+        return Err(format!(
+            "whisper_transcribe(): whisper API status {}: {}",
+            status, whisper_body
+        ));
     }
 
     // Parse response to extract text
     let parsed: serde_json::Value = serde_json::from_str(&whisper_body)
         .map_err(|e| format!("whisper_transcribe(): whisper response parse error: {}", e))?;
-    let text = parsed.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
+    let text = parsed
+        .get("text")
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .to_string();
 
     Ok(Value::String(text))
 }
@@ -2427,7 +3587,8 @@ fn builtin_tts_send(args: &[Value]) -> Result<Value, String> {
         .build()
         .map_err(|e| format!("tts_send(): client error: {}", e))?;
 
-    let tts_resp = client.post("https://api.openai.com/v1/audio/speech")
+    let tts_resp = client
+        .post("https://api.openai.com/v1/audio/speech")
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .body(tts_body.to_string())
@@ -2437,10 +3598,14 @@ fn builtin_tts_send(args: &[Value]) -> Result<Value, String> {
     let status = tts_resp.status().as_u16();
     if status >= 400 {
         let err_body = tts_resp.text().unwrap_or_default();
-        return Err(format!("tts_send(): TTS API status {}: {}", status, err_body));
+        return Err(format!(
+            "tts_send(): TTS API status {}: {}",
+            status, err_body
+        ));
     }
 
-    let audio_bytes = tts_resp.bytes()
+    let audio_bytes = tts_resp
+        .bytes()
         .map_err(|e| format!("tts_send(): failed to read TTS audio: {}", e))?;
 
     // Step 2: Send as voice note to Telegram via sendVoice
@@ -2456,11 +3621,15 @@ fn builtin_tts_send(args: &[Value]) -> Result<Value, String> {
     };
     let mut form = reqwest::blocking::multipart::Form::new();
     form = form.text("chat_id", chat_id.clone());
-    let audio_part = reqwest::blocking::multipart::Part::bytes(audio_bytes.to_vec())
-        .file_name("speech.ogg");
+    let audio_part =
+        reqwest::blocking::multipart::Part::bytes(audio_bytes.to_vec()).file_name("speech.ogg");
     form = form.part(field_name, audio_part);
 
-    let tg_resp = client.post(format!("https://api.telegram.org/bot{}/{}", bot_token, endpoint))
+    let tg_resp = client
+        .post(format!(
+            "https://api.telegram.org/bot{}/{}",
+            bot_token, endpoint
+        ))
         .multipart(form)
         .send()
         .map_err(|e| format!("tts_send(): Telegram {} failed: {}", endpoint, e))?;
@@ -2469,7 +3638,10 @@ fn builtin_tts_send(args: &[Value]) -> Result<Value, String> {
     let tg_body = tg_resp.text().unwrap_or_default();
 
     if tg_status >= 400 {
-        return Err(format!("tts_send(): Telegram status {}: {}", tg_status, tg_body));
+        return Err(format!(
+            "tts_send(): Telegram status {}: {}",
+            tg_status, tg_body
+        ));
     }
 
     Ok(Value::String(tg_body))
@@ -2505,10 +3677,13 @@ fn builtin_exec(args: &[Value]) -> Result<Value, String> {
     // Security: disable in server context unless explicitly allowed
     if std::env::var("METALOGOS_ALLOW_EXEC").unwrap_or_default() != "1" {
         // Check if we're likely in server mode (has METALOGOS_PORT or METALOGOS_DB env)
-        let in_server = std::env::var("METALOGOS_PORT").is_ok()
-            || std::env::var("METALOGOS_DB").is_ok();
+        let in_server =
+            std::env::var("METALOGOS_PORT").is_ok() || std::env::var("METALOGOS_DB").is_ok();
         if in_server {
-            return Err("exec() is disabled in server mode. Set METALOGOS_ALLOW_EXEC=1 to enable.".to_string());
+            return Err(
+                "exec() is disabled in server mode. Set METALOGOS_ALLOW_EXEC=1 to enable."
+                    .to_string(),
+            );
         }
     }
 
@@ -2522,7 +3697,11 @@ fn builtin_exec(args: &[Value]) -> Result<Value, String> {
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        return Err(format!("exec() command exited with {}: {}", output.status, stderr.trim()));
+        return Err(format!(
+            "exec() command exited with {}: {}",
+            output.status,
+            stderr.trim()
+        ));
     }
     Ok(Value::String(stdout))
 }
@@ -2665,7 +3844,10 @@ fn make_struct(type_name: &str, fields: Vec<(&str, Value)>) -> Value {
     for (k, v) in fields {
         map.insert(k.to_string(), v);
     }
-    Value::Struct { type_name: type_name.to_string(), fields: map }
+    Value::Struct {
+        type_name: type_name.to_string(),
+        fields: map,
+    }
 }
 
 /// `fuzzy_match(a, b)` — Jaro-Winkler similarity between two strings (0.0..1.0).
@@ -2697,11 +3879,14 @@ fn builtin_fuzzy_find_best(args: &[Value]) -> Result<Value, String> {
             best_candidate = c;
         }
     }
-    Ok(make_struct("FuzzyMatch", vec![
-        ("index", Value::Float(best_idx as f64)),
-        ("candidate", Value::String(best_candidate)),
-        ("score", Value::Float(best_score)),
-    ]))
+    Ok(make_struct(
+        "FuzzyMatch",
+        vec![
+            ("index", Value::Float(best_idx as f64)),
+            ("candidate", Value::String(best_candidate)),
+            ("score", Value::Float(best_score)),
+        ],
+    ))
 }
 
 /// Compute a 2-char hex hash for a line (whitespace-normalized),
@@ -2743,11 +3928,18 @@ fn builtin_hashline_edit(args: &[Value]) -> Result<Value, String> {
         match op {
             "set_line" => {
                 let line_ref = edit_json.get("ref").and_then(|v| v.as_str()).unwrap_or("");
-                let content = edit_json.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let content = edit_json
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let (line_num, expected_hash) = parse_line_ref(line_ref)?;
                 let idx = line_num - 1;
                 if idx >= lines.len() {
-                    return Err(format!("hashline_edit: line {} out of bounds ({} lines)", line_num, lines.len()));
+                    return Err(format!(
+                        "hashline_edit: line {} out of bounds ({} lines)",
+                        line_num,
+                        lines.len()
+                    ));
                 }
                 let actual_hash = compute_line_hash(&lines[idx]);
                 if actual_hash != expected_hash {
@@ -2759,15 +3951,27 @@ fn builtin_hashline_edit(args: &[Value]) -> Result<Value, String> {
                 lines[idx] = content.to_string();
             }
             "replace_lines" => {
-                let start_ref = edit_json.get("start_ref").and_then(|v| v.as_str()).unwrap_or("");
-                let end_ref = edit_json.get("end_ref").and_then(|v| v.as_str()).unwrap_or("");
-                let content = edit_json.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let start_ref = edit_json
+                    .get("start_ref")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let end_ref = edit_json
+                    .get("end_ref")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let content = edit_json
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let (start_num, start_hash) = parse_line_ref(start_ref)?;
                 let (end_num, end_hash) = parse_line_ref(end_ref)?;
                 let si = start_num - 1;
                 let ei = end_num;
                 if si >= lines.len() || ei > lines.len() {
-                    return Err(format!("hashline_edit: replace range {}..{} out of bounds", start_num, end_num));
+                    return Err(format!(
+                        "hashline_edit: replace range {}..{} out of bounds",
+                        start_num, end_num
+                    ));
                 }
                 let actual_start = compute_line_hash(&lines[si]);
                 let actual_end = compute_line_hash(&lines[ei - 1]);
@@ -2782,11 +3986,17 @@ fn builtin_hashline_edit(args: &[Value]) -> Result<Value, String> {
             }
             "insert_after" => {
                 let line_ref = edit_json.get("ref").and_then(|v| v.as_str()).unwrap_or("");
-                let content = edit_json.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let content = edit_json
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let (line_num, expected_hash) = parse_line_ref(line_ref)?;
                 let idx = line_num; // insert AFTER this line
                 if idx > lines.len() {
-                    return Err(format!("hashline_edit: insert_after line {} out of bounds", line_num));
+                    return Err(format!(
+                        "hashline_edit: insert_after line {} out of bounds",
+                        line_num
+                    ));
                 }
                 if line_num > 0 && (line_num - 1) < lines.len() {
                     let actual_hash = compute_line_hash(&lines[line_num - 1]);
@@ -2803,7 +4013,10 @@ fn builtin_hashline_edit(args: &[Value]) -> Result<Value, String> {
                 }
             }
             _ => {
-                return Err(format!("hashline_edit: unknown op '{}'. Use set_line, replace_lines, or insert_after.", op));
+                return Err(format!(
+                    "hashline_edit: unknown op '{}'. Use set_line, replace_lines, or insert_after.",
+                    op
+                ));
             }
         }
     }
@@ -2815,13 +4028,23 @@ fn builtin_hashline_edit(args: &[Value]) -> Result<Value, String> {
 fn parse_line_ref(line_ref: &str) -> Result<(usize, String), String> {
     let parts: Vec<&str> = line_ref.splitn(2, ':').collect();
     if parts.len() != 2 {
-        return Err(format!("hashline_edit: invalid line ref '{}', expected N:HH format", line_ref));
+        return Err(format!(
+            "hashline_edit: invalid line ref '{}', expected N:HH format",
+            line_ref
+        ));
     }
-    let line_num: usize = parts[0].parse()
-        .map_err(|_| format!("hashline_edit: invalid line number '{}' in ref '{}'", parts[0], line_ref))?;
+    let line_num: usize = parts[0].parse().map_err(|_| {
+        format!(
+            "hashline_edit: invalid line number '{}' in ref '{}'",
+            parts[0], line_ref
+        )
+    })?;
     let hash = parts[1].to_string();
     if hash.len() != 2 {
-        return Err(format!("hashline_edit: hash must be 2 hex chars, got '{}' in ref '{}'", hash, line_ref));
+        return Err(format!(
+            "hashline_edit: hash must be 2 hex chars, got '{}' in ref '{}'",
+            hash, line_ref
+        ));
     }
     Ok((line_num, hash))
 }
@@ -2846,10 +4069,13 @@ fn builtin_compact_list(args: &[Value]) -> Result<Value, String> {
     }
     // Insert compacted placeholder
     let removed = total - keep_first - keep_last;
-    result.push(make_struct("Compacted", vec![
-        ("compacted", Value::Bool(true)),
-        ("removed_count", Value::Float(removed as f64)),
-    ]));
+    result.push(make_struct(
+        "Compacted",
+        vec![
+            ("compacted", Value::Bool(true)),
+            ("removed_count", Value::Float(removed as f64)),
+        ],
+    ));
     // Keep last N
     let last_start = total - keep_last;
     for item in items.iter().skip(last_start) {
@@ -2870,7 +4096,10 @@ fn builtin_budget_check(args: &[Value]) -> Result<Value, String> {
         return Err("budget_check: total_steps must be > 0".to_string());
     }
     if step > total_steps {
-        return Err(format!("budget_check: step {} exceeds total_steps {}", step, total_steps));
+        return Err(format!(
+            "budget_check: step {} exceeds total_steps {}",
+            step, total_steps
+        ));
     }
     let remaining = total_steps - step;
     let pct = (remaining as f64) / (total_steps as f64) * 100.0;
@@ -2881,13 +4110,16 @@ fn builtin_budget_check(args: &[Value]) -> Result<Value, String> {
     } else {
         "critical"
     };
-    Ok(make_struct("BudgetStatus", vec![
-        ("step", Value::Float(step as f64)),
-        ("total", Value::Float(total_steps as f64)),
-        ("remaining", Value::Float(remaining as f64)),
-        ("pct_remaining", Value::Float(pct)),
-        ("level", Value::String(level.to_string())),
-    ]))
+    Ok(make_struct(
+        "BudgetStatus",
+        vec![
+            ("step", Value::Float(step as f64)),
+            ("total", Value::Float(total_steps as f64)),
+            ("remaining", Value::Float(remaining as f64)),
+            ("pct_remaining", Value::Float(pct)),
+            ("level", Value::String(level.to_string())),
+        ],
+    ))
 }
 
 /// `replay_snapshot(data)` — delta-encoded replay log helper.
@@ -2899,16 +4131,17 @@ fn builtin_budget_check(args: &[Value]) -> Result<Value, String> {
 /// Inspired by OpenPlanter's ReplayLogger (seq 0 = full, seq N = delta).
 fn builtin_replay_snapshot(args: &[Value]) -> Result<Value, String> {
     let data = expect_list_arg("replay_snapshot", args, 0)?;
-    let json_items: Vec<serde_json::Value> = data.iter()
-        .map(|v| mlog_value_to_json(v))
-        .collect();
+    let json_items: Vec<serde_json::Value> = data.iter().map(|v| mlog_value_to_json(v)).collect();
     let snapshot = serde_json::to_string(&json_items)
         .map_err(|e| format!("replay_snapshot: JSON serialization error: {}", e))?;
-    Ok(make_struct("ReplaySnapshot", vec![
-        ("seq", Value::Float(0.0)),
-        ("count", Value::Float(data.len() as f64)),
-        ("snapshot", Value::String(snapshot)),
-    ]))
+    Ok(make_struct(
+        "ReplaySnapshot",
+        vec![
+            ("seq", Value::Float(0.0)),
+            ("count", Value::Float(data.len() as f64)),
+            ("snapshot", Value::String(snapshot)),
+        ],
+    ))
 }
 
 /// `policy_check(command)` — runtime policy enforcement for shell commands.
@@ -2923,26 +4156,46 @@ fn builtin_policy_check(args: &[Value]) -> Result<Value, String> {
     let cmd_trimmed = command.trim();
     // Check heredoc
     if cmd_trimmed.contains("<<") {
-        return Ok(make_struct("PolicyResult", vec![
-            ("allowed", Value::Bool(false)),
-            ("reason", Value::String("blocked: heredoc syntax (<<) detected".to_string())),
-        ]));
+        return Ok(make_struct(
+            "PolicyResult",
+            vec![
+                ("allowed", Value::Bool(false)),
+                (
+                    "reason",
+                    Value::String("blocked: heredoc syntax (<<) detected".to_string()),
+                ),
+            ],
+        ));
     }
     // Check interactive programs
-    let interactive_patterns = ["vim", "vi ", "nano", "less ", "more ", "top", "htop", "emacs"];
+    let interactive_patterns = [
+        "vim", "vi ", "nano", "less ", "more ", "top", "htop", "emacs",
+    ];
     let first_word = cmd_trimmed.split_whitespace().next().unwrap_or("");
     for pattern in &interactive_patterns {
         if first_word == *pattern || first_word.starts_with(&format!("{}", pattern)) {
-            return Ok(make_struct("PolicyResult", vec![
-                ("allowed", Value::Bool(false)),
-                ("reason", Value::String(format!("blocked: interactive program '{}' detected", first_word))),
-            ]));
+            return Ok(make_struct(
+                "PolicyResult",
+                vec![
+                    ("allowed", Value::Bool(false)),
+                    (
+                        "reason",
+                        Value::String(format!(
+                            "blocked: interactive program '{}' detected",
+                            first_word
+                        )),
+                    ),
+                ],
+            ));
         }
     }
-    Ok(make_struct("PolicyResult", vec![
-        ("allowed", Value::Bool(true)),
-        ("reason", Value::String("ok".to_string())),
-    ]))
+    Ok(make_struct(
+        "PolicyResult",
+        vec![
+            ("allowed", Value::Bool(true)),
+            ("reason", Value::String("ok".to_string())),
+        ],
+    ))
 }
 
 #[cfg(test)]
@@ -2963,10 +4216,13 @@ mod tests {
 
     #[test]
     fn test_json_get_existing_field() {
-        let obj = make_struct("Test", vec![
-            ("name", Value::String("Alice".to_string())),
-            ("age", Value::Float(25.0)),
-        ]);
+        let obj = make_struct(
+            "Test",
+            vec![
+                ("name", Value::String("Alice".to_string())),
+                ("age", Value::Float(25.0)),
+            ],
+        );
         let result = builtin_json_get(&[obj, Value::String("name".to_string())]).unwrap();
         assert!(is_string(&result, "Alice"));
     }
@@ -2975,7 +4231,11 @@ mod tests {
     fn test_json_get_missing_field_returns_unit() {
         let obj = make_struct("Test", vec![("name", Value::String("Alice".to_string()))]);
         let result = builtin_json_get(&[obj, Value::String("voice".to_string())]).unwrap();
-        assert!(is_unit(&result), "expected Unit, got {:?}", result.type_name());
+        assert!(
+            is_unit(&result),
+            "expected Unit, got {:?}",
+            result.type_name()
+        );
     }
 
     #[test]
@@ -2985,18 +4245,19 @@ mod tests {
             obj,
             Value::String("voice".to_string()),
             Value::String("none".to_string()),
-        ]).unwrap();
+        ])
+        .unwrap();
         assert!(is_string(&result, "none"));
     }
 
     #[test]
     fn test_json_get_nested_path() {
-        let inner = make_struct("Test", vec![("file_id", Value::String("abc123".to_string()))]);
+        let inner = make_struct(
+            "Test",
+            vec![("file_id", Value::String("abc123".to_string()))],
+        );
         let obj = make_struct("Test", vec![("voice", inner)]);
-        let result = builtin_json_get(&[
-            obj,
-            Value::String("voice.file_id".to_string()),
-        ]).unwrap();
+        let result = builtin_json_get(&[obj, Value::String("voice.file_id".to_string())]).unwrap();
         assert!(is_string(&result, "abc123"));
     }
 
@@ -3007,18 +4268,17 @@ mod tests {
             obj,
             Value::String("voice.file_id".to_string()),
             Value::String("default".to_string()),
-        ]).unwrap();
+        ])
+        .unwrap();
         assert!(is_string(&result, "default"));
     }
 
     #[test]
     fn test_json_get_non_struct_returns_default() {
         let obj = Value::String("not a struct".to_string());
-        let result = builtin_json_get(&[
-            obj,
-            Value::String("field".to_string()),
-            Value::Float(42.0),
-        ]).unwrap();
+        let result =
+            builtin_json_get(&[obj, Value::String("field".to_string()), Value::Float(42.0)])
+                .unwrap();
         assert!(is_float(&result, 42.0));
     }
 
@@ -3046,10 +4306,13 @@ mod tests {
 
     #[test]
     fn test_json_encode_roundtrip() {
-        let obj = make_struct("Test", vec![
-            ("key", Value::String("value".to_string())),
-            ("num", Value::Float(42.0)),
-        ]);
+        let obj = make_struct(
+            "Test",
+            vec![
+                ("key", Value::String("value".to_string())),
+                ("num", Value::Float(42.0)),
+            ],
+        );
         let encoded = builtin_json_encode(&[obj]).unwrap();
         let decoded = builtin_parse_json(&[encoded]).unwrap();
         let key_val = decoded.get_field("key").unwrap();
@@ -3076,10 +4339,18 @@ fn builtin_dict_set(args: &[Value]) -> Result<Value, String> {
     let key = expect_string_arg("dict_set", args, 1)?;
     let mut fields = match &args[0] {
         Value::Struct { fields, .. } => fields.clone(),
-        other => return Err(format!("dict_set() expected Struct as first arg, got {}", other.type_name())),
+        other => {
+            return Err(format!(
+                "dict_set() expected Struct as first arg, got {}",
+                other.type_name()
+            ))
+        }
     };
     fields.insert(key, args[2].clone());
-    Ok(Value::Struct { type_name: "Dict".to_string(), fields })
+    Ok(Value::Struct {
+        type_name: "Dict".to_string(),
+        fields,
+    })
 }
 
 /// `dict_keys(dict) -> List` — return list of keys.
@@ -3110,7 +4381,12 @@ fn builtin_dict_has(args: &[Value]) -> Result<Value, String> {
     let key = expect_string_arg("dict_has", args, 1)?;
     let has = match &args[0] {
         Value::Struct { fields, .. } => fields.contains_key(&key),
-        _ => return Err(format!("dict_has() expected Struct as first arg, got {}", args[0].type_name())),
+        _ => {
+            return Err(format!(
+                "dict_has() expected Struct as first arg, got {}",
+                args[0].type_name()
+            ))
+        }
     };
     Ok(Value::Bool(has))
 }
@@ -3134,7 +4410,10 @@ fn builtin_format(args: &[Value]) -> Result<Value, String> {
                 result.push_str(&format!("{}", args[arg_idx]));
                 arg_idx += 1;
             } else {
-                return Err(format!("format(): not enough arguments for template (need {} more)", arg_idx - 1));
+                return Err(format!(
+                    "format(): not enough arguments for template (need {} more)",
+                    arg_idx - 1
+                ));
             }
         } else if ch == '{' && chars.peek() == Some(&'{') {
             chars.next(); // consume second '{', emit literal '{'
@@ -3148,16 +4427,33 @@ fn builtin_format(args: &[Value]) -> Result<Value, String> {
 
 // ── v0.8.0 — format_date (enhanced) ──────────────────────
 /// Weekday names: Monday=0 (converted from libc Sunday=0).
-const WEEKDAY_NAMES_MON: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const WEEKDAY_NAMES_MON: [&str; 7] = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+];
 
 /// Month names (1-indexed).
 const MONTH_NAMES: [&str; 12] = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ];
 const MONTH_ABBR: [&str; 12] = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
 /// `format_date(format)` — format current time.
@@ -3173,7 +4469,12 @@ fn builtin_format_date(args: &[Value]) -> Result<Value, String> {
     let timestamp = if args.len() >= 2 {
         match &args[1] {
             Value::Float(f) => *f,
-            _ => return Err(format!("format_date(): timestamp must be Float, got {}", args[1].type_name())),
+            _ => {
+                return Err(format!(
+                    "format_date(): timestamp must be Float, got {}",
+                    args[1].type_name()
+                ))
+            }
         }
     } else {
         std::time::SystemTime::now()
@@ -3183,25 +4484,28 @@ fn builtin_format_date(args: &[Value]) -> Result<Value, String> {
     };
 
     let secs = timestamp as i64;
-    let mut tm = libc::tm {
-        tm_sec: 0, tm_min: 0, tm_hour: 0,
-        tm_mday: 0, tm_mon: 0, tm_year: 0,
-        tm_wday: 0, tm_yday: 0, tm_isdst: 0,
-        tm_gmtoff: 0, tm_zone: std::ptr::null(),
-    };
-    unsafe { libc::localtime_r(&secs, &mut tm); }
+    let dt = chrono::Local
+        .timestamp_opt(secs, 0)
+        .single()
+        .unwrap_or_else(|| chrono::Local::now());
 
-    let y = (tm.tm_year + 1900) as u32;
-    let mo = (tm.tm_mon + 1) as u32;
-    let d = tm.tm_mday as u32;
-    let h = tm.tm_hour as u32;
-    let mi = tm.tm_min as u32;
-    let s = tm.tm_sec as u32;
-    let wday_mon = (tm.tm_wday as u32 + 6) % 7;
-    let day_of_year = (tm.tm_yday + 1) as u32;
+    let y = dt.year() as u32;
+    let mo = dt.month();
+    let d = dt.day();
+    let h = dt.hour();
+    let mi = dt.minute();
+    let s = dt.second();
+    let wday_mon = dt.weekday().num_days_from_monday();
+    let day_of_year = dt.ordinal();
     let week_num = ((day_of_year as i32 + 6 - wday_mon as i32) / 7).max(1) as u32;
     let ampm = if h >= 12 { "PM" } else { "AM" };
-    let h12 = if h == 0 { 12 } else if h > 12 { h - 12 } else { h };
+    let h12 = if h == 0 {
+        12
+    } else if h > 12 {
+        h - 12
+    } else {
+        h
+    };
 
     let result = match fmt_str.as_str() {
         "%F" => format!("{:04}-{:02}-{:02}", y, mo, d),
@@ -3235,7 +4539,10 @@ fn builtin_format_date(args: &[Value]) -> Result<Value, String> {
                         Some('F') => out.push_str(&format!("{:04}-{:02}-{:02}", y, mo, d)),
                         Some('T') => out.push_str(&format!("{:02}:{:02}:{:02}", h, mi, s)),
                         Some('R') => out.push_str(&format!("{:02}:{:02}", h, mi)),
-                        Some(c) => { out.push('%'); out.push(c); }
+                        Some(c) => {
+                            out.push('%');
+                            out.push(c);
+                        }
                         None => out.push('%'),
                     }
                 } else {
@@ -3258,7 +4565,13 @@ fn date_days_in_month(year: i32, month: u32) -> u32 {
     match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
-        2 => if date_is_leap(year) { 29 } else { 28 },
+        2 => {
+            if date_is_leap(year) {
+                29
+            } else {
+                28
+            }
+        }
         _ => 30,
     }
 }
@@ -3268,7 +4581,10 @@ fn make_date_struct(type_name: &str, pairs: Vec<(&str, Value)>) -> Value {
     for (k, v) in pairs {
         map.insert(k.to_string(), v);
     }
-    Value::Struct { type_name: type_name.to_string(), fields: map }
+    Value::Struct {
+        type_name: type_name.to_string(),
+        fields: map,
+    }
 }
 
 /// `date_parts(timestamp?)` — returns struct with all date components via libc.
@@ -3282,38 +4598,44 @@ fn builtin_date_parts(args: &[Value]) -> Result<Value, String> {
         expect_float_arg("date_parts", args, 0)?
     };
     let secs = ts as i64;
-    let mut tm = libc::tm {
-        tm_sec: 0, tm_min: 0, tm_hour: 0,
-        tm_mday: 0, tm_mon: 0, tm_year: 0,
-        tm_wday: 0, tm_yday: 0, tm_isdst: 0,
-        tm_gmtoff: 0, tm_zone: std::ptr::null(),
-    };
-    unsafe { libc::localtime_r(&secs, &mut tm); }
+    let dt = chrono::Local
+        .timestamp_opt(secs, 0)
+        .single()
+        .unwrap_or_else(|| chrono::Local::now());
 
-    let y = (tm.tm_year + 1900) as u32;
-    let mo = (tm.tm_mon + 1) as u32;
-    let d = tm.tm_mday as u32;
-    let h = tm.tm_hour as u32;
-    let mi = tm.tm_min as u32;
-    let s = tm.tm_sec as u32;
-    let wday_mon = (tm.tm_wday as u32 + 6) % 7;
-    let day_of_year = (tm.tm_yday + 1) as u32;
+    let y = dt.year() as u32;
+    let mo = dt.month();
+    let d = dt.day();
+    let h = dt.hour();
+    let mi = dt.minute();
+    let s = dt.second();
+    let wday_mon = dt.weekday().num_days_from_monday();
+    let day_of_year = dt.ordinal();
     let week_num = ((day_of_year as i32 + 6 - wday_mon as i32) / 7).max(1) as u32;
 
-    Ok(make_date_struct("Date", vec![
-        ("year", Value::Float(y as f64)),
-        ("month", Value::Float(mo as f64)),
-        ("day", Value::Float(d as f64)),
-        ("hour", Value::Float(h as f64)),
-        ("minute", Value::Float(mi as f64)),
-        ("second", Value::Float(s as f64)),
-        ("weekday", Value::Float(wday_mon as f64)),
-        ("weekday_name", Value::String(WEEKDAY_NAMES_MON[wday_mon as usize].to_string())),
-        ("month_name", Value::String(MONTH_NAMES[(mo - 1) as usize].to_string())),
-        ("day_of_year", Value::Float(day_of_year as f64)),
-        ("week_number", Value::Float(week_num as f64)),
-        ("timestamp", Value::Float(ts)),
-    ]))
+    Ok(make_date_struct(
+        "Date",
+        vec![
+            ("year", Value::Float(y as f64)),
+            ("month", Value::Float(mo as f64)),
+            ("day", Value::Float(d as f64)),
+            ("hour", Value::Float(h as f64)),
+            ("minute", Value::Float(mi as f64)),
+            ("second", Value::Float(s as f64)),
+            ("weekday", Value::Float(wday_mon as f64)),
+            (
+                "weekday_name",
+                Value::String(WEEKDAY_NAMES_MON[wday_mon as usize].to_string()),
+            ),
+            (
+                "month_name",
+                Value::String(MONTH_NAMES[(mo - 1) as usize].to_string()),
+            ),
+            ("day_of_year", Value::Float(day_of_year as f64)),
+            ("week_number", Value::Float(week_num as f64)),
+            ("timestamp", Value::Float(ts)),
+        ],
+    ))
 }
 
 /// `days_between(ts1, ts2)` — absolute difference in days.
@@ -3335,7 +4657,9 @@ fn builtin_days_in_month(args: &[Value]) -> Result<Value, String> {
 
 /// `is_leap_year(year)` — Gregorian leap year check.
 fn builtin_is_leap_year(args: &[Value]) -> Result<Value, String> {
-    Ok(Value::Bool(date_is_leap(expect_float_arg("is_leap_year", args, 0)? as i32)))
+    Ok(Value::Bool(date_is_leap(
+        expect_float_arg("is_leap_year", args, 0)? as i32,
+    )))
 }
 
 /// `add_days(timestamp, days)` — add/subtract days to timestamp.
@@ -3356,15 +4680,14 @@ fn builtin_add_hours(args: &[Value]) -> Result<Value, String> {
 fn builtin_weekday_name(args: &[Value]) -> Result<Value, String> {
     let ts = expect_float_arg("weekday_name", args, 0)?;
     let secs = ts as i64;
-    let mut tm = libc::tm {
-        tm_sec: 0, tm_min: 0, tm_hour: 0,
-        tm_mday: 0, tm_mon: 0, tm_year: 0,
-        tm_wday: 0, tm_yday: 0, tm_isdst: 0,
-        tm_gmtoff: 0, tm_zone: std::ptr::null(),
-    };
-    unsafe { libc::localtime_r(&secs, &mut tm); }
-    let wday_mon = (tm.tm_wday as u32 + 6) % 7;
-    Ok(Value::String(WEEKDAY_NAMES_MON[wday_mon as usize].to_string()))
+    let dt = chrono::Local
+        .timestamp_opt(secs, 0)
+        .single()
+        .unwrap_or_else(|| chrono::Local::now());
+    let wday_mon = dt.weekday().num_days_from_monday();
+    Ok(Value::String(
+        WEEKDAY_NAMES_MON[wday_mon as usize].to_string(),
+    ))
 }
 
 // ── v0.8.0 — Geolocation builtins ───────────────────────────────────
@@ -3385,29 +4708,44 @@ fn builtin_geo_ip(args: &[Value]) -> Result<Value, String> {
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| format!("geo_ip() client error: {}", e))?;
-    let resp = client.get(&url).send()
+    let resp = client
+        .get(&url)
+        .send()
         .map_err(|e| format!("geo_ip() request failed: {}", e))?;
     let body = resp.text().unwrap_or_default();
-    let json: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|e| format!("geo_ip() parse error: {}", e))?;
+    let json: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| format!("geo_ip() parse error: {}", e))?;
     if json.get("status").and_then(|v| v.as_str()) != Some("success") {
-        let msg = json.get("message").and_then(|v| v.as_str()).unwrap_or("unknown error");
+        let msg = json
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown error");
         return Err(format!("geo_ip() API error: {}", msg));
     }
     let g = |key: &str| -> Value {
-        json.get(key).map(|v| match v {
-            serde_json::Value::String(s) => Value::String(s.clone()),
-            serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
-            serde_json::Value::Null => Value::String(String::new()),
-            _ => Value::String(v.to_string()),
-        }).unwrap_or(Value::String(String::new()))
+        json.get(key)
+            .map(|v| match v {
+                serde_json::Value::String(s) => Value::String(s.clone()),
+                serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
+                serde_json::Value::Null => Value::String(String::new()),
+                _ => Value::String(v.to_string()),
+            })
+            .unwrap_or(Value::String(String::new()))
     };
-    Ok(make_date_struct("GeoLocation", vec![
-        ("ip", g("query")), ("city", g("city")), ("region", g("regionName")),
-        ("country", g("country")), ("country_code", g("countryCode")),
-        ("lat", g("lat")), ("lon", g("lon")),
-        ("isp", g("isp")), ("timezone", g("timezone")),
-    ]))
+    Ok(make_date_struct(
+        "GeoLocation",
+        vec![
+            ("ip", g("query")),
+            ("city", g("city")),
+            ("region", g("regionName")),
+            ("country", g("country")),
+            ("country_code", g("countryCode")),
+            ("lat", g("lat")),
+            ("lon", g("lon")),
+            ("isp", g("isp")),
+            ("timezone", g("timezone")),
+        ],
+    ))
 }
 
 /// `geo_distance(lat1, lon1, lat2, lon2, unit?)` — haversine distance. unit: "km"(default), "mi", "nm", "m".
@@ -3416,15 +4754,22 @@ fn builtin_geo_distance(args: &[Value]) -> Result<Value, String> {
     let lon1 = expect_float_arg("geo_distance", args, 1)?;
     let lat2 = expect_float_arg("geo_distance", args, 2)?;
     let lon2 = expect_float_arg("geo_distance", args, 3)?;
-    let unit = match args.get(4) { Some(Value::String(s)) => s.as_str(), _ => "km" };
+    let unit = match args.get(4) {
+        Some(Value::String(s)) => s.as_str(),
+        _ => "km",
+    };
     let to_rad = |d: f64| d * std::f64::consts::PI / 180.0;
     let dlat = to_rad(lat2 - lat1);
     let dlon = to_rad(lon2 - lon1);
-    let a = (dlat/2.0).sin().powi(2) + to_rad(lat1).cos() * to_rad(lat2).cos() * (dlon/2.0).sin().powi(2);
+    let a = (dlat / 2.0).sin().powi(2)
+        + to_rad(lat1).cos() * to_rad(lat2).cos() * (dlon / 2.0).sin().powi(2);
     let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
     let km = 6371.0 * c;
     Ok(Value::Float(match unit {
-        "mi" => km * 0.621371, "nm" => km * 0.539957, "m" => km * 1000.0, _ => km,
+        "mi" => km * 0.621371,
+        "nm" => km * 0.539957,
+        "m" => km * 1000.0,
+        _ => km,
     }))
 }
 
@@ -3433,12 +4778,21 @@ fn builtin_geo_distance(args: &[Value]) -> Result<Value, String> {
 /// WMO weather codes to human-readable description.
 fn wmo_description(code: i64) -> &'static str {
     match code {
-        0 => "Clear sky", 1 => "Mainly clear", 2 => "Partly cloudy", 3 => "Overcast",
-        45 | 48 => "Fog", 51 | 53 | 55 => "Drizzle", 56 | 57 => "Freezing drizzle",
-        61 | 63 | 65 => "Rain", 66 | 67 => "Freezing rain",
-        71 | 73 | 75 => "Snow fall", 77 => "Snow grains",
-        80 | 81 | 82 => "Rain showers", 85 | 86 => "Snow showers",
-        95 => "Thunderstorm", 96 | 99 => "Thunderstorm with hail",
+        0 => "Clear sky",
+        1 => "Mainly clear",
+        2 => "Partly cloudy",
+        3 => "Overcast",
+        45 | 48 => "Fog",
+        51 | 53 | 55 => "Drizzle",
+        56 | 57 => "Freezing drizzle",
+        61 | 63 | 65 => "Rain",
+        66 | 67 => "Freezing rain",
+        71 | 73 | 75 => "Snow fall",
+        77 => "Snow grains",
+        80 | 81 | 82 => "Rain showers",
+        85 | 86 => "Snow showers",
+        95 => "Thunderstorm",
+        96 | 99 => "Thunderstorm with hail",
         _ => "Unknown",
     }
 }
@@ -3451,20 +4805,32 @@ fn geo_resolve_city(city: &str) -> Result<(f64, f64), String> {
     );
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .build().map_err(|e| format!("weather() client error: {}", e))?;
-    let body = client.get(&url).send()
+        .build()
+        .map_err(|e| format!("weather() client error: {}", e))?;
+    let body = client
+        .get(&url)
+        .send()
         .map_err(|e| format!("weather() geocoding failed: {}", e))?
-        .text().unwrap_or_default();
+        .text()
+        .unwrap_or_default();
     let json: serde_json::Value = serde_json::from_str(&body)
         .map_err(|e| format!("weather() geocoding parse error: {}", e))?;
-    let results = json.get("results").and_then(|r| r.as_array())
+    let results = json
+        .get("results")
+        .and_then(|r| r.as_array())
         .ok_or_else(|| format!("weather() city not found: {}", city))?;
     if results.is_empty() {
         return Err(format!("weather() city not found: {}", city));
     }
     let first = &results[0];
-    let lat = first.get("latitude").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let lon = first.get("longitude").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let lat = first
+        .get("latitude")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let lon = first
+        .get("longitude")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
     Ok((lat, lon))
 }
 
@@ -3488,37 +4854,43 @@ fn builtin_weather(args: &[Value]) -> Result<Value, String> {
     );
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
-        .build().map_err(|e| format!("weather() client error: {}", e))?;
-    let resp = client.get(&url).send()
+        .build()
+        .map_err(|e| format!("weather() client error: {}", e))?;
+    let resp = client
+        .get(&url)
+        .send()
         .map_err(|e| format!("weather() request failed: {}", e))?;
     let status = resp.status().as_u16();
     let body = resp.text().unwrap_or_default();
     if status >= 400 {
         return Err(format!("weather() API error {}: {}", status, body));
     }
-    let json: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|e| format!("weather() parse error: {}", e))?;
-    let cur = json.get("current").ok_or("weather() missing 'current' in response")?;
-    let gf = |key: &str| -> f64 {
-        cur.get(key).and_then(|v| v.as_f64()).unwrap_or(0.0)
-    };
+    let json: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| format!("weather() parse error: {}", e))?;
+    let cur = json
+        .get("current")
+        .ok_or("weather() missing 'current' in response")?;
+    let gf = |key: &str| -> f64 { cur.get(key).and_then(|v| v.as_f64()).unwrap_or(0.0) };
     let code = gf("weather_code") as i64;
     let desc = wmo_description(code).to_string();
-    Ok(make_date_struct("Weather", vec![
-        ("temp", Value::Float(gf("temperature_2m"))),
-        ("feels_like", Value::Float(gf("apparent_temperature"))),
-        ("temp_min", Value::Float(gf("temperature_2m"))),
-        ("temp_max", Value::Float(gf("temperature_2m"))),
-        ("humidity", Value::Float(gf("relative_humidity_2m"))),
-        ("description", Value::String(desc)),
-        ("wind_speed", Value::Float(gf("wind_speed_10m"))),
-        ("wind_direction", Value::Float(gf("wind_direction_10m"))),
-        ("pressure", Value::Float(gf("surface_pressure"))),
-        ("cloud_cover", Value::Float(gf("cloud_cover"))),
-        ("is_day", Value::Float(gf("is_day"))),
-        ("city", Value::String(resolved_city)),
-        ("country", Value::String(String::new())),
-    ]))
+    Ok(make_date_struct(
+        "Weather",
+        vec![
+            ("temp", Value::Float(gf("temperature_2m"))),
+            ("feels_like", Value::Float(gf("apparent_temperature"))),
+            ("temp_min", Value::Float(gf("temperature_2m"))),
+            ("temp_max", Value::Float(gf("temperature_2m"))),
+            ("humidity", Value::Float(gf("relative_humidity_2m"))),
+            ("description", Value::String(desc)),
+            ("wind_speed", Value::Float(gf("wind_speed_10m"))),
+            ("wind_direction", Value::Float(gf("wind_direction_10m"))),
+            ("pressure", Value::Float(gf("surface_pressure"))),
+            ("cloud_cover", Value::Float(gf("cloud_cover"))),
+            ("is_day", Value::Float(gf("is_day"))),
+            ("city", Value::String(resolved_city)),
+            ("country", Value::String(String::new())),
+        ],
+    ))
 }
 
 /// `weather_forecast(city_or_lat, lon?, days?)` — multi-day forecast via Open-Meteo (FREE, no API key).
@@ -3539,16 +4911,23 @@ fn builtin_weather_forecast(args: &[Value]) -> Result<Value, String> {
     } else if args.len() >= 3 {
         days = expect_float_arg("weather_forecast", args, 2)? as u32;
     }
-    if days < 1 { days = 1; }
-    if days > 16 { days = 16; }
+    if days < 1 {
+        days = 1;
+    }
+    if days > 16 {
+        days = 16;
+    }
     let url = format!(
         "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,sunrise,sunset,uv_index_max&timezone=auto&forecast_days={}",
         lat, lon, days
     );
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
-        .build().map_err(|e| format!("weather_forecast() client error: {}", e))?;
-    let resp = client.get(&url).send()
+        .build()
+        .map_err(|e| format!("weather_forecast() client error: {}", e))?;
+    let resp = client
+        .get(&url)
+        .send()
         .map_err(|e| format!("weather_forecast() request failed: {}", e))?;
     let status = resp.status().as_u16();
     let body = resp.text().unwrap_or_default();
@@ -3557,40 +4936,88 @@ fn builtin_weather_forecast(args: &[Value]) -> Result<Value, String> {
     }
     let json: serde_json::Value = serde_json::from_str(&body)
         .map_err(|e| format!("weather_forecast() parse error: {}", e))?;
-    let daily = json.get("daily").ok_or("weather_forecast() missing 'daily' in response")?;
-    let dates = daily.get("time").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let codes = daily.get("weather_code").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let tmax = daily.get("temperature_2m_max").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let tmin = daily.get("temperature_2m_min").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let precip = daily.get("precipitation_sum").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let wind = daily.get("wind_speed_10m_max").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let sunrise = daily.get("sunrise").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let sunset = daily.get("sunset").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let uv = daily.get("uv_index_max").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let daily = json
+        .get("daily")
+        .ok_or("weather_forecast() missing 'daily' in response")?;
+    let dates = daily
+        .get("time")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let codes = daily
+        .get("weather_code")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let tmax = daily
+        .get("temperature_2m_max")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let tmin = daily
+        .get("temperature_2m_min")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let precip = daily
+        .get("precipitation_sum")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let wind = daily
+        .get("wind_speed_10m_max")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let sunrise = daily
+        .get("sunrise")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let sunset = daily
+        .get("sunset")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let uv = daily
+        .get("uv_index_max")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
     let gf = |arr: &[serde_json::Value], i: usize| -> f64 {
         arr.get(i).and_then(|v| v.as_f64()).unwrap_or(0.0)
     };
     let gs = |arr: &[serde_json::Value], i: usize| -> String {
-        arr.get(i).and_then(|v| v.as_str()).unwrap_or("").to_string()
+        arr.get(i)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
     };
     let mut result = Vec::new();
     for i in 0..dates.len() {
         let code = gf(&codes, i) as i64;
         let desc = wmo_description(code).to_string();
         let uv_val = gf(&uv, i);
-        let uv_str = if uv_val < 0.0 { String::new() } else { format!("{:.1}", uv_val) };
-        result.push(make_date_struct("DayForecast", vec![
-            ("date", Value::String(gs(&dates, i))),
-            ("temp_max", Value::Float(gf(&tmax, i))),
-            ("temp_min", Value::Float(gf(&tmin, i))),
-            ("precipitation", Value::Float(gf(&precip, i))),
-            ("weather_code", Value::Float(gf(&codes, i))),
-            ("description", Value::String(desc)),
-            ("wind_speed_max", Value::Float(gf(&wind, i))),
-            ("sunrise", Value::String(gs(&sunrise, i))),
-            ("sunset", Value::String(gs(&sunset, i))),
-            ("uv_index", Value::String(uv_str)),
-        ]));
+        let uv_str = if uv_val < 0.0 {
+            String::new()
+        } else {
+            format!("{:.1}", uv_val)
+        };
+        result.push(make_date_struct(
+            "DayForecast",
+            vec![
+                ("date", Value::String(gs(&dates, i))),
+                ("temp_max", Value::Float(gf(&tmax, i))),
+                ("temp_min", Value::Float(gf(&tmin, i))),
+                ("precipitation", Value::Float(gf(&precip, i))),
+                ("weather_code", Value::Float(gf(&codes, i))),
+                ("description", Value::String(desc)),
+                ("wind_speed_max", Value::Float(gf(&wind, i))),
+                ("sunrise", Value::String(gs(&sunrise, i))),
+                ("sunset", Value::String(gs(&sunset, i))),
+                ("uv_index", Value::String(uv_str)),
+            ],
+        ));
     }
     Ok(Value::List(result))
 }
@@ -3599,8 +5026,14 @@ fn builtin_weather_forecast(args: &[Value]) -> Result<Value, String> {
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct ReminderEntry {
-    id: String, message: String, fire_at: f64, interval: f64,
-    next_fire: f64, data: String, active: bool, created_at: f64,
+    id: String,
+    message: String,
+    fire_at: f64,
+    interval: f64,
+    next_fire: f64,
+    data: String,
+    active: bool,
+    created_at: f64,
 }
 
 static REMINDERS: std::sync::OnceLock<StdMutex<Vec<ReminderEntry>>> = std::sync::OnceLock::new();
@@ -3610,7 +5043,8 @@ fn reminders_store() -> &'static StdMutex<Vec<ReminderEntry>> {
 }
 
 /// Global SQLite persistence for reminders (same pattern as KV_SQLITE).
-static REMINDERS_SQLITE: std::sync::OnceLock<StdMutex<Option<rusqlite::Connection>>> = std::sync::OnceLock::new();
+static REMINDERS_SQLITE: std::sync::OnceLock<StdMutex<Option<rusqlite::Connection>>> =
+    std::sync::OnceLock::new();
 
 fn reminders_sqlite() -> &'static StdMutex<Option<rusqlite::Connection>> {
     REMINDERS_SQLITE.get_or_init(|| StdMutex::new(None))
@@ -3630,30 +5064,35 @@ pub fn init_reminder_persist(db_path: &str) -> Result<(), String> {
             data TEXT NOT NULL DEFAULT '',
             active INTEGER NOT NULL DEFAULT 1,
             created_at REAL NOT NULL
-        );"
-    ).map_err(|e| format!("[reminders] Failed to create table: {}", e))?;
+        );",
+    )
+    .map_err(|e| format!("[reminders] Failed to create table: {}", e))?;
     // Load existing reminders into memory
     let mut stmt = conn.prepare("SELECT id, message, fire_at, interval, next_fire, data, active, created_at FROM reminders")
         .map_err(|e| format!("[reminders] Failed to query: {}", e))?;
-    let rows: Vec<ReminderEntry> = stmt.query_map([], |row| {
-        Ok(ReminderEntry {
-            id: row.get::<_, String>(0)?,
-            message: row.get::<_, String>(1)?,
-            fire_at: row.get::<_, f64>(2)?,
-            interval: row.get::<_, f64>(3)?,
-            next_fire: row.get::<_, f64>(4)?,
-            data: row.get::<_, String>(5)?,
-            active: row.get::<_, i32>(6)? != 0,
-            created_at: row.get::<_, f64>(7)?,
+    let rows: Vec<ReminderEntry> = stmt
+        .query_map([], |row| {
+            Ok(ReminderEntry {
+                id: row.get::<_, String>(0)?,
+                message: row.get::<_, String>(1)?,
+                fire_at: row.get::<_, f64>(2)?,
+                interval: row.get::<_, f64>(3)?,
+                next_fire: row.get::<_, f64>(4)?,
+                data: row.get::<_, String>(5)?,
+                active: row.get::<_, i32>(6)? != 0,
+                created_at: row.get::<_, f64>(7)?,
+            })
         })
-    }).map_err(|e| format!("[reminders] Failed to iterate: {}", e))?
-    .filter_map(|r| r.ok())
-    .collect();
+        .map_err(|e| format!("[reminders] Failed to iterate: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
     if let Ok(mut store) = reminders_store().lock() {
         store.extend(rows);
     }
     drop(stmt);
-    let mut guard = reminders_sqlite().lock().map_err(|e| format!("[reminders] lock error: {}", e))?;
+    let mut guard = reminders_sqlite()
+        .lock()
+        .map_err(|e| format!("[reminders] lock error: {}", e))?;
     *guard = Some(conn);
     eprintln!("[reminders] SQLite persistence enabled: {}", db_path);
     Ok(())
@@ -3691,11 +5130,29 @@ fn reminder_sqlite_delete_all_for_persona() {
 fn builtin_remind(args: &[Value]) -> Result<Value, String> {
     let message = expect_string_arg("remind", args, 0)?;
     let fire_at = expect_float_arg("remind", args, 1)?;
-    let data = match args.get(2) { Some(Value::String(s)) => s.clone(), Some(o) => format!("{}", o), None => String::new() };
-    let now_ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+    let data = match args.get(2) {
+        Some(Value::String(s)) => s.clone(),
+        Some(o) => format!("{}", o),
+        None => String::new(),
+    };
+    let now_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
     let id = uuid::Uuid::new_v4().to_string()[..8].to_string();
-    let mut store = reminders_store().lock().map_err(|e| format!("remind() lock error: {}", e))?;
-    let entry = ReminderEntry { id: id.clone(), message, fire_at, interval: 0.0, next_fire: fire_at, data, active: true, created_at: now_ts };
+    let mut store = reminders_store()
+        .lock()
+        .map_err(|e| format!("remind() lock error: {}", e))?;
+    let entry = ReminderEntry {
+        id: id.clone(),
+        message,
+        fire_at,
+        interval: 0.0,
+        next_fire: fire_at,
+        data,
+        active: true,
+        created_at: now_ts,
+    };
     reminder_sqlite_upsert(&entry);
     store.push(entry);
     Ok(Value::String(id))
@@ -3705,12 +5162,32 @@ fn builtin_remind(args: &[Value]) -> Result<Value, String> {
 fn builtin_remind_recurring(args: &[Value]) -> Result<Value, String> {
     let message = expect_string_arg("remind_recurring", args, 0)?;
     let interval = expect_float_arg("remind_recurring", args, 1)?;
-    if interval <= 0.0 { return Err("remind_recurring() interval must be positive".to_string()); }
-    let data = match args.get(2) { Some(Value::String(s)) => s.clone(), Some(o) => format!("{}", o), None => String::new() };
-    let now_ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+    if interval <= 0.0 {
+        return Err("remind_recurring() interval must be positive".to_string());
+    }
+    let data = match args.get(2) {
+        Some(Value::String(s)) => s.clone(),
+        Some(o) => format!("{}", o),
+        None => String::new(),
+    };
+    let now_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
     let id = uuid::Uuid::new_v4().to_string()[..8].to_string();
-    let mut store = reminders_store().lock().map_err(|e| format!("remind_recurring() lock error: {}", e))?;
-    let entry = ReminderEntry { id: id.clone(), message, fire_at: now_ts, interval, next_fire: now_ts + interval, data, active: true, created_at: now_ts };
+    let mut store = reminders_store()
+        .lock()
+        .map_err(|e| format!("remind_recurring() lock error: {}", e))?;
+    let entry = ReminderEntry {
+        id: id.clone(),
+        message,
+        fire_at: now_ts,
+        interval,
+        next_fire: now_ts + interval,
+        data,
+        active: true,
+        created_at: now_ts,
+    };
     reminder_sqlite_upsert(&entry);
     store.push(entry);
     Ok(Value::String(id))
@@ -3719,7 +5196,9 @@ fn builtin_remind_recurring(args: &[Value]) -> Result<Value, String> {
 /// `cancel_remind(id)` — cancel reminder. Returns "ok" or "not_found".
 fn builtin_cancel_remind(args: &[Value]) -> Result<Value, String> {
     let id = expect_string_arg("cancel_remind", args, 0)?;
-    let mut store = reminders_store().lock().map_err(|e| format!("cancel_remind() lock error: {}", e))?;
+    let mut store = reminders_store()
+        .lock()
+        .map_err(|e| format!("cancel_remind() lock error: {}", e))?;
     for entry in store.iter_mut() {
         if entry.id == id && entry.active {
             entry.active = false;
@@ -3733,17 +5212,30 @@ fn builtin_cancel_remind(args: &[Value]) -> Result<Value, String> {
 /// `list_reminders()` — list all active reminders.
 fn builtin_list_reminders(args: &[Value]) -> Result<Value, String> {
     let _ = args;
-    let store = reminders_store().lock().map_err(|e| format!("list_reminders() lock error: {}", e))?;
+    let store = reminders_store()
+        .lock()
+        .map_err(|e| format!("list_reminders() lock error: {}", e))?;
     let mut result = Vec::new();
     for entry in store.iter().filter(|r| r.active) {
-        let rtype = if entry.interval > 0.0 { "recurring" } else { "once" };
+        let rtype = if entry.interval > 0.0 {
+            "recurring"
+        } else {
+            "once"
+        };
         let ec = entry.clone();
-        result.push(make_date_struct("Reminder", vec![
-            ("id", Value::String(ec.id)), ("message", Value::String(ec.message)),
-            ("fire_at", Value::Float(ec.fire_at)), ("interval", Value::Float(ec.interval)),
-            ("next_fire", Value::Float(ec.next_fire)), ("data", Value::String(ec.data)),
-            ("created_at", Value::Float(ec.created_at)), ("type", Value::String(rtype.to_string())),
-        ]));
+        result.push(make_date_struct(
+            "Reminder",
+            vec![
+                ("id", Value::String(ec.id)),
+                ("message", Value::String(ec.message)),
+                ("fire_at", Value::Float(ec.fire_at)),
+                ("interval", Value::Float(ec.interval)),
+                ("next_fire", Value::Float(ec.next_fire)),
+                ("data", Value::String(ec.data)),
+                ("created_at", Value::Float(ec.created_at)),
+                ("type", Value::String(rtype.to_string())),
+            ],
+        ));
     }
     Ok(Value::List(result))
 }
@@ -3751,19 +5243,40 @@ fn builtin_list_reminders(args: &[Value]) -> Result<Value, String> {
 /// `check_reminders()` — get due reminders. One-shot deactivated; recurring advanced.
 fn builtin_check_reminders(args: &[Value]) -> Result<Value, String> {
     let _ = args;
-    let now_ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
-    let mut store = reminders_store().lock().map_err(|e| format!("check_reminders() lock error: {}", e))?;
+    let now_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+    let mut store = reminders_store()
+        .lock()
+        .map_err(|e| format!("check_reminders() lock error: {}", e))?;
     let mut due = Vec::new();
     for entry in store.iter_mut() {
-        if !entry.active { continue; }
+        if !entry.active {
+            continue;
+        }
         if now_ts >= entry.next_fire {
-            let rtype = if entry.interval > 0.0 { "recurring" } else { "once" };
-            due.push(make_date_struct("DueReminder", vec![
-                ("id", Value::String(entry.id.clone())), ("message", Value::String(entry.message.clone())),
-                ("data", Value::String(entry.data.clone())), ("type", Value::String(rtype.to_string())),
-                ("next_fire", Value::Float(entry.next_fire)), ("overdue_seconds", Value::Float(now_ts - entry.next_fire)),
-            ]));
-            if entry.interval > 0.0 { entry.next_fire += entry.interval; } else { entry.active = false; }
+            let rtype = if entry.interval > 0.0 {
+                "recurring"
+            } else {
+                "once"
+            };
+            due.push(make_date_struct(
+                "DueReminder",
+                vec![
+                    ("id", Value::String(entry.id.clone())),
+                    ("message", Value::String(entry.message.clone())),
+                    ("data", Value::String(entry.data.clone())),
+                    ("type", Value::String(rtype.to_string())),
+                    ("next_fire", Value::Float(entry.next_fire)),
+                    ("overdue_seconds", Value::Float(now_ts - entry.next_fire)),
+                ],
+            ));
+            if entry.interval > 0.0 {
+                entry.next_fire += entry.interval;
+            } else {
+                entry.active = false;
+            }
             reminder_sqlite_upsert(entry);
         }
     }
@@ -3788,7 +5301,8 @@ fn builtin_human_create(args: &[Value]) -> Result<Value, String> {
     }
     let now_ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs_f64()).unwrap_or(0.0);
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
     let persona_data = serde_json::json!({
         "name": name,
         "traits": traits,
@@ -3799,7 +5313,9 @@ fn builtin_human_create(args: &[Value]) -> Result<Value, String> {
     let key = format!("human_persona:{}", name);
     let value = serde_json::to_string(&persona_data)
         .map_err(|e| format!("human_create() serialize error: {}", e))?;
-    let mut store = kv_store().lock().map_err(|e| format!("human_create() lock error: {}", e))?;
+    let mut store = kv_store()
+        .lock()
+        .map_err(|e| format!("human_create() lock error: {}", e))?;
     store.insert(key.clone(), value.clone());
     if let Ok(sqlite_guard) = kv_sqlite().lock() {
         if let Some(ref conn) = *sqlite_guard {
@@ -3812,12 +5328,15 @@ fn builtin_human_create(args: &[Value]) -> Result<Value, String> {
     // Count existing memories for this persona
     let mem_prefix = format!("human_mem:{}:", name);
     let mem_count = store.keys().filter(|k| k.starts_with(&mem_prefix)).count();
-    Ok(make_date_struct("Persona", vec![
-        ("name", Value::String(name)),
-        ("traits", Value::String(traits)),
-        ("created_at", Value::Float(now_ts)),
-        ("memory_count", Value::Float(mem_count as f64)),
-    ]))
+    Ok(make_date_struct(
+        "Persona",
+        vec![
+            ("name", Value::String(name)),
+            ("traits", Value::String(traits)),
+            ("created_at", Value::Float(now_ts)),
+            ("memory_count", Value::Float(mem_count as f64)),
+        ],
+    ))
 }
 
 /// `human_mood(persona, mood?, intensity?)` — get or set persona's emotional state.
@@ -3827,17 +5346,23 @@ fn builtin_human_create(args: &[Value]) -> Result<Value, String> {
 fn builtin_human_mood(args: &[Value]) -> Result<Value, String> {
     let persona = expect_string_arg("human_mood", args, 0)?;
     let key = format!("human_persona:{}", persona);
-    let store = kv_store().lock().map_err(|e| format!("human_mood() lock error: {}", e))?;
+    let store = kv_store()
+        .lock()
+        .map_err(|e| format!("human_mood() lock error: {}", e))?;
     let mut data_str = store.get(&key).cloned().unwrap_or_default();
     drop(store);
     if data_str.is_empty() {
-        return Err(format!("human_mood() persona '{}' not found. Use human_create() first.", persona));
+        return Err(format!(
+            "human_mood() persona '{}' not found. Use human_create() first.",
+            persona
+        ));
     }
-    let mut data: serde_json::Value = serde_json::from_str(&data_str)
-        .map_err(|e| format!("human_mood() parse error: {}", e))?;
+    let mut data: serde_json::Value =
+        serde_json::from_str(&data_str).map_err(|e| format!("human_mood() parse error: {}", e))?;
     let now_ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs_f64()).unwrap_or(0.0);
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
 
     // If mood argument provided — set mood
     if args.len() >= 2 {
@@ -3848,11 +5373,17 @@ fn builtin_human_mood(args: &[Value]) -> Result<Value, String> {
             0.5
         };
         data["mood"] = serde_json::Value::String(mood.clone());
-        data["mood_intensity"] = serde_json::Value::Number(serde_json::Number::from_f64(intensity).unwrap_or(serde_json::Number::from_f64(0.5).unwrap()));
+        data["mood_intensity"] = serde_json::Value::Number(
+            serde_json::Number::from_f64(intensity)
+                .or_else(|| serde_json::Number::from_f64(0.5))
+                .unwrap_or(serde_json::Number::from(0)),
+        );
         data["mood_updated_at"] = serde_json::json!(now_ts);
         let updated = serde_json::to_string(&data)
             .map_err(|e| format!("human_mood() serialize error: {}", e))?;
-        let mut store = kv_store().lock().map_err(|e| format!("human_mood() lock error: {}", e))?;
+        let mut store = kv_store()
+            .lock()
+            .map_err(|e| format!("human_mood() lock error: {}", e))?;
         store.insert(key.clone(), updated.clone());
         if let Ok(sqlite_guard) = kv_sqlite().lock() {
             if let Some(ref conn) = *sqlite_guard {
@@ -3864,15 +5395,28 @@ fn builtin_human_mood(args: &[Value]) -> Result<Value, String> {
         }
     }
 
-    let mood = data.get("mood").and_then(|v| v.as_str()).unwrap_or("neutral").to_string();
-    let intensity = data.get("mood_intensity").and_then(|v| v.as_f64()).unwrap_or(0.5);
-    let updated_at = data.get("mood_updated_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    Ok(make_date_struct("Mood", vec![
-        ("persona", Value::String(persona)),
-        ("mood", Value::String(mood)),
-        ("intensity", Value::Float(intensity)),
-        ("updated_at", Value::Float(updated_at)),
-    ]))
+    let mood = data
+        .get("mood")
+        .and_then(|v| v.as_str())
+        .unwrap_or("neutral")
+        .to_string();
+    let intensity = data
+        .get("mood_intensity")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.5);
+    let updated_at = data
+        .get("mood_updated_at")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    Ok(make_date_struct(
+        "Mood",
+        vec![
+            ("persona", Value::String(persona)),
+            ("mood", Value::String(mood)),
+            ("intensity", Value::Float(intensity)),
+            ("updated_at", Value::Float(updated_at)),
+        ],
+    ))
 }
 
 /// `human_remember(persona, key, content, importance?)` — store a memory in persona's memory tree.
@@ -3887,10 +5431,13 @@ fn builtin_human_remember(args: &[Value]) -> Result<Value, String> {
     }
     let importance = if args.len() >= 4 {
         expect_float_arg("human_remember", args, 3)?.clamp(0.0, 1.0)
-    } else { 0.5 };
+    } else {
+        0.5
+    };
     let now_ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs_f64()).unwrap_or(0.0);
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
     let mem_data = serde_json::json!({
         "persona": persona,
         "key": key,
@@ -3903,7 +5450,9 @@ fn builtin_human_remember(args: &[Value]) -> Result<Value, String> {
     let store_key = format!("human_mem:{}:{}", persona, key);
     let value = serde_json::to_string(&mem_data)
         .map_err(|e| format!("human_remember() serialize error: {}", e))?;
-    let mut store = kv_store().lock().map_err(|e| format!("human_remember() lock error: {}", e))?;
+    let mut store = kv_store()
+        .lock()
+        .map_err(|e| format!("human_remember() lock error: {}", e))?;
     store.insert(store_key.clone(), value.clone());
     if let Ok(sqlite_guard) = kv_sqlite().lock() {
         if let Some(ref conn) = *sqlite_guard {
@@ -3922,7 +5471,9 @@ fn builtin_human_remember(args: &[Value]) -> Result<Value, String> {
 fn builtin_human_forget(args: &[Value]) -> Result<Value, String> {
     let persona = expect_string_arg("human_forget", args, 0)?;
     let prefix = format!("human_mem:{}:", persona);
-    let mut store = kv_store().lock().map_err(|e| format!("human_forget() lock error: {}", e))?;
+    let mut store = kv_store()
+        .lock()
+        .map_err(|e| format!("human_forget() lock error: {}", e))?;
 
     if args.len() >= 2 {
         let key = expect_string_arg("human_forget", args, 1)?;
@@ -3930,7 +5481,10 @@ fn builtin_human_forget(args: &[Value]) -> Result<Value, String> {
         if store.remove(&store_key).is_some() {
             if let Ok(sqlite_guard) = kv_sqlite().lock() {
                 if let Some(ref conn) = *sqlite_guard {
-                    let _ = conn.execute("DELETE FROM kv_store WHERE key = ?1", rusqlite::params![store_key]);
+                    let _ = conn.execute(
+                        "DELETE FROM kv_store WHERE key = ?1",
+                        rusqlite::params![store_key],
+                    );
                 }
             }
             Ok(Value::String("ok".to_string()))
@@ -3939,7 +5493,11 @@ fn builtin_human_forget(args: &[Value]) -> Result<Value, String> {
         }
     } else {
         // Delete all memories for this persona
-        let to_remove: Vec<String> = store.keys().filter(|k| k.starts_with(&prefix)).cloned().collect();
+        let to_remove: Vec<String> = store
+            .keys()
+            .filter(|k| k.starts_with(&prefix))
+            .cloned()
+            .collect();
         let count = to_remove.len();
         for k in &to_remove {
             store.remove(k);
@@ -3947,7 +5505,8 @@ fn builtin_human_forget(args: &[Value]) -> Result<Value, String> {
         if let Ok(sqlite_guard) = kv_sqlite().lock() {
             if let Some(ref conn) = *sqlite_guard {
                 for k in &to_remove {
-                    let _ = conn.execute("DELETE FROM kv_store WHERE key = ?1", rusqlite::params![k]);
+                    let _ =
+                        conn.execute("DELETE FROM kv_store WHERE key = ?1", rusqlite::params![k]);
                 }
             }
         }
@@ -3963,21 +5522,36 @@ fn builtin_human_recall(args: &[Value]) -> Result<Value, String> {
     let query = expect_string_arg("human_recall", args, 1)?;
     let limit: usize = if args.len() >= 3 {
         expect_float_arg("human_recall", args, 2)? as usize
-    } else { 10 };
+    } else {
+        10
+    };
     let prefix = format!("human_mem:{}:", persona);
     let query_lower = query.to_lowercase();
     let now_ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs_f64()).unwrap_or(0.0);
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
 
-    let store = kv_store().lock().map_err(|e| format!("human_recall() lock error: {}", e))?;
+    let store = kv_store()
+        .lock()
+        .map_err(|e| format!("human_recall() lock error: {}", e))?;
     let mut memories: Vec<(f64, f64, Value)> = Vec::new(); // (importance, recency, struct)
 
     for (k, v) in store.iter() {
-        if !k.starts_with(&prefix) { continue; }
+        if !k.starts_with(&prefix) {
+            continue;
+        }
         if let Ok(data) = serde_json::from_str::<serde_json::Value>(v) {
-            let content = data.get("content").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-            let key_str = data.get("key").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let content = data
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_lowercase();
+            let key_str = data
+                .get("key")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_lowercase();
             // Simple relevance scoring: keyword match in content or key
             let query_words: Vec<&str> = query_lower.split_whitespace().collect();
             let mut matches = 0;
@@ -3986,29 +5560,55 @@ fn builtin_human_recall(args: &[Value]) -> Result<Value, String> {
                     matches += 1;
                 }
             }
-            let relevance = if query_words.is_empty() { 0.5 } else { matches as f64 / query_words.len() as f64 };
-            if relevance < 0.01 && !query.is_empty() { continue; } // skip non-matching if query given
+            let relevance = if query_words.is_empty() {
+                0.5
+            } else {
+                matches as f64 / query_words.len() as f64
+            };
+            if relevance < 0.01 && !query.is_empty() {
+                continue;
+            } // skip non-matching if query given
 
-            let importance = data.get("importance").and_then(|v| v.as_f64()).unwrap_or(0.5);
-            let created_at = data.get("created_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let access_count = data.get("access_count").and_then(|v| v.as_i64()).unwrap_or(0) as f64;
+            let importance = data
+                .get("importance")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.5);
+            let created_at = data
+                .get("created_at")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let access_count = data
+                .get("access_count")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as f64;
             let age_hours = (now_ts - created_at).max(0.0) / 3600.0;
             // Recency score: 1.0 for fresh, decays over time (half-life ~168h = 1 week)
             let recency = (0.5_f64).powf(age_hours / 168.0);
             // Composite score: 50% relevance, 30% importance, 20% recency
             let score = relevance * 0.5 + importance * 0.3 + recency * 0.2;
 
-            let mem_key = data.get("key").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let mem_content = data.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let mem_struct = make_date_struct("Memory", vec![
-                ("key", Value::String(mem_key)),
-                ("content", Value::String(mem_content)),
-                ("importance", Value::Float(importance)),
-                ("created_at", Value::Float(created_at)),
-                ("access_count", Value::Float(access_count)),
-                ("relevance", Value::Float(relevance)),
-                ("score", Value::Float(score)),
-            ]);
+            let mem_key = data
+                .get("key")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let mem_content = data
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let mem_struct = make_date_struct(
+                "Memory",
+                vec![
+                    ("key", Value::String(mem_key)),
+                    ("content", Value::String(mem_content)),
+                    ("importance", Value::Float(importance)),
+                    ("created_at", Value::Float(created_at)),
+                    ("access_count", Value::Float(access_count)),
+                    ("relevance", Value::Float(relevance)),
+                    ("score", Value::Float(score)),
+                ],
+            );
             memories.push((score, recency, mem_struct));
         }
     }
@@ -4036,19 +5636,35 @@ fn builtin_human_respond(args: &[Value]) -> Result<Value, String> {
 
     // Load persona data
     let persona_key = format!("human_persona:{}", persona);
-    let store = kv_store().lock().map_err(|e| format!("human_respond() lock error: {}", e))?;
+    let store = kv_store()
+        .lock()
+        .map_err(|e| format!("human_respond() lock error: {}", e))?;
     let persona_data = store.get(&persona_key).cloned().unwrap_or_default();
     drop(store);
 
     if persona_data.is_empty() {
-        return Err(format!("human_respond() persona '{}' not found. Use human_create() first.", persona));
+        return Err(format!(
+            "human_respond() persona '{}' not found. Use human_create() first.",
+            persona
+        ));
     }
 
     let data: serde_json::Value = serde_json::from_str(&persona_data)
         .map_err(|e| format!("human_respond() persona parse error: {}", e))?;
-    let traits = data.get("traits").and_then(|v| v.as_str()).unwrap_or("helpful assistant").to_string();
-    let mood = data.get("mood").and_then(|v| v.as_str()).unwrap_or("neutral").to_string();
-    let mood_intensity = data.get("mood_intensity").and_then(|v| v.as_f64()).unwrap_or(0.5);
+    let traits = data
+        .get("traits")
+        .and_then(|v| v.as_str())
+        .unwrap_or("helpful assistant")
+        .to_string();
+    let mood = data
+        .get("mood")
+        .and_then(|v| v.as_str())
+        .unwrap_or("neutral")
+        .to_string();
+    let mood_intensity = data
+        .get("mood_intensity")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.5);
 
     // Recall relevant memories
     let recall_result = builtin_human_recall(&[
@@ -4061,12 +5677,22 @@ fn builtin_human_respond(args: &[Value]) -> Result<Value, String> {
             let mut parts = Vec::new();
             for item in &items {
                 if let Value::Struct { fields, .. } = item {
-                    let key = fields.get("key").map(|v| format!("{}", v)).unwrap_or_default();
-                    let content = fields.get("content").map(|v| format!("{}", v)).unwrap_or_default();
+                    let key = fields
+                        .get("key")
+                        .map(|v| format!("{}", v))
+                        .unwrap_or_default();
+                    let content = fields
+                        .get("content")
+                        .map(|v| format!("{}", v))
+                        .unwrap_or_default();
                     parts.push(format!("- [{}]: {}", key, content));
                 }
             }
-            if parts.is_empty() { "No relevant memories found.".to_string() } else { parts.join("\n") }
+            if parts.is_empty() {
+                "No relevant memories found.".to_string()
+            } else {
+                parts.join("\n")
+            }
         }
         _ => "No memories.".to_string(),
     };
@@ -4084,7 +5710,10 @@ fn builtin_human_respond(args: &[Value]) -> Result<Value, String> {
     let full_prompt = if context.is_empty() {
         format!("{}\n\nUser: {}", system_prompt, message)
     } else {
-        format!("{}\n\nRecent context:\n{}\n\nUser: {}", system_prompt, context, message)
+        format!(
+            "{}\n\nRecent context:\n{}\n\nUser: {}",
+            system_prompt, context, message
+        )
     };
 
     // Call LLM (reuses existing call_llm infrastructure)
@@ -4096,7 +5725,8 @@ fn builtin_human_respond(args: &[Value]) -> Result<Value, String> {
         format!("[{} (mood: {}): {}]", persona, mood, message)
     } else {
         let backend = crate::llm::create_llm_backend();
-        backend.call(&full_prompt, "")
+        backend
+            .call(&full_prompt, "")
             .map_err(|e| format!("human_respond() LLM call failed: {}", e))?
     };
 
@@ -4108,25 +5738,50 @@ fn builtin_human_respond(args: &[Value]) -> Result<Value, String> {
 fn builtin_human_personas(args: &[Value]) -> Result<Value, String> {
     let _ = args;
     let prefix = "human_persona:";
-    let store = kv_store().lock().map_err(|e| format!("human_personas() lock error: {}", e))?;
+    let store = kv_store()
+        .lock()
+        .map_err(|e| format!("human_personas() lock error: {}", e))?;
     let mut result = Vec::new();
     for (k, v) in store.iter() {
-        if !k.starts_with(prefix) { continue; }
+        if !k.starts_with(prefix) {
+            continue;
+        }
         if let Ok(data) = serde_json::from_str::<serde_json::Value>(v) {
-            let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let traits = data.get("traits").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let mood = data.get("mood").and_then(|v| v.as_str()).unwrap_or("neutral").to_string();
-            let created_at = data.get("created_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let name = data
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let traits = data
+                .get("traits")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let mood = data
+                .get("mood")
+                .and_then(|v| v.as_str())
+                .unwrap_or("neutral")
+                .to_string();
+            let created_at = data
+                .get("created_at")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
             // Count memories for this persona
             let mem_prefix = format!("human_mem:{}:", name);
-            let mem_count = store.keys().filter(|mk| mk.starts_with(&mem_prefix)).count();
-            result.push(make_date_struct("PersonaSummary", vec![
-                ("name", Value::String(name)),
-                ("traits", Value::String(traits)),
-                ("mood", Value::String(mood)),
-                ("memory_count", Value::Float(mem_count as f64)),
-                ("created_at", Value::Float(created_at)),
-            ]));
+            let mem_count = store
+                .keys()
+                .filter(|mk| mk.starts_with(&mem_prefix))
+                .count();
+            result.push(make_date_struct(
+                "PersonaSummary",
+                vec![
+                    ("name", Value::String(name)),
+                    ("traits", Value::String(traits)),
+                    ("mood", Value::String(mood)),
+                    ("memory_count", Value::Float(mem_count as f64)),
+                    ("created_at", Value::Float(created_at)),
+                ],
+            ));
         }
     }
     Ok(Value::List(result))
@@ -4138,12 +5793,18 @@ fn builtin_human_delete(args: &[Value]) -> Result<Value, String> {
     let persona = expect_string_arg("human_delete", args, 0)?;
     let persona_key = format!("human_persona:{}", persona);
     let mem_prefix = format!("human_mem:{}:", persona);
-    let mut store = kv_store().lock().map_err(|e| format!("human_delete() lock error: {}", e))?;
+    let mut store = kv_store()
+        .lock()
+        .map_err(|e| format!("human_delete() lock error: {}", e))?;
 
     // Delete persona
     let persona_existed = store.remove(&persona_key).is_some();
     // Delete all memories
-    let to_remove: Vec<String> = store.keys().filter(|k| k.starts_with(&mem_prefix)).cloned().collect();
+    let to_remove: Vec<String> = store
+        .keys()
+        .filter(|k| k.starts_with(&mem_prefix))
+        .cloned()
+        .collect();
     let mem_count = to_remove.len();
     for k in &to_remove {
         store.remove(k);
@@ -4153,18 +5814,28 @@ fn builtin_human_delete(args: &[Value]) -> Result<Value, String> {
     // SQLite cleanup
     if let Ok(sqlite_guard) = kv_sqlite().lock() {
         if let Some(ref conn) = *sqlite_guard {
-            let _ = conn.execute("DELETE FROM kv_store WHERE key = ?1", rusqlite::params![persona_key]);
+            let _ = conn.execute(
+                "DELETE FROM kv_store WHERE key = ?1",
+                rusqlite::params![persona_key],
+            );
             for k in &to_remove {
                 let _ = conn.execute("DELETE FROM kv_store WHERE key = ?1", rusqlite::params![k]);
             }
         }
     }
 
-    let status = if persona_existed { "deleted" } else { "not_found" };
-    Ok(make_date_struct("DeleteResult", vec![
-        ("deleted_memories", Value::Float(mem_count as f64)),
-        ("status", Value::String(status.to_string())),
-    ]))
+    let status = if persona_existed {
+        "deleted"
+    } else {
+        "not_found"
+    };
+    Ok(make_date_struct(
+        "DeleteResult",
+        vec![
+            ("deleted_memories", Value::Float(mem_count as f64)),
+            ("status", Value::String(status.to_string())),
+        ],
+    ))
 }
 
 // ── Problem B (Наряд reverse-iteration): list aggregation builtins ──────
@@ -4179,15 +5850,16 @@ pub fn builtin_zip(args: &[Value]) -> Result<Value, String> {
         Some(Value::List(items)) => items,
         _ => return Err("zip() expects second argument to be a List".to_string()),
     };
-    let paired: Vec<Value> = list_a.iter().zip(list_b.iter()).map(|(a, b)| {
-        Value::Struct {
+    let paired: Vec<Value> = list_a
+        .iter()
+        .zip(list_b.iter())
+        .map(|(a, b)| Value::Struct {
             type_name: "Pair".to_string(),
-            fields: [
-                ("a".to_string(), a.clone()),
-                ("b".to_string(), b.clone()),
-            ].into_iter().collect(),
-        }
-    }).collect();
+            fields: [("a".to_string(), a.clone()), ("b".to_string(), b.clone())]
+                .into_iter()
+                .collect(),
+        })
+        .collect();
     Ok(Value::List(paired))
 }
 
@@ -4200,7 +5872,9 @@ pub fn builtin_sort_by(args: &[Value]) -> Result<Value, String> {
     };
     let key_field = match args.get(1) {
         Some(Value::String(s)) => s.clone(),
-        _ => return Err("sort_by() expects second argument to be a field name (String)".to_string()),
+        _ => {
+            return Err("sort_by() expects second argument to be a field name (String)".to_string())
+        }
     };
     let descending = match args.get(2) {
         Some(Value::Float(f)) if *f != 0.0 => true,
@@ -4209,8 +5883,16 @@ pub fn builtin_sort_by(args: &[Value]) -> Result<Value, String> {
 
     let mut sorted = list;
     sorted.sort_by(|a, b| {
-        let va = a.get_field(&key_field).ok().cloned().unwrap_or(Value::Float(0.0));
-        let vb = b.get_field(&key_field).ok().cloned().unwrap_or(Value::Float(0.0));
+        let va = a
+            .get_field(&key_field)
+            .ok()
+            .cloned()
+            .unwrap_or(Value::Float(0.0));
+        let vb = b
+            .get_field(&key_field)
+            .ok()
+            .cloned()
+            .unwrap_or(Value::Float(0.0));
         let fa = match va {
             Value::Float(f) => f,
             Value::String(s) => s.parse::<f64>().unwrap_or(0.0),
@@ -4238,22 +5920,31 @@ pub fn builtin_filter(args: &[Value]) -> Result<Value, String> {
     };
     let key_field = match args.get(1) {
         Some(Value::String(s)) => s.clone(),
-        _ => return Err("filter() expects second argument to be a field name (String)".to_string()),
+        _ => {
+            return Err("filter() expects second argument to be a field name (String)".to_string())
+        }
     };
     let filter_val = match args.get(2) {
         Some(v) => v.clone(),
         None => return Err("filter() expects three arguments".to_string()),
     };
 
-    let filtered: Vec<Value> = list.into_iter().filter(|item| {
-        let field_val = item.get_field(&key_field).ok().cloned().unwrap_or(Value::Unit);
-        match (&field_val, &filter_val) {
-            (Value::String(a), Value::String(b)) => a == b,
-            (Value::Float(a), Value::Float(b)) => a == b,
-            (Value::Bool(a), Value::Bool(b)) => a == b,
-            _ => false,
-        }
-    }).collect();
+    let filtered: Vec<Value> = list
+        .into_iter()
+        .filter(|item| {
+            let field_val = item
+                .get_field(&key_field)
+                .ok()
+                .cloned()
+                .unwrap_or(Value::Unit);
+            match (&field_val, &filter_val) {
+                (Value::String(a), Value::String(b)) => a == b,
+                (Value::Float(a), Value::Float(b)) => a == b,
+                (Value::Bool(a), Value::Bool(b)) => a == b,
+                _ => false,
+            }
+        })
+        .collect();
     Ok(Value::List(filtered))
 }
 
@@ -4265,16 +5956,24 @@ pub fn builtin_reduce(args: &[Value]) -> Result<Value, String> {
     };
     let key_field = match args.get(1) {
         Some(Value::String(s)) => s.clone(),
-        _ => return Err("reduce() expects second argument to be a field name (String)".to_string()),
+        _ => {
+            return Err("reduce() expects second argument to be a field name (String)".to_string())
+        }
     };
     let initial = match args.get(2) {
         Some(Value::Float(f)) => *f,
-        _ => return Err("reduce() expects third argument to be an initial Float value".to_string()),
+        _ => {
+            return Err("reduce() expects third argument to be an initial Float value".to_string())
+        }
     };
 
     let mut acc = initial;
     for item in list {
-        let field_val = item.get_field(&key_field).ok().cloned().unwrap_or(Value::Float(0.0));
+        let field_val = item
+            .get_field(&key_field)
+            .ok()
+            .cloned()
+            .unwrap_or(Value::Float(0.0));
         if let Value::Float(f) = field_val {
             acc += f;
         }
@@ -4291,7 +5990,9 @@ pub fn builtin_extract_param(args: &[Value]) -> Result<Value, String> {
     };
     let index = match args.get(1) {
         Some(Value::Float(f)) => *f as usize,
-        _ => return Err("extract_param() expects second argument to be a Float (index)".to_string()),
+        _ => {
+            return Err("extract_param() expects second argument to be a Float (index)".to_string())
+        }
     };
     let parts: Vec<&str> = text.split(':').collect();
     match parts.get(index) {
@@ -4323,7 +6024,11 @@ pub fn builtin_matches_any(args: &[Value]) -> Result<Value, String> {
     };
     let triggers = match args.get(1) {
         Some(Value::List(items)) => items,
-        _ => return Err("matches_any() expects second argument to be a List of trigger strings".to_string()),
+        _ => {
+            return Err(
+                "matches_any() expects second argument to be a List of trigger strings".to_string(),
+            )
+        }
     };
     for trigger in triggers {
         if let Value::String(t) = trigger {
@@ -4342,8 +6047,8 @@ pub fn builtin_read_file_tokens(args: &[Value]) -> Result<Value, String> {
         Some(Value::String(s)) => s.clone(),
         _ => return Err("read_file_tokens() expects a file path (String)".to_string()),
     };
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("read_file_tokens(): {}", e))?;
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("read_file_tokens(): {}", e))?;
     let char_count = content.chars().count() as f64;
     let tokens = (char_count / 4.0).ceil();
     Ok(Value::Struct {
@@ -4352,7 +6057,9 @@ pub fn builtin_read_file_tokens(args: &[Value]) -> Result<Value, String> {
             ("content".to_string(), Value::String(content)),
             ("chars".to_string(), Value::Float(char_count)),
             ("tokens".to_string(), Value::Float(tokens)),
-        ].into_iter().collect(),
+        ]
+        .into_iter()
+        .collect(),
     })
 }
 
@@ -4370,11 +6077,17 @@ fn get_cron_jobs() -> Vec<serde_json::Value> {
     let raw = match (store, sqlite) {
         (Some(s), _) => s.get("cron_jobs").cloned(),
         (_, Some(guard)) => guard.as_ref().and_then(|conn| {
-            conn.query_row("SELECT value FROM kv_store WHERE key = 'cron_jobs'", [], |row| row.get(0)).ok()
+            conn.query_row(
+                "SELECT value FROM kv_store WHERE key = 'cron_jobs'",
+                [],
+                |row| row.get(0),
+            )
+            .ok()
         }),
         _ => None,
     };
-    raw.and_then(|v| serde_json::from_str(&v).ok()).unwrap_or_default()
+    raw.and_then(|v| serde_json::from_str(&v).ok())
+        .unwrap_or_default()
 }
 
 fn save_cron_jobs(jobs: &[serde_json::Value]) {
@@ -4402,7 +6115,9 @@ fn builtin_cron_add(args: &[Value]) -> Result<Value, String> {
     // Validate cron expression has 5 fields
     let parts: Vec<&str> = cron_expr.split_whitespace().collect();
     if parts.len() != 5 {
-        return Err("cron_add() expects a 5-field cron expression (min hour dom month dow)".to_string());
+        return Err(
+            "cron_add() expects a 5-field cron expression (min hour dom month dow)".to_string(),
+        );
     }
     let id = format!("cron_{}", chrono_now_timestamp());
     let mut jobs = get_cron_jobs();
@@ -4417,13 +6132,16 @@ fn builtin_cron_add(args: &[Value]) -> Result<Value, String> {
     });
     jobs.push(job);
     save_cron_jobs(&jobs);
-    Ok(make_date_struct("CronJob", vec![
-        ("id", Value::String(id)),
-        ("cron_expr", Value::String(cron_expr)),
-        ("prompt", Value::String(prompt)),
-        ("enabled", Value::Float(1.0)),
-        ("status", Value::String("created".to_string())),
-    ]))
+    Ok(make_date_struct(
+        "CronJob",
+        vec![
+            ("id", Value::String(id)),
+            ("cron_expr", Value::String(cron_expr)),
+            ("prompt", Value::String(prompt)),
+            ("enabled", Value::Float(1.0)),
+            ("status", Value::String("created".to_string())),
+        ],
+    ))
 }
 
 /// `cron_list()` — list all registered cron jobs.
@@ -4434,14 +6152,36 @@ fn builtin_cron_list(args: &[Value]) -> Result<Value, String> {
     let mut result = Vec::new();
     for job in &jobs {
         let force_run = job["force_run"].as_bool().unwrap_or(false);
-        result.push(make_date_struct("CronJob", vec![
-            ("id", Value::String(job["id"].as_str().unwrap_or("").to_string())),
-            ("cron_expr", Value::String(job["cron_expr"].as_str().unwrap_or("").to_string())),
-            ("prompt", Value::String(job["prompt"].as_str().unwrap_or("").to_string())),
-            ("enabled", Value::Float(if job["enabled"].as_bool().unwrap_or(false) { 1.0 } else { 0.0 })),
-            ("run_count", Value::Float(job["run_count"].as_u64().unwrap_or(0) as f64)),
-            ("force_run", Value::Float(if force_run { 1.0 } else { 0.0 })),
-        ]));
+        result.push(make_date_struct(
+            "CronJob",
+            vec![
+                (
+                    "id",
+                    Value::String(job["id"].as_str().unwrap_or("").to_string()),
+                ),
+                (
+                    "cron_expr",
+                    Value::String(job["cron_expr"].as_str().unwrap_or("").to_string()),
+                ),
+                (
+                    "prompt",
+                    Value::String(job["prompt"].as_str().unwrap_or("").to_string()),
+                ),
+                (
+                    "enabled",
+                    Value::Float(if job["enabled"].as_bool().unwrap_or(false) {
+                        1.0
+                    } else {
+                        0.0
+                    }),
+                ),
+                (
+                    "run_count",
+                    Value::Float(job["run_count"].as_u64().unwrap_or(0) as f64),
+                ),
+                ("force_run", Value::Float(if force_run { 1.0 } else { 0.0 })),
+            ],
+        ));
     }
     Ok(Value::List(result))
 }
@@ -4458,11 +6198,18 @@ fn builtin_cron_remove(args: &[Value]) -> Result<Value, String> {
         .collect();
     let removed = (before - filtered.len()) as f64;
     save_cron_jobs(&filtered);
-    let status = if removed > 0.0 { "removed" } else { "not_found" };
-    Ok(make_date_struct("CronRemoveResult", vec![
-        ("removed", Value::Float(removed)),
-        ("status", Value::String(status.to_string())),
-    ]))
+    let status = if removed > 0.0 {
+        "removed"
+    } else {
+        "not_found"
+    };
+    Ok(make_date_struct(
+        "CronRemoveResult",
+        vec![
+            ("removed", Value::Float(removed)),
+            ("status", Value::String(status.to_string())),
+        ],
+    ))
 }
 
 /// `cron_run(id)` — immediately execute a cron job (bypass schedule).
@@ -4482,17 +6229,23 @@ fn builtin_cron_run(args: &[Value]) -> Result<Value, String> {
     }
     if found {
         save_cron_jobs(&jobs);
-        Ok(make_date_struct("CronRunResult", vec![
-            ("id", Value::String(id)),
-            ("executed", Value::Float(1.0)),
-            ("status", Value::String("queued".to_string())),
-        ]))
+        Ok(make_date_struct(
+            "CronRunResult",
+            vec![
+                ("id", Value::String(id)),
+                ("executed", Value::Float(1.0)),
+                ("status", Value::String("queued".to_string())),
+            ],
+        ))
     } else {
-        Ok(make_date_struct("CronRunResult", vec![
-            ("id", Value::String(id)),
-            ("executed", Value::Float(0.0)),
-            ("status", Value::String("not_found".to_string())),
-        ]))
+        Ok(make_date_struct(
+            "CronRunResult",
+            vec![
+                ("id", Value::String(id)),
+                ("executed", Value::Float(0.0)),
+                ("status", Value::String("not_found".to_string())),
+            ],
+        ))
     }
 }
 
@@ -4515,15 +6268,21 @@ fn builtin_cron_mark_fired(args: &[Value]) -> Result<Value, String> {
     }
     if found {
         save_cron_jobs(&jobs);
-        Ok(make_date_struct("CronMarkResult", vec![
-            ("id", Value::String(id)),
-            ("status", Value::String("fired".to_string())),
-        ]))
+        Ok(make_date_struct(
+            "CronMarkResult",
+            vec![
+                ("id", Value::String(id)),
+                ("status", Value::String("fired".to_string())),
+            ],
+        ))
     } else {
-        Ok(make_date_struct("CronMarkResult", vec![
-            ("id", Value::String(id)),
-            ("status", Value::String("not_found".to_string())),
-        ]))
+        Ok(make_date_struct(
+            "CronMarkResult",
+            vec![
+                ("id", Value::String(id)),
+                ("status", Value::String("not_found".to_string())),
+            ],
+        ))
     }
 }
 
@@ -4540,7 +6299,11 @@ fn builtin_ask_approval(args: &[Value]) -> Result<Value, String> {
     let title = expect_string_arg("ask_approval", args, 0)?;
     let description = match args.get(1) {
         Some(Value::String(s)) => s.clone(),
-        _ => return Err("ask_approval() expects second argument to be a description (String)".to_string()),
+        _ => {
+            return Err(
+                "ask_approval() expects second argument to be a description (String)".to_string(),
+            )
+        }
     };
     let id = format!("appr_{}", chrono_now_timestamp());
     let approval = serde_json::json!({
@@ -4564,13 +6327,16 @@ fn builtin_ask_approval(args: &[Value]) -> Result<Value, String> {
             );
         }
     }
-    Ok(make_date_struct("Approval", vec![
-        ("id", Value::String(id)),
-        ("title", Value::String(title)),
-        ("description", Value::String(description)),
-        ("approved", Value::Float(0.0)),
-        ("status", Value::String("pending".to_string())),
-    ]))
+    Ok(make_date_struct(
+        "Approval",
+        vec![
+            ("id", Value::String(id)),
+            ("title", Value::String(title)),
+            ("description", Value::String(description)),
+            ("approved", Value::Float(0.0)),
+            ("status", Value::String("pending".to_string())),
+        ],
+    ))
 }
 
 // ── Goals (inspired by OpenHuman Goals: long-term goals + thread goal + budget) ──
@@ -4604,12 +6370,15 @@ fn builtin_goal_set(args: &[Value]) -> Result<Value, String> {
             );
         }
     }
-    Ok(make_date_struct("ThreadGoal", vec![
-        ("objective", Value::String(objective)),
-        ("status", Value::String("active".to_string())),
-        ("budget", Value::Float(budget.unwrap_or(0.0))),
-        ("spent", Value::Float(0.0)),
-    ]))
+    Ok(make_date_struct(
+        "ThreadGoal",
+        vec![
+            ("objective", Value::String(objective)),
+            ("status", Value::String("active".to_string())),
+            ("budget", Value::Float(budget.unwrap_or(0.0))),
+            ("spent", Value::Float(0.0)),
+        ],
+    ))
 }
 
 /// `goal_get()` — get the current thread goal.
@@ -4619,20 +6388,35 @@ fn builtin_goal_get(args: &[Value]) -> Result<Value, String> {
     let raw = kv_get_raw("thread_goal");
     if let Some(json_str) = raw {
         if let Ok(goal) = serde_json::from_str::<serde_json::Value>(&json_str) {
-            return Ok(make_date_struct("ThreadGoal", vec![
-                ("objective", Value::String(goal["objective"].as_str().unwrap_or("").to_string())),
-                ("status", Value::String(goal["status"].as_str().unwrap_or("none").to_string())),
-                ("budget", Value::Float(goal["budget"].as_f64().unwrap_or(0.0))),
-                ("spent", Value::Float(goal["spent"].as_f64().unwrap_or(0.0))),
-            ]));
+            return Ok(make_date_struct(
+                "ThreadGoal",
+                vec![
+                    (
+                        "objective",
+                        Value::String(goal["objective"].as_str().unwrap_or("").to_string()),
+                    ),
+                    (
+                        "status",
+                        Value::String(goal["status"].as_str().unwrap_or("none").to_string()),
+                    ),
+                    (
+                        "budget",
+                        Value::Float(goal["budget"].as_f64().unwrap_or(0.0)),
+                    ),
+                    ("spent", Value::Float(goal["spent"].as_f64().unwrap_or(0.0))),
+                ],
+            ));
         }
     }
-    Ok(make_date_struct("ThreadGoal", vec![
-        ("objective", Value::String("".to_string())),
-        ("status", Value::String("none".to_string())),
-        ("budget", Value::Float(0.0)),
-        ("spent", Value::Float(0.0)),
-    ]))
+    Ok(make_date_struct(
+        "ThreadGoal",
+        vec![
+            ("objective", Value::String("".to_string())),
+            ("status", Value::String("none".to_string())),
+            ("budget", Value::Float(0.0)),
+            ("spent", Value::Float(0.0)),
+        ],
+    ))
 }
 
 /// `goal_complete()` — mark the current thread goal as complete.
@@ -4664,10 +6448,13 @@ fn builtin_goal_complete(args: &[Value]) -> Result<Value, String> {
             );
         }
     }
-    Ok(make_date_struct("GoalComplete", vec![
-        ("status", Value::String("complete".to_string())),
-        ("objective", Value::String(objective)),
-    ]))
+    Ok(make_date_struct(
+        "GoalComplete",
+        vec![
+            ("status", Value::String("complete".to_string())),
+            ("objective", Value::String(objective)),
+        ],
+    ))
 }
 
 /// `goals_list()` — list all long-term goals.
@@ -4680,11 +6467,20 @@ fn builtin_goals_list(args: &[Value]) -> Result<Value, String> {
         .unwrap_or_default();
     let mut result = Vec::new();
     for (i, g) in goals.iter().enumerate() {
-        result.push(make_date_struct("Goal", vec![
-            ("id", Value::String(format!("g{}", i))),
-            ("text", Value::String(g["text"].as_str().unwrap_or("").to_string())),
-            ("status", Value::String(g["status"].as_str().unwrap_or("active").to_string())),
-        ]));
+        result.push(make_date_struct(
+            "Goal",
+            vec![
+                ("id", Value::String(format!("g{}", i))),
+                (
+                    "text",
+                    Value::String(g["text"].as_str().unwrap_or("").to_string()),
+                ),
+                (
+                    "status",
+                    Value::String(g["status"].as_str().unwrap_or("active").to_string()),
+                ),
+            ],
+        ));
     }
     Ok(Value::List(result))
 }
@@ -4719,11 +6515,14 @@ fn builtin_goals_add(args: &[Value]) -> Result<Value, String> {
             );
         }
     }
-    Ok(make_date_struct("Goal", vec![
-        ("id", Value::String(id)),
-        ("text", Value::String(text)),
-        ("status", Value::String("active".to_string())),
-    ]))
+    Ok(make_date_struct(
+        "Goal",
+        vec![
+            ("id", Value::String(id)),
+            ("text", Value::String(text)),
+            ("status", Value::String("active".to_string())),
+        ],
+    ))
 }
 
 /// `goals_reflect()` — returns a summary of goals for reflection.
@@ -4735,12 +6534,18 @@ fn builtin_goals_reflect(args: &[Value]) -> Result<Value, String> {
     let goals: Vec<serde_json::Value> = raw
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
-    let active = goals.iter().filter(|g| g["status"].as_str() == Some("active")).count() as f64;
-    Ok(make_date_struct("GoalsReflection", vec![
-        ("goal_count", Value::Float(goals.len() as f64)),
-        ("active", Value::Float(active)),
-        ("status", Value::String("ready_for_reflection".to_string())),
-    ]))
+    let active = goals
+        .iter()
+        .filter(|g| g["status"].as_str() == Some("active"))
+        .count() as f64;
+    Ok(make_date_struct(
+        "GoalsReflection",
+        vec![
+            ("goal_count", Value::Float(goals.len() as f64)),
+            ("active", Value::Float(active)),
+            ("status", Value::String("ready_for_reflection".to_string())),
+        ],
+    ))
 }
 
 // ── Todos / Kanban (inspired by OpenHuman task board) ──
@@ -4754,7 +6559,15 @@ fn builtin_todo_add(args: &[Value]) -> Result<Value, String> {
         Some(Value::String(s)) => s.clone(),
         _ => "todo".to_string(),
     };
-    let valid = ["todo", "in_progress", "awaiting_approval", "ready", "blocked", "done", "rejected"];
+    let valid = [
+        "todo",
+        "in_progress",
+        "awaiting_approval",
+        "ready",
+        "blocked",
+        "done",
+        "rejected",
+    ];
     if !valid.contains(&status.as_str()) {
         return Err(format!("todo_add() invalid status '{}'. Valid: todo, in_progress, awaiting_approval, ready, blocked, done, rejected", status));
     }
@@ -4782,11 +6595,14 @@ fn builtin_todo_add(args: &[Value]) -> Result<Value, String> {
             );
         }
     }
-    Ok(make_date_struct("Todo", vec![
-        ("id", Value::String(id)),
-        ("title", Value::String(title)),
-        ("status", Value::String(status)),
-    ]))
+    Ok(make_date_struct(
+        "Todo",
+        vec![
+            ("id", Value::String(id)),
+            ("title", Value::String(title)),
+            ("status", Value::String(status)),
+        ],
+    ))
 }
 
 /// `todo_update(id, new_status)` — update a todo's status.
@@ -4823,12 +6639,15 @@ fn builtin_todo_update(args: &[Value]) -> Result<Value, String> {
             }
         }
     }
-    Ok(make_date_struct("TodoUpdate", vec![
-        ("id", Value::String(id)),
-        ("old_status", Value::String(old_status)),
-        ("new_status", Value::String(new_status)),
-        ("updated", Value::Float(if updated { 1.0 } else { 0.0 })),
-    ]))
+    Ok(make_date_struct(
+        "TodoUpdate",
+        vec![
+            ("id", Value::String(id)),
+            ("old_status", Value::String(old_status)),
+            ("new_status", Value::String(new_status)),
+            ("updated", Value::Float(if updated { 1.0 } else { 0.0 })),
+        ],
+    ))
 }
 
 /// `todo_list()` — list all todos.
@@ -4841,11 +6660,23 @@ fn builtin_todo_list(args: &[Value]) -> Result<Value, String> {
         .unwrap_or_default();
     let mut result = Vec::new();
     for t in &todos {
-        result.push(make_date_struct("Todo", vec![
-            ("id", Value::String(t["id"].as_str().unwrap_or("").to_string())),
-            ("title", Value::String(t["title"].as_str().unwrap_or("").to_string())),
-            ("status", Value::String(t["status"].as_str().unwrap_or("").to_string())),
-        ]));
+        result.push(make_date_struct(
+            "Todo",
+            vec![
+                (
+                    "id",
+                    Value::String(t["id"].as_str().unwrap_or("").to_string()),
+                ),
+                (
+                    "title",
+                    Value::String(t["title"].as_str().unwrap_or("").to_string()),
+                ),
+                (
+                    "status",
+                    Value::String(t["status"].as_str().unwrap_or("").to_string()),
+                ),
+            ],
+        ));
     }
     Ok(Value::List(result))
 }
@@ -4863,19 +6694,25 @@ fn builtin_extract_entities(args: &[Value]) -> Result<Value, String> {
     // Email detection
     let email_re = regex_lite_find(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}");
     for m in &email_re {
-        entities.push(make_date_struct("Entity", vec![
-            ("kind", Value::String("email".to_string())),
-            ("name", Value::String(m.as_str().to_string())),
-        ]));
+        entities.push(make_date_struct(
+            "Entity",
+            vec![
+                ("kind", Value::String("email".to_string())),
+                ("name", Value::String(m.as_str().to_string())),
+            ],
+        ));
     }
 
     // URL detection
     let url_re = regex_lite_find(r#"https?://[^\s<>"]'+)"#);
     for m in &url_re {
-        entities.push(make_date_struct("Entity", vec![
-            ("kind", Value::String("url".to_string())),
-            ("name", Value::String(m.as_str().to_string())),
-        ]));
+        entities.push(make_date_struct(
+            "Entity",
+            vec![
+                ("kind", Value::String("url".to_string())),
+                ("name", Value::String(m.as_str().to_string())),
+            ],
+        ));
     }
 
     // Phone detection (rough: 7-15 digits with optional +/spaces/dashes)
@@ -4883,10 +6720,13 @@ fn builtin_extract_entities(args: &[Value]) -> Result<Value, String> {
     for m in &phone_re {
         let s = m.as_str().replace(|c: char| !c.is_ascii_digit(), "");
         if s.len() >= 7 && s.len() <= 15 {
-            entities.push(make_date_struct("Entity", vec![
-                ("kind", Value::String("phone".to_string())),
-                ("name", Value::String(m.as_str().to_string())),
-            ]));
+            entities.push(make_date_struct(
+                "Entity",
+                vec![
+                    ("kind", Value::String("phone".to_string())),
+                    ("name", Value::String(m.as_str().to_string())),
+                ],
+            ));
         }
     }
 
@@ -4901,7 +6741,13 @@ fn builtin_extract_entities(args: &[Value]) -> Result<Value, String> {
             let mut end_idx = i;
             while end_idx + 1 < words.len() {
                 let next = words[end_idx + 1];
-                if next.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) && next.len() > 1 {
+                if next
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase())
+                    .unwrap_or(false)
+                    && next.len() > 1
+                {
                     end_idx += 1;
                 } else {
                     break;
@@ -4912,7 +6758,10 @@ fn builtin_extract_entities(args: &[Value]) -> Result<Value, String> {
                 let name: String = words[i..=end_idx].join(" ");
                 // Filter out common false positives
                 let lower_name = name.to_lowercase();
-                let false_positives = ["the", "this", "that", "these", "those", "then", "than", "they", "there", "their"];
+                let false_positives = [
+                    "the", "this", "that", "these", "those", "then", "than", "they", "there",
+                    "their",
+                ];
                 if !false_positives.iter().any(|fp| lower_name == *fp) {
                     caps.push((name, start));
                 }
@@ -4924,10 +6773,13 @@ fn builtin_extract_entities(args: &[Value]) -> Result<Value, String> {
         i += 1;
     }
     for (name, _) in &caps {
-        entities.push(make_date_struct("Entity", vec![
-            ("kind", Value::String("entity".to_string())),
-            ("name", Value::String(name.clone())),
-        ]));
+        entities.push(make_date_struct(
+            "Entity",
+            vec![
+                ("kind", Value::String("entity".to_string())),
+                ("name", Value::String(name.clone())),
+            ],
+        ));
     }
 
     Ok(Value::List(entities))
@@ -4947,7 +6799,9 @@ fn regex_lite_find(pattern: &str) -> Vec<std::string::String> {
             if bytes[i] == b'[' || bytes[i] == b'(' {
                 // Skip character class
                 let close = if bytes[i] == b'[' { b']' } else { b')' };
-                while i < bytes.len() && bytes[i] != close { i += 1; }
+                while i < bytes.len() && bytes[i] != close {
+                    i += 1;
+                }
                 i += 1;
                 continue;
             }
@@ -4989,7 +6843,8 @@ fn builtin_memory_score(args: &[Value]) -> Result<Value, String> {
     // Signal 2: unique_words (type-token ratio)
     let words: Vec<&str> = text.split_whitespace().collect();
     let word_count = words.len() as f64;
-    let unique: std::collections::HashSet<String> = words.iter().map(|w| w.to_lowercase()).collect();
+    let unique: std::collections::HashSet<String> =
+        words.iter().map(|w| w.to_lowercase()).collect();
     let unique_signal = if word_count < 2.0 {
         0.5 // neutral for very short text
     } else {
@@ -5010,13 +6865,25 @@ fn builtin_memory_score(args: &[Value]) -> Result<Value, String> {
     let total = score / 3.0; // normalize to 0-1
     let admitted = total >= 0.3;
 
-    Ok(make_date_struct("MemoryScore", vec![
-        ("score", Value::Float((total * 100.0).round() / 100.0)),
-        ("admitted", Value::Float(if admitted { 1.0 } else { 0.0 })),
-        ("token_count", Value::Float((token_signal * 100.0).round() / 100.0)),
-        ("unique_words", Value::Float((unique_signal * 100.0).round() / 100.0)),
-        ("entity_density", Value::Float((entity_density * 100.0).round() / 100.0)),
-    ]))
+    Ok(make_date_struct(
+        "MemoryScore",
+        vec![
+            ("score", Value::Float((total * 100.0).round() / 100.0)),
+            ("admitted", Value::Float(if admitted { 1.0 } else { 0.0 })),
+            (
+                "token_count",
+                Value::Float((token_signal * 100.0).round() / 100.0),
+            ),
+            (
+                "unique_words",
+                Value::Float((unique_signal * 100.0).round() / 100.0),
+            ),
+            (
+                "entity_density",
+                Value::Float((entity_density * 100.0).round() / 100.0),
+            ),
+        ],
+    ))
 }
 
 /// Count entities in text (helper for memory_score).
@@ -5035,12 +6902,26 @@ fn extract_entity_count(text: &str) -> usize {
     let words: Vec<&str> = text.split_whitespace().collect();
     let mut i = 0;
     while i < words.len() {
-        if words[i].chars().next().map(|c| c.is_uppercase()).unwrap_or(false) && words[i].len() > 1 {
+        if words[i]
+            .chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false)
+            && words[i].len() > 1
+        {
             let mut end = i;
-            while end + 1 < words.len() && words[end + 1].chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+            while end + 1 < words.len()
+                && words[end + 1]
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase())
+                    .unwrap_or(false)
+            {
                 end += 1;
             }
-            if end > i { count += 1; }
+            if end > i {
+                count += 1;
+            }
             i = end + 1;
         } else {
             i += 1;
@@ -5081,25 +6962,63 @@ fn builtin_compress_html(args: &[Value]) -> Result<Value, String> {
                 in_tag = false;
                 let tag = tag_buf.to_lowercase();
                 // Block-level tags get a newline
-                let block_tags = ["p", "div", "h1", "h2", "h3", "h4", "h5", "h6",
-                    "br", "li", "tr", "hr", "blockquote", "pre", "table", "ul", "ol",
-                    "section", "article", "header", "footer", "nav", "main", "aside",
-                    "figcaption", "details", "summary", "dt", "dd", "th"];
+                let block_tags = [
+                    "p",
+                    "div",
+                    "h1",
+                    "h2",
+                    "h3",
+                    "h4",
+                    "h5",
+                    "h6",
+                    "br",
+                    "li",
+                    "tr",
+                    "hr",
+                    "blockquote",
+                    "pre",
+                    "table",
+                    "ul",
+                    "ol",
+                    "section",
+                    "article",
+                    "header",
+                    "footer",
+                    "nav",
+                    "main",
+                    "aside",
+                    "figcaption",
+                    "details",
+                    "summary",
+                    "dt",
+                    "dd",
+                    "th",
+                ];
                 if tag.starts_with('/') {
                     // Closing tag
                     let inner = tag.trim_start_matches('/').trim();
                     if block_tags.iter().any(|bt| *bt == inner) {
                         result.push('\n');
                     }
-                    if inner == "script" { in_script = false; }
-                    if inner == "style" { in_style = false; }
+                    if inner == "script" {
+                        in_script = false;
+                    }
+                    if inner == "style" {
+                        in_style = false;
+                    }
                 } else {
                     let inner = tag.split_whitespace().next().unwrap_or("");
                     if block_tags.iter().any(|bt| *bt == inner) {
-                        if !result.ends_with('\n') { result.push('\n'); }
+                        if !result.ends_with('\n') {
+                            result.push('\n');
+                        }
                     }
-                    if inner == "script" { in_script = true; }
-                    if inner == "style" { in_style = true; }
+                    if inner == "script" {
+                        in_script = true;
+                    }
+                    if inner == "style" {
+                        in_style = true;
+                    }
                 }
                 i += 1;
                 continue;
@@ -5153,11 +7072,15 @@ fn decode_html_entity(entity: &str) -> String {
             // Numeric entities: &#NNN; or &#xHH;
             if entity.starts_with("#x") || entity.starts_with("#X") {
                 if let Ok(n) = u32::from_str_radix(&entity[2..], 16) {
-                    if let Some(c) = char::from_u32(n) { return c.to_string(); }
+                    if let Some(c) = char::from_u32(n) {
+                        return c.to_string();
+                    }
                 }
             } else if entity.starts_with('#') {
                 if let Ok(n) = u32::from_str_radix(&entity[1..], 10) {
-                    if let Some(c) = char::from_u32(n) { return c.to_string(); }
+                    if let Some(c) = char::from_u32(n) {
+                        return c.to_string();
+                    }
                 }
             }
             format!("&{};", entity) // unknown entity, preserve
@@ -5196,11 +7119,19 @@ fn builtin_learn_preference(args: &[Value]) -> Result<Value, String> {
     let key = expect_string_arg("learn_preference", args, 1)?;
     let value = match args.get(2) {
         Some(Value::String(s)) => s.clone(),
-        _ => return Err("learn_preference() expects third argument to be a value (String)".to_string()),
+        _ => {
+            return Err(
+                "learn_preference() expects third argument to be a value (String)".to_string(),
+            )
+        }
     };
     let valid_classes = ["style", "identity", "tooling", "veto", "goal", "channel"];
     if !valid_classes.contains(&class.as_str()) {
-        return Err(format!("learn_preference() invalid class '{}'. Valid: {}", class, valid_classes.join(", ")));
+        return Err(format!(
+            "learn_preference() invalid class '{}'. Valid: {}",
+            class,
+            valid_classes.join(", ")
+        ));
     }
     let pref_key = format!("pref:{}:{}", class, key);
     let entry = serde_json::json!({
@@ -5233,13 +7164,16 @@ fn builtin_learn_preference(args: &[Value]) -> Result<Value, String> {
                         );
                     }
                 }
-                return Ok(make_date_struct("Preference", vec![
-                    ("class", Value::String(class)),
-                    ("key", Value::String(key)),
-                    ("value", Value::String(value)),
-                    ("evidence", Value::Float(count as f64)),
-                    ("state", Value::String("active".to_string())),
-                ]));
+                return Ok(make_date_struct(
+                    "Preference",
+                    vec![
+                        ("class", Value::String(class)),
+                        ("key", Value::String(key)),
+                        ("value", Value::String(value)),
+                        ("evidence", Value::Float(count as f64)),
+                        ("state", Value::String("active".to_string())),
+                    ],
+                ));
             }
         }
         store.insert(pref_key.clone(), json.clone());
@@ -5252,13 +7186,16 @@ fn builtin_learn_preference(args: &[Value]) -> Result<Value, String> {
             );
         }
     }
-    Ok(make_date_struct("Preference", vec![
-        ("class", Value::String(class)),
-        ("key", Value::String(key)),
-        ("value", Value::String(value)),
-        ("evidence", Value::Float(1.0)),
-        ("state", Value::String("candidate".to_string())),
-    ]))
+    Ok(make_date_struct(
+        "Preference",
+        vec![
+            ("class", Value::String(class)),
+            ("key", Value::String(key)),
+            ("value", Value::String(value)),
+            ("evidence", Value::Float(1.0)),
+            ("state", Value::String("candidate".to_string())),
+        ],
+    ))
 }
 
 /// `get_profile()` — get all active user preferences.
@@ -5266,7 +7203,14 @@ fn builtin_learn_preference(args: &[Value]) -> Result<Value, String> {
 fn builtin_get_profile(args: &[Value]) -> Result<Value, String> {
     let _ = args;
     let mut result = Vec::new();
-    let prefixes = ["pref:style:", "pref:identity:", "pref:tooling:", "pref:veto:", "pref:goal:", "pref:channel:"];
+    let prefixes = [
+        "pref:style:",
+        "pref:identity:",
+        "pref:tooling:",
+        "pref:veto:",
+        "pref:goal:",
+        "pref:channel:",
+    ];
     let store = kv_store().lock().ok();
     let sqlite = kv_sqlite().lock().ok();
 
@@ -5274,27 +7218,49 @@ fn builtin_get_profile(args: &[Value]) -> Result<Value, String> {
         let raw = match (store.as_ref(), sqlite.as_ref()) {
             (Some(s), _) => {
                 // Scan all keys for prefix match
-                s.keys().filter(|k| k.starts_with(prefix)).find_map(|k| s.get(k).cloned())
+                s.keys()
+                    .filter(|k| k.starts_with(prefix))
+                    .find_map(|k| s.get(k).cloned())
             }
-            (_, Some(guard)) => {
-                guard.as_ref().and_then(|conn| {
-                    let pat = format!("{}%", prefix);
-                    let mut stmt = conn.prepare("SELECT value FROM kv_store WHERE key LIKE ?1").ok()?;
-                    let mut rows = stmt.query(rusqlite::params![pat]).ok()?;
-                    rows.next().ok().flatten().and_then(|row| row.get(0).ok())
-                })
-            }
+            (_, Some(guard)) => guard.as_ref().and_then(|conn| {
+                let pat = format!("{}%", prefix);
+                let mut stmt = conn
+                    .prepare("SELECT value FROM kv_store WHERE key LIKE ?1")
+                    .ok()?;
+                let mut rows = stmt.query(rusqlite::params![pat]).ok()?;
+                rows.next().ok().flatten().and_then(|row| row.get(0).ok())
+            }),
             _ => None,
         };
         if let Some(json_str) = raw {
             if let Ok(pref) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                result.push(make_date_struct("Preference", vec![
-                    ("class", Value::String(pref["class"].as_str().unwrap_or("").to_string())),
-                    ("key", Value::String(pref["key"].as_str().unwrap_or("").to_string())),
-                    ("value", Value::String(pref["value"].as_str().unwrap_or("").to_string())),
-                    ("evidence", Value::Float(pref["evidence_count"].as_u64().unwrap_or(0) as f64)),
-                    ("state", Value::String(pref["state"].as_str().unwrap_or("candidate").to_string())),
-                ]));
+                result.push(make_date_struct(
+                    "Preference",
+                    vec![
+                        (
+                            "class",
+                            Value::String(pref["class"].as_str().unwrap_or("").to_string()),
+                        ),
+                        (
+                            "key",
+                            Value::String(pref["key"].as_str().unwrap_or("").to_string()),
+                        ),
+                        (
+                            "value",
+                            Value::String(pref["value"].as_str().unwrap_or("").to_string()),
+                        ),
+                        (
+                            "evidence",
+                            Value::Float(pref["evidence_count"].as_u64().unwrap_or(0) as f64),
+                        ),
+                        (
+                            "state",
+                            Value::String(
+                                pref["state"].as_str().unwrap_or("candidate").to_string(),
+                            ),
+                        ),
+                    ],
+                ));
             }
         }
     }
@@ -5313,9 +7279,12 @@ fn kv_get_raw(key: &str) -> Option<String> {
     if let Ok(guard) = kv_sqlite().lock() {
         if let Some(ref conn) = *guard {
             if let Ok(v) = conn.query_row(
-                "SELECT value FROM kv_store WHERE key = ?1", rusqlite::params![key],
+                "SELECT value FROM kv_store WHERE key = ?1",
+                rusqlite::params![key],
                 |row| row.get(0),
-            ) { return Some(v); }
+            ) {
+                return Some(v);
+            }
         }
     }
     None
@@ -5326,7 +7295,7 @@ fn kv_get_raw(key: &str) -> Option<String> {
 // Stored in KV store under "memory_graph" key as GraphSnapshot JSON.
 // Auto-migrates from legacy "mtree_entries" JSON array on first access.
 
-use crate::memory_graph::{MemoryGraph, MemoryNode, Relation, graph_search, GraphSnapshot};
+use crate::memory_graph::{graph_search, GraphSnapshot, MemoryGraph, MemoryNode, Relation};
 
 fn get_memory_graph() -> MemoryGraph {
     let store = kv_store().lock().ok();
@@ -5337,7 +7306,12 @@ fn get_memory_graph() -> MemoryGraph {
         s.get("memory_graph").cloned()
     } else if let Some(ref guard) = sqlite {
         guard.as_ref().and_then(|conn| {
-            conn.query_row("SELECT value FROM kv_store WHERE key = 'memory_graph'", [], |row| row.get(0)).ok()
+            conn.query_row(
+                "SELECT value FROM kv_store WHERE key = 'memory_graph'",
+                [],
+                |row| row.get(0),
+            )
+            .ok()
         })
     } else {
         None
@@ -5352,7 +7326,12 @@ fn get_memory_graph() -> MemoryGraph {
         s.get("mtree_entries").cloned()
     } else if let Some(ref guard) = sqlite {
         guard.as_ref().and_then(|conn| {
-            conn.query_row("SELECT value FROM kv_store WHERE key = 'mtree_entries'", [], |row| row.get(0)).ok()
+            conn.query_row(
+                "SELECT value FROM kv_store WHERE key = 'mtree_entries'",
+                [],
+                |row| row.get(0),
+            )
+            .ok()
         })
     } else {
         None
@@ -5407,10 +7386,15 @@ fn compute_admission_score(text: &str) -> f64 {
     let words: std::collections::HashSet<&str> = text.split_whitespace().collect();
     let unique_words = words.len();
     let entity_density = {
-        let caps: Vec<&str> = text.split_whitespace()
+        let caps: Vec<&str> = text
+            .split_whitespace()
             .filter(|w| w.chars().next().map_or(false, |c| c.is_uppercase()) && w.len() > 1)
             .collect();
-        if token_count > 0 { caps.len() as f64 / token_count as f64 } else { 0.0 }
+        if token_count > 0 {
+            caps.len() as f64 / token_count as f64
+        } else {
+            0.0
+        }
     };
     let score = (0.3 * (unique_words as f64 / 50.0).min(1.0))
         + (0.2 * entity_density.min(1.0))
@@ -5434,13 +7418,16 @@ fn builtin_mtree_store(args: &[Value]) -> Result<Value, String> {
     let admitted = score >= 0.3;
 
     if !admitted {
-        return Ok(make_date_struct("MTreeStore", vec![
-            ("id", Value::String("".to_string())),
-            ("level", Value::String("L0".to_string())),
-            ("score", Value::Float(score)),
-            ("admitted", Value::Float(0.0)),
-            ("reason", Value::String("below_threshold".to_string())),
-        ]));
+        return Ok(make_date_struct(
+            "MTreeStore",
+            vec![
+                ("id", Value::String("".to_string())),
+                ("level", Value::String("L0".to_string())),
+                ("score", Value::Float(score)),
+                ("admitted", Value::Float(0.0)),
+                ("reason", Value::String("below_threshold".to_string())),
+            ],
+        ));
     }
 
     let id = format!("mt_{}", chrono_now_timestamp());
@@ -5460,13 +7447,16 @@ fn builtin_mtree_store(args: &[Value]) -> Result<Value, String> {
     graph.add_node(node);
     save_memory_graph(&graph);
 
-    Ok(make_date_struct("MTreeStore", vec![
-        ("id", Value::String(id)),
-        ("level", Value::String("L0".to_string())),
-        ("score", Value::Float(score)),
-        ("admitted", Value::Float(1.0)),
-        ("reason", Value::String("stored".to_string())),
-    ]))
+    Ok(make_date_struct(
+        "MTreeStore",
+        vec![
+            ("id", Value::String(id)),
+            ("level", Value::String("L0".to_string())),
+            ("score", Value::Float(score)),
+            ("admitted", Value::Float(1.0)),
+            ("reason", Value::String("stored".to_string())),
+        ],
+    ))
 }
 
 /// `mtree_retrieve(query, limit?)` — retrieve top-N relevant memories using graph search.
@@ -5485,13 +7475,16 @@ fn builtin_mtree_retrieve(args: &[Value]) -> Result<Value, String> {
 
     let mut result = Vec::new();
     for (id, text, level, score, relevance) in &results {
-        result.push(make_date_struct("MTreeEntry", vec![
-            ("id", Value::String(id.clone())),
-            ("text", Value::String(text.clone())),
-            ("level", Value::String(level.clone())),
-            ("score", Value::Float(*score)),
-            ("relevance", Value::Float(*relevance)),
-        ]));
+        result.push(make_date_struct(
+            "MTreeEntry",
+            vec![
+                ("id", Value::String(id.clone())),
+                ("text", Value::String(text.clone())),
+                ("level", Value::String(level.clone())),
+                ("score", Value::Float(*score)),
+                ("relevance", Value::Float(*relevance)),
+            ],
+        ));
     }
     Ok(Value::List(result))
 }
@@ -5508,11 +7501,14 @@ fn builtin_mtree_forget(args: &[Value]) -> Result<Value, String> {
         save_memory_graph(&graph);
     }
     let status = if existed { "removed" } else { "not_found" };
-    Ok(make_date_struct("MTreeForget", vec![
-        ("id", Value::String(id)),
-        ("removed", Value::Float(removed)),
-        ("status", Value::String(status.to_string())),
-    ]))
+    Ok(make_date_struct(
+        "MTreeForget",
+        vec![
+            ("id", Value::String(id)),
+            ("removed", Value::Float(removed)),
+            ("status", Value::String(status.to_string())),
+        ],
+    ))
 }
 
 /// `mtree_summarize()` — promote L0 entries to L1 with derived_from edges,
@@ -5524,7 +7520,8 @@ fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
     let mut graph = get_memory_graph();
 
     // ── Phase 1: L0 → L1 ──
-    let l0_nodes: Vec<MemoryNode> = graph.nodes()
+    let l0_nodes: Vec<MemoryNode> = graph
+        .nodes()
         .into_iter()
         .filter(|n| n.level == "L0")
         .cloned()
@@ -5565,7 +7562,8 @@ fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
     }
 
     // ── Phase 2: L1 → L2 global summary ──
-    let l1_nodes: Vec<MemoryNode> = graph.nodes()
+    let l1_nodes: Vec<MemoryNode> = graph
+        .nodes()
         .into_iter()
         .filter(|n| n.level == "L1")
         .cloned()
@@ -5576,7 +7574,8 @@ fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
 
     if l1_count >= 3 {
         // Remove any existing L2
-        let l2_ids: Vec<String> = graph.nodes()
+        let l2_ids: Vec<String> = graph
+            .nodes()
             .into_iter()
             .filter(|n| n.level == "L2")
             .map(|n| n.id.clone())
@@ -5629,15 +7628,18 @@ fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
         _ => "no_change".to_string(),
     };
 
-    Ok(make_date_struct("MTreeSummarize", vec![
-        ("l0_promoted", Value::Float(l0_promoted as f64)),
-        ("l1_count", Value::Float(l1_final as f64)),
-        ("l2_created", Value::Float(l2_created as f64)),
-        ("status", Value::String(status)),
-        ("graph_nodes", Value::Float(nodes as f64)),
-        ("graph_edges", Value::Float(edges as f64)),
-        ("components", Value::Float(components as f64)),
-    ]))
+    Ok(make_date_struct(
+        "MTreeSummarize",
+        vec![
+            ("l0_promoted", Value::Float(l0_promoted as f64)),
+            ("l1_count", Value::Float(l1_final as f64)),
+            ("l2_created", Value::Float(l2_created as f64)),
+            ("status", Value::String(status)),
+            ("graph_nodes", Value::Float(nodes as f64)),
+            ("graph_edges", Value::Float(edges as f64)),
+            ("components", Value::Float(components as f64)),
+        ],
+    ))
 }
 
 /// `mtree_stats()` — diagnostics: count entries at each level, graph metrics.
@@ -5652,15 +7654,18 @@ fn builtin_mtree_stats(args: &[Value]) -> Result<Value, String> {
     let l2 = *levels.get("L2").unwrap_or(&0);
     let total_chars = graph.total_chars();
     let (nodes, edges, components) = graph.stats();
-    Ok(make_date_struct("MTreeStats", vec![
-        ("l0", Value::Float(l0 as f64)),
-        ("l1", Value::Float(l1 as f64)),
-        ("l2", Value::Float(l2 as f64)),
-        ("total", Value::Float(nodes as f64)),
-        ("total_chars", Value::Float(total_chars as f64)),
-        ("graph_edges", Value::Float(edges as f64)),
-        ("components", Value::Float(components as f64)),
-    ]))
+    Ok(make_date_struct(
+        "MTreeStats",
+        vec![
+            ("l0", Value::Float(l0 as f64)),
+            ("l1", Value::Float(l1 as f64)),
+            ("l2", Value::Float(l2 as f64)),
+            ("total", Value::Float(nodes as f64)),
+            ("total_chars", Value::Float(total_chars as f64)),
+            ("graph_edges", Value::Float(edges as f64)),
+            ("components", Value::Float(components as f64)),
+        ],
+    ))
 }
 
 // ── Graph Query builtins (v0.8.10) ──────────────────────────────────
@@ -5692,13 +7697,16 @@ fn builtin_graph_query(args: &[Value]) -> Result<Value, String> {
 
     let mut result = Vec::new();
     for (id, text, level, score, relevance) in &results {
-        result.push(make_date_struct("GraphEntry", vec![
-            ("id", Value::String(id.clone())),
-            ("text", Value::String(text.clone())),
-            ("level", Value::String(level.clone())),
-            ("score", Value::Float(*score)),
-            ("relevance", Value::Float(*relevance)),
-        ]));
+        result.push(make_date_struct(
+            "GraphEntry",
+            vec![
+                ("id", Value::String(id.clone())),
+                ("text", Value::String(text.clone())),
+                ("level", Value::String(level.clone())),
+                ("score", Value::Float(*score)),
+                ("relevance", Value::Float(*relevance)),
+            ],
+        ));
     }
     Ok(Value::List(result))
 }
@@ -5716,21 +7724,26 @@ fn builtin_graph_path(args: &[Value]) -> Result<Value, String> {
             let mut result = Vec::new();
             for id in &path {
                 if let Some(node) = graph.get_node(id) {
-                    result.push(make_date_struct("PathNode", vec![
-                        ("id", Value::String(node.id.clone())),
-                        ("text", Value::String(node.text.clone())),
-                        ("level", Value::String(node.level.clone())),
-                    ]));
+                    result.push(make_date_struct(
+                        "PathNode",
+                        vec![
+                            ("id", Value::String(node.id.clone())),
+                            ("text", Value::String(node.text.clone())),
+                            ("level", Value::String(node.level.clone())),
+                        ],
+                    ));
                 }
             }
             Ok(Value::List(result))
         }
-        None => Ok(Value::List(vec![
-            make_date_struct("PathError", vec![
+        None => Ok(Value::List(vec![make_date_struct(
+            "PathError",
+            vec![
                 ("status", Value::String("no_path".to_string())),
                 ("from", Value::String(from_id)),
                 ("to", Value::String(to_id)),
-            ])])),
+            ],
+        )])),
     }
 }
 
@@ -5746,7 +7759,8 @@ fn builtin_graph_neighbors(args: &[Value]) -> Result<Value, String> {
     let depth = if depth == 0 { 1 } else { depth };
 
     let mut graph = get_memory_graph();
-    let nbrs: Vec<(String, String, String, usize)> = graph.neighbors(&id, depth)
+    let nbrs: Vec<(String, String, String, usize)> = graph
+        .neighbors(&id, depth)
         .into_iter()
         .map(|(n, d)| (n.id.clone(), n.text.clone(), n.level.clone(), d))
         .collect();
@@ -5761,12 +7775,15 @@ fn builtin_graph_neighbors(args: &[Value]) -> Result<Value, String> {
 
     let mut result = Vec::new();
     for (id, text, level, distance) in &nbrs {
-        result.push(make_date_struct("Neighbor", vec![
-            ("id", Value::String(id.clone())),
-            ("text", Value::String(text.clone())),
-            ("level", Value::String(level.clone())),
-            ("distance", Value::Float(*distance as f64)),
-        ]));
+        result.push(make_date_struct(
+            "Neighbor",
+            vec![
+                ("id", Value::String(id.clone())),
+                ("text", Value::String(text.clone())),
+                ("level", Value::String(level.clone())),
+                ("distance", Value::Float(*distance as f64)),
+            ],
+        ));
     }
     Ok(Value::List(result))
 }
@@ -5785,12 +7802,15 @@ fn builtin_memory_decay(args: &[Value]) -> Result<Value, String> {
     let decayed = graph.decay(lambda, now);
     let (nodes, edges, components) = graph.stats();
     save_memory_graph(&graph);
-    Ok(make_date_struct("DecayResult", vec![
-        ("decayed", Value::Float(decayed as f64)),
-        ("nodes", Value::Float(nodes as f64)),
-        ("edges", Value::Float(edges as f64)),
-        ("components", Value::Float(components as f64)),
-    ]))
+    Ok(make_date_struct(
+        "DecayResult",
+        vec![
+            ("decayed", Value::Float(decayed as f64)),
+            ("nodes", Value::Float(nodes as f64)),
+            ("edges", Value::Float(edges as f64)),
+            ("components", Value::Float(components as f64)),
+        ],
+    ))
 }
 
 /// `memory_boost(id, amount?)` — boost a memory node's score by amount (default 0.1, capped at 1.0).
@@ -5805,13 +7825,19 @@ fn builtin_memory_boost(args: &[Value]) -> Result<Value, String> {
     let mut graph = get_memory_graph();
     let boosted = graph.boost(&id, amount, now);
     if boosted {
-        let node = graph.get_node(&id).unwrap();
+        let node = match graph.get_node(&id) {
+            Some(n) => n,
+            None => return Err("memory_boost: node not found after boost".to_string()),
+        };
         save_memory_graph(&graph);
-        Ok(make_date_struct("BoostResult", vec![
-            ("id", Value::String(node.id.clone())),
-            ("new_score", Value::Float(node.score)),
-            ("access_count", Value::Float(node.access_count as f64)),
-        ]))
+        Ok(make_date_struct(
+            "BoostResult",
+            vec![
+                ("id", Value::String(node.id.clone())),
+                ("new_score", Value::Float(node.score)),
+                ("access_count", Value::Float(node.access_count as f64)),
+            ],
+        ))
     } else {
         Err(format!("memory_boost: node '{}' not found", id))
     }
@@ -5835,10 +7861,13 @@ fn builtin_memory_prune(args: &[Value]) -> Result<Value, String> {
     let pruned = graph.prune(threshold, min_age_hours, now);
     let (nodes, _, _) = graph.stats();
     save_memory_graph(&graph);
-    Ok(make_date_struct("PruneResult", vec![
-        ("pruned", Value::Float(pruned as f64)),
-        ("remaining", Value::Float(nodes as f64)),
-    ]))
+    Ok(make_date_struct(
+        "PruneResult",
+        vec![
+            ("pruned", Value::Float(pruned as f64)),
+            ("remaining", Value::Float(nodes as f64)),
+        ],
+    ))
 }
 
 // ── V2: Belief Revision ────────────────────────────────────────────
@@ -5886,7 +7915,8 @@ fn builtin_subgraph_extract(args: &[Value]) -> Result<Value, String> {
     let depth = if depth == 0 { 2 } else { depth };
 
     let mut graph = get_memory_graph();
-    let nbrs: Vec<(String, String, String, usize)> = graph.neighbors(&id, depth)
+    let nbrs: Vec<(String, String, String, usize)> = graph
+        .neighbors(&id, depth)
         .into_iter()
         .map(|(n, d)| (n.id.clone(), n.text.clone(), n.level.clone(), d))
         .collect();
@@ -5917,12 +7947,15 @@ fn builtin_subgraph_nodes(args: &[Value]) -> Result<Value, String> {
     };
     let mut result = Vec::new();
     for node in &snap.nodes {
-        result.push(make_date_struct("GraphNode", vec![
-            ("id", Value::String(node.id.clone())),
-            ("text", Value::String(node.text.clone())),
-            ("level", Value::String(node.level.clone())),
-            ("score", Value::Float(node.score)),
-        ]));
+        result.push(make_date_struct(
+            "GraphNode",
+            vec![
+                ("id", Value::String(node.id.clone())),
+                ("text", Value::String(node.text.clone())),
+                ("level", Value::String(node.level.clone())),
+                ("score", Value::Float(node.score)),
+            ],
+        ));
     }
     Ok(Value::List(result))
 }
@@ -5968,15 +8001,18 @@ fn builtin_trace_end(args: &[Value]) -> Result<Value, String> {
     };
     let now = chrono_now_timestamp();
     let elapsed_ms = (now - start).max(0) * 1000; // seconds→ms (timestamp is seconds)
-    // Clean up
+                                                  // Clean up
     if let Ok(mut store) = kv_store().lock() {
         store.remove(&key);
     }
-    Ok(make_date_struct("TraceSpan", vec![
-        ("name", Value::String(name)),
-        ("elapsed_ms", Value::Float(elapsed_ms as f64)),
-        ("elapsed_secs", Value::Float((now - start).max(0) as f64)),
-    ]))
+    Ok(make_date_struct(
+        "TraceSpan",
+        vec![
+            ("name", Value::String(name)),
+            ("elapsed_ms", Value::Float(elapsed_ms as f64)),
+            ("elapsed_secs", Value::Float((now - start).max(0) as f64)),
+        ],
+    ))
 }
 
 // ── V5: Assertions ──────────────────────────────────────────────────
@@ -5990,7 +8026,10 @@ fn builtin_assert_eq(args: &[Value]) -> Result<Value, String> {
     let actual_str = format!("{}", args[0]);
     let expected_str = format!("{}", args[1]);
     if actual_str != expected_str {
-        Err(format!("assert_eq failed: {} != {}", actual_str, expected_str))
+        Err(format!(
+            "assert_eq failed: {} != {}",
+            actual_str, expected_str
+        ))
     } else {
         Ok(args[0].clone())
     }
@@ -6001,7 +8040,11 @@ fn builtin_assert_contains(args: &[Value]) -> Result<Value, String> {
     let haystack = format!("{}", args.get(0).unwrap_or(&Value::Unit));
     let needle = format!("{}", args.get(1).unwrap_or(&Value::Unit));
     if !haystack.contains(&needle) {
-        Err(format!("assert_contains failed: '{}' not in '{}'", needle, &haystack[..haystack.len().min(80)]))
+        Err(format!(
+            "assert_contains failed: '{}' not in '{}'",
+            needle,
+            &haystack[..haystack.len().min(80)]
+        ))
     } else {
         Ok(args[0].clone())
     }
@@ -6014,7 +8057,6 @@ fn chrono_now_timestamp() -> i64 {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
 }
-
 
 // ════════════════════════════════════════════════════════════════════
 // sqz-inspired builtins (P1 + P2 + P3)
@@ -6047,7 +8089,12 @@ fn builtin_squeeze(args: &[Value]) -> Result<Value, String> {
 fn builtin_dedup(args: &[Value]) -> Result<Value, String> {
     let list = match args.get(0) {
         Some(Value::List(items)) => items.clone(),
-        Some(other) => return Err(format!("dedup() expected List argument, got {}", other.type_name())),
+        Some(other) => {
+            return Err(format!(
+                "dedup() expected List argument, got {}",
+                other.type_name()
+            ))
+        }
         None => return Err("dedup() requires 1 argument".to_string()),
     };
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -6075,7 +8122,12 @@ fn builtin_dedup(args: &[Value]) -> Result<Value, String> {
 fn builtin_condense(args: &[Value]) -> Result<Value, String> {
     let list = match args.get(0) {
         Some(Value::List(items)) => items.clone(),
-        Some(other) => return Err(format!("condense() expected List argument, got {}", other.type_name())),
+        Some(other) => {
+            return Err(format!(
+                "condense() expected List argument, got {}",
+                other.type_name()
+            ))
+        }
         None => return Err("condense() requires 1 argument".to_string()),
     };
     let mut result: Vec<Value> = Vec::new();
@@ -6083,10 +8135,13 @@ fn builtin_condense(args: &[Value]) -> Result<Value, String> {
     while i < list.len() {
         let current = match &list[i] {
             Value::String(s) => s.clone(),
-            other => return Err(format!(
-                "condense() all elements must be String, got {} at index {}",
-                other.type_name(), i
-            )),
+            other => {
+                return Err(format!(
+                    "condense() all elements must be String, got {} at index {}",
+                    other.type_name(),
+                    i
+                ))
+            }
         };
         let mut count: usize = 1;
         while i + count < list.len() {
@@ -6120,7 +8175,9 @@ fn builtin_strip(args: &[Value]) -> Result<Value, String> {
     let start = s.chars().take_while(|c| char_set.contains(c)).count();
     let end = s.chars().rev().take_while(|c| char_set.contains(c)).count();
     let s_chars: Vec<char> = s.chars().collect();
-    let trimmed: String = s_chars[start..s_chars.len().saturating_sub(end)].iter().collect();
+    let trimmed: String = s_chars[start..s_chars.len().saturating_sub(end)]
+        .iter()
+        .collect();
     Ok(Value::String(trimmed))
 }
 
@@ -6205,7 +8262,10 @@ fn builtin_lines(args: &[Value]) -> Result<Value, String> {
         .collect();
     // Remove trailing empty element caused by trailing newline
     if s.ends_with('\n') {
-        if items.last().map_or(false, |v| matches!(v, Value::String(s) if s.is_empty())) {
+        if items
+            .last()
+            .map_or(false, |v| matches!(v, Value::String(s) if s.is_empty()))
+        {
             items.pop();
         }
     }
@@ -6226,7 +8286,9 @@ fn builtin_words(args: &[Value]) -> Result<Value, String> {
 
 /// Check if a string is a "simple" identifier (no quoting needed in TOON).
 fn toon_is_simple(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 /// Escape a string for TOON: non-ASCII -> \uXXXX, quotes -> \", backslash -> \\
@@ -6331,7 +8393,10 @@ fn parse_toon_value(input: &str, pos: &mut usize) -> Result<Value, String> {
         b's' => {
             // s"..." — quoted string
             if *pos + 1 >= bytes.len() || bytes[*pos + 1] != b'"' {
-                return Err(format!("toon_decode: expected s\"...\" at position {}", pos));
+                return Err(format!(
+                    "toon_decode: expected s\"...\" at position {}",
+                    pos
+                ));
             }
             *pos += 2; // skip s"
             let mut result = String::new();
@@ -6347,16 +8412,34 @@ fn parse_toon_value(input: &str, pos: &mut usize) -> Result<Value, String> {
                             return Err("toon_decode: unterminated escape".to_string());
                         }
                         match bytes[*pos] {
-                            b'"' => { result.push('"'); *pos += 1; }
-                            b'\\' => { result.push('\\'); *pos += 1; }
-                            b'n' => { result.push('\n'); *pos += 1; }
-                            b't' => { result.push('\t'); *pos += 1; }
-                            b'r' => { result.push('\r'); *pos += 1; }
+                            b'"' => {
+                                result.push('"');
+                                *pos += 1;
+                            }
+                            b'\\' => {
+                                result.push('\\');
+                                *pos += 1;
+                            }
+                            b'n' => {
+                                result.push('\n');
+                                *pos += 1;
+                            }
+                            b't' => {
+                                result.push('\t');
+                                *pos += 1;
+                            }
+                            b'r' => {
+                                result.push('\r');
+                                *pos += 1;
+                            }
                             b'u' => {
                                 // \u{XXXX}
                                 *pos += 1;
                                 if *pos >= bytes.len() || bytes[*pos] != b'{' {
-                                    return Err(format!("toon_decode: expected {{ after \\u at position {}", pos));
+                                    return Err(format!(
+                                        "toon_decode: expected {{ after \\u at position {}",
+                                        pos
+                                    ));
                                 }
                                 *pos += 1;
                                 let hex_start = *pos;
@@ -6368,12 +8451,16 @@ fn parse_toon_value(input: &str, pos: &mut usize) -> Result<Value, String> {
                                 }
                                 let hex_str = &input[hex_start..*pos];
                                 *pos += 1; // skip }
-                                let code_point = u32::from_str_radix(hex_str, 16)
-                                    .map_err(|e| format!("toon_decode: invalid unicode escape: {}", e))?;
+                                let code_point = u32::from_str_radix(hex_str, 16).map_err(|e| {
+                                    format!("toon_decode: invalid unicode escape: {}", e)
+                                })?;
                                 if let Some(c) = char::from_u32(code_point) {
                                     result.push(c);
                                 } else {
-                                    return Err(format!("toon_decode: invalid unicode code point: {:x}", code_point));
+                                    return Err(format!(
+                                        "toon_decode: invalid unicode code point: {:x}",
+                                        code_point
+                                    ));
                                 }
                             }
                             other => {
@@ -6417,35 +8504,45 @@ fn parse_toon_value(input: &str, pos: &mut usize) -> Result<Value, String> {
                     continue;
                 }
                 // Parse key
-                let key = if bytes[*pos] == b's' && *pos + 1 < bytes.len() && bytes[*pos + 1] == b'"' {
-                    // s"key"
-                    *pos += 2;
-                    let mut k = String::new();
-                    while *pos < bytes.len() && bytes[*pos] != b'"' {
-                        if bytes[*pos] == b'\\' {
-                            *pos += 1;
-                            if *pos < bytes.len() {
+                let key =
+                    if bytes[*pos] == b's' && *pos + 1 < bytes.len() && bytes[*pos + 1] == b'"' {
+                        // s"key"
+                        *pos += 2;
+                        let mut k = String::new();
+                        while *pos < bytes.len() && bytes[*pos] != b'"' {
+                            if bytes[*pos] == b'\\' {
+                                *pos += 1;
+                                if *pos < bytes.len() {
+                                    k.push(bytes[*pos] as char);
+                                    *pos += 1;
+                                }
+                            } else {
                                 k.push(bytes[*pos] as char);
                                 *pos += 1;
                             }
-                        } else {
-                            k.push(bytes[*pos] as char);
+                        }
+                        if *pos < bytes.len() {
+                            *pos += 1;
+                        } // skip closing "
+                        k
+                    } else {
+                        // bare identifier
+                        let start = *pos;
+                        while *pos < bytes.len()
+                            && (bytes[*pos].is_ascii_alphanumeric()
+                                || bytes[*pos] == b'_'
+                                || bytes[*pos] == b'-')
+                        {
                             *pos += 1;
                         }
-                    }
-                    if *pos < bytes.len() { *pos += 1; } // skip closing "
-                    k
-                } else {
-                    // bare identifier
-                    let start = *pos;
-                    while *pos < bytes.len() && (bytes[*pos].is_ascii_alphanumeric() || bytes[*pos] == b'_' || bytes[*pos] == b'-') {
-                        *pos += 1;
-                    }
-                    input[start..*pos].to_string()
-                };
+                        input[start..*pos].to_string()
+                    };
                 // Expect ':'
                 if *pos >= bytes.len() || bytes[*pos] != b':' {
-                    return Err(format!("toon_decode: expected ':' after key '{}' at position {}", key, pos));
+                    return Err(format!(
+                        "toon_decode: expected ':' after key '{}' at position {}",
+                        key, pos
+                    ));
                 }
                 *pos += 1;
                 // Parse value
@@ -6456,23 +8553,33 @@ fn parse_toon_value(input: &str, pos: &mut usize) -> Result<Value, String> {
                 return Err("toon_decode: unterminated object".to_string());
             }
             *pos += 1; // skip }
-            Ok(Value::Struct { type_name: "TOON".to_string(), fields })
+            Ok(Value::Struct {
+                type_name: "TOON".to_string(),
+                fields,
+            })
         }
         b'-' | b'0'..=b'9' => {
             // Number
             let start = *pos;
-            if bytes[*pos] == b'-' { *pos += 1; }
+            if bytes[*pos] == b'-' {
+                *pos += 1;
+            }
             while *pos < bytes.len() && (bytes[*pos].is_ascii_digit() || bytes[*pos] == b'.') {
                 *pos += 1;
             }
             let num_str = &input[start..*pos];
-            let f: f64 = num_str.parse()
-                .map_err(|e| format!("toon_decode: invalid number '{}' at position {}: {}", num_str, start, e))?;
+            let f: f64 = num_str.parse().map_err(|e| {
+                format!(
+                    "toon_decode: invalid number '{}' at position {}: {}",
+                    num_str, start, e
+                )
+            })?;
             Ok(Value::Float(f))
         }
-        other => {
-            Err(format!("toon_decode: unexpected character '{}' at position {}", other as char, pos))
-        }
+        other => Err(format!(
+            "toon_decode: unexpected character '{}' at position {}",
+            other as char, pos
+        )),
     }
 }
 
@@ -6490,7 +8597,10 @@ fn builtin_toon_decode(args: &[Value]) -> Result<Value, String> {
         pos += 1;
     }
     if pos < payload.len() {
-        return Err(format!("toon_decode: unexpected trailing data at position {}", 5 + pos));
+        return Err(format!(
+            "toon_decode: unexpected trailing data at position {}",
+            5 + pos
+        ));
     }
     Ok(value)
 }
@@ -6500,16 +8610,20 @@ fn builtin_toon_decode(args: &[Value]) -> Result<Value, String> {
 /// `ref(content)` — compute SHA-256 hash, store in KV, return hash string. Idempotent.
 fn builtin_content_ref(args: &[Value]) -> Result<Value, String> {
     let content = expect_string_arg("ref", args, 0)?;
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(content.as_bytes());
     let hash = hex::encode(hasher.finalize());
     let key = format!("__ref:{}", hash);
     // Only set if not already present (idempotent)
-    let store = kv_store().lock().map_err(|e| format!("ref() lock error: {}", e))?;
+    let store = kv_store()
+        .lock()
+        .map_err(|e| format!("ref() lock error: {}", e))?;
     if !store.contains_key(&key) {
         drop(store); // release read lock
-        let mut store = kv_store().lock().map_err(|e| format!("ref() lock error: {}", e))?;
+        let mut store = kv_store()
+            .lock()
+            .map_err(|e| format!("ref() lock error: {}", e))?;
         store.insert(key.clone(), content.clone());
         // Write-through to SQLite if available
         if let Ok(sqlite_guard) = kv_sqlite().lock() {
@@ -6534,7 +8648,9 @@ fn builtin_content_deref(args: &[Value]) -> Result<Value, String> {
         return Err("deref: invalid hash format, expected hex characters only".to_string());
     }
     let key = format!("__ref:{}", hash);
-    let store = kv_store().lock().map_err(|e| format!("deref() lock error: {}", e))?;
+    let store = kv_store()
+        .lock()
+        .map_err(|e| format!("deref() lock error: {}", e))?;
     match store.get(&key) {
         Some(content) => Ok(Value::String(content.clone())),
         None => Err("deref: hash not found in ref store".to_string()),
@@ -6550,7 +8666,10 @@ fn builtin_token_count(args: &[Value]) -> Result<Value, String> {
         return Ok(Value::Float(0.0));
     }
     let total_chars = s.chars().count();
-    let cyrillic_chars = s.chars().filter(|c| matches!(c, '\u{0400}'..='\u{04FF}')).count();
+    let cyrillic_chars = s
+        .chars()
+        .filter(|c| matches!(c, '\u{0400}'..='\u{04FF}'))
+        .count();
     // If >=50% Cyrillic, use /2 divisor; else /4
     let divisor = if total_chars > 0 && (cyrillic_chars as f64 / total_chars as f64) >= 0.5 {
         2.0
@@ -6583,7 +8702,12 @@ fn expect_string_arg_var(name: &str, args: &[Value], idx: usize) -> Result<Strin
     }
     match &args[idx] {
         Value::String(s) => Ok(s.clone()),
-        other => Err(format!("{}: argument {} must be String, got {}", name, idx, other.type_name())),
+        other => Err(format!(
+            "{}: argument {} must be String, got {}",
+            name,
+            idx,
+            other.type_name()
+        )),
     }
 }
 
@@ -6594,7 +8718,12 @@ fn expect_list_arg(name: &str, args: &[Value], idx: usize) -> Result<Vec<Value>,
     }
     match &args[idx] {
         Value::List(items) => Ok(items.clone()),
-        other => Err(format!("{}: argument {} must be List, got {}", name, idx, other.type_name())),
+        other => Err(format!(
+            "{}: argument {} must be List, got {}",
+            name,
+            idx,
+            other.type_name()
+        )),
     }
 }
 
@@ -6606,7 +8735,10 @@ fn expect_struct_json_arg(name: &str, args: &[Value], idx: usize) -> Result<Stri
     let json = mlog_value_to_json(&args[idx]);
     match serde_json::to_string(&json) {
         Ok(s) => Ok(s),
-        Err(_) => Err(format!("{}: argument {} must be serializable to JSON", name, idx)),
+        Err(_) => Err(format!(
+            "{}: argument {} must be serializable to JSON",
+            name, idx
+        )),
     }
 }
 
@@ -6623,9 +8755,10 @@ fn builtin_recipe_save(args: &[Value]) -> Result<Value, String> {
     let plan_json = expect_struct_json_arg("recipe_save", args, 3)?;
 
     // Build recipe JSON
-    let skills_json: Vec<String> = skills.iter().map(|v| {
-        serde_json::to_string(&mlog_value_to_json(v)).unwrap_or_else(|_| "null".into())
-    }).collect();
+    let skills_json: Vec<String> = skills
+        .iter()
+        .map(|v| serde_json::to_string(&mlog_value_to_json(v)).unwrap_or_else(|_| "null".into()))
+        .collect();
 
     let recipe = serde_json::json!({
         "name": name,
@@ -6647,10 +8780,13 @@ fn builtin_recipe_save(args: &[Value]) -> Result<Value, String> {
 
     // Return the recipe as a Struct for the caller; actual KV persistence
     // happens when the caller does kv_set(kv_key, recipe_str).
-    Ok(make_struct("RecipeSaveResult", vec![
-        ("key", Value::String(kv_key)),
-        ("recipe", Value::String(recipe_str)),
-    ]))
+    Ok(make_struct(
+        "RecipeSaveResult",
+        vec![
+            ("key", Value::String(kv_key)),
+            ("recipe", Value::String(recipe_str)),
+        ],
+    ))
 }
 
 /// `recipe_search(query)` — search recipes by description similarity (substring match).
@@ -6700,12 +8836,14 @@ fn builtin_dag_phases(args: &[Value]) -> Result<Value, String> {
 
     // Extract node IDs and build adjacency info
     let mut node_ids: Vec<String> = Vec::new();
-    let mut deps_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut deps_map: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
     let mut in_degree: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
 
     for node in &nodes {
         let node_json = mlog_value_to_json(node);
-        let id = node_json.get("id")
+        let id = node_json
+            .get("id")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
@@ -6713,9 +8851,14 @@ fn builtin_dag_phases(args: &[Value]) -> Result<Value, String> {
             return Err("dag_phases: each node must have an 'id' field (String)".into());
         }
 
-        let deps: Vec<String> = node_json.get("depends_on")
+        let deps: Vec<String> = node_json
+            .get("depends_on")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
 
         in_degree.insert(id.clone(), deps.len());
@@ -6728,7 +8871,10 @@ fn builtin_dag_phases(args: &[Value]) -> Result<Value, String> {
     for (node, deps) in &deps_map {
         for dep in deps {
             if !node_set.contains(dep.as_str()) {
-                return Err(format!("dag_phases: node '{}' depends on unknown node '{}'", node, dep));
+                return Err(format!(
+                    "dag_phases: node '{}' depends on unknown node '{}'",
+                    node, dep
+                ));
             }
         }
     }
@@ -6740,8 +8886,11 @@ fn builtin_dag_phases(args: &[Value]) -> Result<Value, String> {
 
     loop {
         // Find all nodes with in-degree 0 (not yet processed)
-        let phase_nodes: Vec<String> = node_ids.iter()
-            .filter(|id| !processed.contains(*id) && remaining_in.get(*id).copied().unwrap_or(0) == 0)
+        let phase_nodes: Vec<String> = node_ids
+            .iter()
+            .filter(|id| {
+                !processed.contains(*id) && remaining_in.get(*id).copied().unwrap_or(0) == 0
+            })
             .cloned()
             .collect();
 
@@ -6751,7 +8900,10 @@ fn builtin_dag_phases(args: &[Value]) -> Result<Value, String> {
 
         // Add phase as a list of node IDs
         let phase_value = Value::List(
-            phase_nodes.iter().map(|id| Value::String(id.clone())).collect()
+            phase_nodes
+                .iter()
+                .map(|id| Value::String(id.clone()))
+                .collect(),
         );
         phases.push(phase_value);
 
@@ -6770,7 +8922,8 @@ fn builtin_dag_phases(args: &[Value]) -> Result<Value, String> {
 
     // Cycle detection
     if processed.len() != node_ids.len() {
-        let unprocessed: Vec<&str> = node_ids.iter()
+        let unprocessed: Vec<&str> = node_ids
+            .iter()
             .filter(|id| !processed.contains(*id))
             .map(|s| s.as_str())
             .collect();
@@ -6794,12 +8947,14 @@ fn builtin_topo_sort(args: &[Value]) -> Result<Value, String> {
     }
 
     let mut node_ids: Vec<String> = Vec::new();
-    let mut deps_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut deps_map: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
     let mut in_degree: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
 
     for node in &nodes {
         let node_json = mlog_value_to_json(node);
-        let id = node_json.get("id")
+        let id = node_json
+            .get("id")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
@@ -6807,9 +8962,14 @@ fn builtin_topo_sort(args: &[Value]) -> Result<Value, String> {
             return Err("topo_sort: each node must have an 'id' field (String)".into());
         }
 
-        let deps: Vec<String> = node_json.get("depends_on")
+        let deps: Vec<String> = node_json
+            .get("depends_on")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
 
         in_degree.insert(id.clone(), deps.len());
@@ -6822,14 +8982,18 @@ fn builtin_topo_sort(args: &[Value]) -> Result<Value, String> {
     for (node, deps) in &deps_map {
         for dep in deps {
             if !node_set.contains(dep.as_str()) {
-                return Err(format!("topo_sort: node '{}' depends on unknown node '{}'", node, dep));
+                return Err(format!(
+                    "topo_sort: node '{}' depends on unknown node '{}'",
+                    node, dep
+                ));
             }
         }
     }
 
     // Kahn's algorithm
     let mut remaining_in = in_degree.clone();
-    let mut queue: std::collections::VecDeque<String> = node_ids.iter()
+    let mut queue: std::collections::VecDeque<String> = node_ids
+        .iter()
         .filter(|id| remaining_in.get(*id).copied().unwrap_or(0) == 0)
         .cloned()
         .collect();
@@ -6880,7 +9044,10 @@ fn builtin_semantic_search(args: &[Value]) -> Result<Value, String> {
     let documents = expect_list_arg("semantic_search", args, 1)?;
     let top_k = expect_string_arg("semantic_search", args, 2)?;
     let top_k: usize = top_k.parse().map_err(|_| {
-        format!("semantic_search: top_k must be a number string, got '{}'", args[2])
+        format!(
+            "semantic_search: top_k must be a number string, got '{}'",
+            args[2]
+        )
     })?;
 
     if documents.is_empty() {
@@ -6891,7 +9058,8 @@ fn builtin_semantic_search(args: &[Value]) -> Result<Value, String> {
     let mgr = EmbeddingManager::new();
 
     // Embed the query
-    let query_vec = mgr.embed(&query)
+    let query_vec = mgr
+        .embed(&query)
         .map_err(|e| format!("semantic_search: failed to embed query: {}", e))?;
 
     // Score each document
@@ -6921,11 +9089,14 @@ fn builtin_semantic_search(args: &[Value]) -> Result<Value, String> {
     let results: Vec<Value> = scored
         .into_iter()
         .map(|(index, score, text)| {
-            make_struct("SearchResult", vec![
-                ("index", Value::Float(index as f64)),
-                ("text", Value::String(text)),
-                ("score", Value::Float(score as f64)),
-            ])
+            make_struct(
+                "SearchResult",
+                vec![
+                    ("index", Value::Float(index as f64)),
+                    ("text", Value::String(text)),
+                    ("score", Value::Float(score as f64)),
+                ],
+            )
         })
         .collect();
 
@@ -7013,15 +9184,20 @@ fn json_value_to_mlog_value_with_type(json: &serde_json::Value, type_name: &str)
         serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
         serde_json::Value::Bool(b) => Value::Bool(*b),
         serde_json::Value::Null => Value::Unit,
-        serde_json::Value::Array(arr) => {
-            Value::List(arr.iter().map(|v| json_value_to_mlog_value_with_type(v, type_name)).collect())
-        }
+        serde_json::Value::Array(arr) => Value::List(
+            arr.iter()
+                .map(|v| json_value_to_mlog_value_with_type(v, type_name))
+                .collect(),
+        ),
         serde_json::Value::Object(obj) => {
             let mut fields = std::collections::HashMap::new();
             for (k, v) in obj {
                 fields.insert(k.clone(), json_value_to_mlog_value_with_type(v, type_name));
             }
-            Value::Struct { type_name: type_name.to_string(), fields }
+            Value::Struct {
+                type_name: type_name.to_string(),
+                fields,
+            }
         }
     }
 }
@@ -7040,17 +9216,24 @@ fn builtin_vault_validate(args: &[Value]) -> Result<Value, String> {
     let required: Vec<String> = fields_list.iter().map(|v| format!("{}", v)).collect();
 
     let missing: Vec<String> = match &args[0] {
-        Value::Struct { fields, .. } => {
-            required.into_iter().filter(|f| !fields.contains_key(f)).collect()
-        }
+        Value::Struct { fields, .. } => required
+            .into_iter()
+            .filter(|f| !fields.contains_key(f))
+            .collect(),
         Value::Unit => required, // everything is missing
         _ => return Err("vault_validate: first argument must be a struct".to_string()),
     };
 
-    Ok(make_struct("ValidationResult", vec![
-        ("valid", Value::Bool(missing.is_empty())),
-        ("missing", Value::List(missing.into_iter().map(Value::String).collect())),
-    ]))
+    Ok(make_struct(
+        "ValidationResult",
+        vec![
+            ("valid", Value::Bool(missing.is_empty())),
+            (
+                "missing",
+                Value::List(missing.into_iter().map(Value::String).collect()),
+            ),
+        ],
+    ))
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
@@ -7087,19 +9270,28 @@ mod tests_sqz_builtins {
 
     #[test]
     fn test_squeeze_basic() {
-        let r = builtin_squeeze(&[Value::String("aaabbbccc".into()), Value::String("abc".into())]).unwrap();
+        let r = builtin_squeeze(&[
+            Value::String("aaabbbccc".into()),
+            Value::String("abc".into()),
+        ])
+        .unwrap();
         assert_vals_eq(&r, &Value::String("abc".into()), "squeeze_basic");
     }
 
     #[test]
     fn test_squeeze_partial() {
-        let r = builtin_squeeze(&[Value::String("aaabbbccc".into()), Value::String("ab".into())]).unwrap();
+        let r = builtin_squeeze(&[
+            Value::String("aaabbbccc".into()),
+            Value::String("ab".into()),
+        ])
+        .unwrap();
         assert_vals_eq(&r, &Value::String("abccc".into()), "squeeze_partial");
     }
 
     #[test]
     fn test_squeeze_empty_chars() {
-        let r = builtin_squeeze(&[Value::String("hello".into()), Value::String("".into())]).unwrap();
+        let r =
+            builtin_squeeze(&[Value::String("hello".into()), Value::String("".into())]).unwrap();
         assert_vals_eq(&r, &Value::String("hello".into()), "squeeze_empty_chars");
     }
 
@@ -7112,21 +9304,42 @@ mod tests_sqz_builtins {
     #[test]
     fn test_dedup_basic() {
         let r = builtin_dedup(&[Value::List(vec![
-            Value::Float(1.0), Value::Float(1.0), Value::Float(2.0), Value::Float(2.0), Value::Float(3.0),
-        ])]).unwrap();
-        assert_vals_eq(&r, &Value::List(vec![
-            Value::Float(1.0), Value::Float(2.0), Value::Float(3.0),
-        ]), "dedup_basic");
+            Value::Float(1.0),
+            Value::Float(1.0),
+            Value::Float(2.0),
+            Value::Float(2.0),
+            Value::Float(3.0),
+        ])])
+        .unwrap();
+        assert_vals_eq(
+            &r,
+            &Value::List(vec![
+                Value::Float(1.0),
+                Value::Float(2.0),
+                Value::Float(3.0),
+            ]),
+            "dedup_basic",
+        );
     }
 
     #[test]
     fn test_dedup_strings() {
         let r = builtin_dedup(&[Value::List(vec![
-            Value::String("a".into()), Value::String("b".into()), Value::String("a".into()), Value::String("c".into()),
-        ])]).unwrap();
-        assert_vals_eq(&r, &Value::List(vec![
-            Value::String("a".into()), Value::String("b".into()), Value::String("c".into()),
-        ]), "dedup_strings");
+            Value::String("a".into()),
+            Value::String("b".into()),
+            Value::String("a".into()),
+            Value::String("c".into()),
+        ])])
+        .unwrap();
+        assert_vals_eq(
+            &r,
+            &Value::List(vec![
+                Value::String("a".into()),
+                Value::String("b".into()),
+                Value::String("c".into()),
+            ]),
+            "dedup_strings",
+        );
     }
 
     #[test]
@@ -7138,44 +9351,73 @@ mod tests_sqz_builtins {
     #[test]
     fn test_condense_basic() {
         let r = builtin_condense(&[Value::List(vec![
-            Value::String("error".into()), Value::String("error".into()), Value::String("error".into()),
-            Value::String("warn".into()), Value::String("info".into()),
-        ])]).unwrap();
-        assert_vals_eq(&r, &Value::List(vec![
-            Value::String("error".into()), Value::String("\u{00d7}3".into()),
-            Value::String("warn".into()), Value::String("info".into()),
-        ]), "condense_basic");
+            Value::String("error".into()),
+            Value::String("error".into()),
+            Value::String("error".into()),
+            Value::String("warn".into()),
+            Value::String("info".into()),
+        ])])
+        .unwrap();
+        assert_vals_eq(
+            &r,
+            &Value::List(vec![
+                Value::String("error".into()),
+                Value::String("\u{00d7}3".into()),
+                Value::String("warn".into()),
+                Value::String("info".into()),
+            ]),
+            "condense_basic",
+        );
     }
 
     #[test]
     fn test_condense_repeating_groups() {
         let r = builtin_condense(&[Value::List(vec![
-            Value::String("a".into()), Value::String("a".into()),
-            Value::String("b".into()), Value::String("b".into()), Value::String("b".into()),
             Value::String("a".into()),
-        ])]).unwrap();
-        assert_vals_eq(&r, &Value::List(vec![
-            Value::String("a".into()), Value::String("\u{00d7}2".into()),
-            Value::String("b".into()), Value::String("\u{00d7}3".into()),
             Value::String("a".into()),
-        ]), "condense_repeating_groups");
+            Value::String("b".into()),
+            Value::String("b".into()),
+            Value::String("b".into()),
+            Value::String("a".into()),
+        ])])
+        .unwrap();
+        assert_vals_eq(
+            &r,
+            &Value::List(vec![
+                Value::String("a".into()),
+                Value::String("\u{00d7}2".into()),
+                Value::String("b".into()),
+                Value::String("\u{00d7}3".into()),
+                Value::String("a".into()),
+            ]),
+            "condense_repeating_groups",
+        );
     }
 
     #[test]
     fn test_condense_single() {
         let r = builtin_condense(&[Value::List(vec![Value::String("single".into())])]).unwrap();
-        assert_vals_eq(&r, &Value::List(vec![Value::String("single".into())]), "condense_single");
+        assert_vals_eq(
+            &r,
+            &Value::List(vec![Value::String("single".into())]),
+            "condense_single",
+        );
     }
 
     #[test]
     fn test_strip_basic() {
-        let r = builtin_strip(&[Value::String("///hello///".into()), Value::String("/".into())]).unwrap();
+        let r = builtin_strip(&[
+            Value::String("///hello///".into()),
+            Value::String("/".into()),
+        ])
+        .unwrap();
         assert_vals_eq(&r, &Value::String("hello".into()), "strip_basic");
     }
 
     #[test]
     fn test_strip_whitespace() {
-        let r = builtin_strip(&[Value::String("  hello  ".into()), Value::String(" ".into())]).unwrap();
+        let r =
+            builtin_strip(&[Value::String("  hello  ".into()), Value::String(" ".into())]).unwrap();
         assert_vals_eq(&r, &Value::String("hello".into()), "strip_whitespace");
     }
 
@@ -7239,36 +9481,63 @@ mod tests_sqz_builtins {
 
     #[test]
     fn test_pad_left_basic() {
-        let r = builtin_pad_left(&[Value::String("42".into()), Value::Float(5.0), Value::String("0".into())]).unwrap();
+        let r = builtin_pad_left(&[
+            Value::String("42".into()),
+            Value::Float(5.0),
+            Value::String("0".into()),
+        ])
+        .unwrap();
         assert_vals_eq(&r, &Value::String("00042".into()), "pad_left_basic");
     }
 
     #[test]
     fn test_pad_left_noop() {
-        let r = builtin_pad_left(&[Value::String("hello".into()), Value::Float(3.0), Value::String("x".into())]).unwrap();
+        let r = builtin_pad_left(&[
+            Value::String("hello".into()),
+            Value::Float(3.0),
+            Value::String("x".into()),
+        ])
+        .unwrap();
         assert_vals_eq(&r, &Value::String("hello".into()), "pad_left_noop");
     }
 
     #[test]
     fn test_pad_right_basic() {
-        let r = builtin_pad_right(&[Value::String("name".into()), Value::Float(10.0), Value::String(".".into())]).unwrap();
-        assert_vals_eq(&r, &Value::String("name......".into()), "pad_right_basic"); // 4+6=10
+        let r = builtin_pad_right(&[
+            Value::String("name".into()),
+            Value::Float(10.0),
+            Value::String(".".into()),
+        ])
+        .unwrap();
+        assert_vals_eq(&r, &Value::String("name......".into()), "pad_right_basic");
+        // 4+6=10
     }
 
     #[test]
     fn test_lines_basic() {
         let r = builtin_lines(&[Value::String("a\nb\nc".into())]).unwrap();
-        assert_vals_eq(&r, &Value::List(vec![
-            Value::String("a".into()), Value::String("b".into()), Value::String("c".into()),
-        ]), "lines_basic");
+        assert_vals_eq(
+            &r,
+            &Value::List(vec![
+                Value::String("a".into()),
+                Value::String("b".into()),
+                Value::String("c".into()),
+            ]),
+            "lines_basic",
+        );
     }
 
     #[test]
     fn test_lines_trailing_newline() {
         let r = builtin_lines(&[Value::String("hello\nworld\n".into())]).unwrap();
-        assert_vals_eq(&r, &Value::List(vec![
-            Value::String("hello".into()), Value::String("world".into()),
-        ]), "lines_trailing_newline");
+        assert_vals_eq(
+            &r,
+            &Value::List(vec![
+                Value::String("hello".into()),
+                Value::String("world".into()),
+            ]),
+            "lines_trailing_newline",
+        );
     }
 
     #[test]
@@ -7280,17 +9549,28 @@ mod tests_sqz_builtins {
     #[test]
     fn test_words_basic() {
         let r = builtin_words(&[Value::String("hello world".into())]).unwrap();
-        assert_vals_eq(&r, &Value::List(vec![
-            Value::String("hello".into()), Value::String("world".into()),
-        ]), "words_basic");
+        assert_vals_eq(
+            &r,
+            &Value::List(vec![
+                Value::String("hello".into()),
+                Value::String("world".into()),
+            ]),
+            "words_basic",
+        );
     }
 
     #[test]
     fn test_words_extra_whitespace() {
         let r = builtin_words(&[Value::String("  a  b  c  ".into())]).unwrap();
-        assert_vals_eq(&r, &Value::List(vec![
-            Value::String("a".into()), Value::String("b".into()), Value::String("c".into()),
-        ]), "words_extra_whitespace");
+        assert_vals_eq(
+            &r,
+            &Value::List(vec![
+                Value::String("a".into()),
+                Value::String("b".into()),
+                Value::String("c".into()),
+            ]),
+            "words_extra_whitespace",
+        );
     }
 
     #[test]
@@ -7315,7 +9595,12 @@ mod tests_sqz_builtins {
 
     #[test]
     fn test_toon_encode_list() {
-        let r = builtin_toon_encode(&[Value::List(vec![Value::Float(1.0), Value::Float(2.0), Value::Float(3.0)])]).unwrap();
+        let r = builtin_toon_encode(&[Value::List(vec![
+            Value::Float(1.0),
+            Value::Float(2.0),
+            Value::Float(3.0),
+        ])])
+        .unwrap();
         assert_eq!(as_str(&r), "TOON:[1,2,3]");
     }
 
@@ -7336,7 +9621,11 @@ mod tests_sqz_builtins {
         let mut fields = std::collections::HashMap::new();
         fields.insert("name".to_string(), Value::String("Alice".into()));
         fields.insert("age".to_string(), Value::Float(30.0));
-        let r = builtin_toon_encode(&[Value::Struct { type_name: "Person".into(), fields }]).unwrap();
+        let r = builtin_toon_encode(&[Value::Struct {
+            type_name: "Person".into(),
+            fields,
+        }])
+        .unwrap();
         let s = as_str(&r);
         assert!(s.starts_with("TOON:{"));
         assert!(s.contains("name:s\"Alice\""));
@@ -7353,6 +9642,7 @@ mod tests_sqz_builtins {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_toon_roundtrip_float() {
         let original = Value::Float(3.14);
         let encoded = builtin_toon_encode(&[original.clone()]).unwrap();
@@ -7362,7 +9652,11 @@ mod tests_sqz_builtins {
 
     #[test]
     fn test_toon_roundtrip_list() {
-        let original = Value::List(vec![Value::Float(1.0), Value::String("ok".into()), Value::Bool(false)]);
+        let original = Value::List(vec![
+            Value::Float(1.0),
+            Value::String("ok".into()),
+            Value::Bool(false),
+        ]);
         let encoded = builtin_toon_encode(&[original.clone()]).unwrap();
         let decoded = builtin_toon_decode(&[encoded]).unwrap();
         assert_vals_eq(&original, &decoded, "roundtrip_list");
@@ -7372,7 +9666,10 @@ mod tests_sqz_builtins {
     fn test_toon_roundtrip_struct() {
         let mut fields = std::collections::HashMap::new();
         fields.insert("x".to_string(), Value::Float(1.0));
-        let original = Value::Struct { type_name: "P".into(), fields };
+        let original = Value::Struct {
+            type_name: "P".into(),
+            fields,
+        };
         let encoded = builtin_toon_encode(&[original.clone()]).unwrap();
         let decoded = builtin_toon_decode(&[encoded]).unwrap();
         // Compare JSON representations (type_name may differ: "P" vs "TOON")
@@ -7447,7 +9744,10 @@ mod tests_sqz_builtins {
     #[test]
     fn test_token_count_cyrillic() {
         // 10 cyrillic chars + 1 space, /2 = 5
-        let r = builtin_token_count(&[Value::String("\u{041f}\u{0440}\u{0438}\u{0432}\u{0435}\u{0442} \u{043c}\u{0438}\u{0440}".into())]).unwrap();
+        let r = builtin_token_count(&[Value::String(
+            "\u{041f}\u{0440}\u{0438}\u{0432}\u{0435}\u{0442} \u{043c}\u{0438}\u{0440}".into(),
+        )])
+        .unwrap();
         assert_eq!(as_f64(&r), 5.0);
     }
 
@@ -7460,7 +9760,8 @@ mod tests_sqz_builtins {
     #[test]
     fn test_token_count_mixed() {
         // "Hello мир" = 9 chars, 3 cyrillic = 33%, < 50% so /4 = 2.25, ceil = 3
-        let r = builtin_token_count(&[Value::String("Hello \u{043c}\u{0438}\u{0440}".into())]).unwrap();
+        let r =
+            builtin_token_count(&[Value::String("Hello \u{043c}\u{0438}\u{0440}".into())]).unwrap();
         assert_eq!(as_f64(&r), 3.0);
     }
 
@@ -7468,12 +9769,16 @@ mod tests_sqz_builtins {
 
     // Helper: build a DAG node struct Value
     fn dag_node(id: &str, deps: &[&str]) -> Value {
-        let deps_vals: Vec<Value> = deps.iter().map(|d| Value::String(d.to_string())).collect();
-        let json = serde_json::json!({
-            "id": id,
-            "depends_on": deps
-        });
-        json_to_mlog_value(&json).unwrap()
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("id".to_string(), Value::String(id.to_string()));
+        fields.insert(
+            "depends_on".to_string(),
+            Value::List(deps.iter().map(|d| Value::String(d.to_string())).collect()),
+        );
+        Value::Struct {
+            type_name: "DagNode".to_string(),
+            fields,
+        }
     }
 
     #[test]
@@ -7481,17 +9786,31 @@ mod tests_sqz_builtins {
         let r = builtin_recipe_save(&[
             Value::String("bug_report".into()),
             Value::String("Generate bug report from logs".into()),
-            Value::List(vec![Value::String("log_analyze".into()), Value::String("report_gen".into())]),
+            Value::List(vec![
+                Value::String("log_analyze".into()),
+                Value::String("report_gen".into()),
+            ]),
             Value::List(vec![]),
-        ]).unwrap();
+        ])
+        .unwrap();
         // Should return a struct with "key" and "recipe" fields
         match &r {
-            Value::Struct(fields) => {
-                assert!(fields.contains_key("key"), "recipe_save result must have 'key'");
-                assert!(fields.contains_key("recipe"), "recipe_save result must have 'recipe'");
+            Value::Struct { fields, .. } => {
+                assert!(
+                    fields.contains_key("key"),
+                    "recipe_save result must have 'key'"
+                );
+                assert!(
+                    fields.contains_key("recipe"),
+                    "recipe_save result must have 'recipe'"
+                );
                 let key = &fields["key"];
                 match key {
-                    Value::String(s) => assert!(s.starts_with("__recipe:bug_report"), "key should start with __recipe:bug_report, got {}", s),
+                    Value::String(s) => assert!(
+                        s.starts_with("__recipe:bug_report"),
+                        "key should start with __recipe:bug_report, got {}",
+                        s
+                    ),
                     _ => panic!("key should be String"),
                 }
             }
@@ -7508,13 +9827,21 @@ mod tests_sqz_builtins {
     #[test]
     fn test_recipe_search_placeholder() {
         let r = builtin_recipe_search(&[Value::String("bug".into())]).unwrap();
-        assert_vals_eq(&r, &Value::List(vec![]), "recipe_search placeholder returns empty list");
+        assert_vals_eq(
+            &r,
+            &Value::List(vec![]),
+            "recipe_search placeholder returns empty list",
+        );
     }
 
     #[test]
     fn test_recipe_list_placeholder() {
         let r = builtin_recipe_list(&[]).unwrap();
-        assert_vals_eq(&r, &Value::List(vec![]), "recipe_list placeholder returns empty list");
+        assert_vals_eq(
+            &r,
+            &Value::List(vec![]),
+            "recipe_list placeholder returns empty list",
+        );
     }
 
     #[test]
@@ -7531,17 +9858,26 @@ mod tests_sqz_builtins {
                 assert_eq!(phases.len(), 3, "linear chain should have 3 phases");
                 // Phase 0: [a]
                 match &phases[0] {
-                    Value::List(ids) => { assert_eq!(ids.len(), 1); assert_eq!(as_str(&ids[0]), "a"); }
+                    Value::List(ids) => {
+                        assert_eq!(ids.len(), 1);
+                        assert_eq!(as_str(&ids[0]), "a");
+                    }
                     _ => panic!("phase should be List"),
                 }
                 // Phase 1: [b]
                 match &phases[1] {
-                    Value::List(ids) => { assert_eq!(ids.len(), 1); assert_eq!(as_str(&ids[0]), "b"); }
+                    Value::List(ids) => {
+                        assert_eq!(ids.len(), 1);
+                        assert_eq!(as_str(&ids[0]), "b");
+                    }
                     _ => panic!("phase should be List"),
                 }
                 // Phase 2: [c]
                 match &phases[2] {
-                    Value::List(ids) => { assert_eq!(ids.len(), 1); assert_eq!(as_str(&ids[0]), "c"); }
+                    Value::List(ids) => {
+                        assert_eq!(ids.len(), 1);
+                        assert_eq!(as_str(&ids[0]), "c");
+                    }
                     _ => panic!("phase should be List"),
                 }
             }
@@ -7563,12 +9899,17 @@ mod tests_sqz_builtins {
                 assert_eq!(phases.len(), 2, "diamond should have 2 phases");
                 // Phase 0: [a, b] (parallel)
                 match &phases[0] {
-                    Value::List(ids) => assert_eq!(ids.len(), 2, "phase 0 should have 2 parallel nodes"),
+                    Value::List(ids) => {
+                        assert_eq!(ids.len(), 2, "phase 0 should have 2 parallel nodes")
+                    }
                     _ => panic!("phase should be List"),
                 }
                 // Phase 1: [c]
                 match &phases[1] {
-                    Value::List(ids) => { assert_eq!(ids.len(), 1); assert_eq!(as_str(&ids[0]), "c"); }
+                    Value::List(ids) => {
+                        assert_eq!(ids.len(), 1);
+                        assert_eq!(as_str(&ids[0]), "c");
+                    }
                     _ => panic!("phase should be List"),
                 }
             }
@@ -7579,14 +9920,15 @@ mod tests_sqz_builtins {
     #[test]
     fn test_dag_phases_cycle_detection() {
         // A -> B -> A (cycle)
-        let dag = Value::List(vec![
-            dag_node("a", &["b"]),
-            dag_node("b", &["a"]),
-        ]);
+        let dag = Value::List(vec![dag_node("a", &["b"]), dag_node("b", &["a"])]);
         let r = builtin_dag_phases(&[dag]);
         assert!(r.is_err(), "dag_phases should detect cycle");
         let err = r.unwrap_err();
-        assert!(err.contains("cycle"), "error should mention 'cycle', got: {}", err);
+        assert!(
+            err.contains("cycle"),
+            "error should mention 'cycle', got: {}",
+            err
+        );
     }
 
     #[test]
@@ -7597,9 +9939,7 @@ mod tests_sqz_builtins {
 
     #[test]
     fn test_dag_phases_missing_dep() {
-        let dag = Value::List(vec![
-            dag_node("a", &["nonexistent"]),
-        ]);
+        let dag = Value::List(vec![dag_node("a", &["nonexistent"])]);
         let r = builtin_dag_phases(&[dag]);
         assert!(r.is_err(), "dag_phases should error on unknown dependency");
     }
@@ -7651,10 +9991,7 @@ mod tests_sqz_builtins {
 
     #[test]
     fn test_topo_sort_cycle() {
-        let dag = Value::List(vec![
-            dag_node("x", &["y"]),
-            dag_node("y", &["x"]),
-        ]);
+        let dag = Value::List(vec![dag_node("x", &["y"]), dag_node("y", &["x"])]);
         let r = builtin_topo_sort(&[dag]);
         assert!(r.is_err(), "topo_sort should detect cycle");
     }
@@ -7672,7 +10009,8 @@ mod tests_sqz_builtins {
         let r = builtin_fuzzy_match(&[
             Value::String("hello".to_string()),
             Value::String("hello".to_string()),
-        ]).unwrap();
+        ])
+        .unwrap();
         assert_vals_eq(&r, &Value::Float(1.0), "identical strings = 1.0");
     }
 
@@ -7681,9 +10019,14 @@ mod tests_sqz_builtins {
         let r = builtin_fuzzy_match(&[
             Value::String("martin".to_string()),
             Value::String("martina".to_string()),
-        ]).unwrap();
+        ])
+        .unwrap();
         if let Value::Float(score) = r {
-            assert!(score > 0.9, "martin vs martina should be > 0.9, got {}", score);
+            assert!(
+                score > 0.9,
+                "martin vs martina should be > 0.9, got {}",
+                score
+            );
             assert!(score < 1.0, "similar but not identical, got {}", score);
         } else {
             panic!("fuzzy_match should return Float");
@@ -7695,7 +10038,8 @@ mod tests_sqz_builtins {
         let r = builtin_fuzzy_match(&[
             Value::String("abc".to_string()),
             Value::String("xyz".to_string()),
-        ]).unwrap();
+        ])
+        .unwrap();
         if let Value::Float(score) = r {
             assert!(score < 0.5, "abc vs xyz should be < 0.5, got {}", score);
         } else {
@@ -7712,14 +10056,19 @@ mod tests_sqz_builtins {
                 Value::String("Mikael".to_string()),
                 Value::String("John".to_string()),
             ]),
-        ]).unwrap();
+        ])
+        .unwrap();
         if let Value::Struct { fields, .. } = r {
             let score = match &fields["score"] {
                 Value::Float(f) => *f,
                 _ => panic!("score should be Float"),
             };
-            assert!(score > 0.7, "best match for Mikhail should score > 0.7, got {}", score);
-            assert_eq!(fields["index"], Value::Float(1.0)); // Mikael at index 1
+            assert!(
+                score > 0.7,
+                "best match for Mikhail should score > 0.7, got {}",
+                score
+            );
+            assert_vals_eq(&fields["index"], &Value::Float(1.0), "Mikael at index 1");
         } else {
             panic!("fuzzy_find_best should return Struct");
         }
@@ -7727,24 +10076,28 @@ mod tests_sqz_builtins {
 
     #[test]
     fn test_fuzzy_find_best_empty() {
-        let r = builtin_fuzzy_find_best(&[
-            Value::String("test".to_string()),
-            Value::List(vec![]),
-        ]).unwrap();
+        let r = builtin_fuzzy_find_best(&[Value::String("test".to_string()), Value::List(vec![])])
+            .unwrap();
         assert_vals_eq(&r, &Value::Unit, "empty list returns Unit");
     }
 
     #[test]
     fn test_hashline_read() {
-        let r = builtin_hashline_read(&[
-            Value::String("hello world\nfoo bar".to_string()),
-        ]).unwrap();
+        let r =
+            builtin_hashline_read(&[Value::String("hello world\nfoo bar".to_string())]).unwrap();
         if let Value::String(s) = r {
             let lines: Vec<&str> = s.lines().collect();
             assert_eq!(lines.len(), 2);
             // Line 1 should start with "1:" and contain "hello world"
-            assert!(lines[0].starts_with("1:"), "line 1 should start with 1:, got: {}", lines[0]);
-            assert!(lines[0].contains("hello world"), "should contain original content");
+            assert!(
+                lines[0].starts_with("1:"),
+                "line 1 should start with 1:, got: {}",
+                lines[0]
+            );
+            assert!(
+                lines[0].contains("hello world"),
+                "should contain original content"
+            );
             // Line 2 should start with "2:"
             assert!(lines[1].starts_with("2:"), "line 2 should start with 2:");
             assert!(lines[1].contains("foo bar"));
@@ -7756,15 +10109,19 @@ mod tests_sqz_builtins {
     #[test]
     fn test_hashline_read_empty() {
         let r = builtin_hashline_read(&[Value::String(String::new())]).unwrap();
-        assert_vals_eq(&r, &Value::String(String::new()), "empty input = empty output");
+        assert_vals_eq(
+            &r,
+            &Value::String(String::new()),
+            "empty input = empty output",
+        );
     }
 
     #[test]
     fn test_hashline_edit_set_line() {
         // First get hashline-annotated text
-        let annotated = builtin_hashline_read(&[
-            Value::String("line one\nline two\nline three".to_string()),
-        ]).unwrap();
+        let annotated =
+            builtin_hashline_read(&[Value::String("line one\nline two\nline three".to_string())])
+                .unwrap();
         let ann_str = format!("{}", annotated);
         // Extract ref for line 2 (e.g. "2:ab")
         let line2_ref = ann_str.lines().nth(1).unwrap();
@@ -7772,17 +10129,24 @@ mod tests_sqz_builtins {
         // Now edit using that ref
         let r = builtin_hashline_edit(&[
             Value::String("line one\nline two\nline three".to_string()),
-            Value::List(vec![
-                Value::Struct {
-                    type_name: "Edit".to_string(),
-                    fields: vec![
-                        ("op".to_string(), Value::String("set_line".to_string())),
-                        ("ref".to_string(), Value::String(hash_part.trim().to_string())),
-                        ("content".to_string(), Value::String("replaced line".to_string())),
-                    ].into_iter().collect(),
-                },
-            ]),
-        ]).unwrap();
+            Value::List(vec![Value::Struct {
+                type_name: "Edit".to_string(),
+                fields: vec![
+                    ("op".to_string(), Value::String("set_line".to_string())),
+                    (
+                        "ref".to_string(),
+                        Value::String(hash_part.trim().to_string()),
+                    ),
+                    (
+                        "content".to_string(),
+                        Value::String("replaced line".to_string()),
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+            }]),
+        ])
+        .unwrap();
         if let Value::String(s) = r {
             let lines: Vec<&str> = s.lines().collect();
             assert_eq!(lines[0], "line one");
@@ -7797,19 +10161,22 @@ mod tests_sqz_builtins {
     fn test_hashline_edit_hash_mismatch() {
         let r = builtin_hashline_edit(&[
             Value::String("original line".to_string()),
-            Value::List(vec![
-                Value::Struct {
-                    type_name: "Edit".to_string(),
-                    fields: vec![
-                        ("op".to_string(), Value::String("set_line".to_string())),
-                        ("ref".to_string(), Value::String("1:ff".to_string())),
-                        ("content".to_string(), Value::String("new".to_string())),
-                    ].into_iter().collect(),
-                },
-            ]),
+            Value::List(vec![Value::Struct {
+                type_name: "Edit".to_string(),
+                fields: vec![
+                    ("op".to_string(), Value::String("set_line".to_string())),
+                    ("ref".to_string(), Value::String("1:ff".to_string())),
+                    ("content".to_string(), Value::String("new".to_string())),
+                ]
+                .into_iter()
+                .collect(),
+            }]),
         ]);
         assert!(r.is_err(), "should error on hash mismatch");
-        assert!(r.unwrap_err().contains("hash mismatch"), "error should mention hash mismatch");
+        assert!(
+            r.unwrap_err().contains("hash mismatch"),
+            "error should mention hash mismatch"
+        );
     }
 
     #[test]
@@ -7843,8 +10210,12 @@ mod tests_sqz_builtins {
             assert_vals_eq(&list[2], &Value::Float(5.0), "last item preserved");
             // Middle should be a Compacted struct
             if let Value::Struct { fields, .. } = &list[1] {
-                assert_eq!(fields["compacted"], Value::Bool(true));
-                assert_eq!(fields["removed_count"], Value::Float(3.0));
+                assert_vals_eq(&fields["compacted"], &Value::Bool(true), "compacted flag");
+                assert_vals_eq(
+                    &fields["removed_count"],
+                    &Value::Float(3.0),
+                    "removed_count",
+                );
             } else {
                 panic!("middle item should be Compacted struct");
             }
@@ -7857,8 +10228,16 @@ mod tests_sqz_builtins {
     fn test_budget_check_ok() {
         let r = builtin_budget_check(&[Value::Float(2.0), Value::Float(10.0)]).unwrap();
         if let Value::Struct { fields, .. } = r {
-            assert_eq!(fields["level"], Value::String("ok".to_string()));
-            assert_eq!(fields["remaining"], Value::Float(8.0));
+            assert_vals_eq(
+                &fields["level"],
+                &Value::String("ok".to_string()),
+                "budget ok level",
+            );
+            assert_vals_eq(
+                &fields["remaining"],
+                &Value::Float(8.0),
+                "budget ok remaining",
+            );
         } else {
             panic!("should return struct");
         }
@@ -7868,7 +10247,11 @@ mod tests_sqz_builtins {
     fn test_budget_check_warning() {
         let r = builtin_budget_check(&[Value::Float(6.0), Value::Float(10.0)]).unwrap();
         if let Value::Struct { fields, .. } = r {
-            assert_eq!(fields["level"], Value::String("warning".to_string()));
+            assert_vals_eq(
+                &fields["level"],
+                &Value::String("warning".to_string()),
+                "budget warning level",
+            );
         } else {
             panic!("should return struct");
         }
@@ -7878,7 +10261,11 @@ mod tests_sqz_builtins {
     fn test_budget_check_critical() {
         let r = builtin_budget_check(&[Value::Float(9.0), Value::Float(10.0)]).unwrap();
         if let Value::Struct { fields, .. } = r {
-            assert_eq!(fields["level"], Value::String("critical".to_string()));
+            assert_vals_eq(
+                &fields["level"],
+                &Value::String("critical".to_string()),
+                "budget critical level",
+            );
         } else {
             panic!("should return struct");
         }
@@ -7892,15 +10279,14 @@ mod tests_sqz_builtins {
 
     #[test]
     fn test_replay_snapshot() {
-        let r = builtin_replay_snapshot(&[
-            Value::List(vec![
-                Value::String("msg1".to_string()),
-                Value::String("msg2".to_string()),
-            ]),
-        ]).unwrap();
+        let r = builtin_replay_snapshot(&[Value::List(vec![
+            Value::String("msg1".to_string()),
+            Value::String("msg2".to_string()),
+        ])])
+        .unwrap();
         if let Value::Struct { fields, .. } = r {
-            assert_eq!(fields["seq"], Value::Float(0.0));
-            assert_eq!(fields["count"], Value::Float(2.0));
+            assert_vals_eq(&fields["seq"], &Value::Float(0.0), "replay seq");
+            assert_vals_eq(&fields["count"], &Value::Float(2.0), "replay count");
             assert!(fields.contains_key("snapshot"));
         } else {
             panic!("should return struct");
@@ -7909,11 +10295,9 @@ mod tests_sqz_builtins {
 
     #[test]
     fn test_policy_check_allowed() {
-        let r = builtin_policy_check(&[
-            Value::String("ls -la".to_string()),
-        ]).unwrap();
+        let r = builtin_policy_check(&[Value::String("ls -la".to_string())]).unwrap();
         if let Value::Struct { fields, .. } = r {
-            assert_eq!(fields["allowed"], Value::Bool(true));
+            assert_vals_eq(&fields["allowed"], &Value::Bool(true), "policy allowed");
         } else {
             panic!("should return struct");
         }
@@ -7921,11 +10305,13 @@ mod tests_sqz_builtins {
 
     #[test]
     fn test_policy_check_heredoc() {
-        let r = builtin_policy_check(&[
-            Value::String("cat << EOF".to_string()),
-        ]).unwrap();
+        let r = builtin_policy_check(&[Value::String("cat << EOF".to_string())]).unwrap();
         if let Value::Struct { fields, .. } = r {
-            assert_eq!(fields["allowed"], Value::Bool(false));
+            assert_vals_eq(
+                &fields["allowed"],
+                &Value::Bool(false),
+                "policy heredoc disallowed",
+            );
             assert!(format!("{}", fields["reason"]).contains("heredoc"));
         } else {
             panic!("should return struct");
@@ -7934,11 +10320,13 @@ mod tests_sqz_builtins {
 
     #[test]
     fn test_policy_check_interactive() {
-        let r = builtin_policy_check(&[
-            Value::String("vim file.txt".to_string()),
-        ]).unwrap();
+        let r = builtin_policy_check(&[Value::String("vim file.txt".to_string())]).unwrap();
         if let Value::Struct { fields, .. } = r {
-            assert_eq!(fields["allowed"], Value::Bool(false));
+            assert_vals_eq(
+                &fields["allowed"],
+                &Value::Bool(false),
+                "policy interactive disallowed",
+            );
             assert!(format!("{}", fields["reason"]).contains("interactive"));
         } else {
             panic!("should return struct");
@@ -7948,11 +10336,13 @@ mod tests_sqz_builtins {
     #[test]
     fn test_policy_check_whitespace() {
         // Leading/trailing whitespace should be trimmed
-        let r = builtin_policy_check(&[
-            Value::String("   echo hello   ".to_string()),
-        ]).unwrap();
+        let r = builtin_policy_check(&[Value::String("   echo hello   ".to_string())]).unwrap();
         if let Value::Struct { fields, .. } = r {
-            assert_eq!(fields["allowed"], Value::Bool(true));
+            assert_vals_eq(
+                &fields["allowed"],
+                &Value::Bool(true),
+                "policy whitespace trim allowed",
+            );
         } else {
             panic!("should return struct");
         }

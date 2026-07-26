@@ -32,13 +32,22 @@ pub struct AuditResult {
 
 impl AuditResult {
     pub fn error_count(&self) -> usize {
-        self.findings.iter().filter(|f| f.severity == Severity::Error).count()
+        self.findings
+            .iter()
+            .filter(|f| f.severity == Severity::Error)
+            .count()
     }
     pub fn warning_count(&self) -> usize {
-        self.findings.iter().filter(|f| f.severity == Severity::Warning).count()
+        self.findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning)
+            .count()
     }
     pub fn info_count(&self) -> usize {
-        self.findings.iter().filter(|f| f.severity == Severity::Info).count()
+        self.findings
+            .iter()
+            .filter(|f| f.severity == Severity::Info)
+            .count()
     }
 
     /// Exit code: 0 = clean, 1 = has errors, 2 = warnings only.
@@ -78,12 +87,21 @@ impl AuditResult {
         let pc = self.info_count();
         let parts: Vec<String> = Vec::new();
         let mut parts = parts;
-        if ec == 1 { parts.push("1 error".to_string()); }
-        else if ec > 1 { parts.push(format!("{} errors", ec)); }
-        if wc == 1 { parts.push("1 warning".to_string()); }
-        else if wc > 1 { parts.push(format!("{} warnings", wc)); }
-        if pc == 1 { parts.push("1 passed".to_string()); }
-        else if pc > 1 { parts.push(format!("{} passed", pc)); }
+        if ec == 1 {
+            parts.push("1 error".to_string());
+        } else if ec > 1 {
+            parts.push(format!("{} errors", ec));
+        }
+        if wc == 1 {
+            parts.push("1 warning".to_string());
+        } else if wc > 1 {
+            parts.push(format!("{} warnings", wc));
+        }
+        if pc == 1 {
+            parts.push("1 passed".to_string());
+        } else if pc > 1 {
+            parts.push(format!("{} passed", pc));
+        }
         if parts.is_empty() {
             parts.push("clean".to_string());
         }
@@ -115,7 +133,9 @@ struct TaintTracker {
 
 impl TaintTracker {
     fn new() -> Self {
-        Self { tainted: HashMap::new() }
+        Self {
+            tainted: HashMap::new(),
+        }
     }
 
     fn taint(&mut self, name: &str, kind: TaintKind) {
@@ -148,13 +168,24 @@ fn find_line(source: &str, keyword: &str) -> usize {
 
 /// Substrings that indicate a hardcoded secret.
 const SECRET_PATTERNS: &[&str] = &[
-    "sk-", "sk_", "skant", "sk-ant",
-    "api_key", "apikey", "API_KEY",
-    "secret_key", "secretkey", "SECRET_KEY",
-    "access_token", "accesstoken",
-    "auth_token", "authtoken",
-    "private_key", "privatekey",
-    "token=", "TOKEN=",
+    "sk-",
+    "sk_",
+    "skant",
+    "sk-ant",
+    "api_key",
+    "apikey",
+    "API_KEY",
+    "secret_key",
+    "secretkey",
+    "SECRET_KEY",
+    "access_token",
+    "accesstoken",
+    "auth_token",
+    "authtoken",
+    "private_key",
+    "privatekey",
+    "token=",
+    "TOKEN=",
 ];
 
 /// Minimum string length to be considered a possible secret.
@@ -188,17 +219,35 @@ fn check_secrets(declarations: &[Declaration], source: &str, findings: &mut Vec<
             Expr::FnCall(name, args) => {
                 // Skip env() calls — they are the OK way to get secrets
                 if name != "env" {
-                    for arg in args { walk_string_exprs(arg, acc); }
+                    for arg in args {
+                        walk_string_exprs(arg, acc);
+                    }
                 }
             }
             Expr::QualifiedCall { args, .. } => {
-                for arg in args { walk_string_exprs(arg, acc); }
+                for arg in args {
+                    walk_string_exprs(arg, acc);
+                }
             }
-            Expr::BinaryOp(l, _, r) => { walk_string_exprs(l, acc); walk_string_exprs(r, acc); }
-            Expr::IfElse(c, t, e) => { walk_string_exprs(c, acc); walk_string_exprs(t, acc); walk_string_exprs(e, acc); }
-            Expr::List(items) => { for item in items { walk_string_exprs(item, acc); } }
+            Expr::BinaryOp(l, _, r) => {
+                walk_string_exprs(l, acc);
+                walk_string_exprs(r, acc);
+            }
+            Expr::IfElse(c, t, e) => {
+                walk_string_exprs(c, acc);
+                walk_string_exprs(t, acc);
+                walk_string_exprs(e, acc);
+            }
+            Expr::List(items) => {
+                for item in items {
+                    walk_string_exprs(item, acc);
+                }
+            }
             Expr::FieldAccess(inner, _) => walk_string_exprs(inner, acc),
-            Expr::IndexAccess(inner, idx) => { walk_string_exprs(inner, acc); walk_string_exprs(idx, acc); }
+            Expr::IndexAccess(inner, idx) => {
+                walk_string_exprs(inner, acc);
+                walk_string_exprs(idx, acc);
+            }
             _ => {}
         }
     }
@@ -211,10 +260,19 @@ fn check_secrets(declarations: &[Declaration], source: &str, findings: &mut Vec<
                 Statement::Return(expr) => walk_string_exprs(expr, acc),
                 Statement::Each { body, .. } => walk_string_stmts(body, acc),
                 Statement::While { body, .. } => walk_string_stmts(body, acc),
-                Statement::IfElseBlock { then_body, else_ifs, else_body, .. } => {
+                Statement::IfElseBlock {
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
                     walk_string_stmts(then_body, acc);
-                    for (_, body) in else_ifs { walk_string_stmts(body, acc); }
-                    if let Some(body) = else_body { walk_string_stmts(body, acc); }
+                    for (_, body) in else_ifs {
+                        walk_string_stmts(body, acc);
+                    }
+                    if let Some(body) = else_body {
+                        walk_string_stmts(body, acc);
+                    }
                 }
                 Statement::IfThen(_, body) => walk_string_stmts(body, acc),
                 _ => {}
@@ -284,7 +342,10 @@ fn check_secrets(declarations: &[Declaration], source: &str, findings: &mut Vec<
                     severity: Severity::Warning,
                     check_id: "SECRETS",
                     line,
-                    message: format!("possible hardcoded secret: string matches secret pattern (length={})", s.len()),
+                    message: format!(
+                        "possible hardcoded secret: string matches secret pattern (length={})",
+                        s.len()
+                    ),
                 });
             }
         }
@@ -298,8 +359,20 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
     let mut all_literal = true;
     let mut literal_count = 0usize;
 
-    fn check_stmts(stmts: &[Statement], source: &str, findings: &mut Vec<AuditFinding>, all_literal: &mut bool, literal_count: &mut usize) {
-        fn walk_query(expr: &Expr, source: &str, findings: &mut Vec<AuditFinding>, all_literal: &mut bool, literal_count: &mut usize) {
+    fn check_stmts(
+        stmts: &[Statement],
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+        all_literal: &mut bool,
+        literal_count: &mut usize,
+    ) {
+        fn walk_query(
+            expr: &Expr,
+            source: &str,
+            findings: &mut Vec<AuditFinding>,
+            all_literal: &mut bool,
+            literal_count: &mut usize,
+        ) {
             if let Expr::FnCall(name, args) = expr {
                 if name == "query" {
                     if let Some(arg) = args.first() {
@@ -320,7 +393,10 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                                     severity: Severity::Error,
                                     check_id: "SQL_DYNAMIC",
                                     line,
-                                    message: format!("SQL injection risk — query() with non-literal SQL ({})", snippet),
+                                    message: format!(
+                                        "SQL injection risk — query() with non-literal SQL ({})",
+                                        snippet
+                                    ),
                                 });
                             }
                         }
@@ -334,7 +410,9 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                 // Recurse into other expression types
                 match expr {
                     Expr::QualifiedCall { args, .. } => {
-                        for arg in args { walk_query(arg, source, findings, all_literal, literal_count); }
+                        for arg in args {
+                            walk_query(arg, source, findings, all_literal, literal_count);
+                        }
                     }
                     Expr::BinaryOp(l, _, r) => {
                         walk_query(l, source, findings, all_literal, literal_count);
@@ -344,20 +422,61 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                 }
             }
         }
-        fn walk_stmt(stmt: &Statement, source: &str, findings: &mut Vec<AuditFinding>, all_literal: &mut bool, literal_count: &mut usize) {
+        fn walk_stmt(
+            stmt: &Statement,
+            source: &str,
+            findings: &mut Vec<AuditFinding>,
+            all_literal: &mut bool,
+            literal_count: &mut usize,
+        ) {
             match stmt {
-                Statement::LetBinding { value, .. } => walk_query(value, source, findings, all_literal, literal_count),
-                Statement::Assign { value, .. } => walk_query(value, source, findings, all_literal, literal_count),
-                Statement::ExprStmt(expr) => walk_query(expr, source, findings, all_literal, literal_count),
-                Statement::Return(expr) => walk_query(expr, source, findings, all_literal, literal_count),
-                Statement::Each { body, .. } => { for s in body { walk_stmt(s, source, findings, all_literal, literal_count); } }
-                Statement::While { body, .. } => { for s in body { walk_stmt(s, source, findings, all_literal, literal_count); } }
-                Statement::IfElseBlock { then_body, else_ifs, else_body, .. } => {
-                    for s in then_body { walk_stmt(s, source, findings, all_literal, literal_count); }
-                    for (_, body) in else_ifs { for s in body { walk_stmt(s, source, findings, all_literal, literal_count); } }
-                    if let Some(body) = else_body { for s in body { walk_stmt(s, source, findings, all_literal, literal_count); } }
+                Statement::LetBinding { value, .. } => {
+                    walk_query(value, source, findings, all_literal, literal_count)
                 }
-                Statement::IfThen(_, body) => { for s in body { walk_stmt(s, source, findings, all_literal, literal_count); } }
+                Statement::Assign { value, .. } => {
+                    walk_query(value, source, findings, all_literal, literal_count)
+                }
+                Statement::ExprStmt(expr) => {
+                    walk_query(expr, source, findings, all_literal, literal_count)
+                }
+                Statement::Return(expr) => {
+                    walk_query(expr, source, findings, all_literal, literal_count)
+                }
+                Statement::Each { body, .. } => {
+                    for s in body {
+                        walk_stmt(s, source, findings, all_literal, literal_count);
+                    }
+                }
+                Statement::While { body, .. } => {
+                    for s in body {
+                        walk_stmt(s, source, findings, all_literal, literal_count);
+                    }
+                }
+                Statement::IfElseBlock {
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
+                    for s in then_body {
+                        walk_stmt(s, source, findings, all_literal, literal_count);
+                    }
+                    for (_, body) in else_ifs {
+                        for s in body {
+                            walk_stmt(s, source, findings, all_literal, literal_count);
+                        }
+                    }
+                    if let Some(body) = else_body {
+                        for s in body {
+                            walk_stmt(s, source, findings, all_literal, literal_count);
+                        }
+                    }
+                }
+                Statement::IfThen(_, body) => {
+                    for s in body {
+                        walk_stmt(s, source, findings, all_literal, literal_count);
+                    }
+                }
                 _ => {}
             }
         }
@@ -368,14 +487,42 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
 
     for decl in declarations {
         match decl {
-            Declaration::Pattern(p) => check_stmts(&p.body, source, findings, &mut all_literal, &mut literal_count),
+            Declaration::Pattern(p) => check_stmts(
+                &p.body,
+                source,
+                findings,
+                &mut all_literal,
+                &mut literal_count,
+            ),
             Declaration::Tool(t) => {
-                for m in &t.methods { check_stmts(&m.body, source, findings, &mut all_literal, &mut literal_count); }
+                for m in &t.methods {
+                    check_stmts(
+                        &m.body,
+                        source,
+                        findings,
+                        &mut all_literal,
+                        &mut literal_count,
+                    );
+                }
             }
             Declaration::MlogServer(srv) => {
-                for route in &srv.routes { check_stmts(&route.body, source, findings, &mut all_literal, &mut literal_count); }
+                for route in &srv.routes {
+                    check_stmts(
+                        &route.body,
+                        source,
+                        findings,
+                        &mut all_literal,
+                        &mut literal_count,
+                    );
+                }
             }
-            Declaration::Hook(h) => check_stmts(&h.body, source, findings, &mut all_literal, &mut literal_count),
+            Declaration::Hook(h) => check_stmts(
+                &h.body,
+                source,
+                findings,
+                &mut all_literal,
+                &mut literal_count,
+            ),
             _ => {}
         }
     }
@@ -385,15 +532,24 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
             severity: Severity::Info,
             check_id: "SQL_DYNAMIC",
             line: 1,
-            message: format!("all {} query() calls use literal SQL \u{2713}", literal_count),
+            message: format!(
+                "all {} query() calls use literal SQL \u{2713}",
+                literal_count
+            ),
         });
     }
 }
 
 // ── Check: SANDBOX_COVERAGE — adapt/mutate without sandbox ──────────
 
-fn check_sandbox_coverage(declarations: &[Declaration], source: &str, findings: &mut Vec<AuditFinding>) {
-    let has_sandbox = declarations.iter().any(|d| matches!(d, Declaration::Sandbox(_)));
+fn check_sandbox_coverage(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    let has_sandbox = declarations
+        .iter()
+        .any(|d| matches!(d, Declaration::Sandbox(_)));
 
     if !has_sandbox {
         for decl in declarations {
@@ -440,7 +596,8 @@ fn check_rate_limit(declarations: &[Declaration], source: &str, findings: &mut V
                     severity: Severity::Warning,
                     check_id: "RATE_LIMIT",
                     line: find_line(source, "mlogserver"),
-                    message: "no rate limiting — recommend adding 'rate_limit' middleware".to_string(),
+                    message: "no rate limiting — recommend adding 'rate_limit' middleware"
+                        .to_string(),
                 });
             }
         }
@@ -452,7 +609,9 @@ fn check_rate_limit(declarations: &[Declaration], source: &str, findings: &mut V
 fn check_csrf(declarations: &[Declaration], source: &str, findings: &mut Vec<AuditFinding>) {
     for decl in declarations {
         if let Declaration::MlogServer(srv) = decl {
-            let has_post = srv.routes.iter()
+            let has_post = srv
+                .routes
+                .iter()
                 .any(|r| r.method == "POST" || r.method == "PUT" || r.method == "DELETE");
             let has_csrf = srv.middleware.iter().any(|m| m == "csrf");
 
@@ -468,7 +627,8 @@ fn check_csrf(declarations: &[Declaration], source: &str, findings: &mut Vec<Aud
                     severity: Severity::Warning,
                     check_id: "CSRF",
                     line: find_line(source, "mlogserver"),
-                    message: "POST routes without CSRF middleware — recommend adding 'csrf'".to_string(),
+                    message: "POST routes without CSRF middleware — recommend adding 'csrf'"
+                        .to_string(),
                 });
             }
         }
@@ -477,8 +637,17 @@ fn check_csrf(declarations: &[Declaration], source: &str, findings: &mut Vec<Aud
 
 // ── Check: HTML_INJECTION — LLM output in respond() without template ──
 
-fn check_html_injection(declarations: &[Declaration], source: &str, findings: &mut Vec<AuditFinding>) {
-    fn check_respond_for_html(expr: &Expr, tracker: &TaintTracker, source: &str, findings: &mut Vec<AuditFinding>) {
+fn check_html_injection(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    fn check_respond_for_html(
+        expr: &Expr,
+        tracker: &TaintTracker,
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+    ) {
         if let Expr::FnCall(fn_name, args) = expr {
             if fn_name == "respond" || fn_name == "respond_html" {
                 for arg in args {
@@ -502,9 +671,18 @@ fn check_html_injection(declarations: &[Declaration], source: &str, findings: &m
     fn analyze_scope(stmts: &[Statement], source: &str, findings: &mut Vec<AuditFinding>) {
         let mut tracker = TaintTracker::new();
 
-        fn process_stmt(stmt: &Statement, tracker: &mut TaintTracker, source: &str, findings: &mut Vec<AuditFinding>) {
+        fn process_stmt(
+            stmt: &Statement,
+            tracker: &mut TaintTracker,
+            source: &str,
+            findings: &mut Vec<AuditFinding>,
+        ) {
             match stmt {
-                Statement::LetBinding { name, value, mutable: _ } => {
+                Statement::LetBinding {
+                    name,
+                    value,
+                    mutable: _,
+                } => {
                     // Check if this let-binding calls respond() with tainted args
                     check_respond_for_html(value, tracker, source, findings);
                     // Track taint sources
@@ -515,7 +693,10 @@ fn check_html_injection(declarations: &[Declaration], source: &str, findings: &m
                             tracker.taint(name, TaintKind::Secret);
                         } else if fn_name == "render" || fn_name == "escape_html" {
                             tracker.taint(name, TaintKind::Sanitized);
-                        } else if fn_name == "form_data" || fn_name == "json_body" || fn_name == "query_param" {
+                        } else if fn_name == "form_data"
+                            || fn_name == "json_body"
+                            || fn_name == "query_param"
+                        {
                             tracker.taint(name, TaintKind::UserInput);
                         }
                     }
@@ -534,18 +715,39 @@ fn check_html_injection(declarations: &[Declaration], source: &str, findings: &m
                     check_respond_for_html(expr, tracker, source, findings);
                 }
                 Statement::Each { body, .. } => {
-                    for s in body { process_stmt(s, tracker, source, findings); }
+                    for s in body {
+                        process_stmt(s, tracker, source, findings);
+                    }
                 }
                 Statement::While { body, .. } => {
-                    for s in body { process_stmt(s, tracker, source, findings); }
+                    for s in body {
+                        process_stmt(s, tracker, source, findings);
+                    }
                 }
-                Statement::IfElseBlock { then_body, else_ifs, else_body, .. } => {
-                    for s in then_body { process_stmt(s, tracker, source, findings); }
-                    for (_, body) in else_ifs { for s in body { process_stmt(s, tracker, source, findings); } }
-                    if let Some(body) = else_body { for s in body { process_stmt(s, tracker, source, findings); } }
+                Statement::IfElseBlock {
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
+                    for s in then_body {
+                        process_stmt(s, tracker, source, findings);
+                    }
+                    for (_, body) in else_ifs {
+                        for s in body {
+                            process_stmt(s, tracker, source, findings);
+                        }
+                    }
+                    if let Some(body) = else_body {
+                        for s in body {
+                            process_stmt(s, tracker, source, findings);
+                        }
+                    }
                 }
                 Statement::IfThen(_, body) => {
-                    for s in body { process_stmt(s, tracker, source, findings); }
+                    for s in body {
+                        process_stmt(s, tracker, source, findings);
+                    }
                 }
                 _ => {}
             }
@@ -590,9 +792,18 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
     fn analyze_scope(stmts: &[Statement], source: &str, findings: &mut Vec<AuditFinding>) {
         let mut tracker = TaintTracker::new();
 
-        fn process_stmt(stmt: &Statement, tracker: &mut TaintTracker, source: &str, findings: &mut Vec<AuditFinding>) {
+        fn process_stmt(
+            stmt: &Statement,
+            tracker: &mut TaintTracker,
+            source: &str,
+            findings: &mut Vec<AuditFinding>,
+        ) {
             match stmt {
-                Statement::LetBinding { name, value, mutable: _ } => {
+                Statement::LetBinding {
+                    name,
+                    value,
+                    mutable: _,
+                } => {
                     // Check if this let-binding calls a sink function with tainted args
                     check_expr_for_leak(value, tracker, source, findings);
                     // Track taint sources
@@ -615,24 +826,50 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                     check_expr_for_leak(expr, tracker, source, findings);
                 }
                 Statement::Each { body, .. } => {
-                    for s in body { process_stmt(s, tracker, source, findings); }
+                    for s in body {
+                        process_stmt(s, tracker, source, findings);
+                    }
                 }
                 Statement::While { body, .. } => {
-                    for s in body { process_stmt(s, tracker, source, findings); }
+                    for s in body {
+                        process_stmt(s, tracker, source, findings);
+                    }
                 }
-                Statement::IfElseBlock { then_body, else_ifs, else_body, .. } => {
-                    for s in then_body { process_stmt(s, tracker, source, findings); }
-                    for (_, body) in else_ifs { for s in body { process_stmt(s, tracker, source, findings); } }
-                    if let Some(body) = else_body { for s in body { process_stmt(s, tracker, source, findings); } }
+                Statement::IfElseBlock {
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
+                    for s in then_body {
+                        process_stmt(s, tracker, source, findings);
+                    }
+                    for (_, body) in else_ifs {
+                        for s in body {
+                            process_stmt(s, tracker, source, findings);
+                        }
+                    }
+                    if let Some(body) = else_body {
+                        for s in body {
+                            process_stmt(s, tracker, source, findings);
+                        }
+                    }
                 }
                 Statement::IfThen(_, body) => {
-                    for s in body { process_stmt(s, tracker, source, findings); }
+                    for s in body {
+                        process_stmt(s, tracker, source, findings);
+                    }
                 }
                 _ => {}
             }
         }
 
-        fn check_expr_for_leak(expr: &Expr, tracker: &TaintTracker, source: &str, findings: &mut Vec<AuditFinding>) {
+        fn check_expr_for_leak(
+            expr: &Expr,
+            tracker: &TaintTracker,
+            source: &str,
+            findings: &mut Vec<AuditFinding>,
+        ) {
             if let Expr::FnCall(fn_name, args) = expr {
                 if is_sink(fn_name) {
                     for arg in args {
@@ -643,7 +880,10 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                                     severity: Severity::Error,
                                     check_id: "SECRET_LEAK",
                                     line,
-                                    message: format!("secret may be leaked — env() value passed to {}()", fn_name),
+                                    message: format!(
+                                        "secret may be leaked — env() value passed to {}()",
+                                        fn_name
+                                    ),
                                 });
                             }
                         }
@@ -660,11 +900,15 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
     for decl in declarations {
         match decl {
             Declaration::MlogServer(srv) => {
-                for route in &srv.routes { analyze_scope(&route.body, source, findings); }
+                for route in &srv.routes {
+                    analyze_scope(&route.body, source, findings);
+                }
             }
             Declaration::Pattern(p) => analyze_scope(&p.body, source, findings),
             Declaration::Tool(t) => {
-                for m in &t.methods { analyze_scope(&m.body, source, findings); }
+                for m in &t.methods {
+                    analyze_scope(&m.body, source, findings);
+                }
             }
             Declaration::Hook(h) => analyze_scope(&h.body, source, findings),
             _ => {}
@@ -674,8 +918,17 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
 
 // ── Check: OPEN_REDIRECT — respond() with user-controlled URL ────────
 
-fn check_open_redirect(declarations: &[Declaration], source: &str, findings: &mut Vec<AuditFinding>) {
-    fn check_expr_for_redirect(expr: &Expr, tracker: &TaintTracker, source: &str, findings: &mut Vec<AuditFinding>) {
+fn check_open_redirect(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    fn check_expr_for_redirect(
+        expr: &Expr,
+        tracker: &TaintTracker,
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+    ) {
         if let Expr::FnCall(fn_name, args) = expr {
             // Only flag respond_html for open redirect (HTML can set Location header)
             if fn_name == "respond_html" {
@@ -699,14 +952,26 @@ fn check_open_redirect(declarations: &[Declaration], source: &str, findings: &mu
     fn analyze_scope(stmts: &[Statement], source: &str, findings: &mut Vec<AuditFinding>) {
         let mut tracker = TaintTracker::new();
 
-        fn process_stmt(stmt: &Statement, tracker: &mut TaintTracker, source: &str, findings: &mut Vec<AuditFinding>) {
+        fn process_stmt(
+            stmt: &Statement,
+            tracker: &mut TaintTracker,
+            source: &str,
+            findings: &mut Vec<AuditFinding>,
+        ) {
             match stmt {
-                Statement::LetBinding { name, value, mutable: _ } => {
+                Statement::LetBinding {
+                    name,
+                    value,
+                    mutable: _,
+                } => {
                     // Check if this let-binding calls respond() with tainted args
                     check_expr_for_redirect(value, tracker, source, findings);
                     // Track taint sources
                     if let Expr::FnCall(fn_name, _) = value {
-                        if fn_name == "query_param" || fn_name == "form_data" || fn_name == "json_body" {
+                        if fn_name == "query_param"
+                            || fn_name == "form_data"
+                            || fn_name == "json_body"
+                        {
                             tracker.taint(name, TaintKind::UserInput);
                         }
                     }
@@ -724,18 +989,39 @@ fn check_open_redirect(declarations: &[Declaration], source: &str, findings: &mu
                     check_expr_for_redirect(expr, tracker, source, findings);
                 }
                 Statement::Each { body, .. } => {
-                    for s in body { process_stmt(s, tracker, source, findings); }
+                    for s in body {
+                        process_stmt(s, tracker, source, findings);
+                    }
                 }
                 Statement::While { body, .. } => {
-                    for s in body { process_stmt(s, tracker, source, findings); }
+                    for s in body {
+                        process_stmt(s, tracker, source, findings);
+                    }
                 }
-                Statement::IfElseBlock { then_body, else_ifs, else_body, .. } => {
-                    for s in then_body { process_stmt(s, tracker, source, findings); }
-                    for (_, body) in else_ifs { for s in body { process_stmt(s, tracker, source, findings); } }
-                    if let Some(body) = else_body { for s in body { process_stmt(s, tracker, source, findings); } }
+                Statement::IfElseBlock {
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
+                    for s in then_body {
+                        process_stmt(s, tracker, source, findings);
+                    }
+                    for (_, body) in else_ifs {
+                        for s in body {
+                            process_stmt(s, tracker, source, findings);
+                        }
+                    }
+                    if let Some(body) = else_body {
+                        for s in body {
+                            process_stmt(s, tracker, source, findings);
+                        }
+                    }
                 }
                 Statement::IfThen(_, body) => {
-                    for s in body { process_stmt(s, tracker, source, findings); }
+                    for s in body {
+                        process_stmt(s, tracker, source, findings);
+                    }
                 }
                 _ => {}
             }
@@ -749,11 +1035,15 @@ fn check_open_redirect(declarations: &[Declaration], source: &str, findings: &mu
     for decl in declarations {
         match decl {
             Declaration::MlogServer(srv) => {
-                for route in &srv.routes { analyze_scope(&route.body, source, findings); }
+                for route in &srv.routes {
+                    analyze_scope(&route.body, source, findings);
+                }
             }
             Declaration::Pattern(p) => analyze_scope(&p.body, source, findings),
             Declaration::Tool(t) => {
-                for m in &t.methods { analyze_scope(&m.body, source, findings); }
+                for m in &t.methods {
+                    analyze_scope(&m.body, source, findings);
+                }
             }
             Declaration::Hook(h) => analyze_scope(&h.body, source, findings),
             _ => {}
@@ -838,7 +1128,10 @@ mod tests {
             adapt Classify add_example("input", "output")
         "#;
         let result = audit_program(source).unwrap();
-        assert!(result.findings.iter().any(|f| f.check_id == "SANDBOX_COVERAGE"));
+        assert!(result
+            .findings
+            .iter()
+            .any(|f| f.check_id == "SANDBOX_COVERAGE"));
     }
 
     #[test]
@@ -850,7 +1143,10 @@ mod tests {
             mutate Classify { add_example("in", "out") }
         "#;
         let result = audit_program(source).unwrap();
-        assert!(result.findings.iter().any(|f| f.check_id == "SANDBOX_COVERAGE"));
+        assert!(result
+            .findings
+            .iter()
+            .any(|f| f.check_id == "SANDBOX_COVERAGE"));
     }
 
     #[test]
@@ -863,7 +1159,10 @@ mod tests {
             adapt Classify add_example("input", "output")
         "#;
         let result = audit_program(source).unwrap();
-        assert!(!result.findings.iter().any(|f| f.check_id == "SANDBOX_COVERAGE"));
+        assert!(!result
+            .findings
+            .iter()
+            .any(|f| f.check_id == "SANDBOX_COVERAGE"));
     }
 
     #[test]
@@ -871,32 +1170,43 @@ mod tests {
         // Test check_rate_limit by constructing a MlogServerDecl directly
         let srv = ast::MlogServerDecl {
             port: 8080,
-            middleware: vec!["session".to_string(), "csrf".to_string(), "security_headers".to_string()],
+            host: None,
+            middleware: vec![
+                "session".to_string(),
+                "csrf".to_string(),
+                "security_headers".to_string(),
+            ],
             routes: vec![],
         };
         let source = "mlogserver { port: 8080 middleware: [session, csrf, security_headers] }";
         let mut findings: Vec<AuditFinding> = Vec::new();
         check_rate_limit(&[Declaration::MlogServer(srv)], source, &mut findings);
-        assert!(findings.iter().any(|f| f.check_id == "RATE_LIMIT" && f.severity == Severity::Warning));
+        assert!(findings
+            .iter()
+            .any(|f| f.check_id == "RATE_LIMIT" && f.severity == Severity::Warning));
     }
 
     #[test]
     fn test_rate_limit_with_middleware_direct() {
         let srv = ast::MlogServerDecl {
             port: 8080,
+            host: None,
             middleware: vec!["rate_limit".to_string()],
             routes: vec![],
         };
         let source = "mlogserver { middleware: [rate_limit] }";
         let mut findings: Vec<AuditFinding> = Vec::new();
         check_rate_limit(&[Declaration::MlogServer(srv)], source, &mut findings);
-        assert!(findings.iter().any(|f| f.check_id == "RATE_LIMIT" && f.severity == Severity::Info));
+        assert!(findings
+            .iter()
+            .any(|f| f.check_id == "RATE_LIMIT" && f.severity == Severity::Info));
     }
 
     #[test]
     fn test_csrf_post_without_csrf_direct() {
         let srv = ast::MlogServerDecl {
             port: 8080,
+            host: None,
             middleware: vec!["session".to_string()],
             routes: vec![ast::RouteDecl {
                 path: "/login".to_string(),
@@ -908,13 +1218,16 @@ mod tests {
         let source = "mlogserver { middleware: [session] }";
         let mut findings: Vec<AuditFinding> = Vec::new();
         check_csrf(&[Declaration::MlogServer(srv)], source, &mut findings);
-        assert!(findings.iter().any(|f| f.check_id == "CSRF" && f.severity == Severity::Warning));
+        assert!(findings
+            .iter()
+            .any(|f| f.check_id == "CSRF" && f.severity == Severity::Warning));
     }
 
     #[test]
     fn test_csrf_post_with_csrf_direct() {
         let srv = ast::MlogServerDecl {
             port: 8080,
+            host: None,
             middleware: vec!["csrf".to_string()],
             routes: vec![ast::RouteDecl {
                 path: "/login".to_string(),
@@ -926,7 +1239,9 @@ mod tests {
         let source = "mlogserver { middleware: [csrf] }";
         let mut findings: Vec<AuditFinding> = Vec::new();
         check_csrf(&[Declaration::MlogServer(srv)], source, &mut findings);
-        assert!(findings.iter().any(|f| f.check_id == "CSRF" && f.severity == Severity::Info));
+        assert!(findings
+            .iter()
+            .any(|f| f.check_id == "CSRF" && f.severity == Severity::Info));
     }
 
     #[test]
@@ -938,8 +1253,14 @@ mod tests {
             }
         "#;
         let result = audit_program(source).unwrap();
-        assert!(result.findings.iter().any(|f| f.check_id == "SQL_DYNAMIC" && f.severity == Severity::Info));
-        assert!(!result.findings.iter().any(|f| f.check_id == "SQL_DYNAMIC" && f.severity == Severity::Error));
+        assert!(result
+            .findings
+            .iter()
+            .any(|f| f.check_id == "SQL_DYNAMIC" && f.severity == Severity::Info));
+        assert!(!result
+            .findings
+            .iter()
+            .any(|f| f.check_id == "SQL_DYNAMIC" && f.severity == Severity::Error));
     }
 
     #[test]
@@ -952,7 +1273,10 @@ mod tests {
             }
         "#;
         let result = audit_program(source).unwrap();
-        assert!(result.findings.iter().any(|f| f.check_id == "SQL_DYNAMIC" && f.severity == Severity::Error));
+        assert!(result
+            .findings
+            .iter()
+            .any(|f| f.check_id == "SQL_DYNAMIC" && f.severity == Severity::Error));
     }
 
     #[test]
@@ -965,7 +1289,10 @@ mod tests {
             }
         "#;
         let result = audit_program(source).unwrap();
-        assert!(result.findings.iter().any(|f| f.check_id == "SECRET_LEAK" && f.severity == Severity::Error));
+        assert!(result
+            .findings
+            .iter()
+            .any(|f| f.check_id == "SECRET_LEAK" && f.severity == Severity::Error));
     }
 
     #[test]
@@ -978,7 +1305,10 @@ mod tests {
             }
         "#;
         let result = audit_program(source).unwrap();
-        assert!(result.findings.iter().any(|f| f.check_id == "SECRET_LEAK" && f.severity == Severity::Error));
+        assert!(result
+            .findings
+            .iter()
+            .any(|f| f.check_id == "SECRET_LEAK" && f.severity == Severity::Error));
     }
 
     #[test]
@@ -991,7 +1321,10 @@ mod tests {
             }
         "#;
         let result = audit_program(source).unwrap();
-        assert!(result.findings.iter().any(|f| f.check_id == "HTML_INJECTION" && f.severity == Severity::Warning));
+        assert!(result
+            .findings
+            .iter()
+            .any(|f| f.check_id == "HTML_INJECTION" && f.severity == Severity::Warning));
     }
 
     #[test]
@@ -1008,7 +1341,10 @@ mod tests {
             }
         "#;
         let result = audit_program(source).unwrap();
-        assert!(!result.findings.iter().any(|f| f.check_id == "HTML_INJECTION" && f.severity == Severity::Warning));
+        assert!(!result
+            .findings
+            .iter()
+            .any(|f| f.check_id == "HTML_INJECTION" && f.severity == Severity::Warning));
     }
 
     #[test]
@@ -1016,26 +1352,66 @@ mod tests {
         // Construct MlogServerDecl directly to test taint + server checks together
         let srv = ast::MlogServerDecl {
             port: 8080,
+            host: None,
             middleware: vec!["session".to_string()],
             routes: vec![ast::RouteDecl {
                 path: "/data".to_string(),
                 method: "POST".to_string(),
                 requires: vec![],
                 body: vec![
-                    Statement::LetBinding { name: "api_key".to_string(), value: Expr::FnCall("env".to_string(), vec![Expr::StringLit("KEY".to_string())]), mutable: false },
-                    Statement::LetBinding { name: "result".to_string(), value: Expr::FnCall("call_llm".to_string(), vec![Expr::StringLit("summarize".to_string())]), mutable: false },
-                    Statement::LetBinding { name: "resp".to_string(), value: Expr::FnCall("respond".to_string(), vec![Expr::StringLit("200 OK".to_string()), Expr::Ident("result".to_string())]), mutable: false },
+                    Statement::LetBinding {
+                        name: "api_key".to_string(),
+                        value: Expr::FnCall(
+                            "env".to_string(),
+                            vec![Expr::StringLit("KEY".to_string())],
+                        ),
+                        mutable: false,
+                    },
+                    Statement::LetBinding {
+                        name: "result".to_string(),
+                        value: Expr::FnCall(
+                            "call_llm".to_string(),
+                            vec![Expr::StringLit("summarize".to_string())],
+                        ),
+                        mutable: false,
+                    },
+                    Statement::LetBinding {
+                        name: "resp".to_string(),
+                        value: Expr::FnCall(
+                            "respond".to_string(),
+                            vec![
+                                Expr::StringLit("200 OK".to_string()),
+                                Expr::Ident("result".to_string()),
+                            ],
+                        ),
+                        mutable: false,
+                    },
                     Statement::Return(Expr::Ident("resp".to_string())),
                 ],
             }],
         };
         let mut findings: Vec<AuditFinding> = Vec::new();
-        check_rate_limit(&[Declaration::MlogServer(srv.clone())], "mlogserver", &mut findings);
-        check_csrf(&[Declaration::MlogServer(srv.clone())], "mlogserver", &mut findings);
-        check_html_injection(&[Declaration::MlogServer(srv.clone())], "mlogserver", &mut findings);
+        check_rate_limit(
+            &[Declaration::MlogServer(srv.clone())],
+            "mlogserver",
+            &mut findings,
+        );
+        check_csrf(
+            &[Declaration::MlogServer(srv.clone())],
+            "mlogserver",
+            &mut findings,
+        );
+        check_html_injection(
+            &[Declaration::MlogServer(srv.clone())],
+            "mlogserver",
+            &mut findings,
+        );
         check_secret_leak(&[Declaration::MlogServer(srv)], "mlogserver", &mut findings);
 
-        assert!(!findings.is_empty(), "should have findings from server+route analysis");
+        assert!(
+            !findings.is_empty(),
+            "should have findings from server+route analysis"
+        );
         let result = AuditResult { findings };
         let formatted = result.format();
         assert!(formatted.contains("Summary:"));

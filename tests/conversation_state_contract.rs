@@ -2,8 +2,8 @@
 // All tests use valid .mlog syntax.
 // Tests must run with --test-threads=1 (shared static state in MockLlm).
 
+use metalogos::ast::{ConversationDecl, Declaration, LearnablePatternDecl, Param};
 use metalogos::interpreter::Interpreter;
-use metalogos::ast::{Declaration, LearnablePatternDecl, Param, ConversationDecl};
 use metalogos::parser;
 
 /// Helper: parse + run declarations, return interpreter.
@@ -23,13 +23,13 @@ fn test_conv_start_creates_conversation() {
     interp.set_base_dir(std::path::PathBuf::from("."));
 
     // Set conversation config
-    interp.run(vec![
-        Declaration::Conversation(ConversationDecl {
+    interp
+        .run(vec![Declaration::Conversation(ConversationDecl {
             ttl: 1800,
             max_messages: 50,
             compress_after: 20,
-        }),
-    ]).unwrap();
+        })])
+        .unwrap();
 
     // conv_start via entity assignment triggers the builtin
     let source = r#"
@@ -38,8 +38,15 @@ entity _start: String = conv_start("chat_1")
     interp.run(parser::parse(source).unwrap()).unwrap();
 
     let convs = interp.get_conversations().lock().unwrap();
-    assert!(convs.contains_key("chat_1"), "conversation should exist after conv_start");
-    assert_eq!(convs["chat_1"].messages.len(), 0, "new conversation should be empty");
+    assert!(
+        convs.contains_key("chat_1"),
+        "conversation should exist after conv_start"
+    );
+    assert_eq!(
+        convs["chat_1"].messages.len(),
+        0,
+        "new conversation should be empty"
+    );
 }
 
 // ── C2: conv_add adds messages, verified via conversations lock ────────
@@ -49,13 +56,13 @@ fn test_conv_add_and_history() {
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));
 
-    interp.run(vec![
-        Declaration::Conversation(ConversationDecl {
+    interp
+        .run(vec![Declaration::Conversation(ConversationDecl {
             ttl: 1800,
             max_messages: 50,
             compress_after: 20,
-        }),
-    ]).unwrap();
+        })])
+        .unwrap();
 
     let source = r#"
 entity _s: String = conv_start("chat_1")
@@ -82,13 +89,13 @@ fn test_conv_history_struct_fields() {
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));
 
-    interp.run(vec![
-        Declaration::Conversation(ConversationDecl {
+    interp
+        .run(vec![Declaration::Conversation(ConversationDecl {
             ttl: 1800,
             max_messages: 50,
             compress_after: 20,
-        }),
-    ]).unwrap();
+        })])
+        .unwrap();
 
     let source = r#"
 entity _s: String = conv_start("hist_test")
@@ -102,7 +109,10 @@ entity _h: String = conv_context("hist_test")
     assert_eq!(conv.messages.len(), 1);
     assert_eq!(conv.messages[0].role, "user");
     assert_eq!(conv.messages[0].text, "hello");
-    assert!(conv.messages[0].timestamp > 0, "timestamp should be positive");
+    assert!(
+        conv.messages[0].timestamp > 0,
+        "timestamp should be positive"
+    );
 }
 
 // ── C4: conv_context returns formatted string with all messages ────────
@@ -112,13 +122,13 @@ fn test_conv_context_formatting() {
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));
 
-    interp.run(vec![
-        Declaration::Conversation(ConversationDecl {
+    interp
+        .run(vec![Declaration::Conversation(ConversationDecl {
             ttl: 1800,
             max_messages: 50,
             compress_after: 20,
-        }),
-    ]).unwrap();
+        })])
+        .unwrap();
 
     let source = r#"
 entity _s: String = conv_start("ctx_test")
@@ -131,8 +141,14 @@ entity ctx: String = conv_context("ctx_test")
     // conv_context returns a formatted string of all messages
     let ctx_val = interp.get_variable("ctx").unwrap();
     let ctx_str = format!("{}", ctx_val);
-    assert!(ctx_str.contains("user: Q1"), "context should contain user message");
-    assert!(ctx_str.contains("assistant: A1"), "context should contain assistant message");
+    assert!(
+        ctx_str.contains("user: Q1"),
+        "context should contain user message"
+    );
+    assert!(
+        ctx_str.contains("assistant: A1"),
+        "context should contain assistant message"
+    );
 }
 
 // ── C5: conv_end removes conversation ─────────────────────────────────
@@ -142,13 +158,13 @@ fn test_conv_end_removes_conversation() {
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));
 
-    interp.run(vec![
-        Declaration::Conversation(ConversationDecl {
+    interp
+        .run(vec![Declaration::Conversation(ConversationDecl {
             ttl: 1800,
             max_messages: 50,
             compress_after: 20,
-        }),
-    ]).unwrap();
+        })])
+        .unwrap();
 
     let source = r#"
 entity _s: String = conv_start("end_test")
@@ -158,7 +174,10 @@ entity _e: String = conv_end("end_test")
     interp.run(parser::parse(source).unwrap()).unwrap();
 
     let convs = interp.get_conversations().lock().unwrap();
-    assert!(!convs.contains_key("end_test"), "conversation should be removed after conv_end");
+    assert!(
+        !convs.contains_key("end_test"),
+        "conversation should be removed after conv_end"
+    );
 }
 
 // ── C6: conversation config is applied from declaration ──────────────
@@ -168,13 +187,13 @@ fn test_conversation_config_from_declaration() {
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));
 
-    interp.run(vec![
-        Declaration::Conversation(ConversationDecl {
+    interp
+        .run(vec![Declaration::Conversation(ConversationDecl {
             ttl: 900,
             max_messages: 10,
             compress_after: 5,
-        }),
-    ]).unwrap();
+        })])
+        .unwrap();
 
     let config = interp.get_conversation_config();
     assert_eq!(config.ttl, 900);
@@ -190,13 +209,13 @@ fn test_max_messages_enforced() {
     interp.set_base_dir(std::path::PathBuf::from("."));
 
     // max_messages = 3, compress_after = 100 (disable compression)
-    interp.run(vec![
-        Declaration::Conversation(ConversationDecl {
+    interp
+        .run(vec![Declaration::Conversation(ConversationDecl {
             ttl: 1800,
             max_messages: 3,
             compress_after: 100,
-        }),
-    ]).unwrap();
+        })])
+        .unwrap();
 
     let source = r#"
 entity _s: String = conv_start("max_test")
@@ -211,7 +230,10 @@ entity _a4: String = conv_add("max_test", "user", "msg4")
     let conv = &convs["max_test"];
     // Should have at most 3 messages (msg2, msg3, msg4; msg1 evicted)
     assert_eq!(conv.messages.len(), 3, "should enforce max_messages");
-    assert_eq!(conv.messages[0].text, "msg2", "oldest message should have been evicted");
+    assert_eq!(
+        conv.messages[0].text, "msg2",
+        "oldest message should have been evicted"
+    );
     assert_eq!(conv.messages[2].text, "msg4");
 }
 
@@ -223,7 +245,10 @@ fn test_conversation_config_defaults() {
     let config = interp.get_conversation_config();
     assert_eq!(config.ttl, 1800, "default ttl should be 1800");
     assert_eq!(config.max_messages, 50, "default max_messages should be 50");
-    assert_eq!(config.compress_after, 20, "default compress_after should be 20");
+    assert_eq!(
+        config.compress_after, 20,
+        "default compress_after should be 20"
+    );
 }
 
 // ── C9: conversation: "current" parsed in learnable pattern ────────────
@@ -255,13 +280,13 @@ fn test_multiple_conversations_independent() {
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));
 
-    interp.run(vec![
-        Declaration::Conversation(ConversationDecl {
+    interp
+        .run(vec![Declaration::Conversation(ConversationDecl {
             ttl: 1800,
             max_messages: 50,
             compress_after: 100,
-        }),
-    ]).unwrap();
+        })])
+        .unwrap();
 
     let source = r#"
 entity _s1: String = conv_start("conv_a")

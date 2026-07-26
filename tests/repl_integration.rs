@@ -11,12 +11,20 @@ fn repl_integration_three_lines() {
     // Line 1: entity declaration (no output expected)
     let line1 = r#"entity greeting: String = "Hello, METALOGOS!!""#;
     let result1 = metalogos::feed_line(&mut interp, line1).unwrap();
-    assert!(result1.is_none(), "entity declaration should produce no output, got: {:?}", result1);
+    assert!(
+        result1.is_none(),
+        "entity declaration should produce no output, got: {:?}",
+        result1
+    );
 
     // Line 2: pattern declaration (no output expected)
     let line2 = r#"pattern Shout(text: String) -> String { return upper(text) }"#;
     let result2 = metalogos::feed_line(&mut interp, line2).unwrap();
-    assert!(result2.is_none(), "pattern declaration should produce no output, got: {:?}", result2);
+    assert!(
+        result2.is_none(),
+        "pattern declaration should produce no output, got: {:?}",
+        result2
+    );
 
     // Line 3: flow declaration (produces output)
     let line3 = r#"flow Main { input: String = greeting -> Shout -> output }"#;

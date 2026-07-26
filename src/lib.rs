@@ -1,12 +1,19 @@
 // ── METALOGOS — library root ──────────────────────────────────────────
 // Exposes: parser, interpreter, LLM client, semantic analysis, run_program for binary + tests.
+//
+// Наряд №29 §6.4: deny clippy::unwrap_used / clippy::expect_used in non-test code.
+// All production unwrap/expect calls have been eliminated (Наряд №29 Blocks 3.1–3.4).
+// Grammar invariant .expect() calls in parser.rs are allowed via module-level #![allow].
+
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod ast;
 pub mod audit;
-pub mod bytecode;
 pub mod builtins;
+pub mod bytecode;
 pub mod compiler;
 pub mod embeddings;
+pub mod error;
 pub mod interpreter;
 pub mod llm;
 pub mod memory_graph;
@@ -23,7 +30,10 @@ pub fn run_program(source: &str) -> Result<Option<String>, String> {
 }
 
 /// Parse and execute a .mlog program with an explicit base directory for module resolution.
-pub fn run_program_with_dir(source: &str, base_dir: std::path::PathBuf) -> Result<Option<String>, String> {
+pub fn run_program_with_dir(
+    source: &str,
+    base_dir: std::path::PathBuf,
+) -> Result<Option<String>, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
     let mut interp = interpreter::Interpreter::new();
     interp.set_base_dir(base_dir);
@@ -41,9 +51,7 @@ pub fn run_program_with_dir(source: &str, base_dir: std::path::PathBuf) -> Resul
                 result.push_str(&flow_output);
                 Ok(Some(result))
             }
-            None => {
-                Ok(Some(mutate_log.join("\n")))
-            }
+            None => Ok(Some(mutate_log.join("\n"))),
         }
     }
 }
@@ -77,7 +85,8 @@ pub fn check_program_with_root(
         Some(root_path) => {
             let root_source = std::fs::read_to_string(root_path)
                 .map_err(|e| format!("cannot read root file {:?}: {}", root_path, e))?;
-            let root_dir = root_path.parent()
+            let root_dir = root_path
+                .parent()
                 .unwrap_or(std::path::Path::new("."))
                 .to_path_buf();
             let root_decls = parser::parse(&root_source)
@@ -102,7 +111,10 @@ pub fn check_program_with_root(
 /// Parse a single line and feed it to a reusable interpreter.
 /// Used by REPL for incremental evaluation with persistent state.
 /// Returns the output (if any) from processing the declaration.
-pub fn feed_line(interp: &mut interpreter::Interpreter, line: &str) -> Result<Option<String>, String> {
+pub fn feed_line(
+    interp: &mut interpreter::Interpreter,
+    line: &str,
+) -> Result<Option<String>, String> {
     let declarations = parser::parse(line).map_err(|e| format!("parse error: {}", e))?;
     let output = interp.run(declarations)?;
     let mutate_log = interp.take_mutate_log();
@@ -154,7 +166,10 @@ pub fn eval_program(source: &str) -> Result<Vec<interpreter::EvalResult>, String
 }
 
 /// Parse a .mlog program with an explicit base directory, execute declarations, then run eval blocks.
-pub fn eval_program_with_dir(source: &str, base_dir: std::path::PathBuf) -> Result<Vec<interpreter::EvalResult>, String> {
+pub fn eval_program_with_dir(
+    source: &str,
+    base_dir: std::path::PathBuf,
+) -> Result<Vec<interpreter::EvalResult>, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
     let mut interp = interpreter::Interpreter::new();
     interp.set_base_dir(base_dir);
@@ -164,12 +179,26 @@ pub fn eval_program_with_dir(source: &str, base_dir: std::path::PathBuf) -> Resu
 
 /// ADR-0056: Resume a flow from a checkpoint.
 /// Parses the source, sets resume target, then runs — the flow skips to the checkpoint.
-pub fn resume_program(source: &str, flow_name: &str, checkpoint_name: &str) -> Result<Option<String>, String> {
-    resume_program_with_dir(source, flow_name, checkpoint_name, std::path::PathBuf::from("."))
+pub fn resume_program(
+    source: &str,
+    flow_name: &str,
+    checkpoint_name: &str,
+) -> Result<Option<String>, String> {
+    resume_program_with_dir(
+        source,
+        flow_name,
+        checkpoint_name,
+        std::path::PathBuf::from("."),
+    )
 }
 
 /// ADR-0056: Resume a flow from a checkpoint with explicit base directory.
-pub fn resume_program_with_dir(source: &str, flow_name: &str, checkpoint_name: &str, base_dir: std::path::PathBuf) -> Result<Option<String>, String> {
+pub fn resume_program_with_dir(
+    source: &str,
+    flow_name: &str,
+    checkpoint_name: &str,
+    base_dir: std::path::PathBuf,
+) -> Result<Option<String>, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
     let mut interp = interpreter::Interpreter::new();
     interp.set_base_dir(base_dir);

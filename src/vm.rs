@@ -17,11 +17,9 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::ast::CompareOp as AstCompareOp;
-use crate::bytecode::*;
 use crate::builtins::Builtins;
-use crate::interpreter::{
-    FluidValueVariant, Value,
-};
+use crate::bytecode::*;
+use crate::interpreter::{FluidValueVariant, Value};
 use crate::llm;
 
 /// The METALOGOS stack-based virtual machine.
@@ -102,15 +100,16 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::LoadGlobal(slot) => {
-                    let val = self.globals.get(*slot)
-                        .cloned()
-                        .unwrap_or(Value::Unit);
+                    let val = self.globals.get(*slot).cloned().unwrap_or(Value::Unit);
                     stack.push(val);
                     ip += 1;
                 }
                 Instruction::LoadGlobalByName(name) => {
                     // Search globals by name
-                    let val = program.globals.iter().position(|n| n == name)
+                    let val = program
+                        .globals
+                        .iter()
+                        .position(|n| n == name)
                         .and_then(|slot| self.globals.get(slot).cloned())
                         .unwrap_or(Value::Unit);
                     stack.push(val);
@@ -154,7 +153,9 @@ impl Vm {
 
                 // ── Function Calls ────────────────────────────
                 Instruction::CallBuiltin(idx, arity) => {
-                    let name = self.builtin_names.get(*idx)
+                    let name = self
+                        .builtin_names
+                        .get(*idx)
                         .map(|s| s.as_str())
                         .unwrap_or("unknown");
                     let mut args = Vec::new();
@@ -174,7 +175,9 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::CallPattern(idx, arity) => {
-                    let pattern = self.patterns.get(*idx)
+                    let pattern = self
+                        .patterns
+                        .get(*idx)
                         .ok_or_else(|| format!("VM: pattern index {} not found", idx))?
                         .clone();
 
@@ -204,7 +207,8 @@ impl Vm {
                     }
 
                     // Switch to pattern code
-                    let result = self.execute_code(&pattern.code, &mut stack, &mut call_stack, &program)?;
+                    let result =
+                        self.execute_code(&pattern.code, &mut stack, &mut call_stack, &program)?;
                     stack.push(result);
                     // IP already advanced by 1 (return_ip)
                     ip = return_ip;
@@ -300,7 +304,9 @@ impl Vm {
                     let left = stack.pop().unwrap_or(Value::Unit);
                     let eq_result = self.eval_cmp(left, right, AstCompareOp::Eq);
                     match eq_result {
-                        Value::Float(f) => stack.push(Value::Float(if f == 1.0 { 0.0 } else { 1.0 })),
+                        Value::Float(f) => {
+                            stack.push(Value::Float(if f == 1.0 { 0.0 } else { 1.0 }))
+                        }
                         _ => stack.push(eq_result),
                     }
                     ip += 1;
@@ -326,9 +332,7 @@ impl Vm {
                 }
                 Instruction::GetField(field) => {
                     let val = stack.pop().unwrap_or(Value::Unit);
-                    let result = val.get_field(field)
-                        .cloned()
-                        .unwrap_or(Value::Unit);
+                    let result = val.get_field(field).cloned().unwrap_or(Value::Unit);
                     stack.push(result);
                     ip += 1;
                 }
@@ -372,7 +376,8 @@ impl Vm {
                             Value::Float(_) => "Float",
                             Value::String(_) => "String",
                             _ => "Unit",
-                        }.to_string();
+                        }
+                        .to_string();
                         variants.push(FluidValueVariant {
                             type_name,
                             value,
@@ -401,7 +406,8 @@ impl Vm {
                         Value::Float(f) => *f < *threshold,
                         Value::Fluid(variants) => {
                             // Use the maximum confidence
-                            let max_conf = variants.iter()
+                            let max_conf = variants
+                                .iter()
                                 .map(|v| v.confidence)
                                 .fold(0.0_f64, f64::max);
                             max_conf < *threshold
@@ -487,7 +493,10 @@ impl Vm {
                         }
                     }
                     if !found {
-                        return Err(format!("VM adapt: learnable pattern '{}' not found", pattern_name));
+                        return Err(format!(
+                            "VM adapt: learnable pattern '{}' not found",
+                            pattern_name
+                        ));
                     }
                     ip += 1;
                 }
@@ -507,7 +516,12 @@ impl Vm {
                     self.relations.push(VmRelation { from, to, relation });
                     ip += 1;
                 }
-                Instruction::Mutate { pattern_name, example_count, rollback_threshold, rollback_op } => {
+                Instruction::Mutate {
+                    pattern_name,
+                    example_count,
+                    rollback_threshold,
+                    rollback_op,
+                } => {
                     // Pop example_count pairs of (input, output)
                     let mut new_examples = Vec::new();
                     for _ in 0..*example_count {
@@ -523,23 +537,33 @@ impl Vm {
                     }
 
                     // Find the learnable and mutate
-                    let msg = self.handle_mutate(pattern_name, new_examples, *rollback_threshold, rollback_op.clone())?;
+                    let msg = self.handle_mutate(
+                        pattern_name,
+                        new_examples,
+                        *rollback_threshold,
+                        rollback_op.clone(),
+                    )?;
                     self.mutate_log.push(msg);
                     ip += 1;
                 }
 
                 // ── Pipeline ───────────────────────────────────
-                Instruction::FlowExec { source_expr, pipeline, branch_defs } => {
+                Instruction::FlowExec {
+                    source_expr,
+                    pipeline,
+                    branch_defs,
+                } => {
                     // Load the source value
                     let source_val = match source_expr {
                         FlowExpr::GlobalSlot(slot) => {
                             self.globals.get(*slot).cloned().unwrap_or(Value::Unit)
                         }
-                        FlowExpr::Ident(name) => {
-                            program.globals.iter().position(|n| n == name)
-                                .and_then(|slot| self.globals.get(slot).cloned())
-                                .unwrap_or(Value::Unit)
-                        }
+                        FlowExpr::Ident(name) => program
+                            .globals
+                            .iter()
+                            .position(|n| n == name)
+                            .and_then(|slot| self.globals.get(slot).cloned())
+                            .unwrap_or(Value::Unit),
                         FlowExpr::Const(v) => v.clone(),
                     };
 
@@ -603,7 +627,7 @@ impl Vm {
 
     /// Execute a block of code (e.g., pattern body) and return the result.
     /// This handles the call stack and Return instructions internally.
-    fn execute_code(
+    pub fn execute_code(
         &self,
         code: &[Instruction],
         stack: &mut Vec<Value>,
@@ -617,7 +641,11 @@ impl Vm {
         while ip < code.len() {
             iterations += 1;
             if iterations > max_iterations {
-                return Err(format!("VM execute_code: possible infinite loop ({} iterations, {} instructions)", iterations, code.len()));
+                return Err(format!(
+                    "VM execute_code: possible infinite loop ({} iterations, {} instructions)",
+                    iterations,
+                    code.len()
+                ));
             }
             let instr = &code[ip];
             match instr {
@@ -649,7 +677,9 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::CallBuiltin(idx, arity) => {
-                    let name = self.builtin_names.get(*idx)
+                    let name = self
+                        .builtin_names
+                        .get(*idx)
                         .map(|s| s.as_str())
                         .unwrap_or("unknown");
                     let mut args = Vec::new();
@@ -669,7 +699,9 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::CallPattern(pidx, arity) => {
-                    let pattern = self.patterns.get(*pidx)
+                    let pattern = self
+                        .patterns
+                        .get(*pidx)
                         .ok_or_else(|| format!("VM: pattern index {} not found", pidx))?
                         .clone();
                     if *arity != pattern.param_count {
@@ -683,7 +715,10 @@ impl Vm {
                         locals.insert(0, stack.pop().unwrap_or(Value::Unit));
                     }
                     let base_bp = stack.len();
-                    call_stack.push(CallFrame { return_ip: ip + 1, base_bp });
+                    call_stack.push(CallFrame {
+                        return_ip: ip + 1,
+                        base_bp,
+                    });
                     for local in locals {
                         stack.push(local);
                     }
@@ -767,7 +802,9 @@ impl Vm {
                     let left = stack.pop().unwrap_or(Value::Unit);
                     let eq_result = self.eval_cmp(left, right, AstCompareOp::Eq);
                     match eq_result {
-                        Value::Float(f) => stack.push(Value::Float(if f == 1.0 { 0.0 } else { 1.0 })),
+                        Value::Float(f) => {
+                            stack.push(Value::Float(if f == 1.0 { 0.0 } else { 1.0 }))
+                        }
                         _ => stack.push(eq_result),
                     }
                     ip += 1;
@@ -779,7 +816,10 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::LoadGlobalByName(name) => {
-                    let val = program.globals.iter().position(|n| n == name)
+                    let val = program
+                        .globals
+                        .iter()
+                        .position(|n| n == name)
                         .and_then(|slot| self.globals.get(slot).cloned())
                         .unwrap_or(Value::Unit);
                     stack.push(val);
@@ -833,7 +873,9 @@ impl Vm {
                     ip += 1;
                 }
                 // For any unhandled instruction, skip
-                _ => { ip += 1; }
+                _ => {
+                    ip += 1;
+                }
             }
         }
         Ok(stack.pop().unwrap_or(Value::Unit))
@@ -852,19 +894,33 @@ impl Vm {
         };
         let pattern_name = match args.get(1) {
             Some(Value::String(s)) => s.clone(),
-            _ => return Err("map() expects second argument to be a pattern name (String)".to_string()),
+            _ => {
+                return Err(
+                    "map() expects second argument to be a pattern name (String)".to_string(),
+                )
+            }
         };
-        let pattern = self.patterns.iter().find(|p| p.name == pattern_name)
+        let pattern = self
+            .patterns
+            .iter()
+            .find(|p| p.name == pattern_name)
             .ok_or_else(|| format!("map(): pattern '{}' not found", pattern_name))?
             .clone();
         if pattern.param_count != 1 {
-            return Err(format!("map(): pattern '{}' must accept exactly 1 argument, got {}", pattern_name, pattern.param_count));
+            return Err(format!(
+                "map(): pattern '{}' must accept exactly 1 argument, got {}",
+                pattern_name, pattern.param_count
+            ));
         }
         let mut results = Vec::new();
         for item in &list {
             let mut item_stack: Vec<Value> = vec![item.clone()];
-            let mut item_cs: Vec<CallFrame> = vec![CallFrame { return_ip: 0, base_bp: 0 }];
-            let result = self.execute_code(&pattern.code, &mut item_stack, &mut item_cs, program)?;
+            let mut item_cs: Vec<CallFrame> = vec![CallFrame {
+                return_ip: 0,
+                base_bp: 0,
+            }];
+            let result =
+                self.execute_code(&pattern.code, &mut item_stack, &mut item_cs, program)?;
             results.push(result);
         }
         Ok(Value::List(results))
@@ -892,7 +948,9 @@ impl Vm {
 
     /// Call an LLM-backed learnable pattern.
     fn call_llm(&self, idx: usize, args: &[Value]) -> Result<Value, String> {
-        let (info, few_shot) = self.learnables.get(idx)
+        let (info, few_shot) = self
+            .learnables
+            .get(idx)
             .ok_or_else(|| format!("VM: learnable index {} not found", idx))?;
 
         // Build input string
@@ -942,7 +1000,10 @@ impl Vm {
                 for (k, v) in obj {
                     fields.insert(k.clone(), Vm::json_to_value(v));
                 }
-                Value::Struct { type_name: "Json".to_string(), fields }
+                Value::Struct {
+                    type_name: "Json".to_string(),
+                    fields,
+                }
             }
         }
     }
@@ -972,7 +1033,8 @@ impl Vm {
 
     /// Evaluate a branch condition against a value.
     fn eval_branch_condition(&self, branch: &BranchDef, current: &Value) -> Result<bool, String> {
-        let field_val = current.get_field(&branch.condition_field)
+        let field_val = current
+            .get_field(&branch.condition_field)
             .map_err(|e| format!("branch condition: {}", e))?
             .clone();
         let fv = field_val.as_float()?;
@@ -1002,13 +1064,16 @@ impl Vm {
                 if args.len() != pattern.param_count {
                     return Err(format!(
                         "VM: pattern {} expects {} args, got {}",
-                        name, pattern.param_count, args.len()
+                        name,
+                        pattern.param_count,
+                        args.len()
                     ));
                 }
 
                 // ── VM bytecode path ───────────────────────────
                 // Collapse Fluid arguments to parameter types
-                let collapsed_args: Vec<Value> = args.iter()
+                let collapsed_args: Vec<Value> = args
+                    .iter()
                     .zip(pattern.param_types.iter())
                     .map(|(arg, param_type)| self.maybe_collapse(arg, param_type))
                     .collect();
@@ -1040,7 +1105,10 @@ impl Vm {
             let condition_met = self.eval_rule_condition(&rule.condition)?;
             if condition_met {
                 // Find the target entity by name in globals
-                let target_slot = self.global_names.iter().position(|n| n == &rule.target_name);
+                let target_slot = self
+                    .global_names
+                    .iter()
+                    .position(|n| n == &rule.target_name);
                 if let Some(slot) = target_slot {
                     let value = self.eval_rule_value(&rule.value_expr)?;
                     // Set field on the struct
@@ -1099,7 +1167,9 @@ impl Vm {
                 match slot {
                     Some(s) => {
                         let entity = self.globals.get(s).cloned().unwrap_or(Value::Unit);
-                        entity.get_field(field).cloned()
+                        entity
+                            .get_field(field)
+                            .cloned()
                             .map_err(|e| format!("VM rule field access: {}", e))
                     }
                     None => Err(format!("VM rule: undefined entity '{}'", entity_name)),
@@ -1128,25 +1198,33 @@ impl Vm {
                 let kept = match (&rollback_op, &rollback_threshold) {
                     (Some(ConditionOp::Lt), Some(threshold)) => accuracy >= *threshold,
                     (Some(ConditionOp::Le), Some(threshold)) => accuracy > *threshold,
-                    (Some(ConditionOp::Gt), Some(_)) |
-                    (Some(ConditionOp::Ge), Some(_)) => false,
+                    (Some(ConditionOp::Gt), Some(_)) | (Some(ConditionOp::Ge), Some(_)) => false,
                     (Some(ConditionOp::Eq), Some(threshold)) => (accuracy - threshold).abs() < 1e-9,
                     _ => true,
                 };
 
                 if kept {
-                    return Ok(format!("[MUTATE] {}: accuracy={}, kept (>= {:.1})",
-                        pattern_name, accuracy,
-                        rollback_threshold.unwrap_or(0.0)));
+                    return Ok(format!(
+                        "[MUTATE] {}: accuracy={}, kept (>= {:.1})",
+                        pattern_name,
+                        accuracy,
+                        rollback_threshold.unwrap_or(0.0)
+                    ));
                 } else {
                     *few_shot = original;
-                    return Ok(format!("[MUTATE] {}: accuracy={}, rolled back (below {:.1})",
-                        pattern_name, accuracy,
-                        rollback_threshold.unwrap_or(0.0)));
+                    return Ok(format!(
+                        "[MUTATE] {}: accuracy={}, rolled back (below {:.1})",
+                        pattern_name,
+                        accuracy,
+                        rollback_threshold.unwrap_or(0.0)
+                    ));
                 }
             }
         }
-        Err(format!("VM mutate: learnable pattern '{}' not found", pattern_name))
+        Err(format!(
+            "VM mutate: learnable pattern '{}' not found",
+            pattern_name
+        ))
     }
 
     /// Recall from memory: find best matching entry by substring + decay.
@@ -1194,10 +1272,12 @@ impl Vm {
     fn maybe_collapse(&self, value: &Value, required_type: &str) -> Value {
         match value {
             Value::Fluid(variants) => {
-                let best = variants.iter()
+                let best = variants
+                    .iter()
                     .filter(|v| v.type_name == required_type)
                     .max_by(|a, b| {
-                        a.confidence.partial_cmp(&b.confidence)
+                        a.confidence
+                            .partial_cmp(&b.confidence)
                             .unwrap_or(std::cmp::Ordering::Equal)
                     });
                 match best {
@@ -1212,7 +1292,12 @@ impl Vm {
     }
 
     /// Evaluate a binary operation.
-    fn eval_binop(&self, left: Value, op: crate::ast::BinOp, right: Value) -> Result<Value, String> {
+    fn eval_binop(
+        &self,
+        left: Value,
+        op: crate::ast::BinOp,
+        right: Value,
+    ) -> Result<Value, String> {
         match (left, right) {
             (Value::String(a), Value::String(b)) => match op {
                 crate::ast::BinOp::Add => Ok(Value::String(format!("{}{}", a, b))),
@@ -1244,7 +1329,9 @@ impl Vm {
             },
             (l, r) => Err(format!(
                 "type mismatch: {} {:?} {}",
-                l.type_name(), op, r.type_name()
+                l.type_name(),
+                op,
+                r.type_name()
             )),
         }
     }
@@ -1253,11 +1340,21 @@ impl Vm {
     fn eval_contains(&self, left: Value, right: Value) -> Result<Value, String> {
         let ls = match left {
             Value::String(s) => s,
-            other => return Err(format!("contains: left must be String, got {}", other.type_name())),
+            other => {
+                return Err(format!(
+                    "contains: left must be String, got {}",
+                    other.type_name()
+                ))
+            }
         };
         let rs = match right {
             Value::String(s) => s,
-            other => return Err(format!("contains: right must be String, got {}", other.type_name())),
+            other => {
+                return Err(format!(
+                    "contains: right must be String, got {}",
+                    other.type_name()
+                ))
+            }
         };
         Ok(Value::Float(if ls.contains(&rs) { 1.0 } else { 0.0 }))
     }

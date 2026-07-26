@@ -9,7 +9,7 @@
 // 6. eval with few-shot examples boosting accuracy
 // 7. confusion matrix correctness
 
-use metalogos::interpreter::{Interpreter, EvalResult};
+use metalogos::interpreter::{EvalResult, Interpreter};
 use metalogos::parser;
 
 /// Helper: parse + run declarations, then run eval blocks.
@@ -206,9 +206,22 @@ fn test_eval_confusion_matrix() {
     // All predictions are "wrong", all expected are different labels
     // Confusion matrix should have 3 entries: each expected → wrong → 1
     assert_eq!(r.confusion.len(), 3);
-    assert_eq!(*r.confusion.get("engineering").unwrap().get("wrong").unwrap(), 1);
-    assert_eq!(*r.confusion.get("billing").unwrap().get("wrong").unwrap(), 1);
-    assert_eq!(*r.confusion.get("product").unwrap().get("wrong").unwrap(), 1);
+    assert_eq!(
+        *r.confusion
+            .get("engineering")
+            .unwrap()
+            .get("wrong")
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        *r.confusion.get("billing").unwrap().get("wrong").unwrap(),
+        1
+    );
+    assert_eq!(
+        *r.confusion.get("product").unwrap().get("wrong").unwrap(),
+        1
+    );
 
     // All wrong → accuracy = 0.0
     assert!((r.accuracy).abs() < 0.001);

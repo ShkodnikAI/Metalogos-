@@ -20,7 +20,9 @@ fn compile_and_run(source: &str) -> Result<Option<String>, String> {
 
 /// Helper: compile and verify it succeeds (no error).
 fn compile_ok(source: &str) {
-    let decls = parser::parse(source).map_err(|e| format!("parse: {}", e)).unwrap();
+    let decls = parser::parse(source)
+        .map_err(|e| format!("parse: {}", e))
+        .unwrap();
     let mut compiler = Compiler::new();
     compiler.compile(decls).expect("compile should succeed");
 }
@@ -46,7 +48,10 @@ pattern leak() -> String {
 "#;
     let result = semantic_check(source);
     assert!(!result.is_ok());
-    assert!(result.errors.iter().any(|e| e.contains("opaque type constraint") && e.contains("print")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("opaque type constraint") && e.contains("print")));
 }
 
 #[test]
@@ -59,7 +64,10 @@ pattern leak2() -> String {
 "#;
     let result = semantic_check(source);
     assert!(!result.is_ok());
-    assert!(result.errors.iter().any(|e| e.contains("opaque type constraint") && e.contains("to_string")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("opaque type constraint") && e.contains("to_string")));
 }
 
 #[test]
@@ -73,7 +81,10 @@ pattern xss() -> String {
 "#;
     let result = semantic_check(source);
     assert!(!result.is_ok());
-    assert!(result.errors.iter().any(|e| e.contains("concatenate") && e.contains("opaque")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("concatenate") && e.contains("opaque")));
 }
 
 #[test]
@@ -86,7 +97,11 @@ pattern show() -> String {
 }
 "#;
     let result = semantic_check(source);
-    assert!(result.is_ok(), "print(String) should be allowed, errors: {:?}", result.errors);
+    assert!(
+        result.is_ok(),
+        "print(String) should be allowed, errors: {:?}",
+        result.errors
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -102,7 +117,10 @@ pattern bad() -> String {
 "#;
     let result = semantic_check(source);
     assert!(!result.is_ok());
-    assert!(result.errors.iter().any(|e| e.contains("undefined variable")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("undefined variable")));
 }
 
 #[test]
@@ -114,7 +132,11 @@ pattern scoped(x: String) -> String {
 }
 "#;
     let result = semantic_check(source);
-    assert!(result.is_ok(), "let binding should be in scope: {:?}", result.errors);
+    assert!(
+        result.is_ok(),
+        "let binding should be in scope: {:?}",
+        result.errors
+    );
 }
 
 #[test]
@@ -126,7 +148,10 @@ pattern wrong() -> String {
 "#;
     let result = semantic_check(source);
     assert!(!result.is_ok());
-    assert!(result.errors.iter().any(|e| e.contains("expects 1 argument") && e.contains("got 2")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("expects 1 argument") && e.contains("got 2")));
 }
 
 #[test]
@@ -139,7 +164,10 @@ pattern caller() -> String {
 "#;
     let result = semantic_check(source);
     assert!(!result.is_ok());
-    assert!(result.errors.iter().any(|e| e.contains("expects 1 argument") && e.contains("one")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("expects 1 argument") && e.contains("one")));
 }
 
 #[test]
@@ -151,7 +179,10 @@ pattern call_undef() -> String {
 "#;
     let result = semantic_check(source);
     assert!(!result.is_ok());
-    assert!(result.errors.iter().any(|e| e.contains("undefined function")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("undefined function")));
 }
 
 #[test]
@@ -164,7 +195,10 @@ pattern bad_assign() -> String {
 "#;
     let result = semantic_check(source);
     assert!(!result.is_ok());
-    assert!(result.errors.iter().any(|e| e.contains("assignment to undefined variable")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("assignment to undefined variable")));
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -200,15 +234,25 @@ fn test_z21_startswith_in_pattern_body() {
         Instruction::StartsWith,
         Instruction::Return,
     ];
-    let result = vm.execute_code(&code, &mut Vec::new(), &mut Vec::new(), &Program {
-        globals: vec![],
-        patterns: vec![],
-        learnables: vec![],
-        rules: vec![],
-        main_code: vec![],
-        collections_loaded: false,
-    }).expect("execute_code should succeed");
-    assert_eq!(result, Value::Float(1.0));
+    let result = vm
+        .execute_code(
+            &code,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &Program {
+                globals: vec![],
+                patterns: vec![],
+                learnables: vec![],
+                rules: vec![],
+                main_code: vec![],
+                collections_loaded: false,
+            },
+        )
+        .expect("execute_code should succeed");
+    match &result {
+        Value::Float(f) => assert!((*f - 1.0).abs() < f64::EPSILON, "expected 1.0, got {}", f),
+        other => panic!("expected Float, got {:?}", other),
+    }
 }
 
 #[test]
@@ -253,10 +297,16 @@ entity data: Float = 42.0
 rule If(data.urgency != 0.0) then data.name = "active" with priority=5
 "#;
     // Just verify it parses — the rule condition uses !=
-    let decls = parser::parse(source).map_err(|e| format!("parse: {}", e)).unwrap();
+    let decls = parser::parse(source)
+        .map_err(|e| format!("parse: {}", e))
+        .unwrap();
     let mut compiler = Compiler::new();
     let result = compiler.compile(decls);
-    assert!(result.is_ok(), "compile with Ne should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "compile with Ne should succeed: {:?}",
+        result.err()
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -273,15 +323,25 @@ fn test_z22_make_list_in_pattern_body() {
         Instruction::ListLen,
         Instruction::Return,
     ];
-    let result = vm.execute_code(&code, &mut Vec::new(), &mut Vec::new(), &Program {
-        globals: vec![],
-        patterns: vec![],
-        learnables: vec![],
-        rules: vec![],
-        main_code: vec![],
-        collections_loaded: false,
-    }).expect("execute_code should succeed");
-    assert_eq!(result, Value::Float(2.0));
+    let result = vm
+        .execute_code(
+            &code,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &Program {
+                globals: vec![],
+                patterns: vec![],
+                learnables: vec![],
+                rules: vec![],
+                main_code: vec![],
+                collections_loaded: false,
+            },
+        )
+        .expect("execute_code should succeed");
+    match &result {
+        Value::Float(f) => assert!((*f - 2.0).abs() < f64::EPSILON, "expected 2.0, got {}", f),
+        other => panic!("expected Float, got {:?}", other),
+    }
 }
 
 #[test]
@@ -293,15 +353,25 @@ fn test_z22_pop_in_pattern_body() {
         Instruction::Const(Value::String("keep_me".to_string())),
         Instruction::Return,
     ];
-    let result = vm.execute_code(&code, &mut Vec::new(), &mut Vec::new(), &Program {
-        globals: vec![],
-        patterns: vec![],
-        learnables: vec![],
-        rules: vec![],
-        main_code: vec![],
-        collections_loaded: false,
-    }).expect("execute_code should succeed");
-    assert_eq!(result, Value::String("keep_me".to_string()));
+    let result = vm
+        .execute_code(
+            &code,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &Program {
+                globals: vec![],
+                patterns: vec![],
+                learnables: vec![],
+                rules: vec![],
+                main_code: vec![],
+                collections_loaded: false,
+            },
+        )
+        .expect("execute_code should succeed");
+    match &result {
+        Value::String(s) => assert_eq!(s, "keep_me"),
+        other => panic!("expected String, got {:?}", other),
+    }
 }
 
 #[test]
@@ -313,15 +383,25 @@ fn test_z22_contains_in_pattern_body() {
         Instruction::Contains,
         Instruction::Return,
     ];
-    let result = vm.execute_code(&code, &mut Vec::new(), &mut Vec::new(), &Program {
-        globals: vec![],
-        patterns: vec![],
-        learnables: vec![],
-        rules: vec![],
-        main_code: vec![],
-        collections_loaded: false,
-    }).expect("execute_code should succeed");
-    assert_eq!(result, Value::Float(1.0));
+    let result = vm
+        .execute_code(
+            &code,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &Program {
+                globals: vec![],
+                patterns: vec![],
+                learnables: vec![],
+                rules: vec![],
+                main_code: vec![],
+                collections_loaded: false,
+            },
+        )
+        .expect("execute_code should succeed");
+    match &result {
+        Value::Float(f) => assert!((*f - 1.0).abs() < f64::EPSILON, "expected 1.0, got {}", f),
+        other => panic!("expected Float, got {:?}", other),
+    }
 }
 
 #[test]
@@ -336,15 +416,25 @@ fn test_z22_index_access_in_pattern_body() {
         Instruction::IndexAccess,
         Instruction::Return,
     ];
-    let result = vm.execute_code(&code, &mut Vec::new(), &mut Vec::new(), &Program {
-        globals: vec![],
-        patterns: vec![],
-        learnables: vec![],
-        rules: vec![],
-        main_code: vec![],
-        collections_loaded: false,
-    }).expect("execute_code should succeed");
-    assert_eq!(result, Value::String("y".to_string()));
+    let result = vm
+        .execute_code(
+            &code,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &Program {
+                globals: vec![],
+                patterns: vec![],
+                learnables: vec![],
+                rules: vec![],
+                main_code: vec![],
+                collections_loaded: false,
+            },
+        )
+        .expect("execute_code should succeed");
+    match &result {
+        Value::String(s) => assert_eq!(s, "y"),
+        other => panic!("expected String, got {:?}", other),
+    }
 }
 
 #[test]
@@ -353,19 +443,32 @@ fn test_z22_struct_in_pattern_body() {
     let code = vec![
         Instruction::Const(Value::String("Alice".to_string())),
         Instruction::Const(Value::Float(30.0)),
-        Instruction::MakeStruct("Person".to_string(), vec!["name".to_string(), "age".to_string()]),
+        Instruction::MakeStruct(
+            "Person".to_string(),
+            vec!["name".to_string(), "age".to_string()],
+        ),
         Instruction::GetField("name".to_string()),
         Instruction::Return,
     ];
-    let result = vm.execute_code(&code, &mut Vec::new(), &mut Vec::new(), &Program {
-        globals: vec![],
-        patterns: vec![],
-        learnables: vec![],
-        rules: vec![],
-        main_code: vec![],
-        collections_loaded: false,
-    }).expect("execute_code should succeed");
-    assert_eq!(result, Value::String("Alice".to_string()));
+    let result = vm
+        .execute_code(
+            &code,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &Program {
+                globals: vec![],
+                patterns: vec![],
+                learnables: vec![],
+                rules: vec![],
+                main_code: vec![],
+                collections_loaded: false,
+            },
+        )
+        .expect("execute_code should succeed");
+    match &result {
+        Value::String(s) => assert_eq!(s, "Alice"),
+        other => panic!("expected String, got {:?}", other),
+    }
 }
 
 // ── Full compile+run integration tests ──────────────────────────
@@ -394,5 +497,9 @@ entity result: String = second_item(["first", "second", "third"])
 "#;
     let result = compile_and_run(source);
     // Compilation should succeed (runtime may not fully work without all builtins)
-    assert!(result.is_ok(), "compile+run should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "compile+run should succeed: {:?}",
+        result.err()
+    );
 }

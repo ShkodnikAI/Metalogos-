@@ -56,16 +56,14 @@ fn make_while_true_pattern() -> Declaration {
         name: "infinite_loop".to_string(),
         params: vec![],
         return_type: "Unit".to_string(),
-        body: vec![
-            Statement::While {
-                condition: Expr::BoolLit(true),
-                body: vec![Statement::LetBinding {
-                    name: "_x".to_string(),
-                    value: Expr::FloatLit(1.0),
-                    mutable: false,
-                }],
-            },
-        ],
+        body: vec![Statement::While {
+            condition: Expr::BoolLit(true),
+            body: vec![Statement::LetBinding {
+                name: "_x".to_string(),
+                value: Expr::FloatLit(1.0),
+                mutable: false,
+            }],
+        }],
     })
 }
 
@@ -103,7 +101,9 @@ fn test_75_sandbox_network_forbidden() {
     let mut interp = Interpreter::new();
 
     // Register a learnable pattern
-    let _ = interp.run(vec![make_learnable_decl("Classify", "Classify this text")]).unwrap();
+    let _ = interp
+        .run(vec![make_learnable_decl("Classify", "Classify this text")])
+        .unwrap();
 
     // Activate sandbox with network forbidden
     interp.set_active_sandbox(make_sandbox("strict", vec![], vec!["network"], 30));
@@ -115,7 +115,10 @@ fn test_75_sandbox_network_forbidden() {
     ));
 
     // Should fail with network access forbidden error
-    assert!(result.is_err(), "C1: LLM call should be blocked in sandbox with network forbidden");
+    assert!(
+        result.is_err(),
+        "C1: LLM call should be blocked in sandbox with network forbidden"
+    );
     let err_msg = result.unwrap_err();
     assert!(
         err_msg.contains("network access forbidden"),
@@ -142,12 +145,12 @@ fn test_75_sandbox_iteration_limit() {
     interp.set_active_sandbox(make_sandbox("limited", vec![], vec![], 30));
 
     // Try to invoke the pattern — should hit 10,000 iteration limit
-    let result = interp.eval_expr(&Expr::FnCall(
-        "counting_loop".to_string(),
-        vec![],
-    ));
+    let result = interp.eval_expr(&Expr::FnCall("counting_loop".to_string(), vec![]));
 
-    assert!(result.is_err(), "C2: while loop should fail in sandbox after 10,000 iterations");
+    assert!(
+        result.is_err(),
+        "C2: while loop should fail in sandbox after 10,000 iterations"
+    );
     let err_msg = result.unwrap_err();
     assert!(
         err_msg.contains("iteration limit exceeded in sandbox"),
@@ -206,10 +209,7 @@ fn test_75_no_sandbox_unlimited() {
     let _ = interp.run(vec![make_counting_while_pattern()]).unwrap();
 
     // NO sandbox active — should use the 100,000 safety limit
-    let result = interp.eval_expr(&Expr::FnCall(
-        "counting_loop".to_string(),
-        vec![],
-    ));
+    let result = interp.eval_expr(&Expr::FnCall("counting_loop".to_string(), vec![]));
 
     assert!(result.is_err(), "C4: while(true) should eventually fail");
     let err_msg = result.unwrap_err();
@@ -244,7 +244,9 @@ mutate Classify {
 
     let mut interp2 = Interpreter::new();
     interp2.set_base_dir(std::path::PathBuf::from("."));
-    let _ = interp2.run(metalogos::parser::parse(source).unwrap()).unwrap();
+    let _ = interp2
+        .run(metalogos::parser::parse(source).unwrap())
+        .unwrap();
 
     let audit = interp2.take_audit_log();
 
@@ -278,7 +280,9 @@ template Page(title: String) -> Html {
 "#;
     let mut interp = Interpreter::new();
     interp.set_base_dir(std::path::PathBuf::from("."));
-    let _ = interp.run(metalogos::parser::parse(source).unwrap()).unwrap();
+    let _ = interp
+        .run(metalogos::parser::parse(source).unwrap())
+        .unwrap();
 
     // Call render() with template name + key/value pairs (3 args minimum)
     let result = interp.eval_expr(&Expr::FnCall(
@@ -291,7 +295,11 @@ template Page(title: String) -> Html {
     ));
 
     // render() should succeed and return Html
-    assert!(result.is_ok(), "C6: render() should succeed, got: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "C6: render() should succeed, got: {:?}",
+        result
+    );
 
     // Check audit log for unsafe_html entry
     let audit = interp.take_audit_log();
@@ -300,7 +308,10 @@ template Page(title: String) -> Html {
         "C6: audit log should contain unsafe_html entry after render(), got: {:?}",
         audit
     );
-    let html_entry = audit.iter().find(|e| e.contains("[AUDIT] unsafe_html")).unwrap();
+    let html_entry = audit
+        .iter()
+        .find(|e| e.contains("[AUDIT] unsafe_html"))
+        .unwrap();
     assert!(
         html_entry.contains("Page"),
         "C6: unsafe_html entry should mention template name 'Page', got: {}",
@@ -324,10 +335,7 @@ fn test_75_sandbox_deactivate_restores_limits() {
     interp.clear_active_sandbox();
 
     // Should use 100,000 limit now
-    let result = interp.eval_expr(&Expr::FnCall(
-        "counting_loop".to_string(),
-        vec![],
-    ));
+    let result = interp.eval_expr(&Expr::FnCall("counting_loop".to_string(), vec![]));
 
     assert!(result.is_err());
     let err_msg = result.unwrap_err();

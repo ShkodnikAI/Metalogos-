@@ -58,12 +58,10 @@ mlogserver {
     if let metalogos::ast::Declaration::MlogServer(srv) = &decls[0] {
         assert_eq!(srv.routes[0].body.len(), 1);
         match &srv.routes[0].body[0] {
-            metalogos::ast::Statement::Return(expr) => {
-                match expr {
-                    metalogos::ast::Expr::StringLit(s) => assert_eq!(s, "POST works"),
-                    other => panic!("expected StringLit, got: {:?}", other),
-                }
-            }
+            metalogos::ast::Statement::Return(expr) => match expr {
+                metalogos::ast::Expr::StringLit(s) => assert_eq!(s, "POST works"),
+                other => panic!("expected StringLit, got: {:?}", other),
+            },
             other => panic!("expected Return statement, got: {:?}", other),
         }
     }
@@ -74,7 +72,8 @@ mlogserver {
 #[tokio::test]
 async fn test_get_route_works() {
     let (port, _handle) = metalogos::server::run_test_server(SOURCE_GET_POST)
-        .await.expect("server should start");
+        .await
+        .expect("server should start");
     let url = format!("http://127.0.0.1:{}/", port);
     let resp = reqwest::get(&url).await.unwrap();
     assert_eq!(resp.status(), 200);
@@ -85,7 +84,8 @@ async fn test_get_route_works() {
 #[tokio::test]
 async fn test_post_route_responds() {
     let (port, _handle) = metalogos::server::run_test_server(SOURCE_GET_POST)
-        .await.expect("server should start");
+        .await
+        .expect("server should start");
     let url = format!("http://127.0.0.1:{}/hook", port);
     let client = reqwest::Client::new();
     let resp = client.post(&url).send().await.unwrap();
@@ -97,7 +97,8 @@ async fn test_post_route_responds() {
 #[tokio::test]
 async fn test_post_on_get_only_route_returns_405() {
     let (port, _handle) = metalogos::server::run_test_server(SOURCE_GET_POST)
-        .await.expect("server should start");
+        .await
+        .expect("server should start");
     let url = format!("http://127.0.0.1:{}/", port);
     let client = reqwest::Client::new();
     let resp = client.post(&url).send().await.unwrap();
@@ -108,7 +109,8 @@ async fn test_post_on_get_only_route_returns_405() {
 #[tokio::test]
 async fn test_get_on_post_only_route_returns_405() {
     let (port, _handle) = metalogos::server::run_test_server(SOURCE_GET_POST)
-        .await.expect("server should start");
+        .await
+        .expect("server should start");
     let url = format!("http://127.0.0.1:{}/hook", port);
     let resp = reqwest::get(&url).await.unwrap();
     assert_eq!(resp.status(), 405);
@@ -117,7 +119,8 @@ async fn test_get_on_post_only_route_returns_405() {
 #[tokio::test]
 async fn test_unknown_path_returns_404() {
     let (port, _handle) = metalogos::server::run_test_server(SOURCE_GET_POST)
-        .await.expect("server should start");
+        .await
+        .expect("server should start");
     let url = format!("http://127.0.0.1:{}/nonexistent", port);
     let resp = reqwest::get(&url).await.unwrap();
     assert_eq!(resp.status(), 404);
@@ -128,7 +131,8 @@ async fn test_unknown_path_returns_404() {
 #[tokio::test]
 async fn test_put_route_responds() {
     let (port, _handle) = metalogos::server::run_test_server(SOURCE_ALL_METHODS)
-        .await.expect("server should start");
+        .await
+        .expect("server should start");
     let url = format!("http://127.0.0.1:{}/update", port);
     let client = reqwest::Client::new();
     let resp = client.put(&url).send().await.unwrap();
@@ -142,7 +146,8 @@ async fn test_put_route_responds() {
 #[tokio::test]
 async fn test_delete_route_responds() {
     let (port, _handle) = metalogos::server::run_test_server(SOURCE_ALL_METHODS)
-        .await.expect("server should start");
+        .await
+        .expect("server should start");
     let url = format!("http://127.0.0.1:{}/remove", port);
     let client = reqwest::Client::new();
     let resp = client.delete(&url).send().await.unwrap();

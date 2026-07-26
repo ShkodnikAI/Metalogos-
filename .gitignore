@@ -1,7 +1,7 @@
+*.log
+.env
 /target
-tool-results/
-metalogos-src/
 FOSVED-office-v2/
 metalogos-build/
-.env
-*.log
+metalogos-src/
+tool-results/

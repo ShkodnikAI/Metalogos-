@@ -2016,7 +2016,7 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
     } else {
         // Fallback: direct expression child (legacy)
         let expr = find_child(&children, Rule::expression)
-.unwrap_or_else(|_| { eprintln!("unrecognized statement: '{}'", pair.as_str()); std::process::abort() });
+.unwrap_or_else(|| { eprintln!("unrecognized statement: '{}'", pair.as_str()); std::process::abort() });
         Statement::Return(parse_expression(expr))
     }
 }

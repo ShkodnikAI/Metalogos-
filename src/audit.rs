@@ -777,12 +777,14 @@ fn check_html_injection(
     }
 }
 
-// ── Check: SECRET_LEAK — env() result passed to respond/http_post/write_file
+// ── Check: SECRET_LEAK — env() result passed to respond/write_file sinks;
+//   http_post: positional — body (arg 1) is a leak, headers (arg 3) is normal auth
 
 fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut Vec<AuditFinding>) {
     /// Sink functions that must not receive secrets.
-    /// Note: http_post/send_message are NOT sinks — they are intentional
-    /// API call points where passing auth tokens is expected.
+    /// Note: http_post is NOT a blanket sink — passing secrets in headers
+    /// (arg 3) is intentional (Bearer auth). Only body (arg 1) is flagged.
+    /// send_message is also not a sink — it is an intentional API call point.
     const SINK_FUNCTIONS: &[&str] = &["respond", "respond_html", "write_file"];
 
     fn is_sink(name: &str) -> bool {
@@ -886,6 +888,22 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                                     ),
                                 });
                             }
+                        }
+                    }
+                }
+                // http_post: секрет в теле запроса (арг 1) — утечка.
+                // Секрет в заголовках (арг 3) — штатная авторизация, НЕ флагируем.
+                if fn_name == "http_post" {
+                    if let Some(Expr::Ident(var)) = args.get(1) {
+                        if tracker.get_taint(var) == Some(TaintKind::Secret) {
+                            let line = find_line(source, fn_name);
+                            findings.push(AuditFinding {
+                                severity: Severity::Error,
+                                check_id: "SECRET_LEAK",
+                                line,
+                                message: "secret may be leaked \u2014 env() value passed as http_post body"
+                                    .to_string(),
+                            });
                         }
                     }
                 }

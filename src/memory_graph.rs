@@ -2,8 +2,8 @@
 // Replaces flat L0/L1/L2 JSON array with a proper directed graph.
 // Borrowed: petgraph (MIT) from crates.io for all graph algorithms.
 
-use petgraph::algo::{connected_components, dijkstra};
-use petgraph::graph::{DiGraph, NodeIndex};
+use petgraph::algo::dijkstra;
+use petgraph::stable_graph::{StableDiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -73,7 +73,7 @@ pub struct MemoryEdge {
 
 /// The memory graph: a directed graph of MemoryNode with weighted typed edges.
 pub struct MemoryGraph {
-    graph: DiGraph<MemoryNode, MemoryEdge>,
+    graph: StableDiGraph<MemoryNode, MemoryEdge>,
     /// Fast lookup from node id string to petgraph NodeIndex.
     id_index: HashMap<String, NodeIndex>,
 }
@@ -108,7 +108,7 @@ pub struct ReviseResult {
 impl MemoryGraph {
     pub fn new() -> Self {
         MemoryGraph {
-            graph: DiGraph::new(),
+            graph: StableDiGraph::new(),
             id_index: HashMap::new(),
         }
     }
@@ -330,7 +330,8 @@ impl MemoryGraph {
     /// Returns the number of nodes whose score changed.
     pub fn decay(&mut self, lambda: f64, now: i64) -> usize {
         let mut changed = 0usize;
-        for idx in self.graph.node_indices() {
+        let indices: Vec<_> = self.graph.node_indices().collect();
+        for idx in indices {
             let node = &mut self.graph[idx];
             let reference = if node.last_accessed > 0 {
                 node.last_accessed

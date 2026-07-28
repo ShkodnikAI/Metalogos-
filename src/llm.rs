@@ -1206,6 +1206,11 @@ pub fn resolve_model_smart(alias: &str, config: Option<&crate::ast::LlmConfigDec
 mod tests {
     use super::*;
 
+    /// Mutex to serialize tests that mutate process-wide environment
+    /// variables (set_var / remove_var). Without this, parallel test
+    /// threads overwrite each other's env, causing flaky failures.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     // ── Mock LLM ───────────────────────────────────────────────────
 
     #[test]
@@ -1226,12 +1231,14 @@ mod tests {
 
     #[test]
     fn test_provider_from_env_default() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::remove_var("METALOGOS_LLM_PROVIDER");
         assert_eq!(Provider::from_env(), Provider::Anthropic);
     }
 
     #[test]
     fn test_provider_from_env_openai() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::set_var("METALOGOS_LLM_PROVIDER", "openai");
         assert_eq!(Provider::from_env(), Provider::OpenAI);
         env::remove_var("METALOGOS_LLM_PROVIDER");
@@ -1239,6 +1246,7 @@ mod tests {
 
     #[test]
     fn test_provider_from_env_ollama() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::set_var("METALOGOS_LLM_PROVIDER", "ollama");
         assert_eq!(Provider::from_env(), Provider::Ollama);
         env::remove_var("METALOGOS_LLM_PROVIDER");
@@ -1246,6 +1254,7 @@ mod tests {
 
     #[test]
     fn test_provider_from_env_case_insensitive() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::set_var("METALOGOS_LLM_PROVIDER", "OpenAI");
         assert_eq!(Provider::from_env(), Provider::OpenAI);
         env::remove_var("METALOGOS_LLM_PROVIDER");
@@ -1369,6 +1378,7 @@ mod tests {
 
     #[test]
     fn test_real_llm_new_default_provider() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::remove_var("METALOGOS_LLM_PROVIDER");
         let llm = RealLlm::new();
         assert_eq!(llm.provider, Provider::Anthropic);
@@ -1412,6 +1422,7 @@ mod tests {
 
     #[test]
     fn test_create_llm_backend_default_is_mock() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::remove_var("METALOGOS_MOCK_LLM");
         let backend = create_llm_backend();
         assert_eq!(backend.call("prompt", "input").unwrap(), "prompt");
@@ -1419,6 +1430,7 @@ mod tests {
 
     #[test]
     fn test_create_llm_backend_explicit_mock_true() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::set_var("METALOGOS_MOCK_LLM", "true");
         let backend = create_llm_backend();
         assert_eq!(backend.call("prompt", "input").unwrap(), "prompt");
@@ -1427,6 +1439,7 @@ mod tests {
 
     #[test]
     fn test_create_llm_backend_explicit_mock_1() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::set_var("METALOGOS_MOCK_LLM", "1");
         let backend = create_llm_backend();
         assert_eq!(backend.call("prompt", "input").unwrap(), "prompt");
@@ -1437,6 +1450,7 @@ mod tests {
 
     #[test]
     fn test_resolve_model_with_env_alias() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::set_var("METALOGOS_LLM_MODEL_fast", "claude-haiku-4-5-20251001");
         assert_eq!(resolve_model("fast"), "claude-haiku-4-5-20251001");
         env::remove_var("METALOGOS_LLM_MODEL_fast");
@@ -1444,12 +1458,14 @@ mod tests {
 
     #[test]
     fn test_resolve_model_without_env_passthrough() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::remove_var("METALOGOS_LLM_MODEL_unknown");
         assert_eq!(resolve_model("unknown"), "unknown");
     }
 
     #[test]
     fn test_resolve_model_direct_model_name() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // "claude-sonnet-4-20250514" is a real model name, not an alias
         env::remove_var("METALOGOS_LLM_MODEL_claude-sonnet-4-20250514");
         assert_eq!(
@@ -1460,6 +1476,7 @@ mod tests {
 
     #[test]
     fn test_resolve_model_custom_user_alias() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::set_var("METALOGOS_LLM_MODEL_cheap", "gpt-4o-mini");
         assert_eq!(resolve_model("cheap"), "gpt-4o-mini");
         env::remove_var("METALOGOS_LLM_MODEL_cheap");
@@ -1467,6 +1484,7 @@ mod tests {
 
     #[test]
     fn test_resolve_model_env_changes_are_reflected() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         env::set_var("METALOGOS_LLM_MODEL_volatile", "model-v1");
         assert_eq!(resolve_model("volatile"), "model-v1");
         env::set_var("METALOGOS_LLM_MODEL_volatile", "model-v2");

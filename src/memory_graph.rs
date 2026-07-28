@@ -849,15 +849,15 @@ mod tests {
             text: "new data".into(),
             level: "L0".into(),
             score: 0.8,
-            created_at: 100000,
+            created_at: 360000,
             source: "".into(),
             tags: vec![],
             last_accessed: 0,
             access_count: 0,
         });
-        // Simulate 100 hours passed for old node, 0 for fresh
+        // Simulate 100 hours passed for old node, 0 for fresh (same timestamp as now)
         let changed = g.decay(0.1, 360000); // 100 hours
-        assert_eq!(changed, 1); // only "old" should decay (fresh has created_at close to now)
+        assert_eq!(changed, 1); // only "old" should decay (fresh has created_at == now)
         assert!(g.get_node("old").unwrap().score < 0.8);
     }
 

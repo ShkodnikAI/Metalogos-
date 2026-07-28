@@ -901,7 +901,7 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                                 severity: Severity::Error,
                                 check_id: "SECRET_LEAK",
                                 line,
-                                message: "secret may be leaked \u2014 env() value passed as http_post body"
+                                message: "secret may be leaked \u{2014} env() value passed as http_post body"
                                     .to_string(),
                             });
                         }

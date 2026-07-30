@@ -3,7 +3,7 @@
 // Borrowed: petgraph (MIT) from crates.io for all graph algorithms.
 
 use petgraph::algo::dijkstra;
-use petgraph::stable_graph::{StableDiGraph, NodeIndex};
+use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 use petgraph::visit::EdgeRef;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

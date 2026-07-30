@@ -38,6 +38,8 @@ impl RuntimeError {
 #[macro_export]
 macro_rules! lock_or_err {
     ($lock_expr:expr) => {
-        $lock_expr.lock().map_err(|e| $crate::error::RuntimeError::Lock(e.to_string()))
+        $lock_expr
+            .lock()
+            .map_err(|e| $crate::error::RuntimeError::Lock(e.to_string()))
     };
 }

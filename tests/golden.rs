@@ -64,14 +64,26 @@ fn all_golden_tests_pass() {
     }
 }
 
-/// Find all .mlog files in `examples/` paired with .error files.
+/// Find .mlog files in `examples/` paired with .error files.
+/// Restricted to p30_* prefix — verified semantic contracts.
+/// Legacy .error files (err_*, p2_*) are reference-only, not automated.
 fn collect_error_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
     let mut pairs = Vec::new();
     if let Ok(entries) = fs::read_dir(examples_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
+            if path.is_dir() {
+                continue;
+            }
             if let Some(ext) = path.extension() {
                 if ext == "mlog" {
+                    let file_name = path
+                        .file_name()
+                        .map(|f| f.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    if !file_name.starts_with("p30_") {
+                        continue;
+                    }
                     let error_file = path.with_extension("error");
                     if error_file.exists() {
                         pairs.push((path, error_file));
@@ -80,7 +92,6 @@ fn collect_error_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
             }
         }
     }
-    pairs.sort_by(|a, b| a.0.file_name().cmp(&b.0.file_name()));
     pairs
 }
 

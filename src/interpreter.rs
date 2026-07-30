@@ -1187,12 +1187,10 @@ impl Interpreter {
             Some(Value::List(items)) => items
                 .iter()
                 .map(|v| match v {
-                    Value::String(s) => {
-                        rusqlite::types::Value::Text(s.clone().into_bytes())
-                    }
+                    Value::String(s) => rusqlite::types::Value::Text(s.clone()),
                     Value::Float(n) => rusqlite::types::Value::Real(*n),
                     Value::Unit => rusqlite::types::Value::Null,
-                    _ => rusqlite::types::Value::Text(Vec::new()),
+                    _ => rusqlite::types::Value::Text(String::new()),
                 })
                 .collect(),
             Some(other) => {

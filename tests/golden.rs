@@ -1,5 +1,7 @@
 // ── Golden tests: run examples/, compare stdout with .expected ─────────
 // Each pair (examples/X.mlog, examples/X.expected) is a contract test.
+// Error contracts use (examples/X.mlog, examples/X.error) — verified by
+// all_error_tests_pass which checks the error message contains the expected text.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -59,5 +61,57 @@ fn all_golden_tests_pass() {
             "golden test mismatch for {:?}:\n  expected: {:?}\n  actual:   {:?}",
             mlog_path, expected_trimmed, actual_trimmed
         );
+    }
+}
+
+/// Find all .mlog files in `examples/` paired with .error files.
+fn collect_error_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
+    let mut pairs = Vec::new();
+    if let Ok(entries) = fs::read_dir(examples_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(ext) = path.extension() {
+                if ext == "mlog" {
+                    let error_file = path.with_extension("error");
+                    if error_file.exists() {
+                        pairs.push((path, error_file));
+                    }
+                }
+            }
+        }
+    }
+    pairs.sort_by(|a, b| a.0.file_name().cmp(&b.0.file_name()));
+    pairs
+}
+
+#[test]
+fn all_error_tests_pass() {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+    let examples_dir = Path::new(&manifest_dir).join("examples");
+
+    let pairs = collect_error_pairs(&examples_dir);
+
+    for (mlog_path, error_path) in &pairs {
+        let source = fs::read_to_string(mlog_path)
+            .unwrap_or_else(|e| panic!("cannot read {:?}: {}", mlog_path, e));
+        let expected_err = fs::read_to_string(error_path)
+            .unwrap_or_else(|e| panic!("cannot read {:?}: {}", error_path, e))
+            .trim_end()
+            .to_string();
+
+        let result = metalogos::run_program(&source);
+        match result {
+            Ok(_) => panic!(
+                "error test {:?} was expected to fail but succeeded",
+                mlog_path
+            ),
+            Err(actual_err) => {
+                assert!(
+                    actual_err.contains(&expected_err),
+                    "error test mismatch for {:?}:\n  expected substring: {:?}\n  actual error:       {:?}",
+                    mlog_path, expected_err, actual_err
+                );
+            }
+        }
     }
 }

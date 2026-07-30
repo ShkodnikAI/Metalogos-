@@ -333,7 +333,9 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
             let now = std::time::Instant::now();
             let before = csrf_state.csrf_tokens.len();
-            csrf_state.csrf_tokens.retain(|_token, (_sid, created_at)| now.duration_since(*created_at) < ttl);
+            csrf_state
+                .csrf_tokens
+                .retain(|_token, (_sid, created_at)| now.duration_since(*created_at) < ttl);
             let removed = before - csrf_state.csrf_tokens.len();
             if removed > 0 {
                 eprintln!("[csrf-cleanup] evicted {} expired token(s)", removed);
@@ -623,15 +625,16 @@ async fn check_csrf(state: &ServerState, headers: &HeaderMap) -> Result<(), Resp
             // accept — this preserves the original Phase 7.4 behavior.
             let now = std::time::Instant::now();
             let ttl = std::time::Duration::from_secs(900); // 15 minutes
-            let token_expired = state.csrf_tokens.get(&cookie)
+            let token_expired = state
+                .csrf_tokens
+                .get(&cookie)
                 .map(|r| now.duration_since(r.value().1) >= ttl)
                 .unwrap_or(false);
             if token_expired {
                 state.csrf_tokens.remove(&cookie);
                 let mut log = state.audit_log.write().await;
                 log.push("[CSRF] Rejected: token expired (>15 min)".to_string());
-                Err((StatusCode::FORBIDDEN, "403 Forbidden: CSRF token expired")
-                    .into_response())
+                Err((StatusCode::FORBIDDEN, "403 Forbidden: CSRF token expired").into_response())
             } else {
                 Ok(())
             }
@@ -1031,7 +1034,8 @@ async fn execute_route_body(
             Statement::IfThen(cond, body) => {
                 let cond_val = interp.eval_expr_with_env(cond, &env)?;
                 if cond_val.as_bool().unwrap_or(false) {
-                    let result = tokio::task::block_in_place(|| interp.eval_statements(body, &mut env))?;
+                    let result =
+                        tokio::task::block_in_place(|| interp.eval_statements(body, &mut env))?;
                     if !matches!(result, Value::Unit) {
                         flush_audit_to_db(state, &mut interp).await;
                         return Ok(value_to_response(result));
@@ -1084,7 +1088,9 @@ async fn execute_route_body(
                                 }
                             }
                             _ => {
-                                tokio::task::block_in_place(|| interp.eval_statements(&[s.clone()], &mut env))?;
+                                tokio::task::block_in_place(|| {
+                                    interp.eval_statements(&[s.clone()], &mut env)
+                                })?;
                             }
                         }
                     }
@@ -1100,7 +1106,9 @@ async fn execute_route_body(
                 }
             }
             _ => {
-                let result = tokio::task::block_in_place(|| interp.eval_statements(&[stmt.clone()], &mut env))?;
+                let result = tokio::task::block_in_place(|| {
+                    interp.eval_statements(&[stmt.clone()], &mut env)
+                })?;
                 // If the statement produced an HttpResponse (e.g., respond("ok")),
                 // use it as the route response (final integration)
                 if let Value::HttpResponse { .. } = result {
@@ -1481,7 +1489,9 @@ mod tests {
 
         // Store token in state (simulating cookie set on previous GET)
         // Наряд №29 §2.2: value tuple is (session_id, created_at).
-        state.csrf_tokens.insert(token.clone(), (String::new(), std::time::Instant::now()));
+        state
+            .csrf_tokens
+            .insert(token.clone(), (String::new(), std::time::Instant::now()));
 
         // Simulate POST with matching cookie and header
         let mut headers = HeaderMap::new();

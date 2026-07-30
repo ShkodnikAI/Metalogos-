@@ -1,4 +1,4 @@
-# ADR-0065: Use StableDiGraph for MemoryGraph
+# ADR-0066: Use StableDiGraph for MemoryGraph
 
 ## Status
 Accepted

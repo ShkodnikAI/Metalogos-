@@ -1,0 +1,13 @@
+// Golden: slice(list, start, end) mirrors substring semantics (ADR-0069)
+// Semi-open interval [start, end), soft-failure on out-of-bounds.
+pattern SliceCheck(dummy: String) -> String {
+  let items = ["a", "b", "c", "d", "e"]
+  let mid   = join(slice(items, 1.0, 3.0), ",")        // b,c
+  let tail  = join(slice(items, 2.0, len(items)), ",") // c,d,e
+  let over  = join(slice(items, 3.0, 99.0), ",")       // d,e   (end past end)
+  let empty = join(slice(items, 9.0, 10.0), ",")       // (start past end)
+  let inv   = join(slice(items, 3.0, 1.0), ",")        // (start >= end)
+  return mid + "|" + tail + "|" + over + "|" + empty + "|" + inv
+}
+
+flow Main { input: String = "x" -> SliceCheck -> output }

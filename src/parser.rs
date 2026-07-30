@@ -13,7 +13,7 @@ pub struct MlogParser;
 pub type ParseError = pest::error::Error<Rule>;
 
 /// Create a ParseError with line:col position from a Pest pair.
-fn pair_error(pair: &Pair<Rule>, msg: impl std::fmt::Display) -> ParseError {
+fn pair_error(pair: &Pair<Rule>, msg: &str) -> ParseError {
     let (line, col) = pair.as_span().start_pos().line_col();
     pest::error::Error::new_from_pos(
         pest::error::ErrorVariant::CustomError {

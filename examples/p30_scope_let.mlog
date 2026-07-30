@@ -1,0 +1,10 @@
+// Golden: let inside if/else block overwrites outer variable (no block scope)
+pattern ScopeCheck(dummy: String) -> String {
+  let text = ""
+  if 1.0 == 1.0 then { let text = "IZ-BLOKA" } else { let text = "drugoe" }
+  let handled = 0.0
+  if 1.0 == 1.0 then { let handled = 1.0 }
+  return "text=[" + text + "] handled=" + to_string(handled)
+}
+
+flow Main { input: String = "x" -> ScopeCheck -> output }

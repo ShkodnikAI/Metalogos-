@@ -12,6 +12,30 @@ pub struct MlogParser;
 
 pub type ParseError = pest::error::Error<Rule>;
 
+/// Create a ParseError with line:col position from a Pest pair.
+fn pair_error(pair: &Pair<Rule>, msg: impl std::fmt::Display) -> ParseError {
+    let (line, col) = pair.as_span().start_pos().line_col();
+    pest::error::Error::new_from_pos(
+        pest::error::ErrorVariant::CustomError {
+            message: format!("{} at line {}, col {}", msg, line, col),
+        },
+        pair.as_span().start_pos(),
+    )
+}
+
+/// Create a ParseError at position 0 of source.
+/// Used only for thread spawn/join error reporting where no Pest pair is available.
+fn error_at_start(source: &str, msg: String) -> ParseError {
+    let pos = pest::Position::new(source, 0)
+        .or_else(|| pest::Position::new("", 0))
+        .expect("position 0 is always valid in any string");
+    pest::error::Error::new_from_pos(
+        pest::error::ErrorVariant::CustomError { message: msg },
+        pos,
+    )
+}
+
+
 use crate::ast::*;
 
 /// Parse a .mlog source string into a list of declarations.
@@ -27,36 +51,10 @@ pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
     let handle = std::thread::Builder::new()
         .stack_size(8 * 1024 * 1024)
         .spawn(move || parse_inner(&source_owned))
-        .map_err(|e| {
-            let pos = pest::Position::new(source, 0)
-                .or_else(|| pest::Position::new("", 0))
-                .unwrap_or_else(|| {
-                    eprintln!("GRAMMAR INVARIANT: position 0 in any string is always valid");
-                    std::process::abort()
-                });
-            pest::error::Error::new_from_pos(
-                pest::error::ErrorVariant::CustomError {
-                    message: format!("failed to spawn parser thread: {}", e),
-                },
-                pos,
-            )
-        })?;
+        .map_err(|e| error_at_start(source, format!("failed to spawn parser thread: {}", e)))?;
     match handle.join() {
         Ok(result) => result,
-        Err(_) => {
-            let pos = pest::Position::new(source, 0)
-                .or_else(|| pest::Position::new("", 0))
-                .unwrap_or_else(|| {
-                    eprintln!("GRAMMAR INVARIANT: position 0 in any string is always valid");
-                    std::process::abort()
-                });
-            Err(pest::error::Error::new_from_pos(
-                pest::error::ErrorVariant::CustomError {
-                    message: "parser thread panicked".to_string(),
-                },
-                pos,
-            ))
-        }
+        Err(_) => Err(error_at_start(source, "parser thread panicked".to_string()))
     }
 }
 
@@ -71,45 +69,45 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
     for pair in pairs {
         for inner_pair in pair.into_inner() {
             match inner_pair.as_rule() {
-                Rule::mlogserver_decl => declarations.push(parse_mlogserver_decl(inner_pair)),
+                Rule::mlogserver_decl => declarations.push(parse_mlogserver_decl(inner_pair)?),
                 Rule::template_decl => {
-                    declarations.push(parse_template_decl_with_body(inner_pair, &template_bodies))
+                    declarations.push(parse_template_decl_with_body(inner_pair, &template_bodies)?)
                 }
-                Rule::db_decl => declarations.push(parse_db_decl(inner_pair)),
+                Rule::db_decl => declarations.push(parse_db_decl(inner_pair)?),
                 Rule::schema_decl => declarations.push(parse_schema_decl(inner_pair)),
                 Rule::skill_index_decl => declarations.push(parse_skill_index_decl(inner_pair)),
                 Rule::memory_decl => declarations.push(parse_memory_decl(inner_pair)),
                 Rule::import_decl => declarations.push(parse_import_decl(inner_pair)),
                 Rule::entity_type_decl => declarations.push(parse_entity_type_decl(inner_pair)),
-                Rule::entity_record_decl => declarations.push(parse_entity_record_decl(inner_pair)),
-                Rule::entity_simple_decl => declarations.push(parse_entity_simple_decl(inner_pair)),
-                Rule::rule_decl => declarations.push(parse_rule_decl(inner_pair)),
-                Rule::memorize_decl => declarations.push(parse_memorize_decl(inner_pair)),
-                Rule::forget_decl => declarations.push(parse_forget_decl(inner_pair)),
+                Rule::entity_record_decl => declarations.push(parse_entity_record_decl(inner_pair)?),
+                Rule::entity_simple_decl => declarations.push(parse_entity_simple_decl(inner_pair)?),
+                Rule::rule_decl => declarations.push(parse_rule_decl(inner_pair)?),
+                Rule::memorize_decl => declarations.push(parse_memorize_decl(inner_pair)?),
+                Rule::forget_decl => declarations.push(parse_forget_decl(inner_pair)?),
                 Rule::if_block_stmt => declarations.push(Declaration::Pattern(PatternDecl {
                     name: "_top_level_if".to_string(),
                     params: vec![],
                     return_type: "Unit".to_string(),
-                    body: vec![parse_if_block_stmt(inner_pair)],
+                    body: vec![parse_if_block_stmt(inner_pair)?],
                 })),
-                Rule::fluid_decl => declarations.push(parse_fluid_decl(inner_pair)),
-                Rule::adapt_decl => declarations.push(parse_adapt_decl(inner_pair)),
-                Rule::relate_decl => declarations.push(parse_relate_decl(inner_pair)),
+                Rule::fluid_decl => declarations.push(parse_fluid_decl(inner_pair)?),
+                Rule::adapt_decl => declarations.push(parse_adapt_decl(inner_pair)?),
+                Rule::relate_decl => declarations.push(parse_relate_decl(inner_pair)?),
                 Rule::sandbox_decl => declarations.push(parse_sandbox_decl(inner_pair)),
-                Rule::hook_decl => declarations.push(parse_hook_decl(inner_pair)),
-                Rule::mutate_decl => declarations.push(parse_mutate_decl(inner_pair)),
+                Rule::hook_decl => declarations.push(parse_hook_decl(inner_pair)?),
+                Rule::mutate_decl => declarations.push(parse_mutate_decl(inner_pair)?),
                 Rule::eval_decl => declarations.push(parse_eval_decl(inner_pair)),
                 Rule::conversation_decl => declarations.push(parse_conversation_decl(inner_pair)),
                 Rule::context_budget_decl => {
                     declarations.push(parse_context_budget_decl(inner_pair))
                 }
-                Rule::llm_decl => declarations.push(parse_llm_decl(inner_pair)),
-                Rule::tool_decl => declarations.push(parse_tool_decl(inner_pair)),
+                Rule::llm_decl => declarations.push(parse_llm_decl(inner_pair)?),
+                Rule::tool_decl => declarations.push(parse_tool_decl(inner_pair)?),
                 Rule::learnable_pattern_decl => {
-                    declarations.push(parse_learnable_pattern_decl(inner_pair))
+                    declarations.push(parse_learnable_pattern_decl(inner_pair)?)
                 }
-                Rule::pattern_decl => declarations.push(parse_pattern_decl(inner_pair)),
-                Rule::flow_decl => declarations.push(parse_flow_decl(inner_pair)),
+                Rule::pattern_decl => declarations.push(parse_pattern_decl(inner_pair)?),
+                Rule::flow_decl => declarations.push(parse_flow_decl(inner_pair)?),
                 _ => {}
             }
         }
@@ -145,7 +143,7 @@ fn find_child<'a>(children: &'a [Pair<'a, Rule>], rule: Rule) -> Option<Pair<'a,
 
 // ── MlogServer (Phase 6.1) ─────────────────────────────────────
 
-fn parse_mlogserver_decl(pair: Pair<Rule>) -> Declaration {
+fn parse_mlogserver_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let _children = children_of(&pair);
     let body_children: Vec<Pair<Rule>> = pair
         .clone()
@@ -189,9 +187,9 @@ fn parse_mlogserver_decl(pair: Pair<Rule>) -> Declaration {
         .iter()
         .filter(|c| c.as_rule() == Rule::route_decl)
         .map(|c| parse_route_decl(c.clone()))
-        .collect();
+        .collect::<Result<_, _>>()?;
 
-    Declaration::MlogServer(MlogServerDecl {
+    Ok(Declaration::MlogServer(MlogServerDecl {
         port,
         host,
         middleware,
@@ -199,7 +197,7 @@ fn parse_mlogserver_decl(pair: Pair<Rule>) -> Declaration {
     })
 }
 
-fn parse_route_decl(pair: Pair<Rule>) -> RouteDecl {
+fn parse_route_decl(pair: Pair<Rule>) -> Result<RouteDecl, ParseError> {
     let children: Vec<Pair<Rule>> = pair.clone().into_inner().collect();
     let path = children
         .iter()
@@ -240,9 +238,9 @@ fn parse_route_decl(pair: Pair<Rule>) -> RouteDecl {
         .into_inner()
         .filter(|c| c.as_rule() == Rule::statement)
         .map(|c| parse_single_statement(c))
-        .collect();
+        .collect::<Result<_, _>>()?;
 
-    RouteDecl {
+    Ok(RouteDecl {
         path,
         method,
         requires,
@@ -393,7 +391,7 @@ fn extract_balanced_braces(s: &str) -> String {
 
 // ── DB (Phase 6.3) ─────────────────────────────────────
 
-fn parse_db_decl(pair: Pair<Rule>) -> Declaration {
+fn parse_db_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children: Vec<Pair<Rule>> = pair
         .into_inner()
         .filter(|c| c.as_rule() == Rule::db_body)
@@ -405,7 +403,7 @@ fn parse_db_decl(pair: Pair<Rule>) -> Declaration {
         .find(|c| c.as_rule() == Rule::db_url)
         .and_then(|c| {
             let c_children = children_of(c);
-            find_child(&c_children, Rule::expression).map(|e| parse_expression(e))
+            find_child(&c_children, Rule::expression).and_then(|e| parse_expression(e).ok())
         });
 
     let pool_size = children
@@ -420,11 +418,11 @@ fn parse_db_decl(pair: Pair<Rule>) -> Declaration {
         .and_then(|c| find_child_str(&children_of(c), Rule::STRING_LITERAL))
         .map(|s| s[1..s.len() - 1].to_string());
 
-    Declaration::Db(DbDecl {
+    Ok(Declaration::Db(DbDecl {
         url,
         pool_size,
         migrate,
-    })
+    }))
 }
 
 // ── Schema (Problem C: schema-as-code) ──────────────────────────────
@@ -796,11 +794,10 @@ fn unescape_string(s: &str) -> String {
 }
 
 /// Convert a literal pair (STRING_LITERAL, FLOAT_LITERAL, or IDENT) to an Expr.
-fn parse_literal_to_expr(pair: &Pair<Rule>) -> Expr {
-    let inner = pair.clone().into_inner().next().unwrap_or_else(|| {
-        eprintln!("GRAMMAR INVARIANT: literal must have inner content");
-        std::process::abort()
-    });
+fn parse_literal_to_expr(pair: &Pair<Rule>) -> Result<Expr, ParseError> {
+    let inner = pair.clone().into_inner().next().ok_or_else(|| {
+            pair_error(pair, "GRAMMAR INVARIANT: literal must have inner content")
+        })?;
     match inner.as_rule() {
         Rule::STRING_LITERAL => Expr::StringLit(unescape_string(inner.as_str())),
         Rule::FLOAT_LITERAL => Expr::FloatLit(inner.as_str().parse().unwrap_or(0.0)),
@@ -811,7 +808,7 @@ fn parse_literal_to_expr(pair: &Pair<Rule>) -> Expr {
 
 // ── Entity: struct instance ─────────────────────────────────────────
 
-fn parse_entity_record_decl(pair: Pair<Rule>) -> Declaration {
+fn parse_entity_record_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
     // Children: IDENT, type_name, field_init, ...
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
@@ -820,48 +817,46 @@ fn parse_entity_record_decl(pair: Pair<Rule>) -> Declaration {
         .iter()
         .filter(|c| c.as_rule() == Rule::field_init)
         .map(|c| parse_field_init(c.clone()))
-        .collect();
-    Declaration::EntityRecord(EntityRecordDecl {
+        .collect::<Result<_, _>>()?;
+    Ok(Declaration::EntityRecord(EntityRecordDecl {
         name,
         type_name,
         fields,
     })
 }
 
-fn parse_field_init(pair: Pair<Rule>) -> FieldInit {
+fn parse_field_init(pair: Pair<Rule>) -> Result<FieldInit, ParseError> {
     let children = children_of(&pair);
     // Children: IDENT, COLON, expression
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
-    let expr_pair = find_child(&children, Rule::expression).unwrap_or_else(|| {
-        eprintln!("GRAMMAR INVARIANT: expected Rule::expression in field_init");
-        std::process::abort()
-    });
-    let value = parse_expression(expr_pair);
-    FieldInit { name, value }
+    let expr_pair = find_child(&children, Rule::expression).ok_or_else(|| {
+            pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::expression in field_init")
+        })?;
+    let value = parse_expression(expr_pair)?;
+    Ok(FieldInit { name, value })
 }
 
 // ── Entity: simple (M1) ──────────────────────────────────────────────
 
-fn parse_entity_simple_decl(pair: Pair<Rule>) -> Declaration {
+fn parse_entity_simple_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
     // Children: IDENT, type_name, expression
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
     let type_name = find_child_str(&children, Rule::type_name).unwrap_or_default();
-    let expr_pair = find_child(&children, Rule::expression).unwrap_or_else(|| {
-        eprintln!("GRAMMAR INVARIANT: expected Rule::expression in entity_simple_decl");
-        std::process::abort()
-    });
-    let value = parse_expression(expr_pair);
-    Declaration::EntitySimple(EntitySimpleDecl {
+    let expr_pair = find_child(&children, Rule::expression).ok_or_else(|| {
+            pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::expression in entity_simple_decl")
+        })?;
+    let value = parse_expression(expr_pair)?;
+    Ok(Declaration::EntitySimple(EntitySimpleDecl {
         name,
         type_name,
         value,
-    })
+    }))
 }
 
 // ── Rule ──────────────────────────────────────────────────────────────
 
-fn parse_rule_decl(pair: Pair<Rule>) -> Declaration {
+fn parse_rule_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
     // Children: condition (contains/compare), assignment, [INT]
     let condition_pair = &children[0];
@@ -872,57 +867,57 @@ fn parse_rule_decl(pair: Pair<Rule>) -> Declaration {
     let assignment_children = children_of(&children[1]);
     let target = Expr::Ident(pair_str(&assignment_children[0]));
     let field = pair_str(&assignment_children[1]);
-    let value = parse_expression(assignment_children[2].clone());
+    let value = parse_expression(assignment_children[2].clone())?;
 
     let priority = find_child_str(&children, Rule::INT)
         .and_then(|s| s.parse::<i32>().ok())
         .unwrap_or(0);
 
-    Declaration::Rule(RuleDecl {
+    Ok(Declaration::Rule(RuleDecl {
         condition,
         target,
         field,
         value,
         priority,
-    })
+    }))
 }
 
-fn parse_condition(pair: Pair<Rule>) -> Condition {
+fn parse_condition(pair: Pair<Rule>) -> Result<Condition, ParseError> {
     match pair.as_rule() {
         Rule::contains_condition => {
             let children = children_of(&pair);
             // Children: expression, CONTAINS_KW, expression
-            let left = parse_expression(children[0].clone());
-            let right = parse_expression(children[2].clone());
-            Condition::Contains { left, right }
+            let left = parse_expression(children[0].clone())?;
+            let right = parse_expression(children[2].clone())?;
+            Ok(Condition::Contains { left, right })
         }
         Rule::compare_condition => {
             let children = children_of(&pair);
             // Children: expression, compare_op, expression
-            Condition::Compare {
-                left: parse_expression(children[0].clone()),
-                op: parse_compare_op(&children[1]),
-                right: parse_expression(children[2].clone()),
-            }
+            Ok(Condition::Compare {
+                left: parse_expression(children[0].clone())?,
+                op: parse_compare_op(&children[1])?,
+                right: parse_expression(children[2].clone())?,
+            })
         }
-        _ => std::process::abort(),
+        _ => Err(pair_error(&pair, "GRAMMAR INVARIANT: unknown condition type"))?,
     }
 }
 
-fn parse_compare_op(pair: &Pair<Rule>) -> CompareOp {
+fn parse_compare_op(pair: &Pair<Rule>) -> Result<CompareOp, ParseError> {
     match pair.as_str().trim() {
         ">" => CompareOp::Gt,
         "<" => CompareOp::Lt,
         ">=" => CompareOp::Ge,
         "<=" => CompareOp::Le,
         "==" => CompareOp::Eq,
-        _ => std::process::abort(),
+        _ => Err(pair_error(pair, "GRAMMAR INVARIANT: unknown compare operator"))?,
     }
 }
 
 // ── Fluid Types (Phase 1) ──────────────────────────────────────────
 
-fn parse_fluid_decl(pair: Pair<Rule>) -> Declaration {
+fn parse_fluid_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
     // fluid_decl = { FLUID_KW ~ IDENT ~ "=" ~ fluid_branch ~ ("or" ~ fluid_branch)* }
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
@@ -931,12 +926,12 @@ fn parse_fluid_decl(pair: Pair<Rule>) -> Declaration {
         .iter()
         .filter(|c| c.as_rule() == Rule::fluid_branch)
         .map(|c| parse_fluid_branch(c.clone()))
-        .collect();
+        .collect::<Result<_, _>>()?;
 
-    Declaration::Fluid(FluidDecl { name, variants })
+    Ok(Declaration::Fluid(FluidDecl { name, variants }))
 }
 
-fn parse_fluid_branch(pair: Pair<Rule>) -> FluidVariant {
+fn parse_fluid_branch(pair: Pair<Rule>) -> Result<FluidVariant, ParseError> {
     let children = children_of(&pair);
     // fluid_branch = { type_name ~ LBRACKET ~ expression ~ RBRACKET ~ LBRACKET ~ FLOAT_LITERAL ~ RBRACKET }
     let type_name = find_child_str(&children, Rule::type_name).unwrap_or_default();
@@ -947,7 +942,7 @@ fn parse_fluid_branch(pair: Pair<Rule>) -> FluidVariant {
         .cloned()
         .collect();
     let value = if !exprs.is_empty() {
-        parse_expression(exprs[0].clone())
+        parse_expression(exprs[0].clone())?
     } else {
         Expr::StringLit(String::new())
     };
@@ -962,16 +957,16 @@ fn parse_fluid_branch(pair: Pair<Rule>) -> FluidVariant {
         .map(|f| f.as_str().parse().unwrap_or(0.0))
         .unwrap_or(0.0);
 
-    FluidVariant {
+    Ok(FluidVariant {
         type_name,
         value,
         confidence,
-    }
+    })
 }
 
 // ── Adapt (M5) ──────────────────────────────────────────────────
 
-fn parse_adapt_decl(pair: Pair<Rule>) -> Declaration {
+fn parse_adapt_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
     // adapt_decl = { ADAPT_KW ~ IDENT ~ ADD_EXAMPLE_KW ~ "(" ~ expression ~ COMMA ~ expression ~ ")" }
     // Children: IDENT(pattern_name), "(", expression(input), ",", expression(output), ")"
@@ -984,17 +979,17 @@ fn parse_adapt_decl(pair: Pair<Rule>) -> Declaration {
         .collect();
 
     let input_example = if exprs.len() >= 1 {
-        parse_expression(exprs[0].clone())
+        parse_expression(exprs[0].clone())?
     } else {
         Expr::StringLit(String::new())
     };
     let output_example = if exprs.len() >= 2 {
-        parse_expression(exprs[1].clone())
+        parse_expression(exprs[1].clone())?
     } else {
         Expr::StringLit(String::new())
     };
 
-    Declaration::Adapt(AdaptDecl {
+    Ok(Declaration::Adapt(AdaptDecl {
         pattern_name,
         input_example,
         output_example,
@@ -1003,7 +998,7 @@ fn parse_adapt_decl(pair: Pair<Rule>) -> Declaration {
 
 // ── Relate (knowledge graph edge) ──────────────────────────────
 
-fn parse_relate_decl(pair: Pair<Rule>) -> Declaration {
+fn parse_relate_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
     // relate_decl = { RELATE_KW ~ expression ~ "to" ~ expression ~ "as" ~ expression }
     // Children: expression(from), expression(to), expression(relation)
@@ -1013,19 +1008,19 @@ fn parse_relate_decl(pair: Pair<Rule>) -> Declaration {
         .cloned()
         .collect();
     let from = if exprs.len() >= 1 {
-        parse_expression(exprs[0].clone())
+        parse_expression(exprs[0].clone())?
     } else {
         Expr::StringLit(String::new())
     };
     let to = if exprs.len() >= 2 {
-        parse_expression(exprs[1].clone())
+        parse_expression(exprs[1].clone())?
     } else {
         Expr::StringLit(String::new())
     };
 
     // Extract relation string from third expression
     let relation = if exprs.len() >= 3 {
-        match parse_expression(exprs[2].clone()) {
+        match parse_expression(exprs[2].clone())? {
             Expr::StringLit(s) => s,
             _ => String::new(),
         }
@@ -1033,12 +1028,12 @@ fn parse_relate_decl(pair: Pair<Rule>) -> Declaration {
         String::new()
     };
 
-    Declaration::Relate(RelateDecl { from, to, relation })
+    Ok(Declaration::Relate(RelateDecl { from, to, relation }))
 }
 
 // ── Hook (ADR-0045) ──────────────────────────────────────────────────
 
-fn parse_hook_decl(pair: Pair<Rule>) -> Declaration {
+fn parse_hook_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
     // hook_decl = { HOOK_KW ~ hook_kind ~ "{" ~ statement* ~ "}" }
     let phase = children
@@ -1076,9 +1071,9 @@ fn parse_hook_decl(pair: Pair<Rule>) -> Declaration {
         .iter()
         .filter(|c| c.as_rule() == Rule::statement)
         .map(|c| parse_single_statement(c.clone()))
-        .collect();
+        .collect::<Result<_, _>>()?;
 
-    Declaration::Hook(HookDecl { phase, body })
+    Ok(Declaration::Hook(HookDecl { phase, body }))
 }
 
 // ── Sandbox (P2) ────────────────────────────────────────────────
@@ -1145,7 +1140,7 @@ fn parse_sandbox_decl(pair: Pair<Rule>) -> Declaration {
 
 // ── Mutate (P2) ─────────────────────────────────────────────────
 
-fn parse_mutate_decl(pair: Pair<Rule>) -> Declaration {
+fn parse_mutate_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
     // mutate_decl = { MUTATE_KW ~ IDENT ~ "{" ~ mutate_body "}" }
     let pattern_name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
@@ -1166,7 +1161,7 @@ fn parse_mutate_decl(pair: Pair<Rule>) -> Declaration {
                 .iter()
                 .filter(|c| c.as_rule() == Rule::expression)
                 .map(|c| parse_expression(c.clone()))
-                .collect();
+                .collect::<Result<_, _>>()?;
             if exprs.len() >= 2 {
                 new_examples.push((exprs[0].clone(), exprs[1].clone()));
             }
@@ -1179,7 +1174,7 @@ fn parse_mutate_decl(pair: Pair<Rule>) -> Declaration {
             let rb_children = children_of(rb_pair);
             // Find compare_op and FLOAT_LITERAL
             if let Some(op_pair) = rb_children.iter().find(|c| c.as_rule() == Rule::compare_op) {
-                rollback_op = Some(parse_compare_op(op_pair));
+                rollback_op = Some(parse_compare_op(op_pair)?);
             }
             if let Some(float_pair) = rb_children
                 .iter()
@@ -1190,12 +1185,12 @@ fn parse_mutate_decl(pair: Pair<Rule>) -> Declaration {
         }
     }
 
-    Declaration::Mutate(MutateDecl {
+    Ok(Declaration::Mutate(MutateDecl {
         pattern_name,
         new_examples,
         rollback_threshold,
         rollback_op,
-    })
+    }))
 }
 
 // ── Conversation Config (ADR-0053) ──────────────────────────────────
@@ -1277,7 +1272,7 @@ fn parse_context_budget_decl(pair: Pair<Rule>) -> Declaration {
 
 // ── LLM Config (Наряд №4: Smart LLM Routing) ──────────────────────────
 
-fn parse_llm_decl(pair: Pair<Rule>) -> Declaration {
+fn parse_llm_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children: Vec<Pair<Rule>> = pair
         .into_inner()
         .filter(|c| c.as_rule() == Rule::llm_body)
@@ -1323,7 +1318,7 @@ fn parse_llm_decl(pair: Pair<Rule>) -> Declaration {
                 .iter()
                 .find(|c| c.as_rule() == Rule::llm_provider_key)
                 .and_then(|c| {
-                    find_child(&children_of(c), Rule::expression).map(|e| parse_expression(e))
+                    find_child(&children_of(c), Rule::expression).and_then(|e| parse_expression(e).ok())
                 });
 
             let url = entry_children
@@ -1347,11 +1342,13 @@ fn parse_llm_decl(pair: Pair<Rule>) -> Declaration {
         .find(|c| c.as_rule() == Rule::llm_default_model)
         .and_then(|c| {
             find_child(&children_of(c), Rule::expression).and_then(|e| {
-                if let Expr::StringLit(s) = parse_expression(e) {
-                    Some(s)
-                } else {
-                    None
-                }
+                parse_expression(e).ok().and_then(|expr| {
+                    if let Expr::StringLit(s) = expr {
+                        Some(s)
+                    } else {
+                        None
+                    }
+                })
             })
         });
 
@@ -1377,18 +1374,18 @@ fn parse_llm_decl(pair: Pair<Rule>) -> Declaration {
         .and_then(|s| s.parse().ok())
         .unwrap_or(30);
 
-    Declaration::LlmConfig(LlmConfigDecl {
+    Ok(Declaration::LlmConfig(LlmConfigDecl {
         providers,
         default_model,
         failover,
         circuit_breaker,
         timeout,
-    })
+    }))
 }
 
 // ── Tool Abstraction (ADR-0054) ──────────────────────────────────────
 
-fn parse_tool_decl(pair: Pair<Rule>) -> Declaration {
+fn parse_tool_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
     // tool_decl = { TOOL_KW ~ IDENT ~ "{" ~ tool_method* ~ "}" }
     // First IDENT is the tool name; subsequent children are tool_method nodes.
@@ -1398,12 +1395,12 @@ fn parse_tool_decl(pair: Pair<Rule>) -> Declaration {
         .iter()
         .filter(|c| c.as_rule() == Rule::tool_method)
         .map(|c| parse_tool_method(c.clone()))
-        .collect();
+        .collect::<Result<_, _>>()?;
 
-    Declaration::Tool(ToolDecl { name, methods })
+    Ok(Declaration::Tool(ToolDecl { name, methods }))
 }
 
-fn parse_tool_method(pair: Pair<Rule>) -> ToolMethod {
+fn parse_tool_method(pair: Pair<Rule>) -> Result<ToolMethod, ParseError> {
     let children = children_of(&pair);
     // tool_method = { IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ LBRACE ~ statement* ~ RBRACE }
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
@@ -1415,8 +1412,8 @@ fn parse_tool_method(pair: Pair<Rule>) -> ToolMethod {
         .iter()
         .filter(|c| c.as_rule() == Rule::statement)
         .map(|c| parse_single_statement(c.clone()))
-        .collect();
-    ToolMethod {
+        .collect::<Result<_, _>>()?;
+    Ok(ToolMethod {
         name,
         params,
         return_type,
@@ -1513,14 +1510,13 @@ fn parse_eval_decl(pair: Pair<Rule>) -> Declaration {
 
 // ── Memorize (M4) ──────────────────────────────────────────────────
 
-fn parse_memorize_decl(pair: Pair<Rule>) -> Declaration {
+fn parse_memorize_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
     // Children: expression, ["with", "priority", "=", FLOAT_LITERAL]
-    let value = find_child(&children, Rule::expression).unwrap_or_else(|| {
-        eprintln!("GRAMMAR INVARIANT: expected Rule::expression in memorize_decl");
-        std::process::abort()
-    });
-    let value = parse_expression(value);
+    let value = find_child(&children, Rule::expression).ok_or_else(|| {
+            pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::expression in memorize_decl")
+        })?;
+    let value = parse_expression(value)?;
 
     let priority = find_child(&children, Rule::FLOAT_LITERAL)
         .map(|f| f.as_str().parse().unwrap_or(0.5))
@@ -1529,14 +1525,13 @@ fn parse_memorize_decl(pair: Pair<Rule>) -> Declaration {
     Declaration::Memorize(MemorizeDecl { value, priority })
 }
 
-fn parse_forget_decl(pair: Pair<Rule>) -> Declaration {
+fn parse_forget_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
     // Children: expression, INT, "days"
-    let query = find_child(&children, Rule::expression).unwrap_or_else(|| {
-        eprintln!("GRAMMAR INVARIANT: expected Rule::expression in forget_decl");
-        std::process::abort()
-    });
-    let query = parse_expression(query);
+    let query = find_child(&children, Rule::expression).ok_or_else(|| {
+            pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::expression in forget_decl")
+        })?;
+    let query = parse_expression(query)?;
 
     let days = find_child(&children, Rule::INT)
         .map(|i| i.as_str().parse().unwrap_or(30))
@@ -1547,7 +1542,7 @@ fn parse_forget_decl(pair: Pair<Rule>) -> Declaration {
 
 // ── Learnable Pattern (M3) ────────────────────────────────────────────
 
-fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
+fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
     // Children: IDENT, [params], ARROW, type_name, learnable_body
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
@@ -1577,7 +1572,7 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
         {
             let pl_children = children_of(pl_pair);
             if let Some(expr_pair) = pl_children.iter().find(|c| c.as_rule() == Rule::expression) {
-                if let Expr::StringLit(s) = parse_expression(expr_pair.clone()) {
+                if let Expr::StringLit(s) = parse_expression(expr_pair.clone())? {
                     prompt = s;
                 }
             }
@@ -1605,7 +1600,7 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
                         .filter(|c| c.as_rule() == Rule::expression)
                         .cloned()
                         .map(|p| parse_expression(p))
-                        .collect();
+                        .collect::<Result<_, _>>()?;
                     if !exprs.is_empty() {
                         let limit = if exprs.len() >= 2 {
                             if let Expr::FloatLit(n) = exprs[1].clone() {
@@ -1634,7 +1629,7 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
                         .iter()
                         .find(|c| c.as_rule() == Rule::expression)
                     {
-                        if let Expr::StringLit(s) = parse_expression(expr_pair.clone()) {
+                        if let Expr::StringLit(s) = parse_expression(expr_pair.clone())? {
                             context = Some(ContextMode::Literal(s));
                         }
                     }
@@ -1653,7 +1648,7 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
                 .iter()
                 .find(|c| c.as_rule() == Rule::expression)
             {
-                if let Expr::StringLit(s) = parse_expression(expr_pair.clone()) {
+                if let Expr::StringLit(s) = parse_expression(expr_pair.clone())? {
                     conversation = Some(s);
                 }
             }
@@ -1666,7 +1661,7 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
         {
             let m_children = children_of(m_pair);
             if let Some(expr_pair) = m_children.iter().find(|c| c.as_rule() == Rule::expression) {
-                if let Expr::StringLit(s) = parse_expression(expr_pair.clone()) {
+                if let Expr::StringLit(s) = parse_expression(expr_pair.clone())? {
                     model = Some(s);
                 }
             }
@@ -1679,7 +1674,7 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
         {
             let mt_children = children_of(mt_pair);
             if let Some(expr_pair) = mt_children.iter().find(|c| c.as_rule() == Rule::expression) {
-                if let Expr::FloatLit(n) = parse_expression(expr_pair.clone()) {
+                if let Expr::FloatLit(n) = parse_expression(expr_pair.clone())? {
                     max_tokens = Some(n as u32);
                 }
             }
@@ -1711,7 +1706,7 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
                 .filter(|c| c.as_rule() == Rule::expression)
                 .cloned()
                 .map(|p| parse_expression(p))
-                .collect();
+                .collect::<Result<_, _>>()?;
             let unit_ident = ttl_children
                 .iter()
                 .filter(|c| c.as_rule() == Rule::IDENT)
@@ -1758,7 +1753,7 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
         }
     }
 
-    Declaration::LearnablePattern(LearnablePatternDecl {
+    Ok(Declaration::LearnablePattern(LearnablePatternDecl {
         name,
         params,
         return_type,
@@ -1771,12 +1766,12 @@ fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Declaration {
         cache,
         cache_ttl,
         conversation,
-    })
+    }))
 }
 
 // ── Pattern ──────────────────────────────────────────────────────────
 
-fn parse_pattern_decl(pair: Pair<Rule>) -> Declaration {
+fn parse_pattern_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
     // Children: IDENT, params, ARROW, type_name, pattern_body
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
@@ -1786,13 +1781,14 @@ fn parse_pattern_decl(pair: Pair<Rule>) -> Declaration {
     let return_type = find_child_str(&children, Rule::type_name).unwrap_or_default();
     let body = find_child(&children, Rule::pattern_body)
         .map(|p| parse_pattern_body(p))
+        .transpose()
         .unwrap_or_default();
-    Declaration::Pattern(PatternDecl {
+    Ok(Declaration::Pattern(PatternDecl {
         name,
         params,
         return_type,
         body,
-    })
+    }))
 }
 
 fn parse_params(pair: Pair<Rule>) -> Vec<Param> {
@@ -1808,24 +1804,24 @@ fn parse_params(pair: Pair<Rule>) -> Vec<Param> {
         .collect()
 }
 
-fn parse_pattern_body(pair: Pair<Rule>) -> Vec<Statement> {
+fn parse_pattern_body(pair: Pair<Rule>) -> Result<Vec<Statement>, ParseError> {
     pair.into_inner()
         .filter(|s| s.as_rule() == Rule::statement)
         .map(|s| parse_single_statement(s))
-        .collect()
+        .collect::<Result<_, _>>()
 }
 
 /// Parse a single statement from its rule pair.
-fn parse_single_statement(pair: Pair<Rule>) -> Statement {
+fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
     let children = children_of(&pair);
     // statement = { match_stmt | if_block_stmt | each_stmt | ... }
     // Наряд №14: match_stmt is now a proper AST statement
     if let Some(m_pair) = children.iter().find(|c| c.as_rule() == Rule::match_stmt) {
-        return parse_match_stmt(m_pair.clone());
+        return parse_match_stmt(m_pair.clone())?;
     }
     // NOTE: match_stmt previously was parsed as a regular expression — now has full AST support.
     if let Some(ib_pair) = children.iter().find(|c| c.as_rule() == Rule::if_block_stmt) {
-        parse_if_block_stmt(ib_pair.clone())
+        parse_if_block_stmt(ib_pair.clone())?
     } else if let Some(each_pair) = children.iter().find(|c| c.as_rule() == Rule::each_stmt) {
         let each_children: Vec<Pair<Rule>> = each_pair.clone().into_inner().collect();
         // each_stmt: IDENT [COMMA IDENT] "in" expression { body }
@@ -1844,53 +1840,52 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
                 // Fallback: skip IDENTs and COMMA, take next
                 ident_count + idents.len().min(1)
             });
-        let iterable = parse_expression(each_children[expr_idx].clone());
+        let iterable = parse_expression(each_children[expr_idx].clone())?;
         let body: Vec<Statement> = each_children[expr_idx + 1..]
             .iter()
             .filter(|c| c.as_rule() == Rule::statement)
             .map(|c| parse_single_statement(c.clone()))
-            .collect();
+            .collect::<Result<_, _>>()?;
         if idents.len() == 2 {
             // each i, item in list { ... } — index + value
             // Desugar into: let _each_list = <iterable>; let i = 0; while i < len(_each_list) { let item = _each_list[i]; <body>; i = i + 1 }
             // We create a synthetic Each that the interpreter will handle
             let index_var = idents[0].clone();
             let item_var = idents[1].clone();
-            Statement::EachWithIndex {
+            Ok(Statement::EachWithIndex {
                 index_var,
                 item_var,
                 iterable,
                 body,
-            }
+            })
         } else {
             let variable = idents[0].clone();
-            Statement::Each {
+            Ok(Statement::Each {
                 variable,
                 iterable,
                 body,
-            }
+            })
         }
     } else if let Some(while_pair) = children.iter().find(|c| c.as_rule() == Rule::while_stmt) {
         let while_children: Vec<Pair<Rule>> = while_pair.clone().into_inner().collect();
         // children: expression(condition), statement*(body)
-        let condition = parse_expression(while_children[0].clone());
+        let condition = parse_expression(while_children[0].clone())?;
         let body: Vec<Statement> = while_children[1..]
             .iter()
             .filter(|c| c.as_rule() == Rule::statement)
             .map(|c| parse_single_statement(c.clone()))
-            .collect();
-        Statement::While { condition, body }
+            .collect::<Result<_, _>>()?;
+        Ok(Statement::While { condition, body })
     } else if let Some(lb_pair) = children.iter().find(|c| c.as_rule() == Rule::let_binding) {
         let lb_children = children_of(lb_pair);
         let name = find_child_str(&lb_children, Rule::IDENT).unwrap_or_default();
-        let expr = find_child(&lb_children, Rule::expression).unwrap_or_else(|| {
-            eprintln!("GRAMMAR INVARIANT: expected Rule::expression in let_binding");
-            std::process::abort()
-        });
+        let expr = find_child(&lb_children, Rule::expression).ok_or_else(|| {
+                pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::expression in let_binding")
+            })?;
         let mutable = lb_children.iter().any(|c| c.as_rule() == Rule::MUT_KW);
         Statement::LetBinding {
             name,
-            value: parse_expression(expr),
+            value: parse_expression(expr)?,
             mutable,
         }
     } else if let Some(ae_pair) = children
@@ -1907,13 +1902,12 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
                 .iter()
                 .find(|c| c.as_rule() == Rule::expression)
                 .cloned()
-                .unwrap_or_else(|| {
-                    eprintln!("GRAMMAR INVARIANT: assign_or_expr assignment must have expression");
-                    std::process::abort()
-                });
+                .ok_or_else(|| {
+                    pair_error(&pair, "GRAMMAR INVARIANT: assign_or_expr assignment must have expression")
+                })?;
             Statement::Assign {
                 name,
-                value: parse_expression(expr),
+                value: parse_expression(expr)?,
             }
         } else {
             // Expression statement (function call, etc.)
@@ -1921,19 +1915,17 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
                 .iter()
                 .find(|c| c.as_rule() == Rule::expression)
                 .cloned()
-                .unwrap_or_else(|| {
-                    eprintln!("GRAMMAR INVARIANT: assign_or_expr expression must have expression");
-                    std::process::abort()
-                });
-            Statement::ExprStmt(parse_expression(expr))
+                .ok_or_else(|| {
+                    pair_error(&pair, "GRAMMAR INVARIANT: assign_or_expr expression must have expression")
+                })?;
+            Statement::ExprStmt(parse_expression(expr)?)
         }
     } else if let Some(rs_pair) = children.iter().find(|c| c.as_rule() == Rule::return_stmt) {
         let rs_children = children_of(rs_pair);
-        let expr = find_child(&rs_children, Rule::expression).unwrap_or_else(|| {
-            eprintln!("GRAMMAR INVARIANT: expected Rule::expression in return_stmt");
-            std::process::abort()
-        });
-        Statement::Return(parse_expression(expr))
+        let expr = find_child(&rs_children, Rule::expression).ok_or_else(|| {
+            pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::expression in return_stmt")
+        })?;
+        Statement::Return(parse_expression(expr)?)
     } else if let Some(br_pair) = children.iter().find(|c| c.as_rule() == Rule::break_stmt) {
         Statement::Break
     } else if let Some(co_pair) = children.iter().find(|c| c.as_rule() == Rule::continue_stmt) {
@@ -1941,21 +1933,18 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
     } else if let Some(it_pair) = children.iter().find(|c| c.as_rule() == Rule::if_then_stmt) {
         // if_then_stmt with optional else: "if expr then { ... } [else if expr then { ... }]* [else { ... }]"
         let it_children: Vec<Pair<Rule>> = it_pair.clone().into_inner().collect();
-        let condition = parse_expression(
-            it_children
+        let condition = it_children
                 .iter()
                 .find(|c| c.as_rule() == Rule::expression)
                 .cloned()
-                .unwrap_or_else(|| {
-                    eprintln!("GRAMMAR INVARIANT: expected Rule::expression in if_then_stmt");
-                    std::process::abort()
-                }),
-        );
+                .map(|c| parse_expression(c))
+                .transpose()
+                .unwrap_or(Ok(Expr::BoolLit(true)))?;
         let body: Vec<Statement> = it_children
             .iter()
             .filter(|c| c.as_rule() == Rule::statement)
             .map(|c| parse_single_statement(c.clone()))
-            .collect();
+            .collect::<Result<_, _>>()?;
 
         // Check for else_if_then_block and else blocks
         let mut else_ifs = Vec::new();
@@ -2012,14 +2001,14 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
         }
 
         if else_ifs.is_empty() && else_body.is_none() {
-            Statement::IfThen(Box::new(condition), body)
+            Ok(Statement::IfThen(Box::new(condition), body))
         } else {
-            Statement::IfElseBlock {
+            Ok(Statement::IfElseBlock {
                 condition,
                 then_body: body,
                 else_ifs,
                 else_body,
-            }
+            })
         }
     } else if let Some(es_pair) = children.iter().find(|c| c.as_rule() == Rule::expr_stmt) {
         // Legacy expr_stmt fallback (shouldn't normally be reached with assign_or_expr)
@@ -2027,35 +2016,29 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
             .clone()
             .into_inner()
             .find(|c| c.as_rule() == Rule::expression)
-            .unwrap_or_else(|| {
-                eprintln!("GRAMMAR INVARIANT: expr_stmt must contain expression");
-                std::process::abort()
-            });
-        Statement::ExprStmt(parse_expression(expr))
+            .ok_or_else(|| {
+                pair_error(&pair, "GRAMMAR INVARIANT: expr_stmt must contain expression")
+            })?;
+        Statement::ExprStmt(parse_expression(expr)?)
     } else if let Some(as_pair) = children.iter().find(|c| c.as_rule() == Rule::assign_stmt) {
         // Legacy assign_stmt fallback
         let as_children = children_of(as_pair);
         let name = find_child_str(&as_children, Rule::IDENT).unwrap_or_default();
-        let expr = find_child(&as_children, Rule::expression).unwrap_or_else(|| {
-            eprintln!("GRAMMAR INVARIANT: expected Rule::expression in assign_stmt");
-            std::process::abort()
-        });
+        let expr = find_child(&as_children, Rule::expression).ok_or_else(|| {
+            pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::expression in assign_stmt")
+        })?;
         Statement::Assign {
             name,
-            value: parse_expression(expr),
+            value: parse_expression(expr)?,
         }
     } else {
-        // Fallback: direct expression child (legacy)
-        let expr = find_child(&children, Rule::expression).unwrap_or_else(|| {
-            eprintln!("unrecognized statement: '{}'", pair.as_str());
-            std::process::abort()
-        });
-        Statement::Return(parse_expression(expr))
+        // Fallback: unrecognized statement — return proper parse error with position
+        return Err(pair_error(&pair, format!("unrecognized statement '{}'", pair.as_str().trim())));
     }
 }
 
 /// Parse a match statement: `match expr { "val" then { stmts } ... else { stmts } }` (Наряд №14)
-fn parse_match_stmt(pair: Pair<Rule>) -> Statement {
+fn parse_match_stmt(pair: Pair<Rule>) -> Result<Statement, ParseError> {
     use crate::ast::{CompareOp as AstCmp, MatchArm};
     let children: Vec<Pair<Rule>> = pair.into_inner().collect();
 
@@ -2064,7 +2047,8 @@ fn parse_match_stmt(pair: Pair<Rule>) -> Statement {
         .iter()
         .find(|c| c.as_rule() == Rule::expression)
         .map(|c| parse_expression(c.clone()))
-        .unwrap_or_else(|| Expr::StringLit(String::new()));
+        .transpose()
+        .unwrap_or(Ok(Expr::StringLit(String::new())))?;
 
     // Parse match arms
     let mut arms = Vec::new();
@@ -2083,7 +2067,7 @@ fn parse_match_stmt(pair: Pair<Rule>) -> Statement {
                     .iter()
                     .filter(|c| c.as_rule() == Rule::statement)
                     .map(|c| parse_single_statement(c.clone()))
-                    .collect();
+                    .collect::<Result<_, _>>()?;
                 arms.push(MatchArm::Exact(value, body));
             }
             Rule::match_arm_starts => {
@@ -2097,7 +2081,7 @@ fn parse_match_stmt(pair: Pair<Rule>) -> Statement {
                     .iter()
                     .filter(|c| c.as_rule() == Rule::statement)
                     .map(|c| parse_single_statement(c.clone()))
-                    .collect();
+                    .collect::<Result<_, _>>()?;
                 arms.push(MatchArm::StartsWith(prefix, body));
             }
             Rule::match_arm_contains => {
@@ -2111,7 +2095,7 @@ fn parse_match_stmt(pair: Pair<Rule>) -> Statement {
                     .iter()
                     .filter(|c| c.as_rule() == Rule::statement)
                     .map(|c| parse_single_statement(c.clone()))
-                    .collect();
+                    .collect::<Result<_, _>>()?;
                 arms.push(MatchArm::Contains(substr, body));
             }
             Rule::match_arm_compare => {
@@ -2135,12 +2119,13 @@ fn parse_match_stmt(pair: Pair<Rule>) -> Statement {
                     .iter()
                     .find(|c| c.as_rule() == Rule::expression)
                     .map(|c| parse_expression(c.clone()))
-                    .unwrap_or_else(|| Expr::FloatLit(0.0));
+                    .transpose()
+                    .unwrap_or(Ok(Expr::FloatLit(0.0)))?;
                 let body = arm_children
                     .iter()
                     .filter(|c| c.as_rule() == Rule::statement)
                     .map(|c| parse_single_statement(c.clone()))
-                    .collect();
+                    .collect::<Result<_, _>>()?;
                 arms.push(MatchArm::Compare(op, expr, body));
             }
             Rule::match_else => {
@@ -2150,7 +2135,7 @@ fn parse_match_stmt(pair: Pair<Rule>) -> Statement {
                         .iter()
                         .filter(|c| c.as_rule() == Rule::statement)
                         .map(|c| parse_single_statement(c.clone()))
-                        .collect(),
+                        .collect::<Result<_, _>>()?,
                 );
             }
             _ => {}
@@ -2166,7 +2151,7 @@ fn parse_match_stmt(pair: Pair<Rule>) -> Statement {
 
 /// Наряд №14 P0-3: Parse block if/else as expression.
 /// `if cond { stmts } else if cond { stmts } else { stmts }` → Expr::BlockIfElse
-fn parse_block_if_else_expr(pair: Pair<Rule>) -> Expr {
+fn parse_block_if_else_expr(pair: Pair<Rule>) -> Result<Expr, ParseError> {
     let children: Vec<Pair<Rule>> = pair.into_inner().collect();
     let condition = children
         .iter()
@@ -2230,7 +2215,7 @@ fn parse_block_if_else_expr(pair: Pair<Rule>) -> Expr {
 }
 
 /// Parse a block-style if statement: `if expr { stmts } else if expr { stmts } else { stmts }`
-fn parse_if_block_stmt(pair: Pair<Rule>) -> Statement {
+fn parse_if_block_stmt(pair: Pair<Rule>) -> Result<Statement, ParseError> {
     let children = children_of(&pair);
     // Grammar now has else_block as a named rule, so children are:
     // [expression, statement*(then), else_if_block*, else_block?]
@@ -2299,15 +2284,14 @@ fn parse_if_block_stmt(pair: Pair<Rule>) -> Statement {
 // checkpoint_call = { "checkpoint" ~ "(" ~ STRING_LITERAL ~ ")" }
 // branch_def    = { step_ident ~ "{" ~ branch* ~ "}" }
 
-fn parse_flow_decl(pair: Pair<Rule>) -> Declaration {
+fn parse_flow_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
 
     // children: IDENT, flow_pipeline, [branch_def, ...]
-    let pipeline_pair = find_child(&children, Rule::flow_pipeline).unwrap_or_else(|| {
-        eprintln!("GRAMMAR INVARIANT: expected Rule::flow_pipeline in flow_decl");
-        std::process::abort()
-    });
+    let pipeline_pair = find_child(&children, Rule::flow_pipeline).ok_or_else(|| {
+            pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::flow_pipeline in flow_decl")
+        })?;
     let pipeline_children = children_of(&pipeline_pair);
 
     let mut input_type = String::new();
@@ -2325,7 +2309,7 @@ fn parse_flow_decl(pair: Pair<Rule>) -> Declaration {
     }
     // Second: expression (source)
     if i < pipeline_children.len() && pipeline_children[i].as_rule() == Rule::expression {
-        source = Some(parse_expression(pipeline_children[i].clone()));
+        source = Some(parse_expression(pipeline_children[i].clone())?);
         i += 1;
     }
     // Remaining: flow_step* then final ARROW -> output
@@ -2381,55 +2365,53 @@ fn parse_flow_decl(pair: Pair<Rule>) -> Declaration {
                 .iter()
                 .filter(|c| c.as_rule() == Rule::branch)
                 .map(|c| parse_branch(c.clone()))
-                .collect();
+                .collect::<Result<_, _>>()?;
             branch_defs.push((step_name, branches));
         }
     }
 
-    Declaration::Flow(FlowDecl {
+    Ok(Declaration::Flow(FlowDecl {
         name: name.clone(),
         input_type,
         source: source.unwrap_or_else(|| Expr::StringLit(String::new())),
         pipeline: pipeline_steps.clone(),
         branch_defs,
         checkpoints: checkpoints.clone(),
-    })
+    }))
 }
 
-fn parse_branch(pair: Pair<Rule>) -> Branch {
+fn parse_branch(pair: Pair<Rule>) -> Result<Branch, ParseError> {
     let children = children_of(&pair);
     // branch = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
     let label = pair_str(&children[0]);
-    let cond_pair = find_child(&children, Rule::branch_condition).unwrap_or_else(|| {
-        eprintln!("GRAMMAR INVARIANT: expected Rule::branch_condition in branch");
-        std::process::abort()
-    });
-    let target = pair_str(children.last().unwrap_or_else(|| {
-        eprintln!("GRAMMAR INVARIANT: expected step_ident at end of branch");
-        std::process::abort()
-    })); // step_ident is last
-    Branch {
+    let cond_pair = find_child(&children, Rule::branch_condition).ok_or_else(|| {
+            pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::branch_condition in branch")
+        })?;
+    let target = pair_str(children.last().ok_or_else(|| {
+        pair_error(&pair, "GRAMMAR INVARIANT: expected step_ident at end of branch")
+    })?);
+    Ok(Branch {
         label,
-        condition: parse_branch_condition(cond_pair),
+        condition: parse_branch_condition(cond_pair)?,
         target,
-    }
+    })
 }
 
-fn parse_branch_condition(pair: Pair<Rule>) -> BranchCondition {
+fn parse_branch_condition(pair: Pair<Rule>) -> Result<BranchCondition, ParseError> {
     let children = children_of(&pair);
     // branch_condition = { IDENT ~ "." ~ IDENT ~ compare_op ~ expression }
     // Children: [IDENT(target), IDENT(field), compare_op, expression(threshold)]
-    BranchCondition {
+    Ok(BranchCondition {
         target: Expr::Ident(pair_str(&children[0])),
         field: pair_str(&children[1]),
-        op: parse_compare_op(&children[2]),
-        threshold: parse_expression(children[3].clone()),
-    }
+        op: parse_compare_op(&children[2])?,
+        threshold: parse_expression(children[3].clone())?,
+    })
 }
 
 // ── Expressions ─────────────────────────────────────────────────────
 
-fn parse_binop(pair: &Pair<Rule>) -> BinOp {
+fn parse_binop(pair: &Pair<Rule>) -> Result<BinOp, ParseError> {
     match pair.as_str().trim() {
         "and" => BinOp::And,
         "or" => BinOp::Or,
@@ -2443,53 +2425,58 @@ fn parse_binop(pair: &Pair<Rule>) -> BinOp {
         "<" => BinOp::Lt,
         "==" => BinOp::Eq,
         "!=" => BinOp::Ne,
-        _ => std::process::abort(),
+        _ => Err(pair_error(pair, "GRAMMAR INVARIANT: unknown binary operator"))?,
     }
 }
 
-fn parse_expression(pair: Pair<Rule>) -> Expr {
+fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
     match pair.as_rule() {
         Rule::expression => {
-            let inner = pair.into_inner().next().unwrap_or_else(|| {
-                eprintln!("GRAMMAR INVARIANT: expression must have inner content");
-                std::process::abort()
-            });
-            parse_expression(inner)
+            let span = pair.as_span();
+            let inner = pair.into_inner().next().ok_or_else(|| {
+                pest::error::Error::new_from_pos(
+                    pest::error::ErrorVariant::CustomError {
+                        message: "GRAMMAR INVARIANT: expression must have inner content".to_string(),
+                    },
+                    span.start_pos(),
+                )
+            })?;
+            parse_expression(inner)?
         }
         Rule::or_expr => {
             let children = children_of(&pair);
             if children.is_empty() {
-                return Expr::StringLit(String::new());
+                return Ok(Expr::StringLit(String::new()));
             }
-            let mut left = parse_expression(children[0].clone());
+            let mut left = parse_expression(children[0].clone())?;
             let mut i = 1;
             while i + 1 < children.len() {
                 if children[i].as_rule() == Rule::OR_KW {
                     left = Expr::BinaryOp(
                         Box::new(left),
                         BinOp::Or,
-                        Box::new(parse_expression(children[i + 1].clone())),
+                        Box::new(parse_expression(children[i + 1].clone())?),
                     );
                     i += 2;
                 } else {
                     i += 1;
                 }
             }
-            left
+            Ok(left)
         }
         Rule::and_expr => {
             let children = children_of(&pair);
             if children.is_empty() {
-                return Expr::StringLit(String::new());
+                return Ok(Expr::StringLit(String::new()));
             }
-            let mut left = parse_expression(children[0].clone());
+            let mut left = parse_expression(children[0].clone())?;
             let mut i = 1;
             while i + 1 < children.len() {
                 if children[i].as_rule() == Rule::AND_KW {
                     left = Expr::BinaryOp(
                         Box::new(left),
                         BinOp::And,
-                        Box::new(parse_expression(children[i + 1].clone())),
+                        Box::new(parse_expression(children[i + 1].clone())?),
                     );
                     i += 2;
                 } else {
@@ -2501,31 +2488,31 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
         Rule::compare_expr => {
             let children = children_of(&pair);
             if children.is_empty() {
-                return Expr::StringLit(String::new());
+                return Ok(Expr::StringLit(String::new()));
             }
-            let mut left = parse_expression(children[0].clone());
+            let mut left = parse_expression(children[0].clone())?;
             let mut i = 1;
             while i + 1 < children.len() {
                 if children[i].as_rule() == Rule::compare_op {
-                    let op = parse_binop(&children[i]);
+                    let op = parse_binop(&children[i])?;
                     left = Expr::BinaryOp(
                         Box::new(left),
                         op,
-                        Box::new(parse_expression(children[i + 1].clone())),
+                        Box::new(parse_expression(children[i + 1].clone())?),
                     );
                     i += 2;
                 } else {
                     i += 1;
                 }
             }
-            left
+            Ok(left)
         }
         Rule::add_expr => {
             let children = children_of(&pair);
             if children.is_empty() {
-                return Expr::StringLit(String::new());
+                return Ok(Expr::StringLit(String::new()));
             }
-            let mut left = parse_expression(children[0].clone());
+            let mut left = parse_expression(children[0].clone())?;
             let mut i = 1;
             while i + 1 < children.len() {
                 let rule = children[i].as_rule();
@@ -2533,28 +2520,28 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
                     left = Expr::BinaryOp(
                         Box::new(left),
                         BinOp::Add,
-                        Box::new(parse_expression(children[i + 1].clone())),
+                        Box::new(parse_expression(children[i + 1].clone())?),
                     );
                     i += 2;
                 } else if rule == Rule::MINUS {
                     left = Expr::BinaryOp(
                         Box::new(left),
                         BinOp::Sub,
-                        Box::new(parse_expression(children[i + 1].clone())),
+                        Box::new(parse_expression(children[i + 1].clone())?),
                     );
                     i += 2;
                 } else {
                     i += 1;
                 }
             }
-            left
+            Ok(left)
         }
         Rule::mul_expr => {
             let children = children_of(&pair);
             if children.is_empty() {
-                return Expr::StringLit(String::new());
+                return Ok(Expr::StringLit(String::new()));
             }
-            let mut left = parse_expression(children[0].clone());
+            let mut left = parse_expression(children[0].clone())?;
             let mut i = 1;
             while i + 1 < children.len() {
                 let rule = children[i].as_rule();
@@ -2562,33 +2549,46 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
                     left = Expr::BinaryOp(
                         Box::new(left),
                         BinOp::Mul,
-                        Box::new(parse_expression(children[i + 1].clone())),
+                        Box::new(parse_expression(children[i + 1].clone())?),
                     );
                     i += 2;
                 } else if rule == Rule::SLASH {
                     left = Expr::BinaryOp(
                         Box::new(left),
                         BinOp::Div,
-                        Box::new(parse_expression(children[i + 1].clone())),
+                        Box::new(parse_expression(children[i + 1].clone())?),
                     );
                     i += 2;
                 } else {
                     i += 1;
                 }
             }
-            left
+            Ok(left)
         }
-        Rule::unary_expr => parse_expression(pair.into_inner().next().unwrap_or_else(|| {
-            eprintln!("GRAMMAR INVARIANT: unary_expr must have inner content");
-            std::process::abort()
-        })),
+        Rule::unary_expr => {
+            let span = pair.as_span();
+            let inner = pair.into_inner().next().ok_or_else(|| {
+                pest::error::Error::new_from_pos(
+                    pest::error::ErrorVariant::CustomError {
+                        message: "GRAMMAR INVARIANT: unary_expr must have inner content".to_string(),
+                    },
+                    span.start_pos(),
+                )
+            })?;
+            parse_expression(inner)?
+        }
         // Наряд №14 P1-4: try expression
         Rule::try_expr => {
-            let inner = pair.into_inner().next().unwrap_or_else(|| {
-                eprintln!("GRAMMAR INVARIANT: try_expr must have inner content");
-                std::process::abort()
-            });
-            let expr = parse_expression(inner);
+            let span = pair.as_span();
+            let inner = pair.into_inner().next().ok_or_else(|| {
+                pest::error::Error::new_from_pos(
+                    pest::error::ErrorVariant::CustomError {
+                        message: "GRAMMAR INVARIANT: try_expr must have inner content".to_string(),
+                    },
+                    span.start_pos(),
+                )
+            })?;
+            let expr = parse_expression(inner)?;
             Expr::Try(Box::new(expr))
         }
         Rule::if_else_expr => {
@@ -2603,13 +2603,13 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
             let cond = exprs[0].clone();
             let then_br = exprs[1].clone();
             let else_br = exprs[2].clone();
-            Expr::IfElse(Box::new(cond), Box::new(then_br), Box::new(else_br))
+            Ok(Expr::IfElse(Box::new(cond), Box::new(then_br), Box::new(else_br)))
         }
         Rule::access_expr => {
             let children = children_of(&pair);
             // access_expr = { primary_expr ~ postfix_op* }
             // postfix_op is silent — children are flattened: IDENT and LBRACKET...RBRACKET
-            let mut base = parse_expression(children[0].clone()); // primary_expr
+            let mut base = parse_expression(children[0].clone())?; // primary_expr
             let mut i = 1;
             while i < children.len() {
                 let child = &children[i];
@@ -2625,14 +2625,14 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
                         if expr_child.as_rule() == Rule::expression {
                             base = Expr::IndexAccess(
                                 Box::new(base),
-                                Box::new(parse_expression(expr_child.clone())),
+                                Box::new(parse_expression(expr_child.clone())?),
                             );
                         }
                     }
                 }
                 i += 1;
             }
-            base
+            Ok(base)
         }
         Rule::qualified_call_expr => {
             let children = children_of(&pair);
@@ -2649,12 +2649,12 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
                 if child.as_rule() == Rule::expression_list {
                     for ap in child.clone().into_inner() {
                         if ap.as_rule() == Rule::expression {
-                            args.push(parse_expression(ap));
+                            args.push(parse_expression(ap)?);
                         }
                     }
                 }
             }
-            Expr::QualifiedCall {
+            Ok(Expr::QualifiedCall {
                 module,
                 function,
                 args,
@@ -2666,7 +2666,7 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
             // Handle integer literals as function names (e.g., if INT is matched as call_expr)
             if fname == "true" || fname == "false" {
                 // Bool literal parsed as call_expr — shouldn't happen but handle gracefully
-                return Expr::BoolLit(fname == "true");
+                return Ok(Expr::BoolLit(fname == "true"));
             }
             let mut args = Vec::new();
             for child in children.iter().skip(1) {
@@ -2674,47 +2674,57 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
                     Rule::expression_list => {
                         for ap in child.clone().into_inner() {
                             if ap.as_rule() == Rule::expression {
-                                args.push(parse_expression(ap));
+                                args.push(parse_expression(ap)?);
                             }
                         }
                     }
-                    Rule::expression => args.push(parse_expression(child.clone())),
+                    Rule::expression => args.push(parse_expression(child.clone())?),
                     _ => {}
                 }
             }
-            Expr::FnCall(fname, args)
+            Ok(Expr::FnCall(fname, args))
         }
         Rule::unary_minus => {
             let children: Vec<_> = pair.clone().into_inner().collect();
             let inner_expr = if !children.is_empty() {
-                parse_expression(children[0].clone())
+                parse_expression(children[0].clone())?
             } else {
                 Expr::FloatLit(0.0)
             };
             // Negate: 0.0 - val
-            Expr::BinaryOp(
+            Ok(Expr::BinaryOp(
                 Box::new(Expr::FloatLit(0.0)),
                 BinOp::Sub,
                 Box::new(inner_expr),
-            )
+            ))
         }
         Rule::primary_expr => {
-            let inner = pair.into_inner().next().unwrap_or_else(|| {
-                eprintln!("GRAMMAR INVARIANT: primary_expr must have inner content");
-                std::process::abort()
-            });
+            let span = pair.as_span();
+            let inner = pair.into_inner().next().ok_or_else(|| {
+                pest::error::Error::new_from_pos(
+                    pest::error::ErrorVariant::CustomError {
+                        message: "GRAMMAR INVARIANT: primary_expr must have inner content".to_string(),
+                    },
+                    span.start_pos(),
+                )
+            })?;
             match inner.as_rule() {
                 Rule::paren_expr => {
                     // Наряд M1: parenthesized grouping — unwrap inner expression
-                    let inner_expr = inner.into_inner().next().unwrap_or_else(|| {
-                        eprintln!("GRAMMAR INVARIANT: paren_expr must have inner content");
-                        std::process::abort()
-                    });
-                    parse_expression(inner_expr)
+                    let inner_span = inner.as_span();
+                    let inner_expr = inner.into_inner().next().ok_or_else(|| {
+                        pest::error::Error::new_from_pos(
+                            pest::error::ErrorVariant::CustomError {
+                                message: "GRAMMAR INVARIANT: paren_expr must have inner content".to_string(),
+                            },
+                            inner_span.start_pos(),
+                        )
+                    })?;
+                    parse_expression(inner_expr)?
                 }
                 Rule::block_if_else_expr => {
                     // Наряд №14 P0-3: block if/else as expression
-                    parse_block_if_else_expr(inner)
+                    parse_block_if_else_expr(inner)?
                 }
                 Rule::struct_literal => {
                     let mut fields = std::collections::HashMap::new();
@@ -2726,9 +2736,16 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
                             let value = parse_expression(
                                 field_children
                                     .last()
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: struct_field_init must have expression"); std::process::abort() })
-                                    .clone(),
-                            );
+                                    .cloned()
+                                    .ok_or_else(|| {
+                                        pest::error::Error::new_from_pos(
+                                            pest::error::ErrorVariant::CustomError {
+                                                message: "GRAMMAR INVARIANT: struct_field_init must have expression".to_string(),
+                                            },
+                                            child.as_span().start_pos(),
+                                        )
+                                    })?,
+                            )?;
                             fields.insert(name, value);
                         }
                     }
@@ -2742,31 +2759,31 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
                                 // expression_list contains nested expression pairs
                                 for expr_pair in child.into_inner() {
                                     if expr_pair.as_rule() == Rule::expression {
-                                        items.push(parse_expression(expr_pair));
+                                        items.push(parse_expression(expr_pair)?);
                                     }
                                 }
                             }
                             Rule::expression => {
-                                items.push(parse_expression(child));
+                                items.push(parse_expression(child)?);
                             }
                             _ => {}
                         }
                     }
-                    Expr::List(items)
+                    Ok(Expr::List(items))
                 }
-                Rule::BOOL_LITERAL => Expr::BoolLit(inner.as_str() == "true"),
-                Rule::STRING_LITERAL => Expr::StringLit(unescape_string(inner.as_str())),
+                Rule::BOOL_LITERAL => Ok(Expr::BoolLit(inner.as_str() == "true")),
+                Rule::STRING_LITERAL => Ok(Expr::StringLit(unescape_string(inner.as_str()))),
                 Rule::MULTILINE_STRING => {
                     // Triple-quoted string: content between """ delimiters, raw (no escape processing)
-                    Expr::StringLit(inner.as_str().to_string())
+                    Ok(Expr::StringLit(inner.as_str().to_string()))
                 }
-                Rule::FLOAT_LITERAL => Expr::FloatLit(inner.as_str().parse().unwrap_or(0.0)),
-                Rule::INT => Expr::FloatLit(inner.as_str().parse().unwrap_or(0.0)),
-                Rule::IDENT => Expr::Ident(inner.as_str().to_string()),
-                _ => Expr::Ident(inner.as_str().to_string()),
+                Rule::FLOAT_LITERAL => Ok(Expr::FloatLit(inner.as_str().parse().unwrap_or(0.0))),
+                Rule::INT => Ok(Expr::FloatLit(inner.as_str().parse().unwrap_or(0.0))),
+                Rule::IDENT => Ok(Expr::Ident(inner.as_str().to_string())),
+                _ => Ok(Expr::Ident(inner.as_str().to_string())),
             }
         }
-        _ => Expr::StringLit(pair.as_str().to_string()),
+        _ => Ok(Expr::StringLit(pair.as_str().to_string())),
     }
 }
 

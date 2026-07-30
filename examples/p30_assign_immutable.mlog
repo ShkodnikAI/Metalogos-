@@ -1,0 +1,8 @@
+// Golden: assignment to immutable variable produces error
+pattern AssignImmutable(dummy: String) -> String {
+  let x = 0.0
+  x = 1.0
+  return to_string(x)
+}
+
+flow Main { input: String = "x" -> AssignImmutable -> output }

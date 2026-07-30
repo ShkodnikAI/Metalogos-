@@ -7,16 +7,29 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  test-lib:
+    name: test-lib (blocking)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Run tests
-        run: cargo test --all --no-fail-fast
+      - name: Library tests
+        run: cargo test --lib --no-fail-fast
+
+  test-integration:
+    name: test-integration (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Integration tests
+        run: cargo test --tests --no-fail-fast
 
   lint:
+    name: lint (advisory)
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:

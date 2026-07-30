@@ -1,0 +1,8 @@
+// Golden: let mut allows subsequent assignment
+pattern AssignMut(dummy: String) -> String {
+  let mut x = 0.0
+  x = 1.0
+  return to_string(x)
+}
+
+flow Main { input: String = "x" -> AssignMut -> output }

@@ -1,0 +1,9 @@
+// Golden: kv_get on missing key returns empty string, set/get roundtrip works
+pattern KvMissingCheck(dummy: String) -> String {
+  let missing = kv_get("key_that_does_not_exist_xyz")
+  kv_set("test_key", "hello_world")
+  let present = kv_get("test_key")
+  return "[" + missing + "][" + present + "]"
+}
+
+flow Main { input: String = "x" -> KvMissingCheck -> output }

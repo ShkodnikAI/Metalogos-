@@ -1022,7 +1022,7 @@ async fn execute_route_body(
             Statement::IfThen(cond, body) => {
                 let cond_val = interp.eval_expr_with_env(cond, &env)?;
                 if cond_val.as_bool().unwrap_or(false) {
-                    let result = interp.eval_statements(body, &mut env)?;
+                    let result = tokio::task::block_in_place(|| interp.eval_statements(body, &mut env))?;
                     if !matches!(result, Value::Unit) {
                         flush_audit_to_db(state, &mut interp).await;
                         return Ok(value_to_response(result));
@@ -1075,7 +1075,7 @@ async fn execute_route_body(
                                 }
                             }
                             _ => {
-                                interp.eval_statements(&[s.clone()], &mut env)?;
+                                tokio::task::block_in_place(|| interp.eval_statements(&[s.clone()], &mut env))?;
                             }
                         }
                     }
@@ -1091,7 +1091,7 @@ async fn execute_route_body(
                 }
             }
             _ => {
-                let result = interp.eval_statements(&[stmt.clone()], &mut env)?;
+                let result = tokio::task::block_in_place(|| interp.eval_statements(&[stmt.clone()], &mut env))?;
                 // If the statement produced an HttpResponse (e.g., respond("ok")),
                 // use it as the route response (final integration)
                 if let Value::HttpResponse { .. } = result {

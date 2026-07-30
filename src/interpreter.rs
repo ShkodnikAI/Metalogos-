@@ -1166,6 +1166,8 @@ impl Interpreter {
     }
 
     /// Execute a SQL statement via db_execute() — returns affected row count (Наряд №7).
+    /// ADR-0068: optional second argument (List) for parameterised queries.
+    /// Single-argument form (SQL only) remains backward-compatible.
     fn invoke_db_execute(&self, args: &[Value]) -> Result<Value, String> {
         let sql = match args.first() {
             Some(Value::String(s)) => s.clone(),
@@ -1179,6 +1181,28 @@ impl Interpreter {
                 return Err("db_execute() requires at least 1 argument (SQL string)".to_string())
             }
         };
+        // Optional second argument: List of parameter values (par with query())
+        // Types: String→Text, Float→Real, Unit→NULL. ADR-0068.
+        let params: Vec<rusqlite::types::Value> = match args.get(1) {
+            Some(Value::List(items)) => items
+                .iter()
+                .map(|v| match v {
+                    Value::String(s) => {
+                        rusqlite::types::Value::Text(s.clone().into_bytes())
+                    }
+                    Value::Float(n) => rusqlite::types::Value::Real(*n),
+                    Value::Unit => rusqlite::types::Value::Null,
+                    _ => rusqlite::types::Value::Text(Vec::new()),
+                })
+                .collect(),
+            Some(other) => {
+                return Err(format!(
+                    "db_execute() second argument must be List, got {}",
+                    other.type_name()
+                ))
+            }
+            None => Vec::new(),
+        };
         let guard = self
             .db_conn
             .lock()
@@ -1187,7 +1211,7 @@ impl Interpreter {
             "db_execute() error: no database connection. Declare db { url: \"sqlite::memory:\" } first.".to_string()
         })?;
         let affected = conn
-            .execute(&sql, [])
+            .execute(&sql, rusqlite::params_from_iter(params.iter()))
             .map_err(|e| format!("db_execute() SQL error: {}", e))?;
         Ok(Value::String(affected.to_string()))
     }

@@ -222,16 +222,28 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
-            // ── Reminder check (v0.8.2) ──
-            let mut interp = scheduler_state.interpreter.write().await;
-            let check_result = {
-                let builtin_name = "check_reminders";
-                if let Some(builtin_fn) = interp.get_builtin(builtin_name) {
-                    builtin_fn(&[])
-                } else {
-                    Ok(crate::interpreter::Value::List(vec![]))
-                }
+            // ── Phase 1: collect reminder + cron data under short write lock ──
+            let (check_result, cron_check) = {
+                let mut interp = scheduler_state.interpreter.write().await;
+                let cr = {
+                    if let Some(builtin_fn) = interp.get_builtin("check_reminders") {
+                        builtin_fn(&[])
+                    } else {
+                        Ok(crate::interpreter::Value::List(vec![]))
+                    }
+                };
+                let cc = {
+                    if let Some(builtin_fn) = interp.get_builtin("cron_list") {
+                        builtin_fn(&[])
+                    } else {
+                        Ok(crate::interpreter::Value::List(vec![]))
+                    }
+                };
+                (cr, cc)
+                // write lock released here
             };
+
+            // ── Phase 2: process reminders (no lock needed) ──
             if let Ok(crate::interpreter::Value::List(items)) = check_result {
                 for item in &items {
                     if let crate::interpreter::Value::Struct { fields, .. } = item {
@@ -256,15 +268,7 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
                 }
             }
 
-            // ── Cron job dispatch (v0.8.5) ──
-            let cron_check = {
-                let builtin_name = "cron_list";
-                if let Some(builtin_fn) = interp.get_builtin(builtin_name) {
-                    builtin_fn(&[])
-                } else {
-                    Ok(crate::interpreter::Value::List(vec![]))
-                }
-            };
+            // ── Phase 3: dispatch cron jobs (per-job write lock) ──
             if let Ok(crate::interpreter::Value::List(jobs)) = cron_check {
                 for job in &jobs {
                     if let crate::interpreter::Value::Struct { fields, .. } = job {
@@ -290,9 +294,14 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
                         }
 
                         let should_fire = force_run || cron_expr_matches(&cron_expr);
-                        if should_fire {
+                        if !should_fire {
+                            continue;
+                        }
+
+                        // Short write lock: fire + mark in one hold
+                        {
+                            let mut interp = scheduler_state.interpreter.write().await;
                             eprintln!("[cron] firing: {} — {}", cron_expr, prompt);
-                            // Dispatch: try builtin first, then user pattern
                             if let Some(builtin_fn) = interp.get_builtin(&prompt) {
                                 if let Err(e) = builtin_fn(&[]) {
                                     eprintln!("[cron] builtin '{}' error: {}", prompt, e);
@@ -300,7 +309,6 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
                             } else if let Err(e) = interp.call_pattern(&prompt, &[]) {
                                 eprintln!("[cron] pattern '{}' error: {}", prompt, e);
                             }
-                            // Reset force_run, increment run_count, set last_run
                             if let Some(mark_fn) = interp.get_builtin("cron_mark_fired") {
                                 if let Err(e) =
                                     mark_fn(&[crate::interpreter::Value::String(job_id)])
@@ -308,6 +316,7 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
                                     eprintln!("[cron] mark_fired error: {}", e);
                                 }
                             }
+                            // write lock released here
                         }
                     }
                 }

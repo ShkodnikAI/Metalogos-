@@ -30,7 +30,10 @@ pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
         .map_err(|e| {
             let pos = pest::Position::new(source, 0)
                 .or_else(|| pest::Position::new("", 0))
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: position 0 in any string is always valid"); std::process::abort() });
+                .unwrap_or_else(|| {
+                    eprintln!("GRAMMAR INVARIANT: position 0 in any string is always valid");
+                    std::process::abort()
+                });
             pest::error::Error::new_from_pos(
                 pest::error::ErrorVariant::CustomError {
                     message: format!("failed to spawn parser thread: {}", e),
@@ -43,7 +46,10 @@ pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
         Err(_) => {
             let pos = pest::Position::new(source, 0)
                 .or_else(|| pest::Position::new("", 0))
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: position 0 in any string is always valid"); std::process::abort() });
+                .unwrap_or_else(|| {
+                    eprintln!("GRAMMAR INVARIANT: position 0 in any string is always valid");
+                    std::process::abort()
+                });
             Err(pest::error::Error::new_from_pos(
                 pest::error::ErrorVariant::CustomError {
                     message: "parser thread panicked".to_string(),
@@ -791,11 +797,10 @@ fn unescape_string(s: &str) -> String {
 
 /// Convert a literal pair (STRING_LITERAL, FLOAT_LITERAL, or IDENT) to an Expr.
 fn parse_literal_to_expr(pair: &Pair<Rule>) -> Expr {
-    let inner = pair
-        .clone()
-        .into_inner()
-        .next()
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: literal must have inner content"); std::process::abort() });
+    let inner = pair.clone().into_inner().next().unwrap_or_else(|| {
+        eprintln!("GRAMMAR INVARIANT: literal must have inner content");
+        std::process::abort()
+    });
     match inner.as_rule() {
         Rule::STRING_LITERAL => Expr::StringLit(unescape_string(inner.as_str())),
         Rule::FLOAT_LITERAL => Expr::FloatLit(inner.as_str().parse().unwrap_or(0.0)),
@@ -827,8 +832,10 @@ fn parse_field_init(pair: Pair<Rule>) -> FieldInit {
     let children = children_of(&pair);
     // Children: IDENT, COLON, expression
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
-    let expr_pair = find_child(&children, Rule::expression)
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: expected Rule::expression in field_init"); std::process::abort() });
+    let expr_pair = find_child(&children, Rule::expression).unwrap_or_else(|| {
+        eprintln!("GRAMMAR INVARIANT: expected Rule::expression in field_init");
+        std::process::abort()
+    });
     let value = parse_expression(expr_pair);
     FieldInit { name, value }
 }
@@ -840,8 +847,10 @@ fn parse_entity_simple_decl(pair: Pair<Rule>) -> Declaration {
     // Children: IDENT, type_name, expression
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
     let type_name = find_child_str(&children, Rule::type_name).unwrap_or_default();
-    let expr_pair = find_child(&children, Rule::expression)
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: expected Rule::expression in entity_simple_decl"); std::process::abort() });
+    let expr_pair = find_child(&children, Rule::expression).unwrap_or_else(|| {
+        eprintln!("GRAMMAR INVARIANT: expected Rule::expression in entity_simple_decl");
+        std::process::abort()
+    });
     let value = parse_expression(expr_pair);
     Declaration::EntitySimple(EntitySimpleDecl {
         name,
@@ -896,7 +905,7 @@ fn parse_condition(pair: Pair<Rule>) -> Condition {
                 right: parse_expression(children[2].clone()),
             }
         }
-_ => std::process::abort(),
+        _ => std::process::abort(),
     }
 }
 
@@ -907,7 +916,7 @@ fn parse_compare_op(pair: &Pair<Rule>) -> CompareOp {
         ">=" => CompareOp::Ge,
         "<=" => CompareOp::Le,
         "==" => CompareOp::Eq,
-_ => std::process::abort(),
+        _ => std::process::abort(),
     }
 }
 
@@ -1507,8 +1516,10 @@ fn parse_eval_decl(pair: Pair<Rule>) -> Declaration {
 fn parse_memorize_decl(pair: Pair<Rule>) -> Declaration {
     let children = children_of(&pair);
     // Children: expression, ["with", "priority", "=", FLOAT_LITERAL]
-    let value = find_child(&children, Rule::expression)
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: expected Rule::expression in memorize_decl"); std::process::abort() });
+    let value = find_child(&children, Rule::expression).unwrap_or_else(|| {
+        eprintln!("GRAMMAR INVARIANT: expected Rule::expression in memorize_decl");
+        std::process::abort()
+    });
     let value = parse_expression(value);
 
     let priority = find_child(&children, Rule::FLOAT_LITERAL)
@@ -1521,8 +1532,10 @@ fn parse_memorize_decl(pair: Pair<Rule>) -> Declaration {
 fn parse_forget_decl(pair: Pair<Rule>) -> Declaration {
     let children = children_of(&pair);
     // Children: expression, INT, "days"
-    let query = find_child(&children, Rule::expression)
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: expected Rule::expression in forget_decl"); std::process::abort() });
+    let query = find_child(&children, Rule::expression).unwrap_or_else(|| {
+        eprintln!("GRAMMAR INVARIANT: expected Rule::expression in forget_decl");
+        std::process::abort()
+    });
     let query = parse_expression(query);
 
     let days = find_child(&children, Rule::INT)
@@ -1870,8 +1883,10 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
     } else if let Some(lb_pair) = children.iter().find(|c| c.as_rule() == Rule::let_binding) {
         let lb_children = children_of(lb_pair);
         let name = find_child_str(&lb_children, Rule::IDENT).unwrap_or_default();
-        let expr = find_child(&lb_children, Rule::expression)
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: expected Rule::expression in let_binding"); std::process::abort() });
+        let expr = find_child(&lb_children, Rule::expression).unwrap_or_else(|| {
+            eprintln!("GRAMMAR INVARIANT: expected Rule::expression in let_binding");
+            std::process::abort()
+        });
         let mutable = lb_children.iter().any(|c| c.as_rule() == Rule::MUT_KW);
         Statement::LetBinding {
             name,
@@ -1892,7 +1907,10 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
                 .iter()
                 .find(|c| c.as_rule() == Rule::expression)
                 .cloned()
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: assign_or_expr assignment must have expression"); std::process::abort() });
+                .unwrap_or_else(|| {
+                    eprintln!("GRAMMAR INVARIANT: assign_or_expr assignment must have expression");
+                    std::process::abort()
+                });
             Statement::Assign {
                 name,
                 value: parse_expression(expr),
@@ -1903,13 +1921,18 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
                 .iter()
                 .find(|c| c.as_rule() == Rule::expression)
                 .cloned()
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: assign_or_expr expression must have expression"); std::process::abort() });
+                .unwrap_or_else(|| {
+                    eprintln!("GRAMMAR INVARIANT: assign_or_expr expression must have expression");
+                    std::process::abort()
+                });
             Statement::ExprStmt(parse_expression(expr))
         }
     } else if let Some(rs_pair) = children.iter().find(|c| c.as_rule() == Rule::return_stmt) {
         let rs_children = children_of(rs_pair);
-        let expr = find_child(&rs_children, Rule::expression)
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: expected Rule::expression in return_stmt"); std::process::abort() });
+        let expr = find_child(&rs_children, Rule::expression).unwrap_or_else(|| {
+            eprintln!("GRAMMAR INVARIANT: expected Rule::expression in return_stmt");
+            std::process::abort()
+        });
         Statement::Return(parse_expression(expr))
     } else if let Some(br_pair) = children.iter().find(|c| c.as_rule() == Rule::break_stmt) {
         Statement::Break
@@ -1923,7 +1946,10 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
                 .iter()
                 .find(|c| c.as_rule() == Rule::expression)
                 .cloned()
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: expected Rule::expression in if_then_stmt"); std::process::abort() }),
+                .unwrap_or_else(|| {
+                    eprintln!("GRAMMAR INVARIANT: expected Rule::expression in if_then_stmt");
+                    std::process::abort()
+                }),
         );
         let body: Vec<Statement> = it_children
             .iter()
@@ -2001,22 +2027,29 @@ fn parse_single_statement(pair: Pair<Rule>) -> Statement {
             .clone()
             .into_inner()
             .find(|c| c.as_rule() == Rule::expression)
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: expr_stmt must contain expression"); std::process::abort() });
+            .unwrap_or_else(|| {
+                eprintln!("GRAMMAR INVARIANT: expr_stmt must contain expression");
+                std::process::abort()
+            });
         Statement::ExprStmt(parse_expression(expr))
     } else if let Some(as_pair) = children.iter().find(|c| c.as_rule() == Rule::assign_stmt) {
         // Legacy assign_stmt fallback
         let as_children = children_of(as_pair);
         let name = find_child_str(&as_children, Rule::IDENT).unwrap_or_default();
-        let expr = find_child(&as_children, Rule::expression)
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: expected Rule::expression in assign_stmt"); std::process::abort() });
+        let expr = find_child(&as_children, Rule::expression).unwrap_or_else(|| {
+            eprintln!("GRAMMAR INVARIANT: expected Rule::expression in assign_stmt");
+            std::process::abort()
+        });
         Statement::Assign {
             name,
             value: parse_expression(expr),
         }
     } else {
         // Fallback: direct expression child (legacy)
-        let expr = find_child(&children, Rule::expression)
-.unwrap_or_else(|| { eprintln!("unrecognized statement: '{}'", pair.as_str()); std::process::abort() });
+        let expr = find_child(&children, Rule::expression).unwrap_or_else(|| {
+            eprintln!("unrecognized statement: '{}'", pair.as_str());
+            std::process::abort()
+        });
         Statement::Return(parse_expression(expr))
     }
 }
@@ -2271,8 +2304,10 @@ fn parse_flow_decl(pair: Pair<Rule>) -> Declaration {
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
 
     // children: IDENT, flow_pipeline, [branch_def, ...]
-    let pipeline_pair = find_child(&children, Rule::flow_pipeline)
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: expected Rule::flow_pipeline in flow_decl"); std::process::abort() });
+    let pipeline_pair = find_child(&children, Rule::flow_pipeline).unwrap_or_else(|| {
+        eprintln!("GRAMMAR INVARIANT: expected Rule::flow_pipeline in flow_decl");
+        std::process::abort()
+    });
     let pipeline_children = children_of(&pipeline_pair);
 
     let mut input_type = String::new();
@@ -2365,13 +2400,14 @@ fn parse_branch(pair: Pair<Rule>) -> Branch {
     let children = children_of(&pair);
     // branch = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
     let label = pair_str(&children[0]);
-    let cond_pair = find_child(&children, Rule::branch_condition)
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: expected Rule::branch_condition in branch"); std::process::abort() });
-    let target = pair_str(
-        children
-            .last()
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: expected step_ident at end of branch"); std::process::abort() }),
-    ); // step_ident is last
+    let cond_pair = find_child(&children, Rule::branch_condition).unwrap_or_else(|| {
+        eprintln!("GRAMMAR INVARIANT: expected Rule::branch_condition in branch");
+        std::process::abort()
+    });
+    let target = pair_str(children.last().unwrap_or_else(|| {
+        eprintln!("GRAMMAR INVARIANT: expected step_ident at end of branch");
+        std::process::abort()
+    })); // step_ident is last
     Branch {
         label,
         condition: parse_branch_condition(cond_pair),
@@ -2407,17 +2443,17 @@ fn parse_binop(pair: &Pair<Rule>) -> BinOp {
         "<" => BinOp::Lt,
         "==" => BinOp::Eq,
         "!=" => BinOp::Ne,
-_ => std::process::abort(),
+        _ => std::process::abort(),
     }
 }
 
 fn parse_expression(pair: Pair<Rule>) -> Expr {
     match pair.as_rule() {
         Rule::expression => {
-            let inner = pair
-                .into_inner()
-                .next()
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: expression must have inner content"); std::process::abort() });
+            let inner = pair.into_inner().next().unwrap_or_else(|| {
+                eprintln!("GRAMMAR INVARIANT: expression must have inner content");
+                std::process::abort()
+            });
             parse_expression(inner)
         }
         Rule::or_expr => {
@@ -2542,17 +2578,16 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
             }
             left
         }
-        Rule::unary_expr => parse_expression(
-            pair.into_inner()
-                .next()
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: unary_expr must have inner content"); std::process::abort() }),
-        ),
+        Rule::unary_expr => parse_expression(pair.into_inner().next().unwrap_or_else(|| {
+            eprintln!("GRAMMAR INVARIANT: unary_expr must have inner content");
+            std::process::abort()
+        })),
         // Наряд №14 P1-4: try expression
         Rule::try_expr => {
-            let inner = pair
-                .into_inner()
-                .next()
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: try_expr must have inner content"); std::process::abort() });
+            let inner = pair.into_inner().next().unwrap_or_else(|| {
+                eprintln!("GRAMMAR INVARIANT: try_expr must have inner content");
+                std::process::abort()
+            });
             let expr = parse_expression(inner);
             Expr::Try(Box::new(expr))
         }
@@ -2664,17 +2699,17 @@ fn parse_expression(pair: Pair<Rule>) -> Expr {
             )
         }
         Rule::primary_expr => {
-            let inner = pair
-                .into_inner()
-                .next()
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: primary_expr must have inner content"); std::process::abort() });
+            let inner = pair.into_inner().next().unwrap_or_else(|| {
+                eprintln!("GRAMMAR INVARIANT: primary_expr must have inner content");
+                std::process::abort()
+            });
             match inner.as_rule() {
                 Rule::paren_expr => {
                     // Наряд M1: parenthesized grouping — unwrap inner expression
-                    let inner_expr = inner
-                        .into_inner()
-                        .next()
-.unwrap_or_else(|| { eprintln!("GRAMMAR INVARIANT: paren_expr must have inner content"); std::process::abort() });
+                    let inner_expr = inner.into_inner().next().unwrap_or_else(|| {
+                        eprintln!("GRAMMAR INVARIANT: paren_expr must have inner content");
+                        std::process::abort()
+                    });
                     parse_expression(inner_expr)
                 }
                 Rule::block_if_else_expr => {
@@ -4124,7 +4159,8 @@ mod tests {
 
     #[test]
     fn test_parse_match_with_exact_arm() {
-        let src = "pattern P(s: String) -> Float { match s { \"a\" then { return 1.0 } } return 0.0 }";
+        let src =
+            "pattern P(s: String) -> Float { match s { \"a\" then { return 1.0 } } return 0.0 }";
         let decls = parse(src).unwrap();
         if let Declaration::Pattern(p) = &decls[0] {
             // body: [match_stmt, return]
@@ -4193,7 +4229,8 @@ mod tests {
 
     #[test]
     fn test_parse_match_with_compare_arm() {
-        let src = "pattern P(s: Float) -> Float { match s { > 0.5 then { return 1.0 } } return 0.0 }";
+        let src =
+            "pattern P(s: Float) -> Float { match s { > 0.5 then { return 1.0 } } return 0.0 }";
         let decls = parse(src).unwrap();
         if let Declaration::Pattern(p) = &decls[0] {
             match &p.body[0] {
@@ -4251,7 +4288,9 @@ mod tests {
             assert_eq!(p.body.len(), 1);
             match &p.body[0] {
                 Statement::IfElseBlock {
-                    else_ifs, else_body, ..
+                    else_ifs,
+                    else_body,
+                    ..
                 } => {
                     assert_eq!(else_ifs.len(), 1);
                     assert!(else_body.is_some());
@@ -4508,7 +4547,8 @@ mod tests {
 
     #[test]
     fn test_parse_function_call_with_multiple_args() {
-        let src = "pattern P(a: Float, b: Float, c: Float) -> Float { let x = f(a, b, c) return x }";
+        let src =
+            "pattern P(a: Float, b: Float, c: Float) -> Float { let x = f(a, b, c) return x }";
         let decls = parse(src).unwrap();
         if let Declaration::Pattern(p) = &decls[0] {
             match &p.body[0] {
@@ -4621,7 +4661,8 @@ mod tests {
 
     #[test]
     fn test_parse_comment_inside_pattern_body() {
-        let src = "pattern P() -> Float { // first comment\n let x = 1.0 // second comment\n return x }";
+        let src =
+            "pattern P() -> Float { // first comment\n let x = 1.0 // second comment\n return x }";
         let decls = parse(src).unwrap();
         if let Declaration::Pattern(p) = &decls[0] {
             // Comments should be filtered out, leaving only 2 statements
@@ -4745,10 +4786,7 @@ mod tests {
                 "body should contain CSS, got {:?}",
                 t.body
             );
-            assert!(
-                t.body.contains('}'),
-                "body should contain closing brace"
-            );
+            assert!(t.body.contains('}'), "body should contain closing brace");
         } else {
             panic!("expected Template");
         }

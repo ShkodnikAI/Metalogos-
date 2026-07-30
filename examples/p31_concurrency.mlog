@@ -1,0 +1,10 @@
+mlogserver {
+  port: 10099
+  route "/slow" method=GET {
+    let r = try http_get("https://httpbin.org/delay/5")
+    return respond("200 slow-done")
+  }
+  route "/fast" method=GET {
+    return respond("200 fast-done")
+  }
+}

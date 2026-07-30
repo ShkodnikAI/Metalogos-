@@ -81,6 +81,11 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
         category: "list",
     },
     BuiltinSpec {
+        name: "slice",
+        arity: 3,
+        category: "list",
+    },
+    BuiltinSpec {
         name: "index_of",
         arity: 2,
         category: "string",
@@ -959,6 +964,7 @@ impl Builtins {
         funcs.insert("to_string".to_string(), builtin_to_string as BuiltinFn);
         funcs.insert("get".to_string(), builtin_get as BuiltinFn);
         funcs.insert("push".to_string(), builtin_push as BuiltinFn);
+        funcs.insert("slice".to_string(), builtin_slice as BuiltinFn);
 
         // Phase 7 — environment variable access
         funcs.insert("env".to_string(), builtin_env as BuiltinFn);
@@ -1557,6 +1563,34 @@ fn builtin_push(args: &[Value]) -> Result<Value, String> {
     let mut new_list = list;
     new_list.push(item);
     Ok(Value::List(new_list))
+}
+
+fn builtin_slice(args: &[Value]) -> Result<Value, String> {
+    let list = match args.get(0) {
+        Some(Value::List(items)) => items,
+        _ => return Err("slice() requires List as first argument".to_string()),
+    };
+    let start = match args.get(1) {
+        Some(Value::Float(f)) => *f as usize,
+        _ => return Err("slice() requires Float start as second argument".to_string()),
+    };
+    let end = match args.get(2) {
+        Some(Value::Float(f)) => *f as usize,
+        _ => return Err("slice() requires Float end as third argument".to_string()),
+    };
+    // Soft-failure semantics, mirroring substring:
+    //   start >= len  -> empty list
+    //   end > len     -> clamp to len
+    //   start >= end  -> empty list
+    let list_len = list.len();
+    if start >= list_len {
+        return Ok(Value::List(vec![]));
+    }
+    let end = if end > list_len { list_len } else { end };
+    if start >= end {
+        return Ok(Value::List(vec![]));
+    }
+    Ok(Value::List(list[start..end].to_vec()))
 }
 
 fn builtin_index_of(args: &[Value]) -> Result<Value, String> {
@@ -4325,6 +4359,69 @@ mod tests {
     fn test_escape_json_handles_special_chars() {
         let result = builtin_escape_json(&[Value::String("hello\"world\n".to_string())]).unwrap();
         assert!(is_string(&result, "hello\\\"world\\n"));
+    }
+
+    // ── slice() unit tests (ADR-0069) ──────────────────────────
+    fn make_list(items: Vec<&str>) -> Value {
+        Value::List(items.iter().map(|s| Value::String(s.to_string())).collect())
+    }
+
+    fn list_strings(val: &Value) -> Vec<String> {
+        match val {
+            Value::List(items) => items
+                .iter()
+                .filter_map(|v| match v {
+                    Value::String(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .collect(),
+            _ => vec![],
+        }
+    }
+
+    #[test]
+    fn test_slice_mid_range() {
+        let list = make_list(vec!["a", "b", "c", "d", "e"]);
+        let result = builtin_slice(&[list, Value::Float(1.0), Value::Float(3.0)]).unwrap();
+        assert_eq!(list_strings(&result), vec!["b", "c"]);
+    }
+
+    #[test]
+    fn test_slice_tail_to_end() {
+        let list = make_list(vec!["a", "b", "c", "d", "e"]);
+        let result = builtin_slice(&[list, Value::Float(2.0), Value::Float(5.0)]).unwrap();
+        assert_eq!(list_strings(&result), vec!["c", "d", "e"]);
+    }
+
+    #[test]
+    fn test_slice_end_past_len_clamps() {
+        let list = make_list(vec!["a", "b", "c", "d", "e"]);
+        let result = builtin_slice(&[list, Value::Float(3.0), Value::Float(99.0)]).unwrap();
+        assert_eq!(list_strings(&result), vec!["d", "e"]);
+    }
+
+    #[test]
+    fn test_slice_start_past_len_empty() {
+        let list = make_list(vec!["a", "b", "c", "d", "e"]);
+        let result = builtin_slice(&[list, Value::Float(9.0), Value::Float(10.0)]).unwrap();
+        assert_eq!(list_strings(&result), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_slice_start_ge_end_empty() {
+        let list = make_list(vec!["a", "b", "c", "d", "e"]);
+        let result = builtin_slice(&[list, Value::Float(3.0), Value::Float(1.0)]).unwrap();
+        assert_eq!(list_strings(&result), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_slice_non_list_errors() {
+        let result = builtin_slice(&[
+            Value::String("not a list".to_string()),
+            Value::Float(0.0),
+            Value::Float(1.0),
+        ]);
+        assert!(result.is_err());
     }
 }
 

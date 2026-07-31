@@ -1781,7 +1781,7 @@ fn parse_pattern_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let return_type = find_child_str(&children, Rule::type_name).unwrap_or_default();
     let body = find_child(&children, Rule::pattern_body)
         .map(|p| parse_pattern_body(p))
-        .transpose()
+        .transpose()?
         .unwrap_or_default();
     Ok(Declaration::Pattern(PatternDecl {
         name,
@@ -1931,7 +1931,6 @@ fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                 .find(|c| c.as_rule() == Rule::expression)
                 .cloned()
                 .map(|c| parse_expression(c))
-                .transpose()
                 .unwrap_or(Ok(Expr::BoolLit(true)))?;
         let body: Vec<Statement> = it_children
             .iter()
@@ -1952,7 +1951,6 @@ fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                         .iter()
                         .find(|c| c.as_rule() == Rule::expression)
                         .map(|c| parse_expression(c.clone()))
-                        .transpose()
                         .unwrap_or(Ok(Expr::BoolLit(true)))?;
                     let ei_body: Vec<Statement> = ei_children
                         .iter()
@@ -2038,7 +2036,6 @@ fn parse_match_stmt(pair: Pair<Rule>) -> Result<Statement, ParseError> {
         .iter()
         .find(|c| c.as_rule() == Rule::expression)
         .map(|c| parse_expression(c.clone()))
-        .transpose()
         .unwrap_or(Ok(Expr::StringLit(String::new())))?;
 
     // Parse match arms
@@ -2110,7 +2107,6 @@ fn parse_match_stmt(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                     .iter()
                     .find(|c| c.as_rule() == Rule::expression)
                     .map(|c| parse_expression(c.clone()))
-                    .transpose()
                     .unwrap_or(Ok(Expr::FloatLit(0.0)))?;
                 let body = arm_children
                     .iter()
@@ -2148,7 +2144,6 @@ fn parse_block_if_else_expr(pair: Pair<Rule>) -> Result<Expr, ParseError> {
         .iter()
         .find(|c| c.as_rule() == Rule::expression)
         .map(|c| parse_expression(c.clone()))
-        .transpose()
         .unwrap_or(Ok(Expr::BoolLit(true)))?;
 
     let mut then_body = Vec::new();
@@ -2174,7 +2169,6 @@ fn parse_block_if_else_expr(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                     .iter()
                     .find(|c| c.as_rule() == Rule::expression)
                     .map(|c| parse_expression(c.clone()))
-                    .transpose()
                     .unwrap_or(Ok(Expr::BoolLit(true)))?;
                 let ei_body: Vec<Statement> = ei_children
                     .iter()
@@ -2216,7 +2210,6 @@ fn parse_if_block_stmt(pair: Pair<Rule>) -> Result<Statement, ParseError> {
         .iter()
         .find(|c| c.as_rule() == Rule::expression)
         .map(|c| parse_expression(c.clone()))
-        .transpose()
         .unwrap_or(Ok(Expr::BoolLit(true)))?;
 
     let mut then_body = Vec::new();
@@ -2242,7 +2235,6 @@ fn parse_if_block_stmt(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                     .iter()
                     .find(|c| c.as_rule() == Rule::expression)
                     .map(|c| parse_expression(c.clone()))
-                    .transpose()
                     .unwrap_or(Ok(Expr::BoolLit(true)))?;
                 let ei_body: Vec<Statement> = ei_children
                     .iter()
@@ -2266,9 +2258,9 @@ fn parse_if_block_stmt(pair: Pair<Rule>) -> Result<Statement, ParseError> {
 
     Ok(Statement::IfElseBlock {
         condition,
-        then_branch: then_body,
-        else_branch: else_body,
-        else_if_branches: else_ifs,
+        then_body,
+        else_ifs,
+        else_body,
     })
 }
 

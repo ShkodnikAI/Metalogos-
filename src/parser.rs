@@ -2264,12 +2264,12 @@ fn parse_if_block_stmt(pair: Pair<Rule>) -> Result<Statement, ParseError> {
         }
     }
 
-    Ok(Statement::IfElseBlock { condition, then_branch, else_branch, else_if_branches })
+    Ok(Statement::IfElseBlock {
         condition,
-        then_body,
-        else_ifs,
-        else_body,
-    }
+        then_branch: then_body,
+        else_branch: else_body,
+        else_if_branches: else_ifs,
+    })
 }
 
 // ── Flow ──────────────────────────────────────────────────────────────

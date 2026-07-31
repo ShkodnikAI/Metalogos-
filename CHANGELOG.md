@@ -8,6 +8,16 @@ All notable changes to the Metalogos project.
 - Парсер возвращает Result<_, ParseError> вместо аварийного завершения.
   27 вызовов std::process::abort() убраны, ошибка разбора теперь даёт
   диагностику с позицией line:col и код возврата 1 (ADR-0070)
+- Golden test runner собирает ВСЕ failures перед panic — сломанные примеры
+  не маскируют последующие тесты (Блок 2)
+- p31_* error contracts покрыты автоматическими тестами (Блок 2)
+- dag_demo.mlog исправлен: Demo() → Demo(input: String) (arity mismatch)
+
+### Диагностика
+- Триаж 92 integration test failures: 8 категорий (Блок 3, ADR-0071).
+  219/311 integration tests pass. Ключевые группы: missing builtins (Phase 23),
+  BUILTIN_REGISTRY gaps (8 Telegram/Voice entries), VM unimplemented (5 instructions),
+  server-dependent (11 tests), immutable variable (4 tests).
 
 ## [0.12.0] - 2026-07-30
 

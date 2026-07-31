@@ -1906,9 +1906,6 @@ fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                     pair_error(&pair, "GRAMMAR INVARIANT: assign_or_expr assignment must have expression")
                 })?;
             Ok(Statement::Assign { name, value: parse_expression(expr)? })
-                name,
-                value: parse_expression(expr)?,
-            }
         } else {
             // Expression statement (function call, etc.)
             let expr = ae_children

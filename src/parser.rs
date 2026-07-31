@@ -2022,7 +2022,7 @@ fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
         Ok(Statement::Assign { name, value: parse_expression(expr)? })
     } else {
         // Fallback: unrecognized statement — return proper parse error with position
-        return Err(pair_error(&pair, format!("unrecognized statement '{}'", pair.as_str().trim())));
+        return Err(pair_error(&pair, pair.as_str()));
     }
 }
 
@@ -2717,7 +2717,7 @@ fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                     let mut fields = std::collections::HashMap::new();
                     for child in inner.clone().into_inner() {
                         if child.as_rule() == Rule::struct_field_init {
-                            let field_children: Vec<_> = child.into_inner().collect();
+                            let field_children: Vec<_> = child.clone().into_inner().collect();
                             // struct_field_init = { IDENT ~ COLON ~ expression }
                             let name = pair_str(&field_children[0]);
                             let value = parse_expression(

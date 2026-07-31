@@ -2658,7 +2658,7 @@ fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                 module,
                 function,
                 args,
-            }
+            })
         }
         Rule::call_expr => {
             let children = children_of(&pair);

@@ -1,6 +1,6 @@
 # METALOGOS — Справочник языка (Reference)
 
-> **Версия:** 0.4.0+ (Phase 7.7)
+> **Версия:** 0.12.0
 > **Единый источник истины** для разработчиков, пишущих на Металогосе.
 > Содержит полный список встроенных функций с сигнатурами, типами, описанием и примерами,
 > а также справочник по синтаксису, типам данных и CLI.
@@ -321,6 +321,8 @@ to_int(3.9)        // 3.0
 | `sort_by(list, "field", desc)` | `List, String, Float -> List` | List | Сортировка структур по полю (desc=1.0 → убывание) |
 | `filter(list, "field", value)` | `List, String, Value -> List` | List | Фильтрация: field == value |
 | `reduce(list, "field", init)` | `List, String, Float -> Float` | Float | Сумма значений поля по списку |
+| `slice(list, start, end)` | `List, Float, Float -> List` | List | Срез списка [start, end). Soft-failure: start >= len → пустой список, end > len → clamp, start >= end → пустой список (ADR-0069) |
+| `dedup(list)` | `List -> List` | List | Удаляет дубликаты, сохраняя порядок первого вхождения |
 
 **Примеры:**
 ```mlog
@@ -331,6 +333,8 @@ first(items)           // 10.0
 last(items)            // 30.0
 len(items)             // 3.0
 reverse(items)         // [30.0, 20.0, 10.0]
+slice(items, 1.0, 3.0) // [20.0, 30.0]
+dedup([1.0, 2.0, 2.0])  // [1.0, 2.0]
 
 import std/collections
 let scored = map(actors, "ComputePotential")

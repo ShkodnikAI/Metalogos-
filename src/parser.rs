@@ -29,10 +29,7 @@ fn error_at_start(source: &str, msg: String) -> ParseError {
     let pos = pest::Position::new(source, 0)
         .or_else(|| pest::Position::new("", 0))
         .expect("position 0 is always valid in any string");
-    pest::error::Error::new_from_pos(
-        pest::error::ErrorVariant::CustomError { message: msg },
-        pos,
-    )
+    pest::error::Error::new_from_pos(pest::error::ErrorVariant::CustomError { message: msg }, pos)
 }
 
 
@@ -54,7 +51,7 @@ pub fn parse(source: &str) -> Result<Vec<Declaration>, ParseError> {
         .map_err(|e| error_at_start(source, format!("failed to spawn parser thread: {}", e)))?;
     match handle.join() {
         Ok(result) => result,
-        Err(_) => Err(error_at_start(source, "parser thread panicked".to_string()))
+        Err(_) => Err(error_at_start(source, "parser thread panicked".to_string())),
     }
 }
 
@@ -79,8 +76,12 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::memory_decl => declarations.push(parse_memory_decl(inner_pair)),
                 Rule::import_decl => declarations.push(parse_import_decl(inner_pair)),
                 Rule::entity_type_decl => declarations.push(parse_entity_type_decl(inner_pair)),
-                Rule::entity_record_decl => declarations.push(parse_entity_record_decl(inner_pair)?),
-                Rule::entity_simple_decl => declarations.push(parse_entity_simple_decl(inner_pair)?),
+                Rule::entity_record_decl => {
+                    declarations.push(parse_entity_record_decl(inner_pair)?)
+                }
+                Rule::entity_simple_decl => {
+                    declarations.push(parse_entity_simple_decl(inner_pair)?)
+                }
                 Rule::rule_decl => declarations.push(parse_rule_decl(inner_pair)?),
                 Rule::memorize_decl => declarations.push(parse_memorize_decl(inner_pair)?),
                 Rule::forget_decl => declarations.push(parse_forget_decl(inner_pair)?),
@@ -731,7 +732,8 @@ fn parse_field_decl(pair: Pair<Rule>) -> FieldDecl {
     // Children: IDENT, COLON, type_name, [ASSIGN, literal]
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
     let type_name = find_child_str(&children, Rule::type_name).unwrap_or_default();
-    let default = find_child(&children, Rule::literal).and_then(|lit| parse_literal_to_expr(&lit).ok());
+    let default =
+        find_child(&children, Rule::literal).and_then(|lit| parse_literal_to_expr(&lit).ok());
     FieldDecl {
         name,
         type_name,
@@ -795,7 +797,8 @@ fn unescape_string(s: &str) -> String {
 
 /// Convert a literal pair (STRING_LITERAL, FLOAT_LITERAL, or IDENT) to an Expr.
 fn parse_literal_to_expr(pair: &Pair<Rule>) -> Result<Expr, ParseError> {
-    let inner = pair.clone().into_inner().next().ok_or_else(|| {
+    let inner =
+        pair.clone().into_inner().next().ok_or_else(|| {
             pair_error(pair, "GRAMMAR INVARIANT: literal must have inner content")
         })?;
     match inner.as_rule() {
@@ -830,8 +833,11 @@ fn parse_field_init(pair: Pair<Rule>) -> Result<FieldInit, ParseError> {
     // Children: IDENT, COLON, expression
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
     let expr_pair = find_child(&children, Rule::expression).ok_or_else(|| {
-            pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::expression in field_init")
-        })?;
+        pair_error(
+            &pair,
+            "GRAMMAR INVARIANT: expected Rule::expression in field_init",
+        )
+    })?;
     let value = parse_expression(expr_pair)?;
     Ok(FieldInit { name, value })
 }
@@ -844,8 +850,11 @@ fn parse_entity_simple_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError>
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
     let type_name = find_child_str(&children, Rule::type_name).unwrap_or_default();
     let expr_pair = find_child(&children, Rule::expression).ok_or_else(|| {
-            pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::expression in entity_simple_decl")
-        })?;
+        pair_error(
+            &pair,
+            "GRAMMAR INVARIANT: expected Rule::expression in entity_simple_decl",
+        )
+    })?;
     let value = parse_expression(expr_pair)?;
     Ok(Declaration::EntitySimple(EntitySimpleDecl {
         name,
@@ -860,7 +869,7 @@ fn parse_rule_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
     // Children: condition (contains/compare), assignment, [INT]
     let condition_pair = &children[0];
-let condition = parse_condition(condition_pair.clone())?;
+    let condition = parse_condition(condition_pair.clone())?;
 
     // assignment = { IDENT ~ "." ~ IDENT ~ "=" ~ expression }
     // Children: [IDENT(target), IDENT(field), expression(value)]
@@ -900,7 +909,10 @@ fn parse_condition(pair: Pair<Rule>) -> Result<Condition, ParseError> {
                 right: parse_expression(children[2].clone())?,
             })
         }
-        _ => Err(pair_error(&pair, "GRAMMAR INVARIANT: unknown condition type"))?,
+        _ => Err(pair_error(
+            &pair,
+            "GRAMMAR INVARIANT: unknown condition type",
+        ))?,
     }
 }
 
@@ -911,7 +923,10 @@ fn parse_compare_op(pair: &Pair<Rule>) -> Result<CompareOp, ParseError> {
         ">=" => Ok(CompareOp::Ge),
         "<=" => Ok(CompareOp::Le),
         "==" => Ok(CompareOp::Eq),
-        _ => Err(pair_error(pair, "GRAMMAR INVARIANT: unknown compare operator"))?,
+        _ => Err(pair_error(
+            pair,
+            "GRAMMAR INVARIANT: unknown compare operator",
+        ))?,
     }
 }
 
@@ -1318,7 +1333,8 @@ fn parse_llm_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
                 .iter()
                 .find(|c| c.as_rule() == Rule::llm_provider_key)
                 .and_then(|c| {
-                    find_child(&children_of(c), Rule::expression).and_then(|e| parse_expression(e).ok())
+                    find_child(&children_of(c), Rule::expression)
+                        .and_then(|e| parse_expression(e).ok())
                 });
 
             let url = entry_children
@@ -1514,8 +1530,11 @@ fn parse_memorize_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
     // Children: expression, ["with", "priority", "=", FLOAT_LITERAL]
     let value = find_child(&children, Rule::expression).ok_or_else(|| {
-            pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::expression in memorize_decl")
-        })?;
+        pair_error(
+            &pair,
+            "GRAMMAR INVARIANT: expected Rule::expression in memorize_decl",
+        )
+    })?;
     let value = parse_expression(value)?;
 
     let priority = find_child(&children, Rule::FLOAT_LITERAL)
@@ -1529,8 +1548,11 @@ fn parse_forget_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
     // Children: expression, INT, "days"
     let query = find_child(&children, Rule::expression).ok_or_else(|| {
-            pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::expression in forget_decl")
-        })?;
+        pair_error(
+            &pair,
+            "GRAMMAR INVARIANT: expected Rule::expression in forget_decl",
+        )
+    })?;
     let query = parse_expression(query)?;
 
     let days = find_child(&children, Rule::INT)
@@ -1883,10 +1905,17 @@ fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
         let lb_children = children_of(lb_pair);
         let name = find_child_str(&lb_children, Rule::IDENT).unwrap_or_default();
         let expr = find_child(&lb_children, Rule::expression).ok_or_else(|| {
-                pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::expression in let_binding")
-            })?;
+            pair_error(
+                &pair,
+                "GRAMMAR INVARIANT: expected Rule::expression in let_binding",
+            )
+        })?;
         let mutable = lb_children.iter().any(|c| c.as_rule() == Rule::MUT_KW);
-        Ok(Statement::LetBinding { name, value: parse_expression(expr)?, mutable })
+        Ok(Statement::LetBinding {
+            name,
+            value: parse_expression(expr)?,
+            mutable,
+        })
     } else if let Some(ae_pair) = children
         .iter()
         .find(|c| c.as_rule() == Rule::assign_or_expr)
@@ -1902,9 +1931,15 @@ fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                 .find(|c| c.as_rule() == Rule::expression)
                 .cloned()
                 .ok_or_else(|| {
-                    pair_error(&pair, "GRAMMAR INVARIANT: assign_or_expr assignment must have expression")
+                    pair_error(
+                        &pair,
+                        "GRAMMAR INVARIANT: assign_or_expr assignment must have expression",
+                    )
                 })?;
-            Ok(Statement::Assign { name, value: parse_expression(expr)? })
+            Ok(Statement::Assign {
+                name,
+                value: parse_expression(expr)?,
+            })
         } else {
             // Expression statement (function call, etc.)
             let expr = ae_children
@@ -1912,14 +1947,20 @@ fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                 .find(|c| c.as_rule() == Rule::expression)
                 .cloned()
                 .ok_or_else(|| {
-                    pair_error(&pair, "GRAMMAR INVARIANT: assign_or_expr expression must have expression")
+                    pair_error(
+                        &pair,
+                        "GRAMMAR INVARIANT: assign_or_expr expression must have expression",
+                    )
                 })?;
             Ok(Statement::ExprStmt(parse_expression(expr)?))
         }
     } else if let Some(rs_pair) = children.iter().find(|c| c.as_rule() == Rule::return_stmt) {
         let rs_children = children_of(rs_pair);
         let expr = find_child(&rs_children, Rule::expression).ok_or_else(|| {
-            pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::expression in return_stmt")
+            pair_error(
+                &pair,
+                "GRAMMAR INVARIANT: expected Rule::expression in return_stmt",
+            )
         })?;
         Ok(Statement::Return(parse_expression(expr)?))
     } else if let Some(br_pair) = children.iter().find(|c| c.as_rule() == Rule::break_stmt) {
@@ -1930,11 +1971,11 @@ fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
         // if_then_stmt with optional else: "if expr then { ... } [else if expr then { ... }]* [else { ... }]"
         let it_children: Vec<Pair<Rule>> = it_pair.clone().into_inner().collect();
         let condition = it_children
-                .iter()
-                .find(|c| c.as_rule() == Rule::expression)
-                .cloned()
-                .map(|c| parse_expression(c))
-                .unwrap_or(Ok(Expr::BoolLit(true)))?;
+            .iter()
+            .find(|c| c.as_rule() == Rule::expression)
+            .cloned()
+            .map(|c| parse_expression(c))
+            .unwrap_or(Ok(Expr::BoolLit(true)))?;
         let body: Vec<Statement> = it_children
             .iter()
             .filter(|c| c.as_rule() == Rule::statement)
@@ -2012,7 +2053,10 @@ fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
             .into_inner()
             .find(|c| c.as_rule() == Rule::expression)
             .ok_or_else(|| {
-                pair_error(&pair, "GRAMMAR INVARIANT: expr_stmt must contain expression")
+                pair_error(
+                    &pair,
+                    "GRAMMAR INVARIANT: expr_stmt must contain expression",
+                )
             })?;
         Ok(Statement::ExprStmt(parse_expression(expr)?))
     } else if let Some(as_pair) = children.iter().find(|c| c.as_rule() == Rule::assign_stmt) {
@@ -2280,8 +2324,11 @@ fn parse_flow_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
 
     // children: IDENT, flow_pipeline, [branch_def, ...]
     let pipeline_pair = find_child(&children, Rule::flow_pipeline).ok_or_else(|| {
-            pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::flow_pipeline in flow_decl")
-        })?;
+        pair_error(
+            &pair,
+            "GRAMMAR INVARIANT: expected Rule::flow_pipeline in flow_decl",
+        )
+    })?;
     let pipeline_children = children_of(&pipeline_pair);
 
     let mut input_type = String::new();
@@ -2375,10 +2422,16 @@ fn parse_branch(pair: Pair<Rule>) -> Result<Branch, ParseError> {
     // branch = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
     let label = pair_str(&children[0]);
     let cond_pair = find_child(&children, Rule::branch_condition).ok_or_else(|| {
-            pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::branch_condition in branch")
-        })?;
+        pair_error(
+            &pair,
+            "GRAMMAR INVARIANT: expected Rule::branch_condition in branch",
+        )
+    })?;
     let target = pair_str(children.last().ok_or_else(|| {
-        pair_error(&pair, "GRAMMAR INVARIANT: expected step_ident at end of branch")
+        pair_error(
+            &pair,
+            "GRAMMAR INVARIANT: expected step_ident at end of branch",
+        )
     })?);
     Ok(Branch {
         label,
@@ -2415,7 +2468,10 @@ fn parse_binop(pair: &Pair<Rule>) -> Result<BinOp, ParseError> {
         "<" => Ok(BinOp::Lt),
         "==" => Ok(BinOp::Eq),
         "!=" => Ok(BinOp::Ne),
-        _ => Err(pair_error(pair, "GRAMMAR INVARIANT: unknown binary operator"))?,
+        _ => Err(pair_error(
+            pair,
+            "GRAMMAR INVARIANT: unknown binary operator",
+        ))?,
     }
 }
 
@@ -2426,7 +2482,8 @@ fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
             let inner = pair.into_inner().next().ok_or_else(|| {
                 pest::error::Error::new_from_pos(
                     pest::error::ErrorVariant::CustomError {
-                        message: "GRAMMAR INVARIANT: expression must have inner content".to_string(),
+                        message: "GRAMMAR INVARIANT: expression must have inner content"
+                            .to_string(),
                     },
                     span.start_pos(),
                 )
@@ -2560,7 +2617,8 @@ fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
             let inner = pair.into_inner().next().ok_or_else(|| {
                 pest::error::Error::new_from_pos(
                     pest::error::ErrorVariant::CustomError {
-                        message: "GRAMMAR INVARIANT: unary_expr must have inner content".to_string(),
+                        message: "GRAMMAR INVARIANT: unary_expr must have inner content"
+                            .to_string(),
                     },
                     span.start_pos(),
                 )
@@ -2593,7 +2651,11 @@ fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
             let cond = exprs[0].clone();
             let then_br = exprs[1].clone();
             let else_br = exprs[2].clone();
-            Ok(Expr::IfElse(Box::new(cond), Box::new(then_br), Box::new(else_br)))
+            Ok(Expr::IfElse(
+                Box::new(cond),
+                Box::new(then_br),
+                Box::new(else_br),
+            ))
         }
         Rule::access_expr => {
             let children = children_of(&pair);
@@ -2693,7 +2755,8 @@ fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
             let inner = pair.into_inner().next().ok_or_else(|| {
                 pest::error::Error::new_from_pos(
                     pest::error::ErrorVariant::CustomError {
-                        message: "GRAMMAR INVARIANT: primary_expr must have inner content".to_string(),
+                        message: "GRAMMAR INVARIANT: primary_expr must have inner content"
+                            .to_string(),
                     },
                     span.start_pos(),
                 )
@@ -2705,7 +2768,8 @@ fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                     let inner_expr = inner.into_inner().next().ok_or_else(|| {
                         pest::error::Error::new_from_pos(
                             pest::error::ErrorVariant::CustomError {
-                                message: "GRAMMAR INVARIANT: paren_expr must have inner content".to_string(),
+                                message: "GRAMMAR INVARIANT: paren_expr must have inner content"
+                                    .to_string(),
                             },
                             inner_span.start_pos(),
                         )

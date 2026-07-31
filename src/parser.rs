@@ -2196,7 +2196,7 @@ fn parse_block_if_else_expr(pair: Pair<Rule>) -> Result<Expr, ParseError> {
         }
     }
 
-    Ok(Expr::BlockIfElse { condition, then_branch: Box::new(then_br), else_branch: Box::new(else_br) })
+    Ok(Expr::BlockIfElse {
         condition: Box::new(condition),
         then_body,
         else_ifs: else_ifs
@@ -2204,7 +2204,7 @@ fn parse_block_if_else_expr(pair: Pair<Rule>) -> Result<Expr, ParseError> {
             .map(|(c, b)| (Box::new(c), b))
             .collect(),
         else_body,
-    }
+    })
 }
 
 /// Parse a block-style if statement: `if expr { stmts } else if expr { stmts } else { stmts }`

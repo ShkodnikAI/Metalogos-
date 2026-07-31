@@ -2026,9 +2026,6 @@ fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
             pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::expression in assign_stmt")
         })?;
         Ok(Statement::Assign { name, value: parse_expression(expr)? })
-            name,
-            value: parse_expression(expr)?,
-        }
     } else {
         // Fallback: unrecognized statement — return proper parse error with position
         return Err(pair_error(&pair, format!("unrecognized statement '{}'", pair.as_str().trim())));

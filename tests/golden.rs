@@ -74,11 +74,16 @@ fn all_golden_tests_pass() {
     }
 
     if !failures.is_empty() {
+        let report = failures
+            .iter()
+            .map(|f| format!("  - {}", f))
+            .collect::<Vec<_>>()
+            .join("\n");
         panic!(
             "{} golden test(s) FAILED ({} passed):\n{}",
             failures.len(),
             pairs.len() - failures.len(),
-            failures.iter().map(|f| format!("  - {}", f)).collect::<Vec<_>>().join("\n")
+            report
         );
     }
 }

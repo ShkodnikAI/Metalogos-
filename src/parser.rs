@@ -71,7 +71,7 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
             match inner_pair.as_rule() {
                 Rule::mlogserver_decl => declarations.push(parse_mlogserver_decl(inner_pair)?),
                 Rule::template_decl => {
-                    declarations.push(parse_template_decl_with_body(inner_pair, &template_bodies)?)
+                    declarations.push(parse_template_decl_with_body(inner_pair, &template_bodies))
                 }
                 Rule::db_decl => declarations.push(parse_db_decl(inner_pair)?),
                 Rule::schema_decl => declarations.push(parse_schema_decl(inner_pair)),

@@ -1817,11 +1817,14 @@ fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
     // statement = { match_stmt | if_block_stmt | each_stmt | ... }
     // Наряд №14: match_stmt is now a proper AST statement
     if let Some(m_pair) = children.iter().find(|c| c.as_rule() == Rule::match_stmt) {
-        return parse_match_stmt(m_pair.clone())?;
+        return match parse_match_stmt(m_pair.clone()) {
+            Ok(s) => Ok(s),
+            Err(e) => Err(e),
+        };
     }
     // NOTE: match_stmt previously was parsed as a regular expression — now has full AST support.
     if let Some(ib_pair) = children.iter().find(|c| c.as_rule() == Rule::if_block_stmt) {
-        return parse_if_block_stmt(ib_pair.clone())?;
+        return parse_if_block_stmt(ib_pair.clone());
     } else if let Some(each_pair) = children.iter().find(|c| c.as_rule() == Rule::each_stmt) {
         let each_children: Vec<Pair<Rule>> = each_pair.clone().into_inner().collect();
         // each_stmt: IDENT [COMMA IDENT] "in" expression { body }

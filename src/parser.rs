@@ -906,11 +906,11 @@ fn parse_condition(pair: Pair<Rule>) -> Result<Condition, ParseError> {
 
 fn parse_compare_op(pair: &Pair<Rule>) -> Result<CompareOp, ParseError> {
     match pair.as_str().trim() {
-        ">" => Ok(CompareOp::Gt)),
-        "<" => Ok(CompareOp::Lt)),
-        ">=" => Ok(CompareOp::Ge)),
-        "<=" => Ok(CompareOp::Le)),
-        "==" => Ok(CompareOp::Eq)),
+        ">" => Ok(CompareOp::Gt),
+        "<" => Ok(CompareOp::Lt),
+        ">=" => Ok(CompareOp::Ge),
+        "<=" => Ok(CompareOp::Le),
+        "==" => Ok(CompareOp::Eq),
         _ => Err(pair_error(pair, "GRAMMAR INVARIANT: unknown compare operator"))?,
     }
 }
@@ -2418,18 +2418,18 @@ fn parse_branch_condition(pair: Pair<Rule>) -> Result<BranchCondition, ParseErro
 
 fn parse_binop(pair: &Pair<Rule>) -> Result<BinOp, ParseError> {
     match pair.as_str().trim() {
-        "and" => Ok(BinOp::And)),
-        "or" => Ok(BinOp::Or)),
-        "+" => Ok(BinOp::Add)),
-        "-" => Ok(BinOp::Sub)),
-        "*" => Ok(BinOp::Mul)),
-        "/" => Ok(BinOp::Div)),
-        ">=" => Ok(BinOp::Ge)),
-        "<=" => Ok(BinOp::Le)),
-        ">" => Ok(BinOp::Gt)),
-        "<" => Ok(BinOp::Lt)),
-        "==" => Ok(BinOp::Eq)),
-        "!=" => Ok(BinOp::Ne)),
+        "and" => Ok(BinOp::And),
+        "or" => Ok(BinOp::Or),
+        "+" => Ok(BinOp::Add),
+        "-" => Ok(BinOp::Sub),
+        "*" => Ok(BinOp::Mul),
+        "/" => Ok(BinOp::Div),
+        ">=" => Ok(BinOp::Ge),
+        "<=" => Ok(BinOp::Le),
+        ">" => Ok(BinOp::Gt),
+        "<" => Ok(BinOp::Lt),
+        "==" => Ok(BinOp::Eq),
+        "!=" => Ok(BinOp::Ne),
         _ => Err(pair_error(pair, "GRAMMAR INVARIANT: unknown binary operator"))?,
     }
 }

@@ -32,7 +32,6 @@ fn error_at_start(source: &str, msg: String) -> ParseError {
     pest::error::Error::new_from_pos(pest::error::ErrorVariant::CustomError { message: msg }, pos)
 }
 
-
 use crate::ast::*;
 
 /// Parse a .mlog source string into a list of declarations.
@@ -2064,9 +2063,15 @@ fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
         let as_children = children_of(as_pair);
         let name = find_child_str(&as_children, Rule::IDENT).unwrap_or_default();
         let expr = find_child(&as_children, Rule::expression).ok_or_else(|| {
-            pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::expression in assign_stmt")
+            pair_error(
+                &pair,
+                "GRAMMAR INVARIANT: expected Rule::expression in assign_stmt",
+            )
         })?;
-        Ok(Statement::Assign { name, value: parse_expression(expr)? })
+        Ok(Statement::Assign {
+            name,
+            value: parse_expression(expr)?,
+        })
     } else {
         // Fallback: unrecognized statement — return proper parse error with position
         return Err(pair_error(&pair, pair.as_str()));

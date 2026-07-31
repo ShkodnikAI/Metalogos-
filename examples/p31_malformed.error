@@ -1,1 +1,6 @@
-error: parse error:
+error: parse error:  --> 2:11
+  |
+2 |   let x = @#%
+  |           ^---
+  |
+  = expected unary_expr

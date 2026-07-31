@@ -1,1 +1,3 @@
-@#%INVALID
+pattern Foo() -> String {
+  let x = @#%
+}

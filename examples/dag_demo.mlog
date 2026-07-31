@@ -1,7 +1,7 @@
 // AgentSkillOS-inspired: DAG phase extraction + topo sort (ADR-0062)
 // Demonstrates dag_phases() and topo_sort() builtins
 
-pattern Demo() -> String {
+pattern Demo(input: String) -> String {
   // Build a DAG: extract and load have no deps (parallel),
   // transform depends on both, validate depends on transform
   let dag = [

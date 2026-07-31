@@ -245,8 +245,8 @@ fn parse_route_decl(pair: Pair<Rule>) -> Result<RouteDecl, ParseError> {
         method,
         requires,
         body,
-    })
-)
+    }))
+}
 
 // ── Template (Phase 6.2) ─────────────────────────────────────
 
@@ -1418,8 +1418,8 @@ fn parse_tool_method(pair: Pair<Rule>) -> Result<ToolMethod, ParseError> {
         params,
         return_type,
         body,
-    })
-)
+    }))
+}
 
 // ── Eval Harness (ADR-0050) ──────────────────────────────────────────
 

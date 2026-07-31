@@ -1883,11 +1883,7 @@ fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                 pair_error(&pair, "GRAMMAR INVARIANT: expected Rule::expression in let_binding")
             })?;
         let mutable = lb_children.iter().any(|c| c.as_rule() == Rule::MUT_KW);
-            Ok(Statement::LetBinding { name, value: parse_expression(expr)?, mutable })
-            name,
-            value: parse_expression(expr)?,
-            mutable,
-        }
+        Ok(Statement::LetBinding { name, value: parse_expression(expr)?, mutable })
     } else if let Some(ae_pair) = children
         .iter()
         .find(|c| c.as_rule() == Rule::assign_or_expr)

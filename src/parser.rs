@@ -194,7 +194,7 @@ fn parse_mlogserver_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
         host,
         middleware,
         routes,
-    })
+    }))
 }
 
 fn parse_route_decl(pair: Pair<Rule>) -> Result<RouteDecl, ParseError> {
@@ -245,8 +245,8 @@ fn parse_route_decl(pair: Pair<Rule>) -> Result<RouteDecl, ParseError> {
         method,
         requires,
         body,
-    }
-}
+    })
+)
 
 // ── Template (Phase 6.2) ─────────────────────────────────────
 
@@ -822,7 +822,7 @@ fn parse_entity_record_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError>
         name,
         type_name,
         fields,
-    })
+    }))
 }
 
 fn parse_field_init(pair: Pair<Rule>) -> Result<FieldInit, ParseError> {
@@ -961,7 +961,7 @@ fn parse_fluid_branch(pair: Pair<Rule>) -> Result<FluidVariant, ParseError> {
         type_name,
         value,
         confidence,
-    })
+    }))
 }
 
 // ── Adapt (M5) ──────────────────────────────────────────────────
@@ -993,7 +993,7 @@ fn parse_adapt_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
         pattern_name,
         input_example,
         output_example,
-    })
+    }))
 }
 
 // ── Relate (knowledge graph edge) ──────────────────────────────
@@ -1418,8 +1418,8 @@ fn parse_tool_method(pair: Pair<Rule>) -> Result<ToolMethod, ParseError> {
         params,
         return_type,
         body,
-    }
-}
+    })
+)
 
 // ── Eval Harness (ADR-0050) ──────────────────────────────────────────
 
@@ -2394,7 +2394,7 @@ fn parse_branch(pair: Pair<Rule>) -> Result<Branch, ParseError> {
         label,
         condition: parse_branch_condition(cond_pair)?,
         target,
-    })
+    }))
 }
 
 fn parse_branch_condition(pair: Pair<Rule>) -> Result<BranchCondition, ParseError> {
@@ -2406,7 +2406,7 @@ fn parse_branch_condition(pair: Pair<Rule>) -> Result<BranchCondition, ParseErro
         field: pair_str(&children[1]),
         op: parse_compare_op(&children[2])?,
         threshold: parse_expression(children[3].clone())?,
-    })
+    }))
 }
 
 // ── Expressions ─────────────────────────────────────────────────────

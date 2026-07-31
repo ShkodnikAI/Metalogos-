@@ -2428,7 +2428,7 @@ fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                     span.start_pos(),
                 )
             })?;
-            parse_expression(inner)?
+            Ok(parse_expression(inner)?)
         }
         Rule::or_expr => {
             let children = children_of(&pair);
@@ -2562,7 +2562,7 @@ fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                     span.start_pos(),
                 )
             })?;
-            parse_expression(inner)?
+            Ok(parse_expression(inner)?)
         }
         // Наряд №14 P1-4: try expression
         Rule::try_expr => {
@@ -2707,11 +2707,11 @@ fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                             inner_span.start_pos(),
                         )
                     })?;
-                    parse_expression(inner_expr)?
+                    Ok(parse_expression(inner_expr)?)
                 }
                 Rule::block_if_else_expr => {
                     // Наряд №14 P0-3: block if/else as expression
-                    parse_block_if_else_expr(inner)?
+                    Ok(parse_block_if_else_expr(inner)?)
                 }
                 Rule::struct_literal => {
                     let mut fields = std::collections::HashMap::new();

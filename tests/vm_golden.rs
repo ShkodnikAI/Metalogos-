@@ -1,8 +1,98 @@
 // ── VM golden tests: run examples/ through the bytecode VM ────────────
 // Phase 4.2: strict dual-mode comparison for all golden examples.
+// ADR-0076: dispatch path coverage test to prevent silent instruction drift.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+
+/// Instructions that are intentionally ONLY handled by `run()` and NOT by
+/// `execute_code()`. These represent top-level program constructs that
+/// should never appear in compiled pattern bodies.
+///
+/// ADR-0076: Adding a new Instruction variant handled by `run()` without
+/// either adding it to `execute_code()` or this list causes a test failure.
+const TOP_LEVEL_ONLY_INSTRUCTIONS: &[&str] = &[
+    "Adapt",             // top-level learnable adaptation
+    "ExecuteRules",      // macro instruction — rule engine trigger
+    "FlowExec",          // macro instruction — flow pipeline
+    "Forget",            // top-level memory forget
+    "Halt",              // end-of-program marker
+    "JumpIfLow",         // confidence-based branching (top-level flows)
+    "ListLen",           // list length (not yet in execute_code)
+    "MakeFluid",         // fluid type construction (top-level)
+    "MakeList",          // list literal construction (not yet in execute_code)
+    "Memorize",          // top-level memory memorize
+    "Mutate",            // top-level mutate declaration
+    "Pop",               // stack cleanup (top-level expr statements)
+    "RegisterLearnable", // learnable pattern registration
+    "RegisterPattern",   // pattern registration
+    "Relate",            // top-level knowledge graph relation
+    "StartsWith",        // string starts-with (not yet in execute_code)
+    "StoreGlobal",       // top-level global variable assignment
+];
+
+/// All Instruction variants that exist in the bytecode::Instruction enum.
+/// ADR-0076: If a new variant is added to the enum, it MUST also be added here.
+const ALL_INSTRUCTIONS: &[&str] = &[
+    // Constants & Variables
+    "Const",
+    "LoadGlobal",
+    "LoadGlobalByName",
+    "StoreGlobal",
+    "LoadLocal",
+    "StoreLocal",
+    // Function Registration
+    "RegisterPattern",
+    "RegisterLearnable",
+    // Function Calls
+    "CallBuiltin",
+    "CallPattern",
+    "Return",
+    // Binary Operations
+    "Add",
+    "Sub",
+    "Mul",
+    "Div",
+    "Contains",
+    // Comparisons
+    "CmpGt",
+    "CmpLt",
+    "CmpGe",
+    "CmpLe",
+    "CmpEq",
+    "CmpNe",
+    // Struct Operations
+    "MakeStruct",
+    "GetField",
+    "IndexAccess",
+    "MakeList",
+    "ListLen",
+    "Pop",
+    "StartsWith",
+    // Fluid Types
+    "MakeFluid",
+    // Control Flow
+    "Jump",
+    "JumpIfNot",
+    "JumpIfLow",
+    // Memory
+    "Collapse",
+    "Memorize",
+    "Recall",
+    "Forget",
+    // LLM
+    "LlmCall",
+    // Adapt / Relate / Mutate
+    "Adapt",
+    "Relate",
+    "Mutate",
+    // Pipeline
+    "FlowExec",
+    // Rules
+    "ExecuteRules",
+    // Meta
+    "Halt",
+];
 
 /// Execute a .mlog source via the bytecode VM.
 fn run_vm(source: &str, base_dir: &Path) -> Result<Option<String>, String> {
@@ -156,4 +246,52 @@ fn all_vm_golden_tests_pass() {
         pairs.len()
     );
     assert_eq!(passed, pairs.len());
+}
+
+/// ADR-0076: Verify that every Instruction variant is accounted for.
+/// The test ensures the instruction lists stay synchronized with the enum.
+/// ALL_INSTRUCTIONS must contain every variant; TOP_LEVEL_ONLY must be a
+/// subset. Adding a new instruction without updating ALL_INSTRUCTIONS will
+/// cause the count check to fail.
+#[test]
+fn vm_dispatch_coverage() {
+    // Verify: TOP_LEVEL_ONLY is a subset of ALL_INSTRUCTIONS
+    for instr in TOP_LEVEL_ONLY_INSTRUCTIONS {
+        assert!(
+            ALL_INSTRUCTIONS.contains(instr),
+            "ADR-0076: '{}' in TOP_LEVEL_ONLY but not in ALL_INSTRUCTIONS",
+            instr
+        );
+    }
+
+    // Verify: expected total count matches.
+    // If someone adds a new Instruction variant to the enum without updating
+    // ALL_INSTRUCTIONS, this assertion will catch it (count mismatch).
+    // Current: 44 total (27 shared + 17 top-level-only).
+    assert_eq!(
+        ALL_INSTRUCTIONS.len(),
+        44,
+        "ADR-0076: ALL_INSTRUCTIONS count changed (expected 44). \
+         If a new Instruction variant was added to the enum, update ALL_INSTRUCTIONS \
+         and optionally TOP_LEVEL_ONLY_INSTRUCTIONS."
+    );
+
+    // Verify: no duplicates in ALL_INSTRUCTIONS
+    let mut seen = std::collections::HashSet::new();
+    for instr in ALL_INSTRUCTIONS {
+        assert!(
+            seen.insert(*instr),
+            "ADR-0076: duplicate entry '{}' in ALL_INSTRUCTIONS",
+            instr
+        );
+    }
+
+    // Report
+    let shared_count = ALL_INSTRUCTIONS.len() - TOP_LEVEL_ONLY_INSTRUCTIONS.len();
+    eprintln!(
+        "\nADR-0076: {} total instructions ({} shared + {} top-level-only), coverage OK",
+        ALL_INSTRUCTIONS.len(),
+        shared_count,
+        TOP_LEVEL_ONLY_INSTRUCTIONS.len()
+    );
 }

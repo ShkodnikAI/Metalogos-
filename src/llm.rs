@@ -207,6 +207,12 @@ pub struct RealLlm {
     pub base_url: Option<String>,
 }
 
+impl Default for RealLlm {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RealLlm {
     /// Create a new RealLlm backend from environment configuration.
     ///

@@ -79,7 +79,7 @@ pub(crate) fn builtin_render(args: &[Value]) -> Result<Value, String> {
     // render(template_name, key1, val1, key2, val2, ...)
     // Simple {{ var }} substitution with auto-escaping
     // In interpreter mode, do basic string substitution
-    if args.len() < 3 || (args.len() - 1) % 2 != 0 {
+    if args.len() < 3 || !(args.len() - 1).is_multiple_of(2) {
         return Err("render() requires template name + key/value pairs (odd count)".to_string());
     }
     let template_name = expect_string_arg("render", args, 0)?;
@@ -171,17 +171,12 @@ pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
 
     // Наряда-26 P0-1: configurable timeout (default 30s, max 300s)
     // Signatures: http_post(url, body, timeout) | http_post(url, body, ct, timeout) | http_post(url, body, ct, headers, timeout)
-    let timeout_secs = if let Some(timeout_val) = args.get(timeout_arg_idx) {
-        match timeout_val {
-            Value::Float(f) => {
-                let t = f.clamp(1.0, 300.0) as u64;
-                if *f > 300.0 {
-                    eprintln!("[http_post] timeout clamped from {} to 300s", f);
-                }
-                t
-            }
-            _ => 30, // not a number → skip, treat as headers or ignore
+    let timeout_secs = if let Some(Value::Float(f)) = args.get(timeout_arg_idx) {
+        let t = f.clamp(1.0, 300.0) as u64;
+        if *f > 300.0 {
+            eprintln!("[http_post] timeout clamped from {} to 300s", f);
         }
+        t
     } else {
         30
     };
@@ -693,7 +688,7 @@ pub(crate) fn builtin_days_between(args: &[Value]) -> Result<Value, String> {
 pub(crate) fn builtin_days_in_month(args: &[Value]) -> Result<Value, String> {
     let year = expect_float_arg("days_in_month", args, 0)? as i32;
     let month = expect_float_arg("days_in_month", args, 1)? as u32;
-    if month < 1 || month > 12 {
+    if !(1..=12).contains(&month) {
         return Err("days_in_month() month must be 1-12".to_string());
     }
     Ok(Value::Float(date_days_in_month(year, month) as f64))
@@ -951,12 +946,7 @@ pub(crate) fn builtin_weather_forecast(args: &[Value]) -> Result<Value, String> 
     } else if args.len() >= 3 {
         days = expect_float_arg("weather_forecast", args, 2)? as u32;
     }
-    if days < 1 {
-        days = 1;
-    }
-    if days > 16 {
-        days = 16;
-    }
+    days = days.clamp(1, 16);
     let url = format!(
         "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,sunrise,sunset,uv_index_max&timezone=auto&forecast_days={}",
         lat, lon, days

@@ -187,7 +187,7 @@ pub(crate) fn builtin_exec(args: &[Value]) -> Result<Value, String> {
 /// Uses GITHUB_TOKEN and GITHUB_REPO env vars for authentication.
 /// Usage: git_push("commit message") -> "ok" | "nothing to commit" | error
 pub(crate) fn builtin_git_push(args: &[Value]) -> Result<Value, String> {
-    let message = match args.get(0) {
+    let message = match args.first() {
         Some(Value::String(s)) => s.clone(),
         _ => "Auto commit".to_string(),
     };

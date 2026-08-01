@@ -5,7 +5,7 @@ use crate::interpreter::Value;
 use super::core::expect_float_arg;
 
 pub(crate) fn builtin_float(args: &[Value]) -> Result<Value, String> {
-    match args.get(0) {
+    match args.first() {
         Some(Value::Float(f)) => Ok(Value::Float(*f)),
         Some(Value::String(s)) => s
             .parse::<f64>()
@@ -24,7 +24,7 @@ pub(crate) fn builtin_to_string(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(crate) fn builtin_to_float(args: &[Value]) -> Result<Value, String> {
-    match args.get(0) {
+    match args.first() {
         Some(Value::Float(f)) => Ok(Value::Float(*f)),
         Some(Value::String(s)) => Ok(s
             .parse::<f64>()
@@ -36,7 +36,7 @@ pub(crate) fn builtin_to_float(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(crate) fn builtin_confidence(args: &[Value]) -> Result<Value, String> {
-    match args.get(0) {
+    match args.first() {
         Some(Value::Fluid(variants)) => {
             let best = variants
                 .iter()
@@ -79,7 +79,7 @@ pub(crate) fn builtin_round(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(crate) fn builtin_first(args: &[Value]) -> Result<Value, String> {
-    let list = match args.get(0) {
+    let list = match args.first() {
         Some(Value::List(items)) => items,
         _ => return Err("first() requires List as first argument".to_string()),
     };
@@ -90,7 +90,7 @@ pub(crate) fn builtin_first(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(crate) fn builtin_last(args: &[Value]) -> Result<Value, String> {
-    let list = match args.get(0) {
+    let list = match args.first() {
         Some(Value::List(items)) => items,
         _ => return Err("last() requires List as first argument".to_string()),
     };
@@ -102,7 +102,7 @@ pub(crate) fn builtin_last(args: &[Value]) -> Result<Value, String> {
 
 /// `length(s)` — returns the length of a string or list as Float.
 pub(crate) fn builtin_length(args: &[Value]) -> Result<Value, String> {
-    match args.get(0) {
+    match args.first() {
         Some(Value::String(s)) => Ok(Value::Float(s.chars().count() as f64)),
         Some(Value::List(items)) => Ok(Value::Float(items.len() as f64)),
         other => Err(format!(
@@ -114,7 +114,7 @@ pub(crate) fn builtin_length(args: &[Value]) -> Result<Value, String> {
 
 /// `to_int(s)` — parse a string to an integer Float (truncates towards zero).
 pub(crate) fn builtin_to_int(args: &[Value]) -> Result<Value, String> {
-    match args.get(0) {
+    match args.first() {
         Some(Value::Float(f)) => Ok(Value::Float(f.trunc())),
         Some(Value::String(s)) => {
             // Try integer parse first, then float truncation

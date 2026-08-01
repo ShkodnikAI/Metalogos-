@@ -134,7 +134,7 @@ pub(crate) fn builtin_assert_eq(args: &[Value]) -> Result<Value, String> {
 
 /// `assert_contains(haystack, needle)` — panic if needle not found in haystack string.
 pub(crate) fn builtin_assert_contains(args: &[Value]) -> Result<Value, String> {
-    let haystack = format!("{}", args.get(0).unwrap_or(&Value::Unit));
+    let haystack = format!("{}", args.first().unwrap_or(&Value::Unit));
     let needle = format!("{}", args.get(1).unwrap_or(&Value::Unit));
     if !haystack.contains(&needle) {
         Err(format!(

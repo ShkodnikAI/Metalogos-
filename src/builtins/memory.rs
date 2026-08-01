@@ -819,7 +819,7 @@ pub(crate) fn builtin_graph_neighbors(args: &[Value]) -> Result<Value, String> {
 /// Formula: score *= e^(-lambda * hours_since_access).
 /// Returns Struct { decayed: <count>, nodes: <total>, edges: <total> }.
 pub(crate) fn builtin_memory_decay(args: &[Value]) -> Result<Value, String> {
-    let lambda = match args.get(0) {
+    let lambda = match args.first() {
         Some(Value::Float(f)) => *f,
         _ => 0.01,
     };
@@ -874,7 +874,7 @@ pub(crate) fn builtin_memory_boost(args: &[Value]) -> Result<Value, String> {
 /// `min_age_hours`: minimum age in hours before pruning (default 24, protects fresh entries).
 /// Returns Struct { pruned: <count>, remaining: <total> }.
 pub(crate) fn builtin_memory_prune(args: &[Value]) -> Result<Value, String> {
-    let threshold = match args.get(0) {
+    let threshold = match args.first() {
         Some(Value::Float(f)) => *f,
         _ => 0.05,
     };
@@ -967,7 +967,7 @@ pub(crate) fn builtin_subgraph_extract(args: &[Value]) -> Result<Value, String> 
 /// `subgraph_nodes(subgraph_value)` — extract node list from a Subgraph value.
 /// Returns List of Struct { id, text, level, score }.
 pub(crate) fn builtin_subgraph_nodes(args: &[Value]) -> Result<Value, String> {
-    let snap = match args.get(0) {
+    let snap = match args.first() {
         Some(Value::Subgraph(s)) => s,
         _ => return Err("subgraph_nodes: expected Subgraph value as first argument".to_string()),
     };
@@ -988,7 +988,7 @@ pub(crate) fn builtin_subgraph_nodes(args: &[Value]) -> Result<Value, String> {
 
 /// `subgraph_json(subgraph_value)` — serialize a Subgraph to JSON string.
 pub(crate) fn builtin_subgraph_json(args: &[Value]) -> Result<Value, String> {
-    let snap = match args.get(0) {
+    let snap = match args.first() {
         Some(Value::Subgraph(s)) => s,
         _ => return Err("subgraph_json: expected Subgraph value as first argument".to_string()),
     };

@@ -701,8 +701,8 @@ impl Compiler {
                 }
                 Statement::While { condition, body } => {
                     let loop_start = code.len();
-                    let mut break_fixups: Vec<usize> = Vec::new();
-                    let mut continue_fixups: Vec<usize> = Vec::new();
+                    let break_fixups: Vec<usize> = Vec::new();
+                    let continue_fixups: Vec<usize> = Vec::new();
 
                     // Evaluate condition
                     self.compile_expr_with_locals(condition, &mut code, locals)?;
@@ -778,7 +778,7 @@ impl Compiler {
                     code.push(Instruction::StoreLocal(idx_slot));
 
                     let loop_start = code.len();
-                    let mut break_fixups: Vec<usize> = Vec::new();
+                    let break_fixups: Vec<usize> = Vec::new();
 
                     // Check: idx < len? → JumpIfNot after_loop
                     // Stack: [..., len, idx] — we need to duplicate both or use CmpLt
@@ -874,7 +874,7 @@ impl Compiler {
                     code.push(Instruction::StoreLocal(idx_slot));
 
                     let loop_start = code.len();
-                    let mut break_fixups: Vec<usize> = Vec::new();
+                    let break_fixups: Vec<usize> = Vec::new();
 
                     code.push(Instruction::LoadLocal(idx_slot));
                     code.push(Instruction::LoadLocal(list_slot));
@@ -1106,7 +1106,7 @@ impl Compiler {
             }
             Statement::While { condition, body } => {
                 let loop_start = code.len();
-                let mut break_fixups: Vec<usize> = Vec::new();
+                let break_fixups: Vec<usize> = Vec::new();
 
                 self.compile_expr_with_locals(condition, code, locals)?;
                 let jmp_not_idx = code.len();

@@ -47,7 +47,7 @@ pub fn run_program_with_dir(
         match output {
             Some(flow_output) => {
                 let mut result = mutate_log.join("\n");
-                result.push_str("\n");
+                result.push('\n');
                 result.push_str(&flow_output);
                 Ok(Some(result))
             }
@@ -124,7 +124,7 @@ pub fn feed_line(
         match output {
             Some(flow_output) => {
                 let mut result = mutate_log.join("\n");
-                result.push_str("\n");
+                result.push('\n');
                 result.push_str(&flow_output);
                 Ok(Some(result))
             }
@@ -212,7 +212,7 @@ pub fn resume_program_with_dir(
         match output {
             Some(flow_output) => {
                 let mut result = mutate_log.join("\n");
-                result.push_str("\n");
+                result.push('\n');
                 result.push_str(&flow_output);
                 Ok(Some(result))
             }

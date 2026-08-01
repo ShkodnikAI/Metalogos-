@@ -402,7 +402,6 @@ impl Interpreter {
             if url == "sqlite::memory:" {
                 // In-memory DB: Arc-shared connection from main interpreter
                 // No need to reconnect — clone_definitions_into already shared it
-                return;
             } else if url.starts_with("sqlite:") {
                 // File DB: open a new connection for this request (WAL handles concurrency)
                 let path = url.trim_start_matches("sqlite:");

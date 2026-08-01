@@ -1039,7 +1039,7 @@ impl Vm {
         if !self.collections_loaded {
             return Err("map() requires 'import std/collections'".to_string());
         }
-        let list = match args.get(0) {
+        let list = match args.first() {
             Some(Value::List(items)) => items.clone(),
             _ => return Err("map() expects first argument to be a List".to_string()),
         };
@@ -1079,7 +1079,7 @@ impl Vm {
 
     fn call_builtin(&mut self, name: &str, args: &[Value]) -> Result<Value, String> {
         if name == "recall" {
-            let query = match args.get(0) {
+            let query = match args.first() {
                 Some(Value::String(s)) => s.clone(),
                 other => return Err(format!("recall() expected String, got {:?}", other)),
             };
@@ -1094,7 +1094,7 @@ impl Vm {
         // find(entity_type, field, op, threshold) — entity store query
         // Searches globals for structs matching the type and field condition.
         if name == "find" {
-            let type_name = match args.get(0) {
+            let type_name = match args.first() {
                 Some(Value::String(s)) => s.clone(),
                 _ => return Err("find() requires type name as first argument (String)".to_string()),
             };
@@ -1152,7 +1152,7 @@ impl Vm {
 
         // db_insert(table, struct) — insert a struct into a database table
         if name == "db_insert" {
-            let table = match args.get(0) {
+            let table = match args.first() {
                 Some(Value::String(s)) => s.clone(),
                 _ => {
                     return Err(
@@ -1200,7 +1200,7 @@ impl Vm {
 
         // query_scalar(sql, params) — execute SELECT returning one scalar value
         if name == "query_scalar" {
-            let sql = match args.get(0) {
+            let sql = match args.first() {
                 Some(Value::String(s)) => s.clone(),
                 _ => return Err("query_scalar() expected String SQL".to_string()),
             };
@@ -1251,7 +1251,7 @@ impl Vm {
 
         // query(sql) / query(sql, params) — execute SELECT returning list of structs
         if name == "query" {
-            let sql = match args.get(0) {
+            let sql = match args.first() {
                 Some(Value::String(s)) => s.clone(),
                 _ => return Err("query() expected String SQL".to_string()),
             };
@@ -1302,7 +1302,7 @@ impl Vm {
 
         // db_execute(sql, params?) — execute SQL (INSERT/UPDATE/DELETE/DDL)
         if name == "db_execute" {
-            let sql = match args.get(0) {
+            let sql = match args.first() {
                 Some(Value::String(s)) => s.clone(),
                 _ => return Err("db_execute() expected String SQL".to_string()),
             };
@@ -1333,7 +1333,7 @@ impl Vm {
 
         // resolve_skill_index(dept) — returns compiled skill index as Value::Struct
         if name == "resolve_skill_index" {
-            let dept = match args.get(0) {
+            let dept = match args.first() {
                 Some(Value::String(s)) => s.clone(),
                 _ => {
                     return Err(

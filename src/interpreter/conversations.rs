@@ -8,7 +8,7 @@ impl Interpreter {
 
     /// `conv_start(id)` — create or open a conversation. Returns the conversation id.
     pub(super) fn invoke_conv_start(&self, args: &[Value]) -> Result<Value, String> {
-        let id = match args.get(0) {
+        let id = match args.first() {
             Some(Value::String(s)) => s.clone(),
             _ => return Err("conv_start() requires 1 argument (id: String)".to_string()),
         };
@@ -32,7 +32,7 @@ impl Interpreter {
 
     /// `conv_add(id, role, text)` — add a message to a conversation.
     pub(super) fn invoke_conv_add(&self, args: &[Value]) -> Result<Value, String> {
-        let id = match args.get(0) {
+        let id = match args.first() {
             Some(Value::String(s)) => s.clone(),
             _ => return Err("conv_add() requires 3 arguments (id, role, text)".to_string()),
         };
@@ -80,7 +80,7 @@ impl Interpreter {
 
     /// `conv_history(id)` — return the full message history as a List of Structs.
     pub(super) fn invoke_conv_history(&self, args: &[Value]) -> Result<Value, String> {
-        let id = match args.get(0) {
+        let id = match args.first() {
             Some(Value::String(s)) => s.clone(),
             _ => return Err("conv_history() requires 1 argument (id: String)".to_string()),
         };
@@ -108,7 +108,7 @@ impl Interpreter {
 
     /// `conv_context(id)` — return a formatted string of conversation history for LLM injection.
     pub(super) fn invoke_conv_context(&self, args: &[Value]) -> Result<Value, String> {
-        let id = match args.get(0) {
+        let id = match args.first() {
             Some(Value::String(s)) => s.clone(),
             _ => return Err("conv_context() requires 1 argument (id: String)".to_string()),
         };
@@ -129,7 +129,7 @@ impl Interpreter {
 
     /// `conv_end(id)` — terminate a conversation. Returns "ok".
     pub(super) fn invoke_conv_end(&self, args: &[Value]) -> Result<Value, String> {
-        let id = match args.get(0) {
+        let id = match args.first() {
             Some(Value::String(s)) => s.clone(),
             _ => return Err("conv_end() requires 1 argument (id: String)".to_string()),
         };

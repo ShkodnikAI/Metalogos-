@@ -109,7 +109,7 @@ pub(crate) fn builtin_json_encode(args: &[Value]) -> Result<Value, String> {
 /// This is the P0 fix: prevents runtime crash when accessing optional JSON fields
 /// like message.voice on non-voice Telegram updates.
 pub(crate) fn builtin_json_get(args: &[Value]) -> Result<Value, String> {
-    let obj = match args.get(0) {
+    let obj = match args.first() {
         Some(v) => v,
         None => {
             return Err("json_get() requires at least 2 arguments (obj, field_path)".to_string())
@@ -179,7 +179,7 @@ pub(crate) fn builtin_json_get(args: &[Value]) -> Result<Value, String> {
 /// Usage: has_field(obj, "field") -> Float
 /// Usage: has_field(obj, "nested.field") -> Float (dot-separated path)
 pub(crate) fn builtin_has_field(args: &[Value]) -> Result<Value, String> {
-    let obj = match args.get(0) {
+    let obj = match args.first() {
         Some(v) => v,
         None => return Err("has_field() requires 2 arguments (obj, field_path)".to_string()),
     };
@@ -228,7 +228,7 @@ pub(crate) fn builtin_dict_set(args: &[Value]) -> Result<Value, String> {
 
 /// `dict_keys(dict) -> List` — return list of keys.
 pub(crate) fn builtin_dict_keys(args: &[Value]) -> Result<Value, String> {
-    let fields = match &args.get(0) {
+    let fields = match &args.first() {
         Some(Value::Struct { fields, .. }) => fields,
         _ => return Err("dict_keys() requires 1 argument (Struct/Dict)".to_string()),
     };
@@ -238,7 +238,7 @@ pub(crate) fn builtin_dict_keys(args: &[Value]) -> Result<Value, String> {
 
 /// `dict_values(dict) -> List` — return list of values.
 pub(crate) fn builtin_dict_values(args: &[Value]) -> Result<Value, String> {
-    let fields = match &args.get(0) {
+    let fields = match &args.first() {
         Some(Value::Struct { fields, .. }) => fields,
         _ => return Err("dict_values() requires 1 argument (Struct/Dict)".to_string()),
     };

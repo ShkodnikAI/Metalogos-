@@ -659,7 +659,7 @@ impl Interpreter {
         // ADR-0045/Phase 7.1: server-context builtins (flow step dispatch)
         if name == "query_param" {
             let param_name = args
-                .get(0)
+                .first()
                 .and_then(|v| match v {
                     Value::String(s) => Some(s.clone()),
                     _ => None,
@@ -687,7 +687,7 @@ impl Interpreter {
 
         // Problem A: resolve_skill_index(dept) — main invoke path
         if name == "resolve_skill_index" {
-            let dept = match args.get(0) {
+            let dept = match args.first() {
                 Some(Value::String(s)) => s.clone(),
                 _ => {
                     return Err(
@@ -756,7 +756,7 @@ impl Interpreter {
 
         // Problem A: fit_to_budget(list) — MVP: return list as-is
         if name == "fit_to_budget" {
-            let list = match args.get(0) {
+            let list = match args.first() {
                 Some(Value::List(items)) => items.clone(),
                 _ => return Err("fit_to_budget() expects first argument to be a List".to_string()),
             };
@@ -1665,7 +1665,7 @@ impl Interpreter {
                 // Bug 2.1 fix: query_param() — intercept to access server_query_params
                 if name == "query_param" {
                     let param_name = eval_args
-                        .get(0)
+                        .first()
                         .and_then(|v| match v {
                             Value::String(s) => Some(s.clone()),
                             _ => None,
@@ -1681,7 +1681,7 @@ impl Interpreter {
                 // Наряд №14 P2-6: require() — RBAC check
                 if name == "require" {
                     let role = eval_args
-                        .get(0)
+                        .first()
                         .and_then(|v| match v {
                             Value::String(s) => Some(s.clone()),
                             _ => None,
@@ -1727,7 +1727,7 @@ impl Interpreter {
 
                 // Problem B (reverse-iteration): map(list, "pattern_name") — needs pattern access
                 if name == "map" {
-                    let list = match eval_args.get(0) {
+                    let list = match eval_args.first() {
                         Some(Value::List(items)) => items.clone(),
                         _ => return Err("map() expects first argument to be a List".to_string()),
                     };
@@ -1764,7 +1764,7 @@ impl Interpreter {
                 // Problem C (reverse-iteration): db_insert(table, struct) — needs db_conn
                 if name == "db_insert" {
                     let table =
-                        match eval_args.get(0) {
+                        match eval_args.first() {
                             Some(Value::String(s)) => s.clone(),
                             _ => return Err(
                                 "db_insert() expects first argument to be a table name (String)"
@@ -1819,7 +1819,7 @@ impl Interpreter {
 
                 // Problem A: resolve_skill_index(dept) — returns registered index as Value::Struct
                 if name == "resolve_skill_index" {
-                    let dept = match eval_args.get(0) {
+                    let dept = match eval_args.first() {
                         Some(Value::String(s)) => s.clone(),
                         _ => {
                             return Err("resolve_skill_index() expects a department name (String)"
@@ -1892,7 +1892,7 @@ impl Interpreter {
 
                 // Problem A: fit_to_budget(list, budget, mode) — MVP: return list as-is
                 if name == "fit_to_budget" {
-                    let list = match eval_args.get(0) {
+                    let list = match eval_args.first() {
                         Some(Value::List(items)) => items.clone(),
                         _ => {
                             return Err(

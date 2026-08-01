@@ -142,7 +142,7 @@ pub(crate) fn parse_status_line(status_body: &str) -> (u16, String) {
 /// Usage: http_post(url, body, content_type, headers_struct)    — sets headers from Struct fields
 /// Наряд №12 Bug 2: Added 4th parameter for authorization headers.
 pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
-    let url = match args.get(0) {
+    let url = match args.first() {
         Some(Value::String(s)) => s.clone(),
         Some(other) => {
             return Err(format!(
@@ -251,7 +251,7 @@ pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
 /// Usage: http_get(url) -> String
 /// Usage: http_get(url, headers_struct) -> String  — sets headers from Struct fields
 pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
-    let url = match args.get(0) {
+    let url = match args.first() {
         Some(Value::String(s)) => s.clone(),
         Some(other) => {
             return Err(format!(
@@ -737,7 +737,7 @@ pub(crate) fn builtin_weekday_name(args: &[Value]) -> Result<Value, String> {
 /// `geo_ip(ip?)` — geolocate by IP. Uses ip-api.com (free, no key).
 /// Returns Struct {ip, city, region, country, country_code, lat, lon, isp, timezone}.
 pub(crate) fn builtin_geo_ip(args: &[Value]) -> Result<Value, String> {
-    let ip = match args.get(0) {
+    let ip = match args.first() {
         Some(Value::String(s)) if !s.is_empty() => s.clone(),
         _ => String::new(),
     };

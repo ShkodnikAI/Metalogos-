@@ -87,7 +87,7 @@ pub(crate) fn builtin_encrypt(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(crate) fn builtin_decrypt(args: &[Value]) -> Result<Value, String> {
-    let encrypted = match args.get(0) {
+    let encrypted = match args.first() {
         Some(Value::Encrypted(data)) => data.clone(),
         Some(other) => {
             return Err(format!(
@@ -175,7 +175,7 @@ pub(crate) fn builtin_session_login(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(crate) fn builtin_session_logout(args: &[Value]) -> Result<Value, String> {
-    let _session = match args.get(0) {
+    let _session = match args.first() {
         Some(Value::Session(_)) => true,
         Some(other) => {
             return Err(format!(

@@ -4,6 +4,26 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Code quality (Наряд №37)
+- Clippy: zero warnings (was 192). Categories fixed: get(0)→first(), doc formatting,
+  redundant closures, unnecessary mut/return/clone, new_without_default (11 types),
+  dead_code cleanup, matches!/sort_by_key/clamp/flatten/Entry API, and more.
+- CI: `fmt` gate restored to green with `cargo fmt` commit.
+- ADR: resolved 8 numbering collisions (0076 duplicate, 071 missing leading zero).
+  Renamed 0076-vm-dispatch-paths.md → 0077-vm-dispatch-paths.md.
+- ADR-0075: clarified 58/58 crosscheck — zero both-error cases (all 58 are genuine
+  both-success matches).
+- Builtins: split builtins.rs (10,838 lines) into 15 modules: mod, registry, core,
+  string, math, collections, crypto, llm, http, json, io, memory, cron, server, tests.
+  mod.rs reduced to 581 lines.
+- Interpreter: split interpreter.rs (5,073 lines) into 10 modules: mod, values, types,
+  events, db, conversations, learnable, modules, flow, memory, hooks.
+  mod.rs reduced to 2,172 lines.
+- Parser: split parser.rs (4,921 lines) into 5 modules: mod, helpers, expr, stmt,
+  decl, tests. mod.rs reduced to 128 lines.
+- Documentation: added docs/refactoring-split-plan.md with per-function module mapping.
+- No logic changes in any split — pure code moves.
+
 ### VM backend (Наряд №36)
 - VM: crosscheck 58/58 — all golden examples match between tree-walking interpreter
   and bytecode VM. Zero mismatches, zero VM errors. `assert!(mismatches.is_empty())`

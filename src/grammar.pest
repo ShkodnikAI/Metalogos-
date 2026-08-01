@@ -77,7 +77,7 @@ db_decl      = { "db" ~ LBRACE ~ db_body ~ RBRACE }
 // memory { kv: { type: key_value, persist: true } }
 // Without persist → in-memory (backward compatible)
 memory_decl   = { MEMORY_KW ~ LBRACE ~ memory_body ~ RBRACE }
-memory_body   = { memory_kv_config? ~ (COMMA ~ memory_persist?)? }
+memory_body   = { memory_kv_config? ~ COMMA? ~ memory_persist? }
 memory_kv_config = { "kv" ~ ":" ~ LBRACE ~ kv_type_field? ~ kv_persist_field? ~ RBRACE }
 kv_type_field    = { "type" ~ ":" ~ IDENT }
 kv_persist_field  = { "persist" ~ ":" ~ BOOL_LITERAL }

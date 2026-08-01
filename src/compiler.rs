@@ -333,17 +333,40 @@ impl Compiler {
                     code.push(Instruction::RegisterPattern(compiled));
                 }
                 Declaration::LearnablePattern(lp) => {
-                    // Extract literal context if present
-                    let context = match &lp.context {
-                        Some(ContextMode::Literal(s)) => Some(s.clone()),
-                        _ => None, // Auto/Recall/None — not yet supported in VM
+                    // Compile context mode
+                    let context_mode = match &lp.context {
+                        Some(ContextMode::None) => {
+                            crate::bytecode::CompiledContextMode::None
+                        }
+                        Some(ContextMode::Literal(s)) => {
+                            crate::bytecode::CompiledContextMode::Literal(s.clone())
+                        }
+                        Some(ContextMode::Auto) => {
+                            crate::bytecode::CompiledContextMode::Auto
+                        }
+                        Some(ContextMode::Recall(expr, limit)) => {
+                            // Extract param name from expression (must be Ident)
+                            let param_name = match expr {
+                                crate::ast::Expr::Ident(name) => name.clone(),
+                                crate::ast::Expr::FieldAccess(_obj, field) => {
+                                    // e.g., text.some_field — just use field name
+                                    field.clone()
+                                }
+                                _ => "input".to_string(),
+                            };
+                            crate::bytecode::CompiledContextMode::Recall(
+                                param_name,
+                                limit.unwrap_or(5),
+                            )
+                        }
+                        None => crate::bytecode::CompiledContextMode::None,
                     };
                     code.push(Instruction::RegisterLearnable(CompiledLearnableInfo {
                         name: lp.name.clone(),
                         param_count: lp.params.len(),
                         prompt: lp.prompt.clone(),
                         few_shot: Vec::new(),
-                        context,
+                        context_mode,
                     }));
                 }
                 Declaration::Rule(_) => {

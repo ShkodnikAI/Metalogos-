@@ -110,7 +110,7 @@ impl Interpreter {
                 } else {
                     let mut result = entry.value.clone();
                     for (relation, other, _weight) in &edges {
-                        result.push_str("\n");
+                        result.push('\n');
                         result.push_str(&format!("[GRAPH] {} -> {}", relation, other));
                     }
                     Ok(Value::String(result))
@@ -212,7 +212,7 @@ impl Interpreter {
             confidence: priority,
             embedding,
         }) {
-            Ok(id) => { /* Bug 2.3 fix: removed eprintln stdout leak in HTTP context */ }
+            Ok(_id) => { /* Bug 2.3 fix: removed eprintln stdout leak in HTTP context */ }
             Err(_) => { /* silent — don't leak to stdout in HTTP context */ }
         }
         Ok(Value::Unit)

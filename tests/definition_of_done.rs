@@ -88,6 +88,7 @@ pattern SaveFact(text: String) -> String {
 
 // ── env() in pattern body ─────────────────────────────────────────
 
+#[serial_test::serial]
 #[test]
 fn test_dod_env_in_pattern() {
     std::env::set_var("TEST_TELEGRAM_TOKEN", "123456:ABC-DEF");

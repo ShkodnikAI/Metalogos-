@@ -223,37 +223,37 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec {
         name: "__push",
         arity: 2,
-        category: "std",
+        category: "stub",
     },
     BuiltinSpec {
         name: "__list_len",
         arity: 1,
-        category: "std",
+        category: "stub",
     },
     BuiltinSpec {
         name: "abs",
         arity: 1,
-        category: "math",
+        category: "stub",
     },
     BuiltinSpec {
         name: "min",
         arity: 2,
-        category: "math",
+        category: "stub",
     },
     BuiltinSpec {
         name: "max",
         arity: 2,
-        category: "math",
+        category: "stub",
     },
     BuiltinSpec {
         name: "clamp",
         arity: 3,
-        category: "math",
+        category: "stub",
     },
     BuiltinSpec {
         name: "round",
         arity: 1,
-        category: "math",
+        category: "stub",
     },
     BuiltinSpec {
         name: "respond",
@@ -263,7 +263,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec {
         name: "respond_html",
         arity: 1,
-        category: "web",
+        category: "stub",
     },
     BuiltinSpec {
         name: "form_data",
@@ -298,7 +298,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec {
         name: "http_post_multipart",
         arity: 2,
-        category: "web",
+        category: "stub",
     },
     BuiltinSpec {
         name: "require",
@@ -333,12 +333,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec {
         name: "hash_password",
         arity: 1,
-        category: "crypto",
+        category: "stub",
     },
     BuiltinSpec {
         name: "verify_password",
         arity: 2,
-        category: "crypto",
+        category: "stub",
     },
     BuiltinSpec {
         name: "encrypt",
@@ -353,22 +353,22 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec {
         name: "generate_key",
         arity: 0,
-        category: "crypto",
+        category: "stub",
     },
     BuiltinSpec {
         name: "authenticate",
         arity: 2,
-        category: "auth",
+        category: "stub",
     },
     BuiltinSpec {
         name: "session_login",
         arity: 2,
-        category: "auth",
+        category: "stub",
     },
     BuiltinSpec {
         name: "session_logout",
         arity: 1,
-        category: "auth",
+        category: "stub",
     },
     BuiltinSpec {
         name: "query",
@@ -448,7 +448,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec {
         name: "session_clear",
         arity: 0,
-        category: "memory",
+        category: "stub",
     },
     BuiltinSpec {
         name: "read_file",
@@ -488,12 +488,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec {
         name: "send_message",
         arity: 2,
-        category: "bot",
+        category: "stub",
     },
     BuiltinSpec {
         name: "whisper_transcribe",
         arity: 1,
-        category: "voice",
+        category: "stub",
     },
     BuiltinSpec {
         name: "tts_send",
@@ -503,77 +503,77 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec {
         name: "recall",
         arity: 0,
-        category: "stateful",
+        category: "stub",
     },
     BuiltinSpec {
         name: "memorize",
         arity: 0,
-        category: "stateful",
+        category: "stub",
     },
     BuiltinSpec {
         name: "forget",
         arity: 0,
-        category: "stateful",
+        category: "stub",
     },
     BuiltinSpec {
         name: "find",
         arity: 4,
-        category: "stateful",
+        category: "stub",
     },
     BuiltinSpec {
         name: "inspect",
         arity: 1,
-        category: "stateful",
+        category: "stub",
     },
     BuiltinSpec {
         name: "conv_start",
         arity: 1,
-        category: "stateful",
+        category: "stub",
     },
     BuiltinSpec {
         name: "conv_add",
         arity: 3,
-        category: "stateful",
+        category: "stub",
     },
     BuiltinSpec {
         name: "conv_history",
         arity: 1,
-        category: "stateful",
+        category: "stub",
     },
     BuiltinSpec {
         name: "conv_context",
         arity: 1,
-        category: "stateful",
+        category: "stub",
     },
     BuiltinSpec {
         name: "conv_end",
         arity: 1,
-        category: "stateful",
+        category: "stub",
     },
     BuiltinSpec {
         name: "event_count",
         arity: 0,
-        category: "stateful",
+        category: "stub",
     },
     BuiltinSpec {
         name: "events_since",
         arity: 1,
-        category: "stateful",
+        category: "stub",
     },
     BuiltinSpec {
         name: "event_sum",
         arity: 2,
-        category: "stateful",
+        category: "stub",
     },
     BuiltinSpec {
         name: "query_scalar",
         arity: 0,
-        category: "stateful",
+        category: "stub",
     },
     BuiltinSpec {
         name: "query_row",
         arity: 0,
-        category: "stateful",
+        category: "stub",
     },
     BuiltinSpec {
         name: "graph_query",
@@ -588,42 +588,42 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec {
         name: "graph_neighbors",
         arity: 0,
-        category: "graph",
+        category: "stub",
     },
     BuiltinSpec {
         name: "memory_decay",
         arity: 0,
-        category: "graph",
+        category: "stub",
     },
     BuiltinSpec {
         name: "memory_boost",
         arity: 0,
-        category: "graph",
+        category: "stub",
     },
     BuiltinSpec {
         name: "memory_prune",
         arity: 0,
-        category: "graph",
+        category: "stub",
     },
     BuiltinSpec {
         name: "memory_revise",
         arity: 0,
-        category: "graph",
+        category: "stub",
     },
     BuiltinSpec {
         name: "subgraph_extract",
         arity: 0,
-        category: "graph",
+        category: "stub",
     },
     BuiltinSpec {
         name: "subgraph_nodes",
         arity: 0,
-        category: "graph",
+        category: "stub",
     },
     BuiltinSpec {
         name: "subgraph_json",
         arity: 0,
-        category: "graph",
+        category: "stub",
     },
     BuiltinSpec {
         name: "trace_start",
@@ -638,12 +638,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec {
         name: "mtree_summarize",
         arity: 0,
-        category: "mtree",
+        category: "stub",
     },
     BuiltinSpec {
         name: "mtree_retrieve",
         arity: 0,
-        category: "mtree",
+        category: "stub",
     },
     BuiltinSpec {
         name: "mtree_stats",
@@ -653,7 +653,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec {
         name: "cron_mark_fired",
         arity: 1,
-        category: "cron",
+        category: "stub",
     },
     BuiltinSpec {
         name: "request_body",
@@ -693,28 +693,28 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec {
         name: "assert_contains",
         arity: 2,
-        category: "test",
+        category: "stub",
     },
     BuiltinSpec {
         name: "base64_encode",
         arity: 1,
-        category: "encoding",
+        category: "stub",
     },
     BuiltinSpec {
         name: "base64_decode",
         arity: 1,
-        category: "encoding",
+        category: "stub",
     },
     BuiltinSpec {
         name: "db_insert",
         arity: 0,
-        category: "db",
+        category: "stub",
     },
     // Problem B: collection ops — variadic arity (compiler uses actual arg count)
     BuiltinSpec {
         name: "map",
         arity: 0,
-        category: "list",
+        category: "stub",
     },
     BuiltinSpec {
         name: "zip",
@@ -739,12 +739,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec {
         name: "resolve_skill_index",
         arity: 1,
-        category: "skill",
+        category: "stub",
     },
     BuiltinSpec {
         name: "fit_to_budget",
         arity: 0,
-        category: "skill",
+        category: "stub",
     },
     // ── sqz-inspired: String/List utilities (P1) ──
     BuiltinSpec {
@@ -834,7 +834,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec {
         name: "recipe_search",
         arity: 0,
-        category: "recipe",
+        category: "stub",
     },
     BuiltinSpec {
         name: "recipe_list",
@@ -860,43 +860,43 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec {
         name: "fuzzy_find_best",
         arity: 2,
-        category: "string",
+        category: "stub",
     },
     BuiltinSpec {
         name: "hashline_read",
         arity: 1,
-        category: "string",
+        category: "stub",
     },
     BuiltinSpec {
         name: "hashline_edit",
         arity: 2,
-        category: "string",
+        category: "stub",
     },
     BuiltinSpec {
         name: "compact_list",
         arity: 3,
-        category: "list",
+        category: "stub",
     },
     BuiltinSpec {
         name: "budget_check",
         arity: 2,
-        category: "meta",
+        category: "stub",
     },
     BuiltinSpec {
         name: "replay_snapshot",
         arity: 1,
-        category: "meta",
+        category: "stub",
     },
     BuiltinSpec {
         name: "policy_check",
         arity: 1,
-        category: "meta",
+        category: "stub",
     },
     // ── obsidian-mind inspired: Vault/memory (v0.10.0) ──
     BuiltinSpec {
         name: "semantic_search",
         arity: 3,
-        category: "vault",
+        category: "stub",
     },
     BuiltinSpec {
         name: "config_load",
@@ -906,8 +906,64 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     BuiltinSpec {
         name: "vault_validate",
         arity: 2,
-        category: "vault",
+        category: "stub",
     },
+    // ── Missing entries added by Наряд №32 Block 3.2 ──
+    // Functions present in dispatcher (funcs.insert) but absent from REGISTRY.
+    // Categories assigned by function purpose.
+
+    // time (builtins that were missing from registry)
+    BuiltinSpec { name: "time", arity: 0, category: "time" },
+    BuiltinSpec { name: "add_days", arity: 2, category: "time" },
+    BuiltinSpec { name: "add_hours", arity: 2, category: "time" },
+    BuiltinSpec { name: "date_parts", arity: 1, category: "time" },
+    BuiltinSpec { name: "format_date", arity: 2, category: "time" },
+
+    // cron
+    BuiltinSpec { name: "cron_add", arity: 2, category: "cron" },
+    BuiltinSpec { name: "cron_list", arity: 0, category: "cron" },
+    BuiltinSpec { name: "cron_remove", arity: 1, category: "cron" },
+    BuiltinSpec { name: "cron_run", arity: 1, category: "cron" },
+
+    // json/dict (dict_get is alias for json_get)
+    BuiltinSpec { name: "dict_get", arity: 3, category: "json" },
+    BuiltinSpec { name: "dict_set", arity: 3, category: "json" },
+    BuiltinSpec { name: "dict_has", arity: 2, category: "json" },
+    BuiltinSpec { name: "dict_keys", arity: 1, category: "json" },
+    BuiltinSpec { name: "dict_values", arity: 1, category: "json" },
+
+    // list
+    BuiltinSpec { name: "first", arity: 1, category: "list" },
+    BuiltinSpec { name: "last", arity: 1, category: "list" },
+    BuiltinSpec { name: "make_list", arity: 0, category: "list" },
+    BuiltinSpec { name: "matches_any", arity: 2, category: "list" },
+
+    // string
+    BuiltinSpec { name: "format", arity: 1, category: "string" },
+    BuiltinSpec { name: "escape_js", arity: 1, category: "string" },
+    BuiltinSpec { name: "type_of", arity: 1, category: "string" },
+
+    // io/system
+    BuiltinSpec { name: "exec", arity: 1, category: "io" },
+    BuiltinSpec { name: "web_search", arity: 2, category: "web" },
+    BuiltinSpec { name: "geo_ip", arity: 1, category: "web" },
+    BuiltinSpec { name: "weather", arity: 2, category: "web" },
+    BuiltinSpec { name: "git_push", arity: 1, category: "io" },
+
+    // bot/todo/goals
+    BuiltinSpec { name: "todo_add", arity: 2, category: "bot" },
+    BuiltinSpec { name: "todo_list", arity: 0, category: "bot" },
+    BuiltinSpec { name: "todo_update", arity: 2, category: "bot" },
+    BuiltinSpec { name: "goal_get", arity: 0, category: "bot" },
+    BuiltinSpec { name: "goal_set", arity: 2, category: "bot" },
+    BuiltinSpec { name: "goals_add", arity: 1, category: "bot" },
+    BuiltinSpec { name: "goals_list", arity: 0, category: "bot" },
+    BuiltinSpec { name: "remind", arity: 3, category: "bot" },
+    BuiltinSpec { name: "get_profile", arity: 0, category: "bot" },
+    BuiltinSpec { name: "human_mood", arity: 3, category: "bot" },
+
+    // mtree
+    BuiltinSpec { name: "mtree_store", arity: 2, category: "mtree" },
 ];
 
 /// Total number of registered builtins.

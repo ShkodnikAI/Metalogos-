@@ -31,6 +31,8 @@ pub struct Compiler {
     std_root: PathBuf,
     /// Already-imported modules.
     imported_modules: HashSet<String>,
+    /// Import alias → module path mapping (e.g., "str" → "std/string").
+    import_aliases: HashMap<String, String>,
     /// Collections loaded flag.
     collections_loaded: bool,
     /// Sandbox declarations (recorded).
@@ -57,6 +59,7 @@ impl Compiler {
             rules: Vec::new(),
             std_root,
             imported_modules: HashSet::new(),
+            import_aliases: HashMap::new(),
             collections_loaded: false,
             sandboxes: HashMap::new(),
         }
@@ -69,6 +72,11 @@ impl Compiler {
         for decl in declarations {
             if let Declaration::Import(import) = &decl {
                 // Fix 2: use `import.path` instead of `import.module_path`
+                // Track alias mapping (e.g., "str" → "std/string")
+                if let Some(alias) = &import.alias {
+                    self.import_aliases
+                        .insert(alias.clone(), import.path.clone());
+                }
                 if !self.imported_modules.contains(&import.path) {
                     let imported = self.resolve_import(&import.path)?;
                     all_decls.extend(imported);
@@ -477,11 +485,27 @@ impl Compiler {
                 code.push(Instruction::Const(Value::Float(if *b { 1.0 } else { 0.0 })));
             }
             Expr::QualifiedCall {
-                module: _,
-                function: _,
-                args: _,
+                module,
+                function,
+                args,
             } => {
-                return Err("compile: qualified calls not yet supported in bytecode".to_string());
+                // Resolve the qualified call:
+                // Priority 1: builtin "module.function" (e.g., "std/math.abs" if registered)
+                // Priority 2: imported pattern "function" (e.g., abs from std/math)
+                // Priority 3: builtin "function" (global fallback)
+                let qualified_name = format!("{}.{}", module, function);
+                if let Some(&idx) = self.builtin_indices.get(&qualified_name) {
+                    code.push(Instruction::CallBuiltin(idx, args.len()));
+                } else if let Some(&idx) = self.pattern_indices.get(function) {
+                    code.push(Instruction::CallPattern(idx, args.len()));
+                } else if let Some(&idx) = self.builtin_indices.get(function) {
+                    code.push(Instruction::CallBuiltin(idx, args.len()));
+                } else {
+                    return Err(format!(
+                        "compile: qualified call '{}.{}()' — not found",
+                        module, function
+                    ));
+                }
             }
             Expr::List(items) => {
                 // Push each item onto stack, then MakeList(count) pops them into a list.

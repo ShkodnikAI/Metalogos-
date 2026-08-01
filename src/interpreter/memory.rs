@@ -124,7 +124,7 @@ impl Interpreter {
     /// Searches all entities of the given type and returns the first one matching the condition.
     /// Soft-failure: returns Unit if no match found.
     pub(super) fn invoke_find(&self, args: Vec<Value>) -> Result<Value, String> {
-        let type_name = match args.get(0) {
+        let type_name = match args.first() {
             Some(Value::String(s)) => s.clone(),
             _ => return Err("find() requires type name as first argument (String)".to_string()),
         };

@@ -4,6 +4,25 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### VM backend (Наряд №36)
+- VM: crosscheck 58/58 — all golden examples match between tree-walking interpreter
+  and bytecode VM. Zero mismatches, zero VM errors. `assert!(mismatches.is_empty())`
+  now enabled in crosscheck test.
+- VM: `find()` entity store query handler added — searches globals for structs
+  matching type, field, and comparison operator.
+- VM: `resolve_skill_index()` handler added — skill_index declarations now compiled
+  into Program (CompiledSkillIndex/CompiledSkillTier/CompiledSkillTriggerRule).
+- VM: database support — `db_conn`, `db_insert`, `query_scalar`, `query`, `db_execute`
+  handlers added. DB URL extracted from `db` declaration at compile time.
+- VM: schema DDL generation — `schema` declarations now generate
+  `CREATE TABLE IF NOT EXISTS` SQL, executed at VM startup.
+- VM: `context: recall(text, limit=N)` and `context: auto` now work in VM.
+  Added `CompiledContextMode` enum (None/Auto/Recall/Literal) and `recall_top()`
+  for multi-entry memory retrieval with `format_context_block` formatting.
+- Compiler: `call_builtin` and `execute_code` changed to `&mut self` for DB support.
+  Name cloning resolves borrow conflicts in CallBuiltin dispatch.
+- ADR-0075 updated: all 9 remaining cases resolved. Crosscheck assertion enabled.
+
 ### VM backend (Наряд №35)
 - VM: `eval_cmp()` now handles String-String comparisons (was Float-only via
   `as_float()`). `"" == ""` now correctly returns true. Fixes while/each loops

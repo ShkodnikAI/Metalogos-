@@ -139,17 +139,9 @@ fn crosscheck_tw_vs_vm_all_golden() {
         }
     }
 
-    // Assertion: baseline must not regress.
-    // Baseline: 52/58 match (Наряд №36 — QualifiedCall fix for #21).
-    // This number must only grow as divergences are resolved.
-    assert!(
-        passed.len() >= 52,
-        "Baseline regression: {}/{} golden examples match (expected >= 52)",
-        passed.len(),
-        pairs.len()
-    );
-
-    // All discrepancies documented in ADR-0075.
-    // Enable when the list in ADR-0075 is fully resolved:
-    // assert!(mismatches.is_empty(), "{} TW vs VM mismatches found", mismatches.len());
+    // Assertion: all 58 golden examples must match between TW and VM.
+    // All discrepancies documented in ADR-0075 have been resolved (Наряд №36).
+    assert!(mismatches.is_empty(), "{} TW vs VM mismatches found", mismatches.len());
+    assert!(vm_errors.is_empty(), "{} VM errors found", vm_errors.len());
+    assert!(tw_errors.is_empty(), "{} TW errors found", tw_errors.len());
 }

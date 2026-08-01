@@ -384,7 +384,7 @@ pub(crate) fn builtin_pad_left(args: &[Value]) -> Result<Value, String> {
         return Ok(Value::String(s));
     }
     let padding_len = n_int - s_len;
-    let padding: String = std::iter::repeat(fill_char).take(padding_len).collect();
+    let padding: String = std::iter::repeat_n(fill_char, padding_len).collect();
     Ok(Value::String(format!("{}{}", padding, s)))
 }
 
@@ -403,7 +403,7 @@ pub(crate) fn builtin_pad_right(args: &[Value]) -> Result<Value, String> {
         return Ok(Value::String(s));
     }
     let padding_len = n_int - s_len;
-    let padding: String = std::iter::repeat(fill_char).take(padding_len).collect();
+    let padding: String = std::iter::repeat_n(fill_char, padding_len).collect();
     Ok(Value::String(format!("{}{}", s, padding)))
 }
 

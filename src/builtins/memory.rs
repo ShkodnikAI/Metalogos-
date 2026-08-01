@@ -227,6 +227,7 @@ pub(crate) fn session_store(
 }
 
 /// Reset the entire session store. Used by contract tests to verify restart behavior.
+#[allow(dead_code)]
 pub(crate) fn reset_session_store() {
     if let Ok(mut store) = session_store().lock() {
         store.clear();
@@ -234,11 +235,13 @@ pub(crate) fn reset_session_store() {
 }
 
 /// Get the number of sessions in the store. Used by contract tests.
+#[allow(dead_code)]
 pub(crate) fn session_store_count() -> usize {
     session_store().lock().map(|s| s.len()).unwrap_or(0)
 }
 
 /// Get the number of keys in a specific session. Used by contract tests.
+#[allow(dead_code)]
 pub(crate) fn session_key_count(session_id: &str) -> usize {
     session_store()
         .lock()

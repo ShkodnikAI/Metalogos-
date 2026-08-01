@@ -32,6 +32,7 @@ fn make_model_learnable_decl(name: &str, prompt: &str, model: Option<&str>) -> D
 
 // ── C1: model:"fast" resolves via env METALOGOS_LLM_MODEL_fast ────────
 
+#[serial_test::serial]
 #[test]
 fn test_model_routing_resolves_alias_via_env() {
     std::env::set_var("METALOGOS_LLM_MODEL_fast", "claude-haiku-4-5-20251001");
@@ -68,6 +69,7 @@ fn test_model_routing_resolves_alias_via_env() {
 
 // ── C2: model:"strong" resolves via env METALOGOS_LLM_MODEL_strong ──
 
+#[serial_test::serial]
 #[test]
 fn test_model_routing_different_aliases_resolve_independently() {
     std::env::set_var("METALOGOS_LLM_MODEL_fast", "model-a");
@@ -119,6 +121,7 @@ fn test_model_routing_different_aliases_resolve_independently() {
 
 // ── C3: model:"unknown" without env → passed as-is to backend ───────
 
+#[serial_test::serial]
 #[test]
 fn test_model_routing_passthrough_without_env() {
     // Ensure no env variable for "unknown"
@@ -154,6 +157,7 @@ fn test_model_routing_passthrough_without_env() {
 
 // ── C4: No model field → no override passed to LLM ────────────────────
 
+#[serial_test::serial]
 #[test]
 fn test_model_routing_no_field_no_override() {
     MockLlm::reset_call_count();
@@ -187,6 +191,7 @@ fn test_model_routing_no_field_no_override() {
 
 // ── C5: User-defined alias with custom name ──────────────────────────
 
+#[serial_test::serial]
 #[test]
 fn test_model_routing_user_defined_alias() {
     std::env::set_var("METALOGOS_LLM_MODEL_cheap", "gpt-4o-mini");
@@ -222,6 +227,7 @@ fn test_model_routing_user_defined_alias() {
 
 // ── C6: Direct model name (e.g. "gpt-4o") without env → passthrough ─
 
+#[serial_test::serial]
 #[test]
 fn test_model_routing_direct_model_name() {
     // "gpt-4o" is a real model name, not an alias

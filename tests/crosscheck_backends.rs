@@ -141,7 +141,11 @@ fn crosscheck_tw_vs_vm_all_golden() {
 
     // Assertion: all 58 golden examples must match between TW and VM.
     // All discrepancies documented in ADR-0075 have been resolved (Наряд №36).
-    assert!(mismatches.is_empty(), "{} TW vs VM mismatches found", mismatches.len());
+    assert!(
+        mismatches.is_empty(),
+        "{} TW vs VM mismatches found",
+        mismatches.len()
+    );
     assert!(vm_errors.is_empty(), "{} VM errors found", vm_errors.len());
     assert!(tw_errors.is_empty(), "{} TW errors found", tw_errors.len());
 }

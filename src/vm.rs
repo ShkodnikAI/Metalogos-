@@ -593,17 +593,38 @@ impl Vm {
                 // ── Collection / List instructions (Наряд №18, №21) ──
                 // VM bytecode support for these is deferred; the tree-walking
                 // interpreter handles Problem A/B collection builtins natively.
-                Instruction::MakeList(_) => {
-                    unimplemented!("MakeList: VM bytecode support deferred, use tree-walking interpreter for Problem A/B features")
+                Instruction::MakeList(count) => {
+                    let mut items = Vec::new();
+                    for _ in 0..*count {
+                        items.insert(0, stack.pop().unwrap_or(Value::Unit));
+                    }
+                    stack.push(Value::List(items));
+                    ip += 1;
                 }
                 Instruction::ListLen => {
-                    unimplemented!("ListLen: VM bytecode support deferred, use tree-walking interpreter for Problem A/B features")
+                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let len = match val {
+                        Value::List(items) => items.len() as f64,
+                        _ => 0.0,
+                    };
+                    stack.push(Value::Float(len));
+                    ip += 1;
                 }
                 Instruction::Pop => {
-                    unimplemented!("Pop: VM bytecode support deferred, use tree-walking interpreter for Problem A/B features")
+                    stack.pop();
+                    ip += 1;
                 }
                 Instruction::StartsWith => {
-                    unimplemented!("StartsWith: VM bytecode support deferred, use tree-walking interpreter for Problem A/B features")
+                    let needle = stack.pop().unwrap_or(Value::Unit);
+                    let haystack = stack.pop().unwrap_or(Value::Unit);
+                    let result = match (&haystack, &needle) {
+                        (Value::String(h), Value::String(n)) => {
+                            Value::Float(if h.starts_with(n.as_str()) { 1.0 } else { 0.0 })
+                        }
+                        _ => Value::Float(0.0),
+                    };
+                    stack.push(result);
+                    ip += 1;
                 }
             }
         }
@@ -870,6 +891,40 @@ impl Vm {
                     };
                     let result = self.recall(&query_str, 0.0);
                     stack.push(Value::String(result));
+                    ip += 1;
+                }
+                // ── Collection / List instructions (Наряд №34) ──
+                Instruction::MakeList(count) => {
+                    let mut items = Vec::new();
+                    for _ in 0..*count {
+                        items.insert(0, stack.pop().unwrap_or(Value::Unit));
+                    }
+                    stack.push(Value::List(items));
+                    ip += 1;
+                }
+                Instruction::ListLen => {
+                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let len = match val {
+                        Value::List(items) => items.len() as f64,
+                        _ => 0.0,
+                    };
+                    stack.push(Value::Float(len));
+                    ip += 1;
+                }
+                Instruction::Pop => {
+                    stack.pop();
+                    ip += 1;
+                }
+                Instruction::StartsWith => {
+                    let needle = stack.pop().unwrap_or(Value::Unit);
+                    let haystack = stack.pop().unwrap_or(Value::Unit);
+                    let result = match (&haystack, &needle) {
+                        (Value::String(h), Value::String(n)) => {
+                            Value::Float(if h.starts_with(n.as_str()) { 1.0 } else { 0.0 })
+                        }
+                        _ => Value::Float(0.0),
+                    };
+                    stack.push(result);
                     ip += 1;
                 }
                 // For any unhandled instruction, skip

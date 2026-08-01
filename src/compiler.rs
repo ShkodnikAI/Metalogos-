@@ -310,8 +310,9 @@ impl Compiler {
                     if !self.rules.is_empty() {
                         code.push(Instruction::ExecuteRules);
                     }
-                    // Compile the flow source expression
-                    let source_expr = self.compile_flow_expr(&f.source);
+                    // Compile the flow source expression as regular bytecode
+                    // (supports all expression types including BinOp concatenation)
+                    self.compile_expr(&f.source, &mut code)?;
                     let mut branch_defs = Vec::new();
                     for (step_name, branches) in &f.branch_defs {
                         let compiled_branches: Vec<BranchDef> = branches
@@ -338,8 +339,7 @@ impl Compiler {
                             .collect();
                         branch_defs.push((step_name.clone(), compiled_branches));
                     }
-                    code.push(Instruction::FlowExec {
-                        source_expr,
+                    code.push(Instruction::FlowPipeline {
                         pipeline: f.pipeline.clone(),
                         branch_defs,
                     });
@@ -676,7 +676,11 @@ impl Compiler {
                             }
                             _ => {
                                 self.compile_stmt_with_locals(
-                                    s, &mut code, locals, &mut next_slot, &mut loop_stack,
+                                    s,
+                                    &mut code,
+                                    locals,
+                                    &mut next_slot,
+                                    &mut loop_stack,
                                 )?;
                             }
                         }
@@ -763,7 +767,11 @@ impl Compiler {
                             }
                             _ => {
                                 self.compile_stmt_with_locals(
-                                    s, &mut code, locals, &mut next_slot, &mut loop_stack,
+                                    s,
+                                    &mut code,
+                                    locals,
+                                    &mut next_slot,
+                                    &mut loop_stack,
                                 )?;
                             }
                         }
@@ -786,8 +794,16 @@ impl Compiler {
                     }
 
                     // Restore bindings
-                    if let Some(v) = old_item { locals.insert(item_var.clone(), v); } else { locals.remove(item_var); }
-                    if let Some(v) = old_idx { locals.insert(index_var.clone(), v); } else { locals.remove(index_var); }
+                    if let Some(v) = old_item {
+                        locals.insert(item_var.clone(), v);
+                    } else {
+                        locals.remove(item_var);
+                    }
+                    if let Some(v) = old_idx {
+                        locals.insert(index_var.clone(), v);
+                    } else {
+                        locals.remove(index_var);
+                    }
                 }
                 Statement::IfThen(cond, then_body) => {
                     self.compile_expr_with_locals(cond, &mut code, locals)?;
@@ -797,7 +813,11 @@ impl Compiler {
                     let saved_next_slot = next_slot;
                     for s in then_body {
                         self.compile_stmt_with_locals(
-                            s, &mut code, locals, &mut next_slot, &mut loop_stack,
+                            s,
+                            &mut code,
+                            locals,
+                            &mut next_slot,
+                            &mut loop_stack,
                         )?;
                     }
                     next_slot = saved_next_slot;
@@ -822,7 +842,11 @@ impl Compiler {
                     let saved_next_slot = next_slot;
                     for s in then_body {
                         self.compile_stmt_with_locals(
-                            s, &mut code, locals, &mut next_slot, &mut loop_stack,
+                            s,
+                            &mut code,
+                            locals,
+                            &mut next_slot,
+                            &mut loop_stack,
                         )?;
                     }
                     next_slot = saved_next_slot;
@@ -843,7 +867,11 @@ impl Compiler {
                         let saved_ns = next_slot;
                         for s in ei_body {
                             self.compile_stmt_with_locals(
-                                s, &mut code, locals, &mut next_slot, &mut loop_stack,
+                                s,
+                                &mut code,
+                                locals,
+                                &mut next_slot,
+                                &mut loop_stack,
                             )?;
                         }
                         next_slot = saved_ns;
@@ -861,7 +889,11 @@ impl Compiler {
                         let saved_ns = next_slot;
                         for s in else_body {
                             self.compile_stmt_with_locals(
-                                s, &mut code, locals, &mut next_slot, &mut loop_stack,
+                                s,
+                                &mut code,
+                                locals,
+                                &mut next_slot,
+                                &mut loop_stack,
                             )?;
                         }
                         next_slot = saved_ns;
@@ -902,7 +934,11 @@ impl Compiler {
         loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
     ) -> Result<(), String> {
         match stmt {
-            Statement::LetBinding { name, value, mutable: _ } => {
+            Statement::LetBinding {
+                name,
+                value,
+                mutable: _,
+            } => {
                 // Function-level scoping: reuse existing slot if name exists.
                 if let Some(&existing_slot) = locals.get(name) {
                     self.compile_expr_with_locals(value, code, locals)?;
@@ -974,7 +1010,12 @@ impl Compiler {
                 *next_slot = saved;
                 code[jmp_idx] = Instruction::JumpIfNot(code.len());
             }
-            Statement::IfElseBlock { condition, then_body, else_ifs, else_body } => {
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+            } => {
                 let mut end_fixups: Vec<usize> = Vec::new();
                 self.compile_expr_with_locals(condition, code, locals)?;
                 code.push(Instruction::JumpIfNot(0));

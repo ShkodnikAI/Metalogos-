@@ -14,7 +14,8 @@ use std::path::{Path, PathBuf};
 const TOP_LEVEL_ONLY_INSTRUCTIONS: &[&str] = &[
     "Adapt",             // top-level learnable adaptation
     "ExecuteRules",      // macro instruction — rule engine trigger
-    "FlowExec",          // macro instruction — flow pipeline
+    "FlowExec",          // macro instruction — flow pipeline (legacy)
+    "FlowPipeline",      // flow pipeline — pop source from stack
     "Forget",            // top-level memory forget
     "Halt",              // end-of-program marker
     "JumpIfLow",         // confidence-based branching (top-level flows)
@@ -87,6 +88,7 @@ const ALL_INSTRUCTIONS: &[&str] = &[
     "Relate",
     "Mutate",
     // Pipeline
+    "FlowPipeline",
     "FlowExec",
     // Rules
     "ExecuteRules",
@@ -267,11 +269,11 @@ fn vm_dispatch_coverage() {
     // Verify: expected total count matches.
     // If someone adds a new Instruction variant to the enum without updating
     // ALL_INSTRUCTIONS, this assertion will catch it (count mismatch).
-    // Current: 44 total (27 shared + 17 top-level-only).
+    // Current: 45 total (27 shared + 18 top-level-only).
     assert_eq!(
         ALL_INSTRUCTIONS.len(),
-        44,
-        "ADR-0076: ALL_INSTRUCTIONS count changed (expected 44). \
+        45,
+        "ADR-0076: ALL_INSTRUCTIONS count changed (expected 45). \
          If a new Instruction variant was added to the enum, update ALL_INSTRUCTIONS \
          and optionally TOP_LEVEL_ONLY_INSTRUCTIONS."
     );

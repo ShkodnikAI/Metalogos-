@@ -116,10 +116,18 @@ pub enum Instruction {
     },
 
     // ── Pipeline ──────────────────────────────────────────────
-    /// Begin flow execution: load source, step through pipeline.
-    /// Encoded as a single instruction that carries the flow definition.
-    /// The VM interprets it by loading the source, then calling each step.
-    /// This is a "macro instruction" — the VM expands it internally.
+    /// Begin flow execution: pop source from stack, step through pipeline.
+    /// The source value is already compiled as regular bytecode expressions
+    /// (LoadGlobal, Const, Add, etc.) that push the result onto the stack.
+    /// This instruction pops TOS as the source, then executes each step.
+    FlowPipeline {
+        pipeline: Vec<String>,
+        branch_defs: Vec<(String, Vec<BranchDef>)>,
+    },
+
+    // ── Pipeline (legacy) ──────────────────────────────────────
+    /// Legacy flow instruction with embedded source expression.
+    /// Kept for backward compatibility with serialized programs.
     FlowExec {
         source_expr: FlowExpr,
         pipeline: Vec<String>,

@@ -33,7 +33,7 @@ pub(crate) fn builtin_db_execute(args: &[Value]) -> Result<Value, String> {
 
 pub(crate) fn builtin_send_message(args: &[Value]) -> Result<Value, String> {
     // Extract and format chat_id — supports negative channel IDs (Наряд №24 B5)
-    let chat_id_value: serde_json::Value = match args.get(0) {
+    let chat_id_value: serde_json::Value = match args.first() {
         Some(Value::String(s)) => serde_json::Value::String(s.clone()),
         Some(Value::Float(f)) => {
             if *f == (*f as i64) as f64 {
@@ -164,7 +164,7 @@ pub(crate) fn builtin_answer_callback_query(args: &[Value]) -> Result<Value, Str
 /// `edit_message_text(chat_id, message_id, text, reply_markup?)` — edit existing Telegram message.
 /// Used to update inline keyboard buttons after callback.
 pub(crate) fn builtin_edit_message_text(args: &[Value]) -> Result<Value, String> {
-    let chat_id_val: serde_json::Value = match args.get(0) {
+    let chat_id_val: serde_json::Value = match args.first() {
         Some(Value::String(s)) => serde_json::Value::String(s.clone()),
         Some(Value::Float(f)) => serde_json::json!(*f as i64),
         _ => return Err("edit_message_text() requires chat_id".to_string()),
@@ -1087,7 +1087,7 @@ pub(crate) fn builtin_human_delete(args: &[Value]) -> Result<Value, String> {
 /// `extract_param(text, index)` — parse colon-separated callback_data, return N-th segment.
 /// Example: extract_param("dept:osp:watch:42", 2) → "watch"
 pub fn builtin_extract_param(args: &[Value]) -> Result<Value, String> {
-    let text = match args.get(0) {
+    let text = match args.first() {
         Some(Value::String(s)) => s.clone(),
         _ => return Err("extract_param() expects first argument to be a String".to_string()),
     };
@@ -1107,7 +1107,7 @@ pub fn builtin_extract_param(args: &[Value]) -> Result<Value, String> {
 /// `estimate_tokens(text)` — rough token count heuristic (len / 4 for CJK+Latin mix).
 /// ADR note: temporary heuristic, replace with proper tokenizer when available.
 pub fn builtin_estimate_tokens(args: &[Value]) -> Result<Value, String> {
-    let text = match args.get(0) {
+    let text = match args.first() {
         Some(Value::String(s)) => s.clone(),
         _ => return Err("estimate_tokens() expects a String argument".to_string()),
     };
@@ -1120,7 +1120,7 @@ pub fn builtin_estimate_tokens(args: &[Value]) -> Result<Value, String> {
 /// `read_file_tokens(path)` — read file and return {content, tokens} struct.
 /// Convenience for skill_index: read skill file + estimate its token cost in one call.
 pub fn builtin_read_file_tokens(args: &[Value]) -> Result<Value, String> {
-    let path = match args.get(0) {
+    let path = match args.first() {
         Some(Value::String(s)) => s.clone(),
         _ => return Err("read_file_tokens() expects a file path (String)".to_string()),
     };

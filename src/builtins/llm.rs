@@ -59,7 +59,7 @@ pub(crate) fn builtin_call_claude(args: &[Value]) -> Result<Value, String> {
 /// When METALOGOS_LLM_MOCK=true (default), returns "[MOCK: <prompt> | <input>]".
 /// When METALOGOS_LLM_MOCK=false, calls the real LLM backend (30s timeout).
 pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
-    let prompt = match args.get(0) {
+    let prompt = match args.first() {
         Some(Value::String(s)) => s.clone(),
         Some(other) => {
             return Err(format!(

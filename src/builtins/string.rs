@@ -18,7 +18,7 @@ pub(crate) fn builtin_lower(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(crate) fn builtin_len(args: &[Value]) -> Result<Value, String> {
-    match args.get(0) {
+    match args.first() {
         // Unicode-aware: chars().count() returns character count, not byte count.
         // "\u{041f}\u{0440}\u{0438}\u{0432}\u{0435}\u{0442}" (6 chars, 12 bytes) -> 6.0, not 12.0.
         Some(Value::String(s)) => Ok(Value::Float(s.chars().count() as f64)),
@@ -132,7 +132,7 @@ pub(crate) fn builtin_split(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(crate) fn builtin_join(args: &[Value]) -> Result<Value, String> {
-    let list = match args.get(0) {
+    let list = match args.first() {
         Some(Value::List(items)) => items,
         _ => return Err("__join() requires List as first argument".to_string()),
     };
@@ -196,7 +196,7 @@ pub(crate) fn builtin_escape_json(args: &[Value]) -> Result<Value, String> {
 
 /// `reverse(s)` -- reverse a string or list.
 pub(crate) fn builtin_reverse(args: &[Value]) -> Result<Value, String> {
-    match args.get(0) {
+    match args.first() {
         Some(Value::String(s)) => Ok(Value::String(s.chars().rev().collect())),
         Some(Value::List(items)) => {
             let mut rev = items.clone();

@@ -311,7 +311,7 @@ pub(super) fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                 .filter(|c| c.as_rule() == Rule::IDENT)
                 .map(|c| pair_str(c))
                 .collect();
-            let module = idents.get(0).cloned().unwrap_or_default();
+            let module = idents.first().cloned().unwrap_or_default();
             let function = idents.get(1).cloned().unwrap_or_default();
             let mut args = Vec::new();
             for child in children.iter() {

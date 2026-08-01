@@ -5,7 +5,7 @@ use crate::interpreter::Value;
 use super::core::{expect_float_arg, expect_list_arg, make_struct};
 
 pub(crate) fn builtin_get(args: &[Value]) -> Result<Value, String> {
-    let list = match args.get(0) {
+    let list = match args.first() {
         Some(Value::List(items)) => items,
         _ => return Err("get() requires List as first argument".to_string()),
     };
@@ -23,7 +23,7 @@ pub(crate) fn builtin_get(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(crate) fn builtin_push(args: &[Value]) -> Result<Value, String> {
-    let list = match args.get(0) {
+    let list = match args.first() {
         Some(Value::List(items)) => items.clone(),
         _ => return Err("push() requires List as first argument".to_string()),
     };
@@ -37,7 +37,7 @@ pub(crate) fn builtin_push(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(crate) fn builtin_slice(args: &[Value]) -> Result<Value, String> {
-    let list = match args.get(0) {
+    let list = match args.first() {
         Some(Value::List(items)) => items,
         _ => return Err("slice() requires List as first argument".to_string()),
     };
@@ -109,7 +109,7 @@ pub(crate) fn builtin_compact_list(args: &[Value]) -> Result<Value, String> {
 
 /// `zip(list_a, list_b)` — pairwise merge two lists into list of 2-element structs [{a, b}, ...]
 pub(crate) fn builtin_zip(args: &[Value]) -> Result<Value, String> {
-    let list_a = match args.get(0) {
+    let list_a = match args.first() {
         Some(Value::List(items)) => items,
         _ => return Err("zip() expects first argument to be a List".to_string()),
     };
@@ -133,7 +133,7 @@ pub(crate) fn builtin_zip(args: &[Value]) -> Result<Value, String> {
 /// `sort_by(list, key_field, descending?)` — sort list of structs by a field name.
 /// descending: 1.0 = descending, 0.0 or absent = ascending.
 pub(crate) fn builtin_sort_by(args: &[Value]) -> Result<Value, String> {
-    let list = match args.get(0) {
+    let list = match args.first() {
         Some(Value::List(items)) => items.clone(),
         _ => return Err("sort_by() expects first argument to be a List".to_string()),
     };
@@ -181,7 +181,7 @@ pub(crate) fn builtin_sort_by(args: &[Value]) -> Result<Value, String> {
 
 /// `filter(list, key_field, value)` — filter list of structs where field == value.
 pub(crate) fn builtin_filter(args: &[Value]) -> Result<Value, String> {
-    let list = match args.get(0) {
+    let list = match args.first() {
         Some(Value::List(items)) => items.clone(),
         _ => return Err("filter() expects first argument to be a List".to_string()),
     };
@@ -217,7 +217,7 @@ pub(crate) fn builtin_filter(args: &[Value]) -> Result<Value, String> {
 
 /// `reduce(list, key_field, initial)` — sum all float values of a field across list of structs.
 pub(crate) fn builtin_reduce(args: &[Value]) -> Result<Value, String> {
-    let list = match args.get(0) {
+    let list = match args.first() {
         Some(Value::List(items)) => items,
         _ => return Err("reduce() expects first argument to be a List".to_string()),
     };
@@ -252,7 +252,7 @@ pub(crate) fn builtin_reduce(args: &[Value]) -> Result<Value, String> {
 /// Returns 1.0 if ANY trigger string is found in text, 0.0 otherwise.
 /// Used by skill_index tier matching (Problem A).
 pub(crate) fn builtin_matches_any(args: &[Value]) -> Result<Value, String> {
-    let text = match args.get(0) {
+    let text = match args.first() {
         Some(Value::String(s)) => s.to_lowercase(),
         _ => return Err("matches_any() expects first argument to be a String".to_string()),
     };
@@ -276,7 +276,7 @@ pub(crate) fn builtin_matches_any(args: &[Value]) -> Result<Value, String> {
 
 /// `dedup(list)` — remove duplicate elements, preserving first-occurrence order.
 pub(crate) fn builtin_dedup(args: &[Value]) -> Result<Value, String> {
-    let list = match args.get(0) {
+    let list = match args.first() {
         Some(Value::List(items)) => items.clone(),
         Some(other) => {
             return Err(format!(
@@ -309,7 +309,7 @@ pub(crate) fn builtin_dedup(args: &[Value]) -> Result<Value, String> {
 /// `condense(list)` — collapse consecutive identical string elements with count.
 /// Example: ["a","a","b"] -> ["a","×2","b"]
 pub(crate) fn builtin_condense(args: &[Value]) -> Result<Value, String> {
-    let list = match args.get(0) {
+    let list = match args.first() {
         Some(Value::List(items)) => items.clone(),
         Some(other) => {
             return Err(format!(

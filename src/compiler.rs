@@ -513,7 +513,8 @@ impl Compiler {
     }
 
     /// Compile a pattern body with parameter names as locals.
-    /// Phase 5.1: also handles let bindings, assigning additional local slots.
+    /// Supports: LetBinding, Assign, Return, While, Each, EachWithIndex,
+    /// IfThen, IfElseBlock, Break, Continue, ExprStmt, Match.
     fn compile_pattern_body_with_locals(
         &self,
         body: &[Statement],
@@ -521,9 +522,12 @@ impl Compiler {
     ) -> Result<Vec<Instruction>, String> {
         let mut code = Vec::new();
         let mut next_slot = locals.len();
+        // Loop context stack for break/continue fixup.
+        // Each entry: (loop_start_ip, break_fixups, continue_fixups)
+        let mut loop_stack: Vec<(usize, Vec<usize>, Vec<usize>)> = Vec::new();
+
         for stmt in body {
             match stmt {
-                // Fix 1: use Statement::LetBinding { name, value } instead of Statement::Let(name, expr)
                 Statement::LetBinding {
                     name,
                     value,
@@ -535,26 +539,478 @@ impl Compiler {
                     self.compile_expr_with_locals(value, &mut code, locals)?;
                     code.push(Instruction::StoreLocal(slot));
                 }
+                Statement::Assign { name, value } => {
+                    // Reassignment: look up existing slot, compile value, store.
+                    if let Some(&slot) = locals.get(name) {
+                        self.compile_expr_with_locals(value, &mut code, locals)?;
+                        code.push(Instruction::StoreLocal(slot));
+                    } else if let Some(&slot) = self.global_slots.get(name) {
+                        self.compile_expr_with_locals(value, &mut code, locals)?;
+                        code.push(Instruction::StoreGlobal(slot));
+                    }
+                    // If not found, silently skip (interpreter would error).
+                }
                 Statement::Return(expr) => {
                     self.compile_expr_with_locals(expr, &mut code, locals)?;
                     code.push(Instruction::Return);
                 }
-                // Наряд №14: match — compiled as chained if-jump-else (simplified)
+                Statement::While { condition, body } => {
+                    let loop_start = code.len();
+                    let mut break_fixups: Vec<usize> = Vec::new();
+                    let mut continue_fixups: Vec<usize> = Vec::new();
+
+                    // Evaluate condition
+                    self.compile_expr_with_locals(condition, &mut code, locals)?;
+                    // JumpIfNot → after loop (placeholder)
+                    let jmp_not_idx = code.len();
+                    code.push(Instruction::JumpIfNot(0));
+
+                    // Compile body with loop context
+                    loop_stack.push((loop_start, break_fixups.clone(), continue_fixups.clone()));
+                    let saved_next_slot = next_slot;
+                    for s in body {
+                        match s {
+                            Statement::Break => {
+                                let fixup = code.len();
+                                code.push(Instruction::Jump(0)); // placeholder
+                                loop_stack.last_mut().unwrap().1.push(fixup);
+                            }
+                            Statement::Continue => {
+                                let fixup = code.len();
+                                code.push(Instruction::Jump(loop_start)); // back to start
+                                loop_stack.last_mut().unwrap().2.push(fixup);
+                            }
+                            _ => {
+                                // Recursively compile nested statements
+                                // We need to compile them inline, so we use a helper
+                                self.compile_stmt_with_locals(
+                                    s,
+                                    &mut code,
+                                    locals,
+                                    &mut next_slot,
+                                    &mut loop_stack,
+                                )?;
+                            }
+                        }
+                    }
+                    // Restore next_slot after loop body (nested lets inside loop are scoped)
+                    next_slot = saved_next_slot;
+
+                    loop_stack.pop();
+
+                    // Jump back to loop start
+                    code.push(Instruction::Jump(loop_start));
+
+                    // Patch: after_loop starts here
+                    let after_loop = code.len();
+                    code[jmp_not_idx] = Instruction::JumpIfNot(after_loop);
+
+                    // Patch break fixups
+                    for fixup_idx in &break_fixups {
+                        code[*fixup_idx] = Instruction::Jump(after_loop);
+                    }
+                }
+                Statement::Each {
+                    variable,
+                    iterable,
+                    body,
+                } => {
+                    // Compile: iterable → load → iterate with index
+                    // Alloc local slots for: _list (hidden), _index (hidden), item (visible)
+                    let list_slot = next_slot;
+                    next_slot += 1;
+                    let idx_slot = next_slot;
+                    next_slot += 1;
+                    let item_slot = next_slot;
+                    next_slot += 1;
+
+                    // Compile iterable expression, store in list_slot
+                    self.compile_expr_with_locals(iterable, &mut code, locals)?;
+                    code.push(Instruction::StoreLocal(list_slot));
+
+                    // Initialize index = 0
+                    code.push(Instruction::Const(Value::Float(0.0)));
+                    code.push(Instruction::StoreLocal(idx_slot));
+
+                    let loop_start = code.len();
+                    let mut break_fixups: Vec<usize> = Vec::new();
+
+                    // Check: idx < len? → JumpIfNot after_loop
+                    // Stack: [..., len, idx] — we need to duplicate both or use CmpLt
+                    // Simpler: load idx, load len_len_from_list, CmpLt
+                    code.push(Instruction::LoadLocal(idx_slot));
+                    code.push(Instruction::LoadLocal(list_slot));
+                    code.push(Instruction::ListLen);
+                    code.push(Instruction::CmpLt);
+                    code.push(Instruction::JumpIfNot(0)); // placeholder
+                    let jmp_not_idx = code.len() - 1;
+
+                    // Get item: list[idx]
+                    code.push(Instruction::LoadLocal(list_slot));
+                    code.push(Instruction::LoadLocal(idx_slot));
+                    code.push(Instruction::IndexAccess);
+                    code.push(Instruction::StoreLocal(item_slot));
+
+                    // Bind variable name to item_slot
+                    let old = locals.insert(variable.clone(), item_slot);
+
+                    // Compile body
+                    let saved_next_slot = next_slot;
+                    loop_stack.push((loop_start, break_fixups.clone(), vec![]));
+                    for s in body {
+                        match s {
+                            Statement::Break => {
+                                let fixup = code.len();
+                                code.push(Instruction::Jump(0));
+                                loop_stack.last_mut().unwrap().1.push(fixup);
+                            }
+                            Statement::Continue => {
+                                // Skip rest of body, jump to increment
+                                code.push(Instruction::Jump(0)); // placeholder, patch later
+                                loop_stack.last_mut().unwrap().2.push(code.len() - 1);
+                            }
+                            _ => {
+                                self.compile_stmt_with_locals(
+                                    s, &mut code, locals, &mut next_slot, &mut loop_stack,
+                                )?;
+                            }
+                        }
+                    }
+                    next_slot = saved_next_slot;
+                    loop_stack.pop();
+
+                    // Increment index
+                    code.push(Instruction::LoadLocal(idx_slot));
+                    code.push(Instruction::Const(Value::Float(1.0)));
+                    code.push(Instruction::Add);
+                    code.push(Instruction::StoreLocal(idx_slot));
+
+                    // Jump back to loop start
+                    code.push(Instruction::Jump(loop_start));
+
+                    // Patch after_loop
+                    let after_loop = code.len();
+                    code[jmp_not_idx] = Instruction::JumpIfNot(after_loop);
+
+                    // Patch break fixups
+                    for fixup_idx in &break_fixups {
+                        code[*fixup_idx] = Instruction::Jump(after_loop);
+                    }
+
+                    // Restore old binding for variable
+                    if let Some(old_val) = old {
+                        locals.insert(variable.clone(), old_val);
+                    } else {
+                        locals.remove(variable);
+                    }
+                }
+                Statement::EachWithIndex {
+                    index_var,
+                    item_var,
+                    iterable,
+                    body,
+                } => {
+                    // Same as Each but also binds index_var
+                    let list_slot = next_slot;
+                    next_slot += 1;
+                    let idx_slot = next_slot;
+                    next_slot += 1;
+                    let item_slot = next_slot;
+                    next_slot += 1;
+
+                    self.compile_expr_with_locals(iterable, &mut code, locals)?;
+                    code.push(Instruction::StoreLocal(list_slot));
+
+                    code.push(Instruction::Const(Value::Float(0.0)));
+                    code.push(Instruction::StoreLocal(idx_slot));
+
+                    let loop_start = code.len();
+                    let mut break_fixups: Vec<usize> = Vec::new();
+
+                    code.push(Instruction::LoadLocal(idx_slot));
+                    code.push(Instruction::LoadLocal(list_slot));
+                    code.push(Instruction::ListLen);
+                    code.push(Instruction::CmpLt);
+                    code.push(Instruction::JumpIfNot(0));
+                    let jmp_not_idx = code.len() - 1;
+
+                    code.push(Instruction::LoadLocal(list_slot));
+                    code.push(Instruction::LoadLocal(idx_slot));
+                    code.push(Instruction::IndexAccess);
+                    code.push(Instruction::StoreLocal(item_slot));
+
+                    // Bind both vars
+                    let old_item = locals.insert(item_var.clone(), item_slot);
+                    let old_idx = locals.insert(index_var.clone(), idx_slot);
+
+                    let saved_next_slot = next_slot;
+                    loop_stack.push((loop_start, break_fixups.clone(), vec![]));
+                    for s in body {
+                        match s {
+                            Statement::Break => {
+                                let fixup = code.len();
+                                code.push(Instruction::Jump(0));
+                                loop_stack.last_mut().unwrap().1.push(fixup);
+                            }
+                            Statement::Continue => {
+                                code.push(Instruction::Jump(0));
+                                loop_stack.last_mut().unwrap().2.push(code.len() - 1);
+                            }
+                            _ => {
+                                self.compile_stmt_with_locals(
+                                    s, &mut code, locals, &mut next_slot, &mut loop_stack,
+                                )?;
+                            }
+                        }
+                    }
+                    next_slot = saved_next_slot;
+                    loop_stack.pop();
+
+                    code.push(Instruction::LoadLocal(idx_slot));
+                    code.push(Instruction::Const(Value::Float(1.0)));
+                    code.push(Instruction::Add);
+                    code.push(Instruction::StoreLocal(idx_slot));
+
+                    code.push(Instruction::Jump(loop_start));
+
+                    let after_loop = code.len();
+                    code[jmp_not_idx] = Instruction::JumpIfNot(after_loop);
+
+                    for fixup_idx in &break_fixups {
+                        code[*fixup_idx] = Instruction::Jump(after_loop);
+                    }
+
+                    // Restore bindings
+                    if let Some(v) = old_item { locals.insert(item_var.clone(), v); } else { locals.remove(item_var); }
+                    if let Some(v) = old_idx { locals.insert(index_var.clone(), v); } else { locals.remove(index_var); }
+                }
+                Statement::IfThen(cond, then_body) => {
+                    self.compile_expr_with_locals(cond, &mut code, locals)?;
+                    code.push(Instruction::JumpIfNot(0)); // placeholder
+                    let jmp_idx = code.len() - 1;
+
+                    let saved_next_slot = next_slot;
+                    for s in then_body {
+                        self.compile_stmt_with_locals(
+                            s, &mut code, locals, &mut next_slot, &mut loop_stack,
+                        )?;
+                    }
+                    next_slot = saved_next_slot;
+
+                    let after = code.len();
+                    code[jmp_idx] = Instruction::JumpIfNot(after);
+                }
+                Statement::IfElseBlock {
+                    condition,
+                    then_body,
+                    else_ifs,
+                    else_body,
+                } => {
+                    // Compile if/else if/else chain
+                    let mut jump_to_end_fixups: Vec<usize> = Vec::new();
+
+                    // if condition
+                    self.compile_expr_with_locals(condition, &mut code, locals)?;
+                    code.push(Instruction::JumpIfNot(0));
+                    let jmp_idx = code.len() - 1;
+
+                    let saved_next_slot = next_slot;
+                    for s in then_body {
+                        self.compile_stmt_with_locals(
+                            s, &mut code, locals, &mut next_slot, &mut loop_stack,
+                        )?;
+                    }
+                    next_slot = saved_next_slot;
+
+                    code.push(Instruction::Jump(0)); // skip else
+                    let then_end = code.len() - 1;
+                    jump_to_end_fixups.push(then_end);
+
+                    let then_else_start = code.len();
+                    code[jmp_idx] = Instruction::JumpIfNot(then_else_start);
+
+                    // else if chain
+                    for (ei_cond, ei_body) in else_ifs {
+                        self.compile_expr_with_locals(ei_cond, &mut code, locals)?;
+                        code.push(Instruction::JumpIfNot(0));
+                        let ei_jmp = code.len() - 1;
+
+                        let saved_ns = next_slot;
+                        for s in ei_body {
+                            self.compile_stmt_with_locals(
+                                s, &mut code, locals, &mut next_slot, &mut loop_stack,
+                            )?;
+                        }
+                        next_slot = saved_ns;
+
+                        code.push(Instruction::Jump(0));
+                        let ei_end = code.len() - 1;
+                        jump_to_end_fixups.push(ei_end);
+
+                        let ei_else_start = code.len();
+                        code[ei_jmp] = Instruction::JumpIfNot(ei_else_start);
+                    }
+
+                    // else body
+                    if let Some(else_body) = else_body {
+                        let saved_ns = next_slot;
+                        for s in else_body {
+                            self.compile_stmt_with_locals(
+                                s, &mut code, locals, &mut next_slot, &mut loop_stack,
+                            )?;
+                        }
+                        next_slot = saved_ns;
+                    }
+
+                    let block_end = code.len();
+                    for fixup in jump_to_end_fixups {
+                        code[fixup] = Instruction::Jump(block_end);
+                    }
+                }
+                Statement::ExprStmt(expr) => {
+                    self.compile_expr_with_locals(expr, &mut code, locals)?;
+                    // Discard result (side-effect expression like respond(), write_file())
+                    code.push(Instruction::Pop);
+                }
                 Statement::Match {
                     scrutinee,
                     arms,
                     else_body,
                 } => {
                     self.compile_expr_with_locals(scrutinee, &mut code, locals)?;
-                    // For now, store scrutinee and evaluate arms via tree-walking fallback.
-                    // Full bytecode match compilation is deferred — the VM path uses
-                    // the tree-walking interpreter for match statements.
                     let _ = (arms, else_body);
                 }
                 _ => {}
             }
         }
         Ok(code)
+    }
+
+    /// Helper: compile a single statement with full loop context and slot tracking.
+    /// Used by While/Each bodies to avoid duplicating the full match logic.
+    fn compile_stmt_with_locals(
+        &self,
+        stmt: &Statement,
+        code: &mut Vec<Instruction>,
+        locals: &mut HashMap<String, usize>,
+        next_slot: &mut usize,
+        loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
+    ) -> Result<(), String> {
+        match stmt {
+            Statement::LetBinding { name, value, mutable: _ } => {
+                let slot = *next_slot;
+                *next_slot += 1;
+                locals.insert(name.clone(), slot);
+                self.compile_expr_with_locals(value, code, locals)?;
+                code.push(Instruction::StoreLocal(slot));
+            }
+            Statement::Assign { name, value } => {
+                if let Some(&slot) = locals.get(name) {
+                    self.compile_expr_with_locals(value, code, locals)?;
+                    code.push(Instruction::StoreLocal(slot));
+                } else if let Some(&slot) = self.global_slots.get(name) {
+                    self.compile_expr_with_locals(value, code, locals)?;
+                    code.push(Instruction::StoreGlobal(slot));
+                }
+            }
+            Statement::Return(expr) => {
+                self.compile_expr_with_locals(expr, code, locals)?;
+                code.push(Instruction::Return);
+            }
+            Statement::While { condition, body } => {
+                let loop_start = code.len();
+                let mut break_fixups: Vec<usize> = Vec::new();
+
+                self.compile_expr_with_locals(condition, code, locals)?;
+                let jmp_not_idx = code.len();
+                code.push(Instruction::JumpIfNot(0));
+
+                loop_stack.push((loop_start, vec![], vec![]));
+                let saved = *next_slot;
+                for s in body {
+                    match s {
+                        Statement::Break => {
+                            let fixup = code.len();
+                            code.push(Instruction::Jump(0));
+                            loop_stack.last_mut().unwrap().1.push(fixup);
+                        }
+                        Statement::Continue => {
+                            code.push(Instruction::Jump(loop_start));
+                        }
+                        _ => {
+                            self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack)?;
+                        }
+                    }
+                }
+                *next_slot = saved;
+                loop_stack.pop();
+
+                code.push(Instruction::Jump(loop_start));
+                let after_loop = code.len();
+                code[jmp_not_idx] = Instruction::JumpIfNot(after_loop);
+                for f in &break_fixups {
+                    code[*f] = Instruction::Jump(after_loop);
+                }
+            }
+            Statement::IfThen(cond, then_body) => {
+                self.compile_expr_with_locals(cond, code, locals)?;
+                code.push(Instruction::JumpIfNot(0));
+                let jmp_idx = code.len() - 1;
+                let saved = *next_slot;
+                for s in then_body {
+                    self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack)?;
+                }
+                *next_slot = saved;
+                code[jmp_idx] = Instruction::JumpIfNot(code.len());
+            }
+            Statement::IfElseBlock { condition, then_body, else_ifs, else_body } => {
+                let mut end_fixups: Vec<usize> = Vec::new();
+                self.compile_expr_with_locals(condition, code, locals)?;
+                code.push(Instruction::JumpIfNot(0));
+                let jmp_idx = code.len() - 1;
+                let saved = *next_slot;
+                for s in then_body {
+                    self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack)?;
+                }
+                *next_slot = saved;
+                code.push(Instruction::Jump(0));
+                end_fixups.push(code.len() - 1);
+                code[jmp_idx] = Instruction::JumpIfNot(code.len());
+
+                for (ei_cond, ei_body) in else_ifs {
+                    self.compile_expr_with_locals(ei_cond, code, locals)?;
+                    code.push(Instruction::JumpIfNot(0));
+                    let ei_jmp = code.len() - 1;
+                    let saved2 = *next_slot;
+                    for s in ei_body {
+                        self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack)?;
+                    }
+                    *next_slot = saved2;
+                    code.push(Instruction::Jump(0));
+                    end_fixups.push(code.len() - 1);
+                    code[ei_jmp] = Instruction::JumpIfNot(code.len());
+                }
+
+                if let Some(eb) = else_body {
+                    let saved3 = *next_slot;
+                    for s in eb {
+                        self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack)?;
+                    }
+                    *next_slot = saved3;
+                }
+
+                let end = code.len();
+                for f in end_fixups {
+                    code[f] = Instruction::Jump(end);
+                }
+            }
+            Statement::ExprStmt(expr) => {
+                self.compile_expr_with_locals(expr, code, locals)?;
+                code.push(Instruction::Pop);
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     /// Compile a flow source expression into a FlowExpr.

@@ -28,7 +28,6 @@ pub struct BuiltinSpec {
 pub(crate) mod registry;
 pub use registry::*;
 
-
 impl Builtins {
     pub fn new() -> Self {
         let mut funcs = std::collections::HashMap::new();

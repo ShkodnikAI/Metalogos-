@@ -25,6 +25,8 @@ pub struct BuiltinSpec {
     pub category: &'static str,
 }
 
+pub(crate) mod core;
+use core::*;
 pub(crate) mod registry;
 pub use registry::*;
 
@@ -756,40 +758,6 @@ fn builtin_confidence(args: &[Value]) -> Result<Value, String> {
 }
 
 // builtin_env moved to Phase 6.4 section below
-
-fn expect_float_arg(fn_name: &str, args: &[Value], index: usize) -> Result<f64, String> {
-    if args.len() <= index {
-        return Err(format!(
-            "{}() requires an argument at position {}",
-            fn_name, index
-        ));
-    }
-    match &args[index] {
-        Value::Float(f) => Ok(*f),
-        other => Err(format!(
-            "{}() expected Float argument, got {}",
-            fn_name,
-            other.type_name()
-        )),
-    }
-}
-
-fn expect_string_arg(fn_name: &str, args: &[Value], index: usize) -> Result<String, String> {
-    if args.len() <= index {
-        return Err(format!(
-            "{}() requires an argument at position {}",
-            fn_name, index
-        ));
-    }
-    match &args[index] {
-        Value::String(s) => Ok(s.clone()),
-        other => Err(format!(
-            "{}() expected String argument, got {}",
-            fn_name,
-            other.type_name()
-        )),
-    }
-}
 
 // ── Stdlib backing builtins (Phase 5.4) ───────────────────────────
 // These implement the primitives used by std/*.mlog pattern wrappers.
@@ -2846,15 +2814,6 @@ fn builtin_escape_js(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(out))
 }
 
-/// `type_of(value) -> String` — returns the runtime type name as a String.
-/// Useful for safe checking after json_get: `if type_of(x) == "Unit" { ... }`
-fn builtin_type_of(args: &[Value]) -> Result<Value, String> {
-    if args.is_empty() {
-        return Err("type_of() requires 1 argument".to_string());
-    }
-    Ok(Value::String(args[0].type_name().to_string()))
-}
-
 // ── Наряд 24: New builtins (A3, A4, B2) ──────────────────────────────
 
 /// `git_push(message?) -> String` — git add/commit/push via subprocess.
@@ -2954,18 +2913,6 @@ fn builtin_make_list(args: &[Value]) -> Result<Value, String> {
 }
 
 // ── OpenPlanter-inspired: Fuzzy matching, safe editing, agent utilities (ADR-0063) ──
-
-/// Helper: build a Value::Struct from a type name and a list of (key, value) pairs.
-fn make_struct(type_name: &str, fields: Vec<(&str, Value)>) -> Value {
-    let mut map = std::collections::HashMap::new();
-    for (k, v) in fields {
-        map.insert(k.to_string(), v);
-    }
-    Value::Struct {
-        type_name: type_name.to_string(),
-        fields: map,
-    }
-}
 
 /// `fuzzy_match(a, b)` — Jaro-Winkler similarity between two strings (0.0..1.0).
 /// Ported from OpenPlanter's wiki/matching.rs NameRegistry pattern.
@@ -7197,39 +7144,6 @@ fn builtin_trace_end(args: &[Value]) -> Result<Value, String> {
 
 // ── V5: Assertions ──────────────────────────────────────────────────
 
-/// `assert_eq(actual, expected)` — error if two values display differently.
-/// Returns the actual value on success.
-fn builtin_assert_eq(args: &[Value]) -> Result<Value, String> {
-    if args.len() < 2 {
-        return Err("assert_eq: requires 2 arguments (actual, expected)".to_string());
-    }
-    let actual_str = format!("{}", args[0]);
-    let expected_str = format!("{}", args[1]);
-    if actual_str != expected_str {
-        Err(format!(
-            "assert_eq failed: {} != {}",
-            actual_str, expected_str
-        ))
-    } else {
-        Ok(args[0].clone())
-    }
-}
-
-/// `assert_contains(haystack, needle)` — panic if needle not found in haystack string.
-fn builtin_assert_contains(args: &[Value]) -> Result<Value, String> {
-    let haystack = format!("{}", args.get(0).unwrap_or(&Value::Unit));
-    let needle = format!("{}", args.get(1).unwrap_or(&Value::Unit));
-    if !haystack.contains(&needle) {
-        Err(format!(
-            "assert_contains failed: '{}' not in '{}'",
-            needle,
-            &haystack[..haystack.len().min(80)]
-        ))
-    } else {
-        Ok(args[0].clone())
-    }
-}
-
 /// Helper: current Unix timestamp.
 fn chrono_now_timestamp() -> i64 {
     std::time::SystemTime::now()
@@ -7874,53 +7788,6 @@ const RECIPE_PREFIX: &str = "__recipe:";
 /// KV key for recipe index (JSON array of recipe names).
 #[allow(dead_code)]
 const RECIPE_INDEX_KEY: &str = "__recipe_index";
-
-/// Extract a String arg or return error.
-fn expect_string_arg_var(name: &str, args: &[Value], idx: usize) -> Result<String, String> {
-    if idx >= args.len() {
-        return Err(format!("{}: expected argument at position {}", name, idx));
-    }
-    match &args[idx] {
-        Value::String(s) => Ok(s.clone()),
-        other => Err(format!(
-            "{}: argument {} must be String, got {}",
-            name,
-            idx,
-            other.type_name()
-        )),
-    }
-}
-
-/// Extract a List arg or return error.
-fn expect_list_arg(name: &str, args: &[Value], idx: usize) -> Result<Vec<Value>, String> {
-    if idx >= args.len() {
-        return Err(format!("{}: expected argument at position {}", name, idx));
-    }
-    match &args[idx] {
-        Value::List(items) => Ok(items.clone()),
-        other => Err(format!(
-            "{}: argument {} must be List, got {}",
-            name,
-            idx,
-            other.type_name()
-        )),
-    }
-}
-
-/// Extract a Struct arg as JSON or return error.
-fn expect_struct_json_arg(name: &str, args: &[Value], idx: usize) -> Result<String, String> {
-    if idx >= args.len() {
-        return Err(format!("{}: expected argument at position {}", name, idx));
-    }
-    let json = mlog_value_to_json(&args[idx]);
-    match serde_json::to_string(&json) {
-        Ok(s) => Ok(s),
-        Err(_) => Err(format!(
-            "{}: argument {} must be serializable to JSON",
-            name, idx
-        )),
-    }
-}
 
 /// `recipe_save(name, description, skills, plan)` — persist a recipe.
 /// args: [name: String, description: String, skills: List, plan: Struct/any]

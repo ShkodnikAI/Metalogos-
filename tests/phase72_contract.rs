@@ -117,6 +117,7 @@ fn test_72_cosine_similarity_different_text() {
 
 // ── Contract 5: EmbeddingManager defaults to TF-IDF ────────────────
 
+#[serial_test::serial]
 #[test]
 fn test_72_embedding_manager_default_is_tfidf() {
     std::env::remove_var("METALOGOS_EMBEDDING_PROVIDER");
@@ -231,6 +232,7 @@ fn test_72_tfidf_partial_overlap() {
 
 // ── Contract 10: OpenAI backend requires API key ────────────────────
 
+#[serial_test::serial]
 #[test]
 fn test_72_openai_requires_api_key() {
     std::env::remove_var("METALOGOS_EMBEDDING_API_KEY");

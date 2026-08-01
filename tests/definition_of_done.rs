@@ -33,7 +33,7 @@ mlogserver {
     let text = data.message.text
     let chat_id = to_string(data.message.chat.id)
     let _ = HandleWebhook(text, chat_id)
-    respond("ok")
+    respond("200 ok")
   }
 }
 "#;
@@ -177,7 +177,7 @@ mlogserver {
     let data = json_body()
     let text = data.message.text
     let chat_id = to_string(data.message.chat.id)
-    respond("ok")
+    respond("200 ok")
   }
 }
 "#;
@@ -209,11 +209,11 @@ fn test_dod_memory_persistence() {
     let db_path = dir.path().join("bot_memory.db");
     let db_str = db_path.to_str().unwrap();
 
-    // Run 1: memorize via callable form
+    // Run 1: memorize via keyword form (top-level)
     let source1 = format!(
         r#"
 memory {{ persist: "{}" }}
-let _ = memorize("user likes spicy food", 0.8)
+memorize "user likes spicy food" with priority = 0.8
 "#,
         db_str
     );
@@ -224,7 +224,10 @@ let _ = memorize("user likes spicy food", 0.8)
     let source2 = format!(
         r#"
 memory {{ persist: "{}" }}
-entity r: String = recall("spicy food")
+pattern RecallFact() -> String {{
+  return recall("spicy food")
+}}
+entity r: String = RecallFact()
 flow Main {{ input: String = r -> output }}
 "#,
         db_str

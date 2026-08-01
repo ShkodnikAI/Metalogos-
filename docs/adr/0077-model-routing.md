@@ -1,4 +1,4 @@
-# ADR-0048: Cost-Aware Model Routing for Learnable Patterns
+# ADR-0077: Cost-Aware Model Routing for Learnable Patterns
 
 **Status:** Implemented
 **Date:** 2026-06-09

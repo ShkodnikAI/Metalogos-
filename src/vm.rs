@@ -44,6 +44,8 @@ pub struct Vm {
     rules: Vec<CompiledRule>,
     /// Skill index declarations (for resolve_skill_index).
     skill_indices: Vec<CompiledSkillIndex>,
+    /// Database connection (opened from program.db_url if present).
+    db_conn: Option<rusqlite::Connection>,
     /// Mutate log messages.
     mutate_log: Vec<String>,
     /// Collections loaded flag (for map/filter/reduce).
@@ -69,6 +71,7 @@ impl Vm {
             relations: Vec::new(),
             rules: Vec::new(),
             skill_indices: Vec::new(),
+            db_conn: None,
             mutate_log: Vec::new(),
             collections_loaded: false,
         }
@@ -87,6 +90,38 @@ impl Vm {
         rules.sort_by(|a, b| b.priority.cmp(&a.priority));
         self.rules = rules;
         self.skill_indices = program.skill_indices.clone();
+
+        // Open database connection if URL is specified
+        self.db_conn = program.db_url.as_ref().and_then(|url| {
+            let conn = if url == "sqlite::memory:" {
+                rusqlite::Connection::open_in_memory()
+            } else if url.starts_with("sqlite:") {
+                let path = url.trim_start_matches("sqlite:");
+                rusqlite::Connection::open(path)
+            } else {
+                return None;
+            };
+            match conn {
+                Ok(c) => {
+                    let _ = c.execute_batch("PRAGMA journal_mode=WAL;");
+                    eprintln!("[vm/db] Connected: {}", url);
+                    Some(c)
+                }
+                Err(e) => {
+                    eprintln!("[vm/db] Failed to connect to '{}': {}", url, e);
+                    None
+                }
+            }
+        });
+
+        // Execute schema DDL statements (CREATE TABLE IF NOT EXISTS)
+        if let Some(conn) = self.db_conn.as_mut() {
+            for ddl in &program.schema_ddl {
+                if let Err(e) = conn.execute_batch(ddl) {
+                    eprintln!("[vm/db] DDL error: {}", e);
+                }
+            }
+        }
 
         // Execute main_code
         let mut stack: Vec<Value> = Vec::new();
@@ -160,8 +195,8 @@ impl Vm {
                     let name = self
                         .builtin_names
                         .get(*idx)
-                        .map(|s| s.as_str())
-                        .unwrap_or("unknown");
+                        .cloned()
+                        .unwrap_or_else(|| "unknown".to_string());
                     let mut args = Vec::new();
                     for _ in 0..*arity {
                         args.insert(0, stack.pop().unwrap_or(Value::Unit));
@@ -174,7 +209,7 @@ impl Vm {
                             continue;
                         }
                     }
-                    let result = self.call_builtin(name, &args)?;
+                    let result = self.call_builtin(&name, &args)?;
                     stack.push(result);
                     ip += 1;
                 }
@@ -673,7 +708,7 @@ impl Vm {
     /// Execute a block of code (e.g., pattern body) and return the result.
     /// This handles the call stack and Return instructions internally.
     pub fn execute_code(
-        &self,
+        &mut self,
         code: &[Instruction],
         stack: &mut Vec<Value>,
         call_stack: &mut Vec<CallFrame>,
@@ -725,8 +760,8 @@ impl Vm {
                     let name = self
                         .builtin_names
                         .get(*idx)
-                        .map(|s| s.as_str())
-                        .unwrap_or("unknown");
+                        .cloned()
+                        .unwrap_or_else(|| "unknown".to_string());
                     let mut args = Vec::new();
                     for _ in 0..*arity {
                         args.insert(0, stack.pop().unwrap_or(Value::Unit));
@@ -739,7 +774,7 @@ impl Vm {
                             continue;
                         }
                     }
-                    let result = self.call_builtin(name, &args)?;
+                    let result = self.call_builtin(&name, &args)?;
                     stack.push(result);
                     ip += 1;
                 }
@@ -1000,7 +1035,7 @@ impl Vm {
     /// Call a built-in function by name.
     /// Problem B: map(list, "pattern_name") — applies a compiled pattern to each list element.
     /// Needed because map requires pattern table access (not available to regular builtins).
-    fn vm_map(&self, args: &[Value], program: &Program) -> Result<Value, String> {
+    fn vm_map(&mut self, args: &[Value], program: &Program) -> Result<Value, String> {
         if !self.collections_loaded {
             return Err("map() requires 'import std/collections'".to_string());
         }
@@ -1042,7 +1077,7 @@ impl Vm {
         Ok(Value::List(results))
     }
 
-    fn call_builtin(&self, name: &str, args: &[Value]) -> Result<Value, String> {
+    fn call_builtin(&mut self, name: &str, args: &[Value]) -> Result<Value, String> {
         if name == "recall" {
             let query = match args.get(0) {
                 Some(Value::String(s)) => s.clone(),
@@ -1096,6 +1131,176 @@ impl Vm {
                     }
                 }
             }
+            return Ok(Value::Unit);
+        }
+
+        // db_insert(table, struct) — insert a struct into a database table
+        if name == "db_insert" {
+            let table = match args.get(0) {
+                Some(Value::String(s)) => s.clone(),
+                _ => return Err("db_insert() expects first argument to be a table name (String)".to_string()),
+            };
+            let fields = match args.get(1) {
+                Some(Value::Struct { fields, .. }) => fields.clone(),
+                _ => return Err("db_insert() expects second argument to be a Struct".to_string()),
+            };
+            let conn = self.db_conn.as_mut().ok_or_else(|| {
+                "db_insert() error: no database connection. Declare db { url: \"sqlite::memory:\" } first.".to_string()
+            })?;
+            let col_names: Vec<String> = fields.keys().cloned().collect();
+            let placeholders: Vec<String> = col_names.iter().map(|_| "?".to_string()).collect();
+            let sql = format!(
+                "INSERT INTO {} ({}) VALUES ({})",
+                table,
+                col_names.join(", "),
+                placeholders.join(", ")
+            );
+            let params: Vec<Box<dyn rusqlite::types::ToSql>> = fields
+                .values()
+                .map(|v| match v {
+                    Value::String(s) => Box::new(s.clone()) as Box<dyn rusqlite::types::ToSql>,
+                    Value::Float(f) => Box::new(*f) as Box<dyn rusqlite::types::ToSql>,
+                    Value::Bool(b) => Box::new(*b) as Box<dyn rusqlite::types::ToSql>,
+                    Value::Unit => Box::new(Option::<String>::None) as Box<dyn rusqlite::types::ToSql>,
+                    other => Box::new(format!("{}", other)) as Box<dyn rusqlite::types::ToSql>,
+                })
+                .collect();
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                params.iter().map(|p| p.as_ref()).collect();
+            conn.execute(&sql, param_refs.as_slice())
+                .map_err(|e| format!("db_insert() SQL error: {}", e))?;
+            let rowid: i64 = conn
+                .query_row("SELECT last_insert_rowid()", [], |row| row.get(0))
+                .unwrap_or(0);
+            return Ok(Value::Float(rowid as f64));
+        }
+
+        // query_scalar(sql, params) — execute SELECT returning one scalar value
+        if name == "query_scalar" {
+            let sql = match args.get(0) {
+                Some(Value::String(s)) => s.clone(),
+                _ => return Err("query_scalar() expected String SQL".to_string()),
+            };
+            let params: Vec<String> = if args.len() > 1 {
+                match &args[1] {
+                    Value::List(items) => items
+                        .iter()
+                        .filter_map(|v| match v {
+                            Value::String(s) => Some(s.clone()),
+                            Value::Float(n) => Some(format!("{}", n)),
+                            Value::Bool(b) => Some(format!("{}", b)),
+                            _ => None,
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                }
+            } else {
+                Vec::new()
+            };
+            let conn = self.db_conn.as_ref().ok_or_else(|| {
+                "query_scalar() error: no database connection.".to_string()
+            })?;
+            let mut stmt = conn
+                .prepare(&sql)
+                .map_err(|e| format!("query_scalar() SQL error: {}", e))?;
+            let mut rows = stmt
+                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
+                    row.get_ref(0).map(|v| match v {
+                        rusqlite::types::ValueRef::Null => Value::Unit,
+                        rusqlite::types::ValueRef::Integer(n) => Value::Float(n as f64),
+                        rusqlite::types::ValueRef::Real(f) => Value::Float(f),
+                        rusqlite::types::ValueRef::Text(s) => {
+                            Value::String(String::from_utf8_lossy(s).to_string())
+                        }
+                        rusqlite::types::ValueRef::Blob(b) => {
+                            Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
+                        }
+                    })
+                })
+                .map_err(|e| format!("query_scalar() execution error: {}", e))?;
+            match rows.next() {
+                Some(Ok(val)) => return Ok(val),
+                Some(Err(e)) => return Err(format!("query_scalar() row error: {}", e)),
+                None => return Ok(Value::Unit),
+            }
+        }
+
+        // query(sql) / query(sql, params) — execute SELECT returning list of structs
+        if name == "query" {
+            let sql = match args.get(0) {
+                Some(Value::String(s)) => s.clone(),
+                _ => return Err("query() expected String SQL".to_string()),
+            };
+            let conn = self.db_conn.as_ref().ok_or_else(|| {
+                "query() error: no database connection.".to_string()
+            })?;
+            let mut stmt = conn
+                .prepare(&sql)
+                .map_err(|e| format!("query() SQL error: {}", e))?;
+            let col_names: Vec<String> = stmt
+                .column_names()
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            let mut rows = stmt
+                .query([])
+                .map_err(|e| format!("query() execution error: {}", e))?;
+            let mut results = Vec::new();
+            while let Some(row) = rows.next().map_err(|e| format!("query() row error: {}", e))? {
+                let mut fields = std::collections::HashMap::new();
+                for (i, col) in col_names.iter().enumerate() {
+                    let val: rusqlite::types::ValueRef = row.get_ref(i)
+                        .map_err(|e| format!("query() column {} error: {}", col, e))?;
+                    fields.insert(
+                        col.clone(),
+                        match val {
+                            rusqlite::types::ValueRef::Null => Value::Unit,
+                            rusqlite::types::ValueRef::Integer(n) => Value::Float(n as f64),
+                            rusqlite::types::ValueRef::Real(f) => Value::Float(f),
+                            rusqlite::types::ValueRef::Text(s) => {
+                                Value::String(String::from_utf8_lossy(s).to_string())
+                            }
+                            rusqlite::types::ValueRef::Blob(b) => {
+                                Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
+                            }
+                        },
+                    );
+                }
+                results.push(Value::Struct {
+                    type_name: "Row".to_string(),
+                    fields,
+                });
+            }
+            return Ok(Value::List(results));
+        }
+
+        // db_execute(sql, params?) — execute SQL (INSERT/UPDATE/DELETE/DDL)
+        if name == "db_execute" {
+            let sql = match args.get(0) {
+                Some(Value::String(s)) => s.clone(),
+                _ => return Err("db_execute() expected String SQL".to_string()),
+            };
+            let params: Vec<String> = if args.len() > 1 {
+                match &args[1] {
+                    Value::List(items) => items
+                        .iter()
+                        .filter_map(|v| match v {
+                            Value::String(s) => Some(s.clone()),
+                            Value::Float(n) => Some(format!("{}", n)),
+                            Value::Bool(b) => Some(format!("{}", b)),
+                            _ => None,
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                }
+            } else {
+                Vec::new()
+            };
+            let conn = self.db_conn.as_ref().ok_or_else(|| {
+                "db_execute() error: no database connection.".to_string()
+            })?;
+            conn.execute(&sql, rusqlite::params_from_iter(params.iter()))
+                .map_err(|e| format!("db_execute() SQL error: {}", e))?;
             return Ok(Value::Unit);
         }
 
@@ -1294,22 +1499,28 @@ impl Vm {
                     .zip(pattern.param_types.iter())
                     .map(|(arg, param_type)| self.maybe_collapse(arg, param_type))
                     .collect();
+                let code = pattern.code.clone();
                 // Execute pattern body as bytecode
                 let mut stack: Vec<Value> = Vec::new();
-                let mut call_stack: Vec<CallFrame> = Vec::new();
+                let mut call_stack: Vec<CallFrame> = vec![CallFrame {
+                    return_ip: 0,
+                    base_bp: 0,
+                }];
                 let program = Program {
                     globals: Vec::new(),
                     patterns: Vec::new(),
                     learnables: Vec::new(),
                     rules: Vec::new(),
                     skill_indices: Vec::new(),
+                    db_url: None,
+                    schema_ddl: Vec::new(),
                     main_code: Vec::new(),
                     collections_loaded: false,
                 };
                 for arg in collapsed_args {
                     stack.push(arg);
                 }
-                return self.execute_code(&pattern.code, &mut stack, &mut call_stack, &program);
+                return self.execute_code(&code, &mut stack, &mut call_stack, &program);
             }
         }
 

@@ -4,7 +4,20 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-### VM backend
+### VM backend (Наряд №35)
+- VM: `eval_cmp()` now handles String-String comparisons (was Float-only via
+  `as_float()`). `"" == ""` now correctly returns true. Fixes while/each loops
+  that checked `result == ""` — crosscheck 45/58 → 48/58 (3 cases).
+- VM: `MakeStruct` and `Contains` added to `execute_code()` (were only in `run()`).
+  Pattern calls from flow pipelines now correctly handle struct literals.
+  Fixes dag_demo.mlog — crosscheck 48/58 → 49/58 (1 case).
+- VM: `CmpNe` added to `eval_cmp()` numeric path (was `_ => false`).
+- ADR-0075 updated: 4 cases resolved in №35, 9 remaining documented with root causes.
+  Crosscheck threshold raised to 49/58.
+- Remaining VM divergences: memory subsystem (3), rule/find (1), flow source
+  expression BinOp limitation (1), skill_index (1), DB builtins (2), modules (1).
+
+### VM backend (Наряд №34)
 - Compiler: While, Each, EachWithIndex, Assign, IfThen, IfElseBlock, Break,
   Continue, ExprStmt now compiled to bytecode (were silently dropped).
 - Compiler: function-level scoping for LetBinding — `let` inside blocks overwrites

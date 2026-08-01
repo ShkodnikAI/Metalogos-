@@ -548,12 +548,32 @@ impl Vm {
                 }
 
                 // ── Pipeline ───────────────────────────────────
+                // New: FlowPipeline — pop source from stack (compiled via compile_expr)
+                Instruction::FlowPipeline {
+                    pipeline,
+                    branch_defs,
+                } => {
+                    let source_val = stack.pop().unwrap_or(Value::Unit);
+
+                    // Execute pipeline steps
+                    let mut current = source_val;
+                    for step_name in pipeline {
+                        current = self.run_flow_step(step_name, current, branch_defs)?;
+                    }
+
+                    // The pipeline result is the flow output
+                    let output_str = format!("{}", current);
+                    flow_output = Some(output_str);
+                    ip += 1;
+                }
+
+                // Legacy: FlowExec — load source from embedded expression
                 Instruction::FlowExec {
                     source_expr,
                     pipeline,
                     branch_defs,
                 } => {
-                    // Load the source value
+                    // Load the source value (legacy path)
                     let source_val = match source_expr {
                         FlowExpr::GlobalSlot(slot) => {
                             self.globals.get(*slot).cloned().unwrap_or(Value::Unit)
@@ -949,9 +969,16 @@ impl Vm {
                         (Value::String(h), Value::String(n)) => {
                             Value::Float(if h.contains(n.as_str()) { 1.0 } else { 0.0 })
                         }
-                        (Value::List(items), _) => {
-                            Value::Float(if items.iter().any(|v| format!("{}", v) == format!("{}", needle)) { 1.0 } else { 0.0 })
-                        }
+                        (Value::List(items), _) => Value::Float(
+                            if items
+                                .iter()
+                                .any(|v| format!("{}", v) == format!("{}", needle))
+                            {
+                                1.0
+                            } else {
+                                0.0
+                            },
+                        ),
                         _ => Value::Float(0.0),
                     };
                     stack.push(result);

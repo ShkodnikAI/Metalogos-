@@ -1,6 +1,7 @@
 // ── Integration tests: Phase 6.2 templates + render ────────────────
 
 /// Contract test: XSS prevention — template auto-escapes dangerous input.
+/// Category: Unimplemented Feature (template render not yet in interpreter)
 #[test]
 #[ignore]
 /// TODO: re-enable when Interpreter::render_template is implemented
@@ -18,6 +19,7 @@ fn xss_prevention_template_render() {
 }
 
 /// Contract test: `{{ content | safe }}` passes Html through without escaping.
+/// Category: Unimplemented Feature (template render not yet in interpreter)
 #[test]
 #[ignore]
 /// TODO: re-enable when Interpreter::render_template is implemented
@@ -35,6 +37,7 @@ fn safe_pipe_passthrough() {
 }
 
 /// Contract test: multi-param template with full entity escaping.
+/// Category: Unimplemented Feature (template render not yet in interpreter)
 #[test]
 #[ignore]
 /// TODO: re-enable when Interpreter::render_template is implemented
@@ -54,6 +57,7 @@ fn multi_param_escape() {
 }
 
 /// Contract test: to_string(Html) is blocked (Html is opaque).
+/// Category: Unimplemented Feature (template render not yet in interpreter)
 #[test]
 #[ignore]
 /// TODO: re-enable when Interpreter::render_template is implemented

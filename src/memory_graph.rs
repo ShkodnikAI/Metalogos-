@@ -105,6 +105,12 @@ pub struct ReviseResult {
     pub winner_id: String,
 }
 
+impl Default for MemoryGraph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemoryGraph {
     pub fn new() -> Self {
         MemoryGraph {
@@ -195,8 +201,8 @@ impl MemoryGraph {
                 continue;
             }
             for neighbor in self.graph.neighbors(node) {
-                if !visited.contains_key(&neighbor) {
-                    visited.insert(neighbor, d + 1);
+                if let std::collections::hash_map::Entry::Vacant(e) = visited.entry(neighbor) {
+                    e.insert(d + 1);
                     queue.push_back((neighbor, d + 1));
                 }
             }
@@ -204,8 +210,8 @@ impl MemoryGraph {
                 .graph
                 .neighbors_directed(node, petgraph::Direction::Incoming)
             {
-                if !visited.contains_key(&neighbor) {
-                    visited.insert(neighbor, d + 1);
+                if let std::collections::hash_map::Entry::Vacant(e) = visited.entry(neighbor) {
+                    e.insert(d + 1);
                     queue.push_back((neighbor, d + 1));
                 }
             }

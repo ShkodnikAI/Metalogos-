@@ -182,6 +182,12 @@ pub struct PatternStats {
     pub examples_count: u64,
 }
 
+impl Default for PatternStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PatternStats {
     pub fn new() -> Self {
         PatternStats {

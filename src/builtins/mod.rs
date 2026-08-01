@@ -49,6 +49,12 @@ pub(crate) mod cron;
 pub use cron::init_reminder_persist;
 use cron::*;
 
+impl Default for Builtins {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Builtins {
     pub fn new() -> Self {
         let mut funcs = std::collections::HashMap::new();
@@ -550,6 +556,7 @@ impl Builtins {
 
     /// Verify builtin registry consistency (debug builds).
     #[cfg(debug_assertions)]
+    #[allow(dead_code)]
     fn check_registry_sync(&self) {
         for spec in BUILTIN_REGISTRY.iter() {
             if spec.category != "stateful"

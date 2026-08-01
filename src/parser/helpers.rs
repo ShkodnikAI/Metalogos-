@@ -107,6 +107,7 @@ pub(super) fn preprocess_templates(source: &str) -> (String, HashMap<String, Str
 
 /// Extract content between balanced braces from a string like "{ content } }".
 /// Handles nested braces by counting depth.
+#[allow(dead_code)]
 pub(super) fn extract_balanced_braces(s: &str) -> String {
     let chars: Vec<char> = s.chars().collect();
     if chars.is_empty() || chars[0] != '{' {

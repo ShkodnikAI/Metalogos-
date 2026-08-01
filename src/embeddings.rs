@@ -177,6 +177,12 @@ struct TfidfInner {
 /// Default TF-IDF embedding dimension (fixed-size for deterministic behavior in tests).
 pub const TFIDF_EMBEDDING_DIM: usize = 256;
 
+impl Default for TfidfEmbedding {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TfidfEmbedding {
     /// Create a new TF-IDF embedding backend with empty vocabulary.
     pub fn new() -> Self {
@@ -301,7 +307,7 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
         return 0.0;
     }
 
-    (dot_product / (norm_a * norm_b)).max(-1.0).min(1.0)
+    (dot_product / (norm_a * norm_b)).clamp(-1.0, 1.0)
 }
 
 // ── Embedding Manager ──────────────────────────────────────────────
@@ -318,6 +324,12 @@ pub struct EmbeddingManager {
     backend: Box<dyn EmbeddingBackend>,
     /// Whether we're using a real API or local fallback.
     is_api: bool,
+}
+
+impl Default for EmbeddingManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EmbeddingManager {

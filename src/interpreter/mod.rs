@@ -130,6 +130,7 @@ pub struct Interpreter {
     /// DB config (Phase 6.3)
     db_config: Option<DbDecl>,
     /// Mock DB store (Phase 6.3)
+    #[allow(dead_code)]
     db_store: Vec<HashMap<String, Value>>,
     /// SQLite connection for db {} block (Наряд №7).
     /// Opened when db { url: "sqlite::memory:" } or similar is declared.
@@ -201,6 +202,12 @@ pub struct Interpreter {
     /// Наряд №4: Smart LLM router instance. Created from llm_config when present.
     /// Shared via Arc<Mutex> for thread safety in server mode.
     smart_router: std::sync::Arc<std::sync::Mutex<Option<llm::SmartRouter>>>,
+}
+
+impl Default for Interpreter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Interpreter {
@@ -836,7 +843,7 @@ impl Interpreter {
     pub fn take_audit_log(&mut self) -> Vec<String> {
         self.audit_log
             .get_mut()
-            .map(|v| v.drain(..).collect())
+            .map(std::mem::take)
             .unwrap_or_default()
     }
 
@@ -1289,10 +1296,8 @@ impl Interpreter {
                             }
                             MatchArm::Compare(op, threshold, _) => {
                                 let threshold_val = self.eval_expr_with_env(threshold, env)?;
-                                match Self::compare_values(&scrutinee_val, op, &threshold_val) {
-                                    Ok(b) => b,
-                                    Err(_) => false,
-                                }
+                                Self::compare_values(&scrutinee_val, op, &threshold_val)
+                                    .unwrap_or_default()
                             }
                         };
                         if arm_matches {
@@ -1754,7 +1759,7 @@ impl Interpreter {
                     let mut results = Vec::new();
                     for item in &list {
                         let mut local_env =
-                            self.bind_and_collapse(&pattern.params, &[item.clone()])?;
+                            self.bind_and_collapse(&pattern.params, std::slice::from_ref(item))?;
                         let result = self.eval_statements(&pattern.body, &mut local_env)?;
                         results.push(result);
                     }
@@ -2072,6 +2077,7 @@ impl Interpreter {
     }
 
     /// Check if a value is an opaque type that cannot be printed.
+    #[allow(dead_code)]
     fn is_nonprintable_type(v: &Value) -> bool {
         matches!(
             v,

@@ -4,7 +4,7 @@ impl Interpreter {
     pub(super) fn execute_rules(&mut self) -> Result<(), String> {
         // Sort by priority descending; stable sort preserves declaration order for ties
         let mut sorted_rules: Vec<&RuleDecl> = self.rules.iter().collect();
-        sorted_rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+        sorted_rules.sort_by_key(|b| std::cmp::Reverse(b.priority));
 
         for rule in sorted_rules {
             let condition_met = self.eval_condition(&rule.condition, &self.variables)?;

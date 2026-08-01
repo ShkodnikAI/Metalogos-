@@ -45,6 +45,12 @@ pub struct Compiler {
     sandboxes: HashMap<String, SandboxDecl>,
 }
 
+impl Default for Compiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Compiler {
     /// Create a new compiler with default settings.
     pub fn new() -> Self {
@@ -183,10 +189,8 @@ impl Compiler {
                 }
                 Declaration::Db(db) => {
                     // Extract URL if it's a string literal (for VM db support)
-                    if let Some(expr) = &db.url {
-                        if let crate::ast::Expr::StringLit(url) = expr {
-                            self.db_url = Some(url.clone());
-                        }
+                    if let Some(crate::ast::Expr::StringLit(url)) = &db.url {
+                        self.db_url = Some(url.clone());
                     }
                 }
                 Declaration::Schema(schema) => {
@@ -631,7 +635,7 @@ impl Compiler {
             }
             Expr::StructLit(fields) => {
                 let field_names: Vec<String> = fields.keys().cloned().collect();
-                for (_, val_expr) in fields {
+                for val_expr in fields.values() {
                     self.compile_expr_with_locals(val_expr, code, locals)?;
                 }
                 code.push(Instruction::MakeStruct("Struct".to_string(), field_names));
@@ -718,12 +722,16 @@ impl Compiler {
                             Statement::Break => {
                                 let fixup = code.len();
                                 code.push(Instruction::Jump(0)); // placeholder
-                                loop_stack.last_mut().unwrap().1.push(fixup);
+                                if let Some(entry) = loop_stack.last_mut() {
+                                    entry.1.push(fixup);
+                                }
                             }
                             Statement::Continue => {
                                 let fixup = code.len();
                                 code.push(Instruction::Jump(loop_start)); // back to start
-                                loop_stack.last_mut().unwrap().2.push(fixup);
+                                if let Some(entry) = loop_stack.last_mut() {
+                                    entry.2.push(fixup);
+                                }
                             }
                             _ => {
                                 // Recursively compile nested statements
@@ -807,12 +815,16 @@ impl Compiler {
                             Statement::Break => {
                                 let fixup = code.len();
                                 code.push(Instruction::Jump(0));
-                                loop_stack.last_mut().unwrap().1.push(fixup);
+                                if let Some(entry) = loop_stack.last_mut() {
+                                    entry.1.push(fixup);
+                                }
                             }
                             Statement::Continue => {
                                 // Skip rest of body, jump to increment
                                 code.push(Instruction::Jump(0)); // placeholder, patch later
-                                loop_stack.last_mut().unwrap().2.push(code.len() - 1);
+                                if let Some(entry) = loop_stack.last_mut() {
+                                    entry.2.push(code.len() - 1);
+                                }
                             }
                             _ => {
                                 self.compile_stmt_with_locals(
@@ -899,11 +911,15 @@ impl Compiler {
                             Statement::Break => {
                                 let fixup = code.len();
                                 code.push(Instruction::Jump(0));
-                                loop_stack.last_mut().unwrap().1.push(fixup);
+                                if let Some(entry) = loop_stack.last_mut() {
+                                    entry.1.push(fixup);
+                                }
                             }
                             Statement::Continue => {
                                 code.push(Instruction::Jump(0));
-                                loop_stack.last_mut().unwrap().2.push(code.len() - 1);
+                                if let Some(entry) = loop_stack.last_mut() {
+                                    entry.2.push(code.len() - 1);
+                                }
                             }
                             _ => {
                                 self.compile_stmt_with_locals(
@@ -1119,7 +1135,9 @@ impl Compiler {
                         Statement::Break => {
                             let fixup = code.len();
                             code.push(Instruction::Jump(0));
-                            loop_stack.last_mut().unwrap().1.push(fixup);
+                            if let Some(entry) = loop_stack.last_mut() {
+                                entry.1.push(fixup);
+                            }
                         }
                         Statement::Continue => {
                             code.push(Instruction::Jump(loop_start));
@@ -1206,6 +1224,7 @@ impl Compiler {
     }
 
     /// Compile a flow source expression into a FlowExpr.
+    #[allow(dead_code)]
     fn compile_flow_expr(&self, expr: &Expr) -> FlowExpr {
         match expr {
             Expr::Ident(name) => {

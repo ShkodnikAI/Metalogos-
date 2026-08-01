@@ -913,57 +913,198 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // Categories assigned by function purpose.
 
     // time (builtins that were missing from registry)
-    BuiltinSpec { name: "time", arity: 0, category: "time" },
-    BuiltinSpec { name: "add_days", arity: 2, category: "time" },
-    BuiltinSpec { name: "add_hours", arity: 2, category: "time" },
-    BuiltinSpec { name: "date_parts", arity: 1, category: "time" },
-    BuiltinSpec { name: "format_date", arity: 2, category: "time" },
-
+    BuiltinSpec {
+        name: "time",
+        arity: 0,
+        category: "time",
+    },
+    BuiltinSpec {
+        name: "add_days",
+        arity: 2,
+        category: "time",
+    },
+    BuiltinSpec {
+        name: "add_hours",
+        arity: 2,
+        category: "time",
+    },
+    BuiltinSpec {
+        name: "date_parts",
+        arity: 1,
+        category: "time",
+    },
+    BuiltinSpec {
+        name: "format_date",
+        arity: 2,
+        category: "time",
+    },
     // cron
-    BuiltinSpec { name: "cron_add", arity: 2, category: "cron" },
-    BuiltinSpec { name: "cron_list", arity: 0, category: "cron" },
-    BuiltinSpec { name: "cron_remove", arity: 1, category: "cron" },
-    BuiltinSpec { name: "cron_run", arity: 1, category: "cron" },
-
+    BuiltinSpec {
+        name: "cron_add",
+        arity: 2,
+        category: "cron",
+    },
+    BuiltinSpec {
+        name: "cron_list",
+        arity: 0,
+        category: "cron",
+    },
+    BuiltinSpec {
+        name: "cron_remove",
+        arity: 1,
+        category: "cron",
+    },
+    BuiltinSpec {
+        name: "cron_run",
+        arity: 1,
+        category: "cron",
+    },
     // json/dict (dict_get is alias for json_get)
-    BuiltinSpec { name: "dict_get", arity: 3, category: "json" },
-    BuiltinSpec { name: "dict_set", arity: 3, category: "json" },
-    BuiltinSpec { name: "dict_has", arity: 2, category: "json" },
-    BuiltinSpec { name: "dict_keys", arity: 1, category: "json" },
-    BuiltinSpec { name: "dict_values", arity: 1, category: "json" },
-
+    BuiltinSpec {
+        name: "dict_get",
+        arity: 3,
+        category: "json",
+    },
+    BuiltinSpec {
+        name: "dict_set",
+        arity: 3,
+        category: "json",
+    },
+    BuiltinSpec {
+        name: "dict_has",
+        arity: 2,
+        category: "json",
+    },
+    BuiltinSpec {
+        name: "dict_keys",
+        arity: 1,
+        category: "json",
+    },
+    BuiltinSpec {
+        name: "dict_values",
+        arity: 1,
+        category: "json",
+    },
     // list
-    BuiltinSpec { name: "first", arity: 1, category: "list" },
-    BuiltinSpec { name: "last", arity: 1, category: "list" },
-    BuiltinSpec { name: "make_list", arity: 0, category: "list" },
-    BuiltinSpec { name: "matches_any", arity: 2, category: "list" },
-
+    BuiltinSpec {
+        name: "first",
+        arity: 1,
+        category: "list",
+    },
+    BuiltinSpec {
+        name: "last",
+        arity: 1,
+        category: "list",
+    },
+    BuiltinSpec {
+        name: "make_list",
+        arity: 0,
+        category: "list",
+    },
+    BuiltinSpec {
+        name: "matches_any",
+        arity: 2,
+        category: "list",
+    },
     // string
-    BuiltinSpec { name: "format", arity: 1, category: "string" },
-    BuiltinSpec { name: "escape_js", arity: 1, category: "string" },
-    BuiltinSpec { name: "type_of", arity: 1, category: "string" },
-
+    BuiltinSpec {
+        name: "format",
+        arity: 1,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "escape_js",
+        arity: 1,
+        category: "string",
+    },
+    BuiltinSpec {
+        name: "type_of",
+        arity: 1,
+        category: "string",
+    },
     // io/system
-    BuiltinSpec { name: "exec", arity: 1, category: "io" },
-    BuiltinSpec { name: "web_search", arity: 2, category: "web" },
-    BuiltinSpec { name: "geo_ip", arity: 1, category: "web" },
-    BuiltinSpec { name: "weather", arity: 2, category: "web" },
-    BuiltinSpec { name: "git_push", arity: 1, category: "io" },
-
+    BuiltinSpec {
+        name: "exec",
+        arity: 1,
+        category: "io",
+    },
+    BuiltinSpec {
+        name: "web_search",
+        arity: 2,
+        category: "web",
+    },
+    BuiltinSpec {
+        name: "geo_ip",
+        arity: 1,
+        category: "web",
+    },
+    BuiltinSpec {
+        name: "weather",
+        arity: 2,
+        category: "web",
+    },
+    BuiltinSpec {
+        name: "git_push",
+        arity: 1,
+        category: "io",
+    },
     // bot/todo/goals
-    BuiltinSpec { name: "todo_add", arity: 2, category: "bot" },
-    BuiltinSpec { name: "todo_list", arity: 0, category: "bot" },
-    BuiltinSpec { name: "todo_update", arity: 2, category: "bot" },
-    BuiltinSpec { name: "goal_get", arity: 0, category: "bot" },
-    BuiltinSpec { name: "goal_set", arity: 2, category: "bot" },
-    BuiltinSpec { name: "goals_add", arity: 1, category: "bot" },
-    BuiltinSpec { name: "goals_list", arity: 0, category: "bot" },
-    BuiltinSpec { name: "remind", arity: 3, category: "bot" },
-    BuiltinSpec { name: "get_profile", arity: 0, category: "bot" },
-    BuiltinSpec { name: "human_mood", arity: 3, category: "bot" },
-
+    BuiltinSpec {
+        name: "todo_add",
+        arity: 2,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "todo_list",
+        arity: 0,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "todo_update",
+        arity: 2,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "goal_get",
+        arity: 0,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "goal_set",
+        arity: 2,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "goals_add",
+        arity: 1,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "goals_list",
+        arity: 0,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "remind",
+        arity: 3,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "get_profile",
+        arity: 0,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "human_mood",
+        arity: 3,
+        category: "bot",
+    },
     // mtree
-    BuiltinSpec { name: "mtree_store", arity: 2, category: "mtree" },
+    BuiltinSpec {
+        name: "mtree_store",
+        arity: 2,
+        category: "mtree",
+    },
 ];
 
 /// Total number of registered builtins.
@@ -10514,7 +10655,11 @@ mod tests_sqz_builtins {
             Value::String("x".to_string()),
         ])
         .unwrap();
-        assert_vals_eq(&r, &Value::String("hello world".to_string()), "empty pattern");
+        assert_vals_eq(
+            &r,
+            &Value::String("hello world".to_string()),
+            "empty pattern",
+        );
     }
 
     #[test]
@@ -10525,6 +10670,10 @@ mod tests_sqz_builtins {
             Value::String("there".to_string()),
         ])
         .unwrap();
-        assert_vals_eq(&r, &Value::String("hello there".to_string()), "normal replace");
+        assert_vals_eq(
+            &r,
+            &Value::String("hello there".to_string()),
+            "normal replace",
+        );
     }
 }

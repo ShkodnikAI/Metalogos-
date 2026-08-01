@@ -1052,6 +1052,49 @@ impl Vm {
             return Ok(Value::String(self.recall(&query, min_conf)));
         }
 
+        // find(entity_type, field, op, threshold) — entity store query
+        // Searches globals for structs matching the type and field condition.
+        if name == "find" {
+            let type_name = match args.get(0) {
+                Some(Value::String(s)) => s.clone(),
+                _ => return Err("find() requires type name as first argument (String)".to_string()),
+            };
+            let field_name = match args.get(1) {
+                Some(Value::String(s)) => s.clone(),
+                _ => return Err("find() requires field name as second argument (String)".to_string()),
+            };
+            let op_str = match args.get(2) {
+                Some(Value::String(s)) => s.clone(),
+                _ => return Err("find() requires operator as third argument (String: gt/lt/ge/le/eq)".to_string()),
+            };
+            let threshold = match args.get(3) {
+                Some(Value::Float(f)) => *f,
+                _ => return Err("find() requires threshold as fourth argument (Float)".to_string()),
+            };
+            for val in &self.globals {
+                if let Value::Struct { type_name: tn, fields } = val {
+                    if tn == &type_name {
+                        if let Some(field_val) = fields.get(&field_name) {
+                            if let Ok(fv) = field_val.as_float() {
+                                let matches = match op_str.as_str() {
+                                    "gt" => fv > threshold,
+                                    "lt" => fv < threshold,
+                                    "ge" => fv >= threshold,
+                                    "le" => fv <= threshold,
+                                    "eq" => (fv - threshold).abs() < 1e-9,
+                                    _ => return Err(format!("find(): unknown operator '{}'", op_str)),
+                                };
+                                if matches {
+                                    return Ok(val.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return Ok(Value::Unit);
+        }
+
         if let Some(builtin_fn) = self.builtins.get(name) {
             return builtin_fn(args);
         }

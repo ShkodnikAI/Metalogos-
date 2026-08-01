@@ -274,6 +274,10 @@ pub struct Program {
     pub rules: Vec<CompiledRule>,
     /// Compiled skill indices (for resolve_skill_index).
     pub skill_indices: Vec<CompiledSkillIndex>,
+    /// Database URL (if declared). Enables db_insert, query_scalar, etc.
+    pub db_url: Option<String>,
+    /// Schema DDL statements to execute on DB init (CREATE TABLE IF NOT EXISTS).
+    pub schema_ddl: Vec<String>,
     /// Top-level instruction sequence (declarations + flow execution).
     pub main_code: Vec<Instruction>,
     /// Whether std/collections has been imported (enables map/filter/reduce).

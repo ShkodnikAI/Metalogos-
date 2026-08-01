@@ -580,7 +580,7 @@ impl Vm {
                         pattern_name,
                         new_examples,
                         *rollback_threshold,
-                        rollback_op.clone(),
+                        *rollback_op,
                     )?;
                     self.mutate_log.push(msg);
                     ip += 1;
@@ -696,7 +696,7 @@ impl Vm {
             match flow_output {
                 Some(flow) => {
                     let mut result = mutate_log.join("\n");
-                    result.push_str("\n");
+                    result.push('\n');
                     result.push_str(&flow);
                     Ok(Some(result))
                 }
@@ -1756,10 +1756,10 @@ impl Vm {
                 // Walk knowledge graph for related memories
                 for rel in &self.relations {
                     if rel.from == entry.value {
-                        result.push_str("\n");
+                        result.push('\n');
                         result.push_str(&format!("[GRAPH] {} -> {}", rel.relation, rel.to));
                     } else if rel.to == entry.value {
-                        result.push_str("\n");
+                        result.push('\n');
                         result.push_str(&format!("[GRAPH] {} -> {}", rel.relation, rel.from));
                     }
                 }

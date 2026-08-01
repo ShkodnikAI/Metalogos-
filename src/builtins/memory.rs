@@ -414,7 +414,7 @@ fn compute_admission_score(text: &str) -> f64 {
     let entity_density = {
         let caps: Vec<&str> = text
             .split_whitespace()
-            .filter(|w| w.chars().next().map_or(false, |c| c.is_uppercase()) && w.len() > 1)
+            .filter(|w| w.chars().next().is_some_and(|c| c.is_uppercase()) && w.len() > 1)
             .collect();
         if token_count > 0 {
             caps.len() as f64 / token_count as f64

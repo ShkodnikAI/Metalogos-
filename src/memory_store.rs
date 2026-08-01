@@ -270,7 +270,7 @@ impl InMemoryKg {
             return;
         }
         for (from, to, relation, weight) in &self.edges {
-            let (neighbor, direction) = if from == current {
+            let (neighbor, _direction) = if from == current {
                 (to.as_str(), "outgoing")
             } else if to == current {
                 (from.as_str(), "incoming")
@@ -532,7 +532,7 @@ impl MemoryStore for SqliteStore {
         };
 
         let mut entries = Vec::new();
-        match stmt.query_map([], |row| {
+        if let Ok(mapped_rows) = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, f64>(1)?,
@@ -542,25 +542,19 @@ impl MemoryStore for SqliteStore {
                 row.get::<_, Vec<u8>>(5).unwrap_or_default(),
             ))
         }) {
-            Ok(mapped_rows) => {
-                for row_result in mapped_rows {
-                    match row_result {
-                        Ok((value, priority, confidence, decay_rate, timestamp, blob)) => {
-                            entries.push(MemoryEntry {
-                                id: None,
-                                value,
-                                priority,
-                                timestamp,
-                                decay_rate,
-                                confidence,
-                                embedding: Self::blob_to_embedding(&blob),
-                            });
-                        }
-                        Err(_) => continue,
-                    }
+            for row_result in mapped_rows {
+                if let Ok((value, priority, confidence, decay_rate, timestamp, blob)) = row_result {
+                    entries.push(MemoryEntry {
+                        id: None,
+                        value,
+                        priority,
+                        timestamp,
+                        decay_rate,
+                        confidence,
+                        embedding: Self::blob_to_embedding(&blob),
+                    });
                 }
             }
-            Err(_) => {}
         }
         entries
     }
@@ -678,24 +672,18 @@ impl KgStore for SqliteKg {
             Err(_) => return Vec::new(),
         };
 
-        match stmt.query_map(rusqlite::params![node_id], |row| {
+        if let Ok(mapped_rows) = stmt.query_map(rusqlite::params![node_id], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, f64>(2)?,
             ))
         }) {
-            Ok(mapped_rows) => {
-                for row_result in mapped_rows {
-                    match row_result {
-                        Ok((rel, val, w)) => {
-                            result.push((rel, val, w));
-                        }
-                        Err(_) => continue,
-                    }
+            for row_result in mapped_rows {
+                if let Ok((rel, val, w)) = row_result {
+                    result.push((rel, val, w));
                 }
             }
-            Err(_) => {}
         }
 
         // Incoming edges
@@ -708,24 +696,18 @@ impl KgStore for SqliteKg {
             Err(_) => return Vec::new(),
         };
 
-        match stmt.query_map(rusqlite::params![node_id], |row| {
+        if let Ok(mapped_rows) = stmt.query_map(rusqlite::params![node_id], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, f64>(2)?,
             ))
         }) {
-            Ok(mapped_rows) => {
-                for row_result in mapped_rows {
-                    match row_result {
-                        Ok((rel, val, w)) => {
-                            result.push((rel, val, w));
-                        }
-                        Err(_) => continue,
-                    }
+            for row_result in mapped_rows {
+                if let Ok((rel, val, w)) = row_result {
+                    result.push((rel, val, w));
                 }
             }
-            Err(_) => {}
         }
 
         result
@@ -765,7 +747,7 @@ impl KgStore for SqliteKg {
         };
 
         let mut entries = Vec::new();
-        match stmt.query_map([], |row| {
+        if let Ok(mapped_rows) = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -773,17 +755,11 @@ impl KgStore for SqliteKg {
                 row.get::<_, f64>(3)?,
             ))
         }) {
-            Ok(mapped_rows) => {
-                for row_result in mapped_rows {
-                    match row_result {
-                        Ok(row) => {
-                            entries.push(row);
-                        }
-                        Err(_) => continue,
-                    }
+            for row_result in mapped_rows {
+                if let Ok(row) = row_result {
+                    entries.push(row);
                 }
             }
-            Err(_) => {}
         }
         entries
     }

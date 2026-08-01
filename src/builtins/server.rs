@@ -500,7 +500,7 @@ pub(crate) fn builtin_policy_check(args: &[Value]) -> Result<Value, String> {
     ];
     let first_word = cmd_trimmed.split_whitespace().next().unwrap_or("");
     for pattern in &interactive_patterns {
-        if first_word == *pattern || first_word.starts_with(&format!("{}", pattern)) {
+        if first_word == *pattern || first_word.starts_with(pattern) {
             return Ok(make_struct(
                 "PolicyResult",
                 vec![
@@ -595,7 +595,7 @@ pub(crate) fn builtin_human_mood(args: &[Value]) -> Result<Value, String> {
     let store = kv_store()
         .lock()
         .map_err(|e| format!("human_mood() lock error: {}", e))?;
-    let mut data_str = store.get(&key).cloned().unwrap_or_default();
+    let data_str = store.get(&key).cloned().unwrap_or_default();
     drop(store);
     if data_str.is_empty() {
         return Err(format!(
@@ -1648,7 +1648,7 @@ fn regex_lite_find(pattern: &str) -> Vec<std::string::String> {
     // Very limited: only supports basic character classes.
     // For production, use the `regex` crate. This is a fallback.
     // We only call it with simple, well-known patterns above.
-    let mut results = Vec::new();
+    let results = Vec::new();
     if pattern.contains('@') && pattern.contains('.') {
         // Email pattern — manual scan
         let bytes = pattern.as_bytes();
@@ -1866,10 +1866,8 @@ pub(crate) fn builtin_compress_html(args: &[Value]) -> Result<Value, String> {
                     }
                 } else {
                     let inner = tag.split_whitespace().next().unwrap_or("");
-                    if block_tags.iter().any(|bt| *bt == inner) {
-                        if !result.ends_with('\n') {
-                            result.push('\n');
-                        }
+                    if block_tags.iter().any(|bt| *bt == inner) && !result.ends_with('\n') {
+                        result.push('\n');
                     }
                     if inner == "script" {
                         in_script = true;
@@ -1934,8 +1932,8 @@ fn decode_html_entity(entity: &str) -> String {
                         return c.to_string();
                     }
                 }
-            } else if entity.starts_with('#') {
-                if let Ok(n) = u32::from_str_radix(&entity[1..], 10) {
+            } else if let Some(rest) = entity.strip_prefix('#') {
+                if let Ok(n) = u32::from_str_radix(rest, 10) {
                     if let Some(c) = char::from_u32(n) {
                         return c.to_string();
                     }
@@ -2004,7 +2002,7 @@ pub(crate) fn builtin_learn_preference(args: &[Value]) -> Result<Value, String> 
     if let Ok(mut store) = kv_store().lock() {
         // If already exists, increment evidence count
         if let Some(existing) = store.get(&pref_key) {
-            if let Ok(mut prev) = serde_json::from_str::<serde_json::Value>(&existing) {
+            if let Ok(mut prev) = serde_json::from_str::<serde_json::Value>(existing) {
                 let count = prev["evidence_count"].as_u64().unwrap_or(0) + 1;
                 prev["evidence_count"] = serde_json::Value::Number(count.into());
                 prev["last_observed"] = serde_json::Value::Number(chrono_now_timestamp().into());
@@ -2203,7 +2201,7 @@ pub(crate) fn builtin_recipe_save(args: &[Value]) -> Result<Value, String> {
 /// NOTE: This is a simplified implementation using substring matching.
 /// Full semantic search (cosine similarity) requires embedding infrastructure.
 pub(crate) fn builtin_recipe_search(args: &[Value]) -> Result<Value, String> {
-    if args.len() < 1 {
+    if args.is_empty() {
         return Err("recipe_search: requires 1 argument (query)".into());
     }
     let _query = expect_string_arg_var("recipe_search", args, 0)?;

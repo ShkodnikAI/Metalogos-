@@ -31,7 +31,7 @@ impl AnalysisResult {
         if !self.errors.is_empty() {
             let n = self.errors.len();
             if n == 1 {
-                lines.push(format!("1 error:"));
+                lines.push("1 error:".to_string());
             } else {
                 lines.push(format!("{} errors:", n));
             }
@@ -42,7 +42,7 @@ impl AnalysisResult {
         if !self.warnings.is_empty() {
             let n = self.warnings.len();
             if n == 1 {
-                lines.push(format!("1 warning:"));
+                lines.push("1 warning:".to_string());
             } else {
                 lines.push(format!("{} warnings:", n));
             }

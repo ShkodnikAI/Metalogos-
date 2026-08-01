@@ -422,13 +422,12 @@ pub(crate) fn builtin_lines(args: &[Value]) -> Result<Value, String> {
         })
         .collect();
     // Remove trailing empty element caused by trailing newline
-    if s.ends_with('\n') {
-        if items
+    if s.ends_with('\n')
+        && items
             .last()
-            .map_or(false, |v| matches!(v, Value::String(s) if s.is_empty()))
-        {
-            items.pop();
-        }
+            .is_some_and(|v| matches!(v, Value::String(s) if s.is_empty()))
+    {
+        items.pop();
     }
     Ok(Value::List(items))
 }

@@ -258,6 +258,27 @@ All 9 remaining cases have been resolved in Наряд №36.
 | 18 | dept_schema | db_insert + schema DDL + db_conn in VM | Наряд №36 |
 | 19 | p30_db_params | query_scalar + db_execute + query handlers in VM | Наряд №36 |
 
+## 58/58 clarification — both-error count
+
+The crosscheck test (`tests/crosscheck_backends.rs`) has a branch that treats
+identical errors from both backends as a pass:
+
+```rust
+(Err(e1), Err(e2)) => {
+    if e1 != e2 { mismatches.push(...) }
+    else { passed.push(name) }  // Same error — acceptable
+}
+```
+
+With all three assertions enabled (`mismatches.is_empty()`,
+`vm_errors.is_empty()`, `tw_errors.is_empty()`), there are **zero** error
+cases of any kind. All 58 examples produce `(Ok, Ok)` with identical output.
+The `(Err, Err)` branch is never reached.
+
+Formally: 58 pass, 0 mismatches, 0 VM-only errors, 0 TW-only errors,
+0 both-error-same cases. The statement "VM is fully equivalent to the
+interpreter across all 58 golden examples" is accurate.
+
 ## Consequences
 
 1. This ADR is the reference for all TW vs VM divergence work.

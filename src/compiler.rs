@@ -29,6 +29,10 @@ pub struct Compiler {
     rules: Vec<CompiledRule>,
     /// Skill index declarations to pass to VM.
     skill_indices: Vec<crate::bytecode::CompiledSkillIndex>,
+    /// Database URL extracted from db declaration (for VM).
+    db_url: Option<String>,
+    /// Schema DDL statements from schema declarations.
+    schema_ddl: Vec<String>,
     /// Root directory for import resolution.
     std_root: PathBuf,
     /// Already-imported modules.
@@ -60,6 +64,8 @@ impl Compiler {
             struct_fields: HashMap::new(),
             rules: Vec::new(),
             skill_indices: Vec::new(),
+            db_url: None,
+            schema_ddl: Vec::new(),
             std_root,
             imported_modules: HashSet::new(),
             import_aliases: HashMap::new(),
@@ -111,6 +117,8 @@ impl Compiler {
             learnables: Vec::new(),
             rules: std::mem::take(&mut self.rules),
             skill_indices: std::mem::take(&mut self.skill_indices),
+            db_url: self.db_url.take(),
+            schema_ddl: std::mem::take(&mut self.schema_ddl),
             main_code,
             collections_loaded: self.collections_loaded,
         };
@@ -173,6 +181,64 @@ impl Compiler {
                 Declaration::Memorize(_) => {
                     // Handled in pass2
                 }
+                Declaration::Db(db) => {
+                    // Extract URL if it's a string literal (for VM db support)
+                    if let Some(expr) = &db.url {
+                        if let crate::ast::Expr::StringLit(url) = expr {
+                            self.db_url = Some(url.clone());
+                        }
+                    }
+                }
+                Declaration::Schema(schema) => {
+                    // Generate CREATE TABLE IF NOT EXISTS DDL for each table
+                    for table in &schema.tables {
+                        let cols: Vec<String> = table
+                            .columns
+                            .iter()
+                            .map(|c| {
+                                let sql_type = match c.col_type.as_str() {
+                                    "Int" | "Float" => "INTEGER",
+                                    "String" | "Text" => "TEXT",
+                                    "DateTime" => "TEXT",
+                                    "Bool" => "INTEGER",
+                                    _ => "TEXT",
+                                };
+                                let mut parts = vec![format!("{} {}", c.name, sql_type)];
+                                for m in &c.modifiers {
+                                    match m {
+                                        crate::ast::ColumnModifier::PrimaryKey => {
+                                            parts.push("PRIMARY KEY".to_string());
+                                        }
+                                        crate::ast::ColumnModifier::AutoIncrement => {
+                                            parts.push("AUTOINCREMENT".to_string());
+                                        }
+                                        crate::ast::ColumnModifier::Nullable => {
+                                            parts.push("NULL".to_string());
+                                        }
+                                        crate::ast::ColumnModifier::References(t, f) => {
+                                            parts.push(format!("REFERENCES {}({})", t, f));
+                                        }
+                                    }
+                                }
+                                if let Some(def) = &c.default {
+                                    if def == "now()" {
+                                        parts.push("DEFAULT (datetime('now'))".to_string());
+                                    } else {
+                                        let val = def.trim_matches('"');
+                                        parts.push(format!("DEFAULT '{}'", val));
+                                    }
+                                }
+                                parts.join(" ")
+                            })
+                            .collect();
+                        let ddl = format!(
+                            "CREATE TABLE IF NOT EXISTS {} ({})",
+                            table.name,
+                            cols.join(", ")
+                        );
+                        self.schema_ddl.push(ddl);
+                    }
+                }
                 Declaration::Sandbox(s) => {
                     self.sandboxes.insert(s.name.clone(), s.clone());
                 }
@@ -184,8 +250,6 @@ impl Compiler {
                 }
                 Declaration::MlogServer(_)
                 | Declaration::Template(_)
-                | Declaration::Db(_)
-                | Declaration::Schema(_)
                 | Declaration::Memory(_)
                 | Declaration::Conversation(_)
                 | Declaration::ContextBudget(_)

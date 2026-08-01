@@ -4045,7 +4045,7 @@ impl Interpreter {
                         env.insert(variable.clone(), item);
                         let cf = self.eval_statements_cf(body, env, mutable_vars)?;
                         match cf {
-                            ControlFlow::Break => return Ok(ControlFlow::Break),
+                            ControlFlow::Break => break, // absorb Break — loop exits normally
                             ControlFlow::ContinueLoop => continue, // skip to next iteration
                             ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
                             ControlFlow::ContinueNormal(v) => {
@@ -4087,7 +4087,7 @@ impl Interpreter {
                         env.insert(item_var.clone(), item);
                         let cf = self.eval_statements_cf(body, env, mutable_vars)?;
                         match cf {
-                            ControlFlow::Break => return Ok(ControlFlow::Break),
+                            ControlFlow::Break => break, // absorb Break — loop exits normally
                             ControlFlow::ContinueLoop => continue,
                             ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
                             ControlFlow::ContinueNormal(v) => {

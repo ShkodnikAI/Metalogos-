@@ -220,11 +220,53 @@ This confirms the interpreter is the more complete backend.
   ✗ p5_modules.mlog: compile: qualified calls not yet supported in bytecode
 ```
 
+## Resolved in Наряд №34 (8 cases)
+
+| # | File | What was fixed |
+|---|---|---|
+| 5 | p30_assign_mut.mlog | `let mut` reassignment fixed in VM |
+| 6 | p30_scope_let.mlog | Scope semantics aligned to interpreter |
+| 12 | v05_file_io.mlog | File I/O builtins connected to VM |
+| 13 | v05_if_else.mlog | if/else chain fixed in VM |
+| 14 | v05_integration.mlog | String builtin chain fixed |
+| 15 | v05_kv_memory.mlog | KV store return types fixed |
+| 16 | actor_potential.mlog | `map()` registered in VM |
+| 20 | p30_slice.mlog | `slice()` argument type check fixed |
+
+## Resolved in Наряд №35 (4 cases)
+
+| # | File | What was fixed |
+|---|---|---|
+| 7 | p5_each.mlog | `eval_cmp` in VM now handles String comparisons (was Float-only) |
+| 8 | p5_self_host_lexer.mlog | Same `eval_cmp` fix — string comparison in loop conditions |
+| 9 | p5_while.mlog | Same `eval_cmp` fix — leading space eliminated |
+| 17 | dag_demo.mlog | `MakeStruct` and `Contains` added to `execute_code()` (were only in `run()`) |
+
+## Remaining (9 cases) — documented remainder
+
+| # | File | Category | Root cause | Complexity |
+|---|---|---|---|---|
+| 1 | p11_context_loading_fixed | Mismatch | Memory subsystem (memorize/recall) not wired into VM bytecode | High |
+| 2 | p12_context_auto | Mismatch | Memory subsystem `context: auto` not in VM | High |
+| 3 | p12_context_literal | Mismatch | Learnable `context: "literal"` not compiled in VM | Medium |
+| 4 | p1_entity_store | Mismatch | `rule` / `find()` entity store not in VM | High |
+| 10 | p7_env | Mismatch | Flow source expression compiler does not support BinOp — `env()` works in entities but concatenation in flow input falls through to `Ident()` | Medium |
+| 11 | skill_index_tiered | Mismatch | `skill_index` / `resolve_skill_index` not registered in VM | Medium |
+| 18 | dept_schema | VM error | `db_insert` declared in BUILTIN_REGISTRY but no handler implemented | High |
+| 19 | p30_db_params | VM error | `query_scalar` declared in BUILTIN_REGISTRY but no handler implemented | High |
+| 21 | p5_modules | VM error | `import ... as` qualified calls explicitly not supported by VM compiler | Medium |
+
 ## Consequences
 
 1. This ADR is the reference for all TW vs VM divergence work.
 2. Each case must be resolved individually; bulk fixes are not acceptable.
-3. The threshold in `crosscheck_backends.rs` is now set to `>= 37` — the exact
+3. The threshold in `crosscheck_backends.rs` is now set to `>= 49` — the exact
    current match count. It must only increase.
-4. `assert!(mismatches.is_empty())` remains commented until all 15 mismatches
-   and all 6 VM errors are resolved.
+4. `assert!(mismatches.is_empty())` remains commented until all remaining
+   mismatches and VM errors are resolved.
+5. Additional finding: `execute_code()` (used by pattern calls from flow
+   pipelines) was missing 14 instruction handlers that were only in `run()`.
+   `MakeStruct` and `Contains` were added; remaining unhandled instructions
+   are top-level only (FlowExec, RegisterPattern, etc.) and correctly stay
+   in `run()`.
+

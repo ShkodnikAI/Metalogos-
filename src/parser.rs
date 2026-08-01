@@ -26,6 +26,7 @@ fn pair_error(pair: &Pair<Rule>, msg: &str) -> ParseError {
 /// Create a ParseError at position 0 of source.
 /// Used only for thread spawn/join error reporting where no Pest pair is available.
 fn error_at_start(source: &str, msg: String) -> ParseError {
+    #[allow(clippy::expect_used)]
     let pos = pest::Position::new(source, 0)
         .or_else(|| pest::Position::new("", 0))
         .expect("position 0 is always valid in any string");

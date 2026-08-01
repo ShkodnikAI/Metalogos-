@@ -530,11 +530,19 @@ impl Compiler {
                     value,
                     mutable: _,
                 } => {
-                    let slot = next_slot;
-                    next_slot += 1;
-                    locals.insert(name.clone(), slot);
-                    self.compile_expr_with_locals(value, &mut code, locals)?;
-                    code.push(Instruction::StoreLocal(slot));
+                    // Function-level scoping: if name already exists in locals,
+                    // reuse the existing slot (matches interpreter behavior).
+                    // Per p30_scope_let, `let` inside if/else overwrites outer variable.
+                    if let Some(&existing_slot) = locals.get(name) {
+                        self.compile_expr_with_locals(value, &mut code, locals)?;
+                        code.push(Instruction::StoreLocal(existing_slot));
+                    } else {
+                        let slot = next_slot;
+                        next_slot += 1;
+                        locals.insert(name.clone(), slot);
+                        self.compile_expr_with_locals(value, &mut code, locals)?;
+                        code.push(Instruction::StoreLocal(slot));
+                    }
                 }
                 Statement::Assign { name, value } => {
                     // Reassignment: look up existing slot, compile value, store.
@@ -895,11 +903,17 @@ impl Compiler {
     ) -> Result<(), String> {
         match stmt {
             Statement::LetBinding { name, value, mutable: _ } => {
-                let slot = *next_slot;
-                *next_slot += 1;
-                locals.insert(name.clone(), slot);
-                self.compile_expr_with_locals(value, code, locals)?;
-                code.push(Instruction::StoreLocal(slot));
+                // Function-level scoping: reuse existing slot if name exists.
+                if let Some(&existing_slot) = locals.get(name) {
+                    self.compile_expr_with_locals(value, code, locals)?;
+                    code.push(Instruction::StoreLocal(existing_slot));
+                } else {
+                    let slot = *next_slot;
+                    *next_slot += 1;
+                    locals.insert(name.clone(), slot);
+                    self.compile_expr_with_locals(value, code, locals)?;
+                    code.push(Instruction::StoreLocal(slot));
+                }
             }
             Statement::Assign { name, value } => {
                 if let Some(&slot) = locals.get(name) {

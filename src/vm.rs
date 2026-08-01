@@ -1100,18 +1100,29 @@ impl Vm {
             };
             let field_name = match args.get(1) {
                 Some(Value::String(s)) => s.clone(),
-                _ => return Err("find() requires field name as second argument (String)".to_string()),
+                _ => {
+                    return Err("find() requires field name as second argument (String)".to_string())
+                }
             };
             let op_str = match args.get(2) {
                 Some(Value::String(s)) => s.clone(),
-                _ => return Err("find() requires operator as third argument (String: gt/lt/ge/le/eq)".to_string()),
+                _ => {
+                    return Err(
+                        "find() requires operator as third argument (String: gt/lt/ge/le/eq)"
+                            .to_string(),
+                    )
+                }
             };
             let threshold = match args.get(3) {
                 Some(Value::Float(f)) => *f,
                 _ => return Err("find() requires threshold as fourth argument (Float)".to_string()),
             };
             for val in &self.globals {
-                if let Value::Struct { type_name: tn, fields } = val {
+                if let Value::Struct {
+                    type_name: tn,
+                    fields,
+                } = val
+                {
                     if tn == &type_name {
                         if let Some(field_val) = fields.get(&field_name) {
                             if let Ok(fv) = field_val.as_float() {
@@ -1121,7 +1132,12 @@ impl Vm {
                                     "ge" => fv >= threshold,
                                     "le" => fv <= threshold,
                                     "eq" => (fv - threshold).abs() < 1e-9,
-                                    _ => return Err(format!("find(): unknown operator '{}'", op_str)),
+                                    _ => {
+                                        return Err(format!(
+                                            "find(): unknown operator '{}'",
+                                            op_str
+                                        ))
+                                    }
                                 };
                                 if matches {
                                     return Ok(val.clone());
@@ -1138,7 +1154,12 @@ impl Vm {
         if name == "db_insert" {
             let table = match args.get(0) {
                 Some(Value::String(s)) => s.clone(),
-                _ => return Err("db_insert() expects first argument to be a table name (String)".to_string()),
+                _ => {
+                    return Err(
+                        "db_insert() expects first argument to be a table name (String)"
+                            .to_string(),
+                    )
+                }
             };
             let fields = match args.get(1) {
                 Some(Value::Struct { fields, .. }) => fields.clone(),
@@ -1161,7 +1182,9 @@ impl Vm {
                     Value::String(s) => Box::new(s.clone()) as Box<dyn rusqlite::types::ToSql>,
                     Value::Float(f) => Box::new(*f) as Box<dyn rusqlite::types::ToSql>,
                     Value::Bool(b) => Box::new(*b) as Box<dyn rusqlite::types::ToSql>,
-                    Value::Unit => Box::new(Option::<String>::None) as Box<dyn rusqlite::types::ToSql>,
+                    Value::Unit => {
+                        Box::new(Option::<String>::None) as Box<dyn rusqlite::types::ToSql>
+                    }
                     other => Box::new(format!("{}", other)) as Box<dyn rusqlite::types::ToSql>,
                 })
                 .collect();
@@ -1197,9 +1220,10 @@ impl Vm {
             } else {
                 Vec::new()
             };
-            let conn = self.db_conn.as_ref().ok_or_else(|| {
-                "query_scalar() error: no database connection.".to_string()
-            })?;
+            let conn = self
+                .db_conn
+                .as_ref()
+                .ok_or_else(|| "query_scalar() error: no database connection.".to_string())?;
             let mut stmt = conn
                 .prepare(&sql)
                 .map_err(|e| format!("query_scalar() SQL error: {}", e))?;
@@ -1231,25 +1255,27 @@ impl Vm {
                 Some(Value::String(s)) => s.clone(),
                 _ => return Err("query() expected String SQL".to_string()),
             };
-            let conn = self.db_conn.as_ref().ok_or_else(|| {
-                "query() error: no database connection.".to_string()
-            })?;
+            let conn = self
+                .db_conn
+                .as_ref()
+                .ok_or_else(|| "query() error: no database connection.".to_string())?;
             let mut stmt = conn
                 .prepare(&sql)
                 .map_err(|e| format!("query() SQL error: {}", e))?;
-            let col_names: Vec<String> = stmt
-                .column_names()
-                .iter()
-                .map(|s| s.to_string())
-                .collect();
+            let col_names: Vec<String> =
+                stmt.column_names().iter().map(|s| s.to_string()).collect();
             let mut rows = stmt
                 .query([])
                 .map_err(|e| format!("query() execution error: {}", e))?;
             let mut results = Vec::new();
-            while let Some(row) = rows.next().map_err(|e| format!("query() row error: {}", e))? {
+            while let Some(row) = rows
+                .next()
+                .map_err(|e| format!("query() row error: {}", e))?
+            {
                 let mut fields = std::collections::HashMap::new();
                 for (i, col) in col_names.iter().enumerate() {
-                    let val: rusqlite::types::ValueRef = row.get_ref(i)
+                    let val: rusqlite::types::ValueRef = row
+                        .get_ref(i)
                         .map_err(|e| format!("query() column {} error: {}", col, e))?;
                     fields.insert(
                         col.clone(),
@@ -1260,9 +1286,9 @@ impl Vm {
                             rusqlite::types::ValueRef::Text(s) => {
                                 Value::String(String::from_utf8_lossy(s).to_string())
                             }
-                            rusqlite::types::ValueRef::Blob(b) => {
-                                Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
-                            }
+                            rusqlite::types::ValueRef::Blob(b) => Value::String(
+                                b.iter().map(|byte| format!("{:02x}", byte)).collect(),
+                            ),
                         },
                     );
                 }
@@ -1296,9 +1322,10 @@ impl Vm {
             } else {
                 Vec::new()
             };
-            let conn = self.db_conn.as_ref().ok_or_else(|| {
-                "db_execute() error: no database connection.".to_string()
-            })?;
+            let conn = self
+                .db_conn
+                .as_ref()
+                .ok_or_else(|| "db_execute() error: no database connection.".to_string())?;
             conn.execute(&sql, rusqlite::params_from_iter(params.iter()))
                 .map_err(|e| format!("db_execute() SQL error: {}", e))?;
             return Ok(Value::Unit);
@@ -1308,11 +1335,22 @@ impl Vm {
         if name == "resolve_skill_index" {
             let dept = match args.get(0) {
                 Some(Value::String(s)) => s.clone(),
-                _ => return Err("resolve_skill_index() expects a department name (String)".to_string()),
+                _ => {
+                    return Err(
+                        "resolve_skill_index() expects a department name (String)".to_string()
+                    )
+                }
             };
-            let idx = self.skill_indices.iter().find(|si| si.name == dept).ok_or_else(|| {
-                format!("resolve_skill_index(): no skill_index declared for '{}'", dept)
-            })?;
+            let idx = self
+                .skill_indices
+                .iter()
+                .find(|si| si.name == dept)
+                .ok_or_else(|| {
+                    format!(
+                        "resolve_skill_index(): no skill_index declared for '{}'",
+                        dept
+                    )
+                })?;
             let mut fields = std::collections::HashMap::new();
             let tier1: Vec<Value> = idx
                 .tiers
@@ -1387,10 +1425,7 @@ impl Vm {
             }
             CompiledContextMode::Auto => {
                 // Use first arg value as recall query
-                let query = args
-                    .first()
-                    .map(|a| format!("{}", a))
-                    .unwrap_or_default();
+                let query = args.first().map(|a| format!("{}", a)).unwrap_or_default();
                 let facts = self.recall_top(&query, 5);
                 if facts.is_empty() {
                     info.prompt.clone()
@@ -1406,10 +1441,7 @@ impl Vm {
             }
             CompiledContextMode::Recall(_param_name, limit) => {
                 // Use first arg as recall query
-                let query = args
-                    .first()
-                    .map(|a| format!("{}", a))
-                    .unwrap_or_default();
+                let query = args.first().map(|a| format!("{}", a)).unwrap_or_default();
                 let facts = self.recall_top(&query, *limit);
                 if facts.is_empty() {
                     info.prompt.clone()

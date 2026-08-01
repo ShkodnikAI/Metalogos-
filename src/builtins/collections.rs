@@ -143,10 +143,7 @@ pub(crate) fn builtin_sort_by(args: &[Value]) -> Result<Value, String> {
             return Err("sort_by() expects second argument to be a field name (String)".to_string())
         }
     };
-    let descending = match args.get(2) {
-        Some(Value::Float(f)) if *f != 0.0 => true,
-        _ => false,
-    };
+    let descending = matches!(args.get(2), Some(Value::Float(f)) if *f != 0.0);
 
     let mut sorted = list;
     sorted.sort_by(|a, b| {

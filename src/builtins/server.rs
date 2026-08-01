@@ -120,10 +120,7 @@ pub(crate) fn builtin_answer_callback_query(args: &[Value]) -> Result<Value, Str
         Some(Value::String(s)) => s.clone(),
         _ => String::new(),
     };
-    let show_alert = match args.get(2) {
-        Some(Value::Float(f)) if *f > 0.5 => true,
-        _ => false,
-    };
+    let show_alert = matches!(args.get(2), Some(Value::Float(f)) if *f > 0.5);
     let bot_token = std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default();
     if bot_token.is_empty() {
         eprintln!(
@@ -1855,7 +1852,7 @@ pub(crate) fn builtin_compress_html(args: &[Value]) -> Result<Value, String> {
                 if tag.starts_with('/') {
                     // Closing tag
                     let inner = tag.trim_start_matches('/').trim();
-                    if block_tags.iter().any(|bt| *bt == inner) {
+                    if block_tags.contains(&inner) {
                         result.push('\n');
                     }
                     if inner == "script" {
@@ -1866,7 +1863,7 @@ pub(crate) fn builtin_compress_html(args: &[Value]) -> Result<Value, String> {
                     }
                 } else {
                     let inner = tag.split_whitespace().next().unwrap_or("");
-                    if block_tags.iter().any(|bt| *bt == inner) && !result.ends_with('\n') {
+                    if block_tags.contains(&inner) && !result.ends_with('\n') {
                         result.push('\n');
                     }
                     if inner == "script" {
@@ -1933,7 +1930,7 @@ fn decode_html_entity(entity: &str) -> String {
                     }
                 }
             } else if let Some(rest) = entity.strip_prefix('#') {
-                if let Ok(n) = u32::from_str_radix(rest, 10) {
+                if let Ok(n) = rest.parse::<u32>() {
                     if let Some(c) = char::from_u32(n) {
                         return c.to_string();
                     }

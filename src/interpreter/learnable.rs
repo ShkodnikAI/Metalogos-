@@ -112,7 +112,7 @@ impl Interpreter {
                                 env.insert(param.name.clone(), args[i].clone());
                             }
                         }
-                        let query = match self.eval_expr_with_env(query_expr, &mut env) {
+                        let query = match self.eval_expr_with_env(query_expr, &env) {
                             Ok(Value::String(s)) => s,
                             Ok(other) => format!("{}", other),
                             Err(_) => return learnable.prompt.clone(), // context eval failed → skip

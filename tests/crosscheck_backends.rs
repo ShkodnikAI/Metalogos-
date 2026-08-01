@@ -139,16 +139,17 @@ fn crosscheck_tw_vs_vm_all_golden() {
         }
     }
 
-    // Assertion: must have meaningful pass rate
+    // Assertion: baseline must not regress.
+    // Baseline established 2026-08-01 (Наряд №34 Block 1): 37/58 match.
+    // This number must only grow as divergences are resolved.
     assert!(
-        passed.len() >= 30,
-        "Too few golden examples match between TW and VM: {}/{}",
+        passed.len() >= 37,
+        "Baseline regression: {}/{} golden examples match (expected >= 37)",
         passed.len(),
         pairs.len()
     );
 
-    // All discrepancies are documented below — this test is informational.
-    // Individual mismatches are NOT hard failures; the list is the deliverable.
-    // To make this a blocking test, uncomment:
+    // All discrepancies documented in ADR-0075.
+    // Enable when the list in ADR-0075 is fully resolved:
     // assert!(mismatches.is_empty(), "{} TW vs VM mismatches found", mismatches.len());
 }

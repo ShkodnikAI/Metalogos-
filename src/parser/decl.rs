@@ -116,7 +116,6 @@ pub(super) fn parse_route_decl(pair: Pair<Rule>) -> Result<RouteDecl, ParseError
 /// Extracts template bodies using balanced brace counting, replaces with safe placeholders,
 /// and returns a mapping of placeholder -> actual body content.
 /// Uses char_indices() for Unicode-safe byte positioning.
-
 /// Parse a template declaration, restoring the pre-processed body.
 pub(super) fn parse_template_decl_with_body(
     pair: Pair<Rule>,
@@ -153,9 +152,6 @@ pub(super) fn parse_template_decl_with_body(
         body,
     })
 }
-
-/// Extract content between balanced braces from a string like "{ content } }".
-/// Handles nested braces by counting depth.
 
 // ── DB (Phase 6.3) ─────────────────────────────────────
 
@@ -518,10 +514,9 @@ pub(super) fn parse_field_decl(pair: Pair<Rule>) -> FieldDecl {
     }
 }
 
-/// Process escape sequences in a string literal (without outer quotes).
-
 // ── Entity: struct instance ─────────────────────────────────────────
 
+/// Process escape sequences in a string literal (without outer quotes).
 pub(super) fn parse_entity_record_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
     // Children: IDENT, type_name, field_init, ...

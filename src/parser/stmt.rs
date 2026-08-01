@@ -23,8 +23,6 @@ pub(super) fn parse_pattern_body(pair: Pair<Rule>) -> Result<Vec<Statement>, Par
 }
 
 /// Parse a single statement from its rule pair.
-
-/// Parse a single statement from its rule pair.
 pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
     let children = children_of(&pair);
     // statement = { match_stmt | if_block_stmt | each_stmt | ... }
@@ -271,8 +269,6 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
 }
 
 /// Parse a match statement: `match expr { "val" then { stmts } ... else { stmts } }` (Наряд №14)
-
-/// Parse a match statement: `match expr { "val" then { stmts } ... else { stmts } }` (Наряд №14)
 pub(super) fn parse_match_stmt(pair: Pair<Rule>) -> Result<Statement, ParseError> {
     use crate::ast::{CompareOp as AstCmp, MatchArm};
     let children: Vec<Pair<Rule>> = pair.into_inner().collect();
@@ -384,7 +380,6 @@ pub(super) fn parse_match_stmt(pair: Pair<Rule>) -> Result<Statement, ParseError
 
 /// Наряд №14 P0-3: Parse block if/else as expression.
 /// `if cond { stmts } else if cond { stmts } else { stmts }` → Expr::BlockIfElse
-
 /// Parse a block-style if statement: `if expr { stmts } else if expr { stmts } else { stmts }`
 pub(super) fn parse_if_block_stmt(pair: Pair<Rule>) -> Result<Statement, ParseError> {
     let children = children_of(&pair);

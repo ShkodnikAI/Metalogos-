@@ -51,7 +51,7 @@ pub(crate) fn json_value_to_mlog_value(json: &serde_json::Value) -> Value {
         serde_json::Value::Bool(b) => Value::Bool(*b),
         serde_json::Value::Null => Value::Unit,
         serde_json::Value::Array(arr) => {
-            Value::List(arr.iter().map(|v| json_value_to_mlog_value(v)).collect())
+            Value::List(arr.iter().map(json_value_to_mlog_value).collect())
         }
         serde_json::Value::Object(obj) => {
             let mut fields = std::collections::HashMap::new();
@@ -74,7 +74,7 @@ pub(crate) fn mlog_value_to_json(val: &Value) -> serde_json::Value {
         Value::Bool(b) => serde_json::Value::Bool(*b),
         Value::Unit => serde_json::Value::Null,
         Value::List(items) => {
-            serde_json::Value::Array(items.iter().map(|v| mlog_value_to_json(v)).collect())
+            serde_json::Value::Array(items.iter().map(mlog_value_to_json).collect())
         }
         Value::Struct { fields, .. } => {
             let mut map = serde_json::Map::new();
@@ -125,12 +125,9 @@ pub(crate) fn builtin_json_get(args: &[Value]) -> Result<Value, String> {
         let mut current = obj;
         for segment in path.split('.') {
             // Try struct field access first
-            match current.get_field(segment) {
-                Ok(val) => {
-                    current = val;
-                    continue;
-                }
-                Err(_) => {}
+            if let Ok(val) = current.get_field(segment) {
+                current = val;
+                continue;
             }
             // If struct field not found, try numeric array index (Наряд №24 B4)
             if let Ok(index) = segment.parse::<usize>() {
@@ -153,12 +150,9 @@ pub(crate) fn builtin_json_get(args: &[Value]) -> Result<Value, String> {
         let mut current = obj;
         for segment in path.split('.') {
             // Try struct field access first
-            match current.get_field(segment) {
-                Ok(val) => {
-                    current = val;
-                    continue;
-                }
-                Err(_) => {}
+            if let Ok(val) = current.get_field(segment) {
+                current = val;
+                continue;
             }
             // If struct field not found, try numeric array index (Наряд №24 B4)
             if let Ok(index) = segment.parse::<usize>() {

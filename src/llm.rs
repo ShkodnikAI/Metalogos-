@@ -170,7 +170,7 @@ const MAX_RETRIES: u32 = 3;
 /// - ADR-0048: per-call model override via call_with_model()
 /// - Наряд №12 Bug 4: METALOGOS_OPENAI_BASE_URL for custom base URL
 /// - Наряд №32: deduplication of path suffix in resolve_endpoint
-
+///
 /// Extract the meaningful path suffix from a full endpoint URL.
 /// Strips the versioned prefix (/v1/, /v1beta/, /api/) to enable deduplication
 /// when a custom base_url already contains the versioned segment.

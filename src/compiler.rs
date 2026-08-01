@@ -1289,10 +1289,10 @@ impl Compiler {
     ///   - LoadLocal, Const (any type), Add, Sub, Mul, Div
     ///   - CmpGt/CmpLt/CmpGe/CmpLe/CmpEq (allowed in purity, but NOT JIT-compiled)
     ///   - Return
-    /// And ALL parameter types are "Float".
-    /// No globals, no builtins, no LLM calls, no struct operations, no memory.
-    /// Note: is_pure is a broader check than JIT-eligibility. JIT additionally
-    /// requires only arithmetic (no Cmp*). See JitCompiler::is_jit_eligible().
+    ///     And ALL parameter types are "Float".
+    ///     No globals, no builtins, no LLM calls, no struct operations, no memory.
+    ///     Note: is_pure is a broader check than JIT-eligibility. JIT additionally
+    ///     requires only arithmetic (no Cmp*). See JitCompiler::is_jit_eligible().
     fn analyze_purity(code: &[Instruction], params: &[crate::ast::Param]) -> bool {
         // All params must be Float
         if params.iter().any(|p| p.type_name != "Float") {

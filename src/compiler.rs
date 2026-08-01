@@ -478,14 +478,11 @@ impl Compiler {
                 return Err("compile: qualified calls not yet supported in bytecode".to_string());
             }
             Expr::List(items) => {
-                // Push each item, then construct via MakeStruct-like approach
-                // For now, emit as individual pushes (list construction not fully supported)
+                // Push each item onto stack, then MakeList(count) pops them into a list.
                 for item in items {
                     self.compile_expr_with_locals(item, code, locals)?;
                 }
-                // We'll use a special const for list length tracking (Phase 5)
-                // For now, lists are pushed as individual values
-                code.push(Instruction::Const(Value::Float(items.len() as f64)));
+                code.push(Instruction::MakeList(items.len()));
             }
             Expr::IndexAccess(base, index) => {
                 self.compile_expr_with_locals(base, code, locals)?;

@@ -90,11 +90,11 @@ route "/admin" method=GET requires=[admin] { ... }
 
 Every item in the OWASP Top 10 (2021) is addressed at the language level: type-safe HTML (A03), parameterized queries (A03), Secret/Encrypted/Hash opaque types (A02), role-based routes + `require` assertions (A01), HMAC-SHA256 sessions (A07), CSRF double-submit (A08), CSP/HSTS/X-Frame-Options headers (A05), LLM sandbox (A10), audit logging (A09).
 
-### Three Execution Backends
+### Two Execution Backends
 
 - **Tree-walking interpreter** — full feature support, used for `mlog run` and `mlog serve`
 - **Bytecode VM** — 44 instructions, stack-based, used for `mlog compile` + `mlog run file.mbc`
-- **JIT** — Cranelift-based code generation (experimental)
+- **JIT** — declared experimental, scaffold only (see ADR-0073)
 
 ### 177 Built-in Functions
 
@@ -182,12 +182,12 @@ Pre-built Linux x86_64 binaries are available from [GitHub Actions](https://gith
 ## Architecture
 
 ```
- .mlog source        Pest PEG          AST              Semantic            Three Backends
+ .mlog source        Pest PEG          AST              Semantic            Two Backends
 ─────────────  ──>  ────────────  ──>  ───────────  ──>  ────────────  ──>  ────────────
  entity             parse tokens      24 Declaration    cross-reference     tree-walking
  pattern            syntax rules      14 Expr           validation          bytecode VM
- flow                                  12 Statement      opaque type       JIT (Cranelift)
- memory                                 4 MatchArm        enforcement
+ flow                                  12 Statement      opaque type       enforcement
+ memory                                 4 MatchArm
  rule
  learn
  adapt
@@ -225,7 +225,7 @@ Metalogos-/
 │   ├── compiler.rs              # Bytecode compiler (177 builtins)
 │   ├── bytecode.rs              # 44 VM instructions
 │   ├── vm.rs                    # Bytecode VM executor
-│   ├── jit.rs                   # JIT via Cranelift
+│   ├── jit.rs                   # JIT scaffold (experimental, ADR-0073)
 │   ├── builtins.rs              # 177 built-in functions
 │   ├── server.rs                # Axum HTTP server + cron scheduler
 │   ├── llm.rs                   # LLM backend trait + providers
@@ -266,7 +266,7 @@ Metalogos-/
 | **0.8.0** | Time/date/calendar, weather, geolocation, reminders |
 | **0.7.x** | HTTP server, encryption, auth, CSRF, OWASP, LLM cache, hooks |
 | **0.6.x** | `let`/`if`/`each`/`while`, modules, break/continue, match |
-| **0.4.x** | Bytecode VM + JIT (Cranelift) |
+| **0.4.x** | Bytecode VM |
 | **0.1–0.3** | Core: entity, pattern, flow, memory, rule, learn, adapt |
 
 Full history: see [CHANGELOG.md](CHANGELOG.md).
@@ -293,7 +293,6 @@ All 8 milestones and 8+ phases complete. 22+ development narads (work orders) de
 - **Haskell** — type-safe HTML (Yesod/Blaze), `newtype` for secrets
 - **Pest** — PEG parser generator
 - **Axum** — ergonomic async HTTP
-- **Cranelift** — JIT code generation
 - **Datalog / CLIPS** — declarative rule engines with priority
 - **ACT-R** — memory activation and decay models
 - **DSPy** — programmatic LLM orchestration

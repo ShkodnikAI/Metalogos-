@@ -11,13 +11,9 @@ pub(super) fn pair_str(pair: &Pair<Rule>) -> String {
 }
 
 /// Collect inner pairs into a Vec for easy index access.
-
-/// Collect inner pairs into a Vec for easy index access.
 pub(super) fn children_of<'a>(pair: &'a Pair<'a, Rule>) -> Vec<Pair<'a, Rule>> {
     pair.clone().into_inner().collect()
 }
-
-/// Find the first child matching a rule, return its string.
 
 /// Find the first child matching a rule, return its string.
 pub(super) fn find_child_str(children: &[Pair<Rule>], rule: Rule) -> Option<String> {
@@ -26,8 +22,6 @@ pub(super) fn find_child_str(children: &[Pair<Rule>], rule: Rule) -> Option<Stri
         .find(|c| c.as_rule() == rule)
         .map(|c| pair_str(c))
 }
-
-/// Find the first child matching a rule and return it.
 
 /// Find the first child matching a rule and return it.
 pub(super) fn find_child<'a>(children: &'a [Pair<'a, Rule>], rule: Rule) -> Option<Pair<'a, Rule>> {
@@ -110,8 +104,6 @@ pub(super) fn preprocess_templates(source: &str) -> (String, HashMap<String, Str
 
     (result, bodies)
 }
-
-/// Parse a template declaration, restoring the pre-processed body.
 
 /// Extract content between balanced braces from a string like "{ content } }".
 /// Handles nested braces by counting depth.
@@ -197,8 +189,6 @@ pub(super) fn unescape_string(s: &str) -> String {
     }
     result
 }
-
-/// Convert a literal pair (STRING_LITERAL, FLOAT_LITERAL, or IDENT) to an Expr.
 
 /// Convert a literal pair (STRING_LITERAL, FLOAT_LITERAL, or IDENT) to an Expr.
 pub(super) fn parse_literal_to_expr(pair: &Pair<Rule>) -> Result<Expr, ParseError> {

@@ -130,6 +130,7 @@ mod phase6_encryption_tests {
         assert_eq!(format!("{}", enc), "[Encrypted]");
     }
 
+    #[serial_test::serial]
     #[test]
     fn test_64_env_builtin_returns_secret() {
         std::env::set_var("TEST_MLOG_KEY", "secret_value");

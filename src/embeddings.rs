@@ -523,6 +523,7 @@ mod tests {
 
     // ── Embedding Manager ──────────────────────────────────────────
 
+    #[serial_test::serial]
     #[test]
     fn test_embedding_manager_default_is_tfidf() {
         env::remove_var("METALOGOS_EMBEDDING_PROVIDER");
@@ -551,6 +552,7 @@ mod tests {
 
     // ── OpenAI Embedding Construction ──────────────────────────────
 
+    #[serial_test::serial]
     #[test]
     fn test_openai_embedding_missing_key() {
         env::remove_var("METALOGOS_EMBEDDING_API_KEY");

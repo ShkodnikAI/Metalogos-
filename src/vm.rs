@@ -927,6 +927,36 @@ impl Vm {
                     stack.push(result);
                     ip += 1;
                 }
+                Instruction::MakeStruct(type_name, field_names) => {
+                    let mut fields = HashMap::new();
+                    let mut values = Vec::new();
+                    for _ in 0..field_names.len() {
+                        values.insert(0, stack.pop().unwrap_or(Value::Unit));
+                    }
+                    for (name, val) in field_names.iter().zip(values.iter()) {
+                        fields.insert(name.clone(), val.clone());
+                    }
+                    stack.push(Value::Struct {
+                        type_name: type_name.clone(),
+                        fields,
+                    });
+                    ip += 1;
+                }
+                Instruction::Contains => {
+                    let needle = stack.pop().unwrap_or(Value::Unit);
+                    let haystack = stack.pop().unwrap_or(Value::Unit);
+                    let result = match (&haystack, &needle) {
+                        (Value::String(h), Value::String(n)) => {
+                            Value::Float(if h.contains(n.as_str()) { 1.0 } else { 0.0 })
+                        }
+                        (Value::List(items), _) => {
+                            Value::Float(if items.iter().any(|v| format!("{}", v) == format!("{}", needle)) { 1.0 } else { 0.0 })
+                        }
+                        _ => Value::Float(0.0),
+                    };
+                    stack.push(result);
+                    ip += 1;
+                }
                 // For any unhandled instruction, skip
                 _ => {
                     ip += 1;

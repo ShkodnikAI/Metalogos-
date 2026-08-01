@@ -1,4 +1,4 @@
-# ADR 0030: HTTP Server — Axum
+# ADR-0074: HTTP Server — Axum
 
 **Status:** Accepted
 **Date:** 2026-06-02

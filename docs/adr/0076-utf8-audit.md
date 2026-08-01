@@ -1,4 +1,4 @@
-# ADR-0046: Full UTF-8 Audit — Наряд №11
+# ADR-0076: Full UTF-8 Audit — Наряд №11
 
 **Status:** Implemented
 **Date:** 2026-06-08

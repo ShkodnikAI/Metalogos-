@@ -1436,6 +1436,7 @@ fn is_truthy(value: &Value) -> bool {
     match value {
         Value::String(s) => !s.is_empty(),
         Value::Float(f) => *f != 0.0,
+        Value::Bool(b) => *b,
         Value::List(items) => !items.is_empty(),
         _ => false,
     }

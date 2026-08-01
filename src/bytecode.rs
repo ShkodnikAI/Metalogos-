@@ -192,15 +192,27 @@ pub struct CompiledFn {
 }
 
 /// A compiled learnable pattern: name, prompt, few-shot examples.
+/// Compiled context mode for learnable patterns.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CompiledContextMode {
+    /// No context.
+    None,
+    /// Auto: recall using first param value as query.
+    Auto,
+    /// Recall with query param name and limit.
+    Recall(String, usize),
+    /// Static literal context.
+    Literal(String),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledLearnableInfo {
     pub name: String,
     pub param_count: usize,
     pub prompt: String,
     pub few_shot: Vec<(String, String)>,
-    /// Optional context string to prepend to the prompt.
-    /// Set when the learnable has `context: "literal"` (ContextMode::Literal).
-    pub context: Option<String>,
+    /// Context mode for the learnable pattern.
+    pub context_mode: CompiledContextMode,
 }
 
 /// A compiled skill_index for tiered skill matching.

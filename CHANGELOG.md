@@ -4,6 +4,25 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### VM backend
+- Compiler: While, Each, EachWithIndex, Assign, IfThen, IfElseBlock, Break,
+  Continue, ExprStmt now compiled to bytecode (were silently dropped).
+- Compiler: function-level scoping for LetBinding — `let` inside blocks overwrites
+  outer variable, matching interpreter semantics (per p30_scope_let).
+- Compiler: Expr::List now emits MakeList(count) (was broken — pushed Float(len)).
+- VM: implemented MakeList, ListLen, Pop, StartsWith in both run() and
+  execute_code() (were unimplemented!/silently skipped).
+- VM: is_truthy() now handles Value::Bool correctly (Bool(true) was always false).
+- Crosscheck TW vs VM baseline raised from 37/58 to 45/58 (8 cases closed).
+  ADR-0075 documents all 21 remaining divergences.
+
+### Documentation
+- README: "Three Execution Backends" → "Two Execution Backends". JIT declared
+  experimental (scaffold only, see ADR-0073). Cranelift removed from Prior Art.
+- ADR-0075: full list of 21 TW vs VM divergences with categories and root causes.
+- ADR-0076: performance baseline benchmarks (parser 178µs, interpreter 272µs,
+  compiler 218µs, VM 36µs — VM 7.5× faster).
+
 ### Надёжность
 - Парсер возвращает Result<_, ParseError> вместо аварийного завершения.
   27 вызовов std::process::abort() убраны, ошибка разбора теперь даёт

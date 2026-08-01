@@ -92,7 +92,7 @@ impl LlmBackend for MockLlm {
     fn call_with_model(
         &self,
         prompt: &str,
-        input: &str,
+        _input: &str,
         model: Option<&str>,
     ) -> Result<String, String> {
         MOCK_LLM_CALL_COUNT.fetch_add(1, Ordering::SeqCst);
@@ -331,7 +331,7 @@ impl RealLlm {
             let base = base.trim_end_matches('/');
             let default = self.provider.endpoint();
             // Extract the path after the versioned segment from the default endpoint
-            let suffix = extract_endpoint_suffix(&default);
+            let suffix = extract_endpoint_suffix(default);
             // Deduplicate
             if base.ends_with(suffix) {
                 base.to_string()
@@ -1016,7 +1016,7 @@ impl SmartRouter {
                 continue; // circuit breaker open — skip
             }
 
-            let (ref alias, ref provider_type, ref api_key, ref url) = self.providers[idx];
+            let (ref _alias, ref provider_type, ref api_key, ref url) = self.providers[idx];
             let start = Instant::now();
 
             let result = self.call_provider(
@@ -1220,7 +1220,7 @@ impl SmartRouter {
 /// 1. If `METALOGOS_LLM_MODEL_{alias}` env exists → use it
 /// 2. If alias matches a provider alias → use that provider (pass through)
 /// 3. Otherwise → return as-is (direct model name)
-pub fn resolve_model_smart(alias: &str, config: Option<&crate::ast::LlmConfigDecl>) -> String {
+pub fn resolve_model_smart(alias: &str, _config: Option<&crate::ast::LlmConfigDecl>) -> String {
     // Check env override first
     let env_key = format!("METALOGOS_LLM_MODEL_{}", alias);
     if let Ok(val) = env::var(&env_key) {

@@ -224,7 +224,7 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
 
             // ── Phase 1: collect reminder + cron data under short write lock ──
             let (check_result, cron_check) = {
-                let mut interp = scheduler_state.interpreter.write().await;
+                let interp = scheduler_state.interpreter.write().await;
                 let cr = {
                     if let Some(builtin_fn) = interp.get_builtin("check_reminders") {
                         builtin_fn(&[])
@@ -300,7 +300,7 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
 
                         // Short write lock: fire + mark in one hold
                         {
-                            let mut interp = scheduler_state.interpreter.write().await;
+                            let interp = scheduler_state.interpreter.write().await;
                             eprintln!("[cron] firing: {} — {}", cron_expr, prompt);
                             if let Some(builtin_fn) = interp.get_builtin(&prompt) {
                                 if let Err(e) = builtin_fn(&[]) {
@@ -515,11 +515,11 @@ async fn route_handler(
     }
 
     // 2. CSRF check for mutating methods (Phase 7.4: real double-submit)
-    if matches!(method, Method::POST | Method::PUT | Method::DELETE) {
-        if state.middleware.contains(&"csrf".to_string()) {
-            if let Err(resp) = check_csrf(&state, &headers).await {
-                return resp;
-            }
+    if matches!(method, Method::POST | Method::PUT | Method::DELETE)
+        && state.middleware.contains(&"csrf".to_string())
+    {
+        if let Err(resp) = check_csrf(&state, &headers).await {
+            return resp;
         }
     }
 
@@ -547,11 +547,9 @@ async fn route_handler(
 
     if let Some(route) = matched_route {
         // Role check
-        if !route.requires.is_empty() {
-            if state.middleware.contains(&"session".to_string()) {
-                if let Err(resp) = check_roles(&state, &headers, &route.requires).await {
-                    return resp;
-                }
+        if !route.requires.is_empty() && state.middleware.contains(&"session".to_string()) {
+            if let Err(resp) = check_roles(&state, &headers, &route.requires).await {
+                return resp;
             }
         }
 
@@ -787,7 +785,7 @@ async fn check_roles(
     } else {
         // Fall through to SQLite check
         drop(session_ref);
-        validate_session_in_db(&state, &raw_id).await?;
+        validate_session_in_db(state, &raw_id).await?;
         // If valid but not in memory cache, load from DB
         // For simplicity, reject here — session needs re-login
         Err((
@@ -1062,7 +1060,7 @@ async fn execute_route_body(
                             break;
                         }
                     }
-                    matched.or_else(|| else_body.as_deref())
+                    matched.or(else_body.as_deref())
                 };
                 if let Some(stmts) = branch {
                     for s in stmts {
@@ -1181,7 +1179,7 @@ fn parse_audit_entry(entry: &str) -> (String, Option<String>, Option<String>) {
                     .map(|s| s.trim().to_string());
                 let result = detail
                     .as_ref()
-                    .and_then(|d| d.splitn(2, ':').nth(1).map(|s| s.trim().to_string()));
+                    .and_then(|d| d.split_once(':').map(|(_, s)| s.trim().to_string()));
                 (action, pattern, result)
             }
             "unsafe_html" => {

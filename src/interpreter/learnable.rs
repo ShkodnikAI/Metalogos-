@@ -144,7 +144,7 @@ impl Interpreter {
                                     0.0
                                 }
                             } else {
-                                cosine_similarity(&query_embedding, &entry.embedding) as f32
+                                cosine_similarity(&query_embedding, &entry.embedding)
                                     * entry.confidence as f32
                                     * entry.priority as f32
                             };

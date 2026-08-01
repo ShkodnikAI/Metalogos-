@@ -67,8 +67,6 @@ pub(super) fn parse_block_if_else_expr(pair: Pair<Rule>) -> Result<Expr, ParseEr
     })
 }
 
-/// Parse a block-style if statement: `if expr { stmts } else if expr { stmts } else { stmts }`
-
 // ── Expressions ─────────────────────────────────────────────────────
 
 pub(super) fn parse_binop(pair: &Pair<Rule>) -> Result<BinOp, ParseError> {

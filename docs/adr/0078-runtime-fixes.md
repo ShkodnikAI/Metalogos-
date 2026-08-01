@@ -1,4 +1,4 @@
-# ADR-0052: Metalogos Runtime Fixes (Наряд №12)
+# ADR-0078: Metalogos Runtime Fixes (Наряд №12)
 
 **Status:** Accepted
 **Date:** 2026-06-10

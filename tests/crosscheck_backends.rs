@@ -140,11 +140,11 @@ fn crosscheck_tw_vs_vm_all_golden() {
     }
 
     // Assertion: baseline must not regress.
-    // Baseline established 2026-08-01 (Наряд №34 Block 2.1d): 45/58 match.
+    // Baseline: 48/58 match (Наряд №35 Block 1.1 — string comparison fix).
     // This number must only grow as divergences are resolved.
     assert!(
-        passed.len() >= 45,
-        "Baseline regression: {}/{} golden examples match (expected >= 45)",
+        passed.len() >= 48,
+        "Baseline regression: {}/{} golden examples match (expected >= 48)",
         passed.len(),
         pairs.len()
     );

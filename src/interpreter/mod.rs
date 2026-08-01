@@ -1488,7 +1488,7 @@ impl Interpreter {
                 if function == "inspect" {
                     return self.invoke_inspect(&eval_args);
                 }
-                if let Some(builtin_fn) = self.builtins.get(&function) {
+                if let Some(builtin_fn) = self.builtins.get(function) {
                     // Phase 7.5: Sandbox enforcement — filesystem isolation
                     if let Some(ref sb) = self.active_sandbox {
                         if sb.forbidden.iter().any(|f| f == "filesystem") {
@@ -1513,8 +1513,8 @@ impl Interpreter {
                         }
                     }
                     // O-2: Fire on_write hooks before mutating builtins
-                    if Self::is_write_builtin(&function) {
-                        self.fire_on_write_hooks(&function, &eval_args);
+                    if Self::is_write_builtin(function) {
+                        self.fire_on_write_hooks(function, &eval_args);
                     }
                     return builtin_fn(&eval_args);
                 }
@@ -1522,7 +1522,7 @@ impl Interpreter {
                 // ADR-0054: For tool namespaces, use qualified key "module.function".
                 // For import namespaces, patterns are already merged flat under their function name.
                 let namespace = self.module_namespaces.get(module).map(|s| s.as_str());
-                let is_tool = namespace.map_or(false, |ns| ns.starts_with("tool:"));
+                let is_tool = namespace.is_some_and(|ns| ns.starts_with("tool:"));
                 let qualified_key = format!("{}.{}", module, function);
                 let pattern = if is_tool {
                     self.patterns.get(&qualified_key).cloned().ok_or_else(|| {

@@ -707,7 +707,7 @@ pub(super) fn parse_adapt_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErr
         .cloned()
         .collect();
 
-    let input_example = if exprs.len() >= 1 {
+    let input_example = if !exprs.is_empty() {
         parse_expression(exprs[0].clone())?
     } else {
         Expr::StringLit(String::new())
@@ -738,7 +738,7 @@ pub(super) fn parse_relate_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
         .filter(|c| c.as_rule() == Rule::expression)
         .cloned()
         .collect();
-    let from = if exprs.len() >= 1 {
+    let from = if !exprs.is_empty() {
         parse_expression(exprs[0].clone())?
     } else {
         Expr::StringLit(String::new())
@@ -1212,7 +1212,7 @@ pub(super) fn parse_eval_decl(pair: Pair<Rule>) -> Declaration {
                     .into_inner()
                     .filter(|c| c.as_rule() == Rule::STRING_LITERAL)
                     .collect();
-                let input = if strings.len() >= 1 {
+                let input = if !strings.is_empty() {
                     unescape_string(strings[0].as_str())
                 } else {
                     String::new()

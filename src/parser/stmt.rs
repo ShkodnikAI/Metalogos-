@@ -35,7 +35,7 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
     }
     // NOTE: match_stmt previously was parsed as a regular expression — now has full AST support.
     if let Some(ib_pair) = children.iter().find(|c| c.as_rule() == Rule::if_block_stmt) {
-        return parse_if_block_stmt(ib_pair.clone());
+        parse_if_block_stmt(ib_pair.clone())
     } else if let Some(each_pair) = children.iter().find(|c| c.as_rule() == Rule::each_stmt) {
         let each_children: Vec<Pair<Rule>> = each_pair.clone().into_inner().collect();
         // each_stmt: IDENT [COMMA IDENT] "in" expression { body }
@@ -152,9 +152,9 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
             )
         })?;
         Ok(Statement::Return(parse_expression(expr)?))
-    } else if let Some(br_pair) = children.iter().find(|c| c.as_rule() == Rule::break_stmt) {
+    } else if let Some(_br_pair) = children.iter().find(|c| c.as_rule() == Rule::break_stmt) {
         Ok(Statement::Break)
-    } else if let Some(co_pair) = children.iter().find(|c| c.as_rule() == Rule::continue_stmt) {
+    } else if let Some(_co_pair) = children.iter().find(|c| c.as_rule() == Rule::continue_stmt) {
         Ok(Statement::Continue)
     } else if let Some(it_pair) = children.iter().find(|c| c.as_rule() == Rule::if_then_stmt) {
         // if_then_stmt with optional else: "if expr then { ... } [else if expr then { ... }]* [else { ... }]"
@@ -264,7 +264,7 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
         })
     } else {
         // Fallback: unrecognized statement — return proper parse error with position
-        return Err(pair_error(&pair, pair.as_str()));
+        Err(pair_error(&pair, pair.as_str()))
     }
 }
 

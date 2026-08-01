@@ -450,7 +450,7 @@ impl MemoryGraph {
 
         let all_contradictions: Vec<String> = contradicted_ids
             .into_iter()
-            .chain(contradicted_by.into_iter())
+            .chain(contradicted_by)
             .filter(|cid| cid != id)
             .collect();
 

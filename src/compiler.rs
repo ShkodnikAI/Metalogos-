@@ -27,6 +27,8 @@ pub struct Compiler {
     struct_fields: HashMap<String, Vec<String>>,
     /// Rule declarations to compile.
     rules: Vec<CompiledRule>,
+    /// Skill index declarations to pass to VM.
+    skill_indices: Vec<crate::bytecode::CompiledSkillIndex>,
     /// Root directory for import resolution.
     std_root: PathBuf,
     /// Already-imported modules.
@@ -57,6 +59,7 @@ impl Compiler {
             builtin_indices,
             struct_fields: HashMap::new(),
             rules: Vec::new(),
+            skill_indices: Vec::new(),
             std_root,
             imported_modules: HashSet::new(),
             import_aliases: HashMap::new(),
@@ -107,6 +110,7 @@ impl Compiler {
             patterns: Vec::new(), // will be filled from pass1 data
             learnables: Vec::new(),
             rules: std::mem::take(&mut self.rules),
+            skill_indices: std::mem::take(&mut self.skill_indices),
             main_code,
             collections_loaded: self.collections_loaded,
         };
@@ -142,6 +146,30 @@ impl Compiler {
                 Declaration::Rule(r) => {
                     self.rules.push(self.compile_rule(r)?);
                 }
+                Declaration::SkillIndex(si) => {
+                    let compiled = crate::bytecode::CompiledSkillIndex {
+                        name: si.name.clone(),
+                        budget: si.budget,
+                        tiers: si
+                            .tiers
+                            .iter()
+                            .map(|t| crate::bytecode::CompiledSkillTier {
+                                level: t.level,
+                                mode: t.mode.clone(),
+                                skills: t.skills.clone(),
+                                rules: t
+                                    .rules
+                                    .iter()
+                                    .map(|r| crate::bytecode::CompiledSkillTriggerRule {
+                                        skill: r.skill.clone(),
+                                        triggers: r.triggers.clone(),
+                                    })
+                                    .collect(),
+                            })
+                            .collect(),
+                    };
+                    self.skill_indices.push(compiled);
+                }
                 Declaration::Memorize(_) => {
                     // Handled in pass2
                 }
@@ -158,7 +186,6 @@ impl Compiler {
                 | Declaration::Template(_)
                 | Declaration::Db(_)
                 | Declaration::Schema(_)
-                | Declaration::SkillIndex(_)
                 | Declaration::Memory(_)
                 | Declaration::Conversation(_)
                 | Declaration::ContextBudget(_)

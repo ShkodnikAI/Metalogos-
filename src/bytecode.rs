@@ -203,6 +203,30 @@ pub struct CompiledLearnableInfo {
     pub context: Option<String>,
 }
 
+/// A compiled skill_index for tiered skill matching.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompiledSkillIndex {
+    pub name: String,
+    pub tiers: Vec<CompiledSkillTier>,
+    pub budget: Option<f64>,
+}
+
+/// A compiled tier within a skill_index.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompiledSkillTier {
+    pub level: u32,
+    pub mode: String,
+    pub skills: Vec<String>,
+    pub rules: Vec<CompiledSkillTriggerRule>,
+}
+
+/// A trigger rule within a "when_matches" tier.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompiledSkillTriggerRule {
+    pub skill: String,
+    pub triggers: Vec<String>,
+}
+
 /// A compiled rule for the rule engine.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledRule {
@@ -248,6 +272,8 @@ pub struct Program {
     pub learnables: Vec<CompiledLearnableInfo>,
     /// Compiled rules.
     pub rules: Vec<CompiledRule>,
+    /// Compiled skill indices (for resolve_skill_index).
+    pub skill_indices: Vec<CompiledSkillIndex>,
     /// Top-level instruction sequence (declarations + flow execution).
     pub main_code: Vec<Instruction>,
     /// Whether std/collections has been imported (enables map/filter/reduce).

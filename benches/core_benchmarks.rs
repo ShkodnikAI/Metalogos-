@@ -4,7 +4,7 @@
 //
 // All benchmarks run on the same .mlog program for fair comparison.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 /// Benchmark program: 10 chained additions through pattern calls.
 /// Exercises: entity, pattern, flow, function call, arithmetic.

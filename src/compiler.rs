@@ -234,11 +234,17 @@ impl Compiler {
                     code.push(Instruction::RegisterPattern(compiled));
                 }
                 Declaration::LearnablePattern(lp) => {
+                    // Extract literal context if present
+                    let context = match &lp.context {
+                        Some(ContextMode::Literal(s)) => Some(s.clone()),
+                        _ => None, // Auto/Recall/None — not yet supported in VM
+                    };
                     code.push(Instruction::RegisterLearnable(CompiledLearnableInfo {
                         name: lp.name.clone(),
                         param_count: lp.params.len(),
                         prompt: lp.prompt.clone(),
                         few_shot: Vec::new(),
+                        context,
                     }));
                 }
                 Declaration::Rule(_) => {

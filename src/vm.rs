@@ -1381,9 +1381,49 @@ impl Vm {
         }
 
         // Build effective prompt with context prefix (matches interpreter)
-        let effective_prompt = match &info.context {
-            Some(ctx) => format!("{}\n{}", ctx, info.prompt),
-            None => info.prompt.clone(),
+        let effective_prompt = match &info.context_mode {
+            CompiledContextMode::Literal(ctx) => {
+                format!("{}\n{}", ctx, info.prompt)
+            }
+            CompiledContextMode::Auto => {
+                // Use first arg value as recall query
+                let query = args
+                    .first()
+                    .map(|a| format!("{}", a))
+                    .unwrap_or_default();
+                let facts = self.recall_top(&query, 5);
+                if facts.is_empty() {
+                    info.prompt.clone()
+                } else {
+                    let mut block = String::from("Relevant context:\n");
+                    for fact in &facts {
+                        block.push_str("- ");
+                        block.push_str(fact);
+                        block.push('\n');
+                    }
+                    format!("{}\n{}", block, info.prompt)
+                }
+            }
+            CompiledContextMode::Recall(_param_name, limit) => {
+                // Use first arg as recall query
+                let query = args
+                    .first()
+                    .map(|a| format!("{}", a))
+                    .unwrap_or_default();
+                let facts = self.recall_top(&query, *limit);
+                if facts.is_empty() {
+                    info.prompt.clone()
+                } else {
+                    let mut block = String::from("Relevant context:\n");
+                    for fact in &facts {
+                        block.push_str("- ");
+                        block.push_str(fact);
+                        block.push('\n');
+                    }
+                    format!("{}\n{}", block, info.prompt)
+                }
+            }
+            CompiledContextMode::None => info.prompt.clone(),
         };
 
         // Call LLM backend
@@ -1695,6 +1735,31 @@ impl Vm {
             }
             None => String::new(),
         }
+    }
+
+    /// Recall up to `limit` memory entries matching query, sorted by activation.
+    fn recall_top(&self, query: &str, limit: usize) -> Vec<String> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        let mut scored: Vec<(String, f64)> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for entry in &self.memory {
+            if !entry.value.contains(query) {
+                continue;
+            }
+            if seen.contains(&entry.value) {
+                continue;
+            }
+            seen.insert(entry.value.clone());
+            let age_days = ((now - entry.timestamp).max(0) as f64) / 86400.0;
+            let activation = entry.priority * (-entry.decay_rate * age_days).exp();
+            scored.push((entry.value.clone(), activation));
+        }
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        scored.into_iter().take(limit).map(|(v, _)| v).collect()
     }
 
     /// Collapse a Fluid value to a concrete type.

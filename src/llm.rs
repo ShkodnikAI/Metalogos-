@@ -1526,11 +1526,7 @@ mod tests {
 
     #[test]
     fn test_resolve_endpoint_base_without_trailing_path() {
-        let mut llm = RealLlm::with_config(
-            Provider::OpenAI,
-            "gpt-4o".to_string(),
-            None,
-        );
+        let mut llm = RealLlm::with_config(Provider::OpenAI, "gpt-4o".to_string(), None);
         // base_url = "https://myproxy.com/v1" (no /chat/completions)
         // default endpoint = "https://api.openai.com/v1/chat/completions"
         // path = "/chat/completions"
@@ -1544,11 +1540,7 @@ mod tests {
 
     #[test]
     fn test_resolve_endpoint_base_with_full_path_no_dup() {
-        let mut llm = RealLlm::with_config(
-            Provider::OpenAI,
-            "gpt-4o".to_string(),
-            None,
-        );
+        let mut llm = RealLlm::with_config(Provider::OpenAI, "gpt-4o".to_string(), None);
         // base_url already contains /v1/chat/completions — should NOT double
         llm.base_url = Some("https://myproxy.com/v1/chat/completions".to_string());
         assert_eq!(
@@ -1559,11 +1551,7 @@ mod tests {
 
     #[test]
     fn test_resolve_endpoint_no_base_url() {
-        let mut llm = RealLlm::with_config(
-            Provider::OpenAI,
-            "gpt-4o".to_string(),
-            None,
-        );
+        let mut llm = RealLlm::with_config(Provider::OpenAI, "gpt-4o".to_string(), None);
         llm.base_url = None;
         assert_eq!(
             llm.resolve_endpoint(),

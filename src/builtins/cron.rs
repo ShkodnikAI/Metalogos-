@@ -100,6 +100,7 @@ fn reminder_sqlite_upsert(entry: &ReminderEntry) {
     }
 }
 
+#[allow(dead_code)]
 fn reminder_sqlite_delete(id: &str) {
     if let Ok(guard) = reminders_sqlite().lock() {
         if let Some(ref conn) = *guard {
@@ -108,6 +109,7 @@ fn reminder_sqlite_delete(id: &str) {
     }
 }
 
+#[allow(dead_code)]
 fn reminder_sqlite_delete_all_for_persona() {
     if let Ok(guard) = reminders_sqlite().lock() {
         if let Some(ref conn) = *guard {

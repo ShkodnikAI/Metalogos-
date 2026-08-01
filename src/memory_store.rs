@@ -116,6 +116,12 @@ pub struct InMemoryStore {
     entries: Vec<MemoryEntry>,
 }
 
+impl Default for InMemoryStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InMemoryStore {
     pub fn new() -> Self {
         InMemoryStore {
@@ -209,6 +215,12 @@ impl MemoryStore for InMemoryStore {
 /// In-memory knowledge graph store (default, backward compatible).
 pub struct InMemoryKg {
     edges: Vec<(String, String, String, f64)>, // (from, to, relation, weight)
+}
+
+impl Default for InMemoryKg {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl InMemoryKg {
@@ -542,18 +554,17 @@ impl MemoryStore for SqliteStore {
                 row.get::<_, Vec<u8>>(5).unwrap_or_default(),
             ))
         }) {
-            for row_result in mapped_rows {
-                if let Ok((value, priority, confidence, decay_rate, timestamp, blob)) = row_result {
-                    entries.push(MemoryEntry {
-                        id: None,
-                        value,
-                        priority,
-                        timestamp,
-                        decay_rate,
-                        confidence,
-                        embedding: Self::blob_to_embedding(&blob),
-                    });
-                }
+            for (value, priority, confidence, decay_rate, timestamp, blob) in mapped_rows.flatten()
+            {
+                entries.push(MemoryEntry {
+                    id: None,
+                    value,
+                    priority,
+                    timestamp,
+                    decay_rate,
+                    confidence,
+                    embedding: Self::blob_to_embedding(&blob),
+                });
             }
         }
         entries
@@ -679,10 +690,8 @@ impl KgStore for SqliteKg {
                 row.get::<_, f64>(2)?,
             ))
         }) {
-            for row_result in mapped_rows {
-                if let Ok((rel, val, w)) = row_result {
-                    result.push((rel, val, w));
-                }
+            for (rel, val, w) in mapped_rows.flatten() {
+                result.push((rel, val, w));
             }
         }
 
@@ -703,10 +712,8 @@ impl KgStore for SqliteKg {
                 row.get::<_, f64>(2)?,
             ))
         }) {
-            for row_result in mapped_rows {
-                if let Ok((rel, val, w)) = row_result {
-                    result.push((rel, val, w));
-                }
+            for (rel, val, w) in mapped_rows.flatten() {
+                result.push((rel, val, w));
             }
         }
 
@@ -755,11 +762,7 @@ impl KgStore for SqliteKg {
                 row.get::<_, f64>(3)?,
             ))
         }) {
-            for row_result in mapped_rows {
-                if let Ok(row) = row_result {
-                    entries.push(row);
-                }
-            }
+            entries.extend(mapped_rows.flatten());
         }
         entries
     }
@@ -815,11 +818,7 @@ impl SqliteKg {
                         ))
                     })
                     .map(|rows| {
-                        for row_result in rows {
-                            if let Ok(r) = row_result {
-                                neighbors.push(r);
-                            }
-                        }
+                        neighbors.extend(rows.flatten());
                     });
             } // stmt dropped here
 
@@ -841,11 +840,7 @@ impl SqliteKg {
                         ))
                     })
                     .map(|rows| {
-                        for row_result in rows {
-                            if let Ok(r) = row_result {
-                                neighbors.push(r);
-                            }
-                        }
+                        neighbors.extend(rows.flatten());
                     });
             } // stmt dropped here
 

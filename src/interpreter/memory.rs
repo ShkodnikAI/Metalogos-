@@ -147,7 +147,7 @@ impl Interpreter {
         };
 
         // Search all variables for entities of the matching type
-        for (_name, value) in &self.variables {
+        for value in self.variables.values() {
             if let Value::Struct {
                 type_name: tn,
                 fields,

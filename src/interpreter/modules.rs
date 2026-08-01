@@ -49,13 +49,7 @@ impl Interpreter {
 
     fn load_module_inner(&mut self, module_path: &str) -> Result<(), String> {
         // Resolve file path: std/string -> std/string.mlog, ./my_utils -> ./my_utils.mlog
-        let file_path = if module_path.starts_with("./") {
-            self.base_dir.join(format!("{}.mlog", module_path))
-        } else if module_path.starts_with("std/") {
-            self.base_dir.join(format!("{}.mlog", module_path))
-        } else {
-            self.base_dir.join(format!("{}.mlog", module_path))
-        };
+        let file_path = self.base_dir.join(format!("{}.mlog", module_path));
 
         let source = std::fs::read_to_string(&file_path).map_err(|e| {
             format!(

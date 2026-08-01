@@ -55,6 +55,12 @@ pub struct Vm {
 /// Collapse threshold for Fluid values (matches interpreter).
 const COLLAPSE_THRESHOLD: f64 = 0.1;
 
+impl Default for Vm {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Vm {
     /// Create a new VM with empty state.
     pub fn new() -> Self {
@@ -87,7 +93,7 @@ impl Vm {
 
         // Sort rules by priority descending (matches interpreter semantics)
         let mut rules = program.rules.clone();
-        rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+        rules.sort_by_key(|b| std::cmp::Reverse(b.priority));
         self.rules = rules;
         self.skill_indices = program.skill_indices.clone();
 
@@ -1487,7 +1493,7 @@ impl Vm {
             serde_json::Value::Bool(b) => Value::Bool(*b),
             serde_json::Value::Null => Value::Unit,
             serde_json::Value::Array(arr) => {
-                Value::List(arr.iter().map(|v| Vm::json_to_value(v)).collect())
+                Value::List(arr.iter().map(Vm::json_to_value).collect())
             }
             serde_json::Value::Object(obj) => {
                 let mut fields = std::collections::HashMap::new();
@@ -1688,7 +1694,7 @@ impl Vm {
         rollback_op: Option<ConditionOp>,
     ) -> Result<String, String> {
         // Find the learnable
-        for (_, (info, few_shot)) in self.learnables.iter_mut().enumerate() {
+        for (info, few_shot) in self.learnables.iter_mut() {
             if info.name == pattern_name {
                 let original = few_shot.clone();
                 *few_shot = new_examples;
@@ -1896,7 +1902,6 @@ impl Vm {
                 AstCompareOp::Lt => Value::Float(if a < b { 1.0 } else { 0.0 }),
                 AstCompareOp::Ge => Value::Float(if a >= b { 1.0 } else { 0.0 }),
                 AstCompareOp::Le => Value::Float(if a <= b { 1.0 } else { 0.0 }),
-                _ => Value::Float(0.0),
             },
             _ => {
                 // Numeric comparisons (Float/Bool via as_float)
@@ -1908,7 +1913,6 @@ impl Vm {
                         AstCompareOp::Le => lf <= rf,
                         AstCompareOp::Eq => lf == rf,
                         AstCompareOp::Ne => lf != rf,
-                        _ => false,
                     },
                     _ => false,
                 };

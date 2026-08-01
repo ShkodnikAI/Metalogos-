@@ -40,7 +40,7 @@ fn cron_field_matches(field: &str, value: u32) -> bool {
                 if step == 0 {
                     continue;
                 }
-                if value % step == 0 {
+                if value.is_multiple_of(step) {
                     return true;
                 }
             }
@@ -61,7 +61,7 @@ fn cron_field_matches(field: &str, value: u32) -> bool {
             let bounds: Vec<&str> = range_str.split('-').collect();
             if bounds.len() == 2 {
                 if let (Ok(lo), Ok(hi)) = (bounds[0].parse::<u32>(), bounds[1].parse::<u32>()) {
-                    if value >= lo && value <= hi && (value - lo) % step == 0 {
+                    if value >= lo && value <= hi && (value - lo).is_multiple_of(step) {
                         return true;
                     }
                 }
@@ -1087,7 +1087,7 @@ async fn execute_route_body(
                             }
                             _ => {
                                 tokio::task::block_in_place(|| {
-                                    interp.eval_statements(&[s.clone()], &mut env)
+                                    interp.eval_statements(std::slice::from_ref(s), &mut env)
                                 })?;
                             }
                         }
@@ -1105,7 +1105,7 @@ async fn execute_route_body(
             }
             _ => {
                 let result = tokio::task::block_in_place(|| {
-                    interp.eval_statements(&[stmt.clone()], &mut env)
+                    interp.eval_statements(std::slice::from_ref(stmt), &mut env)
                 })?;
                 // If the statement produced an HttpResponse (e.g., respond("ok")),
                 // use it as the route response (final integration)

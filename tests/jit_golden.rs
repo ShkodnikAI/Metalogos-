@@ -51,6 +51,7 @@ fn trim_opt(s: &Option<String>) -> String {
 
 #[test]
 #[ignore]
+/// Category: VM Unimplemented (JIT not yet integrated)
 // TODO: restore when Vm::with_jit and run_program_* are available
 fn jit_hot_pattern_correctness() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
@@ -74,6 +75,7 @@ fn jit_hot_pattern_correctness() {
 
 #[test]
 #[ignore]
+/// Category: VM Unimplemented (JIT not yet integrated)
 // TODO: restore when Vm::with_jit and run_program_* are available
 fn jit_large_program_correctness() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
@@ -98,6 +100,7 @@ fn jit_large_program_correctness() {
 
 #[test]
 #[ignore]
+/// Category: VM Unimplemented (JIT not yet integrated)
 // TODO: restore when Vm::with_jit is available
 fn jit_compilation_actually_happens() { // TODO: restore when Vm::with_jit is available    // let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());    // let examples_dir = Path::new(&manifest_dir).join("examples");    // let base_dir = examples_dir.parent().unwrap_or(Path::new("."));    // let program = generate_increment_program(10);    // let decls = metalogos::parser::parse(&program).expect("parse failed");    // let mut comp = metalogos::compiler::Compiler::with_std_root(base_dir.to_path_buf());    // let prog = comp.compile(decls).expect("compile failed");    // let mut vm = metalogos::vm::Vm::with_jit(1).expect("JIT init failed");    // let _result = vm.run(prog).expect("run failed");    // let compiled_count = vm.jit_compiled_count();    // assert!(compiled_count >= 1,    //     "Expected at least 1 JIT-compiled pattern, got {}", compiled_count);
 }
@@ -106,6 +109,7 @@ fn jit_compilation_actually_happens() { // TODO: restore when Vm::with_jit is av
 
 #[test]
 #[ignore]
+/// Category: VM Unimplemented (JIT not yet integrated)
 // TODO: restore when Vm::with_jit and run_program_vm_with_base are available
 fn benchmark_vm_vs_jit() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
@@ -181,6 +185,7 @@ fn benchmark_vm_vs_jit() {
 /// Triple-mode benchmark: TW vs VM vs JIT for all golden examples.
 #[test]
 #[ignore]
+/// Category: VM Unimplemented (JIT not yet integrated)
 // TODO: restore when Vm::with_jit and run_program_* are available
 fn benchmark_triple_mode_golden() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
@@ -229,6 +234,7 @@ fn benchmark_triple_mode_golden() {
 
 #[test]
 #[ignore]
+/// Category: VM Unimplemented (JIT not yet integrated)
 // TODO: restore when Vm::with_jit and run_program_* are available
 fn jit_p5_golden_example() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());

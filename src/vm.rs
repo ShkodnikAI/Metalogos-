@@ -1416,18 +1416,34 @@ impl Vm {
 
     /// Evaluate a comparison: push 1.0 (true) or 0.0 (false).
     fn eval_cmp(&self, left: Value, right: Value, op: AstCompareOp) -> Value {
-        let result = match (left.as_float(), right.as_float()) {
-            (Ok(lf), Ok(rf)) => match op {
-                AstCompareOp::Gt => lf > rf,
-                AstCompareOp::Lt => lf < rf,
-                AstCompareOp::Ge => lf >= rf,
-                AstCompareOp::Le => lf <= rf,
-                AstCompareOp::Eq => lf == rf,
-                _ => false,
+        // String-string comparisons (Eq, Ne, contains-like)
+        match (&left, &right) {
+            (Value::String(a), Value::String(b)) => match op {
+                AstCompareOp::Eq => Value::Float(if a == b { 1.0 } else { 0.0 }),
+                AstCompareOp::Ne => Value::Float(if a != b { 1.0 } else { 0.0 }),
+                AstCompareOp::Gt => Value::Float(if a > b { 1.0 } else { 0.0 }),
+                AstCompareOp::Lt => Value::Float(if a < b { 1.0 } else { 0.0 }),
+                AstCompareOp::Ge => Value::Float(if a >= b { 1.0 } else { 0.0 }),
+                AstCompareOp::Le => Value::Float(if a <= b { 1.0 } else { 0.0 }),
+                _ => Value::Float(0.0),
             },
-            _ => false,
-        };
-        Value::Float(if result { 1.0 } else { 0.0 })
+            _ => {
+                // Numeric comparisons (Float/Bool via as_float)
+                let result = match (left.as_float(), right.as_float()) {
+                    (Ok(lf), Ok(rf)) => match op {
+                        AstCompareOp::Gt => lf > rf,
+                        AstCompareOp::Lt => lf < rf,
+                        AstCompareOp::Ge => lf >= rf,
+                        AstCompareOp::Le => lf <= rf,
+                        AstCompareOp::Eq => lf == rf,
+                        AstCompareOp::Ne => lf != rf,
+                        _ => false,
+                    },
+                    _ => false,
+                };
+                Value::Float(if result { 1.0 } else { 0.0 })
+            }
+        }
     }
 }
 

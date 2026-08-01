@@ -335,15 +335,11 @@ impl Compiler {
                 Declaration::LearnablePattern(lp) => {
                     // Compile context mode
                     let context_mode = match &lp.context {
-                        Some(ContextMode::None) => {
-                            crate::bytecode::CompiledContextMode::None
-                        }
+                        Some(ContextMode::None) => crate::bytecode::CompiledContextMode::None,
                         Some(ContextMode::Literal(s)) => {
                             crate::bytecode::CompiledContextMode::Literal(s.clone())
                         }
-                        Some(ContextMode::Auto) => {
-                            crate::bytecode::CompiledContextMode::Auto
-                        }
+                        Some(ContextMode::Auto) => crate::bytecode::CompiledContextMode::Auto,
                         Some(ContextMode::Recall(expr, limit)) => {
                             // Extract param name from expression (must be Ident)
                             let param_name = match expr {

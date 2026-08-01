@@ -1076,9 +1076,15 @@ impl Vm {
             }
         }
 
+        // Build effective prompt with context prefix (matches interpreter)
+        let effective_prompt = match &info.context {
+            Some(ctx) => format!("{}\n{}", ctx, info.prompt),
+            None => info.prompt.clone(),
+        };
+
         // Call LLM backend
         let backend = llm::create_llm_backend();
-        let response = backend.call(&info.prompt, &input)?;
+        let response = backend.call(&effective_prompt, &input)?;
 
         // Try to parse JSON response into Value::Struct
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response) {

@@ -198,6 +198,9 @@ pub struct CompiledLearnableInfo {
     pub param_count: usize,
     pub prompt: String,
     pub few_shot: Vec<(String, String)>,
+    /// Optional context string to prepend to the prompt.
+    /// Set when the learnable has `context: "literal"` (ContextMode::Literal).
+    pub context: Option<String>,
 }
 
 /// A compiled rule for the rule engine.

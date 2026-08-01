@@ -6,9 +6,9 @@ pattern Tokenize(src: String) -> String {
   let ops = ":=+-*/!(){}[],<>"
   let kws = "entity,pattern,flow,let,return,if,then,else,while,each,in,import,rule"
 
-  let r = ""
+  let mut r = ""
   let sl = len(src)
-  let i = 0.0
+  let mut i = 0.0
 
   while i < sl {
     let ch = char_at(src, i)
@@ -18,9 +18,9 @@ pattern Tokenize(src: String) -> String {
     let in_ops = if index_of(ops, ch) > -1.0 then 1.0 else 0.0
     let is_qt = if sp == 0.0 then if lt == 0.0 then if dg == 0.0 then if in_ops == 0.0 then 1.0 else 0.0 else 0.0 else 0.0 else 0.0
 
-    let j = i
-    let tok = ""
-    let kind = ""
+    let mut j = i
+    let mut tok = ""
+    let mut kind = ""
 
     while if sp == 0.0 then if lt == 1.0 then if j < sl then if index_of(abc, char_at(src, j)) > -1.0 then 1.0 else 0.0 else 0.0 else 0.0 else 0.0 {
       j = j + 1.0

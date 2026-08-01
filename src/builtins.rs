@@ -1105,6 +1105,165 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
         arity: 2,
         category: "mtree",
     },
+    // ── P33 sync: 30 missing entries ──
+    // bot — Telegram
+    BuiltinSpec {
+        name: "answer_callback_query",
+        arity: 0,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "edit_message_text",
+        arity: 0,
+        category: "bot",
+    },
+    // bot — approvals / goals
+    BuiltinSpec {
+        name: "ask_approval",
+        arity: 1,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "goal_complete",
+        arity: 0,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "goals_reflect",
+        arity: 0,
+        category: "bot",
+    },
+    // bot — reminders
+    BuiltinSpec {
+        name: "cancel_remind",
+        arity: 1,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "check_reminders",
+        arity: 0,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "list_reminders",
+        arity: 0,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "remind_recurring",
+        arity: 2,
+        category: "bot",
+    },
+    // bot — human intelligence
+    BuiltinSpec {
+        name: "human_create",
+        arity: 2,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "human_delete",
+        arity: 1,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "human_forget",
+        arity: 2,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "human_personas",
+        arity: 0,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "human_recall",
+        arity: 3,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "human_remember",
+        arity: 4,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "human_respond",
+        arity: 2,
+        category: "bot",
+    },
+    // bot — OpenHuman helpers
+    BuiltinSpec {
+        name: "compress_html",
+        arity: 1,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "estimate_tokens",
+        arity: 0,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "extract_entities",
+        arity: 1,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "extract_param",
+        arity: 0,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "learn_preference",
+        arity: 2,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "memory_score",
+        arity: 1,
+        category: "bot",
+    },
+    BuiltinSpec {
+        name: "read_file_tokens",
+        arity: 0,
+        category: "bot",
+    },
+    // web — geolocation / weather
+    BuiltinSpec {
+        name: "geo_distance",
+        arity: 0,
+        category: "web",
+    },
+    BuiltinSpec {
+        name: "weather_forecast",
+        arity: 0,
+        category: "web",
+    },
+    // time — date helpers
+    BuiltinSpec {
+        name: "days_between",
+        arity: 2,
+        category: "time",
+    },
+    BuiltinSpec {
+        name: "days_in_month",
+        arity: 2,
+        category: "time",
+    },
+    BuiltinSpec {
+        name: "is_leap_year",
+        arity: 1,
+        category: "time",
+    },
+    BuiltinSpec {
+        name: "weekday_name",
+        arity: 1,
+        category: "time",
+    },
+    // mtree
+    BuiltinSpec {
+        name: "mtree_forget",
+        arity: 1,
+        category: "mtree",
+    },
 ];
 
 /// Total number of registered builtins.

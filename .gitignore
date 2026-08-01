@@ -5,3 +5,4 @@ FOSVED-office-v2/
 metalogos-build/
 metalogos-src/
 tool-results/
+*.db

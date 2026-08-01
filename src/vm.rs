@@ -42,6 +42,8 @@ pub struct Vm {
     relations: Vec<VmRelation>,
     /// Rule table (from program.rules).
     rules: Vec<CompiledRule>,
+    /// Skill index declarations (for resolve_skill_index).
+    skill_indices: Vec<CompiledSkillIndex>,
     /// Mutate log messages.
     mutate_log: Vec<String>,
     /// Collections loaded flag (for map/filter/reduce).
@@ -66,6 +68,7 @@ impl Vm {
             memory: Vec::new(),
             relations: Vec::new(),
             rules: Vec::new(),
+            skill_indices: Vec::new(),
             mutate_log: Vec::new(),
             collections_loaded: false,
         }
@@ -83,6 +86,7 @@ impl Vm {
         let mut rules = program.rules.clone();
         rules.sort_by(|a, b| b.priority.cmp(&a.priority));
         self.rules = rules;
+        self.skill_indices = program.skill_indices.clone();
 
         // Execute main_code
         let mut stack: Vec<Value> = Vec::new();
@@ -1095,6 +1099,58 @@ impl Vm {
             return Ok(Value::Unit);
         }
 
+        // resolve_skill_index(dept) — returns compiled skill index as Value::Struct
+        if name == "resolve_skill_index" {
+            let dept = match args.get(0) {
+                Some(Value::String(s)) => s.clone(),
+                _ => return Err("resolve_skill_index() expects a department name (String)".to_string()),
+            };
+            let idx = self.skill_indices.iter().find(|si| si.name == dept).ok_or_else(|| {
+                format!("resolve_skill_index(): no skill_index declared for '{}'", dept)
+            })?;
+            let mut fields = std::collections::HashMap::new();
+            let tier1: Vec<Value> = idx
+                .tiers
+                .iter()
+                .filter(|t| t.mode == "always")
+                .flat_map(|t| t.skills.iter().map(|s| Value::String(s.clone())))
+                .collect();
+            fields.insert("tier1".to_string(), Value::List(tier1));
+            for tier in &idx.tiers {
+                if tier.mode == "when_matches" {
+                    let rules: Vec<Value> = tier
+                        .rules
+                        .iter()
+                        .map(|r| {
+                            let mut f = std::collections::HashMap::new();
+                            f.insert("skill".to_string(), Value::String(r.skill.clone()));
+                            f.insert(
+                                "triggers".to_string(),
+                                Value::List(
+                                    r.triggers
+                                        .iter()
+                                        .map(|t| Value::String(t.clone()))
+                                        .collect(),
+                                ),
+                            );
+                            Value::Struct {
+                                type_name: "TriggerRule".to_string(),
+                                fields: f,
+                            }
+                        })
+                        .collect();
+                    fields.insert(format!("tier{}", tier.level), Value::List(rules));
+                }
+            }
+            if let Some(b) = idx.budget {
+                fields.insert("budget".to_string(), Value::Float(b));
+            }
+            return Ok(Value::Struct {
+                type_name: "SkillIndex".to_string(),
+                fields,
+            });
+        }
+
         if let Some(builtin_fn) = self.builtins.get(name) {
             return builtin_fn(args);
         }
@@ -1246,6 +1302,7 @@ impl Vm {
                     patterns: Vec::new(),
                     learnables: Vec::new(),
                     rules: Vec::new(),
+                    skill_indices: Vec::new(),
                     main_code: Vec::new(),
                     collections_loaded: false,
                 };

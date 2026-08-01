@@ -169,6 +169,33 @@ const MAX_RETRIES: u32 = 3;
 /// - No retry on fatal client errors (400/401/403/404)
 /// - ADR-0048: per-call model override via call_with_model()
 /// - Наряд №12 Bug 4: METALOGOS_OPENAI_BASE_URL for custom base URL
+/// - Наряд №32: deduplication of path suffix in resolve_endpoint
+
+/// Extract the meaningful path suffix from a full endpoint URL.
+/// Strips the versioned prefix (/v1/, /v1beta/, /api/) to enable deduplication
+/// when a custom base_url already contains the versioned segment.
+///
+/// Examples:
+/// - "https://api.openai.com/v1/chat/completions" → "/chat/completions"
+/// - "https://api.anthropic.com/v1/messages" → "/messages"
+/// - "http://localhost:11434/api/generate" → "/generate"
+fn extract_endpoint_suffix(default_endpoint: &str) -> &str {
+    if let Some(idx) = default_endpoint.find("://") {
+        let after_scheme = &default_endpoint[idx + 3..];
+        if let Some(slash_idx) = after_scheme.find('/') {
+            let path = &after_scheme[slash_idx..];
+            // Try to find and skip /v1/, /v1beta/, /api/ prefix
+            for prefix in &["/v1beta/", "/v1/", "/api/"] {
+                if let Some(pos) = path.find(prefix) {
+                    return &path[pos + prefix.len() - 1..]; // keep the "/"
+                }
+            }
+            return path;
+        }
+    }
+    ""
+}
+
 #[derive(Clone)]
 pub struct RealLlm {
     provider: Provider,
@@ -293,20 +320,23 @@ impl RealLlm {
 
     /// Resolve the effective endpoint URL, applying custom base_url override if set.
     /// Наряд №12 Bug 4: METALOGOS_OPENAI_BASE_URL support.
+    /// Наряд №32: deduplicate path suffix when base_url already contains it.
+    ///
+    /// Strategy: strip the versioned prefix (/v1/ or /api/) from the default
+    /// endpoint's path, take only the suffix (e.g. /chat/completions), then
+    /// append it to base_url. If base_url already ends with that suffix, return
+    /// base_url as-is.
     pub fn resolve_endpoint(&self) -> String {
         if let Some(ref base) = self.base_url {
-            // Extract the path suffix from the default endpoint
-            // e.g., "https://api.openai.com/v1/chat/completions" → "/chat/completions"
+            let base = base.trim_end_matches('/');
             let default = self.provider.endpoint();
-            if let Some(idx) = default.find("://") {
-                if let Some(slash_idx) = default[idx + 3..].find('/') {
-                    let path = &default[idx + 3 + slash_idx..];
-                    format!("{}{}", base.trim_end_matches('/'), path)
-                } else {
-                    base.clone()
-                }
+            // Extract the path after the versioned segment from the default endpoint
+            let suffix = extract_endpoint_suffix(&default);
+            // Deduplicate
+            if base.ends_with(suffix) {
+                base.to_string()
             } else {
-                base.clone()
+                format!("{}{}", base, suffix)
             }
         } else {
             self.provider.endpoint().to_string()
@@ -1490,6 +1520,55 @@ mod tests {
         env::set_var("METALOGOS_LLM_MODEL_volatile", "model-v2");
         assert_eq!(resolve_model("volatile"), "model-v2");
         env::remove_var("METALOGOS_LLM_MODEL_volatile");
+    }
+
+    // ── resolve_endpoint deduplication (Наряд №32) ────────────────────
+
+    #[test]
+    fn test_resolve_endpoint_base_without_trailing_path() {
+        let mut llm = RealLlm::with_config(
+            Provider::OpenAI,
+            "gpt-4o".to_string(),
+            None,
+        );
+        // base_url = "https://myproxy.com/v1" (no /chat/completions)
+        // default endpoint = "https://api.openai.com/v1/chat/completions"
+        // path = "/chat/completions"
+        // result should be "https://myproxy.com/v1/chat/completions"
+        llm.base_url = Some("https://myproxy.com/v1".to_string());
+        assert_eq!(
+            llm.resolve_endpoint(),
+            "https://myproxy.com/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn test_resolve_endpoint_base_with_full_path_no_dup() {
+        let mut llm = RealLlm::with_config(
+            Provider::OpenAI,
+            "gpt-4o".to_string(),
+            None,
+        );
+        // base_url already contains /v1/chat/completions — should NOT double
+        llm.base_url = Some("https://myproxy.com/v1/chat/completions".to_string());
+        assert_eq!(
+            llm.resolve_endpoint(),
+            "https://myproxy.com/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn test_resolve_endpoint_no_base_url() {
+        let mut llm = RealLlm::with_config(
+            Provider::OpenAI,
+            "gpt-4o".to_string(),
+            None,
+        );
+        llm.base_url = None;
+        assert_eq!(
+            llm.resolve_endpoint(),
+            "https://api.openai.com/v1/chat/completions"
+        );
     }
 
     // ── Integration Tests (require real API keys) ──────────────────

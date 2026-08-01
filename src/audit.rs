@@ -152,6 +152,68 @@ impl TaintTracker {
     }
 }
 
+/// Extract taint kind from an expression, considering variable references
+/// and function call arguments. Returns None for literals and unknown expressions.
+///
+/// Propagation rules:
+/// - `Expr::Ident(var)` → returns var's taint
+/// - `Expr::FnCall("render"| "escape_html", _)` → Sanitized (overrides args)
+/// - `Expr::FnCall(_, args)` → propagate first non-Sanitized arg taint
+/// - `Expr::BinaryOp(_, left, right)` → propagate from either side
+/// - Literals → None (clean)
+fn get_expr_taint(expr: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
+    match expr {
+        Expr::Ident(var) => tracker.get_taint(var),
+        Expr::FnCall(fn_name, args) => {
+            // Sanitizers override argument taint
+            if fn_name == "render" || fn_name == "escape_html" {
+                return Some(TaintKind::Sanitized);
+            }
+            // Propagate taint from first tainted argument
+            for arg in args {
+                if let Some(taint) = get_expr_taint(arg, tracker) {
+                    if taint != TaintKind::Sanitized {
+                        return Some(taint);
+                    }
+                }
+            }
+            None
+        }
+        Expr::BinaryOp(left, _, right) => {
+            get_expr_taint(left, tracker).or_else(|| get_expr_taint(right, tracker))
+        }
+        Expr::FieldAccess(obj, _) => get_expr_taint(obj, tracker),
+        Expr::IndexAccess(_, index) => get_expr_taint(index, tracker),
+        // Literals are always clean
+        Expr::StringLit(_)
+        | Expr::FloatLit(_)
+        | Expr::BoolLit(_)
+        | Expr::List(_)
+        | Expr::StructLit(_) => None,
+        Expr::IfElse(_, then_branch, else_branch) => {
+            get_expr_taint(then_branch, tracker).or_else(|| get_expr_taint(else_branch, tracker))
+        }
+        // For other complex expressions, conservatively return None
+        _ => None,
+    }
+}
+
+/// Determine the taint kind for a binding's RHS expression.
+/// Checks direct function call sources first, then falls back to
+/// expression-level taint propagation.
+fn binding_taint(value: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
+    if let Expr::FnCall(fn_name, _) = value {
+        match fn_name.as_str() {
+            "call_llm" | "call_claude" => return Some(TaintKind::LlmOutput),
+            "env" => return Some(TaintKind::Secret),
+            "render" | "escape_html" => return Some(TaintKind::Sanitized),
+            "form_data" | "json_body" | "query_param" => return Some(TaintKind::UserInput),
+            _ => {}
+        }
+    }
+    get_expr_taint(value, tracker)
+}
+
 // ── Helper: find line number for a keyword in source ────────────────
 
 /// Find the 1-based line number of the first occurrence of `keyword` in source.
@@ -685,27 +747,20 @@ fn check_html_injection(
                 } => {
                     // Check if this let-binding calls respond() with tainted args
                     check_respond_for_html(value, tracker, source, findings);
-                    // Track taint sources
-                    if let Expr::FnCall(fn_name, _) = value {
-                        if fn_name == "call_llm" || fn_name == "call_claude" {
-                            tracker.taint(name, TaintKind::LlmOutput);
-                        } else if fn_name == "env" {
-                            tracker.taint(name, TaintKind::Secret);
-                        } else if fn_name == "render" || fn_name == "escape_html" {
-                            tracker.taint(name, TaintKind::Sanitized);
-                        } else if fn_name == "form_data"
-                            || fn_name == "json_body"
-                            || fn_name == "query_param"
-                        {
-                            tracker.taint(name, TaintKind::UserInput);
-                        }
+                    // Propagate taint from expression (handles both direct
+                    // function calls and variable references)
+                    if let Some(taint) = binding_taint(value, tracker) {
+                        tracker.taint(name, taint);
+                    } else {
+                        // Reassignment to a clean literal clears taint
+                        tracker.untaint(name);
                     }
                 }
                 Statement::Assign { name, value } => {
-                    if let Expr::FnCall(fn_name, _) = value {
-                        if fn_name == "render" || fn_name == "escape_html" {
-                            tracker.taint(name, TaintKind::Sanitized);
-                        }
+                    if let Some(taint) = binding_taint(value, tracker) {
+                        tracker.taint(name, taint);
+                    } else {
+                        tracker.untaint(name);
                     }
                 }
                 Statement::ExprStmt(expr) => {
@@ -808,16 +863,17 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                 } => {
                     // Check if this let-binding calls a sink function with tainted args
                     check_expr_for_leak(value, tracker, source, findings);
-                    // Track taint sources
-                    if let Expr::FnCall(fn_name, _) = value {
-                        if fn_name == "env" {
-                            tracker.taint(name, TaintKind::Secret);
-                        }
+                    // Propagate taint from expression
+                    if let Some(taint) = binding_taint(value, tracker) {
+                        tracker.taint(name, taint);
+                    } else {
+                        tracker.untaint(name);
                     }
                 }
                 Statement::Assign { name, value } => {
-                    // Clear taint if variable is reassigned to a literal
-                    if let Expr::StringLit(_) = value {
+                    if let Some(taint) = binding_taint(value, tracker) {
+                        tracker.taint(name, taint);
+                    } else {
                         tracker.untaint(name);
                     }
                 }
@@ -984,19 +1040,17 @@ fn check_open_redirect(
                 } => {
                     // Check if this let-binding calls respond() with tainted args
                     check_expr_for_redirect(value, tracker, source, findings);
-                    // Track taint sources
-                    if let Expr::FnCall(fn_name, _) = value {
-                        if fn_name == "query_param"
-                            || fn_name == "form_data"
-                            || fn_name == "json_body"
-                        {
-                            tracker.taint(name, TaintKind::UserInput);
-                        }
+                    // Propagate taint from expression
+                    if let Some(taint) = binding_taint(value, tracker) {
+                        tracker.taint(name, taint);
+                    } else {
+                        tracker.untaint(name);
                     }
                 }
                 Statement::Assign { name, value } => {
-                    // Clear taint if variable is reassigned to a literal
-                    if let Expr::StringLit(_) = value {
+                    if let Some(taint) = binding_taint(value, tracker) {
+                        tracker.taint(name, taint);
+                    } else {
                         tracker.untaint(name);
                     }
                 }

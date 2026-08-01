@@ -278,7 +278,7 @@ pub(crate) fn builtin_hashline_read(args: &[Value]) -> Result<Value, String> {
 ///   - set_line: { op: "set_line", ref: "N:HH", content: "new content" }
 ///   - replace_lines: { op: "replace_lines", start_ref: "N:HH", end_ref: "M:HH", content: "replacement" }
 ///   - insert_after: { op: "insert_after", ref: "N:HH", content: "new line" }
-/// Returns the modified text. Errors if hash mismatch (stale reference).
+///     Returns the modified text. Errors if hash mismatch (stale reference).
 pub(crate) fn builtin_hashline_edit(args: &[Value]) -> Result<Value, String> {
     let text = expect_string_arg("hashline_edit", args, 0)?;
     let edits = expect_list_arg("hashline_edit", args, 1)?;
@@ -415,7 +415,7 @@ fn parse_line_ref(line_ref: &str) -> Result<(usize, String), String> {
 ///   - remaining >= 50%: level = "ok"
 ///   - remaining >= 25%: level = "warning"
 ///   - remaining < 25%: level = "critical"
-/// Inspired by OpenPlanter's engine.py budget awareness system.
+///     Inspired by OpenPlanter's engine.py budget awareness system.
 pub(crate) fn builtin_budget_check(args: &[Value]) -> Result<Value, String> {
     let step = expect_float_arg("budget_check", args, 0)? as usize;
     let total_steps = expect_float_arg("budget_check", args, 1)? as usize;
@@ -454,11 +454,11 @@ pub(crate) fn builtin_budget_check(args: &[Value]) -> Result<Value, String> {
 ///   - seq: 0 (first snapshot)
 ///   - count: number of items
 ///   - snapshot: JSON string of the full list
-/// Subsequent calls should use the returned count to determine delta.
-/// Inspired by OpenPlanter's ReplayLogger (seq 0 = full, seq N = delta).
+///     Subsequent calls should use the returned count to determine delta.
+///     Inspired by OpenPlanter's ReplayLogger (seq 0 = full, seq N = delta).
 pub(crate) fn builtin_replay_snapshot(args: &[Value]) -> Result<Value, String> {
     let data = expect_list_arg("replay_snapshot", args, 0)?;
-    let json_items: Vec<serde_json::Value> = data.iter().map(|v| mlog_value_to_json(v)).collect();
+    let json_items: Vec<serde_json::Value> = data.iter().map(mlog_value_to_json).collect();
     let snapshot = serde_json::to_string(&json_items)
         .map_err(|e| format!("replay_snapshot: JSON serialization error: {}", e))?;
     Ok(make_struct(
@@ -476,8 +476,8 @@ pub(crate) fn builtin_replay_snapshot(args: &[Value]) -> Result<Value, String> {
 ///   - Blocks heredoc syntax (<<)
 ///   - Blocks interactive TUI programs (vim, nano, less, more, top, htop, vi)
 ///   - Trims leading/trailing whitespace
-/// Returns a struct { allowed: bool, reason: "..." }.
-/// Inspired by OpenPlanter's _runtime_policy_check in engine.py.
+///     Returns a struct { allowed: bool, reason: "..." }.
+///     Inspired by OpenPlanter's _runtime_policy_check in engine.py.
 pub(crate) fn builtin_policy_check(args: &[Value]) -> Result<Value, String> {
     let command = expect_string_arg("policy_check", args, 0)?;
     let cmd_trimmed = command.trim();

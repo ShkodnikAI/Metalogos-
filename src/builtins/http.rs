@@ -533,7 +533,7 @@ pub(crate) fn builtin_format_date(args: &[Value]) -> Result<Value, String> {
     let dt = chrono::Local
         .timestamp_opt(secs, 0)
         .single()
-        .unwrap_or_else(|| chrono::Local::now());
+        .unwrap_or_else(chrono::Local::now);
 
     let y = dt.year() as u32;
     let mo = dt.month();
@@ -645,7 +645,7 @@ pub(crate) fn builtin_date_parts(args: &[Value]) -> Result<Value, String> {
     let dt = chrono::Local
         .timestamp_opt(secs, 0)
         .single()
-        .unwrap_or_else(|| chrono::Local::now());
+        .unwrap_or_else(chrono::Local::now);
 
     let y = dt.year() as u32;
     let mo = dt.month();
@@ -727,7 +727,7 @@ pub(crate) fn builtin_weekday_name(args: &[Value]) -> Result<Value, String> {
     let dt = chrono::Local
         .timestamp_opt(secs, 0)
         .single()
-        .unwrap_or_else(|| chrono::Local::now());
+        .unwrap_or_else(chrono::Local::now);
     let wday_mon = dt.weekday().num_days_from_monday();
     Ok(Value::String(
         WEEKDAY_NAMES_MON[wday_mon as usize].to_string(),

@@ -1725,7 +1725,12 @@ fn builtin_replace(args: &[Value]) -> Result<Value, String> {
     let s = expect_string_arg("__replace", args, 0)?;
     let old = expect_string_arg("__replace", args, 1)?;
     let new = expect_string_arg("__replace", args, 2)?;
-    Ok(Value::String(s.replace(&old, &new)))
+    if old.is_empty() {
+        // Empty pattern would insert replacement between every character — return original
+        Ok(Value::String(s))
+    } else {
+        Ok(Value::String(s.replace(&old, &new)))
+    }
 }
 
 fn builtin_split(args: &[Value]) -> Result<Value, String> {
@@ -10443,5 +10448,27 @@ mod tests_sqz_builtins {
         } else {
             panic!("should return struct");
         }
+    }
+
+    #[test]
+    fn test_replace_empty_pattern_returns_original() {
+        let r = builtin_replace(&[
+            Value::String("hello world".to_string()),
+            Value::String("".to_string()),
+            Value::String("x".to_string()),
+        ])
+        .unwrap();
+        assert_vals_eq(&r, &Value::String("hello world".to_string()), "empty pattern");
+    }
+
+    #[test]
+    fn test_replace_normal() {
+        let r = builtin_replace(&[
+            Value::String("hello world".to_string()),
+            Value::String("world".to_string()),
+            Value::String("there".to_string()),
+        ])
+        .unwrap();
+        assert_vals_eq(&r, &Value::String("hello there".to_string()), "normal replace");
     }
 }

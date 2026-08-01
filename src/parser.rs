@@ -2743,8 +2743,9 @@ fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
         }
         Rule::unary_minus => {
             let children: Vec<_> = pair.clone().into_inner().collect();
-            let inner_expr = if !children.is_empty() {
-                parse_expression(children[0].clone())?
+            // children: [MINUS, unary_expr] — without @ atomic rule
+            let inner_expr = if children.len() >= 2 {
+                parse_expression(children[1].clone())?
             } else {
                 Expr::FloatLit(0.0)
             };

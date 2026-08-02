@@ -1,0 +1,8 @@
+// Наряд №42, Блок 1: Variant with confidence < 0.1 (COLLAPSE_THRESHOLD) → Unit (soft-failure).
+// Float[42.0][0.05] — below threshold, collapses to Unit, displayed as ().
+fluid x = Float[42.0][0.05]
+
+pattern GetFloat(v: Float) -> Float { return v }
+pattern ToString(v: Float) -> String { return to_string(v) }
+
+flow Main { input: String = x -> GetFloat -> ToString -> output }

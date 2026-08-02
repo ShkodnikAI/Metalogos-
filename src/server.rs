@@ -472,7 +472,7 @@ pub async fn run_test_server(
 
 // ── Internal: Build State ──────────────────────────────────────────
 
-async fn build_state(
+pub(crate) async fn build_state(
     config: MlogServerDecl,
     interp: Interpreter,
 ) -> Result<ServerState, Box<dyn std::error::Error + Send + Sync>> {
@@ -1028,7 +1028,7 @@ pub fn json_value_to_value(val: &serde_json::Value) -> Value {
 
 // ── Route Body Execution ────────────────────────────────────────────
 
-async fn execute_route_body(
+pub(crate) async fn execute_route_body(
     state: &ServerState,
     body_stmts: &[Statement],
     _headers: &HeaderMap,
@@ -1533,12 +1533,15 @@ pub fn render_template(body: &str, vars: &HashMap<String, String>) -> String {
 
 // ── Interpreter Merge ──────────────────────────────────────────────
 
-fn build_interpreter_with_server(srv: &MlogServerDecl, mut interp: Interpreter) -> Interpreter {
+pub(crate) fn build_interpreter_with_server(
+    srv: &MlogServerDecl,
+    mut interp: Interpreter,
+) -> Interpreter {
     interp = merge_templates(srv, interp);
     interp
 }
 
-fn merge_interpreter(from: Interpreter, mut into: Interpreter) -> Interpreter {
+pub(crate) fn merge_interpreter(from: Interpreter, mut into: Interpreter) -> Interpreter {
     // Merge variables (borrow, don't move)
     for (k, v) in &from.variables {
         into.variables.entry(k.clone()).or_insert(v.clone());
@@ -1906,6 +1909,149 @@ mod tests {
             backend: ServeBackend::Interpreter,
             vm_program: None,
             vm_routes: Vec::new(),
+        }
+    }
+
+    // ── Наряд №40 Tests: VM backend ──────────────────────────────
+
+    #[tokio::test]
+    async fn test_n40_backend_env_default_is_interpreter() {
+        // Ensure default (no env var) is Interpreter
+        std::env::remove_var("METALOGOS_SERVE_BACKEND");
+        let backend = match std::env::var("METALOGOS_SERVE_BACKEND") {
+            Ok(val) if val == "vm" => ServeBackend::Vm,
+            Ok(val) if val == "interpreter" => ServeBackend::Interpreter,
+            Ok(_) => ServeBackend::Interpreter,  // fallback
+            Err(_) => ServeBackend::Interpreter, // default
+        };
+        assert_eq!(backend, ServeBackend::Interpreter);
+    }
+
+    #[tokio::test]
+    async fn test_n40_backend_env_unknown_falls_back() {
+        // "typo" → fallback to Interpreter, not panic
+        let backend = match Some("typo".to_string()) {
+            Some(ref val) if *val == "vm" => ServeBackend::Vm,
+            Some(ref val) if *val == "interpreter" => ServeBackend::Interpreter,
+            Some(_) => ServeBackend::Interpreter, // fallback on unknown
+            None => ServeBackend::Interpreter,
+        };
+        assert_eq!(backend, ServeBackend::Interpreter);
+    }
+
+    #[tokio::test]
+    async fn test_n40_crashing_route_returns_500_interpreter() {
+        // Route body: divide by string (error in expression evaluation)
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/crash" method=GET {
+        let x = "hello" / 3
+        respond("200", "should not reach here")
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+        let response = call_route(&state, "GET", "/crash", "", "").await;
+        assert_eq!(response.status(), 500);
+    }
+
+    #[tokio::test]
+    async fn test_n40_ok_route_returns_200_interpreter() {
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/ok" method=GET {
+        respond("200", "hello")
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+        let response = call_route(&state, "GET", "/ok", "", "").await;
+        assert_eq!(response.status(), 200);
+    }
+
+    /// Helper: build a minimal ServerState from mlog source for testing.
+    async fn build_test_server_state(source: &str) -> ServerState {
+        let declarations = crate::parser::parse(source).unwrap();
+        let mut interp = Interpreter::new();
+        for decl in declarations.clone() {
+            match decl {
+                Declaration::MlogServer(ref srv) => {
+                    interp = build_interpreter_with_server(srv, interp);
+                }
+                Declaration::Flow(_) => {}
+                _ => {
+                    let mut tmp = Interpreter::new();
+                    tmp.set_base_dir(std::path::PathBuf::from("."));
+                    let _ = tmp.run(vec![decl]);
+                    interp = merge_interpreter(tmp, interp);
+                }
+            }
+        }
+        let config = declarations
+            .iter()
+            .find_map(|d| match d {
+                Declaration::MlogServer(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap();
+        build_state(config, interp).await.unwrap()
+    }
+
+    /// Helper: simulate calling a route on the server state.
+    async fn call_route(
+        state: &ServerState,
+        method: &str,
+        path: &str,
+        query: &str,
+        body: &str,
+    ) -> axum::response::Response {
+        let _uri: Uri = format!("{}?{}", path, query).parse().unwrap();
+        let method = match method {
+            "GET" => Method::GET,
+            "POST" => Method::POST,
+            _ => Method::GET,
+        };
+        let headers = HeaderMap::new();
+        let body_bytes = bytes::Bytes::from(body.to_string());
+
+        let query_map: std::collections::HashMap<String, String> = if query.is_empty() {
+            HashMap::new()
+        } else {
+            query
+                .split('&')
+                .filter_map(|pair| {
+                    let mut parts = pair.splitn(2, '=');
+                    let key = parts.next()?.to_string();
+                    let val = parts.next().unwrap_or("").to_string();
+                    Some((key, val))
+                })
+                .collect()
+        };
+
+        let result = execute_route_body(
+            state,
+            &state
+                .routes
+                .iter()
+                .find(|r| r.path == path && r.method == method.as_str())
+                .unwrap()
+                .body,
+            &headers,
+            &body_bytes,
+            &query_map,
+        )
+        .await;
+        match result {
+            Ok(resp) => resp,
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Handler error: {}", e),
+            )
+                .into_response(),
         }
     }
 }

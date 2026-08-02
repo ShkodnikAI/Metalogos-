@@ -1,0 +1,8 @@
+// Наряд №42, Блок 3: Rule condition not met — entity state unchanged.
+// "hello world" does not contain "urgent", so urgency stays at 0.0.
+entity Message { text: String, urgency: Float }
+entity m: Message = { text: "hello world", urgency: 0.0 }
+
+rule If(m.text contains "urgent") then m.urgency = 0.9 with priority=10
+
+flow Main { input: Float = m.urgency -> output }

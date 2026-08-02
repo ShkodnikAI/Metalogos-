@@ -1,7 +1,6 @@
 // ── Наряды №19–22: Constraints (opaque types, variable checking, compiler fixes, VM completion)
 // Integration tests for the four constraint work orders.
 
-use metalogos::ast::*;
 use metalogos::bytecode::*;
 use metalogos::compiler::Compiler;
 use metalogos::interpreter::Value;
@@ -213,6 +212,9 @@ fn test_z21_startswith_instruction_vm() {
         patterns: vec![],
         learnables: vec![],
         rules: vec![],
+        skill_indices: vec![],
+        db_url: None,
+        schema_ddl: vec![],
         main_code: vec![
             Instruction::Const(Value::String("hello world".to_string())),
             Instruction::Const(Value::String("hello".to_string())),
@@ -244,6 +246,9 @@ fn test_z21_startswith_in_pattern_body() {
                 patterns: vec![],
                 learnables: vec![],
                 rules: vec![],
+                skill_indices: vec![],
+                db_url: None,
+                schema_ddl: vec![],
                 main_code: vec![],
                 collections_loaded: false,
             },
@@ -263,6 +268,9 @@ fn test_z21_startswith_negative() {
         patterns: vec![],
         learnables: vec![],
         rules: vec![],
+        skill_indices: vec![],
+        db_url: None,
+        schema_ddl: vec![],
         main_code: vec![
             Instruction::Const(Value::String("wrong".to_string())),
             Instruction::Const(Value::String("right".to_string())),
@@ -333,6 +341,9 @@ fn test_z22_make_list_in_pattern_body() {
                 patterns: vec![],
                 learnables: vec![],
                 rules: vec![],
+                skill_indices: vec![],
+                db_url: None,
+                schema_ddl: vec![],
                 main_code: vec![],
                 collections_loaded: false,
             },
@@ -363,6 +374,9 @@ fn test_z22_pop_in_pattern_body() {
                 patterns: vec![],
                 learnables: vec![],
                 rules: vec![],
+                skill_indices: vec![],
+                db_url: None,
+                schema_ddl: vec![],
                 main_code: vec![],
                 collections_loaded: false,
             },
@@ -393,6 +407,9 @@ fn test_z22_contains_in_pattern_body() {
                 patterns: vec![],
                 learnables: vec![],
                 rules: vec![],
+                skill_indices: vec![],
+                db_url: None,
+                schema_ddl: vec![],
                 main_code: vec![],
                 collections_loaded: false,
             },
@@ -426,6 +443,9 @@ fn test_z22_index_access_in_pattern_body() {
                 patterns: vec![],
                 learnables: vec![],
                 rules: vec![],
+                skill_indices: vec![],
+                db_url: None,
+                schema_ddl: vec![],
                 main_code: vec![],
                 collections_loaded: false,
             },
@@ -460,6 +480,9 @@ fn test_z22_struct_in_pattern_body() {
                 patterns: vec![],
                 learnables: vec![],
                 rules: vec![],
+                skill_indices: vec![],
+                db_url: None,
+                schema_ddl: vec![],
                 main_code: vec![],
                 collections_loaded: false,
             },

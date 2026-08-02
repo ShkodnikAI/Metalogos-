@@ -45,6 +45,7 @@ use http::*;
 pub(crate) mod memory;
 pub use memory::init_kv_persist;
 use memory::*;
+pub use memory::{reset_session_store, session_key_count, session_store_count};
 pub(crate) mod cron;
 pub use cron::init_reminder_persist;
 use cron::*;
@@ -583,6 +584,8 @@ impl Builtins {
 
 pub(crate) mod server;
 use server::*;
+pub(crate) mod office;
+use office::*;
 
 #[cfg(test)]
 mod tests;

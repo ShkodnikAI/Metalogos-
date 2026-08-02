@@ -137,7 +137,7 @@ fn test_dod_http_post_builtin_registered() {
 
 #[test]
 fn test_dod_memorize_callable() {
-    let mut interp = metalogos::interpreter::Interpreter::new();
+    let interp = metalogos::interpreter::Interpreter::new();
     let result = interp.eval_expr(&metalogos::ast::Expr::FnCall(
         "memorize".to_string(),
         vec![

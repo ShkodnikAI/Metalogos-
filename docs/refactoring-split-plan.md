@@ -16,7 +16,9 @@
 
 - One module = one commit = green `test-lib` (377 pass).
 - No logic changes during split. Pure move.
-- No file in `src/` exceeds 800 lines after split.
+- **Updated (ADR-0080):** Production files in `src/` must not exceed ~2,000 lines.
+  Test files have no limit. The old 800-line limit was superseded after the
+  monoliths were successfully broken up (see ADR-0080).
 
 ---
 

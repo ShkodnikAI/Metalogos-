@@ -2140,4 +2140,79 @@ mlogserver {
                 .into_response(),
         }
     }
+
+    /// Наряд №41 Block 1: match statement must cause compilation error, not silent stub.
+    #[tokio::test]
+    async fn test_n41_match_not_compilable_in_vm() {
+        use crate::compiler::Compiler;
+        use crate::parser;
+
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/match_test" method=GET {
+        let x = "hello"
+        match x {
+            "hello" then { respond("200", "matched") }
+            else { respond("200", "default") }
+        }
+    }
+}
+"#;
+        let declarations = parser::parse(source).unwrap();
+        let config = declarations
+            .iter()
+            .find_map(|d| match d {
+                Declaration::MlogServer(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let mut compiler = Compiler::new();
+        // compile_routes should return Err because route body contains match
+        let result = compiler.compile_routes(&config.routes);
+        assert!(
+            result.is_err(),
+            "compile_routes must return Err for match statement, got Ok"
+        );
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("Match statement not yet supported"),
+            "error message should mention Match, got: {}",
+            err_msg
+        );
+    }
+
+    /// Наряд №41 Block 1: routes without match still compile fine.
+    #[tokio::test]
+    async fn test_n41_non_match_routes_compile_in_vm() {
+        use crate::compiler::Compiler;
+        use crate::parser;
+
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/ok" method=GET {
+        let x = "hello"
+        respond("200", x)
+    }
+}
+"#;
+        let declarations = parser::parse(source).unwrap();
+        let config = declarations
+            .iter()
+            .find_map(|d| match d {
+                Declaration::MlogServer(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let mut compiler = Compiler::new();
+        let result = compiler.compile_routes(&config.routes);
+        assert!(
+            result.is_ok(),
+            "compile_routes should succeed for routes without match, got Err: {}",
+            result.unwrap_err()
+        );
+    }
 }

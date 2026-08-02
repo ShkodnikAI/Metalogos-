@@ -4,6 +4,27 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### VM backend for mlog serve (Наряд №40)
+- `METALOGOS_SERVE_BACKEND` env var: `interpreter` (default) or `vm`.
+  Unknown value → warning in log + fallback to interpreter, no panic.
+- `CompiledRoute` struct in `bytecode.rs`: compiled route body bytecode.
+- `Compiler::compile_routes()`: compiles route body statements to bytecode
+  (reuses pattern body compilation pipeline).
+- `Vm::load_program()`: initializes VM state without executing main_code
+  (prevents flow execution during per-request VM setup).
+- `Vm::execute_route_code()`: per-request route execution with fresh stack.
+- `Vm` server-context: `set_server_json_body`, `set_server_query_params`,
+  `set_server_user_roles` + `clear_server_context`.
+- `Vm::call_builtin` intercepts `query_param`, `json_body`, `form_data`,
+  `require` — same semantics as interpreter's FnCall dispatch.
+- `ServerState` extended: `backend`, `vm_program`, `vm_routes`.
+- Route compilation at startup (not per-request). Backend logged at start.
+- `execute_route_body_vm()` in server.rs: VM route execution path
+  with `block_in_place` for `!Send` Vm.
+- Tests: env flag default/fallback, crash route → 500, OK route → 200,
+  query param isolation, kv_set cross-request visibility.
+- ADR-0088: VM backend for mlog serve — feasibility and implementation notes.
+
 ### And/Or in VM bytecode (Наряд №39)
 - VM compiler: implemented `and`/`or` short-circuit evaluation using
   `JumpIfNot`/`Jump`/`Const` instructions. Semantics match interpreter:

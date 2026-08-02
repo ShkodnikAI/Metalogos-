@@ -9,5 +9,5 @@ mlogserver {
 "#;
     let decls = metalogos::parser::parse(source).unwrap();
     eprintln!("Integration parse: {} declarations", decls.len());
-    assert!(decls.len() >= 1);
+    assert!(!decls.is_empty());
 }

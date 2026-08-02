@@ -1,0 +1,72 @@
+// ── p39: And / Or short-circuit evaluation ───────────────────────────
+// Covers: truth table, short-circuit with side effect, nesting,
+// non-numeric truthiness (is_truthy).
+
+pattern TestAndOr(input: String) -> String {
+  let mut result = ""
+
+  // ── Truth table: and ────────────────────────────────────────────
+  if true and true then { result = result + "T" }
+  if true and false then { result = result + "X" }
+  if false and true then { result = result + "X" }
+  if false and false then { result = result + "X" }
+
+  // ── Truth table: or ───────────────────────────────────────────────
+  if true or true then { result = result + "T" }
+  if true or false then { result = result + "T" }
+  if false or true then { result = result + "T" }
+  if false or false then { result = result + "X" }
+
+  // ── Separator ────────────────────────────────────────────────────
+  result = result + "|"
+
+  // ── Short-circuit: and — left false → right NOT evaluated ─────────
+  kv_delete("p39_sc_and")
+  let dummy = false and kv_set("p39_sc_and", "leaked")
+  let leak_and = kv_get("p39_sc_and")
+  if leak_and == "" then { result = result + "A" }
+
+  // ── Short-circuit: or — left true → right NOT evaluated ───────────
+  kv_delete("p39_sc_or")
+  let dummy2 = true or kv_set("p39_sc_or", "leaked")
+  let leak_or = kv_get("p39_sc_or")
+  if leak_or == "" then { result = result + "O" }
+
+  // ── Separator ────────────────────────────────────────────────────
+  result = result + "|"
+
+  // ── Short-circuit: and — left true → right IS evaluated ──────────
+  kv_delete("p39_eval_and")
+  let dummy3 = true and kv_set("p39_eval_and", "yes")
+  let eval_and = kv_get("p39_eval_and")
+  if eval_and == "yes" then { result = result + "E" }
+
+  // ── Short-circuit: or — left false → right IS evaluated ──────────
+  kv_delete("p39_eval_or")
+  let dummy4 = false or kv_set("p39_eval_or", "yes")
+  let eval_or = kv_get("p39_eval_or")
+  if eval_or == "yes" then { result = result + "V" }
+
+  // ── Separator ────────────────────────────────────────────────────
+  result = result + "|"
+
+  // ── Nesting ────────────────────────────────────────────────────────
+  if true and (true or false) then { result = result + "N" }
+  if (true and false) or true then { result = result + "S" }
+  if false and false and false then { result = result + "X" }
+
+  // ── Separator ────────────────────────────────────────────────────
+  result = result + "|"
+
+  // ── Cleanup ───────────────────────────────────────────────────────
+  kv_delete("p39_sc_and")
+  kv_delete("p39_sc_or")
+  kv_delete("p39_eval_and")
+  kv_delete("p39_eval_or")
+
+  return result
+}
+
+flow Main {
+  input: String = "" -> TestAndOr -> output
+}

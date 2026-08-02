@@ -10,7 +10,7 @@ ls docs/adr/ | sed 's/-.*//' | sort | uniq -d
 
 Must be empty. If not empty, resolve collisions before proceeding.
 
-Numbers are assigned sequentially. The current maximum is in `0087-*`.
+Numbers are assigned sequentially. The current maximum is in `0089-*`.
 
 ## Reserved numbers (do not reassign)
 
@@ -113,3 +113,5 @@ reports and must not be changed:
 | 0085 | Type-Safe HTML Templates | accepted |
 | 0086 | Performance Baseline Benchmarks | accepted |
 | 0087 | Full UTF-8 Audit | accepted |
+| 0088 | VM Serve Backend | accepted |
+| 0089 | Confidence Semantics — Actual State | accepted |

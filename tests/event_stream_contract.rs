@@ -150,11 +150,11 @@ fn test_events_since() {
             .as_millis() as u64)
             .saturating_sub(60_000),
     );
-    assert!(events.len() >= 1, "expected at least 1 recent event");
+    assert!(!events.is_empty(), "expected at least 1 recent event");
 
     // Events since 10 years ago should include all events
     let ancient = interp.events_since_ms(0);
-    assert!(ancient.len() >= 1);
+    assert!(!ancient.is_empty());
 }
 
 // ── Test 7: event_sum() sums numeric fields ───────────────────────────────

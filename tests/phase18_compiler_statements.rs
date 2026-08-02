@@ -2,7 +2,6 @@
 // Tests for IfElseBlock, Each, EachWithIndex, While, Assign, Match,
 // ExprStmt, IfThen, Break, Continue in bytecode path.
 
-use metalogos::ast::*;
 use metalogos::bytecode::*;
 use metalogos::compiler::Compiler;
 use metalogos::interpreter::Value;
@@ -37,6 +36,9 @@ fn test_make_list_instruction() {
         patterns: vec![],
         learnables: vec![],
         rules: vec![],
+        skill_indices: vec![],
+        db_url: None,
+        schema_ddl: vec![],
         main_code: vec![
             Instruction::Const(Value::String("a".to_string())),
             Instruction::Const(Value::String("b".to_string())),
@@ -59,6 +61,9 @@ fn test_list_len_instruction() {
         patterns: vec![],
         learnables: vec![],
         rules: vec![],
+        skill_indices: vec![],
+        db_url: None,
+        schema_ddl: vec![],
         main_code: vec![
             Instruction::Const(Value::String("a".to_string())),
             Instruction::Const(Value::String("b".to_string())),
@@ -80,6 +85,9 @@ fn test_pop_instruction() {
         patterns: vec![],
         learnables: vec![],
         rules: vec![],
+        skill_indices: vec![],
+        db_url: None,
+        schema_ddl: vec![],
         main_code: vec![
             Instruction::Const(Value::String("x".to_string())),
             Instruction::Pop,

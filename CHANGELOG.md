@@ -4,6 +4,31 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Module size policy (Наряд №38)
+- ADR-0080: module size policy — production files ≤2,000 lines, tests exempt.
+  Supersedes the 800-line rule from №37.
+- Interpreter: extracted `execution.rs` (1,645 lines) from `mod.rs` (2,178 → 539).
+  Moved `run()`, `eval_expr()`, `eval_statements()`, `eval_binop()`, `invoke()`.
+- Builtins: extracted `office.rs` (1,724 lines) from `server.rs` (2,579 → 865).
+  Moved human, goal, todo, recipe, DAG, semantic search, config builtins.
+- Builtin form audit: confirmed №37 split preserved `fn builtin_xxx()` form
+  in all 8 extracted modules. No closure re-registration occurred.
+
+### Code quality (Наряд №38)
+- Clippy: zero warnings on `--all-targets` (was: compilation failure).
+  Fixed unused imports, missing struct fields, private function access,
+  bool_assert_comparison, len_zero, unnecessary_mut, cloned_ref_to_slice_refs,
+  useless_conversion, redundant_closure across 15 files.
+- CI: `clippy` job promoted from advisory to blocking. `continue-on-error` removed.
+- Session store test helpers (`reset_session_store`, `session_key_count`,
+  `session_store_count`) made `pub` for integration test access.
+
+### VM feasibility assessment (Наряд №38)
+- ADR-0081: VM-for-serve feasibility with FOSVED-office-v2 data.
+  22/23 .mlog files pass `mlog check`. 4 files blocked by missing `And`/`Or`
+  short-circuit evaluation in VM (92 combined occurrences). Single well-scoped
+  fix needed before `mlog serve` can switch to VM backend.
+
 ### Code quality (Наряд №37)
 - Clippy: zero warnings (was 192). Categories fixed: get(0)→first(), doc formatting,
   redundant closures, unnecessary mut/return/clone, new_without_default (11 types),

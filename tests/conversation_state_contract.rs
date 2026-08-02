@@ -2,7 +2,7 @@
 // All tests use valid .mlog syntax.
 // Tests must run with --test-threads=1 (shared static state in MockLlm).
 
-use metalogos::ast::{ConversationDecl, Declaration, LearnablePatternDecl, Param};
+use metalogos::ast::{ConversationDecl, Declaration};
 use metalogos::interpreter::Interpreter;
 use metalogos::parser;
 

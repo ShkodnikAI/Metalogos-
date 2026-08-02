@@ -1133,12 +1133,13 @@ impl Compiler {
                     code.push(Instruction::Pop);
                 }
                 Statement::Match {
-                    scrutinee,
-                    arms,
-                    else_body,
+                    scrutinee: _,
+                    arms: _,
+                    else_body: _,
                 } => {
-                    self.compile_expr_with_locals(scrutinee, &mut code, locals)?;
-                    let _ = (arms, else_body);
+                    return Err("compile: Match statement not yet supported in VM bytecode \
+                         (use tree-walking interpreter)"
+                        .into());
                 }
                 _ => {}
             }

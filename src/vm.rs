@@ -14,6 +14,7 @@
 // Function calls push a new frame; Return pops back.
 
 use std::collections::HashMap;
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::ast::CompareOp as AstCompareOp;
@@ -48,6 +49,8 @@ pub struct Vm {
     db_conn: Option<rusqlite::Connection>,
     /// Mutate log messages.
     mutate_log: Vec<String>,
+    /// Audit log entries (Наряд №41 Block 2: parity with interpreter).
+    audit_log: Mutex<Vec<String>>,
     /// Collections loaded flag (for map/filter/reduce).
     collections_loaded: bool,
     // ── Server context (per-request, set before execute_route_code) ──
@@ -86,6 +89,7 @@ impl Vm {
             skill_indices: Vec::new(),
             db_conn: None,
             mutate_log: Vec::new(),
+            audit_log: Mutex::new(Vec::new()),
             collections_loaded: false,
             server_json_body: None,
             server_query_params: None,
@@ -556,7 +560,7 @@ impl Vm {
                     let mut found = false;
                     for (info, few_shot) in &mut self.learnables {
                         if info.name == *pattern_name {
-                            few_shot.push((input_str, output_str));
+                            few_shot.push((input_str.clone(), output_str.clone()));
                             found = true;
                             break;
                         }
@@ -567,6 +571,11 @@ impl Vm {
                             pattern_name
                         ));
                     }
+                    // Наряд №41 Block 2: audit parity with interpreter
+                    self.push_audit(format!(
+                        "[AUDIT] adapt {}: {} -> {}",
+                        pattern_name, input_str, output_str
+                    ));
                     ip += 1;
                 }
                 Instruction::Relate => {
@@ -582,7 +591,13 @@ impl Vm {
                         Value::String(s) => s,
                         other => format!("{}", other),
                     };
-                    self.relations.push(VmRelation { from, to, relation });
+                    self.relations.push(VmRelation {
+                        from: from.clone(),
+                        to: to.clone(),
+                        relation: relation.clone(),
+                    });
+                    // Наряд №41 Block 2: audit parity with interpreter
+                    self.push_audit(format!("[AUDIT] relate {} -[{}]-> {}", from, relation, to));
                     ip += 1;
                 }
                 Instruction::Mutate {
@@ -612,7 +627,9 @@ impl Vm {
                         *rollback_threshold,
                         *rollback_op,
                     )?;
-                    self.mutate_log.push(msg);
+                    self.mutate_log.push(msg.clone());
+                    // Наряд №41 Block 2: audit parity with interpreter
+                    self.push_audit(format!("[AUDIT] mutate {}: {}", pattern_name, msg));
                     ip += 1;
                 }
 
@@ -1901,6 +1918,25 @@ impl Vm {
         self.server_json_body = None;
         self.server_query_params = None;
         self.server_user_roles = Vec::new();
+    }
+
+    // ── Audit log (Наряд №41 Block 2: parity with interpreter) ──
+
+    /// Push an audit log entry.
+    pub fn push_audit(&self, entry: String) {
+        self.audit_log
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(entry);
+    }
+
+    /// Take all audit log entries (consuming them).
+    pub fn take_audit_log(&self) -> Vec<String> {
+        self.audit_log
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain(..)
+            .collect()
     }
 
     // ── Route execution (Наряд №40: VM server backend) ──

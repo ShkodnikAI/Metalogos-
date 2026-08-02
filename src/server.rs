@@ -1431,7 +1431,7 @@ mod tests {
     fn test_hmac_tamper_detection() {
         let key = generate_hmac_key();
         let value = "session_abc123";
-        let signed = sign_cookie(value, &key);
+        let _signed = sign_cookie(value, &key);
         let tampered = format!("{}.deadbeef", value);
         let verified = verify_cookie(&tampered, &key);
         assert!(verified.is_none());
@@ -1677,7 +1677,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(expired_exists, false);
+        assert!(!expired_exists);
 
         let valid_exists: bool = conn
             .query_row(
@@ -1686,7 +1686,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(valid_exists, true);
+        assert!(valid_exists);
     }
 
     #[test]

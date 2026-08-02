@@ -1,5 +1,6 @@
 // tests.rs — extracted test modules from mod.rs
 
+#[allow(clippy::module_inception)]
 mod tests {
     use super::super::*;
     use crate::interpreter::Value;
@@ -591,7 +592,7 @@ mod tests_sqz_builtins {
     #[test]
     fn test_toon_roundtrip_string() {
         let original = Value::String("hello world".into());
-        let encoded = builtin_toon_encode(&[original.clone()]).unwrap();
+        let encoded = builtin_toon_encode(std::slice::from_ref(&original)).unwrap();
         let decoded = builtin_toon_decode(&[encoded]).unwrap();
         assert_vals_eq(&original, &decoded, "roundtrip_string");
     }
@@ -600,7 +601,7 @@ mod tests_sqz_builtins {
     #[allow(clippy::approx_constant)]
     fn test_toon_roundtrip_float() {
         let original = Value::Float(3.14);
-        let encoded = builtin_toon_encode(&[original.clone()]).unwrap();
+        let encoded = builtin_toon_encode(std::slice::from_ref(&original)).unwrap();
         let decoded = builtin_toon_decode(&[encoded]).unwrap();
         assert_vals_eq(&original, &decoded, "roundtrip_float");
     }
@@ -612,7 +613,7 @@ mod tests_sqz_builtins {
             Value::String("ok".into()),
             Value::Bool(false),
         ]);
-        let encoded = builtin_toon_encode(&[original.clone()]).unwrap();
+        let encoded = builtin_toon_encode(std::slice::from_ref(&original)).unwrap();
         let decoded = builtin_toon_decode(&[encoded]).unwrap();
         assert_vals_eq(&original, &decoded, "roundtrip_list");
     }
@@ -625,7 +626,7 @@ mod tests_sqz_builtins {
             type_name: "P".into(),
             fields,
         };
-        let encoded = builtin_toon_encode(&[original.clone()]).unwrap();
+        let encoded = builtin_toon_encode(std::slice::from_ref(&original)).unwrap();
         let decoded = builtin_toon_decode(&[encoded]).unwrap();
         // Compare JSON representations (type_name may differ: "P" vs "TOON")
         assert_eq!(
@@ -638,7 +639,7 @@ mod tests_sqz_builtins {
     #[test]
     fn test_toon_roundtrip_cyrillic() {
         let original = Value::String("\u{041f}\u{0440}\u{0438}\u{0432}\u{0435}\u{0442}".into());
-        let encoded = builtin_toon_encode(&[original.clone()]).unwrap();
+        let encoded = builtin_toon_encode(std::slice::from_ref(&original)).unwrap();
         let decoded = builtin_toon_decode(&[encoded]).unwrap();
         assert_vals_eq(&original, &decoded, "roundtrip_cyrillic");
     }
@@ -684,7 +685,7 @@ mod tests_sqz_builtins {
     #[test]
     fn test_deref_invalid_format() {
         assert!(builtin_content_deref(&[Value::String("tooshort".into())]).is_err());
-        assert!(builtin_content_deref(&[Value::String("zz".repeat(32).into())]).is_err());
+        assert!(builtin_content_deref(&[Value::String("zz".repeat(32))]).is_err());
     }
 
     // ── P3 tests: token_count ──
@@ -911,7 +912,7 @@ mod tests_sqz_builtins {
             Value::List(ids) => {
                 assert_eq!(ids.len(), 3);
                 // a must come before b, b before c
-                let names: Vec<&str> = ids.iter().map(|v| as_str(v)).collect();
+                let names: Vec<&str> = ids.iter().map(as_str).collect();
                 let pos_a = names.iter().position(|&n| n == "a").unwrap();
                 let pos_b = names.iter().position(|&n| n == "b").unwrap();
                 let pos_c = names.iter().position(|&n| n == "c").unwrap();
@@ -933,7 +934,7 @@ mod tests_sqz_builtins {
         match &r {
             Value::List(ids) => {
                 assert_eq!(ids.len(), 3);
-                let names: Vec<&str> = ids.iter().map(|v| as_str(v)).collect();
+                let names: Vec<&str> = ids.iter().map(as_str).collect();
                 let pos_a = names.iter().position(|&n| n == "a").unwrap();
                 let pos_b = names.iter().position(|&n| n == "b").unwrap();
                 let pos_c = names.iter().position(|&n| n == "c").unwrap();

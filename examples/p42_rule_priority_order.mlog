@@ -1,0 +1,11 @@
+// Наряд №42, Блок 3: Rules with different priorities.
+// Both rules match, but execute in priority-descending order.
+// Priority 10 runs first (sets urgency=0.9), priority 5 runs second
+// and overwrites to urgency=0.5. Last-write wins.
+entity Message { text: String, urgency: Float }
+entity m: Message = { text: "urgent task", urgency: 0.0 }
+
+rule If(m.text contains "urgent") then m.urgency = 0.5 with priority=5
+rule If(m.text contains "urgent") then m.urgency = 0.9 with priority=10
+
+flow Main { input: Float = m.urgency -> output }

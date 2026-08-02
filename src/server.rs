@@ -1973,6 +1973,92 @@ mlogserver {
         assert_eq!(response.status(), 200);
     }
 
+    #[tokio::test]
+    async fn test_n40_query_param_isolation() {
+        // Two requests with different query params must get their own values.
+        // This proves per-request isolation: request A's query_param("name")
+        // does not leak into request B.
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/echo" method=GET {
+        let name = query_param("name")
+        respond("200", name)
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+
+        // Request A: name=Alice
+        let resp_a = call_route(&state, "GET", "/echo", "name=Alice", "").await;
+        assert_eq!(resp_a.status(), 200);
+        let body_a = body_to_string(resp_a).await;
+        assert_eq!(body_a, "Alice");
+
+        // Request B: name=Bob
+        let resp_b = call_route(&state, "GET", "/echo", "name=Bob", "").await;
+        assert_eq!(resp_b.status(), 200);
+        let body_b = body_to_string(resp_b).await;
+        assert_eq!(body_b, "Bob");
+    }
+
+    #[tokio::test]
+    async fn test_n40_kv_set_shared_between_requests() {
+        // kv_set in one request must be visible in the next (shared store).
+        // This confirms that global state (kv_set/kv_get) works across requests,
+        // unlike local variables which are isolated.
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/set" method=GET {
+        kv_set("test_key", "test_value")
+        respond("200", "set")
+    }
+    route "/get" method=GET {
+        let val = kv_get("test_key")
+        respond("200", val)
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+
+        // Clear any previous value (via interpreter builtin call)
+        {
+            let interp = state.interpreter.write().await;
+            if let Some(fn_kv) = interp.get_builtin("kv_delete") {
+                let _ = fn_kv(&[crate::interpreter::Value::String("test_key".to_string())]);
+            }
+        }
+
+        // Set
+        let resp_set = call_route(&state, "GET", "/set", "", "").await;
+        assert_eq!(resp_set.status(), 200);
+
+        // Get — should see the value set by previous request
+        let resp_get = call_route(&state, "GET", "/get", "", "").await;
+        assert_eq!(resp_get.status(), 200);
+        let body_get = body_to_string(resp_get).await;
+        assert_eq!(body_get, "test_value");
+
+        // Cleanup
+        {
+            let interp = state.interpreter.write().await;
+            if let Some(fn_kv) = interp.get_builtin("kv_delete") {
+                let _ = fn_kv(&[crate::interpreter::Value::String("test_key".to_string())]);
+            }
+        }
+    }
+
+    /// Helper: extract body string from a Response.
+    async fn body_to_string(resp: axum::response::Response) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap_or_default();
+        String::from_utf8(bytes.to_vec()).unwrap_or_default()
+    }
+
     /// Helper: build a minimal ServerState from mlog source for testing.
     async fn build_test_server_state(source: &str) -> ServerState {
         let declarations = crate::parser::parse(source).unwrap();

@@ -30,17 +30,6 @@ mlogserver {
 }
 "#;
 
-/// Source testing all JSON types: string, number, bool, null, array, nested.
-const SOURCE_ALL_TYPES: &str = r#"
-mlogserver {
-  port: 8091
-  route "/types" method=POST {
-    let data = json_body()
-    respond(data.status)
-  }
-}
-"#;
-
 // ── Unit test: recursive JSON → Value conversion ──────────────────────
 
 #[test]
@@ -68,7 +57,7 @@ fn test_json_to_value_bool() {
     let json = serde_json::json!(true);
     let val = metalogos::server::json_value_to_value(&json);
     match val {
-        metalogos::interpreter::Value::Bool(b) => assert_eq!(b, true),
+        metalogos::interpreter::Value::Bool(b) => assert!(b),
         other => panic!("expected Bool, got: {:?}", other),
     }
 }

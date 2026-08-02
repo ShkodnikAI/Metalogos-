@@ -1,4 +1,5 @@
 use super::*;
+#[allow(unused_imports)]
 use crate::ast::*;
 
 // ── Empty / comment-only programs ────────────────────────────────────

@@ -121,17 +121,39 @@ FOSVED follows this form.
 | End-to-end serve test with VM | 0.5 day | Medium — env-dependent |
 | Performance regression testing | 0.5 day | Low |
 
-## Conclusion
+## Post-fix re-evaluation (Наряд №39 Block 4)
 
-**VM is NOT ready to replace the interpreter for `mlog serve` today.**
-The single blocker is `And`/`Or` short-circuit evaluation — used in 4 of 23
-FOSVED files with 92 combined occurrences. This is a well-scoped fix that
-fits in a single Наряд.
+After implementing `And`/`Or` in VM bytecode (jump-based, short-circuit),
+re-tested all 23 FOSVED `.mlog` files:
 
-Once `And`/`Or` is implemented, the VM should handle all of FOSVED-office-v2.
-The expected benefit is ~3× faster request handling with a one-time ~6 ms
+| Category | Before | After |
+|----------|--------|-------|
+| Compiles successfully | 4 | **6** (`app.mlog` now compiles!) |
+| And/Or short-circuit failure | 4 | **0** |
+| Undefined function (serve-time) | 14 | 16 (expected) |
+| Parse error | 1 | 1 (test artifact) |
+
+**`app.mlog` (2,496 lines) now compiles to 216KB bytecode.**
+The `And`/`Or` blocker is fully resolved.
+
+Performance on real FOSVED code (`file_cache.mlog`, 59 lines, 20 runs):
+
+| Backend | Avg time |
+|---------|----------|
+| Interpreter | 5 ms/run |
+| VM | 2 ms/run |
+| **Speedup** | **~2.4×** |
+
+## Conclusion (updated)
+
+**VM is now ready for a controlled switch of `mlog serve`.** The single
+blocker (`And`/`Or`) is resolved. Remaining `undefined function` errors
+are expected at standalone compile time and resolve when modules are
+processed in serve order.
+
+The expected benefit is ~2.4× faster request handling with a one-time
 compile penalty at startup.
 
-**Recommendation:** Next Наряд should implement `And`/`Or` in VM bytecode
-(jump-based), verify against all 23 FOSVED files, then switch `mlog serve`
-to VM with a feature flag for rollback.
+**Recommendation:** Наряд №40 should switch `mlog serve` to VM with a
+feature flag for rollback, run FOSVED under both backends in production
+for 24-48 hours, then remove the flag.

@@ -1248,7 +1248,7 @@ async fn execute_route_body_vm(
         Vec::new()
     };
 
-    let result = tokio::task::block_in_place(|| {
+    let (audit_entries, result) = tokio::task::block_in_place(|| {
         let mut vm = Vm::new();
         vm.load_program(program)
             .map_err(|e| format!("VM route init: {}", e))?;
@@ -1270,8 +1270,14 @@ async fn execute_route_body_vm(
             vm.set_server_user_roles(user_roles);
         }
 
-        vm.execute_route_code(compiled, program)
-    });
+        let result = vm.execute_route_code(compiled, program);
+        // Наряд №41 Block 2: collect audit entries before vm is dropped
+        let entries = vm.take_audit_log();
+        Result::<_, String>::Ok((entries, result))
+    })?;
+
+    // Наряд №41 Block 2: flush VM audit entries (parity with interpreter)
+    flush_vm_audit_entries_to_db(state, &audit_entries).await;
 
     match result {
         Ok(val) => {
@@ -1315,6 +1321,34 @@ async fn flush_audit_to_db(state: &ServerState, interp: &mut Interpreter) {
     {
         let mut log = state.audit_log.write().await;
         for entry in &entries {
+            log.push(entry.clone());
+        }
+    }
+}
+
+/// Наряд №41 Block 2: Flush VM audit entries to the SQLite audit_log table.
+/// VM parity with `flush_audit_to_db` — same DB writes, same in-memory log.
+async fn flush_vm_audit_entries_to_db(state: &ServerState, entries: &[String]) {
+    if entries.is_empty() {
+        return;
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    let conn = state.db.lock().await;
+    for entry in entries {
+        let (action, pattern, result) = parse_audit_entry(entry);
+        let _ = conn.execute(
+            "INSERT INTO audit_log (timestamp, action, pattern, result, sandbox) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![now, action, pattern, result, ""],
+        );
+    }
+    {
+        let mut log = state.audit_log.write().await;
+        for entry in entries {
             log.push(entry.clone());
         }
     }

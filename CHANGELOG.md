@@ -4,6 +4,22 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Fluid Types, confidence, and rule tests — Наряд №42
+- Test: 6 golden test pairs (`p42_fluid_*`) covering Fluid collapse
+  semantics — type-directed selection, max confidence wins, threshold
+  boundary (0.1), no matching variant soft-failure, non-Fluid passthrough.
+- Test: 8 unit tests on `maybe_collapse` directly — threshold boundary,
+  empty Fluid, type selection, non-Fluid passthrough.
+- Test: 4 golden test pairs (`p42_rule_*`) covering rule engine — priority
+  ordering (last-write-wins), equal priority (declaration order), probabilistic
+  value assignment, condition-not-met no-change.
+- Docs: renamed `p1_confidence_propagation` → `p1_fluid_collapse` —
+  the example tested collapse, not propagation.
+- ADR-0089: documents actual confidence semantics — no propagation through
+  pattern calls; after collapse value is concrete; `confidence()` returns
+  1.0 on concrete values. Open question: future propagation approaches.
+- README verified: no false claims of confidence propagation.
+
 ### VM backend parity — Наряд №41
 - Compiler: `match` statement returns compile error (`Err`) instead of
   silent Unit placeholder. Routes with `match` cannot compile for VM —

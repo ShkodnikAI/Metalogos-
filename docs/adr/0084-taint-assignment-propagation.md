@@ -1,4 +1,4 @@
-# ADR-0074: Taint tracking — assignment propagation
+# ADR-0084: Taint tracking — assignment propagation
 
 **Date:** 2026-08-01
 **Status:** accepted

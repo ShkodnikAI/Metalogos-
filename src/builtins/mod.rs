@@ -583,6 +583,8 @@ impl Builtins {
 
 pub(crate) mod server;
 use server::*;
+pub(crate) mod office;
+use office::*;
 
 #[cfg(test)]
 mod tests;

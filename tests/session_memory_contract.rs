@@ -208,6 +208,7 @@ fn contract_session_no_persistence() {
 }
 
 /// Direct session_set via builtins API for test isolation (no parse needed).
+#[allow(dead_code)]
 fn session_set_direct(session_id: &str, key: &str, value: &str) {
     let args = vec![
         metalogos::interpreter::Value::String(session_id.to_string()),

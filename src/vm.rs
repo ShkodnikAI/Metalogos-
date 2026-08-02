@@ -50,6 +50,13 @@ pub struct Vm {
     mutate_log: Vec<String>,
     /// Collections loaded flag (for map/filter/reduce).
     collections_loaded: bool,
+    // ── Server context (per-request, set before execute_route_code) ──
+    /// Parsed JSON request body (injected by server before route execution).
+    server_json_body: Option<Value>,
+    /// Query string parameters (injected by server before route execution).
+    server_query_params: Option<std::collections::HashMap<String, String>>,
+    /// User roles for RBAC (injected by server before route execution).
+    server_user_roles: Vec<String>,
 }
 
 /// Collapse threshold for Fluid values (matches interpreter).
@@ -80,12 +87,24 @@ impl Vm {
             db_conn: None,
             mutate_log: Vec::new(),
             collections_loaded: false,
+            server_json_body: None,
+            server_query_params: None,
+            server_user_roles: Vec::new(),
         }
     }
 
     /// Execute a compiled program. Returns the flow output (if any),
     /// with mutate log messages prepended if present.
     pub fn run(&mut self, program: Program) -> Result<Option<String>, String> {
+        self.load_program(&program)?;
+        self.execute_main_code(&program)
+    }
+
+    /// Load program state without executing main_code.
+    /// Initializes globals, patterns, learnables, rules, skill_indices,
+    /// and database connection. Used by server backend to set up VM state
+    /// per request without re-executing flows (Наряд №40).
+    pub fn load_program(&mut self, program: &Program) -> Result<(), String> {
         // Initialize globals
         self.globals = vec![Value::Unit; program.globals.len()];
         self.global_names = program.globals.clone();
@@ -129,12 +148,17 @@ impl Vm {
             }
         }
 
-        // Execute main_code
+        Ok(())
+    }
+
+    /// Execute main_code (the top-level instruction sequence).
+    /// Called by `run()` after `load_program()`.
+    fn execute_main_code(&mut self, program: &Program) -> Result<Option<String>, String> {
         let mut stack: Vec<Value> = Vec::new();
         let mut call_stack: Vec<CallFrame> = Vec::new();
         let mut ip = 0;
-        let code = &program.main_code;
         let mut flow_output: Option<String> = None;
+        let code = &program.main_code;
 
         while ip < code.len() {
             let instr = &code[ip];
@@ -209,7 +233,7 @@ impl Vm {
                     }
                     // Problem B: map(list, "pattern_name") — needs pattern table access
                     if name == "map" {
-                        if let Ok(result) = self.vm_map(&args, &program) {
+                        if let Ok(result) = self.vm_map(&args, program) {
                             stack.push(result);
                             ip += 1;
                             continue;
@@ -253,7 +277,7 @@ impl Vm {
 
                     // Switch to pattern code
                     let result =
-                        self.execute_code(&pattern.code, &mut stack, &mut call_stack, &program)?;
+                        self.execute_code(&pattern.code, &mut stack, &mut call_stack, program)?;
                     stack.push(result);
                     // IP already advanced by 1 (return_ip)
                     ip = return_ip;
@@ -1400,6 +1424,61 @@ impl Vm {
             });
         }
 
+        // ── Server-context builtins (Наряд №40: VM server backend) ──
+        // These must be intercepted here because they need access to
+        // per-request server context (query_params, json_body, user_roles)
+        // that the generic builtin registry does not have.
+
+        if name == "query_param" {
+            let param_name = args
+                .first()
+                .and_then(|v| match v {
+                    Value::String(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            if let Some(ref params) = self.server_query_params {
+                if let Some(val) = params.get(&param_name) {
+                    return Ok(Value::String(val.clone()));
+                }
+            }
+            return Ok(Value::String(String::new()));
+        }
+
+        if name == "json_body" {
+            if let Some(ref body) = self.server_json_body {
+                return Ok(body.clone());
+            }
+            return Ok(Value::Struct {
+                type_name: "JsonBody".to_string(),
+                fields: std::collections::HashMap::new(),
+            });
+        }
+
+        if name == "form_data" {
+            return Ok(Value::Struct {
+                type_name: "FormData".to_string(),
+                fields: std::collections::HashMap::new(),
+            });
+        }
+
+        if name == "require" {
+            let role = args
+                .first()
+                .and_then(|v| match v {
+                    Value::String(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            if self.server_user_roles.contains(&role) {
+                return Ok(Value::Bool(true));
+            }
+            return Err(format!(
+                "require('{}'): access denied — user has roles {:?}",
+                role, self.server_user_roles
+            ));
+        }
+
         if let Some(builtin_fn) = self.builtins.get(name) {
             return builtin_fn(args);
         }
@@ -1798,6 +1877,50 @@ impl Vm {
         }
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         scored.into_iter().take(limit).map(|(v, _)| v).collect()
+    }
+
+    // ── Server context setters (per-request, for route execution) ──
+
+    /// Set the parsed JSON request body (Наряд №40: VM server backend).
+    pub fn set_server_json_body(&mut self, val: Value) {
+        self.server_json_body = Some(val);
+    }
+
+    /// Set query string parameters (Наряд №40: VM server backend).
+    pub fn set_server_query_params(&mut self, params: std::collections::HashMap<String, String>) {
+        self.server_query_params = Some(params);
+    }
+
+    /// Set user roles for RBAC (Наряд №40: VM server backend).
+    pub fn set_server_user_roles(&mut self, roles: Vec<String>) {
+        self.server_user_roles = roles;
+    }
+
+    /// Clear server context (reset per-request state for isolation).
+    pub fn clear_server_context(&mut self) {
+        self.server_json_body = None;
+        self.server_query_params = None;
+        self.server_user_roles = Vec::new();
+    }
+
+    // ── Route execution (Наряд №40: VM server backend) ──
+
+    /// Execute a compiled route body on the VM.
+    ///
+    /// This is the VM equivalent of `execute_route_body` in server.rs.
+    /// It creates a fresh stack, executes the compiled bytecode, and returns
+    /// the result value (typically `Value::HttpResponse` from `respond()`).
+    ///
+    /// **Isolation**: each call gets a fresh stack — no state leaks between requests.
+    /// **Server context**: must be set via `set_server_*` methods before calling.
+    pub fn execute_route_code(
+        &mut self,
+        route: &CompiledRoute,
+        program: &Program,
+    ) -> Result<Value, String> {
+        let mut stack: Vec<Value> = Vec::new();
+        let mut call_stack: Vec<CallFrame> = Vec::new();
+        self.execute_code(&route.code, &mut stack, &mut call_stack, program)
     }
 
     /// Collapse a Fluid value to a concrete type.

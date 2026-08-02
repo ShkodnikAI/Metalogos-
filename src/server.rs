@@ -2249,4 +2249,109 @@ mlogserver {
             result.unwrap_err()
         );
     }
+
+    /// Наряд №41 Block 4: Side-effect parity test — both backends produce
+    /// same HTTP status for an identical route.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_n41_side_effect_parity() {
+        use crate::compiler::Compiler;
+        use crate::vm::Vm;
+
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/parity" method=GET {
+        let x = query_param("x")
+        if x == "crash" then { let _ = 1 / 0 }
+        respond("200", "x=" + x)
+    }
+}
+"#;
+        // Build server state (interpreter backend)
+        let state = build_test_server_state(source).await;
+
+        // Compile routes for VM
+        let mut compiler = Compiler::new();
+        let declarations = crate::parser::parse(source).unwrap();
+        let config = declarations
+            .iter()
+            .find_map(|d| match d {
+                Declaration::MlogServer(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let compiled_routes = compiler.compile_routes(&config.routes).unwrap();
+        let program = compiler.compile(declarations).unwrap();
+
+        let compiled = &compiled_routes[0];
+
+        // Helper: execute route via VM directly (bypasses state.vm_program check)
+        async fn call_route_vm_direct(
+            state: &ServerState,
+            program: &crate::bytecode::Program,
+            compiled: &crate::bytecode::CompiledRoute,
+            query: &std::collections::HashMap<String, String>,
+        ) -> Result<axum::response::Response, String> {
+            let (audit_entries, result) = tokio::task::block_in_place(|| {
+                let mut vm = Vm::new();
+                vm.load_program(program)
+                    .map_err(|e| format!("VM route init: {}", e))?;
+                vm.clear_server_context();
+                if !query.is_empty() {
+                    vm.set_server_query_params(query.clone());
+                }
+                let r = vm.execute_route_code(compiled, program);
+                let entries = vm.take_audit_log();
+                Result::<_, String>::Ok((entries, r))
+            })?;
+            flush_vm_audit_entries_to_db(state, &audit_entries).await;
+            match result {
+                Ok(val) => {
+                    if let crate::interpreter::Value::HttpResponse { status, body } = val {
+                        let code = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
+                        Ok((code, body).into_response())
+                    } else {
+                        Ok(value_to_response(val))
+                    }
+                }
+                Err(e) => Err(e),
+            }
+        }
+
+        // Test 1: OK response parity
+        let query_ok: std::collections::HashMap<String, String> =
+            [("x".to_string(), "hello".to_string())]
+                .into_iter()
+                .collect();
+
+        let interp_resp = call_route(&state, "GET", "/parity", "x=hello", "").await;
+        let vm_resp = call_route_vm_direct(&state, &program, compiled, &query_ok)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            interp_resp.status(),
+            vm_resp.status(),
+            "HTTP status mismatch for OK case"
+        );
+
+        // Test 2: crash response parity (both should error)
+        let query_crash: std::collections::HashMap<String, String> =
+            [("x".to_string(), "crash".to_string())]
+                .into_iter()
+                .collect();
+
+        let interp_crash = call_route(&state, "GET", "/parity", "x=crash", "").await;
+        let vm_crash = call_route_vm_direct(&state, &program, compiled, &query_crash).await;
+
+        let interp_is_error = interp_crash.status() == 500;
+        let vm_is_error = vm_crash.is_err();
+        assert!(
+            interp_is_error && vm_is_error,
+            "Both backends should error on crash: interp_status={}, vm_is_error={}",
+            interp_crash.status(),
+            vm_is_error
+        );
+    }
 }

@@ -545,31 +545,98 @@ impl Compiler {
                     return Err(format!("compile: undefined function: {}", name));
                 }
             }
-            Expr::BinaryOp(left, op, right) => {
-                self.compile_expr_with_locals(left, code, locals)?;
-                self.compile_expr_with_locals(right, code, locals)?;
-                match op {
-                    BinOp::Add => code.push(Instruction::Add),
-                    BinOp::Sub => code.push(Instruction::Sub),
-                    BinOp::Mul => code.push(Instruction::Mul),
-                    BinOp::Div => code.push(Instruction::Div),
-                    // Phase 5.1: comparison operators
-                    BinOp::Gt => code.push(Instruction::CmpGt),
-                    BinOp::Lt => code.push(Instruction::CmpLt),
-                    BinOp::Ge => code.push(Instruction::CmpGe),
-                    BinOp::Le => code.push(Instruction::CmpLe),
-                    BinOp::Eq => code.push(Instruction::CmpEq),
-                    BinOp::Ne => code.push(Instruction::CmpNe),
-                    // And/Or require short-circuit evaluation; VM bytecode support
-                    // deferred — use tree-walking interpreter for these operators.
-                    BinOp::And | BinOp::Or => {
-                        return Err(format!(
-                            "compile: {:?} requires short-circuit evaluation, not yet supported in VM bytecode (use tree-walking interpreter)",
-                            op
-                        ));
+            Expr::BinaryOp(left, op, right) => match op {
+                BinOp::And | BinOp::Or => {
+                    // Short-circuit evaluation — result is always Value::Bool.
+                    // Must NOT eagerly compile both operands.
+                    if matches!(op, BinOp::And) {
+                        // And: compile left, if falsy → false, else check right
+                        self.compile_expr_with_locals(left, code, locals)?;
+                        let jump_to_false_1 = code.len();
+                        code.push(Instruction::JumpIfNot(0)); // placeholder
+                        self.compile_expr_with_locals(right, code, locals)?;
+                        let jump_to_false_2 = code.len();
+                        code.push(Instruction::JumpIfNot(0)); // placeholder
+                        code.push(Instruction::Const(Value::Bool(true)));
+                        let jump_to_end = code.len();
+                        code.push(Instruction::Jump(0)); // placeholder
+                                                         // L_false:
+                        let l_false = code.len();
+                        if let Some(Instruction::JumpIfNot(ref mut t)) =
+                            code.get_mut(jump_to_false_1)
+                        {
+                            *t = l_false;
+                        }
+                        if let Some(Instruction::JumpIfNot(ref mut t)) =
+                            code.get_mut(jump_to_false_2)
+                        {
+                            *t = l_false;
+                        }
+                        code.push(Instruction::Const(Value::Bool(false)));
+                        // L_end:
+                        let l_end = code.len();
+                        if let Some(Instruction::Jump(ref mut t)) = code.get_mut(jump_to_end) {
+                            *t = l_end;
+                        }
+                    } else {
+                        // Or: compile left, if truthy → true, else check right
+                        self.compile_expr_with_locals(left, code, locals)?;
+                        let jump_to_check_right = code.len();
+                        code.push(Instruction::JumpIfNot(0)); // placeholder
+                                                              // left is truthy
+                        code.push(Instruction::Const(Value::Bool(true)));
+                        let jump_to_end_1 = code.len();
+                        code.push(Instruction::Jump(0)); // placeholder
+                                                         // L_check_right:
+                        let l_check_right = code.len();
+                        if let Some(Instruction::JumpIfNot(ref mut t)) =
+                            code.get_mut(jump_to_check_right)
+                        {
+                            *t = l_check_right;
+                        }
+                        self.compile_expr_with_locals(right, code, locals)?;
+                        let jump_to_false = code.len();
+                        code.push(Instruction::JumpIfNot(0)); // placeholder
+                                                              // right is truthy
+                        code.push(Instruction::Const(Value::Bool(true)));
+                        let jump_to_end_2 = code.len();
+                        code.push(Instruction::Jump(0)); // placeholder
+                                                         // L_false:
+                        let l_false = code.len();
+                        if let Some(Instruction::JumpIfNot(ref mut t)) = code.get_mut(jump_to_false)
+                        {
+                            *t = l_false;
+                        }
+                        code.push(Instruction::Const(Value::Bool(false)));
+                        // L_end:
+                        let l_end = code.len();
+                        if let Some(Instruction::Jump(ref mut t)) = code.get_mut(jump_to_end_1) {
+                            *t = l_end;
+                        }
+                        if let Some(Instruction::Jump(ref mut t)) = code.get_mut(jump_to_end_2) {
+                            *t = l_end;
+                        }
                     }
                 }
-            }
+                _ => {
+                    self.compile_expr_with_locals(left, code, locals)?;
+                    self.compile_expr_with_locals(right, code, locals)?;
+                    match op {
+                        BinOp::Add => code.push(Instruction::Add),
+                        BinOp::Sub => code.push(Instruction::Sub),
+                        BinOp::Mul => code.push(Instruction::Mul),
+                        BinOp::Div => code.push(Instruction::Div),
+                        // Phase 5.1: comparison operators
+                        BinOp::Gt => code.push(Instruction::CmpGt),
+                        BinOp::Lt => code.push(Instruction::CmpLt),
+                        BinOp::Ge => code.push(Instruction::CmpGe),
+                        BinOp::Le => code.push(Instruction::CmpLe),
+                        BinOp::Eq => code.push(Instruction::CmpEq),
+                        BinOp::Ne => code.push(Instruction::CmpNe),
+                        BinOp::And | BinOp::Or => unreachable!(),
+                    }
+                }
+            },
             Expr::IfElse(cond, then_expr, else_expr) => {
                 // Compile condition
                 self.compile_expr_with_locals(cond, code, locals)?;

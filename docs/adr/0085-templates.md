@@ -1,4 +1,4 @@
-# ADR-0075: Type-Safe HTML Templates
+# ADR-0085: Type-Safe HTML Templates
 
 **Status:** Accepted
 **Date:** 2026-06-02

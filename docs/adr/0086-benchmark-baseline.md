@@ -1,4 +1,4 @@
-# ADR-0076: Performance baseline benchmarks
+# ADR-0086: Performance baseline benchmarks
 
 **Date:** 2026-08-01
 **Status:** accepted

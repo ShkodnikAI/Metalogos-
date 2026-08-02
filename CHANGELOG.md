@@ -4,6 +4,26 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### VM backend parity — Наряд №41
+- Compiler: `match` statement returns compile error (`Err`) instead of
+  silent Unit placeholder. Routes with `match` cannot compile for VM —
+  prevents silently wrong results.
+- VM audit log: `Vm` now has `audit_log: Mutex<Vec<String>>` with
+  `push_audit()` / `take_audit_log()`. Adapt, Relate, Mutate instructions
+  write audit entries matching interpreter format.
+- Server: `flush_vm_audit_entries_to_db()` flushes VM audit to SQLite
+  and in-memory log after each request. Closes OWASP A09 regression.
+- Session hooks: investigated — `hooks_session_start`/`hooks_session_end`
+  are startup-time only (in `run()`), NOT per-request. No discrepancy
+  exists between backends. FOSVED does not use session hooks.
+- Test: `test_n41_side_effect_parity` verifies both backends return same
+  HTTP status for OK and crash cases.
+- Test: `test_n41_match_not_compilable_in_vm` and
+  `test_n41_non_match_routes_compile_in_vm` verify match compile error.
+- `load_program()` benchmark on `app.mlog`: ~134 µs per request (debug).
+  Acceptable for LLM-heavy routes; negates VM advantage for micro-routes.
+- ADR-0088 updated: Block 1-5 results, corrected session hooks claim.
+
 ### VM backend for mlog serve (Наряд №40)
 - `METALOGOS_SERVE_BACKEND` env var: `interpreter` (default) or `vm`.
   Unknown value → warning in log + fallback to interpreter, no panic.

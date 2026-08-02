@@ -66,9 +66,31 @@ Rationale:
 
 No production file exceeds 2,000 lines.
 
+## Builtin form preserved during split (Block 3 audit)
+
+At Наряд №38 Block 3 acceptance, a concern was raised that the split modules
+(`collections.rs`, `http.rs`, `json.rs`, `crypto.rs`, `math.rs`, `io.rs`,
+`llm.rs`, `core.rs`) might contain zero `fn` declarations — i.e. builtins
+might have been re-registered as closures instead of named functions.
+
+**Audit result: form was preserved.** Checked against the original
+monolithic `builtins.rs` (commit `d3ab3b2`, the earliest version with
+named `fn builtin_*` declarations):
+
+- **Before split:** All builtins were `fn builtin_xxx(args: &[Value]) -> Result<Value, String>`
+  registered via `funcs.insert("xxx", builtin_xxx as BuiltinFn)`.
+- **After split:** Same form. Every extracted module (`collections.rs`: 12 fn,
+  `http.rs`: 24 fn, `math.rs`: 13 fn, `json.rs`: 8 fn, `crypto.rs`: 8 fn,
+  `io.rs`: 10 fn, `llm.rs`: 5 fn, `core.rs`: 3 helper fn) uses identical
+  `pub(crate) fn builtin_xxx` declarations.
+
+No closure-based re-registration occurred. The split was a pure code move.
+
 ## Consequences
 
 - The 800-line rule in `docs/refactoring-split-plan.md` is superseded by
   this ADR.
 - Future splits should target ~2,000 lines per production file, not 800.
 - Test files (`*_tests.rs`, `tests/`) have no size constraint.
+- Builtin function form (named `fn`) was preserved during №37 split —
+  confirmed by audit.

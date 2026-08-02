@@ -2,7 +2,6 @@
 // Covers: cron, goals, todos, mtree, approval, preferences, memory_score,
 //         compress_html, extract_entities, semantic arity fixes
 
-use metalogos::ast::*;
 use metalogos::interpreter::Interpreter;
 use metalogos::parser;
 use metalogos::semantic::{self, AnalysisResult};

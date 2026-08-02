@@ -51,6 +51,7 @@ fn make_adapt_decl(pattern_name: &str, input: &str, output: &str) -> Declaration
 }
 
 /// Helper: create a pattern with a while(true) loop body.
+#[allow(dead_code)]
 fn make_while_true_pattern() -> Declaration {
     Declaration::Pattern(PatternDecl {
         name: "infinite_loop".to_string(),

@@ -4,6 +4,17 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### And/Or in VM bytecode (Наряд №39)
+- VM compiler: implemented `and`/`or` short-circuit evaluation using
+  `JumpIfNot`/`Jump`/`Const` instructions. Semantics match interpreter:
+  result is always `Value::Bool`, right operand not evaluated when left
+  decides the result.
+- Golden test `p39_and_or.mlog`: truth table, short-circuit verification
+  via side effects, nesting, is_truthy on empty string/list.
+- ADR renumbering: resolved 5 duplicate ADR numbers (0072-0076). Second
+  instances moved to 0082-0087. Protected 0073/0075/0076 referenced in code.
+- Created `docs/adr/README.md` with full index and numbering rule.
+
 ### Module size policy (Наряд №38)
 - ADR-0080: module size policy — production files ≤2,000 lines, tests exempt.
   Supersedes the 800-line rule from №37.

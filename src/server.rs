@@ -25,7 +25,10 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use chrono::{Datelike, Timelike};
 
 use crate::ast::*;
+use crate::bytecode::{CompiledRoute, Program};
+use crate::compiler::Compiler;
 use crate::interpreter::{Interpreter, Value};
+use crate::vm::Vm;
 
 /// Check if a cron field (min/hour/dom/month/dow) matches a value.
 /// Supports: `*`, `*/N`, `N`, `N-M`, `N,M,O`, `N-M/S`.
@@ -166,6 +169,12 @@ pub struct ServerState {
     pub db: Arc<tokio::sync::Mutex<rusqlite::Connection>>,
     /// Rate-limit tracker: IP → Vec<Instant> (Phase 7.4).
     pub rate_limits: Arc<DashMap<String, Vec<std::time::Instant>>>,
+    /// Which backend to use for route execution (Наряд №40).
+    pub backend: ServeBackend,
+    /// Compiled VM program (Наряд №40: compiled once at startup, reused per request).
+    pub vm_program: Option<Arc<Program>>,
+    /// Compiled route bytecodes (Наряд №40: one per route, compiled at startup).
+    pub vm_routes: Vec<CompiledRoute>,
 }
 
 #[derive(Debug, Clone)]
@@ -173,6 +182,15 @@ pub struct SessionEntry {
     pub data: HashMap<String, String>,
     pub roles: Vec<String>,
     pub expires: std::time::Instant,
+}
+
+/// Which backend to use for route execution (Наряд №40).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServeBackend {
+    /// Tree-walking interpreter (default).
+    Interpreter,
+    /// Stack-based bytecode VM.
+    Vm,
 }
 
 // ── Public API ─────────────────────────────────────────────────────
@@ -212,7 +230,59 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
 
     let port = config.port;
     let host = config.host.clone().unwrap_or_else(|| "0.0.0.0".to_string());
-    let state = build_state(config, interp).await?;
+    let mut state = build_state(config.clone(), interp).await?;
+
+    // ── Наряд №40: Read METALOGOS_SERVE_BACKEND once at startup ──
+    let backend = match std::env::var("METALOGOS_SERVE_BACKEND") {
+        Ok(ref val) if val == "vm" => {
+            eprintln!("[server] backend: vm (bytecode VM)");
+            ServeBackend::Vm
+        }
+        Ok(ref val) if val == "interpreter" => {
+            eprintln!("[server] backend: interpreter (tree-walking)");
+            ServeBackend::Interpreter
+        }
+        Ok(val) => {
+            eprintln!(
+                "[WARN] METALOGOS_SERVE_BACKEND='{}' is unknown, falling back to interpreter",
+                val
+            );
+            ServeBackend::Interpreter
+        }
+        Err(_) => {
+            eprintln!("[server] backend: interpreter (default)");
+            ServeBackend::Interpreter
+        }
+    };
+    state.backend = backend;
+
+    // ── Наряд №40: Compile routes for VM at startup (not per-request) ──
+    if state.backend == ServeBackend::Vm {
+        let start = std::time::Instant::now();
+        let mut compiler = Compiler::new();
+        let program = compiler
+            .compile(declarations.clone())
+            .map_err(|e| format!("VM compile error: {}", e))?;
+        let compiled_routes = compiler
+            .compile_routes(&config.routes)
+            .map_err(|e| format!("VM route compile error: {}", e))?;
+        let elapsed = start.elapsed();
+        eprintln!(
+            "[server] VM compilation: {} routes in {:.1} µs ({} instructions total)",
+            compiled_routes.len(),
+            elapsed.as_micros(),
+            compiled_routes.iter().map(|r| r.code.len()).sum::<usize>()
+        );
+
+        // Build VM template with program data (patterns, learnables, etc.)
+        // Note: Vm is !Send, so we cannot store it in ServerState (Arc<Vm>).
+        // Instead, we store Arc<Program> and create a fresh Vm per request.
+        // Vm::run() is cheap (just initializes globals/patterns from program).
+
+        state.vm_program = Some(Arc::new(program));
+        state.vm_routes = compiled_routes;
+    }
+
     let app = build_router(state.clone());
 
     // v0.8.2 — Background reminder scheduler (checks every 5 seconds)
@@ -431,6 +501,9 @@ async fn build_state(
         middleware: config.middleware.clone(),
         db: Arc::new(tokio::sync::Mutex::new(conn)),
         rate_limits: Arc::new(DashMap::new()),
+        backend: ServeBackend::Interpreter, // set after build_state returns
+        vm_program: None,
+        vm_routes: Vec::new(),
     })
 }
 
@@ -553,8 +626,12 @@ async fn route_handler(
             }
         }
 
-        // Execute route handler body
-        let result = execute_route_body(&state, &route.body, &headers, &body, &query).await;
+        // ── Наряд №40: Dispatch to VM or interpreter based on backend ──
+        let result = if state.backend == ServeBackend::Vm {
+            execute_route_body_vm(&state, route, &headers, &body, &query).await
+        } else {
+            execute_route_body(&state, &route.body, &headers, &body, &query).await
+        };
         let mut response = match result {
             Ok(response) => response,
             Err(e) => (
@@ -1121,6 +1198,93 @@ async fn execute_route_body(
     flush_audit_to_db(state, &mut interp).await;
 
     Ok((StatusCode::OK, "OK").into_response())
+}
+
+/// ── VM Route Execution (Наряд №40) ────────────────────────────────
+///
+/// VM equivalent of `execute_route_body`. Creates a fresh VM instance per
+/// request (cloned from template), injects per-request server context,
+/// executes compiled route bytecode, and returns the HTTP response.
+///
+/// **Isolation guarantee**: each request gets its own Vm with fresh stack.
+/// Global state (kv_set, memory) is shared via builtins (Mutex-backed).
+async fn execute_route_body_vm(
+    state: &ServerState,
+    route: &crate::ast::RouteDecl,
+    headers: &HeaderMap,
+    raw_body: &bytes::Bytes,
+    query_params: &std::collections::HashMap<String, String>,
+) -> Result<Response, String> {
+    // Find the compiled route matching this path+method
+    let compiled = state
+        .vm_routes
+        .iter()
+        .find(|r| r.path == route.path && r.method == route.method)
+        .ok_or_else(|| format!("VM: no compiled route for {} {}", route.method, route.path))?;
+
+    let program = state
+        .vm_program
+        .as_ref()
+        .ok_or("VM: no compiled program available")?;
+
+    // Execute compiled route bytecode.
+    // Vm is !Send (holds rusqlite::Connection), so we use block_in_place.
+    // Extract user roles before entering sync context (DashMap access).
+    let user_roles = if state.middleware.contains(&"session".to_string()) {
+        if let Some(session_id) = extract_session_cookie(headers) {
+            if let Some(raw_id) = verify_cookie(&session_id, &state.hmac_key) {
+                if let Some(entry) = state.sessions.get(&raw_id) {
+                    entry.value().roles.clone()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
+    let result = tokio::task::block_in_place(|| {
+        let mut vm = Vm::new();
+        vm.load_program(program)
+            .map_err(|e| format!("VM route init: {}", e))?;
+        vm.clear_server_context();
+
+        // Inject per-request server context
+        if let Ok(body_str) = std::str::from_utf8(raw_body) {
+            if !body_str.is_empty() {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(body_str) {
+                    let value = json_value_to_value(&json);
+                    vm.set_server_json_body(value);
+                }
+            }
+        }
+        if !query_params.is_empty() {
+            vm.set_server_query_params(query_params.clone());
+        }
+        if !user_roles.is_empty() {
+            vm.set_server_user_roles(user_roles);
+        }
+
+        vm.execute_route_code(compiled, program)
+    });
+
+    match result {
+        Ok(val) => {
+            // Check if the result is an HttpResponse (from respond())
+            if let Value::HttpResponse { status, body } = val {
+                let code = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
+                return Ok((code, body).into_response());
+            }
+            // For other value types, convert like the interpreter does
+            Ok(value_to_response(val))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Phase 7.5: Write interpreter audit entries to the SQLite audit_log table.
@@ -1739,6 +1903,9 @@ mod tests {
             ],
             db: Arc::new(tokio::sync::Mutex::new(conn)),
             rate_limits: Arc::new(DashMap::new()),
+            backend: ServeBackend::Interpreter,
+            vm_program: None,
+            vm_routes: Vec::new(),
         }
     }
 }

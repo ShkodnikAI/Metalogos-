@@ -1703,8 +1703,20 @@ impl Vm {
     }
 
     /// Execute all registered rules (already sorted by priority descending).
+    /// ADR-0090: priority-ordered, first-wins semantics.
+    /// For each (entity, field) pair, only the first matching rule writes the field.
+    /// Rules targeting different fields all fire.
     fn execute_rules(&mut self) -> Result<(), String> {
+        // Track which (entity_name, field_name) pairs have already been written
+        let mut written: std::collections::HashSet<(String, String)> =
+            std::collections::HashSet::new();
+
         for rule in &self.rules {
+            // Skip if this field was already written by a higher-priority rule
+            if written.contains(&(rule.target_name.clone(), rule.field.clone())) {
+                continue;
+            }
+
             let condition_met = self.eval_rule_condition(&rule.condition)?;
             if condition_met {
                 // Find the target entity by name in globals
@@ -1717,6 +1729,8 @@ impl Vm {
                     // Set field on the struct
                     if let Some(entity) = self.globals.get_mut(slot) {
                         let _ = entity.set_field(&rule.field, value);
+                        // Mark this (entity, field) as written — first-wins
+                        written.insert((rule.target_name.clone(), rule.field.clone()));
                     }
                 }
             }

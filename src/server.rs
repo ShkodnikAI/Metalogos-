@@ -2202,7 +2202,7 @@ mlogserver {
                 _ => None,
             })
             .unwrap();
-        let mut compiler = Compiler::new();
+        let compiler = Compiler::new();
         // compile_routes should return Err because route body contains match
         let result = compiler.compile_routes(&config.routes);
         assert!(
@@ -2241,7 +2241,7 @@ mlogserver {
                 _ => None,
             })
             .unwrap();
-        let mut compiler = Compiler::new();
+        let compiler = Compiler::new();
         let result = compiler.compile_routes(&config.routes);
         assert!(
             result.is_ok(),

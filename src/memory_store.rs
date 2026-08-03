@@ -711,9 +711,17 @@ impl MemoryStore for SqliteStore {
             .unwrap_or(0)
     }
 
-    /// Hybrid recall using FTS5 BM25 + cosine similarity with weighted blend (ADR-0073).
-    /// Returns top-K entries sorted by combined score.
+    /// Hybrid recall using FTS5 BM25 + cosine similarity with RRF merge (ADR-0073/0075).
+    /// Returns top-K entries sorted by RRF score.
     /// `type_filter`: if non-empty, restricts results to entries with matching mem_type.
+    ///
+    /// Algorithm:
+    /// 1. BM25 candidates from FTS5 (keyword matching, optional type filter).
+    /// 2. If no BM25 hits, fall back to all entries (cosine/substring scan).
+    /// 3. Score all candidates by cosine similarity * temporal decay * priority.
+    /// 4. RRF merge (k=60): for each entry in either ranked list,
+    ///    score = Σ 1/(60 + rank_i) over both signals.
+    /// 5. Sort by RRF score, take top-K.
     fn recall_top_k(
         &self,
         query: &str,
@@ -767,12 +775,14 @@ impl MemoryStore for SqliteStore {
             }
         };
 
-        // Step 3: Load full entries for candidates and compute cosine scores.
-        let mut scored: Vec<(MemoryEntry, f32)> = Vec::new();
-        for id in candidate_ids {
+        // Step 3: Cosine scoring on ALL candidates (BM25 hits) + fallback entries.
+        // RRF requires ranks from both signals, so we score all candidates by cosine
+        // and compute ranks independently.
+        let mut cosine_scored: Vec<(i64, f32)> = Vec::new();
+        for id in &candidate_ids {
             let entry = match conn.query_row(
                 "SELECT id, value, priority, confidence, decay_rate, created_at, embedding, mem_type FROM memories WHERE id = ?1",
-                rusqlite::params![id],
+                rusqlite::params![*id],
                 |row| {
                     Ok(MemoryEntry {
                         id: Some(row.get(0)?),
@@ -791,7 +801,7 @@ impl MemoryStore for SqliteStore {
             };
 
             // Compute cosine similarity score
-            let cosine_score = if !query_embedding.is_empty() && !entry.embedding.is_empty() {
+            let cosine_sim = if !query_embedding.is_empty() && !entry.embedding.is_empty() {
                 cosine_similarity(query_embedding, &entry.embedding)
             } else if entry.value.contains(query) {
                 1.0
@@ -799,29 +809,83 @@ impl MemoryStore for SqliteStore {
                 continue; // no match from either signal
             };
 
-            // Apply temporal decay
+            // Apply temporal decay to both signals
             let age_days = ((now - entry.timestamp).max(0) as f64) / 86400.0;
             let decay = (-entry.decay_rate * age_days).exp() as f32;
-
-            // Weighted blend: BM25 + cosine. When no BM25 hit, cosine only.
-            let bm25_score = bm25_scores.get(&id).copied().unwrap_or(0.0);
-            let combined = if bm25_score > 0.0 {
-                let bm25_norm = bm25_score.max(0.0).min(1.0);
-                // 40% BM25 + 60% cosine*decay*priority
-                0.4 * bm25_norm + 0.6 * cosine_score * decay * (entry.priority as f32)
-            } else {
-                cosine_score * (entry.priority as f32) * decay
-            };
-
-            if combined >= min_confidence {
-                scored.push((entry, combined));
-            }
+            let decayed_cosine = cosine_sim * decay * (entry.priority as f32);
+            cosine_scored.push((*id, decayed_cosine));
         }
 
-        // Step 4: Sort by combined score descending, take top-K.
-        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        scored.truncate(limit);
-        scored
+        // Step 4: RRF merge (k=60).
+        // RRF score = Σ 1/(k + rank_i) for each signal where entry appears.
+        // Rank 1 = best in each signal list.
+        const RRF_K: f32 = 60.0;
+
+        // BM25 ranks: sort by score descending (best first), assign 1-based ranks.
+        let mut bm25_sorted: Vec<(i64, f32)> = bm25_scores.into_iter().collect();
+        bm25_sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let bm25_ranks: std::collections::HashMap<i64, usize> = bm25_sorted
+            .iter()
+            .enumerate()
+            .map(|(rank, (id, _score))| (*id, rank + 1)) // 1-based rank
+            .collect();
+
+        // Cosine ranks: sort by cosine score descending.
+        cosine_scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let cosine_ranks: std::collections::HashMap<i64, usize> = cosine_scored
+            .iter()
+            .enumerate()
+            .map(|(rank, (id, _score))| (*id, rank + 1))
+            .collect();
+
+        // Union of all candidate IDs
+        let mut all_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
+        for id in bm25_ranks.keys() { all_ids.insert(*id); }
+        for id in cosine_ranks.keys() { all_ids.insert(*id); }
+
+        // Compute RRF score for each entry
+        let mut rrf_results: Vec<(i64, f32)> = all_ids
+            .into_iter()
+            .map(|id| {
+                let mut score = 0.0f32;
+                if let Some(&rank) = bm25_ranks.get(&id) {
+                    score += 1.0 / (RRF_K + rank as f32);
+                }
+                if let Some(&rank) = cosine_ranks.get(&id) {
+                    score += 1.0 / (RRF_K + rank as f32);
+                }
+                (id, score)
+            })
+            .filter(|(_, score)| *score >= min_confidence)
+            .collect();
+
+        rrf_results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        rrf_results.truncate(limit);
+
+        // Step 5: Load full entries for top RRF results.
+        let final_results: Vec<(MemoryEntry, f32)> = rrf_results
+            .into_iter()
+            .filter_map(|(id, rrf_score)| {
+                conn.query_row(
+                    "SELECT id, value, priority, confidence, decay_rate, created_at, embedding, mem_type FROM memories WHERE id = ?1",
+                    rusqlite::params![id],
+                    |row| {
+                        Ok(MemoryEntry {
+                            id: Some(row.get(0)?),
+                            value: row.get(1)?,
+                            priority: row.get(2)?,
+                            confidence: row.get(3)?,
+                            decay_rate: row.get(4)?,
+                            timestamp: row.get(5)?,
+                            embedding: Self::blob_to_embedding(&row.get::<_, Vec<u8>>(6).unwrap_or_default()),
+                            mem_type: row.get::<_, String>(7).unwrap_or_default(),
+                        })
+                    },
+                ).ok().map(|e| (e, rrf_score))
+            })
+            .collect();
+
+        final_results
     }
 }
 

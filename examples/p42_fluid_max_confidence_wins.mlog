@@ -1,0 +1,7 @@
+// Наряд №42, Блок 1: When two variants share a type, the highest confidence wins.
+// Float[10.0][0.3] or Float[99.0][0.9] — Float context picks 99.0.
+fluid x = Float[10.0][0.3] or Float[99.0][0.9]
+
+pattern GetFloat(v: Float) -> Float { return v }
+
+flow Main { input: Float = x -> GetFloat -> output }

@@ -1,4 +1,4 @@
-error: parse error:  --> 2:11
+parse error:  --> 2:11
   |
 2 |   let x = @#%
   |           ^---

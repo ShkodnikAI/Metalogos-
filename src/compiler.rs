@@ -1133,12 +1133,13 @@ impl Compiler {
                     code.push(Instruction::Pop);
                 }
                 Statement::Match {
-                    scrutinee,
-                    arms,
-                    else_body,
+                    scrutinee: _,
+                    arms: _,
+                    else_body: _,
                 } => {
-                    self.compile_expr_with_locals(scrutinee, &mut code, locals)?;
-                    let _ = (arms, else_body);
+                    return Err("compile: Match statement not yet supported in VM bytecode \
+                         (use tree-walking interpreter)"
+                        .into());
                 }
                 _ => {}
             }
@@ -1450,5 +1451,31 @@ impl Compiler {
         }
 
         Ok(resolved)
+    }
+
+    /// Compile route declarations into compiled bytecode route bodies.
+    ///
+    /// Reuses the same compilation pipeline as pattern bodies:
+    /// route statements (LetBinding, Assign, Return, IfThen, IfElseBlock,
+    /// ExprStmt, While, Each, etc.) are compiled to stack-based bytecode.
+    ///
+    /// The caller (server) invokes this once at startup, then stores the
+    /// resulting CompiledRoutes in ServerState for per-request execution.
+    pub fn compile_routes(
+        &self,
+        routes: &[crate::ast::RouteDecl],
+    ) -> Result<Vec<CompiledRoute>, String> {
+        let mut compiled = Vec::new();
+        for route in routes {
+            let mut locals = HashMap::new();
+            let code = self.compile_pattern_body_with_locals(&route.body, &mut locals)?;
+            compiled.push(CompiledRoute {
+                path: route.path.clone(),
+                method: route.method.clone(),
+                requires: route.requires.clone(),
+                code,
+            });
+        }
+        Ok(compiled)
     }
 }

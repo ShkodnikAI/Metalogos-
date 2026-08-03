@@ -325,6 +325,20 @@ pub struct VmRelation {
     pub relation: String,
 }
 
+/// A compiled route body — bytecode for a single HTTP route handler.
+/// Produced by Compiler::compile_route_body, consumed by Vm::execute_route_code.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompiledRoute {
+    /// Route path (e.g., "/webhook/telegram").
+    pub path: String,
+    /// HTTP method (e.g., "GET", "POST").
+    pub method: String,
+    /// Required roles (from RouteDecl::requires).
+    pub requires: Vec<String>,
+    /// Compiled bytecode for the route body.
+    pub code: Vec<Instruction>,
+}
+
 /// A call frame for function invocation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallFrame {

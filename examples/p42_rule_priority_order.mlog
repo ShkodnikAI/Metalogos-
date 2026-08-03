@@ -1,7 +1,7 @@
-// Наряд №42, Блок 3: Rules with different priorities.
-// Both rules match, but execute in priority-descending order.
-// Priority 10 runs first (sets urgency=0.9), priority 5 runs second
-// and overwrites to urgency=0.5. Last-write wins.
+// Наряд №42/43: Rules with different priorities.
+// Both rules match the same field. Priority-ordered, first-wins semantics
+// (ADR-0090): the rule with the highest priority (10) writes urgency=0.9,
+// the lower-priority rule (5) targeting the same field is skipped.
 entity Message { text: String, urgency: Float }
 entity m: Message = { text: "urgent task", urgency: 0.0 }
 

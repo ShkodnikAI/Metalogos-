@@ -1,6 +1,7 @@
-// Наряд №42, Блок 3: Rules with equal priority — both match.
-// Stable sort preserves declaration order. Both execute; last wins.
-// First rule sets urgency=0.9, second rule overwrites to urgency=0.3.
+// Наряд №42/43: Rules with equal priority — both match same field.
+// First-wins semantics (ADR-0090): first declared rule wins.
+// First rule (priority=10) writes urgency=0.9; second rule targeting
+// the same field is skipped.
 entity Message { text: String, urgency: Float }
 entity m: Message = { text: "urgent task", urgency: 0.0 }
 

@@ -14,6 +14,7 @@
 // Function calls push a new frame; Return pops back.
 
 use std::collections::HashMap;
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::ast::CompareOp as AstCompareOp;
@@ -48,8 +49,17 @@ pub struct Vm {
     db_conn: Option<rusqlite::Connection>,
     /// Mutate log messages.
     mutate_log: Vec<String>,
+    /// Audit log entries (Наряд №41 Block 2: parity with interpreter).
+    audit_log: Mutex<Vec<String>>,
     /// Collections loaded flag (for map/filter/reduce).
     collections_loaded: bool,
+    // ── Server context (per-request, set before execute_route_code) ──
+    /// Parsed JSON request body (injected by server before route execution).
+    server_json_body: Option<Value>,
+    /// Query string parameters (injected by server before route execution).
+    server_query_params: Option<std::collections::HashMap<String, String>>,
+    /// User roles for RBAC (injected by server before route execution).
+    server_user_roles: Vec<String>,
 }
 
 /// Collapse threshold for Fluid values (matches interpreter).
@@ -79,13 +89,26 @@ impl Vm {
             skill_indices: Vec::new(),
             db_conn: None,
             mutate_log: Vec::new(),
+            audit_log: Mutex::new(Vec::new()),
             collections_loaded: false,
+            server_json_body: None,
+            server_query_params: None,
+            server_user_roles: Vec::new(),
         }
     }
 
     /// Execute a compiled program. Returns the flow output (if any),
     /// with mutate log messages prepended if present.
     pub fn run(&mut self, program: Program) -> Result<Option<String>, String> {
+        self.load_program(&program)?;
+        self.execute_main_code(&program)
+    }
+
+    /// Load program state without executing main_code.
+    /// Initializes globals, patterns, learnables, rules, skill_indices,
+    /// and database connection. Used by server backend to set up VM state
+    /// per request without re-executing flows (Наряд №40).
+    pub fn load_program(&mut self, program: &Program) -> Result<(), String> {
         // Initialize globals
         self.globals = vec![Value::Unit; program.globals.len()];
         self.global_names = program.globals.clone();
@@ -129,12 +152,17 @@ impl Vm {
             }
         }
 
-        // Execute main_code
+        Ok(())
+    }
+
+    /// Execute main_code (the top-level instruction sequence).
+    /// Called by `run()` after `load_program()`.
+    fn execute_main_code(&mut self, program: &Program) -> Result<Option<String>, String> {
         let mut stack: Vec<Value> = Vec::new();
         let mut call_stack: Vec<CallFrame> = Vec::new();
         let mut ip = 0;
-        let code = &program.main_code;
         let mut flow_output: Option<String> = None;
+        let code = &program.main_code;
 
         while ip < code.len() {
             let instr = &code[ip];
@@ -209,7 +237,7 @@ impl Vm {
                     }
                     // Problem B: map(list, "pattern_name") — needs pattern table access
                     if name == "map" {
-                        if let Ok(result) = self.vm_map(&args, &program) {
+                        if let Ok(result) = self.vm_map(&args, program) {
                             stack.push(result);
                             ip += 1;
                             continue;
@@ -253,7 +281,7 @@ impl Vm {
 
                     // Switch to pattern code
                     let result =
-                        self.execute_code(&pattern.code, &mut stack, &mut call_stack, &program)?;
+                        self.execute_code(&pattern.code, &mut stack, &mut call_stack, program)?;
                     stack.push(result);
                     // IP already advanced by 1 (return_ip)
                     ip = return_ip;
@@ -532,7 +560,7 @@ impl Vm {
                     let mut found = false;
                     for (info, few_shot) in &mut self.learnables {
                         if info.name == *pattern_name {
-                            few_shot.push((input_str, output_str));
+                            few_shot.push((input_str.clone(), output_str.clone()));
                             found = true;
                             break;
                         }
@@ -543,6 +571,11 @@ impl Vm {
                             pattern_name
                         ));
                     }
+                    // Наряд №41 Block 2: audit parity with interpreter
+                    self.push_audit(format!(
+                        "[AUDIT] adapt {}: {} -> {}",
+                        pattern_name, input_str, output_str
+                    ));
                     ip += 1;
                 }
                 Instruction::Relate => {
@@ -558,7 +591,13 @@ impl Vm {
                         Value::String(s) => s,
                         other => format!("{}", other),
                     };
-                    self.relations.push(VmRelation { from, to, relation });
+                    self.relations.push(VmRelation {
+                        from: from.clone(),
+                        to: to.clone(),
+                        relation: relation.clone(),
+                    });
+                    // Наряд №41 Block 2: audit parity with interpreter
+                    self.push_audit(format!("[AUDIT] relate {} -[{}]-> {}", from, relation, to));
                     ip += 1;
                 }
                 Instruction::Mutate {
@@ -588,7 +627,9 @@ impl Vm {
                         *rollback_threshold,
                         *rollback_op,
                     )?;
-                    self.mutate_log.push(msg);
+                    self.mutate_log.push(msg.clone());
+                    // Наряд №41 Block 2: audit parity with interpreter
+                    self.push_audit(format!("[AUDIT] mutate {}: {}", pattern_name, msg));
                     ip += 1;
                 }
 
@@ -1400,6 +1441,61 @@ impl Vm {
             });
         }
 
+        // ── Server-context builtins (Наряд №40: VM server backend) ──
+        // These must be intercepted here because they need access to
+        // per-request server context (query_params, json_body, user_roles)
+        // that the generic builtin registry does not have.
+
+        if name == "query_param" {
+            let param_name = args
+                .first()
+                .and_then(|v| match v {
+                    Value::String(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            if let Some(ref params) = self.server_query_params {
+                if let Some(val) = params.get(&param_name) {
+                    return Ok(Value::String(val.clone()));
+                }
+            }
+            return Ok(Value::String(String::new()));
+        }
+
+        if name == "json_body" {
+            if let Some(ref body) = self.server_json_body {
+                return Ok(body.clone());
+            }
+            return Ok(Value::Struct {
+                type_name: "JsonBody".to_string(),
+                fields: std::collections::HashMap::new(),
+            });
+        }
+
+        if name == "form_data" {
+            return Ok(Value::Struct {
+                type_name: "FormData".to_string(),
+                fields: std::collections::HashMap::new(),
+            });
+        }
+
+        if name == "require" {
+            let role = args
+                .first()
+                .and_then(|v| match v {
+                    Value::String(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            if self.server_user_roles.contains(&role) {
+                return Ok(Value::Bool(true));
+            }
+            return Err(format!(
+                "require('{}'): access denied — user has roles {:?}",
+                role, self.server_user_roles
+            ));
+        }
+
         if let Some(builtin_fn) = self.builtins.get(name) {
             return builtin_fn(args);
         }
@@ -1607,8 +1703,20 @@ impl Vm {
     }
 
     /// Execute all registered rules (already sorted by priority descending).
+    /// ADR-0090: priority-ordered, first-wins semantics.
+    /// For each (entity, field) pair, only the first matching rule writes the field.
+    /// Rules targeting different fields all fire.
     fn execute_rules(&mut self) -> Result<(), String> {
+        // Track which (entity_name, field_name) pairs have already been written
+        let mut written: std::collections::HashSet<(String, String)> =
+            std::collections::HashSet::new();
+
         for rule in &self.rules {
+            // Skip if this field was already written by a higher-priority rule
+            if written.contains(&(rule.target_name.clone(), rule.field.clone())) {
+                continue;
+            }
+
             let condition_met = self.eval_rule_condition(&rule.condition)?;
             if condition_met {
                 // Find the target entity by name in globals
@@ -1621,6 +1729,8 @@ impl Vm {
                     // Set field on the struct
                     if let Some(entity) = self.globals.get_mut(slot) {
                         let _ = entity.set_field(&rule.field, value);
+                        // Mark this (entity, field) as written — first-wins
+                        written.insert((rule.target_name.clone(), rule.field.clone()));
                     }
                 }
             }
@@ -1798,6 +1908,69 @@ impl Vm {
         }
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         scored.into_iter().take(limit).map(|(v, _)| v).collect()
+    }
+
+    // ── Server context setters (per-request, for route execution) ──
+
+    /// Set the parsed JSON request body (Наряд №40: VM server backend).
+    pub fn set_server_json_body(&mut self, val: Value) {
+        self.server_json_body = Some(val);
+    }
+
+    /// Set query string parameters (Наряд №40: VM server backend).
+    pub fn set_server_query_params(&mut self, params: std::collections::HashMap<String, String>) {
+        self.server_query_params = Some(params);
+    }
+
+    /// Set user roles for RBAC (Наряд №40: VM server backend).
+    pub fn set_server_user_roles(&mut self, roles: Vec<String>) {
+        self.server_user_roles = roles;
+    }
+
+    /// Clear server context (reset per-request state for isolation).
+    pub fn clear_server_context(&mut self) {
+        self.server_json_body = None;
+        self.server_query_params = None;
+        self.server_user_roles = Vec::new();
+    }
+
+    // ── Audit log (Наряд №41 Block 2: parity with interpreter) ──
+
+    /// Push an audit log entry.
+    pub fn push_audit(&self, entry: String) {
+        self.audit_log
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(entry);
+    }
+
+    /// Take all audit log entries (consuming them).
+    pub fn take_audit_log(&self) -> Vec<String> {
+        self.audit_log
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain(..)
+            .collect()
+    }
+
+    // ── Route execution (Наряд №40: VM server backend) ──
+
+    /// Execute a compiled route body on the VM.
+    ///
+    /// This is the VM equivalent of `execute_route_body` in server.rs.
+    /// It creates a fresh stack, executes the compiled bytecode, and returns
+    /// the result value (typically `Value::HttpResponse` from `respond()`).
+    ///
+    /// **Isolation**: each call gets a fresh stack — no state leaks between requests.
+    /// **Server context**: must be set via `set_server_*` methods before calling.
+    pub fn execute_route_code(
+        &mut self,
+        route: &CompiledRoute,
+        program: &Program,
+    ) -> Result<Value, String> {
+        let mut stack: Vec<Value> = Vec::new();
+        let mut call_stack: Vec<CallFrame> = Vec::new();
+        self.execute_code(&route.code, &mut stack, &mut call_stack, program)
     }
 
     /// Collapse a Fluid value to a concrete type.

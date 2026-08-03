@@ -1643,3 +1643,143 @@ impl Interpreter {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::interpreter::values::{FluidValueVariant, Value};
+
+    /// Helper: create an Interpreter instance for testing.
+    fn test_interp() -> Interpreter {
+        Interpreter::new()
+    }
+
+    #[test]
+    fn collapse_by_type_picks_matching_variant() {
+        let interp = test_interp();
+        let fluid = Value::Fluid(vec![
+            FluidValueVariant {
+                type_name: "Float".into(),
+                value: Value::Float(42.0),
+                confidence: 0.9,
+            },
+            FluidValueVariant {
+                type_name: "String".into(),
+                value: Value::String("answer".into()),
+                confidence: 0.1,
+            },
+        ]);
+        let result = interp.maybe_collapse(&fluid, "Float").unwrap();
+        assert!(matches!(result, Value::Float(f) if f == 42.0));
+    }
+
+    #[test]
+    fn collapse_by_type_picks_string_variant() {
+        let interp = test_interp();
+        let fluid = Value::Fluid(vec![
+            FluidValueVariant {
+                type_name: "Float".into(),
+                value: Value::Float(42.0),
+                confidence: 0.9,
+            },
+            FluidValueVariant {
+                type_name: "String".into(),
+                value: Value::String("answer".into()),
+                confidence: 0.1,
+            },
+        ]);
+        let result = interp.maybe_collapse(&fluid, "String").unwrap();
+        assert!(matches!(result, Value::String(ref s) if s == "answer"));
+    }
+
+    #[test]
+    fn collapse_max_confidence_wins_for_same_type() {
+        let interp = test_interp();
+        let fluid = Value::Fluid(vec![
+            FluidValueVariant {
+                type_name: "Float".into(),
+                value: Value::Float(10.0),
+                confidence: 0.3,
+            },
+            FluidValueVariant {
+                type_name: "Float".into(),
+                value: Value::Float(99.0),
+                confidence: 0.9,
+            },
+        ]);
+        let result = interp.maybe_collapse(&fluid, "Float").unwrap();
+        assert!(matches!(result, Value::Float(f) if f == 99.0));
+    }
+
+    #[test]
+    fn collapse_below_threshold_returns_unit() {
+        let interp = test_interp();
+        let fluid = Value::Fluid(vec![FluidValueVariant {
+            type_name: "Float".into(),
+            value: Value::Float(42.0),
+            confidence: 0.05,
+        }]);
+        let result = interp.maybe_collapse(&fluid, "Float").unwrap();
+        assert!(matches!(result, Value::Unit));
+    }
+
+    #[test]
+    fn collapse_at_threshold_boundary() {
+        let interp = test_interp();
+        // Exactly at threshold (0.1) should succeed
+        let fluid_at = Value::Fluid(vec![FluidValueVariant {
+            type_name: "Float".into(),
+            value: Value::Float(42.0),
+            confidence: 0.1,
+        }]);
+        let result_at = interp.maybe_collapse(&fluid_at, "Float").unwrap();
+        assert!(
+            matches!(result_at, Value::Float(f) if f == 42.0),
+            "at threshold should return value"
+        );
+
+        // Just below threshold should return Unit
+        let fluid_below = Value::Fluid(vec![FluidValueVariant {
+            type_name: "Float".into(),
+            value: Value::Float(42.0),
+            confidence: 0.099999,
+        }]);
+        let result_below = interp.maybe_collapse(&fluid_below, "Float").unwrap();
+        assert!(
+            matches!(result_below, Value::Unit),
+            "below threshold should return Unit"
+        );
+    }
+
+    #[test]
+    fn collapse_no_matching_variant_returns_unit() {
+        let interp = test_interp();
+        let fluid = Value::Fluid(vec![FluidValueVariant {
+            type_name: "Float".into(),
+            value: Value::Float(42.0),
+            confidence: 0.9,
+        }]);
+        let result = interp.maybe_collapse(&fluid, "String").unwrap();
+        assert!(matches!(result, Value::Unit));
+    }
+
+    #[test]
+    fn collapse_non_fluid_passes_through() {
+        let interp = test_interp();
+        let concrete = Value::Float(42.0);
+        let result = interp.maybe_collapse(&concrete, "Float").unwrap();
+        assert!(matches!(result, Value::Float(f) if f == 42.0));
+
+        let s = Value::String("hello".into());
+        let result_s = interp.maybe_collapse(&s, "String").unwrap();
+        assert!(matches!(result_s, Value::String(ref v) if v == "hello"));
+    }
+
+    #[test]
+    fn collapse_empty_fluid_returns_unit() {
+        let interp = test_interp();
+        let fluid = Value::Fluid(vec![]);
+        let result = interp.maybe_collapse(&fluid, "Float").unwrap();
+        assert!(matches!(result, Value::Unit));
+    }
+}

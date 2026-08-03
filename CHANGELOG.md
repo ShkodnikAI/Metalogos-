@@ -4,6 +4,78 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Rule priority fix and golden cleanup — Наряд №43
+- Fix: `execute_rules()` in both interpreter and VM now implements
+  priority-ordered, first-wins semantics (ADR-0090). Previously all
+  matching rules executed with last-write-wins, inverting priority.
+- Fix: per-field deduplication via `HashSet<(String, String)>` — rules
+  targeting different fields of the same entity all fire; only same-field
+  conflicts are resolved by priority.
+- Test: `p42_rule_priority_order.expected` updated 0.5 → 0.9.
+- Test: `p42_rule_equal_priority.expected` updated 0.3 → 0.9.
+- Test: `p43_rule_different_fields` added — both fields written.
+- Fix: 5 stale golden expected files corrected (v05_integration,
+  v05_string_ops, v05_let_bindings, p30_db_params, p31_malformed.error).
+  Golden coverage: 66/70 pass (4 remaining are server/env-dependent p7_*).
+- ADR-0090: rule priority semantics with prior art (CLIPS, Drools).
+
+### Fluid Types, confidence, and rule tests — Наряд №42
+- Test: 6 golden test pairs (`p42_fluid_*`) covering Fluid collapse
+  semantics — type-directed selection, max confidence wins, threshold
+  boundary (0.1), no matching variant soft-failure, non-Fluid passthrough.
+- Test: 8 unit tests on `maybe_collapse` directly — threshold boundary,
+  empty Fluid, type selection, non-Fluid passthrough.
+- Test: 4 golden test pairs (`p42_rule_*`) covering rule engine — priority
+  ordering (last-write-wins), equal priority (declaration order), probabilistic
+  value assignment, condition-not-met no-change.
+- Docs: renamed `p1_confidence_propagation` → `p1_fluid_collapse` —
+  the example tested collapse, not propagation.
+- ADR-0089: documents actual confidence semantics — no propagation through
+  pattern calls; after collapse value is concrete; `confidence()` returns
+  1.0 on concrete values. Open question: future propagation approaches.
+- README verified: no false claims of confidence propagation.
+
+### VM backend parity — Наряд №41
+- Compiler: `match` statement returns compile error (`Err`) instead of
+  silent Unit placeholder. Routes with `match` cannot compile for VM —
+  prevents silently wrong results.
+- VM audit log: `Vm` now has `audit_log: Mutex<Vec<String>>` with
+  `push_audit()` / `take_audit_log()`. Adapt, Relate, Mutate instructions
+  write audit entries matching interpreter format.
+- Server: `flush_vm_audit_entries_to_db()` flushes VM audit to SQLite
+  and in-memory log after each request. Closes OWASP A09 regression.
+- Session hooks: investigated — `hooks_session_start`/`hooks_session_end`
+  are startup-time only (in `run()`), NOT per-request. No discrepancy
+  exists between backends. FOSVED does not use session hooks.
+- Test: `test_n41_side_effect_parity` verifies both backends return same
+  HTTP status for OK and crash cases.
+- Test: `test_n41_match_not_compilable_in_vm` and
+  `test_n41_non_match_routes_compile_in_vm` verify match compile error.
+- `load_program()` benchmark on `app.mlog`: ~134 µs per request (debug).
+  Acceptable for LLM-heavy routes; negates VM advantage for micro-routes.
+- ADR-0088 updated: Block 1-5 results, corrected session hooks claim.
+
+### VM backend for mlog serve (Наряд №40)
+- `METALOGOS_SERVE_BACKEND` env var: `interpreter` (default) or `vm`.
+  Unknown value → warning in log + fallback to interpreter, no panic.
+- `CompiledRoute` struct in `bytecode.rs`: compiled route body bytecode.
+- `Compiler::compile_routes()`: compiles route body statements to bytecode
+  (reuses pattern body compilation pipeline).
+- `Vm::load_program()`: initializes VM state without executing main_code
+  (prevents flow execution during per-request VM setup).
+- `Vm::execute_route_code()`: per-request route execution with fresh stack.
+- `Vm` server-context: `set_server_json_body`, `set_server_query_params`,
+  `set_server_user_roles` + `clear_server_context`.
+- `Vm::call_builtin` intercepts `query_param`, `json_body`, `form_data`,
+  `require` — same semantics as interpreter's FnCall dispatch.
+- `ServerState` extended: `backend`, `vm_program`, `vm_routes`.
+- Route compilation at startup (not per-request). Backend logged at start.
+- `execute_route_body_vm()` in server.rs: VM route execution path
+  with `block_in_place` for `!Send` Vm.
+- Tests: env flag default/fallback, crash route → 500, OK route → 200,
+  query param isolation, kv_set cross-request visibility.
+- ADR-0088: VM backend for mlog serve — feasibility and implementation notes.
+
 ### And/Or in VM bytecode (Наряд №39)
 - VM compiler: implemented `and`/`or` short-circuit evaluation using
   `JumpIfNot`/`Jump`/`Const` instructions. Semantics match interpreter:

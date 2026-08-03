@@ -1,0 +1,11 @@
+// Наряд №43: Rules targeting different fields of the same entity.
+// Both rules should fire — first-wins only applies when multiple rules
+// target the same (entity, field) pair (ADR-0090).
+// Rule 1 (priority=10) writes urgency=0.9; Rule 2 (priority=5) writes category="work".
+entity Message { text: String, urgency: Float, category: String }
+entity m: Message = { text: "urgent task", urgency: 0.0, category: "none" }
+
+rule If(m.text contains "urgent") then m.urgency = 0.9 with priority=10
+rule If(m.text contains "task") then m.category = "work" with priority=5
+
+flow Main { input: String = to_string(m.urgency) + " " + m.category -> output }

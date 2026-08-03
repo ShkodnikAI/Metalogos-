@@ -56,7 +56,7 @@ No frameworks. No boilerplate. No `import ai_sdk`. The language *is* the AI infr
 | **Entity** | Typed data with identity, confidence, relations | Structs, objects, variables |
 | **Pattern** | Transformations — pure, learnable (LLM), or hybrid | Functions, API calls |
 | **Flow** | Declarative pipelines with confidence-based branching | Control flow, orchestrators |
-| **Memory** | Semantic store with priority-based recall and decay | Databases, caches, vector stores |
+| **Memory** | Typed semantic store with FTS5 BM25 + cosine RRF hybrid recall, decay | Databases, caches, vector stores |
 | **Rule** | Probabilistic rules with priority and conflict resolution | If/else chains, business logic |
 | **Learn** | Training as a language operation | ML frameworks, training scripts |
 | **Adapt** | Runtime self-modification with sandbox and rollback | No direct analogue |
@@ -138,6 +138,15 @@ cron_list()   // list all jobs
 
 Three-level hierarchical memory: L0 (raw entries) → L1 (chunk summaries) → L2 (global summary). Admission-gated storage, keyword-relevance retrieval with scoring, and automatic compression.
 
+### Typed Memory with Hybrid Search (ADR-0072, ADR-0073)
+
+Memory entries carry a type tag (`persona`, `episodic`, `instruction`, `fact`) for differentiated recall. SQLite-backed persistence with FTS5 BM25 keyword index + cosine similarity, merged via Reciprocal Rank Fusion (k=60). Top-K recall with type filtering:
+
+```mlog
+memorize("user likes spicy food", 0.9, "persona")
+let results = recall_top_k("food preferences", 5, "persona")
+```
+
 ### Goals & Todos
 
 Built-in goal tracking with deadlines and todo management with priorities — all persisted in KV store.
@@ -206,9 +215,9 @@ Pre-built Linux x86_64 binaries are available from [GitHub Actions](https://gith
 | Built-in functions | 177 function definitions | 8 010 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 1 446 |
 | LLM backend | Trait + mock + real providers | 1 421 |
-| Memory store | Semantic memory with decay + KV store | 1 173 |
+| Memory store | Typed memory with FTS5 BM25 + cosine RRF hybrid recall + KV store | 1 540 |
 | Security audit | Static OWASP analysis | 1 075 |
-| Embeddings | Cosine similarity search | 601 |
+| Embeddings | TF-IDF + OpenAI cosine similarity, FTS5 BM25 | 601 |
 | **Total** | | **~25 755** |
 
 ### Project Structure
@@ -235,7 +244,7 @@ Metalogos-/
 ├── tests/                       # 35 integration test files (incl. phase23 v0.9.1 else-branch contracts)
 ├── examples/                    # 92 .mlog programs with golden tests
 ├── std/                         # Standard library (string, math, collections)
-├── docs/adr/                    # 76 Architecture Decision Records
+├── docs/adr/                    # 78 Architecture Decision Records
 ├── FOSVED-office-v2/            # Submodule: AI office with 14 departments
 ├── REFERENCE.md                 # Full builtin reference (RU)
 └── CHANGELOG.md                 # Version history
@@ -277,7 +286,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete. 22+ development narads (work orders) delivered. 177 builtins, 35 test files, 92 golden-file examples, 76 ADRs.
+All 8 milestones and 8+ phases complete. 22+ development narads (work orders) delivered. 177+ builtins, 35 test files, 92 golden-file examples, 78 ADRs.
 
 ### Next
 

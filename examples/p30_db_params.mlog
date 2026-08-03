@@ -5,8 +5,9 @@ db { url: "sqlite::memory:" }
 pattern DbParams(x: String) -> String {
   // Single-arg (backward compat)
   db_execute("CREATE TABLE t (name TEXT)")
-  // Two-arg with params — O’Brien contains apostrophe
-  db_execute("INSERT INTO t (name) VALUES (?1)", ["O’Brien"])
+  // Two-arg with params — O'Brien contains ASCII apostrophe (U+0027),
+  //   the character that breaks naive SQL string concatenation
+  db_execute("INSERT INTO t (name) VALUES (?1)", ["O'Brien"])
   // SQL injection attempt — stored as literal string
   db_execute("INSERT INTO t (name) VALUES (?1)", ["'; DROP TABLE t; --"])
   let n = query_scalar("SELECT COUNT(*) FROM t", [])

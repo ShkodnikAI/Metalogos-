@@ -2382,6 +2382,11 @@ impl Interpreter {
             return self.invoke_memorize_fn(args);
         }
 
+        // recall_top_k() — ADR-0073 hybrid search (flow step context)
+        if name == "recall_top_k" {
+            return self.invoke_recall_top_k(args);
+        }
+
         // forget() — callable form (flow step context)
         if name == "forget" {
             return self.invoke_forget_fn(args);
@@ -3109,8 +3114,9 @@ impl Interpreter {
     }
 
     /// Callable form of memorize() — usable inside patterns and route handlers.
-    /// Usage: memorize("user likes spicy food", 0.5) or memorize("fact")
+    /// Usage: memorize("text"), memorize("text", 0.5), memorize("text", 0.5, "persona")
     /// Differs from declaration `memorize "text" with priority=0.5` (top-level only).
+    /// ADR-0073: 3rd arg is mem_type ("persona", "episodic", "instruction", "fact", or "").
     fn invoke_memorize_fn(&self, args: Vec<Value>) -> Result<Value, String> {
         if args.is_empty() {
             return Err("memorize() requires at least 1 argument (text)".to_string());
@@ -3129,6 +3135,14 @@ impl Interpreter {
         } else {
             1.0
         };
+        let mem_type = if args.len() > 2 {
+            match &args[2] {
+                Value::String(s) => s.clone(),
+                other => format!("{}", other),
+            }
+        } else {
+            String::new()
+        };
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
@@ -3142,12 +3156,60 @@ impl Interpreter {
             decay_rate: 0.01,
             confidence: priority,
             embedding,
-            mem_type: String::new(),
+            mem_type,
         }) {
-            Ok(id) => { /* Bug 2.3 fix: removed eprintln stdout leak in HTTP context */ }
+            Ok(_id) => { /* silent — don't leak to stdout in HTTP context */ }
             Err(_) => { /* silent — don't leak to stdout in HTTP context */ }
         }
         Ok(Value::Unit)
+    }
+
+    /// recall_top_k(query, limit) or recall_top_k(query, limit, type_filter) — ADR-0073.
+    /// Returns JSON array of top-K memory entries sorted by combined BM25+cosine score.
+    /// Each entry: {"value": "...", "score": 0.9, "type": "persona", "priority": 0.8}
+    fn invoke_recall_top_k(&self, args: Vec<Value>) -> Result<Value, String> {
+        if args.is_empty() {
+            return Err("recall_top_k() requires at least 1 argument (query)".to_string());
+        }
+        let query = match &args[0] {
+            Value::String(s) => s.clone(),
+            other => {
+                return Err(format!(
+                    "recall_top_k() expected String as first arg, got {}",
+                    other.type_name()
+                ))
+            }
+        };
+        let limit = if args.len() > 1 {
+            args[1].as_float().unwrap_or(5.0) as usize
+        } else {
+            5
+        };
+        let type_filter = if args.len() > 2 {
+            match &args[2] {
+                Value::String(s) => s.clone(),
+                other => format!("{}", other),
+            }
+        } else {
+            String::new()
+        };
+
+        let query_embedding = self.embedding_manager.embed(&query).unwrap_or_default();
+        let results = lock_or_err(self.memory.lock())?
+            .recall_top_k(&query, &query_embedding, 0.0, limit, &type_filter);
+
+        // Format as JSON array of objects
+        let entries_json: Vec<String> = results
+            .into_iter()
+            .map(|(e, score)| {
+                let val_escaped = e.value.replace('\\', "\\\\").replace('"', "\\\"");
+                format!(
+                    r#"{{"value":"{}","score":{:.4},"type":"{}","priority":{:.2}}}"#,
+                    val_escaped, score, e.mem_type, e.priority
+                )
+            })
+            .collect();
+        Ok(Value::String(format!("[{}]", entries_json.join(","))))
     }
 
     /// Callable form of forget() — usable inside patterns and route handlers.
@@ -4605,6 +4667,11 @@ impl Interpreter {
                 // Differs from declaration: memorize "text" with priority=0.5
                 if name == "memorize" {
                     return self.invoke_memorize_fn(eval_args);
+                }
+
+                // recall_top_k() — ADR-0073 hybrid search (expression context)
+                if name == "recall_top_k" {
+                    return self.invoke_recall_top_k(eval_args);
                 }
 
                 // Check forget() — callable form (Definition of Done)

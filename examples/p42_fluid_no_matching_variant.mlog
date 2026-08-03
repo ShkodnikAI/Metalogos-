@@ -1,0 +1,7 @@
+// Наряд №42, Блок 1: No variant of the required type → Unit (soft-failure).
+// Fluid only has Float variant, but pattern requires String → Unit.
+fluid x = Float[42.0][0.9]
+
+pattern GetString(v: String) -> String { return v }
+
+flow Main { input: String = x -> GetString -> output }

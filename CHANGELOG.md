@@ -4,6 +4,21 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Rule priority fix and golden cleanup — Наряд №43
+- Fix: `execute_rules()` in both interpreter and VM now implements
+  priority-ordered, first-wins semantics (ADR-0090). Previously all
+  matching rules executed with last-write-wins, inverting priority.
+- Fix: per-field deduplication via `HashSet<(String, String)>` — rules
+  targeting different fields of the same entity all fire; only same-field
+  conflicts are resolved by priority.
+- Test: `p42_rule_priority_order.expected` updated 0.5 → 0.9.
+- Test: `p42_rule_equal_priority.expected` updated 0.3 → 0.9.
+- Test: `p43_rule_different_fields` added — both fields written.
+- Fix: 5 stale golden expected files corrected (v05_integration,
+  v05_string_ops, v05_let_bindings, p30_db_params, p31_malformed.error).
+  Golden coverage: 66/70 pass (4 remaining are server/env-dependent p7_*).
+- ADR-0090: rule priority semantics with prior art (CLIPS, Drools).
+
 ### Fluid Types, confidence, and rule tests — Наряд №42
 - Test: 6 golden test pairs (`p42_fluid_*`) covering Fluid collapse
   semantics — type-directed selection, max confidence wins, threshold

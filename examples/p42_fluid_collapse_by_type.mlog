@@ -1,0 +1,7 @@
+// Наряд №42, Блок 1: Fluid collapses to the variant matching the required type.
+// Float[42.0][0.9] or String["answer"][0.1] — Float context picks 42.0.
+fluid x = Float[42.0][0.9] or String["answer"][0.1]
+
+pattern GetFloat(v: Float) -> Float { return v }
+
+flow Main { input: Float = x -> GetFloat -> output }

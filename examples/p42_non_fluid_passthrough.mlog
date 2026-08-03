@@ -1,0 +1,5 @@
+// Наряд №42, Блок 1: Non-Fluid concrete values pass through unchanged.
+// Regular Float 42.0 goes through Float context without collapse logic.
+pattern GetFloat(v: Float) -> Float { return v }
+
+flow Main { input: Float = 42.0 -> GetFloat -> output }

@@ -2,25 +2,46 @@ use super::*;
 
 impl Interpreter {
     pub(super) fn execute_rules(&mut self) -> Result<(), String> {
-        // Sort by priority descending; stable sort preserves declaration order for ties
+        // Sort by priority descending; stable sort preserves declaration order for ties.
+        // ADR-0090: priority-ordered, first-wins semantics.
+        // Rules are evaluated in priority-descending order. For each (entity, field)
+        // pair, only the first matching rule (highest priority, earliest declared)
+        // writes the field. Subsequent rules targeting the same field are skipped.
+        // Rules targeting *different* fields of the same entity all fire.
         let mut sorted_rules: Vec<&RuleDecl> = self.rules.iter().collect();
         sorted_rules.sort_by_key(|b| std::cmp::Reverse(b.priority));
 
+        // Track which (entity_name, field_name) pairs have already been written
+        let mut written: std::collections::HashSet<(String, String)> =
+            std::collections::HashSet::new();
+
         for rule in sorted_rules {
+            // Extract target name for dedup tracking
+            let target_name = match &rule.target {
+                Expr::Ident(name) => name.clone(),
+                _ => continue, // non-ident targets are not supported by rules
+            };
+
+            // Skip if this field was already written by a higher-priority rule
+            if written.contains(&(target_name.clone(), rule.field.clone())) {
+                continue;
+            }
+
             let condition_met = self.eval_condition(&rule.condition, &self.variables)?;
             if condition_met {
-                // Execute assignment: target.field = value
+                // Evaluate the value before mutation
                 let _target_val = self.eval_expr(&rule.target)?;
                 let value_val = self.eval_expr(&rule.value)?;
 
-                // We need to mutate the entity in variables
-                // The target is an Ident (entity name), field is the field name
                 if let Expr::Ident(name) = &rule.target {
                     let entity = self
                         .variables
                         .get_mut(name)
                         .ok_or_else(|| format!("rule target '{}' not found", name))?;
                     entity.set_field(&rule.field, value_val)?;
+
+                    // Mark this (entity, field) as written — first-wins
+                    written.insert((name.clone(), rule.field.clone()));
                 }
             }
         }

@@ -1,0 +1,11 @@
+// Наряд №42/43: Rules with equal priority — both match same field.
+// First-wins semantics (ADR-0090): first declared rule wins.
+// First rule (priority=10) writes urgency=0.9; second rule targeting
+// the same field is skipped.
+entity Message { text: String, urgency: Float }
+entity m: Message = { text: "urgent task", urgency: 0.0 }
+
+rule If(m.text contains "urgent") then m.urgency = 0.9 with priority=10
+rule If(m.text contains "task") then m.urgency = 0.3 with priority=10
+
+flow Main { input: Float = m.urgency -> output }

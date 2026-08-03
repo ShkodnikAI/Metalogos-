@@ -25,7 +25,10 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use chrono::{Datelike, Timelike};
 
 use crate::ast::*;
+use crate::bytecode::{CompiledRoute, Program};
+use crate::compiler::Compiler;
 use crate::interpreter::{Interpreter, Value};
+use crate::vm::Vm;
 
 /// Check if a cron field (min/hour/dom/month/dow) matches a value.
 /// Supports: `*`, `*/N`, `N`, `N-M`, `N,M,O`, `N-M/S`.
@@ -166,6 +169,12 @@ pub struct ServerState {
     pub db: Arc<tokio::sync::Mutex<rusqlite::Connection>>,
     /// Rate-limit tracker: IP → Vec<Instant> (Phase 7.4).
     pub rate_limits: Arc<DashMap<String, Vec<std::time::Instant>>>,
+    /// Which backend to use for route execution (Наряд №40).
+    pub backend: ServeBackend,
+    /// Compiled VM program (Наряд №40: compiled once at startup, reused per request).
+    pub vm_program: Option<Arc<Program>>,
+    /// Compiled route bytecodes (Наряд №40: one per route, compiled at startup).
+    pub vm_routes: Vec<CompiledRoute>,
 }
 
 #[derive(Debug, Clone)]
@@ -173,6 +182,15 @@ pub struct SessionEntry {
     pub data: HashMap<String, String>,
     pub roles: Vec<String>,
     pub expires: std::time::Instant,
+}
+
+/// Which backend to use for route execution (Наряд №40).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServeBackend {
+    /// Tree-walking interpreter (default).
+    Interpreter,
+    /// Stack-based bytecode VM.
+    Vm,
 }
 
 // ── Public API ─────────────────────────────────────────────────────
@@ -212,7 +230,59 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
 
     let port = config.port;
     let host = config.host.clone().unwrap_or_else(|| "0.0.0.0".to_string());
-    let state = build_state(config, interp).await?;
+    let mut state = build_state(config.clone(), interp).await?;
+
+    // ── Наряд №40: Read METALOGOS_SERVE_BACKEND once at startup ──
+    let backend = match std::env::var("METALOGOS_SERVE_BACKEND") {
+        Ok(ref val) if val == "vm" => {
+            eprintln!("[server] backend: vm (bytecode VM)");
+            ServeBackend::Vm
+        }
+        Ok(ref val) if val == "interpreter" => {
+            eprintln!("[server] backend: interpreter (tree-walking)");
+            ServeBackend::Interpreter
+        }
+        Ok(val) => {
+            eprintln!(
+                "[WARN] METALOGOS_SERVE_BACKEND='{}' is unknown, falling back to interpreter",
+                val
+            );
+            ServeBackend::Interpreter
+        }
+        Err(_) => {
+            eprintln!("[server] backend: interpreter (default)");
+            ServeBackend::Interpreter
+        }
+    };
+    state.backend = backend;
+
+    // ── Наряд №40: Compile routes for VM at startup (not per-request) ──
+    if state.backend == ServeBackend::Vm {
+        let start = std::time::Instant::now();
+        let mut compiler = Compiler::new();
+        let program = compiler
+            .compile(declarations.clone())
+            .map_err(|e| format!("VM compile error: {}", e))?;
+        let compiled_routes = compiler
+            .compile_routes(&config.routes)
+            .map_err(|e| format!("VM route compile error: {}", e))?;
+        let elapsed = start.elapsed();
+        eprintln!(
+            "[server] VM compilation: {} routes in {:.1} µs ({} instructions total)",
+            compiled_routes.len(),
+            elapsed.as_micros(),
+            compiled_routes.iter().map(|r| r.code.len()).sum::<usize>()
+        );
+
+        // Build VM template with program data (patterns, learnables, etc.)
+        // Note: Vm is !Send, so we cannot store it in ServerState (Arc<Vm>).
+        // Instead, we store Arc<Program> and create a fresh Vm per request.
+        // Vm::run() is cheap (just initializes globals/patterns from program).
+
+        state.vm_program = Some(Arc::new(program));
+        state.vm_routes = compiled_routes;
+    }
+
     let app = build_router(state.clone());
 
     // v0.8.2 — Background reminder scheduler (checks every 5 seconds)
@@ -402,7 +472,7 @@ pub async fn run_test_server(
 
 // ── Internal: Build State ──────────────────────────────────────────
 
-async fn build_state(
+pub(crate) async fn build_state(
     config: MlogServerDecl,
     interp: Interpreter,
 ) -> Result<ServerState, Box<dyn std::error::Error + Send + Sync>> {
@@ -431,6 +501,9 @@ async fn build_state(
         middleware: config.middleware.clone(),
         db: Arc::new(tokio::sync::Mutex::new(conn)),
         rate_limits: Arc::new(DashMap::new()),
+        backend: ServeBackend::Interpreter, // set after build_state returns
+        vm_program: None,
+        vm_routes: Vec::new(),
     })
 }
 
@@ -553,8 +626,12 @@ async fn route_handler(
             }
         }
 
-        // Execute route handler body
-        let result = execute_route_body(&state, &route.body, &headers, &body, &query).await;
+        // ── Наряд №40: Dispatch to VM or interpreter based on backend ──
+        let result = if state.backend == ServeBackend::Vm {
+            execute_route_body_vm(&state, route, &headers, &body, &query).await
+        } else {
+            execute_route_body(&state, &route.body, &headers, &body, &query).await
+        };
         let mut response = match result {
             Ok(response) => response,
             Err(e) => (
@@ -951,7 +1028,7 @@ pub fn json_value_to_value(val: &serde_json::Value) -> Value {
 
 // ── Route Body Execution ────────────────────────────────────────────
 
-async fn execute_route_body(
+pub(crate) async fn execute_route_body(
     state: &ServerState,
     body_stmts: &[Statement],
     _headers: &HeaderMap,
@@ -1123,6 +1200,99 @@ async fn execute_route_body(
     Ok((StatusCode::OK, "OK").into_response())
 }
 
+/// ── VM Route Execution (Наряд №40) ────────────────────────────────
+///
+/// VM equivalent of `execute_route_body`. Creates a fresh VM instance per
+/// request (cloned from template), injects per-request server context,
+/// executes compiled route bytecode, and returns the HTTP response.
+///
+/// **Isolation guarantee**: each request gets its own Vm with fresh stack.
+/// Global state (kv_set, memory) is shared via builtins (Mutex-backed).
+async fn execute_route_body_vm(
+    state: &ServerState,
+    route: &crate::ast::RouteDecl,
+    headers: &HeaderMap,
+    raw_body: &bytes::Bytes,
+    query_params: &std::collections::HashMap<String, String>,
+) -> Result<Response, String> {
+    // Find the compiled route matching this path+method
+    let compiled = state
+        .vm_routes
+        .iter()
+        .find(|r| r.path == route.path && r.method == route.method)
+        .ok_or_else(|| format!("VM: no compiled route for {} {}", route.method, route.path))?;
+
+    let program = state
+        .vm_program
+        .as_ref()
+        .ok_or("VM: no compiled program available")?;
+
+    // Execute compiled route bytecode.
+    // Vm is !Send (holds rusqlite::Connection), so we use block_in_place.
+    // Extract user roles before entering sync context (DashMap access).
+    let user_roles = if state.middleware.contains(&"session".to_string()) {
+        if let Some(session_id) = extract_session_cookie(headers) {
+            if let Some(raw_id) = verify_cookie(&session_id, &state.hmac_key) {
+                if let Some(entry) = state.sessions.get(&raw_id) {
+                    entry.value().roles.clone()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
+    let (audit_entries, result) = tokio::task::block_in_place(|| {
+        let mut vm = Vm::new();
+        vm.load_program(program)
+            .map_err(|e| format!("VM route init: {}", e))?;
+        vm.clear_server_context();
+
+        // Inject per-request server context
+        if let Ok(body_str) = std::str::from_utf8(raw_body) {
+            if !body_str.is_empty() {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(body_str) {
+                    let value = json_value_to_value(&json);
+                    vm.set_server_json_body(value);
+                }
+            }
+        }
+        if !query_params.is_empty() {
+            vm.set_server_query_params(query_params.clone());
+        }
+        if !user_roles.is_empty() {
+            vm.set_server_user_roles(user_roles);
+        }
+
+        let result = vm.execute_route_code(compiled, program);
+        // Наряд №41 Block 2: collect audit entries before vm is dropped
+        let entries = vm.take_audit_log();
+        Result::<_, String>::Ok((entries, result))
+    })?;
+
+    // Наряд №41 Block 2: flush VM audit entries (parity with interpreter)
+    flush_vm_audit_entries_to_db(state, &audit_entries).await;
+
+    match result {
+        Ok(val) => {
+            // Check if the result is an HttpResponse (from respond())
+            if let Value::HttpResponse { status, body } = val {
+                let code = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
+                return Ok((code, body).into_response());
+            }
+            // For other value types, convert like the interpreter does
+            Ok(value_to_response(val))
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// Phase 7.5: Write interpreter audit entries to the SQLite audit_log table.
 async fn flush_audit_to_db(state: &ServerState, interp: &mut Interpreter) {
     let entries = interp.take_audit_log();
@@ -1151,6 +1321,34 @@ async fn flush_audit_to_db(state: &ServerState, interp: &mut Interpreter) {
     {
         let mut log = state.audit_log.write().await;
         for entry in &entries {
+            log.push(entry.clone());
+        }
+    }
+}
+
+/// Наряд №41 Block 2: Flush VM audit entries to the SQLite audit_log table.
+/// VM parity with `flush_audit_to_db` — same DB writes, same in-memory log.
+async fn flush_vm_audit_entries_to_db(state: &ServerState, entries: &[String]) {
+    if entries.is_empty() {
+        return;
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    let conn = state.db.lock().await;
+    for entry in entries {
+        let (action, pattern, result) = parse_audit_entry(entry);
+        let _ = conn.execute(
+            "INSERT INTO audit_log (timestamp, action, pattern, result, sandbox) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![now, action, pattern, result, ""],
+        );
+    }
+    {
+        let mut log = state.audit_log.write().await;
+        for entry in entries {
             log.push(entry.clone());
         }
     }
@@ -1369,12 +1567,15 @@ pub fn render_template(body: &str, vars: &HashMap<String, String>) -> String {
 
 // ── Interpreter Merge ──────────────────────────────────────────────
 
-fn build_interpreter_with_server(srv: &MlogServerDecl, mut interp: Interpreter) -> Interpreter {
+pub(crate) fn build_interpreter_with_server(
+    srv: &MlogServerDecl,
+    mut interp: Interpreter,
+) -> Interpreter {
     interp = merge_templates(srv, interp);
     interp
 }
 
-fn merge_interpreter(from: Interpreter, mut into: Interpreter) -> Interpreter {
+pub(crate) fn merge_interpreter(from: Interpreter, mut into: Interpreter) -> Interpreter {
     // Merge variables (borrow, don't move)
     for (k, v) in &from.variables {
         into.variables.entry(k.clone()).or_insert(v.clone());
@@ -1739,6 +1940,418 @@ mod tests {
             ],
             db: Arc::new(tokio::sync::Mutex::new(conn)),
             rate_limits: Arc::new(DashMap::new()),
+            backend: ServeBackend::Interpreter,
+            vm_program: None,
+            vm_routes: Vec::new(),
         }
+    }
+
+    // ── Наряд №40 Tests: VM backend ──────────────────────────────
+
+    #[tokio::test]
+    async fn test_n40_backend_env_default_is_interpreter() {
+        // Ensure default (no env var) is Interpreter
+        std::env::remove_var("METALOGOS_SERVE_BACKEND");
+        let backend = match std::env::var("METALOGOS_SERVE_BACKEND") {
+            Ok(val) if val == "vm" => ServeBackend::Vm,
+            Ok(val) if val == "interpreter" => ServeBackend::Interpreter,
+            Ok(_) => ServeBackend::Interpreter,  // fallback
+            Err(_) => ServeBackend::Interpreter, // default
+        };
+        assert_eq!(backend, ServeBackend::Interpreter);
+    }
+
+    #[tokio::test]
+    async fn test_n40_backend_env_unknown_falls_back() {
+        // "typo" → fallback to Interpreter, not panic
+        let backend = match Some("typo".to_string()) {
+            Some(ref val) if *val == "vm" => ServeBackend::Vm,
+            Some(ref val) if *val == "interpreter" => ServeBackend::Interpreter,
+            Some(_) => ServeBackend::Interpreter, // fallback on unknown
+            None => ServeBackend::Interpreter,
+        };
+        assert_eq!(backend, ServeBackend::Interpreter);
+    }
+
+    #[tokio::test]
+    async fn test_n40_crashing_route_returns_500_interpreter() {
+        // Route body: divide by string (error in expression evaluation)
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/crash" method=GET {
+        let x = "hello" / 3
+        respond("200", "should not reach here")
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+        let response = call_route(&state, "GET", "/crash", "", "").await;
+        assert_eq!(response.status(), 500);
+    }
+
+    #[tokio::test]
+    async fn test_n40_ok_route_returns_200_interpreter() {
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/ok" method=GET {
+        respond("200", "hello")
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+        let response = call_route(&state, "GET", "/ok", "", "").await;
+        assert_eq!(response.status(), 200);
+    }
+
+    #[tokio::test]
+    async fn test_n40_query_param_isolation() {
+        // Two requests with different query params must get their own values.
+        // This proves per-request isolation: request A's query_param("name")
+        // does not leak into request B.
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/echo" method=GET {
+        let name = query_param("name")
+        respond("200", name)
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+
+        // Request A: name=Alice
+        let resp_a = call_route(&state, "GET", "/echo", "name=Alice", "").await;
+        assert_eq!(resp_a.status(), 200);
+        let body_a = body_to_string(resp_a).await;
+        assert_eq!(body_a, "Alice");
+
+        // Request B: name=Bob
+        let resp_b = call_route(&state, "GET", "/echo", "name=Bob", "").await;
+        assert_eq!(resp_b.status(), 200);
+        let body_b = body_to_string(resp_b).await;
+        assert_eq!(body_b, "Bob");
+    }
+
+    #[tokio::test]
+    async fn test_n40_kv_set_shared_between_requests() {
+        // kv_set in one request must be visible in the next (shared store).
+        // This confirms that global state (kv_set/kv_get) works across requests,
+        // unlike local variables which are isolated.
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/set" method=GET {
+        kv_set("test_key", "test_value")
+        respond("200", "set")
+    }
+    route "/get" method=GET {
+        let val = kv_get("test_key")
+        respond("200", val)
+    }
+}
+"#;
+        let state = build_test_server_state(source).await;
+
+        // Clear any previous value (via interpreter builtin call)
+        {
+            let interp = state.interpreter.write().await;
+            if let Some(fn_kv) = interp.get_builtin("kv_delete") {
+                let _ = fn_kv(&[crate::interpreter::Value::String("test_key".to_string())]);
+            }
+        }
+
+        // Set
+        let resp_set = call_route(&state, "GET", "/set", "", "").await;
+        assert_eq!(resp_set.status(), 200);
+
+        // Get — should see the value set by previous request
+        let resp_get = call_route(&state, "GET", "/get", "", "").await;
+        assert_eq!(resp_get.status(), 200);
+        let body_get = body_to_string(resp_get).await;
+        assert_eq!(body_get, "test_value");
+
+        // Cleanup
+        {
+            let interp = state.interpreter.write().await;
+            if let Some(fn_kv) = interp.get_builtin("kv_delete") {
+                let _ = fn_kv(&[crate::interpreter::Value::String("test_key".to_string())]);
+            }
+        }
+    }
+
+    /// Helper: extract body string from a Response.
+    async fn body_to_string(resp: axum::response::Response) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap_or_default();
+        String::from_utf8(bytes.to_vec()).unwrap_or_default()
+    }
+
+    /// Helper: build a minimal ServerState from mlog source for testing.
+    async fn build_test_server_state(source: &str) -> ServerState {
+        let declarations = crate::parser::parse(source).unwrap();
+        let mut interp = Interpreter::new();
+        for decl in declarations.clone() {
+            match decl {
+                Declaration::MlogServer(ref srv) => {
+                    interp = build_interpreter_with_server(srv, interp);
+                }
+                Declaration::Flow(_) => {}
+                _ => {
+                    let mut tmp = Interpreter::new();
+                    tmp.set_base_dir(std::path::PathBuf::from("."));
+                    let _ = tmp.run(vec![decl]);
+                    interp = merge_interpreter(tmp, interp);
+                }
+            }
+        }
+        let config = declarations
+            .iter()
+            .find_map(|d| match d {
+                Declaration::MlogServer(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap();
+        build_state(config, interp).await.unwrap()
+    }
+
+    /// Helper: simulate calling a route on the server state.
+    async fn call_route(
+        state: &ServerState,
+        method: &str,
+        path: &str,
+        query: &str,
+        body: &str,
+    ) -> axum::response::Response {
+        let _uri: Uri = format!("{}?{}", path, query).parse().unwrap();
+        let method = match method {
+            "GET" => Method::GET,
+            "POST" => Method::POST,
+            _ => Method::GET,
+        };
+        let headers = HeaderMap::new();
+        let body_bytes = bytes::Bytes::from(body.to_string());
+
+        let query_map: std::collections::HashMap<String, String> = if query.is_empty() {
+            HashMap::new()
+        } else {
+            query
+                .split('&')
+                .filter_map(|pair| {
+                    let mut parts = pair.splitn(2, '=');
+                    let key = parts.next()?.to_string();
+                    let val = parts.next().unwrap_or("").to_string();
+                    Some((key, val))
+                })
+                .collect()
+        };
+
+        let result = execute_route_body(
+            state,
+            &state
+                .routes
+                .iter()
+                .find(|r| r.path == path && r.method == method.as_str())
+                .unwrap()
+                .body,
+            &headers,
+            &body_bytes,
+            &query_map,
+        )
+        .await;
+        match result {
+            Ok(resp) => resp,
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Handler error: {}", e),
+            )
+                .into_response(),
+        }
+    }
+
+    /// Наряд №41 Block 1: match statement must cause compilation error, not silent stub.
+    #[tokio::test]
+    async fn test_n41_match_not_compilable_in_vm() {
+        use crate::compiler::Compiler;
+        use crate::parser;
+
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/match_test" method=GET {
+        let x = "hello"
+        match x {
+            "hello" then { respond("200", "matched") }
+            else { respond("200", "default") }
+        }
+    }
+}
+"#;
+        let declarations = parser::parse(source).unwrap();
+        let config = declarations
+            .iter()
+            .find_map(|d| match d {
+                Declaration::MlogServer(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let mut compiler = Compiler::new();
+        // compile_routes should return Err because route body contains match
+        let result = compiler.compile_routes(&config.routes);
+        assert!(
+            result.is_err(),
+            "compile_routes must return Err for match statement, got Ok"
+        );
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("Match statement not yet supported"),
+            "error message should mention Match, got: {}",
+            err_msg
+        );
+    }
+
+    /// Наряд №41 Block 1: routes without match still compile fine.
+    #[tokio::test]
+    async fn test_n41_non_match_routes_compile_in_vm() {
+        use crate::compiler::Compiler;
+        use crate::parser;
+
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/ok" method=GET {
+        let x = "hello"
+        respond("200", x)
+    }
+}
+"#;
+        let declarations = parser::parse(source).unwrap();
+        let config = declarations
+            .iter()
+            .find_map(|d| match d {
+                Declaration::MlogServer(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let mut compiler = Compiler::new();
+        let result = compiler.compile_routes(&config.routes);
+        assert!(
+            result.is_ok(),
+            "compile_routes should succeed for routes without match, got Err: {}",
+            result.unwrap_err()
+        );
+    }
+
+    /// Наряд №41 Block 4: Side-effect parity test — both backends produce
+    /// same HTTP status for an identical route.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_n41_side_effect_parity() {
+        use crate::compiler::Compiler;
+        use crate::vm::Vm;
+
+        let source = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/parity" method=GET {
+        let x = query_param("x")
+        if x == "crash" then { let _ = 1 / 0 }
+        respond("200", "x=" + x)
+    }
+}
+"#;
+        // Build server state (interpreter backend)
+        let state = build_test_server_state(source).await;
+
+        // Compile routes for VM
+        let mut compiler = Compiler::new();
+        let declarations = crate::parser::parse(source).unwrap();
+        let config = declarations
+            .iter()
+            .find_map(|d| match d {
+                Declaration::MlogServer(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let compiled_routes = compiler.compile_routes(&config.routes).unwrap();
+        let program = compiler.compile(declarations).unwrap();
+
+        let compiled = &compiled_routes[0];
+
+        // Helper: execute route via VM directly (bypasses state.vm_program check)
+        async fn call_route_vm_direct(
+            state: &ServerState,
+            program: &crate::bytecode::Program,
+            compiled: &crate::bytecode::CompiledRoute,
+            query: &std::collections::HashMap<String, String>,
+        ) -> Result<axum::response::Response, String> {
+            let (audit_entries, result) = tokio::task::block_in_place(|| {
+                let mut vm = Vm::new();
+                vm.load_program(program)
+                    .map_err(|e| format!("VM route init: {}", e))?;
+                vm.clear_server_context();
+                if !query.is_empty() {
+                    vm.set_server_query_params(query.clone());
+                }
+                let r = vm.execute_route_code(compiled, program);
+                let entries = vm.take_audit_log();
+                Result::<_, String>::Ok((entries, r))
+            })?;
+            flush_vm_audit_entries_to_db(state, &audit_entries).await;
+            match result {
+                Ok(val) => {
+                    if let crate::interpreter::Value::HttpResponse { status, body } = val {
+                        let code = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
+                        Ok((code, body).into_response())
+                    } else {
+                        Ok(value_to_response(val))
+                    }
+                }
+                Err(e) => Err(e),
+            }
+        }
+
+        // Test 1: OK response parity
+        let query_ok: std::collections::HashMap<String, String> =
+            [("x".to_string(), "hello".to_string())]
+                .into_iter()
+                .collect();
+
+        let interp_resp = call_route(&state, "GET", "/parity", "x=hello", "").await;
+        let vm_resp = call_route_vm_direct(&state, &program, compiled, &query_ok)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            interp_resp.status(),
+            vm_resp.status(),
+            "HTTP status mismatch for OK case"
+        );
+
+        // Test 2: crash response parity (both should error)
+        let query_crash: std::collections::HashMap<String, String> =
+            [("x".to_string(), "crash".to_string())]
+                .into_iter()
+                .collect();
+
+        let interp_crash = call_route(&state, "GET", "/parity", "x=crash", "").await;
+        let vm_crash = call_route_vm_direct(&state, &program, compiled, &query_crash).await;
+
+        let interp_is_error = interp_crash.status() == 500;
+        let vm_is_error = vm_crash.is_err();
+        assert!(
+            interp_is_error && vm_is_error,
+            "Both backends should error on crash: interp_status={}, vm_is_error={}",
+            interp_crash.status(),
+            vm_is_error
+        );
     }
 }

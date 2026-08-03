@@ -1,0 +1,9 @@
+// Наряд №42, Блок 3: Rule assigns a probabilistic value (0.85).
+// The value is written as a plain Float to the entity field,
+// representing a confidence/urgency score rather than a boolean.
+entity Message { text: String, urgency: Float }
+entity m: Message = { text: "urgent task", urgency: 0.0 }
+
+rule If(m.text contains "urgent") then m.urgency = 0.85 with priority=10
+
+flow Main { input: Float = m.urgency -> output }

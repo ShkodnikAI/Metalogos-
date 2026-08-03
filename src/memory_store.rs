@@ -18,6 +18,9 @@ use std::path::Path;
 // ── Memory Entry (shared between all store implementations) ──────────
 
 /// A single memory entry: stored fact with priority, timestamp, decay, and embedding.
+///
+/// `mem_type` classifies the entry for type-aware recall and differentiated decay.
+/// Types: "" (legacy), "persona", "episodic", "instruction", "fact".
 #[derive(Debug, Clone)]
 pub struct MemoryEntry {
     /// Database row ID (None for in-memory entries).
@@ -35,6 +38,8 @@ pub struct MemoryEntry {
     /// Embedding vector for semantic recall (Phase 7.2).
     /// Serialized as BLOB in SQLite, stored as Vec<f32> in memory.
     pub embedding: Vec<f32>,
+    /// Memory type for type-aware recall: "", "persona", "episodic", "instruction", "fact".
+    pub mem_type: String,
 }
 
 // ── Knowledge Graph Entry ──────────────────────────────────────────
@@ -324,6 +329,7 @@ impl SqliteStore {
                     embedding: Self::blob_to_embedding(
                         &row.get::<_, Vec<u8>>(6).unwrap_or_default(),
                     ),
+                    mem_type: String::new(),
                 })
             })
             .map_err(|e| format!("Load all query failed: {}", e))?;
@@ -359,12 +365,41 @@ impl SqliteStore {
                 confidence REAL NOT NULL DEFAULT 1.0,
                 decay_rate REAL NOT NULL DEFAULT 0.01,
                 created_at INTEGER NOT NULL,
-                embedding BLOB
+                embedding BLOB,
+                mem_type TEXT NOT NULL DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS idx_memories_value ON memories(value);
-            CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at);",
+            CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at);
+            CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(mem_type);",
         )
         .map_err(|e| format!("Failed to create memories table: {}", e))?;
+
+        // FTS5 full-text index for BM25 keyword search (Phase 2: hybrid recall).
+        // Content-synced via triggers so INSERT/UPDATE/DELETE on memories
+        // automatically propagate to the FTS table.
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+                value,
+                mem_type UNINDEXED,
+                content=memories,
+                content_rowid=id
+            );
+            CREATE TRIGGER IF NOT EXISTS memories_fts_insert AFTER INSERT ON memories BEGIN
+                INSERT INTO memories_fts(rowid, value, mem_type)
+                VALUES (new.id, new.value, new.mem_type);
+            END;
+            CREATE TRIGGER IF NOT EXISTS memories_fts_delete AFTER DELETE ON memories BEGIN
+                INSERT INTO memories_fts(memories_fts, rowid, value, mem_type)
+                VALUES ('delete', old.id, old.value, old.mem_type);
+            END;
+            CREATE TRIGGER IF NOT EXISTS memories_fts_update AFTER UPDATE ON memories BEGIN
+                INSERT INTO memories_fts(memories_fts, rowid, value, mem_type)
+                VALUES ('delete', old.id, old.value, old.mem_type);
+                INSERT INTO memories_fts(rowid, value, mem_type)
+                VALUES (new.id, new.value, new.mem_type);
+            END;",
+        )
+        .map_err(|e| format!("Failed to create FTS5 table: {}", e))?;
 
         Ok(SqliteStore {
             conn: std::sync::Mutex::new(conn),
@@ -396,8 +431,8 @@ impl MemoryStore for SqliteStore {
         let blob = Self::embedding_to_blob(&entry.embedding);
         let conn = self.conn.lock().map_err(|e| format!("Lock error: {}", e))?;
         conn.execute(
-            "INSERT INTO memories (value, priority, confidence, decay_rate, created_at, embedding) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            rusqlite::params![entry.value, entry.priority, entry.confidence, entry.decay_rate, entry.timestamp, blob],
+            "INSERT INTO memories (value, priority, confidence, decay_rate, created_at, embedding, mem_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![entry.value, entry.priority, entry.confidence, entry.decay_rate, entry.timestamp, blob, entry.mem_type],
         ).map_err(|e| format!("Failed to memorize: {}", e))?;
 
         Ok(conn.last_insert_rowid())
@@ -422,7 +457,7 @@ impl MemoryStore for SqliteStore {
         };
 
         let mut stmt = match conn.prepare(
-            "SELECT id, value, priority, confidence, decay_rate, created_at, embedding FROM memories"
+            "SELECT id, value, priority, confidence, decay_rate, created_at, embedding, mem_type FROM memories"
         ) {
             Ok(s) => s,
             Err(_) => return None,
@@ -437,6 +472,7 @@ impl MemoryStore for SqliteStore {
                 row.get::<_, f64>(4)?,
                 row.get::<_, i64>(5)?,
                 row.get::<_, Vec<u8>>(6).unwrap_or_default(),
+                row.get::<_, String>(7).unwrap_or_default(),
             ))
         }) {
             Ok(rows) => rows,
@@ -447,7 +483,7 @@ impl MemoryStore for SqliteStore {
         let mut best_score: f32 = 0.0;
 
         for row in rows {
-            let (_id, value, priority, confidence, decay_rate, timestamp, blob) = match row {
+            let (_id, value, priority, confidence, decay_rate, timestamp, blob, mem_type) = match row {
                 Ok(r) => r,
                 Err(_) => continue,
             };
@@ -478,6 +514,7 @@ impl MemoryStore for SqliteStore {
                     decay_rate,
                     confidence,
                     embedding: entry_embedding,
+                    mem_type,
                 });
             }
         }
@@ -537,7 +574,7 @@ impl MemoryStore for SqliteStore {
         };
 
         let mut stmt = match conn.prepare(
-            "SELECT value, priority, confidence, decay_rate, created_at, embedding FROM memories",
+            "SELECT value, priority, confidence, decay_rate, created_at, embedding, mem_type FROM memories",
         ) {
             Ok(s) => s,
             Err(_) => return Vec::new(),
@@ -552,19 +589,27 @@ impl MemoryStore for SqliteStore {
                 row.get::<_, f64>(3)?,
                 row.get::<_, i64>(4)?,
                 row.get::<_, Vec<u8>>(5).unwrap_or_default(),
+                row.get::<_, String>(6).unwrap_or_default(),
             ))
         }) {
-            for (value, priority, confidence, decay_rate, timestamp, blob) in mapped_rows.flatten()
-            {
-                entries.push(MemoryEntry {
-                    id: None,
-                    value,
-                    priority,
-                    timestamp,
-                    decay_rate,
-                    confidence,
-                    embedding: Self::blob_to_embedding(&blob),
-                });
+            Ok(mapped_rows) => {
+                for row_result in mapped_rows {
+                    match row_result {
+                        Ok((value, priority, confidence, decay_rate, timestamp, blob, mem_type)) => {
+                            entries.push(MemoryEntry {
+                                id: None,
+                                value,
+                                priority,
+                                timestamp,
+                                decay_rate,
+                                confidence,
+                                embedding: Self::blob_to_embedding(&blob),
+                                mem_type,
+                            });
+                        }
+                        Err(_) => continue,
+                    }
+                }
             }
         }
         entries
@@ -885,6 +930,7 @@ mod tests {
                 decay_rate: 0.01,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
 
@@ -919,6 +965,7 @@ mod tests {
                 decay_rate: 0.01,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
 
@@ -939,6 +986,7 @@ mod tests {
                 decay_rate: 0.1,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
 
@@ -966,6 +1014,7 @@ mod tests {
                 decay_rate: 0.01,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
         store
@@ -977,6 +1026,7 @@ mod tests {
                 decay_rate: 0.01,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
         assert_eq!(store.count(), 2);
@@ -1059,6 +1109,7 @@ mod tests {
                 decay_rate: 0.01,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
 
@@ -1093,6 +1144,7 @@ mod tests {
                 decay_rate: 0.01,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
         store
@@ -1104,6 +1156,7 @@ mod tests {
                 decay_rate: 0.01,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
 
@@ -1129,6 +1182,7 @@ mod tests {
                 decay_rate: 0.1,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
 
@@ -1154,6 +1208,7 @@ mod tests {
                 decay_rate: 0.01,
                 confidence: 1.0,
                 embedding: embedding.clone(),
+                mem_type: String::new(),
             })
             .unwrap();
 
@@ -1179,6 +1234,7 @@ mod tests {
                     decay_rate: 0.01,
                     confidence: 0.9,
                     embedding: Vec::new(),
+                    mem_type: String::new(),
                 })
                 .unwrap();
             assert_eq!(store.count(), 1);

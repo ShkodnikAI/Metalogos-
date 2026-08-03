@@ -33,6 +33,7 @@ fn test_76_sqlite_memorize_and_recall() {
             decay_rate: 0.01,
             confidence: 1.0,
             embedding: Vec::new(),
+            mem_type: String::new(),
         })
         .unwrap();
 
@@ -78,6 +79,7 @@ fn test_76_persistence_across_restart() {
                 decay_rate: 0.01,
                 confidence: 0.9,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
         store
@@ -89,6 +91,7 @@ fn test_76_persistence_across_restart() {
                 decay_rate: 0.01,
                 confidence: 0.8,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
         assert_eq!(store.count(), 2);
@@ -130,6 +133,7 @@ fn test_76_inmemory_default_no_persist() {
             decay_rate: 0.01,
             confidence: 1.0,
             embedding: Vec::new(),
+            mem_type: String::new(),
         })
         .unwrap();
 
@@ -164,6 +168,7 @@ fn test_76_decay_formula() {
             decay_rate: 0.1,
             confidence: 1.0,
             embedding: Vec::new(),
+            mem_type: String::new(),
         })
         .unwrap();
 
@@ -207,6 +212,7 @@ fn test_76_forget_removes_entries() {
             decay_rate: 0.01,
             confidence: 1.0,
             embedding: Vec::new(),
+            mem_type: String::new(),
         })
         .unwrap();
 
@@ -220,6 +226,7 @@ fn test_76_forget_removes_entries() {
             decay_rate: 0.01,
             confidence: 1.0,
             embedding: Vec::new(),
+            mem_type: String::new(),
         })
         .unwrap();
 
@@ -306,6 +313,7 @@ fn test_76_embedding_blob_roundtrip() {
             decay_rate: 0.01,
             confidence: 1.0,
             embedding: embedding.clone(),
+            mem_type: String::new(),
         })
         .unwrap();
 
@@ -315,6 +323,7 @@ fn test_76_embedding_blob_roundtrip() {
     assert_eq!(entries.len(), 1);
     assert_eq!(
         entries[0].embedding, embedding,
+        mem_type: String::new(),
         "C7: embedding should roundtrip through BLOB"
     );
     assert_eq!(entries[0].embedding.len(), 6);
@@ -342,6 +351,7 @@ fn test_76_no_persist_data_lost() {
                 decay_rate: 0.01,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
         assert_eq!(store.count(), 1);

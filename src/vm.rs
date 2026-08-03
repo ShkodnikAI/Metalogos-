@@ -516,6 +516,7 @@ impl Vm {
                         priority: *priority,
                         timestamp: now,
                         decay_rate: 0.01,
+                        mem_type: String::new(), // default: untyped
                     });
                     ip += 1;
                 }

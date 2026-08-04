@@ -323,7 +323,6 @@ fn test_76_embedding_blob_roundtrip() {
     assert_eq!(entries.len(), 1);
     assert_eq!(
         entries[0].embedding, embedding,
-        mem_type: String::new(),
         "C7: embedding should roundtrip through BLOB"
     );
     assert_eq!(entries[0].embedding.len(), 6);

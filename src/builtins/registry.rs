@@ -1250,6 +1250,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
         arity: 1,
         category: "pdf",
     },
+    BuiltinSpec {
+        name: "pdf_extract_regions",
+        arity: 2,
+        category: "pdf",
+    },
+    BuiltinSpec {
+        name: "pdf_ocr",
+        arity: 1,
+        category: "pdf",
+    },
 ];
 
 /// Total number of registered builtins.

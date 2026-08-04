@@ -488,8 +488,10 @@ Fusion (k=60). Каждая запись несёт тип-тег для диф�
 | `memorize(text, priority, type)` | `String, Float, String -> Unit` | Unit | Сохраняет факт с приоритетом (0.0–1.0) и типом. Пример: `memorize("любит острую еду", 0.9, "persona")` |
 | `recall_top_k(query, k, type)` | `String, Float, String -> String` | String (JSON) | Возвращает top-K записей, отсортированных по RRF-скору. JSON-массив: `[{text, type, priority, score, created_at}]`. Пустой тип — поиск по всем типам |
 
-**Скоринг:** 40% BM25 (ключевое совпадение) + 60% cosine*decay*priority (семантическая
-схожесть с временным затуханием). Слияние через RRF: `score = 1/(60+bm25_rank) + 1/(60+cosine_rank)`.
+**Скоринг:** Reciprocal Rank Fusion (k=60). Результаты BM25 и косинусной схожести
+(с временным затуханием и приоритетом) ранжируются отдельно, затем сливаются:
+`score = 1/(60+bm25_rank) + 1/(60+cosine_rank)`. RRF устойчив к различиям
+в распределении скоров между сигналами.
 
 **Примеры:**
 ```mlog
@@ -976,6 +978,17 @@ collections.push(items, item) -> List      // append to list
 
 | Версия | Дата | Что нового |
 |--------|------|------------|
+| **0.12.0** | 2025-08 | PDF builtins (pdf-inspector), typed memory (FTS5 BM25 + cosine RRF), modular builtins structure |
+| **0.11.0** | 2025-07 | obsidian-mind: 5 lifecycle hooks, config_load YAML (ADR-0064, ADR-0065) |
+| **0.10.0** | 2025-06 | obsidian-mind: semantic_search, config_load, vault_validate |
+| **0.9.5** | 2025-06 | OpenPlanter: fuzzy, hashline, compact, budget, replay, policy (ADR-0063) |
+| **0.9.4** | 2025-06 | AgentSkillOS: recipe system, DAG orchestration (ADR-0062) |
+| **0.9.3** | 2025-06 | sqz: string/list/token utilities (ADR-0058+) |
+| **0.9.1** | 2025-06 | Collection ops sync, BUILTIN_REGISTRY SSOT |
+| **0.8.9** | 2025-06 | Fix: else-branch, BlockIfElse mutation, 4 contract tests |
+| **0.8.0** | 2025-05 | Time, weather, geo, reminders, HTTP server, encryption, auth, CSRF, OWASP |
+| **0.7.x** | 2025-05 | Telegram bot, memory tree L0/L1/L2, cron, goals/todos |
+| **0.6.x** | 2025-05 | let/if/each/while, modules, break/continue, match |
 | **0.4.0** | 2025-06-03 | Phase 6: HTTP-сервер, шаблоны, БД, шифрование, auth, CSRF, bot integration, 40+ builtins |
 | **0.3.0** | — | Phase 5: let/if, each/while, List literals, строковые операции, модули, REPL |
 | **0.2.0** | — | Phases 1-4: fluid types, knowledge graph, vector recall, CLI, codegen |

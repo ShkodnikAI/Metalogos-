@@ -4,6 +4,31 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Typed memory with FTS5 BM25 + cosine RRF hybrid recall (ADR-0072, ADR-0073)
+- Feature: `memorize(text, priority, type)` now accepts 3rd argument — type tag
+  (`persona`, `episodic`, `instruction`, `fact`). Backward compatible: 2-arg form
+  uses empty type.
+- Feature: `recall_top_k(query, k, type)` — hybrid search returning JSON array of
+  scored entries. FTS5 BM25 keyword index + cosine similarity, merged via
+  Reciprocal Rank Fusion (k=60). Type filtering optional.
+- Feature: FTS5 virtual table with content-synced triggers in SQLite schema.
+- Feature: `mem_type` column + index on `memories` table.
+- Fix: `load_all()` bug — SELECT now includes `mem_type` (was hardcoded empty).
+- ADR-0072: memory typology + FTS5 foundation design decisions.
+- ADR-0073: type-aware recall with RRF merge replacing weighted blend.
+
+### PDF processing via pdf-inspector (Наряд №48)
+- Feature: 4 native PDF builtins — `pdf_classify`, `pdf_to_markdown`,
+  `pdf_extract_regions`, `pdf_ocr`. Pure Rust, zero IPC.
+- Feature: `pdf_classify(path)` — classify PDF type (TextBased/Scanned/ImageBased/Mixed).
+- Feature: `pdf_to_markdown(path)` — full extraction pipeline to Markdown.
+- Feature: `pdf_extract_regions(path, filter)` — text items with coordinates and OCR status.
+- Feature: `pdf_ocr(path)` — OCR fallback via tesseract-rs (requires `--features pdf-ocr`
+  and system tesseract-ocr + CJK training data).
+- Feature: optional `pdf-ocr` feature flag + tesseract 0.15 dependency.
+- Test: 8 unit tests in pdf.rs + integration test file phase48_pdf_inspector.rs.
+- Test: CJK fixture tests (5 files from pdf-inspector repo, verify no U+FFFD).
+
 ### Rule priority fix and golden cleanup — Наряд №43
 - Fix: `execute_rules()` in both interpreter and VM now implements
   priority-ordered, first-wins semantics (ADR-0090). Previously all

@@ -482,31 +482,55 @@ impl SqliteStore {
         if query.is_empty() {
             return std::collections::HashMap::new();
         }
-        let rows_result = if type_filter.is_empty() {
-            let mut stmt = match conn.prepare(
-                "SELECT rowid, rank FROM memories_fts WHERE memories_fts MATCH ?1 ORDER BY rank LIMIT ?2"
-            ) {
-                Ok(s) => s,
-                Err(_) => return std::collections::HashMap::new(),
-            };
-            stmt.query_map(rusqlite::params![query, limit as i64], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
-            })
+        if type_filter.is_empty() {
+            Self::bm25_query_no_filter(conn, query, limit)
         } else {
-            let mut stmt = match conn.prepare(
-                "SELECT rowid, rank FROM memories_fts WHERE memories_fts MATCH ?1 AND mem_type = ?3 ORDER BY rank LIMIT ?2"
-            ) {
-                Ok(s) => s,
-                Err(_) => return std::collections::HashMap::new(),
-            };
-            stmt.query_map(rusqlite::params![query, limit as i64, type_filter], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
-            })
+            Self::bm25_query_with_filter(conn, query, limit, type_filter)
+        }
+    }
+
+    fn bm25_query_no_filter(
+        conn: &rusqlite::Connection,
+        query: &str,
+        limit: usize,
+    ) -> std::collections::HashMap<i64, f32> {
+        let mut stmt = match conn.prepare(
+            "SELECT rowid, rank FROM memories_fts WHERE memories_fts MATCH ?1 ORDER BY rank LIMIT ?2"
+        ) {
+            Ok(s) => s,
+            Err(_) => return std::collections::HashMap::new(),
         };
+        let rows_result = stmt.query_map(rusqlite::params![query, limit as i64], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
+        });
         match rows_result {
             Ok(rows) => rows
                 .filter_map(|r| r.ok())
-                .map(|(rowid, rank)| (rowid, -rank as f32)) // FTS5 rank is negative
+                .map(|(rowid, rank)| (rowid, -rank as f32))
+                .collect(),
+            Err(_) => std::collections::HashMap::new(),
+        }
+    }
+
+    fn bm25_query_with_filter(
+        conn: &rusqlite::Connection,
+        query: &str,
+        limit: usize,
+        type_filter: &str,
+    ) -> std::collections::HashMap<i64, f32> {
+        let mut stmt = match conn.prepare(
+            "SELECT rowid, rank FROM memories_fts WHERE memories_fts MATCH ?1 AND mem_type = ?3 ORDER BY rank LIMIT ?2"
+        ) {
+            Ok(s) => s,
+            Err(_) => return std::collections::HashMap::new(),
+        };
+        let rows_result = stmt.query_map(rusqlite::params![query, limit as i64, type_filter], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
+        });
+        match rows_result {
+            Ok(rows) => rows
+                .filter_map(|r| r.ok())
+                .map(|(rowid, rank)| (rowid, -rank as f32))
                 .collect(),
             Err(_) => std::collections::HashMap::new(),
         }

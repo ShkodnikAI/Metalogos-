@@ -18,6 +18,9 @@ use std::path::Path;
 // ── Memory Entry (shared between all store implementations) ──────────
 
 /// A single memory entry: stored fact with priority, timestamp, decay, and embedding.
+///
+/// `mem_type` classifies the entry for type-aware recall and differentiated decay.
+/// Types: "" (legacy), "persona", "episodic", "instruction", "fact".
 #[derive(Debug, Clone)]
 pub struct MemoryEntry {
     /// Database row ID (None for in-memory entries).
@@ -35,6 +38,8 @@ pub struct MemoryEntry {
     /// Embedding vector for semantic recall (Phase 7.2).
     /// Serialized as BLOB in SQLite, stored as Vec<f32> in memory.
     pub embedding: Vec<f32>,
+    /// Memory type for type-aware recall: "", "persona", "episodic", "instruction", "fact".
+    pub mem_type: String,
 }
 
 // ── Knowledge Graph Entry ──────────────────────────────────────────
@@ -72,6 +77,53 @@ pub trait MemoryStore: Send + Sync {
         query_embedding: &[f32],
         min_confidence: f32,
     ) -> Option<(MemoryEntry, f32)>;
+
+    /// Recall top-K entries with optional type filter (ADR-0073: Phase 3 hybrid search).
+    /// Returns entries sorted by score descending, up to `limit` results.
+    /// `type_filter`: if non-empty, only return entries matching this mem_type.
+    /// Default implementation: falls back to scanning all_entries (InMemoryStore).
+    /// SqliteStore overrides with FTS5 BM25 + cosine hybrid.
+    fn recall_top_k(
+        &self,
+        query: &str,
+        query_embedding: &[f32],
+        min_confidence: f32,
+        limit: usize,
+        type_filter: &str,
+    ) -> Vec<(MemoryEntry, f32)> {
+        // Default: delegate to all_entries + in-Rust scoring (InMemoryStore path).
+        use crate::embeddings::cosine_similarity;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        let mut scored: Vec<(MemoryEntry, f32)> = self
+            .all_entries()
+            .into_iter()
+            .filter(|e| type_filter.is_empty() || e.mem_type == type_filter)
+            .filter_map(|e| {
+                let sim = if !query_embedding.is_empty() && !e.embedding.is_empty() {
+                    cosine_similarity(query_embedding, &e.embedding)
+                } else if e.value.contains(query) {
+                    1.0
+                } else {
+                    return None;
+                };
+                let age_days = ((now - e.timestamp).max(0) as f64) / 86400.0;
+                let decay = (-e.decay_rate * age_days).exp() as f32;
+                let score = sim * (e.priority as f32) * decay;
+                if score >= min_confidence {
+                    Some((e, score))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        scored.truncate(limit);
+        scored
+    }
 
     /// Delete entries matching query string that are older than cutoff timestamp.
     fn forget(&mut self, query: &str, cutoff: i64);
@@ -309,7 +361,7 @@ impl SqliteStore {
     /// Load all entries with their row IDs (for decay update).
     fn load_all(conn: &rusqlite::Connection) -> Result<Vec<MemoryEntry>, String> {
         let mut stmt = conn.prepare(
-            "SELECT id, value, priority, confidence, decay_rate, created_at, embedding FROM memories"
+            "SELECT id, value, priority, confidence, decay_rate, created_at, embedding, mem_type FROM memories"
         ).map_err(|e| format!("Load all failed: {}", e))?;
 
         let rows = stmt
@@ -324,6 +376,7 @@ impl SqliteStore {
                     embedding: Self::blob_to_embedding(
                         &row.get::<_, Vec<u8>>(6).unwrap_or_default(),
                     ),
+                    mem_type: row.get::<_, String>(7).unwrap_or_default(),
                 })
             })
             .map_err(|e| format!("Load all query failed: {}", e))?;
@@ -359,12 +412,41 @@ impl SqliteStore {
                 confidence REAL NOT NULL DEFAULT 1.0,
                 decay_rate REAL NOT NULL DEFAULT 0.01,
                 created_at INTEGER NOT NULL,
-                embedding BLOB
+                embedding BLOB,
+                mem_type TEXT NOT NULL DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS idx_memories_value ON memories(value);
-            CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at);",
+            CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at);
+            CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(mem_type);",
         )
         .map_err(|e| format!("Failed to create memories table: {}", e))?;
+
+        // FTS5 full-text index for BM25 keyword search (Phase 2: hybrid recall).
+        // Content-synced via triggers so INSERT/UPDATE/DELETE on memories
+        // automatically propagate to the FTS table.
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+                value,
+                mem_type UNINDEXED,
+                content=memories,
+                content_rowid=id
+            );
+            CREATE TRIGGER IF NOT EXISTS memories_fts_insert AFTER INSERT ON memories BEGIN
+                INSERT INTO memories_fts(rowid, value, mem_type)
+                VALUES (new.id, new.value, new.mem_type);
+            END;
+            CREATE TRIGGER IF NOT EXISTS memories_fts_delete AFTER DELETE ON memories BEGIN
+                INSERT INTO memories_fts(memories_fts, rowid, value, mem_type)
+                VALUES ('delete', old.id, old.value, old.mem_type);
+            END;
+            CREATE TRIGGER IF NOT EXISTS memories_fts_update AFTER UPDATE ON memories BEGIN
+                INSERT INTO memories_fts(memories_fts, rowid, value, mem_type)
+                VALUES ('delete', old.id, old.value, old.mem_type);
+                INSERT INTO memories_fts(rowid, value, mem_type)
+                VALUES (new.id, new.value, new.mem_type);
+            END;",
+        )
+        .map_err(|e| format!("Failed to create FTS5 table: {}", e))?;
 
         Ok(SqliteStore {
             conn: std::sync::Mutex::new(conn),
@@ -389,6 +471,72 @@ impl SqliteStore {
         }
         result
     }
+
+    /// Query FTS5 BM25 index for keyword matches. Returns rowid → positive score map.
+    /// Empty query or FTS5 errors return empty map.
+    fn bm25_search(
+        conn: &rusqlite::Connection,
+        query: &str,
+        limit: usize,
+        type_filter: &str,
+    ) -> std::collections::HashMap<i64, f32> {
+        if query.is_empty() {
+            return std::collections::HashMap::new();
+        }
+        if type_filter.is_empty() {
+            Self::bm25_query_no_filter(conn, query, limit)
+        } else {
+            Self::bm25_query_with_filter(conn, query, limit, type_filter)
+        }
+    }
+
+    fn bm25_query_no_filter(
+        conn: &rusqlite::Connection,
+        query: &str,
+        limit: usize,
+    ) -> std::collections::HashMap<i64, f32> {
+        let mut stmt = match conn.prepare(
+            "SELECT rowid, rank FROM memories_fts WHERE memories_fts MATCH ?1 ORDER BY rank LIMIT ?2"
+        ) {
+            Ok(s) => s,
+            Err(_) => return std::collections::HashMap::new(),
+        };
+        let rows_result = stmt.query_map(rusqlite::params![query, limit as i64], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
+        });
+        match rows_result {
+            Ok(rows) => rows
+                .filter_map(|r| r.ok())
+                .map(|(rowid, rank)| (rowid, -rank as f32))
+                .collect(),
+            Err(_) => std::collections::HashMap::new(),
+        }
+    }
+
+    fn bm25_query_with_filter(
+        conn: &rusqlite::Connection,
+        query: &str,
+        limit: usize,
+        type_filter: &str,
+    ) -> std::collections::HashMap<i64, f32> {
+        let mut stmt = match conn.prepare(
+            "SELECT rowid, rank FROM memories_fts WHERE memories_fts MATCH ?1 AND mem_type = ?3 ORDER BY rank LIMIT ?2"
+        ) {
+            Ok(s) => s,
+            Err(_) => return std::collections::HashMap::new(),
+        };
+        let rows_result = stmt
+            .query_map(rusqlite::params![query, limit as i64, type_filter], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
+            });
+        match rows_result {
+            Ok(rows) => rows
+                .filter_map(|r| r.ok())
+                .map(|(rowid, rank)| (rowid, -rank as f32))
+                .collect(),
+            Err(_) => std::collections::HashMap::new(),
+        }
+    }
 }
 
 impl MemoryStore for SqliteStore {
@@ -396,8 +544,8 @@ impl MemoryStore for SqliteStore {
         let blob = Self::embedding_to_blob(&entry.embedding);
         let conn = self.conn.lock().map_err(|e| format!("Lock error: {}", e))?;
         conn.execute(
-            "INSERT INTO memories (value, priority, confidence, decay_rate, created_at, embedding) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            rusqlite::params![entry.value, entry.priority, entry.confidence, entry.decay_rate, entry.timestamp, blob],
+            "INSERT INTO memories (value, priority, confidence, decay_rate, created_at, embedding, mem_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![entry.value, entry.priority, entry.confidence, entry.decay_rate, entry.timestamp, blob, entry.mem_type],
         ).map_err(|e| format!("Failed to memorize: {}", e))?;
 
         Ok(conn.last_insert_rowid())
@@ -422,7 +570,7 @@ impl MemoryStore for SqliteStore {
         };
 
         let mut stmt = match conn.prepare(
-            "SELECT id, value, priority, confidence, decay_rate, created_at, embedding FROM memories"
+            "SELECT id, value, priority, confidence, decay_rate, created_at, embedding, mem_type FROM memories"
         ) {
             Ok(s) => s,
             Err(_) => return None,
@@ -437,6 +585,7 @@ impl MemoryStore for SqliteStore {
                 row.get::<_, f64>(4)?,
                 row.get::<_, i64>(5)?,
                 row.get::<_, Vec<u8>>(6).unwrap_or_default(),
+                row.get::<_, String>(7).unwrap_or_default(),
             ))
         }) {
             Ok(rows) => rows,
@@ -447,10 +596,11 @@ impl MemoryStore for SqliteStore {
         let mut best_score: f32 = 0.0;
 
         for row in rows {
-            let (_id, value, priority, confidence, decay_rate, timestamp, blob) = match row {
-                Ok(r) => r,
-                Err(_) => continue,
-            };
+            let (_id, value, priority, confidence, decay_rate, timestamp, blob, mem_type) =
+                match row {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
 
             let entry_embedding = Self::blob_to_embedding(&blob);
 
@@ -478,6 +628,7 @@ impl MemoryStore for SqliteStore {
                     decay_rate,
                     confidence,
                     embedding: entry_embedding,
+                    mem_type,
                 });
             }
         }
@@ -537,7 +688,7 @@ impl MemoryStore for SqliteStore {
         };
 
         let mut stmt = match conn.prepare(
-            "SELECT value, priority, confidence, decay_rate, created_at, embedding FROM memories",
+            "SELECT value, priority, confidence, decay_rate, created_at, embedding, mem_type FROM memories",
         ) {
             Ok(s) => s,
             Err(_) => return Vec::new(),
@@ -552,19 +703,25 @@ impl MemoryStore for SqliteStore {
                 row.get::<_, f64>(3)?,
                 row.get::<_, i64>(4)?,
                 row.get::<_, Vec<u8>>(5).unwrap_or_default(),
+                row.get::<_, String>(6).unwrap_or_default(),
             ))
         }) {
-            for (value, priority, confidence, decay_rate, timestamp, blob) in mapped_rows.flatten()
-            {
-                entries.push(MemoryEntry {
-                    id: None,
-                    value,
-                    priority,
-                    timestamp,
-                    decay_rate,
-                    confidence,
-                    embedding: Self::blob_to_embedding(&blob),
-                });
+            for row_result in mapped_rows {
+                match row_result {
+                    Ok((value, priority, confidence, decay_rate, timestamp, blob, mem_type)) => {
+                        entries.push(MemoryEntry {
+                            id: None,
+                            value,
+                            priority,
+                            timestamp,
+                            decay_rate,
+                            confidence,
+                            embedding: Self::blob_to_embedding(&blob),
+                            mem_type,
+                        });
+                    }
+                    Err(_) => continue,
+                }
             }
         }
         entries
@@ -577,6 +734,187 @@ impl MemoryStore for SqliteStore {
         };
         conn.query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
             .unwrap_or(0)
+    }
+
+    /// Hybrid recall using FTS5 BM25 + cosine similarity with RRF merge (ADR-0073/0075).
+    /// Returns top-K entries sorted by RRF score.
+    /// `type_filter`: if non-empty, restricts results to entries with matching mem_type.
+    ///
+    /// Algorithm:
+    /// 1. BM25 candidates from FTS5 (keyword matching, optional type filter).
+    /// 2. If no BM25 hits, fall back to all entries (cosine/substring scan).
+    /// 3. Score all candidates by cosine similarity * temporal decay * priority.
+    /// 4. RRF merge (k=60): for each entry in either ranked list,
+    ///    score = Σ 1/(60 + rank_i) over both signals.
+    /// 5. Sort by RRF score, take top-K.
+    fn recall_top_k(
+        &self,
+        query: &str,
+        query_embedding: &[f32],
+        min_confidence: f32,
+        limit: usize,
+        type_filter: &str,
+    ) -> Vec<(MemoryEntry, f32)> {
+        use crate::embeddings::cosine_similarity;
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        let conn = match self.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+
+        // Step 1: BM25 candidates from FTS5 (keyword matching).
+        let bm25_scores = SqliteStore::bm25_search(&conn, query, limit, type_filter);
+
+        // Step 2: Fetch candidate entries (BM25 matches + type filter).
+        let candidate_ids: Vec<i64> = if !bm25_scores.is_empty() {
+            bm25_scores.keys().copied().collect()
+        } else if type_filter.is_empty() {
+            // No BM25 hits — fall back to cosine/substring scan.
+            match conn.prepare("SELECT id FROM memories LIMIT ?1") {
+                Ok(mut stmt) => {
+                    match stmt.query_map(rusqlite::params![limit as i64 * 10], |row| {
+                        row.get::<_, i64>(0)
+                    }) {
+                        Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+                        Err(_) => return Vec::new(),
+                    }
+                }
+                Err(_) => return Vec::new(),
+            }
+        } else {
+            match conn.prepare("SELECT id FROM memories WHERE mem_type = ?2 LIMIT ?1") {
+                Ok(mut stmt) => {
+                    match stmt.query_map(rusqlite::params![limit as i64 * 10, type_filter], |row| {
+                        row.get::<_, i64>(0)
+                    }) {
+                        Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+                        Err(_) => return Vec::new(),
+                    }
+                }
+                Err(_) => return Vec::new(),
+            }
+        };
+
+        // Step 3: Cosine scoring on ALL candidates (BM25 hits) + fallback entries.
+        // RRF requires ranks from both signals, so we score all candidates by cosine
+        // and compute ranks independently.
+        let mut cosine_scored: Vec<(i64, f32)> = Vec::new();
+        for id in &candidate_ids {
+            let entry = match conn.query_row(
+                "SELECT id, value, priority, confidence, decay_rate, created_at, embedding, mem_type FROM memories WHERE id = ?1",
+                rusqlite::params![*id],
+                |row| {
+                    Ok(MemoryEntry {
+                        id: Some(row.get(0)?),
+                        value: row.get(1)?,
+                        priority: row.get(2)?,
+                        confidence: row.get(3)?,
+                        decay_rate: row.get(4)?,
+                        timestamp: row.get(5)?,
+                        embedding: Self::blob_to_embedding(&row.get::<_, Vec<u8>>(6).unwrap_or_default()),
+                        mem_type: row.get::<_, String>(7).unwrap_or_default(),
+                    })
+                },
+            ) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            // Compute cosine similarity score
+            let cosine_sim = if !query_embedding.is_empty() && !entry.embedding.is_empty() {
+                cosine_similarity(query_embedding, &entry.embedding)
+            } else if entry.value.contains(query) {
+                1.0
+            } else {
+                continue; // no match from either signal
+            };
+
+            // Apply temporal decay to both signals
+            let age_days = ((now - entry.timestamp).max(0) as f64) / 86400.0;
+            let decay = (-entry.decay_rate * age_days).exp() as f32;
+            let decayed_cosine = cosine_sim * decay * (entry.priority as f32);
+            cosine_scored.push((*id, decayed_cosine));
+        }
+
+        // Step 4: RRF merge (k=60).
+        // RRF score = Σ 1/(k + rank_i) for each signal where entry appears.
+        // Rank 1 = best in each signal list.
+        const RRF_K: f32 = 60.0;
+
+        // BM25 ranks: sort by score descending (best first), assign 1-based ranks.
+        let mut bm25_sorted: Vec<(i64, f32)> = bm25_scores.into_iter().collect();
+        bm25_sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let bm25_ranks: std::collections::HashMap<i64, usize> = bm25_sorted
+            .iter()
+            .enumerate()
+            .map(|(rank, (id, _score))| (*id, rank + 1)) // 1-based rank
+            .collect();
+
+        // Cosine ranks: sort by cosine score descending.
+        cosine_scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let cosine_ranks: std::collections::HashMap<i64, usize> = cosine_scored
+            .iter()
+            .enumerate()
+            .map(|(rank, (id, _score))| (*id, rank + 1))
+            .collect();
+
+        // Union of all candidate IDs
+        let mut all_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
+        for id in bm25_ranks.keys() {
+            all_ids.insert(*id);
+        }
+        for id in cosine_ranks.keys() {
+            all_ids.insert(*id);
+        }
+
+        // Compute RRF score for each entry
+        let mut rrf_results: Vec<(i64, f32)> = all_ids
+            .into_iter()
+            .map(|id| {
+                let mut score = 0.0f32;
+                if let Some(&rank) = bm25_ranks.get(&id) {
+                    score += 1.0 / (RRF_K + rank as f32);
+                }
+                if let Some(&rank) = cosine_ranks.get(&id) {
+                    score += 1.0 / (RRF_K + rank as f32);
+                }
+                (id, score)
+            })
+            .filter(|(_, score)| *score >= min_confidence)
+            .collect();
+
+        rrf_results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        rrf_results.truncate(limit);
+
+        // Step 5: Load full entries for top RRF results.
+        let final_results: Vec<(MemoryEntry, f32)> = rrf_results
+            .into_iter()
+            .filter_map(|(id, rrf_score)| {
+                conn.query_row(
+                    "SELECT id, value, priority, confidence, decay_rate, created_at, embedding, mem_type FROM memories WHERE id = ?1",
+                    rusqlite::params![id],
+                    |row| {
+                        Ok(MemoryEntry {
+                            id: Some(row.get(0)?),
+                            value: row.get(1)?,
+                            priority: row.get(2)?,
+                            confidence: row.get(3)?,
+                            decay_rate: row.get(4)?,
+                            timestamp: row.get(5)?,
+                            embedding: Self::blob_to_embedding(&row.get::<_, Vec<u8>>(6).unwrap_or_default()),
+                            mem_type: row.get::<_, String>(7).unwrap_or_default(),
+                        })
+                    },
+                ).ok().map(|e| (e, rrf_score))
+            })
+            .collect();
+
+        final_results
     }
 }
 
@@ -885,6 +1223,7 @@ mod tests {
                 decay_rate: 0.01,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
 
@@ -919,6 +1258,7 @@ mod tests {
                 decay_rate: 0.01,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
 
@@ -939,6 +1279,7 @@ mod tests {
                 decay_rate: 0.1,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
 
@@ -966,6 +1307,7 @@ mod tests {
                 decay_rate: 0.01,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
         store
@@ -977,6 +1319,7 @@ mod tests {
                 decay_rate: 0.01,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
         assert_eq!(store.count(), 2);
@@ -1059,6 +1402,7 @@ mod tests {
                 decay_rate: 0.01,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
 
@@ -1093,6 +1437,7 @@ mod tests {
                 decay_rate: 0.01,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
         store
@@ -1104,6 +1449,7 @@ mod tests {
                 decay_rate: 0.01,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
 
@@ -1129,6 +1475,7 @@ mod tests {
                 decay_rate: 0.1,
                 confidence: 1.0,
                 embedding: Vec::new(),
+                mem_type: String::new(),
             })
             .unwrap();
 
@@ -1154,6 +1501,7 @@ mod tests {
                 decay_rate: 0.01,
                 confidence: 1.0,
                 embedding: embedding.clone(),
+                mem_type: String::new(),
             })
             .unwrap();
 
@@ -1179,6 +1527,7 @@ mod tests {
                     decay_rate: 0.01,
                     confidence: 0.9,
                     embedding: Vec::new(),
+                    mem_type: String::new(),
                 })
                 .unwrap();
             assert_eq!(store.count(), 1);

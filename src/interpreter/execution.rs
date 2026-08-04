@@ -75,6 +75,7 @@ impl Interpreter {
                         decay_rate: 0.01,
                         confidence: m.priority,
                         embedding,
+                        mem_type: String::new(),
                     });
                     // ADR-0052: emit memory_store event
                     let preview = if value_str.len() > 30 {
@@ -323,6 +324,11 @@ impl Interpreter {
         // memorize() — callable form (flow step context)
         if name == "memorize" {
             return self.invoke_memorize_fn(args);
+        }
+
+        // recall_top_k() — hybrid FTS5 BM25 + cosine RRF search (flow step context)
+        if name == "recall_top_k" {
+            return self.invoke_recall_top_k_fn(args);
         }
 
         // forget() — callable form (flow step context)
@@ -1173,6 +1179,11 @@ impl Interpreter {
                 // Differs from declaration: memorize "text" with priority=0.5
                 if name == "memorize" {
                     return self.invoke_memorize_fn(eval_args);
+                }
+
+                // recall_top_k() — hybrid FTS5 BM25 + cosine RRF search (expression context)
+                if name == "recall_top_k" {
+                    return self.invoke_recall_top_k_fn(eval_args);
                 }
 
                 // Check forget() — callable form (Definition of Done)

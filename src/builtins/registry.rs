@@ -1239,6 +1239,17 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
         arity: 1,
         category: "mtree",
     },
+    // Наряд №48: PDF processing (pdf-inspector crate)
+    BuiltinSpec {
+        name: "pdf_classify",
+        arity: 1,
+        category: "pdf",
+    },
+    BuiltinSpec {
+        name: "pdf_to_markdown",
+        arity: 1,
+        category: "pdf",
+    },
 ];
 
 /// Total number of registered builtins.

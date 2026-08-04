@@ -49,6 +49,8 @@ pub use memory::{reset_session_store, session_key_count, session_store_count};
 pub(crate) mod cron;
 pub use cron::init_reminder_persist;
 use cron::*;
+pub mod pdf;
+pub use pdf::*;
 
 impl Default for Builtins {
     fn default() -> Self {
@@ -552,6 +554,14 @@ impl Builtins {
             "vault_validate".to_string(),
             builtin_vault_validate as BuiltinFn,
         );
+
+        // Наряд №48: PDF processing (native Rust via pdf-inspector)
+        funcs.insert("pdf_classify".to_string(), builtin_pdf_classify as BuiltinFn);
+        funcs.insert(
+            "pdf_to_markdown".to_string(),
+            builtin_pdf_to_markdown as BuiltinFn,
+        );
+
         Builtins { funcs }
     }
 

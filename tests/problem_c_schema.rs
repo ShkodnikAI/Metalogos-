@@ -13,8 +13,8 @@ db { url: "sqlite::memory:" }
 
 schema test_dept {
   table analysis {
-    id: Int primary_key auto_increment
-    topic: String
+    id: Int primary_key auto_increment,
+    topic: String,
     status: String default("drafted")
   }
 }
@@ -46,10 +46,10 @@ db { url: "sqlite::memory:" }
 
 schema full_test {
   table items {
-    id: Int primary_key auto_increment
-    name: String
-    price: Float
-    notes: Text nullable
+    id: Int primary_key auto_increment,
+    name: String,
+    price: Float,
+    notes: Text nullable,
     active: Bool
   }
 }
@@ -82,32 +82,34 @@ db { url: "sqlite::memory:" }
 
 schema test_dept {
   table items {
-    id: Int primary_key auto_increment
+    id: Int primary_key auto_increment,
     name: String
   }
 }
 
 schema test_dept {
   table items {
-    id: Int primary_key auto_increment
+    id: Int primary_key auto_increment,
     name: String
   }
   table extra {
-    id: Int primary_key auto_increment
+    id: Int primary_key auto_increment,
     value: String
   }
 }
 
-pattern TestAdditive() -> String {
+pattern TestAdditive(_unused: String) -> String {
   db_insert("items", { name: "first" })
   db_insert("extra", { value: "bonus" })
   let r1 = query("SELECT name FROM items", [])
   let r2 = query("SELECT value FROM extra", [])
-  return get(r1, 0).name + "+" + get(r2, 0).value
+  let row1 = get(r1, 0)
+  let row2 = get(r2, 0)
+  return row1.name + "+" + row2.value
 }
 
 flow Main {
-  -> TestAdditive -> output
+  input: String = "" -> TestAdditive -> output
 }
 "#;
         let result = run_program(source).expect("execution failed");

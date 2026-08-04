@@ -309,12 +309,22 @@ impl Program {
 }
 
 /// Memory entry for the VM's memory store.
+///
+/// `mem_type` classifies the entry for type-aware recall and differentiated decay.
+/// Types follow a taxonomy inspired by TencentDB-Agent-Memory:
+///   ""             — legacy/untyped (backward compatible)
+///   "persona"       — user profile, stable preferences, long-term traits
+///   "episodic"      — specific events, conversations, one-time occurrences
+///   "instruction"   — rules, directives, standing orders
+///   "fact"          — factual knowledge, objective information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VmMemoryEntry {
     pub value: String,
     pub priority: f64,
     pub timestamp: i64,
     pub decay_rate: f64,
+    #[serde(default)]
+    pub mem_type: String,
 }
 
 /// Knowledge graph relation for the VM.

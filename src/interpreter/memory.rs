@@ -198,6 +198,14 @@ impl Interpreter {
         } else {
             1.0
         };
+        let mem_type = if args.len() > 2 {
+            match &args[2] {
+                Value::String(s) => s.clone(),
+                other => format!("{}", other),
+            }
+        } else {
+            String::new()
+        };
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
@@ -211,6 +219,7 @@ impl Interpreter {
             decay_rate: 0.01,
             confidence: priority,
             embedding,
+            mem_type,
         }) {
             Ok(_id) => { /* Bug 2.3 fix: removed eprintln stdout leak in HTTP context */ }
             Err(_) => { /* silent — don't leak to stdout in HTTP context */ }
@@ -253,5 +262,54 @@ impl Interpreter {
 
     pub fn set_memory_persist_path(&mut self, path: Option<String>) {
         self.memory_persist_path = path;
+    }
+
+    /// Callable form of recall_top_k() — hybrid FTS5 BM25 + cosine RRF search.
+    /// Usage: recall_top_k("query", 5, "persona") — top-5 memories of type "persona".
+    /// Third arg (type filter) is optional; empty string = search all types.
+    pub(super) fn invoke_recall_top_k_fn(&self, args: Vec<Value>) -> Result<Value, String> {
+        if args.is_empty() {
+            return Err("recall_top_k() requires at least 1 argument (query)".to_string());
+        }
+        let query = match &args[0] {
+            Value::String(s) => s.clone(),
+            other => {
+                return Err(format!(
+                    "recall_top_k() expected String as first arg, got {}",
+                    other.type_name()
+                ))
+            }
+        };
+        let k = if args.len() > 1 {
+            args[1].as_float().unwrap_or(5.0) as usize
+        } else {
+            5
+        };
+        let type_filter = if args.len() > 2 {
+            match &args[2] {
+                Value::String(s) => s.clone(),
+                Value::Unit => String::new(),
+                other => format!("{}", other),
+            }
+        } else {
+            String::new()
+        };
+        let query_embedding = self.embedding_manager.embed(&query).unwrap_or_default();
+        let memory = lock_or_err(self.memory.lock())?;
+        let results = memory.recall_top_k(&query, &query_embedding, 0.0, k, &type_filter);
+        let json_results: Vec<serde_json::Value> = results
+            .into_iter()
+            .map(|(entry, score)| {
+                serde_json::json!({
+                    "value": entry.value,
+                    "score": score,
+                    "type": entry.mem_type,
+                    "priority": entry.priority,
+                })
+            })
+            .collect();
+        Ok(Value::String(
+            serde_json::to_string(&json_results).unwrap_or_default(),
+        ))
     }
 }

@@ -89,10 +89,7 @@ mod phase6_db_tests {
     #[test]
     fn test_63_db_block() {
         let source = r#"
-db {
-  pool_size: 10
-  migrate: "./migrations"
-}
+db { url: "sqlite::memory:", pool_size: 10, migrate: "./migrations" }
 "#;
         let decls = metalogos::parser::parse(source).unwrap();
         if let metalogos::ast::Declaration::Db(db) = &decls[0] {
@@ -140,8 +137,8 @@ mod phase6_encryption_tests {
             vec![metalogos::ast::Expr::StringLit("TEST_MLOG_KEY".to_string())],
         ));
         match result {
-            Ok(Value::Secret(zs)) => assert_eq!(zs.as_str(), "secret_value"),
-            other => panic!("env() should return Secret, got: {:?}", other),
+            Ok(Value::String(s)) => assert_eq!(s, "secret_value"),
+            other => panic!("env() should return String, got: {:?}", other),
         }
         std::env::remove_var("TEST_MLOG_KEY");
     }

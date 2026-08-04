@@ -96,9 +96,9 @@ Every item in the OWASP Top 10 (2021) is addressed at the language level: type-s
 - **Bytecode VM** — 44 instructions, stack-based, used for `mlog compile` + `mlog run file.mbc`
 - **JIT** — declared experimental, scaffold only (see ADR-0073)
 
-### 177 Built-in Functions
+### 246 Built-in Functions
 
-String ops, math, collections, type conversion, LLM/AI, HTTP, JSON, file I/O, KV store, session memory, encryption, authentication, HTTP server, templates, databases, Telegram/Discord bots, time/date/calendar, geolocation, weather, reminders, cron, goals, todos, memory tree, preferences, approval workflows, **fuzzy matching, hashline editing, context compaction, budget awareness, replay logging, policy enforcement**, and more. See [REFERENCE.md](REFERENCE.md) for the full list.
+String ops, math, collections, type conversion, LLM/AI, HTTP, JSON, file I/O, KV store, session memory, encryption, authentication, HTTP server, templates, databases, Telegram/Discord bots, time/date/calendar, geolocation, weather, reminders, cron, goals, todos, memory tree, preferences, approval workflows, **fuzzy matching, hashline editing, context compaction, budget awareness, replay logging, policy enforcement**, PDF processing (classify, extract, OCR), typed semantic memory (FTS5 BM25 + cosine RRF), and more. See [REFERENCE.md](REFERENCE.md) for the full list.
 
 ### Human Intelligence Layer
 
@@ -208,17 +208,17 @@ Pre-built Linux x86_64 binaries are available from [GitHub Actions](https://gith
 |---|---|---|
 | Parser | Pest 2.7 PEG grammar (180 rules) | 2 176 |
 | AST | 24 Declaration, 14 Expr, 12 Statement, 4 MatchArm | 731 |
-| Compiler | Bytecode, 177 builtins indexed | 659 |
+| Compiler | Bytecode, 246 builtins indexed | 659 |
 | Semantic analysis | Opaque types, arity checking, security audit | 446 |
 | Interpreter | Tree-walking, full feature support | 4 395 |
 | VM | 44 instructions, stack-based | 1 268 |
-| Built-in functions | 177 function definitions | 8 010 |
+| Built-in functions | 246 function definitions (14 modules) | ~9 500 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 1 446 |
 | LLM backend | Trait + mock + real providers | 1 421 |
 | Memory store | Typed memory with FTS5 BM25 + cosine RRF hybrid recall + KV store | 1 540 |
 | Security audit | Static OWASP analysis | 1 075 |
 | Embeddings | TF-IDF + OpenAI cosine similarity, FTS5 BM25 | 601 |
-| **Total** | | **~25 755** |
+| **Total** | | **~27 000** |
 
 ### Project Structure
 
@@ -231,11 +231,15 @@ Metalogos-/
 │   ├── parser.rs                # Pest tokens -> AST
 │   ├── semantic.rs              # Semantic analysis + opaque type enforcement
 │   ├── interpreter.rs           # Tree-walking interpreter
-│   ├── compiler.rs              # Bytecode compiler (177 builtins)
+│   ├── compiler.rs              # Bytecode compiler (246 builtins)
 │   ├── bytecode.rs              # 44 VM instructions
 │   ├── vm.rs                    # Bytecode VM executor
 │   ├── jit.rs                   # JIT scaffold (experimental, ADR-0073)
-│   ├── builtins.rs              # 177 built-in functions
+│   ├── builtins.rs              # 246 built-in functions (14 modules)
+│   ├── builtins/                # Modular builtin implementations
+│   │   ├── registry.rs          # BUILTIN_REGISTRY (246 entries, bytecode indices)
+│   │   ├── pdf.rs               # PDF processing (pdf-inspector, Наряд №48)
+│   │   ├── memory.rs            # Typed semantic memory, FTS5, RRF recall
 │   ├── server.rs                # Axum HTTP server + cron scheduler
 │   ├── llm.rs                   # LLM backend trait + providers
 │   ├── memory_store.rs          # Semantic memory + KV store
@@ -286,7 +290,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete. 22+ development narads (work orders) delivered. 177+ builtins, 35 test files, 92 golden-file examples, 78 ADRs.
+All 8 milestones and 8+ phases complete. 24+ development narads (work orders) delivered. 246+ builtins, 36 test files, 92 golden-file examples, 80+ ADRs.
 
 ### Next
 

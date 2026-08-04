@@ -30,6 +30,7 @@
    - [Базы данных](#415-базы-данных)
    - [Боты (Telegram/Discord)](#416-боты-telegramdiscord)
    - [Прочее](#417-прочее)
+   - [PDF (pdf-inspector)](#418-pdf-наряд-48-pdf-inspector)
 5. [Объявления верхнего уровня](#5-объявления-верхнего-уровня)
 6. [Stdlib (стандартная библиотека)](#6-stdlib-стандартная-библиотека)
 7. [Changelog](#7-changelog-кратко)
@@ -474,6 +475,36 @@ delete_file("data.txt")               // "ok"
 | `mem_get(key)` | `String -> String` | String | Аналог `kv_get` |
 | `mem_delete(key)` | `String -> String` | String | Аналог `kv_delete`, возвращает удалённое значение |
 
+### 4.9.1. Семантическая память с типами и гибридным поиском (ADR-0072, ADR-0073)
+
+Типизированная семантическая память с SQLite-персистентностью, FTS5 BM25
+ключевым индексом, косинусной схожестью и слиянием через Reciprocal Rank
+Fusion (k=60). Каждая запись несёт тип-тег для дифференцированного поиска.
+
+**Типы памяти:** `persona`, `episodic`, `instruction`, `fact`
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `memorize(text, priority, type)` | `String, Float, String -> Unit` | Unit | Сохраняет факт с приоритетом (0.0–1.0) и типом. Пример: `memorize("любит острую еду", 0.9, "persona")` |
+| `recall_top_k(query, k, type)` | `String, Float, String -> String` | String (JSON) | Возвращает top-K записей, отсортированных по RRF-скору. JSON-массив: `[{text, type, priority, score, created_at}]`. Пустой тип — поиск по всем типам |
+
+**Скоринг:** 40% BM25 (ключевое совпадение) + 60% cosine*decay*priority (семантическая
+схожесть с временным затуханием). Слияние через RRF: `score = 1/(60+bm25_rank) + 1/(60+cosine_rank)`.
+
+**Примеры:**
+```mlog
+// Сохранение с типом
+memorize("пользователь предпочитает email", 0.9, "persona")
+memorize("дедлайн проекта 15 июля", 0.8, "fact")
+memorize("всегда приветствовать на русском", 1.0, "instruction")
+
+// Поиск top-5 фактов
+let results = recall_top_k("предпочтения пользователя", 5.0, "persona")
+
+// Поиск по всем типам
+let all = recall_top_k("проект", 10.0, "")
+```
+
 ### 4.10. Сессионная память
 
 Временное in-memory хранилище, привязанное к session_id. Не персистентно — сбрасывается при перезапуске `mlog serve`.
@@ -605,6 +636,40 @@ schema my_dept {
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|
 | `print(s)` | `String -> String` | String | Выводит строку в stdout, возвращает её же |
+
+### 4.18. PDF (Наряд №48, pdf-inspector)
+
+Нативная обработка PDF на Rust через `pdf-inspector` crate. Классификация,
+извлечение текста в Markdown, регионный анализ и OCR-фоллбэк.
+Нулевой IPC, <200ms на текстовых PDF.
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `pdf_classify(path)` | `String -> Dict` | Dict | Классификация PDF: TextBased / Scanned / ImageBased / Mixed. Ключи: type, confidence, pages_needing_ocr, page_count |
+| `pdf_to_markdown(path)` | `String -> Dict` | Dict | Полный pipeline: классификация + извлечение текста + Markdown. Ключи: markdown, page_count, pdf_type, has_tables, confidence, processing_time_ms |
+| `pdf_extract_regions(path, filter)` | `String, String -> List` | List | Извлечение текстовых регионов с координатами. Список словарей: text, needs_ocr, ocr_reason, page, x, y |
+| `pdf_ocr(path)` | `String -> Dict` | Dict | OCR-фоллбэк для сканов (требует `--features pdf-ocr` и системный Tesseract). Ключи: markdown, ocr_confidence, pages_processed |
+
+**Примеры:**
+```mlog
+// Классификация PDF
+let info = pdf_classify("report.pdf")
+// → { type: "TextBased", confidence: 0.95, pages_needing_ocr: [], page_count: 12 }
+
+// Извлечение текста в Markdown
+let result = pdf_to_markdown("report.pdf")
+let md = json_get(result, "markdown", "")
+
+// Для сканов — OCR
+let ocr = pdf_ocr("scan.pdf")
+let text = json_get(ocr, "markdown", "")
+```
+
+> **Примечание:** `pdf_ocr` требует сборки с флагом `--features pdf-ocr` и установленного
+> системного пакета `tesseract-ocr` с CJK training data.
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
 | `now()` | `-> Float` | Float | Текущий Unix-timestamp в секундах |
 | `str(value)` | `Any -> String` | String | Преобразует любое значение в строку |
 | `to_string(value)` | `Any -> String` | String | Аналог `str()` (Float без `.0` для целых) |

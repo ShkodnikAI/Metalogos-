@@ -703,8 +703,7 @@ impl MemoryStore for SqliteStore {
                 row.get::<_, String>(6).unwrap_or_default(),
             ))
         }) {
-            Ok(mapped_rows) => {
-                for row_result in mapped_rows {
+            for row_result in mapped_rows {
                     match row_result {
                         Ok((value, priority, confidence, decay_rate, timestamp, blob, mem_type)) => {
                             entries.push(MemoryEntry {
@@ -721,7 +720,6 @@ impl MemoryStore for SqliteStore {
                         Err(_) => continue,
                     }
                 }
-            }
         }
         entries
     }

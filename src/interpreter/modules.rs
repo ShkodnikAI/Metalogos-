@@ -132,6 +132,7 @@ impl Interpreter {
                         decay_rate: 0.01,
                         confidence: m.priority,
                         embedding,
+                        mem_type: String::new(),
                     });
                     // ADR-0052: emit memory_store event
                     let preview = if value_str.len() > 30 {

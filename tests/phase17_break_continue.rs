@@ -154,16 +154,14 @@ pattern skip_odds(items: List) -> String {
 
 #[test]
 fn test_continue_in_while_loop() {
+    // continue skips iteration 3, so sum = 1+2+4+5 = 12
     let source = r#"
-pattern sum_evens() -> String {
-    let mut i = 0.0
+pattern sum_skip3() -> String {
     let mut sum = 0.0
-    while i < 6.0 {
+    let mut i = 0.0
+    while i < 5.0 {
         i = i + 1.0
-        // skip odd numbers: compute i mod 2 via truncation
-        let half = i / 2.0
-        let doubled = half * 2.0
-        if i != doubled {
+        if i == 3.0 {
             continue
         }
         sum = sum + i
@@ -171,9 +169,9 @@ pattern sum_evens() -> String {
     return str(sum)
 }
 "#;
-    let val = call_pattern(source, "sum_evens", vec![]).unwrap();
+    let val = call_pattern(source, "sum_skip3", vec![]).unwrap();
     match val {
-        Value::String(s) => assert_eq!(s, "12"), // 2+4+6
+        Value::String(s) => assert_eq!(s, "12"), // 1+2+4+5
         other => panic!("expected String, got {:?}", other),
     }
 }

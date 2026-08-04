@@ -35,8 +35,8 @@ fn test_eval_accuracy_computed() {
                 ("ужасный сервис", "complaint"),
                 ("спасибо", "complaint"),
                 ("когда?", "complaint")
-            ]
-            metric: accuracy
+            ],
+            metric: accuracy,
             threshold: 0.8
         }
     "#;
@@ -67,8 +67,8 @@ fn test_eval_all_correct_pass() {
                 ("great product", "positive"),
                 ("love it", "positive"),
                 ("awesome", "positive")
-            ]
-            metric: accuracy
+            ],
+            metric: accuracy,
             threshold: 0.5
         }
     "#;
@@ -91,8 +91,8 @@ fn test_eval_below_threshold_fail() {
                 ("ужасный сервис", "complaint"),
                 ("спасибо", "greeting"),
                 ("когда?", "question")
-            ]
-            metric: accuracy
+            ],
+            metric: accuracy,
             threshold: 0.8
         }
     "#;
@@ -121,8 +121,8 @@ fn test_eval_empty_dataset_pass() {
             prompt: "any"
         }
         eval Classify {
-            dataset: []
-            metric: accuracy
+            dataset: [],
+            metric: accuracy,
             threshold: 0.8
         }
     "#;
@@ -140,8 +140,8 @@ fn test_eval_empty_dataset_pass() {
 fn test_eval_nonexistent_pattern_error() {
     let source = r#"
         eval NonExistent {
-            dataset: [("hello", "greeting")]
-            metric: accuracy
+            dataset: [("hello", "greeting")],
+            metric: accuracy,
             threshold: 0.8
         }
     "#;
@@ -169,8 +169,8 @@ fn test_eval_with_few_shot_boost() {
             dataset: [
                 ("ужасный сервис", "complaint"),
                 ("спасибо", "greeting")
-            ]
-            metric: accuracy
+            ],
+            metric: accuracy,
             threshold: 0.8
         }
     "#;
@@ -194,8 +194,8 @@ fn test_eval_confusion_matrix() {
                 ("bug report", "engineering"),
                 ("pay issue", "billing"),
                 ("feature request", "product")
-            ]
-            metric: accuracy
+            ],
+            metric: accuracy,
             threshold: 0.5
         }
     "#;
@@ -204,7 +204,7 @@ fn test_eval_confusion_matrix() {
     let r = &results[0];
 
     // All predictions are "wrong", all expected are different labels
-    // Confusion matrix should have 3 entries: each expected → wrong → 1
+    // Confusion matrix should have 3 entries: each expected -> wrong -> 1
     assert_eq!(r.confusion.len(), 3);
     assert_eq!(
         *r.confusion
@@ -223,7 +223,7 @@ fn test_eval_confusion_matrix() {
         1
     );
 
-    // All wrong → accuracy = 0.0
+    // All wrong -> accuracy = 0.0
     assert!((r.accuracy).abs() < 0.001);
     assert!(!r.passed);
 }
@@ -240,8 +240,8 @@ fn test_eval_format_report() {
             dataset: [
                 ("input1", "a"),
                 ("input2", "b")
-            ]
-            metric: accuracy
+            ],
+            metric: accuracy,
             threshold: 0.8
         }
     "#;
@@ -271,13 +271,13 @@ fn test_eval_multiple_blocks() {
             prompt: "correct"
         }
         eval A {
-            dataset: [("x", "correct")]
-            metric: accuracy
+            dataset: [("x", "correct")],
+            metric: accuracy,
             threshold: 0.5
         }
         eval B {
-            dataset: [("y", "correct")]
-            metric: accuracy
+            dataset: [("y", "correct")],
+            metric: accuracy,
             threshold: 0.5
         }
     "#;

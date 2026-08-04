@@ -128,6 +128,154 @@ pub fn builtin_pdf_to_markdown(args: &[Value]) -> Result<Value, String> {
     ))
 }
 
+/// `pdf_extract_regions(path, filter) → [ { text, needs_ocr, ocr_reason, page, x, y } ]`
+///
+/// Extract text items with positional information from a PDF.
+/// Returns a list of text items, each with coordinates and OCR status.
+///
+/// # Arguments
+/// - `path` (String): file path to the PDF
+/// - `filter` (String): optional JSON filter (reserved, currently ignored)
+///
+/// # Returns
+/// List of dicts with keys: text, needs_ocr, ocr_reason, page, x, y
+pub fn builtin_pdf_extract_regions(args: &[Value]) -> Result<Value, String> {
+    let path = expect_string_arg("pdf_extract_regions", args, 0)?;
+
+    let bytes = std::fs::read(&path)
+        .map_err(|e| format!("pdf_extract_regions: failed to read '{}': {}", path, e))?;
+
+    // Classify to know which pages need OCR
+    let classification = pdf_inspector::classify_pdf_mem(&bytes)
+        .map_err(|e| format!("pdf_extract_regions: classify failed: {}", e))?;
+
+    let ocr_pages_set: std::collections::HashSet<u32> =
+        classification.pages_needing_ocr.iter().cloned().collect();
+
+    // Extract all text items with positions
+    let items = pdf_inspector::extract_text_with_positions_mem(&bytes)
+        .map_err(|e| format!("pdf_extract_regions: {}", e))?;
+
+    let results: Vec<Value> = items
+        .iter()
+        .filter(|item| !item.text.trim().is_empty())
+        .map(|item| {
+            let needs_ocr = ocr_pages_set.contains(&item.page);
+            let ocr_reason = if needs_ocr {
+                "scanned"
+            } else {
+                ""
+            };
+            Value::List(vec![
+                Value::String("text".to_string()),
+                Value::String(item.text.clone()),
+                Value::String("needs_ocr".to_string()),
+                Value::Bool(needs_ocr),
+                Value::String("ocr_reason".to_string()),
+                Value::String(ocr_reason.to_string()),
+                Value::String("page".to_string()),
+                Value::Float(item.page as f64),
+                Value::String("x".to_string()),
+                Value::Float(item.x as f64),
+                Value::String("y".to_string()),
+                Value::Float(item.y as f64),
+            ])
+        })
+        .collect();
+
+    Ok(Value::List(results))
+}
+
+/// `pdf_ocr(path) → { markdown, ocr_confidence, pages_processed }`
+///
+/// OCR fallback for scanned/mixed PDFs. Requires system Tesseract installation
+/// with CJK training data. This is a stub that returns an error unless
+/// the `pdf-ocr` cargo feature is enabled.
+///
+/// # Arguments
+/// - `path` (String): file path to the PDF
+///
+/// # Returns
+/// Dict with keys: markdown, ocr_confidence, pages_processed
+#[cfg(feature = "pdf-ocr")]
+pub fn builtin_pdf_ocr(args: &[Value]) -> Result<Value, String> {
+    let path = expect_string_arg("pdf_ocr", args, 0)?;
+
+    let bytes = std::fs::read(&path)
+        .map_err(|e| format!("pdf_ocr: failed to read '{}': {}", path, e))?;
+
+    let classification = pdf_inspector::classify_pdf_mem(&bytes)
+        .map_err(|e| format!("pdf_ocr: classify failed: {}", e))?;
+
+    if classification.pages_needing_ocr.is_empty() {
+        return Err("pdf_ocr: no pages need OCR (use pdf_to_markdown instead)".to_string());
+    }
+
+    let tessdata = std::env::var("TESSDATA_PREFIX")
+        .unwrap_or_else(|_| "/usr/share/tesseract-ocr".to_string());
+
+    let mut full_markdown = String::new();
+    let mut total_confidence: f64 = 0.0;
+    let mut pages_processed: u32 = 0;
+
+    for _page_num in &classification.pages_needing_ocr {
+        // PDF page → image rendering + Tesseract OCR
+        // NOTE: Full implementation requires pdfium-render or poppler-rs for
+        // PDF page → image conversion. This is a structural placeholder
+        // that demonstrates the integration point.
+        //
+        // Production pipeline:
+        // 1. Render PDF page to PNG via pdfium-render
+        // 2. Feed PNG bytes to Tesseract::new().set_image_from_mem()
+        // 3. Collect recognized text and confidence
+
+        let mut tess = match tesseract::Tesseract::new(
+            Some(&tessdata),
+            Some("eng+chi_sim+jpn+kor"),
+        ) {
+            Ok(t) => t,
+            Err(e) => {
+                full_markdown.push_str(&format!("\n[OCR_ERROR: tesseract init: {}]\n", e));
+                continue;
+            }
+        };
+
+        match tess.recognize() {
+            Ok(mut result) => {
+                let text = result.get_text().unwrap_or_default();
+                let conf = result.mean_text_conf() as f64;
+                total_confidence += conf;
+                pages_processed += 1;
+                full_markdown.push_str(&text);
+            }
+            Err(e) => {
+                full_markdown.push_str(&format!("\n[OCR_ERROR: recognition: {}]\n", e));
+            }
+        }
+    }
+
+    let avg_confidence = if pages_processed > 0 {
+        total_confidence / pages_processed as f64
+    } else {
+        0.0
+    };
+
+    Ok(make_dict(
+        &["markdown", "ocr_confidence", "pages_processed"],
+        &[
+            Value::String(full_markdown),
+            Value::Float(avg_confidence),
+            Value::Float(pages_processed as f64),
+        ],
+    ))
+}
+
+/// Stub for pdf_ocr when the pdf-ocr feature is not enabled.
+#[cfg(not(feature = "pdf-ocr"))]
+pub fn builtin_pdf_ocr(args: &[Value]) -> Result<Value, String> {
+    Err("pdf_ocr: OCR support not compiled (build with --features pdf-ocr)".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

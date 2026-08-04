@@ -273,10 +273,12 @@ impl Interpreter {
         }
         let query = match &args[0] {
             Value::String(s) => s.clone(),
-            other => return Err(format!(
-                "recall_top_k() expected String as first arg, got {}",
-                other.type_name()
-            )),
+            other => {
+                return Err(format!(
+                    "recall_top_k() expected String as first arg, got {}",
+                    other.type_name()
+                ))
+            }
         };
         let k = if args.len() > 1 {
             args[1].as_float().unwrap_or(5.0) as usize
@@ -306,6 +308,8 @@ impl Interpreter {
                 })
             })
             .collect();
-        Ok(Value::String(serde_json::to_string(&json_results).unwrap_or_default()))
+        Ok(Value::String(
+            serde_json::to_string(&json_results).unwrap_or_default(),
+        ))
     }
 }

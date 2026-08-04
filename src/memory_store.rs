@@ -98,7 +98,8 @@ pub trait MemoryStore: Send + Sync {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        let mut scored: Vec<(MemoryEntry, f32)> = self.all_entries()
+        let mut scored: Vec<(MemoryEntry, f32)> = self
+            .all_entries()
             .into_iter()
             .filter(|e| type_filter.is_empty() || e.mem_type == type_filter)
             .filter_map(|e| {
@@ -524,9 +525,10 @@ impl SqliteStore {
             Ok(s) => s,
             Err(_) => return std::collections::HashMap::new(),
         };
-        let rows_result = stmt.query_map(rusqlite::params![query, limit as i64, type_filter], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
-        });
+        let rows_result = stmt
+            .query_map(rusqlite::params![query, limit as i64, type_filter], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
+            });
         match rows_result {
             Ok(rows) => rows
                 .filter_map(|r| r.ok())
@@ -594,10 +596,11 @@ impl MemoryStore for SqliteStore {
         let mut best_score: f32 = 0.0;
 
         for row in rows {
-            let (_id, value, priority, confidence, decay_rate, timestamp, blob, mem_type) = match row {
-                Ok(r) => r,
-                Err(_) => continue,
-            };
+            let (_id, value, priority, confidence, decay_rate, timestamp, blob, mem_type) =
+                match row {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
 
             let entry_embedding = Self::blob_to_embedding(&blob);
 
@@ -704,22 +707,22 @@ impl MemoryStore for SqliteStore {
             ))
         }) {
             for row_result in mapped_rows {
-                    match row_result {
-                        Ok((value, priority, confidence, decay_rate, timestamp, blob, mem_type)) => {
-                            entries.push(MemoryEntry {
-                                id: None,
-                                value,
-                                priority,
-                                timestamp,
-                                decay_rate,
-                                confidence,
-                                embedding: Self::blob_to_embedding(&blob),
-                                mem_type,
-                            });
-                        }
-                        Err(_) => continue,
+                match row_result {
+                    Ok((value, priority, confidence, decay_rate, timestamp, blob, mem_type)) => {
+                        entries.push(MemoryEntry {
+                            id: None,
+                            value,
+                            priority,
+                            timestamp,
+                            decay_rate,
+                            confidence,
+                            embedding: Self::blob_to_embedding(&blob),
+                            mem_type,
+                        });
                     }
+                    Err(_) => continue,
                 }
+            }
         }
         entries
     }
@@ -765,7 +768,7 @@ impl MemoryStore for SqliteStore {
         };
 
         // Step 1: BM25 candidates from FTS5 (keyword matching).
-        let bm25_scores = SqliteStore::bm25_search(&*conn, query, limit, type_filter);
+        let bm25_scores = SqliteStore::bm25_search(&conn, query, limit, type_filter);
 
         // Step 2: Fetch candidate entries (BM25 matches + type filter).
         let candidate_ids: Vec<i64> = if !bm25_scores.is_empty() {
@@ -862,8 +865,12 @@ impl MemoryStore for SqliteStore {
 
         // Union of all candidate IDs
         let mut all_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
-        for id in bm25_ranks.keys() { all_ids.insert(*id); }
-        for id in cosine_ranks.keys() { all_ids.insert(*id); }
+        for id in bm25_ranks.keys() {
+            all_ids.insert(*id);
+        }
+        for id in cosine_ranks.keys() {
+            all_ids.insert(*id);
+        }
 
         // Compute RRF score for each entry
         let mut rrf_results: Vec<(i64, f32)> = all_ids

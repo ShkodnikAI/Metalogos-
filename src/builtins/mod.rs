@@ -561,6 +561,11 @@ impl Builtins {
             "pdf_to_markdown".to_string(),
             builtin_pdf_to_markdown as BuiltinFn,
         );
+        funcs.insert(
+            "pdf_extract_regions".to_string(),
+            builtin_pdf_extract_regions as BuiltinFn,
+        );
+        funcs.insert("pdf_ocr".to_string(), builtin_pdf_ocr as BuiltinFn);
 
         Builtins { funcs }
     }

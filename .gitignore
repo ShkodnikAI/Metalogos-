@@ -6,3 +6,4 @@ metalogos-build/
 metalogos-src/
 tool-results/
 *.db
+metalogos/target/

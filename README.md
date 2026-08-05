@@ -138,7 +138,7 @@ cron_list()   // list all jobs
 
 Three-level hierarchical memory: L0 (raw entries) → L1 (chunk summaries) → L2 (global summary). Admission-gated storage, keyword-relevance retrieval with scoring, and automatic compression.
 
-### Typed Memory with Hybrid Search (ADR-0072, ADR-0073)
+### Typed Memory with Hybrid Search (ADR-0093, ADR-0094)
 
 Memory entries carry a type tag (`persona`, `episodic`, `instruction`, `fact`) for differentiated recall. SQLite-backed persistence with FTS5 BM25 keyword index + cosine similarity, merged via Reciprocal Rank Fusion (k=60). Top-K recall with type filtering:
 

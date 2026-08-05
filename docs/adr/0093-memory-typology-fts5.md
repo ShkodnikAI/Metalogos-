@@ -1,4 +1,4 @@
-# ADR-0072: Memory Typology & FTS5 Hybrid Search
+# ADR-0093: Memory Typology & FTS5 Hybrid Search
 
 **Status:** Accepted  
 **Date:** 2026-08-04  

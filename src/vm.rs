@@ -2016,7 +2016,10 @@ impl Vm {
                 // If the required type IS Fluid, pass through without collapsing
                 if required_type == "Fluid" {
                     // ADR-0089: propagate confidence — min of max variant confidence
-                    let max_conf = variants.iter().map(|v| v.confidence).fold(0.0_f64, f64::max);
+                    let max_conf = variants
+                        .iter()
+                        .map(|v| v.confidence)
+                        .fold(0.0_f64, f64::max);
                     self.propagated_confidence = self.propagated_confidence.min(max_conf);
                     return value.clone();
                 }

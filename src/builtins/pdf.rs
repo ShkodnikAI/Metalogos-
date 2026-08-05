@@ -64,12 +64,7 @@ pub fn builtin_pdf_classify(args: &[Value]) -> Result<Value, String> {
         .collect();
 
     Ok(make_dict(
-        &[
-            "type",
-            "confidence",
-            "pages_needing_ocr",
-            "page_count",
-        ],
+        &["type", "confidence", "pages_needing_ocr", "page_count"],
         &[
             Value::String(pdf_type_to_string(&result.pdf_type)),
             Value::Float(result.confidence as f64),
@@ -96,8 +91,8 @@ pub fn builtin_pdf_to_markdown(args: &[Value]) -> Result<Value, String> {
     let bytes = std::fs::read(&path)
         .map_err(|e| format!("pdf_to_markdown: failed to read '{}': {}", path, e))?;
 
-    let result = pdf_inspector::process_pdf_mem(&bytes)
-        .map_err(|e| format!("pdf_to_markdown: {}", e))?;
+    let result =
+        pdf_inspector::process_pdf_mem(&bytes).map_err(|e| format!("pdf_to_markdown: {}", e))?;
 
     let markdown = result.markdown.unwrap_or_default();
     let ocr_pages: Vec<Value> = result
@@ -161,11 +156,7 @@ pub fn builtin_pdf_extract_regions(args: &[Value]) -> Result<Value, String> {
         .filter(|item| !item.text.trim().is_empty())
         .map(|item| {
             let needs_ocr = ocr_pages_set.contains(&item.page);
-            let ocr_reason = if needs_ocr {
-                "scanned"
-            } else {
-                ""
-            };
+            let ocr_reason = if needs_ocr { "scanned" } else { "" };
             Value::List(vec![
                 Value::String("text".to_string()),
                 Value::String(item.text.clone()),
@@ -201,8 +192,8 @@ pub fn builtin_pdf_extract_regions(args: &[Value]) -> Result<Value, String> {
 pub fn builtin_pdf_ocr(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("pdf_ocr", args, 0)?;
 
-    let bytes = std::fs::read(&path)
-        .map_err(|e| format!("pdf_ocr: failed to read '{}': {}", path, e))?;
+    let bytes =
+        std::fs::read(&path).map_err(|e| format!("pdf_ocr: failed to read '{}': {}", path, e))?;
 
     let classification = pdf_inspector::classify_pdf_mem(&bytes)
         .map_err(|e| format!("pdf_ocr: classify failed: {}", e))?;
@@ -211,8 +202,8 @@ pub fn builtin_pdf_ocr(args: &[Value]) -> Result<Value, String> {
         return Err("pdf_ocr: no pages need OCR (use pdf_to_markdown instead)".to_string());
     }
 
-    let tessdata = std::env::var("TESSDATA_PREFIX")
-        .unwrap_or_else(|_| "/usr/share/tesseract-ocr".to_string());
+    let tessdata =
+        std::env::var("TESSDATA_PREFIX").unwrap_or_else(|_| "/usr/share/tesseract-ocr".to_string());
 
     let mut full_markdown = String::new();
     let mut total_confidence: f64 = 0.0;
@@ -229,10 +220,8 @@ pub fn builtin_pdf_ocr(args: &[Value]) -> Result<Value, String> {
         // 2. Feed PNG bytes to Tesseract::new().set_image_from_mem()
         // 3. Collect recognized text and confidence
 
-        let mut tess = match tesseract::Tesseract::new(
-            Some(&tessdata),
-            Some("eng+chi_sim+jpn+kor"),
-        ) {
+        let mut tess = match tesseract::Tesseract::new(Some(&tessdata), Some("eng+chi_sim+jpn+kor"))
+        {
             Ok(t) => t,
             Err(e) => {
                 full_markdown.push_str(&format!("\n[OCR_ERROR: tesseract init: {}]\n", e));
@@ -272,7 +261,7 @@ pub fn builtin_pdf_ocr(args: &[Value]) -> Result<Value, String> {
 
 /// Stub for pdf_ocr when the pdf-ocr feature is not enabled.
 #[cfg(not(feature = "pdf-ocr"))]
-pub fn builtin_pdf_ocr(args: &[Value]) -> Result<Value, String> {
+pub fn builtin_pdf_ocr(_args: &[Value]) -> Result<Value, String> {
     Err("pdf_ocr: OCR support not compiled (build with --features pdf-ocr)".to_string())
 }
 
@@ -294,10 +283,7 @@ mod tests {
             pdf_type_to_string(&pdf_inspector::PdfType::ImageBased),
             "ImageBased"
         );
-        assert_eq!(
-            pdf_type_to_string(&pdf_inspector::PdfType::Mixed),
-            "Mixed"
-        );
+        assert_eq!(pdf_type_to_string(&pdf_inspector::PdfType::Mixed), "Mixed");
     }
 
     #[test]
@@ -310,8 +296,7 @@ mod tests {
 
     #[test]
     fn test_pdf_to_markdown_invalid_path() {
-        let result =
-            builtin_pdf_to_markdown(&[Value::String("/nonexistent/file.pdf".to_string())]);
+        let result = builtin_pdf_to_markdown(&[Value::String("/nonexistent/file.pdf".to_string())]);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.contains("failed to read"), "error: {}", err);
@@ -323,11 +308,15 @@ mod tests {
         let fake_path = dir.path().join("not_a_pdf.txt");
         std::fs::write(&fake_path, "this is not a PDF").unwrap();
 
-        let result = builtin_pdf_classify(&[Value::String(fake_path.to_string_lossy().to_string())]);
+        let result =
+            builtin_pdf_classify(&[Value::String(fake_path.to_string_lossy().to_string())]);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            err.contains("pdf_to_markdown") || err.contains("pdf_classify") || err.contains("NotAPdf") || err.contains("Parse"),
+            err.contains("pdf_to_markdown")
+                || err.contains("pdf_classify")
+                || err.contains("NotAPdf")
+                || err.contains("Parse"),
             "unexpected error: {}",
             err
         );
@@ -339,9 +328,8 @@ mod tests {
         let fake_path = dir.path().join("not_a_pdf.txt");
         std::fs::write(&fake_path, "this is not a PDF").unwrap();
 
-        let result = builtin_pdf_to_markdown(&[Value::String(
-            fake_path.to_string_lossy().to_string(),
-        )]);
+        let result =
+            builtin_pdf_to_markdown(&[Value::String(fake_path.to_string_lossy().to_string())]);
         assert!(result.is_err());
     }
 

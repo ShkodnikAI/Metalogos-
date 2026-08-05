@@ -421,14 +421,20 @@ impl Interpreter {
         // Check learnable patterns
         if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
             // ADR-0089: reset propagated confidence before collapse
-            *self.propagated_confidence.lock().unwrap() = 1.0;
+            *self
+                .propagated_confidence
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = 1.0;
             let collapsed_args = self.collapse_args(&learnable.params, &args);
             let learnable_clone = learnable.clone();
             let result = self.invoke_pattern_with_hooks(name, &collapsed_args, || {
                 self.invoke_learnable_with_env(name, &learnable_clone, &collapsed_args)
             });
             // ADR-0089: wrap result as Fluid if confidence was propagated
-            let conf = *self.propagated_confidence.lock().unwrap();
+            let conf = *self
+                .propagated_confidence
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             return Self::maybe_wrap_with_confidence(result, conf);
         }
 
@@ -486,14 +492,20 @@ impl Interpreter {
 
         // Bind parameters with Fluid collapse
         // ADR-0089: reset propagated confidence before collapse
-        *self.propagated_confidence.lock().unwrap() = 1.0;
+        *self
+            .propagated_confidence
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = 1.0;
         let mut local_env = self.bind_and_collapse(&pattern.params, &args)?;
 
         let result = self.invoke_pattern_with_hooks(name, &args, || {
             self.eval_statements(&pattern.body, &mut local_env)
         });
         // ADR-0089: wrap result as Fluid if confidence was propagated
-        let conf = *self.propagated_confidence.lock().unwrap();
+        let conf = *self
+            .propagated_confidence
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         Self::maybe_wrap_with_confidence(result, conf)
     }
 
@@ -1399,14 +1411,20 @@ impl Interpreter {
                 // Check learnable patterns first
                 if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
                     // ADR-0089: reset propagated confidence before collapse
-                    *self.propagated_confidence.lock().unwrap() = 1.0;
+                    *self
+                        .propagated_confidence
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner()) = 1.0;
                     let collapsed_args = self.collapse_args(&learnable.params, &eval_args);
                     let learnable_clone = learnable.clone();
                     let result = self.invoke_pattern_with_hooks(name, &collapsed_args, || {
                         self.invoke_learnable_with_env(name, &learnable_clone, &collapsed_args)
                     });
                     // ADR-0089: wrap result as Fluid if confidence was propagated
-                    let conf = *self.propagated_confidence.lock().unwrap();
+                    let conf = *self
+                        .propagated_confidence
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
                     return Self::maybe_wrap_with_confidence(result, conf);
                 }
 
@@ -1455,13 +1473,19 @@ impl Interpreter {
 
                 // Bind parameters with Fluid collapse
                 // ADR-0089: reset propagated confidence before collapse
-                *self.propagated_confidence.lock().unwrap() = 1.0;
+                *self
+                    .propagated_confidence
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = 1.0;
                 let mut local_env = self.bind_and_collapse(&pattern.params, &eval_args)?;
                 let result = self.invoke_pattern_with_hooks(name, &eval_args, || {
                     self.eval_statements(&pattern.body, &mut local_env)
                 });
                 // ADR-0089: wrap result as Fluid if confidence was propagated
-                let conf = *self.propagated_confidence.lock().unwrap();
+                let conf = *self
+                    .propagated_confidence
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 Self::maybe_wrap_with_confidence(result, conf)
             }
             Expr::BinaryOp(left, op, right) => {
@@ -1532,9 +1556,18 @@ impl Interpreter {
                 // If the required type IS Fluid, pass through without collapsing
                 if required_type == "Fluid" {
                     // ADR-0089: propagate confidence — min of all variant confidences
-                    let max_conf = variants.iter().map(|v| v.confidence).fold(0.0_f64, f64::max);
-                    let current = *self.propagated_confidence.lock().unwrap();
-                    *self.propagated_confidence.lock().unwrap() = current.min(max_conf);
+                    let max_conf = variants
+                        .iter()
+                        .map(|v| v.confidence)
+                        .fold(0.0_f64, f64::max);
+                    let current = *self
+                        .propagated_confidence
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    *self
+                        .propagated_confidence
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner()) = current.min(max_conf);
                     return Ok(value.clone());
                 }
                 // Find the best matching variant for the required type
@@ -1550,7 +1583,10 @@ impl Interpreter {
                 match best {
                     Some(variant) if variant.confidence >= Self::COLLAPSE_THRESHOLD => {
                         // ADR-0089: propagate confidence — track min of all collapses
-                        let mut conf = self.propagated_confidence.lock().unwrap();
+                        let mut conf = self
+                            .propagated_confidence
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner());
                         *conf = (*conf).min(variant.confidence);
                         Ok(variant.value.clone())
                     }

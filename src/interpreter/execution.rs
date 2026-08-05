@@ -420,11 +420,16 @@ impl Interpreter {
 
         // Check learnable patterns
         if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
+            // ADR-0089: reset propagated confidence before collapse
+            *self.propagated_confidence.lock().unwrap() = 1.0;
             let collapsed_args = self.collapse_args(&learnable.params, &args);
             let learnable_clone = learnable.clone();
-            return self.invoke_pattern_with_hooks(name, &collapsed_args, || {
+            let result = self.invoke_pattern_with_hooks(name, &collapsed_args, || {
                 self.invoke_learnable_with_env(name, &learnable_clone, &collapsed_args)
             });
+            // ADR-0089: wrap result as Fluid if confidence was propagated
+            let conf = *self.propagated_confidence.lock().unwrap();
+            return Self::maybe_wrap_with_confidence(result, conf);
         }
 
         // Check builtins
@@ -480,11 +485,16 @@ impl Interpreter {
         }
 
         // Bind parameters with Fluid collapse
+        // ADR-0089: reset propagated confidence before collapse
+        *self.propagated_confidence.lock().unwrap() = 1.0;
         let mut local_env = self.bind_and_collapse(&pattern.params, &args)?;
 
-        self.invoke_pattern_with_hooks(name, &args, || {
+        let result = self.invoke_pattern_with_hooks(name, &args, || {
             self.eval_statements(&pattern.body, &mut local_env)
-        })
+        });
+        // ADR-0089: wrap result as Fluid if confidence was propagated
+        let conf = *self.propagated_confidence.lock().unwrap();
+        Self::maybe_wrap_with_confidence(result, conf)
     }
 
     /// Safety limit for while loops (soft-failure on exceed).
@@ -1388,11 +1398,16 @@ impl Interpreter {
 
                 // Check learnable patterns first
                 if let Some(learnable) = self.learnable_patterns.get(name).cloned() {
+                    // ADR-0089: reset propagated confidence before collapse
+                    *self.propagated_confidence.lock().unwrap() = 1.0;
                     let collapsed_args = self.collapse_args(&learnable.params, &eval_args);
                     let learnable_clone = learnable.clone();
-                    return self.invoke_pattern_with_hooks(name, &collapsed_args, || {
+                    let result = self.invoke_pattern_with_hooks(name, &collapsed_args, || {
                         self.invoke_learnable_with_env(name, &learnable_clone, &collapsed_args)
                     });
+                    // ADR-0089: wrap result as Fluid if confidence was propagated
+                    let conf = *self.propagated_confidence.lock().unwrap();
+                    return Self::maybe_wrap_with_confidence(result, conf);
                 }
 
                 // Check builtins
@@ -1439,10 +1454,15 @@ impl Interpreter {
                 }
 
                 // Bind parameters with Fluid collapse
+                // ADR-0089: reset propagated confidence before collapse
+                *self.propagated_confidence.lock().unwrap() = 1.0;
                 let mut local_env = self.bind_and_collapse(&pattern.params, &eval_args)?;
-                self.invoke_pattern_with_hooks(name, &eval_args, || {
+                let result = self.invoke_pattern_with_hooks(name, &eval_args, || {
                     self.eval_statements(&pattern.body, &mut local_env)
-                })
+                });
+                // ADR-0089: wrap result as Fluid if confidence was propagated
+                let conf = *self.propagated_confidence.lock().unwrap();
+                Self::maybe_wrap_with_confidence(result, conf)
             }
             Expr::BinaryOp(left, op, right) => {
                 // Short-circuit for logical operators: and/or
@@ -1475,6 +1495,32 @@ impl Interpreter {
     /// Below threshold → soft-failure (returns Unit).
     const COLLAPSE_THRESHOLD: f64 = 0.1;
 
+    /// ADR-0089: If confidence < 1.0, wrap a concrete result as Fluid
+    /// with the propagated confidence, so downstream consumers can query it
+    /// via the `confidence()` builtin.
+    fn maybe_wrap_with_confidence(
+        result: Result<Value, String>,
+        confidence: f64,
+    ) -> Result<Value, String> {
+        // Only wrap successful concrete results with propagated confidence < 1.0
+        if confidence < 1.0 {
+            result.map(|val| match val {
+                // Don't double-wrap Fluid values
+                Value::Fluid(_) => val,
+                // Don't wrap Unit
+                Value::Unit => val,
+                // Wrap concrete values as Fluid with propagated confidence
+                concrete => Value::Fluid(vec![FluidValueVariant {
+                    type_name: concrete.type_name().to_string(),
+                    value: concrete,
+                    confidence,
+                }]),
+            })
+        } else {
+            result
+        }
+    }
+
     /// Collapse a Fluid value to a concrete type if needed.
     /// If the value is Fluid, finds the variant matching `required_type` with the
     /// highest confidence. If confidence >= threshold, returns the concrete value.
@@ -1483,6 +1529,14 @@ impl Interpreter {
     fn maybe_collapse(&self, value: &Value, required_type: &str) -> Result<Value, String> {
         match value {
             Value::Fluid(variants) => {
+                // If the required type IS Fluid, pass through without collapsing
+                if required_type == "Fluid" {
+                    // ADR-0089: propagate confidence — min of all variant confidences
+                    let max_conf = variants.iter().map(|v| v.confidence).fold(0.0_f64, f64::max);
+                    let current = *self.propagated_confidence.lock().unwrap();
+                    *self.propagated_confidence.lock().unwrap() = current.min(max_conf);
+                    return Ok(value.clone());
+                }
                 // Find the best matching variant for the required type
                 let best = variants
                     .iter()
@@ -1495,6 +1549,9 @@ impl Interpreter {
 
                 match best {
                     Some(variant) if variant.confidence >= Self::COLLAPSE_THRESHOLD => {
+                        // ADR-0089: propagate confidence — track min of all collapses
+                        let mut conf = self.propagated_confidence.lock().unwrap();
+                        *conf = (*conf).min(variant.confidence);
                         Ok(variant.value.clone())
                     }
                     Some(_variant) => {

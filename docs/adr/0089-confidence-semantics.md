@@ -78,5 +78,13 @@ inference mechanism.
 - README does not claim confidence propagation as a working feature.
   "confidence-based branching" refers to branch conditions on entity fields,
   which is correct.
-- Future work on propagation requires a separate ADR with design options
-  before implementation, per §6 Iron Rules.
+- **Implemented (session 0805)**: Confidence propagation via `min()` heuristic
+  (ADR-0089 recommended start). When a Fluid value is collapsed to pass through
+  a pattern call, the collapsed confidence is tracked via `propagated_confidence`
+  (Interpreter) / `propagated_confidence` (VM). After pattern execution, if
+  confidence < 1.0, the result is wrapped as `Fluid` with a single variant
+  carrying the min confidence. This allows downstream `confidence()` calls to
+  return the propagated value instead of the default 1.0.
+  - `p1_fluid_collapse.expected` updated: `1` → `0.6` (confidence now propagates
+    through Double pattern call).
+  - Both interpreter (`execution.rs`) and VM (`vm.rs`) updated for parity.

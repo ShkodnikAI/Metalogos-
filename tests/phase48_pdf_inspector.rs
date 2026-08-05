@@ -34,10 +34,7 @@ mod tests {
             Some(Value::Float(f)) => f,
             Some(Value::String(s)) => s.parse().unwrap_or(0.0),
             other => {
-                eprintln!(
-                    "dict_float('{}') got unexpected: {:?}",
-                    key, other
-                );
+                eprintln!("dict_float('{}') got unexpected: {:?}", key, other);
                 0.0
             }
         }
@@ -45,10 +42,9 @@ mod tests {
 
     #[test]
     fn test_pdf_classify_text_based() {
-        let result = builtin_pdf_classify(&[Value::String(
-            "tests/fixtures/text_based.pdf".to_string(),
-        )])
-        .expect("pdf_classify should succeed on text_based.pdf");
+        let result =
+            builtin_pdf_classify(&[Value::String("tests/fixtures/text_based.pdf".to_string())])
+                .expect("pdf_classify should succeed on text_based.pdf");
 
         let pdf_type = dict_str(&result, "type");
         let confidence = dict_float(&result, "confidence");
@@ -71,10 +67,9 @@ mod tests {
 
     #[test]
     fn test_pdf_to_markdown_text_based() {
-        let result = builtin_pdf_to_markdown(&[Value::String(
-            "tests/fixtures/text_based.pdf".to_string(),
-        )])
-        .expect("pdf_to_markdown should succeed on text_based.pdf");
+        let result =
+            builtin_pdf_to_markdown(&[Value::String("tests/fixtures/text_based.pdf".to_string())])
+                .expect("pdf_to_markdown should succeed on text_based.pdf");
 
         let markdown = dict_str(&result, "markdown");
         let page_count = dict_float(&result, "page_count") as u32;
@@ -100,10 +95,9 @@ mod tests {
 
     #[test]
     fn test_pdf_classify_scanned() {
-        let result = builtin_pdf_classify(&[Value::String(
-            "tests/fixtures/scanned.pdf".to_string(),
-        )])
-        .expect("pdf_classify should succeed on scanned.pdf");
+        let result =
+            builtin_pdf_classify(&[Value::String("tests/fixtures/scanned.pdf".to_string())])
+                .expect("pdf_classify should succeed on scanned.pdf");
 
         let pdf_type = dict_str(&result, "type");
         let page_count = dict_float(&result, "page_count") as u32;
@@ -119,10 +113,9 @@ mod tests {
 
     #[test]
     fn test_pdf_to_markdown_scanned() {
-        let result = builtin_pdf_to_markdown(&[Value::String(
-            "tests/fixtures/scanned.pdf".to_string(),
-        )])
-        .expect("pdf_to_markdown should succeed on scanned.pdf");
+        let result =
+            builtin_pdf_to_markdown(&[Value::String("tests/fixtures/scanned.pdf".to_string())])
+                .expect("pdf_to_markdown should succeed on scanned.pdf");
 
         let pdf_type = dict_str(&result, "pdf_type");
         let markdown = dict_str(&result, "markdown");
@@ -147,10 +140,9 @@ mod tests {
 
     #[test]
     fn test_pdf_to_markdown_returns_all_fields() {
-        let result = builtin_pdf_to_markdown(&[Value::String(
-            "tests/fixtures/text_based.pdf".to_string(),
-        )])
-        .expect("pdf_to_markdown should succeed");
+        let result =
+            builtin_pdf_to_markdown(&[Value::String("tests/fixtures/text_based.pdf".to_string())])
+                .expect("pdf_to_markdown should succeed");
 
         // Verify all expected keys are present
         for key in &[

@@ -1,12 +1,12 @@
-# ADR-0073: Type-Aware Recall & Hybrid Search (Memory Phase 3)
+# ADR-0094: Type-Aware Recall & Hybrid Search (Memory Phase 3)
 
 **Status:** Accepted
 **Date:** 2026-08-04
-**Supersedes:** ADR-0072 (activates mem_type and FTS5 infrastructure added there)
+**Supersedes:** ADR-0093 (activates mem_type and FTS5 infrastructure added there)
 
 ## Context
 
-ADR-0072 added `mem_type` field to `MemoryEntry` and FTS5 virtual table with content-synced triggers.
+ADR-0093 added `mem_type` field to `MemoryEntry` and FTS5 virtual table with content-synced triggers.
 However, both were dead infrastructure:
 - `mem_type` was stored and retrieved but never used in recall scoring or filtering.
 - FTS5 table was populated via triggers but never queried — `recall()` did full table scans.

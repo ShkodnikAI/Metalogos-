@@ -51,6 +51,8 @@ pub struct Vm {
     mutate_log: Vec<String>,
     /// Audit log entries (Наряд №41 Block 2: parity with interpreter).
     audit_log: Mutex<Vec<String>>,
+    /// ADR-0089: Propagated confidence from Fluid collapse through pattern calls.
+    propagated_confidence: f64,
     /// Collections loaded flag (for map/filter/reduce).
     collections_loaded: bool,
     // ── Server context (per-request, set before execute_route_code) ──
@@ -90,6 +92,7 @@ impl Vm {
             db_conn: None,
             mutate_log: Vec::new(),
             audit_log: Mutex::new(Vec::new()),
+            propagated_confidence: 1.0,
             collections_loaded: false,
             server_json_body: None,
             server_query_params: None,
@@ -1668,13 +1671,18 @@ impl Vm {
                 }
 
                 // ── VM bytecode path ───────────────────────────
+                // Clone everything needed before mutable self borrow
+                let param_types = pattern.param_types.clone();
+                let code = pattern.code.clone();
+
+                // ADR-0089: reset propagated confidence before collapse
+                self.propagated_confidence = 1.0;
                 // Collapse Fluid arguments to parameter types
                 let collapsed_args: Vec<Value> = args
                     .iter()
-                    .zip(pattern.param_types.iter())
+                    .zip(param_types.iter())
                     .map(|(arg, param_type)| self.maybe_collapse(arg, param_type))
                     .collect();
-                let code = pattern.code.clone();
                 // Execute pattern body as bytecode
                 let mut stack: Vec<Value> = Vec::new();
                 let mut call_stack: Vec<CallFrame> = vec![CallFrame {
@@ -1695,7 +1703,9 @@ impl Vm {
                 for arg in collapsed_args {
                     stack.push(arg);
                 }
-                return self.execute_code(&code, &mut stack, &mut call_stack, &program);
+                let result = self.execute_code(&code, &mut stack, &mut call_stack, &program);
+                // ADR-0089: wrap result as Fluid if confidence was propagated
+                return Self::vm_wrap_with_confidence(result, self.propagated_confidence);
             }
         }
 
@@ -1703,16 +1713,20 @@ impl Vm {
         self.call_builtin(name, &args)
     }
 
-    /// Execute all registered rules (already sorted by priority descending).
-    /// ADR-0090: priority-ordered, first-wins semantics.
-    /// For each (entity, field) pair, only the first matching rule writes the field.
-    /// Rules targeting different fields all fire.
+    /// Execute all registered rules with priority-ordered, first-wins semantics.
+    /// ADR-0090: rules sorted by priority descending; stable sort preserves
+    /// declaration order for ties. For each (entity, field) pair, only the
+    /// first matching rule writes the field. Rules targeting different fields all fire.
     fn execute_rules(&mut self) -> Result<(), String> {
+        // ADR-0090: sort by priority descending (stable sort keeps declaration order for ties)
+        let mut sorted_rules: Vec<&CompiledRule> = self.rules.iter().collect();
+        sorted_rules.sort_by_key(|b| std::cmp::Reverse(b.priority));
+
         // Track which (entity_name, field_name) pairs have already been written
         let mut written: std::collections::HashSet<(String, String)> =
             std::collections::HashSet::new();
 
-        for rule in &self.rules {
+        for rule in sorted_rules {
             // Skip if this field was already written by a higher-priority rule
             if written.contains(&(rule.target_name.clone(), rule.field.clone())) {
                 continue;
@@ -1974,10 +1988,38 @@ impl Vm {
         self.execute_code(&route.code, &mut stack, &mut call_stack, program)
     }
 
+    /// ADR-0089: If confidence < 1.0, wrap a concrete result as Fluid
+    /// with the propagated confidence (VM version).
+    fn vm_wrap_with_confidence(
+        result: Result<Value, String>,
+        confidence: f64,
+    ) -> Result<Value, String> {
+        if confidence < 1.0 {
+            result.map(|val| match val {
+                Value::Fluid(_) => val,
+                Value::Unit => val,
+                concrete => Value::Fluid(vec![crate::interpreter::values::FluidValueVariant {
+                    type_name: concrete.type_name().to_string(),
+                    value: concrete,
+                    confidence,
+                }]),
+            })
+        } else {
+            result
+        }
+    }
+
     /// Collapse a Fluid value to a concrete type.
-    fn maybe_collapse(&self, value: &Value, required_type: &str) -> Value {
+    fn maybe_collapse(&mut self, value: &Value, required_type: &str) -> Value {
         match value {
             Value::Fluid(variants) => {
+                // If the required type IS Fluid, pass through without collapsing
+                if required_type == "Fluid" {
+                    // ADR-0089: propagate confidence — min of max variant confidence
+                    let max_conf = variants.iter().map(|v| v.confidence).fold(0.0_f64, f64::max);
+                    self.propagated_confidence = self.propagated_confidence.min(max_conf);
+                    return value.clone();
+                }
                 let best = variants
                     .iter()
                     .filter(|v| v.type_name == required_type)
@@ -1988,6 +2030,9 @@ impl Vm {
                     });
                 match best {
                     Some(variant) if variant.confidence >= COLLAPSE_THRESHOLD => {
+                        // ADR-0089: propagate confidence — track min of all collapses
+                        self.propagated_confidence =
+                            self.propagated_confidence.min(variant.confidence);
                         variant.value.clone()
                     }
                     _ => Value::Unit,

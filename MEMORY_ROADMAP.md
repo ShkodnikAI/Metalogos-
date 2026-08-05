@@ -122,9 +122,9 @@ Evaluate whether Metalogos memory can fully replace Python FosvedMemory:
 |---|---|---|
 | P1 | Phase 4 — L2 scenario grouping | BLOCKED: needs >=500 memories |
 | P1 | Phase 6 — L3 persona aggregation | BLOCKED: needs Phase 4 |
-| P2 | Наряд №43 Block 2-3 — VM ExecuteRules priority bug | Pending |
-| P2 | Наряд №42 Block 4 — Confidence propagation | Pending (owner approval) |
-| P3 | Наряд №45 — Merge naryad-44-sql-params into main | Pending |
+| P2 | Наряд №43 Block 2-3 — VM ExecuteRules priority bug | DONE: sort added (session 0805) |
+| P2 | Наряд №42 Block 4 — Confidence propagation | DONE: min() heuristic (session 0805) |
+| P3 | Наряд №45 — Merge naryad-44-sql-params into main | Pending (branch not found in origin) |
 
 ## Key Files Reference
 

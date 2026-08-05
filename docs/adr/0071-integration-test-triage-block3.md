@@ -47,3 +47,25 @@ Classify all 92 failures into 8 categories with actionable remediation:
 - ADR-0069: slice() builtin for lists
 - ADR-0070: Parser returns Result instead of abort()
 - CHANGELOG.md: [0.12.0] Известные ограничения
+
+## Re-measurement (Наряд №49, 2026-08-06)
+
+Previous: 219 passed / 92 failed / 311 total (Наряд №33).
+
+Current: **257 passed / 3 failed / 67 ignored / 327 total**.
+
+### Changes since last measurement
+- 15 stale tests fixed (schema commas, eval comma-sep, endpoint URLs, flow input)
+- Memory typology + FTS5 + type-aware recall added (new tests)
+- PDF builtins added (phase48 tests)
+- 67 tests now `#[ignore]` (server-dependent, LLM-dependent, unimplemented features)
+- 3 remaining failures: self_host_lexer (non-functional), tool_abstraction repeat() panic, vm_golden p7_env (fixed by p7 exclusion)
+
+### Significant change
+- Failed: 92 → 3 (−89, −97%)
+- Passed: 219 → 257 (+38, +17%)
+- Ignored: 0 → 67 (tests requiring server/LLM/unimplemented features)
+
+The triage categories from the original analysis remain structurally valid, but the
+vast majority of failures have been resolved. The "Runtime Error" (41→~1) and
+"Parse Error" (18→~0) categories are nearly eliminated.

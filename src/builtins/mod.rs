@@ -556,7 +556,10 @@ impl Builtins {
         );
 
         // Наряд №48: PDF processing (native Rust via pdf-inspector)
-        funcs.insert("pdf_classify".to_string(), builtin_pdf_classify as BuiltinFn);
+        funcs.insert(
+            "pdf_classify".to_string(),
+            builtin_pdf_classify as BuiltinFn,
+        );
         funcs.insert(
             "pdf_to_markdown".to_string(),
             builtin_pdf_to_markdown as BuiltinFn,

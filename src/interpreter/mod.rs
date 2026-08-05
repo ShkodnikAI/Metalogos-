@@ -203,6 +203,11 @@ pub struct Interpreter {
     /// Наряд №4: Smart LLM router instance. Created from llm_config when present.
     /// Shared via Arc<Mutex> for thread safety in server mode.
     smart_router: std::sync::Arc<std::sync::Mutex<Option<llm::SmartRouter>>>,
+    /// ADR-0089: Propagated confidence from Fluid collapse through pattern calls.
+    /// When a Fluid value is collapsed to concrete, its confidence is stored here.
+    /// After pattern execution, if < 1.0, the result is wrapped as Fluid with this confidence.
+    /// ADR-0089 recommends min() as the combining heuristic.
+    propagated_confidence: std::sync::Mutex<f64>,
 }
 
 impl Default for Interpreter {
@@ -260,6 +265,7 @@ impl Interpreter {
             skill_indices: HashMap::new(),
             llm_config: None,
             smart_router: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            propagated_confidence: std::sync::Mutex::new(1.0),
         }
     }
 

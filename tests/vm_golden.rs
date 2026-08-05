@@ -121,7 +121,7 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                 if ext == "mlog" {
                     let stem = path.file_stem().unwrap().to_string_lossy().to_string();
                     if stem.starts_with("p7_") {
-                        continue;  // Tracked separately in golden.rs::p7_contract_visibility
+                        continue; // Tracked separately in golden.rs::p7_contract_visibility
                     }
                     let expected = path.with_extension("expected");
                     if expected.exists() {

@@ -69,3 +69,10 @@ Current: **257 passed / 3 failed / 67 ignored / 327 total**.
 The triage categories from the original analysis remain structurally valid, but the
 vast majority of failures have been resolved. The "Runtime Error" (41→~1) and
 "Parse Error" (18→~0) categories are nearly eliminated.
+
+## Re-measurement (Наряд №49, 2026-08-06)
+
+Previous: 219 passed / 92 failed / 311 total (Наряд №33).
+Current: 257 passed / 3 failed / 67 ignored / 327 total.
+
+Failed: 92 to 3 (-89, -97%). Passed: 219 to 257 (+38, +17%).

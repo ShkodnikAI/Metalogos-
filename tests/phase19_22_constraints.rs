@@ -143,7 +143,6 @@ pattern scoped(x: String) -> String {
 }
 
 #[test]
-#[ignore] // TODO: Arity checking in semantic checker not yet implemented
 fn test_z20_arity_builtin_wrong() {
     let source = r#"
 pattern wrong() -> String {
@@ -159,7 +158,6 @@ pattern wrong() -> String {
 }
 
 #[test]
-#[ignore] // TODO: Arity checking in semantic checker not yet implemented
 fn test_z20_arity_pattern_wrong() {
     let source = r#"
 pattern one(x: String) -> String { return x }
@@ -176,7 +174,6 @@ pattern caller() -> String {
 }
 
 #[test]
-#[ignore] // TODO: Undefined function detection in semantic checker not yet implemented
 fn test_z20_undefined_function() {
     let source = r#"
 pattern call_undef() -> String {

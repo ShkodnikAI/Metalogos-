@@ -187,3 +187,58 @@ pub(crate) fn builtin_session_logout(args: &[Value]) -> Result<Value, String> {
     };
     Ok(Value::Unit)
 }
+
+// ── Наряд №50 Block 3: SHA-256 / HMAC-SHA-256 / hex builtins ──
+
+pub(crate) fn builtin_sha256(args: &[Value]) -> Result<Value, String> {
+    let text = match args.first() {
+        Some(Value::String(s)) => s,
+        _ => return Err("sha256() requires 1 argument (String)".to_string()),
+    };
+    use sha2::Digest;
+    let result = sha2::Sha256::digest(text.as_bytes());
+    Ok(Value::String(hex::encode(result)))
+}
+
+pub(crate) fn builtin_hmac_sha256(args: &[Value]) -> Result<Value, String> {
+    if args.len() < 2 {
+        return Err("hmac_sha256() requires 2 arguments (key, message)".to_string());
+    }
+    let key = match &args[0] {
+        Value::String(s) => s.as_bytes(),
+        _ => return Err("hmac_sha256() key must be String".to_string()),
+    };
+    let message = match &args[1] {
+        Value::String(s) => s.as_bytes(),
+        _ => return Err("hmac_sha256() message must be String".to_string()),
+    };
+    use hmac::{Hmac, Mac};
+    type HmacSha256 = Hmac<sha2::Sha256>;
+    let mut mac =
+        HmacSha256::new_from_slice(key).map_err(|e| format!("hmac_sha256() invalid key: {}", e))?;
+    mac.update(message);
+    let result = mac.finalize();
+    Ok(Value::String(hex::encode(result.into_bytes())))
+}
+
+pub(crate) fn builtin_hex_encode(args: &[Value]) -> Result<Value, String> {
+    let text = match args.first() {
+        Some(Value::String(s)) => s,
+        _ => return Err("hex_encode() requires 1 argument (String)".to_string()),
+    };
+    Ok(Value::String(hex::encode(text.as_bytes())))
+}
+
+pub(crate) fn builtin_hex_decode(args: &[Value]) -> Result<Value, String> {
+    let hex_str = match args.first() {
+        Some(Value::String(s)) => s,
+        _ => return Err("hex_decode() requires 1 argument (String)".to_string()),
+    };
+    hex::decode(hex_str)
+        .map(|bytes| {
+            String::from_utf8(bytes)
+                .unwrap_or_else(|_| format!("<binary: {} bytes>", hex_str.len() / 2))
+        })
+        .map(Value::String)
+        .map_err(|e| format!("hex_decode() invalid hex: {}", e))
+}

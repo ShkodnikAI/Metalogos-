@@ -48,31 +48,48 @@ Classify all 92 failures into 8 categories with actionable remediation:
 - ADR-0070: Parser returns Result instead of abort()
 - CHANGELOG.md: [0.12.0] Известные ограничения
 
-## Re-measurement (Наряд №49, 2026-08-06)
+## Re-measurement (Наряд №49→50, 2026-08-06)
 
-Previous: 219 passed / 92 failed / 311 total (Наряд №33).
-
+Previous: 219 passed / 92 failed / 0 ignored / 311 total (Наряд №33).
 Current: **257 passed / 3 failed / 67 ignored / 327 total**.
 
-### Changes since last measurement
-- 15 stale tests fixed (schema commas, eval comma-sep, endpoint URLs, flow input)
-- Memory typology + FTS5 + type-aware recall added (new tests)
+### Honest accounting of what changed
+Of the original 92 failures, approximately **22 were genuinely fixed**:
+- 15 stale tests repaired (schema commas, eval comma-sep, endpoint URLs, flow input)
+- Memory typology + FTS5 + type-aware recall added (new tests, +16 to total)
 - PDF builtins added (phase48 tests)
-- 67 tests now `#[ignore]` (server-dependent, LLM-dependent, unimplemented features)
-- 3 remaining failures: self_host_lexer (non-functional), tool_abstraction repeat() panic, vm_golden p7_env (fixed by p7 exclusion)
 
-### Significant change
-- Failed: 92 → 3 (−89, −97%)
-- Passed: 219 → 257 (+38, +17%)
-- Ignored: 0 → 67 (tests requiring server/LLM/unimplemented features)
+The remaining **~67 failures were converted to `#[ignore]`**, not fixed:
+- 21 phase23 tests: top-level statements syntax, need rewrite to pattern/flow wrapper
+- 8 phase19/22 tests: semantic checker features not yet implemented (arity, undefined vars, opaque types)
+- 9 memory_persist_e2e: flaky in sandboxed environment
+- 6 jit_golden: JIT declared experimental per ADR-0073
+- 6 server_json_body: webhook tests require live HTTP server
+- 6 template_integration: template features not yet implemented
+- 7 VM compiler gaps: match arms, process declarations, starts_with, Ne compare
+- 4 llm_cache_contract: invocation count mismatch (test parallelism — global AtomicU64 counter)
 
-The triage categories from the original analysis remain structurally valid, but the
-vast majority of failures have been resolved. The "Runtime Error" (41→~1) and
-"Parse Error" (18→~0) categories are nearly eliminated.
+### 3 remaining failures (not ignored)
+- self_host_lexer: self-hosted lexer non-functional
+- tool_abstraction repeat(): argument parsing broken
+- (vm_golden p7_env fixed by naryad-49 p7 exclusion filter)
 
-## Re-measurement (Наряд №49, 2026-08-06)
+### LLM cache investigation (Наряд №50 Block 0)
+Root cause analysis: `MOCK_LLM_CALL_COUNT` is a process-global `AtomicU64` shared
+across all tests. Rust runs tests in parallel by default. The 4 llm_cache tests lack
+`#[serial_test::serial]`, so other tests in `src/llm.rs` (~40 tests) increment the
+counter concurrently. **Not a cache defect.**
 
-Previous: 219 passed / 92 failed / 311 total (Наряд №33).
-Current: 257 passed / 3 failed / 67 ignored / 327 total.
+### Breakdown of 67 ignored tests
 
-Failed: 92 to 3 (-89, -97%). Passed: 219 to 257 (+38, +17%).
+| Category | Count | File(s) | Remediation |
+|---|---|---|---|
+| phase23 top-level syntax | 21 | phase23_v084_v087_tests.rs | Rewrite to pattern/flow wrapper |
+| Semantic checker gaps | 8 | phase19_22_constraints.rs | Implement in semantic.rs |
+| Flaky persistence e2e | 9 | memory_persist_e2e.rs | Temp dir isolation |
+| JIT experimental | 6 | jit_golden.rs | Restore when JIT integrated |
+| HTTP server dependency | 6 | server_json_body.rs | Server startup in test setup |
+| Template not implemented | 6 | template_integration.rs | Implement template render |
+| VM compiler gaps | 7 | phase18, phase19_22 | Implement in bytecode compiler |
+| LLM cache parallelism | 4 | llm_cache_contract.rs | Add `#[serial_test::serial]` |
+| **Total** | **67** | | |

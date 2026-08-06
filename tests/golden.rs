@@ -5,9 +5,16 @@
 //
 // Наряд №31, Блок 2: runner collects ALL failures before panicking,
 // so broken examples don't mask subsequent tests.
+//
+// Наряд №49, Блок 2: p7_* tests require environment variables or a live HTTP
+// server. They are excluded from the main golden suite and tracked separately
+// in p7_contract_visibility so they remain visible without blocking CI.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 /// Find all .mlog files in `examples/` and pair them with .expected files.
 fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
@@ -17,6 +24,14 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
             let path = entry.path();
             if let Some(ext) = path.extension() {
                 if ext == "mlog" {
+                    // p7_* tests require env vars or a live server (Наряд №49 БЛОК 2)
+                    let stem = path
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    if stem.starts_with("p7_") {
+                        continue;
+                    }
                     let expected = path.with_extension("expected");
                     if expected.exists() {
                         pairs.push((path, expected));
@@ -86,6 +101,100 @@ fn all_golden_tests_pass() {
             report
         );
     }
+}
+
+/// p7_* tests require either environment variables or a live HTTP server.
+/// They are excluded from the main golden suite but tracked here for visibility.
+/// Наряд №49: "Hidden red is worse than visible red."
+#[test]
+fn p7_contract_visibility() {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+    let examples_dir = Path::new(&manifest_dir).join("examples");
+
+    let mut p7_pairs: Vec<_> = fs::read_dir(&examples_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let p = e.path();
+            p.extension().map(|ext| ext == "mlog").unwrap_or(false)
+                && p.file_stem()
+                    .map(|s| s.to_string_lossy().starts_with("p7_"))
+                    .unwrap_or(false)
+        })
+        .filter_map(|e| {
+            let expected = e.path().with_extension("expected");
+            if expected.exists() {
+                Some((e.path(), expected))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    p7_pairs.sort_by(|a, b| a.0.file_name().cmp(&b.0.file_name()));
+
+    assert!(
+        !p7_pairs.is_empty(),
+        "p7_* .expected files must exist (Наряд №49 БЛОК 2)"
+    );
+
+    const CASE_TIMEOUT: Duration = Duration::from_secs(5);
+    let mut passed = 0usize;
+    let mut failed = 0usize;
+
+    for (mlog_path, expected_path) in &p7_pairs {
+        let name = mlog_path.file_name().unwrap().to_string_lossy().to_string();
+        let source = fs::read_to_string(mlog_path).unwrap();
+        let expected_content = fs::read_to_string(expected_path).unwrap();
+
+        let (tx, rx) = mpsc::channel();
+        let src = source.clone();
+        let handle = thread::spawn(move || {
+            let result = metalogos::run_program(&src);
+            let _ = tx.send(result);
+        });
+
+        match rx.recv_timeout(CASE_TIMEOUT) {
+            Ok(Ok(declarations)) => {
+                let actual = declarations.unwrap_or_default();
+                if actual.trim_end() == expected_content.trim_end() {
+                    passed += 1;
+                } else {
+                    failed += 1;
+                    eprintln!(
+                        "  FAIL: {} — expected {:?}, got {:?}",
+                        name,
+                        expected_content.trim_end(),
+                        actual.trim_end()
+                    );
+                }
+                let _ = handle.join();
+            }
+            Ok(Err(err)) => {
+                failed += 1;
+                eprintln!("  FAIL: {} — runtime error: {}", name, err);
+                let _ = handle.join();
+            }
+            Err(_) => {
+                // Timeout — server/env not available.
+                // Thread may still be blocked on I/O; let it detach.
+                failed += 1;
+                eprintln!("  FAIL: {} — timed out (no server/env)", name);
+                // Do NOT join — thread is likely blocked on HTTP connect.
+            }
+        }
+    }
+
+    eprintln!(
+        "p7 contract visibility: {}/{} passed, {}/{} failed (require env vars or live server)",
+        passed,
+        p7_pairs.len(),
+        failed,
+        p7_pairs.len()
+    );
+
+    // Intentionally does NOT assert all passed — these tests require
+    // environment variables or a live HTTP server. Visibility is the goal.
 }
 
 /// Find .mlog files in `examples/` paired with .error files.

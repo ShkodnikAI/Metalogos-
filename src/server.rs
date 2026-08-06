@@ -1090,8 +1090,8 @@ pub(crate) async fn execute_route_body(
     // "Cannot drop a runtime in a context where blocking is not allowed."
     // See ADR-0096.
     let body_stmts_owned: Vec<Statement> = body_stmts.to_vec();
-    let outcome =
-        tokio::task::spawn_blocking(move || -> Result<(Option<Response>, Vec<String>, String), String> {
+    let outcome = tokio::task::spawn_blocking(
+        move || -> Result<(Option<Response>, Vec<String>, String), String> {
             let mut env = HashMap::new();
             for stmt in &body_stmts_owned {
                 match stmt {
@@ -1241,9 +1241,10 @@ pub(crate) async fn execute_route_body(
                 .map(|sb| sb.name.clone())
                 .unwrap_or_default();
             Ok((None, entries, sandbox))
-        })
-        .await
-        .map_err(|e| format!("blocking task panicked: {}", e))??;
+        },
+    )
+    .await
+    .map_err(|e| format!("blocking task panicked: {}", e))??;
 
     // Phase 7.5: Flush interpreter audit entries to SQLite
     flush_audit_entries_to_db(state, &outcome.1, &outcome.2).await;
@@ -1277,10 +1278,7 @@ async fn execute_route_body_vm(
         .find(|r| r.path == route.path && r.method == route.method)
         .ok_or_else(|| format!("VM: no compiled route for {} {}", route.method, route.path))?;
 
-    if state
-        .vm_program
-        .is_none()
-    {
+    if state.vm_program.is_none() {
         return Err("VM: no compiled program available".into());
     }
 
@@ -1307,7 +1305,10 @@ async fn execute_route_body_vm(
     };
 
     // Clone data needed inside spawn_blocking (closure must be 'static + Send)
-    let program = state.vm_program.as_ref().unwrap().clone();
+    let program = match state.vm_program.as_ref() {
+        Some(p) => p.clone(),
+        None => return Err("VM: no program compiled".to_string()),
+    };
     let compiled = compiled.clone();
     let raw_body = raw_body.clone();
     let query_params = query_params.clone();

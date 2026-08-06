@@ -78,7 +78,7 @@ pub trait MemoryStore: Send + Sync {
         min_confidence: f32,
     ) -> Option<(MemoryEntry, f32)>;
 
-    /// Recall top-K entries with optional type filter (ADR-0073: Phase 3 hybrid search).
+    /// Recall top-K entries with optional type filter (ADR-0094: Phase 3 hybrid search).
     /// Returns entries sorted by score descending, up to `limit` results.
     /// `type_filter`: if non-empty, only return entries matching this mem_type.
     /// Default implementation: falls back to scanning all_entries (InMemoryStore).
@@ -736,7 +736,7 @@ impl MemoryStore for SqliteStore {
             .unwrap_or(0)
     }
 
-    /// Hybrid recall using FTS5 BM25 + cosine similarity with RRF merge (ADR-0073/0075).
+    /// Hybrid recall using FTS5 BM25 + cosine similarity with RRF merge (ADR-0094/0075).
     /// Returns top-K entries sorted by RRF score.
     /// `type_filter`: if non-empty, restricts results to entries with matching mem_type.
     ///

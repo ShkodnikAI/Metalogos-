@@ -1,0 +1,1 @@
+pattern wrong() -> String { return nonexistent_func("hello") }

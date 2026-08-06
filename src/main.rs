@@ -307,10 +307,39 @@ fn cmd_serve(file: PathBuf) {
     };
 
     // Use tokio runtime for async server
-    let rt = tokio::runtime::Runtime::new().unwrap_or_else(|e| {
-        eprintln!("error: cannot create tokio runtime: {}", e);
-        std::process::exit(1);
-    });
+    // ADR-0096: block_in_place on single-core serializes requests.
+    // Default to max(4, available_parallelism) workers.
+    let workers = std::env::var("METALOGOS_WORKERS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or_else(|| {
+            std::cmp::max(
+                4,
+                std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(4),
+            )
+        });
+
+    if let Ok(raw) = std::env::var("METALOGOS_WORKERS") {
+        if raw.parse::<usize>().is_err() {
+            eprintln!(
+                "warning: METALOGOS_WORKERS='{}' is not a valid number, using default ({})",
+                raw, workers
+            );
+        }
+    }
+
+    eprintln!("[mlog serve] tokio runtime: {} worker thread(s)", workers);
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(workers)
+        .enable_all()
+        .build()
+        .unwrap_or_else(|e| {
+            eprintln!("error: cannot create tokio runtime: {}", e);
+            std::process::exit(1);
+        });
 
     rt.block_on(async {
         match metalogos::server::run_server(&source).await {

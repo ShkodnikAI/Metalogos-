@@ -13,13 +13,38 @@ pub struct Builtins {
 /// Every consumer (compiler, VM, semantic) reads from here.
 ///
 /// - `name`: function name as exposed to the DSL
-/// - `arity`: exact argument count; 0 = variadic (skip arity check)
+/// - `arity`: minimum arity; 0 = variadic (skip arity check)
+/// - `max_arity`: None = exact match (arity is exact), Some(M) = accepts arity..=M
 /// - `category`: logical group for documentation and error messages
 #[derive(Debug, Clone)]
 pub struct BuiltinSpec {
     pub name: &'static str,
-    pub arity: usize, // 0 = variadic
+    pub arity: usize,             // minimum arity; 0 = variadic (skip arity check)
+    pub max_arity: Option<usize>, // None = exact match (arity is exact), Some(M) = accepts arity..=M
     pub category: &'static str,
+}
+
+/// Macro for concise BuiltinSpec construction.
+/// spec!("name", N, "cat") → exact arity N (max_arity: None)
+/// spec!("name", N, M, "cat") → range N..=M (max_arity: Some(M))
+#[macro_export]
+macro_rules! spec {
+    ($name:expr, $arity:expr, $cat:expr) => {
+        BuiltinSpec {
+            name: $name,
+            arity: $arity,
+            max_arity: None,
+            category: $cat,
+        }
+    };
+    ($name:expr, $arity:expr, $max:expr, $cat:expr) => {
+        BuiltinSpec {
+            name: $name,
+            arity: $arity,
+            max_arity: Some($max),
+            category: $cat,
+        }
+    };
 }
 
 pub(crate) mod core;
@@ -569,6 +594,12 @@ impl Builtins {
             builtin_pdf_extract_regions as BuiltinFn,
         );
         funcs.insert("pdf_ocr".to_string(), builtin_pdf_ocr as BuiltinFn);
+
+        // ── Наряд №50 Block 3: SHA-256 / HMAC / hex builtins ──
+        funcs.insert("sha256".to_string(), builtin_sha256 as BuiltinFn);
+        funcs.insert("hmac_sha256".to_string(), builtin_hmac_sha256 as BuiltinFn);
+        funcs.insert("hex_encode".to_string(), builtin_hex_encode as BuiltinFn);
+        funcs.insert("hex_decode".to_string(), builtin_hex_decode as BuiltinFn);
 
         Builtins { funcs }
     }

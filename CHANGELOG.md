@@ -4,7 +4,7 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-### Typed memory with FTS5 BM25 + cosine RRF hybrid recall (ADR-0072, ADR-0073)
+### Typed memory with FTS5 BM25 + cosine RRF hybrid recall (ADR-0093, ADR-0094)
 - Feature: `memorize(text, priority, type)` now accepts 3rd argument — type tag
   (`persona`, `episodic`, `instruction`, `fact`). Backward compatible: 2-arg form
   uses empty type.
@@ -14,8 +14,8 @@ All notable changes to the Metalogos project.
 - Feature: FTS5 virtual table with content-synced triggers in SQLite schema.
 - Feature: `mem_type` column + index on `memories` table.
 - Fix: `load_all()` bug — SELECT now includes `mem_type` (was hardcoded empty).
-- ADR-0072: memory typology + FTS5 foundation design decisions.
-- ADR-0073: type-aware recall with RRF merge replacing weighted blend.
+- ADR-0093: memory typology + FTS5 foundation design decisions.
+- ADR-0094: type-aware recall with RRF merge replacing weighted blend.
 
 ### PDF processing via pdf-inspector (Наряд №48)
 - Feature: 4 native PDF builtins — `pdf_classify`, `pdf_to_markdown`,

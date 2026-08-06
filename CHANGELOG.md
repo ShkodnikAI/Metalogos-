@@ -4,6 +4,15 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Наряд №50 — Требования эксплуатации FOSVED
+
+- **ADR-0071 honest re-accounting:** Of 92 original integration test failures, ~22 genuinely fixed, ~67 converted to `#[ignore]`.
+- **Builtin arity range:** Added `max_arity: Option<usize>` to `BuiltinSpec` with `spec!` macro. ~59 registry entries corrected.
+- **Unknown function detection:** `mlog check` now catches calls to nonexistent functions.
+- **HMAC/SHA-256 builtins:** `sha256`, `hmac_sha256`, `hex_encode`, `hex_decode` with RFC vectors verified.
+- **Concurrency root cause:** `block_in_place()` on single-core tokio (ADR-0096).
+- **Registry sync test:** Spot-check test for key builtins with range arities.
+
 ### Typed memory with FTS5 BM25 + cosine RRF hybrid recall (ADR-0093, ADR-0094)
 - Feature: `memorize(text, priority, type)` now accepts 3rd argument — type tag
   (`persona`, `episodic`, `instruction`, `fact`). Backward compatible: 2-arg form

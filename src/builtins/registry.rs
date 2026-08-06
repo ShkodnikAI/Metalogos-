@@ -2,1264 +2,282 @@ use super::*;
 
 /// Master registry of ALL builtin functions.
 /// Order determines bytecode indices — DO NOT reorder existing entries.
-/// To add a new builtin: append a `BuiltinSpec` row here,
+/// To add a new builtin: append a `spec!` row here,
 /// add the handler in Builtins::new(), and you're done.
 pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
-    BuiltinSpec {
-        name: "upper",
-        arity: 1,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "lower",
-        arity: 1,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "len",
-        arity: 1,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "str",
-        arity: 1,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "print",
-        arity: 1,
-        category: "io",
-    },
-    BuiltinSpec {
-        name: "contains",
-        arity: 2,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "float",
-        arity: 1,
-        category: "convert",
-    },
-    BuiltinSpec {
-        name: "to_string",
-        arity: 1,
-        category: "convert",
-    },
-    BuiltinSpec {
-        name: "get",
-        arity: 2,
-        category: "list",
-    },
-    BuiltinSpec {
-        name: "push",
-        arity: 2,
-        category: "list",
-    },
-    BuiltinSpec {
-        name: "slice",
-        arity: 3,
-        category: "list",
-    },
-    BuiltinSpec {
-        name: "index_of",
-        arity: 2,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "substring",
-        arity: 3,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "char_at",
-        arity: 2,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "starts_with",
-        arity: 2,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "ends_with",
-        arity: 2,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "to_float",
-        arity: 1,
-        category: "convert",
-    },
-    BuiltinSpec {
-        name: "confidence",
-        arity: 1,
-        category: "fluid",
-    },
-    BuiltinSpec {
-        name: "trim",
-        arity: 1,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "replace",
-        arity: 3,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "split",
-        arity: 2,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "join",
-        arity: 2,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "length",
-        arity: 1,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "to_int",
-        arity: 1,
-        category: "convert",
-    },
-    BuiltinSpec {
-        name: "reverse",
-        arity: 1,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "escape_html",
-        arity: 1,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "escape_json",
-        arity: 1,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "__trim",
-        arity: 1,
-        category: "std",
-    },
-    BuiltinSpec {
-        name: "__replace",
-        arity: 3,
-        category: "std",
-    },
-    BuiltinSpec {
-        name: "__split",
-        arity: 2,
-        category: "std",
-    },
-    BuiltinSpec {
-        name: "__join",
-        arity: 2,
-        category: "std",
-    },
-    BuiltinSpec {
-        name: "__abs",
-        arity: 1,
-        category: "std",
-    },
-    BuiltinSpec {
-        name: "__min",
-        arity: 2,
-        category: "std",
-    },
-    BuiltinSpec {
-        name: "__max",
-        arity: 2,
-        category: "std",
-    },
-    BuiltinSpec {
-        name: "__clamp",
-        arity: 3,
-        category: "std",
-    },
-    BuiltinSpec {
-        name: "__round",
-        arity: 1,
-        category: "std",
-    },
-    BuiltinSpec {
-        name: "__first",
-        arity: 1,
-        category: "std",
-    },
-    BuiltinSpec {
-        name: "__last",
-        arity: 1,
-        category: "std",
-    },
-    BuiltinSpec {
-        name: "__push",
-        arity: 2,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "__list_len",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "abs",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "min",
-        arity: 2,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "max",
-        arity: 2,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "clamp",
-        arity: 3,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "round",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "respond",
-        arity: 1,
-        category: "web",
-    },
-    BuiltinSpec {
-        name: "respond_html",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "form_data",
-        arity: 1,
-        category: "web",
-    },
-    BuiltinSpec {
-        name: "json_body",
-        arity: 0,
-        category: "web",
-    },
-    BuiltinSpec {
-        name: "query_param",
-        arity: 1,
-        category: "web",
-    },
-    BuiltinSpec {
-        name: "render",
-        arity: 2,
-        category: "web",
-    },
-    BuiltinSpec {
-        name: "http_get",
-        arity: 1,
-        category: "web",
-    },
-    BuiltinSpec {
-        name: "http_post",
-        arity: 2,
-        category: "web",
-    },
-    BuiltinSpec {
-        name: "http_post_multipart",
-        arity: 2,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "require",
-        arity: 0,
-        category: "web",
-    },
-    BuiltinSpec {
-        name: "parse_json",
-        arity: 1,
-        category: "json",
-    },
-    BuiltinSpec {
-        name: "json_encode",
-        arity: 1,
-        category: "json",
-    },
-    BuiltinSpec {
-        name: "json_get",
-        arity: 2,
-        category: "json",
-    },
-    BuiltinSpec {
-        name: "has_field",
-        arity: 2,
-        category: "json",
-    },
-    BuiltinSpec {
-        name: "env",
-        arity: 1,
-        category: "system",
-    },
-    BuiltinSpec {
-        name: "hash_password",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "verify_password",
-        arity: 2,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "encrypt",
-        arity: 2,
-        category: "crypto",
-    },
-    BuiltinSpec {
-        name: "decrypt",
-        arity: 2,
-        category: "crypto",
-    },
-    BuiltinSpec {
-        name: "generate_key",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "authenticate",
-        arity: 2,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "session_login",
-        arity: 2,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "session_logout",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "query",
-        arity: 1,
-        category: "db",
-    },
-    BuiltinSpec {
-        name: "db_execute",
-        arity: 1,
-        category: "db",
-    },
-    BuiltinSpec {
-        name: "call_llm",
-        arity: 0,
-        category: "llm",
-    },
-    BuiltinSpec {
-        name: "call_claude",
-        arity: 0,
-        category: "llm",
-    },
-    BuiltinSpec {
-        name: "llm_usage",
-        arity: 0,
-        category: "llm",
-    },
-    BuiltinSpec {
-        name: "kv_set",
-        arity: 2,
-        category: "memory",
-    },
-    BuiltinSpec {
-        name: "kv_get",
-        arity: 1,
-        category: "memory",
-    },
-    BuiltinSpec {
-        name: "kv_delete",
-        arity: 1,
-        category: "memory",
-    },
-    BuiltinSpec {
-        name: "kv_exists",
-        arity: 1,
-        category: "memory",
-    },
-    BuiltinSpec {
-        name: "kv_list",
-        arity: 0,
-        category: "memory",
-    },
-    BuiltinSpec {
-        name: "mem_set",
-        arity: 2,
-        category: "memory",
-    },
-    BuiltinSpec {
-        name: "mem_get",
-        arity: 1,
-        category: "memory",
-    },
-    BuiltinSpec {
-        name: "mem_delete",
-        arity: 1,
-        category: "memory",
-    },
-    BuiltinSpec {
-        name: "session_set",
-        arity: 2,
-        category: "memory",
-    },
-    BuiltinSpec {
-        name: "session_get",
-        arity: 1,
-        category: "memory",
-    },
-    BuiltinSpec {
-        name: "session_clear",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "read_file",
-        arity: 1,
-        category: "io",
-    },
-    BuiltinSpec {
-        name: "write_file",
-        arity: 2,
-        category: "io",
-    },
-    BuiltinSpec {
-        name: "append_file",
-        arity: 2,
-        category: "io",
-    },
-    BuiltinSpec {
-        name: "delete_file",
-        arity: 1,
-        category: "io",
-    },
-    BuiltinSpec {
-        name: "file_exists",
-        arity: 1,
-        category: "io",
-    },
-    BuiltinSpec {
-        name: "list_dir",
-        arity: 1,
-        category: "io",
-    },
-    BuiltinSpec {
-        name: "now",
-        arity: 0,
-        category: "time",
-    },
-    BuiltinSpec {
-        name: "send_message",
-        arity: 2,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "whisper_transcribe",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "tts_send",
-        arity: 2,
-        category: "voice",
-    },
-    BuiltinSpec {
-        name: "recall",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "memorize",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "forget",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "find",
-        arity: 4,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "inspect",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "conv_start",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "conv_add",
-        arity: 3,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "conv_history",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "conv_context",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "conv_end",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "event_count",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "events_since",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "event_sum",
-        arity: 2,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "query_scalar",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "query_row",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "graph_query",
-        arity: 0,
-        category: "graph",
-    },
-    BuiltinSpec {
-        name: "graph_path",
-        arity: 0,
-        category: "graph",
-    },
-    BuiltinSpec {
-        name: "graph_neighbors",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "memory_decay",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "memory_boost",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "memory_prune",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "memory_revise",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "subgraph_extract",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "subgraph_nodes",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "subgraph_json",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "trace_start",
-        arity: 0,
-        category: "graph",
-    },
-    BuiltinSpec {
-        name: "trace_end",
-        arity: 0,
-        category: "graph",
-    },
-    BuiltinSpec {
-        name: "mtree_summarize",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "mtree_retrieve",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "mtree_stats",
-        arity: 0,
-        category: "mtree",
-    },
-    BuiltinSpec {
-        name: "cron_mark_fired",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "request_body",
-        arity: 0,
-        category: "web",
-    },
-    BuiltinSpec {
-        name: "stdin",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "split_tokens",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "if_eq",
-        arity: 3,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "newline",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "is_string_token",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "assert_eq",
-        arity: 2,
-        category: "test",
-    },
-    BuiltinSpec {
-        name: "assert_contains",
-        arity: 2,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "base64_encode",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "base64_decode",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "db_insert",
-        arity: 0,
-        category: "stub",
-    },
-    // Problem B: collection ops — variadic arity (compiler uses actual arg count)
-    BuiltinSpec {
-        name: "map",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "zip",
-        arity: 0,
-        category: "list",
-    },
-    BuiltinSpec {
-        name: "sort_by",
-        arity: 0,
-        category: "list",
-    },
-    BuiltinSpec {
-        name: "filter",
-        arity: 0,
-        category: "list",
-    },
-    BuiltinSpec {
-        name: "reduce",
-        arity: 0,
-        category: "list",
-    },
-    BuiltinSpec {
-        name: "resolve_skill_index",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "fit_to_budget",
-        arity: 0,
-        category: "stub",
-    },
-    // ── sqz-inspired: String/List utilities (P1) ──
-    BuiltinSpec {
-        name: "squeeze",
-        arity: 2,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "dedup",
-        arity: 1,
-        category: "list",
-    },
-    BuiltinSpec {
-        name: "condense",
-        arity: 1,
-        category: "list",
-    },
-    BuiltinSpec {
-        name: "strip",
-        arity: 2,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "chomp",
-        arity: 1,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "repeat",
-        arity: 2,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "pad_left",
-        arity: 3,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "pad_right",
-        arity: 3,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "lines",
-        arity: 1,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "words",
-        arity: 1,
-        category: "string",
-    },
-    // ── sqz-inspired: TOON encoding (P2) ──
-    BuiltinSpec {
-        name: "toon_encode",
-        arity: 1,
-        category: "encoding",
-    },
-    BuiltinSpec {
-        name: "toon_decode",
-        arity: 1,
-        category: "encoding",
-    },
-    // ── sqz-inspired: Content-addressed refs (P2) ──
-    BuiltinSpec {
-        name: "ref",
-        arity: 1,
-        category: "memory",
-    },
-    BuiltinSpec {
-        name: "deref",
-        arity: 1,
-        category: "memory",
-    },
-    // ── sqz-inspired: Token awareness (P3) ──
-    BuiltinSpec {
-        name: "token_count",
-        arity: 1,
-        category: "string",
-    },
-    // ── AgentSkillOS-inspired: Recipe system + DAG orchestration (ADR-0062) ──
-    BuiltinSpec {
-        name: "recipe_save",
-        arity: 0,
-        category: "recipe",
-    },
-    BuiltinSpec {
-        name: "recipe_search",
-        arity: 0,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "recipe_list",
-        arity: 0,
-        category: "recipe",
-    },
-    BuiltinSpec {
-        name: "dag_phases",
-        arity: 1,
-        category: "orchestration",
-    },
-    BuiltinSpec {
-        name: "topo_sort",
-        arity: 1,
-        category: "orchestration",
-    },
-    // ── OpenPlanter-inspired: Fuzzy matching, safe editing, agent utilities (ADR-0063) ──
-    BuiltinSpec {
-        name: "fuzzy_match",
-        arity: 2,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "fuzzy_find_best",
-        arity: 2,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "hashline_read",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "hashline_edit",
-        arity: 2,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "compact_list",
-        arity: 3,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "budget_check",
-        arity: 2,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "replay_snapshot",
-        arity: 1,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "policy_check",
-        arity: 1,
-        category: "stub",
-    },
-    // ── obsidian-mind inspired: Vault/memory (v0.10.0) ──
-    BuiltinSpec {
-        name: "semantic_search",
-        arity: 3,
-        category: "stub",
-    },
-    BuiltinSpec {
-        name: "config_load",
-        arity: 1,
-        category: "vault",
-    },
-    BuiltinSpec {
-        name: "vault_validate",
-        arity: 2,
-        category: "stub",
-    },
-    // ── Missing entries added by Наряд №32 Block 3.2 ──
-    // Functions present in dispatcher (funcs.insert) but absent from REGISTRY.
-    // Categories assigned by function purpose.
-
-    // time (builtins that were missing from registry)
-    BuiltinSpec {
-        name: "time",
-        arity: 0,
-        category: "time",
-    },
-    BuiltinSpec {
-        name: "add_days",
-        arity: 2,
-        category: "time",
-    },
-    BuiltinSpec {
-        name: "add_hours",
-        arity: 2,
-        category: "time",
-    },
-    BuiltinSpec {
-        name: "date_parts",
-        arity: 1,
-        category: "time",
-    },
-    BuiltinSpec {
-        name: "format_date",
-        arity: 2,
-        category: "time",
-    },
-    // cron
-    BuiltinSpec {
-        name: "cron_add",
-        arity: 2,
-        category: "cron",
-    },
-    BuiltinSpec {
-        name: "cron_list",
-        arity: 0,
-        category: "cron",
-    },
-    BuiltinSpec {
-        name: "cron_remove",
-        arity: 1,
-        category: "cron",
-    },
-    BuiltinSpec {
-        name: "cron_run",
-        arity: 1,
-        category: "cron",
-    },
-    // json/dict (dict_get is alias for json_get)
-    BuiltinSpec {
-        name: "dict_get",
-        arity: 3,
-        category: "json",
-    },
-    BuiltinSpec {
-        name: "dict_set",
-        arity: 3,
-        category: "json",
-    },
-    BuiltinSpec {
-        name: "dict_has",
-        arity: 2,
-        category: "json",
-    },
-    BuiltinSpec {
-        name: "dict_keys",
-        arity: 1,
-        category: "json",
-    },
-    BuiltinSpec {
-        name: "dict_values",
-        arity: 1,
-        category: "json",
-    },
-    // list
-    BuiltinSpec {
-        name: "first",
-        arity: 1,
-        category: "list",
-    },
-    BuiltinSpec {
-        name: "last",
-        arity: 1,
-        category: "list",
-    },
-    BuiltinSpec {
-        name: "make_list",
-        arity: 0,
-        category: "list",
-    },
-    BuiltinSpec {
-        name: "matches_any",
-        arity: 2,
-        category: "list",
-    },
-    // string
-    BuiltinSpec {
-        name: "format",
-        arity: 1,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "escape_js",
-        arity: 1,
-        category: "string",
-    },
-    BuiltinSpec {
-        name: "type_of",
-        arity: 1,
-        category: "string",
-    },
-    // io/system
-    BuiltinSpec {
-        name: "exec",
-        arity: 1,
-        category: "io",
-    },
-    BuiltinSpec {
-        name: "web_search",
-        arity: 2,
-        category: "web",
-    },
-    BuiltinSpec {
-        name: "geo_ip",
-        arity: 1,
-        category: "web",
-    },
-    BuiltinSpec {
-        name: "weather",
-        arity: 2,
-        category: "web",
-    },
-    BuiltinSpec {
-        name: "git_push",
-        arity: 1,
-        category: "io",
-    },
-    // bot/todo/goals
-    BuiltinSpec {
-        name: "todo_add",
-        arity: 2,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "todo_list",
-        arity: 0,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "todo_update",
-        arity: 2,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "goal_get",
-        arity: 0,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "goal_set",
-        arity: 2,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "goals_add",
-        arity: 1,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "goals_list",
-        arity: 0,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "remind",
-        arity: 3,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "get_profile",
-        arity: 0,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "human_mood",
-        arity: 3,
-        category: "bot",
-    },
-    // mtree
-    BuiltinSpec {
-        name: "mtree_store",
-        arity: 2,
-        category: "mtree",
-    },
-    // ── P33 sync: 30 missing entries ──
-    // bot — Telegram
-    BuiltinSpec {
-        name: "answer_callback_query",
-        arity: 0,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "edit_message_text",
-        arity: 0,
-        category: "bot",
-    },
-    // bot — approvals / goals
-    BuiltinSpec {
-        name: "ask_approval",
-        arity: 1,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "goal_complete",
-        arity: 0,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "goals_reflect",
-        arity: 0,
-        category: "bot",
-    },
-    // bot — reminders
-    BuiltinSpec {
-        name: "cancel_remind",
-        arity: 1,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "check_reminders",
-        arity: 0,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "list_reminders",
-        arity: 0,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "remind_recurring",
-        arity: 2,
-        category: "bot",
-    },
-    // bot — human intelligence
-    BuiltinSpec {
-        name: "human_create",
-        arity: 2,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "human_delete",
-        arity: 1,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "human_forget",
-        arity: 2,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "human_personas",
-        arity: 0,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "human_recall",
-        arity: 3,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "human_remember",
-        arity: 4,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "human_respond",
-        arity: 2,
-        category: "bot",
-    },
-    // bot — OpenHuman helpers
-    BuiltinSpec {
-        name: "compress_html",
-        arity: 1,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "estimate_tokens",
-        arity: 0,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "extract_entities",
-        arity: 1,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "extract_param",
-        arity: 0,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "learn_preference",
-        arity: 2,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "memory_score",
-        arity: 1,
-        category: "bot",
-    },
-    BuiltinSpec {
-        name: "read_file_tokens",
-        arity: 0,
-        category: "bot",
-    },
-    // web — geolocation / weather
-    BuiltinSpec {
-        name: "geo_distance",
-        arity: 0,
-        category: "web",
-    },
-    BuiltinSpec {
-        name: "weather_forecast",
-        arity: 0,
-        category: "web",
-    },
-    // time — date helpers
-    BuiltinSpec {
-        name: "days_between",
-        arity: 2,
-        category: "time",
-    },
-    BuiltinSpec {
-        name: "days_in_month",
-        arity: 2,
-        category: "time",
-    },
-    BuiltinSpec {
-        name: "is_leap_year",
-        arity: 1,
-        category: "time",
-    },
-    BuiltinSpec {
-        name: "weekday_name",
-        arity: 1,
-        category: "time",
-    },
-    // mtree
-    BuiltinSpec {
-        name: "mtree_forget",
-        arity: 1,
-        category: "mtree",
-    },
-    // Наряд №48: PDF processing (pdf-inspector crate)
-    BuiltinSpec {
-        name: "pdf_classify",
-        arity: 1,
-        category: "pdf",
-    },
-    BuiltinSpec {
-        name: "pdf_to_markdown",
-        arity: 1,
-        category: "pdf",
-    },
-    BuiltinSpec {
-        name: "pdf_extract_regions",
-        arity: 2,
-        category: "pdf",
-    },
-    BuiltinSpec {
-        name: "pdf_ocr",
-        arity: 1,
-        category: "pdf",
-    },
+    // ── String builtins ──
+    spec!("upper", 1, "string"),
+    spec!("lower", 1, "string"),
+    spec!("len", 1, "string"),
+    spec!("str", 1, "string"),
+    spec!("contains", 2, "string"),
+    spec!("index_of", 2, "string"),
+    spec!("substring", 3, "string"),
+    spec!("char_at", 2, "string"),
+    spec!("starts_with", 2, "string"),
+    spec!("ends_with", 2, "string"),
+    spec!("trim", 1, "string"),
+    spec!("replace", 3, "string"),
+    spec!("split", 2, "string"),
+    spec!("join", 2, "string"),
+    spec!("length", 1, "string"),
+    spec!("reverse", 1, "string"),
+    spec!("escape_html", 1, "string"),
+    spec!("escape_json", 1, "string"),
+    spec!("escape_js", 1, "string"),
+    spec!("fuzzy_match", 2, "string"),
+    spec!("strip", 2, "string"),
+    spec!("chomp", 1, "string"),
+    spec!("repeat", 2, "string"),
+    spec!("pad_left", 3, "string"),
+    spec!("pad_right", 3, "string"),
+    spec!("lines", 1, "string"),
+    spec!("words", 1, "string"),
+    spec!("token_count", 1, "string"),
+    spec!("type_of", 1, "string"),
+    spec!("format", 1, "string"),
+    // ── Stdlib backing (double-underscore prefix) ──
+    spec!("__trim", 1, "std"),
+    spec!("__replace", 3, "std"),
+    spec!("__split", 2, "std"),
+    spec!("__join", 2, "std"),
+    spec!("__abs", 1, "std"),
+    spec!("__min", 2, "std"),
+    spec!("__max", 2, "std"),
+    spec!("__clamp", 3, "std"),
+    spec!("__round", 1, "std"),
+    spec!("__first", 1, "std"),
+    spec!("__last", 1, "std"),
+    spec!("__push", 2, "stub"),
+    spec!("__list_len", 1, "stub"),
+    // ── Stub entries for VM coverage ──
+    spec!("abs", 1, "stub"),
+    spec!("min", 2, "stub"),
+    spec!("max", 2, "stub"),
+    spec!("clamp", 3, "stub"),
+    spec!("round", 1, "stub"),
+    spec!("newline", 0, "stub"),
+    spec!("stdin", 0, "stub"),
+    spec!("split_tokens", 0, "stub"),
+    spec!("if_eq", 3, "stub"),
+    spec!("is_string_token", 1, "stub"),
+    spec!("db_insert", 0, "stub"),
+    // ── Convert builtins ──
+    spec!("float", 1, "convert"),
+    spec!("to_string", 1, "convert"),
+    spec!("to_float", 1, "convert"),
+    // ── IO builtins ──
+    spec!("print", 1, "io"),
+    spec!("read_file", 1, "io"),
+    spec!("write_file", 2, "io"),
+    spec!("append_file", 2, "io"),
+    spec!("delete_file", 1, "io"),
+    spec!("file_exists", 1, "io"),
+    spec!("list_dir", 1, "io"),
+    spec!("exec", 1, "io"),
+    spec!("git_push", 1, "io"),
+    // ── List builtins ──
+    spec!("get", 2, "list"),
+    spec!("push", 2, "list"),
+    spec!("slice", 3, "list"),
+    spec!("zip", 0, "list"),
+    spec!("sort_by", 0, "list"),
+    spec!("filter", 0, "list"),
+    spec!("reduce", 0, "list"),
+    spec!("dedup", 1, "list"),
+    spec!("condense", 1, "list"),
+    spec!("first", 1, "list"),
+    spec!("last", 1, "list"),
+    spec!("make_list", 0, "list"),
+    spec!("matches_any", 2, "list"),
+    // ── JSON builtins ──
+    spec!("parse_json", 1, 2, "json"),
+    spec!("json_encode", 1, "json"),
+    spec!("json_get", 2, 3, "json"),
+    spec!("has_field", 2, "json"),
+    spec!("dict_get", 3, "json"),
+    spec!("dict_set", 3, "json"),
+    spec!("dict_has", 2, "json"),
+    spec!("dict_keys", 1, "json"),
+    spec!("dict_values", 1, "json"),
+    // ── Web builtins ──
+    spec!("respond", 1, 2, "web"),
+    spec!("respond_html", 1, "stub"),
+    spec!("form_data", 1, "web"),
+    spec!("json_body", 0, "web"),
+    spec!("query_param", 1, "web"),
+    spec!("render", 2, 3, "web"),
+    spec!("http_get", 1, "web"),
+    spec!("http_post", 2, 5, "web"),
+    spec!("http_post_multipart", 2, 4, "stub"),
+    spec!("require", 1, 2, "web"),
+    spec!("request_body", 0, "web"),
+    spec!("web_search", 2, "web"),
+    spec!("geo_ip", 1, "web"),
+    spec!("weather", 2, "web"),
+    spec!("geo_distance", 2, 5, "web"),
+    spec!("weather_forecast", 0, "web"),
+    // ── Crypto builtins ──
+    spec!("hash_password", 1, "stub"),
+    spec!("verify_password", 2, "stub"),
+    spec!("encrypt", 2, "crypto"),
+    spec!("decrypt", 2, "crypto"),
+    spec!("generate_key", 0, "stub"),
+    spec!("base64_encode", 1, "stub"),
+    spec!("base64_decode", 1, "stub"),
+    // ── Auth stubs ──
+    spec!("authenticate", 2, "stub"),
+    spec!("session_login", 2, "stub"),
+    spec!("session_logout", 1, "stub"),
+    spec!("session_clear", 0, "stub"),
+    // ── Bot stubs ──
+    spec!("send_message", 2, "stub"),
+    spec!("answer_callback_query", 0, "stub"),
+    spec!("edit_message_text", 0, "stub"),
+    spec!("whisper_transcribe", 1, "stub"),
+    spec!("tts_send", 2, "voice"),
+    // ── System builtins ──
+    spec!("env", 1, "system"),
+    // ── DB builtins ──
+    spec!("query", 1, 2, "db"),
+    spec!("db_execute", 1, "db"),
+    // ── LLM builtins ──
+    spec!("call_llm", 0, "llm"),
+    spec!("call_claude", 0, "llm"),
+    spec!("llm_usage", 0, "llm"),
+    // ── Memory builtins ──
+    spec!("kv_set", 2, "memory"),
+    spec!("kv_get", 1, "memory"),
+    spec!("kv_delete", 1, "memory"),
+    spec!("kv_exists", 1, "memory"),
+    spec!("kv_list", 0, "memory"),
+    spec!("mem_set", 2, "memory"),
+    spec!("mem_get", 1, "memory"),
+    spec!("mem_delete", 1, "memory"),
+    spec!("memorize", 2, 3, "memory"),
+    spec!("recall", 0, "stub"),
+    spec!("forget", 0, "stub"),
+    spec!("find", 4, "stub"),
+    spec!("inspect", 1, "stub"),
+    spec!("conv_start", 1, "stub"),
+    spec!("conv_add", 3, "stub"),
+    spec!("conv_history", 1, "stub"),
+    spec!("conv_context", 1, "stub"),
+    spec!("conv_end", 1, "stub"),
+    spec!("session_set", 2, "memory"),
+    spec!("session_get", 1, "memory"),
+    spec!("ref", 1, "memory"),
+    spec!("deref", 1, "memory"),
+    // ── Time builtins ──
+    spec!("now", 0, "time"),
+    spec!("time", 0, "time"),
+    spec!("add_days", 2, "time"),
+    spec!("add_hours", 2, "time"),
+    spec!("date_parts", 1, "time"),
+    spec!("format_date", 2, "time"),
+    spec!("days_between", 2, "time"),
+    spec!("days_in_month", 2, "time"),
+    spec!("is_leap_year", 1, "time"),
+    spec!("weekday_name", 1, "time"),
+    // ── Graph builtins ──
+    spec!("graph_query", 0, "graph"),
+    spec!("graph_path", 0, "graph"),
+    spec!("graph_neighbors", 0, "stub"),
+    spec!("memory_decay", 0, "stub"),
+    spec!("memory_boost", 0, "stub"),
+    spec!("memory_prune", 0, "stub"),
+    spec!("memory_revise", 0, "stub"),
+    spec!("subgraph_extract", 0, "stub"),
+    spec!("subgraph_nodes", 0, "stub"),
+    spec!("subgraph_json", 0, "stub"),
+    spec!("trace_start", 0, "graph"),
+    spec!("trace_end", 0, "graph"),
+    spec!("memory_score", 1, "bot"),
+    spec!("mtree_summarize", 0, "stub"),
+    spec!("mtree_retrieve", 0, "stub"),
+    spec!("mtree_store", 2, "mtree"),
+    spec!("mtree_stats", 0, "mtree"),
+    spec!("mtree_forget", 1, "mtree"),
+    // ── Cron builtins ──
+    spec!("cron_mark_fired", 1, "stub"),
+    // ── Event stubs ──
+    spec!("event_count", 0, "stub"),
+    spec!("events_since", 1, "stub"),
+    spec!("event_sum", 2, "stub"),
+    spec!("query_scalar", 0, "stub"),
+    spec!("query_row", 0, "stub"),
+    // ── Test builtins ──
+    spec!("assert_eq", 2, "test"),
+    spec!("assert_contains", 2, "stub"),
+    // ── Fluid builtins ──
+    spec!("confidence", 1, "fluid"),
+    // ── Encoding builtins ──
+    spec!("toon_encode", 1, "encoding"),
+    spec!("toon_decode", 1, "encoding"),
+    // ── Recipe / DAG / Orchestration builtins ──
+    spec!("recipe_save", 0, "recipe"),
+    spec!("recipe_search", 0, "stub"),
+    spec!("recipe_list", 0, "recipe"),
+    spec!("dag_phases", 1, "orchestration"),
+    spec!("topo_sort", 1, "orchestration"),
+    spec!("resolve_skill_index", 1, "stub"),
+    spec!("fit_to_budget", 0, "stub"),
+    spec!("map", 0, "stub"),
+    // ── OpenPlanter-inspired: fuzzy / safe editing / agent utilities ──
+    spec!("fuzzy_find_best", 2, "stub"),
+    spec!("hashline_read", 1, "stub"),
+    spec!("hashline_edit", 2, "stub"),
+    spec!("compact_list", 3, "stub"),
+    spec!("budget_check", 2, "stub"),
+    spec!("replay_snapshot", 1, "stub"),
+    spec!("policy_check", 1, "stub"),
+    // ── obsidian-mind: Vault / semantic search ──
+    spec!("semantic_search", 3, "stub"),
+    spec!("config_load", 1, "vault"),
+    spec!("vault_validate", 2, "stub"),
+    // ── Bot — Telegram ──
+    spec!("todo_add", 2, "bot"),
+    spec!("todo_list", 0, "bot"),
+    spec!("todo_update", 2, "bot"),
+    spec!("goal_get", 0, "bot"),
+    spec!("goal_set", 2, "bot"),
+    spec!("goals_add", 1, "bot"),
+    spec!("goals_list", 0, "bot"),
+    spec!("remind", 3, "bot"),
+    spec!("get_profile", 0, "bot"),
+    spec!("human_mood", 3, "bot"),
+    spec!("ask_approval", 1, "bot"),
+    spec!("goal_complete", 0, "bot"),
+    spec!("goals_reflect", 0, "bot"),
+    spec!("cancel_remind", 1, "bot"),
+    spec!("check_reminders", 0, "bot"),
+    spec!("list_reminders", 0, "bot"),
+    spec!("remind_recurring", 2, "bot"),
+    spec!("human_create", 2, "bot"),
+    spec!("human_delete", 1, "bot"),
+    spec!("human_forget", 2, "bot"),
+    spec!("human_personas", 0, "bot"),
+    spec!("human_recall", 3, "bot"),
+    spec!("human_remember", 4, "bot"),
+    spec!("human_respond", 2, "bot"),
+    spec!("compress_html", 1, "bot"),
+    spec!("estimate_tokens", 0, "bot"),
+    spec!("extract_entities", 1, "bot"),
+    spec!("extract_param", 0, "bot"),
+    spec!("learn_preference", 2, "bot"),
+    spec!("read_file_tokens", 0, "bot"),
+    // ── sqz-inspired: string/list utilities ──
+    spec!("squeeze", 2, "string"),
+    // ── PDF processing (Наряд №48) ──
+    spec!("pdf_classify", 1, "pdf"),
+    spec!("pdf_to_markdown", 1, "pdf"),
+    spec!("pdf_extract_regions", 2, "pdf"),
+    spec!("pdf_ocr", 1, "pdf"),
+    // ── Crypto: SHA-256 / HMAC (Наряд №50 Block 3) ──
+    spec!("sha256", 1, "crypto"),
+    spec!("hmac_sha256", 2, "crypto"),
+    spec!("hex_encode", 1, "crypto"),
+    spec!("hex_decode", 1, "crypto"),
 ];
 
 /// Total number of registered builtins.
@@ -1300,4 +318,35 @@ pub fn builtin_arity_map() -> std::collections::HashMap<&'static str, usize> {
 /// Check if a name is a known builtin.
 pub fn is_builtin(name: &str) -> bool {
     BUILTIN_REGISTRY.iter().any(|s| s.name == name)
+}
+
+/// Check if calling a builtin with the given argument count is valid.
+pub fn check_builtin_arity(name: &str, arg_count: usize) -> Result<(), String> {
+    for spec in BUILTIN_REGISTRY {
+        if spec.name == name {
+            if spec.arity == 0 {
+                return Ok(()); // variadic
+            }
+            let max = spec.max_arity.unwrap_or(spec.arity);
+            if arg_count >= spec.arity && arg_count <= max {
+                return Ok(());
+            }
+            return Err(format!(
+                "function '{}' expects {}{} argument(s), got {}",
+                name,
+                spec.arity,
+                if let Some(m) = spec.max_arity {
+                    if m != spec.arity {
+                        format!("..{}", m)
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                },
+                arg_count
+            ));
+        }
+    }
+    Ok(())
 }

@@ -3,6 +3,13 @@
 All notable changes to the Metalogos project.
 
 ## [Unreleased]
+### Наряд №51 — Конкурентность: воркеры tokio
+
+- **Explicit worker count:** `METALOGOS_WORKERS` env var overrides default `max(4, available_parallelism)` workers. Logged at startup. Invalid values produce warning, not panic.
+- **spawn_blocking fix:** Replaced 6 `block_in_place()` calls with `spawn_blocking()` in server.rs. `reqwest::blocking` inside `block_in_place` caused nested runtime drop panic. Interpreter and Vm verified as Send.
+- **ADR-0097:** Documents spawn_blocking decision.
+- **Branch cleanup:** Deleted 5 stale remote branches (naryad-41/42/43/49/50).
+- **Block 3 (arity audit) deferred:** Requires Наряд №50 (max_arity, spec! macro) which is not yet in main.
 
 ### Наряд №50 — Требования эксплуатации FOSVED
 

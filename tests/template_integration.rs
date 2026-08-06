@@ -3,7 +3,7 @@
 /// Contract test: XSS prevention — template auto-escapes dangerous input.
 /// Category: Unimplemented Feature (template render not yet in interpreter)
 #[test]
-#[ignore]
+#[ignore] // TODO: template render not yet implemented — Interpreter::render_template unavailable
 /// TODO: re-enable when Interpreter::render_template is implemented
 fn xss_prevention_template_render() {
     // TODO: re-enable when Interpreter::render_template is implemented
@@ -21,7 +21,7 @@ fn xss_prevention_template_render() {
 /// Contract test: `{{ content | safe }}` passes Html through without escaping.
 /// Category: Unimplemented Feature (template render not yet in interpreter)
 #[test]
-#[ignore]
+#[ignore] // TODO: template render not yet implemented — Interpreter::render_template unavailable
 /// TODO: re-enable when Interpreter::render_template is implemented
 fn safe_pipe_passthrough() {
     // TODO: re-enable when Interpreter::render_template is implemented
@@ -39,7 +39,7 @@ fn safe_pipe_passthrough() {
 /// Contract test: multi-param template with full entity escaping.
 /// Category: Unimplemented Feature (template render not yet in interpreter)
 #[test]
-#[ignore]
+#[ignore] // TODO: template render not yet implemented — Interpreter::render_template unavailable
 /// TODO: re-enable when Interpreter::render_template is implemented
 fn multi_param_escape() {
     // TODO: re-enable when Interpreter::render_template is implemented
@@ -59,7 +59,7 @@ fn multi_param_escape() {
 /// Contract test: to_string(Html) is blocked (Html is opaque).
 /// Category: Unimplemented Feature (template render not yet in interpreter)
 #[test]
-#[ignore]
+#[ignore] // TODO: template render not yet implemented — Interpreter::render_template unavailable
 /// TODO: re-enable when Interpreter::render_template is implemented
 fn html_opaque_blocks_to_string() {
     // TODO: re-enable when Interpreter::render_template is implemented

@@ -86,6 +86,7 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     let mut flow_names: HashSet<String> = HashSet::new();
     let builtin_names = crate::builtins::builtin_name_set();
     let mut role_names: HashSet<String> = HashSet::new();
+    let mut pattern_param_counts: HashSet<(String, usize)> = HashSet::new();
 
     // First pass: collect all declarations (names)
     for decl in declarations {
@@ -111,6 +112,7 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                 if !pattern_names.insert(p.name.clone()) {
                     result.errors.push(format!("duplicate pattern: {}", p.name));
                 }
+                pattern_param_counts.insert((p.name.clone(), p.params.len()));
             }
             Declaration::LearnablePattern(lp) => {
                 if !learnable_names.insert(lp.name.clone()) {
@@ -250,6 +252,18 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                     }
                 }
             }
+            Declaration::Pattern(p) => {
+                // Walk expression tree: check arity and undefined functions
+                for stmt in &p.body {
+                    check_stmt_exprs(
+                        stmt,
+                        &builtin_names,
+                        &pattern_param_counts,
+                        &learnable_names,
+                        &mut result.errors,
+                    );
+                }
+            }
             // Phase 6.1: Validate mlogserver block
             Declaration::MlogServer(srv) => {
                 // Validate middleware names
@@ -308,6 +322,367 @@ fn get_type_fields<'a>(declarations: &'a [Declaration], type_name: &str) -> Opti
         }
     }
     None
+}
+
+/// Walk an expression tree, checking FnCall arity and detecting undefined functions.
+fn check_expr_calls(
+    expr: &Expr,
+    builtin_names: &HashSet<String>,
+    pattern_param_counts: &HashSet<(String, usize)>,
+    learnable_names: &HashSet<String>,
+    errors: &mut Vec<String>,
+) {
+    if let Expr::FnCall(name, args) = expr {
+        let is_known = builtin_names.contains(name)
+            || pattern_param_counts.iter().any(|(n, _)| n == name)
+            || learnable_names.contains(name);
+
+        const INTERCEPTED_FUNCTIONS: &[&str] = &["recall_top_k"];
+
+        if !is_known && !INTERCEPTED_FUNCTIONS.contains(&name.as_str()) {
+            errors.push(format!(
+                "undefined: function '{}' is not a builtin, pattern, or learnable",
+                name
+            ));
+        }
+
+        // Check builtin arity
+        if builtin_names.contains(name) {
+            if let Err(e) = crate::builtins::check_builtin_arity(name, args.len()) {
+                errors.push(e);
+            }
+        }
+
+        // Check pattern param count
+        for (pname, pcount) in pattern_param_counts {
+            if *pname == *name && !builtin_names.contains(name) {
+                if args.len() != *pcount {
+                    errors.push(format!(
+                        "function '{}' expects {} argument(s), got {}",
+                        name,
+                        pcount,
+                        args.len()
+                    ));
+                }
+                break;
+            }
+        }
+
+        // Recurse into arguments
+        for arg in args {
+            check_expr_calls(
+                arg,
+                builtin_names,
+                pattern_param_counts,
+                learnable_names,
+                errors,
+            );
+        }
+    } else if let Expr::BinaryOp(left, _op, right) = expr {
+        check_expr_calls(
+            left,
+            builtin_names,
+            pattern_param_counts,
+            learnable_names,
+            errors,
+        );
+        check_expr_calls(
+            right,
+            builtin_names,
+            pattern_param_counts,
+            learnable_names,
+            errors,
+        );
+    } else if let Expr::IfElse(cond, then_br, else_br) = expr {
+        check_expr_calls(
+            cond,
+            builtin_names,
+            pattern_param_counts,
+            learnable_names,
+            errors,
+        );
+        check_expr_calls(
+            then_br,
+            builtin_names,
+            pattern_param_counts,
+            learnable_names,
+            errors,
+        );
+        check_expr_calls(
+            else_br,
+            builtin_names,
+            pattern_param_counts,
+            learnable_names,
+            errors,
+        );
+    } else if let Expr::List(items) = expr {
+        for item in items {
+            check_expr_calls(
+                item,
+                builtin_names,
+                pattern_param_counts,
+                learnable_names,
+                errors,
+            );
+        }
+    } else if let Expr::IndexAccess(inner, idx) = expr {
+        check_expr_calls(
+            inner,
+            builtin_names,
+            pattern_param_counts,
+            learnable_names,
+            errors,
+        );
+        check_expr_calls(
+            idx,
+            builtin_names,
+            pattern_param_counts,
+            learnable_names,
+            errors,
+        );
+    } else if let Expr::StructLit(fields) = expr {
+        for v in fields.values() {
+            check_expr_calls(
+                v,
+                builtin_names,
+                pattern_param_counts,
+                learnable_names,
+                errors,
+            );
+        }
+    }
+}
+
+/// Extract expressions from a statement and walk them for arity/undefined checks.
+fn check_stmt_exprs(
+    stmt: &Statement,
+    builtin_names: &HashSet<String>,
+    pattern_param_counts: &HashSet<(String, usize)>,
+    learnable_names: &HashSet<String>,
+    errors: &mut Vec<String>,
+) {
+    match stmt {
+        Statement::LetBinding { value, .. } => {
+            check_expr_calls(
+                value,
+                builtin_names,
+                pattern_param_counts,
+                learnable_names,
+                errors,
+            );
+        }
+        Statement::Assign { value, .. } => {
+            check_expr_calls(
+                value,
+                builtin_names,
+                pattern_param_counts,
+                learnable_names,
+                errors,
+            );
+        }
+        Statement::Return(expr) => {
+            check_expr_calls(
+                expr,
+                builtin_names,
+                pattern_param_counts,
+                learnable_names,
+                errors,
+            );
+        }
+        Statement::ExprStmt(expr) => {
+            check_expr_calls(
+                expr,
+                builtin_names,
+                pattern_param_counts,
+                learnable_names,
+                errors,
+            );
+        }
+        Statement::Each { iterable, body, .. } => {
+            check_expr_calls(
+                iterable,
+                builtin_names,
+                pattern_param_counts,
+                learnable_names,
+                errors,
+            );
+            for s in body {
+                check_stmt_exprs(
+                    s,
+                    builtin_names,
+                    pattern_param_counts,
+                    learnable_names,
+                    errors,
+                );
+            }
+        }
+        Statement::EachWithIndex { iterable, body, .. } => {
+            check_expr_calls(
+                iterable,
+                builtin_names,
+                pattern_param_counts,
+                learnable_names,
+                errors,
+            );
+            for s in body {
+                check_stmt_exprs(
+                    s,
+                    builtin_names,
+                    pattern_param_counts,
+                    learnable_names,
+                    errors,
+                );
+            }
+        }
+        Statement::While { condition, body } => {
+            check_expr_calls(
+                condition,
+                builtin_names,
+                pattern_param_counts,
+                learnable_names,
+                errors,
+            );
+            for s in body {
+                check_stmt_exprs(
+                    s,
+                    builtin_names,
+                    pattern_param_counts,
+                    learnable_names,
+                    errors,
+                );
+            }
+        }
+        Statement::IfElseBlock {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+        } => {
+            check_expr_calls(
+                condition,
+                builtin_names,
+                pattern_param_counts,
+                learnable_names,
+                errors,
+            );
+            for s in then_body {
+                check_stmt_exprs(
+                    s,
+                    builtin_names,
+                    pattern_param_counts,
+                    learnable_names,
+                    errors,
+                );
+            }
+            for (cond, body) in else_ifs {
+                check_expr_calls(
+                    cond,
+                    builtin_names,
+                    pattern_param_counts,
+                    learnable_names,
+                    errors,
+                );
+                for s in body {
+                    check_stmt_exprs(
+                        s,
+                        builtin_names,
+                        pattern_param_counts,
+                        learnable_names,
+                        errors,
+                    );
+                }
+            }
+            if let Some(else_body) = else_body {
+                for s in else_body {
+                    check_stmt_exprs(
+                        s,
+                        builtin_names,
+                        pattern_param_counts,
+                        learnable_names,
+                        errors,
+                    );
+                }
+            }
+        }
+        Statement::IfThen(cond, body) => {
+            check_expr_calls(
+                cond,
+                builtin_names,
+                pattern_param_counts,
+                learnable_names,
+                errors,
+            );
+            for s in body {
+                check_stmt_exprs(
+                    s,
+                    builtin_names,
+                    pattern_param_counts,
+                    learnable_names,
+                    errors,
+                );
+            }
+        }
+        Statement::Match {
+            scrutinee,
+            arms,
+            else_body,
+        } => {
+            check_expr_calls(
+                scrutinee,
+                builtin_names,
+                pattern_param_counts,
+                learnable_names,
+                errors,
+            );
+            for arm in arms {
+                match arm {
+                    MatchArm::Exact(_, body)
+                    | MatchArm::StartsWith(_, body)
+                    | MatchArm::Contains(_, body) => {
+                        for s in body {
+                            check_stmt_exprs(
+                                s,
+                                builtin_names,
+                                pattern_param_counts,
+                                learnable_names,
+                                errors,
+                            );
+                        }
+                    }
+                    MatchArm::Compare(_, expr, body) => {
+                        check_expr_calls(
+                            expr,
+                            builtin_names,
+                            pattern_param_counts,
+                            learnable_names,
+                            errors,
+                        );
+                        for s in body {
+                            check_stmt_exprs(
+                                s,
+                                builtin_names,
+                                pattern_param_counts,
+                                learnable_names,
+                                errors,
+                            );
+                        }
+                    }
+                }
+            }
+            if let Some(else_body) = else_body {
+                for s in else_body {
+                    check_stmt_exprs(
+                        s,
+                        builtin_names,
+                        pattern_param_counts,
+                        learnable_names,
+                        errors,
+                    );
+                }
+            }
+        }
+        Statement::Break | Statement::Continue => {}
+    }
 }
 
 #[cfg(test)]

@@ -1082,122 +1082,178 @@ pub(crate) async fn execute_route_body(
         }
     }
 
-    // Execute body statements
-    let mut env = HashMap::new();
-    for stmt in body_stmts {
-        match stmt {
-            Statement::LetBinding {
-                name,
-                value,
-                mutable: _,
-            } => {
-                let val = interp.eval_expr_with_env(value, &env)?;
-                env.insert(name.clone(), val);
-            }
-            Statement::Assign { name, value } => {
-                let val = interp.eval_expr_with_env(value, &env)?;
-                if env.contains_key(name) {
-                    env.insert(name.clone(), val);
-                }
-            }
-            Statement::Return(expr) => {
-                let val = interp.eval_expr_with_env(expr, &env)?;
-                // Phase 7.5: Flush interpreter audit entries to SQLite
-                flush_audit_to_db(state, &mut interp).await;
-                return Ok(value_to_response(val));
-            }
-            Statement::IfThen(cond, body) => {
-                let cond_val = interp.eval_expr_with_env(cond, &env)?;
-                if cond_val.as_bool().unwrap_or(false) {
-                    let result =
-                        tokio::task::block_in_place(|| interp.eval_statements(body, &mut env))?;
-                    if !matches!(result, Value::Unit) {
-                        flush_audit_to_db(state, &mut interp).await;
-                        return Ok(value_to_response(result));
+    // Execute body statements on a dedicated blocking thread.
+    // This prevents nested tokio runtime panics when builtins like http_post()
+    // use reqwest::blocking::Client (which internally creates its own tokio
+    // runtime for DNS resolution / TLS). block_in_place() is NOT safe here
+    // because dropping that inner runtime inside block_in_place panics with
+    // "Cannot drop a runtime in a context where blocking is not allowed."
+    // See ADR-0096.
+    let body_stmts_owned: Vec<Statement> = body_stmts.to_vec();
+    let outcome = tokio::task::spawn_blocking(
+        move || -> Result<(Option<Response>, Vec<String>, String), String> {
+            let mut env = HashMap::new();
+            for stmt in &body_stmts_owned {
+                match stmt {
+                    Statement::LetBinding {
+                        name,
+                        value,
+                        mutable: _,
+                    } => {
+                        let val = interp.eval_expr_with_env(value, &env)?;
+                        env.insert(name.clone(), val);
                     }
-                }
-            }
-            // Block-level if/else (Наряд №2 + final integration)
-            Statement::IfElseBlock {
-                condition,
-                then_body,
-                else_ifs,
-                else_body,
-            } => {
-                let cond_val = interp.eval_expr_with_env(condition, &env)?;
-                let branch = if cond_val.as_bool().unwrap_or(false) {
-                    Some(then_body.as_slice())
-                } else {
-                    // Check else-if chain
-                    let mut matched = None;
-                    for (ei_cond, ei_body) in else_ifs {
-                        let ei_val = interp.eval_expr_with_env(ei_cond, &env)?;
-                        if ei_val.as_bool().unwrap_or(false) {
-                            matched = Some(ei_body.as_slice());
-                            break;
+                    Statement::Assign { name, value } => {
+                        let val = interp.eval_expr_with_env(value, &env)?;
+                        if env.contains_key(name) {
+                            env.insert(name.clone(), val);
                         }
                     }
-                    matched.or(else_body.as_deref())
-                };
-                if let Some(stmts) = branch {
-                    for s in stmts {
-                        match s {
-                            Statement::Return(expr) => {
-                                let val = interp.eval_expr_with_env(expr, &env)?;
-                                flush_audit_to_db(state, &mut interp).await;
-                                return Ok(value_to_response(val));
+                    Statement::Return(expr) => {
+                        let val = interp.eval_expr_with_env(expr, &env)?;
+                        let entries = interp.take_audit_log();
+                        let sandbox = interp
+                            .get_active_sandbox()
+                            .map(|sb| sb.name.clone())
+                            .unwrap_or_default();
+                        return Ok((Some(value_to_response(val)), entries, sandbox));
+                    }
+                    Statement::IfThen(cond, body) => {
+                        let cond_val = interp.eval_expr_with_env(cond, &env)?;
+                        if cond_val.as_bool().unwrap_or(false) {
+                            // On a blocking thread, safe to call eval_statements directly
+                            // (no block_in_place needed)
+                            let result = interp.eval_statements(body, &mut env)?;
+                            if !matches!(result, Value::Unit) {
+                                let entries = interp.take_audit_log();
+                                let sandbox = interp
+                                    .get_active_sandbox()
+                                    .map(|sb| sb.name.clone())
+                                    .unwrap_or_default();
+                                return Ok((Some(value_to_response(result)), entries, sandbox));
                             }
-                            Statement::LetBinding {
-                                name,
-                                value,
-                                mutable: _,
-                            } => {
-                                let val = interp.eval_expr_with_env(value, &env)?;
-                                env.insert(name.clone(), val);
-                            }
-                            Statement::ExprStmt(expr) => {
-                                let val = interp.eval_expr_with_env(expr, &env)?;
-                                if let Value::HttpResponse { .. } = val {
-                                    flush_audit_to_db(state, &mut interp).await;
-                                    return Ok(value_to_response(val));
+                        }
+                    }
+                    // Block-level if/else (Наряд №2 + final integration)
+                    Statement::IfElseBlock {
+                        condition,
+                        then_body,
+                        else_ifs,
+                        else_body,
+                    } => {
+                        let cond_val = interp.eval_expr_with_env(condition, &env)?;
+                        let branch = if cond_val.as_bool().unwrap_or(false) {
+                            Some(then_body.as_slice())
+                        } else {
+                            // Check else-if chain
+                            let mut matched = None;
+                            for (ei_cond, ei_body) in else_ifs {
+                                let ei_val = interp.eval_expr_with_env(ei_cond, &env)?;
+                                if ei_val.as_bool().unwrap_or(false) {
+                                    matched = Some(ei_body.as_slice());
+                                    break;
                                 }
                             }
-                            _ => {
-                                tokio::task::block_in_place(|| {
-                                    interp.eval_statements(std::slice::from_ref(s), &mut env)
-                                })?;
+                            matched.or(else_body.as_deref())
+                        };
+                        if let Some(stmts) = branch {
+                            for s in stmts {
+                                match s {
+                                    Statement::Return(expr) => {
+                                        let val = interp.eval_expr_with_env(expr, &env)?;
+                                        let entries = interp.take_audit_log();
+                                        let sandbox = interp
+                                            .get_active_sandbox()
+                                            .map(|sb| sb.name.clone())
+                                            .unwrap_or_default();
+                                        return Ok((
+                                            Some(value_to_response(val)),
+                                            entries,
+                                            sandbox,
+                                        ));
+                                    }
+                                    Statement::LetBinding {
+                                        name,
+                                        value,
+                                        mutable: _,
+                                    } => {
+                                        let val = interp.eval_expr_with_env(value, &env)?;
+                                        env.insert(name.clone(), val);
+                                    }
+                                    Statement::ExprStmt(expr) => {
+                                        let val = interp.eval_expr_with_env(expr, &env)?;
+                                        if let Value::HttpResponse { .. } = val {
+                                            let entries = interp.take_audit_log();
+                                            let sandbox = interp
+                                                .get_active_sandbox()
+                                                .map(|sb| sb.name.clone())
+                                                .unwrap_or_default();
+                                            return Ok((
+                                                Some(value_to_response(val)),
+                                                entries,
+                                                sandbox,
+                                            ));
+                                        }
+                                    }
+                                    _ => {
+                                        // On a blocking thread, safe to call directly
+                                        interp
+                                            .eval_statements(std::slice::from_ref(s), &mut env)?;
+                                    }
+                                }
                             }
+                        }
+                    }
+                    // Bare expression statement — evaluate for side effects
+                    Statement::ExprStmt(expr) => {
+                        let val = interp.eval_expr_with_env(expr, &env)?;
+                        // If expression is respond("ok") or similar HttpResponse, use as route response
+                        if let Value::HttpResponse { .. } = val {
+                            let entries = interp.take_audit_log();
+                            let sandbox = interp
+                                .get_active_sandbox()
+                                .map(|sb| sb.name.clone())
+                                .unwrap_or_default();
+                            return Ok((Some(value_to_response(val)), entries, sandbox));
+                        }
+                    }
+                    _ => {
+                        // On a blocking thread, safe to call directly
+                        let result =
+                            interp.eval_statements(std::slice::from_ref(stmt), &mut env)?;
+                        // If the statement produced an HttpResponse (e.g., respond("ok")),
+                        // use it as the route response (final integration)
+                        if let Value::HttpResponse { .. } = result {
+                            let entries = interp.take_audit_log();
+                            let sandbox = interp
+                                .get_active_sandbox()
+                                .map(|sb| sb.name.clone())
+                                .unwrap_or_default();
+                            return Ok((Some(value_to_response(result)), entries, sandbox));
                         }
                     }
                 }
             }
-            // Bare expression statement — evaluate for side effects
-            Statement::ExprStmt(expr) => {
-                let val = interp.eval_expr_with_env(expr, &env)?;
-                // If expression is respond("ok") or similar HttpResponse, use as route response
-                if let Value::HttpResponse { .. } = val {
-                    flush_audit_to_db(state, &mut interp).await;
-                    return Ok(value_to_response(val));
-                }
-            }
-            _ => {
-                let result = tokio::task::block_in_place(|| {
-                    interp.eval_statements(std::slice::from_ref(stmt), &mut env)
-                })?;
-                // If the statement produced an HttpResponse (e.g., respond("ok")),
-                // use it as the route response (final integration)
-                if let Value::HttpResponse { .. } = result {
-                    flush_audit_to_db(state, &mut interp).await;
-                    return Ok(value_to_response(result));
-                }
-            }
-        }
+            // Normal completion — flush audit entries
+            let entries = interp.take_audit_log();
+            let sandbox = interp
+                .get_active_sandbox()
+                .map(|sb| sb.name.clone())
+                .unwrap_or_default();
+            Ok((None, entries, sandbox))
+        },
+    )
+    .await
+    .map_err(|e| format!("blocking task panicked: {}", e))??;
+
+    // Phase 7.5: Flush interpreter audit entries to SQLite
+    flush_audit_entries_to_db(state, &outcome.1, &outcome.2).await;
+
+    if let Some(resp) = outcome.0 {
+        Ok(resp)
+    } else {
+        Ok((StatusCode::OK, "OK").into_response())
     }
-
-    // Phase 7.5: Flush interpreter audit entries to SQLite before response
-    flush_audit_to_db(state, &mut interp).await;
-
-    Ok((StatusCode::OK, "OK").into_response())
 }
 
 /// ── VM Route Execution (Наряд №40) ────────────────────────────────
@@ -1222,14 +1278,14 @@ async fn execute_route_body_vm(
         .find(|r| r.path == route.path && r.method == route.method)
         .ok_or_else(|| format!("VM: no compiled route for {} {}", route.method, route.path))?;
 
-    let program = state
-        .vm_program
-        .as_ref()
-        .ok_or("VM: no compiled program available")?;
+    if state.vm_program.is_none() {
+        return Err("VM: no compiled program available".into());
+    }
 
-    // Execute compiled route bytecode.
-    // Vm is !Send (holds rusqlite::Connection), so we use block_in_place.
-    // Extract user roles before entering sync context (DashMap access).
+    // Execute compiled route bytecode on a dedicated blocking thread.
+    // This prevents nested tokio runtime panics when builtins like http_post()
+    // use reqwest::blocking::Client. See ADR-0096.
+    // Extract user roles before entering blocking context (DashMap access).
     let user_roles = if state.middleware.contains(&"session".to_string()) {
         if let Some(session_id) = extract_session_cookie(headers) {
             if let Some(raw_id) = verify_cookie(&session_id, &state.hmac_key) {
@@ -1248,14 +1304,23 @@ async fn execute_route_body_vm(
         Vec::new()
     };
 
-    let (audit_entries, result) = tokio::task::block_in_place(|| {
+    // Clone data needed inside spawn_blocking (closure must be 'static + Send)
+    let program = match state.vm_program.as_ref() {
+        Some(p) => p.clone(),
+        None => return Err("VM: no program compiled".to_string()),
+    };
+    let compiled = compiled.clone();
+    let raw_body = raw_body.clone();
+    let query_params = query_params.clone();
+
+    let (audit_entries, result) = tokio::task::spawn_blocking(move || {
         let mut vm = Vm::new();
-        vm.load_program(program)
+        vm.load_program(&program)
             .map_err(|e| format!("VM route init: {}", e))?;
         vm.clear_server_context();
 
         // Inject per-request server context
-        if let Ok(body_str) = std::str::from_utf8(raw_body) {
+        if let Ok(body_str) = std::str::from_utf8(&raw_body) {
             if !body_str.is_empty() {
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(body_str) {
                     let value = json_value_to_value(&json);
@@ -1270,11 +1335,13 @@ async fn execute_route_body_vm(
             vm.set_server_user_roles(user_roles);
         }
 
-        let result = vm.execute_route_code(compiled, program);
+        let result = vm.execute_route_code(&compiled, &program);
         // Наряд №41 Block 2: collect audit entries before vm is dropped
         let entries = vm.take_audit_log();
         Result::<_, String>::Ok((entries, result))
-    })?;
+    })
+    .await
+    .map_err(|e| format!("blocking task panicked: {}", e))??;
 
     // Наряд №41 Block 2: flush VM audit entries (parity with interpreter)
     flush_vm_audit_entries_to_db(state, &audit_entries).await;
@@ -1293,42 +1360,9 @@ async fn execute_route_body_vm(
     }
 }
 
-/// Phase 7.5: Write interpreter audit entries to the SQLite audit_log table.
-async fn flush_audit_to_db(state: &ServerState, interp: &mut Interpreter) {
-    let entries = interp.take_audit_log();
-    if entries.is_empty() {
-        return;
-    }
-
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
-
-    // Get active sandbox name for context
-    let sandbox_name = interp.get_active_sandbox().map(|sb| sb.name.clone());
-
-    let conn = state.db.lock().await;
-    for entry in &entries {
-        // Parse entry to extract action and pattern name
-        let (action, pattern, result) = parse_audit_entry(entry);
-        let _ = conn.execute(
-            "INSERT INTO audit_log (timestamp, action, pattern, result, sandbox) VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![now, action, pattern, result, sandbox_name.as_deref().unwrap_or("")],
-        );
-    }
-    // Also append to in-memory audit log for backward compatibility
-    {
-        let mut log = state.audit_log.write().await;
-        for entry in &entries {
-            log.push(entry.clone());
-        }
-    }
-}
-
-/// Наряд №41 Block 2: Flush VM audit entries to the SQLite audit_log table.
-/// VM parity with `flush_audit_to_db` — same DB writes, same in-memory log.
-async fn flush_vm_audit_entries_to_db(state: &ServerState, entries: &[String]) {
+/// Flush audit entries to the SQLite audit_log table and in-memory log.
+/// Shared implementation used by both interpreter and VM paths.
+async fn flush_audit_entries_to_db(state: &ServerState, entries: &[String], sandbox: &str) {
     if entries.is_empty() {
         return;
     }
@@ -1343,15 +1377,22 @@ async fn flush_vm_audit_entries_to_db(state: &ServerState, entries: &[String]) {
         let (action, pattern, result) = parse_audit_entry(entry);
         let _ = conn.execute(
             "INSERT INTO audit_log (timestamp, action, pattern, result, sandbox) VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![now, action, pattern, result, ""],
+            rusqlite::params![now, action, pattern, result, sandbox],
         );
     }
+    // Also append to in-memory audit log for backward compatibility
     {
         let mut log = state.audit_log.write().await;
         for entry in entries {
             log.push(entry.clone());
         }
     }
+}
+
+/// Наряд №41 Block 2: Flush VM audit entries to the SQLite audit_log table.
+/// VM parity with `flush_audit_to_db` — same DB writes, same in-memory log.
+async fn flush_vm_audit_entries_to_db(state: &ServerState, entries: &[String]) {
+    flush_audit_entries_to_db(state, entries, "").await;
 }
 
 /// Parse an audit entry string into (action, pattern, result) components.
@@ -2293,18 +2334,24 @@ mlogserver {
             compiled: &crate::bytecode::CompiledRoute,
             query: &std::collections::HashMap<String, String>,
         ) -> Result<axum::response::Response, String> {
-            let (audit_entries, result) = tokio::task::block_in_place(|| {
+            // Clone data needed inside spawn_blocking (closure must be 'static + Send)
+            let program = program.clone();
+            let compiled = compiled.clone();
+            let query = query.clone();
+            let (audit_entries, result) = tokio::task::spawn_blocking(move || {
                 let mut vm = Vm::new();
-                vm.load_program(program)
+                vm.load_program(&program)
                     .map_err(|e| format!("VM route init: {}", e))?;
                 vm.clear_server_context();
                 if !query.is_empty() {
                     vm.set_server_query_params(query.clone());
                 }
-                let r = vm.execute_route_code(compiled, program);
+                let r = vm.execute_route_code(&compiled, &program);
                 let entries = vm.take_audit_log();
                 Result::<_, String>::Ok((entries, r))
-            })?;
+            })
+            .await
+            .map_err(|e| format!("blocking task panicked: {}", e))??;
             flush_vm_audit_entries_to_db(state, &audit_entries).await;
             match result {
                 Ok(val) => {

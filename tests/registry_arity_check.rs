@@ -174,8 +174,7 @@ fn registry_arity_exhaustive() {
         // ── Graph builtins ──
         ("graph_query", 1, 3),
         ("graph_path", 2, 2),
-        ("trace_start", 0, 0), // variadic
-        ("trace_end", 0, 0),   // variadic
+        // trace_start and trace_end are true variadics (arity=0, max_arity=None) — tested in variadic list
         ("memory_score", 1, 1),
         ("mtree_retrieve", 1, 2),
         ("mtree_store", 2, 2),
@@ -244,43 +243,64 @@ fn registry_arity_exhaustive() {
             // Special case: geo_ip (0..1) — test 0 and 1
             assert!(
                 check_builtin_arity(name, 0).is_ok(),
-                "{}(0) should be ok (min=0)", name
+                "{}(0) should be ok (min=0)",
+                name
             );
             assert!(
                 check_builtin_arity(name, max_a).is_ok(),
-                "{}({}) should be ok (max={})", name, max_a, max_a
+                "{}({}) should be ok (max={})",
+                name,
+                max_a,
+                max_a
             );
             assert!(
                 check_builtin_arity(name, max_a + 1).is_err(),
-                "{}({}) should be err (max={})", name, max_a + 1, max_a
+                "{}({}) should be err (max={})",
+                name,
+                max_a + 1,
+                max_a
             );
         } else {
             // Test at minimum arity
             assert!(
                 check_builtin_arity(name, min_a).is_ok(),
-                "{}({}) should be ok (min)", name, min_a
+                "{}({}) should be ok (min)",
+                name,
+                min_a
             );
             // Test at maximum arity
             assert!(
                 check_builtin_arity(name, max_a).is_ok(),
-                "{}({}) should be ok (max)", name, max_a
+                "{}({}) should be ok (max)",
+                name,
+                max_a
             );
             // Test below minimum
             assert!(
                 check_builtin_arity(name, min_a - 1).is_err(),
-                "{}({}) should be err (below min={})", name, min_a - 1, min_a
+                "{}({}) should be err (below min={})",
+                name,
+                min_a - 1,
+                min_a
             );
             // Test above maximum
             assert!(
                 check_builtin_arity(name, max_a + 1).is_err(),
-                "{}({}) should be err (above max={})", name, max_a + 1, max_a
+                "{}({}) should be err (above max={})",
+                name,
+                max_a + 1,
+                max_a
             );
             // Test between min and max (if range)
             if max_a > min_a {
                 let mid = (min_a + max_a) / 2;
                 assert!(
                     check_builtin_arity(name, mid).is_ok(),
-                    "{}({}) should be ok (mid of {}..{})", name, mid, min_a, max_a
+                    "{}({}) should be ok (mid of {}..{})",
+                    name,
+                    mid,
+                    min_a,
+                    max_a
                 );
             }
         }
@@ -289,34 +309,61 @@ fn registry_arity_exhaustive() {
     // Variadic builtins (arity=0, max_arity=None): accept any count
     let variadic: &[&str] = &[
         "format",
-        "newline", "stdin", "split_tokens", "db_insert",
-        "json_body", "request_body",
-        "generate_key", "session_clear",
+        "newline",
+        "stdin",
+        "split_tokens",
+        "db_insert",
+        "json_body",
+        "request_body",
+        "generate_key",
+        "session_clear",
+        "trace_start",
+        "trace_end",
         "llm_usage",
-        "kv_list", "recall", "forget",
-        "now", "time",
-        "graph_neighbors", "memory_decay", "memory_boost",
-        "memory_prune", "memory_revise",
-        "subgraph_extract", "subgraph_nodes", "subgraph_json",
-        "memory_score",
-        "mtree_summarize", "mtree_stats",
-        "event_count", "query_scalar", "query_row",
-        "recipe_save", "recipe_search", "recipe_list",
-        "fit_to_budget", "map",
-        "todo_list", "goal_get", "goals_list",
-        "goal_complete", "goals_reflect",
-        "check_reminders", "list_reminders", "remind_recurring",
-        "human_personas", "get_profile",
+        "kv_list",
+        "recall",
+        "forget",
+        "now",
+        "time",
+        "graph_neighbors",
+        "memory_decay",
+        "memory_boost",
+        "memory_prune",
+        "memory_revise",
+        "subgraph_extract",
+        "subgraph_nodes",
+        "subgraph_json",
+        "mtree_summarize",
+        "mtree_stats",
+        "event_count",
+        "query_scalar",
+        "query_row",
+        "recipe_save",
+        "recipe_search",
+        "recipe_list",
+        "fit_to_budget",
+        "map",
+        "todo_list",
+        "goal_get",
+        "goals_list",
+        "goal_complete",
+        "goals_reflect",
+        "check_reminders",
+        "list_reminders",
+        "human_personas",
+        "get_profile",
         "make_list",
     ];
     for &name in variadic {
         assert!(
             check_builtin_arity(name, 0).is_ok(),
-            "{}(0) should be ok (variadic)", name
+            "{}(0) should be ok (variadic)",
+            name
         );
         assert!(
             check_builtin_arity(name, 5).is_ok(),
-            "{}(5) should be ok (variadic)", name
+            "{}(5) should be ok (variadic)",
+            name
         );
     }
 }

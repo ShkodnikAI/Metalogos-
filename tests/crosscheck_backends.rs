@@ -32,6 +32,8 @@ fn trim_opt(s: &Option<String>) -> String {
 }
 
 /// Find all .mlog files with .expected files.
+/// Skips negative-test contracts (e.g. p50_unknown_fn) that are designed
+/// to produce errors — crosscheck only tests valid programs.
 fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
     let mut pairs = Vec::new();
     if let Ok(entries) = fs::read_dir(examples_dir) {
@@ -39,6 +41,11 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
             let path = entry.path();
             if let Some(ext) = path.extension() {
                 if ext == "mlog" {
+                    let name = path.file_name().unwrap_or_default().to_string_lossy();
+                    // Skip negative-test contracts (designed to produce errors)
+                    if name.contains("unknown_fn") || name.contains("wrong_") {
+                        continue;
+                    }
                     let expected = path.with_extension("expected");
                     if expected.exists() {
                         pairs.push((path, expected));

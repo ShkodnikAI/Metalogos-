@@ -3,13 +3,20 @@
 All notable changes to the Metalogos project.
 
 ## [Unreleased]
+### Наряд №52 — Перенос работы наряда №51 на актуальный main
+
+- **Cherry-pick onto 74a1631:** 6 commits from naryad-51-workers ported to fresh branch from origin/main (which includes Наряды 49+50).
+- **ADR-0096 merged:** Combined single-core worker diagnosis (№50) with nested block_in_place panic finding (№51) into one comprehensive ADR.
+- **22 arity registry fixes:** Verified against actual implementations: `format`→variadic, `zip`→2, `filter`/`reduce`→3, `http_get`→1..3, `call_claude`→4, `call_llm`→1..2, `send_message`→2..3, `tts_send`→4..5, `geo_ip`→0..1, `web_search`→1..2, `weather_forecast`→1..3, `graph_query`→1..3, `graph_path`→2, `mtree_retrieve`→1..2, `estimate_tokens`/`extract_param`/`read_file_tokens`→exact, `answer_callback_query`→1..3, `edit_message_text`→3..4, `sort_by`→2..3.
+- **Exhaustive arity test:** `registry_arity_check.rs` now tests every non-variadic builtin at min/max/boundary, plus all variadic builtins.
+- **Block 2 (concurrency benchmark):** Not executed — Rust toolchain not available in this session. Owner can measure on live deployment.
+
 ### Наряд №51 — Конкурентность: воркеры tokio
 
 - **Explicit worker count:** `METALOGOS_WORKERS` env var overrides default `max(4, available_parallelism)` workers. Logged at startup. Invalid values produce warning, not panic.
 - **spawn_blocking fix:** Replaced 6 `block_in_place()` calls with `spawn_blocking()` in server.rs. `reqwest::blocking` inside `block_in_place` caused nested runtime drop panic. Interpreter and Vm verified as Send.
 - **ADR-0097:** Documents spawn_blocking decision.
 - **Branch cleanup:** Deleted 5 stale remote branches (naryad-41/42/43/49/50).
-- **Block 3 (arity audit) deferred:** Requires Наряд №50 (max_arity, spec! macro) which is not yet in main.
 
 ### Наряд №50 — Требования эксплуатации FOSVED
 

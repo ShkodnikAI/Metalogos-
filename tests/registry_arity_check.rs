@@ -138,7 +138,7 @@ fn registry_arity_exhaustive() {
         ("env", 1, 1),
         // ── DB builtins ──
         ("query", 1, 2),
-        ("db_execute", 1, 1),
+        ("db_execute", 1, 2),  // ADR-0068: optional params list
         // ── LLM builtins ──
         ("call_llm", 1, 2),
         ("call_claude", 4, 4),
@@ -181,6 +181,11 @@ fn registry_arity_exhaustive() {
         ("mtree_forget", 1, 1),
         // ── Cron builtins ──
         ("cron_mark_fired", 1, 1),
+        // ── Cron (Наряд №55) ──
+        ("cron_add", 2, 2),
+        // cron_list is variadic (arity=0) — not tested here, see registry_sync_check
+        ("cron_remove", 1, 1),
+        ("cron_run", 1, 1),
         // ── Event stubs ──
         ("events_since", 1, 1),
         ("event_sum", 2, 2),
@@ -231,6 +236,7 @@ fn registry_arity_exhaustive() {
         ("read_file_tokens", 1, 1),
         // ── sqz-inspired ──
         ("squeeze", 2, 2),
+        ("to_int", 1, 1),  // Наряд №55: was missing from registry
         // ── PDF processing ──
         ("pdf_classify", 1, 1),
         ("pdf_to_markdown", 1, 1),

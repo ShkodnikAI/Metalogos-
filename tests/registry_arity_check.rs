@@ -138,7 +138,7 @@ fn registry_arity_exhaustive() {
         ("env", 1, 1),
         // ── DB builtins ──
         ("query", 1, 2),
-        ("db_execute", 1, 2),  // ADR-0068: optional params list
+        ("db_execute", 1, 2), // ADR-0068: optional params list
         // ── LLM builtins ──
         ("call_llm", 1, 2),
         ("call_claude", 4, 4),
@@ -236,7 +236,7 @@ fn registry_arity_exhaustive() {
         ("read_file_tokens", 1, 1),
         // ── sqz-inspired ──
         ("squeeze", 2, 2),
-        ("to_int", 1, 1),  // Наряд №55: was missing from registry
+        ("to_int", 1, 1), // Наряд №55: was missing from registry
         // ── PDF processing ──
         ("pdf_classify", 1, 1),
         ("pdf_to_markdown", 1, 1),

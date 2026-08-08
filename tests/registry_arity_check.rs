@@ -236,6 +236,10 @@ fn registry_arity_exhaustive() {
         ("pdf_to_markdown", 1, 1),
         ("pdf_extract_regions", 2, 2),
         ("pdf_ocr", 1, 1),
+        // ── Regex (Наряд №54) ──
+        ("regex_match", 2, 2),
+        ("regex_captures", 2, 2),
+        ("regex_replace", 3, 3),
     ];
 
     for &(name, min_a, max_a) in cases {

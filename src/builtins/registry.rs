@@ -35,7 +35,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("words", 1, "string"),
     spec!("token_count", 1, "string"),
     spec!("type_of", 1, "string"),
-    spec!("format", 0, "string"),  // variadic: 1 template + N fill args
+    spec!("format", 0, "string"), // variadic: 1 template + N fill args
     // ── Stdlib backing (double-underscore prefix) ──
     spec!("__trim", 1, "std"),
     spec!("__replace", 3, "std"),
@@ -107,16 +107,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("json_body", 0, "web"),
     spec!("query_param", 1, "web"),
     spec!("render", 2, 3, "web"),
-    spec!("http_get", 1, 3, "web"),  // url | url,headers | url,headers,timeout
+    spec!("http_get", 1, 3, "web"), // url | url,headers | url,headers,timeout
     spec!("http_post", 2, 5, "web"),
     spec!("http_post_multipart", 2, 4, "stub"),
     spec!("require", 1, 2, "web"),
     spec!("request_body", 0, "web"),
-    spec!("web_search", 1, 2, "web"),  // query | query,num
-    spec!("geo_ip", 0, 1, "web"),  // ip? (omit = caller IP)
+    spec!("web_search", 1, 2, "web"), // query | query,num
+    spec!("geo_ip", 0, 1, "web"),     // ip? (omit = caller IP)
     spec!("weather", 2, "web"),
     spec!("geo_distance", 2, 5, "web"),
-    spec!("weather_forecast", 1, 3, "web"),  // city | lat,lon | lat,lon,days
+    spec!("weather_forecast", 1, 3, "web"), // city | lat,lon | lat,lon,days
     // ── Crypto builtins ──
     spec!("hash_password", 1, "stub"),
     spec!("verify_password", 2, "stub"),
@@ -131,19 +131,19 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("session_logout", 1, "stub"),
     spec!("session_clear", 0, "stub"),
     // ── Bot stubs ──
-    spec!("send_message", 2, 3, "stub"),  // chat_id,text | +reply_markup
-    spec!("answer_callback_query", 1, 3, "stub"),  // id | id,text | id,text,show_alert
-    spec!("edit_message_text", 3, 4, "stub"),  // chat_id,message_id,text | +reply_markup
+    spec!("send_message", 2, 3, "stub"), // chat_id,text | +reply_markup
+    spec!("answer_callback_query", 1, 3, "stub"), // id | id,text | id,text,show_alert
+    spec!("edit_message_text", 3, 4, "stub"), // chat_id,message_id,text | +reply_markup
     spec!("whisper_transcribe", 1, "stub"),
-    spec!("tts_send", 4, 5, "voice"),  // text,voice,bot_token,chat_id | +mode
+    spec!("tts_send", 4, 5, "voice"), // text,voice,bot_token,chat_id | +mode
     // ── System builtins ──
     spec!("env", 1, "system"),
     // ── DB builtins ──
     spec!("query", 1, 2, "db"),
     spec!("db_execute", 1, "db"),
     // ── LLM builtins ──
-    spec!("call_llm", 1, 2, "llm"),  // prompt | prompt,input
-    spec!("call_claude", 4, "llm"),  // api_key,model,system,user
+    spec!("call_llm", 1, 2, "llm"), // prompt | prompt,input
+    spec!("call_claude", 4, "llm"), // api_key,model,system,user
     spec!("llm_usage", 0, "llm"),
     // ── Memory builtins ──
     spec!("kv_set", 2, "memory"),
@@ -180,8 +180,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("is_leap_year", 1, "time"),
     spec!("weekday_name", 1, "time"),
     // ── Graph builtins ──
-    spec!("graph_query", 1, 3, "graph"),  // query | query,limit | query,limit,level
-    spec!("graph_path", 2, "graph"),  // from_id,to_id
+    spec!("graph_query", 1, 3, "graph"), // query | query,limit | query,limit,level
+    spec!("graph_path", 2, "graph"),     // from_id,to_id
     spec!("graph_neighbors", 0, "stub"),
     spec!("memory_decay", 0, "stub"),
     spec!("memory_boost", 0, "stub"),
@@ -194,7 +194,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("trace_end", 0, "graph"),
     spec!("memory_score", 1, "bot"),
     spec!("mtree_summarize", 0, "stub"),
-    spec!("mtree_retrieve", 1, 2, "stub"),  // query | query,limit
+    spec!("mtree_retrieve", 1, 2, "stub"), // query | query,limit
     spec!("mtree_store", 2, "mtree"),
     spec!("mtree_stats", 0, "mtree"),
     spec!("mtree_forget", 1, "mtree"),
@@ -263,7 +263,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("compress_html", 1, "bot"),
     spec!("estimate_tokens", 1, "bot"),
     spec!("extract_entities", 1, "bot"),
-    spec!("extract_param", 2, "bot"),  // text,index
+    spec!("extract_param", 2, "bot"), // text,index
     spec!("learn_preference", 2, "bot"),
     spec!("read_file_tokens", 1, "bot"),
     // ── sqz-inspired: string/list utilities ──
@@ -324,8 +324,8 @@ pub fn is_builtin(name: &str) -> bool {
 pub fn check_builtin_arity(name: &str, arg_count: usize) -> Result<(), String> {
     for spec in BUILTIN_REGISTRY {
         if spec.name == name {
-            if spec.arity == 0 {
-                return Ok(()); // variadic
+            if spec.arity == 0 && spec.max_arity.is_none() {
+                return Ok(()); // truly variadic (no bounds)
             }
             let max = spec.max_arity.unwrap_or(spec.arity);
             if arg_count >= spec.arity && arg_count <= max {

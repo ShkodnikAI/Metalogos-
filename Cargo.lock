@@ -1579,6 +1579,7 @@ dependencies = [
  "pest_derive",
  "petgraph",
  "rand 0.8.7",
+ "regex",
  "reqwest",
  "rusqlite",
  "rustyline",

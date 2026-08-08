@@ -76,6 +76,8 @@ pub use cron::init_reminder_persist;
 use cron::*;
 pub mod pdf;
 pub use pdf::*;
+pub(crate) mod regex;
+use regex::*;
 
 impl Default for Builtins {
     fn default() -> Self {
@@ -600,6 +602,17 @@ impl Builtins {
         funcs.insert("hmac_sha256".to_string(), builtin_hmac_sha256 as BuiltinFn);
         funcs.insert("hex_encode".to_string(), builtin_hex_encode as BuiltinFn);
         funcs.insert("hex_decode".to_string(), builtin_hex_decode as BuiltinFn);
+
+        // ── Наряд №54: Regular expression builtins ──
+        funcs.insert("regex_match".to_string(), builtin_regex_match as BuiltinFn);
+        funcs.insert(
+            "regex_captures".to_string(),
+            builtin_regex_captures as BuiltinFn,
+        );
+        funcs.insert(
+            "regex_replace".to_string(),
+            builtin_regex_replace as BuiltinFn,
+        );
 
         Builtins { funcs }
     }

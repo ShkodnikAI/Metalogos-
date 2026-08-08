@@ -1333,4 +1333,166 @@ mod tests_sqz_builtins {
             "normal replace",
         );
     }
+
+    // ── Наряд №54: Regex builtin unit tests ──────────────────────────────
+
+    #[test]
+    fn test_regex_match_exact() {
+        let r = builtin_regex_match(&[
+            Value::String("hello".to_string()),
+            Value::String("hello".to_string()),
+        ])
+        .unwrap();
+        assert_vals_eq(&r, &Value::Bool(true), "regex_match exact");
+    }
+
+    #[test]
+    fn test_regex_match_no_match() {
+        let r = builtin_regex_match(&[
+            Value::String("[0-9]+".to_string()),
+            Value::String("abc".to_string()),
+        ])
+        .unwrap();
+        assert_vals_eq(&r, &Value::Bool(false), "regex_match no match");
+    }
+
+    #[test]
+    fn test_regex_match_character_class() {
+        let r = builtin_regex_match(&[
+            Value::String("[0-9]+".to_string()),
+            Value::String("42".to_string()),
+        ])
+        .unwrap();
+        assert_vals_eq(&r, &Value::Bool(true), "regex_match digit class");
+    }
+
+    #[test]
+    fn test_regex_match_invalid_pattern_soft_fail() {
+        let r = builtin_regex_match(&[
+            Value::String("[invalid".to_string()), // unclosed bracket
+            Value::String("anything".to_string()),
+        ])
+        .unwrap();
+        // Soft-failure: invalid regex → false
+        assert_vals_eq(&r, &Value::Bool(false), "regex_match invalid → false");
+    }
+
+    #[test]
+    fn test_regex_captures_one_group() {
+        let r = builtin_regex_captures(&[
+            Value::String("([\\w.]+)@[\\w.]+".to_string()),
+            Value::String("user@example.com".to_string()),
+        ])
+        .unwrap();
+        if let Value::List(items) = &r {
+            assert_eq!(items.len(), 2, "expected 2 capture groups");
+            assert_vals_eq(
+                &items[0],
+                &Value::String("user@example.com".to_string()),
+                "full match",
+            );
+            assert_vals_eq(&items[1], &Value::String("user".to_string()), "group 1");
+        } else {
+            panic!("expected List, got {:?}", r.type_name());
+        }
+    }
+
+    #[test]
+    fn test_regex_captures_multiple_groups() {
+        let r = builtin_regex_captures(&[
+            Value::String("(\\d{4})-(\\d{2})-(\\d{2})".to_string()),
+            Value::String("2025-08-08".to_string()),
+        ])
+        .unwrap();
+        if let Value::List(items) = &r {
+            assert_eq!(items.len(), 4, "expected 4 capture groups (full + 3)");
+            assert_vals_eq(&items[1], &Value::String("2025".to_string()), "year");
+            assert_vals_eq(&items[2], &Value::String("08".to_string()), "month");
+            assert_vals_eq(&items[3], &Value::String("08".to_string()), "day");
+        } else {
+            panic!("expected List, got {:?}", r.type_name());
+        }
+    }
+
+    #[test]
+    fn test_regex_captures_no_match() {
+        let r = builtin_regex_captures(&[
+            Value::String("\\d+".to_string()),
+            Value::String("abc".to_string()),
+        ])
+        .unwrap();
+        assert_vals_eq(&r, &Value::List(Vec::new()), "no match → empty list");
+    }
+
+    #[test]
+    fn test_regex_captures_invalid_pattern() {
+        let r = builtin_regex_captures(&[
+            Value::String("(?P<invalid".to_string()),
+            Value::String("anything".to_string()),
+        ])
+        .unwrap();
+        // Soft-failure: invalid regex → empty list
+        assert_vals_eq(&r, &Value::List(Vec::new()), "invalid → empty list");
+    }
+
+    #[test]
+    fn test_regex_replace_simple() {
+        let r = builtin_regex_replace(&[
+            Value::String("cat".to_string()),
+            Value::String("the cat sat on the cat".to_string()),
+            Value::String("dog".to_string()),
+        ])
+        .unwrap();
+        assert_vals_eq(
+            &r,
+            &Value::String("the dog sat on the dog".to_string()),
+            "simple replace",
+        );
+    }
+
+    #[test]
+    fn test_regex_replace_backreference() {
+        let r = builtin_regex_replace(&[
+            Value::String("(\\w+) (\\w+)".to_string()),
+            Value::String("hello world".to_string()),
+            Value::String("$2 $1".to_string()),
+        ])
+        .unwrap();
+        assert_vals_eq(
+            &r,
+            &Value::String("world hello".to_string()),
+            "backreference swap",
+        );
+    }
+
+    #[test]
+    fn test_regex_replace_invalid_pattern() {
+        let r = builtin_regex_replace(&[
+            Value::String("[invalid".to_string()),
+            Value::String("some text".to_string()),
+            Value::String("replacement".to_string()),
+        ])
+        .unwrap();
+        // Soft-failure: invalid regex → original text unchanged
+        assert_vals_eq(
+            &r,
+            &Value::String("some text".to_string()),
+            "invalid → unchanged",
+        );
+    }
+
+    #[test]
+    fn test_regex_replace_no_match() {
+        let r = builtin_regex_replace(&[
+            Value::String("\\d+".to_string()),
+            Value::String("no digits here".to_string()),
+            Value::String("X".to_string()),
+        ])
+        .unwrap();
+        assert_vals_eq(
+            &r,
+            &Value::String("no digits here".to_string()),
+            "no match → unchanged",
+        );
+    }
 }

@@ -1,0 +1,81 @@
+// ── Наряд №54 Block 3: Crosscheck — office regex patterns vs Rust regex crate ──
+// Source: /tmp/fosved/llm_proxy.py (26 unique regex patterns)
+//
+// Verdict: 25 of 26 patterns work with Rust regex crate (linear-time, no backtracking).
+// 1 pattern uses lookbehind and CANNOT be ported directly.
+//
+// ─────────────────────────────────────────────────────────────────────────
+// COMPATIBLE PATTERNS (25) — work in Rust regex crate as-is
+// ─────────────────────────────────────────────────────────────────────────
+//
+// #3  r'[*_`#~\|>]'                          — char class, trivial
+// #4  r'[«»""...]'                           — unicode char class
+// #5  r'───+|──+|─+'                          — alternation of literals
+// #6  r'[▸◦▪●○◆◇▪▸►←→↑↓]'                   — unicode char class
+// #7  r'[═─━─]'                               — unicode char class
+// #8  r'[✓✗✘✔✖]'                             — unicode char class
+// #9  r'\s{2,}'                               — quantifier on char class
+// #11 r'(`[^`]+`)'                            — negated char class
+// #14 r'<span[^>]*class="[^"]*\b{cls}\b[^"]*"[^>]*>(.*?)</span>'
+// #15 r'<span[^>]*class="{cls}"[^>]*>(.*?)</span>'
+// #16 r'<br\s*/?>'                            — HTML tag
+// #17 r'</p>'                                 — literal
+// #18 r'</div>'                               — literal
+// #19 r'</li>'                                — literal
+// #20 r'<li[^>]*>'                            — HTML tag
+// #21 r'<[^>]+>'                              — HTML tag (generic)
+// #22 r'[ \t]+'                               — char class
+// #23 r'\n[ \t]+'                             — char class
+// #24 r'\n{3,}'                               — quantifier
+// #25 r'(Дата препарирования:\s*)\d{4}-\d{2}-\d{2}'
+// #26 r'(Сейчас:\s*)\d{4}-\d{2}-\d{2}'
+// #27 r'(Темпоральная якорная точка:\s*Сейчас:\s*)\d{4}-\d{2}-\d{2}'
+// #28 r'\{[^}]+'                              — negated char class
+// #29 r"<[^>]+>"                              — HTML tag
+// #30 r"[а-яёa-z]{3,}"                        — unicode range + quantifier
+//
+// _MARKER_EMOJI (compiled) — unicode char class, compatible
+// _ALL_EMOJI (compiled)   — unicode char class ranges, compatible
+//
+// ─────────────────────────────────────────────────────────────────────────
+// INCOMPATIBLE PATTERNS (1) — uses lookbehind, NOT supported by Rust regex
+// ─────────────────────────────────────────────────────────────────────────
+//
+// #10  r'(?<=\S)\s*[.!?]\s*[.!?]+'  → COLLAPSE MULTIPLE SENTENCE PUNCTUATION
+//      Uses POSITIVE LOOKBEHIND (?<=\S)
+//      Rust regex crate: NOT supported (linear-time guarantee forbids lookbehind)
+//      Workaround: use captures → "$1" + filtered punctuation
+//      Example Rust equivalent:
+//        re = Regex::new(r"(\S)\s*[.!?]\s*[.!?]+")
+//        replacement: "$1."
+//
+// #12  r'(?<!\\)([_*\[\]\(\)~`>#\+=\|{}.!])'  → ESCAPE MDV2 SPECIAL CHARS
+//      Uses NEGATIVE LOOKBEHIND (?<!\\)
+//      Rust regex crate: NOT supported
+//      Workaround: two-pass approach
+//        Pass 1: replace "\\X" → temporary placeholder
+//        Pass 2: escape the special chars
+//        Pass 3: restore placeholders
+//      Or: iterate char-by-char (simpler for this use case)
+//
+// #13  r'\\(\\[\U0001F000-\U0001FAFF\U00002600-\U000027BF])'  → FIX DOUBLE-ESCAPED EMOJI
+//      Uses NEGATIVE LOOKBEHIND (?<!\\)
+//      Rust regex crate: NOT supported
+//      Workaround: literal match for double backslash + emoji
+//        re = Regex::new(r"\\\\([\U0001F000-\U0001FAFF\U00002600-\U000027BF])")
+//
+// ═════════════════════════════════════════════════════════════════════════
+// SUMMARY
+// ═════════════════════════════════════════════════════════════════════════
+// Total patterns scanned: 30 (from llm_proxy.py)
+// Compatible with Rust regex:     27 (90%)
+// Incompatible (lookbehind):       3  (#10, #12, #13)
+//
+// The 3 incompatible patterns all use lookbehind assertions which are
+// fundamentally incompatible with the Rust regex crate's linear-time
+// matching guarantee. Each has a straightforward workaround:
+//   - #10: Use capture groups instead of lookbehind
+//   - #12: Two-pass replace or char-by-char iteration
+//   - #13: Match the literal double-backslash sequence
+//
+// This is documented in ADR-0098 (next block).

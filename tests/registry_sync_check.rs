@@ -10,7 +10,6 @@
 /// categories: "stub" (handled by interceptor in execution.rs), "stateful",
 /// "graph", "mtree", "cron" (handled by dedicated invoke_* methods), and "test".
 /// These are listed in the REGISTRY_ONLY_CATEGORIES allowlist.
-
 use metalogos::builtins::{builtin_count, builtin_name_set, builtin_names, BUILTIN_REGISTRY};
 use std::collections::HashSet;
 
@@ -18,7 +17,7 @@ use std::collections::HashSet;
 /// but NOT in the dispatcher (funcs.insert). These are handled by interceptors
 /// or specialized invoke_* methods in execution.rs / server.rs.
 const REGISTRY_ONLY_CATEGORIES: &[&str] = &[
-    "stub",      // handled by execution.rs interceptors
+    "stub",     // handled by execution.rs interceptors
     "stateful", // runtime-only, no direct dispatch
     "graph",    // handled by graph module invoke methods
     "mtree",    // handled by memory module invoke methods
@@ -31,9 +30,24 @@ const REGISTRY_ONLY_CATEGORIES: &[&str] = &[
 
 /// Categories whose members have BOTH a spec! entry AND a dispatcher entry.
 const DISPATCHED_CATEGORIES: &[&str] = &[
-    "string", "db", "llm", "memory", "time", "encoding",
-    "recipe", "orchestration", "vault", "pdf", "crypto",
-    "voice", "bot", "fluid", "json", "list", "io", "system",
+    "string",
+    "db",
+    "llm",
+    "memory",
+    "time",
+    "encoding",
+    "recipe",
+    "orchestration",
+    "vault",
+    "pdf",
+    "crypto",
+    "voice",
+    "bot",
+    "fluid",
+    "json",
+    "list",
+    "io",
+    "system",
 ];
 
 fn registry_categories() -> HashSet<&'static str> {
@@ -76,8 +90,10 @@ fn registry_names_are_consistent() {
         "builtin_count() disagrees with BUILTIN_REGISTRY.len()"
     );
 
-    let registry_names: HashSet<String> =
-        BUILTIN_REGISTRY.iter().map(|s| s.name.to_string()).collect();
+    let registry_names: HashSet<String> = BUILTIN_REGISTRY
+        .iter()
+        .map(|s| s.name.to_string())
+        .collect();
     let builtin_names_set: HashSet<String> = builtin_names().into_iter().collect();
 
     assert_eq!(
@@ -99,26 +115,62 @@ fn naryad_55_fixes_present() {
     use metalogos::builtins::check_builtin_arity;
 
     // db_execute: 1..2 (ADR-0068)
-    assert!(check_builtin_arity("db_execute", 1).is_ok(), "db_execute(1) should be valid");
-    assert!(check_builtin_arity("db_execute", 2).is_ok(), "db_execute(2) should be valid");
-    assert!(check_builtin_arity("db_execute", 0).is_err(), "db_execute(0) should be invalid");
-    assert!(check_builtin_arity("db_execute", 3).is_err(), "db_execute(3) should be invalid");
+    assert!(
+        check_builtin_arity("db_execute", 1).is_ok(),
+        "db_execute(1) should be valid"
+    );
+    assert!(
+        check_builtin_arity("db_execute", 2).is_ok(),
+        "db_execute(2) should be valid"
+    );
+    assert!(
+        check_builtin_arity("db_execute", 0).is_err(),
+        "db_execute(0) should be invalid"
+    );
+    assert!(
+        check_builtin_arity("db_execute", 3).is_err(),
+        "db_execute(3) should be invalid"
+    );
 
     // cron_add: 2
-    assert!(check_builtin_arity("cron_add", 2).is_ok(), "cron_add(2) should be valid");
-    assert!(check_builtin_arity("cron_add", 1).is_err(), "cron_add(1) should be invalid");
+    assert!(
+        check_builtin_arity("cron_add", 2).is_ok(),
+        "cron_add(2) should be valid"
+    );
+    assert!(
+        check_builtin_arity("cron_add", 1).is_err(),
+        "cron_add(1) should be invalid"
+    );
 
     // cron_list: 0 (variadic — takes 0+ args, like todo_list/goals_list/kv_list)
-    assert!(check_builtin_arity("cron_list", 0).is_ok(), "cron_list(0) should be valid");
-    assert!(check_builtin_arity("cron_list", 1).is_ok(), "cron_list(1) should be valid (variadic)");
+    assert!(
+        check_builtin_arity("cron_list", 0).is_ok(),
+        "cron_list(0) should be valid"
+    );
+    assert!(
+        check_builtin_arity("cron_list", 1).is_ok(),
+        "cron_list(1) should be valid (variadic)"
+    );
 
     // cron_remove: 1
-    assert!(check_builtin_arity("cron_remove", 1).is_ok(), "cron_remove(1) should be valid");
+    assert!(
+        check_builtin_arity("cron_remove", 1).is_ok(),
+        "cron_remove(1) should be valid"
+    );
 
     // cron_run: 1
-    assert!(check_builtin_arity("cron_run", 1).is_ok(), "cron_run(1) should be valid");
+    assert!(
+        check_builtin_arity("cron_run", 1).is_ok(),
+        "cron_run(1) should be valid"
+    );
 
     // to_int: 1
-    assert!(check_builtin_arity("to_int", 1).is_ok(), "to_int(1) should be valid");
-    assert!(check_builtin_arity("to_int", 2).is_err(), "to_int(2) should be invalid");
+    assert!(
+        check_builtin_arity("to_int", 1).is_ok(),
+        "to_int(1) should be valid"
+    );
+    assert!(
+        check_builtin_arity("to_int", 2).is_err(),
+        "to_int(2) should be invalid"
+    );
 }

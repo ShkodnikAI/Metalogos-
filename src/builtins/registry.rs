@@ -278,6 +278,10 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("hmac_sha256", 2, "crypto"),
     spec!("hex_encode", 1, "crypto"),
     spec!("hex_decode", 1, "crypto"),
+    // ── Regex (Наряд №54) ──
+    spec!("regex_match", 2, "string"),
+    spec!("regex_captures", 2, "string"),
+    spec!("regex_replace", 3, "string"),
 ];
 
 /// Total number of registered builtins.

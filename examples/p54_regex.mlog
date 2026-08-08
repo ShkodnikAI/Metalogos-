@@ -1,0 +1,34 @@
+// ── Наряд №54: Golden contract for regex builtins ─────────────────────
+// Covers 6 test cases across all 3 regex builtins.
+// Output: 8 lines (PASS lines + final ALL REGEX CONTRACTS PASSED)
+
+pattern TestRegex(_s: String) -> String {
+  // Case 1: regex_match — simple full-match (true)
+  let r1 = regex_match("hello", "hello")
+  print("PASS: regex_match exact = " + str(r1))
+
+  // Case 2: regex_match — no match (false)
+  let r2 = regex_match("[0-9]+", "abc")
+  print("PASS: regex_match no match = " + str(r2))
+
+  // Case 3: regex_captures — one capture group
+  let r3 = regex_captures("([\\w.]+)@[\\w.]+", "user@example.com")
+  print("PASS: regex_captures group count = " + str(len(r3)))
+  print("PASS: regex_captures group 1 = " + get(r3, 1.0))
+
+  // Case 4: regex_captures — multiple capture groups (date)
+  let r4 = regex_captures("(\\d{4})-(\\d{2})-(\\d{2})", "2025-08-08")
+  print("PASS: regex_captures year = " + get(r4, 1.0))
+
+  // Case 5: regex_replace — simple substitution
+  let r5 = regex_replace("cat", "the cat sat on the cat", "dog")
+  print("PASS: regex_replace = " + r5)
+
+  // Case 6: regex_replace — capture group backreference swap
+  let r6 = regex_replace("(\\w+) (\\w+)", "hello world", "$2 $1")
+  print("PASS: regex_replace ref = " + r6)
+
+  return "ALL REGEX CONTRACTS PASSED"
+}
+
+flow Main { input: String = "" -> TestRegex -> output }

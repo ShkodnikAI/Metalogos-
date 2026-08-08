@@ -200,7 +200,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("mtree_forget", 1, "mtree"),
     // ── Cron builtins ──
     spec!("cron_mark_fired", 1, "stub"),
-    spec!("cron_add", 2, "cron"),      // cron_expr, prompt
+    spec!("cron_add", 2, "cron"), // cron_expr, prompt
     spec!("cron_list", 0, "cron"),
     spec!("cron_remove", 1, "cron"),
     spec!("cron_run", 1, "cron"),
@@ -272,7 +272,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("read_file_tokens", 1, "bot"),
     // ── sqz-inspired: string/list utilities ──
     spec!("squeeze", 2, "string"),
-    spec!("to_int", 1, "string"),  // parse string/float to integer
+    spec!("to_int", 1, "string"), // parse string/float to integer
     // ── PDF processing (Наряд №48) ──
     spec!("pdf_classify", 1, "pdf"),
     spec!("pdf_to_markdown", 1, "pdf"),

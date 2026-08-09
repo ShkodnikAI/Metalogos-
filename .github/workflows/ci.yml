@@ -69,3 +69,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+  adr-check:
+    name: ADR numbering (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: ADR numbering collision check
+        run: |
+          dupes=$(ls docs/adr/ | sed -E 's/^([0-9]+)-.*/\1/' | sort | uniq -d)
+          if [ -n "$dupes" ]; then
+            echo "::error::Duplicate ADR numbers found: $dupes"
+            exit 1
+          fi

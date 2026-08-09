@@ -262,8 +262,9 @@ pub(crate) fn builtin_learn_preference(args: &[Value]) -> Result<Value, String> 
             if let Ok(mut prev) = serde_json::from_str::<serde_json::Value>(existing) {
                 let count = prev["evidence_count"].as_u64().unwrap_or(0) + 1;
                 prev["evidence_count"] = serde_json::Value::Number(count.into());
-                prev["last_observed"] =
-                    serde_json::Value::Number(super::super::office::config::chrono_now_timestamp().into());
+                prev["last_observed"] = serde_json::Value::Number(
+                    super::super::office::config::chrono_now_timestamp().into(),
+                );
                 // Promote to active after 3 observations
                 if count >= 3 {
                     prev["state"] = serde_json::Value::String("active".to_string());

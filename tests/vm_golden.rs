@@ -123,6 +123,9 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                     if stem.starts_with("p7_") {
                         continue; // Tracked separately in golden.rs::p7_contract_visibility
                     }
+                    if stem.contains("unknown_fn") || stem.starts_with("wrong_") {
+                        continue; // Negative-test contract, designed to fail compilation
+                    }
                     let expected = path.with_extension("expected");
                     if expected.exists() {
                         pairs.push((path, expected));

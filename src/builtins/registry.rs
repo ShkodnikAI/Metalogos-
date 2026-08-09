@@ -102,14 +102,14 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("dict_values", 1, "json"),
     // ── Web builtins ──
     spec!("respond", 1, 2, "web"),
-    spec!("respond_html", 1, "stub"),
+    spec!("respond_html", 1, "web"),
     spec!("form_data", 1, "web"),
     spec!("json_body", 0, "web"),
     spec!("query_param", 1, "web"),
     spec!("render", 2, 3, "web"),
     spec!("http_get", 1, 3, "web"), // url | url,headers | url,headers,timeout
     spec!("http_post", 2, 5, "web"),
-    spec!("http_post_multipart", 2, 4, "stub"),
+    spec!("http_post_multipart", 2, 4, "web"),
     spec!("require", 1, 2, "web"),
     spec!("request_body", 0, "web"),
     spec!("web_search", 1, 2, "web"), // query | query,num
@@ -123,8 +123,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("encrypt", 2, "crypto"),
     spec!("decrypt", 2, "crypto"),
     spec!("generate_key", 0, "stub"),
-    spec!("base64_encode", 1, "stub"),
-    spec!("base64_decode", 1, "stub"),
+    spec!("base64_encode", 1, "encoding"),
+    spec!("base64_decode", 1, "encoding"),
     // ── Auth stubs ──
     spec!("authenticate", 2, "stub"),
     spec!("session_login", 2, "stub"),

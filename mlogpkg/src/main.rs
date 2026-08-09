@@ -168,8 +168,8 @@ fn cmd_add(pkg: &str, version: Option<&str>) {
     let prev = manifest
         .dependencies
         .insert(pkg.to_string(), resolved_version);
-    if prev.is_some() {
-        println!("Updated dependency: {} (was {})", pkg, prev.unwrap());
+    if let Some(old) = prev {
+        println!("Updated dependency: {} (was {})", pkg, old);
     } else {
         println!("Added dependency: {} = {}", pkg, manifest.dependencies[pkg]);
     }
@@ -301,13 +301,13 @@ fn registry_dir() -> PathBuf {
 }
 
 fn read_manifest(path: &Path) -> Manifest {
-    let content = fs::read_to_string(path).expect(&format!("failed to read {:?}", path));
-    toml::from_str(&content).expect(&format!("failed to parse {:?}", path))
+    let content = fs::read_to_string(path).unwrap_or_else(|_| panic!("failed to read {:?}", path));
+    toml::from_str(&content).unwrap_or_else(|_| panic!("failed to parse {:?}", path))
 }
 
 fn write_manifest(path: &Path, manifest: &Manifest) {
     let toml_str = toml::to_string_pretty(manifest).expect("failed to serialize manifest");
-    fs::write(path, &toml_str).expect(&format!("failed to write {:?}", path));
+    fs::write(path, &toml_str).unwrap_or_else(|_| panic!("failed to write {:?}", path));
 }
 
 fn find_entry_point() -> PathBuf {

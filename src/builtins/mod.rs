@@ -23,7 +23,7 @@ pub struct BuiltinSpec {
     pub arity: usize,             // minimum arity; 0 = variadic (skip arity check)
     pub max_arity: Option<usize>, // None = exact match (arity is exact), Some(M) = accepts arity..=M
     pub category: &'static str,
-    pub layer: &'static str,      // "core" | "platform" | "ext"; default "core"
+    pub layer: &'static str, // "core" | "platform" | "ext"; default "core"
 }
 
 /// Macro for concise BuiltinSpec construction.

@@ -118,16 +118,19 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("geo_distance", 2, 5, "web"),
     spec!("weather_forecast", 1, 3, "web"), // city | lat,lon | lat,lon,days
     // ── Crypto builtins ──
-    spec!("hash_password", 1, "stub"),
-    spec!("verify_password", 2, "stub"),
+    spec!("hash_password", 1, "crypto"),
+    spec!("verify_password", 2, "crypto"),
     spec!("encrypt", 2, "crypto"),
     spec!("decrypt", 2, "crypto"),
-    spec!("generate_key", 0, "stub"),
+    spec!("generate_key", 0, "crypto"),
     spec!("base64_encode", 1, "encoding"),
     spec!("base64_decode", 1, "encoding"),
-    // ── Auth stubs ──
+    // ── Auth stubs (interpreter-mode mocks; real auth requires server mode) ──
+    // authenticate: always returns Unit — mock; no user database in interpreter
     spec!("authenticate", 2, "stub"),
+    // session_login: returns empty Session HashMap — mock; no auth backend in interpreter
     spec!("session_login", 2, "stub"),
+    // session_logout: no-op — mock; no sessions to invalidate in interpreter
     spec!("session_logout", 1, "stub"),
     spec!("session_clear", 0, "stub"),
     // ── Bot stubs ──

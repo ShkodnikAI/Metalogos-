@@ -23,7 +23,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Library tests
-        run: cargo test --lib --no-fail-fast
+        run: cargo test --workspace --lib --no-fail-fast
 
   test-integration:
     name: test-integration (advisory)
@@ -34,7 +34,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Integration tests
-        run: cargo test --tests --no-fail-fast
+        run: cargo test --workspace --tests --no-fail-fast
 
   fmt:
     name: fmt (blocking)
@@ -46,7 +46,7 @@ jobs:
           components: rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: Format check
-        run: cargo fmt --check
+        run: cargo fmt --all --check
 
   clippy:
     name: clippy (blocking)
@@ -58,4 +58,4 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings

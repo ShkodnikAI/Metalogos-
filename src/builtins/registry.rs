@@ -140,7 +140,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("env", 1, "system"),
     // ── DB builtins ──
     spec!("query", 1, 2, "db"),
-    spec!("db_execute", 1, "db"),
+    spec!("db_execute", 1, 2, "db"), // ADR-0068: optional params list
     // ── LLM builtins ──
     spec!("call_llm", 1, 2, "llm"), // prompt | prompt,input
     spec!("call_claude", 4, "llm"), // api_key,model,system,user
@@ -200,6 +200,10 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("mtree_forget", 1, "mtree"),
     // ── Cron builtins ──
     spec!("cron_mark_fired", 1, "stub"),
+    spec!("cron_add", 2, "cron"), // cron_expr, prompt
+    spec!("cron_list", 0, "cron"),
+    spec!("cron_remove", 1, "cron"),
+    spec!("cron_run", 1, "cron"),
     // ── Event stubs ──
     spec!("event_count", 0, "stub"),
     spec!("events_since", 1, "stub"),
@@ -268,6 +272,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("read_file_tokens", 1, "bot"),
     // ── sqz-inspired: string/list utilities ──
     spec!("squeeze", 2, "string"),
+    spec!("to_int", 1, "string"), // parse string/float to integer
     // ── PDF processing (Наряд №48) ──
     spec!("pdf_classify", 1, "pdf"),
     spec!("pdf_to_markdown", 1, "pdf"),

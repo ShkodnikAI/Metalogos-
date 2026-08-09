@@ -1,0 +1,14 @@
+// Наряд №64: Public math dispatch — abs, min, max, clamp, round
+// Verifies that public names resolve to real handlers (not just __-prefixed)
+
+pattern Check(x: String) -> String {
+  let a = abs(-5.0)
+  let b = min(3.0, 7.0)
+  let c = max(3.0, 7.0)
+  let d = clamp(15.0, 0.0, 10.0)
+  let e = round(2.6)
+  return to_string(a) + "," + to_string(b) + "," + to_string(c)
+       + "," + to_string(d) + "," + to_string(e)
+}
+
+flow Main { input: String = "x" -> Check -> output }

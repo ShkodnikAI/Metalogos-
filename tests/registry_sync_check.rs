@@ -1,3 +1,4 @@
+use metalogos::builtins::Builtins;
 /// Наряд №55 Block 2: Set-difference test between BUILTIN_REGISTRY and dispatcher.
 ///
 /// This test ensures that every function registered in the dispatcher (`funcs.insert`)
@@ -17,9 +18,7 @@
 /// categories: "stub" (handled by interceptor in execution.rs), "stateful",
 /// "graph", "mtree", "cron" (handled by dedicated invoke_* methods), and "test".
 /// These are listed in the REGISTRY_ONLY_CATEGORIES allowlist.
-
 use metalogos::builtins::{builtin_count, builtin_name_set, builtin_names, BUILTIN_REGISTRY};
-use metalogos::builtins::Builtins;
 use std::collections::HashSet;
 
 /// Categories whose members are intentionally registered in BUILTIN_REGISTRY
@@ -164,10 +163,7 @@ fn dispatcher_vs_registry_set_difference() {
         if registry_names.contains(name) {
             continue;
         }
-        errors.push(format!(
-            "  DISPATCHER -> no spec!: '{}'",
-            name
-        ));
+        errors.push(format!("  DISPATCHER -> no spec!: '{}'", name));
     }
 
     if !errors.is_empty() {

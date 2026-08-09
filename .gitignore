@@ -7,3 +7,14 @@ metalogos-src/
 tool-results/
 *.db
 metalogos/target/
+
+# Build cache — must never be committed
+off/
+
+# Scraped JSON dumps
+*_repo.json
+*_profile.json
+*_github.json
+*_search.json
+ci_*.json
+*.bak

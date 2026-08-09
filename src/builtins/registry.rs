@@ -230,7 +230,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("toon_decode", 1, "encoding"),
     // ── Recipe / DAG / Orchestration builtins ──
     spec!("recipe_save", 0, "recipe" => "ext"),
-    spec!("recipe_search", 0, "recipe" => "ext"), // semantic search via recall_top_k + kv_get
+    spec!("recipe_search", 1, 2, "recipe" => "ext"), // semantic search via recall_top_k + kv_get
     spec!("recipe_list", 0, "recipe" => "ext"),
     spec!("dag_phases", 1, "orchestration" => "ext"),
     spec!("topo_sort", 1, "orchestration" => "ext"),

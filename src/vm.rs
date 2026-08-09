@@ -1500,6 +1500,126 @@ impl Vm {
             ));
         }
 
+        // ── Наряд №67: recipe_save — intercept to also memorize for recipe_search ──
+        // recipe_save(name, description, skills, plan) builds a struct via the pure
+        // builtin AND memorizes the description with type "recipe" so that
+        // recipe_search can find it later.
+        if name == "recipe_save" {
+            let result = crate::builtins::office::recipes::builtin_recipe_save(args)?;
+            if let Value::Struct { ref fields, .. } = result {
+                let key = fields
+                    .get("key")
+                    .and_then(|v| match v {
+                        Value::String(s) => Some(s.as_str()),
+                        _ => None,
+                    })
+                    .unwrap_or("");
+                let desc = args
+                    .get(1)
+                    .and_then(|v| match v {
+                        Value::String(s) => Some(s.as_str()),
+                        _ => None,
+                    })
+                    .unwrap_or("");
+                if !desc.is_empty() && !key.is_empty() {
+                    let mem_value = format!("__KVKEY:{}\n{}", key, desc);
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0);
+                    self.memory.push(VmMemoryEntry {
+                        value: mem_value,
+                        priority: 0.8,
+                        timestamp: now,
+                        decay_rate: 0.01,
+                        mem_type: "recipe".to_string(),
+                    });
+                }
+            }
+            return Ok(result);
+        }
+
+        // ── Наряд №67: recipe_search — semantic search via memory + kv_get ──
+        // Searches VM memory for entries of type "recipe" whose value contains
+        // all query words (token-level AND match, case-insensitive), then
+        // fetches full recipe data from the shared KV store.
+        if name == "recipe_search" {
+            if args.is_empty() {
+                return Err("recipe_search() requires at least 1 argument (query)".to_string());
+            }
+            let query = match args.first() {
+                Some(Value::String(s)) => s.clone(),
+                other => {
+                    return Err(format!(
+                        "recipe_search() expected String as first arg, got {:?}",
+                        other
+                    ))
+                }
+            };
+            let k = if args.len() > 1 {
+                args[1].as_float().unwrap_or(5.0) as usize
+            } else {
+                5
+            };
+
+            // Token-level AND matching: all query words must appear (case-insensitive)
+            let query_lower = query.to_lowercase();
+            let query_words: Vec<&str> = query_lower.split_whitespace().collect();
+
+            let mut matches: Vec<String> = Vec::new();
+            let mut seen_keys = std::collections::HashSet::new();
+            for entry in &self.memory {
+                if !entry.mem_type.is_empty() && entry.mem_type != "recipe" {
+                    continue;
+                }
+                let val_lower = entry.value.to_lowercase();
+                if query_words.iter().all(|w| val_lower.contains(w)) {
+                    // Extract KV key from value format: "__KVKEY:<key>\n<description>"
+                    let kv_key = entry
+                        .value
+                        .strip_prefix("__KVKEY:")
+                        .and_then(|rest| rest.lines().next())
+                        .unwrap_or("");
+                    if kv_key.is_empty() || seen_keys.contains(kv_key) {
+                        continue;
+                    }
+                    seen_keys.insert(kv_key.to_string());
+                    matches.push(entry.value.clone());
+                    if matches.len() >= k {
+                        break;
+                    }
+                }
+            }
+
+            // Fetch full recipes from KV store
+            let mut recipes: Vec<Value> = Vec::new();
+            for mem_val in &matches {
+                let kv_key = mem_val
+                    .strip_prefix("__KVKEY:")
+                    .and_then(|rest| rest.lines().next())
+                    .unwrap_or("");
+                if kv_key.is_empty() {
+                    continue;
+                }
+                if let Some(recipe_json) = crate::builtins::memory::kv_get_raw(kv_key) {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&recipe_json) {
+                        let name = parsed["name"].as_str().unwrap_or("").to_string();
+                        let desc = parsed["description"].as_str().unwrap_or("").to_string();
+                        recipes.push(crate::builtins::core::make_struct(
+                            "RecipeResult",
+                            vec![
+                                ("name", Value::String(name)),
+                                ("description", Value::String(desc)),
+                                ("recipe_json", Value::String(recipe_json)),
+                            ],
+                        ));
+                    }
+                }
+            }
+
+            return Ok(Value::List(recipes));
+        }
+
         if let Some(builtin_fn) = self.builtins.get(name) {
             return builtin_fn(args);
         }

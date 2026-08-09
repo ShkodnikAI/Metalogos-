@@ -6,11 +6,20 @@
 /// The existing `registry_arity_check.rs` tests arity values; this test catches
 /// missing entries entirely. Different failure modes, both needed.
 ///
+/// HOW IT WORKS:
+/// - Creates a Builtins instance to get the real dispatcher names (funcs.insert keys)
+/// - Compares them against BUILTIN_REGISTRY names
+/// - Extra dispatcher names (no spec!) = FAIL (caught insertion without registration)
+/// - Missing dispatcher names (spec! but no funcs.insert) = FAIL only for dispatched categories
+///   (registry-only categories like "stub", "cron" are allowlisted)
+///
 /// Registry functions that intentionally lack a dispatcher entry fall into these
 /// categories: "stub" (handled by interceptor in execution.rs), "stateful",
 /// "graph", "mtree", "cron" (handled by dedicated invoke_* methods), and "test".
 /// These are listed in the REGISTRY_ONLY_CATEGORIES allowlist.
+
 use metalogos::builtins::{builtin_count, builtin_name_set, builtin_names, BUILTIN_REGISTRY};
+use metalogos::builtins::Builtins;
 use std::collections::HashSet;
 
 /// Categories whose members are intentionally registered in BUILTIN_REGISTRY
@@ -80,8 +89,8 @@ fn registry_only_categories_are_allowlisted() {
     }
 }
 
-/// The key invariant: builtin_count() must match BUILTIN_REGISTRY.len(),
-/// and builtin_names() / builtin_name_set() must agree with the registry.
+/// Internal consistency: builtin_count() / builtin_names() / builtin_name_set()
+/// must all agree with BUILTIN_REGISTRY (they are all derived from it).
 #[test]
 fn registry_names_are_consistent() {
     assert_eq!(
@@ -105,6 +114,67 @@ fn registry_names_are_consistent() {
     assert_eq!(
         registry_names, name_set,
         "builtin_name_set() disagrees with BUILTIN_REGISTRY"
+    );
+}
+
+/// THE KEY TEST: compare dispatcher (funcs.insert) with registry (spec!).
+///
+/// Catches two failure modes:
+/// 1. funcs.insert without spec! → "dispatcher has extra: {name}"
+/// 2. spec! without funcs.insert for a dispatched category → "registry has extra: {name}"
+///
+/// If this test NEVER fails, it means the dispatcher and registry are in sync.
+/// If it fails, someone added a function to one but not the other.
+#[test]
+fn dispatcher_vs_registry_set_difference() {
+    // Get real dispatcher names by instantiating Builtins
+    let builtins = Builtins::new();
+    let dispatcher_names: HashSet<String> = builtins.dispatcher_names();
+
+    // Get registry names
+    let registry_names: HashSet<String> = BUILTIN_REGISTRY
+        .iter()
+        .map(|s| s.name.to_string())
+        .collect();
+
+    // Registry-only names: in BUILTIN_REGISTRY but NOT in dispatcher
+    let registry_only: Vec<&str> = registry_names
+        .iter()
+        .filter(|n| !dispatcher_names.contains(*n))
+        .map(|n| n.as_str())
+        .collect();
+
+    // Verify all registry-only names belong to REGISTRY_ONLY_CATEGORIES
+    for name in &registry_only {
+        let category = BUILTIN_REGISTRY
+            .iter()
+            .find(|s| s.name == *name)
+            .map(|s| s.category)
+            .unwrap_or("unknown");
+        assert!(
+            REGISTRY_ONLY_CATEGORIES.contains(&category),
+            "Registry function '{}' (category '{}') has no dispatcher entry.\n\
+             If this is intentional, add '{}' to REGISTRY_ONLY_CATEGORIES.\n\
+             If this is a bug, add funcs.insert(\"{}\".to_string(), ...) to Builtins::new().",
+            name, category, category, name
+        );
+    }
+
+    // Dispatcher-only names: in funcs.insert but NOT in BUILTIN_REGISTRY
+    let dispatcher_only: Vec<&str> = dispatcher_names
+        .iter()
+        .filter(|n| !registry_names.contains(*n))
+        .map(|n| n.as_str())
+        .collect();
+
+    // These are ALWAYS bugs — every funcs.insert must have a paired spec!
+    assert!(
+        dispatcher_only.is_empty(),
+        "Dispatcher has functions without registry spec! entries:\n\
+         {:?}\n\
+         Each funcs.insert must have a matching spec!() in BUILTIN_REGISTRY.\n\
+         Add spec!(\"<name>\", <arity>, \"<category>\") to registry.rs",
+        dispatcher_only
     );
 }
 

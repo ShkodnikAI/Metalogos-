@@ -137,45 +137,47 @@ fn dispatcher_vs_registry_set_difference() {
         .map(|s| s.name.to_string())
         .collect();
 
-    // Registry-only names: in BUILTIN_REGISTRY but NOT in dispatcher
-    let registry_only: Vec<&str> = registry_names
-        .iter()
-        .filter(|n| !dispatcher_names.contains(*n))
-        .map(|n| n.as_str())
-        .collect();
+    // Collect ALL discrepancies (both directions) before asserting,
+    // so the test reports everything in one panic, not just the first hit.
+    let mut errors: Vec<String> = Vec::new();
 
-    // Verify all registry-only names belong to REGISTRY_ONLY_CATEGORIES
-    for name in &registry_only {
+    // Direction 1: registry-only (spec! but no funcs.insert) in dispatched categories
+    for name in &registry_names {
+        if dispatcher_names.contains(name) {
+            continue;
+        }
         let category = BUILTIN_REGISTRY
             .iter()
             .find(|s| s.name == *name)
             .map(|s| s.category)
             .unwrap_or("unknown");
-        assert!(
-            REGISTRY_ONLY_CATEGORIES.contains(&category),
-            "Registry function '{}' (category '{}') has no dispatcher entry.\n\
-             If this is intentional, add '{}' to REGISTRY_ONLY_CATEGORIES.\n\
-             If this is a bug, add funcs.insert(\"{}\".to_string(), ...) to Builtins::new().",
-            name, category, category, name
-        );
+        if !REGISTRY_ONLY_CATEGORIES.contains(&category) {
+            errors.push(format!(
+                "  REGISTRY -> no dispatcher: '{}' (category '{}')",
+                name, category
+            ));
+        }
     }
 
-    // Dispatcher-only names: in funcs.insert but NOT in BUILTIN_REGISTRY
-    let dispatcher_only: Vec<&str> = dispatcher_names
-        .iter()
-        .filter(|n| !registry_names.contains(*n))
-        .map(|n| n.as_str())
-        .collect();
+    // Direction 2: dispatcher-only (funcs.insert but no spec!)
+    for name in &dispatcher_names {
+        if registry_names.contains(name) {
+            continue;
+        }
+        errors.push(format!(
+            "  DISPATCHER -> no spec!: '{}'",
+            name
+        ));
+    }
 
-    // These are ALWAYS bugs — every funcs.insert must have a paired spec!
-    assert!(
-        dispatcher_only.is_empty(),
-        "Dispatcher has functions without registry spec! entries:\n\
-         {:?}\n\
-         Each funcs.insert must have a matching spec!() in BUILTIN_REGISTRY.\n\
-         Add spec!(\"<name>\", <arity>, \"<category>\") to registry.rs",
-        dispatcher_only
-    );
+    if !errors.is_empty() {
+        errors.sort();
+        panic!(
+            "Registry-dispatcher sync check FAILED ({} discrepancies):\n{}",
+            errors.len(),
+            errors.join("\n")
+        );
+    }
 }
 
 /// Test that specifically verifies the 6 functions from Наряд №55

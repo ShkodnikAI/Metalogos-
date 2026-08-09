@@ -12,6 +12,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Guard against large files
+        run: |
+          find . -type f -size +5M -not -path './.git/*' | tee /tmp/large.txt
+          if [ -s /tmp/large.txt ]; then
+            echo "::error::Found files > 5MB. Add to .gitignore or use Git LFS."
+            exit 1
+          fi
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Library tests

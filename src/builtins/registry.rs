@@ -132,12 +132,13 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("session_login", 2, "stub"),
     // session_logout: no-op — mock; no sessions to invalidate in interpreter
     spec!("session_logout", 1, "stub"),
-    spec!("session_clear", 0, "stub"),
-    // ── Bot stubs ──
-    spec!("send_message", 2, 3, "stub"), // chat_id,text | +reply_markup
-    spec!("answer_callback_query", 1, 3, "stub"), // id | id,text | id,text,show_alert
-    spec!("edit_message_text", 3, 4, "stub"), // chat_id,message_id,text | +reply_markup
-    spec!("whisper_transcribe", 1, "stub"),
+    spec!("session_clear", 0, "memory"),
+    // ── Bot — Telegram messaging ──
+    spec!("send_message", 2, 3, "bot"), // chat_id,text | +reply_markup
+    spec!("answer_callback_query", 1, 3, "bot"), // id | id,text | id,text,show_alert
+    spec!("edit_message_text", 3, 4, "bot"), // chat_id,message_id,text | +reply_markup
+    // ── Voice / transcription ──
+    spec!("whisper_transcribe", 1, "voice"),
     spec!("tts_send", 4, 5, "voice"), // text,voice,bot_token,chat_id | +mode
     // ── System builtins ──
     spec!("env", 1, "system"),
@@ -185,24 +186,24 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // ── Graph builtins ──
     spec!("graph_query", 1, 3, "graph"), // query | query,limit | query,limit,level
     spec!("graph_path", 2, "graph"),     // from_id,to_id
-    spec!("graph_neighbors", 0, "stub"),
-    spec!("memory_decay", 0, "stub"),
-    spec!("memory_boost", 0, "stub"),
-    spec!("memory_prune", 0, "stub"),
-    spec!("memory_revise", 0, "stub"),
-    spec!("subgraph_extract", 0, "stub"),
-    spec!("subgraph_nodes", 0, "stub"),
-    spec!("subgraph_json", 0, "stub"),
+    spec!("graph_neighbors", 0, "graph"),
+    spec!("memory_decay", 0, "memory"),
+    spec!("memory_boost", 0, "memory"),
+    spec!("memory_prune", 0, "memory"),
+    spec!("memory_revise", 0, "memory"),
+    spec!("subgraph_extract", 0, "graph"),
+    spec!("subgraph_nodes", 0, "graph"),
+    spec!("subgraph_json", 0, "graph"),
     spec!("trace_start", 0, "graph"),
     spec!("trace_end", 0, "graph"),
     spec!("memory_score", 1, "bot" => "ext"),
-    spec!("mtree_summarize", 0, "stub"),
-    spec!("mtree_retrieve", 1, 2, "stub"), // query | query,limit
+    spec!("mtree_summarize", 0, "mtree"),
+    spec!("mtree_retrieve", 1, 2, "mtree"), // query | query,limit
     spec!("mtree_store", 2, "mtree"),
     spec!("mtree_stats", 0, "mtree"),
     spec!("mtree_forget", 1, "mtree"),
     // ── Cron builtins ──
-    spec!("cron_mark_fired", 1, "stub"),
+    spec!("cron_mark_fired", 1, "cron"),
     spec!("cron_add", 2, "cron"), // cron_expr, prompt
     spec!("cron_list", 0, "cron"),
     spec!("cron_remove", 1, "cron"),
@@ -215,7 +216,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("query_row", 0, "stub"),
     // ── Test builtins ──
     spec!("assert_eq", 2, "test"),
-    spec!("assert_contains", 2, "stub"),
+    spec!("assert_contains", 2, "test"),
     // ── Fluid builtins ──
     spec!("confidence", 1, "fluid"),
     // ── Encoding builtins ──

@@ -149,6 +149,12 @@ impl Builtins {
         funcs.insert("__max".to_string(), builtin_max as BuiltinFn);
         funcs.insert("__clamp".to_string(), builtin_clamp as BuiltinFn);
         funcs.insert("__round".to_string(), builtin_round as BuiltinFn);
+        // Public aliases (registry exposes these without __ prefix; Наряд №64)
+        funcs.insert("abs".to_string(), builtin_abs as BuiltinFn);
+        funcs.insert("min".to_string(), builtin_min as BuiltinFn);
+        funcs.insert("max".to_string(), builtin_max as BuiltinFn);
+        funcs.insert("clamp".to_string(), builtin_clamp as BuiltinFn);
+        funcs.insert("round".to_string(), builtin_round as BuiltinFn);
         funcs.insert("__first".to_string(), builtin_first as BuiltinFn);
         funcs.insert("__last".to_string(), builtin_last as BuiltinFn);
 

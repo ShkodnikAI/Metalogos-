@@ -48,8 +48,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("__round", 1, "std"),
     spec!("__first", 1, "std"),
     spec!("__last", 1, "std"),
-    spec!("__push", 2, "stub"),       // no handler; planned stdlib helper, superseded by 'push' builtin
-    spec!("__list_len", 1, "stub"),   // no handler; planned stdlib helper, use 'len' instead
+    spec!("__push", 2, "stub"), // no handler; planned stdlib helper, superseded by 'push' builtin
+    spec!("__list_len", 1, "stub"), // no handler; planned stdlib helper, use 'len' instead
     // ── Stub entries for VM coverage ──
     // abs/min/max/clamp/round: public aliases for __abs/__min/__max/__clamp/__round;
     // no handler registered yet (double-underscore versions are wired instead)
@@ -239,7 +239,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("topo_sort", 1, "orchestration" => "ext"),
     spec!("resolve_skill_index", 1, "stub"), // planned skill resolution; no handler
     spec!("fit_to_budget", 0, "stub"),       // planned budget planner; no handler
-    spec!("map", 0, "stub"),                  // planned list mapper; no handler (use filter+reduce instead)
+    spec!("map", 0, "stub"), // planned list mapper; no handler (use filter+reduce instead)
     // ── OpenPlanter-inspired: fuzzy / safe editing / agent utilities ──
     spec!("fuzzy_find_best", 2, "string"),
     spec!("hashline_read", 1, "string"),

@@ -145,7 +145,11 @@ fn cmd_add(pkg: &str, version: Option<&str>) {
     let registry_dir = registry_dir();
     let pkg_dir = registry_dir.join(pkg);
     if !pkg_dir.exists() {
-        eprintln!("error: package '{}' not found in local registry ({})", pkg, registry_dir.display());
+        eprintln!(
+            "error: package '{}' not found in local registry ({})",
+            pkg,
+            registry_dir.display()
+        );
         eprintln!("  Install packages manually to: {}", registry_dir.display());
         std::process::exit(1);
     }
@@ -161,7 +165,9 @@ fn cmd_add(pkg: &str, version: Option<&str>) {
     };
 
     let mut manifest = read_manifest(&manifest_path);
-    let prev = manifest.dependencies.insert(pkg.to_string(), resolved_version);
+    let prev = manifest
+        .dependencies
+        .insert(pkg.to_string(), resolved_version);
     if prev.is_some() {
         println!("Updated dependency: {} (was {})", pkg, prev.unwrap());
     } else {
@@ -184,7 +190,10 @@ fn cmd_build() {
     }
 
     let manifest = read_manifest(&manifest_path);
-    println!("Building {} v{}", manifest.package.name, manifest.package.version);
+    println!(
+        "Building {} v{}",
+        manifest.package.name, manifest.package.version
+    );
 
     // 1. Find entry point
     let entry = find_entry_point();
@@ -206,20 +215,18 @@ fn cmd_build() {
     let mut errors = 0;
     for src in &all_sources {
         match fs::read_to_string(src) {
-            Ok(source) => {
-                match metalogos::check_program(&source) {
-                    Ok(result) => {
-                        if !result.is_ok() {
-                            println!("  ERRORS in {}: {}", src.display(), result.format());
-                            errors += result.error_count();
-                        }
-                    }
-                    Err(e) => {
-                        println!("  ERROR in {}: {}", src.display(), e);
-                        errors += 1;
+            Ok(source) => match metalogos::check_program(&source) {
+                Ok(result) => {
+                    if !result.is_ok() {
+                        println!("  ERRORS in {}: {}", src.display(), result.format());
+                        errors += result.error_count();
                     }
                 }
-            }
+                Err(e) => {
+                    println!("  ERROR in {}: {}", src.display(), e);
+                    errors += 1;
+                }
+            },
             Err(e) => {
                 println!("  ERROR: cannot read {}: {}", src.display(), e);
                 errors += 1;
@@ -229,18 +236,27 @@ fn cmd_build() {
 
     // 5. Write lock file
     let lock = LockFile {
-        packages: resolved.into_iter()
-            .map(|(name, ver)| (name.clone(), LockedPkg {
-                version: ver,
-                source: format!("registry:{}", name),
-            }))
+        packages: resolved
+            .into_iter()
+            .map(|(name, ver)| {
+                (
+                    name.clone(),
+                    LockedPkg {
+                        version: ver,
+                        source: format!("registry:{}", name),
+                    },
+                )
+            })
             .collect(),
     };
     let lock_str = serde_json::to_string_pretty(&lock).unwrap();
     fs::write("mlog.lock", &lock_str).ok();
 
     if errors == 0 {
-        println!("Build OK: {} source files checked, 0 errors.", all_sources.len());
+        println!(
+            "Build OK: {} source files checked, 0 errors.",
+            all_sources.len()
+        );
     } else {
         println!("Build FAILED: {} error(s).", errors);
         std::process::exit(1);
@@ -255,7 +271,10 @@ fn cmd_info() {
         return;
     }
     let manifest = read_manifest(&manifest_path);
-    println!("Project: {} v{}", manifest.package.name, manifest.package.version);
+    println!(
+        "Project: {} v{}",
+        manifest.package.name, manifest.package.version
+    );
     println!("Edition: {}", manifest.package.edition);
     if manifest.dependencies.is_empty() {
         println!("Dependencies: (none)");
@@ -293,10 +312,7 @@ fn write_manifest(path: &Path, manifest: &Manifest) {
 
 fn find_entry_point() -> PathBuf {
     // Look for src/main.mlog first, then src/main.mlog
-    let candidates = [
-        PathBuf::from("src/main.mlog"),
-        PathBuf::from("main.mlog"),
-    ];
+    let candidates = [PathBuf::from("src/main.mlog"), PathBuf::from("main.mlog")];
     for c in &candidates {
         if c.exists() {
             return c.clone();

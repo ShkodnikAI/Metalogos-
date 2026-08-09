@@ -50,15 +50,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("__last", 1, "std"),
     spec!("__push", 2, "stub"), // no handler; planned stdlib helper, superseded by 'push' builtin
     spec!("__list_len", 1, "stub"), // no handler; planned stdlib helper, use 'len' instead
-    // ── Stub entries for VM coverage ──
-    // abs/min/max/clamp/round: public aliases for __abs/__min/__max/__clamp/__round;
-    // no handler registered yet (double-underscore versions are wired instead)
-    spec!("abs", 1, "stub"),
-    spec!("min", 2, "stub"),
-    spec!("max", 2, "stub"),
-    spec!("clamp", 3, "stub"),
-    spec!("round", 1, "stub"),
-    // newline/stdin: not yet implemented; no handler
+    // ── Math builtins (public aliases for __abs/__min/__max/__clamp/__round) ──
+    spec!("abs", 1, "math"),
+    spec!("min", 2, "math"),
+    spec!("max", 2, "math"),
+    spec!("clamp", 3, "math"),
+    spec!("round", 1, "math"),
     spec!("newline", 0, "stub"),
     spec!("stdin", 0, "stub"),
     // split_tokens/if_eq/is_string_token: planned compiler helpers; no handler

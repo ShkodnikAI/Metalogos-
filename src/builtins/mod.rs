@@ -642,6 +642,12 @@ impl Builtins {
     pub fn get(&self, name: &str) -> Option<&BuiltinFn> {
         self.funcs.get(name)
     }
+
+    /// Return the set of function names registered in the dispatcher.
+    /// Used by registry_sync_check test to detect funcs.insert without paired spec!.
+    pub fn dispatcher_names(&self) -> std::collections::HashSet<String> {
+        self.funcs.keys().cloned().collect()
+    }
 }
 
 pub(crate) mod server;

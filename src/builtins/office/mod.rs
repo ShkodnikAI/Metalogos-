@@ -3,12 +3,12 @@
 // Original: human_respond, goals, todos, entity extraction, memory scoring,
 // recipes, DAG, semantic search, preferences, vault, compression.
 
-mod config;
-mod goals;
-mod graph;
-mod human;
-mod recipes;
-mod text;
+pub(crate) mod config;
+pub(crate) mod goals;
+pub(crate) mod graph;
+pub(crate) mod human;
+pub(crate) mod recipes;
+pub(crate) mod text;
 
 pub(crate) use config::*;
 pub(crate) use goals::*;

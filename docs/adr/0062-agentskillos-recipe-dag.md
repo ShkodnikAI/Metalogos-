@@ -77,7 +77,35 @@ Both `dag_phases` and `topo_sort` detect cycles and return an error listing the 
 - `collaboration_hints` (inter-node output annotations) — requires DAG execution engine
 - Adaptive throttler — requires async runtime integration
 
+## Update 2026-08-10: recipe_search via memory infrastructure
+
+### Context
+
+`recipe_search` was a placeholder returning empty list. ADR-0062 identified two paths: (a) give builtins access to interpreter state, or (b) user-managed index via `kv_set`/`kv_get`. Since then, Metalogos gained semantic memory (`recall_top_k` with FTS5 BM25 + cosine RRF), and three builtins (`memorize`, `recall_top_k`, `resolve_skill_index`) already use special-case dispatch in `execution.rs` with full access to interpreter state (memory, KV, embeddings).
+
+### Decision — Variant A: reuse memory infrastructure
+
+`recipe_save` and `recipe_search` become special-case dispatches in `execution.rs` (same pattern as `memorize`/`recall_top_k`):
+
+1. **`recipe_save(name, description, skills, plan)`** — builds the recipe struct (unchanged), then calls `memorize` internally with `mem_type="recipe"` and value format `"__KVKEY:<key>\n<description>"`. The caller still does `kv_set(saved.key, json_encode(saved.recipe))` for full data.
+
+2. **`recipe_search(query, k?)`** — calls `recall_top_k(query, k, "recipe")` to find matching recipe memory entries by semantic similarity. For each result, extracts the KV key from the value prefix, calls `kv_get_raw(key)` to retrieve the full recipe JSON, and returns a list of recipe structs.
+
+### Why not Variant B (separate structure)
+
+Variant B (dedicated HashMap for recipes, own search) would duplicate ~150 lines of search logic already in the memory subsystem, require separate persistence code, and not benefit from FTS5 + cosine RRF ranking.
+
+### Consequences
+
+- `recipe_search` category changed from `"stub"` to `"recipe"` in BUILTIN_REGISTRY
+- `recipe_list` remains a placeholder (out of scope)
+- Recipes are visible through `recall_top_k` without type filter; with `"recipe"` filter they are isolated
+- `forget("...")` can remove recipe memory entries (acceptable — user-level action)
+
 ## Changed Files
 
 - `src/builtins.rs` — 5 new builtins, 13 tests, ~300 lines of implementation
 - `examples/dag_demo.mlog` + `.expected` — golden test for dag_phases/topo_sort
+- `src/interpreter/execution.rs` — special-case dispatch for `recipe_save` and `recipe_search`
+- `src/builtins/registry.rs` — `recipe_search` category `"stub"` → `"recipe"`
+- `examples/p67_recipe_search.mlog` + `.expected` — integration test for recipe_search

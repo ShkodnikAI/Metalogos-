@@ -78,12 +78,10 @@ impl Interpreter {
         ])?;
 
         // 2. Parse recall results (JSON string), extract KV keys, fetch full recipes
-        let recall_json: Vec<serde_json::Value> = serde_json::from_str(
-            match &recall_results {
-                Value::String(s) => s,
-                _ => return Ok(Value::List(vec![])),
-            },
-        )
+        let recall_json: Vec<serde_json::Value> = serde_json::from_str(match &recall_results {
+            Value::String(s) => s,
+            _ => return Ok(Value::List(vec![])),
+        })
         .unwrap_or_default();
 
         let mut recipes: Vec<Value> = Vec::new();

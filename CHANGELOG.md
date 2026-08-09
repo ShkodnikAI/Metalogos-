@@ -3,6 +3,13 @@
 All notable changes to the Metalogos project.
 
 ## [Unreleased]
+### Наряд №55 — Дыры в реестре блокируют перенос офиса
+
+- **db_execute arity 1..2:** Registry updated to reflect ADR-0068 parameterised queries. Office 86 call sites now pass `mlog check`.
+- **5 missing functions added to registry:** `to_int` (string, arity 1), `cron_add` (cron, 2), `cron_list` (cron, variadic), `cron_remove` (cron, 1), `cron_run` (cron, 1).
+- **Automated sync test:** `registry_sync_check.rs` verifies builtin_count()/builtin_names()/builtin_name_set() agree with BUILTIN_REGISTRY. Catches funcs.insert without matching spec!.
+- **ADR-0098:** Documents registry–dispatcher sync decision and registry-only categories.
+
 ### Наряд №52 — Перенос работы наряда №51 на актуальный main
 
 - **Cherry-pick onto 74a1631:** 6 commits from naryad-51-workers ported to fresh branch from origin/main (which includes Наряды 49+50).

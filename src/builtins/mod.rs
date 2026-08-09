@@ -16,33 +16,57 @@ pub struct Builtins {
 /// - `arity`: minimum arity; 0 = variadic (skip arity check)
 /// - `max_arity`: None = exact match (arity is exact), Some(M) = accepts arity..=M
 /// - `category`: logical group for documentation and error messages
+/// - `layer`: architectural layer — "core", "platform", or "ext"
 #[derive(Debug, Clone)]
 pub struct BuiltinSpec {
     pub name: &'static str,
     pub arity: usize,             // minimum arity; 0 = variadic (skip arity check)
     pub max_arity: Option<usize>, // None = exact match (arity is exact), Some(M) = accepts arity..=M
     pub category: &'static str,
+    pub layer: &'static str,      // "core" | "platform" | "ext"; default "core"
 }
 
 /// Macro for concise BuiltinSpec construction.
-/// spec!("name", N, "cat") → exact arity N (max_arity: None)
-/// spec!("name", N, M, "cat") → range N..=M (max_arity: Some(M))
+/// spec!("name", N, "cat") → exact arity N (max_arity: None), layer defaults to "core"
+/// spec!("name", N, M, "cat") → range N..=M (max_arity: Some(M)), layer defaults to "core"
+/// spec!("name", N, "cat" => "ext") → explicit layer (exact arity)
+/// spec!("name", N, M, "cat" => "ext") → range + explicit layer
 #[macro_export]
 macro_rules! spec {
     ($name:expr, $arity:expr, $cat:expr) => {
-        BuiltinSpec {
+        $crate::builtins::BuiltinSpec {
             name: $name,
             arity: $arity,
             max_arity: None,
             category: $cat,
+            layer: "core",
         }
     };
     ($name:expr, $arity:expr, $max:expr, $cat:expr) => {
-        BuiltinSpec {
+        $crate::builtins::BuiltinSpec {
             name: $name,
             arity: $arity,
             max_arity: Some($max),
             category: $cat,
+            layer: "core",
+        }
+    };
+    ($name:expr, $arity:expr, $cat:expr => $layer:expr) => {
+        $crate::builtins::BuiltinSpec {
+            name: $name,
+            arity: $arity,
+            max_arity: None,
+            category: $cat,
+            layer: $layer,
+        }
+    };
+    ($name:expr, $arity:expr, $max:expr, $cat:expr => $layer:expr) => {
+        $crate::builtins::BuiltinSpec {
+            name: $name,
+            arity: $arity,
+            max_arity: Some($max),
+            category: $cat,
+            layer: $layer,
         }
     };
 }

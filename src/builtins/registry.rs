@@ -48,19 +48,24 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("__round", 1, "std"),
     spec!("__first", 1, "std"),
     spec!("__last", 1, "std"),
-    spec!("__push", 2, "stub"),
-    spec!("__list_len", 1, "stub"),
+    spec!("__push", 2, "stub"),       // no handler; planned stdlib helper, superseded by 'push' builtin
+    spec!("__list_len", 1, "stub"),   // no handler; planned stdlib helper, use 'len' instead
     // ── Stub entries for VM coverage ──
+    // abs/min/max/clamp/round: public aliases for __abs/__min/__max/__clamp/__round;
+    // no handler registered yet (double-underscore versions are wired instead)
     spec!("abs", 1, "stub"),
     spec!("min", 2, "stub"),
     spec!("max", 2, "stub"),
     spec!("clamp", 3, "stub"),
     spec!("round", 1, "stub"),
+    // newline/stdin: not yet implemented; no handler
     spec!("newline", 0, "stub"),
     spec!("stdin", 0, "stub"),
+    // split_tokens/if_eq/is_string_token: planned compiler helpers; no handler
     spec!("split_tokens", 0, "stub"),
     spec!("if_eq", 3, "stub"),
     spec!("is_string_token", 1, "stub"),
+    // db_insert: planned convenience wrapper for INSERT; no handler (use db_execute instead)
     spec!("db_insert", 0, "stub"),
     // ── Convert builtins ──
     spec!("float", 1, "convert"),
@@ -159,10 +164,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("mem_get", 1, "memory"),
     spec!("mem_delete", 1, "memory"),
     spec!("memorize", 2, 3, "memory"),
+    // recall/forget/find/inspect: planned high-level memory API; no handler (use kv_*/mem_* instead)
     spec!("recall", 0, "stub"),
     spec!("forget", 0, "stub"),
     spec!("find", 4, "stub"),
     spec!("inspect", 1, "stub"),
+    // conv_start/add/history/context/end: conversation lifecycle management; not yet implemented
     spec!("conv_start", 1, "stub"),
     spec!("conv_add", 3, "stub"),
     spec!("conv_history", 1, "stub"),
@@ -208,10 +215,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("cron_list", 0, "cron"),
     spec!("cron_remove", 1, "cron"),
     spec!("cron_run", 1, "cron"),
-    // ── Event stubs ──
+    // ── Event / query analytics stubs ──
+    // event_count/events_since/event_sum: planned event analytics; no handler (use query with SQL instead)
     spec!("event_count", 0, "stub"),
     spec!("events_since", 1, "stub"),
     spec!("event_sum", 2, "stub"),
+    // query_scalar/query_row: planned convenience wrappers; no handler (use query + json_get instead)
     spec!("query_scalar", 0, "stub"),
     spec!("query_row", 0, "stub"),
     // ── Test builtins ──
@@ -224,13 +233,13 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("toon_decode", 1, "encoding"),
     // ── Recipe / DAG / Orchestration builtins ──
     spec!("recipe_save", 0, "recipe" => "ext"),
-    spec!("recipe_search", 0, "stub" => "ext"),
+    spec!("recipe_search", 0, "stub" => "ext"), // returns empty list; KV access limited from pure builtins
     spec!("recipe_list", 0, "recipe" => "ext"),
     spec!("dag_phases", 1, "orchestration" => "ext"),
     spec!("topo_sort", 1, "orchestration" => "ext"),
-    spec!("resolve_skill_index", 1, "stub"),
-    spec!("fit_to_budget", 0, "stub"),
-    spec!("map", 0, "stub"),
+    spec!("resolve_skill_index", 1, "stub"), // planned skill resolution; no handler
+    spec!("fit_to_budget", 0, "stub"),       // planned budget planner; no handler
+    spec!("map", 0, "stub"),                  // planned list mapper; no handler (use filter+reduce instead)
     // ── OpenPlanter-inspired: fuzzy / safe editing / agent utilities ──
     spec!("fuzzy_find_best", 2, "string"),
     spec!("hashline_read", 1, "string"),

@@ -1,7 +1,17 @@
-[package]
-name = "metalogos"
+[workspace]
+members = [".", "mlogpkg"]
+# mlog-lsp excluded: uses outdated API (Span, Declaration::{type_info,kind_str,span,name})
+# that no longer exists in the current metalogos crate. Re-enable after mlog-lsp update.
+resolver = "2"
+
+[workspace.package]
 version = "0.12.0"
 edition = "2021"
+
+[package]
+name = "metalogos"
+version.workspace = true
+edition.workspace = true
 description = "METALOGOS — AI-native programming language with security by design"
 
 [[bin]]

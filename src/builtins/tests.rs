@@ -1495,4 +1495,72 @@ mod tests_sqz_builtins {
             "no match → unchanged",
         );
     }
+
+    // ── Наряд №62 Block 2: stub annotation guard ──
+    // Every spec!("...", "stub" ...) entry in registry.rs must have an
+    // explanatory comment on the same line (inline //) or on the
+    // immediately preceding line.  This catches future stubs that are
+    // added without justification.
+    #[test]
+    fn test_stub_entries_have_comments() {
+        let registry_src = include_str!("registry.rs");
+        let lines: Vec<&str> = registry_src.lines().collect();
+
+        let mut violations: Vec<String> = Vec::new();
+
+        for (i, line) in lines.iter().enumerate() {
+            // Match spec!(... "stub" ...) patterns — both simple and with layer
+            if !line.contains("\"stub\"") {
+                continue;
+            }
+            // Must contain spec!( to be a real spec entry
+            if !line.contains("spec!(") {
+                continue;
+            }
+
+            // Check: same-line comment after the spec! call
+            if let Some(pos) = line.find("//") {
+                let before_comment = &line[..pos];
+                if before_comment.contains(')') {
+                    continue; // has inline comment
+                }
+            }
+
+            // Check: preceding line is a comment (supports group comments)
+            // Walk backwards through consecutive stub lines to find a comment
+            let mut has_comment = false;
+            for j in (0..i).rev() {
+                let prev = lines[j].trim();
+                if prev.starts_with("//") {
+                    has_comment = true;
+                    break;
+                }
+                // Stop walking if we hit a blank line or a non-stub spec line
+                if prev.is_empty() || (!prev.contains("\"stub\"") && !prev.contains("spec!(")) {
+                    break;
+                }
+                // If this intermediate line has an inline comment, it also covers the group
+                if prev.contains("spec!(") && prev.contains("\"stub\"") {
+                    if let Some(pos2) = prev.find("//") {
+                        let before = &prev[..pos2];
+                        if before.contains(')') {
+                            has_comment = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if has_comment {
+                continue;
+            }
+
+            violations.push(format!("line {}: {}", i + 1, line.trim()));
+        }
+
+        assert!(
+            violations.is_empty(),
+            "stub entries without explanatory comments:\n{}",
+            violations.join("\n")
+        );
+    }
 }

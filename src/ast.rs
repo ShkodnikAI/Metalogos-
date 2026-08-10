@@ -299,7 +299,7 @@ impl Declaration {
     /// Source span of this declaration.
     /// NOTE: AST nodes do not carry position info from the parser.
     /// This always returns Span::unknown(). LSP clients (mlog-lsp) resolve
-    /// positions via text-based search (Variant B:ADR-0099).
+    /// positions via text-based search (Variant B: ADR-0100).
     pub fn span(&self) -> Span {
         Span::unknown()
     }

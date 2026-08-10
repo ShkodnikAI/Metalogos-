@@ -204,7 +204,7 @@ fn is_identifier_char(c: char) -> bool {
 
 /// Keyword prefix used for text-based declaration search.
 /// Maps kind_str() values to the keyword that appears in source text.
-fn declaration_keyword<'a>(kind: &'a str) -> &'a str {
+fn declaration_keyword(kind: &str) -> &str {
     match kind {
         "mlogserver" => "mlogserver",
         "template" => "template",

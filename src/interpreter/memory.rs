@@ -1,6 +1,125 @@
 use super::*;
 
 impl Interpreter {
+    // ── Наряд №67: recipe_save / recipe_search via memory infrastructure ──
+
+    /// `recipe_save(name, description, skills, plan)` — builds recipe struct AND memorizes
+    /// the description for later semantic search via recipe_search.
+    /// The caller still does kv_set(saved.key, json_encode(saved.recipe)) for full data.
+    pub(super) fn invoke_recipe_save_fn(&self, args: Vec<Value>) -> Result<Value, String> {
+        // 1. Call the existing pure builtin to build the struct
+        let result = crate::builtins::office::recipes::builtin_recipe_save(&args)?;
+
+        // 2. Extract key and description for memorization
+        let (kv_key, description) = match &result {
+            Value::Struct { fields, .. } => {
+                let key = fields
+                    .iter()
+                    .find(|(k, _)| *k == "key")
+                    .and_then(|(_, v)| match v {
+                        Value::String(s) => Some(s.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                let desc = args
+                    .get(1)
+                    .and_then(|v| match v {
+                        Value::String(s) => Some(s.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                (key, desc)
+            }
+            _ => return Ok(result),
+        };
+
+        // 3. Memorize with type "recipe" for semantic search.
+        // Value format: "__KVKEY:<key>\n<description>"
+        // recipe_search will parse this to extract the KV key.
+        if !description.is_empty() {
+            let mem_value = format!("__KVKEY:{}\n{}", kv_key, description);
+            let _ = self.invoke_memorize_fn(vec![
+                Value::String(mem_value),
+                Value::Float(0.8),
+                Value::String("recipe".to_string()),
+            ]);
+        }
+
+        Ok(result)
+    }
+
+    /// `recipe_search(query, k?)` — semantic search for recipes via recall_top_k.
+    /// Searches memory entries with type "recipe", extracts KV keys from values,
+    /// retrieves full recipe data from KV, returns list of recipe structs.
+    pub(super) fn invoke_recipe_search_fn(&self, args: Vec<Value>) -> Result<Value, String> {
+        if args.is_empty() {
+            return Err("recipe_search() requires at least 1 argument (query)".to_string());
+        }
+        let query = match &args[0] {
+            Value::String(s) => s.clone(),
+            other => {
+                return Err(format!(
+                    "recipe_search() expected String as first arg, got {}",
+                    other.type_name()
+                ))
+            }
+        };
+        let k = if args.len() > 1 {
+            args[1].as_float().unwrap_or(5.0) as usize
+        } else {
+            5
+        };
+
+        // 1. Recall top-k memory entries of type "recipe"
+        let recall_results = self.invoke_recall_top_k_fn(vec![
+            Value::String(query),
+            Value::Float(k as f64),
+            Value::String("recipe".to_string()),
+        ])?;
+
+        // 2. Parse recall results (JSON string), extract KV keys, fetch full recipes
+        let recall_json: Vec<serde_json::Value> = serde_json::from_str(match &recall_results {
+            Value::String(s) => s,
+            _ => return Ok(Value::List(vec![])),
+        })
+        .unwrap_or_default();
+
+        let mut recipes: Vec<Value> = Vec::new();
+        for entry in &recall_json {
+            let value = entry["value"].as_str().unwrap_or("");
+            // Value format: "__KVKEY:<key>\n<description>"
+            let kv_key = if let Some(rest) = value.strip_prefix("__KVKEY:") {
+                rest.lines().next().unwrap_or("")
+            } else {
+                ""
+            };
+
+            if kv_key.is_empty() {
+                continue;
+            }
+
+            // Fetch full recipe from KV
+            if let Some(recipe_json) = crate::builtins::memory::kv_get_raw(kv_key) {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&recipe_json) {
+                    let name = parsed["name"].as_str().unwrap_or("").to_string();
+                    let desc = parsed["description"].as_str().unwrap_or("").to_string();
+                    let score = entry["score"].as_f64().unwrap_or(0.0);
+                    recipes.push(crate::builtins::core::make_struct(
+                        "RecipeResult",
+                        vec![
+                            ("name", Value::String(name)),
+                            ("description", Value::String(desc)),
+                            ("recipe_json", Value::String(recipe_json)),
+                            ("score", Value::Float(score)),
+                        ],
+                    ));
+                }
+            }
+        }
+
+        Ok(Value::List(recipes))
+    }
+
     /// Configure memory persistence (Phase 7.6).
     /// If persist path is provided, switches to SQLite-backed stores.
     /// The in-memory data is migrated to SQLite during the switch.

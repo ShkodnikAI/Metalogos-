@@ -337,6 +337,29 @@ pub(crate) fn builtin_now(args: &[Value]) -> Result<Value, String> {
     Ok(Value::Float(now))
 }
 
+/// sleep(seconds) — block the current execution thread for the given duration.
+/// Uses std::thread::sleep because the interpreter runs on a blocking thread
+/// (via tokio::task::block_in_place in server.rs). Safe: does not block the
+/// tokio async runtime worker. Maximum 60 seconds to prevent accidental hangs.
+pub(crate) fn builtin_sleep(args: &[Value]) -> Result<Value, String> {
+    let secs = match args.first() {
+        Some(Value::Float(f)) => *f,
+        _ => return Err("sleep() expects a numeric duration (Float)".to_string()),
+    };
+    const MAX_SECS: f64 = 60.0;
+    if secs < 0.0 {
+        return Err("sleep() duration must be non-negative".to_string());
+    }
+    if secs > MAX_SECS {
+        return Err(format!(
+            "sleep() duration capped at {} seconds (got {})",
+            MAX_SECS, secs
+        ));
+    }
+    std::thread::sleep(std::time::Duration::from_secs_f64(secs));
+    Ok(Value::Unit)
+}
+
 pub(crate) fn builtin_require(args: &[Value]) -> Result<Value, String> {
     if args.is_empty() {
         return Err("require() requires 1 argument (bool expression)".to_string());

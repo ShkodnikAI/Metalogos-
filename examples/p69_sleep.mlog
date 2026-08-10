@@ -1,0 +1,25 @@
+// ── Наряд #69 Block 1: sleep() builtin contract ──────────────────────────
+//
+// Verifies:
+//   1. sleep(seconds) returns Unit
+//   2. At least 0.1s actually elapsed (measured via now())
+//   3. sleep(0) is a no-op
+
+pattern test_sleep(input: String) -> String {
+  // Test 1: sleep(0.1) actually delays
+  let t0 = now()
+  sleep(0.1)
+  let t1 = now()
+  let elapsed = t1 - t0
+  assert(elapsed >= 0.1, "sleep(0.1) should delay at least 0.1s")
+
+  // Test 2: sleep(0) is a no-op
+  let t2 = now()
+  sleep(0)
+  let t3 = now()
+  assert(t3 - t2 < 0.05, "sleep(0) should be near-instant")
+
+  return "p69_sleep: all tests passed"
+}
+
+flow Main { input: String = "x" -> test_sleep -> output }

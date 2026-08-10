@@ -11,6 +11,8 @@ name = "metalogos"
 version.workspace = true
 edition.workspace = true
 description = "METALOGOS — AI-native programming language with security by design"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ShkodnikAI/Metalogos-"
 
 [[bin]]
 name = "mlog"

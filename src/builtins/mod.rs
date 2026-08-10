@@ -272,6 +272,7 @@ impl Builtins {
         funcs.insert("has_field".to_string(), builtin_has_field as BuiltinFn);
         funcs.insert("http_get".to_string(), builtin_http_get as BuiltinFn);
         funcs.insert("now".to_string(), builtin_now as BuiltinFn);
+        funcs.insert("sleep".to_string(), builtin_sleep as BuiltinFn);
 
         // ADR-0049 — session memory (temporary per-session KV store)
         funcs.insert("session_set".to_string(), builtin_session_set as BuiltinFn);

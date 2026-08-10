@@ -3,6 +3,48 @@
 use std::collections::HashMap;
 use std::fmt;
 
+/// Source span: line/column positions (0-indexed) for LSP integration.
+/// Stored as (start_line, start_col, end_line, end_col).
+/// Populated by text-based search in mlog-lsp (Variant B: no parser changes).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Span {
+    pub start_line: u32,
+    pub start_col: u32,
+    pub end_line: u32,
+    pub end_col: u32,
+}
+
+impl Span {
+    pub fn new(start_line: u32, start_col: u32, end_line: u32, end_col: u32) -> Self {
+        Self {
+            start_line,
+            start_col,
+            end_line,
+            end_col,
+        }
+    }
+
+    /// Zero-span placeholder (used when position is not yet resolved).
+    pub fn unknown() -> Self {
+        Self {
+            start_line: 0,
+            start_col: 0,
+            end_line: 0,
+            end_col: 0,
+        }
+    }
+}
+
+impl fmt::Display for Span {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}:{}-{}:{}",
+            self.start_line, self.start_col, self.end_line, self.end_col
+        )
+    }
+}
+
 /// Top-level declaration in a .mlog program.
 #[derive(Debug, Clone)]
 pub enum Declaration {
@@ -64,6 +106,203 @@ pub enum Declaration {
     LlmConfig(LlmConfigDecl),
     /// `context_budget { pattern: "name", limit: 4096 }` (sqz-inspired P3)
     ContextBudget(ContextBudgetDecl),
+}
+
+impl Declaration {
+    /// Primary name of this declaration, if it defines a named symbol.
+    /// Returns `None` for singleton/config declarations (db, memory, etc.)
+    /// and action declarations (rule, memorize, forget, relate).
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            Declaration::Template(d) => Some(&d.name),
+            Declaration::SkillIndex(d) => Some(&d.name),
+            Declaration::Schema(d) => Some(&d.name),
+            Declaration::EntityType(d) => Some(&d.name),
+            Declaration::EntityRecord(d) => Some(&d.name),
+            Declaration::EntitySimple(d) => Some(&d.name),
+            Declaration::Fluid(d) => Some(&d.name),
+            Declaration::Sandbox(d) => Some(&d.name),
+            Declaration::Pattern(d) => Some(&d.name),
+            Declaration::LearnablePattern(d) => Some(&d.name),
+            Declaration::Flow(d) => Some(&d.name),
+            Declaration::Tool(d) => Some(&d.name),
+            Declaration::Import(d) => d.alias.as_deref().or(Some(&d.path)),
+            Declaration::Adapt(d) => Some(&d.pattern_name),
+            Declaration::Mutate(d) => Some(&d.pattern_name),
+            Declaration::Eval(d) => Some(&d.pattern_name),
+            Declaration::ContextBudget(d) => Some(&d.pattern_name),
+            // No name: singleton/config/action declarations
+            Declaration::MlogServer(_)
+            | Declaration::Db(_)
+            | Declaration::Memory(_)
+            | Declaration::Rule(_)
+            | Declaration::Memorize(_)
+            | Declaration::Forget(_)
+            | Declaration::Relate(_)
+            | Declaration::Hook(_)
+            | Declaration::Conversation(_)
+            | Declaration::LlmConfig(_) => None,
+        }
+    }
+
+    /// Human-readable kind string for this declaration (for LSP hover/completion).
+    pub fn kind_str(&self) -> &'static str {
+        match self {
+            Declaration::MlogServer(_) => "mlogserver",
+            Declaration::Template(_) => "template",
+            Declaration::Db(_) => "db",
+            Declaration::Schema(_) => "schema",
+            Declaration::SkillIndex(_) => "skill_index",
+            Declaration::Memory(_) => "memory",
+            Declaration::Import(_) => "import",
+            Declaration::EntityType(_) => "entity_type",
+            Declaration::EntityRecord(_) => "entity_record",
+            Declaration::EntitySimple(_) => "entity",
+            Declaration::Rule(_) => "rule",
+            Declaration::Memorize(_) => "memorize",
+            Declaration::Forget(_) => "forget",
+            Declaration::Fluid(_) => "fluid",
+            Declaration::Adapt(_) => "adapt",
+            Declaration::Relate(_) => "relate",
+            Declaration::Sandbox(_) => "sandbox",
+            Declaration::Hook(_) => "hook",
+            Declaration::Mutate(_) => "mutate",
+            Declaration::Eval(_) => "eval",
+            Declaration::Pattern(_) => "pattern",
+            Declaration::LearnablePattern(_) => "learnable_pattern",
+            Declaration::Flow(_) => "flow",
+            Declaration::Conversation(_) => "conversation",
+            Declaration::Tool(_) => "tool",
+            Declaration::LlmConfig(_) => "llm_config",
+            Declaration::ContextBudget(_) => "context_budget",
+        }
+    }
+
+    /// Type signature as a human-readable string (for LSP hover).
+    /// Shows the declaration keyword, name (if any), and key type info.
+    pub fn type_info(&self) -> String {
+        match self {
+            Declaration::Template(d) => format!("template {}({}) -> Html", d.name, d.params.len()),
+            Declaration::SkillIndex(d) => {
+                format!(
+                    "skill_index {} ({} tiers, budget: {:?})",
+                    d.name,
+                    d.tiers.len(),
+                    d.budget
+                )
+            }
+            Declaration::Schema(d) => format!("schema {} ({} tables)", d.name, d.tables.len()),
+            Declaration::EntityType(d) => {
+                format!("entity {} {{ {} fields }}", d.name, d.fields.len())
+            }
+            Declaration::EntityRecord(d) => {
+                format!("entity {} = {{ {} fields }}", d.name, d.fields.len())
+            }
+            Declaration::EntitySimple(d) => {
+                format!("entity {}: {}", d.name, d.type_name)
+            }
+            Declaration::Rule(d) => format!("rule If({:?}) then {:?}", d.condition, d.target),
+            Declaration::Memorize(d) => {
+                format!("memorize {{ ... }} with priority={}", d.priority)
+            }
+            Declaration::Forget(d) => format!("forget {{ ... }} after {}.days", d.days),
+            Declaration::Fluid(d) => {
+                let variants: Vec<String> = d
+                    .variants
+                    .iter()
+                    .map(|v| format!("{}[{}]", v.type_name, v.confidence))
+                    .collect();
+                format!("fluid {} = {}", d.name, variants.join(" | "))
+            }
+            Declaration::Adapt(d) => format!("adapt {} add_example(...)", d.pattern_name),
+            Declaration::Relate(d) => {
+                format!("relate {{ ... }} to {{ ... }} as \"{}\"", d.relation)
+            }
+            Declaration::Sandbox(d) => {
+                format!("sandbox {} {{ allowed: {} }}", d.name, d.allowed.len())
+            }
+            Declaration::Hook(d) => format!("hook {:?}", d.phase),
+            Declaration::Mutate(d) => format!("mutate {} {{ ... }}", d.pattern_name),
+            Declaration::Eval(d) => format!(
+                "eval {} {{ metric: {}, threshold: {} }}",
+                d.pattern_name, d.metric, d.threshold
+            ),
+            Declaration::Pattern(d) => {
+                let params: Vec<String> = d
+                    .params
+                    .iter()
+                    .map(|p| format!("{}: {}", p.name, p.type_name))
+                    .collect();
+                format!(
+                    "pattern {}({}) -> {}",
+                    d.name,
+                    params.join(", "),
+                    d.return_type
+                )
+            }
+            Declaration::LearnablePattern(d) => {
+                let params: Vec<String> = d
+                    .params
+                    .iter()
+                    .map(|p| format!("{}: {}", p.name, p.type_name))
+                    .collect();
+                format!(
+                    "learnable pattern {}({}) -> {}",
+                    d.name,
+                    params.join(", "),
+                    d.return_type
+                )
+            }
+            Declaration::Flow(d) => format!("flow {} {{ ... }}", d.name),
+            Declaration::Conversation(_) => {
+                "conversation { ttl, max_messages, compress_after }".to_string()
+            }
+            Declaration::Tool(d) => format!("tool {} {{ {} methods }}", d.name, d.methods.len()),
+            Declaration::LlmConfig(d) => {
+                format!(
+                    "llm {{ {} providers, default: {:?}, failover: {:?} }}",
+                    d.providers.len(),
+                    d.default_model,
+                    d.failover
+                )
+            }
+            Declaration::ContextBudget(d) => {
+                let limit_str = d
+                    .limit
+                    .map(|l| l.to_string())
+                    .unwrap_or_else(|| "unlimited".to_string());
+                format!(
+                    "context_budget {{ pattern: {}, limit: {} }}",
+                    d.pattern_name, limit_str
+                )
+            }
+            Declaration::MlogServer(d) => {
+                format!(
+                    "mlogserver {{ port: {}, {} routes }}",
+                    d.port,
+                    d.routes.len()
+                )
+            }
+            Declaration::Db(d) => {
+                format!("db {{ url: {:?}, pool_size: {:?} }}", d.url, d.pool_size)
+            }
+            Declaration::Memory(d) => {
+                format!("memory {{ persist: {:?} }}", d.persist)
+            }
+            Declaration::Import(d) => match &d.alias {
+                Some(a) => format!("import {} as {}", d.path, a),
+                None => format!("import {}", d.path),
+            },
+        }
+    }
+
+    /// Source span of this declaration.
+    /// NOTE: AST nodes do not carry position info from the parser.
+    /// This always returns Span::unknown(). LSP clients (mlog-lsp) resolve
+    /// positions via text-based search (Variant B: ADR-0100).
+    pub fn span(&self) -> Span {
+        Span::unknown()
+    }
 }
 
 // ── LLM Config (Наряд №4: Smart LLM Routing) ──────────────────────────────

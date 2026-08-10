@@ -1,0 +1,16 @@
+// Наряд №67 — recipe_search contract
+// recipe_search(query) should semantically find saved recipes by description.
+// This test saves a recipe, persists it via kv_set, then searches.
+// Expected output depends on chosen implementation (see naryad-67 notes).
+
+pattern SaveAndSearch(query: String) -> String {
+  let plan = { steps: ["fetch", "parse", "report"] }
+  let saved = recipe_save("bug_report", "Analyze server logs and generate error report",
+                           ["log_analyze", "report_gen"], plan)
+  kv_set(saved.key, json_encode(saved.recipe))
+
+  let found = recipe_search("logs report")
+  return to_string(len(found))
+}
+
+flow Main { input: String = "x" -> SaveAndSearch -> output }

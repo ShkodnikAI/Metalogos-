@@ -1,7 +1,5 @@
 [workspace]
-members = [".", "mlogpkg"]
-# mlog-lsp excluded: uses outdated API (Span, Declaration::{type_info,kind_str,span,name})
-# that no longer exists in the current metalogos crate. Re-enable after mlog-lsp update.
+members = [".", "mlogpkg", "mlog-lsp"]
 resolver = "2"
 
 [workspace.package]

@@ -9,7 +9,8 @@
 // This exercises the exact same parse → semantic → diagnostic pipeline
 // that the LSP server uses.
 
-use mlog_lsp::{Backend, span_to_range};
+use metalogos::ast::Span;
+use mlog_lsp::{span_to_range, Backend};
 use tower_lsp::lsp_types::*;
 
 /// Contract: erroneous program → diagnostic returned.
@@ -67,7 +68,10 @@ fn lsp_did_open_clean_program_no_diagnostics() {
     let (declarations, diagnostics) = Backend::parse_and_analyze(source);
 
     assert_eq!(declarations.len(), 3, "should parse 3 declarations");
-    assert!(diagnostics.is_empty(), "clean program should produce no diagnostics");
+    assert!(
+        diagnostics.is_empty(),
+        "clean program should produce no diagnostics"
+    );
 }
 
 /// Contract: duplicate pattern → error diagnostic.
@@ -81,7 +85,9 @@ fn lsp_did_open_duplicate_pattern_returns_error() {
     let (_declarations, diagnostics) = Backend::parse_and_analyze(source);
 
     assert!(!diagnostics.is_empty());
-    assert!(diagnostics.iter().any(|d| d.message.contains("duplicate pattern")));
+    assert!(diagnostics
+        .iter()
+        .any(|d| d.message.contains("duplicate pattern")));
 }
 
 /// Contract: adapt target not found → error diagnostic.
@@ -119,7 +125,7 @@ pattern SayHello(text: String) -> String { return text }
 flow Main { input: String = greeting -> SayHello -> output }
 "#;
     let (declarations, _) = Backend::parse_and_analyze(source);
-    let symbols = Backend::build_symbols(&declarations);
+    let symbols = Backend::build_symbols_with_text(&declarations, source);
 
     // "greeting" should be found as a symbol with its span
     let greeting = symbols.iter().find(|s| s.name == "greeting");
@@ -127,8 +133,22 @@ flow Main { input: String = greeting -> SayHello -> output }
     let greeting = greeting.unwrap();
     let range = span_to_range(&greeting.span);
     // Entity declaration should have a valid range (non-zero span)
-    assert!(range.start.line <= 3, "entity should be in first few lines: line={}", range.start.line);
-    assert!(range.start.character < 20, "entity name starts within first 20 cols: col={}", range.start.character);
+    // Text search should find "entity greeting" on line 0
+    assert!(
+        range.start.line <= 3,
+        "entity should be in first few lines: line={}",
+        range.start.line
+    );
+    assert!(
+        range.start.character < 20,
+        "entity name starts within first 20 cols: col={}",
+        range.start.character
+    );
+    // The span should NOT be unknown (0,0,0,0)
+    assert!(
+        greeting.span != Span::unknown(),
+        "greeting span should be resolved, not unknown"
+    );
 }
 
 /// Contract: hover returns type info for pattern.

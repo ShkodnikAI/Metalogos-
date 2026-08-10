@@ -336,6 +336,16 @@ impl Interpreter {
             return self.invoke_forget_fn(args);
         }
 
+        // Наряд №67: recipe_save — intercept to also memorize for recipe_search
+        if name == "recipe_save" {
+            return self.invoke_recipe_save_fn(args);
+        }
+
+        // Наряд №67: recipe_search — semantic search via recall_top_k + kv_get
+        if name == "recipe_search" {
+            return self.invoke_recipe_search_fn(args);
+        }
+
         if name == "find" {
             return self.invoke_find(args);
         }
@@ -1212,6 +1222,16 @@ impl Interpreter {
                 // Usage: forget("query", 30)
                 if name == "forget" {
                     return self.invoke_forget_fn(eval_args);
+                }
+
+                // Наряд №67: recipe_save — intercept to also memorize for recipe_search
+                if name == "recipe_save" {
+                    return self.invoke_recipe_save_fn(eval_args);
+                }
+
+                // Наряд №67: recipe_search — semantic search via recall_top_k + kv_get
+                if name == "recipe_search" {
+                    return self.invoke_recipe_search_fn(eval_args);
                 }
 
                 // Наряд №7 — query() / db_execute() need access to db_conn

@@ -178,6 +178,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("deref", 1, "memory"),
     // ── Time builtins ──
     spec!("now", 0, "time"),
+    spec!("sleep", 1, "time"),
     spec!("time", 0, "time"),
     spec!("add_days", 2, "time"),
     spec!("add_hours", 2, "time"),

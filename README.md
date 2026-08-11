@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="logo.jpg" alt="Metalogos" width="220"/>
+<img src="assets/logo.png" alt="Metalogos" width="220"/>
 
 # METALOGOS
 
@@ -19,8 +19,6 @@
 ## What is Metalogos
 
 Metalogos (mlog) — это язык программирования, в котором AI-операции (LLM-вызовы, память, обучение, адаптация) являются конструкциями первого класса языка, а не библиотечными интеграциями. Вызов LLM так же естественен, как вызов функции. Безопасностные ограничения (XSS-защита, SQL-injection-защита, непрозрачность секретов) enforced на уровне языка, а не через middleware.
-
-Рантайм используется как движок выполнения для [FOSVED Office v2](FOSVED-office-v2/) — AI-офиса с 14 отделами, каждый из которых поддерживается mlog skills и patterns.
 
 ```mlog
 // Learnable pattern: LLM call as a language construct
@@ -128,7 +126,10 @@ Tree-walking интерпретатор + bytecode VM (44 инструкции) 
 ```
 Metalogos-/
 ├── Cargo.toml                       # v0.12.0, workspace root
-├── logo.jpg                          # Brand logo
+├── assets/                            # Brand assets
+│   ├── logo.png                     # Brand logo (PNG)
+│   ├── logo.svg                     # Brand logo (SVG)
+│   └── qr_wallet.jpg               # Crypto wallet QR code
 ├── README.md                         # This file
 ├── REFERENCE.md                      # Full builtin reference (50 KB)
 ├── CHANGELOG.md                      # Version history (45 KB)
@@ -240,9 +241,7 @@ Metalogos-/
 │   ├── language-configuration.json
 │   └── syntaxes/mlog.tmLanguage.json  # TextMate syntax highlighting
 │
-├── assets/                            # Brand assets
-│   ├── logo.svg
-│   └── qr_wallet.jpg                  # Crypto wallet QR code
+├── assets/                            # Brand assets (logo.png, logo.svg, qr_wallet.jpg)
 │
 ├── benches/                           # Criterion benchmarks
 │   └── core_benchmarks.rs
@@ -434,7 +433,7 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 | **mlog-lsp** | LSP server — diagnostics, goto-definition, hover |
 | **mlogpkg** | Package manager for .mlog projects |
 | **VS Code extension** | Syntax highlighting + language configuration |
-| **FOSVED Office v2** | AI office with 14 departments backed by mlog |
+| **Self-hosted compiler** | Lexer written in .mlog itself (self-host/) |
 
 ---
 
@@ -548,7 +547,7 @@ Direct support from anywhere in the world, regardless of banking restrictions:
 
 | Scan to donate | Wallet Address |
 |----------------|----------------|
-| <img src="https://raw.githubusercontent.com/ShkodnikAI/metalogos-grants/main/media/qr_usdt_wallet.jpg" width="150"> | `USDT (TRC-20): TU6adaaFxJdmvXRT8fhu9w3NQJeNueUyJk` |
+| <img src="assets/qr_wallet.jpg" width="150"> | `USDT (TRC-20): TU6adaaFxJdmvXRT8fhu9w3NQJeNueUyJk` |
 
 **Network:** TRC-20 (Tron)
 

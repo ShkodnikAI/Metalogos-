@@ -24,7 +24,7 @@ Direct support from anywhere in the world, regardless of banking restrictions:
 
 | Scan to donate | Wallet Address |
 |----------------|----------------|
-| <img src="https://raw.githubusercontent.com/ShkodnikAI/metalogos-grants/main/media/qr_usdt_wallet.jpg" width="150"> | `USDT (TRC-20): [YOUR_WALLET_ADDRESS]` |
+| <img src="https://raw.githubusercontent.com/ShkodnikAI/metalogos-grants/main/media/qr_usdt_wallet.jpg" width="150"> | `USDT (TRC-20): [TU6adaaFxJdmvXRT8fhu9w3NQJeNueUyJk]` |
 
 **Network:** TRC-20 (Tron)
 

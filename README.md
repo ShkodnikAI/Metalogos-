@@ -18,9 +18,7 @@
 
 ## What is Metalogos
 
-Metalogos (mlog) — это язык программирования, в котором AI-операции (LLM-вызовы, память, обучение, адаптация) являются конструкциями первого класса языка, а не библиотечными интеграциями. Вызов LLM так же естественен, как вызов функции. Безопасностные ограничения (XSS-защита, SQL-injection-защита, непрозрачность секретов) enforced на уровне языка, а не через middleware.
-
-Рантайм используется как движок выполнения для [FOSVED Office v2](FOSVED-office-v2/) — AI-офиса с 14 отделами, каждый из которых поддерживается mlog skills и patterns.
+Metalogos (mlog) is an open source programming language where AI operations — LLM calls, memory, learning, adaptation — are first-class language constructs, not library integrations. An LLM invocation is as natural as calling a function. Security constraints (XSS prevention, SQL injection prevention, secret opacity) are enforced at the language level, not through middleware.
 
 ```mlog
 // Learnable pattern: LLM call as a language construct
@@ -44,7 +42,7 @@ todo_add("Fix cron edge case", "high")
 let result = Classify("where is my order?")
 ```
 
-Никаких фреймворков. Никакого бойлерплейта. Никаких `import ai_sdk`. Язык *и есть* AI-инфраструктура.
+No frameworks. No boilerplate. No `import ai_sdk`. The language *is* the AI infrastructure.
 
 ---
 
@@ -52,27 +50,27 @@ let result = Classify("where is my order?")
 
 ### 1. AI as Language, Not Library
 
-В Python/JS для AI нужны SDK, промпт-темплейты, API-клиенты, error handling для HTTP-вызовов. В Metalogos learnable pattern — это конструкция языка. Вызов LLM неотличим от вызова функции. Никаких `openai.chat()`, никаких `await model.generate()`. Язык сам управляет контекстом, кешированием, retry, fallback.
+In Python/JS, AI requires SDKs, prompt templates, API clients, and HTTP error handling. In Metalogos, a learnable pattern is a language construct. Calling an LLM is indistinguishable from calling a function. No `openai.chat()`, no `await model.generate()`. The language handles context, caching, retry, and fallback automatically.
 
 ### 2. Security by Design — Zero Configuration
 
-OWASP Top 10 покрыт на уровне языка, а не через middleware. XSS невозможен (Html — opaque тип с автоскейпингом). SQL-injection невозможен (только параметризованные запросы). Plaintext-утечка секретов невозможна (Secret тип блокирует print/to_string). Нет способа обойти эти ограничения — они зашиты в семантику.
+OWASP Top 10 is covered at the language level, not through middleware. XSS is impossible (Html is an opaque type with auto-escaping). SQL injection is impossible (parameterized queries only). Plaintext secret leakage is impossible (Secret type blocks print/to_string). There is no way to bypass these constraints — they are built into the semantics.
 
 ### 3. Dual Execution Backend
 
-Tree-walking интерпретатор + bytecode VM (44 инструкции) с идентичной семантикой. Любая программа проходит через `crosscheck_backends` — тест, гарантирующий что оба бэкенда возвращают один результат. Это уникально для языка такого размера.
+Tree-walking interpreter + bytecode VM (44 instructions) with identical semantics. Every program is verified by `crosscheck_backends` — a test ensuring both backends return the same result. This is unique for a language of this size.
 
 ### 4. Typed Semantic Memory with Hybrid Search
 
-Не просто key-value store. Иерархическая память (Memory Tree L0/L1/L2), типизированные записи (persona, episodic, instruction, fact), FTS5 BM25 + cosine similarity, мерж через Reciprocal Rank Fusion (k=60). Полноценная retrieval-система внутри языка.
+More than a key-value store. Hierarchical memory (Memory Tree L0/L1/L2), typed records (persona, episodic, instruction, fact), FTS5 BM25 + cosine similarity, merged via Reciprocal Rank Fusion (k=60). A full retrieval system built into the language.
 
 ### 5. Self-Modification with Sandbox and Rollback
 
-`adapt` statement позволяет программе модифицировать собственные patterns в рантайме — с песочницей, метриками качества и автоматическим откатом при деградации. Нет аналогов в мейнстримных языках.
+The `adapt` statement allows a program to modify its own patterns at runtime — with sandboxing, quality metrics, and automatic rollback on degradation. No analogues exist in mainstream languages.
 
 ### 6. Complete Toolchain in One Binary
 
-`mlog run`, `mlog serve`, `mlog compile`, `mlog repl`, `mlog check`, `mlog audit`, `mlog eval` — всё в одном бинарнике. LSP-сервер (`mlog-lsp`) и пакетный менеджер (`mlogpkg`) — отдельные бинарники в том же workspace. VS Code extension с syntax highlighting входит в репозиторий.
+`mlog run`, `mlog serve`, `mlog compile`, `mlog repl`, `mlog check`, `mlog audit`, `mlog eval` — all in a single binary. The LSP server (`mlog-lsp`) and package manager (`mlogpkg`) are separate binaries in the same workspace. A VS Code extension with syntax highlighting is included in the repository.
 
 ---
 
@@ -434,7 +432,7 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 | **mlog-lsp** | LSP server — diagnostics, goto-definition, hover |
 | **mlogpkg** | Package manager for .mlog projects |
 | **VS Code extension** | Syntax highlighting + language configuration |
-| **FOSVED Office v2** | AI office with 14 departments backed by mlog |
+| **Self-hosted compiler** | Lexer written in .mlog itself (self-host/) |
 
 ---
 

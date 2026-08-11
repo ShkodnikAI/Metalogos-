@@ -550,17 +550,6 @@ Direct support from anywhere in the world, regardless of banking restrictions:
 
 **Network:** TRC-20 (Tron)
 
-### Sponsorship Tiers
-
-| Tier | Open Collective | Crypto (USDT) | Benefits |
-|------|----------------|---------------|----------|
-| Supporter | $5/mo | 50 USDT/mo | Name in SPONSORS.md, early releases, Discord |
-| Contributor | $25/mo | 250 USDT/mo | + Vote on features, beta access, monthly updates |
-| Sponsor | $100/mo | 1000 USDT/mo | + Logo on website, 1hr consulting, priority support |
-| Corporate | $500/mo | 5000 USDT/mo | + Enterprise support, private registry, roadmap calls |
-
-*Thank you to all our backers!*
-
 ---
 
 ## License

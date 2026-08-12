@@ -721,6 +721,24 @@ impl Builtins {
         );
         funcs.insert("imap_move".to_string(), builtin_imap_move as BuiltinFn);
 
+        // Наряд MLG-5: Calendar (CalDAV + iCal)
+        funcs.insert("cal_connect".to_string(), builtin_cal_connect as BuiltinFn);
+        funcs.insert("cal_list".to_string(), builtin_cal_list as BuiltinFn);
+        funcs.insert("cal_events".to_string(), builtin_cal_events as BuiltinFn);
+        funcs.insert("cal_read".to_string(), builtin_cal_read as BuiltinFn);
+        funcs.insert("cal_create".to_string(), builtin_cal_create as BuiltinFn);
+        funcs.insert("cal_update".to_string(), builtin_cal_update as BuiltinFn);
+        funcs.insert("cal_delete".to_string(), builtin_cal_delete as BuiltinFn);
+        funcs.insert(
+            "cal_freebusy".to_string(),
+            builtin_cal_freebusy as BuiltinFn,
+        );
+        funcs.insert("ical_parse".to_string(), builtin_ical_parse as BuiltinFn);
+        funcs.insert(
+            "ical_generate".to_string(),
+            builtin_ical_generate as BuiltinFn,
+        );
+
         // ── Наряд №50 Block 3: SHA-256 / HMAC / hex builtins ──
         funcs.insert("sha256".to_string(), builtin_sha256 as BuiltinFn);
         funcs.insert("hmac_sha256".to_string(), builtin_hmac_sha256 as BuiltinFn);
@@ -780,6 +798,8 @@ pub(crate) mod office;
 use office::*;
 pub(crate) mod email;
 use email::*;
+pub(crate) mod calendar;
+use calendar::*;
 
 #[cfg(test)]
 mod tests;

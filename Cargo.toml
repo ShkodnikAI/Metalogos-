@@ -3,7 +3,7 @@ members = [".", "mlogpkg", "mlog-lsp"]
 resolver = "2"
 
 [workspace.package]
-version = "0.14.0"
+version = "0.15.0"
 edition = "2021"
 
 [package]
@@ -86,6 +86,10 @@ lettre = { version = "0.11", features = ["builder", "smtp-transport", "native-tl
 imap = { version = "3.0.0-alpha.15", features = ["native-tls"] }
 imap-proto = "0.16"
 native-tls = "0.2"
+
+# Наряд MLG-5: Calendar (CalDAV + iCal, pure Rust)
+ical = "0.8"
+chrono-tz = "0.10"
 
 # Optional OCR support (requires system tesseract-ocr + training data)
 # Enable with: cargo build --features pdf-ocr

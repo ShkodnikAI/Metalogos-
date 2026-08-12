@@ -2,6 +2,30 @@
 
 All notable changes to the Metalogos project.
 
+## [0.13.0] - 2026-08-12
+
+### Added
+- pdf_draw_table — таблицы в PDF (Наряд MLG-3)
+- pdf_add_image — вставка PNG/JPEG изображений
+- pdf_set_page_header / pdf_set_page_footer — колонтитулы
+- pdf_page_numbers — автоматическая нумерация страниц
+- pdf_watermark — водяные знаки (диагональный текст с прозрачностью)
+- pdf_fill_form — заполнение AcroForm-полей
+- pdf_rotate_page — поворот страниц (90/180/270°)
+- pdf_delete_pages — удаление страниц
+- pdf_extract_images — извлечение изображений из PDF
+- html_to_pdf улучшен: базовый рендер на чистом Rust с fallback на wkhtmltopdf
+- png crate dependency (v0.17) для декодирования PNG-изображений
+- 18 inline-тестов в pdf.rs для новых функций
+- Интеграционные тесты tests/phase_mlg3_pdf_office.rs (13 тестов)
+- Пример examples/p_pdf_office.mlog
+
+### Changed
+- PdfDocument struct: добавлены поля header, footer, watermark, page_number_format, page_number_pos
+- PdfElement enum: добавлены вариации Table, Image, Watermark
+- html_to_pdf: приоритет Rust-рендера (простой HTML) над wkhtmltopdf (сложный HTML)
+- render_pdf: поддерживает Table/Image/Watermark элементы, рендерит header/footer/page_numbers/watermark на каждую страницу
+
 ## [Unreleased]
 ### Наряд №55 — Дыры в реестре блокируют перенос офиса
 

@@ -2,6 +2,28 @@
 
 All notable changes to the Metalogos project.
 
+## [0.16.0] - 2026-08-13
+
+### Added
+- card_connect — подключение к CardDAV-серверу (PROPFIND, addressbook-home-set discovery)
+- card_list — список адресных книг (PROPFIND Depth:1)
+- card_contacts — контакты из адресной книги с фильтрацией (CardDAV REPORT addressbook-query, RFC 6352 §8.6)
+- card_read — чтение одного контакта по URL
+- card_create — создание контакта (PUT .vcf, возвращает UID, arity 3..7)
+- card_update — обновление полей контакта (GET+PUT с ETag/If-Match)
+- card_delete — удаление контакта (DELETE с If-Match)
+- card_search — поиск по всем адресным книгам (FN + EMAIL)
+- vcard_parse — парсинг vCard текста в JSON (RFC 6350, hand-rolled parser)
+- vcard_generate — генерация vCard текста из JSON (v4.0)
+- 14 inline-тестов в contacts.rs (UUID, vCard parse/generate/roundtrip, folding, escaping)
+- Интеграционные тесты tests/phase_mlg6_contacts.rs (10 тестов)
+- CardDAV config через env vars: CARDDAV_URL/USER/PASS
+
+### Changed
+- Cargo.toml version 0.15.0 → 0.16.0
+- BUILTIN_REGISTRY: +10 contacts functions (category "contacts")
+- Builtins::new(): +10 dispatcher entries for card_*/vcard_*
+
 ## [0.15.0] - 2026-08-13
 
 ### Added

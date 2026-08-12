@@ -2,6 +2,29 @@
 
 All notable changes to the Metalogos project.
 
+## [0.15.0] - 2026-08-13
+
+### Added
+- cal_connect — подключение к CalDAV-серверу (PROPFIND, calendar-home-set discovery)
+- cal_list — список календарей (PROPFIND Depth:1)
+- cal_events — события в диапазоне дат (CalDAV REPORT calendar-query, RFC 4791 §7.8)
+- cal_read — чтение одного события по URL
+- cal_create — создание события (PUT .ics, возвращает UID)
+- cal_update — обновление полей события (GET+PUT с ETag/If-Match)
+- cal_delete — удаление события (DELETE с If-Match)
+- cal_freebusy — запрос занятости (CalDAV REPORT free-busy-query, RFC 4791 §7.10)
+- ical_parse — парсинг iCalendar текста в JSON (ical crate, RFC 5545)
+- ical_generate — генерация iCalendar текста из JSON (VEVENT + VCALENDAR)
+- ical (v0.8), chrono-tz (v0.10) dependencies
+- 10 inline-тестов в calendar.rs (datetime formatting, iCal escaping, parse, generate, roundtrip)
+- Интеграционные тесты tests/phase_mlg5_calendar.rs (10 тестов)
+- CalDAV config через env vars: CALDAV_URL/USER/PASS
+
+### Changed
+- Cargo.toml version 0.14.0 → 0.15.0
+- BUILTIN_REGISTRY: +10 calendar functions (category "calendar")
+- Builtins::new(): +10 dispatcher entries for cal_*/ical_*
+
 ## [0.14.0] - 2026-08-13
 
 ### Added

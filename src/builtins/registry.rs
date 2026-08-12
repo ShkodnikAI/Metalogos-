@@ -330,6 +330,17 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("imap_search", 2, "email"),  // query, folder
     spec!("imap_mark_read", 1, "email"), // uid
     spec!("imap_move", 2, "email"),    // uid, dest_folder
+    // ── Наряд MLG-5: Calendar (CalDAV + iCal) ──
+    spec!("cal_connect", 3, "calendar"),   // url, user, pass
+    spec!("cal_list", 1, "calendar"),      // session_id
+    spec!("cal_events", 3, "calendar"),    // calendar_id, start, end
+    spec!("cal_read", 1, "calendar"),      // event_uid
+    spec!("cal_create", 4, 7, "calendar"), // cal_id, summary, start, end [,desc, location, attendees_json]
+    spec!("cal_update", 2, "calendar"),    // event_uid, fields_json
+    spec!("cal_delete", 1, "calendar"),    // event_uid
+    spec!("cal_freebusy", 3, "calendar"),  // calendar_id, start, end
+    spec!("ical_parse", 1, "calendar"),    // text
+    spec!("ical_generate", 1, "calendar"), // event_json
 ];
 
 /// Total number of registered builtins.

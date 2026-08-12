@@ -2,7 +2,7 @@
 // These tests verify function registration and argument handling.
 // Live SMTP/IMAP tests require real credentials (env vars), tested manually.
 
-use metalogos::builtins::{builtin_count, builtin_name_set, Builtins, BUILTIN_REGISTRY};
+use metalogos::builtins::{builtin_count, builtin_name_set, BUILTIN_REGISTRY};
 use metalogos::interpreter::Value;
 
 /// Verify all MLG-4 email functions are registered with correct arity.

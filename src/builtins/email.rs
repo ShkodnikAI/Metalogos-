@@ -154,6 +154,7 @@ pub fn builtin_smtp_send_html(args: &[Value]) -> Result<Value, String> {
 }
 
 /// Core SMTP send implementation using lettre.
+#[allow(clippy::too_many_arguments)]
 fn smtp_send_impl(
     host: &str,
     port: u16,

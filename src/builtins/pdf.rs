@@ -1351,7 +1351,7 @@ pub fn builtin_pdf_fill_form(args: &[Value]) -> Result<Value, String> {
             if let Object::Dictionary(dict) = obj {
                 dict.get(b"Fields").and_then(|f| f.as_array().cloned())
             } else {
-                Err(lopdf::Error::Other("AcroForm is not a dictionary".to_string()))
+                Err(lopdf::Error::DictType { expected: "Dictionary", found: "non-Dictionary AcroForm".to_string() })
             }
         })
         .map_err(|e| format!("pdf_fill_form: cannot read AcroForm Fields: {:?}", e))?;
@@ -1534,7 +1534,7 @@ pub fn builtin_pdf_extract_images(args: &[Value]) -> Result<Value, String> {
     // Walk all objects looking for Image XObjects
     for (&obj_id, obj) in doc.objects.iter() {
         if let Object::Stream(stream) = obj {
-            let dict = &stream.dictionary;
+            let dict = &stream.dict;
             // Check if this is an Image XObject
             let is_image = dict.get(b"Subtype")
                 .and_then(|v| v.as_name())

@@ -14,6 +14,12 @@
 
 </div>
 
+<div align="center">
+
+<a href="https://youtube.com/shorts/Y8IFieOZQLo?feature=shared"><img src="https://img.youtube.com/vi/Y8IFieOZQLo/hqdefault.jpg" alt="Metalogos Presentation" width="400"/></a>
+
+</div>
+
 ---
 
 ## What is Metalogos

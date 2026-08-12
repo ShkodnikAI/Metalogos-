@@ -238,6 +238,8 @@ impl Builtins {
 
         // v0.5.0 — KV memory builtins
         funcs.insert("kv_set".to_string(), builtin_kv_set as BuiltinFn);
+        // memorize: alias for kv_set (high-level memory API)
+        funcs.insert("memorize".to_string(), builtin_kv_set as BuiltinFn);
         funcs.insert("kv_get".to_string(), builtin_kv_get as BuiltinFn);
         funcs.insert("kv_delete".to_string(), builtin_kv_delete as BuiltinFn);
         funcs.insert("kv_exists".to_string(), builtin_kv_exists as BuiltinFn);

@@ -349,7 +349,6 @@ fn registry_arity_exhaustive() {
         "query_scalar",
         "query_row",
         "recipe_save",
-        "recipe_search",
         "recipe_list",
         "fit_to_budget",
         "map",

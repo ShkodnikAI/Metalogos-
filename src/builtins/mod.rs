@@ -630,14 +630,29 @@ impl Builtins {
 
         // Наряд MLG-1: PDF creation, manipulation, and Telegram document sending
         funcs.insert("pdf_create".to_string(), builtin_pdf_create as BuiltinFn);
-        funcs.insert("pdf_add_page".to_string(), builtin_pdf_add_page as BuiltinFn);
-        funcs.insert("pdf_write_text".to_string(), builtin_pdf_write_text as BuiltinFn);
-        funcs.insert("pdf_draw_line".to_string(), builtin_pdf_draw_line as BuiltinFn);
-        funcs.insert("pdf_draw_rect".to_string(), builtin_pdf_draw_rect as BuiltinFn);
+        funcs.insert(
+            "pdf_add_page".to_string(),
+            builtin_pdf_add_page as BuiltinFn,
+        );
+        funcs.insert(
+            "pdf_write_text".to_string(),
+            builtin_pdf_write_text as BuiltinFn,
+        );
+        funcs.insert(
+            "pdf_draw_line".to_string(),
+            builtin_pdf_draw_line as BuiltinFn,
+        );
+        funcs.insert(
+            "pdf_draw_rect".to_string(),
+            builtin_pdf_draw_rect as BuiltinFn,
+        );
         funcs.insert("pdf_save".to_string(), builtin_pdf_save as BuiltinFn);
         funcs.insert("pdf_merge".to_string(), builtin_pdf_merge as BuiltinFn);
         funcs.insert("pdf_split".to_string(), builtin_pdf_split as BuiltinFn);
-        funcs.insert("pdf_metadata".to_string(), builtin_pdf_metadata as BuiltinFn);
+        funcs.insert(
+            "pdf_metadata".to_string(),
+            builtin_pdf_metadata as BuiltinFn,
+        );
         funcs.insert(
             "pdf_set_metadata".to_string(),
             builtin_pdf_set_metadata as BuiltinFn,

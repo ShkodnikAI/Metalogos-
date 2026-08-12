@@ -78,9 +78,6 @@ pdf-inspector = "0.1"
 # Наряд MLG-2: PDF manipulation (pure Rust, zero Python IPC)
 lopdf = "0.34"
 
-# Наряд MLG-3: PNG image decoding for pdf_add_image
-png = "0.17"
-
 # Наряд №54: Regular expressions (linear-time, no backtracking)
 regex = "1"
 

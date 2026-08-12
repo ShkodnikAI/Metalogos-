@@ -3,7 +3,7 @@ members = [".", "mlogpkg", "mlog-lsp"]
 resolver = "2"
 
 [workspace.package]
-version = "0.13.0"
+version = "0.14.0"
 edition = "2021"
 
 [package]
@@ -80,6 +80,12 @@ lopdf = "0.34"
 
 # Наряд №54: Regular expressions (linear-time, no backtracking)
 regex = "1"
+
+# Наряд MLG-4: Email (SMTP + IMAP, pure Rust)
+lettre = { version = "0.11", features = ["builder", "smtp-transport", "native-tls"] }
+imap = { version = "3.0.0-alpha.15", features = ["native-tls"] }
+imap-proto = "0.16"
+native-tls = "0.2"
 
 # Optional OCR support (requires system tesseract-ocr + training data)
 # Enable with: cargo build --features pdf-ocr

@@ -322,6 +322,14 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("pdf_rotate_page", 4, "pdf"),   // path, page_number, degrees, output_path
     spec!("pdf_delete_pages", 3, "pdf"),  // path, pages_json, output_path
     spec!("pdf_extract_images", 1, 2, "pdf"), // path [,output_dir]
+    // ── Email: SMTP + IMAP (Наряд MLG-4) ──
+    spec!("smtp_send", 3, 6, "email"), // to, subject, body [,attachments_json, from, reply_to]
+    spec!("smtp_send_html", 3, 4, "email"), // to, subject, html [,attachments_json]
+    spec!("imap_list", 2, 3, "email"), // folder, limit [,since_date]
+    spec!("imap_read", 1, "email"),    // uid
+    spec!("imap_search", 2, "email"),  // query, folder
+    spec!("imap_mark_read", 1, "email"), // uid
+    spec!("imap_move", 2, "email"),    // uid, dest_folder
 ];
 
 /// Total number of registered builtins.

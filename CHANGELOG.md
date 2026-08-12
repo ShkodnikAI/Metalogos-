@@ -2,6 +2,26 @@
 
 All notable changes to the Metalogos project.
 
+## [0.14.0] - 2026-08-13
+
+### Added
+- smtp_send — отправка plain-text email через SMTP (lettre crate, TLS/STARTTLS)
+- smtp_send_html — отправка HTML email через SMTP
+- imap_list — список входящих писем (IMAP, envelope + flags)
+- imap_read — чтение полного письма (заголовки, тело, вложения)
+- imap_search — поиск писем по тексту (TEXT criteria)
+- imap_mark_read — пометка письма как прочитанного
+- imap_move — перемещение письма в другую папку (RFC 6851 MOVE / fallback COPY+DELETE)
+- lettre (v0.11), imap (v3.0.0-alpha.15), imap-proto (v0.16), native-tls (v0.2) dependencies
+- 6 inline-тестов в email.rs (env guard, content type, header parsing, flag detection)
+- Интеграционные тесты tests/phase_mlg4_email.rs (10 тестов)
+- Email config через env vars: SMTP_HOST/PORT/USER/PASS/FROM, IMAP_HOST/PORT/USER/PASS
+
+### Changed
+- Cargo.toml version 0.13.0 → 0.14.0
+- BUILTIN_REGISTRY: +7 email functions (category "email")
+- Builtins::new(): +7 dispatcher entries for smtp_*/imap_*
+
 ## [0.13.0] - 2026-08-12
 
 ### Added

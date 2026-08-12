@@ -706,6 +706,21 @@ impl Builtins {
             builtin_pdf_extract_images as BuiltinFn,
         );
 
+        // Наряд MLG-4: Email (SMTP + IMAP)
+        funcs.insert("smtp_send".to_string(), builtin_smtp_send as BuiltinFn);
+        funcs.insert(
+            "smtp_send_html".to_string(),
+            builtin_smtp_send_html as BuiltinFn,
+        );
+        funcs.insert("imap_list".to_string(), builtin_imap_list as BuiltinFn);
+        funcs.insert("imap_read".to_string(), builtin_imap_read as BuiltinFn);
+        funcs.insert("imap_search".to_string(), builtin_imap_search as BuiltinFn);
+        funcs.insert(
+            "imap_mark_read".to_string(),
+            builtin_imap_mark_read as BuiltinFn,
+        );
+        funcs.insert("imap_move".to_string(), builtin_imap_move as BuiltinFn);
+
         // ── Наряд №50 Block 3: SHA-256 / HMAC / hex builtins ──
         funcs.insert("sha256".to_string(), builtin_sha256 as BuiltinFn);
         funcs.insert("hmac_sha256".to_string(), builtin_hmac_sha256 as BuiltinFn);
@@ -763,6 +778,8 @@ pub(crate) mod server;
 use server::*;
 pub(crate) mod office;
 use office::*;
+pub(crate) mod email;
+use email::*;
 
 #[cfg(test)]
 mod tests;

@@ -1,6 +1,6 @@
-// ── PDF builtins (Наряд №48 + Наряд MLG-1) ────────────────────────────
+// ── PDF builtins (Наряд №48 + Наряд MLG-1 + Наряд MLG-2) ──────────────
 // Native PDF classification, markdown extraction, generation, and manipulation.
-// Pure Rust, zero IPC, <200ms on text-based PDFs.
+// Pure Rust, zero IPC, zero Python dependency, <200ms on text-based PDFs.
 //
 // Наряд MLG-1 additions:
 //   pdf_create()         — create a new PDF document handle
@@ -13,8 +13,13 @@
 //   pdf_set_metadata(path,key,value) — set a metadata field
 //   html_to_pdf(html,path) — convert HTML to PDF via wkhtmltopdf
 //   send_document(chat_id,file_path,caption) — send file via Telegram
+//
+// Наряд MLG-2: all PDF manipulation rewritten in pure Rust via lopdf.
+//   No Python (PyPDF2/weasyprint) dependency remains.
 
 use crate::interpreter::Value;
+use lopdf::Document as LopdfDocument;
+use lopdf::Object;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -764,8 +769,11 @@ fn render_pdf(doc: &PdfDocument) -> Result<Vec<u8>, String> {
 
 /// `pdf_merge(paths_json, output) → { path, pages, size }`
 ///
-/// Merge multiple PDF files into one.
-/// Uses lopdf (already in dependency tree via pdf-inspector) for page manipulation.
+/// Merge multiple PDF files into one using pure Rust (lopdf).
+/// Наряд MLG-2: rewritten from Python PyPDF2 to native Rust.
+///
+/// Strategy: Read all source documents, build a new combined document
+/// by collecting page references from each and assembling a new /Pages object.
 ///
 /// # Arguments
 /// - `paths_json` (String): JSON array of file paths, e.g. '["a.pdf","b.pdf"]'
@@ -784,38 +792,42 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
         return Err("pdf_merge: no input files".to_string());
     }
 
-    // For each input PDF, read and collect page content
-    // We use pdf-inspector's lopdf internally, but since we can't directly
-    // access lopdf from here, we use a simpler approach: concatenation
-    // via low-level PDF writing that copies page objects.
+    // For a single file, just copy it
+    if paths.len() == 1 {
+        let bytes = std::fs::read(&paths[0])
+            .map_err(|e| format!("pdf_merge: failed to read '{}': {}", paths[0], e))?;
+        std::fs::write(&output, &bytes)
+            .map_err(|e| format!("pdf_merge: failed to write '{}': {}", output, e))?;
+        let class = pdf_inspector::classify_pdf_mem(&bytes)
+            .map_err(|e| format!("pdf_merge: classify failed: {}", e))?;
+        return Ok(make_struct(
+            "PdfMerge",
+            &["path", "pages", "size"],
+            &[
+                Value::String(output),
+                Value::Float(class.page_count as f64),
+                Value::Float(bytes.len() as f64),
+            ],
+        ));
+    }
+
+    // Merge strategy: load first document as base, then for each
+    // additional document, merge their objects and pages into the base.
+    // We use lopdf to read page counts and then perform a low-level
+    // byte-stream merge (concatenating page objects with corrected offsets).
     //
-    // Strategy: Use pdf_inspector for classification, then shell out to
-    // a simple merge via raw byte manipulation (PDF page extraction).
-    // For production: delegate to Python PyPDF2 or use lopdf directly.
-    //
-    // For now: implement via sequential file reading and page copying
-    // using a basic PDF merge algorithm.
+    // Since lopdf doesn't have a built-in merge/append, we implement
+    // merge via sequential page-copy using the following approach:
+    // 1. Load each PDF with lopdf
+    // 2. For each, extract its page count
+    // 3. Write a merge script that uses lopdf's Document::save after
+    //    reconstructing a combined document
 
     let mut total_pages: usize = 0;
+    let mut page_contents: Vec<Vec<u8>> = Vec::new();
 
-    // Read first file as base (used as fallback if Python merge fails)
-    let first_bytes_for_fallback = std::fs::read(&paths[0])
-        .map_err(|e| format!("pdf_merge: failed to read '{}': {}", paths[0], e))?;
-
-    // For each additional file, append its pages
-    // This uses a simple approach: read each PDF, extract its pages,
-    // and use pdf_inspector to count pages
-    for (i, path) in paths.iter().enumerate() {
-        if i == 0 {
-            // Count pages of first file
-            let bytes = std::fs::read(path)
-                .map_err(|e| format!("pdf_merge: failed to read '{}': {}", path, e))?;
-            let class = pdf_inspector::classify_pdf_mem(&bytes)
-                .map_err(|e| format!("pdf_merge: classify failed for '{}': {}", path, e))?;
-            total_pages += class.page_count as usize;
-            continue;
-        }
-
+    // Collect page content from all documents
+    for path in &paths {
         let bytes = std::fs::read(path)
             .map_err(|e| format!("pdf_merge: failed to read '{}': {}", path, e))?;
 
@@ -823,47 +835,114 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
             .map_err(|e| format!("pdf_merge: classify failed for '{}': {}", path, e))?;
         total_pages += class.page_count as usize;
 
-        // For a proper merge, we need lopdf. Since pdf-inspector doesn't expose it,
-        // we implement a shell-based merge using Python's PyPDF2 as a fallback.
-        // This is the pragmatic approach — pure Rust merge would require adding
-        // lopdf as a direct dependency.
+        // Store the raw bytes for each document
+        page_contents.push(bytes);
     }
 
-    // Use Python PyPDF2 for the actual merge (available in the deployment env)
-    let paths_py = paths_json.replace("\"", "\\\"");
-    let python_code = format!(
-        "import json,sys;\
-         from PyPDF2 import PdfMerger;\
-         merger = PdfMerger();\
-         [merger.append(p) for p in json.loads('{}')];\
-         merger.write('{}');\
-         merger.close();\
-         print('ok')",
-        paths_py, output
-    );
+    // Implement merge using lopdf's low-level API:
+    // Load all documents, combine their page trees
+    let mut base_doc = LopdfDocument::load(&paths[0])
+        .map_err(|e| format!("pdf_merge: failed to load '{}': {:?}", paths[0], e))?;
 
-    let merge_result = std::process::Command::new("python3")
-        .arg("-c")
-        .arg(&python_code)
-        .output()
-        .map_err(|e| format!("pdf_merge: python3 failed: {}", e))?;
+    // Get the base document's Pages object ID
+    let base_catalog = base_doc.catalog()
+        .map_err(|e| format!("pdf_merge: no catalog in base: {:?}", e))?;
+    let base_pages_ref = base_catalog.get(b"Pages")
+        .and_then(|obj| obj.as_reference())
+        .map_err(|_| "pdf_merge: no /Pages ref in base catalog".to_string())?;
 
-    if !merge_result.status.success() {
-        let _stderr = String::from_utf8_lossy(&merge_result.stderr);
-        // Fallback: just copy the first file
-        std::fs::write(&output, &first_bytes_for_fallback)
-            .map_err(|e| format!("pdf_merge: fallback write failed: {}", e))?;
-        return Ok(make_struct(
-            "PdfMerge",
-            &["path", "pages", "size", "fallback"],
-            &[
-                Value::String(output),
-                Value::Float(total_pages as f64),
-                Value::Float(first_bytes_for_fallback.len() as f64),
-                Value::Bool(true),
-            ],
-        ));
+    // Collect all page IDs from the base document
+    let base_pages = base_doc.get_pages();
+    let mut all_page_ids: Vec<lopdf::ObjectId> = base_pages.values().cloned().collect();
+
+    // For each additional document, import its pages
+    for (idx, path) in paths.iter().enumerate().skip(1) {
+        let doc = LopdfDocument::load(path)
+            .map_err(|e| format!("pdf_merge: failed to load '{}': {:?}", path, e))?;
+
+        let src_pages = doc.get_pages();
+
+        // For each page in the source document, copy its content
+        // into the base document's object store and add to the Pages Kids array
+        for (_, page_id) in &src_pages {
+            // Copy the page object and its content streams into the base document
+            if let Ok(page_obj) = doc.get_object(*page_id) {
+                let cloned_obj = page_obj.clone();
+                let new_id = base_doc.add_object(cloned_obj);
+
+                // If the page has a /Contents reference, copy those too
+                if let Ok(Object::Dictionary(dict)) = doc.get_object(*page_id) {
+                    if let Ok(contents_ref) = dict.get(b"Contents") {
+                        match contents_ref {
+                            Object::Reference(content_id) => {
+                                if let Ok(content_obj) = doc.get_object(*content_id) {
+                                    let new_content_id = base_doc.add_object(content_obj.clone());
+                                    // Update the page's /Contents to point to the new object
+                                    if let Ok(page_dict) = base_doc.get_dictionary_mut(new_id) {
+                                        page_dict.set(b"Contents", Object::Reference(new_content_id));
+                                    }
+                                }
+                            }
+                            Object::Array(content_ids) => {
+                                let mut new_content_refs = Vec::new();
+                                for content_item in content_ids.iter() {
+                                    if let Object::Reference(cid) = content_item {
+                                        if let Ok(cobj) = doc.get_object(*cid) {
+                                            let nc_id = base_doc.add_object(cobj.clone());
+                                            new_content_refs.push(Object::Reference(nc_id));
+                                        }
+                                    }
+                                }
+                                if let Ok(page_dict) = base_doc.get_dictionary_mut(new_id) {
+                                    page_dict.set(b"Contents", Object::Array(new_content_refs));
+                                }
+                            }
+                            _ => {}
+                        }
+
+                        // Copy /Resources if referenced
+                        if let Ok(res_ref) = dict.get(b"Resources") {
+                            match res_ref {
+                                Object::Reference(res_id) => {
+                                    if let Ok(res_obj) = doc.get_object(*res_id) {
+                                        let new_res_id = base_doc.add_object(res_obj.clone());
+                                        if let Ok(page_dict) = base_doc.get_dictionary_mut(new_id) {
+                                            page_dict.set(b"Resources", Object::Reference(new_res_id));
+                                        }
+                                    }
+                                }
+                                _ => {} // inline resources — skip for now
+                            }
+                        }
+                    }
+                }
+
+                // Set the page's /Parent to the base document's Pages
+                if let Ok(page_dict) = base_doc.get_dictionary_mut(new_id) {
+                    page_dict.set(b"Parent", Object::Reference(base_pages_ref));
+                }
+
+                all_page_ids.push(new_id);
+            }
+        }
+
+        // Log progress
+        eprintln!("[MLG-2] pdf_merge: imported {} pages from {} (doc {}/{})",
+            src_pages.len(), path, idx + 1, paths.len());
     }
+
+    // Update the /Pages /Kids array and /Count
+    if let Ok(pages_dict) = base_doc.get_dictionary_mut(base_pages_ref) {
+        let kids: Vec<Object> = all_page_ids.iter()
+            .map(|id| Object::Reference(*id))
+            .collect();
+        pages_dict.set(b"Kids", Object::Array(kids));
+        pages_dict.set(b"Count", Object::Integer(all_page_ids.len() as i64));
+    }
+
+    // Save the merged document
+    base_doc.save(&output)
+        .map_err(|e| format!("pdf_merge: failed to save '{}': {:?}", output, e))?;
 
     let output_bytes = std::fs::read(&output)
         .map_err(|e| format!("pdf_merge: failed to read output '{}': {}", output, e))?;
@@ -881,7 +960,11 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
 
 /// `pdf_split(path, ranges_json, output_dir) → { files, pages }`
 ///
-/// Split a PDF into multiple files by page ranges.
+/// Split a PDF into multiple files by page ranges using pure Rust (lopdf).
+/// Наряд MLG-2: rewritten from Python PyPDF2 to native Rust.
+///
+/// Strategy: For each range, clone the source document, delete all pages
+/// outside the range, and save the result.
 ///
 /// # Arguments
 /// - `path` (String): input PDF file path
@@ -908,32 +991,45 @@ pub fn builtin_pdf_split(args: &[Value]) -> Result<Value, String> {
         .and_then(|s| s.to_str())
         .unwrap_or("split");
 
-    // Use Python PyPDF2 for splitting
+    // Load the source PDF
+    let source_doc = LopdfDocument::load(&path)
+        .map_err(|e| format!("pdf_split: failed to load '{}': {:?}", path, e))?;
+
+    let total_page_count = source_doc.get_pages().len() as u32;
+
     let mut files = Vec::new();
     let mut total_pages = 0usize;
 
     for (i, (start, end)) in ranges.iter().enumerate() {
         let out_path = format!("{}/{}_part{}.pdf", output_dir, base_name, i + 1);
 
-        // Python uses 0-based indices, Metalogos uses 1-based
-        let python_code = format!(
-            "from PyPDF2 import PdfReader,PdfWriter;\
-             r=PdfReader('{}');w=PdfWriter();\
-             [w.add_page(r.pages[p]) for p in range({},{})];\
-             w.write('{}')",
-            path, start - 1, end, out_path
-        );
-
-        let result = std::process::Command::new("python3")
-            .arg("-c")
-            .arg(&python_code)
-            .output()
-            .map_err(|e| format!("pdf_split: python3 failed: {}", e))?;
-
-        if !result.status.success() {
-            let stderr = String::from_utf8_lossy(&result.stderr);
-            return Err(format!("pdf_split: part {} failed: {}", i + 1, stderr));
+        // Validate range
+        if *start == 0 || *end > total_page_count as usize || start > end {
+            return Err(format!(
+                "pdf_split: invalid range [{},{}] for {}-page document",
+                start, end, total_page_count
+            ));
         }
+
+        // Clone the source document
+        let mut part_doc = source_doc.clone();
+
+        // Collect page numbers to delete (1-based for lopdf delete_pages)
+        // We keep pages start..=end, delete everything else
+        let mut pages_to_delete: Vec<u32> = Vec::new();
+        for p in 1..=total_page_count {
+            let p_usize = p as usize;
+            if p_usize < *start || p_usize > *end {
+                pages_to_delete.push(p);
+            }
+        }
+
+        // Delete the unwanted pages
+        part_doc.delete_pages(&pages_to_delete);
+
+        // Save the part
+        part_doc.save(&out_path)
+            .map_err(|e| format!("pdf_split: save '{}' failed: {:?}", out_path, e))?;
 
         let pages_in_range = end - start + 1;
         total_pages += pages_in_range;
@@ -949,8 +1045,8 @@ pub fn builtin_pdf_split(args: &[Value]) -> Result<Value, String> {
 
 /// `pdf_metadata(path) → { title, author, subject, creator, producer, pages, created, modified }`
 ///
-/// Read metadata from a PDF file. Uses pdf_inspector for page count
-/// and lopdf (via Python fallback) for document info dictionary.
+/// Read metadata from a PDF file using pure Rust (lopdf).
+/// Наряд MLG-2: rewritten from Python PyPDF2 to native Rust.
 ///
 /// # Arguments
 /// - `path` (String): file path
@@ -963,63 +1059,72 @@ pub fn builtin_pdf_metadata(args: &[Value]) -> Result<Value, String> {
     let bytes = std::fs::read(&path)
         .map_err(|e| format!("pdf_metadata: failed to read '{}': {}", path, e))?;
 
-    // Get page count from pdf_inspector
+    // Get page count and type from pdf_inspector
     let class = pdf_inspector::classify_pdf_mem(&bytes)
         .map_err(|e| format!("pdf_metadata: classify failed: {}", e))?;
 
-    // Use Python for full metadata extraction (PyPDF2)
-    let python_code = format!(
-        "import json;\
-         from PyPDF2 import PdfReader;\
-         r=PdfReader('{}');\
-         m=r.metadata;\
-         print(json.dumps({{'title':m.title or '','author':m.author or '','subject':m.subject or '',\
-         'creator':m.creator or '','producer':m.producer or '',\
-         'pages':len(r.pages),'created':str(m.creation_date) if m.creation_date else '',\
-         'modified':str(m.modification_date) if m.modification_date else ''}}))",
-        path
-    );
+    // Read /Info dictionary from lopdf
+    let doc = LopdfDocument::load(&path)
+        .map_err(|e| format!("pdf_metadata: failed to load '{}': {:?}", path, e))?;
 
-    let result = std::process::Command::new("python3")
-        .arg("-c")
-        .arg(&python_code)
-        .output()
-        .map_err(|e| format!("pdf_metadata: python3 failed: {}", e))?;
+    let (title, author, subject, creator, producer, created, modified) = {
+        // Try trailer /Info reference first
+        let info_result = doc.trailer.get(b"Info")
+            .and_then(|obj| obj.as_reference())
+            .and_then(|id| doc.get_object(id).map(|o| o as &Object));
 
-    if result.status.success() {
-        let stdout = String::from_utf8_lossy(&result.stdout).trim().to_string();
-        if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&stdout) {
-            return Ok(make_struct(
-                "PdfMetadata",
-                &["title", "author", "subject", "creator", "producer", "pages", "created", "modified"],
-                &[
-                    Value::String(meta["title"].as_str().unwrap_or("").to_string()),
-                    Value::String(meta["author"].as_str().unwrap_or("").to_string()),
-                    Value::String(meta["subject"].as_str().unwrap_or("").to_string()),
-                    Value::String(meta["creator"].as_str().unwrap_or("").to_string()),
-                    Value::String(meta["producer"].as_str().unwrap_or("").to_string()),
-                    Value::Float(meta["pages"].as_f64().unwrap_or(class.page_count as f64)),
-                    Value::String(meta["created"].as_str().unwrap_or("").to_string()),
-                    Value::String(meta["modified"].as_str().unwrap_or("").to_string()),
-                ],
-            ));
+        let info_dict = match info_result {
+            Ok(obj) => {
+                if let Object::Dictionary(ref d) = obj { Some(d) } else { None }
+            }
+            Err(_) => None,
+        };
+
+        if let Some(info) = info_dict {
+            let get_str = |key: &[u8]| -> String {
+                match info.get(key) {
+                    Ok(Object::String(ref s, _)) => String::from_utf8_lossy(s).to_string(),
+                    Ok(Object::Name(ref n)) => String::from_utf8_lossy(n).to_string(),
+                    _ => String::new(),
+                }
+            };
+
+            (
+                get_str(b"Title"),
+                get_str(b"Author"),
+                get_str(b"Subject"),
+                get_str(b"Creator"),
+                get_str(b"Producer"),
+                get_str(b"CreationDate"),
+                get_str(b"ModDate"),
+            )
+        } else {
+            // No /Info dictionary — return empty strings
+            (String::new(), String::new(), String::new(),
+             String::new(), String::new(), String::new(), String::new())
         }
-    }
+    };
 
-    // Fallback: return basic info from pdf_inspector
     Ok(make_struct(
         "PdfMetadata",
-        &["pages", "pdf_type"],
+        &["title", "author", "subject", "creator", "producer", "pages", "created", "modified"],
         &[
+            Value::String(title),
+            Value::String(author),
+            Value::String(subject),
+            Value::String(creator),
+            Value::String(producer),
             Value::Float(class.page_count as f64),
-            Value::String(pdf_type_to_string(&class.pdf_type)),
+            Value::String(created),
+            Value::String(modified),
         ],
     ))
 }
 
 /// `pdf_set_metadata(path, key, value) → { ok }`
 ///
-/// Set a metadata field in a PDF file.
+/// Set a metadata field in a PDF file using pure Rust (lopdf).
+/// Наряд MLG-2: rewritten from Python PyPDF2 to native Rust.
 ///
 /// # Arguments
 /// - `path` (String): file path
@@ -1042,37 +1147,51 @@ pub fn builtin_pdf_set_metadata(args: &[Value]) -> Result<Value, String> {
         ));
     }
 
-    // Use Python PyPDF2 for metadata writing
-    let escaped_value = value.replace('\\', "\\\\").replace('"', "\\\"");
-    let python_code = format!(
-        "from PyPDF2 import PdfReader,PdfWriter;\
-         r=PdfReader('{}');w=PdfWriter();\
-         [w.add_page(p) for p in r.pages];\
-         m=w._info;\
-         m.update({{'/{}/': '{}'}});\
-         w.write('{}')",
-        path, key, escaped_value, path
-    );
+    // Load the PDF document
+    let mut doc = LopdfDocument::load(&path)
+        .map_err(|e| format!("pdf_set_metadata: failed to load '{}': {:?}", path, e))?;
 
-    let result = std::process::Command::new("python3")
-        .arg("-c")
-        .arg(&python_code)
-        .output()
-        .map_err(|e| format!("pdf_set_metadata: python3 failed: {}", e))?;
+    // Map lowercase key to PDF /Info dictionary key
+    let pdf_key: &[u8] = match key.as_str() {
+        "title" => b"Title",
+        "author" => b"Author",
+        "subject" => b"Subject",
+        "creator" => b"Creator",
+        "producer" => b"Producer",
+        _ => b"Title", // already validated above
+    };
 
-    let ok = result.status.success();
-    if !ok {
-        let stderr = String::from_utf8_lossy(&result.stderr);
-        return Err(format!("pdf_set_metadata: failed: {}", stderr));
+    // Get or create /Info dictionary
+    let info_id = match doc.trailer.get(b"Info").and_then(|obj| obj.as_reference()) {
+        Ok(id) => id,
+        Err(_) => {
+            // Create a new /Info dictionary object
+            let info_id = doc.add_object(Object::Dictionary(lopdf::Dictionary::new()));
+            doc.trailer.set(b"Info", Object::Reference(info_id));
+            info_id
+        }
+    };
+
+    // Update the metadata field
+    if let Ok(info_obj) = doc.get_object_mut(info_id) {
+        if let Object::Dictionary(ref mut dict) = info_obj {
+            dict.set(pdf_key.to_vec(), Object::String(value.clone().into_bytes(), lopdf::StringFormat::Literal));
+        }
     }
+
+    // Save back to the same file
+    doc.save(&path)
+        .map_err(|e| format!("pdf_set_metadata: save failed: {:?}", e))?;
 
     Ok(make_struct("PdfResult", &["ok"], &[Value::Bool(true)]))
 }
 
 /// `html_to_pdf(html, path) → { path, size }`
 ///
-/// Convert HTML content to PDF using wkhtmltopdf (must be installed).
-/// Falls back to Python weasyprint if wkhtmltopdf is not available.
+/// Convert HTML content to PDF using wkhtmltopdf (system tool, must be installed).
+/// Наряд MLG-2: removed Python weasyprint fallback — pure system tool only.
+/// wkhtmltopdf is a C/C++ binary (not Python), so this satisfies the
+/// "no Python dependency" requirement.
 ///
 /// # Arguments
 /// - `html` (String): HTML content string
@@ -1090,37 +1209,21 @@ pub fn builtin_html_to_pdf(args: &[Value]) -> Result<Value, String> {
     std::fs::write(&tmp_html, &html)
         .map_err(|e| format!("html_to_pdf: temp write failed: {}", e))?;
 
-    // Try wkhtmltopdf first
+    // Use wkhtmltopdf (C/C++ system tool, NOT Python)
     let result = std::process::Command::new("wkhtmltopdf")
         .arg("--quiet")
         .arg("--enable-local-file-access")
         .arg(&tmp_html)
         .arg(&path)
-        .output();
-
-    let success = match result {
-        Ok(output) => output.status.success(),
-        Err(_) => {
-            // Fallback: try Python weasyprint
-            let py_code = format!(
-                "from weasyprint import HTML;\
-                 HTML(filename='{}').write_pdf('{}')",
-                tmp_html, path
-            );
-            let py_result = std::process::Command::new("python3")
-                .arg("-c")
-                .arg(&py_code)
-                .output()
-                .map_err(|e| format!("html_to_pdf: weasyprint failed: {}", e))?;
-            py_result.status.success()
-        }
-    };
+        .output()
+        .map_err(|e| format!("html_to_pdf: wkhtmltopdf not found: {}", e))?;
 
     // Clean up temp file
     let _ = std::fs::remove_file(&tmp_html);
 
-    if !success {
-        return Err("html_to_pdf: conversion failed (install wkhtmltopdf or weasyprint)".to_string());
+    if !result.status.success() {
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        return Err(format!("html_to_pdf: wkhtmltopdf failed: {}", stderr));
     }
 
     let output_bytes = std::fs::read(&path)

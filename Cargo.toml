@@ -75,6 +75,9 @@ crc32fast = "1.4"
 # Наряд №48: PDF processing (native Rust, zero IPC)
 pdf-inspector = "0.1"
 
+# Наряд MLG-2: PDF manipulation (pure Rust, zero Python IPC)
+lopdf = "0.34"
+
 # Наряд №54: Regular expressions (linear-time, no backtracking)
 regex = "1"
 

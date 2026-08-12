@@ -311,6 +311,17 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("regex_match", 2, "string"),
     spec!("regex_captures", 2, "string"),
     spec!("regex_replace", 3, "string"),
+    // ── PDF office automation (Наряд MLG-3) ──
+    spec!("pdf_draw_table", 5, 6, "pdf"),               // id, x, y, col_widths_json, rows_json [,style_json]
+    spec!("pdf_add_image", 4, 6, "pdf"),                 // id, x, y, image_path [,width, height]
+    spec!("pdf_set_page_header", 2, 4, "pdf"),           // id, text [,font, size]
+    spec!("pdf_set_page_footer", 2, 4, "pdf"),           // id, text [,font, size]
+    spec!("pdf_page_numbers", 1, 4, "pdf"),              // id [,format, x, y]
+    spec!("pdf_watermark", 2, 5, "pdf"),                 // id, text [,font, size, opacity]
+    spec!("pdf_fill_form", 3, "pdf"),                    // path, fields_json, output_path
+    spec!("pdf_rotate_page", 4, "pdf"),                  // path, page_number, degrees, output_path
+    spec!("pdf_delete_pages", 3, "pdf"),                 // path, pages_json, output_path
+    spec!("pdf_extract_images", 1, 2, "pdf"),            // path [,output_dir]
 ];
 
 /// Total number of registered builtins.

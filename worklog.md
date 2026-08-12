@@ -93,3 +93,42 @@ Work Log:
 
 Stage Summary:
 - Not started. 192 warnings remain.
+
+---
+Task ID: MLG-3
+Agent: Metalogos PDF Agent
+Task: Наряд MLG-3: PDF-функции для офисной автоматизации
+
+Work Log:
+- Created branch feat/mlg3-pdf-office from HEAD 5ec0a3e
+- Added png = "0.17" dependency to Cargo.toml
+- Updated version from 0.12.0 to 0.13.0
+- Extended PdfDocument struct with header, footer, watermark, page_number_format, page_number_pos fields
+- Extended PdfElement enum with Table, Image, Watermark variants
+- Implemented builtin_pdf_draw_table (5..6 args) — table with borders, header bg, font styling
+- Implemented builtin_pdf_add_image (4..6 args) — image placement with dimension detection
+- Implemented builtin_pdf_set_page_header (2..4 args) — header on all pages
+- Implemented builtin_pdf_set_page_footer (2..4 args) — footer on all pages
+- Implemented builtin_pdf_page_numbers (1..4 args) — auto page numbering with N/M format
+- Implemented builtin_pdf_watermark (2..5 args) — diagonal watermark with transparency
+- Implemented builtin_pdf_fill_form (3 args) — AcroForm field filling via lopdf
+- Implemented builtin_pdf_rotate_page (4 args) — page rotation via /Rotate entry
+- Implemented builtin_pdf_delete_pages (3 args) — page deletion via lopdf
+- Implemented builtin_pdf_extract_images (1..2 args) — image extraction from XObjects
+- Improved html_to_pdf with Rust-first strategy (html_to_pdf_rust + wkhtmltopdf fallback)
+- Updated render_pdf to handle Table/Image/Watermark elements and doc-level header/footer/page_numbers/watermark
+- Added 10 spec! entries to registry.rs (APPENDED at end, no reordering)
+- Added 10 dispatch inserts to mod.rs Builtins::new()
+- Added 18 inline tests in pdf.rs for all new functions
+- Created tests/phase_mlg3_pdf_office.rs with 13 integration tests
+- Created examples/p_pdf_office.mlog
+- Updated CHANGELOG.md with 0.13.0 section
+- Written report.md
+
+Stage Summary:
+- 10 new PDF builtin functions implemented (spec! + handler + dispatch)
+- PdfDocument and PdfElement extended with office automation fields
+- html_to_pdf improved: Rust-first rendering + wkhtmltopdf fallback
+- 31 new tests (18 inline + 13 integration)
+- Version bumped to 0.13.0
+- Branch feat/mlg3-pdf-office ready for commit

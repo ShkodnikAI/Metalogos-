@@ -428,6 +428,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "chrono-tz"
+version = "0.10.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6139a8597ed92cf816dfb33f5dd6cf0bb93a6adc938f11039f371bc5bcd26c3"
+dependencies = [
+ "chrono",
+ "phf",
+]
+
+[[package]]
 name = "ciborium"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1296,6 +1306,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ical"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "356d82bd58997815d55ea6f9081bd4cac149e50ca943f7a4f7c050fec7271c1f"
+dependencies = [
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "icu_collections"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1777,7 +1796,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "metalogos"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -1786,6 +1805,7 @@ dependencies = [
  "bincode",
  "bytes",
  "chrono",
+ "chrono-tz",
  "clap",
  "crc32fast",
  "criterion",
@@ -1793,6 +1813,7 @@ dependencies = [
  "hex",
  "hmac",
  "hyper",
+ "ical",
  "imap",
  "imap-proto",
  "lettre",
@@ -1871,7 +1892,7 @@ dependencies = [
 
 [[package]]
 name = "mlog-lsp"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "dashmap 6.2.1",
  "metalogos",
@@ -1883,7 +1904,7 @@ dependencies = [
 
 [[package]]
 name = "mlogpkg"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "clap",
  "metalogos",
@@ -2170,6 +2191,24 @@ checksum = "3672b37090dbd86368a4145bc067582552b29c27377cad4e0a306c97f9bd7772"
 dependencies = [
  "fixedbitset",
  "indexmap",
+]
+
+[[package]]
+name = "phf"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "913273894cec178f401a31ec4b656318d95473527be05c0752cc41cdc32be8b7"
+dependencies = [
+ "phf_shared",
+]
+
+[[package]]
+name = "phf_shared"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06005508882fb681fd97892ecff4b7fd0fee13ef1aa569f8695dae7ab9099981"
+dependencies = [
+ "siphasher",
 ]
 
 [[package]]
@@ -2897,6 +2936,12 @@ name = "simd-adler32"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
+
+[[package]]
+name = "siphasher"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649"
 
 [[package]]
 name = "slab"

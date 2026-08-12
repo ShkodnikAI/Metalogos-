@@ -33,7 +33,7 @@ use std::sync::Mutex;
 /// A page in a PDF document being constructed.
 #[derive(Debug, Clone)]
 struct PdfPage {
-    width: f64,   // in points (72 pts = 1 inch)
+    width: f64, // in points (72 pts = 1 inch)
     height: f64,
     elements: Vec<PdfElement>,
 }
@@ -46,23 +46,30 @@ enum PdfElement {
         x: f64,
         y: f64,
         text: String,
-        font: String,   // "Helvetica", "Courier", "Times-Roman"
+        font: String, // "Helvetica", "Courier", "Times-Roman"
         size: f64,
     },
     Line {
-        x1: f64, y1: f64, x2: f64, y2: f64,
+        x1: f64,
+        y1: f64,
+        x2: f64,
+        y2: f64,
         width: f64,
     },
     Rect {
-        x: f64, y: f64, w: f64, h: f64,
-        stroke: bool, fill: bool,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        stroke: bool,
+        fill: bool,
     },
     /// Table element (Наряд MLG-3): drawn as a grid of text + rect cells.
     Table {
         x: f64,
         y: f64,
         col_widths: Vec<f64>,
-        rows: Vec<Vec<String>>,  // rows[0] = header row
+        rows: Vec<Vec<String>>, // rows[0] = header row
         font: String,
         font_size: f64,
         border: bool,
@@ -81,38 +88,24 @@ enum PdfElement {
         text: String,
         font: String,
         size: f64,
-        opacity: f64,  // 0.0..1.0
+        opacity: f64, // 0.0..1.0
     },
 }
 
 /// A PDF document being constructed.
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
+#[derive(Default)]
 struct PdfDocument {
     title: String,
     author: String,
     pages: Vec<PdfPage>,
     // Наряд MLG-3: office automation fields
-    header: Option<PdfElement>,         // Header text rendered on every page at save
-    footer: Option<PdfElement>,         // Footer text rendered on every page at save
-    watermark: Option<PdfElement>,      // Diagonal watermark on every page at save
+    header: Option<PdfElement>, // Header text rendered on every page at save
+    footer: Option<PdfElement>, // Footer text rendered on every page at save
+    watermark: Option<PdfElement>, // Diagonal watermark on every page at save
     page_number_format: Option<String>, // e.g. "N/M", "page N", "N of M"
-    page_number_pos: Option<(f64, f64)>,// (x, y) coordinates for page numbers
-}
-
-impl Default for PdfDocument {
-    fn default() -> Self {
-        PdfDocument {
-            title: String::new(),
-            author: String::new(),
-            pages: Vec::new(),
-            header: None,
-            footer: None,
-            watermark: None,
-            page_number_format: None,
-            page_number_pos: None,
-        }
-    }
+    page_number_pos: Option<(f64, f64)>, // (x, y) coordinates for page numbers
 }
 
 /// Global store for in-progress PDF documents.
@@ -154,7 +147,12 @@ fn expect_float_arg(name: &str, args: &[Value], idx: usize) -> Result<f64, Strin
     match args.get(idx) {
         Some(Value::Float(f)) => Ok(*f),
         Some(Value::String(s)) => s.parse::<f64>().map_err(|_| {
-            format!("{}() expected numeric argument {}, got string '{}'", name, idx + 1, s)
+            format!(
+                "{}() expected numeric argument {}, got string '{}'",
+                name,
+                idx + 1,
+                s
+            )
         }),
         other => Err(format!(
             "{}() expected Float as argument {}, got {}",
@@ -418,7 +416,9 @@ pub fn builtin_pdf_create(args: &[Value]) -> Result<Value, String> {
 
     let doc = PdfDocument::default();
     {
-        let mut store = PDF_DOCS.lock().map_err(|e| format!("pdf_create: lock error: {}", e))?;
+        let mut store = PDF_DOCS
+            .lock()
+            .map_err(|e| format!("pdf_create: lock error: {}", e))?;
         store.insert(id.clone(), doc);
     }
 
@@ -447,7 +447,9 @@ pub fn builtin_pdf_add_page(args: &[Value]) -> Result<Value, String> {
     }
 
     let page_num = {
-        let mut store = PDF_DOCS.lock().map_err(|e| format!("pdf_add_page: lock error: {}", e))?;
+        let mut store = PDF_DOCS
+            .lock()
+            .map_err(|e| format!("pdf_add_page: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
             .ok_or_else(|| format!("pdf_add_page: document '{}' not found", id))?;
@@ -459,7 +461,11 @@ pub fn builtin_pdf_add_page(args: &[Value]) -> Result<Value, String> {
         doc.pages.len() // 1-based
     };
 
-    Ok(make_struct("PdfPage", &["page"], &[Value::Float(page_num as f64)]))
+    Ok(make_struct(
+        "PdfPage",
+        &["page"],
+        &[Value::Float(page_num as f64)],
+    ))
 }
 
 /// `pdf_write_text(id, x, y, text, font, size) → { ok }`
@@ -495,16 +501,16 @@ pub fn builtin_pdf_write_text(args: &[Value]) -> Result<Value, String> {
     };
 
     {
-        let mut store = PDF_DOCS.lock().map_err(|e| format!("pdf_write_text: lock error: {}", e))?;
+        let mut store = PDF_DOCS
+            .lock()
+            .map_err(|e| format!("pdf_write_text: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
             .ok_or_else(|| format!("pdf_write_text: document '{}' not found", id))?;
 
-        if doc.pages.is_empty() {
-            return Err("pdf_write_text: no pages in document (call pdf_add_page first)".to_string());
-        }
-
-        let page = doc.pages.last_mut().unwrap();
+        let page = doc.pages.last_mut().ok_or_else(|| {
+            "pdf_write_text: no pages in document (call pdf_add_page first)".to_string()
+        })?;
         page.elements.push(PdfElement::Text {
             x,
             y,
@@ -538,17 +544,24 @@ pub fn builtin_pdf_draw_line(args: &[Value]) -> Result<Value, String> {
     };
 
     {
-        let mut store = PDF_DOCS.lock().map_err(|e| format!("pdf_draw_line: lock error: {}", e))?;
+        let mut store = PDF_DOCS
+            .lock()
+            .map_err(|e| format!("pdf_draw_line: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
             .ok_or_else(|| format!("pdf_draw_line: document '{}' not found", id))?;
 
-        if doc.pages.is_empty() {
-            return Err("pdf_draw_line: no pages in document".to_string());
-        }
-
-        let page = doc.pages.last_mut().unwrap();
-        page.elements.push(PdfElement::Line { x1, y1, x2, y2, width });
+        let page = doc
+            .pages
+            .last_mut()
+            .ok_or_else(|| "pdf_draw_line: no pages in document".to_string())?;
+        page.elements.push(PdfElement::Line {
+            x1,
+            y1,
+            x2,
+            y2,
+            width,
+        });
     }
 
     Ok(make_struct("PdfResult", &["ok"], &[Value::Bool(true)]))
@@ -581,17 +594,25 @@ pub fn builtin_pdf_draw_rect(args: &[Value]) -> Result<Value, String> {
     };
 
     {
-        let mut store = PDF_DOCS.lock().map_err(|e| format!("pdf_draw_rect: lock error: {}", e))?;
+        let mut store = PDF_DOCS
+            .lock()
+            .map_err(|e| format!("pdf_draw_rect: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
             .ok_or_else(|| format!("pdf_draw_rect: document '{}' not found", id))?;
 
-        if doc.pages.is_empty() {
-            return Err("pdf_draw_rect: no pages in document".to_string());
-        }
-
-        let page = doc.pages.last_mut().unwrap();
-        page.elements.push(PdfElement::Rect { x, y, w, h, stroke, fill });
+        let page = doc
+            .pages
+            .last_mut()
+            .ok_or_else(|| "pdf_draw_rect: no pages in document".to_string())?;
+        page.elements.push(PdfElement::Rect {
+            x,
+            y,
+            w,
+            h,
+            stroke,
+            fill,
+        });
     }
 
     Ok(make_struct("PdfResult", &["ok"], &[Value::Bool(true)]))
@@ -613,7 +634,9 @@ pub fn builtin_pdf_save(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("pdf_save", args, 1)?;
 
     let doc = {
-        let mut store = PDF_DOCS.lock().map_err(|e| format!("pdf_save: lock error: {}", e))?;
+        let mut store = PDF_DOCS
+            .lock()
+            .map_err(|e| format!("pdf_save: lock error: {}", e))?;
         store
             .remove(&id)
             .ok_or_else(|| format!("pdf_save: document '{}' not found", id))?
@@ -649,12 +672,18 @@ fn render_pdf(doc: &PdfDocument) -> Result<Vec<u8>, String> {
 
     // Object 1: Catalog
     offsets.push(buf.len());
-    buf.extend_from_slice(format!("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n").as_bytes());
+    buf.extend_from_slice(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+            .to_string()
+            .as_bytes(),
+    );
 
     // Object 2: Pages (placeholder — we'll fill the Kids array)
     offsets.push(buf.len());
     let num_pages = doc.pages.len();
-    let kids: Vec<String> = (0..num_pages).map(|i| format!("{} 0 R", 3 + i as usize * 3)).collect();
+    let kids: Vec<String> = (0..num_pages)
+        .map(|i| format!("{} 0 R", 3 + i * 3))
+        .collect();
     buf.extend_from_slice(
         format!(
             "2 0 obj\n<< /Type /Pages /Kids [{}] /Count {} >>\nendobj\n",
@@ -666,21 +695,25 @@ fn render_pdf(doc: &PdfDocument) -> Result<Vec<u8>, String> {
 
     // Collect all font names used across all pages + document-level elements
     let mut all_fonts: Vec<String> = Vec::new();
-    let collect_fonts = |elem: &PdfElement, fonts: &mut Vec<String>| {
-        match elem {
-            PdfElement::Text { font, .. } => {
-                if !fonts.contains(font) { fonts.push(font.clone()); }
+    let collect_fonts = |elem: &PdfElement, fonts: &mut Vec<String>| match elem {
+        PdfElement::Text { font, .. } => {
+            if !fonts.contains(font) {
+                fonts.push(font.clone());
             }
-            PdfElement::Table { font, .. } => {
-                if !fonts.contains(font) { fonts.push(font.clone()); }
-                let bold_name = format!("{}-Bold", font);
-                if !fonts.contains(&bold_name) { fonts.push(bold_name); }
-            }
-            PdfElement::Watermark { font, .. } => {
-                if !fonts.contains(font) { fonts.push(font.clone()); }
-            }
-            _ => {}
         }
+        PdfElement::Table { font, .. } => {
+            if !fonts.contains(font) {
+                fonts.push(font.clone());
+            }
+            let bold_name = format!("{}-Bold", font);
+            if !fonts.contains(&bold_name) {
+                fonts.push(bold_name);
+            }
+        }
+        PdfElement::Watermark { font, .. } if !fonts.contains(font) => {
+            fonts.push(font.clone());
+        }
+        _ => {}
     };
     for page in &doc.pages {
         for elem in &page.elements {
@@ -688,9 +721,15 @@ fn render_pdf(doc: &PdfDocument) -> Result<Vec<u8>, String> {
         }
     }
     // Also collect fonts from header/footer/watermark
-    if let Some(ref h) = doc.header { collect_fonts(h, &mut all_fonts); }
-    if let Some(ref f) = doc.footer { collect_fonts(f, &mut all_fonts); }
-    if let Some(ref w) = doc.watermark { collect_fonts(w, &mut all_fonts); }
+    if let Some(ref h) = doc.header {
+        collect_fonts(h, &mut all_fonts);
+    }
+    if let Some(ref f) = doc.footer {
+        collect_fonts(f, &mut all_fonts);
+    }
+    if let Some(ref w) = doc.watermark {
+        collect_fonts(w, &mut all_fonts);
+    }
     if all_fonts.is_empty() {
         all_fonts.push("Helvetica".to_string());
     }
@@ -731,52 +770,68 @@ fn render_pdf(doc: &PdfDocument) -> Result<Vec<u8>, String> {
         let mut content = String::new();
 
         // Наряд MLG-3: render document-level header on every page
-        if let Some(ref header_elem) = doc.header {
-            match header_elem {
-                PdfElement::Text { x, y, text, font, size } => {
-                    let font_idx = all_fonts.iter().position(|f| f == font).unwrap_or(0) + 1;
-                    content.push_str(&format!(
-                        "BT\n/F{} {} Tf\n{} {} Td\n({}) Tj\nET\n",
-                        font_idx, size, x, y, pdf_escape(text)
-                    ));
-                }
-                _ => {} // header is expected to be Text
-            }
+        if let Some(PdfElement::Text {
+            x,
+            y,
+            text,
+            font,
+            size,
+        }) = &doc.header
+        {
+            let font_idx = all_fonts.iter().position(|f| f == font).unwrap_or(0) + 1;
+            content.push_str(&format!(
+                "BT\n/F{} {} Tf\n{} {} Td\n({}) Tj\nET\n",
+                font_idx,
+                size,
+                x,
+                y,
+                pdf_escape(text)
+            ));
         }
 
         // Наряд MLG-3: render document-level footer on every page
-        if let Some(ref footer_elem) = doc.footer {
-            match footer_elem {
-                PdfElement::Text { x, y, text, font, size } => {
-                    let font_idx = all_fonts.iter().position(|f| f == font).unwrap_or(0) + 1;
-                    content.push_str(&format!(
-                        "BT\n/F{} {} Tf\n{} {} Td\n({}) Tj\nET\n",
-                        font_idx, size, x, y, pdf_escape(text)
-                    ));
-                }
-                _ => {}
-            }
+        if let Some(PdfElement::Text {
+            x,
+            y,
+            text,
+            font,
+            size,
+        }) = &doc.footer
+        {
+            let font_idx = all_fonts.iter().position(|f| f == font).unwrap_or(0) + 1;
+            content.push_str(&format!(
+                "BT\n/F{} {} Tf\n{} {} Td\n({}) Tj\nET\n",
+                font_idx,
+                size,
+                x,
+                y,
+                pdf_escape(text)
+            ));
         }
 
         // Наряд MLG-3: render document-level watermark on every page
-        if let Some(ref wm_elem) = doc.watermark {
-            match wm_elem {
-                PdfElement::Watermark { text, font, size, .. } => {
-                    let font_idx = all_fonts.iter().position(|f| f == font).unwrap_or(0) + 1;
-                    let angle_rad = -45.0_f64.to_radians();
-                    let cos_a = angle_rad.cos();
-                    let sin_a = angle_rad.sin();
-                    let cx = page.width / 2.0;
-                    let cy = page.height / 2.0;
-                    content.push_str(&format!(
-                        "q\n/GS1 gs\nBT\n/F{} {:.2} Tf\n{} {} {} {} {} {} Tm\n({}) Tj\nET\nQ\n",
-                        font_idx, size,
-                        cos_a * size, sin_a * size, -sin_a * size, cos_a * size,
-                        cx, cy, pdf_escape(text)
-                    ));
-                }
-                _ => {}
-            }
+        if let Some(PdfElement::Watermark {
+            text, font, size, ..
+        }) = &doc.watermark
+        {
+            let font_idx = all_fonts.iter().position(|f| f == font).unwrap_or(0) + 1;
+            let angle_rad = -45.0_f64.to_radians();
+            let cos_a = angle_rad.cos();
+            let sin_a = angle_rad.sin();
+            let cx = page.width / 2.0;
+            let cy = page.height / 2.0;
+            content.push_str(&format!(
+                "q\n/GS1 gs\nBT\n/F{} {:.2} Tf\n{} {} {} {} {} {} Tm\n({}) Tj\nET\nQ\n",
+                font_idx,
+                size,
+                cos_a * size,
+                sin_a * size,
+                -sin_a * size,
+                cos_a * size,
+                cx,
+                cy,
+                pdf_escape(text)
+            ));
         }
 
         // Наряд MLG-3: render page numbers
@@ -793,27 +848,53 @@ fn render_pdf(doc: &PdfDocument) -> Result<Vec<u8>, String> {
             let font_idx = all_fonts.iter().position(|f| f == "Helvetica").unwrap_or(0) + 1;
             content.push_str(&format!(
                 "BT\n/F{} 10 Tf\n{} {} Td\n({}) Tj\nET\n",
-                font_idx, pn_x, pn_y, pdf_escape(&page_str)
+                font_idx,
+                pn_x,
+                pn_y,
+                pdf_escape(&page_str)
             ));
         }
 
         for elem in &page.elements {
             match elem {
-                PdfElement::Text { x, y, text, font, size } => {
+                PdfElement::Text {
+                    x,
+                    y,
+                    text,
+                    font,
+                    size,
+                } => {
                     // Find font index
                     let font_idx = all_fonts.iter().position(|f| f == font).unwrap_or(0) + 1;
                     content.push_str(&format!(
                         "BT\n/F{} {} Tf\n{} {} Td\n({}) Tj\nET\n",
-                        font_idx, size, x, y, pdf_escape(text)
+                        font_idx,
+                        size,
+                        x,
+                        y,
+                        pdf_escape(text)
                     ));
                 }
-                PdfElement::Line { x1, y1, x2, y2, width } => {
+                PdfElement::Line {
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    width,
+                } => {
                     content.push_str(&format!(
                         "{} w\n{} {} m\n{} {} l\nS\n",
                         width, x1, y1, x2, y2
                     ));
                 }
-                PdfElement::Rect { x, y, w, h, stroke, fill } => {
+                PdfElement::Rect {
+                    x,
+                    y,
+                    w,
+                    h,
+                    stroke,
+                    fill,
+                } => {
                     content.push_str(&format!("{} {} {} {} re\n", x, y, w, h));
                     match (stroke, fill) {
                         (true, true) => content.push_str("B\n"),
@@ -823,7 +904,16 @@ fn render_pdf(doc: &PdfDocument) -> Result<Vec<u8>, String> {
                     }
                 }
                 // Table: draw as a grid of rect cells + text
-                PdfElement::Table { x, y, col_widths, rows, font, font_size, border, header_bg } => {
+                PdfElement::Table {
+                    x,
+                    y,
+                    col_widths,
+                    rows,
+                    font,
+                    font_size,
+                    border,
+                    header_bg,
+                } => {
                     let font_idx = all_fonts.iter().position(|f| f == font).unwrap_or(0) + 1;
                     let row_height = font_size * 1.5; // line height
                     let num_rows = rows.len();
@@ -835,27 +925,41 @@ fn render_pdf(doc: &PdfDocument) -> Result<Vec<u8>, String> {
                         let mut cell_x = *x;
 
                         for (col_i, cell_text) in row.iter().enumerate() {
-                            let col_w = if col_i < col_widths.len() { col_widths[col_i] } else { 100.0 };
+                            let col_w = if col_i < col_widths.len() {
+                                col_widths[col_i]
+                            } else {
+                                100.0
+                            };
 
                             // Header row background
                             if row_i == 0 {
                                 if let Some((r, g, b)) = header_bg {
                                     content.push_str(&format!("{:.3} {:.3} {:.3} rg\n", r, g, b));
-                                    content.push_str(&format!("{:.2} {:.2} {:.2} {:.2} re\nf\n", cell_x, cell_y, col_w, row_height));
+                                    content.push_str(&format!(
+                                        "{:.2} {:.2} {:.2} {:.2} re\nf\n",
+                                        cell_x, cell_y, col_w, row_height
+                                    ));
                                     content.push_str("0 0 0 rg\n"); // reset to black
                                 }
                             }
 
                             // Cell border
                             if *border {
-                                content.push_str(&format!("{:.2} {:.2} {:.2} {:.2} re\nS\n", cell_x, cell_y, col_w, row_height));
+                                content.push_str(&format!(
+                                    "{:.2} {:.2} {:.2} {:.2} re\nS\n",
+                                    cell_x, cell_y, col_w, row_height
+                                ));
                             }
 
                             // Cell text — use bold font for header row
                             let effective_font_idx = if row_i == 0 {
                                 // Try to find bold variant
                                 let bold_name = format!("{}-Bold", font);
-                                all_fonts.iter().position(|f| f == &bold_name).map(|i| i + 1).unwrap_or(font_idx)
+                                all_fonts
+                                    .iter()
+                                    .position(|f| f == &bold_name)
+                                    .map(|i| i + 1)
+                                    .unwrap_or(font_idx)
                             } else {
                                 font_idx
                             };
@@ -864,7 +968,11 @@ fn render_pdf(doc: &PdfDocument) -> Result<Vec<u8>, String> {
                             let text_y = cell_y + row_height - font_size - 2.0;
                             content.push_str(&format!(
                                 "BT\n/F{} {:.2} Tf\n{:.2} {:.2} Td\n({}) Tj\nET\n",
-                                effective_font_idx, font_size, text_x, text_y, pdf_escape(cell_text)
+                                effective_font_idx,
+                                font_size,
+                                text_x,
+                                text_y,
+                                pdf_escape(cell_text)
                             ));
 
                             cell_x += col_w;
@@ -874,11 +982,23 @@ fn render_pdf(doc: &PdfDocument) -> Result<Vec<u8>, String> {
                     // Draw outer table border
                     if *border {
                         let table_height = num_rows as f64 * row_height;
-                        content.push_str(&format!("{:.2} {:.2} {:.2} {:.2} re\nS\n", x, y - table_height, table_width, table_height));
+                        content.push_str(&format!(
+                            "{:.2} {:.2} {:.2} {:.2} re\nS\n",
+                            x,
+                            y - table_height,
+                            table_width,
+                            table_height
+                        ));
                     }
                 }
                 // Image: embed as XObject reference
-                PdfElement::Image { x, y, width, height, image_path } => {
+                PdfElement::Image {
+                    x,
+                    y,
+                    width,
+                    height,
+                    image_path,
+                } => {
                     // Read image file and embed as JPEG (pass-through) or PNG→decomposed
                     // For lopdf low-level rendering, we add the image as a Form XObject
                     // with /Subtype /Image and reference it via Do operator.
@@ -894,11 +1014,18 @@ fn render_pdf(doc: &PdfDocument) -> Result<Vec<u8>, String> {
                     let label = format!("[image: {}]", image_path);
                     content.push_str(&format!(
                         "BT\n/F1 8 Tf\n{} {} Td\n({}) Tj\nET\n",
-                        x + 2.0, y + height / 2.0, pdf_escape(&label)
+                        x + 2.0,
+                        y + height / 2.0,
+                        pdf_escape(&label)
                     ));
                 }
                 // Watermark: diagonal text with transparency
-                PdfElement::Watermark { text, font, size, opacity } => {
+                PdfElement::Watermark {
+                    text,
+                    font,
+                    size,
+                    opacity,
+                } => {
                     let font_idx = all_fonts.iter().position(|f| f == font).unwrap_or(0) + 1;
                     // Use graphics state for transparency (ExtGState /ca)
                     // We emit the text with a rotation matrix (45° = -0.785 rad)
@@ -911,9 +1038,15 @@ fn render_pdf(doc: &PdfDocument) -> Result<Vec<u8>, String> {
                     // Set fill opacity via extended graphics state
                     content.push_str(&format!(
                         "q\n/GS1 gs\nBT\n/F{} {:.2} Tf\n{} {} {} {} {} {} Tm\n({}) Tj\nET\nQ\n",
-                        font_idx, size,
-                        cos_a * size, sin_a * size, -sin_a * size, cos_a * size,
-                        cx, cy, pdf_escape(text)
+                        font_idx,
+                        size,
+                        cos_a * size,
+                        sin_a * size,
+                        -sin_a * size,
+                        cos_a * size,
+                        cx,
+                        cy,
+                        pdf_escape(text)
                     ));
                     let _ = opacity; // opacity applied via /GS1 in resources
                 }
@@ -935,7 +1068,10 @@ fn render_pdf(doc: &PdfDocument) -> Result<Vec<u8>, String> {
         // Resources object (Наряд MLG-3: include ExtGState for watermark transparency)
         offsets.push(buf.len());
         let has_watermark = doc.watermark.is_some()
-            || page.elements.iter().any(|e| matches!(e, PdfElement::Watermark { .. }));
+            || page
+                .elements
+                .iter()
+                .any(|e| matches!(e, PdfElement::Watermark { .. }));
         let resources_content = if has_watermark {
             format!(
                 "{} 0 obj\n<< /Font << {} >> /ExtGState << /GS1 << /ca 0.3 >> >> >>\nendobj\n",
@@ -968,8 +1104,11 @@ fn render_pdf(doc: &PdfDocument) -> Result<Vec<u8>, String> {
         // Fix font object numbering
         let obj_num = font_obj_start + i;
         buf.extend_from_slice(
-            format!("{} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /{} >>\nendobj\n",
-                obj_num, all_fonts[i]).as_bytes(),
+            format!(
+                "{} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /{} >>\nendobj\n",
+                obj_num, all_fonts[i]
+            )
+            .as_bytes(),
         );
     }
 
@@ -1058,18 +1197,22 @@ pub fn builtin_pdf_draw_table(args: &[Value]) -> Result<Value, String> {
     let resolved_font = resolve_font(&font).to_string();
 
     {
-        let mut store = PDF_DOCS.lock().map_err(|e| format!("pdf_draw_table: lock error: {}", e))?;
+        let mut store = PDF_DOCS
+            .lock()
+            .map_err(|e| format!("pdf_draw_table: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
             .ok_or_else(|| format!("pdf_draw_table: document '{}' not found", id))?;
 
-        if doc.pages.is_empty() {
-            return Err("pdf_draw_table: no pages in document".to_string());
-        }
-
-        let page = doc.pages.last_mut().unwrap();
+        let page = doc
+            .pages
+            .last_mut()
+            .ok_or_else(|| "pdf_draw_table: no pages in document".to_string())?;
         page.elements.push(PdfElement::Table {
-            x, y, col_widths, rows,
+            x,
+            y,
+            col_widths,
+            rows,
             font: resolved_font,
             font_size,
             border,
@@ -1115,18 +1258,23 @@ pub fn builtin_pdf_add_image(args: &[Value]) -> Result<Value, String> {
     };
 
     {
-        let mut store = PDF_DOCS.lock().map_err(|e| format!("pdf_add_image: lock error: {}", e))?;
+        let mut store = PDF_DOCS
+            .lock()
+            .map_err(|e| format!("pdf_add_image: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
             .ok_or_else(|| format!("pdf_add_image: document '{}' not found", id))?;
 
-        if doc.pages.is_empty() {
-            return Err("pdf_add_image: no pages in document".to_string());
-        }
-
-        let page = doc.pages.last_mut().unwrap();
+        let page = doc
+            .pages
+            .last_mut()
+            .ok_or_else(|| "pdf_add_image: no pages in document".to_string())?;
         page.elements.push(PdfElement::Image {
-            x, y, width, height, image_path,
+            x,
+            y,
+            width,
+            height,
+            image_path,
         });
     }
 
@@ -1181,7 +1329,9 @@ pub fn builtin_pdf_set_page_header(args: &[Value]) -> Result<Value, String> {
     let resolved_font = resolve_font(&font).to_string();
 
     {
-        let mut store = PDF_DOCS.lock().map_err(|e| format!("pdf_set_page_header: lock error: {}", e))?;
+        let mut store = PDF_DOCS
+            .lock()
+            .map_err(|e| format!("pdf_set_page_header: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
             .ok_or_else(|| format!("pdf_set_page_header: document '{}' not found", id))?;
@@ -1193,7 +1343,11 @@ pub fn builtin_pdf_set_page_header(args: &[Value]) -> Result<Value, String> {
         let y = page_height - 30.0;
 
         doc.header = Some(PdfElement::Text {
-            x, y, text, font: resolved_font, size,
+            x,
+            y,
+            text,
+            font: resolved_font,
+            size,
         });
     }
 
@@ -1220,7 +1374,9 @@ pub fn builtin_pdf_set_page_footer(args: &[Value]) -> Result<Value, String> {
     let resolved_font = resolve_font(&font).to_string();
 
     {
-        let mut store = PDF_DOCS.lock().map_err(|e| format!("pdf_set_page_footer: lock error: {}", e))?;
+        let mut store = PDF_DOCS
+            .lock()
+            .map_err(|e| format!("pdf_set_page_footer: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
             .ok_or_else(|| format!("pdf_set_page_footer: document '{}' not found", id))?;
@@ -1230,7 +1386,11 @@ pub fn builtin_pdf_set_page_footer(args: &[Value]) -> Result<Value, String> {
         let y = 20.0; // bottom margin
 
         doc.footer = Some(PdfElement::Text {
-            x, y, text, font: resolved_font, size,
+            x,
+            y,
+            text,
+            font: resolved_font,
+            size,
         });
     }
 
@@ -1261,7 +1421,9 @@ pub fn builtin_pdf_page_numbers(args: &[Value]) -> Result<Value, String> {
     };
 
     {
-        let mut store = PDF_DOCS.lock().map_err(|e| format!("pdf_page_numbers: lock error: {}", e))?;
+        let mut store = PDF_DOCS
+            .lock()
+            .map_err(|e| format!("pdf_page_numbers: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
             .ok_or_else(|| format!("pdf_page_numbers: document '{}' not found", id))?;
@@ -1306,13 +1468,18 @@ pub fn builtin_pdf_watermark(args: &[Value]) -> Result<Value, String> {
     let resolved_font = resolve_font(&font).to_string();
 
     {
-        let mut store = PDF_DOCS.lock().map_err(|e| format!("pdf_watermark: lock error: {}", e))?;
+        let mut store = PDF_DOCS
+            .lock()
+            .map_err(|e| format!("pdf_watermark: lock error: {}", e))?;
         let doc = store
             .get_mut(&id)
             .ok_or_else(|| format!("pdf_watermark: document '{}' not found", id))?;
 
         doc.watermark = Some(PdfElement::Watermark {
-            text, font: resolved_font, size, opacity,
+            text,
+            font: resolved_font,
+            size,
+            opacity,
         });
     }
 
@@ -1339,19 +1506,24 @@ pub fn builtin_pdf_fill_form(args: &[Value]) -> Result<Value, String> {
         .map_err(|e| format!("pdf_fill_form: failed to load '{}': {:?}", path, e))?;
 
     // Find AcroForm in catalog
-    let catalog = doc.catalog()
+    let catalog = doc
+        .catalog()
         .map_err(|e| format!("pdf_fill_form: no catalog: {:?}", e))?;
 
-    let acroform_ref = catalog.get(b"AcroForm")
+    let acroform_ref = catalog
+        .get(b"AcroForm")
         .and_then(|obj| obj.as_reference())
         .map_err(|_| "pdf_fill_form: no AcroForm found in PDF".to_string())?;
 
-    let fields_array = doc.get_object(acroform_ref)
+    let fields_array = doc
+        .get_object(acroform_ref)
         .and_then(|obj| {
             if let Object::Dictionary(dict) = obj {
                 dict.get(b"Fields").and_then(|f| f.as_array().cloned())
             } else {
-                Err(lopdf::Error::DictType { expected: "Dictionary", found: "non-Dictionary AcroForm".to_string() })
+                Err(lopdf::Error::Invalid(
+                    "AcroForm is not a dictionary".to_string(),
+                ))
             }
         })
         .map_err(|e| format!("pdf_fill_form: cannot read AcroForm Fields: {:?}", e))?;
@@ -1367,15 +1539,17 @@ pub fn builtin_pdf_fill_form(args: &[Value]) -> Result<Value, String> {
                     let field_name = String::from_utf8_lossy(name_bytes).to_string();
                     if let Some(value) = fields.get(&field_name) {
                         // Set field value (V entry)
-                        if let Ok(field_dict_mut) = doc.get_object_mut(*field_id) {
-                            if let Object::Dictionary(ref mut dict) = field_dict_mut {
-                                dict.set(
-                                    b"V".to_vec(),
-                                    Object::String(value.clone().into_bytes(), lopdf::StringFormat::Literal),
-                                );
-                                // Update appearance (AP) — set /NeedAppearances to true
-                                // so the viewer regenerates appearances
-                            }
+                        if let Ok(Object::Dictionary(ref mut dict)) = doc.get_object_mut(*field_id)
+                        {
+                            dict.set(
+                                b"V".to_vec(),
+                                Object::String(
+                                    value.clone().into_bytes(),
+                                    lopdf::StringFormat::Literal,
+                                ),
+                            );
+                            // Update appearance (AP) — set /NeedAppearances to true
+                            // so the viewer regenerates appearances
                         }
                         fields_filled += 1;
                     }
@@ -1385,10 +1559,8 @@ pub fn builtin_pdf_fill_form(args: &[Value]) -> Result<Value, String> {
     }
 
     // Set NeedAppearances flag so the viewer regenerates field appearances
-    if let Ok(acro_dict) = doc.get_object_mut(acroform_ref) {
-        if let Object::Dictionary(ref mut dict) = acro_dict {
-            dict.set(b"NeedAppearances".to_vec(), Object::Boolean(true));
-        }
+    if let Ok(Object::Dictionary(ref mut dict)) = doc.get_object_mut(acroform_ref) {
+        dict.set(b"NeedAppearances".to_vec(), Object::Boolean(true));
     }
 
     doc.save(&output_path)
@@ -1397,7 +1569,10 @@ pub fn builtin_pdf_fill_form(args: &[Value]) -> Result<Value, String> {
     Ok(make_struct(
         "PdfFillForm",
         &["path", "fields_filled"],
-        &[Value::String(output_path), Value::Float(fields_filled as f64)],
+        &[
+            Value::String(output_path),
+            Value::Float(fields_filled as f64),
+        ],
     ))
 }
 
@@ -1424,19 +1599,23 @@ pub fn builtin_pdf_rotate_page(args: &[Value]) -> Result<Value, String> {
         .map_err(|e| format!("pdf_rotate_page: failed to load '{}': {:?}", path, e))?;
 
     let pages = doc.get_pages();
-    let page_id = pages.get(&page_number)
-        .ok_or_else(|| format!("pdf_rotate_page: page {} not found (document has {} pages)", page_number, pages.len()))?;
+    let page_id = pages.get(&page_number).ok_or_else(|| {
+        format!(
+            "pdf_rotate_page: page {} not found (document has {} pages)",
+            page_number,
+            pages.len()
+        )
+    })?;
 
     // Set /Rotate on the page dictionary
-    if let Ok(page_dict) = doc.get_object_mut(*page_id) {
-        if let Object::Dictionary(ref mut dict) = page_dict {
-            // Add to existing rotation or set new
-            let current_rotation = dict.get(b"Rotate")
-                .and_then(|obj| obj.as_i64())
-                .unwrap_or(0);
-            let new_rotation = (current_rotation + degrees as i64) % 360;
-            dict.set(b"Rotate".to_vec(), Object::Integer(new_rotation));
-        }
+    if let Ok(Object::Dictionary(ref mut dict)) = doc.get_object_mut(*page_id) {
+        // Add to existing rotation or set new
+        let current_rotation = dict
+            .get(b"Rotate")
+            .and_then(|obj| obj.as_i64())
+            .unwrap_or(0);
+        let new_rotation = (current_rotation + degrees as i64) % 360;
+        dict.set(b"Rotate".to_vec(), Object::Integer(new_rotation));
     }
 
     doc.save(&output_path)
@@ -1517,8 +1696,12 @@ pub fn builtin_pdf_extract_images(args: &[Value]) -> Result<Value, String> {
             .to_string()
     };
 
-    std::fs::create_dir_all(&output_dir)
-        .map_err(|e| format!("pdf_extract_images: cannot create dir '{}': {}", output_dir, e))?;
+    std::fs::create_dir_all(&output_dir).map_err(|e| {
+        format!(
+            "pdf_extract_images: cannot create dir '{}': {}",
+            output_dir, e
+        )
+    })?;
 
     let doc = LopdfDocument::load(&path)
         .map_err(|e| format!("pdf_extract_images: failed to load '{}': {:?}", path, e))?;
@@ -1536,14 +1719,16 @@ pub fn builtin_pdf_extract_images(args: &[Value]) -> Result<Value, String> {
         if let Object::Stream(stream) = obj {
             let dict = &stream.dict;
             // Check if this is an Image XObject
-            let is_image = dict.get(b"Subtype")
+            let is_image = dict
+                .get(b"Subtype")
                 .and_then(|v| v.as_name())
                 .map(|n| n == b"Image")
                 .unwrap_or(false);
 
             if is_image {
                 // Determine image format from /Filter
-                let filter = dict.get(b"Filter")
+                let filter = dict
+                    .get(b"Filter")
                     .and_then(|v| v.as_name())
                     .map(|n| String::from_utf8_lossy(n).to_string())
                     .unwrap_or_else(|_| "raw".to_string());
@@ -1564,11 +1749,9 @@ pub fn builtin_pdf_extract_images(args: &[Value]) -> Result<Value, String> {
 
                 // Write the raw stream content
                 let content = &stream.content;
-                std::fs::write(&out_path, content)
-                    .map_err(|e| format!(
-                        "pdf_extract_images: write '{}' failed: {}",
-                        out_path, e
-                    ))?;
+                std::fs::write(&out_path, content).map_err(|e| {
+                    format!("pdf_extract_images: write '{}' failed: {}", out_path, e)
+                })?;
 
                 extracted_paths.push(Value::String(out_path));
 
@@ -1662,9 +1845,11 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
         .map_err(|e| format!("pdf_merge: failed to load '{}': {:?}", paths[0], e))?;
 
     // Get the base document's Pages object ID
-    let base_catalog = base_doc.catalog()
+    let base_catalog = base_doc
+        .catalog()
         .map_err(|e| format!("pdf_merge: no catalog in base: {:?}", e))?;
-    let base_pages_ref = base_catalog.get(b"Pages")
+    let base_pages_ref = base_catalog
+        .get(b"Pages")
         .and_then(|obj| obj.as_reference())
         .map_err(|_| "pdf_merge: no /Pages ref in base catalog".to_string())?;
 
@@ -1681,7 +1866,7 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
 
         // For each page in the source document, copy its content
         // into the base document's object store and add to the Pages Kids array
-        for (_, page_id) in &src_pages {
+        for page_id in src_pages.values() {
             // Copy the page object and its content streams into the base document
             if let Ok(page_obj) = doc.get_object(*page_id) {
                 let cloned_obj = page_obj.clone();
@@ -1695,10 +1880,10 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
                                 if let Ok(content_obj) = doc.get_object(*content_id) {
                                     let new_content_id = base_doc.add_object(content_obj.clone());
                                     // Update the page's /Contents to point to the new object
-                                    if let Ok(obj) = base_doc.get_object_mut(new_id) {
-                                        if let Object::Dictionary(ref mut dict) = obj {
-                                            dict.set(b"Contents", Object::Reference(new_content_id));
-                                        }
+                                    if let Ok(Object::Dictionary(ref mut dict)) =
+                                        base_doc.get_object_mut(new_id)
+                                    {
+                                        dict.set(b"Contents", Object::Reference(new_content_id));
                                     }
                                 }
                             }
@@ -1712,39 +1897,32 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
                                         }
                                     }
                                 }
-                                if let Ok(obj) = base_doc.get_object_mut(new_id) {
-                                    if let Object::Dictionary(ref mut dict) = obj {
-                                        dict.set(b"Contents", Object::Array(new_content_refs));
-                                    }
+                                if let Ok(Object::Dictionary(ref mut dict)) =
+                                    base_doc.get_object_mut(new_id)
+                                {
+                                    dict.set(b"Contents", Object::Array(new_content_refs));
                                 }
                             }
                             _ => {}
                         }
 
                         // Copy /Resources if referenced
-                        if let Ok(res_ref) = dict.get(b"Resources") {
-                            match res_ref {
-                                Object::Reference(res_id) => {
-                                    if let Ok(res_obj) = doc.get_object(*res_id) {
-                                        let new_res_id = base_doc.add_object(res_obj.clone());
-                                        if let Ok(obj) = base_doc.get_object_mut(new_id) {
-                                            if let Object::Dictionary(ref mut dict) = obj {
-                                                dict.set(b"Resources", Object::Reference(new_res_id));
-                                            }
-                                        }
-                                    }
+                        if let Ok(Object::Reference(res_id)) = dict.get(b"Resources") {
+                            if let Ok(res_obj) = doc.get_object(*res_id) {
+                                let new_res_id = base_doc.add_object(res_obj.clone());
+                                if let Ok(Object::Dictionary(ref mut dict)) =
+                                    base_doc.get_object_mut(new_id)
+                                {
+                                    dict.set(b"Resources", Object::Reference(new_res_id));
                                 }
-                                _ => {} // inline resources — skip for now
                             }
                         }
                     }
                 }
 
                 // Set the page's /Parent to the base document's Pages
-                if let Ok(obj) = base_doc.get_object_mut(new_id) {
-                    if let Object::Dictionary(ref mut dict) = obj {
-                        dict.set(b"Parent", Object::Reference(base_pages_ref));
-                    }
+                if let Ok(Object::Dictionary(ref mut dict)) = base_doc.get_object_mut(new_id) {
+                    dict.set(b"Parent", Object::Reference(base_pages_ref));
                 }
 
                 all_page_ids.push(new_id);
@@ -1752,23 +1930,28 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
         }
 
         // Log progress
-        eprintln!("[MLG-2] pdf_merge: imported {} pages from {} (doc {}/{})",
-            src_pages.len(), path, idx + 1, paths.len());
+        eprintln!(
+            "[MLG-2] pdf_merge: imported {} pages from {} (doc {}/{})",
+            src_pages.len(),
+            path,
+            idx + 1,
+            paths.len()
+        );
     }
 
     // Update the /Pages /Kids array and /Count
-    if let Ok(obj) = base_doc.get_object_mut(base_pages_ref) {
-        if let Object::Dictionary(ref mut dict) = obj {
-            let kids: Vec<Object> = all_page_ids.iter()
-                .map(|id| Object::Reference(*id))
-                .collect();
-            dict.set(b"Kids", Object::Array(kids));
-            dict.set(b"Count", Object::Integer(all_page_ids.len() as i64));
-        }
+    if let Ok(Object::Dictionary(ref mut dict)) = base_doc.get_object_mut(base_pages_ref) {
+        let kids: Vec<Object> = all_page_ids
+            .iter()
+            .map(|id| Object::Reference(*id))
+            .collect();
+        dict.set(b"Kids", Object::Array(kids));
+        dict.set(b"Count", Object::Integer(all_page_ids.len() as i64));
     }
 
     // Save the merged document
-    base_doc.save(&output)
+    base_doc
+        .save(&output)
         .map_err(|e| format!("pdf_merge: failed to save '{}': {:?}", output, e))?;
 
     let output_bytes = std::fs::read(&output)
@@ -1855,7 +2038,8 @@ pub fn builtin_pdf_split(args: &[Value]) -> Result<Value, String> {
         part_doc.delete_pages(&pages_to_delete);
 
         // Save the part
-        part_doc.save(&out_path)
+        part_doc
+            .save(&out_path)
             .map_err(|e| format!("pdf_split: save '{}' failed: {:?}", out_path, e))?;
 
         let pages_in_range = end - start + 1;
@@ -1896,13 +2080,19 @@ pub fn builtin_pdf_metadata(args: &[Value]) -> Result<Value, String> {
 
     let (title, author, subject, creator, producer, created, modified) = {
         // Try trailer /Info reference first
-        let info_result = doc.trailer.get(b"Info")
+        let info_result = doc
+            .trailer
+            .get(b"Info")
             .and_then(|obj| obj.as_reference())
             .and_then(|id| doc.get_object(id));
 
         let info_dict = match info_result {
             Ok(obj) => {
-                if let Object::Dictionary(ref d) = obj { Some(d) } else { None }
+                if let Object::Dictionary(ref d) = obj {
+                    Some(d)
+                } else {
+                    None
+                }
             }
             Err(_) => None,
         };
@@ -1927,14 +2117,23 @@ pub fn builtin_pdf_metadata(args: &[Value]) -> Result<Value, String> {
             )
         } else {
             // No /Info dictionary — return empty strings
-            (String::new(), String::new(), String::new(),
-             String::new(), String::new(), String::new(), String::new())
+            (
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+            )
         }
     };
 
     Ok(make_struct(
         "PdfMetadata",
-        &["title", "author", "subject", "creator", "producer", "pages", "created", "modified"],
+        &[
+            "title", "author", "subject", "creator", "producer", "pages", "created", "modified",
+        ],
         &[
             Value::String(title),
             Value::String(author),
@@ -2000,10 +2199,11 @@ pub fn builtin_pdf_set_metadata(args: &[Value]) -> Result<Value, String> {
     };
 
     // Update the metadata field
-    if let Ok(info_obj) = doc.get_object_mut(info_id) {
-        if let Object::Dictionary(ref mut dict) = info_obj {
-            dict.set(pdf_key.to_vec(), Object::String(value.clone().into_bytes(), lopdf::StringFormat::Literal));
-        }
+    if let Ok(Object::Dictionary(ref mut dict)) = doc.get_object_mut(info_id) {
+        dict.set(
+            pdf_key.to_vec(),
+            Object::String(value.clone().into_bytes(), lopdf::StringFormat::Literal),
+        );
     }
 
     // Save back to the same file
@@ -2054,7 +2254,10 @@ pub fn builtin_html_to_pdf(args: &[Value]) -> Result<Value, String> {
         )),
         Err(wk_err) => {
             // Both failed — report both errors
-            let rust_err = rust_result.unwrap_err();
+            let rust_err = match rust_result {
+                Err(e) => e,
+                Ok(_) => "unexpected success".to_string(),
+            };
             Err(format!(
                 "html_to_pdf: Rust renderer failed ({}); wkhtmltopdf fallback also failed ({}). \
                  Install wkhtmltopdf for complex HTML support.",
@@ -2070,8 +2273,11 @@ pub fn builtin_html_to_pdf(args: &[Value]) -> Result<Value, String> {
 fn html_to_pdf_rust(html: &str, path: &str) -> Result<usize, String> {
     // Quick check: reject obviously complex HTML
     let lower = html.to_lowercase();
-    if lower.contains("<script") || lower.contains("<style") || lower.contains("<link")
-        || lower.contains("class=") || lower.contains("id=")
+    if lower.contains("<script")
+        || lower.contains("<style")
+        || lower.contains("<link")
+        || lower.contains("class=")
+        || lower.contains("id=")
     {
         return Err("HTML contains CSS/JavaScript/complex elements — use wkhtmltopdf".to_string());
     }
@@ -2124,8 +2330,10 @@ fn html_to_pdf_rust(html: &str, path: &str) -> Result<usize, String> {
                     "br" | "br/" => y_pos -= default_font_size,
                     "hr" => {
                         doc.pages[0].elements.push(PdfElement::Line {
-                            x1: left_margin, y1: y_pos,
-                            x2: page_width - left_margin, y2: y_pos,
+                            x1: left_margin,
+                            y1: y_pos,
+                            x2: page_width - left_margin,
+                            y2: y_pos,
                             width: 0.5,
                         });
                         y_pos -= default_font_size;
@@ -2185,8 +2393,7 @@ fn html_to_pdf_wkhtmltopdf(html: &str, path: &str) -> Result<usize, String> {
     // Write HTML to temp file
     let tmp_dir = std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".to_string());
     let tmp_html = format!("{}/mlog_html2pdf_{}.html", tmp_dir, uuid::Uuid::new_v4());
-    std::fs::write(&tmp_html, html)
-        .map_err(|e| format!("temp write failed: {}", e))?;
+    std::fs::write(&tmp_html, html).map_err(|e| format!("temp write failed: {}", e))?;
 
     // Use wkhtmltopdf (C/C++ system tool, NOT Python)
     let result = std::process::Command::new("wkhtmltopdf")
@@ -2205,8 +2412,7 @@ fn html_to_pdf_wkhtmltopdf(html: &str, path: &str) -> Result<usize, String> {
         return Err(format!("wkhtmltopdf failed: {}", stderr));
     }
 
-    let output_bytes = std::fs::read(path)
-        .map_err(|e| format!("output read failed: {}", e))?;
+    let output_bytes = std::fs::read(path).map_err(|e| format!("output read failed: {}", e))?;
 
     Ok(output_bytes.len())
 }
@@ -2226,10 +2432,12 @@ pub fn builtin_send_document(args: &[Value]) -> Result<Value, String> {
     let chat_id = match args.first() {
         Some(Value::String(s)) => s.clone(),
         Some(Value::Float(f)) => format!("{}", *f as i64),
-        other => return Err(format!(
-            "send_document() expected String or Float as chat_id, got {}",
-            other.map(|v| v.type_name()).unwrap_or("none")
-        )),
+        other => {
+            return Err(format!(
+                "send_document() expected String or Float as chat_id, got {}",
+                other.map(|v| v.type_name()).unwrap_or("none")
+            ))
+        }
     };
 
     let file_path = expect_string_arg("send_document", args, 1)?;
@@ -2273,8 +2481,7 @@ pub fn builtin_send_document(args: &[Value]) -> Result<Value, String> {
         .text("caption", caption)
         .part(
             "document",
-            reqwest::blocking::multipart::Part::bytes(file_bytes)
-                .file_name(file_name),
+            reqwest::blocking::multipart::Part::bytes(file_bytes).file_name(file_name),
         );
 
     let resp = client
@@ -2290,7 +2497,10 @@ pub fn builtin_send_document(args: &[Value]) -> Result<Value, String> {
     let resp_body = resp.text().unwrap_or_default();
 
     if status >= 400 {
-        return Err(format!("send_document(): Telegram status {}: {}", status, resp_body));
+        return Err(format!(
+            "send_document(): Telegram status {}: {}",
+            status, resp_body
+        ));
     }
 
     Ok(Value::String(resp_body))
@@ -2306,9 +2516,18 @@ mod tests {
 
     #[test]
     fn test_pdf_type_to_string_all_variants() {
-        assert_eq!(pdf_type_to_string(&pdf_inspector::PdfType::TextBased), "TextBased");
-        assert_eq!(pdf_type_to_string(&pdf_inspector::PdfType::Scanned), "Scanned");
-        assert_eq!(pdf_type_to_string(&pdf_inspector::PdfType::ImageBased), "ImageBased");
+        assert_eq!(
+            pdf_type_to_string(&pdf_inspector::PdfType::TextBased),
+            "TextBased"
+        );
+        assert_eq!(
+            pdf_type_to_string(&pdf_inspector::PdfType::Scanned),
+            "Scanned"
+        );
+        assert_eq!(
+            pdf_type_to_string(&pdf_inspector::PdfType::ImageBased),
+            "ImageBased"
+        );
         assert_eq!(pdf_type_to_string(&pdf_inspector::PdfType::Mixed), "Mixed");
     }
 
@@ -2331,7 +2550,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let fake_path = dir.path().join("not_a_pdf.txt");
         std::fs::write(&fake_path, "this is not a PDF").unwrap();
-        let result = builtin_pdf_classify(&[Value::String(fake_path.to_string_lossy().to_string())]);
+        let result =
+            builtin_pdf_classify(&[Value::String(fake_path.to_string_lossy().to_string())]);
         assert!(result.is_err());
     }
 
@@ -2340,7 +2560,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let fake_path = dir.path().join("not_a_pdf.txt");
         std::fs::write(&fake_path, "this is not a PDF").unwrap();
-        let result = builtin_pdf_to_markdown(&[Value::String(fake_path.to_string_lossy().to_string())]);
+        let result =
+            builtin_pdf_to_markdown(&[Value::String(fake_path.to_string_lossy().to_string())]);
         assert!(result.is_err());
     }
 
@@ -2421,7 +2642,11 @@ mod tests {
         // Verify file was created and is non-empty
         let file_size = std::fs::metadata(&output_path).unwrap().len();
         assert!(file_size > 0, "PDF file should be non-empty");
-        assert!(file_size > 100, "PDF file should have reasonable size, got {} bytes", file_size);
+        assert!(
+            file_size > 100,
+            "PDF file should have reasonable size, got {} bytes",
+            file_size
+        );
 
         // Verify it starts with %PDF
         let first_bytes = std::fs::read(&output_path).unwrap();
@@ -2484,13 +2709,16 @@ mod tests {
             Value::String(doc_id.clone()),
             Value::Float(595.28),
             Value::Float(841.89),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         // Draw line
         let line_result = builtin_pdf_draw_line(&[
             Value::String(doc_id.clone()),
-            Value::Float(72.0), Value::Float(700.0),
-            Value::Float(500.0), Value::Float(700.0),
+            Value::Float(72.0),
+            Value::Float(700.0),
+            Value::Float(500.0),
+            Value::Float(700.0),
             Value::Float(1.0),
         ]);
         assert!(line_result.is_ok());
@@ -2498,8 +2726,10 @@ mod tests {
         // Draw rect
         let rect_result = builtin_pdf_draw_rect(&[
             Value::String(doc_id.clone()),
-            Value::Float(72.0), Value::Float(600.0),
-            Value::Float(200.0), Value::Float(50.0),
+            Value::Float(72.0),
+            Value::Float(600.0),
+            Value::Float(200.0),
+            Value::Float(50.0),
             Value::String("true".to_string()),
             Value::String("false".to_string()),
         ]);
@@ -2517,14 +2747,17 @@ mod tests {
             Value::String(doc_id.clone()),
             Value::Float(595.28),
             Value::Float(841.89),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         let result = builtin_pdf_draw_table(&[
             Value::String(doc_id),
             Value::Float(72.0),
             Value::Float(700.0),
             Value::String("[150,100,200]".to_string()),
-            Value::String("[[\"Name\",\"Age\",\"City\"],[\"Alice\",\"30\",\"Moscow\"]]".to_string()),
+            Value::String(
+                "[[\"Name\",\"Age\",\"City\"],[\"Alice\",\"30\",\"Moscow\"]]".to_string(),
+            ),
         ]);
         assert!(result.is_ok());
     }
@@ -2538,7 +2771,8 @@ mod tests {
             Value::String(doc_id.clone()),
             Value::Float(595.28),
             Value::Float(841.89),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         let result = builtin_pdf_draw_table(&[
             Value::String(doc_id),
@@ -2573,7 +2807,8 @@ mod tests {
             Value::String(doc_id.clone()),
             Value::Float(595.28),
             Value::Float(841.89),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         let result = builtin_pdf_add_image(&[
             Value::String(doc_id),
@@ -2609,7 +2844,8 @@ mod tests {
             Value::String(doc_id.clone()),
             Value::Float(595.28),
             Value::Float(841.89),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         let header_result = builtin_pdf_set_page_header(&[
             Value::String(doc_id.clone()),
@@ -2634,7 +2870,8 @@ mod tests {
             Value::String(doc_id.clone()),
             Value::Float(595.28),
             Value::Float(841.89),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         let result = builtin_pdf_set_page_footer(&[
             Value::String(doc_id),
@@ -2652,12 +2889,11 @@ mod tests {
             Value::String(doc_id.clone()),
             Value::Float(595.28),
             Value::Float(841.89),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         // Default format
-        let result1 = builtin_pdf_page_numbers(&[
-            Value::String(doc_id.clone()),
-        ]);
+        let result1 = builtin_pdf_page_numbers(&[Value::String(doc_id.clone())]);
         assert!(result1.is_ok());
 
         // Custom format with position
@@ -2682,7 +2918,8 @@ mod tests {
             Value::String(doc_id.clone()),
             Value::Float(595.28),
             Value::Float(841.89),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         let wm_result = builtin_pdf_watermark(&[
             Value::String(doc_id.clone()),
@@ -2708,7 +2945,8 @@ mod tests {
             Value::String(doc_id.clone()),
             Value::Float(595.28),
             Value::Float(841.89),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         let result = builtin_pdf_watermark(&[
             Value::String(doc_id),
@@ -2734,11 +2972,13 @@ mod tests {
             Value::String(doc_id.clone()),
             Value::Float(595.28),
             Value::Float(841.89),
-        ]).unwrap();
+        ])
+        .unwrap();
         builtin_pdf_save(&[
             Value::String(doc_id),
             Value::String(input_path.to_string_lossy().to_string()),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         let result = builtin_pdf_fill_form(&[
             Value::String(input_path.to_string_lossy().to_string()),
@@ -2763,11 +3003,13 @@ mod tests {
             Value::String(doc_id.clone()),
             Value::Float(595.28),
             Value::Float(841.89),
-        ]).unwrap();
+        ])
+        .unwrap();
         builtin_pdf_save(&[
             Value::String(doc_id),
             Value::String(input_path.to_string_lossy().to_string()),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         let result = builtin_pdf_rotate_page(&[
             Value::String(input_path.to_string_lossy().to_string()),
@@ -2792,11 +3034,13 @@ mod tests {
             Value::String(doc_id.clone()),
             Value::Float(595.28),
             Value::Float(841.89),
-        ]).unwrap();
+        ])
+        .unwrap();
         builtin_pdf_save(&[
             Value::String(doc_id),
             Value::String(input_path.to_string_lossy().to_string()),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         let result = builtin_pdf_delete_pages(&[
             Value::String(input_path.to_string_lossy().to_string()),
@@ -2809,9 +3053,8 @@ mod tests {
 
     #[test]
     fn test_pdf_extract_images_invalid_path() {
-        let result = builtin_pdf_extract_images(&[
-            Value::String("/nonexistent/file.pdf".to_string()),
-        ]);
+        let result =
+            builtin_pdf_extract_images(&[Value::String("/nonexistent/file.pdf".to_string())]);
         assert!(result.is_err());
     }
 
@@ -2862,19 +3105,22 @@ mod tests {
             Value::String(doc_id.clone()),
             Value::Float(595.28),
             Value::Float(841.89),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         // Set header
         builtin_pdf_set_page_header(&[
             Value::String(doc_id.clone()),
             Value::String("Quarterly Report Q1 2026".to_string()),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         // Enable page numbers
         builtin_pdf_page_numbers(&[
             Value::String(doc_id.clone()),
             Value::String("N of M".to_string()),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         // Write title
         builtin_pdf_write_text(&[
@@ -2884,7 +3130,8 @@ mod tests {
             Value::String("Financial Summary".to_string()),
             Value::String("Helvetica-Bold".to_string()),
             Value::Float(18.0),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         // Draw table
         builtin_pdf_draw_table(&[
@@ -2899,7 +3146,8 @@ mod tests {
         builtin_pdf_watermark(&[
             Value::String(doc_id.clone()),
             Value::String("DRAFT".to_string()),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         // Save
         let save_result = builtin_pdf_save(&[
@@ -2909,7 +3157,11 @@ mod tests {
         assert!(save_result.is_ok());
 
         let file_size = std::fs::metadata(&output_path).unwrap().len();
-        assert!(file_size > 100, "PDF should have reasonable size, got {} bytes", file_size);
+        assert!(
+            file_size > 100,
+            "PDF should have reasonable size, got {} bytes",
+            file_size
+        );
 
         // Verify it's a valid PDF
         let first_bytes = std::fs::read(&output_path).unwrap();

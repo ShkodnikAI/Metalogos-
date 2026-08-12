@@ -40,6 +40,7 @@ struct PdfPage {
 
 /// An element on a PDF page.
 #[derive(Debug, Clone)]
+#[allow(clippy::type_complexity)]
 enum PdfElement {
     Text {
         x: f64,
@@ -412,7 +413,8 @@ pub fn builtin_pdf_create(args: &[Value]) -> Result<Value, String> {
         return Err("pdf_create() takes 0 arguments".to_string());
     }
 
-    let id = format!("pdf_{}", uuid::Uuid::new_v4().to_string().replace('-', "_")[..12].to_string());
+    let uuid_str = uuid::Uuid::new_v4().to_string().replace('-', "_");
+    let id = format!("pdf_{}", &uuid_str[..12]);
 
     let doc = PdfDocument::default();
     {
@@ -1102,7 +1104,7 @@ pub fn builtin_pdf_add_image(args: &[Value]) -> Result<Value, String> {
     }
 
     // Determine intrinsic dimensions or use provided
-    let (width, height) = if args.len() > 4 && args.len() > 5 {
+    let (width, height) = if args.len() > 5 {
         let w = expect_float_arg("pdf_add_image", args, 4)?;
         let h = expect_float_arg("pdf_add_image", args, 5)?;
         (w, h)
@@ -1532,40 +1534,45 @@ pub fn builtin_pdf_extract_images(args: &[Value]) -> Result<Value, String> {
     // Walk all objects looking for Image XObjects
     for (&obj_id, obj) in doc.objects.iter() {
         if let Object::Stream(stream) = obj {
-            if let Ok(dict) = stream.dict() {
-                // Check if this is an Image XObject
-                let is_image = dict.get(b"Subtype")
+            let dict = &stream.dictionary;
+            // Check if this is an Image XObject
+            let is_image = dict.get(b"Subtype")
+                .and_then(|v| v.as_name())
+                .map(|n| n == b"Image")
+                .unwrap_or(false);
+
+            if is_image {
+                // Determine image format from /Filter
+                let filter = dict.get(b"Filter")
                     .and_then(|v| v.as_name())
-                    .map(|n| n == b"Image")
-                    .unwrap_or(false);
+                    .map(|n| String::from_utf8_lossy(n).to_string())
+                    .unwrap_or_else(|_| "raw".to_string());
 
-                if is_image {
-                    // Determine image format from /Filter
-                    let filter = dict.get(b"Filter")
-                        .and_then(|v| v.as_name())
-                        .map(|n| String::from_utf8_lossy(n).to_string())
-                        .unwrap_or_else(|_| "raw".to_string());
+                let extension = match filter.as_str() {
+                    "DCTDecode" => "jpg",
+                    "JPXDecode" => "jp2",
+                    "FlateDecode" => "png",
+                    "CCITTFaxDecode" => "tif",
+                    _ => "bin",
+                };
 
-                    let extension = match filter.as_str() {
-                        "DCTDecode" => "jpg",
-                        "JPXDecode" => "jp2",
-                        "FlateDecode" => "png",
-                        "CCITTFaxDecode" => "tif",
-                        _ => "bin",
-                    };
+                image_count += 1;
+                let out_path = format!(
+                    "{}/{}_img{}.{}",
+                    output_dir, base_name, image_count, extension
+                );
 
-                    image_count += 1;
-                    let out_path = format!("{}/{}_img{}.{}", output_dir, base_name, image_count, extension);
+                // Write the raw stream content
+                let content = &stream.content;
+                std::fs::write(&out_path, content)
+                    .map_err(|e| format!(
+                        "pdf_extract_images: write '{}' failed: {}",
+                        out_path, e
+                    ))?;
 
-                    // Write the raw stream content
-                    let content = &stream.content;
-                    std::fs::write(&out_path, content)
-                        .map_err(|e| format!("pdf_extract_images: write '{}' failed: {}", out_path, e))?;
+                extracted_paths.push(Value::String(out_path));
 
-                    extracted_paths.push(Value::String(out_path));
-
-                    let _ = obj_id; // suppress unused warning
-                }
+                let _ = obj_id; // suppress unused warning
             }
         }
     }
@@ -1688,8 +1695,10 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
                                 if let Ok(content_obj) = doc.get_object(*content_id) {
                                     let new_content_id = base_doc.add_object(content_obj.clone());
                                     // Update the page's /Contents to point to the new object
-                                    if let Ok(page_dict) = base_doc.get_dictionary_mut(new_id) {
-                                        page_dict.set(b"Contents", Object::Reference(new_content_id));
+                                    if let Ok(obj) = base_doc.get_object_mut(new_id) {
+                                        if let Object::Dictionary(ref mut dict) = obj {
+                                            dict.set(b"Contents", Object::Reference(new_content_id));
+                                        }
                                     }
                                 }
                             }
@@ -1703,8 +1712,10 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
                                         }
                                     }
                                 }
-                                if let Ok(page_dict) = base_doc.get_dictionary_mut(new_id) {
-                                    page_dict.set(b"Contents", Object::Array(new_content_refs));
+                                if let Ok(obj) = base_doc.get_object_mut(new_id) {
+                                    if let Object::Dictionary(ref mut dict) = obj {
+                                        dict.set(b"Contents", Object::Array(new_content_refs));
+                                    }
                                 }
                             }
                             _ => {}
@@ -1716,8 +1727,10 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
                                 Object::Reference(res_id) => {
                                     if let Ok(res_obj) = doc.get_object(*res_id) {
                                         let new_res_id = base_doc.add_object(res_obj.clone());
-                                        if let Ok(page_dict) = base_doc.get_dictionary_mut(new_id) {
-                                            page_dict.set(b"Resources", Object::Reference(new_res_id));
+                                        if let Ok(obj) = base_doc.get_object_mut(new_id) {
+                                            if let Object::Dictionary(ref mut dict) = obj {
+                                                dict.set(b"Resources", Object::Reference(new_res_id));
+                                            }
                                         }
                                     }
                                 }
@@ -1728,8 +1741,10 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
                 }
 
                 // Set the page's /Parent to the base document's Pages
-                if let Ok(page_dict) = base_doc.get_dictionary_mut(new_id) {
-                    page_dict.set(b"Parent", Object::Reference(base_pages_ref));
+                if let Ok(obj) = base_doc.get_object_mut(new_id) {
+                    if let Object::Dictionary(ref mut dict) = obj {
+                        dict.set(b"Parent", Object::Reference(base_pages_ref));
+                    }
                 }
 
                 all_page_ids.push(new_id);
@@ -1742,12 +1757,14 @@ pub fn builtin_pdf_merge(args: &[Value]) -> Result<Value, String> {
     }
 
     // Update the /Pages /Kids array and /Count
-    if let Ok(pages_dict) = base_doc.get_dictionary_mut(base_pages_ref) {
-        let kids: Vec<Object> = all_page_ids.iter()
-            .map(|id| Object::Reference(*id))
-            .collect();
-        pages_dict.set(b"Kids", Object::Array(kids));
-        pages_dict.set(b"Count", Object::Integer(all_page_ids.len() as i64));
+    if let Ok(obj) = base_doc.get_object_mut(base_pages_ref) {
+        if let Object::Dictionary(ref mut dict) = obj {
+            let kids: Vec<Object> = all_page_ids.iter()
+                .map(|id| Object::Reference(*id))
+                .collect();
+            dict.set(b"Kids", Object::Array(kids));
+            dict.set(b"Count", Object::Integer(all_page_ids.len() as i64));
+        }
     }
 
     // Save the merged document
@@ -1881,7 +1898,7 @@ pub fn builtin_pdf_metadata(args: &[Value]) -> Result<Value, String> {
         // Try trailer /Info reference first
         let info_result = doc.trailer.get(b"Info")
             .and_then(|obj| obj.as_reference())
-            .and_then(|id| doc.get_object(id).map(|o| o as &Object));
+            .and_then(|id| doc.get_object(id));
 
         let info_dict = match info_result {
             Ok(obj) => {

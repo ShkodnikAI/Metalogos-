@@ -648,6 +648,49 @@ impl Builtins {
             builtin_send_document as BuiltinFn,
         );
 
+        // Наряд MLG-3: PDF office automation (tables, images, headers/footers,
+        //   page numbers, watermarks, form filling, page manipulation)
+        funcs.insert(
+            "pdf_draw_table".to_string(),
+            builtin_pdf_draw_table as BuiltinFn,
+        );
+        funcs.insert(
+            "pdf_add_image".to_string(),
+            builtin_pdf_add_image as BuiltinFn,
+        );
+        funcs.insert(
+            "pdf_set_page_header".to_string(),
+            builtin_pdf_set_page_header as BuiltinFn,
+        );
+        funcs.insert(
+            "pdf_set_page_footer".to_string(),
+            builtin_pdf_set_page_footer as BuiltinFn,
+        );
+        funcs.insert(
+            "pdf_page_numbers".to_string(),
+            builtin_pdf_page_numbers as BuiltinFn,
+        );
+        funcs.insert(
+            "pdf_watermark".to_string(),
+            builtin_pdf_watermark as BuiltinFn,
+        );
+        funcs.insert(
+            "pdf_fill_form".to_string(),
+            builtin_pdf_fill_form as BuiltinFn,
+        );
+        funcs.insert(
+            "pdf_rotate_page".to_string(),
+            builtin_pdf_rotate_page as BuiltinFn,
+        );
+        funcs.insert(
+            "pdf_delete_pages".to_string(),
+            builtin_pdf_delete_pages as BuiltinFn,
+        );
+        funcs.insert(
+            "pdf_extract_images".to_string(),
+            builtin_pdf_extract_images as BuiltinFn,
+        );
+
         // ── Наряд №50 Block 3: SHA-256 / HMAC / hex builtins ──
         funcs.insert("sha256".to_string(), builtin_sha256 as BuiltinFn);
         funcs.insert("hmac_sha256".to_string(), builtin_hmac_sha256 as BuiltinFn);

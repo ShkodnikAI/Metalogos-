@@ -1,0 +1,26 @@
+// ── Демонстрация полного PDF-стека Metalogos (Наряд MLG-3) ──────────────
+// Создание офисного документа: заголовок, таблица, колонтитулы,
+// нумерация страниц, водяной знак.
+
+let doc = pdf_create()
+pdf_add_page(doc.id, 595.28, 841.89)
+
+// Установить колонтитулы
+pdf_set_page_header(doc.id, "Metalogos Office Automation Report")
+pdf_set_page_footer(doc.id, "Confidential — Internal Use Only")
+
+// Включить нумерацию страниц
+pdf_page_numbers(doc.id, "N of M")
+
+// Заголовок документа
+pdf_write_text(doc.id, 72, 750, "Q1 Financial Summary", "Helvetica-Bold", 18)
+
+// Таблица с данными
+pdf_draw_table(doc.id, 72, 650, [150,100,100], [["Metric","Q1","Q2"],["Revenue","$1.2M","$1.5M"],["Costs","$0.8M","$0.9M"],["Profit","$0.4M","$0.6M"]])
+
+// Водяной знак
+pdf_watermark(doc.id, "DRAFT")
+
+// Сохранить
+pdf_save(doc.id, "/tmp/metalogos_report.pdf")
+print("PDF saved successfully with table, header, footer, page numbers, and watermark")

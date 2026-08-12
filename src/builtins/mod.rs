@@ -628,6 +628,26 @@ impl Builtins {
         );
         funcs.insert("pdf_ocr".to_string(), builtin_pdf_ocr as BuiltinFn);
 
+        // Наряд MLG-1: PDF creation, manipulation, and Telegram document sending
+        funcs.insert("pdf_create".to_string(), builtin_pdf_create as BuiltinFn);
+        funcs.insert("pdf_add_page".to_string(), builtin_pdf_add_page as BuiltinFn);
+        funcs.insert("pdf_write_text".to_string(), builtin_pdf_write_text as BuiltinFn);
+        funcs.insert("pdf_draw_line".to_string(), builtin_pdf_draw_line as BuiltinFn);
+        funcs.insert("pdf_draw_rect".to_string(), builtin_pdf_draw_rect as BuiltinFn);
+        funcs.insert("pdf_save".to_string(), builtin_pdf_save as BuiltinFn);
+        funcs.insert("pdf_merge".to_string(), builtin_pdf_merge as BuiltinFn);
+        funcs.insert("pdf_split".to_string(), builtin_pdf_split as BuiltinFn);
+        funcs.insert("pdf_metadata".to_string(), builtin_pdf_metadata as BuiltinFn);
+        funcs.insert(
+            "pdf_set_metadata".to_string(),
+            builtin_pdf_set_metadata as BuiltinFn,
+        );
+        funcs.insert("html_to_pdf".to_string(), builtin_html_to_pdf as BuiltinFn);
+        funcs.insert(
+            "send_document".to_string(),
+            builtin_send_document as BuiltinFn,
+        );
+
         // ── Наряд №50 Block 3: SHA-256 / HMAC / hex builtins ──
         funcs.insert("sha256".to_string(), builtin_sha256 as BuiltinFn);
         funcs.insert("hmac_sha256".to_string(), builtin_hmac_sha256 as BuiltinFn);

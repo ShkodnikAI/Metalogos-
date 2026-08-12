@@ -289,6 +289,19 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("pdf_to_markdown", 1, "pdf"),
     spec!("pdf_extract_regions", 2, "pdf"),
     spec!("pdf_ocr", 1, "pdf"),
+    // ── PDF creation & manipulation (Наряд MLG-1) ──
+    spec!("pdf_create", 0, "pdf"),                    // → { id }
+    spec!("pdf_add_page", 3, "pdf"),                  // id, width, height
+    spec!("pdf_write_text", 4, 6, "pdf"),             // id, x, y, text [,font, size]
+    spec!("pdf_draw_line", 5, 6, "pdf"),              // id, x1, y1, x2, y2 [,width]
+    spec!("pdf_draw_rect", 5, 7, "pdf"),              // id, x, y, w, h [,stroke, fill]
+    spec!("pdf_save", 2, "pdf"),                      // id, path
+    spec!("pdf_merge", 2, "pdf"),                     // paths_json, output
+    spec!("pdf_split", 3, "pdf"),                     // path, ranges_json, output_dir
+    spec!("pdf_metadata", 1, "pdf"),                  // path
+    spec!("pdf_set_metadata", 3, "pdf"),              // path, key, value
+    spec!("html_to_pdf", 2, "pdf"),                   // html, path
+    spec!("send_document", 2, 3, "bot" => "ext"),     // chat_id, file_path [,caption]
     // ── Crypto: SHA-256 / HMAC (Наряд №50 Block 3) ──
     spec!("sha256", 1, "crypto"),
     spec!("hmac_sha256", 2, "crypto"),

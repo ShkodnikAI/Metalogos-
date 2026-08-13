@@ -43,7 +43,7 @@ flow Main { input: String = r -> output }
 // ── E2E-1: memorize → recall across two run_program calls ────────
 
 #[test]
-#[ignore] // TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation
+#[ignore = "TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation"]
 fn test_e2e_persist_memorize_then_recall() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_memory.db");
@@ -79,7 +79,7 @@ fn test_e2e_persist_memorize_then_recall() {
 // ── E2E-2: recall a second fact from same DB ────────────────────
 
 #[test]
-#[ignore] // TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation
+#[ignore = "TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation"]
 fn test_e2e_persist_recall_second_fact() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_memory2.db");
@@ -108,7 +108,7 @@ flow Main {{ input: String = r -> output }}
 // ── E2E-3: count increases across sessions ────────────────────────
 
 #[test]
-#[ignore] // TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation
+#[ignore = "TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation"]
 fn test_e2e_persist_count_across_sessions() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_count.db");
@@ -143,7 +143,7 @@ flow Main {{ input: String = r1 -> output }}
 // ── E2E-4: third run still has all data ─────────────────────────
 
 #[test]
-#[ignore] // TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation
+#[ignore = "TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation"]
 fn test_e2e_persist_third_run() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_third.db");
@@ -175,7 +175,7 @@ flow Main {{ input: String = r -> output }}
 // ── E2E-5: no persist → data lost between runs ──────────────────
 
 #[test]
-#[ignore] // TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation
+#[ignore = "TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation"]
 fn test_e2e_no_persist_data_lost() {
     // Without memory { persist }, uses InMemoryStore — data lost on each run.
     let source = make_source_inmemory();
@@ -208,7 +208,7 @@ flow Main { input: String = r -> output }
 // ── E2E-6: forget works on persistent store ─────────────────────
 
 #[test]
-#[ignore] // TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation
+#[ignore = "TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation"]
 fn test_e2e_persist_forget() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_forget.db");
@@ -256,7 +256,7 @@ flow Main {{ input: String = r -> output }}
 // ── E2E-7: parsing memory { persist: "path" } ───────────────────
 
 #[test]
-#[ignore] // TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation
+#[ignore = "TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation"]
 fn test_parse_memory_persist() {
     let source = r#"
 memory { persist: "./data/my_memory.db" }
@@ -271,7 +271,7 @@ memory { persist: "./data/my_memory.db" }
 }
 
 #[test]
-#[ignore] // TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation
+#[ignore = "TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation"]
 fn test_parse_memory_no_persist() {
     let source = r#"
 memory { }
@@ -287,7 +287,7 @@ memory { }
 // ── E2E-8: KG persistence across runs ───────────────────────────
 
 #[test]
-#[ignore] // TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation
+#[ignore = "TODO: E2E persistence tests flaky in sandboxed environment; need temp dir isolation"]
 fn test_e2e_kg_persist_across_runs() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test_kg.db");

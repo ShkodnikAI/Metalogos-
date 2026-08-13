@@ -1568,7 +1568,7 @@ mod tests {
     // ── Integration Tests (require real API keys) ──────────────────
 
     #[test]
-    #[ignore] // METALOGOS_MOCK_LLM=false METALOGOS_LLM_PROVIDER=openai METALOGOS_API_KEY=sk-xxx cargo test -- --ignored
+    #[ignore = "METALOGOS_MOCK_LLM=false METALOGOS_LLM_PROVIDER=openai METALOGOS_API_KEY=sk-xxx cargo test -- --ignored"]
     fn test_real_llm_openai_classify() {
         let api_key = env::var("METALOGOS_API_KEY").expect("METALOGOS_API_KEY must be set");
         let llm = RealLlm::with_config(
@@ -1589,7 +1589,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // METALOGOS_MOCK_LLM=false METALOGOS_LLM_PROVIDER=anthropic METALOGOS_API_KEY=sk-ant-xxx cargo test -- --ignored
+    #[ignore = "METALOGOS_MOCK_LLM=false METALOGOS_LLM_PROVIDER=anthropic METALOGOS_API_KEY=sk-ant-xxx cargo test -- --ignored"]
     fn test_real_llm_anthropic_classify() {
         let api_key = env::var("METALOGOS_API_KEY").expect("METALOGOS_API_KEY must be set");
         let llm = RealLlm::with_config(
@@ -1611,7 +1611,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // METALOGOS_MOCK_LLM=false METALOGOS_LLM_PROVIDER=ollama cargo test -- --ignored
+    #[ignore = "METALOGOS_MOCK_LLM=false METALOGOS_LLM_PROVIDER=ollama cargo test -- --ignored"]
     fn test_real_llm_ollama_classify() {
         let llm = RealLlm::with_config(
             Provider::Ollama,

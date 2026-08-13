@@ -741,6 +741,27 @@ impl Builtins {
             builtin_ical_generate as BuiltinFn,
         );
 
+        // Наряд MLG-6: Contacts (CardDAV + vCard)
+        funcs.insert(
+            "card_connect".to_string(),
+            builtin_card_connect as BuiltinFn,
+        );
+        funcs.insert("card_list".to_string(), builtin_card_list as BuiltinFn);
+        funcs.insert(
+            "card_contacts".to_string(),
+            builtin_card_contacts as BuiltinFn,
+        );
+        funcs.insert("card_read".to_string(), builtin_card_read as BuiltinFn);
+        funcs.insert("card_create".to_string(), builtin_card_create as BuiltinFn);
+        funcs.insert("card_update".to_string(), builtin_card_update as BuiltinFn);
+        funcs.insert("card_delete".to_string(), builtin_card_delete as BuiltinFn);
+        funcs.insert("card_search".to_string(), builtin_card_search as BuiltinFn);
+        funcs.insert("vcard_parse".to_string(), builtin_vcard_parse as BuiltinFn);
+        funcs.insert(
+            "vcard_generate".to_string(),
+            builtin_vcard_generate as BuiltinFn,
+        );
+
         // ── Наряд №50 Block 3: SHA-256 / HMAC / hex builtins ──
         funcs.insert("sha256".to_string(), builtin_sha256 as BuiltinFn);
         funcs.insert("hmac_sha256".to_string(), builtin_hmac_sha256 as BuiltinFn);
@@ -802,6 +823,8 @@ pub(crate) mod email;
 use email::*;
 pub(crate) mod calendar;
 use calendar::*;
+pub(crate) mod contacts;
+use contacts::*;
 
 #[cfg(test)]
 mod tests;

@@ -181,11 +181,19 @@ pattern call_undef() -> String {
 }
 "#;
     let result = semantic_check(source);
-    assert!(!result.is_ok());
-    assert!(result
-        .errors
-        .iter()
-        .any(|e| e.contains("undefined function")));
+    assert!(
+        !result.is_ok(),
+        "semantic check should fail for undefined function, but got is_ok=true, errors={:?}",
+        result.errors
+    );
+    assert!(
+        result
+            .errors
+            .iter()
+            .any(|e| e.contains("undefined") && e.contains("function")),
+        "expected 'undefined...function' error, got errors: {:?}",
+        result.errors
+    );
 }
 
 #[test]

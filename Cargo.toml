@@ -3,7 +3,7 @@ members = [".", "mlogpkg", "mlog-lsp"]
 resolver = "2"
 
 [workspace.package]
-version = "0.15.0"
+version = "0.16.0"
 edition = "2021"
 
 [package]
@@ -90,6 +90,9 @@ native-tls = "0.2"
 # Наряд MLG-5: Calendar (CalDAV + iCal, pure Rust)
 ical = "0.8"
 chrono-tz = "0.10"
+
+# Наряд MLG-6: Contacts (CardDAV + vCard, pure Rust)
+# vcard parsing is hand-rolled (no external crate needed); CardDAV uses reqwest
 
 # Optional OCR support (requires system tesseract-ocr + training data)
 # Enable with: cargo build --features pdf-ocr

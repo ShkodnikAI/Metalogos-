@@ -25,7 +25,7 @@ fn semantic_check(source: &str) -> AnalysisResult {
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_cron_add_list_remove() {
     let source = r#"
         let job = cron_add("0 9 * * 1-5", "MorningBrief")
@@ -45,7 +45,7 @@ fn test_cron_add_list_remove() {
 }
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_cron_remove() {
     let source = r#"
         let job = cron_add("*/30 * * * *", "TestJob")
@@ -62,7 +62,7 @@ fn test_cron_remove() {
 }
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_cron_mark_fired_resets_force_run() {
     let source = r#"
         let job = cron_add("0 0 * * *", "TestJob")
@@ -83,7 +83,7 @@ fn test_cron_mark_fired_resets_force_run() {
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_goals_set_get_complete() {
     let source = r#"
         goal_set("Test the cron system", 1000.0)
@@ -96,7 +96,7 @@ fn test_goals_set_get_complete() {
 }
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_goals_list_add() {
     let source = r#"
         goals_add("Learn Rust macros")
@@ -109,7 +109,7 @@ fn test_goals_list_add() {
 }
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_todo_add_update_list() {
     let source = r#"
         todo_add("Write tests", "pending")
@@ -126,7 +126,7 @@ fn test_todo_add_update_list() {
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_mtree_store_retrieve_forget() {
     let source = r#"
         let s1 = mtree_store("Alice works at Google in New York", "user")
@@ -146,7 +146,7 @@ fn test_mtree_store_retrieve_forget() {
 }
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_mtree_stats() {
     let source = r#"
         mtree_store("Test memory entry", "test")
@@ -160,7 +160,7 @@ fn test_mtree_stats() {
 }
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_mtree_summarize_l1_l2() {
     let source = r#"
         mtree_store("Entry one about weather forecasting", "test")
@@ -189,7 +189,7 @@ fn test_mtree_summarize_l1_l2() {
 }
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_mtree_forget() {
     let source = r#"
         let s = mtree_store("Temporary note", "test")
@@ -206,7 +206,7 @@ fn test_mtree_forget() {
 }
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_mtree_retrieve_searches_l1() {
     let source = r#"
         // Store enough to trigger L1
@@ -234,7 +234,7 @@ fn test_mtree_retrieve_searches_l1() {
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_extract_entities() {
     let source = r#"
         let entities = extract_entities("Email john@example.com, call 555-1234, visit https://example.com")
@@ -245,7 +245,7 @@ fn test_extract_entities() {
 }
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_memory_score() {
     let source = r#"
         let s = memory_score("Alice works at Google in New York City on machine learning")
@@ -263,7 +263,7 @@ fn test_memory_score() {
 }
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_compress_html() {
     let source = r#"
         let html = "<html><head><title>Test</title><script>alert(1)</script></head><body><p>Hello World</p></body></html>"
@@ -281,7 +281,7 @@ fn test_compress_html() {
 }
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_learn_preference_and_profile() {
     let source = r#"
         learn_preference("style", "tone", "formal")
@@ -303,7 +303,7 @@ fn test_learn_preference_and_profile() {
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_semantic_send_message_arity() {
     // send_message requires 2 args (min) — calling with 0 should error
     let source = r#"
@@ -324,7 +324,7 @@ fn test_semantic_send_message_arity() {
 }
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_semantic_edit_message_text_arity() {
     let source = r#"
         pattern TestArity() {
@@ -339,7 +339,7 @@ fn test_semantic_edit_message_text_arity() {
 }
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_semantic_session_logout_arity() {
     let source = r#"
         pattern TestArity() {
@@ -359,7 +359,7 @@ fn test_semantic_session_logout_arity() {
 }
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_semantic_tts_send_arity() {
     let source = r#"
         pattern TestArity() {
@@ -374,7 +374,7 @@ fn test_semantic_tts_send_arity() {
 }
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_semantic_whisper_transcribe_arity() {
     let source = r#"
         pattern TestArity() {
@@ -389,7 +389,7 @@ fn test_semantic_whisper_transcribe_arity() {
 }
 
 #[test]
-#[ignore] // TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow
+#[ignore = "TODO: top-level statements syntax no longer supported; tests need rewrite to wrap in pattern/flow"]
 fn test_semantic_correct_arity_no_error() {
     // These should NOT produce arity errors
     let source = r#"

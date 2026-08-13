@@ -149,7 +149,7 @@ fn test_json_to_value_deeply_nested() {
 // ── Integration tests: live server + reqwest ─────────────────────────
 
 #[tokio::test]
-#[ignore] // TODO: webhook tests require HTTP server; need server startup in test setup
+#[ignore = "TODO: webhook tests require HTTP server; need server startup in test setup"]
 async fn test_webhook_telegram_contract() {
     let (port, _handle) = metalogos::server::run_test_server(SOURCE_WEBHOOK)
         .await
@@ -175,7 +175,7 @@ async fn test_webhook_telegram_contract() {
 }
 
 #[tokio::test]
-#[ignore] // TODO: webhook tests require HTTP server; need server startup in test setup
+#[ignore = "TODO: webhook tests require HTTP server; need server startup in test setup"]
 async fn test_webhook_flat_json() {
     let (port, _handle) = metalogos::server::run_test_server(SOURCE_FLAT_JSON)
         .await
@@ -196,7 +196,7 @@ async fn test_webhook_flat_json() {
 }
 
 #[tokio::test]
-#[ignore] // TODO: webhook tests require HTTP server; need server startup in test setup
+#[ignore = "TODO: webhook tests require HTTP server; need server startup in test setup"]
 async fn test_webhook_array_field() {
     let source = r#"
 mlogserver {
@@ -227,7 +227,7 @@ mlogserver {
 }
 
 #[tokio::test]
-#[ignore] // TODO: webhook tests require HTTP server; need server startup in test setup
+#[ignore = "TODO: webhook tests require HTTP server; need server startup in test setup"]
 async fn test_webhook_empty_body_returns_empty_struct() {
     let (port, _handle) = metalogos::server::run_test_server(SOURCE_WEBHOOK)
         .await
@@ -243,7 +243,7 @@ async fn test_webhook_empty_body_returns_empty_struct() {
 }
 
 #[tokio::test]
-#[ignore] // TODO: webhook tests require HTTP server; need server startup in test setup
+#[ignore = "TODO: webhook tests require HTTP server; need server startup in test setup"]
 async fn test_webhook_bool_field() {
     let source = r#"
 mlogserver {
@@ -274,7 +274,7 @@ mlogserver {
 }
 
 #[tokio::test]
-#[ignore] // TODO: webhook tests require HTTP server; need server startup in test setup
+#[ignore = "TODO: webhook tests require HTTP server; need server startup in test setup"]
 async fn test_webhook_null_field_becomes_unit() {
     let source = r#"
 mlogserver {

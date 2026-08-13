@@ -16,6 +16,8 @@ mod tests {
     use std::process::{Child, Command, Stdio};
     use std::thread;
     use std::time::Duration;
+    // All tests in this module share port 18771 — they MUST run serially to avoid
+    // port conflicts during ServerGuard::spawn() (Drop doesn't wait for port release).
 
     const SERVER_PORT: u16 = 18771;
     const BASE_URL: &str = "http://127.0.0.1:18771";
@@ -70,6 +72,7 @@ mod tests {
     // ── Scenario 1: Success after retries (503, 503, 200) ──
 
     #[test]
+    #[serial_test::serial]
     fn test_retry_succeeds_after_503s() {
         let _server = ServerGuard::spawn();
         reset_server();
@@ -98,6 +101,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_retry_http_post_succeeds_after_503s() {
         let _server = ServerGuard::spawn();
         reset_server();
@@ -128,6 +132,7 @@ mod tests {
     // ── Scenario 2: No retry on fatal 400 ──
 
     #[test]
+    #[serial_test::serial]
     fn test_no_retry_on_fatal_400() {
         let _server = ServerGuard::spawn();
         reset_server();
@@ -157,6 +162,7 @@ mod tests {
     // ── Scenario 3: Backward compatibility — no retry without config ──
 
     #[test]
+    #[serial_test::serial]
     fn test_backward_compat_no_retry_config() {
         let _server = ServerGuard::spawn();
         reset_server();
@@ -181,6 +187,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_backward_compat_post_no_retry_on_503() {
         let _server = ServerGuard::spawn();
         reset_server();
@@ -206,6 +213,7 @@ mod tests {
     // ── Retry config parsing edge cases ──
 
     #[test]
+    #[serial_test::serial]
     fn test_retry_config_with_zero_retries() {
         let _server = ServerGuard::spawn();
         reset_server();
@@ -229,6 +237,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_retry_struct_not_confused_with_headers() {
         // A Struct without retry-specific fields should be treated as headers,
         // not as retry config — verify parse_retry_config returns None

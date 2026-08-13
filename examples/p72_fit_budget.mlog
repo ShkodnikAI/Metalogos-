@@ -1,0 +1,19 @@
+// ── Наряд #72: fit_to_budget direct golden contract ──────────────────
+// fit_to_budget is currently an identity stub: returns the list unchanged.
+// Verifies it dispatches correctly on TW and VM.
+
+pattern test_fit_budget(input: String) -> String {
+  // Build a list via list literal
+  let items = ["a", "b", "c"]
+
+  // fit_to_budget should return the same list (identity stub)
+  let result = fit_to_budget(items)
+  let ok1 = to_float(length(result) == 3)
+
+  // Non-empty list passed through
+  let ok2 = to_float(length(result) > 0)
+
+  return "len=" + to_string(ok1) + " nonempty=" + to_string(ok2)
+}
+
+flow Main { input: String = "x" -> test_fit_budget -> output }

@@ -341,6 +341,17 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("cal_freebusy", 3, "calendar"),  // calendar_id, start, end
     spec!("ical_parse", 1, "calendar"),    // text
     spec!("ical_generate", 1, "calendar"), // event_json
+    // ── Наряд MLG-6: Contacts (CardDAV + vCard) ──
+    spec!("card_connect", 3, "contacts"),   // url, user, pass
+    spec!("card_list", 1, "contacts"),      // session_id
+    spec!("card_contacts", 2, "contacts"),  // addressbook_id, query
+    spec!("card_read", 1, "contacts"),      // contact_uid
+    spec!("card_create", 3, 7, "contacts"), // addressbook_id, fn, email [,tel, org, title, note]
+    spec!("card_update", 2, "contacts"),    // contact_uid, fields_json
+    spec!("card_delete", 1, "contacts"),    // contact_uid
+    spec!("card_search", 2, "contacts"),    // session_id, query
+    spec!("vcard_parse", 1, "contacts"),    // text
+    spec!("vcard_generate", 1, "contacts"), // contact_json
 ];
 
 /// Total number of registered builtins.

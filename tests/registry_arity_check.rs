@@ -104,7 +104,7 @@ fn registry_arity_exhaustive() {
         ("form_data", 1, 1),
         ("query_param", 1, 1),
         ("render", 2, 3),
-        ("http_get", 1, 4), // naryad-71: +retry_config
+        ("http_get", 1, 4),  // naryad-71: +retry_config
         ("http_post", 2, 6), // naryad-71: +retry_config Struct
         ("http_post_multipart", 2, 4),
         ("require", 1, 2),

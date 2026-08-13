@@ -104,8 +104,8 @@ fn registry_arity_exhaustive() {
         ("form_data", 1, 1),
         ("query_param", 1, 1),
         ("render", 2, 3),
-        ("http_get", 1, 4), // Наряд №71: +retry_config (max_retries, base_delay)
-        ("http_post", 2, 6), // Наряд №71: +retry_config Struct
+        ("http_get", 1, 4), // naryad-71: +retry_config
+        ("http_post", 2, 6), // naryad-71: +retry_config Struct
         ("http_post_multipart", 2, 4),
         ("require", 1, 2),
         ("web_search", 1, 2),

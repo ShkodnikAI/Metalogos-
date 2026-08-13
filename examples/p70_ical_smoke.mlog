@@ -1,0 +1,20 @@
+// ── Наряд #70 Block 3: iCal smoke golden contract ──────────────────
+// Verifies ical_parse and ical_generate (pure string functions, no network).
+// Tests TW/VM parity for calendar builtin domain.
+
+pattern test_ical_smoke(input: String) -> String {
+  // Generate iCal text from minimal event JSON
+  let event = "{\"summary\":\"Test\",\"dtstart\":\"20250101T100000Z\",\"dtend\":\"20250101T110000Z\"}"
+  let ical_text = ical_generate(event)
+
+  // Parse it back
+  let parsed = ical_parse(ical_text)
+
+  // Check that key fields appear in the parsed output
+  let has_summary = to_float(contains(parsed, "SUMMARY"))
+  let has_dtstart = to_float(contains(parsed, "DTSTART"))
+
+  return "has_summary=" + to_string(has_summary) + " has_dtstart=" + to_string(has_dtstart)
+}
+
+flow Main { input: String = "x" -> test_ical_smoke -> output }

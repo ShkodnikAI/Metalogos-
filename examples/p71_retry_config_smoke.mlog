@@ -1,0 +1,24 @@
+// ── Наряд #71: Retry config smoke golden contract ──────────────────
+// Tests that retry_config Struct fields are properly accessible in .mlog code.
+// No network calls — pure struct construction and field access.
+// Verifies TW/VM parity for struct field access (used by retry_config).
+
+pattern test_retry_config_smoke(input: String) -> String {
+  // Build a retry config struct — verify fields are accessible
+  let rc = {max_retries: 3.0, base_delay: 0.5}
+  let ok1 = to_float(rc.max_retries == 3.0)
+  let ok2 = to_float(rc.base_delay == 0.5)
+
+  // Build a headers struct (no retry fields) — verify it is distinct
+  let hdr = {Authorization: "Bearer test"}
+  let ok3 = to_float(hdr.Authorization == "Bearer test")
+
+  // Verify struct construction with multiple fields
+  let mixed = {max_retries: 5.0, extra: "bonus"}
+  let ok4 = to_float(mixed.max_retries == 5.0)
+  let ok5 = to_float(mixed.extra == "bonus")
+
+  return "rc=" + to_string(ok1) + " " + to_string(ok2) + " hdr=" + to_string(ok3) + " mix=" + to_string(ok4) + " " + to_string(ok5)
+}
+
+flow Main { input: String = "x" -> test_retry_config_smoke -> output }

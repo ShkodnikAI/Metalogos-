@@ -20,7 +20,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::ast::CompareOp as AstCompareOp;
 use crate::builtins::Builtins;
 use crate::bytecode::*;
-use crate::interpreter::{FluidValueVariant, Value};
+use crate::interpreter::{
+    ConvMessage, Conversation, ConversationConfig, Event, FluidValueVariant, PatternStats, Value,
+};
 use crate::llm;
 
 /// The METALOGOS stack-based virtual machine.
@@ -62,6 +64,17 @@ pub struct Vm {
     server_query_params: Option<std::collections::HashMap<String, String>>,
     /// User roles for RBAC (injected by server before route execution).
     server_user_roles: Vec<String>,
+    /// Наряд №72: Conversations storage (ADR-0053 parity with interpreter).
+    conversations: std::sync::Mutex<HashMap<String, Conversation>>,
+    /// Наряд №72: Conversation configuration (ADR-0053 parity with interpreter).
+    conversation_config: ConversationConfig,
+    /// Наряд №72: Event stream (ADR-0052 parity with interpreter).
+    event_log: std::sync::Mutex<Vec<Event>>,
+    /// Наряд №72: Next event ID (ADR-0052 parity with interpreter).
+    #[allow(dead_code)] // Used when VM event emission is added
+    event_next_id: std::sync::atomic::AtomicU64,
+    /// Наряд №72: Per-pattern runtime statistics (ADR-0051 parity with interpreter).
+    pattern_stats: std::sync::Mutex<HashMap<String, PatternStats>>,
 }
 
 /// Collapse threshold for Fluid values (matches interpreter).
@@ -97,6 +110,11 @@ impl Vm {
             server_json_body: None,
             server_query_params: None,
             server_user_roles: Vec::new(),
+            conversations: std::sync::Mutex::new(HashMap::new()),
+            conversation_config: ConversationConfig::default(),
+            event_log: std::sync::Mutex::new(Vec::new()),
+            event_next_id: std::sync::atomic::AtomicU64::new(0),
+            pattern_stats: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -1618,6 +1636,441 @@ impl Vm {
             }
 
             return Ok(Value::List(recipes));
+        }
+
+        // ── Наряд №72: memorize — parity with interpreter::invoke_memorize_fn ──
+        if name == "memorize" {
+            if args.is_empty() {
+                return Err("memorize() requires at least 1 argument (text)".to_string());
+            }
+            let value_str = match &args[0] {
+                Value::String(s) => s.clone(),
+                other => {
+                    return Err(format!(
+                        "memorize() expected String as first arg, got {}",
+                        other.type_name()
+                    ))
+                }
+            };
+            let priority = if args.len() > 1 {
+                args[1].as_float().unwrap_or(1.0)
+            } else {
+                1.0
+            };
+            let mem_type = if args.len() > 2 {
+                match &args[2] {
+                    Value::String(s) => s.clone(),
+                    other => format!("{}", other),
+                }
+            } else {
+                String::new()
+            };
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            self.memory.push(VmMemoryEntry {
+                value: value_str,
+                priority,
+                timestamp: now,
+                decay_rate: 0.01,
+                mem_type,
+            });
+            return Ok(Value::Unit);
+        }
+
+        // ── Наряд №72: forget — parity with interpreter::invoke_forget_fn ──
+        if name == "forget" {
+            if args.is_empty() {
+                return Err("forget() requires at least 1 argument (query)".to_string());
+            }
+            let query_str = match &args[0] {
+                Value::String(s) => s.to_lowercase(),
+                other => {
+                    return Err(format!(
+                        "forget() expected String as first arg, got {}",
+                        other.type_name()
+                    ))
+                }
+            };
+            let days = if args.len() > 1 {
+                args[1].as_float().unwrap_or(30.0) as i64
+            } else {
+                30
+            };
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let cutoff = now - (days * 86400);
+            self.memory
+                .retain(|m| !(m.value.to_lowercase().contains(&query_str) && m.timestamp < cutoff));
+            return Ok(Value::Unit);
+        }
+
+        // ── Наряд №72: query_row — parity with interpreter::invoke_query_row ──
+        if name == "query_row" {
+            let sql = match args.first() {
+                Some(Value::String(s)) => s.clone(),
+                Some(other) => {
+                    return Err(format!(
+                        "query_row() expected String SQL, got {}",
+                        other.type_name()
+                    ))
+                }
+                None => {
+                    return Err("query_row() requires at least 1 argument (SQL string)".to_string())
+                }
+            };
+            let params: Vec<String> = if args.len() > 1 {
+                match &args[1] {
+                    Value::List(items) => items
+                        .iter()
+                        .filter_map(|v| match v {
+                            Value::String(s) => Some(s.clone()),
+                            Value::Float(n) => Some(format!("{}", n)),
+                            Value::Bool(b) => Some(format!("{}", b)),
+                            _ => None,
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                }
+            } else {
+                Vec::new()
+            };
+
+            let conn = self
+                .db_conn
+                .as_mut()
+                .ok_or_else(|| "query_row() error: no database connection.".to_string())?;
+            let mut stmt = conn
+                .prepare(&sql)
+                .map_err(|e| format!("query_row() SQL error: {}", e))?;
+            let col_count = stmt.column_count();
+            let mut rows = stmt
+                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
+                    let mut vals = Vec::with_capacity(col_count);
+                    for i in 0..col_count {
+                        let val = match row.get_ref(i) {
+                            Ok(rusqlite::types::ValueRef::Null) => Value::Unit,
+                            Ok(rusqlite::types::ValueRef::Integer(n)) => Value::Float(n as f64),
+                            Ok(rusqlite::types::ValueRef::Real(f)) => Value::Float(f),
+                            Ok(rusqlite::types::ValueRef::Text(s)) => {
+                                Value::String(String::from_utf8_lossy(s).to_string())
+                            }
+                            Ok(rusqlite::types::ValueRef::Blob(b)) => Value::String(
+                                b.iter().map(|byte| format!("{:02x}", byte)).collect(),
+                            ),
+                            Err(_) => Value::Unit,
+                        };
+                        vals.push(val);
+                    }
+                    Ok(vals)
+                })
+                .map_err(|e| format!("query_row() execution error: {}", e))?;
+
+            match rows.next() {
+                Some(Ok(vals)) => return Ok(Value::List(vals)),
+                Some(Err(e)) => return Err(format!("query_row() row error: {}", e)),
+                None => return Ok(Value::List(vec![])),
+            }
+        }
+
+        // ── Наряд №72: inspect — parity with interpreter::invoke_inspect ──
+        if name == "inspect" {
+            let pattern_name = match args.first() {
+                Some(Value::String(s)) => s.clone(),
+                Some(other) => {
+                    return Err(format!(
+                        "inspect() expected String pattern name, got {}",
+                        other.type_name()
+                    ))
+                }
+                None => return Err("inspect() requires 1 argument (pattern name)".to_string()),
+            };
+
+            // Check if pattern exists in either learnables or patterns
+            let is_learnable = self
+                .learnables
+                .iter()
+                .any(|(info, _)| info.name == pattern_name);
+            let is_regular = self.patterns.iter().any(|p| p.name == pattern_name);
+            if !is_learnable && !is_regular {
+                return Ok(Value::Unit);
+            }
+
+            let stats = self
+                .pattern_stats
+                .lock()
+                .map(|s| s.get(&pattern_name).cloned().unwrap_or_default())
+                .unwrap_or_default();
+
+            let actual_examples = self
+                .learnables
+                .iter()
+                .find(|(info, _)| info.name == pattern_name)
+                .map(|(_, few_shot)| few_shot.len() as u64)
+                .unwrap_or(stats.examples_count);
+
+            let cache_misses = stats.calls.saturating_sub(stats.cache_hits);
+
+            let mut fields = HashMap::new();
+            fields.insert("calls".to_string(), Value::Float(stats.calls as f64));
+            fields.insert(
+                "avg_confidence".to_string(),
+                Value::Float(if stats.calls > 0 {
+                    stats.confidence_sum / stats.calls as f64
+                } else {
+                    0.0
+                }),
+            );
+            fields.insert(
+                "cache_hits".to_string(),
+                Value::Float(stats.cache_hits as f64),
+            );
+            fields.insert(
+                "cache_misses".to_string(),
+                Value::Float(cache_misses as f64),
+            );
+            fields.insert(
+                "last_adapt".to_string(),
+                Value::Float(stats.last_adapt as f64),
+            );
+            fields.insert(
+                "last_call".to_string(),
+                Value::Float(stats.last_call as f64),
+            );
+            fields.insert(
+                "examples_count".to_string(),
+                Value::Float(actual_examples as f64),
+            );
+            fields.insert(
+                "is_learnable".to_string(),
+                Value::Float(if is_learnable { 1.0 } else { 0.0 }),
+            );
+
+            return Ok(Value::Struct {
+                type_name: "PatternStats".to_string(),
+                fields,
+            });
+        }
+
+        // ── Наряд №72: conv_start — parity with interpreter::invoke_conv_start ──
+        if name == "conv_start" {
+            let id = match args.first() {
+                Some(Value::String(s)) => s.clone(),
+                _ => return Err("conv_start() requires 1 argument (id: String)".to_string()),
+            };
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let mut convs = self
+                .conversations
+                .lock()
+                .map_err(|e| format!("conv_start() lock error: {}", e))?;
+            convs.entry(id.clone()).or_insert_with(|| Conversation {
+                id: id.clone(),
+                messages: Vec::new(),
+                created_at: now,
+                last_active: now,
+                metadata: HashMap::new(),
+            });
+            return Ok(Value::String(id));
+        }
+
+        // ── Наряд №72: conv_add — parity with interpreter::invoke_conv_add ──
+        if name == "conv_add" {
+            let id = match args.first() {
+                Some(Value::String(s)) => s.clone(),
+                _ => return Err("conv_add() requires 3 arguments (id, role, text)".to_string()),
+            };
+            let role = match args.get(1) {
+                Some(Value::String(s)) => s.clone(),
+                _ => return Err("conv_add() requires 3 arguments (id, role, text)".to_string()),
+            };
+            let text = match args.get(2) {
+                Some(Value::String(s)) => s.clone(),
+                Some(other) => format!("{}", other),
+                None => return Err("conv_add() requires 3 arguments (id, role, text)".to_string()),
+            };
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+
+            let mut convs = self
+                .conversations
+                .lock()
+                .map_err(|e| format!("conv_add() lock error: {}", e))?;
+            let conv = convs
+                .get_mut(&id)
+                .ok_or_else(|| format!("conv_add() conversation '{}' not found", id))?;
+
+            if conv.messages.len() >= self.conversation_config.max_messages {
+                conv.messages.remove(0);
+            }
+
+            conv.messages.push(ConvMessage {
+                role,
+                text: text.clone(),
+                timestamp: now,
+            });
+            conv.last_active = now;
+
+            return Ok(Value::String(text));
+        }
+
+        // ── Наряд №72: conv_history — parity with interpreter::invoke_conv_history ──
+        if name == "conv_history" {
+            let id = match args.first() {
+                Some(Value::String(s)) => s.clone(),
+                _ => return Err("conv_history() requires 1 argument (id: String)".to_string()),
+            };
+            let convs = self
+                .conversations
+                .lock()
+                .map_err(|e| format!("conv_history() lock error: {}", e))?;
+            let conv = convs
+                .get(&id)
+                .ok_or_else(|| format!("conv_history() conversation '{}' not found", id))?;
+
+            let mut list = Vec::new();
+            for msg in &conv.messages {
+                let mut fields = HashMap::new();
+                fields.insert("role".to_string(), Value::String(msg.role.clone()));
+                fields.insert("text".to_string(), Value::String(msg.text.clone()));
+                fields.insert("timestamp".to_string(), Value::Float(msg.timestamp as f64));
+                list.push(Value::Struct {
+                    type_name: "Message".to_string(),
+                    fields,
+                });
+            }
+            return Ok(Value::List(list));
+        }
+
+        // ── Наряд №72: conv_context — parity with interpreter::invoke_conv_context ──
+        if name == "conv_context" {
+            let id = match args.first() {
+                Some(Value::String(s)) => s.clone(),
+                _ => return Err("conv_context() requires 1 argument (id: String)".to_string()),
+            };
+            let convs = self
+                .conversations
+                .lock()
+                .map_err(|e| format!("conv_context() lock error: {}", e))?;
+            let conv = convs
+                .get(&id)
+                .ok_or_else(|| format!("conv_context() conversation '{}' not found", id))?;
+
+            let mut parts = Vec::new();
+            for msg in &conv.messages {
+                parts.push(format!("{}: {}", msg.role, msg.text));
+            }
+            return Ok(Value::String(parts.join("\n")));
+        }
+
+        // ── Наряд №72: conv_end — parity with interpreter::invoke_conv_end ──
+        if name == "conv_end" {
+            let id = match args.first() {
+                Some(Value::String(s)) => s.clone(),
+                _ => return Err("conv_end() requires 1 argument (id: String)".to_string()),
+            };
+            let mut convs = self
+                .conversations
+                .lock()
+                .map_err(|e| format!("conv_end() lock error: {}", e))?;
+            convs.remove(&id);
+            return Ok(Value::String("ok".to_string()));
+        }
+
+        // ── Наряд №72: event_count — parity with interpreter::event_count ──
+        if name == "event_count" {
+            let etype = args.first().map(|a| format!("{}", a));
+            let count = if let Ok(log) = self.event_log.lock() {
+                match etype.as_deref() {
+                    Some(t) => log.iter().filter(|e| e.event_type == t).count(),
+                    None => log.len(),
+                }
+            } else {
+                0
+            };
+            return Ok(Value::Float(count as f64));
+        }
+
+        // ── Наряд №72: event_sum — parity with interpreter::event_sum ──
+        if name == "event_sum" {
+            if args.len() < 2 {
+                return Err("event_sum() requires 2 arguments (type, field)".to_string());
+            }
+            let etype = format!("{}", args[0]);
+            let field = format!("{}", args[1]);
+            let sum = if let Ok(log) = self.event_log.lock() {
+                log.iter()
+                    .filter(|e| e.event_type == etype)
+                    .filter_map(|e| e.data.get(&field))
+                    .filter_map(|v| v.parse::<f64>().ok())
+                    .sum()
+            } else {
+                0.0
+            };
+            return Ok(Value::Float(sum));
+        }
+
+        // ── Наряд №72: events_since — parity with interpreter::events_since (inline) ──
+        if name == "events_since" {
+            let seconds = match args.first() {
+                Some(Value::Float(s)) => *s,
+                Some(other) => {
+                    return Err(format!(
+                        "events_since() expected Float, got {}",
+                        other.type_name()
+                    ))
+                }
+                None => return Err("events_since() requires 1 argument (seconds)".to_string()),
+            };
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            let since_ms = now_ms.saturating_sub((seconds * 1000.0) as u64);
+            let events = if let Ok(log) = self.event_log.lock() {
+                log.iter()
+                    .filter(|e| e.timestamp >= since_ms)
+                    .cloned()
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+            let mut list = Vec::new();
+            for ev in events {
+                let mut fields = HashMap::new();
+                fields.insert("id".to_string(), Value::Float(ev.id as f64));
+                fields.insert("timestamp".to_string(), Value::Float(ev.timestamp as f64));
+                fields.insert("event_type".to_string(), Value::String(ev.event_type));
+                fields.insert("source".to_string(), Value::String(ev.source));
+                fields.insert(
+                    "data_json".to_string(),
+                    Value::String(format!("{:?}", ev.data)),
+                );
+                if let Some(dur) = ev.duration_ms {
+                    fields.insert("duration_ms".to_string(), Value::Float(dur as f64));
+                }
+                list.push(Value::Struct {
+                    type_name: "Event".to_string(),
+                    fields,
+                });
+            }
+            return Ok(Value::List(list));
+        }
+
+        // ── Наряд №72: fit_to_budget — parity with interpreter (identity stub) ──
+        if name == "fit_to_budget" {
+            let list = match args.first() {
+                Some(Value::List(items)) => items.clone(),
+                _ => return Err("fit_to_budget() expects first argument to be a List".to_string()),
+            };
+            return Ok(Value::List(list));
         }
 
         if let Some(builtin_fn) = self.builtins.get(name) {

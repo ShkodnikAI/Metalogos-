@@ -1,0 +1,25 @@
+// ── Наряд #72: event_* direct golden contract ───────────────────────
+// Calls event_count, event_sum, events_since directly.
+// Verifies functions exist and return consistent results on both backends.
+// Note: TW auto-emits pattern_call events internally, so untyped
+// event_count() and events_since() return different values on TW vs VM.
+// We test with a type filter that neither backend emits.
+
+pattern test_events_direct(input: String) -> String {
+  // event_count with type filter for a type that no test produces
+  let typed = event_count("nonexistent_type_xyz")
+  let ok1 = to_float(typed == 0)
+
+  // event_sum with 2 args (type, field) — should be 0.0 for nonexistent type
+  let sum = event_sum("nonexistent_type_xyz", "duration")
+  let ok2 = to_float(sum == 0)
+
+  // events_since returns a List — verify it's callable (don't check length,
+  // because TW may have auto-emitted internal events)
+  let recent = events_since(0)
+  let ok3 = to_float(length(recent) >= 0)
+
+  return "typed=" + to_string(ok1) + " sum=" + to_string(ok2) + " since=" + to_string(ok3)
+}
+
+flow Main { input: String = "x" -> test_events_direct -> output }

@@ -56,6 +56,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("max", 2, "math"),
     spec!("clamp", 3, "math"),
     spec!("round", 1, "math"),
+    // newline/stdin: remnants of cancelled Phase 4.4 self-hosting plan (ADR-0023).
+    // Retained for bytecode index stability — DO NOT remove without .mbc version bump.
+    // Replaced by literal "\n" and pattern parameters in the hybrid approach.
     spec!("newline", 0, "stub"),
     spec!("stdin", 0, "stub"),
     // split_tokens/if_eq/is_string_token: planned compiler helpers; no handler

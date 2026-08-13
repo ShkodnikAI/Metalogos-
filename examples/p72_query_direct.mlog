@@ -1,0 +1,29 @@
+// ── Наряд #72: query_row + inspect direct golden contract ────────────
+// query_row requires a DB connection (in-memory SQLite).
+// inspect returns PatternStats struct for existing patterns, Unit for missing.
+// Verifies both functions dispatch correctly on TW and VM.
+
+db { url: "sqlite::memory:" }
+
+pattern test_query_direct(input: String) -> String {
+  // Setup: create a table and insert a row
+  let r0 = db_execute("CREATE TABLE test_q(id INTEGER, name TEXT)")
+  let r1 = db_insert("test_q", {id: 1.0, name: "hello"})
+
+  // query_row: SELECT returning exactly one row — result is a List
+  let row = query_row("SELECT name FROM test_q WHERE id = 1")
+  let ok1 = to_float(length(row) == 1)
+
+  // query_row with no matching result — returns empty list
+  let empty = query_row("SELECT name FROM test_q WHERE id = 999")
+  let ok2 = to_float(length(empty) == 0)
+
+  // inspect: nonexistent pattern returns Unit
+  // to_string(Unit) = "()" on both backends
+  let missing = inspect("nonexistent_pattern_xyz")
+  let ok3 = to_float(to_string(missing) == "()")
+
+  return "qr=" + to_string(ok1) + " empty=" + to_string(ok2) + " ins_miss=" + to_string(ok3)
+}
+
+flow Main { input: String = "x" -> test_query_direct -> output }

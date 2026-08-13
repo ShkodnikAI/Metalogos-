@@ -59,6 +59,7 @@ const DISPATCHED_CATEGORIES: &[&str] = &[
     "math",
     "email",    // Наряд MLG-4: SMTP + IMAP
     "calendar", // Наряд MLG-5: CalDAV + iCal
+    "contacts", // Наряд MLG-6: CardDAV + vCard
 ];
 
 fn registry_categories() -> HashSet<&'static str> {

@@ -33,7 +33,7 @@ fn make_cached_learnable_decl(name: &str, prompt: &str, cache: bool, ttl: u64) -
 // ── C1: Identical calls to cached pattern → LLM called exactly once ────
 
 #[test]
-#[ignore] // TODO: global AtomicU64 counter corrupted by parallel tests; needs #[serial_test::serial]
+#[ignore = "TODO: global AtomicU64 counter corrupted by parallel tests; needs #[serial_test::serial]"]
 fn test_cache_identical_calls_single_llm_invocation() {
     MockLlm::reset_call_count();
 
@@ -85,7 +85,7 @@ fn test_cache_identical_calls_single_llm_invocation() {
 // ── C2: Different inputs → separate LLM calls ───────────────────────
 
 #[test]
-#[ignore] // TODO: global AtomicU64 counter corrupted by parallel tests; needs #[serial_test::serial]
+#[ignore = "TODO: global AtomicU64 counter corrupted by parallel tests; needs #[serial_test::serial]"]
 fn test_cache_different_inputs_separate_calls() {
     MockLlm::reset_call_count();
 

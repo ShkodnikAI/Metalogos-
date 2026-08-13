@@ -61,13 +61,13 @@ fn test_tool_string_methods() {
             greet(name: String) -> String {
                 return "Hello, " + name + "!"
             }
-            repeat(text: String) -> String {
+            dup(text: String) -> String {
                 return text + " " + text
             }
         }
         pattern Test(name: String) -> String {
             let greeting = str_api.greet(name)
-            let doubled = str_api.repeat(greeting)
+            let doubled = str_api.dup(greeting)
             return doubled
         }
         flow Main { input: String = "world" -> Test -> output }

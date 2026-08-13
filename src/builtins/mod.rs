@@ -772,7 +772,10 @@ impl Builtins {
         funcs.insert("svg_group".to_string(), builtin_svg_group as BuiltinFn);
         funcs.insert("svg_canvas".to_string(), builtin_svg_canvas as BuiltinFn);
         // Level 2: design tokens
-        funcs.insert("diagram_style".to_string(), builtin_diagram_style as BuiltinFn);
+        funcs.insert(
+            "diagram_style".to_string(),
+            builtin_diagram_style as BuiltinFn,
+        );
         // Level 2.5: wow-effects
         funcs.insert(
             "svg_sketchy_filter".to_string(),

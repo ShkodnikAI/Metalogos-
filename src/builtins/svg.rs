@@ -66,10 +66,7 @@ fn struct_string_field(
             key,
             other.type_name()
         )),
-        None => Err(format!(
-            "{}: missing required field '{}'",
-            struct_name, key
-        )),
+        None => Err(format!("{}: missing required field '{}'", struct_name, key)),
     }
 }
 
@@ -87,19 +84,13 @@ fn struct_float_field(
             key,
             other.type_name()
         )),
-        None => Err(format!(
-            "{}: missing required field '{}'",
-            struct_name, key
-        )),
+        None => Err(format!("{}: missing required field '{}'", struct_name, key)),
     }
 }
 
 /// Extract an optional string field (returns None if missing or Unit).
 #[allow(dead_code)] // reserved for future chart_* types (timeline, pyramid, etc.)
-fn struct_opt_string_field(
-    fields: &HashMap<String, Value>,
-    key: &str,
-) -> Option<String> {
+fn struct_opt_string_field(fields: &HashMap<String, Value>, key: &str) -> Option<String> {
     match fields.get(key) {
         Some(Value::String(s)) => Some(s.clone()),
         Some(Value::Unit) | None => None,
@@ -272,9 +263,7 @@ pub fn builtin_svg_path(args: &[Value]) -> Result<Value, String> {
     };
     // Sanity: reject path data that contains < or > (would break XML structure).
     if d.contains('<') || d.contains('>') {
-        return Err(
-            "svg_path: path data must not contain '<' or '>' characters".to_string(),
-        );
+        return Err("svg_path: path data must not contain '<' or '>' characters".to_string());
     }
     Ok(Value::String(format!(
         r#"<path d="{}" fill="{}" stroke="{}" />"#,
@@ -423,10 +412,7 @@ pub(crate) fn extract_style(value: &Value) -> Result<HashMap<String, Value>, Str
             // Verify all 5 canonical tokens are present
             for k in &["paper", "ink", "accent", "muted", "rule"] {
                 if !fields.contains_key(*k) {
-                    return Err(format!(
-                        "DiagramStyle missing required token '{}'",
-                        k
-                    ));
+                    return Err(format!("DiagramStyle missing required token '{}'", k));
                 }
             }
             Ok(fields.clone())
@@ -439,13 +425,13 @@ pub(crate) fn extract_style(value: &Value) -> Result<HashMap<String, Value>, Str
 }
 
 /// Get a color token from a style HashMap. Returns the string value.
-pub(crate) fn style_token(
-    style: &HashMap<String, Value>,
-    key: &str,
-) -> Result<String, String> {
+pub(crate) fn style_token(style: &HashMap<String, Value>, key: &str) -> Result<String, String> {
     match style.get(key) {
         Some(Value::String(s)) => Ok(s.clone()),
-        _ => Err(format!("DiagramStyle: token '{}' missing or not String", key)),
+        _ => Err(format!(
+            "DiagramStyle: token '{}' missing or not String",
+            key
+        )),
     }
 }
 
@@ -650,7 +636,9 @@ pub fn builtin_svg_sketchy_filter(args: &[Value]) -> Result<Value, String> {
         ));
     }
     // Validate id (must be a valid XML ID — no spaces, no <, >, ", ')
-    if id.is_empty() || id.contains(|c: char| c.is_whitespace() || c == '<' || c == '>' || c == '"' || c == '\'') {
+    if id.is_empty()
+        || id.contains(|c: char| c.is_whitespace() || c == '<' || c == '>' || c == '"' || c == '\'')
+    {
         return Err(format!(
             "svg_sketchy_filter: id must be a non-empty XML-safe identifier (got {:?})",
             id
@@ -878,10 +866,15 @@ mod tests {
 
     #[test]
     fn svg_canvas_returns_valid_xml_skeleton() {
-        let child = builtin_svg_rect(&[f(10.0), f(10.0), f(100.0), f(50.0), s("red"), s("none")])
-            .unwrap();
-        let out = builtin_svg_canvas(&[f(200.0), f(100.0), s("0 0 200 100"), Value::List(vec![child])])
-            .unwrap();
+        let child =
+            builtin_svg_rect(&[f(10.0), f(10.0), f(100.0), f(50.0), s("red"), s("none")]).unwrap();
+        let out = builtin_svg_canvas(&[
+            f(200.0),
+            f(100.0),
+            s("0 0 200 100"),
+            Value::List(vec![child]),
+        ])
+        .unwrap();
         match out {
             Value::String(xml) => {
                 assert!(xml.starts_with(r#"<svg xmlns="http://www.w3.org/2000/svg""#));
@@ -992,7 +985,7 @@ mod tests {
                 // 3 bars (each contains <rect)
                 let rect_count = xml.matches("<rect").count();
                 assert!(rect_count >= 4); // 3 bars + 1 background = 4
-                // Labels present and not escaped (Cyrillic is fine in XML UTF-8)
+                                          // Labels present and not escaped (Cyrillic is fine in XML UTF-8)
                 assert!(xml.contains("Янв"));
                 assert!(xml.contains("Фев"));
                 assert!(xml.contains("Мар"));
@@ -1040,8 +1033,8 @@ mod tests {
 
     #[test]
     fn svg_icon_known_name() {
-        let out = builtin_svg_icon(&[s("server"), f(10.0), f(10.0), f(24.0), s("currentColor")])
-            .unwrap();
+        let out =
+            builtin_svg_icon(&[s("server"), f(10.0), f(10.0), f(24.0), s("currentColor")]).unwrap();
         match out {
             Value::String(xml) => {
                 assert!(xml.contains(r#"<svg "#));
@@ -1064,14 +1057,7 @@ mod tests {
 
     #[test]
     fn svg_callout_default_intent() {
-        let out = builtin_svg_callout(&[
-            s("note"),
-            f(10.0),
-            f(10.0),
-            f(100.0),
-            f(50.0),
-        ])
-        .unwrap();
+        let out = builtin_svg_callout(&[s("note"), f(10.0), f(10.0), f(100.0), f(50.0)]).unwrap();
         match out {
             Value::String(xml) => {
                 // Dashed line (callout invariant)
@@ -1089,14 +1075,8 @@ mod tests {
 
     #[test]
     fn svg_callout_escapes_text() {
-        let out = builtin_svg_callout(&[
-            s("<b>bold</b>"),
-            f(10.0),
-            f(10.0),
-            f(100.0),
-            f(50.0),
-        ])
-        .unwrap();
+        let out =
+            builtin_svg_callout(&[s("<b>bold</b>"), f(10.0), f(10.0), f(100.0), f(50.0)]).unwrap();
         match out {
             Value::String(xml) => {
                 assert!(!xml.contains("<b>bold</b>"));

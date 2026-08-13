@@ -351,18 +351,15 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
 /// Builtins whose string arguments are auto-escaped at runtime.
 /// String literals with `<script>` here generate a WARNING (suspicious
 /// but safe — runtime will escape).
-const SVG_AUTO_ESCAPE_BUILTINS: &[&str] = &[
-    "svg_text",
-    "svg_callout",
-];
+const SVG_AUTO_ESCAPE_BUILTINS: &[&str] = &["svg_text", "svg_callout"];
 
 /// Builtins whose string arguments are NOT auto-escaped (structural).
 /// String literals with `<script>` here generate an ERROR (injection
 /// vector — runtime cannot catch it).
 const SVG_NO_ESCAPE_BUILTINS: &[&str] = &[
-    "svg_path",        // d is path-data mini-language, not escaped
-    "svg_canvas",      // viewbox is structural, not escaped
-    "svg_group",       // transform is structural, not escaped
+    "svg_path",           // d is path-data mini-language, not escaped
+    "svg_canvas",         // viewbox is structural, not escaped
+    "svg_group",          // transform is structural, not escaped
     "svg_sketchy_filter", // id is structural, validated but not escaped as text
 ];
 
@@ -478,7 +475,9 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
                     if s.starts_with("javascript:") || s.starts_with("data:text/html") {
                         result.errors.push(format!(
                             "security: {}({} arg) contains potentially dangerous URL scheme: {:?}",
-                            name, i + 1, s
+                            name,
+                            i + 1,
+                            s
                         ));
                     }
                 }
@@ -535,7 +534,7 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
             }
         }
         Expr::StructLit(fields) => {
-            for (_, v) in fields {
+            for v in fields.values() {
                 walk_expr_for_svg_security(v, result, ctx);
             }
         }
@@ -549,7 +548,12 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
         Expr::Try(inner) => {
             walk_expr_for_svg_security(inner, result, ctx);
         }
-        Expr::BlockIfElse { condition, then_body, else_ifs, else_body } => {
+        Expr::BlockIfElse {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+        } => {
             walk_expr_for_svg_security(condition, result, ctx);
             for s in then_body {
                 walk_stmt_for_svg_security(s, result, ctx);
@@ -597,7 +601,12 @@ fn walk_stmt_for_svg_security(stmt: &Statement, result: &mut AnalysisResult, ctx
                 walk_stmt_for_svg_security(s, result, ctx);
             }
         }
-        Statement::IfElseBlock { condition, then_body, else_ifs, else_body } => {
+        Statement::IfElseBlock {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+        } => {
             walk_expr_for_svg_security(condition, result, ctx);
             for s in then_body {
                 walk_stmt_for_svg_security(s, result, ctx);
@@ -620,7 +629,11 @@ fn walk_stmt_for_svg_security(stmt: &Statement, result: &mut AnalysisResult, ctx
                 walk_stmt_for_svg_security(s, result, ctx);
             }
         }
-        Statement::Match { scrutinee, arms, else_body } => {
+        Statement::Match {
+            scrutinee,
+            arms,
+            else_body,
+        } => {
             walk_expr_for_svg_security(scrutinee, result, ctx);
             for arm in arms {
                 match arm {

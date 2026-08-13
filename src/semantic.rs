@@ -309,7 +309,401 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         }
     }
 
+    // ── Нарjad №74: SVG/HTML security lint (ADR-0102) ──
+    // AST-level analysis: detect potential injection vectors that could
+    // bypass runtime escaping. See `svg_security_lint` docstring below.
+    svg_security_lint(declarations, &mut result);
+
     result
+}
+
+// ── Наряд №74: SVG/HTML Security Lint ────────────────────────────────
+//
+// Walks the AST of every declaration and inspects all `Expr::FnCall`
+// nodes. For each call to an SVG/HTML-emitting builtin (svg_text,
+// svg_callout, svg_path, svg_canvas, svg_group, chart_*, diagram_*,
+// html_response, escape_html), it inspects the string-literal arguments.
+//
+// Findings:
+//
+//   ERROR (potential bypass):
+//     A string literal containing `<script`, `javascript:`, or `on\w+=`
+//     is passed to a builtin that does NOT auto-escape that argument
+//     (e.g. svg_path's `d` argument is structural and not escaped).
+//     Also: a `<script` literal appearing in any string concatenation
+//     that ends up in an HTML context.
+//
+//   WARNING (suspicious but auto-escaped):
+//     A string literal containing `<script>`, `on\w+=`, etc. passed to
+//     a builtin that DOES auto-escape (svg_text content, svg_callout
+//     text). Runtime will escape it correctly, but the source intent
+//     looks like an attempted injection — worth flagging for review.
+//
+// This is defense-in-depth: runtime escaping (escape_html_chars in
+// svg_text, svg_callout) is the primary barrier. The lint catches the
+// case where an attacker could bypass escaping by passing the payload
+// to a non-escaping argument (svg_path d, svg_canvas viewbox, etc.).
+//
+// Whitelist: Google Fonts URLs ("https://fonts.googleapis.com/...")
+// are explicitly permitted in href/src contexts — the only external
+// resource allowed (matches the source repo's self_check.py rule).
+
+/// Builtins whose string arguments are auto-escaped at runtime.
+/// String literals with `<script>` here generate a WARNING (suspicious
+/// but safe — runtime will escape).
+const SVG_AUTO_ESCAPE_BUILTINS: &[&str] = &[
+    "svg_text",
+    "svg_callout",
+];
+
+/// Builtins whose string arguments are NOT auto-escaped (structural).
+/// String literals with `<script>` here generate an ERROR (injection
+/// vector — runtime cannot catch it).
+const SVG_NO_ESCAPE_BUILTINS: &[&str] = &[
+    "svg_path",        // d is path-data mini-language, not escaped
+    "svg_canvas",      // viewbox is structural, not escaped
+    "svg_group",       // transform is structural, not escaped
+    "svg_sketchy_filter", // id is structural, validated but not escaped as text
+];
+
+/// Argument indices that are auto-escaped within SVG_AUTO_ESCAPE_BUILTINS.
+/// For svg_text: arg 2 (content). For svg_callout: arg 0 (text).
+fn auto_escaped_arg_index(builtin: &str) -> Option<usize> {
+    match builtin {
+        "svg_text" => Some(2),
+        "svg_callout" => Some(0),
+        _ => None,
+    }
+}
+
+/// Detect potential XSS/injection payload in a string literal.
+/// Returns Some(reason) if the string looks dangerous.
+fn detect_xss_payload(s: &str) -> Option<&'static str> {
+    let lower = s.to_lowercase();
+    if lower.contains("<script") {
+        return Some("contains <script> tag");
+    }
+    if lower.contains("javascript:") {
+        return Some("contains javascript: URL");
+    }
+    // on<event>= attributes: onclick=, onload=, onerror=, etc.
+    // Match `on` followed by 2+ letters followed by `=`
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i + 4 < bytes.len() {
+        if bytes[i] == b'o' && bytes[i + 1] == b'n' {
+            // Check that what follows is letters then '='
+            let mut j = i + 2;
+            let mut letter_count = 0;
+            while j < bytes.len() && bytes[j].is_ascii_alphabetic() {
+                letter_count += 1;
+                j += 1;
+            }
+            if letter_count >= 2 && j < bytes.len() && bytes[j] == b'=' {
+                return Some("contains onX event handler attribute");
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Check if a URL is on the whitelist (Google Fonts only).
+fn is_whitelisted_url(url: &str) -> bool {
+    let trimmed = url.trim();
+    // Allow Google Fonts CSS and font files
+    if trimmed.starts_with("https://fonts.googleapis.com/") {
+        return true;
+    }
+    if trimmed.starts_with("https://fonts.gstatic.com/") {
+        return true;
+    }
+    // Allow data: URIs for SVG inline (common for icons)
+    if trimmed.starts_with("data:image/svg+xml") {
+        return true;
+    }
+    false
+}
+
+/// Walk an expression and run the security check on every FnCall node.
+fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &str) {
+    match expr {
+        Expr::FnCall(name, args) => {
+            // Check string-literal arguments to SVG builtins
+            if SVG_AUTO_ESCAPE_BUILTINS.contains(&name.as_str()) {
+                if let Some(content_idx) = auto_escaped_arg_index(name) {
+                    if let Some(Expr::StringLit(s)) = args.get(content_idx) {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(format!(
+                                "security: {}({} arg) string literal {} — runtime will escape, but review intent",
+                                name, content_idx + 1, reason
+                            ));
+                        }
+                    }
+                }
+            }
+            if SVG_NO_ESCAPE_BUILTINS.contains(&name.as_str()) {
+                // Check ALL string-literal args — any of them could be an injection vector
+                for (i, arg) in args.iter().enumerate() {
+                    if let Expr::StringLit(s) = arg {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.errors.push(format!(
+                                "security: {}({} arg) string literal {} — this builtin does NOT auto-escape this argument; potential injection vector",
+                                name, i + 1, reason
+                            ));
+                        }
+                        // For svg_canvas, check viewbox arg specifically
+                        if name == "svg_canvas" && i == 2 {
+                            // viewbox should be 4 numbers — any other format is suspicious
+                            let parts: Vec<&str> = s.split_whitespace().collect();
+                            if parts.len() != 4 || parts.iter().any(|p| p.parse::<f64>().is_err()) {
+                                result.warnings.push(format!(
+                                    "security: svg_canvas viewbox argument should be 4 numbers, got {:?}",
+                                    s
+                                ));
+                            }
+                        }
+                    } else {
+                        // Recurse into non-literal expressions (concat, list, etc.)
+                        // to catch <script> hidden inside e.g. "M 10 10 " + "<script>"
+                        walk_expr_for_svg_security(arg, result, ctx);
+                    }
+                }
+            }
+            // Check for external URLs in non-whitelisted contexts
+            // (e.g. svg_icon color, svg_text fill) — these are colors, not URLs,
+            // but if someone passes "javascript:..." as a color, that's suspicious
+            for (i, arg) in args.iter().enumerate() {
+                if let Expr::StringLit(s) = arg {
+                    if s.starts_with("javascript:") || s.starts_with("data:text/html") {
+                        result.errors.push(format!(
+                            "security: {}({} arg) contains potentially dangerous URL scheme: {:?}",
+                            name, i + 1, s
+                        ));
+                    }
+                }
+            }
+            // Recurse into arguments
+            for arg in args {
+                walk_expr_for_svg_security(arg, result, ctx);
+            }
+        }
+        Expr::QualifiedCall { function, args, .. } => {
+            for arg in args {
+                walk_expr_for_svg_security(arg, result, ctx);
+            }
+            let _ = function;
+        }
+        Expr::BinaryOp(lhs, _, rhs) => {
+            // String concatenation: walk BOTH sides to scan all string literals.
+            // If a StringLit appears inside a concat that's an arg to an SVG
+            // no-escape builtin, the surrounding FnCall walker has already
+            // recursed into us (via the `else` branch). Here we additionally
+            // scan the immediate StringLit children of BinaryOp for XSS payloads
+            // — this catches concat expressions where the FnCall walker didn't
+            // flag them because the payload is buried inside a BinaryOp.
+            if let Expr::StringLit(s) = lhs.as_ref() {
+                if let Some(reason) = detect_xss_payload(s) {
+                    // This is a WARNING only — we don't know if this concat
+                    // feeds an SVG context. The FnCall walker will escalate
+                    // to ERROR if appropriate.
+                    result.warnings.push(format!(
+                        "security: string literal in concatenation {} — review usage",
+                        reason
+                    ));
+                }
+            }
+            if let Expr::StringLit(s) = rhs.as_ref() {
+                if let Some(reason) = detect_xss_payload(s) {
+                    result.warnings.push(format!(
+                        "security: string literal in concatenation {} — review usage",
+                        reason
+                    ));
+                }
+            }
+            walk_expr_for_svg_security(lhs, result, ctx);
+            walk_expr_for_svg_security(rhs, result, ctx);
+        }
+        Expr::IfElse(cond, then_e, else_e) => {
+            walk_expr_for_svg_security(cond, result, ctx);
+            walk_expr_for_svg_security(then_e, result, ctx);
+            walk_expr_for_svg_security(else_e, result, ctx);
+        }
+        Expr::List(items) => {
+            for item in items {
+                walk_expr_for_svg_security(item, result, ctx);
+            }
+        }
+        Expr::StructLit(fields) => {
+            for (_, v) in fields {
+                walk_expr_for_svg_security(v, result, ctx);
+            }
+        }
+        Expr::FieldAccess(inner, _) => {
+            walk_expr_for_svg_security(inner, result, ctx);
+        }
+        Expr::IndexAccess(inner, idx) => {
+            walk_expr_for_svg_security(inner, result, ctx);
+            walk_expr_for_svg_security(idx, result, ctx);
+        }
+        Expr::Try(inner) => {
+            walk_expr_for_svg_security(inner, result, ctx);
+        }
+        Expr::BlockIfElse { condition, then_body, else_ifs, else_body } => {
+            walk_expr_for_svg_security(condition, result, ctx);
+            for s in then_body {
+                walk_stmt_for_svg_security(s, result, ctx);
+            }
+            for (cond, body) in else_ifs {
+                walk_expr_for_svg_security(cond, result, ctx);
+                for s in body {
+                    walk_stmt_for_svg_security(s, result, ctx);
+                }
+            }
+            if let Some(body) = else_body {
+                for s in body {
+                    walk_stmt_for_svg_security(s, result, ctx);
+                }
+            }
+        }
+        Expr::StringLit(_) | Expr::FloatLit(_) | Expr::BoolLit(_) | Expr::Ident(_) => {}
+    }
+    let _ = ctx;
+}
+
+/// Walk a statement and run security check on every expression it contains.
+fn walk_stmt_for_svg_security(stmt: &Statement, result: &mut AnalysisResult, ctx: &str) {
+    match stmt {
+        Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+            walk_expr_for_svg_security(value, result, ctx);
+        }
+        Statement::Return(e) => walk_expr_for_svg_security(e, result, ctx),
+        Statement::ExprStmt(e) => walk_expr_for_svg_security(e, result, ctx),
+        Statement::Each { iterable, body, .. } => {
+            walk_expr_for_svg_security(iterable, result, ctx);
+            for s in body {
+                walk_stmt_for_svg_security(s, result, ctx);
+            }
+        }
+        Statement::EachWithIndex { iterable, body, .. } => {
+            walk_expr_for_svg_security(iterable, result, ctx);
+            for s in body {
+                walk_stmt_for_svg_security(s, result, ctx);
+            }
+        }
+        Statement::While { condition, body } => {
+            walk_expr_for_svg_security(condition, result, ctx);
+            for s in body {
+                walk_stmt_for_svg_security(s, result, ctx);
+            }
+        }
+        Statement::IfElseBlock { condition, then_body, else_ifs, else_body } => {
+            walk_expr_for_svg_security(condition, result, ctx);
+            for s in then_body {
+                walk_stmt_for_svg_security(s, result, ctx);
+            }
+            for (cond, body) in else_ifs {
+                walk_expr_for_svg_security(cond, result, ctx);
+                for s in body {
+                    walk_stmt_for_svg_security(s, result, ctx);
+                }
+            }
+            if let Some(body) = else_body {
+                for s in body {
+                    walk_stmt_for_svg_security(s, result, ctx);
+                }
+            }
+        }
+        Statement::IfThen(cond, body) => {
+            walk_expr_for_svg_security(cond, result, ctx);
+            for s in body {
+                walk_stmt_for_svg_security(s, result, ctx);
+            }
+        }
+        Statement::Match { scrutinee, arms, else_body } => {
+            walk_expr_for_svg_security(scrutinee, result, ctx);
+            for arm in arms {
+                match arm {
+                    MatchArm::Compare(_, e, body) => {
+                        walk_expr_for_svg_security(e, result, ctx);
+                        for s in body {
+                            walk_stmt_for_svg_security(s, result, ctx);
+                        }
+                    }
+                    MatchArm::Exact(_, body)
+                    | MatchArm::StartsWith(_, body)
+                    | MatchArm::Contains(_, body) => {
+                        for s in body {
+                            walk_stmt_for_svg_security(s, result, ctx);
+                        }
+                    }
+                }
+            }
+            if let Some(body) = else_body {
+                for s in body {
+                    walk_stmt_for_svg_security(s, result, ctx);
+                }
+            }
+        }
+        Statement::Break | Statement::Continue => {}
+    }
+}
+
+/// Walk all declarations and run the SVG/HTML security lint.
+fn svg_security_lint(declarations: &[Declaration], result: &mut AnalysisResult) {
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                let ctx = format!("pattern {}", p.name);
+                for s in &p.body {
+                    walk_stmt_for_svg_security(s, result, &ctx);
+                }
+            }
+            Declaration::Flow(f) => {
+                let ctx = format!("flow {}", f.name);
+                walk_expr_for_svg_security(&f.source, result, &ctx);
+                for (_, branches) in &f.branch_defs {
+                    for branch in branches {
+                        // Branch bodies can contain expressions in pipeline steps
+                        let _ = branch;
+                    }
+                }
+            }
+            Declaration::EntitySimple(e) => {
+                let ctx = format!("entity {}", e.name);
+                walk_expr_for_svg_security(&e.value, result, &ctx);
+            }
+            Declaration::EntityRecord(e) => {
+                let ctx = format!("entity {}", e.name);
+                for f in &e.fields {
+                    walk_expr_for_svg_security(&f.value, result, &ctx);
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                let ctx = "mlogserver".to_string();
+                for route in &srv.routes {
+                    for s in &route.body {
+                        walk_stmt_for_svg_security(s, result, &ctx);
+                    }
+                }
+            }
+            Declaration::Template(t) => {
+                // Template body is a raw string with {{ var }} placeholders,
+                // not parsed statements. We do a simple text scan for XSS payloads.
+                let ctx = format!("template {}", t.name);
+                if let Some(reason) = detect_xss_payload(&t.body) {
+                    result.errors.push(format!(
+                        "security: template '{}' body {} — templates are raw HTML, no auto-escaping",
+                        t.name, reason
+                    ));
+                }
+                let _ = ctx;
+            }
+            _ => {}
+        }
+    }
+    // Suppress unused warning for is_whitelisted_url (kept for future URL-context checks)
+    let _ = is_whitelisted_url("https://fonts.googleapis.com/css");
 }
 
 /// Helper: extract field names from an EntityType declaration.

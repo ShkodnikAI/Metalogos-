@@ -762,6 +762,27 @@ impl Builtins {
             builtin_vcard_generate as BuiltinFn,
         );
 
+        // ── Наряд №74: Native SVG Graphics & Diagrams (ADR-0102) ──
+        // Level 1: SVG primitives
+        funcs.insert("svg_rect".to_string(), builtin_svg_rect as BuiltinFn);
+        funcs.insert("svg_circle".to_string(), builtin_svg_circle as BuiltinFn);
+        funcs.insert("svg_line".to_string(), builtin_svg_line as BuiltinFn);
+        funcs.insert("svg_text".to_string(), builtin_svg_text as BuiltinFn);
+        funcs.insert("svg_path".to_string(), builtin_svg_path as BuiltinFn);
+        funcs.insert("svg_group".to_string(), builtin_svg_group as BuiltinFn);
+        funcs.insert("svg_canvas".to_string(), builtin_svg_canvas as BuiltinFn);
+        // Level 2: design tokens
+        funcs.insert("diagram_style".to_string(), builtin_diagram_style as BuiltinFn);
+        // Level 2.5: wow-effects
+        funcs.insert(
+            "svg_sketchy_filter".to_string(),
+            builtin_svg_sketchy_filter as BuiltinFn,
+        );
+        funcs.insert("svg_icon".to_string(), builtin_svg_icon as BuiltinFn);
+        funcs.insert("svg_callout".to_string(), builtin_svg_callout as BuiltinFn);
+        // Level 3: high-level chart types
+        funcs.insert("chart_bar".to_string(), builtin_chart_bar as BuiltinFn);
+
         // ── Наряд №50 Block 3: SHA-256 / HMAC / hex builtins ──
         funcs.insert("sha256".to_string(), builtin_sha256 as BuiltinFn);
         funcs.insert("hmac_sha256".to_string(), builtin_hmac_sha256 as BuiltinFn);
@@ -825,6 +846,10 @@ pub(crate) mod calendar;
 use calendar::*;
 pub(crate) mod contacts;
 use contacts::*;
+
+// Наряд №74: Native SVG Graphics & Diagrams (ADR-0102)
+pub(crate) mod svg;
+use svg::*;
 
 #[cfg(test)]
 mod tests;

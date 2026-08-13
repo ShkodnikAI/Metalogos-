@@ -1,0 +1,34 @@
+// ── Наряд #72: conv_* direct golden contract ────────────────────────
+// Calls conv_start, conv_add, conv_history, conv_context, conv_end directly.
+// Verifies TW/VM parity for conversation builtins.
+
+pattern test_conv_direct(input: String) -> String {
+  // Start a conversation
+  let cid = conv_start("p72test")
+
+  // Add two messages
+  let r1 = conv_add("p72test", "user", "hello")
+  let r2 = conv_add("p72test", "assistant", "hi there")
+
+  // Get history as list of Message structs
+  let hist = conv_history("p72test")
+  let hlen = length(hist)
+  let ok1 = to_float(hlen == 2)
+
+  // Get context as formatted string
+  let ctx = conv_context("p72test")
+  let ok2 = to_float(length(ctx) > 0)
+
+  // End the conversation
+  let r3 = conv_end("p72test")
+
+  // conv_end returns "ok"
+  let ok3 = to_float(r3 == "ok")
+
+  // conv_add returns the text that was added
+  let ok4 = to_float(r1 == "hello")
+
+  return "hist=" + to_string(ok1) + " ctx=" + to_string(ok2) + " end=" + to_string(ok3) + " add=" + to_string(ok4)
+}
+
+flow Main { input: String = "x" -> test_conv_direct -> output }

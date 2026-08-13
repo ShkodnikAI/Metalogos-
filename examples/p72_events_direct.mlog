@@ -1,0 +1,26 @@
+// ── Наряд #72: event_* direct golden contract ───────────────────────
+// Calls event_count, event_sum, events_since directly.
+// No events emitted in this test — verifies functions exist and return
+// consistent empty results on both backends.
+
+pattern test_events_direct(input: String) -> String {
+  // event_count with no args — total events (should be 0 in this test)
+  let total = event_count()
+  let ok1 = to_float(total == 0)
+
+  // event_count with type filter (should be 0)
+  let typed = event_count("pattern_call")
+  let ok2 = to_float(typed == 0)
+
+  // event_sum with 2 args (type, field) — should be 0.0
+  let sum = event_sum("pattern_call", "duration")
+  let ok3 = to_float(sum == 0)
+
+  // events_since with 1 arg (seconds) — should return empty list
+  let recent = events_since(999999)
+  let ok4 = to_float(length(recent) == 0)
+
+  return "total=" + to_string(ok1) + " typed=" + to_string(ok2) + " sum=" + to_string(ok3) + " since=" + to_string(ok4)
+}
+
+flow Main { input: String = "x" -> test_events_direct -> output }

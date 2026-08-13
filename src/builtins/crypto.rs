@@ -5,7 +5,18 @@ use crate::interpreter::{SecretString, Value};
 use super::core::expect_string_arg;
 
 pub(crate) fn builtin_hash_password(args: &[Value]) -> Result<Value, String> {
-    let password = expect_string_arg("hash_password", args, 0)?;
+    // Accept both String (backward compat) and Secret (secure path)
+    let password = match args.first() {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Secret(zs)) => zs.as_str().to_string(),
+        Some(other) => {
+            return Err(format!(
+                "hash_password() expected String or Secret as first arg, got {}",
+                other.type_name()
+            ))
+        }
+        None => return Err("hash_password() requires 1 argument".to_string()),
+    };
     // Argon2id with random salt — real password hashing (Phase 7.3)
     use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
     use rand::rngs::OsRng;
@@ -19,7 +30,18 @@ pub(crate) fn builtin_hash_password(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(crate) fn builtin_verify_password(args: &[Value]) -> Result<Value, String> {
-    let password = expect_string_arg("verify_password", args, 0)?;
+    // Accept both String (backward compat) and Secret (secure path)
+    let password = match args.first() {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Secret(zs)) => zs.as_str().to_string(),
+        Some(other) => {
+            return Err(format!(
+                "verify_password() expected String or Secret as first arg, got {}",
+                other.type_name()
+            ))
+        }
+        None => return Err("verify_password() requires 2 arguments".to_string()),
+    };
     let hash_str = match args.get(1) {
         Some(Value::Hash(h)) => h.as_str(),
         Some(other) => {

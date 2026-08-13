@@ -25,10 +25,13 @@ static CARD_SESSIONS: Lazy<Mutex<HashMap<String, CardSession>>> =
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-/// Extract a string Value or return an error.
+/// Extract a string (or Secret) Value or return an error.
+/// Accepts both Value::String and Value::Secret so that password
+/// arguments can be passed as opaque Secret without unwrapping.
 fn str_arg(args: &[Value], idx: usize, name: &str) -> Result<String, String> {
     match args.get(idx) {
         Some(Value::String(s)) => Ok(s.clone()),
+        Some(Value::Secret(zs)) => Ok(zs.as_str().to_string()),
         _ => Err(format!("{}: arg {} must be a string", name, idx + 1)),
     }
 }

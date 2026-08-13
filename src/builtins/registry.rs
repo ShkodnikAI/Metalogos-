@@ -367,6 +367,23 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("card_search", 2, "contacts"),    // session_id, query
     spec!("vcard_parse", 1, "contacts"),    // text
     spec!("vcard_generate", 1, "contacts"), // contact_json
+    // ── Наряд №74: Native SVG Graphics & Diagrams (ADR-0102) ──
+    // Level 1: SVG primitives — return XML fragments
+    spec!("svg_rect", 5, 6, "svg"),  // x, y, w, h, fill [, stroke]
+    spec!("svg_circle", 4, "svg"),   // cx, cy, r, fill
+    spec!("svg_line", 5, 6, "svg"),  // x1, y1, x2, y2, stroke [, width]
+    spec!("svg_text", 5, 6, "svg"),  // x, y, content, font_size, fill [, anchor]
+    spec!("svg_path", 2, 3, "svg"),  // d, fill [, stroke]
+    spec!("svg_group", 1, 2, "svg"), // children [, transform]
+    spec!("svg_canvas", 4, "svg"),   // width, height, viewbox, children
+    // Level 2: design tokens
+    spec!("diagram_style", 1, "tokens"), // {paper, ink, accent, muted, rule}
+    // Level 2.5: wow-effects
+    spec!("svg_sketchy_filter", 1, 5, "svg"), // id [, base_freq, octaves, scale, seed]
+    spec!("svg_icon", 5, "svg"),              // name, x, y, size, color
+    spec!("svg_callout", 5, 6, "svg"),        // text, from_x, from_y, to_x, to_y [, intent]
+    // Level 3: high-level chart types
+    spec!("chart_bar", 2, "chart"), // data, style
 ];
 
 /// Total number of registered builtins.

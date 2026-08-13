@@ -1,8 +1,33 @@
 # ADR 0023 — Self-Hosting: First Lexer Component (Phase 4.4)
 
-**Status**: Accepted  
+**Status**: Accepted (implementation pending — see Re-measurement below)  
 **Date**: 2026-06-01  
 **Milestone**: Phase 4.4 — Polar Star (Полярная звезда)  
+
+## Re-measurement (Наряд №73, 2026-08-13)
+
+Investigation found that the 5 builtins described in this ADR
+(stdin, split_tokens, if_eq, newline, is_string_token) were never
+implemented in main. Only their names were registered as bytecode
+opcode indices (commit b3f5921, 2026-06-02). The committed
+`self-host/lexer.mlog` was rewritten to use pure Metalogos constructs
+(if/then/else, literal `"\n"`, char_at/index_of/substring) and does
+not depend on these builtins.
+
+The lexer.mlog itself is non-functional for a separate, unrelated
+reason: test `self_host_lexer` has been `#[ignore]` since commit
+`e61bd66`, reason "produces no output — needs investigation". That
+investigation has not been done.
+
+The "25 tests pass" claim and the sample output in the Contract
+Verification section below do not correspond to any code that has
+existed in main history. Most likely they describe a local prototype
+that was never committed in full.
+
+**Open question, not resolved by this re-measurement:** whether
+self-hosting is worth pursuing further is a product decision, not
+a technical one — the rewritten lexer.mlog needs its own investigation
+independent of the 5 stub builtins above.
 
 ## Context
 

@@ -136,12 +136,6 @@ pub(crate) fn parse_status_line(status_body: &str) -> (u16, String) {
     (status, body)
 }
 
-/// Send an HTTP POST request. Returns the response body as String.
-/// Usage: http_post(url, body, content_type)
-/// Usage: http_post(url, body, content_type, auth_token)        — sets Authorization: Bearer <auth_token>
-/// Usage: http_post(url, body, content_type, headers_struct)    — sets headers from Struct fields
-/// Наряд №12 Bug 2: Added 4th parameter for authorization headers.
-
 // ── Наряд №71 — Retry helpers for HTTP builtins ────────────────────────
 
 /// Configuration for HTTP retry behaviour. Parsed from an optional Struct arg.
@@ -203,6 +197,12 @@ fn should_retry_http(status: u16) -> bool {
     status == 429 || (500..600).contains(&status)
 }
 
+/// Send an HTTP POST request. Returns the response body as String.
+/// Usage: http_post(url, body, content_type)
+/// Usage: http_post(url, body, content_type, auth_token)        — sets Authorization: Bearer <auth_token>
+/// Usage: http_post(url, body, content_type, headers_struct)    — sets headers from Struct fields
+/// Наряд №12 Bug 2: Added 4th parameter for authorization headers.
+/// Наряд №71: Optional trailing retry_config Struct {max_retries, base_delay}.
 pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
     // Наряд №71: extract retry_config from last arg if present (Struct with retry fields).
     // When no retry_config provided, max_retries=0 → no retry (backward compatible).

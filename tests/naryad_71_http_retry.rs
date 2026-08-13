@@ -20,20 +20,31 @@ mod tests {
     const SERVER_PORT: u16 = 18771;
     const BASE_URL: &str = "http://127.0.0.1:18771";
 
-    /// Start the test server as a child process, wait for it to be ready.
-    fn start_server() -> Child {
-        let child = Command::new("python3")
-            .arg("tests/p71_http_retry_server.py")
-            .arg("--port")
-            .arg(SERVER_PORT.to_string())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("failed to start test server");
+    /// RAII guard: kills the child server process on drop.
+    struct ServerGuard(Child);
 
-        // Wait for server to be ready
-        thread::sleep(Duration::from_millis(500));
-        child
+    impl ServerGuard {
+        fn spawn() -> Self {
+            let child = Command::new("python3")
+                .arg("tests/p71_http_retry_server.py")
+                .arg("--port")
+                .arg(SERVER_PORT.to_string())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("failed to start test server");
+
+            // Wait for server to be ready
+            thread::sleep(Duration::from_millis(500));
+            Self(child)
+        }
+    }
+
+    impl Drop for ServerGuard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
     }
 
     /// Reset server-side scenario counters via GET /?reset=1
@@ -42,7 +53,7 @@ mod tests {
             .timeout(Duration::from_secs(2))
             .build()
             .unwrap();
-        let _ = client.get(&format!("{}/?reset=1", BASE_URL)).send();
+        let _ = client.get(format!("{}/?reset=1", BASE_URL)).send();
     }
 
     /// Build a RetryConfig Struct value
@@ -60,7 +71,7 @@ mod tests {
 
     #[test]
     fn test_retry_succeeds_after_503s() {
-        let _server = start_server();
+        let _server = ServerGuard::spawn();
         reset_server();
 
         let builtins = Builtins::new();
@@ -88,7 +99,7 @@ mod tests {
 
     #[test]
     fn test_retry_http_post_succeeds_after_503s() {
-        let _server = start_server();
+        let _server = ServerGuard::spawn();
         reset_server();
 
         let builtins = Builtins::new();
@@ -118,7 +129,7 @@ mod tests {
 
     #[test]
     fn test_no_retry_on_fatal_400() {
-        let _server = start_server();
+        let _server = ServerGuard::spawn();
         reset_server();
 
         let builtins = Builtins::new();
@@ -147,7 +158,7 @@ mod tests {
 
     #[test]
     fn test_backward_compat_no_retry_config() {
-        let _server = start_server();
+        let _server = ServerGuard::spawn();
         reset_server();
 
         let builtins = Builtins::new();
@@ -171,7 +182,7 @@ mod tests {
 
     #[test]
     fn test_backward_compat_post_no_retry_on_503() {
-        let _server = start_server();
+        let _server = ServerGuard::spawn();
         reset_server();
 
         let builtins = Builtins::new();
@@ -196,7 +207,7 @@ mod tests {
 
     #[test]
     fn test_retry_config_with_zero_retries() {
-        let _server = start_server();
+        let _server = ServerGuard::spawn();
         reset_server();
 
         let builtins = Builtins::new();

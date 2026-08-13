@@ -1,1 +1,1 @@
-error: undefined: function 'nonexistent_func' is not a builtin, pattern, or learnable
+[ERROR: unknown function 'nonexistent_func']

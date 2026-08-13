@@ -35,7 +35,9 @@ fn svg_text_script_literal_warns_but_does_not_error() {
         errors(&r)
     );
     // MAY produce a warning (suspicious intent — worth reviewing)
-    let has_warning = warnings(&r).iter().any(|w| w.contains("svg_text") && w.contains("script"));
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("svg_text") && w.contains("script"));
     assert!(
         has_warning,
         "svg_text with <script> should produce a warning (suspicious intent), warnings: {:?}",
@@ -51,7 +53,8 @@ fn svg_path_d_with_script_literal_errors() {
     let r = check_program(src).unwrap();
     let errs = errors(&r);
     assert!(
-        errs.iter().any(|e| e.contains("svg_path") && e.contains("does NOT auto-escape")),
+        errs.iter()
+            .any(|e| e.contains("svg_path") && e.contains("does NOT auto-escape")),
         "svg_path with <script> in d arg should ERROR (no auto-escape), errors: {:?}",
         errs
     );
@@ -65,7 +68,8 @@ fn svg_canvas_viewbox_with_script_errors() {
     let r = check_program(src).unwrap();
     let errs = errors(&r);
     assert!(
-        errs.iter().any(|e| e.contains("svg_canvas") && e.contains("does NOT auto-escape")),
+        errs.iter()
+            .any(|e| e.contains("svg_canvas") && e.contains("does NOT auto-escape")),
         "svg_canvas with <script> in viewbox should ERROR, errors: {:?}",
         errs
     );
@@ -100,7 +104,8 @@ fn javascript_url_scheme_in_svg_arg_errors() {
     let r = check_program(src).unwrap();
     let errs = errors(&r);
     assert!(
-        errs.iter().any(|e| e.contains("javascript:") || e.contains("dangerous URL")),
+        errs.iter()
+            .any(|e| e.contains("javascript:") || e.contains("dangerous URL")),
         "javascript: URL scheme should ERROR, errors: {:?}",
         errs
     );
@@ -115,7 +120,8 @@ fn onx_attribute_in_svg_path_errors() {
     let r = check_program(src).unwrap();
     let errs = errors(&r);
     assert!(
-        errs.iter().any(|e| e.contains("onX") || e.contains("event handler")),
+        errs.iter()
+            .any(|e| e.contains("onX") || e.contains("event handler")),
         "onX attribute in svg_path should ERROR, errors: {:?}",
         errs
     );
@@ -128,7 +134,9 @@ fn onx_attribute_in_svg_text_warns() {
     let r = check_program(src).unwrap();
     let warns = warnings(&r);
     assert!(
-        warns.iter().any(|w| w.contains("onX") || w.contains("event handler")),
+        warns
+            .iter()
+            .any(|w| w.contains("onX") || w.contains("event handler")),
         "onX in svg_text content should WARN (auto-escaped), warnings: {:?}",
         warns
     );
@@ -140,8 +148,14 @@ fn onx_attribute_in_svg_text_warns() {
 fn clean_svg_program_has_no_security_findings() {
     let src = "pattern P(input: String) -> String {\n    let r = svg_rect(10.0, 10.0, 100.0, 50.0, \"#eb6c36\", \"none\")\n    let t = svg_text(20.0, 40.0, \"Hello\", 14.0, \"#2d3142\", \"start\")\n    return svg_canvas(200.0, 100.0, \"0 0 200 100\", [r, t])\n}\nflow Main { input: String = \"x\" -> P -> output }";
     let r = check_program(src).unwrap();
-    let sec_errors: Vec<_> = errors(&r).into_iter().filter(|e| e.contains("security:")).collect();
-    let sec_warnings: Vec<_> = warnings(&r).into_iter().filter(|w| w.contains("security:")).collect();
+    let sec_errors: Vec<_> = errors(&r)
+        .into_iter()
+        .filter(|e| e.contains("security:"))
+        .collect();
+    let sec_warnings: Vec<_> = warnings(&r)
+        .into_iter()
+        .filter(|w| w.contains("security:"))
+        .collect();
     assert!(
         sec_errors.is_empty(),
         "clean SVG program should have no security errors, got: {:?}",
@@ -160,7 +174,10 @@ fn clean_svg_program_has_no_security_findings() {
 fn chart_bar_clean_program_passes_lint() {
     let src = "pattern P(input: String) -> String {\n    let data = [{label: \"A\", value: 10.0}, {label: \"B\", value: 20.0}]\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return chart_bar(data, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
     let r = check_program(src).unwrap();
-    let sec_errors: Vec<_> = errors(&r).into_iter().filter(|e| e.contains("security:")).collect();
+    let sec_errors: Vec<_> = errors(&r)
+        .into_iter()
+        .filter(|e| e.contains("security:"))
+        .collect();
     assert!(
         sec_errors.is_empty(),
         "chart_bar clean program should have no security errors, got: {:?}",

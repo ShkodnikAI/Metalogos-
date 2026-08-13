@@ -122,7 +122,9 @@ fn svg_path_security_rejects_angle_brackets() {
 
 #[test]
 fn svg_group_with_transform() {
-    let xml = eval_expr("svg_group([svg_rect(0.0, 0.0, 10.0, 10.0, \"red\", \"none\")], \"translate(50, 50)\")");
+    let xml = eval_expr(
+        "svg_group([svg_rect(0.0, 0.0, 10.0, 10.0, \"red\", \"none\")], \"translate(50, 50)\")",
+    );
     assert!(xml.starts_with("<g "));
     assert!(xml.contains("transform=\"translate(50, 50)\""));
     assert!(xml.contains("<rect"));
@@ -328,9 +330,18 @@ fn chart_bar_geometry_heights_proportional() {
         .collect();
     assert_eq!(heights.len(), 4, "expected 4 rects (bg + 3 bars)");
     let bar_heights = &heights[1..];
-    assert!(bar_heights[1] > bar_heights[0], "bar 2 should be taller than bar 1");
-    assert!(bar_heights[1] > bar_heights[2], "bar 2 should be taller than bar 3");
-    assert!(bar_heights[0] > bar_heights[2], "bar 1 should be taller than bar 3");
+    assert!(
+        bar_heights[1] > bar_heights[0],
+        "bar 2 should be taller than bar 1"
+    );
+    assert!(
+        bar_heights[1] > bar_heights[2],
+        "bar 2 should be taller than bar 3"
+    );
+    assert!(
+        bar_heights[0] > bar_heights[2],
+        "bar 1 should be taller than bar 3"
+    );
 }
 
 #[test]

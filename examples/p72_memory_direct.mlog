@@ -1,0 +1,26 @@
+// ── Наряд #72: memorize + forget direct golden contract ──────────────
+// Calls memorize() and forget() directly — verifies TW/VM parity.
+// No network, no DB — pure memory operations.
+// Both return Unit; the contract verifies they execute without error.
+
+pattern test_memory_direct(input: String) -> String {
+  // memorize a fact with priority
+  let r1 = memorize("test fact p72 alpha", 0.9)
+  // memorize a second fact with type
+  let r2 = memorize("test fact p72 beta", 0.5, "test_type")
+
+  // Both return Unit — verify by checking memorize didn't error
+  // We use a trick: to_string(Unit) is consistent on both backends
+  // Actually, Unit has no to_string, so we just verify no error via flow execution
+
+  // forget entries matching "alpha" (very old cutoff = forget all matching)
+  let r3 = forget("alpha", 36500)
+
+  // forget entries matching "beta" with default days
+  let r4 = forget("beta")
+
+  // If we reach here, all 4 calls succeeded
+  return "ok=1"
+}
+
+flow Main { input: String = "x" -> test_memory_direct -> output }

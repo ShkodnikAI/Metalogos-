@@ -1,0 +1,32 @@
+// ── Наряд №71 Block 3: Demo — recommended pattern for calling external services
+// Shows how .mlog code calls an external API (e.g. FOSVED proxy) with retry.
+// This is a reference example, not a golden contract (requires real server).
+
+pattern call_proxy_with_retry(endpoint: String, payload: String) -> String {
+  // Recommended: use retry config when calling external services
+  let retry_cfg = {max_retries: 3.0, base_delay: 1.0}
+
+  // Call with URL, body, content_type, headers, timeout, retry_config
+  let result = http_post(
+    endpoint,
+    payload,
+    "application/json",
+    {Authorization: "Bearer " + env_get("PROXY_TOKEN")},
+    30.0,
+    retry_cfg
+  )
+
+  return result
+}
+
+// Simpler form: GET with retry (fewer args)
+pattern fetch_with_retry(url: String) -> String {
+  let result = http_get(url, 10.0, {max_retries: 2.0, base_delay: 0.5})
+  return result
+}
+
+// Without retry — backward compatible, same as before
+pattern call_no_retry(url: String, body: String) -> String {
+  let result = http_post(url, body)
+  return result
+}

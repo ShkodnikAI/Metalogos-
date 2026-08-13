@@ -141,8 +141,91 @@ pub(crate) fn parse_status_line(status_body: &str) -> (u16, String) {
 /// Usage: http_post(url, body, content_type, auth_token)        — sets Authorization: Bearer <auth_token>
 /// Usage: http_post(url, body, content_type, headers_struct)    — sets headers from Struct fields
 /// Наряд №12 Bug 2: Added 4th parameter for authorization headers.
+
+// ── Наряд №71 — Retry helpers for HTTP builtins ────────────────────────
+
+/// Configuration for HTTP retry behaviour. Parsed from an optional Struct arg.
+/// {max_retries: 3.0, base_delay: 1.0}
+struct RetryConfig {
+    max_retries: u32,
+    base_delay_secs: f64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            base_delay_secs: 1.0,
+        }
+    }
+}
+
+/// Try to extract a RetryConfig from the last argument if it's a Struct
+/// with a "max_retries" or "base_delay" field. Returns None if the last
+/// arg is not a Struct or doesn't look like retry config.
+fn parse_retry_config(args: &[Value]) -> Option<RetryConfig> {
+    let last = args.last()?;
+    match last {
+        Value::Struct { fields, .. } => {
+            let mut has_retry_field = false;
+            let mut cfg = RetryConfig::default();
+            for (key, val) in fields {
+                match key.as_str() {
+                    "max_retries" => {
+                        if let Value::Float(f) = val {
+                            cfg.max_retries = (*f).clamp(0.0, 10.0) as u32;
+                            has_retry_field = true;
+                        }
+                    }
+                    "base_delay" => {
+                        if let Value::Float(f) = val {
+                            cfg.base_delay_secs = (*f).clamp(0.1, 30.0);
+                            has_retry_field = true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if has_retry_field {
+                Some(cfg)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Check if an HTTP status code warrants a retry.
+/// Retries on 429 (rate limit) and 5xx (server error).
+/// Does NOT retry on other 4xx (client errors) — those are fatal.
+fn should_retry_http(status: u16) -> bool {
+    status == 429 || (500..600).contains(&status)
+}
+
 pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
-    let url = match args.first() {
+    // Наряд №71: extract retry_config from last arg if present (Struct with retry fields).
+    // When no retry_config provided, max_retries=0 → no retry (backward compatible).
+    let (effective_args, retry_cfg) = if let Some(cfg) = parse_retry_config(args) {
+        (
+            if args.len() > 1 {
+                &args[..args.len() - 1]
+            } else {
+                args
+            },
+            cfg,
+        )
+    } else {
+        (
+            args,
+            RetryConfig {
+                max_retries: 0,
+                base_delay_secs: 1.0,
+            },
+        )
+    };
+
+    let url = match effective_args.first() {
         Some(Value::String(s)) => s.clone(),
         Some(other) => {
             return Err(format!(
@@ -153,7 +236,7 @@ pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
         None => return Err("http_post() requires at least 1 argument (url)".to_string()),
     };
 
-    let body = match args.get(1) {
+    let body = match effective_args.get(1) {
         Some(Value::String(s)) => s.clone(),
         Some(other) => {
             return Err(format!(
@@ -164,14 +247,14 @@ pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
         None => return Err("http_post() requires at least 2 arguments (url, body)".to_string()),
     };
 
-    let (content_type, timeout_arg_idx) = match args.get(2) {
+    let (content_type, timeout_arg_idx) = match effective_args.get(2) {
         Some(Value::String(s)) => (s.clone(), 3),
         _ => ("application/json".to_string(), 2),
     };
 
     // Наряда-26 P0-1: configurable timeout (default 30s, max 300s)
     // Signatures: http_post(url, body, timeout) | http_post(url, body, ct, timeout) | http_post(url, body, ct, headers, timeout)
-    let timeout_secs = if let Some(Value::Float(f)) = args.get(timeout_arg_idx) {
+    let timeout_secs = if let Some(Value::Float(f)) = effective_args.get(timeout_arg_idx) {
         let t = f.clamp(1.0, 300.0) as u64;
         if *f > 300.0 {
             eprintln!("[http_post] timeout clamped from {} to 300s", f);
@@ -186,32 +269,32 @@ pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
         .build()
         .map_err(|e| format!("http_post(): failed to create client: {}", e))?;
 
-    let mut req = client
-        .post(&url)
-        .header("Content-Type", &content_type)
-        .body(body);
-
     // Optional headers argument (index depends on whether content_type was provided)
-    let headers_idx = if args.len() > 2 && matches!(args.get(2), Some(Value::String(_))) {
-        // content_type was 3rd arg → headers are 4th
-        3
-    } else {
-        // content_type was default → headers are 3rd
-        2
-    };
+    let headers_idx =
+        if effective_args.len() > 2 && matches!(effective_args.get(2), Some(Value::String(_))) {
+            // content_type was 3rd arg → headers are 4th
+            3
+        } else {
+            // content_type was default → headers are 3rd
+            2
+        };
     // Only parse headers if the arg exists and is NOT a Float (which would be timeout)
-    if let Some(headers_arg) = args.get(headers_idx) {
+    let mut extra_headers: Vec<(String, String)> = Vec::new();
+    if let Some(headers_arg) = effective_args.get(headers_idx) {
         if !matches!(headers_arg, Value::Float(_)) {
             match headers_arg {
                 Value::String(auth_token) => {
                     if !auth_token.is_empty() {
-                        req = req.header("Authorization", format!("Bearer {}", auth_token));
+                        extra_headers.push((
+                            "Authorization".to_string(),
+                            format!("Bearer {}", auth_token),
+                        ));
                     }
                 }
                 Value::Struct { fields, .. } => {
                     for (key, val) in fields {
                         if let Value::String(v) = val {
-                            req = req.header(key.as_str(), v.as_str());
+                            extra_headers.push((key.clone(), v.clone()));
                         }
                     }
                 }
@@ -220,33 +303,88 @@ pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
         }
     }
 
-    let resp = req.send().map_err(|e| {
-        let err_str = e.to_string();
-        if err_str.contains("timeout") || err_str.contains("timed out") {
-            format!("ERROR: http timeout after {}s", timeout_secs)
-        } else {
-            format!("http_post() request failed: {}", e)
+    // Наряд №71 — retry loop (mirrors llm.rs::RealLlm::call pattern)
+    let no_retry = retry_cfg.max_retries == 0;
+    let mut last_error = String::new();
+
+    for attempt in 0..=retry_cfg.max_retries {
+        if attempt > 0 {
+            let delay_secs = retry_cfg.base_delay_secs * (1u32 << (attempt - 1)) as f64;
+            eprintln!(
+                "[http_post] retry {}/{} after {:.1}s...",
+                attempt, retry_cfg.max_retries, delay_secs
+            );
+            std::thread::sleep(std::time::Duration::from_secs_f64(delay_secs));
         }
-    })?;
 
-    let status = resp.status().as_u16();
-    let resp_body = resp.text().unwrap_or_default();
+        let mut req = client
+            .post(&url)
+            .header("Content-Type", &content_type)
+            .body(body.clone());
+        for (k, v) in &extra_headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
 
-    if status >= 400 {
-        return Err(format!(
-            "http_post() returned status {}: {}",
-            status, resp_body
-        ));
+        let resp = req.send().map_err(|e| {
+            let err_str = e.to_string();
+            if err_str.contains("timeout") || err_str.contains("timed out") {
+                format!("ERROR: http timeout after {}s", timeout_secs)
+            } else {
+                format!("http_post() request failed: {}", e)
+            }
+        })?;
+
+        let status = resp.status().as_u16();
+        let resp_body = resp.text().unwrap_or_default();
+
+        // Retry on 429/rate-limit and 5xx server errors; fail immediately on other 4xx
+        if status >= 400 {
+            if should_retry_http(status) && !no_retry && attempt < retry_cfg.max_retries {
+                last_error = format!("status {}: {}", status, resp_body);
+                continue;
+            }
+            return Err(format!(
+                "http_post() returned status {}: {}",
+                status, resp_body
+            ));
+        }
+
+        return Ok(Value::String(resp_body));
     }
 
-    Ok(Value::String(resp_body))
+    Err(format!(
+        "http_post() failed after {} retries: {}",
+        retry_cfg.max_retries, last_error
+    ))
 }
 
 /// Send an HTTP GET request. Returns the response body as String.
 /// Usage: http_get(url) -> String
 /// Usage: http_get(url, headers_struct) -> String  — sets headers from Struct fields
+/// Usage: http_get(url, headers, timeout, retry_config) -> String  — Наряд №71: retry
 pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
-    let url = match args.first() {
+    // Наряд №71: extract retry_config from last arg if present (Struct with retry fields).
+    // When no retry_config provided, max_retries=0 → no retry (backward compatible).
+    let (effective_args, retry_cfg) = if let Some(cfg) = parse_retry_config(args) {
+        (
+            if args.len() > 1 {
+                &args[..args.len() - 1]
+            } else {
+                args
+            },
+            cfg,
+        )
+    } else {
+        (
+            args,
+            RetryConfig {
+                max_retries: 0,
+                base_delay_secs: 1.0,
+            },
+        )
+    };
+
+    let url = match effective_args.first() {
         Some(Value::String(s)) => s.clone(),
         Some(other) => {
             return Err(format!(
@@ -259,23 +397,23 @@ pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
 
     // Наряда-26 P0-1: configurable timeout
     // http_get(url) | http_get(url, timeout) | http_get(url, headers) | http_get(url, headers, timeout)
-    let (headers_arg, timeout_secs) = match args.len() {
+    let (headers_arg, timeout_secs) = match effective_args.len() {
         1 => (None, 30u64),
         2 => {
             // 2nd arg could be timeout (Float) or headers (String/Struct)
-            match &args[1] {
+            match &effective_args[1] {
                 Value::Float(f) => (None, f.clamp(1.0, 300.0) as u64),
                 other => (Some(other), 30),
             }
         }
         _ => {
             // 3+ args: 2nd is headers, 3rd is timeout
-            let timeout = if let Some(Value::Float(f)) = args.get(2) {
+            let timeout = if let Some(Value::Float(f)) = effective_args.get(2) {
                 f.clamp(1.0, 300.0) as u64
             } else {
                 30
             };
-            (args.get(1), timeout)
+            (effective_args.get(1), timeout)
         }
     };
 
@@ -284,19 +422,22 @@ pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
         .build()
         .map_err(|e| format!("http_get(): failed to create client: {}", e))?;
 
-    let mut req = client.get(&url);
-
-    if let Some(headers_arg) = headers_arg {
-        match headers_arg {
+    // Extract extra headers into a Vec so we can rebuild the request on retry
+    let mut extra_headers: Vec<(String, String)> = Vec::new();
+    if let Some(ha) = headers_arg {
+        match ha {
             Value::String(auth_token) => {
                 if !auth_token.is_empty() {
-                    req = req.header("Authorization", format!("Bearer {}", auth_token));
+                    extra_headers.push((
+                        "Authorization".to_string(),
+                        format!("Bearer {}", auth_token),
+                    ));
                 }
             }
             Value::Struct { fields, .. } => {
                 for (key, val) in fields {
                     if let Value::String(v) = val {
-                        req = req.header(key.as_str(), v.as_str());
+                        extra_headers.push((key.clone(), v.clone()));
                     }
                 }
             }
@@ -304,26 +445,56 @@ pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
         }
     }
 
-    let resp = req.send().map_err(|e| {
-        let err_str = e.to_string();
-        if err_str.contains("timeout") || err_str.contains("timed out") {
-            format!("ERROR: http timeout after {}s", timeout_secs)
-        } else {
-            format!("http_get() request failed: {}", e)
+    // Наряд №71 — retry loop (mirrors llm.rs::RealLlm::call pattern)
+    let no_retry = retry_cfg.max_retries == 0;
+    let mut last_error = String::new();
+
+    for attempt in 0..=retry_cfg.max_retries {
+        if attempt > 0 {
+            let delay_secs = retry_cfg.base_delay_secs * (1u32 << (attempt - 1)) as f64;
+            eprintln!(
+                "[http_get] retry {}/{} after {:.1}s...",
+                attempt, retry_cfg.max_retries, delay_secs
+            );
+            std::thread::sleep(std::time::Duration::from_secs_f64(delay_secs));
         }
-    })?;
 
-    let status = resp.status().as_u16();
-    let resp_body = resp.text().unwrap_or_default();
+        let mut req = client.get(&url);
+        for (k, v) in &extra_headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
 
-    if status >= 400 {
-        return Err(format!(
-            "http_get() returned status {}: {}",
-            status, resp_body
-        ));
+        let resp = req.send().map_err(|e| {
+            let err_str = e.to_string();
+            if err_str.contains("timeout") || err_str.contains("timed out") {
+                format!("ERROR: http timeout after {}s", timeout_secs)
+            } else {
+                format!("http_get() request failed: {}", e)
+            }
+        })?;
+
+        let status = resp.status().as_u16();
+        let resp_body = resp.text().unwrap_or_default();
+
+        // Retry on 429/rate-limit and 5xx server errors; fail immediately on other 4xx
+        if status >= 400 {
+            if should_retry_http(status) && !no_retry && attempt < retry_cfg.max_retries {
+                last_error = format!("status {}: {}", status, resp_body);
+                continue;
+            }
+            return Err(format!(
+                "http_get() returned status {}: {}",
+                status, resp_body
+            ));
+        }
+
+        return Ok(Value::String(resp_body));
     }
 
-    Ok(Value::String(resp_body))
+    Err(format!(
+        "http_get() failed after {} retries: {}",
+        retry_cfg.max_retries, last_error
+    ))
 }
 
 /// Return current Unix timestamp as Float (seconds since epoch).

@@ -109,8 +109,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("json_body", 0, "web"),
     spec!("query_param", 1, "web"),
     spec!("render", 2, 3, "web"),
-    spec!("http_get", 1, 3, "web"), // url | url,headers | url,headers,timeout
-    spec!("http_post", 2, 5, "web"),
+    spec!("http_get", 1, 4, "web"), // url | url,headers | url,headers,timeout | ...,{max_retries:N,base_delay:N}
+    spec!("http_post", 2, 6, "web"), // up to +retry_config Struct
     spec!("http_post_multipart", 2, 4, "web"),
     spec!("require", 1, 2, "web"),
     spec!("request_body", 0, "web"),

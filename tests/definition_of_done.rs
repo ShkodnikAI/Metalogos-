@@ -243,6 +243,7 @@ flow Main {{ input: String = r -> output }}
 // ── http_post() mock: hit httpbin for real HTTP test ─────────────
 
 #[tokio::test]
+#[ignore] // Flaky: httpbin.org rate-limits CI runners; run locally with `cargo test -- --ignored`
 async fn test_dod_http_post_real_request() {
     // Use reqwest directly to verify HTTP works (no mock server needed)
     let client = reqwest::Client::new();

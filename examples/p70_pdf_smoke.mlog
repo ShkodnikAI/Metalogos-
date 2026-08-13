@@ -1,0 +1,15 @@
+// ── Наряд #70 Block 3: PDF smoke golden contract ──────────────────────
+// Verifies pdf_classify returns a structured result on a text-based PDF.
+// Uses get() with numeric indices on the flat list representation.
+
+pattern test_pdf_smoke(input: String) -> String {
+  let info = pdf_classify("tests/fixtures/text_based.pdf")
+  // List layout: [type, val, confidence, val, pages_needing_ocr, val, page_count, val]
+  let pdf_type = get(info, 0.0)
+  let type_val = get(info, 1.0)
+  let pages_key = get(info, 6.0)
+  let pages_val = get(info, 7.0)
+  return pdf_type + "=" + type_val + " " + pages_key + "=" + to_string(pages_val)
+}
+
+flow Main { input: String = "x" -> test_pdf_smoke -> output }

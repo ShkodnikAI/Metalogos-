@@ -37,7 +37,7 @@ fn semantic_check(source: &str) -> AnalysisResult {
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
-#[ignore] // TODO: Secret type constraints removed when env() changed to return String; re-add when Secret is re-implemented
+#[ignore = "TODO: Secret type constraints removed when env() changed to return String; re-add when Secret is re-implemented"]
 fn test_z19_print_secret_forbidden() {
     let source = r#"
 entity key: Secret = env("KEY")
@@ -55,7 +55,7 @@ pattern leak() -> String {
 }
 
 #[test]
-#[ignore] // TODO: Secret type constraints removed when env() changed to return String
+#[ignore = "TODO: Secret type constraints removed when env() changed to return String"]
 fn test_z19_to_string_secret_forbidden() {
     let source = r#"
 entity key: Secret = env("KEY")
@@ -72,7 +72,7 @@ pattern leak2() -> String {
 }
 
 #[test]
-#[ignore] // TODO: Opaque type concat constraints not yet implemented in semantic checker
+#[ignore = "TODO: Opaque type concat constraints not yet implemented in semantic checker"]
 fn test_z19_concat_opaque_forbidden() {
     let source = r#"
 entity page: Html = escape_html("<b>hi</b>")
@@ -111,7 +111,7 @@ pattern show() -> String {
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
-#[ignore] // TODO: Undefined variable detection in semantic checker not yet implemented
+#[ignore = "TODO: Undefined variable detection in semantic checker not yet implemented"]
 fn test_z20_undefined_variable() {
     let source = r#"
 pattern bad() -> String {
@@ -197,7 +197,7 @@ pattern call_undef() -> String {
 }
 
 #[test]
-#[ignore] // TODO: Assignment to undefined variable detection in semantic checker not yet implemented
+#[ignore = "TODO: Assignment to undefined variable detection in semantic checker not yet implemented"]
 fn test_z20_assign_undefined() {
     let source = r#"
 pattern bad_assign() -> String {
@@ -297,7 +297,7 @@ fn test_z21_startswith_negative() {
 }
 
 #[test]
-#[ignore] // TODO: VM compiler does not yet support match with starts_with arms
+#[ignore = "TODO: VM compiler does not yet support match with starts_with arms"]
 fn test_z21_match_starts_with_compiles() {
     let source = r#"
 pattern route_handler(path: String) -> String {
@@ -312,7 +312,7 @@ pattern route_handler(path: String) -> String {
 }
 
 #[test]
-#[ignore] // TODO: VM compiler does not yet support Ne compare in rule conditions
+#[ignore = "TODO: VM compiler does not yet support Ne compare in rule conditions"]
 fn test_z21_ne_compare_op_exists() {
     // Verify ConditionOp::Ne exists and compiles
     let source = r#"
@@ -512,7 +512,7 @@ fn test_z22_struct_in_pattern_body() {
 // ── Full compile+run integration tests ──────────────────────────
 
 #[test]
-#[ignore] // TODO: VM compiler does not yet support match with starts_with arms
+#[ignore = "TODO: VM compiler does not yet support match with starts_with arms"]
 fn test_z21_match_starts_with_full_run() {
     // Compile a pattern with starts_with match arm and verify it compiles
     let source = r#"

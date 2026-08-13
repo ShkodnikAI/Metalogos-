@@ -14,7 +14,7 @@ fn mlog_bin() -> String {
 }
 
 #[test]
-#[ignore] // TODO: self-hosted lexer produces no output — needs investigation
+#[ignore = "TODO: self-hosted lexer produces no output — needs investigation"]
 fn self_host_lexer_tokenizes_m1_hello() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     let project_dir = PathBuf::from(&manifest_dir);

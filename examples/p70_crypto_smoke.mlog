@@ -1,0 +1,22 @@
+// ── Наряд #70 Block 3: Crypto smoke golden contract ──────────────
+// Representative test for hash/HMAC builtins — no network required.
+// Covers sha256() and hmac_sha256() for TW/VM parity.
+
+pattern test_crypto_smoke(input: String) -> String {
+  // SHA-256 of empty string
+  let h1 = sha256("")
+  let ok1 = to_float(len(h1) == 64.0)
+
+  // HMAC-SHA256 round-trip
+  let h2 = hmac_sha256("key", "message")
+  let ok2 = to_float(len(h2) == 64.0)
+
+  // Verify determinism: same input → same output
+  let h3 = sha256("hello")
+  let h4 = sha256("hello")
+  let ok3 = to_float(h3 == h4)
+
+  return "sha256_ok=" + to_string(ok1) + " hmac_ok=" + to_string(ok2) + " det=" + to_string(ok3)
+}
+
+flow Main { input: String = "x" -> test_crypto_smoke -> output }

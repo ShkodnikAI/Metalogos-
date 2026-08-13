@@ -56,12 +56,24 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("max", 2, "math"),
     spec!("clamp", 3, "math"),
     spec!("round", 1, "math"),
-    // newline/stdin: remnants of cancelled Phase 4.4 self-hosting plan (ADR-0023).
-    // Retained for bytecode index stability — DO NOT remove without .mbc version bump.
-    // Replaced by literal "\n" and pattern parameters in the hybrid approach.
+    // ── Phase 4.4 self-hosting — historical placeholders, never implemented ──
+    // ADR-0023 described a hybrid lexer approach using 5 builtins (stdin,
+    // split_tokens, if_eq, newline, is_string_token). Handler functions were
+    // never committed to main — only the builtin names were registered as
+    // bytecode opcode indices (commit b3f5921, 2026-06-02). The actual
+    // self-host/lexer.mlog was rewritten to use pure Metalogos constructs
+    // (if/then/else, literal "\n", char_at/index_of/substring) and does
+    // not depend on these builtins.
+    //
+    // The lexer.mlog itself remains non-functional (test self_host_lexer
+    // is #[ignore] since commit e61bd66, reason: "produces no output —
+    // needs investigation"). That failure is unrelated to these 5 stubs.
+    //
+    // These spec! entries are kept ONLY for bytecode index stability.
+    // DO NOT remove without .mbc format version bump.
+    // See ADR-0023 (naряд №73 re-measurement) for full history.
     spec!("newline", 0, "stub"),
     spec!("stdin", 0, "stub"),
-    // split_tokens/if_eq/is_string_token: planned compiler helpers; no handler
     spec!("split_tokens", 0, "stub"),
     spec!("if_eq", 3, "stub"),
     spec!("is_string_token", 1, "stub"),

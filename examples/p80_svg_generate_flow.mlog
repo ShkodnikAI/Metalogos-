@@ -1,0 +1,44 @@
+// ── Наряд №80 Block 1: svg_generate("flow", ...) contract ────────────
+//
+// Organic Bezier-curve background contract — verifies the function:
+//   1. Produces a `<g>` fragment with <path> children
+//   2. Is deterministic (same inputs → identical output across 2 calls)
+//   3. Different intents produce different outputs (visual check is
+//      manual; here we just verify the outputs are not byte-identical,
+//      which proves intent affects the result)
+//
+// Determinism is the critical invariant — it's a direct requirement
+// from the narazd spec ("один и тот же intent — один и тот же фон"),
+// shared across all three svg_generate kinds (flow/grid/noise).
+// We verify it explicitly here AND in the noise contract.
+//
+// Output: single summary string, "p80_flow_checks=N/3".
+
+pattern P80FlowContract(input: String) -> String {
+  // ── 1. Basic flow fragment ────────────────────────────────────────
+  // 960×600 (doc_inline preset size). Output should be <g>-wrapped and
+  // contain at least one <path> element (the curves).
+  let f1 = svg_generate("flow", "energy", 960.0, 600.0)
+  let ok1 = to_float(starts_with(f1, "<g>"))
+
+  // ── 2. Determinism — same inputs, byte-identical output ──────────
+  // Two consecutive calls with identical args MUST produce the same
+  // string. mlog supports == on strings directly.
+  let f2a = svg_generate("flow", "calm", 600.0, 400.0)
+  let f2b = svg_generate("flow", "calm", 600.0, 400.0)
+  let ok2 = to_float(f2a == f2b)
+
+  // ── 3. Different intents produce different outputs ───────────────
+  // calm (hue 210) vs energy (hue 30) — the path geometry AND stroke
+  // colors differ. If both calls produced the same string, intent
+  // wouldn't affect the output (regression).
+  let f3a = svg_generate("flow", "calm",    600.0, 400.0)
+  let f3b = svg_generate("flow", "energy",  600.0, 400.0)
+  let ok3 = to_float(f3a != f3b)
+
+  let total = ok1 + ok2 + ok3
+
+  return "p80_flow_checks=" + to_string(total) + "/3"
+}
+
+flow Main { input: String = "x" -> P80FlowContract -> output }

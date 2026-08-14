@@ -85,7 +85,10 @@ fn jit_p5_golden_example() { ... }
 
 ## Future work
 
-1. **CI guard**: добавить в `.github/workflows/ci.yml` шаг, который падает, если в PR добавлен `#[ignore]` без `= "..."`. Простейшая реализация — `grep -rE '#\[ignore\s*\]' tests/ src/ | grep -v '#'` должен быть пустым.
+1. ~~**CI guard**: добавить в `.github/workflows/ci.yml` шаг, который падает, если в PR добавлен `#[ignore]` без `= "..."`. Простейшая реализация — `grep -rE '#\[ignore\s*\]' tests/ src/ | grep -v '#'` должен быть пустым.~~
+   **Done (Наряд №73 Block 3, 2026-08-14).** Реализовано как Rust-интеграционный тест `tests/ignore_reasons_lint.rs` (вместо shell-шага в CI — это идиоматичнее для codebase, где все invariant-чеки уже сделаны как cargo tests, см. `registry_sync_check.rs`). Тест сканирует все `.rs` файлы в `tests/`, `src/`, `examples/`, `self-host/`, `benches/`, и падает с детальным списком violations если находит bare `#[ignore]`. Пропускает комментарии и строковые литералы чтобы не ловить упоминания `#[ignore]` в docs/тест-данных.
 2. **Un-ignore по категориям**: будущие наряды могут закрывать категории целиком. Например, "Наряд №N: closed parallel-test race category" — добавить `#[serial_test::serial]` к 4 тестам в `llm_cache_contract.rs` и снять `#[ignore]`.
+   - **Подкатегория 'Parallel-test race' закрыта (Наряд №75, 2026-08-14).** Все 4 теста в `tests/llm_cache_contract.rs` теперь под `#[serial_test::serial]`, `#[ignore]` снят. См. PR `naryad-75-llm-cache-serial`.
 3. **Quarterly audit**: раз в квартал перепроверять, не потерял ли какой-то `#[ignore]` актуальность (например, если JIT интегрировали — снять все 6 игноров из `jit_golden.rs`).
-4. **Product decision по self-hosting**: владелец должен выбрать Option A/B/C (см. ADR-0023) — это закроет последнюю категорию.
+4. ~~**Product decision по self-hosting**: владелец должен выбрать Option A/B/C (см. ADR-0023) — это закроет последнюю категорию.~~
+   **Done (Наряд №73 Block 3, 2026-08-14).** Decision: Option C (defer). См. обновлённый ADR-0023 — секция "Owner Decision". Тест `self_host_lexer_tokenizes_m1_hello` остаётся под `#[ignore]` с причиной, ссылающейся на ADR-0023 Option C. Категория в каталоге выше закрыта.

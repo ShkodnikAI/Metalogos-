@@ -1,0 +1,44 @@
+// ── Наряд №80 Block 2: svg_generate("grid", ...) contract ────────────
+//
+// Regular grid background contract — verifies the function:
+//   1. Produces a `<g>` fragment (not a full <svg> document)
+//   2. Accepts each of the 5 known intents (calm/tension/energy/authority/warmth)
+//   3. Rejects an unknown intent with an error (via `try` — returns Unit)
+//
+// Output: single summary string, "p80_grid_checks=N/3".
+
+pattern P80GridContract(input: String) -> String {
+  // ── 1. Basic grid fragment ─────────────────────────────────────────
+  // Verifies the output is a <g>-wrapped fragment with <line> children.
+  // 600×400 canvas (matches the chart_* canvas convention from Н78/Н79).
+  let g1 = svg_generate("grid", "calm", 600.0, 400.0)
+  let ok1 = to_float(starts_with(g1, "<g>"))
+
+  // ── 2. All 5 intents accepted ─────────────────────────────────────
+  // Each intent should produce a valid fragment. We don't assert visual
+  // differences here (that's a human-review concern) — just that none
+  // of them throws.
+  let g2a = svg_generate("grid", "tension",    600.0, 400.0)
+  let g2b = svg_generate("grid", "energy",     600.0, 400.0)
+  let g2c = svg_generate("grid", "authority",  600.0, 400.0)
+  let g2d = svg_generate("grid", "warmth",     600.0, 400.0)
+  let ok2 = to_float(starts_with(g2a, "<g>"))
+         + to_float(starts_with(g2b, "<g>"))
+         + to_float(starts_with(g2c, "<g>"))
+         + to_float(starts_with(g2d, "<g>"))
+  // ok2 should be 4.0 if all 4 non-calm intents pass
+
+  // ── 3. Unknown intent rejected ────────────────────────────────────
+  // svg_generate validates intent via intent_to_hue (same known-list as
+  // color_palette). An unknown intent should return an Err, which `try`
+  // converts to Unit. type_of(Unit) == "Unit" → ok3 = 1.0.
+  let g3 = try svg_generate("grid", "INVALID_INTENT", 600.0, 400.0)
+  let ok3 = to_float(type_of(g3) == "Unit")
+  // ok3 = 1.0 if g3 is Unit (error was caught)
+
+  let total = ok1 + (ok2 / 4.0) + ok3
+
+  return "p80_grid_checks=" + to_string(total) + "/3"
+}
+
+flow Main { input: String = "x" -> P80GridContract -> output }

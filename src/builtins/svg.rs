@@ -918,6 +918,583 @@ fn build_slice_colors(accent: &str, ink: &str, n: usize) -> Vec<String> {
     colors
 }
 
+// ── Level 3 (items 3-5): chart_line, chart_scatter, chart_area ──────
+//
+// Narad №78 Block 1-3: three additional high-level chart types.
+//
+// Design constraints (per spec):
+//   - chart_line / chart_area reuse the SAME canvas geometry constants
+//     as chart_bar (canvas=600×400, chart area x=[80,580] y=[40,340]).
+//     Visual consistency between chart types is more important than
+//     per-type optimization.
+//   - chart_scatter uses the same canvas but scales BOTH axes from data
+//     (independent min/max), since scatter requires two numeric dims.
+//   - All three escape user-supplied label text via escape_html_chars
+//     (same invariant as chart_bar / chart_donut). All three are
+//     registered in SVG_AUTO_ESCAPE_BUILTINS in semantic.rs, and the
+//     scan_chart_labels branch is extended to cover them.
+//
+// Upper bound for points/bars: 50 for chart_bar/donut (bar width ≥ 10px).
+// chart_line / chart_area raise this to 100 (points have no width, so
+// overlap is not the limiting factor — SVG path length and label clutter
+// are). chart_scatter raises it to 200 (scatter points are small circles
+// and tolerate overlap; the chart is intrinsically denser).
+
+/// Canvas geometry constants shared by chart_bar / chart_line / chart_area.
+/// Defined once here so any future chart type that wants visual parity
+/// with the bar chart can reference the same numbers.
+const CHART_CANVAS_W: f64 = 600.0;
+const CHART_CANVAS_H: f64 = 400.0;
+const CHART_X: f64 = 80.0;
+const CHART_Y_TOP: f64 = 40.0;
+const CHART_W: f64 = 500.0;
+const CHART_H: f64 = 300.0;
+const CHART_Y_BOTTOM: f64 = CHART_Y_TOP + CHART_H; // 340
+
+/// chart_line: line chart with one `<path>` through all points.
+///
+/// Data shape: `List<Struct{label, value}>` — same as chart_bar.
+/// X position: evenly spaced across chart_w (point i at
+///   chart_x + i * chart_w / (N-1) for N>1; for N=1, single point at
+///   chart_x + chart_w/2).
+/// Y position: chart_y_bottom - (value / max_value) * chart_h.
+/// Geometry constants reused from chart_bar (visual parity).
+pub fn builtin_chart_line(args: &[Value]) -> Result<Value, String> {
+    let data = expect_list_arg("chart_line", args, 0)?;
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+
+    if data.is_empty() {
+        return Err("chart_line: data list must not be empty".to_string());
+    }
+    // Upper bound 100: line points have no width, so overlap is not the
+    // constraint — SVG path length and label clutter are. 100 is generous
+    // for typical line charts (daily metric for a quarter = ~90 points).
+    if data.len() > 100 {
+        return Err(format!(
+            "chart_line: too many points ({}), maximum is 100",
+            data.len()
+        ));
+    }
+
+    // Extract {label, value} from each item
+    let mut items: Vec<(String, f64)> = Vec::with_capacity(data.len());
+    for (i, item) in data.iter().enumerate() {
+        let fields = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "chart_line: data[{}] must be Struct {{label, value}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let label = struct_string_field("chart_line item", fields, "label")?;
+        let value = struct_float_field("chart_line item", fields, "value")?;
+        items.push((label, value));
+    }
+
+    let max_value = items
+        .iter()
+        .map(|(_, v)| *v)
+        .fold(f64::NEG_INFINITY, f64::max);
+    if max_value <= 0.0 {
+        return Err(format!(
+            "chart_line: max value must be positive (got {})",
+            max_value
+        ));
+    }
+
+    let ink = style_token(&style, "ink")?;
+    let accent = style_token(&style, "accent")?;
+    let muted = style_token(&style, "muted")?;
+    let rule = style_token(&style, "rule")?;
+    let paper = style_token(&style, "paper")?;
+
+    let mut parts: Vec<String> = Vec::new();
+
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(CHART_CANVAS_W),
+        fmt_num(CHART_CANVAS_H),
+        escape_attr(&paper)
+    ));
+
+    // Axes (same as chart_bar)
+    parts.push(format!(
+        r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+        fmt_num(CHART_X),
+        fmt_num(CHART_Y_TOP),
+        fmt_num(CHART_X),
+        fmt_num(CHART_Y_BOTTOM),
+        escape_attr(&rule)
+    ));
+    parts.push(format!(
+        r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+        fmt_num(CHART_X),
+        fmt_num(CHART_Y_BOTTOM),
+        fmt_num(CHART_X + CHART_W),
+        fmt_num(CHART_Y_BOTTOM),
+        escape_attr(&rule)
+    ));
+
+    // Compute point positions
+    let n = items.len() as f64;
+    let points: Vec<(f64, f64, String, f64)> = items
+        .iter()
+        .enumerate()
+        .map(|(i, (label, value))| {
+            let x = if items.len() == 1 {
+                CHART_X + CHART_W / 2.0
+            } else {
+                CHART_X + (i as f64) * CHART_W / (n - 1.0)
+            };
+            let y = CHART_Y_BOTTOM - (value / max_value) * CHART_H;
+            (x, y, label.clone(), *value)
+        })
+        .collect();
+
+    // Build the line path: M x0 y0 L x1 y1 L x2 y2 ...
+    let mut path_d = format!("M {} {}", fmt_num(points[0].0), fmt_num(points[0].1));
+    for (x, y, _, _) in points.iter().skip(1) {
+        path_d.push_str(&format!(" L {} {}", fmt_num(*x), fmt_num(*y)));
+    }
+    parts.push(format!(
+        r#"<path d="{}" fill="none" stroke="{}" stroke-width="2" />"#,
+        path_d,
+        escape_attr(&accent)
+    ));
+
+    // Optional markers: small circle at each data point (radius 3)
+    // Helps visibility when lines cross or values cluster.
+    for (x, y, _, _) in &points {
+        parts.push(format!(
+            r#"<circle cx="{}" cy="{}" r="3" fill="{}" />"#,
+            fmt_num(*x),
+            fmt_num(*y),
+            escape_attr(&accent)
+        ));
+    }
+
+    // X-axis labels (ink color) — only render if N ≤ 20 to avoid clutter.
+    // Above 20 points, labels overlap and become unreadable; the line
+    // shape itself carries the information.
+    if items.len() <= 20 {
+        for (x, _, label, _) in &points {
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="12" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(*x),
+                fmt_num(CHART_Y_BOTTOM + 18.0),
+                escape_attr(&ink),
+                escape_html_chars(label)
+            ));
+        }
+    }
+
+    // Value label for the peak point (muted color) — single annotation,
+    // not per-point, to avoid clutter.
+    let peak_idx = items
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    if let Some((px, py, _, pv)) = points.get(peak_idx) {
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="11" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(*px),
+            fmt_num(*py - 8.0),
+            escape_attr(&muted),
+            escape_html_chars(&format!("{}", pv))
+        ));
+    }
+
+    // Wrap in <svg> canvas
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(CHART_CANVAS_W),
+        fmt_num(CHART_CANVAS_H),
+        fmt_num(CHART_CANVAS_W),
+        fmt_num(CHART_CANVAS_H),
+        body
+    )))
+}
+
+/// chart_scatter: scatter plot with two independent numeric axes.
+///
+/// Data shape: `List<Struct{x, y, label?}>` — DIFFERENT from chart_bar.
+/// Both x and y are Float. `label` is optional String (absent → no text).
+/// Both axes scaled independently: x → [chart_x, chart_x+chart_w],
+/// y → [chart_y_bottom, chart_y_top] (inverted, SVG Y points down).
+///
+/// Edge case: if all x values are equal (or all y), we still render —
+/// points are placed at the chart center along that axis. This avoids
+/// a divide-by-zero and gives a sensible visual (vertical/horizontal line).
+pub fn builtin_chart_scatter(args: &[Value]) -> Result<Value, String> {
+    let data = expect_list_arg("chart_scatter", args, 0)?;
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+
+    if data.is_empty() {
+        return Err("chart_scatter: data list must not be empty".to_string());
+    }
+    // Upper bound 200: scatter points are small circles (r=4), overlap is
+    // expected and even informative (density clustering). 200 keeps the
+    // SVG file size reasonable and matches typical scatter use cases.
+    if data.len() > 200 {
+        return Err(format!(
+            "chart_scatter: too many points ({}), maximum is 200",
+            data.len()
+        ));
+    }
+
+    // Extract {x, y, label?} from each item — note the different shape
+    let mut items: Vec<(f64, f64, Option<String>)> = Vec::with_capacity(data.len());
+    for (i, item) in data.iter().enumerate() {
+        let fields = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "chart_scatter: data[{}] must be Struct {{x, y, label?}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let x = struct_float_field("chart_scatter item", fields, "x")?;
+        let y = struct_float_field("chart_scatter item", fields, "y")?;
+        // label is OPTIONAL — use struct_opt_string_field (already exists
+        // in this module, was reserved for future chart_* types since №74).
+        let label = struct_opt_string_field(fields, "label");
+        items.push((x, y, label));
+    }
+
+    let x_min = items
+        .iter()
+        .map(|(x, _, _)| *x)
+        .fold(f64::INFINITY, f64::min);
+    let x_max = items
+        .iter()
+        .map(|(x, _, _)| *x)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let y_min = items
+        .iter()
+        .map(|(_, y, _)| *y)
+        .fold(f64::INFINITY, f64::min);
+    let y_max = items
+        .iter()
+        .map(|(_, y, _)| *y)
+        .fold(f64::NEG_INFINITY, f64::max);
+
+    if !x_min.is_finite() || !x_max.is_finite() || !y_min.is_finite() || !y_max.is_finite() {
+        return Err("chart_scatter: data contains non-finite x or y value".to_string());
+    }
+
+    let ink = style_token(&style, "ink")?;
+    let accent = style_token(&style, "accent")?;
+    let rule = style_token(&style, "rule")?;
+    let paper = style_token(&style, "paper")?;
+
+    // Scale functions — handle the degenerate single-value axis by mapping
+    // to the chart center along that axis (avoids div-by-zero, gives a
+    // visually sensible vertical or horizontal line of points).
+    let scale_x = |x: f64| -> f64 {
+        let span = x_max - x_min;
+        if span.abs() < f64::EPSILON {
+            CHART_X + CHART_W / 2.0
+        } else {
+            CHART_X + (x - x_min) / span * CHART_W
+        }
+    };
+    let scale_y = |y: f64| -> f64 {
+        let span = y_max - y_min;
+        if span.abs() < f64::EPSILON {
+            CHART_Y_TOP + CHART_H / 2.0
+        } else {
+            // Y inverted: higher data value → smaller SVG Y (toward top)
+            CHART_Y_BOTTOM - (y - y_min) / span * CHART_H
+        }
+    };
+
+    let mut parts: Vec<String> = Vec::new();
+
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(CHART_CANVAS_W),
+        fmt_num(CHART_CANVAS_H),
+        escape_attr(&paper)
+    ));
+
+    // Axes
+    parts.push(format!(
+        r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+        fmt_num(CHART_X),
+        fmt_num(CHART_Y_TOP),
+        fmt_num(CHART_X),
+        fmt_num(CHART_Y_BOTTOM),
+        escape_attr(&rule)
+    ));
+    parts.push(format!(
+        r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+        fmt_num(CHART_X),
+        fmt_num(CHART_Y_BOTTOM),
+        fmt_num(CHART_X + CHART_W),
+        fmt_num(CHART_Y_BOTTOM),
+        escape_attr(&rule)
+    ));
+
+    // Axis range labels (corners) — show min/max so the chart is readable
+    parts.push(format!(
+        r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+        fmt_num(CHART_X),
+        fmt_num(CHART_Y_BOTTOM + 32.0),
+        escape_attr(&ink),
+        escape_html_chars(&format!("{}", x_min))
+    ));
+    parts.push(format!(
+        r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+        fmt_num(CHART_X + CHART_W),
+        fmt_num(CHART_Y_BOTTOM + 32.0),
+        escape_attr(&ink),
+        escape_html_chars(&format!("{}", x_max))
+    ));
+    parts.push(format!(
+        r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="end">{}</text>"#,
+        fmt_num(CHART_X - 6.0),
+        fmt_num(CHART_Y_BOTTOM + 4.0),
+        escape_attr(&ink),
+        escape_html_chars(&format!("{}", y_min))
+    ));
+    parts.push(format!(
+        r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="end">{}</text>"#,
+        fmt_num(CHART_X - 6.0),
+        fmt_num(CHART_Y_TOP + 4.0),
+        escape_attr(&ink),
+        escape_html_chars(&format!("{}", y_max))
+    ));
+
+    // Plot each point: circle (r=4, accent fill) + optional label
+    for (x, y, label) in &items {
+        let px = scale_x(*x);
+        let py = scale_y(*y);
+        parts.push(format!(
+            r#"<circle cx="{}" cy="{}" r="4" fill="{}" />"#,
+            fmt_num(px),
+            fmt_num(py),
+            escape_attr(&accent)
+        ));
+        if let Some(lbl) = label {
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="10" fill="{}">{}</text>"#,
+                fmt_num(px + 6.0),
+                fmt_num(py - 6.0),
+                escape_attr(&ink),
+                escape_html_chars(lbl)
+            ));
+        }
+    }
+
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(CHART_CANVAS_W),
+        fmt_num(CHART_CANVAS_H),
+        fmt_num(CHART_CANVAS_W),
+        fmt_num(CHART_CANVAS_H),
+        body
+    )))
+}
+
+/// chart_area: area chart — same shape as chart_line, but the path closes
+/// down to the baseline (chart_y_bottom) and is filled with a translucent
+/// accent color. A solid stroke line is drawn on top for definition.
+///
+/// The fill uses `fill-opacity="0.25"` rather than recomputing a tinted
+/// color (no color math needed; the accent color stays within the palette
+/// family, just rendered at lower opacity). This matches how `chart_donut`
+/// handles visual emphasis — via opacity / stroke, not via separate colors.
+pub fn builtin_chart_area(args: &[Value]) -> Result<Value, String> {
+    let data = expect_list_arg("chart_area", args, 0)?;
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+
+    if data.is_empty() {
+        return Err("chart_area: data list must not be empty".to_string());
+    }
+    // Same upper bound as chart_line — area is a line + fill, identical
+    // point-density considerations apply.
+    if data.len() > 100 {
+        return Err(format!(
+            "chart_area: too many points ({}), maximum is 100",
+            data.len()
+        ));
+    }
+
+    // Extract {label, value} from each item — same shape as chart_line
+    let mut items: Vec<(String, f64)> = Vec::with_capacity(data.len());
+    for (i, item) in data.iter().enumerate() {
+        let fields = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "chart_area: data[{}] must be Struct {{label, value}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let label = struct_string_field("chart_area item", fields, "label")?;
+        let value = struct_float_field("chart_area item", fields, "value")?;
+        items.push((label, value));
+    }
+
+    let max_value = items
+        .iter()
+        .map(|(_, v)| *v)
+        .fold(f64::NEG_INFINITY, f64::max);
+    if max_value <= 0.0 {
+        return Err(format!(
+            "chart_area: max value must be positive (got {})",
+            max_value
+        ));
+    }
+
+    let ink = style_token(&style, "ink")?;
+    let accent = style_token(&style, "accent")?;
+    let muted = style_token(&style, "muted")?;
+    let rule = style_token(&style, "rule")?;
+    let paper = style_token(&style, "paper")?;
+
+    let mut parts: Vec<String> = Vec::new();
+
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(CHART_CANVAS_W),
+        fmt_num(CHART_CANVAS_H),
+        escape_attr(&paper)
+    ));
+
+    // Axes
+    parts.push(format!(
+        r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+        fmt_num(CHART_X),
+        fmt_num(CHART_Y_TOP),
+        fmt_num(CHART_X),
+        fmt_num(CHART_Y_BOTTOM),
+        escape_attr(&rule)
+    ));
+    parts.push(format!(
+        r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+        fmt_num(CHART_X),
+        fmt_num(CHART_Y_BOTTOM),
+        fmt_num(CHART_X + CHART_W),
+        fmt_num(CHART_Y_BOTTOM),
+        escape_attr(&rule)
+    ));
+
+    // Compute point positions
+    let n = items.len() as f64;
+    let points: Vec<(f64, f64, String, f64)> = items
+        .iter()
+        .enumerate()
+        .map(|(i, (label, value))| {
+            let x = if items.len() == 1 {
+                CHART_X + CHART_W / 2.0
+            } else {
+                CHART_X + (i as f64) * CHART_W / (n - 1.0)
+            };
+            let y = CHART_Y_BOTTOM - (value / max_value) * CHART_H;
+            (x, y, label.clone(), *value)
+        })
+        .collect();
+
+    // Build the AREA path:
+    //   M x0 y0 L x1 y1 ... L xN yN L xN chart_y_bottom L x0 chart_y_bottom Z
+    // This closes the line down to the baseline, forming a filled area.
+    let mut area_d = format!("M {} {}", fmt_num(points[0].0), fmt_num(points[0].1));
+    for (x, y, _, _) in points.iter().skip(1) {
+        area_d.push_str(&format!(" L {} {}", fmt_num(*x), fmt_num(*y)));
+    }
+    // Close down to baseline: from last point → (last_x, chart_y_bottom)
+    // → (first_x, chart_y_bottom) → Z (back to first point)
+    // `points` is guaranteed non-empty (checked at function entry), so
+    // direct indexing is safe here. We avoid `.last().unwrap()` because
+    // the crate denies `clippy::unwrap_used` in non-test code.
+    let last_x = points[points.len() - 1].0;
+    let first_x = points[0].0;
+    area_d.push_str(&format!(
+        " L {} {} L {} {} Z",
+        fmt_num(last_x),
+        fmt_num(CHART_Y_BOTTOM),
+        fmt_num(first_x),
+        fmt_num(CHART_Y_BOTTOM)
+    ));
+    // Filled area: accent color at 25% opacity (translucent, so axis/grid
+    // shows through). stroke="none" on the fill — we draw a separate
+    // stroke line on top for definition.
+    parts.push(format!(
+        r#"<path d="{}" fill="{}" fill-opacity="0.25" stroke="none" />"#,
+        area_d,
+        escape_attr(&accent)
+    ));
+
+    // Top stroke line (solid accent, no fill) — same M..L path as chart_line
+    let mut line_d = format!("M {} {}", fmt_num(points[0].0), fmt_num(points[0].1));
+    for (x, y, _, _) in points.iter().skip(1) {
+        line_d.push_str(&format!(" L {} {}", fmt_num(*x), fmt_num(*y)));
+    }
+    parts.push(format!(
+        r#"<path d="{}" fill="none" stroke="{}" stroke-width="2" />"#,
+        line_d,
+        escape_attr(&accent)
+    ));
+
+    // X-axis labels — same logic as chart_line (cap at 20 to avoid clutter)
+    if items.len() <= 20 {
+        for (x, _, label, _) in &points {
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="12" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(*x),
+                fmt_num(CHART_Y_BOTTOM + 18.0),
+                escape_attr(&ink),
+                escape_html_chars(label)
+            ));
+        }
+    }
+
+    // Peak value annotation (muted)
+    let peak_idx = items
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    if let Some((px, py, _, pv)) = points.get(peak_idx) {
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="11" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(*px),
+            fmt_num(*py - 8.0),
+            escape_attr(&muted),
+            escape_html_chars(&format!("{}", pv))
+        ));
+    }
+
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(CHART_CANVAS_W),
+        fmt_num(CHART_CANVAS_H),
+        fmt_num(CHART_CANVAS_W),
+        fmt_num(CHART_CANVAS_H),
+        body
+    )))
+}
+
 // ── Level 2.6: color_palette — derived DiagramStyle from intent + mode ──
 //
 // Narad №77 Block 1: generates a 5-token DiagramStyle (paper/ink/accent/

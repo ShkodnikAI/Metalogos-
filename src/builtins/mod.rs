@@ -792,6 +792,12 @@ impl Builtins {
         funcs.insert("svg_callout".to_string(), builtin_svg_callout as BuiltinFn);
         // Level 3: high-level chart types
         funcs.insert("chart_bar".to_string(), builtin_chart_bar as BuiltinFn);
+        funcs.insert("chart_donut".to_string(), builtin_chart_donut as BuiltinFn);
+        // Level 2.6: derived palette (Наряд №77 Block 1)
+        funcs.insert(
+            "color_palette".to_string(),
+            builtin_color_palette as BuiltinFn,
+        );
 
         // ── Наряд №50 Block 3: SHA-256 / HMAC / hex builtins ──
         funcs.insert("sha256".to_string(), builtin_sha256 as BuiltinFn);

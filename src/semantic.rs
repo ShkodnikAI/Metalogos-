@@ -352,10 +352,22 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
 /// String literals with `<script>` here generate a WARNING (suspicious
 /// but safe — runtime will escape).
 ///
-/// chart_bar and chart_donut accept user labels inside `data: List<Struct{label, value}>`
-/// at arg 0. Their labels are escaped via escape_html_chars at runtime (defense-in-depth).
-/// The walker has a special case that scans the list-of-structs pattern for these two.
-const SVG_AUTO_ESCAPE_BUILTINS: &[&str] = &["svg_text", "svg_callout", "chart_bar", "chart_donut"];
+/// chart_bar / chart_donut / chart_line / chart_area accept user labels
+/// inside `data: List<Struct{label, value}>` at arg 0. Their labels are
+/// escaped via escape_html_chars at runtime (defense-in-depth).
+/// chart_scatter uses `List<Struct{x, y, label?}>` — same `label` key,
+/// but optional and at a different struct position. The walker has a
+/// special case (scan_chart_labels) that scans the list-of-structs
+/// pattern by field NAME, so it works uniformly across all five shapes.
+const SVG_AUTO_ESCAPE_BUILTINS: &[&str] = &[
+    "svg_text",
+    "svg_callout",
+    "chart_bar",
+    "chart_donut",
+    "chart_line",
+    "chart_scatter",
+    "chart_area",
+];
 
 /// Builtins whose string arguments are NOT auto-escaped (structural).
 /// String literals with `<script>` here generate an ERROR (injection
@@ -426,13 +438,22 @@ fn is_whitelisted_url(url: &str) -> bool {
     false
 }
 
-/// Scan chart_bar / chart_donut `data` arg (arg 0) for XSS payloads in
-/// label string literals. The data arg is a List literal of Struct literals:
-///   [{label: "...", value: 10.0}, {label: "...", value: 20.0}, ...]
-/// For each struct, we look up the `label` field. If it's a StringLit with
-/// an XSS payload, we emit a WARNING (runtime escapes label text via
-/// escape_html_chars — this is a defense-in-depth review hint, not a hard
-/// error).
+/// Scan chart_* `data` arg (arg 0) for XSS payloads in label string
+/// literals. The data arg is a List literal of Struct literals:
+///   chart_bar / chart_donut / chart_line / chart_area:
+///     [{label: "...", value: 10.0}, ...]
+///   chart_scatter:
+///     [{x: 1.0, y: 2.0, label: "..."}, ...]   (label OPTIONAL)
+/// For each struct, we look up the `label` field BY NAME (not position).
+/// This makes the scanner shape-agnostic: it catches <script> in label
+/// regardless of whether label is the first, second, or third field, and
+/// regardless of whether other fields (x, y, value) are present. If the
+/// struct has no `label` field at all (legal for chart_scatter), the
+/// scanner simply skips it — no label, no injection vector.
+///
+/// If the `label` value is a StringLit with an XSS payload, we emit a
+/// WARNING (runtime escapes label text via escape_html_chars — this is
+/// a defense-in-depth review hint, not a hard error).
 fn scan_chart_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
     if let Some(Expr::List(items)) = args.first() {
         for item in items {
@@ -466,13 +487,23 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
                         }
                     }
                 }
-                // Special case for chart_bar / chart_donut: their `label` field
-                // lives inside `data: List<Struct{label, value}>` at arg 0.
-                // The standard `auto_escaped_arg_index` returns None for these
-                // (arg 0 is a list, not a string), so we scan the list-of-structs
-                // pattern explicitly. Runtime escapes label text via escape_html_chars,
-                // so this is a WARNING (suspicious intent) not an ERROR.
-                if name == "chart_bar" || name == "chart_donut" {
+                // Special case for chart_* builtins: their `label` field
+                // lives inside `data: List<Struct{...}>` at arg 0. The list
+                // element shape varies:
+                //   chart_bar / chart_donut / chart_line / chart_area:
+                //     {label, value}  — label first
+                //   chart_scatter:
+                //     {x, y, label?}  — label third, optional
+                // scan_chart_labels looks up `label` BY NAME, so it works
+                // uniformly across all five shapes. Runtime escapes label
+                // text via escape_html_chars, so this is a WARNING
+                // (suspicious intent) not an ERROR.
+                if name == "chart_bar"
+                    || name == "chart_donut"
+                    || name == "chart_line"
+                    || name == "chart_area"
+                    || name == "chart_scatter"
+                {
                     scan_chart_labels(name, args, result);
                 }
             }

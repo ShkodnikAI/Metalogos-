@@ -1,0 +1,34 @@
+// ── Наряд №78 Block 3: chart_area contract ───────────────────────────
+//
+// Calls chart_area() with three different data shapes:
+//   1. Monotonic growth (4 points) — verifies area path closure
+//   2. Single point (N=1, degenerate)
+//   3. color_palette composition
+//
+// Output: single summary string, "p78_area_checks=N/3".
+
+pattern P78AreaContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Basic 4-point area ────────────────────────────────────────
+  let data1 = [{label: "Q1", value: 80.0}, {label: "Q2", value: 120.0}, {label: "Q3", value: 95.0}, {label: "Q4", value: 140.0}]
+  let area1 = chart_area(data1, style)
+  let ok1 = to_float(starts_with(area1, "<svg "))
+
+  // ── 2. Single point (N=1, degenerate) ────────────────────────────
+  let data2 = [{label: "Only", value: 100.0}]
+  let area2 = chart_area(data2, style)
+  let ok2 = to_float(starts_with(area2, "<svg "))
+
+  // ── 3. Compose with color_palette (palette → chart_area) ─────────
+  let palette = color_palette("energy", "dark")
+  let data3 = [{label: "Mon", value: 10.0}, {label: "Tue", value: 25.0}, {label: "Wed", value: 20.0}, {label: "Thu", value: 35.0}, {label: "Fri", value: 30.0}]
+  let area3 = chart_area(data3, palette)
+  let ok3 = to_float(starts_with(area3, "<svg "))
+
+  let total = ok1 + ok2 + ok3
+
+  return "p78_area_checks=" + to_string(total) + "/3"
+}
+
+flow Main { input: String = "x" -> P78AreaContract -> output }

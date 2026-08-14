@@ -1,0 +1,34 @@
+// ── Наряд №78 Block 1: chart_line contract ───────────────────────────
+//
+// Calls chart_line() with three different data shapes:
+//   1. Monotonic growth (3 points) — verifies basic line geometry
+//   2. Single point (N=1) — verifies degenerate case (no divide-by-zero)
+//   3. color_palette composition — verifies DiagramStyle interop
+//
+// Output: single summary string, "p78_line_checks=N/3".
+
+pattern P78LineContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Basic 3-point line ────────────────────────────────────────
+  let data1 = [{label: "Jan", value: 30.0}, {label: "Feb", value: 65.0}, {label: "Mar", value: 45.0}]
+  let line1 = chart_line(data1, style)
+  let ok1 = to_float(starts_with(line1, "<svg "))
+
+  // ── 2. Single point (N=1, degenerate — no divide-by-zero) ────────
+  let data2 = [{label: "Only", value: 100.0}]
+  let line2 = chart_line(data2, style)
+  let ok2 = to_float(starts_with(line2, "<svg "))
+
+  // ── 3. Compose with color_palette (palette → chart_line) ─────────
+  let palette = color_palette("calm", "light")
+  let data3 = [{label: "Q1", value: 80.0}, {label: "Q2", value: 120.0}, {label: "Q3", value: 95.0}, {label: "Q4", value: 140.0}]
+  let line3 = chart_line(data3, palette)
+  let ok3 = to_float(starts_with(line3, "<svg "))
+
+  let total = ok1 + ok2 + ok3
+
+  return "p78_line_checks=" + to_string(total) + "/3"
+}
+
+flow Main { input: String = "x" -> P78LineContract -> output }

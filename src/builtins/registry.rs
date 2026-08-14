@@ -127,6 +127,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("http_get", 1, 4, "web"), // url | url,headers | url,headers,timeout | ...,{max_retries:N,base_delay:N}
     spec!("http_post", 2, 6, "web"), // up to +retry_config Struct
     spec!("http_post_multipart", 2, 4, "web"),
+    spec!("http_download", 2, 3, "web"), // Наряд №76: url,dest_path | url,dest_path,headers
     spec!("require", 1, 2, "web"),
     spec!("request_body", 0, "web"),
     spec!("web_search", 1, 2, "web"), // query | query,num

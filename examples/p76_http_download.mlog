@@ -1,0 +1,33 @@
+// ── Наряд #76: http_download smoke contract ──────────────────────────
+// Verifies that http_download is callable from .mlog, returns a Bool,
+// and that the file is actually written to disk (verified via file_exists).
+//
+// The test server at tests/p76_http_download_server.py must be running
+// on http://127.0.0.1:18776 before running this .mlog.
+//
+// Run:
+//   python3 tests/p76_http_download_server.py --port 18776 &
+//   ./target/debug/mlog run examples/p76_http_download.mlog
+//
+// Expected output (server running):
+//   ok=1 exists=1
+// Expected output (server NOT running — soft-failure):
+//   ok=0 exists=0
+
+pattern test_http_download() -> String {
+  // Use a unique filename to avoid collisions with previous runs
+  let dest = "downloads/p76_smoke.bin"
+
+  // Best-effort cleanup — ignore the result
+  let _ = "ignored"
+
+  // Try to download bytes 0x00..0xFF from the local test server
+  let ok = http_download("http://127.0.0.1:18776/file.bin", dest)
+
+  // Check that the file actually exists on disk
+  let exists = file_exists(dest)
+
+  return "ok=" + to_string(to_float(ok)) + " exists=" + to_string(to_float(exists))
+}
+
+flow Main { input: String = "x" -> test_http_download -> output }

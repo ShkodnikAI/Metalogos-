@@ -107,6 +107,7 @@ fn registry_arity_exhaustive() {
         ("http_get", 1, 4),
         ("http_post", 2, 6),
         ("http_post_multipart", 2, 4),
+        ("http_download", 2, 3), // Наряд №76: url,dest | url,dest,headers
         ("require", 1, 2),
         ("web_search", 1, 2),
         ("geo_ip", 0, 1),

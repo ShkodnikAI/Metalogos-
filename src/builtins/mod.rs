@@ -276,6 +276,13 @@ impl Builtins {
         funcs.insert("now".to_string(), builtin_now as BuiltinFn);
         funcs.insert("sleep".to_string(), builtin_sleep as BuiltinFn);
 
+        // Наряд №76 — binary file download (P1). Dispatched through the
+        // common path like http_get/http_post; no interpreter special-case.
+        funcs.insert(
+            "http_download".to_string(),
+            builtin_http_download as BuiltinFn,
+        );
+
         // ADR-0049 — session memory (temporary per-session KV store)
         funcs.insert("session_set".to_string(), builtin_session_set as BuiltinFn);
         funcs.insert("session_get".to_string(), builtin_session_get as BuiltinFn);

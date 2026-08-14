@@ -595,6 +595,486 @@ pub fn builtin_chart_bar(args: &[Value]) -> Result<Value, String> {
     )))
 }
 
+// ── Level 3 (item 2): chart_donut ────────────────────────────────────
+//
+// Narad №77 Block 2: donut chart with pure parametric geometry.
+//
+// Layout (deterministic, no graph-layout algorithm):
+//   - canvas: width=600, height=400
+//   - center: (200, 200) — leaves right half for legend
+//   - outer radius: 140
+//   - inner radius: 70  (50% — typical donut hole)
+//   - legend area: x=[380, 580], y=[80, 320]
+//
+// Each slice is a <path> built with two arc commands:
+//   M outer_start  A r_out r_out 0 large 1 outer_end
+//   L inner_end    A r_in  r_in  0 large 0 inner_start  Z
+//
+// Where angles start at -π/2 (top of circle) and proceed clockwise.
+// `large` is 1 if the slice angle > π, else 0.
+//
+// Security: ALL labels (both slice labels and legend text) are XML-escaped
+// via escape_html_chars — same invariant as chart_bar. chart_donut is
+// registered in SVG_AUTO_ESCAPE_BUILTINS in semantic.rs so the AST lint
+// also scans for `<script>` payloads in label string literals.
+//
+// Determinism: same inputs → identical output (golden-test invariant).
+
+pub fn builtin_chart_donut(args: &[Value]) -> Result<Value, String> {
+    let data = expect_list_arg("chart_donut", args, 0)?;
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+
+    if data.is_empty() {
+        return Err("chart_donut: data list must not be empty".to_string());
+    }
+    if data.len() > 50 {
+        return Err(format!(
+            "chart_donut: too many slices ({}), maximum is 50",
+            data.len()
+        ));
+    }
+
+    // Extract {label, value} from each item
+    let mut items: Vec<(String, f64)> = Vec::with_capacity(data.len());
+    for (i, item) in data.iter().enumerate() {
+        let fields = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "chart_donut: data[{}] must be Struct {{label, value}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let label = struct_string_field("chart_donut item", fields, "label")?;
+        let value = struct_float_field("chart_donut item", fields, "value")?;
+        if value < 0.0 {
+            return Err(format!(
+                "chart_donut: data[{}] value must be non-negative (got {})",
+                i, value
+            ));
+        }
+        items.push((label, value));
+    }
+
+    let total: f64 = items.iter().map(|(_, v)| *v).sum();
+    if total <= 0.0 {
+        return Err(format!(
+            "chart_donut: sum of values must be positive (got {})",
+            total
+        ));
+    }
+
+    // Geometry constants
+    let canvas_w = 600.0_f64;
+    let canvas_h = 400.0_f64;
+    let cx = 200.0_f64;
+    let cy = 200.0_f64;
+    let r_out = 140.0_f64;
+    let r_in = 70.0_f64;
+    // Legend column
+    let legend_x = 380.0_f64;
+    let legend_y_start = 90.0_f64;
+    let legend_row_h = 22.0_f64;
+    let legend_swatch = 14.0_f64;
+
+    let paper = style_token(&style, "paper")?;
+    let ink = style_token(&style, "ink")?;
+    let accent = style_token(&style, "accent")?;
+    let muted = style_token(&style, "muted")?;
+    let rule = style_token(&style, "rule")?;
+
+    // Color palette for slices: derive N shades from accent + ink.
+    // We alternate accent (vivid) and ink-derived shades (structural),
+    // so the chart stays within the same color family (palette.md V2.1).
+    // For a single-slice donut, use accent (whole pie = accent).
+    // For multi-slice, alternate: accent, ink, accent-lightened, ink-lightened.
+    let slice_colors = build_slice_colors(&accent, &ink, items.len());
+
+    let mut parts: Vec<String> = Vec::new();
+
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+
+    // Compute slice angles (radians). Start at -π/2 (top), go clockwise.
+    let start_angle = -std::f64::consts::PI / 2.0;
+    let mut current_angle = start_angle;
+
+    // Threshold: if a slice angle is within epsilon of 2π, it's a full circle.
+    // SVG arc command with start==end is ambiguous (renders nothing), so we
+    // split full-circle slices into two semicircle arcs.
+    const FULL_CIRCLE_EPS: f64 = 1e-9;
+
+    for (i, (_label, value)) in items.iter().enumerate() {
+        let slice_angle = (value / total) * 2.0 * std::f64::consts::PI;
+        let end_angle = current_angle + slice_angle;
+        let color = &slice_colors[i];
+
+        if slice_angle >= 2.0 * std::f64::consts::PI - FULL_CIRCLE_EPS {
+            // Full-circle slice (only happens when N=1): split into two
+            // semicircle arcs to avoid SVG's ambiguous start==end case.
+            let mid_angle = current_angle + std::f64::consts::PI;
+            // First semicircle: current_angle → mid_angle
+            let (ox1, oy1) = polar_to_xy(cx, cy, r_out, current_angle);
+            let (ox2, oy2) = polar_to_xy(cx, cy, r_out, mid_angle);
+            let (ix1, iy1) = polar_to_xy(cx, cy, r_in, mid_angle);
+            let (ix2, iy2) = polar_to_xy(cx, cy, r_in, current_angle);
+            parts.push(format!(
+                r#"<path d="M {} {} A {} {} 0 0 1 {} {} L {} {} A {} {} 0 0 0 {} {} Z" fill="{}" stroke="{}" stroke-width="1" />"#,
+                fmt_num(ox1),
+                fmt_num(oy1),
+                fmt_num(r_out),
+                fmt_num(r_out),
+                fmt_num(ox2),
+                fmt_num(oy2),
+                fmt_num(ix1),
+                fmt_num(iy1),
+                fmt_num(r_in),
+                fmt_num(r_in),
+                fmt_num(ix2),
+                fmt_num(iy2),
+                escape_attr(color),
+                escape_attr(&paper)
+            ));
+            // Second semicircle: mid_angle → end_angle (== current_angle modulo 2π)
+            let (ox3, oy3) = polar_to_xy(cx, cy, r_out, mid_angle);
+            let (ox4, oy4) = polar_to_xy(cx, cy, r_out, end_angle);
+            let (ix3, iy3) = polar_to_xy(cx, cy, r_in, end_angle);
+            let (ix4, iy4) = polar_to_xy(cx, cy, r_in, mid_angle);
+            parts.push(format!(
+                r#"<path d="M {} {} A {} {} 0 0 1 {} {} L {} {} A {} {} 0 0 0 {} {} Z" fill="{}" stroke="{}" stroke-width="1" />"#,
+                fmt_num(ox3),
+                fmt_num(oy3),
+                fmt_num(r_out),
+                fmt_num(r_out),
+                fmt_num(ox4),
+                fmt_num(oy4),
+                fmt_num(ix3),
+                fmt_num(iy3),
+                fmt_num(r_in),
+                fmt_num(r_in),
+                fmt_num(ix4),
+                fmt_num(iy4),
+                escape_attr(color),
+                escape_attr(&paper)
+            ));
+        } else {
+            // Outer arc endpoints
+            let (ox1, oy1) = polar_to_xy(cx, cy, r_out, current_angle);
+            let (ox2, oy2) = polar_to_xy(cx, cy, r_out, end_angle);
+            // Inner arc endpoints (note: reversed direction for inner arc)
+            let (ix1, iy1) = polar_to_xy(cx, cy, r_in, end_angle);
+            let (ix2, iy2) = polar_to_xy(cx, cy, r_in, current_angle);
+
+            let large_arc = if slice_angle > std::f64::consts::PI {
+                1
+            } else {
+                0
+            };
+
+            // Donut slice path:
+            //   M outer_start
+            //   A r_out r_out 0 large 1 outer_end   (clockwise outer arc)
+            //   L inner_end
+            //   A r_in  r_in  0 large 0 inner_start (counter-clockwise inner arc)
+            //   Z
+            parts.push(format!(
+                r#"<path d="M {} {} A {} {} 0 {} 1 {} {} L {} {} A {} {} 0 {} 0 {} {} Z" fill="{}" stroke="{}" stroke-width="1" />"#,
+                fmt_num(ox1),
+                fmt_num(oy1),
+                fmt_num(r_out),
+                fmt_num(r_out),
+                large_arc,
+                fmt_num(ox2),
+                fmt_num(oy2),
+                fmt_num(ix1),
+                fmt_num(iy1),
+                fmt_num(r_in),
+                fmt_num(r_in),
+                large_arc,
+                fmt_num(ix2),
+                fmt_num(iy2),
+                escape_attr(color),
+                escape_attr(&paper) // stroke = paper creates visual separation between slices
+            ));
+        }
+
+        // Slice percentage label inside the slice (at midpoint, between r_in and r_out)
+        // Only render if slice is big enough to hold a label (>=5% of total)
+        if value / total >= 0.05 {
+            let mid_angle = current_angle + slice_angle / 2.0;
+            let label_r = (r_out + r_in) / 2.0;
+            let (lx, ly) = polar_to_xy(cx, cy, label_r, mid_angle);
+            let pct = (value / total) * 100.0;
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="11" fill="{}" text-anchor="middle" dominant-baseline="middle">{}</text>"#,
+                fmt_num(lx),
+                fmt_num(ly),
+                escape_attr(&paper), // percentage text contrasts with slice color
+                escape_html_chars(&format!("{}%", (pct.round() as i64)))
+            ));
+        }
+
+        current_angle = end_angle;
+    }
+
+    // Legend (right column): swatch + label for each slice
+    for (i, (label, _value)) in items.iter().enumerate() {
+        let ly = legend_y_start + (i as f64) * legend_row_h;
+        let color = &slice_colors[i];
+        // Swatch
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" />"#,
+            fmt_num(legend_x),
+            fmt_num(ly),
+            fmt_num(legend_swatch),
+            fmt_num(legend_swatch),
+            escape_attr(color)
+        ));
+        // Label
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="12" fill="{}" dominant-baseline="middle">{}</text>"#,
+            fmt_num(legend_x + legend_swatch + 8.0),
+            fmt_num(ly + legend_swatch / 2.0),
+            escape_attr(&ink),
+            escape_html_chars(label)
+        ));
+    }
+
+    // Title rule line (subtle separator above legend)
+    parts.push(format!(
+        r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+        fmt_num(legend_x),
+        fmt_num(legend_y_start - 12.0),
+        fmt_num(canvas_w - 20.0),
+        fmt_num(legend_y_start - 12.0),
+        escape_attr(&rule)
+    ));
+
+    // Center text: total value (in the donut hole)
+    let total_label = format!("{}", (total.round() as i64));
+    parts.push(format!(
+        r#"<text x="{}" y="{}" font-size="20" font-weight="bold" fill="{}" text-anchor="middle" dominant-baseline="middle">{}</text>"#,
+        fmt_num(cx),
+        fmt_num(cy - 6.0),
+        escape_attr(&ink),
+        escape_html_chars(&total_label)
+    ));
+    parts.push(format!(
+        r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle" dominant-baseline="middle">total</text>"#,
+        fmt_num(cx),
+        fmt_num(cy + 12.0),
+        escape_attr(&muted)
+    ));
+
+    // Wrap in <svg> canvas
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+/// Convert polar coordinates (center + angle in radians) to SVG cartesian.
+/// SVG Y-axis points down, so we use sin(angle) directly (no negation).
+/// angle = -π/2 corresponds to the top of the circle.
+fn polar_to_xy(cx: f64, cy: f64, r: f64, angle: f64) -> (f64, f64) {
+    (cx + r * angle.cos(), cy + r * angle.sin())
+}
+
+/// Build a list of N slice colors that stay within the same color family
+/// (accent + ink, alternating). For N=1, return [accent]. For N>1, alternate
+/// accent and ink so adjacent slices have different colors but the whole
+/// chart stays within the same hue family (palette.md V2.1).
+fn build_slice_colors(accent: &str, ink: &str, n: usize) -> Vec<String> {
+    if n == 0 {
+        return Vec::new();
+    }
+    if n == 1 {
+        return vec![accent.to_string()];
+    }
+    // For 2+ slices, alternate accent and ink.
+    // This gives clear visual separation between adjacent slices while
+    // staying within the same color family (both come from base_hue).
+    let mut colors = Vec::with_capacity(n);
+    for i in 0..n {
+        if i % 2 == 0 {
+            colors.push(accent.to_string());
+        } else {
+            colors.push(ink.to_string());
+        }
+    }
+    colors
+}
+
+// ── Level 2.6: color_palette — derived DiagramStyle from intent + mode ──
+//
+// Narad №77 Block 1: generates a 5-token DiagramStyle (paper/ink/accent/
+// muted/rule) from a named intent and a light/dark mode.
+//
+// Source of intent→hue: skills/pdf/scripts/design_engine.py::INTENT_HUES
+//   calm      → 210  (steel blue-grey)
+//   tension   → 0    (warm near-black vs cold)
+//   energy    → 30   (amber undertone)
+//   authority → 280  (muted violet, formal)
+//   warmth    → 20   (terracotta)
+//
+// Derivation formulas: skills/pdf/typesetting/palette.md
+//   Primary:       hsl(H, S, L)
+//   Dark variant:  hsl(H, S, L-15%)
+//   Light variant: hsl(H, S-10%, L+25%)
+//   Ultra-light bg: hsl(H, S-20%, 96%)
+//   Accent:        hsl(H+15, S, L)  ← overridden by V2.1 rule
+//
+// V2.1 rule (palette.md): accent MUST share base_hue with structural roles.
+// Only S/L differ. This makes paper/ink/accent/muted/rule visibly belong to
+// the same color family.
+//
+// Tier system (palette.md): area ∝ 1/saturation.
+//   XL (>50%):  paper    → S ≤ 0.08 (light) / S ≤ 0.10 (dark, near-black)
+//   L  (20-50%): rule     → S ≤ 0.15-0.20
+//   M  (5-20%):  ink      → S ≤ 0.30 (light) / S ≤ 0.05 (dark, near-white)
+//   S  (1-5%):   muted    → S ≤ 0.50
+//   XS (<1%):    accent   → S ≤ 0.75 (typically 0.55-0.65)
+//
+// Output: Value::Struct { type_name: "DiagramStyle", fields: {paper,ink,accent,muted,rule} }
+// Same shape as builtin_diagram_style — directly consumable by chart_bar,
+// chart_donut, and any future chart_* without adaptation.
+
+/// Intent name → base hue (degrees on HSL wheel).
+/// Values sourced verbatim from design_engine.py::INTENT_HUES.
+fn intent_to_hue(intent: &str) -> Option<f64> {
+    match intent {
+        "calm" => Some(210.0),
+        "tension" => Some(0.0),
+        "energy" => Some(30.0),
+        "authority" => Some(280.0),
+        "warmth" => Some(20.0),
+        _ => None,
+    }
+}
+
+/// Convert HSL color to hex string (#rrggbb).
+/// h: 0-360 degrees, s: 0.0-1.0, l: 0.0-1.0.
+fn hsl_to_hex(h: f64, s: f64, l: f64) -> String {
+    // Normalize hue to [0, 360)
+    let h_norm = ((h % 360.0) + 360.0) % 360.0 / 360.0;
+    let s_clamped = s.clamp(0.0, 1.0);
+    let l_clamped = l.clamp(0.0, 1.0);
+
+    let (r, g, b) = if s_clamped == 0.0 {
+        (l_clamped, l_clamped, l_clamped)
+    } else {
+        let q = if l_clamped < 0.5 {
+            l_clamped * (1.0 + s_clamped)
+        } else {
+            l_clamped + s_clamped - l_clamped * s_clamped
+        };
+        let p = 2.0 * l_clamped - q;
+
+        let hue2rgb = |p: f64, q: f64, mut t: f64| -> f64 {
+            if t < 0.0 {
+                t += 1.0;
+            }
+            if t > 1.0 {
+                t -= 1.0;
+            }
+            if t < 1.0 / 6.0 {
+                p + (q - p) * 6.0 * t
+            } else if t < 1.0 / 2.0 {
+                q
+            } else if t < 2.0 / 3.0 {
+                p + (q - p) * (2.0 / 3.0 - t) * 6.0
+            } else {
+                p
+            }
+        };
+
+        (
+            hue2rgb(p, q, h_norm + 1.0 / 3.0),
+            hue2rgb(p, q, h_norm),
+            hue2rgb(p, q, h_norm - 1.0 / 3.0),
+        )
+    };
+
+    let to_u8 = |c: f64| (c.clamp(0.0, 1.0) * 255.0).round() as u8;
+    format!("#{:02x}{:02x}{:02x}", to_u8(r), to_u8(g), to_u8(b))
+}
+
+/// `color_palette(intent: String, mode: String) -> Struct`
+/// Returns DiagramStyle { paper, ink, accent, muted, rule } derived from
+/// intent (calm/tension/energy/authority/warmth) and mode (light/dark).
+pub fn builtin_color_palette(args: &[Value]) -> Result<Value, String> {
+    let intent = expect_string_arg("color_palette", args, 0)?;
+    let mode = expect_string_arg("color_palette", args, 1)?;
+
+    let base_hue = intent_to_hue(&intent).ok_or_else(|| {
+        format!(
+            "color_palette: intent must be one of calm/tension/energy/authority/warmth (got {:?})",
+            intent
+        )
+    })?;
+
+    // Derive 5 tokens. All structural roles use base_hue (V2.1 rule).
+    // Only saturation/lightness differ. Tier caps from palette.md are respected.
+    let (paper, ink, accent, muted, rule) = match mode.as_str() {
+        "light" => {
+            // Light mode: paper is ultra-light tinted bg, ink is dark text,
+            // accent is vibrant (XS tier), muted is mid-L gray, rule is
+            // a subtle L-tier divider.
+            // Per palette.md: paper = hsl(H, S-20%, 96%) (S very low).
+            //                 ink   = hsl(H, S, L_low).
+            //                 accent= hsl(H, S_high, L_mid)  [V2.1: same hue].
+            let paper = hsl_to_hex(base_hue, 0.06, 0.96);
+            let ink = hsl_to_hex(base_hue, 0.30, 0.15);
+            let accent = hsl_to_hex(base_hue, 0.65, 0.45);
+            let muted = hsl_to_hex(base_hue, 0.10, 0.50);
+            let rule = hsl_to_hex(base_hue, 0.15, 0.85);
+            (paper, ink, accent, muted, rule)
+        }
+        "dark" => {
+            // Dark mode: paper is very dark (XL tier, near-black with slight
+            // hue tint), ink is near-white text, accent is vibrant on dark
+            // (XS tier, higher L for visibility), muted is mid-L gray,
+            // rule is a visible S-tier divider on dark bg.
+            let paper = hsl_to_hex(base_hue, 0.10, 0.06);
+            let ink = hsl_to_hex(base_hue, 0.05, 0.92);
+            let accent = hsl_to_hex(base_hue, 0.60, 0.58);
+            let muted = hsl_to_hex(base_hue, 0.10, 0.55);
+            let rule = hsl_to_hex(base_hue, 0.20, 0.18);
+            (paper, ink, accent, muted, rule)
+        }
+        _ => {
+            return Err(format!(
+                "color_palette: mode must be \"light\" or \"dark\" (got {:?})",
+                mode
+            ));
+        }
+    };
+
+    let mut style_fields = HashMap::new();
+    style_fields.insert("paper".to_string(), Value::String(paper));
+    style_fields.insert("ink".to_string(), Value::String(ink));
+    style_fields.insert("accent".to_string(), Value::String(accent));
+    style_fields.insert("muted".to_string(), Value::String(muted));
+    style_fields.insert("rule".to_string(), Value::String(rule));
+    Ok(Value::Struct {
+        type_name: "DiagramStyle".to_string(),
+        fields: style_fields,
+    })
+}
+
 // ── Level 2.5a: svg_sketchy_filter ───────────────────────────────────
 //
 // Returns a <filter> element to be placed in <defs>. Apply via
@@ -1081,6 +1561,344 @@ mod tests {
             Value::String(xml) => {
                 assert!(!xml.contains("<b>bold</b>"));
                 assert!(xml.contains("&lt;b&gt;bold&lt;/b&gt;"));
+            }
+            _ => panic!("expected String"),
+        }
+    }
+
+    // ── Наряд №77: color_palette + chart_donut unit tests ──
+
+    #[test]
+    fn color_palette_returns_diagram_style_struct_with_5_tokens() {
+        let out = builtin_color_palette(&[s("energy"), s("light")]).unwrap();
+        match out {
+            Value::Struct { type_name, fields } => {
+                assert_eq!(type_name, "DiagramStyle");
+                assert_eq!(fields.len(), 5);
+                for k in &["paper", "ink", "accent", "muted", "rule"] {
+                    assert!(fields.contains_key(*k), "missing token {}", k);
+                }
+                // Each token must be a hex string of form #rrggbb
+                for k in &["paper", "ink", "accent", "muted", "rule"] {
+                    if let Some(Value::String(v)) = fields.get(*k) {
+                        assert!(v.starts_with('#'), "{} should start with #", k);
+                        assert_eq!(v.len(), 7, "{} should be #rrggbb (7 chars)", k);
+                    }
+                }
+            }
+            _ => panic!("expected Struct"),
+        }
+    }
+
+    #[test]
+    fn color_palette_rejects_unknown_intent() {
+        let r = builtin_color_palette(&[s("unknown"), s("light")]);
+        assert!(r.is_err());
+        let err = r.unwrap_err();
+        assert!(err.contains("intent"), "err: {}", err);
+    }
+
+    #[test]
+    fn color_palette_rejects_unknown_mode() {
+        let r = builtin_color_palette(&[s("calm"), s("neon")]);
+        assert!(r.is_err());
+        let err = r.unwrap_err();
+        assert!(err.contains("mode"), "err: {}", err);
+    }
+
+    #[test]
+    fn color_palette_light_vs_dark_produce_different_tokens() {
+        let light = builtin_color_palette(&[s("authority"), s("light")]).unwrap();
+        let dark = builtin_color_palette(&[s("authority"), s("dark")]).unwrap();
+        if let (Value::Struct { fields: lf, .. }, Value::Struct { fields: df, .. }) = (light, dark)
+        {
+            // Light paper should be much lighter than dark paper.
+            // Value doesn't impl PartialEq, so extract strings and compare those.
+            let lp = match lf.get("paper").unwrap() {
+                Value::String(v) => v.clone(),
+                _ => panic!("light paper not String"),
+            };
+            let dp = match df.get("paper").unwrap() {
+                Value::String(v) => v.clone(),
+                _ => panic!("dark paper not String"),
+            };
+            assert_ne!(lp, dp, "light vs dark paper must differ");
+            let li = match lf.get("ink").unwrap() {
+                Value::String(v) => v.clone(),
+                _ => panic!("light ink not String"),
+            };
+            let di = match df.get("ink").unwrap() {
+                Value::String(v) => v.clone(),
+                _ => panic!("dark ink not String"),
+            };
+            assert_ne!(li, di, "light vs dark ink must differ");
+        }
+    }
+
+    #[test]
+    fn color_palette_all_5_intents_all_2_modes_produce_valid_hex() {
+        for intent in &["calm", "tension", "energy", "authority", "warmth"] {
+            for mode in &["light", "dark"] {
+                let out = builtin_color_palette(&[s(intent), s(mode)]).unwrap();
+                if let Value::Struct { fields, .. } = out {
+                    for k in &["paper", "ink", "accent", "muted", "rule"] {
+                        if let Some(Value::String(v)) = fields.get(*k) {
+                            assert!(
+                                v.starts_with('#') && v.len() == 7,
+                                "intent={} mode={} token={} got {:?}",
+                                intent,
+                                mode,
+                                k,
+                                v
+                            );
+                            // Hex digits only after #
+                            let hex = &v[1..];
+                            assert!(
+                                hex.chars().all(|c| c.is_ascii_hexdigit()),
+                                "non-hex char in {} for intent={} mode={}",
+                                k,
+                                intent,
+                                mode
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn color_palette_result_passes_extract_style() {
+        // Critical: color_palette output must be consumable by extract_style
+        // (the helper used by chart_bar / chart_donut).
+        let out = builtin_color_palette(&[s("warmth"), s("light")]).unwrap();
+        let extracted = extract_style(&out);
+        assert!(extracted.is_ok(), "extract_style failed: {:?}", extracted);
+        let style = extracted.unwrap();
+        assert_eq!(style.len(), 5);
+        for k in &["paper", "ink", "accent", "muted", "rule"] {
+            assert!(style.contains_key(*k));
+        }
+    }
+
+    #[test]
+    fn color_palette_result_works_with_chart_bar() {
+        // End-to-end: color_palette → chart_bar (no manual diagram_style needed)
+        let palette = builtin_color_palette(&[s("energy"), s("dark")]).unwrap();
+        let mut item_fields = HashMap::new();
+        item_fields.insert("label".to_string(), s("Q1"));
+        item_fields.insert("value".to_string(), f(40.0));
+        let item = Value::Struct {
+            type_name: "Slice".to_string(),
+            fields: item_fields,
+        };
+        let data = Value::List(vec![item]);
+        let out = builtin_chart_bar(&[data, palette]).unwrap();
+        match out {
+            Value::String(xml) => {
+                assert!(xml.starts_with("<svg "));
+                assert!(xml.ends_with("</svg>"));
+            }
+            _ => panic!("expected String"),
+        }
+    }
+
+    #[test]
+    fn chart_donut_basic_3_slices() {
+        let mut f1 = HashMap::new();
+        f1.insert("label".to_string(), s("Alpha"));
+        f1.insert("value".to_string(), f(40.0));
+        let item1 = Value::Struct {
+            type_name: "Slice".to_string(),
+            fields: f1,
+        };
+        let mut f2 = HashMap::new();
+        f2.insert("label".to_string(), s("Beta"));
+        f2.insert("value".to_string(), f(35.0));
+        let item2 = Value::Struct {
+            type_name: "Slice".to_string(),
+            fields: f2,
+        };
+        let mut f3 = HashMap::new();
+        f3.insert("label".to_string(), s("Gamma"));
+        f3.insert("value".to_string(), f(25.0));
+        let item3 = Value::Struct {
+            type_name: "Slice".to_string(),
+            fields: f3,
+        };
+        let data = Value::List(vec![item1, item2, item3]);
+
+        let mut style_fields = HashMap::new();
+        style_fields.insert("paper".to_string(), s("#fff"));
+        style_fields.insert("ink".to_string(), s("#000"));
+        style_fields.insert("accent".to_string(), s("#eb6c36"));
+        style_fields.insert("muted".to_string(), s("#888"));
+        style_fields.insert("rule".to_string(), s("#ccc"));
+        let style = Value::Struct {
+            type_name: "DiagramStyle".to_string(),
+            fields: style_fields,
+        };
+
+        let out = builtin_chart_donut(&[data, style]).unwrap();
+        match out {
+            Value::String(xml) => {
+                assert!(xml.starts_with("<svg "));
+                assert!(xml.ends_with("</svg>"));
+                // 3 slices = 3 <path> elements (each donut slice is one path)
+                let path_count = xml.matches("<path").count();
+                assert_eq!(path_count, 3, "expected 3 slice paths");
+                // Background rect
+                assert!(xml.contains("<rect"));
+                // Labels present (escaped if needed — Alpha/Beta/Gamma are safe)
+                assert!(xml.contains("Alpha"));
+                assert!(xml.contains("Beta"));
+                assert!(xml.contains("Gamma"));
+                // Center total: 40+35+25=100
+                assert!(xml.contains(">100<"));
+                // Legend swatches: 3 (one per slice)
+                let rect_count = xml.matches("<rect").count();
+                assert!(
+                    rect_count >= 4,
+                    "expected 4+ rects (1 bg + 3 legend swatches)"
+                );
+            }
+            _ => panic!("expected String"),
+        }
+    }
+
+    #[test]
+    fn chart_donut_rejects_empty_data() {
+        let mut style_fields = HashMap::new();
+        style_fields.insert("paper".to_string(), s("#fff"));
+        style_fields.insert("ink".to_string(), s("#000"));
+        style_fields.insert("accent".to_string(), s("#f00"));
+        style_fields.insert("muted".to_string(), s("#888"));
+        style_fields.insert("rule".to_string(), s("#ccc"));
+        let style = Value::Struct {
+            type_name: "DiagramStyle".to_string(),
+            fields: style_fields,
+        };
+        let r = builtin_chart_donut(&[Value::List(vec![]), style]);
+        assert!(r.is_err());
+        assert!(r.unwrap_err().contains("empty"));
+    }
+
+    #[test]
+    fn chart_donut_rejects_negative_value() {
+        let mut f1 = HashMap::new();
+        f1.insert("label".to_string(), s("A"));
+        f1.insert("value".to_string(), f(-10.0));
+        let item = Value::Struct {
+            type_name: "Slice".to_string(),
+            fields: f1,
+        };
+        let mut style_fields = HashMap::new();
+        style_fields.insert("paper".to_string(), s("#fff"));
+        style_fields.insert("ink".to_string(), s("#000"));
+        style_fields.insert("accent".to_string(), s("#f00"));
+        style_fields.insert("muted".to_string(), s("#888"));
+        style_fields.insert("rule".to_string(), s("#ccc"));
+        let style = Value::Struct {
+            type_name: "DiagramStyle".to_string(),
+            fields: style_fields,
+        };
+        let r = builtin_chart_donut(&[Value::List(vec![item]), style]);
+        assert!(r.is_err());
+        assert!(r.unwrap_err().contains("non-negative"));
+    }
+
+    #[test]
+    fn chart_donut_escapes_label_with_script_tag() {
+        // Critical security invariant: <script> in label must NOT leak raw
+        let mut f1 = HashMap::new();
+        f1.insert("label".to_string(), s("<script>alert(1)</script>"));
+        f1.insert("value".to_string(), f(40.0));
+        let item = Value::Struct {
+            type_name: "Slice".to_string(),
+            fields: f1,
+        };
+        let mut style_fields = HashMap::new();
+        style_fields.insert("paper".to_string(), s("#fff"));
+        style_fields.insert("ink".to_string(), s("#000"));
+        style_fields.insert("accent".to_string(), s("#f00"));
+        style_fields.insert("muted".to_string(), s("#888"));
+        style_fields.insert("rule".to_string(), s("#ccc"));
+        let style = Value::Struct {
+            type_name: "DiagramStyle".to_string(),
+            fields: style_fields,
+        };
+        let out = builtin_chart_donut(&[Value::List(vec![item]), style]).unwrap();
+        match out {
+            Value::String(xml) => {
+                assert!(
+                    !xml.contains("<script>"),
+                    "RAW <script> leaked into chart_donut output: {}",
+                    xml
+                );
+                assert!(xml.contains("&lt;script&gt;"));
+            }
+            _ => panic!("expected String"),
+        }
+    }
+
+    #[test]
+    fn chart_donut_single_slice_uses_accent() {
+        // One slice = whole pie = accent color
+        let mut f1 = HashMap::new();
+        f1.insert("label".to_string(), s("Only"));
+        f1.insert("value".to_string(), f(100.0));
+        let item = Value::Struct {
+            type_name: "Slice".to_string(),
+            fields: f1,
+        };
+        let mut style_fields = HashMap::new();
+        style_fields.insert("paper".to_string(), s("#fff"));
+        style_fields.insert("ink".to_string(), s("#000"));
+        style_fields.insert("accent".to_string(), s("#ff8800"));
+        style_fields.insert("muted".to_string(), s("#888"));
+        style_fields.insert("rule".to_string(), s("#ccc"));
+        let style = Value::Struct {
+            type_name: "DiagramStyle".to_string(),
+            fields: style_fields,
+        };
+        let out = builtin_chart_donut(&[Value::List(vec![item]), style]).unwrap();
+        match out {
+            Value::String(xml) => {
+                // The single slice should be filled with accent color
+                assert!(
+                    xml.contains(r##"fill="#ff8800""##),
+                    "single slice should be accent-colored, xml: {}",
+                    xml
+                );
+            }
+            _ => panic!("expected String"),
+        }
+    }
+
+    #[test]
+    fn chart_donut_works_with_color_palette_output() {
+        // End-to-end: color_palette → chart_donut
+        let palette = builtin_color_palette(&[s("calm"), s("light")]).unwrap();
+        let mut f1 = HashMap::new();
+        f1.insert("label".to_string(), s("A"));
+        f1.insert("value".to_string(), f(60.0));
+        let item1 = Value::Struct {
+            type_name: "Slice".to_string(),
+            fields: f1,
+        };
+        let mut f2 = HashMap::new();
+        f2.insert("label".to_string(), s("B"));
+        f2.insert("value".to_string(), f(40.0));
+        let item2 = Value::Struct {
+            type_name: "Slice".to_string(),
+            fields: f2,
+        };
+        let out = builtin_chart_donut(&[Value::List(vec![item1, item2]), palette]).unwrap();
+        match out {
+            Value::String(xml) => {
+                assert!(xml.starts_with("<svg "));
+                assert!(xml.ends_with("</svg>"));
+                assert_eq!(xml.matches("<path").count(), 2, "expected 2 slice paths");
             }
             _ => panic!("expected String"),
         }

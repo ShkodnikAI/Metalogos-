@@ -351,7 +351,11 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
 /// Builtins whose string arguments are auto-escaped at runtime.
 /// String literals with `<script>` here generate a WARNING (suspicious
 /// but safe — runtime will escape).
-const SVG_AUTO_ESCAPE_BUILTINS: &[&str] = &["svg_text", "svg_callout"];
+///
+/// chart_bar and chart_donut accept user labels inside `data: List<Struct{label, value}>`
+/// at arg 0. Their labels are escaped via escape_html_chars at runtime (defense-in-depth).
+/// The walker has a special case that scans the list-of-structs pattern for these two.
+const SVG_AUTO_ESCAPE_BUILTINS: &[&str] = &["svg_text", "svg_callout", "chart_bar", "chart_donut"];
 
 /// Builtins whose string arguments are NOT auto-escaped (structural).
 /// String literals with `<script>` here generate an ERROR (injection
@@ -422,6 +426,30 @@ fn is_whitelisted_url(url: &str) -> bool {
     false
 }
 
+/// Scan chart_bar / chart_donut `data` arg (arg 0) for XSS payloads in
+/// label string literals. The data arg is a List literal of Struct literals:
+///   [{label: "...", value: 10.0}, {label: "...", value: 20.0}, ...]
+/// For each struct, we look up the `label` field. If it's a StringLit with
+/// an XSS payload, we emit a WARNING (runtime escapes label text via
+/// escape_html_chars — this is a defense-in-depth review hint, not a hard
+/// error).
+fn scan_chart_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
+    if let Some(Expr::List(items)) = args.first() {
+        for item in items {
+            if let Expr::StructLit(fields) = item {
+                if let Some(Expr::StringLit(s)) = fields.get("label") {
+                    if let Some(reason) = detect_xss_payload(s) {
+                        result.warnings.push(format!(
+                            "security: {} data[].label string literal {} — runtime will escape, but review intent",
+                            fn_name, reason
+                        ));
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Walk an expression and run the security check on every FnCall node.
 fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &str) {
     match expr {
@@ -437,6 +465,15 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
                             ));
                         }
                     }
+                }
+                // Special case for chart_bar / chart_donut: their `label` field
+                // lives inside `data: List<Struct{label, value}>` at arg 0.
+                // The standard `auto_escaped_arg_index` returns None for these
+                // (arg 0 is a list, not a string), so we scan the list-of-structs
+                // pattern explicitly. Runtime escapes label text via escape_html_chars,
+                // so this is a WARNING (suspicious intent) not an ERROR.
+                if name == "chart_bar" || name == "chart_donut" {
+                    scan_chart_labels(name, args, result);
                 }
             }
             if SVG_NO_ESCAPE_BUILTINS.contains(&name.as_str()) {

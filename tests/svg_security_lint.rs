@@ -185,6 +185,96 @@ fn chart_bar_clean_program_passes_lint() {
     );
 }
 
+// ── 10. chart_line / chart_area / chart_scatter: <script> in label → WARN ──
+//
+// Наряд №78 Block 4: scan_chart_labels must cover the three new chart_*
+// builtins, including chart_scatter with its non-standard {x, y, label?}
+// shape (label is the THIRD field, optional). The scanner looks up
+// `label` BY NAME (HashMap key), so field position doesn't matter —
+// but this test exists precisely to catch the regression where someone
+// adds chart_scatter to SVG_AUTO_ESCAPE_BUILTINS but forgets to extend
+// the `if name == ...` branch in walk_expr_for_svg_security.
+
+#[test]
+fn chart_line_label_with_script_warns_but_does_not_error() {
+    let src = "pattern P(input: String) -> String {\n    let data = [{label: \"<script>alert(1)</script>\", value: 40.0}, {label: \"safe\", value: 60.0}]\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return chart_line(data, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    // No hard error (runtime escapes label)
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("chart_line")),
+        "chart_line with <script> in label should NOT error (runtime escapes), errors: {:?}",
+        errors(&r)
+    );
+    // MUST warn — proves scan_chart_labels was extended to cover chart_line
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("chart_line") && w.contains("script"));
+    assert!(
+        has_warning,
+        "chart_line with <script> in label MUST warn (proves scan_chart_labels covers it), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+#[test]
+fn chart_area_label_with_script_warns_but_does_not_error() {
+    let src = "pattern P(input: String) -> String {\n    let data = [{label: \"<script>alert(1)</script>\", value: 40.0}, {label: \"safe\", value: 60.0}]\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return chart_area(data, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("chart_area")),
+        "chart_area with <script> in label should NOT error (runtime escapes), errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("chart_area") && w.contains("script"));
+    assert!(
+        has_warning,
+        "chart_area with <script> in label MUST warn (proves scan_chart_labels covers it), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+#[test]
+fn chart_scatter_label_with_script_warns_but_does_not_error() {
+    // KEY TEST: chart_scatter has shape {x, y, label?} — label is THIRD,
+    // not first. If scan_chart_labels were hardcoded to look at field
+    // index 0 (instead of by name), this would NOT fire.
+    let src = "pattern P(input: String) -> String {\n    let data = [{x: 1.0, y: 2.0, label: \"<script>alert(1)</script>\"}, {x: 2.0, y: 4.0, label: \"safe\"}]\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return chart_scatter(data, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("chart_scatter")),
+        "chart_scatter with <script> in label should NOT error (runtime escapes), errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("chart_scatter") && w.contains("script"));
+    assert!(
+        has_warning,
+        "chart_scatter with <script> in label MUST warn (proves scan_chart_labels handles non-first-position label), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+#[test]
+fn chart_scatter_without_label_passes_lint_cleanly() {
+    // chart_scatter data WITHOUT label field — scan_chart_labels must
+    // skip these structs gracefully (no false-positive warning, no error).
+    let src = "pattern P(input: String) -> String {\n    let data = [{x: 1.0, y: 2.0}, {x: 2.0, y: 4.0}]\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return chart_scatter(data, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    let sec_findings: Vec<_> = errors(&r)
+        .iter()
+        .chain(warnings(&r).iter())
+        .filter(|m| m.contains("security:"))
+        .collect();
+    assert!(
+        sec_findings.is_empty(),
+        "chart_scatter without labels should produce NO security findings, got: {:?}",
+        sec_findings
+    );
+}
+
 // ── 9. Defense-in-depth: script in concat → checked on both sides ────
 
 #[test]

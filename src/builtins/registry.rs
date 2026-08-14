@@ -384,7 +384,10 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("svg_icon", 5, "svg"),              // name, x, y, size, color
     spec!("svg_callout", 5, 6, "svg"),        // text, from_x, from_y, to_x, to_y [, intent]
     // Level 3: high-level chart types
-    spec!("chart_bar", 2, "chart"), // data, style
+    spec!("chart_bar", 2, "chart"),   // data, style
+    spec!("chart_donut", 2, "chart"), // data, style — Наряд №77 Block 2
+    // Level 2.6: derived palette (Наряд №77 Block 1)
+    spec!("color_palette", 2, "svg"), // intent, mode → DiagramStyle
 ];
 
 /// Total number of registered builtins.

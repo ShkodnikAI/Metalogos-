@@ -794,7 +794,10 @@ impl Builtins {
         funcs.insert("chart_bar".to_string(), builtin_chart_bar as BuiltinFn);
         funcs.insert("chart_donut".to_string(), builtin_chart_donut as BuiltinFn);
         funcs.insert("chart_line".to_string(), builtin_chart_line as BuiltinFn);
-        funcs.insert("chart_scatter".to_string(), builtin_chart_scatter as BuiltinFn);
+        funcs.insert(
+            "chart_scatter".to_string(),
+            builtin_chart_scatter as BuiltinFn,
+        );
         funcs.insert("chart_area".to_string(), builtin_chart_area as BuiltinFn);
         // Level 2.6: derived palette (Наряд №77 Block 1)
         funcs.insert(

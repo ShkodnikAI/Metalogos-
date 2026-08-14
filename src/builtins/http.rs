@@ -497,6 +497,114 @@ pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
     ))
 }
 
+/// `http_download(url, dest_path)` → Bool
+/// `http_download(url, dest_path, headers)` → Bool
+///
+/// Downloads a binary file from `url` and writes it to `dest_path`.
+/// Returns `true` on success, `false` on any failure (network error,
+/// HTTP 4xx/5xx, sandbox violation, write error).
+///
+/// Soft-failure semantics mirror `write_file` — the interpreter never
+/// propagates the binary bytes through `Value`. The `.mlog` code only
+/// receives a `Bool` and reads the file back via `read_file`/etc.
+///
+/// Sandbox: reuses `sandbox_path` from `io.rs` — same protection against
+/// absolute paths and `..`-traversal as `write_file`.
+///
+/// Client/timeout: same `reqwest::blocking::Client` builder pattern as
+/// `http_get`, fixed 30s timeout (downloads are expected to be small —
+/// Telegram voice/photo files; for large files, add a `timeout` arg
+/// later if needed).
+///
+/// Headers: optional 3rd arg, same shape as `http_get`:
+///   - `Value::String` → treated as a Bearer token (`Authorization: Bearer <s>`)
+///   - `Value::Struct` → each String field becomes a header
+///
+/// Наряд №76 (P1, 2026-08-14).
+pub(crate) fn builtin_http_download(args: &[Value]) -> Result<Value, String> {
+    let url = expect_string_arg("http_download", args, 0)?;
+    let dest = expect_string_arg("http_download", args, 1)?;
+
+    // Sandbox-check the destination path. Soft-failure on violation —
+    // mirror write_file's behavior so .mlog code can branch on `false`
+    // instead of catching an interpreter error.
+    let safe_path = match super::io::sandbox_path(&dest) {
+        Ok(p) => p,
+        Err(_) => return Ok(Value::Bool(false)),
+    };
+
+    // Optional 3rd arg: headers (String auth token or Struct).
+    // Same extraction logic as http_get, but inlined (no retry_config
+    // here — downloads are non-idempotent at the file-system level:
+    // a partial write after a mid-download retry would leave a corrupt
+    // file on disk. Fail fast, let the caller retry explicitly if they
+    // want to).
+    let mut extra_headers: Vec<(String, String)> = Vec::new();
+    if let Some(ha) = args.get(2) {
+        match ha {
+            Value::String(auth_token) => {
+                if !auth_token.is_empty() {
+                    extra_headers.push((
+                        "Authorization".to_string(),
+                        format!("Bearer {}", auth_token),
+                    ));
+                }
+            }
+            Value::Struct { fields, .. } => {
+                for (key, val) in fields {
+                    if let Value::String(v) = val {
+                        extra_headers.push((key.clone(), v.clone()));
+                    }
+                }
+            }
+            _ => {
+                // Tolerate other types silently — soft-failure would lose
+                // the type-mismatch signal; instead return false to keep
+                // the function total, and let the caller notice.
+                return Ok(Value::Bool(false));
+            }
+        }
+    }
+
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return Ok(Value::Bool(false)),
+    };
+
+    let mut req = client.get(&url);
+    for (k, v) in &extra_headers {
+        req = req.header(k.as_str(), v.as_str());
+    }
+
+    let resp = match req.send() {
+        Ok(r) => r,
+        Err(_) => return Ok(Value::Bool(false)),
+    };
+
+    let status = resp.status().as_u16();
+    if status >= 400 {
+        return Ok(Value::Bool(false));
+    }
+
+    let bytes = match resp.bytes() {
+        Ok(b) => b,
+        Err(_) => return Ok(Value::Bool(false)),
+    };
+
+    // Create parent directories if needed (mirror write_file).
+    if let Some(parent) = safe_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    match std::fs::write(&safe_path, &bytes) {
+        Ok(_) => Ok(Value::Bool(true)),
+        Err(_) => Ok(Value::Bool(false)),
+    }
+}
+
 /// Return current Unix timestamp as Float (seconds since epoch).
 /// Usage: now() -> Float
 pub(crate) fn builtin_now(args: &[Value]) -> Result<Value, String> {

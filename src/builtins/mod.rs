@@ -799,6 +799,15 @@ impl Builtins {
             builtin_chart_scatter as BuiltinFn,
         );
         funcs.insert("chart_area".to_string(), builtin_chart_area as BuiltinFn);
+        funcs.insert("chart_radar".to_string(), builtin_chart_radar as BuiltinFn);
+        funcs.insert(
+            "chart_heatmap".to_string(),
+            builtin_chart_heatmap as BuiltinFn,
+        );
+        funcs.insert(
+            "chart_boxplot".to_string(),
+            builtin_chart_boxplot as BuiltinFn,
+        );
         // Level 2.6: derived palette (Наряд №77 Block 1)
         funcs.insert(
             "color_palette".to_string(),

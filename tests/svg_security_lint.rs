@@ -305,3 +305,123 @@ fn script_in_string_concat_to_svg_path_errors() {
         warnings(&r)
     );
 }
+
+// ── 10. Наряд №79: chart_radar and chart_boxplot security lint ───────
+//
+// chart_radar has a DIFFERENT data shape from chart_bar/donut/line/area/
+// scatter: it's a Struct { axes: List<String>, series: List<Struct> }
+// rather than a List<Struct>. The scanner has a dedicated branch
+// (scan_radar_labels) that walks both `axes` strings and `series[].name`
+// strings — these tests verify BOTH paths fire.
+//
+// chart_boxplot has the same List<Struct{label, ...}> shape as chart_bar,
+// so the existing scan_chart_labels covers it. We still add a test to
+// pin that coverage (regression catch if someone removes chart_boxplot
+// from the dispatch branch in walk_expr_for_svg_security).
+//
+// chart_heatmap is intentionally NOT scanned — its data is pure numeric
+// (List<List<Float>>), no user text. A clean program must produce zero
+// findings. (Verified in tests/p79_charts.rs::chart_heatmap_no_security_finding_on_numeric_data.)
+
+#[test]
+fn chart_radar_script_in_axis_warns_but_does_not_error() {
+    // <script> in axes[0] — scan_radar_labels walks the axes list
+    // Data MUST be passed as a direct literal arg (not via let binding) so
+    // the AST lint can see the StringLit inside the Struct{axes, series}.
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return chart_radar({axes: [\"<script>alert(1)</script>\", \"B\", \"C\"], series: [{name: \"S\", values: [1.0, 2.0, 3.0]}]}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    // No hard error (runtime escapes axis text)
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("chart_radar")),
+        "chart_radar with <script> in axes should NOT error (runtime escapes), errors: {:?}",
+        errors(&r)
+    );
+    // MUST warn — proves scan_radar_labels was extended to cover axes
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("chart_radar") && w.contains("axes") && w.contains("script"));
+    assert!(
+        has_warning,
+        "chart_radar with <script> in axes MUST warn (proves scan_radar_labels covers axes), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+#[test]
+fn chart_radar_script_in_series_name_warns_but_does_not_error() {
+    // <script> in series[0].name — scan_radar_labels walks the series list
+    // and looks up `name` BY KEY (not position).
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return chart_radar({axes: [\"A\", \"B\", \"C\"], series: [{name: \"<script>alert(1)</script>\", values: [1.0, 2.0, 3.0]}]}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("chart_radar")),
+        "chart_radar with <script> in series.name should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("chart_radar") && w.contains("series[].name") && w.contains("script"));
+    assert!(
+        has_warning,
+        "chart_radar with <script> in series.name MUST warn (proves scan_radar_labels covers series[].name), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+#[test]
+fn chart_radar_clean_program_passes_lint() {
+    // No <script> anywhere — should produce zero security findings.
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return chart_radar({axes: [\"A\", \"B\", \"C\"], series: [{name: \"S1\", values: [1.0, 2.0, 3.0]}, {name: \"S2\", values: [3.0, 2.0, 1.0]}]}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    let sec_findings: Vec<&str> = r
+        .errors
+        .iter()
+        .chain(r.warnings.iter())
+        .filter(|m| m.contains("security:"))
+        .map(|s| s.as_str())
+        .collect();
+    assert!(
+        sec_findings.is_empty(),
+        "chart_radar clean program should produce NO security findings, got: {:?}",
+        sec_findings
+    );
+}
+
+#[test]
+fn chart_boxplot_script_in_label_warns_but_does_not_error() {
+    // chart_boxplot has shape {label, values} — label is the first field,
+    // but scan_chart_labels looks it up BY NAME so position doesn't matter.
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return chart_boxplot([{label: \"<script>alert(1)</script>\", values: [1.0, 2.0, 3.0, 4.0, 5.0]}, {label: \"safe\", values: [10.0, 20.0, 30.0, 40.0, 50.0]}], style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("chart_boxplot")),
+        "chart_boxplot with <script> in label should NOT error (runtime escapes), errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("chart_boxplot") && w.contains("script"));
+    assert!(
+        has_warning,
+        "chart_boxplot with <script> in label MUST warn (proves scan_chart_labels covers chart_boxplot), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+#[test]
+fn chart_boxplot_clean_program_passes_lint() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return chart_boxplot([{label: \"A\", values: [1.0, 2.0, 3.0, 4.0, 5.0]}], style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    let sec_findings: Vec<&str> = r
+        .errors
+        .iter()
+        .chain(r.warnings.iter())
+        .filter(|m| m.contains("security:"))
+        .map(|s| s.as_str())
+        .collect();
+    assert!(
+        sec_findings.is_empty(),
+        "chart_boxplot clean program should produce NO security findings, got: {:?}",
+        sec_findings
+    );
+}

@@ -1495,6 +1495,1136 @@ pub fn builtin_chart_area(args: &[Value]) -> Result<Value, String> {
     )))
 }
 
+// ── Level 3 (items 6-8): chart_radar, chart_heatmap, chart_boxplot ──
+//
+// Narad №79: three additional chart types with distinct math:
+//   - chart_radar: multi-series polar coordinates (N axes, M series)
+//   - chart_heatmap: HSL color interpolation across a numeric grid
+//   - chart_boxplot: statistical summary (R-7 quartiles, IQR whiskers)
+//
+// Security: chart_radar and chart_boxplot accept user-supplied text
+// (axes / series.name for radar, label for boxplot) and are registered
+// in SVG_AUTO_ESCAPE_BUILTINS. chart_heatmap data is purely numeric
+// (List<List<Float>>) — intentionally NOT added to the lint list (there
+// is nothing to scan). All text is escaped via escape_html_chars at
+// runtime, same invariant as chart_bar / chart_donut / chart_line.
+
+/// Fixed desaturated 5-color palette for chart_radar series.
+///
+/// Per spec (Наряд №79 Блок 1): NOT a new DiagramStyle token, just a
+/// small hardcoded set of muted hues. Hue spread covers the wheel so
+/// adjacent series are visually distinguishable; saturation is held
+/// back (~0.45–0.55) so the chart does not scream. If a future narad
+/// adds customizable series palettes, this constant can be replaced
+/// with a style-derived lookup — the function signature stays stable.
+///
+/// Colors are produced via the existing `hsl_to_hex` (same code path
+/// as `color_palette` in Наряд №77, no duplication of HSL→RGB math):
+///   slot 0: hsl(  0, 0.55, 0.55)  muted red-coral
+///   slot 1: hsl( 45, 0.55, 0.50)  muted amber
+///   slot 2: hsl(135, 0.40, 0.45)  muted green
+///   slot 3: hsl(205, 0.50, 0.55)  muted blue
+///   slot 4: hsl(285, 0.45, 0.60)  muted violet
+fn radar_series_palette() -> Vec<String> {
+    vec![
+        hsl_to_hex(0.0, 0.55, 0.55),
+        hsl_to_hex(45.0, 0.55, 0.50),
+        hsl_to_hex(135.0, 0.40, 0.45),
+        hsl_to_hex(205.0, 0.50, 0.55),
+        hsl_to_hex(285.0, 0.45, 0.60),
+    ]
+}
+
+/// chart_radar: multi-series radar chart in polar coordinates.
+///
+/// Data shape (different from bar/line/area):
+///   Struct {
+///     axes:  List<String>,                  // 3..=12 axis names
+///     series: List<Struct{name, values}>,   // 1..=5 series
+///   }
+///   where each `series.values` length MUST equal `axes.len()`.
+///
+/// Geometry:
+///   - canvas 600×400, center (200, 200), max_radius=130
+///   - axis i angle = 2π * i / N - π/2 (start at top, clockwise — the
+///     standard radar orientation, matches `chart_donut` start angle)
+///   - radius for value v = (v / max_value) * max_radius, where
+///     max_value is computed across ALL series (NOT per-series —
+///     per-series normalization would make series non-comparable,
+///     defeating the entire point of a radar chart)
+///   - Each series = one closed `<path>` (Z command), fill-opacity=0.25,
+///     solid stroke in the series color (from `radar_series_palette`)
+///   - 4 concentric reference rings at 25/50/75/100% (rule color, faint)
+///   - N axis spokes from center to perimeter (rule color, faint)
+///   - Axis labels at r=148 (outside perimeter), anchor by quadrant
+///   - Legend column on the right (same layout as chart_donut)
+pub fn builtin_chart_radar(args: &[Value]) -> Result<Value, String> {
+    let data_value = args.first().cloned().unwrap_or(Value::Unit);
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+
+    // Extract top-level Struct { axes, series }
+    let data_fields = match &data_value {
+        Value::Struct { fields, .. } => fields,
+        other => {
+            return Err(format!(
+                "chart_radar: data must be Struct {{axes, series}}, got {}",
+                other.type_name()
+            ));
+        }
+    };
+
+    // axes: List<String>
+    let axes_value = data_fields
+        .get("axes")
+        .ok_or_else(|| "chart_radar: missing required field 'axes'".to_string())?;
+    let axes: Vec<String> = match axes_value {
+        Value::List(items) => {
+            let mut out = Vec::with_capacity(items.len());
+            for (i, v) in items.iter().enumerate() {
+                match v {
+                    Value::String(s) => out.push(s.clone()),
+                    other => {
+                        return Err(format!(
+                            "chart_radar: axes[{}] must be String, got {}",
+                            i,
+                            other.type_name()
+                        ));
+                    }
+                }
+            }
+            out
+        }
+        other => {
+            return Err(format!(
+                "chart_radar: 'axes' must be List<String>, got {}",
+                other.type_name()
+            ));
+        }
+    };
+
+    // axes bounds: 3..=12 (radar with <3 axes is not meaningful;
+    // >12 axes causes label overlap on a 600px canvas)
+    if axes.len() < 3 {
+        return Err(format!(
+            "chart_radar: at least 3 axes required (got {}) — radar with <3 axes is not meaningful",
+            axes.len()
+        ));
+    }
+    if axes.len() > 12 {
+        return Err(format!(
+            "chart_radar: too many axes ({}), maximum is 12 — labels would overlap",
+            axes.len()
+        ));
+    }
+
+    // series: List<Struct{name, values}>
+    let series_value = data_fields
+        .get("series")
+        .ok_or_else(|| "chart_radar: missing required field 'series'".to_string())?;
+    let series_items = match series_value {
+        Value::List(items) => items.clone(),
+        other => {
+            return Err(format!(
+                "chart_radar: 'series' must be List<Struct>, got {}",
+                other.type_name()
+            ));
+        }
+    };
+
+    if series_items.is_empty() {
+        return Err("chart_radar: series list must not be empty".to_string());
+    }
+    // Palette limit: 5 slots. Per spec: do NOT silently cycle colors —
+    // surface a clear error so the caller knows they hit the cap.
+    if series_items.len() > 5 {
+        return Err(format!(
+            "chart_radar: too many series ({}), maximum is 5 — slot palette exhausted",
+            series_items.len()
+        ));
+    }
+
+    // Extract each series: {name: String, values: List<Float>}.
+    // values.len() MUST equal axes.len() — otherwise the polygon would
+    // not close against the right number of axes.
+    let n_axes = axes.len();
+    let mut series: Vec<(String, Vec<f64>)> = Vec::with_capacity(series_items.len());
+    for (i, item) in series_items.iter().enumerate() {
+        let fields = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "chart_radar: series[{}] must be Struct {{name, values}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let name = struct_string_field("chart_radar series", fields, "name")?;
+        let values_value = fields
+            .get("values")
+            .ok_or_else(|| "chart_radar: series missing required field 'values'".to_string())?;
+        let values: Vec<f64> = match values_value {
+            Value::List(items) => {
+                let mut out = Vec::with_capacity(items.len());
+                for (j, v) in items.iter().enumerate() {
+                    match v {
+                        Value::Float(f) => out.push(*f),
+                        other => {
+                            return Err(format!(
+                                "chart_radar: series[{}].values[{}] must be Float, got {}",
+                                i,
+                                j,
+                                other.type_name()
+                            ));
+                        }
+                    }
+                }
+                out
+            }
+            other => {
+                return Err(format!(
+                    "chart_radar: series[{}].values must be List<Float>, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        if values.len() != n_axes {
+            return Err(format!(
+                "chart_radar: series[{}] '{}' has {} values, expected {} (must match axes.len())",
+                i,
+                name,
+                values.len(),
+                n_axes
+            ));
+        }
+        series.push((name, values));
+    }
+
+    // Compute global max_value across ALL series (so series are comparable).
+    // Per-spec: do NOT normalize per-series — that destroys the comparison.
+    let max_value = series
+        .iter()
+        .flat_map(|(_, vs)| vs.iter())
+        .copied()
+        .fold(f64::NEG_INFINITY, f64::max);
+    if max_value <= 0.0 {
+        return Err(format!(
+            "chart_radar: max value across all series must be positive (got {})",
+            max_value
+        ));
+    }
+
+    let paper = style_token(&style, "paper")?;
+    let ink = style_token(&style, "ink")?;
+    let muted = style_token(&style, "muted")?;
+    let rule = style_token(&style, "rule")?;
+
+    let palette = radar_series_palette();
+
+    // Geometry (centered on the left half — right half reserved for legend,
+    // same layout decision as chart_donut for visual parity).
+    let canvas_w = 600.0_f64;
+    let canvas_h = 400.0_f64;
+    let cx = 200.0_f64;
+    let cy = 200.0_f64;
+    let max_radius = 130.0_f64;
+    // Legend (right column, identical to chart_donut geometry)
+    let legend_x = 380.0_f64;
+    let legend_y_start = 90.0_f64;
+    let legend_row_h = 22.0_f64;
+    let legend_swatch = 14.0_f64;
+
+    let n = n_axes as f64;
+
+    let mut parts: Vec<String> = Vec::new();
+
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+
+    // 4 concentric reference rings at 25/50/75/100% of max_radius.
+    // Rendered first so series polygons draw on top.
+    for frac in &[0.25_f64, 0.50, 0.75, 1.00] {
+        let r = max_radius * frac;
+        parts.push(format!(
+            r#"<circle cx="{}" cy="{}" r="{}" fill="none" stroke="{}" stroke-width="1" stroke-opacity="0.3" />"#,
+            fmt_num(cx),
+            fmt_num(cy),
+            fmt_num(r),
+            escape_attr(&rule)
+        ));
+        // Scale label at the top of each ring (small, muted) — gives the
+        // viewer a numeric anchor for the radial scale.
+        let val_label = max_value * frac;
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="9" fill="{}" text-anchor="end">{}</text>"#,
+            fmt_num(cx - 4.0),
+            fmt_num(cy - r + 3.0),
+            escape_attr(&muted),
+            escape_html_chars(&fmt_num(val_label))
+        ));
+    }
+
+    // N axis spokes (from center to each perimeter vertex)
+    for i in 0..n_axes {
+        let angle = 2.0 * std::f64::consts::PI * (i as f64) / n - std::f64::consts::PI / 2.0;
+        let (px, py) = polar_to_xy(cx, cy, max_radius, angle);
+        parts.push(format!(
+            r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" stroke-opacity="0.3" />"#,
+            fmt_num(cx),
+            fmt_num(cy),
+            fmt_num(px),
+            fmt_num(py),
+            escape_attr(&rule)
+        ));
+    }
+
+    // Axis labels (at r = max_radius + 18, outside perimeter).
+    // Anchor depends on cos(angle): right side → start, left → end,
+    // top/bottom → middle. SVG text-anchor keeps labels readable
+    // regardless of which side of the wheel they sit on.
+    for (i, axis_name) in axes.iter().enumerate() {
+        let angle = 2.0 * std::f64::consts::PI * (i as f64) / n - std::f64::consts::PI / 2.0;
+        let label_r = max_radius + 18.0;
+        let (lx, ly) = polar_to_xy(cx, cy, label_r, angle);
+        let anchor = {
+            let c = angle.cos();
+            if c > 0.3 {
+                "start"
+            } else if c < -0.3 {
+                "end"
+            } else {
+                "middle"
+            }
+        };
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="11" fill="{}" text-anchor="{}">{}</text>"#,
+            fmt_num(lx),
+            fmt_num(ly + 4.0),
+            escape_attr(&ink),
+            anchor,
+            escape_html_chars(axis_name)
+        ));
+    }
+
+    // Each series: one closed <path> through its scaled points.
+    // Rendered in order series[0..N]; later series draw on top of earlier
+    // ones. With fill-opacity=0.25, overlaps remain visible.
+    for (idx, (sname, svalues)) in series.iter().enumerate() {
+        let color = &palette[idx];
+        // Compute (x, y) for each axis point
+        let pts: Vec<(f64, f64)> = svalues
+            .iter()
+            .enumerate()
+            .map(|(i, v)| {
+                let angle =
+                    2.0 * std::f64::consts::PI * (i as f64) / n - std::f64::consts::PI / 2.0;
+                let radius = (*v / max_value) * max_radius;
+                polar_to_xy(cx, cy, radius, angle)
+            })
+            .collect();
+        // Build path: M x0 y0 L x1 y1 ... L xN yN Z (closed polygon)
+        let mut d = format!("M {} {}", fmt_num(pts[0].0), fmt_num(pts[0].1));
+        for (x, y) in pts.iter().skip(1) {
+            d.push_str(&format!(" L {} {}", fmt_num(*x), fmt_num(*y)));
+        }
+        d.push_str(" Z");
+        parts.push(format!(
+            r#"<path d="{}" fill="{}" fill-opacity="0.25" stroke="{}" stroke-width="2" />"#,
+            d,
+            escape_attr(color),
+            escape_attr(color)
+        ));
+        // Small dot at each vertex — helps readability when polygons overlap.
+        for (x, y) in &pts {
+            parts.push(format!(
+                r#"<circle cx="{}" cy="{}" r="2.5" fill="{}" />"#,
+                fmt_num(*x),
+                fmt_num(*y),
+                escape_attr(color)
+            ));
+        }
+        // Legend entry: swatch + series name
+        let ly = legend_y_start + (idx as f64) * legend_row_h;
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" />"#,
+            fmt_num(legend_x),
+            fmt_num(ly),
+            fmt_num(legend_swatch),
+            fmt_num(legend_swatch),
+            escape_attr(color)
+        ));
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="12" fill="{}" dominant-baseline="middle">{}</text>"#,
+            fmt_num(legend_x + legend_swatch + 8.0),
+            fmt_num(ly + legend_swatch / 2.0),
+            escape_attr(&ink),
+            escape_html_chars(sname)
+        ));
+    }
+
+    // Legend separator line (matches chart_donut visual treatment)
+    parts.push(format!(
+        r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+        fmt_num(legend_x),
+        fmt_num(legend_y_start - 12.0),
+        fmt_num(canvas_w - 20.0),
+        fmt_num(legend_y_start - 12.0),
+        escape_attr(&rule)
+    ));
+
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+/// Parse "#rrggbb" hex color to (h, s, l) in HSL space.
+/// h: 0..=360 degrees, s: 0..=1, l: 0..=1.
+/// Returns None if the string is malformed (wrong prefix, wrong length,
+/// or non-hex digits).
+///
+/// Used by chart_heatmap (Наряд №79 Блок 2) to convert the `paper` and
+/// `accent` style tokens into HSL so we can interpolate in HSL space
+/// (avoiding the muddy browns that RGB interpolation produces between
+/// complementary hues). The forward direction `hsl_to_hex` already
+/// exists for `color_palette` (Наряд №77); this is the inverse.
+fn hex_to_hsl(hex: &str) -> Option<(f64, f64, f64)> {
+    let s = hex.strip_prefix('#')?;
+    // Accept both 6-digit (#rrggbb) and 3-digit (#rgb) shorthand.
+    // The 3-digit form is expanded by doubling each digit: #fff → #ffffff,
+    // #abc → #aabbcc. This matches CSS / SVG color parsing conventions.
+    let expanded: String = if s.len() == 3 {
+        let chars = s.chars().collect::<Vec<_>>();
+        format!(
+            "{}{}{}{}{}{}",
+            chars[0], chars[0], chars[1], chars[1], chars[2], chars[2]
+        )
+    } else if s.len() == 6 {
+        s.to_string()
+    } else {
+        return None;
+    };
+    let r = u8::from_str_radix(&expanded[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&expanded[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&expanded[4..6], 16).ok()?;
+    let r = r as f64 / 255.0;
+    let g = g as f64 / 255.0;
+    let b = b as f64 / 255.0;
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let l = (max + min) / 2.0;
+    if (max - min).abs() < f64::EPSILON {
+        // Achromatic (gray) — hue undefined, saturation 0
+        return Some((0.0, 0.0, l));
+    }
+    let d = max - min;
+    let s = if l > 0.5 {
+        d / (2.0 - max - min)
+    } else {
+        d / (max + min)
+    };
+    let h = if max == r {
+        ((g - b) / d) % 6.0
+    } else if max == g {
+        (b - r) / d + 2.0
+    } else {
+        (r - g) / d + 4.0
+    };
+    let h = h * 60.0;
+    let h = if h < 0.0 { h + 360.0 } else { h };
+    Some((h, s, l))
+}
+
+/// Linear interpolation between two HSL colors. `t` in [0, 1].
+/// Hue takes the shorter arc around the wheel (handles wraparound,
+/// so interpolating from h=350 to h=10 goes forward through 0, not
+/// backward through 180).
+fn interpolate_hsl(c1: (f64, f64, f64), c2: (f64, f64, f64), t: f64) -> (f64, f64, f64) {
+    let (h1, s1, l1) = c1;
+    let (h2, s2, l2) = c2;
+    // Shorter hue arc
+    let dh = if (h2 - h1).abs() > 180.0 {
+        if h2 > h1 {
+            h2 - h1 - 360.0
+        } else {
+            h2 - h1 + 360.0
+        }
+    } else {
+        h2 - h1
+    };
+    let h = (h1 + t * dh + 360.0) % 360.0;
+    let s = s1 + t * (s2 - s1);
+    let l = l1 + t * (l2 - l1);
+    (h, s, l)
+}
+
+/// chart_heatmap: numeric grid rendered with HSL color interpolation.
+///
+/// Data shape (pure numeric — no user text, intentionally NOT in the
+/// security lint list):
+///   List<List<Float>>   // rows of equal length; row count and col count
+///                       // both must be in 1..=30
+///
+/// Color: each cell value is normalized to [min, max] across the entire
+/// grid, then linearly interpolated in HSL space between `style.paper`
+/// (low value) and `style.accent` (high value). HSL chosen over RGB to
+/// avoid the muddy intermediate hues RGB produces between complements.
+///
+/// The HSL helpers `hex_to_hsl` and `interpolate_hsl` are private to
+/// this module and are NOT exposed to .mlog programs — the surface area
+/// for the spec is "give us a grid, get a heatmap SVG", nothing more.
+///
+/// Geometry: same canvas constants as chart_bar (600×400, chart_x=80,
+/// chart_y_top=40, chart_w=500, chart_h=300). Each cell is a `<rect>`
+/// of size (chart_w/cols) × (chart_h/rows) with a 1px right/bottom gap
+/// for visual separation (last row/col fills to the border so the outer
+/// rectangle stays clean). Below the chart: min/max value labels and a
+/// small color-scale strip as a visual key.
+pub fn builtin_chart_heatmap(args: &[Value]) -> Result<Value, String> {
+    let data = expect_list_arg("chart_heatmap", args, 0)?;
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+
+    if data.is_empty() {
+        return Err("chart_heatmap: data list must not be empty".to_string());
+    }
+
+    // Extract rows of floats. All rows must have equal length — otherwise
+    // the grid is not rectangular and cannot be rendered as a heatmap.
+    let mut grid: Vec<Vec<f64>> = Vec::with_capacity(data.len());
+    let mut cols: usize = 0;
+    for (i, row_value) in data.iter().enumerate() {
+        let row = match row_value {
+            Value::List(items) => items,
+            other => {
+                return Err(format!(
+                    "chart_heatmap: row {} must be List<Float>, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        if row.is_empty() {
+            return Err(format!(
+                "chart_heatmap: row {} is empty — cannot render zero-width grid",
+                i
+            ));
+        }
+        if i == 0 {
+            cols = row.len();
+        } else if row.len() != cols {
+            return Err(format!(
+                "chart_heatmap: row {} has length {}, expected {} (rows must be equal length)",
+                i,
+                row.len(),
+                cols
+            ));
+        }
+        let mut row_floats: Vec<f64> = Vec::with_capacity(row.len());
+        for (j, v) in row.iter().enumerate() {
+            match v {
+                Value::Float(f) => row_floats.push(*f),
+                other => {
+                    return Err(format!(
+                        "chart_heatmap: row {} col {} must be Float, got {}",
+                        i,
+                        j,
+                        other.type_name()
+                    ));
+                }
+            }
+        }
+        grid.push(row_floats);
+    }
+
+    let rows = grid.len();
+    if rows > 30 {
+        return Err(format!(
+            "chart_heatmap: too many rows ({}), maximum is 30 — cells become unreadably small",
+            rows
+        ));
+    }
+    if cols > 30 {
+        return Err(format!(
+            "chart_heatmap: too many cols ({}), maximum is 30 — cells become unreadably small",
+            cols
+        ));
+    }
+
+    // Global min/max across the entire grid (single scale, not per-row).
+    let mut min_value = f64::INFINITY;
+    let mut max_value = f64::NEG_INFINITY;
+    for row in &grid {
+        for &v in row {
+            if v < min_value {
+                min_value = v;
+            }
+            if v > max_value {
+                max_value = v;
+            }
+        }
+    }
+    if !min_value.is_finite() || !max_value.is_finite() {
+        return Err("chart_heatmap: grid contains non-finite value".to_string());
+    }
+
+    let paper = style_token(&style, "paper")?;
+    let accent = style_token(&style, "accent")?;
+    let ink = style_token(&style, "ink")?;
+    let muted = style_token(&style, "muted")?;
+    let rule = style_token(&style, "rule")?;
+
+    // Precompute HSL endpoints for interpolation. Reusing hex_to_hsl here
+    // (added by this narad) — the spec explicitly says to check whether
+    // HSL interpolation was already present from Наряд №77 and reuse it.
+    // The forward direction (hsl_to_hex) IS from №77; the inverse
+    // (hex_to_hsl) is new in this narad because №77 only generates
+    // colors from hue/sat/light, never the reverse.
+    let paper_hsl = hex_to_hsl(&paper).ok_or_else(|| {
+        format!(
+            "chart_heatmap: paper token {:?} is not a valid #rrggbb hex color",
+            paper
+        )
+    })?;
+    let accent_hsl = hex_to_hsl(&accent).ok_or_else(|| {
+        format!(
+            "chart_heatmap: accent token {:?} is not a valid #rrggbb hex color",
+            accent
+        )
+    })?;
+
+    let span = max_value - min_value;
+
+    // Geometry constants (shared with chart_bar / chart_line / chart_area
+    // for visual parity across chart types).
+    let canvas_w = CHART_CANVAS_W;
+    let canvas_h = CHART_CANVAS_H;
+    let chart_x = CHART_X;
+    let chart_y_top = CHART_Y_TOP;
+    let chart_w = CHART_W;
+    let chart_h = CHART_H;
+    let chart_y_bottom = CHART_Y_BOTTOM;
+
+    let cell_w = chart_w / cols as f64;
+    let cell_h = chart_h / rows as f64;
+
+    let mut parts: Vec<String> = Vec::new();
+
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+
+    // Plot border (rule color)
+    parts.push(format!(
+        r#"<rect x="{}" y="{}" width="{}" height="{}" fill="none" stroke="{}" stroke-width="1" />"#,
+        fmt_num(chart_x),
+        fmt_num(chart_y_top),
+        fmt_num(chart_w),
+        fmt_num(chart_h),
+        escape_attr(&rule)
+    ));
+
+    // Each cell: rect with interpolated color.
+    // 1px right/bottom gap for visual separation (cell rendered at w-1, h-1).
+    // The last column / last row get the full remaining size so the outer
+    // border stays flush with the plot rectangle.
+    for (r, row) in grid.iter().enumerate() {
+        for (c, &v) in row.iter().enumerate() {
+            let x = chart_x + (c as f64) * cell_w;
+            let y = chart_y_top + (r as f64) * cell_h;
+            let w = if c + 1 == cols {
+                chart_x + chart_w - x
+            } else {
+                cell_w - 1.0
+            };
+            let h = if r + 1 == rows {
+                chart_y_top + chart_h - y
+            } else {
+                cell_h - 1.0
+            };
+            // Degenerate case (all values equal): pick mid-color so the
+            // chart still renders visibly, rather than dividing by zero.
+            let t = if span.abs() < f64::EPSILON {
+                0.5
+            } else {
+                ((v - min_value) / span).clamp(0.0, 1.0)
+            };
+            let (h_h, h_s, h_l) = interpolate_hsl(paper_hsl, accent_hsl, t);
+            let fill = hsl_to_hex(h_h, h_s, h_l);
+            parts.push(format!(
+                r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" />"#,
+                fmt_num(x),
+                fmt_num(y),
+                fmt_num(w),
+                fmt_num(h),
+                escape_attr(&fill)
+            ));
+        }
+    }
+
+    // Min/max value labels (below the chart, anchored to the corners)
+    parts.push(format!(
+        r#"<text x="{}" y="{}" font-size="10" fill="{}">{}</text>"#,
+        fmt_num(chart_x),
+        fmt_num(chart_y_bottom + 18.0),
+        escape_attr(&muted),
+        escape_html_chars(&format!("min={}", fmt_num(min_value)))
+    ));
+    parts.push(format!(
+        r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="end">{}</text>"#,
+        fmt_num(chart_x + chart_w),
+        fmt_num(chart_y_bottom + 18.0),
+        escape_attr(&muted),
+        escape_html_chars(&format!("max={}", fmt_num(max_value)))
+    ));
+
+    // Color-scale strip (below the chart, centered): 20 swatches showing
+    // the paper→accent gradient as a visual key for the cell colors.
+    let strip_y = chart_y_bottom + 26.0;
+    let strip_h = 8.0;
+    let strip_w = 80.0;
+    let strip_x = chart_x + (chart_w - strip_w) / 2.0;
+    for i in 0..20 {
+        let t = i as f64 / 19.0;
+        let (h_h, h_s, h_l) = interpolate_hsl(paper_hsl, accent_hsl, t);
+        let fill = hsl_to_hex(h_h, h_s, h_l);
+        let sx = strip_x + t * strip_w;
+        let sw = strip_w / 20.0 + 1.0; // +1px to avoid antialiasing gaps
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" />"#,
+            fmt_num(sx),
+            fmt_num(strip_y),
+            fmt_num(sw),
+            fmt_num(strip_h),
+            escape_attr(&fill)
+        ));
+    }
+    parts.push(format!(
+        r#"<text x="{}" y="{}" font-size="9" fill="{}" text-anchor="middle">{}</text>"#,
+        fmt_num(strip_x + strip_w / 2.0),
+        fmt_num(strip_y + strip_h + 10.0),
+        escape_attr(&ink),
+        "value scale"
+    ));
+
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+/// R-7 percentile method (linear interpolation between closest ranks).
+/// Same as `numpy.percentile` with `interpolation='linear'` (the default),
+/// same as R's `quantile(type=7)`, same as Excel's `PERCENTILE.INC`.
+///
+/// Input MUST be sorted ascending. p in [0, 100]. Returned value is a
+/// linear interpolation between two adjacent data points when the rank
+/// is not an integer; otherwise it's the exact data point at that rank.
+///
+/// Reference:
+///   rank = (p/100) * (n - 1)         // 0-indexed position in the sorted array
+///   lo = floor(rank), hi = ceil(rank)
+///   if lo == hi: x[lo]
+///   else: x[lo] + (rank - lo) * (x[hi] - x[lo])
+///
+/// Why R-7 (and not R-6/exclusive or nearest-rank): R-7 is the de-facto
+/// default in both numpy and R. On small samples the methods diverge
+/// visibly (e.g. n=4 → R-6 Q1 = x[0]+0.25*(x[1]-x[0]); R-7 Q1 = x[0]),
+/// and the contract test in tests/p79_charts.rs pins specific expected
+/// numbers that are only correct under R-7. Changing the method without
+/// updating the contract would silently break the test.
+fn percentile_r7(sorted: &[f64], p: f64) -> f64 {
+    let n = sorted.len();
+    if n == 0 {
+        return 0.0;
+    }
+    if n == 1 {
+        return sorted[0];
+    }
+    let rank = (p / 100.0) * (n as f64 - 1.0);
+    let lo = rank.floor();
+    let hi = rank.ceil();
+    if lo == hi {
+        // rank is an integer — direct index (lo is an integer here).
+        sorted[lo as usize]
+    } else {
+        let lo_i = lo as usize;
+        let hi_i = hi as usize;
+        sorted[lo_i] + (rank - lo) * (sorted[hi_i] - sorted[lo_i])
+    }
+}
+
+/// chart_boxplot: per-label statistical box-and-whisker plot.
+///
+/// Data shape (same outer List<Struct> pattern as chart_bar, but the
+/// inner struct has `values: List<Float>` instead of `value: Float`):
+///   List<Struct{ label: String, values: List<Float> }>
+///
+/// Statistics are computed INSIDE the function from raw `values` — the
+/// caller does NOT pass pre-computed quartiles. This is important: the
+/// contract test in tests/p79_charts.rs independently verifies the
+/// quartile numbers, and that verification is only meaningful if the
+/// function does the math itself.
+///
+/// Method (pinned, do not change without updating the contract):
+///   - Q1 = percentile_r7(sorted, 25)
+///   - median = percentile_r7(sorted, 50)
+///   - Q3 = percentile_r7(sorted, 75)
+///   - IQR = Q3 - Q1
+///   - whisker_low  = min(v in values where v >= Q1 - 1.5*IQR)
+///   - whisker_high = max(v in values where v <= Q3 + 1.5*IQR)
+///   - outliers     = all v with v < Q1 - 1.5*IQR OR v > Q3 + 1.5*IQR
+///
+/// Geometry: same canvas constants as chart_bar (600×400, chart_x=80,
+/// chart_y_top=40, chart_w=500, chart_h=300). Box width = chart_w/N - 20
+/// (gap = 20, same as chart_bar). Y axis is scaled across ALL values in
+/// ALL boxes (global min/max), so boxes are visually comparable.
+pub fn builtin_chart_boxplot(args: &[Value]) -> Result<Value, String> {
+    let data = expect_list_arg("chart_boxplot", args, 0)?;
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+
+    if data.is_empty() {
+        return Err("chart_boxplot: data list must not be empty".to_string());
+    }
+    if data.len() > 20 {
+        return Err(format!(
+            "chart_boxplot: too many boxes ({}), maximum is 20",
+            data.len()
+        ));
+    }
+
+    // Per-box precomputed statistics. Defined at module scope would also
+    // work, but keeping it local to the function makes the data flow
+    // explicit: nothing else in the module needs this struct.
+    struct BoxData {
+        label: String,
+        sorted: Vec<f64>,
+        q1: f64,
+        median: f64,
+        q3: f64,
+        whisker_low: f64,
+        whisker_high: f64,
+        outliers: Vec<f64>,
+    }
+
+    let mut boxes: Vec<BoxData> = Vec::with_capacity(data.len());
+    for (i, item) in data.iter().enumerate() {
+        let fields = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "chart_boxplot: data[{}] must be Struct {{label, values}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let label = struct_string_field("chart_boxplot item", fields, "label")?;
+        let values_value = fields
+            .get("values")
+            .ok_or_else(|| "chart_boxplot: item missing required field 'values'".to_string())?;
+        let values: Vec<f64> = match values_value {
+            Value::List(items) => {
+                let mut out = Vec::with_capacity(items.len());
+                for (j, v) in items.iter().enumerate() {
+                    match v {
+                        Value::Float(f) => out.push(*f),
+                        other => {
+                            return Err(format!(
+                                "chart_boxplot: data[{}].values[{}] must be Float, got {}",
+                                i,
+                                j,
+                                other.type_name()
+                            ));
+                        }
+                    }
+                }
+                out
+            }
+            other => {
+                return Err(format!(
+                    "chart_boxplot: data[{}].values must be List<Float>, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        // Min sample size 4: below that, quartiles are not meaningful
+        // (R-7 on n=3 gives Q1 = x[0], Q3 = x[2], IQR = x[2]-x[0] —
+        // degenerate; whiskers would equal the data range, no outliers
+        // ever). The error message names the offending label so the
+        // caller can locate the bad input.
+        if values.len() < 4 {
+            return Err(format!(
+                "chart_boxplot: data[{}] '{}' has {} values, minimum is 4 — quartiles not meaningful on smaller samples",
+                i,
+                label,
+                values.len()
+            ));
+        }
+        let mut sorted = values.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let q1 = percentile_r7(&sorted, 25.0);
+        let median = percentile_r7(&sorted, 50.0);
+        let q3 = percentile_r7(&sorted, 75.0);
+        let iqr = q3 - q1;
+        let low_fence = q1 - 1.5 * iqr;
+        let high_fence = q3 + 1.5 * iqr;
+        // whisker_low = min(v where v >= low_fence) — nearest data point
+        // inside the fence, NOT the fence value itself.
+        let whisker_low = sorted
+            .iter()
+            .copied()
+            .filter(|v| *v >= low_fence)
+            .fold(f64::INFINITY, f64::min);
+        // whisker_high = max(v where v <= high_fence)
+        let whisker_high = sorted
+            .iter()
+            .copied()
+            .filter(|v| *v <= high_fence)
+            .fold(f64::NEG_INFINITY, f64::max);
+        // Outliers: data points strictly outside the fences (not on them).
+        let outliers: Vec<f64> = sorted
+            .iter()
+            .copied()
+            .filter(|v| *v < low_fence || *v > high_fence)
+            .collect();
+        boxes.push(BoxData {
+            label,
+            sorted,
+            q1,
+            median,
+            q3,
+            whisker_low,
+            whisker_high,
+            outliers,
+        });
+    }
+
+    // Global min/max across ALL values in ALL boxes — drives the Y axis
+    // scale so boxes are visually comparable to each other.
+    let mut global_min = f64::INFINITY;
+    let mut global_max = f64::NEG_INFINITY;
+    for b in &boxes {
+        for &v in &b.sorted {
+            if v < global_min {
+                global_min = v;
+            }
+            if v > global_max {
+                global_max = v;
+            }
+        }
+    }
+    if !global_min.is_finite() || !global_max.is_finite() {
+        return Err("chart_boxplot: data contains non-finite value".to_string());
+    }
+    let span = global_max - global_min;
+    if span.abs() < f64::EPSILON {
+        return Err(format!(
+            "chart_boxplot: all values are identical (={}) — cannot scale Y axis",
+            global_min
+        ));
+    }
+
+    let paper = style_token(&style, "paper")?;
+    let ink = style_token(&style, "ink")?;
+    let accent = style_token(&style, "accent")?;
+    let muted = style_token(&style, "muted")?;
+    let rule = style_token(&style, "rule")?;
+
+    // Geometry (shared canvas constants with chart_bar / chart_line)
+    let canvas_w = CHART_CANVAS_W;
+    let canvas_h = CHART_CANVAS_H;
+    let chart_x = CHART_X;
+    let chart_y_top = CHART_Y_TOP;
+    let chart_w = CHART_W;
+    let chart_h = CHART_H;
+    let chart_y_bottom = CHART_Y_BOTTOM;
+    let gap = 20.0_f64;
+    let n = boxes.len() as f64;
+    let box_w = (chart_w / n) - gap;
+    if box_w < 10.0 {
+        return Err(format!(
+            "chart_boxplot: too many boxes ({}) for canvas width — box width would be {}",
+            boxes.len(),
+            box_w
+        ));
+    }
+
+    // Y scale: value → SVG y coordinate (Y inverted — higher value = smaller y)
+    let scale_y = |v: f64| -> f64 { chart_y_bottom - (v - global_min) / span * chart_h };
+
+    let mut parts: Vec<String> = Vec::new();
+
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+
+    // Axes
+    parts.push(format!(
+        r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+        fmt_num(chart_x),
+        fmt_num(chart_y_top),
+        fmt_num(chart_x),
+        fmt_num(chart_y_bottom),
+        escape_attr(&rule)
+    ));
+    parts.push(format!(
+        r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+        fmt_num(chart_x),
+        fmt_num(chart_y_bottom),
+        fmt_num(chart_x + chart_w),
+        fmt_num(chart_y_bottom),
+        escape_attr(&rule)
+    ));
+
+    // Y axis range labels (min at bottom, max at top)
+    parts.push(format!(
+        r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="end">{}</text>"#,
+        fmt_num(chart_x - 6.0),
+        fmt_num(chart_y_bottom + 4.0),
+        escape_attr(&ink),
+        escape_html_chars(&fmt_num(global_min))
+    ));
+    parts.push(format!(
+        r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="end">{}</text>"#,
+        fmt_num(chart_x - 6.0),
+        fmt_num(chart_y_top + 4.0),
+        escape_attr(&ink),
+        escape_html_chars(&fmt_num(global_max))
+    ));
+
+    // Each box: rect (Q1..Q3) + median line + whiskers + caps + outliers
+    for (i, b) in boxes.iter().enumerate() {
+        let x_left = chart_x + (i as f64) * (box_w + gap) + gap / 2.0;
+        let x_right = x_left + box_w;
+        let x_center = (x_left + x_right) / 2.0;
+
+        let y_q1 = scale_y(b.q1);
+        let y_q3 = scale_y(b.q3);
+        let y_median = scale_y(b.median);
+        let y_wlow = scale_y(b.whisker_low);
+        let y_whigh = scale_y(b.whisker_high);
+
+        // Box: rect from Q1 (bottom) to Q3 (top). Q3 > Q1 in value space,
+        // but in SVG y-space y_q3 < y_q1 (Y inverted). Box height = y_q1 - y_q3.
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" fill-opacity="0.25" stroke="{}" stroke-width="1.5" />"#,
+            fmt_num(x_left),
+            fmt_num(y_q3),
+            fmt_num(box_w),
+            fmt_num(y_q1 - y_q3),
+            escape_attr(&accent),
+            escape_attr(&accent)
+        ));
+
+        // Median line (horizontal, inside the box)
+        parts.push(format!(
+            r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="2" />"#,
+            fmt_num(x_left),
+            fmt_num(y_median),
+            fmt_num(x_right),
+            fmt_num(y_median),
+            escape_attr(&accent)
+        ));
+
+        // Whisker: vertical line from box center, top to whisker_high,
+        // bottom to whisker_low. Two segments (above box, below box) so
+        // they don't draw through the box fill.
+        parts.push(format!(
+            r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+            fmt_num(x_center),
+            fmt_num(y_q3),
+            fmt_num(x_center),
+            fmt_num(y_whigh),
+            escape_attr(&rule)
+        ));
+        parts.push(format!(
+            r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+            fmt_num(x_center),
+            fmt_num(y_q1),
+            fmt_num(x_center),
+            fmt_num(y_wlow),
+            escape_attr(&rule)
+        ));
+
+        // Whisker caps (short horizontal lines at top/bottom of whiskers)
+        let cap_half = box_w / 4.0;
+        parts.push(format!(
+            r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+            fmt_num(x_center - cap_half),
+            fmt_num(y_whigh),
+            fmt_num(x_center + cap_half),
+            fmt_num(y_whigh),
+            escape_attr(&rule)
+        ));
+        parts.push(format!(
+            r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+            fmt_num(x_center - cap_half),
+            fmt_num(y_wlow),
+            fmt_num(x_center + cap_half),
+            fmt_num(y_wlow),
+            escape_attr(&rule)
+        ));
+
+        // Outliers: hollow circles (no fill, muted stroke) at (box_center, y_v)
+        for &v in &b.outliers {
+            let y_v = scale_y(v);
+            parts.push(format!(
+                r#"<circle cx="{}" cy="{}" r="3" fill="none" stroke="{}" stroke-width="1" />"#,
+                fmt_num(x_center),
+                fmt_num(y_v),
+                escape_attr(&muted)
+            ));
+        }
+
+        // X-axis label (below the chart)
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="12" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(x_center),
+            fmt_num(chart_y_bottom + 18.0),
+            escape_attr(&ink),
+            escape_html_chars(&b.label)
+        ));
+    }
+
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
 // ── Level 2.6: color_palette — derived DiagramStyle from intent + mode ──
 //
 // Narad №77 Block 1: generates a 5-token DiagramStyle (paper/ink/accent/

@@ -1,0 +1,59 @@
+// ── Наряд №79 Block 1: chart_radar contract ──────────────────────────
+//
+// Multi-series radar chart contract — verifies the function accepts the
+// Struct {axes, series} data shape and produces a valid <svg> document.
+//
+// Three test cases:
+//   1. 4 axes, 3 series — real comparison case (the meaningful radar
+//      use case per spec: comparing multiple entities across shared axes)
+//   2. 3 axes (minimum), 1 series — degenerate single-series case
+//   3. color_palette composition — verifies DiagramStyle interop
+//
+// Output: single summary string, "p79_radar_checks=N/3".
+
+pattern P79RadarContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. 4 axes, 3 series — real comparison case ──────────────────
+  // Each series MUST have values.len() == axes.len() (verified by the
+  // function — mismatch returns an error mentioning the offending series).
+  let data1 = {
+    axes: ["Speed", "Power", "Range", "Cost"],
+    series: [
+      {name: "Model A", values: [80.0, 60.0, 70.0, 50.0]},
+      {name: "Model B", values: [60.0, 90.0, 50.0, 70.0]},
+      {name: "Model C", values: [70.0, 70.0, 90.0, 60.0]}
+    ]
+  }
+  let r1 = chart_radar(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. 3 axes (minimum allowed), 1 series ───────────────────────
+  // Verifies the lower bound (axes.len() >= 3) is accepted, not rejected.
+  let data2 = {
+    axes: ["X", "Y", "Z"],
+    series: [{name: "Solo", values: [10.0, 20.0, 30.0]}]
+  }
+  let r2 = chart_radar(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. color_palette composition ────────────────────────────────
+  // color_palette returns DiagramStyle — must be consumable by chart_radar
+  // without adapter (same invariant as chart_bar / chart_donut / etc.).
+  let palette = color_palette("authority", "dark")
+  let data3 = {
+    axes: ["A", "B", "C", "D", "E"],
+    series: [
+      {name: "Alpha", values: [50.0, 70.0, 80.0, 60.0, 90.0]},
+      {name: "Beta",  values: [80.0, 60.0, 70.0, 90.0, 50.0]}
+    ]
+  }
+  let r3 = chart_radar(data3, palette)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  let total = ok1 + ok2 + ok3
+
+  return "p79_radar_checks=" + to_string(total) + "/3"
+}
+
+flow Main { input: String = "x" -> P79RadarContract -> output }

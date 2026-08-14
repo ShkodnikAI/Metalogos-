@@ -389,6 +389,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("chart_line", 2, "chart"),    // data, style — Наряд №78 Block 1
     spec!("chart_scatter", 2, "chart"), // data, style — Наряд №78 Block 2
     spec!("chart_area", 2, "chart"),    // data, style — Наряд №78 Block 3
+    spec!("chart_radar", 2, "chart"),   // data, style — Наряд №79 Block 1
+    spec!("chart_heatmap", 2, "chart"), // data, style — Наряд №79 Block 2
+    spec!("chart_boxplot", 2, "chart"), // data, style — Наряд №79 Block 3
     // Level 2.6: derived palette (Наряд №77 Block 1)
     spec!("color_palette", 2, "svg"), // intent, mode → DiagramStyle
 ];

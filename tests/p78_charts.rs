@@ -93,7 +93,9 @@ fn chart_line_single_point_no_divide_by_zero() {
 
 #[test]
 fn chart_line_deterministic_output() {
-    let src = wrap(r##"chart_line([{label: "Jan", value: 30.0}, {label: "Feb", value: 65.0}, {label: "Mar", value: 45.0}], diagram_style({paper: "#fff", ink: "#000", accent: "#f00", muted: "#888", rule: "#ccc"}))"##);
+    let src = wrap(
+        r##"chart_line([{label: "Jan", value: 30.0}, {label: "Feb", value: 65.0}, {label: "Mar", value: 45.0}], diagram_style({paper: "#fff", ink: "#000", accent: "#f00", muted: "#888", rule: "#ccc"}))"##,
+    );
     let out1 = metalogos::run_program(&src).unwrap().unwrap();
     let out2 = metalogos::run_program(&src).unwrap().unwrap();
     assert_eq!(out1, out2, "chart_line output must be deterministic");
@@ -139,7 +141,9 @@ fn chart_line_security_label_script_tag_escaped() {
 
 #[test]
 fn chart_line_tw_vm_crosscheck() {
-    let src = wrap(r##"chart_line([{label: "A", value: 30.0}, {label: "B", value: 65.0}, {label: "C", value: 45.0}], diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"}))"##);
+    let src = wrap(
+        r##"chart_line([{label: "A", value: 30.0}, {label: "B", value: 65.0}, {label: "C", value: 45.0}], diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"}))"##,
+    );
     let tw = metalogos::run_program(&src).unwrap().unwrap();
     let vm = eval_vm(&src).unwrap().unwrap_or_default();
     assert_eq!(
@@ -189,7 +193,9 @@ fn chart_scatter_degenerate_axis_no_divide_by_zero() {
 
 #[test]
 fn chart_scatter_deterministic_output() {
-    let src = wrap(r##"chart_scatter([{x: 1.0, y: 2.0, label: "A"}, {x: 2.0, y: 4.0, label: "B"}], diagram_style({paper: "#fff", ink: "#000", accent: "#f00", muted: "#888", rule: "#ccc"}))"##);
+    let src = wrap(
+        r##"chart_scatter([{x: 1.0, y: 2.0, label: "A"}, {x: 2.0, y: 4.0, label: "B"}], diagram_style({paper: "#fff", ink: "#000", accent: "#f00", muted: "#888", rule: "#ccc"}))"##,
+    );
     let out1 = metalogos::run_program(&src).unwrap().unwrap();
     let out2 = metalogos::run_program(&src).unwrap().unwrap();
     assert_eq!(out1, out2, "chart_scatter output must be deterministic");
@@ -238,7 +244,9 @@ fn chart_scatter_security_label_script_tag_escaped() {
 
 #[test]
 fn chart_scatter_tw_vm_crosscheck() {
-    let src = wrap(r##"chart_scatter([{x: 1.0, y: 2.0, label: "A"}, {x: 2.0, y: 4.0, label: "B"}, {x: 3.0, y: 1.0, label: "C"}], diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"}))"##);
+    let src = wrap(
+        r##"chart_scatter([{x: 1.0, y: 2.0, label: "A"}, {x: 2.0, y: 4.0, label: "B"}, {x: 3.0, y: 1.0, label: "C"}], diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"}))"##,
+    );
     let tw = metalogos::run_program(&src).unwrap().unwrap();
     let vm = eval_vm(&src).unwrap().unwrap_or_default();
     assert_eq!(
@@ -285,7 +293,9 @@ fn chart_area_single_point_no_divide_by_zero() {
 
 #[test]
 fn chart_area_deterministic_output() {
-    let src = wrap(r##"chart_area([{label: "Q1", value: 80.0}, {label: "Q2", value: 120.0}, {label: "Q3", value: 95.0}], diagram_style({paper: "#fff", ink: "#000", accent: "#f00", muted: "#888", rule: "#ccc"}))"##);
+    let src = wrap(
+        r##"chart_area([{label: "Q1", value: 80.0}, {label: "Q2", value: 120.0}, {label: "Q3", value: 95.0}], diagram_style({paper: "#fff", ink: "#000", accent: "#f00", muted: "#888", rule: "#ccc"}))"##,
+    );
     let out1 = metalogos::run_program(&src).unwrap().unwrap();
     let out2 = metalogos::run_program(&src).unwrap().unwrap();
     assert_eq!(out1, out2, "chart_area output must be deterministic");
@@ -331,7 +341,9 @@ fn chart_area_security_label_script_tag_escaped() {
 
 #[test]
 fn chart_area_tw_vm_crosscheck() {
-    let src = wrap(r##"chart_area([{label: "Q1", value: 80.0}, {label: "Q2", value: 120.0}, {label: "Q3", value: 95.0}], diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"}))"##);
+    let src = wrap(
+        r##"chart_area([{label: "Q1", value: 80.0}, {label: "Q2", value: 120.0}, {label: "Q3", value: 95.0}], diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"}))"##,
+    );
     let tw = metalogos::run_program(&src).unwrap().unwrap();
     let vm = eval_vm(&src).unwrap().unwrap_or_default();
     assert_eq!(
@@ -347,16 +359,19 @@ fn chart_area_tw_vm_crosscheck() {
 fn color_palette_composes_with_all_three_new_charts() {
     // color_palette returns DiagramStyle — must be consumable by all
     // chart_* functions without adapter (same invariant as p77).
-    let src = wrap(
-        r##"let p = color_palette("calm", "light")
+    // Multi-statement source — cannot use `wrap()` (which expects a
+    // single return expression), so we inline the pattern+flow here.
+    let src = r##"pattern __comp(input: String) -> String {
+        let p = color_palette("calm", "light")
         let bar_data = [{label: "A", value: 10.0}, {label: "B", value: 20.0}]
         let scatter_data = [{x: 1.0, y: 2.0}, {x: 2.0, y: 4.0}]
         let line = chart_line(bar_data, p)
         let area = chart_area(bar_data, p)
         let scatter = chart_scatter(scatter_data, p)
-        return line + area + scatter"##,
-    );
-    let out = metalogos::run_program(&src).unwrap().unwrap();
+        return line + area + scatter
+    }
+    flow Main { input: String = "x" -> __comp -> output }"##;
+    let out = metalogos::run_program(src).unwrap().unwrap();
     // Three concatenated SVG documents
     assert_eq!(out.matches("<svg ").count(), 3);
     assert_eq!(out.matches("</svg>").count(), 3);
@@ -375,7 +390,11 @@ fn p78_chart_line_example_runs() {
         out
     );
     // All 3 checks should pass
-    assert!(out.contains("3/3"), "expected 3/3 checks to pass, got: {}", out);
+    assert!(
+        out.contains("3/3"),
+        "expected 3/3 checks to pass, got: {}",
+        out
+    );
 }
 
 #[test]
@@ -405,5 +424,9 @@ fn p78_chart_area_example_runs() {
         "p78_chart_area example output unexpected: {}",
         out
     );
-    assert!(out.contains("3/3"), "expected 3/3 checks to pass, got: {}", out);
+    assert!(
+        out.contains("3/3"),
+        "expected 3/3 checks to pass, got: {}",
+        out
+    );
 }

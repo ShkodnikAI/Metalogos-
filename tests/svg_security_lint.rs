@@ -197,7 +197,9 @@ fn chart_bar_clean_program_passes_lint() {
 
 #[test]
 fn chart_line_label_with_script_warns_but_does_not_error() {
-    let src = "pattern P(input: String) -> String {\n    let data = [{label: \"<script>alert(1)</script>\", value: 40.0}, {label: \"safe\", value: 60.0}]\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return chart_line(data, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    // Data MUST be passed as a direct literal arg (not via let binding) so
+    // the AST lint can see the StringLit inside the List<Struct>.
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return chart_line([{label: \"<script>alert(1)</script>\", value: 40.0}, {label: \"safe\", value: 60.0}], style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
     let r = check_program(src).unwrap();
     // No hard error (runtime escapes label)
     assert!(
@@ -218,7 +220,8 @@ fn chart_line_label_with_script_warns_but_does_not_error() {
 
 #[test]
 fn chart_area_label_with_script_warns_but_does_not_error() {
-    let src = "pattern P(input: String) -> String {\n    let data = [{label: \"<script>alert(1)</script>\", value: 40.0}, {label: \"safe\", value: 60.0}]\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return chart_area(data, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    // Data MUST be passed as a direct literal arg (not via let binding).
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return chart_area([{label: \"<script>alert(1)</script>\", value: 40.0}, {label: \"safe\", value: 60.0}], style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
     let r = check_program(src).unwrap();
     assert!(
         !errors(&r).iter().any(|e| e.contains("chart_area")),
@@ -240,7 +243,8 @@ fn chart_scatter_label_with_script_warns_but_does_not_error() {
     // KEY TEST: chart_scatter has shape {x, y, label?} — label is THIRD,
     // not first. If scan_chart_labels were hardcoded to look at field
     // index 0 (instead of by name), this would NOT fire.
-    let src = "pattern P(input: String) -> String {\n    let data = [{x: 1.0, y: 2.0, label: \"<script>alert(1)</script>\"}, {x: 2.0, y: 4.0, label: \"safe\"}]\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return chart_scatter(data, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    // Data MUST be passed as a direct literal arg (not via let binding).
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return chart_scatter([{x: 1.0, y: 2.0, label: \"<script>alert(1)</script>\"}, {x: 2.0, y: 4.0, label: \"safe\"}], style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
     let r = check_program(src).unwrap();
     assert!(
         !errors(&r).iter().any(|e| e.contains("chart_scatter")),
@@ -261,12 +265,17 @@ fn chart_scatter_label_with_script_warns_but_does_not_error() {
 fn chart_scatter_without_label_passes_lint_cleanly() {
     // chart_scatter data WITHOUT label field — scan_chart_labels must
     // skip these structs gracefully (no false-positive warning, no error).
-    let src = "pattern P(input: String) -> String {\n    let data = [{x: 1.0, y: 2.0}, {x: 2.0, y: 4.0}]\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return chart_scatter(data, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    // Data passed as a direct literal so the lint can see the struct shape.
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return chart_scatter([{x: 1.0, y: 2.0}, {x: 2.0, y: 4.0}], style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
     let r = check_program(src).unwrap();
-    let sec_findings: Vec<_> = errors(&r)
+    // Bind to a local so the iterator chain can borrow it.
+    let errs = errors(&r);
+    let warns = warnings(&r);
+    let sec_findings: Vec<&str> = errs
         .iter()
-        .chain(warnings(&r).iter())
+        .chain(warns.iter())
         .filter(|m| m.contains("security:"))
+        .copied()
         .collect();
     assert!(
         sec_findings.is_empty(),

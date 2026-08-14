@@ -1172,12 +1172,18 @@ pub fn builtin_chart_scatter(args: &[Value]) -> Result<Value, String> {
         items.push((x, y, label));
     }
 
-    let x_min = items.iter().map(|(x, _, _)| *x).fold(f64::INFINITY, f64::min);
+    let x_min = items
+        .iter()
+        .map(|(x, _, _)| *x)
+        .fold(f64::INFINITY, f64::min);
     let x_max = items
         .iter()
         .map(|(x, _, _)| *x)
         .fold(f64::NEG_INFINITY, f64::max);
-    let y_min = items.iter().map(|(_, y, _)| *y).fold(f64::INFINITY, f64::min);
+    let y_min = items
+        .iter()
+        .map(|(_, y, _)| *y)
+        .fold(f64::INFINITY, f64::min);
     let y_max = items
         .iter()
         .map(|(_, y, _)| *y)
@@ -1416,7 +1422,10 @@ pub fn builtin_chart_area(args: &[Value]) -> Result<Value, String> {
     }
     // Close down to baseline: from last point → (last_x, chart_y_bottom)
     // → (first_x, chart_y_bottom) → Z (back to first point)
-    let last_x = points.last().unwrap().0;
+    // `points` is guaranteed non-empty (checked at function entry), so
+    // direct indexing is safe here. We avoid `.last().unwrap()` because
+    // the crate denies `clippy::unwrap_used` in non-test code.
+    let last_x = points[points.len() - 1].0;
     let first_x = points[0].0;
     area_d.push_str(&format!(
         " L {} {} L {} {} Z",

@@ -1,0 +1,52 @@
+// ── Наряд №78 Block 2: chart_scatter contract ────────────────────────
+//
+// Calls chart_scatter() with three different data shapes:
+//   1. 5 points with labels — verifies labeled scatter
+//   2. 5 points WITHOUT labels — verifies optional label handling
+//   3. Single-axis-degenerate (all x equal) — verifies div-by-zero guard
+//
+// Output: single summary string, "p78_scatter_checks=N/3".
+
+pattern P78ScatterContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. 5 points WITH labels (x, y, label) ────────────────────────
+  let data1 = [
+    {x: 1.0, y: 2.0, label: "A"},
+    {x: 2.0, y: 4.0, label: "B"},
+    {x: 3.0, y: 1.0, label: "C"},
+    {x: 4.0, y: 5.0, label: "D"},
+    {x: 5.0, y: 3.0, label: "E"}
+  ]
+  let sc1 = chart_scatter(data1, style)
+  let ok1 = to_float(starts_with(sc1, "<svg "))
+
+  // ── 2. 5 points WITHOUT labels (x, y only — label omitted) ───────
+  // Verifies that scan_chart_labels handles absent label gracefully
+  // (no panic, no false-positive warning).
+  let data2 = [
+    {x: 10.0, y: 20.0},
+    {x: 20.0, y: 30.0},
+    {x: 30.0, y: 10.0},
+    {x: 40.0, y: 50.0},
+    {x: 50.0, y: 40.0}
+  ]
+  let sc2 = chart_scatter(data2, style)
+  let ok2 = to_float(starts_with(sc2, "<svg "))
+
+  // ── 3. Single-axis-degenerate (all x equal — div-by-zero guard) ──
+  // Verifies chart_scatter does not crash when x_max == x_min.
+  let data3 = [
+    {x: 5.0, y: 1.0},
+    {x: 5.0, y: 2.0},
+    {x: 5.0, y: 3.0}
+  ]
+  let sc3 = chart_scatter(data3, style)
+  let ok3 = to_float(starts_with(sc3, "<svg "))
+
+  let total = ok1 + ok2 + ok3
+
+  return "p78_scatter_checks=" + to_string(total) + "/3"
+}
+
+flow Main { input: String = "x" -> P78ScatterContract -> output }

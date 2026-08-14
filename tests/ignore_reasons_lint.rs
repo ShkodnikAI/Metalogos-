@@ -120,8 +120,7 @@ fn scan_file(path: &Path) -> Vec<Violation> {
 
 #[test]
 fn no_bare_ignore_attributes_in_tests_or_src() {
-    let manifest_dir =
-        std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     let root = PathBuf::from(&manifest_dir);
 
     let mut all_violations: Vec<Violation> = Vec::new();
@@ -146,9 +145,7 @@ fn no_bare_ignore_attributes_in_tests_or_src() {
         for v in &all_violations {
             msg.push_str(&format!(
                 "  {}:{}: {}\n",
-                v.path.strip_prefix(&root)
-                    .unwrap_or(&v.path)
-                    .display(),
+                v.path.strip_prefix(&root).unwrap_or(&v.path).display(),
                 v.line_no,
                 v.line.trim()
             ));
@@ -191,11 +188,7 @@ fn scan_file_rejects_bare_form_with_inline_comment() {
     // the reason must live inside the attribute, not in a `//` comment.
     let tmp = tempfile_dir();
     let file = tmp.join("sample.rs");
-    fs::write(
-        &file,
-        "#[test]\n#[ignore] // TODO: fix me\nfn t() {}\n",
-    )
-    .unwrap();
+    fs::write(&file, "#[test]\n#[ignore] // TODO: fix me\nfn t() {}\n").unwrap();
     let v = scan_file(&file);
     assert_eq!(v.len(), 1, "bare #[ignore] // comment must be flagged");
 }

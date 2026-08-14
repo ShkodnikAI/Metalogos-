@@ -1,0 +1,76 @@
+// ── Наряд №79 Block 3: chart_boxplot contract ────────────────────────
+//
+// Statistical box-and-whisker plot contract. The quartile numbers in the
+// comments below are INDEPENDENTLY verified by hand using the R-7 method
+// (linear interpolation between closest ranks — same as numpy.percentile
+// default, R quantile type=7, Excel PERCENTILE.INC). They are NOT just
+// "whatever the function returned" — they were computed by hand from the
+// raw `values` arrays before this contract was written, and the
+// integration test in tests/p79_charts.rs asserts the function's output
+// matches them.
+//
+// Dataset 1: [1, 2, 3, 4, 5, 6, 7, 8, 9]  (n=9, no outliers)
+//   R-7 ranks:   Q1 = 0.25*8 = 2.0   median = 0.50*8 = 4.0   Q3 = 0.75*8 = 6.0
+//   Q1 = sorted[2] = 3
+//   median = sorted[4] = 5
+//   Q3 = sorted[6] = 7
+//   IQR = 4
+//   low_fence = 3 - 1.5*4 = -3
+//   high_fence = 7 + 1.5*4 = 13
+//   whisker_low = 1   whisker_high = 9   outliers = []
+//
+// Dataset 2: [1, 2, 3, 4, 5, 6, 7, 8, 9, 100]  (n=10, one outlier)
+//   R-7 ranks:   Q1 = 0.25*9 = 2.25   median = 0.50*9 = 4.5   Q3 = 0.75*9 = 6.75
+//   Q1 = sorted[2] + 0.25*(sorted[3]-sorted[2]) = 3 + 0.25*(4-3) = 3.25
+//   median = sorted[4] + 0.5*(sorted[5]-sorted[4]) = 5 + 0.5*(6-5) = 5.5
+//   Q3 = sorted[6] + 0.75*(sorted[7]-sorted[6]) = 7 + 0.75*(8-7) = 7.75
+//   IQR = 7.75 - 3.25 = 4.5
+//   low_fence = 3.25 - 1.5*4.5 = -3.5
+//   high_fence = 7.75 + 1.5*4.5 = 14.5
+//   whisker_low = 1   whisker_high = 9 (100 > 14.5, so it's an outlier)
+//   outliers = [100]
+//
+// Dataset 3: color_palette composition — reuses dataset 1's values
+// with a palette-derived DiagramStyle to verify interop. Quartile
+// numbers are identical to dataset 1 (style does not affect statistics).
+//
+// Output: single summary string, "p79_boxplot_checks=N/3".
+// The expected quartile numbers are NOT in the output string (the .mlog
+// runtime has no way to assert them directly without re-implementing R-7).
+// They are asserted by tests/p79_charts.rs::chart_boxplot_independently_verifies_r7_quartiles.
+
+pattern P79BoxplotContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. No-outlier dataset (n=9) ──────────────────────────────────
+  // Expected: Q1=3, median=5, Q3=7, no outliers (0 outlier circles in SVG).
+  let data1 = [
+    {label: "Control", values: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]}
+  ]
+  let b1 = chart_boxplot(data1, style)
+  let ok1 = to_float(starts_with(b1, "<svg "))
+
+  // ── 2. Outlier dataset (n=10, one outlier at 100) ───────────────
+  // Expected: Q1=3.25, median=5.5, Q3=7.75, exactly 1 outlier circle.
+  let data2 = [
+    {label: "WithOutlier", values: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 100.0]}
+  ]
+  let b2 = chart_boxplot(data2, style)
+  let ok2 = to_float(starts_with(b2, "<svg "))
+
+  // ── 3. color_palette composition (uses dataset 1's values) ───────
+  // Quartiles are identical to dataset 1 — style does not affect statistics.
+  let palette = color_palette("calm", "light")
+  let data3 = [
+    {label: "A", values: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]},
+    {label: "B", values: [2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0]}
+  ]
+  let b3 = chart_boxplot(data3, palette)
+  let ok3 = to_float(starts_with(b3, "<svg "))
+
+  let total = ok1 + ok2 + ok3
+
+  return "p79_boxplot_checks=" + to_string(total) + "/3"
+}
+
+flow Main { input: String = "x" -> P79BoxplotContract -> output }

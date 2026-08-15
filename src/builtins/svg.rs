@@ -4897,7 +4897,7 @@ pub fn builtin_diagram_gantt(args: &[Value]) -> Result<Value, String> {
     let canvas_h = DIAGRAM_CANVAS_H;
     let n = items.len();
     let row_h = GANTT_CHART_H / (n as f64);
-    let bar_h = (row_h * 0.5).max(8.0).min(28.0);
+    let bar_h = (row_h * 0.5).clamp(8.0, 28.0);
 
     let mut parts: Vec<String> = Vec::new();
     // Background
@@ -5261,8 +5261,8 @@ pub fn builtin_diagram_loop(args: &[Value]) -> Result<Value, String> {
     let centers: Vec<(f64, f64)> = (0..n)
         .map(|i| {
             // angle_i = 2π × i / N − π/2  (start at top)
-            let angle = 2.0 * std::f64::consts::PI * (i as f64) / (n as f64)
-                - std::f64::consts::PI / 2.0;
+            let angle =
+                2.0 * std::f64::consts::PI * (i as f64) / (n as f64) - std::f64::consts::PI / 2.0;
             polar_to_xy(cx, cy, r, angle)
         })
         .collect();

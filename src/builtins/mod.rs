@@ -881,6 +881,28 @@ impl Builtins {
             "diagram_medallion".to_string(),
             builtin_diagram_medallion as BuiltinFn,
         );
+        // ── Наряд №84: data & state diagrams ──
+        funcs.insert("diagram_er".to_string(), builtin_diagram_er as BuiltinFn);
+        funcs.insert(
+            "diagram_state".to_string(),
+            builtin_diagram_state as BuiltinFn,
+        );
+        funcs.insert(
+            "diagram_swimlane".to_string(),
+            builtin_diagram_swimlane as BuiltinFn,
+        );
+        funcs.insert(
+            "diagram_data_flow".to_string(),
+            builtin_diagram_data_flow as BuiltinFn,
+        );
+        funcs.insert(
+            "diagram_high_level".to_string(),
+            builtin_diagram_high_level as BuiltinFn,
+        );
+        funcs.insert(
+            "diagram_architecture".to_string(),
+            builtin_diagram_architecture as BuiltinFn,
+        );
 
         // ── Наряд №50 Block 3: SHA-256 / HMAC / hex builtins ──
         funcs.insert("sha256".to_string(), builtin_sha256 as BuiltinFn);

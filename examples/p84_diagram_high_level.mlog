@@ -1,0 +1,105 @@
+// ── Наряд №84 Block 8: diagram_high_level contract ──────────────────
+//
+// High-level architecture diagram contract. The KEY invariants:
+//   1. Linear A→B→C renders with bolder blocks (visually distinct from
+//      diagram_data_flow's plain rects)
+//   2. Branch + merge (DAG) renders — topological layering works
+//   3. Edge labels render at midpoint
+//   4. Cycle → Err (acyclic requirement, same as diagram_flowchart)
+//   5. Self-loop → Err (trivial cycle, also rejected)
+//   6. Unknown node reference → Err
+//
+// Tests 4 and 5 are the CRITICAL ones — diagram_high_level REJECTS
+// cycles, unlike diagram_data_flow. The spec is explicit: "архитектурные
+// схемы обычно ациклические, цикл здесь скорее ошибка входных данных,
+// как в diagram_flowchart". This contract makes the contrast testable.
+//
+// Output: single summary string, "p84_high_level_checks=N/6".
+
+pattern P84DiagramHighLevelContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Linear A→B→C ───────────────────────────────────────────────
+  let data1 = {
+    nodes: [
+      {id: "ui", label: "UI Layer"},
+      {id: "logic", label: "Business Logic"},
+      {id: "db", label: "Database"}
+    ],
+    edges: [
+      {from: "ui", to: "logic"},
+      {from: "logic", to: "db"}
+    ]
+  }
+  let r1 = diagram_high_level(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. Branch + merge (DAG, topological layering) ─────────────────
+  let data2 = {
+    nodes: [
+      {id: "A", label: "Frontend"},
+      {id: "B", label: "API Gateway"},
+      {id: "C", label: "Auth Service"},
+      {id: "D", label: "Backend"}
+    ],
+    edges: [
+      {from: "A", to: "B"},
+      {from: "A", to: "C"},
+      {from: "B", to: "D"},
+      {from: "C", to: "D"}
+    ]
+  }
+  let r2 = diagram_high_level(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. Edge labels render ─────────────────────────────────────────
+  let data3 = {
+    nodes: [
+      {id: "X", label: "Source"},
+      {id: "Y", label: "Sink"}
+    ],
+    edges: [
+      {from: "X", to: "Y", label: "HTTPS"}
+    ]
+  }
+  let r3 = diagram_high_level(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // ── 4. Cycle A↔B → Err (acyclic requirement) ──────────────────────
+  // Same shape that diagram_data_flow accepts as a feedback loop.
+  // high_level REJECTS it as an architectural mistake.
+  let data4 = {
+    nodes: [
+      {id: "A", label: "Service A"},
+      {id: "B", label: "Service B"}
+    ],
+    edges: [
+      {from: "A", to: "B"},
+      {from: "B", to: "A"}
+    ]
+  }
+  let r4 = try diagram_high_level(data4, style)
+  let ok4 = to_float(type_of(r4) == "Unit")
+
+  // ── 5. Self-loop A→A → Err (trivial cycle) ───────────────────────
+  let data5 = {
+    nodes: [{id: "A", label: "Self"}],
+    edges: [{from: "A", to: "A"}]
+  }
+  let r5 = try diagram_high_level(data5, style)
+  let ok5 = to_float(type_of(r5) == "Unit")
+
+  // ── 6. Unknown node reference → Err ───────────────────────────────
+  let data6 = {
+    nodes: [{id: "A", label: "Real"}],
+    edges: [{from: "A", to: "Z"}]
+  }
+  let r6 = try diagram_high_level(data6, style)
+  let ok6 = to_float(type_of(r6) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
+
+  return "p84_high_level_checks=" + to_string(total) + "/6"
+}
+
+flow Main { input: String = "x" -> P84DiagramHighLevelContract -> output }

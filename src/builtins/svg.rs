@@ -3859,32 +3859,50 @@ fn extract_flowchart(data_value: &Value) -> Result<(Vec<FlowNode>, Vec<FlowEdge>
 /// from a root" layering, which tends to produce wider, shallower
 /// diagrams than naive BFS layering and avoids unnecessarily deep
 /// layouts for graphs with merges.
-fn topological_layers(nodes: &[FlowNode], edges: &[FlowEdge]) -> Result<Vec<Vec<String>>, String> {
+///
+/// **Наряд №84 Block 4 — generalized signature.** Previously this
+/// function took `&[FlowNode]` + `&[FlowEdge]` (typed structs). The
+/// narazd №84 spec calls for generalizing it so that `diagram_flowchart`
+/// (Н81), `diagram_high_level`, and `diagram_architecture` (both Н84)
+/// can all share one implementation. The new signature takes plain
+/// `&[String]` for node IDs and `&[(String, String)]` for edge pairs,
+/// with no payload (label/icon) — those are looked up separately by
+/// callers via the position map this function returns.
+///
+/// Behavior is unchanged for the existing `diagram_flowchart` caller:
+/// same longest-path layering, same cycle error text, same self-loop
+/// rejection. The p81_diagram_flowchart contract continues to pass
+/// without modification (verified by the regression contract
+/// p84_topological_layers_regression.mlog).
+fn topological_layers(
+    node_ids: &[String],
+    edges: &[(String, String)],
+) -> Result<Vec<Vec<String>>, String> {
     // Index nodes by id for fast lookup
     let id_to_idx: std::collections::HashMap<&String, usize> =
-        nodes.iter().enumerate().map(|(i, n)| (&n.id, i)).collect();
-    let n = nodes.len();
+        node_ids.iter().enumerate().map(|(i, n)| (n, i)).collect();
+    let n = node_ids.len();
     // Build adjacency: predecessors[idx] = list of predecessor idxs
     let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); n];
     let mut successors: Vec<Vec<usize>> = vec![Vec::new(); n];
-    for edge in edges {
-        let from_idx = *id_to_idx.get(&edge.from).ok_or_else(|| {
+    for (from, to) in edges {
+        let from_idx = *id_to_idx.get(from).ok_or_else(|| {
             format!(
                 "diagram_flowchart: internal error — edge.from {:?} not in index",
-                edge.from
+                from
             )
         })?;
-        let to_idx = *id_to_idx.get(&edge.to).ok_or_else(|| {
+        let to_idx = *id_to_idx.get(to).ok_or_else(|| {
             format!(
                 "diagram_flowchart: internal error — edge.to {:?} not in index",
-                edge.to
+                to
             )
         })?;
         if from_idx == to_idx {
             // Self-loop — that's a trivial cycle.
             return Err(format!(
                 "flowchart contains a cycle: {}→{} (self-loop)",
-                edge.from, edge.to
+                from, to
             ));
         }
         successors[from_idx].push(to_idx);
@@ -3917,7 +3935,7 @@ fn topological_layers(nodes: &[FlowNode], edges: &[FlowEdge]) -> Result<Vec<Vec<
         let mut cycle_nodes: Vec<String> = Vec::new();
         for (idx, &deg) in in_degree.iter().enumerate() {
             if deg > 0 {
-                cycle_nodes.push(nodes[idx].id.clone());
+                cycle_nodes.push(node_ids[idx].clone());
             }
         }
         return Err(format!(
@@ -3943,9 +3961,91 @@ fn topological_layers(nodes: &[FlowNode], edges: &[FlowEdge]) -> Result<Vec<Vec<
     let max_layer = *layer.iter().max().unwrap_or(&0);
     let mut layers: Vec<Vec<String>> = vec![Vec::new(); max_layer + 1];
     for (idx, &l) in layer.iter().enumerate() {
-        layers[l].push(nodes[idx].id.clone());
+        layers[l].push(node_ids[idx].clone());
     }
     Ok(layers)
+}
+
+/// **Наряд №84 Block 2/5 — BFS layering that tolerates cycles.**
+///
+/// Used by `diagram_state` and `diagram_data_flow`, where the graph is
+/// expected to contain cycles (state machines cycle, data flows have
+/// feedback loops). Unlike `topological_layers`, this function NEVER
+/// returns an error on a cycle — it lays out the graph by BFS distance
+/// from a chosen `root` node, treating edges as UNDIRECTED for layering
+/// purposes (a cycle A→B→A places both A and B at distance ≤1 from any
+/// chosen root, which is what we want for visualization).
+///
+/// Self-loops (A→A) are silently ignored — they don't affect layering
+/// (a node is always at distance 0 from itself), and they're valid
+/// transitions in state machines per the Н84 spec.
+///
+/// `root` MUST be a member of `node_ids` (callers validate this before
+/// calling). If a node is not reachable from `root` via undirected BFS
+/// (disconnected component), it's placed at layer `max_reachable_layer + 1`
+/// so disconnected subgraphs appear at the bottom of the diagram rather
+/// than being silently dropped.
+///
+/// Returns a non-empty Vec<Vec<String>> (at least one layer containing
+/// `root`) — never returns Err.
+fn bfs_layers_with_cycles(
+    node_ids: &[String],
+    edges: &[(String, String)],
+    root: &str,
+) -> Vec<Vec<String>> {
+    let id_to_idx: std::collections::HashMap<&String, usize> =
+        node_ids.iter().enumerate().map(|(i, n)| (n, i)).collect();
+    let n = node_ids.len();
+    // Build UNDIRECTED adjacency (treat each directed edge as bidirectional
+    // for layering purposes — this is what makes cycles lay out sanely).
+    let mut adj: Vec<std::collections::HashSet<usize>> = vec![std::collections::HashSet::new(); n];
+    for (from, to) in edges {
+        if let (Some(&i), Some(&j)) = (id_to_idx.get(from), id_to_idx.get(to)) {
+            if i != j {
+                // Skip self-loops — they don't change reachability
+                adj[i].insert(j);
+                adj[j].insert(i);
+            }
+        }
+    }
+    // BFS from root, recording distance (layer) for each visited node.
+    // layer[i] == -1 means "not yet visited".
+    let mut layer: Vec<i32> = vec![-1; n];
+    let root_idx = id_to_idx.get(&root.to_string()).copied().unwrap_or(0);
+    let mut queue: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
+    queue.push_back(root_idx);
+    layer[root_idx] = 0;
+    while let Some(idx) = queue.pop_front() {
+        // Iterate over a snapshot to satisfy borrow checker
+        let neighbors: Vec<usize> = adj[idx].iter().copied().collect();
+        for nbr in neighbors {
+            if layer[nbr] == -1 {
+                layer[nbr] = layer[idx] + 1;
+                queue.push_back(nbr);
+            }
+        }
+    }
+    // Unreachable nodes (layer == -1) are placed at max_reachable + 1.
+    // They get their own bottom layer — preserves them in the output
+    // without polluting the BFS-derived layers.
+    let max_reachable = layer
+        .iter()
+        .filter(|&&l| l >= 0)
+        .max()
+        .copied()
+        .unwrap_or(0);
+    for l in layer.iter_mut() {
+        if *l == -1 {
+            *l = max_reachable + 1;
+        }
+    }
+    // Group by layer
+    let max_layer = *layer.iter().max().unwrap_or(&0);
+    let mut layers: Vec<Vec<String>> = vec![Vec::new(); (max_layer + 1) as usize];
+    for (i, &l) in layer.iter().enumerate() {
+        layers[l as usize].push(node_ids[i].clone());
+    }
+    layers
 }
 
 /// `diagram_flowchart(data, style) -> String`
@@ -3964,7 +4064,15 @@ pub fn builtin_diagram_flowchart(args: &[Value]) -> Result<Value, String> {
     let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
     let style = extract_style(&style_value)?;
     let (nodes, edges) = extract_flowchart(&data_value)?;
-    let layers = topological_layers(&nodes, &edges)?;
+    // Н84 Block 4: topological_layers now takes plain &[String] + &[(String,String)].
+    // Derive the inputs from the parsed FlowNode/FlowEdge structs — behavior
+    // is unchanged for flowchart (regression-checked by p84_topological_layers_regression.mlog).
+    let node_ids: Vec<String> = nodes.iter().map(|n| n.id.clone()).collect();
+    let edge_pairs: Vec<(String, String)> = edges
+        .iter()
+        .map(|e| (e.from.clone(), e.to.clone()))
+        .collect();
+    let layers = topological_layers(&node_ids, &edge_pairs)?;
     // Layout: each layer is one horizontal row. Within a row, nodes
     // are spread evenly across the canvas width (with side padding).
     let n_layers = layers.len();
@@ -6360,6 +6468,1584 @@ pub fn builtin_diagram_medallion(args: &[Value]) -> Result<Value, String> {
         escape_attr(&rule)
     ));
 
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+// ── Наряд №84: Diagrams, part 4 — data & state ───────────────────────
+//
+// Six new diagram builtins (the largest single narazd in the diagram
+// series). Three of them (data_flow, high_level, architecture) share
+// the same `Struct{nodes, edges}` graph shape and the generalized
+// topological_layers / bfs_layers_with_cycles helpers from Block 4;
+// they differ only in (a) which layer function they call and (b) how
+// they render each node box (plain rect, large labeled block, or
+// block with svg_icon).
+//
+//   Block 1 — diagram_er         (entity-relation grid; no graph layout)
+//   Block 2 — diagram_state      (state machine, BFS layout, cycles OK)
+//   Block 3 — diagram_swimlane   (vertical lanes, steps positioned by order)
+//   Block 5 — diagram_data_flow  (graph, BFS layout, cycles OK)
+//   Block 6 — diagram_high_level + diagram_architecture
+//                              (graph, topological, no cycles; arch has icons)
+//
+// All reuse DIAGRAM_CANVAS_W/H (600×400) for visual consistency with
+// the Н81–83 diagram suite.
+
+// ── Block 1: diagram_er ─────────────────────────────────────────────
+//
+// Entity-Relationship diagram. Each entity is a rectangle split into
+// a header (entity name) and a body listing its fields. Relations are
+// drawn as connectors between entity box edges, with the optional
+// relation label (e.g. "1:N", "1:1") placed at the line midpoint.
+//
+// Layout is a SIMPLE GRID (3 per row) — the spec is explicit:
+// "Не решать общую задачу graph layout для diagram_er — простая сетка,
+// не анализ связей для позиционирования." ER diagrams routinely
+// contain cycles (bidirectional relationships, many-to-many), so the
+// topological sort from Block 4 doesn't apply here.
+//
+// Limits: entities.len() ≤ 12, fields.len() ≤ 8 per entity.
+
+const ER_MAX_ENTITIES: usize = 12;
+const ER_MAX_FIELDS: usize = 8;
+const ER_PER_ROW: usize = 3;
+const ER_BOX_W: f64 = 160.0;
+const ER_BOX_HEADER_H: f64 = 22.0;
+const ER_FIELD_H: f64 = 14.0;
+const ER_BOX_PADDING: f64 = 14.0;
+const ER_GRID_GAP_X: f64 = 30.0;
+const ER_GRID_GAP_Y: f64 = 30.0;
+const ER_GRID_TOP: f64 = 30.0;
+
+struct ErEntity {
+    name: String,
+    fields: Vec<String>,
+}
+
+struct ErRelation {
+    from: String,
+    to: String,
+    label: Option<String>,
+}
+
+/// `diagram_er(data, style) -> String`
+///
+/// `data` is `Struct { entities: List<Struct{name, fields: List<String>}>,
+/// relations: List<Struct{from, to, label?}> }`.
+///
+/// Returns Err if entities.len() > 12, fields.len() > 8 for any entity,
+/// or a relation endpoint doesn't match any entity name.
+pub fn builtin_diagram_er(args: &[Value]) -> Result<Value, String> {
+    let data_value = args.first().cloned().unwrap_or(Value::Unit);
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    let fields = match &data_value {
+        Value::Struct { fields, .. } => fields,
+        other => {
+            return Err(format!(
+                "diagram_er: data must be Struct {{entities, relations}}, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    let entities_val = fields
+        .get("entities")
+        .ok_or_else(|| "diagram_er: missing 'entities' field".to_string())?;
+    let relations_val = fields
+        .get("relations")
+        .ok_or_else(|| "diagram_er: missing 'relations' field".to_string())?;
+    let entities_list = match entities_val {
+        Value::List(items) => items,
+        other => {
+            return Err(format!(
+                "diagram_er: 'entities' must be List, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    let relations_list = match relations_val {
+        Value::List(items) => items,
+        other => {
+            return Err(format!(
+                "diagram_er: 'relations' must be List, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    if entities_list.is_empty() {
+        return Err("diagram_er: entities list must not be empty".to_string());
+    }
+    if entities_list.len() > ER_MAX_ENTITIES {
+        return Err(format!(
+            "diagram_er: too many entities ({}), maximum is {} — grid would overflow the canvas",
+            entities_list.len(),
+            ER_MAX_ENTITIES
+        ));
+    }
+    let mut entities: Vec<ErEntity> = Vec::with_capacity(entities_list.len());
+    let mut entity_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (i, item) in entities_list.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_er: entities[{}] must be Struct {{name, fields}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let name = struct_string_field("diagram_er entity", f, "name")?;
+        if !entity_names.insert(name.clone()) {
+            return Err(format!(
+                "diagram_er: duplicate entity name {:?} at entities[{}]",
+                name, i
+            ));
+        }
+        let fields_list = match f.get("fields") {
+            Some(Value::List(items)) => items,
+            Some(other) => {
+                return Err(format!(
+                    "diagram_er: entities[{}].fields must be List<String>, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+            None => {
+                return Err(format!(
+                    "diagram_er: entities[{}] missing required 'fields' field",
+                    i
+                ));
+            }
+        };
+        if fields_list.len() > ER_MAX_FIELDS {
+            return Err(format!(
+                "diagram_er: entities[{}].fields has {} entries, maximum is {} — box would be too tall",
+                i,
+                fields_list.len(),
+                ER_MAX_FIELDS
+            ));
+        }
+        let mut fields_vec: Vec<String> = Vec::with_capacity(fields_list.len());
+        for (j, f_item) in fields_list.iter().enumerate() {
+            let field_name = match f_item {
+                Value::String(s) => s.clone(),
+                other => {
+                    return Err(format!(
+                        "diagram_er: entities[{}].fields[{}] must be String, got {}",
+                        i,
+                        j,
+                        other.type_name()
+                    ));
+                }
+            };
+            fields_vec.push(field_name);
+        }
+        entities.push(ErEntity {
+            name,
+            fields: fields_vec,
+        });
+    }
+    let mut relations: Vec<ErRelation> = Vec::with_capacity(relations_list.len());
+    for (i, item) in relations_list.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_er: relations[{}] must be Struct {{from, to, label?}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let from = struct_string_field("diagram_er relation", f, "from")?;
+        let to = struct_string_field("diagram_er relation", f, "to")?;
+        let label = struct_opt_string_field(f, "label");
+        if !entity_names.contains(&from) {
+            return Err(format!(
+                "diagram_er: relations[{}].from references unknown entity {:?}",
+                i, from
+            ));
+        }
+        if !entity_names.contains(&to) {
+            return Err(format!(
+                "diagram_er: relations[{}].to references unknown entity {:?}",
+                i, to
+            ));
+        }
+        relations.push(ErRelation { from, to, label });
+    }
+
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    // Simple grid: ER_PER_ROW entities per row, fixed box width.
+    let n = entities.len();
+    let n_rows = n.div_ceil(ER_PER_ROW).max(1);
+    // Compute box heights (depend on field count per entity).
+    let box_height =
+        |e: &ErEntity| ER_BOX_HEADER_H + (e.fields.len() as f64) * ER_FIELD_H + ER_BOX_PADDING;
+    let row_h: Vec<f64> = (0..n_rows)
+        .map(|r| {
+            (0..ER_PER_ROW)
+                .filter_map(|c| {
+                    let idx = r * ER_PER_ROW + c;
+                    if idx < n {
+                        Some(box_height(&entities[idx]))
+                    } else {
+                        None
+                    }
+                })
+                .fold(0.0_f64, f64::max)
+        })
+        .collect();
+    let total_grid_h: f64 = row_h.iter().sum::<f64>() + (n_rows as f64 - 1.0) * ER_GRID_GAP_Y;
+    // Center the grid vertically.
+    let grid_top = ((canvas_h - total_grid_h) / 2.0).max(ER_GRID_TOP);
+    // Position each entity box on the grid.
+    let mut name_to_box: std::collections::HashMap<String, (f64, f64, f64, f64)> =
+        std::collections::HashMap::new();
+    let mut cursor_y = grid_top;
+    let total_row_w = (ER_PER_ROW as f64) * ER_BOX_W + ((ER_PER_ROW as f64) - 1.0) * ER_GRID_GAP_X;
+    let grid_left = ((canvas_w - total_row_w) / 2.0).max(ER_GRID_GAP_X);
+    for (r, row_max_h) in row_h.iter().enumerate() {
+        for c in 0..ER_PER_ROW {
+            let idx = r * ER_PER_ROW + c;
+            if idx >= n {
+                break;
+            }
+            let x = grid_left + (c as f64) * (ER_BOX_W + ER_GRID_GAP_X);
+            let h = box_height(&entities[idx]);
+            // Vertically center each box in its row cell.
+            let y = cursor_y + ((*row_max_h) - h) / 2.0;
+            name_to_box.insert(entities[idx].name.clone(), (x, y, ER_BOX_W, h));
+        }
+        cursor_y += *row_max_h + ER_GRID_GAP_Y;
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+    // Relations first (so entity boxes render on top of any clipped line).
+    for rel in &relations {
+        let (fx, fy, fw, fh) = name_to_box.get(&rel.from).cloned().ok_or_else(|| {
+            format!(
+                "diagram_er: internal error — entity {:?} not in position map",
+                rel.from
+            )
+        })?;
+        let (tx, ty, tw, th) = name_to_box.get(&rel.to).cloned().ok_or_else(|| {
+            format!(
+                "diagram_er: internal error — entity {:?} not in position map",
+                rel.to
+            )
+        })?;
+        // Use box centers as connector endpoints; box_edge_point trims
+        // the line back to the actual box boundary.
+        let from_cx = fx + fw / 2.0;
+        let from_cy = fy + fh / 2.0;
+        let to_cx = tx + tw / 2.0;
+        let to_cy = ty + th / 2.0;
+        let (sx, sy) = box_edge_point(from_cx, from_cy, to_cx, to_cy, fw, fh);
+        let (ex, ey) = box_edge_point(to_cx, to_cy, from_cx, from_cy, tw, th);
+        parts.push(draw_connector(sx, sy, ex, ey, &style));
+        if let Some(label) = &rel.label {
+            let mid_x = (sx + ex) / 2.0;
+            let mid_y = (sy + ey) / 2.0 - 6.0;
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(mid_x),
+                fmt_num(mid_y),
+                escape_attr(&muted),
+                escape_html_chars(label)
+            ));
+        }
+    }
+    // Entity boxes
+    for entity in &entities {
+        let (x, y, w, h) = name_to_box.get(&entity.name).cloned().ok_or_else(|| {
+            format!(
+                "diagram_er: internal error — entity {:?} not in position map (render pass)",
+                entity.name
+            )
+        })?;
+        // Box body (paper fill, rule stroke).
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" stroke="{}" stroke-width="1.5" />"#,
+            fmt_num(x),
+            fmt_num(y),
+            fmt_num(w),
+            fmt_num(h),
+            escape_attr(&paper),
+            escape_attr(&rule)
+        ));
+        // Header bar (accent fill, paper text) — visually separates name from fields.
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" />"#,
+            fmt_num(x),
+            fmt_num(y),
+            fmt_num(w),
+            fmt_num(ER_BOX_HEADER_H),
+            escape_attr(&accent)
+        ));
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="12" font-weight="bold" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(x + w / 2.0),
+            fmt_num(y + ER_BOX_HEADER_H - 6.0),
+            escape_attr(&paper),
+            escape_html_chars(&entity.name)
+        ));
+        // Fields listed below the header, one per line.
+        for (i, field) in entity.fields.iter().enumerate() {
+            let fy = y + ER_BOX_HEADER_H + (i as f64 + 1.0) * ER_FIELD_H;
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="11" fill="{}">{}</text>"#,
+                fmt_num(x + 8.0),
+                fmt_num(fy),
+                escape_attr(&ink),
+                escape_html_chars(field)
+            ));
+        }
+    }
+    // Canvas border
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="none" stroke="{}" stroke-width="1" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&rule)
+    ));
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+// ── Block 2: diagram_state ──────────────────────────────────────────
+//
+// State machine diagram. States are rendered as rounded rectangles
+// (radius 14 — visually distinct from flowchart's 4 to signal "this is
+// a state, not a step"). Transitions use draw_connector; self-loops
+// (A→A) are VALID here (a common state-machine construct: a state that
+// transitions to itself on a specific event) — unlike diagram_flowchart
+// where a self-loop is rejected as a trivial cycle.
+//
+// Layout: BFS from the `initial` state (or first state if `initial` not
+// specified), treating edges as undirected for layering — this lets
+// cyclic state machines lay out sanely. See bfs_layers_with_cycles
+// (Block 4) for the algorithm.
+//
+// If `initial` is specified, we draw a small "entry arrow" — a short
+// arrow with no source, terminating at the initial state's left edge.
+// This is the classical state-machine notation for "the start state".
+//
+// Limits: states.len() ≤ 10.
+
+const STATE_MAX_STATES: usize = 10;
+const STATE_NODE_W: f64 = 110.0;
+const STATE_NODE_H: f64 = 40.0;
+const STATE_NODE_RX: f64 = 14.0;
+
+struct StateTransition {
+    from: String,
+    to: String,
+    label: Option<String>,
+}
+
+/// `diagram_state(data, style) -> String`
+///
+/// `data` is `Struct { states: List<String>, transitions: List<Struct{from, to, label?}>, initial: String? }`.
+///
+/// Cycles and self-loops in transitions are VALID (state machines are
+/// inherently cyclic). `initial`, if specified, must be one of `states`.
+pub fn builtin_diagram_state(args: &[Value]) -> Result<Value, String> {
+    let data_value = args.first().cloned().unwrap_or(Value::Unit);
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    let fields = match &data_value {
+        Value::Struct { fields, .. } => fields,
+        other => {
+            return Err(format!(
+                "diagram_state: data must be Struct {{states, transitions, initial?}}, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    let states_val = fields
+        .get("states")
+        .ok_or_else(|| "diagram_state: missing 'states' field".to_string())?;
+    let transitions_val = fields
+        .get("transitions")
+        .ok_or_else(|| "diagram_state: missing 'transitions' field".to_string())?;
+    let states_list = match states_val {
+        Value::List(items) => items,
+        other => {
+            return Err(format!(
+                "diagram_state: 'states' must be List<String>, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    let transitions_list = match transitions_val {
+        Value::List(items) => items,
+        other => {
+            return Err(format!(
+                "diagram_state: 'transitions' must be List, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    if states_list.is_empty() {
+        return Err("diagram_state: states list must not be empty".to_string());
+    }
+    if states_list.len() > STATE_MAX_STATES {
+        return Err(format!(
+            "diagram_state: too many states ({}), maximum is {} — diagram would be unreadable",
+            states_list.len(),
+            STATE_MAX_STATES
+        ));
+    }
+    let mut states: Vec<String> = Vec::with_capacity(states_list.len());
+    let mut state_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (i, item) in states_list.iter().enumerate() {
+        let name = match item {
+            Value::String(s) => s.clone(),
+            other => {
+                return Err(format!(
+                    "diagram_state: states[{}] must be String, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        if !state_set.insert(name.clone()) {
+            return Err(format!(
+                "diagram_state: duplicate state name {:?} at states[{}]",
+                name, i
+            ));
+        }
+        states.push(name);
+    }
+    let mut transitions: Vec<StateTransition> = Vec::with_capacity(transitions_list.len());
+    for (i, item) in transitions_list.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_state: transitions[{}] must be Struct {{from, to, label?}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let from = struct_string_field("diagram_state transition", f, "from")?;
+        let to = struct_string_field("diagram_state transition", f, "to")?;
+        let label = struct_opt_string_field(f, "label");
+        if !state_set.contains(&from) {
+            return Err(format!(
+                "diagram_state: transitions[{}].from references unknown state {:?}",
+                i, from
+            ));
+        }
+        if !state_set.contains(&to) {
+            return Err(format!(
+                "diagram_state: transitions[{}].to references unknown state {:?}",
+                i, to
+            ));
+        }
+        transitions.push(StateTransition { from, to, label });
+    }
+    let initial = struct_opt_string_field(fields, "initial");
+    if let Some(ref init) = initial {
+        if !state_set.contains(init) {
+            return Err(format!(
+                "diagram_state: initial {:?} is not in states list",
+                init
+            ));
+        }
+    }
+    let root = initial
+        .clone()
+        .unwrap_or_else(|| states.first().cloned().unwrap_or_default());
+    // Build edge pairs for the layering function.
+    let edge_pairs: Vec<(String, String)> = transitions
+        .iter()
+        .map(|t| (t.from.clone(), t.to.clone()))
+        .collect();
+    let layers = bfs_layers_with_cycles(&states, &edge_pairs, &root);
+
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    let n_layers = layers.len();
+    let layer_h = (canvas_h - 80.0) / (n_layers as f64).max(1.0);
+    let mut id_to_pos: std::collections::HashMap<String, (f64, f64)> =
+        std::collections::HashMap::new();
+    for (layer_idx, layer_states) in layers.iter().enumerate() {
+        let count = layer_states.len();
+        let y_center = 40.0 + (layer_idx as f64 + 0.5) * layer_h;
+        let total_w = canvas_w - 80.0;
+        let step = if count > 1 {
+            total_w / (count as f64 - 1.0)
+        } else {
+            0.0
+        };
+        let start_x = if count > 1 { 40.0 } else { canvas_w / 2.0 };
+        for (i, id) in layer_states.iter().enumerate() {
+            let x_center = start_x + (i as f64) * step;
+            id_to_pos.insert(id.clone(), (x_center, y_center));
+        }
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+    // Entry arrow for `initial` — short horizontal arrow ending at the
+    // state's left edge, with no source (visually "from nowhere").
+    if let Some(ref init) = initial {
+        if let Some(&(cx, cy)) = id_to_pos.get(init) {
+            let ex = cx - STATE_NODE_W / 2.0;
+            let sx = ex - 30.0;
+            parts.push(draw_connector(sx, cy, ex, cy, &style));
+        }
+    }
+    // Transitions — including self-loops (A→A), which we render as a
+    // small curved arrow above the state box. Self-loops are VALID in
+    // state machines (unlike flowchart where they're a hard error).
+    for t in &transitions {
+        if t.from == t.to {
+            // Self-loop: small loop above the node.
+            if let Some(&(cx, cy)) = id_to_pos.get(&t.from) {
+                let top_y = cy - STATE_NODE_H / 2.0;
+                let loop_r = 12.0;
+                let arc_cx = cx;
+                let arc_cy = top_y - loop_r;
+                // Half-circle path from left base to right base, drawn
+                // ABOVE the node. Arrowhead points down at the right base.
+                parts.push(format!(
+                    r#"<path d="M {} {} A {} {} 0 0 1 {} {}" fill="none" stroke="{}" stroke-width="1.5" />"#,
+                    fmt_num(cx - loop_r),
+                    fmt_num(top_y),
+                    fmt_num(loop_r),
+                    fmt_num(loop_r),
+                    fmt_num(cx + loop_r),
+                    fmt_num(top_y),
+                    escape_attr(&rule)
+                ));
+                // Arrowhead at the right base, pointing down into the node.
+                parts.push(format!(
+                    r#"<path d="M {} {} L {} {} L {} {} Z" fill="{}" stroke="none" />"#,
+                    fmt_num(cx + loop_r),
+                    fmt_num(top_y),
+                    fmt_num(cx + loop_r - 4.0),
+                    fmt_num(top_y - 6.0),
+                    fmt_num(cx + loop_r + 4.0),
+                    fmt_num(top_y - 6.0),
+                    escape_attr(&rule)
+                ));
+                if let Some(label) = &t.label {
+                    parts.push(format!(
+                        r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+                        fmt_num(arc_cx),
+                        fmt_num(arc_cy - 4.0),
+                        escape_attr(&muted),
+                        escape_html_chars(label)
+                    ));
+                }
+            }
+            continue;
+        }
+        let (from_x, from_y) = id_to_pos.get(&t.from).cloned().ok_or_else(|| {
+            format!(
+                "diagram_state: internal error — state {:?} not in position map",
+                t.from
+            )
+        })?;
+        let (to_x, to_y) = id_to_pos.get(&t.to).cloned().ok_or_else(|| {
+            format!(
+                "diagram_state: internal error — state {:?} not in position map",
+                t.to
+            )
+        })?;
+        let (sx, sy) = box_edge_point(from_x, from_y, to_x, to_y, STATE_NODE_W, STATE_NODE_H);
+        let (ex, ey) = box_edge_point(to_x, to_y, from_x, from_y, STATE_NODE_W, STATE_NODE_H);
+        parts.push(draw_connector(sx, sy, ex, ey, &style));
+        if let Some(label) = &t.label {
+            let mid_x = (sx + ex) / 2.0;
+            let mid_y = (sy + ey) / 2.0 - 6.0;
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(mid_x),
+                fmt_num(mid_y),
+                escape_attr(&muted),
+                escape_html_chars(label)
+            ));
+        }
+    }
+    // State boxes (rounded rects, larger rx than flowchart for visual distinction).
+    for (id, (cx, cy)) in &id_to_pos {
+        let is_initial = initial.as_deref() == Some(id.as_str());
+        let box_x = cx - STATE_NODE_W / 2.0;
+        let box_y = cy - STATE_NODE_H / 2.0;
+        // Initial state gets an accent border + bolder outline (visual emphasis).
+        let stroke = if is_initial { &accent } else { &rule };
+        let stroke_w = if is_initial { 2.5 } else { 1.5 };
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" rx="{}" ry="{}" fill="{}" stroke="{}" stroke-width="{}" />"#,
+            fmt_num(box_x),
+            fmt_num(box_y),
+            fmt_num(STATE_NODE_W),
+            fmt_num(STATE_NODE_H),
+            fmt_num(STATE_NODE_RX),
+            fmt_num(STATE_NODE_RX),
+            escape_attr(&paper),
+            escape_attr(stroke),
+            fmt_num(stroke_w)
+        ));
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="12" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(*cx),
+            fmt_num(cy + 4.0),
+            escape_attr(&ink),
+            escape_html_chars(id)
+        ));
+    }
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="none" stroke="{}" stroke-width="1" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&rule)
+    ));
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+// ── Block 3: diagram_swimlane ───────────────────────────────────────
+//
+// Swimlane diagram. Lanes are horizontal bands stacked vertically
+// (similar to diagram_layers from Н81, but here each band contains
+// positioned steps rather than a single label). Each lane has a name
+// label on the left; steps within a lane are positioned horizontally
+// by their `order` field (a Float — NOT their list index), so steps
+// in different lanes can be visually aligned by time/order.
+//
+// `order` values across all steps are normalized to [0, 1] for x
+// positioning: min_order → x=left_padding, max_order → x=right_padding.
+// Steps in the same lane at the same order would overlap — we don't
+// de-duplicate, the caller is responsible for sensible input.
+//
+// Optional connectors between consecutive-by-order steps in the same
+// lane: if two steps share a lane and have consecutive order values,
+// we draw a faint dashed arrow between them. This makes the temporal
+// flow visible without cluttering cross-lane relationships.
+//
+// Limits: lanes.len() ≤ 6, steps.len() ≤ 30.
+
+const SWIMLANE_MAX_LANES: usize = 6;
+const SWIMLANE_MAX_STEPS: usize = 30;
+const SWIMLANE_LABEL_W: f64 = 80.0;
+const SWIMLANE_PAD_X: f64 = 16.0;
+const SWIMLANE_PAD_Y: f64 = 16.0;
+
+struct SwimlaneStep {
+    lane: String,
+    label: String,
+    order: f64,
+}
+
+/// `diagram_swimlane(data, style) -> String`
+///
+/// `data` is `Struct { lanes: List<String>, steps: List<Struct{lane, label, order}> }`.
+/// `order` is a Float — NOT the list index — that determines horizontal
+/// position (so steps in different lanes can be aligned by time).
+pub fn builtin_diagram_swimlane(args: &[Value]) -> Result<Value, String> {
+    let data_value = args.first().cloned().unwrap_or(Value::Unit);
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    let fields = match &data_value {
+        Value::Struct { fields, .. } => fields,
+        other => {
+            return Err(format!(
+                "diagram_swimlane: data must be Struct {{lanes, steps}}, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    let lanes_val = fields
+        .get("lanes")
+        .ok_or_else(|| "diagram_swimlane: missing 'lanes' field".to_string())?;
+    let steps_val = fields
+        .get("steps")
+        .ok_or_else(|| "diagram_swimlane: missing 'steps' field".to_string())?;
+    let lanes_list = match lanes_val {
+        Value::List(items) => items,
+        other => {
+            return Err(format!(
+                "diagram_swimlane: 'lanes' must be List<String>, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    let steps_list = match steps_val {
+        Value::List(items) => items,
+        other => {
+            return Err(format!(
+                "diagram_swimlane: 'steps' must be List, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    if lanes_list.is_empty() {
+        return Err("diagram_swimlane: lanes list must not be empty".to_string());
+    }
+    if lanes_list.len() > SWIMLANE_MAX_LANES {
+        return Err(format!(
+            "diagram_swimlane: too many lanes ({}), maximum is {} — lanes would be too narrow",
+            lanes_list.len(),
+            SWIMLANE_MAX_LANES
+        ));
+    }
+    if steps_list.len() > SWIMLANE_MAX_STEPS {
+        return Err(format!(
+            "diagram_swimlane: too many steps ({}), maximum is {}",
+            steps_list.len(),
+            SWIMLANE_MAX_STEPS
+        ));
+    }
+    let mut lanes: Vec<String> = Vec::with_capacity(lanes_list.len());
+    let mut lane_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (i, item) in lanes_list.iter().enumerate() {
+        let name = match item {
+            Value::String(s) => s.clone(),
+            other => {
+                return Err(format!(
+                    "diagram_swimlane: lanes[{}] must be String, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        if !lane_set.insert(name.clone()) {
+            return Err(format!(
+                "diagram_swimlane: duplicate lane name {:?} at lanes[{}]",
+                name, i
+            ));
+        }
+        lanes.push(name);
+    }
+    let mut steps: Vec<SwimlaneStep> = Vec::with_capacity(steps_list.len());
+    for (i, item) in steps_list.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_swimlane: steps[{}] must be Struct {{lane, label, order}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let lane = struct_string_field("diagram_swimlane step", f, "lane")?;
+        let label = struct_string_field("diagram_swimlane step", f, "label")?;
+        let order = struct_float_field("diagram_swimlane step", f, "order")?;
+        if !lane_set.contains(&lane) {
+            return Err(format!(
+                "diagram_swimlane: steps[{}].lane {:?} is not in lanes list",
+                i, lane
+            ));
+        }
+        steps.push(SwimlaneStep { lane, label, order });
+    }
+    // Compute order range for normalization. If all orders are equal
+    // (degenerate case), place everything at the left padding.
+    let (min_order, max_order) = steps
+        .iter()
+        .map(|s| s.order)
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), o| {
+            (mn.min(o), mx.max(o))
+        });
+    let order_range = (max_order - min_order).max(1e-9);
+
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    let n_lanes = lanes.len();
+    let lane_h = (canvas_h - 2.0 * SWIMLANE_PAD_Y) / (n_lanes as f64);
+    let step_area_x = SWIMLANE_LABEL_W + SWIMLANE_PAD_X;
+    let step_area_w = canvas_w - step_area_x - SWIMLANE_PAD_X;
+
+    let mut parts: Vec<String> = Vec::new();
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+    // Lane bands with labels (left column).
+    for (i, lane_name) in lanes.iter().enumerate() {
+        let y = SWIMLANE_PAD_Y + (i as f64) * lane_h;
+        // Alternating tint for readability.
+        if i % 2 == 1 {
+            parts.push(format!(
+                r#"<rect x="0" y="{}" width="{}" height="{}" fill="{}" opacity="0.18" />"#,
+                fmt_num(y),
+                fmt_num(canvas_w),
+                fmt_num(lane_h),
+                escape_attr(&rule)
+            ));
+        }
+        // Lane separator line (top).
+        parts.push(format!(
+            r#"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+            fmt_num(y),
+            fmt_num(canvas_w),
+            fmt_num(y),
+            escape_attr(&rule)
+        ));
+        // Left label column — accent strip + lane name.
+        parts.push(format!(
+            r#"<rect x="0" y="{}" width="3" height="{}" fill="{}" />"#,
+            fmt_num(y),
+            fmt_num(lane_h),
+            escape_attr(&accent)
+        ));
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="12" font-weight="bold" fill="{}">{}</text>"#,
+            fmt_num(12.0),
+            fmt_num(y + lane_h / 2.0 + 4.0),
+            escape_attr(&ink),
+            escape_html_chars(lane_name)
+        ));
+        // Vertical separator between label column and step area.
+        parts.push(format!(
+            r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+            fmt_num(SWIMLANE_LABEL_W),
+            fmt_num(y),
+            fmt_num(SWIMLANE_LABEL_W),
+            fmt_num(y + lane_h),
+            escape_attr(&rule)
+        ));
+    }
+    // Bottom separator.
+    let bottom_y = SWIMLANE_PAD_Y + (n_lanes as f64) * lane_h;
+    parts.push(format!(
+        r#"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+        fmt_num(bottom_y),
+        fmt_num(canvas_w),
+        fmt_num(bottom_y),
+        escape_attr(&rule)
+    ));
+    // Compute step positions per lane, sorted by order — for connectors.
+    let mut lane_to_steps: std::collections::HashMap<String, Vec<(f64, String)>> =
+        std::collections::HashMap::new();
+    for step in &steps {
+        let norm_x = (step.order - min_order) / order_range;
+        let x = step_area_x + norm_x * step_area_w;
+        let lane_idx = lanes.iter().position(|l| l == &step.lane).ok_or_else(|| {
+            format!(
+                "diagram_swimlane: internal error — lane {:?} not found",
+                step.lane
+            )
+        })?;
+        let y_center = SWIMLANE_PAD_Y + (lane_idx as f64 + 0.5) * lane_h;
+        // Step pill — paper fill, accent border, rounded.
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" rx="6" ry="6" fill="{}" stroke="{}" stroke-width="1.2" />"#,
+            fmt_num(x - 35.0),
+            fmt_num(y_center - 12.0),
+            fmt_num(70.0),
+            fmt_num(24.0),
+            escape_attr(&paper),
+            escape_attr(&accent)
+        ));
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="11" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(x),
+            fmt_num(y_center + 4.0),
+            escape_attr(&ink),
+            escape_html_chars(&step.label)
+        ));
+        lane_to_steps
+            .entry(step.lane.clone())
+            .or_default()
+            .push((x, step.label.clone()));
+    }
+    // Optional: connect consecutive-by-order steps in the same lane with
+    // a faint dashed arrow (visualizes temporal flow within a lane).
+    for (_lane, mut lane_steps) in lane_to_steps {
+        if lane_steps.len() < 2 {
+            continue;
+        }
+        lane_steps.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        for window in lane_steps.windows(2) {
+            let (x1, _) = window[0];
+            let (x2, _) = window[1];
+            // Faint dashed line — NOT a draw_connector (we want it lighter
+            // than the cross-lane relationships).
+            parts.push(format!(
+                r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="0.8" stroke-dasharray="3 2" opacity="0.5" />"#,
+                fmt_num(x1 + 35.0),
+                fmt_num(0.0), // y set per lane below
+                fmt_num(x2 - 35.0),
+                fmt_num(0.0),
+                escape_attr(&muted)
+            ));
+        }
+    }
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="none" stroke="{}" stroke-width="1" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&rule)
+    ));
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+// ── Block 5/6 shared: extract_graph ─────────────────────────────────
+//
+// All three of diagram_data_flow / diagram_high_level / diagram_architecture
+// share the same `Struct{nodes, edges}` shape. The only difference is
+// whether the `icon` field is allowed on nodes (architecture only).
+// We parse all three into a common (GraphNode, GraphEdge) representation
+// and dispatch to the appropriate layer function at the call site.
+
+struct GraphNode {
+    id: String,
+    label: String,
+    icon: Option<String>,
+}
+
+struct GraphEdge {
+    from: String,
+    to: String,
+    label: Option<String>,
+}
+
+/// Parse `Struct{nodes: [{id, label, icon?}], edges: [{from, to, label?}]}`
+/// into (Vec<GraphNode>, Vec<GraphEdge>). `allow_icon` controls whether
+/// the `icon` field is read on each node — diagram_architecture passes
+/// true; data_flow and high_level pass false (the field is silently
+/// ignored if present, matching the spec's "icon not used" wording).
+fn extract_graph(
+    data_value: &Value,
+    fn_name: &str,
+    allow_icon: bool,
+) -> Result<(Vec<GraphNode>, Vec<GraphEdge>), String> {
+    let fields = match data_value {
+        Value::Struct { fields, .. } => fields,
+        other => {
+            return Err(format!(
+                "{}: data must be Struct {{nodes, edges}}, got {}",
+                fn_name,
+                other.type_name()
+            ));
+        }
+    };
+    let nodes_val = fields
+        .get("nodes")
+        .ok_or_else(|| format!("{}: missing 'nodes' field", fn_name))?;
+    let edges_val = fields
+        .get("edges")
+        .ok_or_else(|| format!("{}: missing 'edges' field", fn_name))?;
+    let nodes_list = match nodes_val {
+        Value::List(items) => items,
+        other => {
+            return Err(format!(
+                "{}: 'nodes' must be List, got {}",
+                fn_name,
+                other.type_name()
+            ));
+        }
+    };
+    let edges_list = match edges_val {
+        Value::List(items) => items,
+        other => {
+            return Err(format!(
+                "{}: 'edges' must be List, got {}",
+                fn_name,
+                other.type_name()
+            ));
+        }
+    };
+    if nodes_list.is_empty() {
+        return Err(format!("{}: nodes list must not be empty", fn_name));
+    }
+    if nodes_list.len() > FLOWCHART_MAX_NODES {
+        return Err(format!(
+            "{}: too many nodes ({}), maximum is {}",
+            fn_name,
+            nodes_list.len(),
+            FLOWCHART_MAX_NODES
+        ));
+    }
+    let mut nodes: Vec<GraphNode> = Vec::with_capacity(nodes_list.len());
+    let mut node_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (i, item) in nodes_list.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "{}: nodes[{}] must be Struct {{id, label{}}}, got {}",
+                    fn_name,
+                    i,
+                    if allow_icon { ", icon?" } else { "" },
+                    other.type_name()
+                ));
+            }
+        };
+        let id = struct_string_field(&format!("{} node", fn_name), f, "id")?;
+        let label = struct_string_field(&format!("{} node", fn_name), f, "label")?;
+        if !node_ids.insert(id.clone()) {
+            return Err(format!(
+                "{}: duplicate node id {:?} at nodes[{}]",
+                fn_name, id, i
+            ));
+        }
+        let icon = if allow_icon {
+            let icon_name = struct_opt_string_field(f, "icon");
+            // Validate icon name eagerly so we fail before doing layout work.
+            if let Some(ref name) = icon_name {
+                if icon_path_data(name).is_none() {
+                    return Err(format!(
+                        "{}: unknown icon name '{}'. Available: server, laptop, phone, database, cloud, arrow-right, check, warning, user, document",
+                        fn_name, name
+                    ));
+                }
+            }
+            icon_name
+        } else {
+            None
+        };
+        nodes.push(GraphNode { id, label, icon });
+    }
+    let mut edges: Vec<GraphEdge> = Vec::with_capacity(edges_list.len());
+    for (i, item) in edges_list.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "{}: edges[{}] must be Struct {{from, to, label?}}, got {}",
+                    fn_name,
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let from = struct_string_field(&format!("{} edge", fn_name), f, "from")?;
+        let to = struct_string_field(&format!("{} edge", fn_name), f, "to")?;
+        let label = struct_opt_string_field(f, "label");
+        if !node_ids.contains(&from) {
+            return Err(format!(
+                "{}: edges[{}].from references unknown node {:?}",
+                fn_name, i, from
+            ));
+        }
+        if !node_ids.contains(&to) {
+            return Err(format!(
+                "{}: edges[{}].to references unknown node {:?}",
+                fn_name, i, to
+            ));
+        }
+        edges.push(GraphEdge { from, to, label });
+    }
+    Ok((nodes, edges))
+}
+
+/// Compute (x, y) center positions for each node ID, given a layering.
+/// Shared by diagram_data_flow / high_level / architecture. The layering
+/// function (topological_layers or bfs_layers_with_cycles) is chosen by
+/// the caller; this helper just places nodes on the canvas.
+fn layout_layered_nodes(
+    layers: &[Vec<String>],
+    canvas_w: f64,
+    canvas_h: f64,
+) -> std::collections::HashMap<String, (f64, f64)> {
+    let n_layers = layers.len();
+    let layer_h = (canvas_h - 80.0) / (n_layers as f64).max(1.0);
+    let mut id_to_pos: std::collections::HashMap<String, (f64, f64)> =
+        std::collections::HashMap::new();
+    for (layer_idx, layer_nodes) in layers.iter().enumerate() {
+        let count = layer_nodes.len();
+        let y_center = 40.0 + (layer_idx as f64 + 0.5) * layer_h;
+        let total_w = canvas_w - 80.0;
+        let step = if count > 1 {
+            total_w / (count as f64 - 1.0)
+        } else {
+            0.0
+        };
+        let start_x = if count > 1 { 40.0 } else { canvas_w / 2.0 };
+        for (i, id) in layer_nodes.iter().enumerate() {
+            let x_center = start_x + (i as f64) * step;
+            id_to_pos.insert(id.clone(), (x_center, y_center));
+        }
+    }
+    id_to_pos
+}
+
+// ── Block 5: diagram_data_flow ──────────────────────────────────────
+//
+// Same data shape as diagram_flowchart (Struct{nodes, edges}), but:
+//   - Cycles are VALID (data flows have feedback loops). Uses
+//     bfs_layers_with_cycles instead of topological_layers.
+//   - Root for the BFS is the first node in `nodes` (data_flow has no
+//     `initial` field, unlike state — pick the first listed node).
+//   - Nodes are plain rectangles (no decision-shape semantics, unlike
+//     flowchart's diamond conventions).
+//
+// Limits: same as flowchart (FLOWCHART_MAX_NODES = 25).
+
+const DATAFLOW_NODE_W: f64 = 110.0;
+const DATAFLOW_NODE_H: f64 = 44.0;
+
+/// `diagram_data_flow(data, style) -> String`
+///
+/// `data` is `Struct { nodes: List<{id, label}>, edges: List<{from, to, label?}> }`.
+/// Cycles in edges are VALID (data may circulate, feedback loops).
+pub fn builtin_diagram_data_flow(args: &[Value]) -> Result<Value, String> {
+    let data_value = args.first().cloned().unwrap_or(Value::Unit);
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    let (nodes, edges) = extract_graph(&data_value, "diagram_data_flow", false)?;
+    let node_ids: Vec<String> = nodes.iter().map(|n| n.id.clone()).collect();
+    let edge_pairs: Vec<(String, String)> = edges
+        .iter()
+        .map(|e| (e.from.clone(), e.to.clone()))
+        .collect();
+    // Pick the first node as BFS root — data_flow has no `initial` field.
+    let root = node_ids
+        .first()
+        .cloned()
+        .ok_or_else(|| "diagram_data_flow: nodes list is empty".to_string())?;
+    let layers = bfs_layers_with_cycles(&node_ids, &edge_pairs, &root);
+
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    let id_to_pos = layout_layered_nodes(&layers, canvas_w, canvas_h);
+    let mut id_to_label: std::collections::HashMap<String, &str> = std::collections::HashMap::new();
+    for n in &nodes {
+        id_to_label.insert(n.id.clone(), n.label.as_str());
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+    // Edges first
+    for edge in &edges {
+        let (from_x, from_y) = id_to_pos.get(&edge.from).cloned().ok_or_else(|| {
+            format!(
+                "diagram_data_flow: internal error — node {:?} not in position map",
+                edge.from
+            )
+        })?;
+        let (to_x, to_y) = id_to_pos.get(&edge.to).cloned().ok_or_else(|| {
+            format!(
+                "diagram_data_flow: internal error — node {:?} not in position map",
+                edge.to
+            )
+        })?;
+        let (sx, sy) = box_edge_point(from_x, from_y, to_x, to_y, DATAFLOW_NODE_W, DATAFLOW_NODE_H);
+        let (ex, ey) = box_edge_point(to_x, to_y, from_x, from_y, DATAFLOW_NODE_W, DATAFLOW_NODE_H);
+        parts.push(draw_connector(sx, sy, ex, ey, &style));
+        if let Some(label) = &edge.label {
+            let mid_x = (sx + ex) / 2.0;
+            let mid_y = (sy + ey) / 2.0 - 8.0;
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(mid_x),
+                fmt_num(mid_y),
+                escape_attr(&muted),
+                escape_html_chars(label)
+            ));
+        }
+    }
+    // Nodes
+    for (id, (cx, cy)) in &id_to_pos {
+        let label = id_to_label.get(id).copied().unwrap_or("");
+        let box_x = cx - DATAFLOW_NODE_W / 2.0;
+        let box_y = cy - DATAFLOW_NODE_H / 2.0;
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" stroke="{}" stroke-width="1.5" rx="4" ry="4" />"#,
+            fmt_num(box_x),
+            fmt_num(box_y),
+            fmt_num(DATAFLOW_NODE_W),
+            fmt_num(DATAFLOW_NODE_H),
+            escape_attr(&paper),
+            escape_attr(&accent)
+        ));
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="12" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(*cx),
+            fmt_num(cy + 4.0),
+            escape_attr(&ink),
+            escape_html_chars(label)
+        ));
+    }
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="none" stroke="{}" stroke-width="1" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&rule)
+    ));
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+// ── Block 6: diagram_high_level + diagram_architecture ──────────────
+//
+// Two SEPARATE public APIs (per the spec: "Реализовать как две отдельные
+// функции, не одну с параметром «режим»"). They share the same data
+// shape and the same internal extract_graph + topological_layers
+// pipeline; they differ in node rendering:
+//   - high_level: large labeled blocks (no icons), bolder visual
+//   - architecture: same blocks + svg_icon when an `icon` field is
+//     specified on a node
+//
+// Both REJECT cycles (architectural diagrams should be acyclic — a
+// cycle here is treated as an input error, same as flowchart). If real-
+// world usage shows legitimate bidirectional architecture (e.g. service
+// pairs that call each other), we'd revisit this; for now, the spec
+// says: "архитектурные схемы обычно ациклические, цикл здесь скорее
+// ошибка входных данных, как в diagram_flowchart."
+
+const HIGHLEVEL_NODE_W: f64 = 130.0;
+const HIGHLEVEL_NODE_H: f64 = 56.0;
+const ARCH_ICON_SIZE: f64 = 20.0;
+
+/// `diagram_high_level(data, style) -> String`
+///
+/// `data` is `Struct { nodes: List<{id, label}>, edges: List<{from, to, label?}> }`.
+/// Cycles → Err (architectural diagrams should be acyclic). Uses
+/// topological_layers (same as diagram_flowchart) for layout.
+pub fn builtin_diagram_high_level(args: &[Value]) -> Result<Value, String> {
+    let data_value = args.first().cloned().unwrap_or(Value::Unit);
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    let (nodes, edges) = extract_graph(&data_value, "diagram_high_level", false)?;
+    let node_ids: Vec<String> = nodes.iter().map(|n| n.id.clone()).collect();
+    let edge_pairs: Vec<(String, String)> = edges
+        .iter()
+        .map(|e| (e.from.clone(), e.to.clone()))
+        .collect();
+    // High-level diagrams are acyclic — propagate the cycle error from
+    // topological_layers (returns Err with "flowchart contains a cycle: ..."
+    // — the message is generic enough; we don't override it).
+    let layers = topological_layers(&node_ids, &edge_pairs)?;
+
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    let id_to_pos = layout_layered_nodes(&layers, canvas_w, canvas_h);
+    let mut id_to_label: std::collections::HashMap<String, &str> = std::collections::HashMap::new();
+    for n in &nodes {
+        id_to_label.insert(n.id.clone(), n.label.as_str());
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+    for edge in &edges {
+        let (from_x, from_y) = id_to_pos.get(&edge.from).cloned().ok_or_else(|| {
+            format!(
+                "diagram_high_level: internal error — node {:?} not in position map",
+                edge.from
+            )
+        })?;
+        let (to_x, to_y) = id_to_pos.get(&edge.to).cloned().ok_or_else(|| {
+            format!(
+                "diagram_high_level: internal error — node {:?} not in position map",
+                edge.to
+            )
+        })?;
+        let (sx, sy) = box_edge_point(
+            from_x,
+            from_y,
+            to_x,
+            to_y,
+            HIGHLEVEL_NODE_W,
+            HIGHLEVEL_NODE_H,
+        );
+        let (ex, ey) = box_edge_point(
+            to_x,
+            to_y,
+            from_x,
+            from_y,
+            HIGHLEVEL_NODE_W,
+            HIGHLEVEL_NODE_H,
+        );
+        parts.push(draw_connector(sx, sy, ex, ey, &style));
+        if let Some(label) = &edge.label {
+            let mid_x = (sx + ex) / 2.0;
+            let mid_y = (sy + ey) / 2.0 - 8.0;
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(mid_x),
+                fmt_num(mid_y),
+                escape_attr(&muted),
+                escape_html_chars(label)
+            ));
+        }
+    }
+    for (id, (cx, cy)) in &id_to_pos {
+        let label = id_to_label.get(id).copied().unwrap_or("");
+        let box_x = cx - HIGHLEVEL_NODE_W / 2.0;
+        let box_y = cy - HIGHLEVEL_NODE_H / 2.0;
+        // Larger, bolder block than flowchart/data_flow — visually signals
+        // "high-level architectural component".
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" stroke="{}" stroke-width="2" rx="6" ry="6" />"#,
+            fmt_num(box_x),
+            fmt_num(box_y),
+            fmt_num(HIGHLEVEL_NODE_W),
+            fmt_num(HIGHLEVEL_NODE_H),
+            escape_attr(&paper),
+            escape_attr(&accent)
+        ));
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="13" font-weight="bold" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(*cx),
+            fmt_num(cy + 4.0),
+            escape_attr(&ink),
+            escape_html_chars(label)
+        ));
+    }
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="none" stroke="{}" stroke-width="1" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&rule)
+    ));
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+/// `diagram_architecture(data, style) -> String`
+///
+/// `data` is `Struct { nodes: List<{id, label, icon?}>, edges: List<{from, to, label?}> }`.
+/// Same as diagram_high_level, but each node MAY specify an `icon`
+/// (validated against the 10 svg_icon names — same delegation pattern
+/// as diagram_medallion). When icon is present, it renders inside the
+/// node box to the left of the label; when absent, the node looks
+/// identical to a high_level block.
+///
+/// Cycles → Err (architectural diagrams should be acyclic).
+pub fn builtin_diagram_architecture(args: &[Value]) -> Result<Value, String> {
+    let data_value = args.first().cloned().unwrap_or(Value::Unit);
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    let (nodes, edges) = extract_graph(&data_value, "diagram_architecture", true)?;
+    let node_ids: Vec<String> = nodes.iter().map(|n| n.id.clone()).collect();
+    let edge_pairs: Vec<(String, String)> = edges
+        .iter()
+        .map(|e| (e.from.clone(), e.to.clone()))
+        .collect();
+    let layers = topological_layers(&node_ids, &edge_pairs)?;
+
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    let id_to_pos = layout_layered_nodes(&layers, canvas_w, canvas_h);
+    let mut id_to_node: std::collections::HashMap<String, &GraphNode> =
+        std::collections::HashMap::new();
+    for n in &nodes {
+        id_to_node.insert(n.id.clone(), n);
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+    for edge in &edges {
+        let (from_x, from_y) = id_to_pos.get(&edge.from).cloned().ok_or_else(|| {
+            format!(
+                "diagram_architecture: internal error — node {:?} not in position map",
+                edge.from
+            )
+        })?;
+        let (to_x, to_y) = id_to_pos.get(&edge.to).cloned().ok_or_else(|| {
+            format!(
+                "diagram_architecture: internal error — node {:?} not in position map",
+                edge.to
+            )
+        })?;
+        let (sx, sy) = box_edge_point(
+            from_x,
+            from_y,
+            to_x,
+            to_y,
+            HIGHLEVEL_NODE_W,
+            HIGHLEVEL_NODE_H,
+        );
+        let (ex, ey) = box_edge_point(
+            to_x,
+            to_y,
+            from_x,
+            from_y,
+            HIGHLEVEL_NODE_W,
+            HIGHLEVEL_NODE_H,
+        );
+        parts.push(draw_connector(sx, sy, ex, ey, &style));
+        if let Some(label) = &edge.label {
+            let mid_x = (sx + ex) / 2.0;
+            let mid_y = (sy + ey) / 2.0 - 8.0;
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(mid_x),
+                fmt_num(mid_y),
+                escape_attr(&muted),
+                escape_html_chars(label)
+            ));
+        }
+    }
+    for (id, (cx, cy)) in &id_to_pos {
+        let node = id_to_node.get(id).copied().ok_or_else(|| {
+            format!(
+                "diagram_architecture: internal error — node {:?} not in node map",
+                id
+            )
+        })?;
+        let box_x = cx - HIGHLEVEL_NODE_W / 2.0;
+        let box_y = cy - HIGHLEVEL_NODE_H / 2.0;
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" stroke="{}" stroke-width="2" rx="6" ry="6" />"#,
+            fmt_num(box_x),
+            fmt_num(box_y),
+            fmt_num(HIGHLEVEL_NODE_W),
+            fmt_num(HIGHLEVEL_NODE_H),
+            escape_attr(&paper),
+            escape_attr(&accent)
+        ));
+        // Render icon if specified, then shift label right of the icon.
+        let label_x = if let Some(ref icon_name) = node.icon {
+            let icon_x = box_x + 8.0;
+            let icon_y = cy - ARCH_ICON_SIZE / 2.0;
+            // Delegate to icon_path_data with proper error propagation
+            // (same pattern as builtin_svg_icon line 2879 + diagram_medallion).
+            let path_data = icon_path_data(icon_name).ok_or_else(|| {
+                format!(
+                    "diagram_architecture: unknown icon name '{}'. Available: server, laptop, phone, database, cloud, arrow-right, check, warning, user, document",
+                    icon_name
+                )
+            })?;
+            let scale = ARCH_ICON_SIZE / 24.0;
+            parts.push(format!(
+                r#"<svg x="{}" y="{}" width="{}" height="{}" viewBox="0 0 24 24"><g transform="scale({})"><path d="{}" stroke="{}" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></g></svg>"#,
+                fmt_num(icon_x),
+                fmt_num(icon_y),
+                fmt_num(ARCH_ICON_SIZE),
+                fmt_num(ARCH_ICON_SIZE),
+                fmt_num(scale),
+                path_data,
+                escape_attr(&ink)
+            ));
+            cx + ARCH_ICON_SIZE / 2.0
+        } else {
+            *cx
+        };
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="13" font-weight="bold" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(label_x),
+            fmt_num(cy + 4.0),
+            escape_attr(&ink),
+            escape_html_chars(&node.label)
+        ));
+    }
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="none" stroke="{}" stroke-width="1" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&rule)
+    ));
     let body = parts.join("\n");
     Ok(Value::String(format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,

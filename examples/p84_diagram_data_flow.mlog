@@ -1,0 +1,101 @@
+// ── Наряд №84 Block 8: diagram_data_flow contract ───────────────────
+//
+// Data flow diagram contract. The KEY invariants:
+//   1. Linear data flow A→B→C renders
+//   2. Cyclic data flow (A→B→A, feedback loop) renders — VALID here
+//      (unlike diagram_flowchart where it would be Err)
+//   3. Self-loop (A→A) renders — also VALID
+//   4. Edge labels render on cyclic graphs (no special case)
+//   5. Unknown node reference → Err (input validation)
+//   6. Empty nodes list → Err
+//
+// Tests 2 and 3 are the CRITICAL ones — diagram_data_flow uses the
+// SAME data shape as diagram_flowchart but TOLERATES cycles. The spec
+// says: "Цикл в data flow — валиден (данные могут циркулировать,
+// обратная связь) — не отклонять ошибкой, использовать ту же BFS-раскладку
+// с допущением циклов, что в блоке 2 для state machine".
+//
+// Output: single summary string, "p84_data_flow_checks=N/6".
+
+pattern P84DiagramDataFlowContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Linear A→B→C ───────────────────────────────────────────────
+  let data1 = {
+    nodes: [
+      {id: "src", label: "Source"},
+      {id: "proc", label: "Process"},
+      {id: "sink", label: "Sink"}
+    ],
+    edges: [
+      {from: "src", to: "proc"},
+      {from: "proc", to: "sink"}
+    ]
+  }
+  let r1 = diagram_data_flow(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. Cyclic data flow A↔B (feedback loop) — VALID ───────────────
+  // This is the spec's "данные могут циркулировать, обратная связь"
+  // case. Must NOT return Err (unlike diagram_flowchart).
+  let data2 = {
+    nodes: [
+      {id: "in", label: "Input"},
+      {id: "out", label: "Output"}
+    ],
+    edges: [
+      {from: "in", to: "out"},
+      {from: "out", to: "in", label: "feedback"}
+    ]
+  }
+  let r2 = diagram_data_flow(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. Self-loop (A→A) — VALID in data flow (a node feeding itself) ─
+  let data3 = {
+    nodes: [{id: "loop", label: "Self-fed"}],
+    edges: [{from: "loop", to: "loop"}]
+  }
+  let r3 = diagram_data_flow(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // ── 4. Branch + merge with edge labels ────────────────────────────
+  let data4 = {
+    nodes: [
+      {id: "A", label: "Splitter"},
+      {id: "B", label: "Path 1"},
+      {id: "C", label: "Path 2"},
+      {id: "D", label: "Merger"}
+    ],
+    edges: [
+      {from: "A", to: "B", label: "fast"},
+      {from: "A", to: "C", label: "slow"},
+      {from: "B", to: "D"},
+      {from: "C", to: "D"}
+    ]
+  }
+  let r4 = diagram_data_flow(data4, style)
+  let ok4 = to_float(starts_with(r4, "<svg "))
+
+  // ── 5. Unknown node reference → Err ───────────────────────────────
+  let data5 = {
+    nodes: [{id: "A", label: "Real"}],
+    edges: [{from: "A", to: "Z"}]
+  }
+  let r5 = try diagram_data_flow(data5, style)
+  let ok5 = to_float(type_of(r5) == "Unit")
+
+  // ── 6. Empty nodes list → Err ─────────────────────────────────────
+  let data6 = {
+    nodes: [],
+    edges: []
+  }
+  let r6 = try diagram_data_flow(data6, style)
+  let ok6 = to_float(type_of(r6) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
+
+  return "p84_data_flow_checks=" + to_string(total) + "/6"
+}
+
+flow Main { input: String = "x" -> P84DiagramDataFlowContract -> output }

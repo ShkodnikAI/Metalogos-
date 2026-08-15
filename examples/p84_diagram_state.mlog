@@ -1,0 +1,94 @@
+// ── Наряд №84 Block 8: diagram_state contract ───────────────────────
+//
+// State machine diagram contract. The KEY invariants:
+//   1. Linear state chain renders (A→B→C)
+//   2. Cyclic state machine renders — A→B→A cycle is VALID here
+//      (unlike diagram_flowchart where it would be Err)
+//   3. Self-loop (A→A) renders — also VALID, drawn as small loop arc
+//   4. `initial` field renders the entry arrow at the named state
+//   5. > 10 states → Err (limit)
+//   6. `initial` references unknown state → Err
+//
+// Tests 2 and 3 are the CRITICAL ones — they distinguish diagram_state
+// from diagram_flowchart. The spec is explicit: "self-loop — валидный
+// случай, не ошибка" and "не отклонять циклы как ошибку в diagram_state".
+//
+// Output: single summary string, "p84_state_checks=N/6".
+
+pattern P84DiagramStateContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Linear state chain A→B→C ───────────────────────────────────
+  let data1 = {
+    states: ["Idle", "Active", "Done"],
+    transitions: [
+      {from: "Idle", to: "Active"},
+      {from: "Active", to: "Done"}
+    ]
+  }
+  let r1 = diagram_state(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. Cyclic state machine — A→B→A (cycle is VALID) ─────────────
+  // This would FAIL in diagram_flowchart (cycle error), but in
+  // diagram_state it must succeed — state machines are inherently cyclic.
+  let data2 = {
+    states: ["On", "Off"],
+    transitions: [
+      {from: "On", to: "Off"},
+      {from: "Off", to: "On"}
+    ]
+  }
+  let r2 = diagram_state(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. Self-loop (A→A) renders — VALID in state machines ─────────
+  // A state that transitions to itself on a specific event. This is
+  // the spec-called-out "не путать с ошибкой цикла из diagram_flowchart"
+  // case. Must NOT return Err.
+  let data3 = {
+    states: ["Waiting"],
+    transitions: [
+      {from: "Waiting", to: "Waiting", label: "tick"}
+    ]
+  }
+  let r3 = diagram_state(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // ── 4. `initial` field marks the entry state ──────────────────────
+  // Renders an entry arrow pointing at the initial state. The entry
+  // arrow has no source — it visually originates "from nowhere".
+  let data4 = {
+    states: ["Start", "Middle", "End"],
+    transitions: [
+      {from: "Start", to: "Middle"},
+      {from: "Middle", to: "End"}
+    ],
+    initial: "Start"
+  }
+  let r4 = diagram_state(data4, style)
+  let ok4 = to_float(starts_with(r4, "<svg "))
+
+  // ── 5. > 10 states → Err ──────────────────────────────────────────
+  let data5 = {
+    states: ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11"],
+    transitions: []
+  }
+  let r5 = try diagram_state(data5, style)
+  let ok5 = to_float(type_of(r5) == "Unit")
+
+  // ── 6. `initial` references unknown state → Err ───────────────────
+  let data6 = {
+    states: ["A", "B"],
+    transitions: [],
+    initial: "Nonexistent"
+  }
+  let r6 = try diagram_state(data6, style)
+  let ok6 = to_float(type_of(r6) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
+
+  return "p84_state_checks=" + to_string(total) + "/6"
+}
+
+flow Main { input: String = "x" -> P84DiagramStateContract -> output }

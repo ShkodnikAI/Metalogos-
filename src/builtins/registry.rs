@@ -414,6 +414,23 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("diagram_pyramid", 2, "diagram"), // data, style — stacked trapezoids (top=apex)
     spec!("diagram_nested", 2, "diagram"), // data, style — concentric circles
     spec!("diagram_medallion", 2, "diagram"), // data, style — row of round badges w/ icons
+    // Level 3.4: diagrams (Наряд №84) — data & state
+    //   diagram_er         — Struct{entities: [{name, fields: [String]}], relations: [{from,to,label?}]}
+    //                       simple grid layout (no graph analysis), entities ≤ 12, fields ≤ 8.
+    //   diagram_state      — Struct{states: [String], transitions: [{from,to,label?}], initial?}
+    //                       BFS layout tolerating cycles + self-loops (state machines are cyclic).
+    //   diagram_swimlane   — Struct{lanes: [String], steps: [{lane,label,order}]}
+    //                       vertical stack of lanes, steps positioned by Float `order` (not list idx).
+    //   diagram_data_flow  — Struct{nodes:[{id,label}], edges:[{from,to,label?}]}
+    //                       same shape as flowchart, but cycles VALID (uses bfs_layers_with_cycles).
+    //   diagram_high_level — same shape, NO cycles (topological), larger bolder blocks.
+    //   diagram_architecture — same shape + optional `icon` per node (reuses svg_icon's 10 names).
+    spec!("diagram_er", 2, "diagram"), // data, style — entity boxes on a grid w/ relations
+    spec!("diagram_state", 2, "diagram"), // data, style — state machine (cycles OK)
+    spec!("diagram_swimlane", 2, "diagram"), // data, style — lanes × steps positioned by order
+    spec!("diagram_data_flow", 2, "diagram"), // data, style — graph w/ cycles OK
+    spec!("diagram_high_level", 2, "diagram"), // data, style — large bolder blocks, no cycles
+    spec!("diagram_architecture", 2, "diagram"), // data, style — high_level + svg_icon per node
 ];
 
 /// Total number of registered builtins.

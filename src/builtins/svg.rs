@@ -5774,7 +5774,6 @@ pub fn builtin_diagram_quadrant(args: &[Value]) -> Result<Value, String> {
         fmt_num(40.0),
         fmt_num(cx),
         fmt_num(canvas_h - 40.0),
-        fmt_num(cy),
         escape_attr(&rule)
     ));
     // Axis labels — at the ends of each axis (x: right end, y: top end).

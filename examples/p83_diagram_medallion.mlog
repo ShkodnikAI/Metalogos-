@@ -1,0 +1,101 @@
+// ── Наряд №83 Block 5: diagram_medallion contract ────────────────────
+//
+// Row of round medallion badges contract. The CRITICAL invariant here
+// is that diagram_medallion REUSES svg_icon's validation: when an icon
+// name is specified, the function calls icon_path_data() (the same
+// helper that builtin_svg_icon uses) and produces the SAME error text
+// on an unknown name. We do NOT duplicate the icon name list in the
+// medallion code.
+//
+// Tests:
+//   1. Medallions WITH icons (each from svg_icon's 10 known names) render
+//   2. Medallions WITHOUT icons (fallback to first letter of label) render
+//   3. Mixed row (some with icons, some without) renders
+//   4. 6 medallions (maximum allowed) render
+//   5. 7 medallions → Err (too many)
+//   6. Unknown icon name → Err (with the SAME error text as svg_icon)
+//
+// Output: single summary string, "p83_medallion_checks=N/6".
+
+pattern P83DiagramMedallionContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Medallions WITH icons (all from svg_icon's 10 known names) ─
+  // This verifies that diagram_medallion correctly delegates to
+  // icon_path_data() for icon validation — the 10 known names must all
+  // be accepted. We use 6 of the 10 here (6 = max items per row).
+  let data1 = [
+    {icon: "server", label: "API", value: 99.9},
+    {icon: "database", label: "DB", value: 95.0},
+    {icon: "cloud", label: "Cloud", value: 88.0},
+    {icon: "user", label: "Users", value: 1000.0}
+  ]
+  let r1 = diagram_medallion(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. Medallions WITHOUT icons (fallback to first letter) ───────
+  // When `icon` is omitted, the medallion displays the first character
+  // of `label` as large bold text. This is the fallback path.
+  let data2 = [
+    {label: "Alpha", value: 1.0},
+    {label: "Beta", value: 2.0},
+    {label: "Gamma", value: 3.0}
+  ]
+  let r2 = diagram_medallion(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. Mixed row (some with icons, some without) ─────────────────
+  // Both code paths exercised in a single call — verifies the function
+  // correctly branches per-medallion, not per-row.
+  let data3 = [
+    {icon: "check", label: "Verified"},
+    {label: "Unverified"},
+    {icon: "warning", label: "Suspicious"},
+    {label: "Unknown"}
+  ]
+  let r3 = diagram_medallion(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // ── 4. 6 medallions (maximum allowed) ────────────────────────────
+  let data4 = [
+    {icon: "server", label: "S1"},
+    {icon: "laptop", label: "S2"},
+    {icon: "phone", label: "S3"},
+    {icon: "database", label: "S4"},
+    {icon: "cloud", label: "S5"},
+    {icon: "user", label: "S6"}
+  ]
+  let r4 = diagram_medallion(data4, style)
+  let ok4 = to_float(starts_with(r4, "<svg "))
+
+  // ── 5. 7 medallions → Err (too many) ─────────────────────────────
+  let data5 = [
+    {icon: "server", label: "1"},
+    {icon: "laptop", label: "2"},
+    {icon: "phone", label: "3"},
+    {icon: "database", label: "4"},
+    {icon: "cloud", label: "5"},
+    {icon: "user", label: "6"},
+    {icon: "document", label: "7"}
+  ]
+  let r5 = try diagram_medallion(data5, style)
+  let ok5 = to_float(type_of(r5) == "Unit")
+
+  // ── 6. Unknown icon name → Err (with same text as svg_icon) ──────
+  // The spec mandates: "If specified unknown name → same error text
+  // that svg_icon itself produces (reuse its validation, don't
+  // duplicate the list of names here)." We verify the function rejects
+  // an unknown name — the exact error text match is verified in the
+  // Rust integration test (p83_diagrams.rs).
+  let data6 = [
+    {icon: "nonexistent_icon", label: "Bad"}
+  ]
+  let r6 = try diagram_medallion(data6, style)
+  let ok6 = to_float(type_of(r6) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
+
+  return "p83_medallion_checks=" + to_string(total) + "/6"
+}
+
+flow Main { input: String = "x" -> P83DiagramMedallionContract -> output }

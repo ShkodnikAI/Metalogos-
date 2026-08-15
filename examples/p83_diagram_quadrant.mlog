@@ -1,0 +1,103 @@
+// ── Наряд №83 Block 2: diagram_quadrant contract ─────────────────────
+//
+// 2×2 strategic quadrant chart contract. Verifies:
+//   1. Basic quadrant with 4 items (one per quadrant) renders
+//   2. Quadrant with items on the axes themselves (x=0 or y=0) renders
+//   3. Items at the extreme corners (±1, ±1) render
+//   4. x out of range (> 1.0) → Err
+//   5. y out of range (< -1.0) → Err
+//   6. Too many items (> 20) → Err
+//
+// Output: single summary string, "p83_quadrant_checks=N/6".
+
+pattern P83DiagramQuadrantContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Basic quadrant — one item per quadrant ────────────────────
+  // Both axis labels are TOP-LEVEL fields (the spec's "easy to forget"
+  // case for the security scanner). This test verifies they're accepted.
+  let data1 = {
+    x_axis_label: "Cost",
+    y_axis_label: "Impact",
+    items: [
+      {label: "Star", x: 0.8, y: 0.8},
+      {label: "Cash Cow", x: -0.8, y: 0.8},
+      {label: "Question Mark", x: 0.8, y: -0.8},
+      {label: "Dog", x: -0.8, y: -0.8}
+    ]
+  }
+  let r1 = diagram_quadrant(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. Items on the axes themselves (x=0 or y=0) ─────────────────
+  let data2 = {
+    x_axis_label: "Speed",
+    y_axis_label: "Quality",
+    items: [
+      {label: "On X-axis", x: 0.0, y: 0.5},
+      {label: "On Y-axis", x: 0.5, y: 0.0},
+      {label: "At origin", x: 0.0, y: 0.0}
+    ]
+  }
+  let r2 = diagram_quadrant(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. Items at the extreme corners (±1, ±1) ─────────────────────
+  let data3 = {
+    x_axis_label: "X",
+    y_axis_label: "Y",
+    items: [
+      {label: "NE", x: 1.0, y: 1.0},
+      {label: "NW", x: -1.0, y: 1.0},
+      {label: "SE", x: 1.0, y: -1.0},
+      {label: "SW", x: -1.0, y: -1.0}
+    ]
+  }
+  let r3 = diagram_quadrant(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // ── 4. x out of range (> 1.0) → Err ──────────────────────────────
+  let data4 = {
+    x_axis_label: "X",
+    y_axis_label: "Y",
+    items: [{label: "Too far right", x: 1.5, y: 0.0}]
+  }
+  let r4 = try diagram_quadrant(data4, style)
+  let ok4 = to_float(type_of(r4) == "Unit")
+
+  // ── 5. y out of range (< -1.0) → Err ─────────────────────────────
+  let data5 = {
+    x_axis_label: "X",
+    y_axis_label: "Y",
+    items: [{label: "Too far down", x: 0.0, y: -1.5}]
+  }
+  let r5 = try diagram_quadrant(data5, style)
+  let ok5 = to_float(type_of(r5) == "Unit")
+
+  // ── 6. Too many items (> 20) → Err ───────────────────────────────
+  let data6 = {
+    x_axis_label: "X",
+    y_axis_label: "Y",
+    items: [
+      {label: "1", x: 0.0, y: 0.0}, {label: "2", x: 0.1, y: 0.1},
+      {label: "3", x: 0.2, y: 0.2}, {label: "4", x: 0.3, y: 0.3},
+      {label: "5", x: 0.4, y: 0.4}, {label: "6", x: 0.5, y: 0.5},
+      {label: "7", x: 0.6, y: 0.6}, {label: "8", x: 0.7, y: 0.7},
+      {label: "9", x: 0.8, y: 0.8}, {label: "10", x: 0.9, y: 0.9},
+      {label: "11", x: -0.1, y: -0.1}, {label: "12", x: -0.2, y: -0.2},
+      {label: "13", x: -0.3, y: -0.3}, {label: "14", x: -0.4, y: -0.4},
+      {label: "15", x: -0.5, y: -0.5}, {label: "16", x: -0.6, y: -0.6},
+      {label: "17", x: -0.7, y: -0.7}, {label: "18", x: -0.8, y: -0.8},
+      {label: "19", x: -0.9, y: -0.9}, {label: "20", x: 0.0, y: -0.5},
+      {label: "21", x: 0.5, y: 0.0}
+    ]
+  }
+  let r6 = try diagram_quadrant(data6, style)
+  let ok6 = to_float(type_of(r6) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
+
+  return "p83_quadrant_checks=" + to_string(total) + "/6"
+}
+
+flow Main { input: String = "x" -> P83DiagramQuadrantContract -> output }

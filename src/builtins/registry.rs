@@ -394,6 +394,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("chart_boxplot", 2, "chart"), // data, style — Наряд №79 Block 3
     // Level 2.6: derived palette (Наряд №77 Block 1)
     spec!("color_palette", 2, "svg"), // intent, mode → DiagramStyle
+    // Level 2.6/2.7: procedural backgrounds + canvas presets (Наряд №80)
+    spec!("svg_generate", 4, "svg"), // kind, intent, w, h → SVG fragment
+    spec!("svg_canvas_preset", 3, "svg"), // preset_name, viewbox, children
 ];
 
 /// Total number of registered builtins.

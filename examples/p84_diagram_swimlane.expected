@@ -1,0 +1,4 @@
+[try] caught error: diagram_swimlane: too many lanes (7), maximum is 6 — lanes would be too narrow
+[try] caught error: diagram_swimlane: too many steps (31), maximum is 30
+[try] caught error: diagram_swimlane: steps[0].lane "Imaginary" is not in lanes list
+p84_swimlane_checks=6/6

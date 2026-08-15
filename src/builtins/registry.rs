@@ -409,10 +409,10 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("diagram_process", 2, "diagram"),  // data, style — linear numbered step chain
     spec!("diagram_loop", 2, "diagram"),     // data, style — closed-loop circular steps
     // Level 3.3: diagrams (Наряд №83) — sets & comparisons
-    spec!("diagram_venn", 2, "diagram"),      // data, style — 2 or 3 overlapping circles
-    spec!("diagram_quadrant", 2, "diagram"),  // data, style — 2x2 strategic quadrant
-    spec!("diagram_pyramid", 2, "diagram"),   // data, style — stacked trapezoids (top=apex)
-    spec!("diagram_nested", 2, "diagram"),    // data, style — concentric circles
+    spec!("diagram_venn", 2, "diagram"), // data, style — 2 or 3 overlapping circles
+    spec!("diagram_quadrant", 2, "diagram"), // data, style — 2x2 strategic quadrant
+    spec!("diagram_pyramid", 2, "diagram"), // data, style — stacked trapezoids (top=apex)
+    spec!("diagram_nested", 2, "diagram"), // data, style — concentric circles
     spec!("diagram_medallion", 2, "diagram"), // data, style — row of round badges w/ icons
 ];
 

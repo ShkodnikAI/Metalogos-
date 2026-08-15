@@ -63,6 +63,7 @@ const DISPATCHED_CATEGORIES: &[&str] = &[
     "svg",      // Наряд №74: SVG primitives (ADR-0102)
     "tokens",   // Наряд №74: design tokens (diagram_style)
     "chart",    // Наряд №74: high-level chart types (chart_bar)
+    "diagram",  // Наряд №81: diagram_tree / diagram_org_chart / diagram_flowchart / diagram_layers
 ];
 
 fn registry_categories() -> HashSet<&'static str> {

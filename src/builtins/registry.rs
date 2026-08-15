@@ -405,9 +405,9 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // Level 3.2: diagrams (Наряд №82) — temporal & process
     spec!("diagram_sequence", 2, "diagram"), // data, style — UML sequence (lifelines + messages)
     spec!("diagram_timeline", 2, "diagram"), // data, style — horizontal axis with event dots
-    spec!("diagram_gantt", 2, "diagram"), // data, style — horizontal bars per task
-    spec!("diagram_process", 2, "diagram"), // data, style — linear numbered step chain
-    spec!("diagram_loop", 2, "diagram"), // data, style — closed-loop circular steps
+    spec!("diagram_gantt", 2, "diagram"),    // data, style — horizontal bars per task
+    spec!("diagram_process", 2, "diagram"),  // data, style — linear numbered step chain
+    spec!("diagram_loop", 2, "diagram"),     // data, style — closed-loop circular steps
 ];
 
 /// Total number of registered builtins.

@@ -1,0 +1,4 @@
+[try] caught error: diagram_venn: supports exactly 2 or 3 circles, got 4
+[try] caught error: diagram_venn: supports exactly 2 or 3 circles, got 1
+[try] caught error: diagram_venn: supports exactly 2 or 3 circles, got 0
+p83_venn_invalid_checks=3/3

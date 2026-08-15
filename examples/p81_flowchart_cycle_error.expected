@@ -1,0 +1,4 @@
+[try] caught error: flowchart contains a cycle involving nodes: A, B
+[try] caught error: flowchart contains a cycle involving nodes: A, B, C
+[try] caught error: flowchart contains a cycle involving nodes: B, C, D
+p81_cycle_checks=3/3

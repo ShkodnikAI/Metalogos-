@@ -1,0 +1,4 @@
+[try] caught error: flowchart contains a cycle involving nodes: A, B
+[try] caught error: diagram_architecture: unknown icon name 'nonexistent_icon'. Available: server, laptop, phone, database, cloud, arrow-right, check, warning, user, document
+[try] caught error: diagram_architecture: edges[0].to references unknown node "Z"
+p84_architecture_checks=6/6

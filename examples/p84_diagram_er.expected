@@ -1,0 +1,3 @@
+[try] caught error: diagram_er: too many entities (13), maximum is 12 — grid would overflow the canvas
+[try] caught error: diagram_er: entities[0].fields has 9 entries, maximum is 8 — box would be too tall
+p84_er_checks=6/6

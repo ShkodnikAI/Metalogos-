@@ -1,0 +1,3 @@
+[try] caught error: flowchart contains a cycle involving nodes: A, B
+[try] caught error: flowchart contains a cycle: A→A (self-loop)
+p84_state_cycle_checks=4/4

@@ -1,0 +1,3 @@
+[try] caught error: flowchart contains a cycle: A→A (self-loop)
+[try] caught error: diagram_flowchart: edges[0].to references unknown node "Z"
+p84_topo_regression_checks=6/6

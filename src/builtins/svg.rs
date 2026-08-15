@@ -5517,8 +5517,8 @@ pub fn builtin_diagram_venn(args: &[Value]) -> Result<Value, String> {
             // Same orientation convention as chart_radar / diagram_loop.
             (0..3)
                 .map(|i| {
-                    let angle = -std::f64::consts::PI / 2.0
-                        + 2.0 * std::f64::consts::PI * (i as f64) / 3.0;
+                    let angle =
+                        -std::f64::consts::PI / 2.0 + 2.0 * std::f64::consts::PI * (i as f64) / 3.0;
                     polar_to_xy(cx, cy, VENN_3_RING_R, angle)
                 })
                 .collect()
@@ -6236,13 +6236,14 @@ pub fn builtin_diagram_medallion(args: &[Value]) -> Result<Value, String> {
         let value = struct_opt_float_field(f, "value");
         // Validate icon name by reusing icon_path_data — this is the
         // spec-mandated "don't duplicate the icon name list" pattern.
-        // If icon is Some(name) and name is unknown, we return the SAME
-        // error text that builtin_svg_icon would (so callers see one
-        // consistent error message regardless of which builtin rejects).
+        // If icon is Some(name) and name is unknown, we return the same
+        // shape of error that builtin_svg_icon would, but with the
+        // diagram_medallion: prefix so callers can attribute the failure
+        // to the builtin they actually called.
         if let Some(ref name) = icon {
             if icon_path_data(name).is_none() {
                 return Err(format!(
-                    "svg_icon: unknown icon name '{}'. Available: server, laptop, phone, database, cloud, arrow-right, check, warning, user, document",
+                    "diagram_medallion: unknown icon name '{}'. Available: server, laptop, phone, database, cloud, arrow-right, check, warning, user, document",
                     name
                 ));
             }
@@ -6287,8 +6288,18 @@ pub fn builtin_diagram_medallion(args: &[Value]) -> Result<Value, String> {
         ));
         // Content: icon (if specified) OR first letter of label (fallback).
         if let Some(ref icon_name) = m.icon {
-            // Reuse icon_path_data — already validated above, so unwrap is safe.
-            let path_data = icon_path_data(icon_name).unwrap();
+            // Reuse icon_path_data with proper error propagation — same
+            // pattern as builtin_svg_icon (line 2879). The early validation
+            // in the parse loop above already rejects unknown names, so this
+            // branch is effectively unreachable for valid inputs; but we
+            // still propagate via `?` rather than `unwrap()` because the
+            // project denies clippy::unwrap_used unconditionally.
+            let path_data = icon_path_data(icon_name).ok_or_else(|| {
+                format!(
+                    "diagram_medallion: unknown icon name '{}'. Available: server, laptop, phone, database, cloud, arrow-right, check, warning, user, document",
+                    icon_name
+                )
+            })?;
             let scale = MEDALLION_ICON_SIZE / 24.0;
             let icon_x = cx - MEDALLION_ICON_SIZE / 2.0;
             let icon_y = cy - MEDALLION_ICON_SIZE / 2.0;

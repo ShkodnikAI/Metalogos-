@@ -839,6 +839,27 @@ impl Builtins {
             "diagram_layers".to_string(),
             builtin_diagram_layers as BuiltinFn,
         );
+        // Level 3.2: diagrams (Наряд №82) — temporal & process
+        funcs.insert(
+            "diagram_sequence".to_string(),
+            builtin_diagram_sequence as BuiltinFn,
+        );
+        funcs.insert(
+            "diagram_timeline".to_string(),
+            builtin_diagram_timeline as BuiltinFn,
+        );
+        funcs.insert(
+            "diagram_gantt".to_string(),
+            builtin_diagram_gantt as BuiltinFn,
+        );
+        funcs.insert(
+            "diagram_process".to_string(),
+            builtin_diagram_process as BuiltinFn,
+        );
+        funcs.insert(
+            "diagram_loop".to_string(),
+            builtin_diagram_loop as BuiltinFn,
+        );
 
         // ── Наряд №50 Block 3: SHA-256 / HMAC / hex builtins ──
         funcs.insert("sha256".to_string(), builtin_sha256 as BuiltinFn);

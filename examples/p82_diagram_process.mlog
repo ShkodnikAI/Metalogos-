@@ -1,0 +1,74 @@
+// ── Наряд №82 Block 4: diagram_process contract ───────────────────────
+//
+// Process diagram contract — verifies strictly LINEAR numbered chain.
+//
+// CRITICAL distinction from diagram_flowchart (Н81 Block 4):
+//   - diagram_flowchart: Struct{nodes, edges} — arbitrary graph with
+//     branches/merges, topological sort, no inherent numbering.
+//   - diagram_process: List<Struct{label, description?}> — strictly
+//     linear ordered list, no branches, each step numbered 1..N.
+//
+// This contract verifies that diagram_process:
+//   1. Renders a basic 3-step chain
+//   2. Renders a chain with descriptions (optional field)
+//   3. Renders a single-step chain (degenerate)
+//   4. Renders the maximum (8 steps)
+//   5. 9 steps → Err (exceeds maximum)
+//   6. Empty list → Err
+//
+// Output: single summary string, "p82_process_checks=N/6".
+
+pattern P82DiagramProcessContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Basic 3-step chain ────────────────────────────────────────
+  let data1 = [
+    {label: "Collect"},
+    {label: "Process"},
+    {label: "Deliver"}
+  ]
+  let r1 = diagram_process(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. Chain with descriptions ───────────────────────────────────
+  let data2 = [
+    {label: "Auth", description: "Verify user credentials"},
+    {label: "Fetch", description: "Load data from database"},
+    {label: "Render", description: "Generate response payload"},
+    {label: "Send", description: "Transmit to client"}
+  ]
+  let r2 = diagram_process(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. Single-step chain (degenerate) ────────────────────────────
+  let data3 = [{label: "Only"}]
+  let r3 = diagram_process(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // ── 4. 8 steps (maximum allowed) ─────────────────────────────────
+  let data4 = [
+    {label: "Step 1"}, {label: "Step 2"}, {label: "Step 3"}, {label: "Step 4"},
+    {label: "Step 5"}, {label: "Step 6"}, {label: "Step 7"}, {label: "Step 8"}
+  ]
+  let r4 = diagram_process(data4, style)
+  let ok4 = to_float(starts_with(r4, "<svg "))
+
+  // ── 5. 9 steps → Err (exceeds maximum) ───────────────────────────
+  let data5 = [
+    {label: "S1"}, {label: "S2"}, {label: "S3"}, {label: "S4"}, {label: "S5"},
+    {label: "S6"}, {label: "S7"}, {label: "S8"}, {label: "S9"}
+  ]
+  let r5 = try diagram_process(data5, style)
+  let ok5 = to_float(type_of(r5) == "Unit")
+
+  // ── 6. Empty list → Err ──────────────────────────────────────────
+  let data6 = []
+  let r6 = try diagram_process(data6, style)
+  let ok6 = to_float(type_of(r6) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
+
+  return "p82_process_checks=" + to_string(total) + "/6"
+}
+
+flow Main { input: String = "x" -> P82DiagramProcessContract -> output }

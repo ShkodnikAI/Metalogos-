@@ -397,6 +397,11 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // Level 2.6/2.7: procedural backgrounds + canvas presets (Наряд №80)
     spec!("svg_generate", 4, "svg"), // kind, intent, w, h → SVG fragment
     spec!("svg_canvas_preset", 3, "svg"), // preset_name, viewbox, children
+    // Level 3.1: diagrams (Наряд №81) — hierarchies & flows
+    spec!("diagram_tree", 2, "diagram"), // data, style — recursive tree
+    spec!("diagram_org_chart", 2, "diagram"), // data, style — tree with title field
+    spec!("diagram_flowchart", 2, "diagram"), // data, style — layered DAG
+    spec!("diagram_layers", 2, "diagram"), // data, style — horizontal stripes
 ];
 
 /// Total number of registered builtins.

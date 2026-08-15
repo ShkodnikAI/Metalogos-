@@ -1,0 +1,87 @@
+// ── Наряд №81 Block 4 (extra): flowchart cycle error contract ────────
+//
+// Dedicated cycle-detection contract — the narazd spec requires a
+// SEPARATE contract for the cycle error case (not just one test inside
+// the main flowchart contract):
+//
+//   "Отдельный контракт на ошибку цикла: p81_flowchart_cycle_error.mlog
+//    — граф с циклом, ожидается конкретная ошибка, не падение
+//    интерпретатора."
+//
+// We test three cycle shapes:
+//   1. Simple 2-node cycle (A→B, B→A)
+//   2. 3-node cycle (A→B, B→C, C→A)
+//   3. Cycle embedded in a larger DAG (A→B, B→C, C→B, C→D) — the cycle
+//      B↔C coexists with acyclic edges A→B and C→D
+//
+// All three must return Err (which `try` converts to Unit). The
+// interpreter must NOT crash — `type_of(result) == "Unit"` verifies
+// the error was caught cleanly and propagated as a value.
+//
+// Note: we cannot check the error MESSAGE content (the `try` operator
+// in mlog returns Unit on error, discarding the message — see
+// src/interpreter/execution.rs:902). The contract verifies only that
+// an error occurred (Unit return), not the exact text. The error
+// message is verified by the Rust unit tests in svg.rs (when present).
+//
+// Output: single summary string, "p81_cycle_checks=N/3".
+
+pattern P81FlowchartCycleErrorContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Simple 2-node cycle: A→B, B→A ──────────────────────────────
+  let data1 = {
+    nodes: [
+      {id: "A", label: "Node A"},
+      {id: "B", label: "Node B"}
+    ],
+    edges: [
+      {from: "A", to: "B"},
+      {from: "B", to: "A"}
+    ]
+  }
+  let r1 = try diagram_flowchart(data1, style)
+  let ok1 = to_float(type_of(r1) == "Unit")
+
+  // ── 2. 3-node cycle: A→B, B→C, C→A ────────────────────────────────
+  let data2 = {
+    nodes: [
+      {id: "A", label: "Node A"},
+      {id: "B", label: "Node B"},
+      {id: "C", label: "Node C"}
+    ],
+    edges: [
+      {from: "A", to: "B"},
+      {from: "B", to: "C"},
+      {from: "C", to: "A"}
+    ]
+  }
+  let r2 = try diagram_flowchart(data2, style)
+  let ok2 = to_float(type_of(r2) == "Unit")
+
+  // ── 3. Cycle embedded in larger DAG ───────────────────────────────
+  // A→B→C→B (cycle B↔C) + C→D (acyclic). The cycle detection must
+  // fire even though most of the graph is acyclic.
+  let data3 = {
+    nodes: [
+      {id: "A", label: "Source"},
+      {id: "B", label: "Mid 1"},
+      {id: "C", label: "Mid 2"},
+      {id: "D", label: "Sink"}
+    ],
+    edges: [
+      {from: "A", to: "B"},
+      {from: "B", to: "C"},
+      {from: "C", to: "B"},
+      {from: "C", to: "D"}
+    ]
+  }
+  let r3 = try diagram_flowchart(data3, style)
+  let ok3 = to_float(type_of(r3) == "Unit")
+
+  let total = ok1 + ok2 + ok3
+
+  return "p81_cycle_checks=" + to_string(total) + "/3"
+}
+
+flow Main { input: String = "x" -> P81FlowchartCycleErrorContract -> output }

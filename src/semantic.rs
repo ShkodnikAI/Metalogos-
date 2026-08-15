@@ -375,6 +375,16 @@ const SVG_AUTO_ESCAPE_BUILTINS: &[&str] = &[
     "chart_area",
     "chart_radar",
     "chart_boxplot",
+    // Наряд №81 Block 6: diagrams accept user text (label/title/description).
+    //   diagram_tree / diagram_org_chart — recursive Struct{label, children}.
+    //   diagram_flowchart — Struct{nodes: [{id,label}], edges: [{from,to,label?}]}.
+    //   diagram_layers — List<Struct{label, description?}>.
+    // All four escape text via escape_html_chars at runtime (svg.rs).
+    // AST lint scans label literals as WARNINGs (defense-in-depth).
+    "diagram_tree",
+    "diagram_org_chart",
+    "diagram_flowchart",
+    "diagram_layers",
 ];
 
 /// Builtins whose string arguments are NOT auto-escaped (structural).
@@ -532,6 +542,191 @@ fn scan_radar_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) 
     }
 }
 
+/// Наряд №81 Block 6 — recursive scanner for `diagram_tree` /
+/// `diagram_org_chart` data shapes.
+///
+/// Both functions accept `Struct { label, title?, children }` where
+/// `children` is `List<Struct>` of the SAME shape — i.e. the nesting
+/// depth is unbounded. The existing `scan_chart_labels` only scans
+/// ONE level (it iterates a List<Struct> literal and looks up `label`
+/// on each element). It does NOT recurse into a `children` field —
+/// which means an injection at depth ≥ 2 would slip past it.
+///
+/// This function walks the recursive struct: at each level we look up
+/// `label` (and `title` if present) as StringLit fields and check for
+/// XSS payloads. We then descend into the `children` List and recurse
+/// on each child Struct.
+///
+/// `path` is used in the warning message so the caller can locate the
+/// offending node (e.g. "root.children[1].children[2].label") — this
+/// is essential because the recursive structure can be deeply nested
+/// and a generic "label contains <script>" warning would be useless.
+///
+/// `allow_title` controls whether `title` is scanned (diagram_org_chart
+/// allows it; diagram_tree ignores the field even if present, but we
+/// still scan it defensively — better to over-warn than miss a payload
+/// at the call site that uses diagram_tree but actually provides title).
+fn scan_tree_labels_recursive(
+    fn_name: &str,
+    arg: &Expr,
+    path: &str,
+    allow_title: bool,
+    result: &mut AnalysisResult,
+) {
+    if let Expr::StructLit(fields) = arg {
+        // Scan `label` (always present per spec — required field)
+        if let Some(Expr::StringLit(s)) = fields.get("label") {
+            if let Some(reason) = detect_xss_payload(s) {
+                result.warnings.push(format!(
+                    "security: {} data.{}.label string literal {} — runtime will escape, but review intent",
+                    fn_name, path, reason
+                ));
+            }
+        }
+        // Scan `title` (org chart only — but scan defensively regardless
+        // of allow_title, since a malicious caller could supply title to
+        // diagram_tree too; the runtime still escapes it via svg_text if
+        // it ends up in the output. Better to over-warn.)
+        if allow_title {
+            if let Some(Expr::StringLit(s)) = fields.get("title") {
+                if let Some(reason) = detect_xss_payload(s) {
+                    result.warnings.push(format!(
+                        "security: {} data.{}.title string literal {} — runtime will escape, but review intent",
+                        fn_name, path, reason
+                    ));
+                }
+            }
+        } else {
+            // Even for diagram_tree (allow_title=false), if a title is
+            // present we should warn — it's not used, but its presence
+            // in literal form is suspicious intent.
+            if let Some(Expr::StringLit(s)) = fields.get("title") {
+                if let Some(reason) = detect_xss_payload(s) {
+                    result.warnings.push(format!(
+                        "security: {} data.{}.title string literal {} — field not used by diagram_tree but review intent",
+                        fn_name, path, reason
+                    ));
+                }
+            }
+        }
+        // Recurse into children (if present)
+        if let Some(Expr::List(child_items)) = fields.get("children") {
+            for (i, child) in child_items.iter().enumerate() {
+                let child_path = format!("{}.children[{}]", path, i);
+                scan_tree_labels_recursive(fn_name, child, &child_path, allow_title, result);
+            }
+        }
+    }
+}
+
+/// Наряд №81 Block 6 — scanner for `diagram_flowchart` data shape.
+///
+/// Flowchart data has TWO independent lists, each containing user text:
+///   Struct {
+///     nodes: List<Struct{id, label}>,
+///     edges: List<Struct{from, to, label?}>,
+///   }
+///
+/// We scan `nodes[].label` and `edges[].label` separately (the `id`,
+/// `from`, `to` fields are identifiers used for graph topology, not
+/// rendered text — but we scan them defensively too, since a literal
+/// `<script>` in an id field is still suspicious intent even if it
+/// wouldn't reach the output).
+///
+/// Both lists are scanned to WARNINGs (runtime escapes label text via
+/// escape_html_chars — defense-in-depth, same as chart_*).
+fn scan_flowchart_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
+    if let Some(Expr::StructLit(fields)) = args.first() {
+        // nodes: List<Struct{id, label}>
+        if let Some(Expr::List(node_items)) = fields.get("nodes") {
+            for (i, item) in node_items.iter().enumerate() {
+                if let Expr::StructLit(node_fields) = item {
+                    // Scan id (defensive — not rendered, but suspicious if payload)
+                    if let Some(Expr::StringLit(s)) = node_fields.get("id") {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(format!(
+                                "security: {} data.nodes[{}].id string literal {} — field not rendered but review intent",
+                                fn_name, i, reason
+                            ));
+                        }
+                    }
+                    // Scan label (rendered — primary injection vector)
+                    if let Some(Expr::StringLit(s)) = node_fields.get("label") {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(format!(
+                                "security: {} data.nodes[{}].label string literal {} — runtime will escape, but review intent",
+                                fn_name, i, reason
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        // edges: List<Struct{from, to, label?}>
+        if let Some(Expr::List(edge_items)) = fields.get("edges") {
+            for (i, item) in edge_items.iter().enumerate() {
+                if let Expr::StructLit(edge_fields) = item {
+                    // from/to are identifiers (defensive scan)
+                    for ident_key in &["from", "to"] {
+                        if let Some(Expr::StringLit(s)) = edge_fields.get(*ident_key) {
+                            if let Some(reason) = detect_xss_payload(s) {
+                                result.warnings.push(format!(
+                                    "security: {} data.edges[{}].{} string literal {} — field not rendered but review intent",
+                                    fn_name, i, ident_key, reason
+                                ));
+                            }
+                        }
+                    }
+                    // label is rendered as edge midpoint text
+                    if let Some(Expr::StringLit(s)) = edge_fields.get("label") {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(format!(
+                                "security: {} data.edges[{}].label string literal {} — runtime will escape, but review intent",
+                                fn_name, i, reason
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Наряд №81 Block 6 — scanner for `diagram_layers` data shape.
+///
+/// Flat list of structs:
+///   List<Struct{label, description?}>
+///
+/// Both `label` and `description` are rendered as text — both must be
+/// scanned. Uses the same per-struct pattern as scan_chart_labels but
+/// checks TWO fields instead of one.
+fn scan_layers_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
+    if let Some(Expr::List(items)) = args.first() {
+        for (i, item) in items.iter().enumerate() {
+            if let Expr::StructLit(fields) = item {
+                // label (always rendered)
+                if let Some(Expr::StringLit(s)) = fields.get("label") {
+                    if let Some(reason) = detect_xss_payload(s) {
+                        result.warnings.push(format!(
+                            "security: {} data[{}].label string literal {} — runtime will escape, but review intent",
+                            fn_name, i, reason
+                        ));
+                    }
+                }
+                // description (rendered, optional)
+                if let Some(Expr::StringLit(s)) = fields.get("description") {
+                    if let Some(reason) = detect_xss_payload(s) {
+                        result.warnings.push(format!(
+                            "security: {} data[{}].description string literal {} — runtime will escape, but review intent",
+                            fn_name, i, reason
+                        ));
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Walk an expression and run the security check on every FnCall node.
 fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &str) {
     match expr {
@@ -580,6 +775,33 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
                 }
                 if name == "chart_radar" {
                     scan_radar_labels(name, args, result);
+                }
+                // Наряд №81 Block 6: diagram scanners.
+                //   diagram_tree / diagram_org_chart — recursive Struct,
+                //     need scan_tree_labels_recursive (NOT the flat
+                //     scan_chart_labels — that one only goes one level
+                //     deep and would miss injections at children[2].label
+                //     or deeper).
+                //   diagram_flowchart — two independent lists (nodes,
+                //     edges), each with its own label field. Scanned
+                //     separately by scan_flowchart_labels.
+                //   diagram_layers — flat list, label + description.
+                //     scan_layers_labels checks both fields.
+                if name == "diagram_tree" {
+                    if let Some(arg0) = args.first() {
+                        scan_tree_labels_recursive(name, arg0, "root", false, result);
+                    }
+                }
+                if name == "diagram_org_chart" {
+                    if let Some(arg0) = args.first() {
+                        scan_tree_labels_recursive(name, arg0, "root", true, result);
+                    }
+                }
+                if name == "diagram_flowchart" {
+                    scan_flowchart_labels(name, args, result);
+                }
+                if name == "diagram_layers" {
+                    scan_layers_labels(name, args, result);
                 }
             }
             if SVG_NO_ESCAPE_BUILTINS.contains(&name.as_str()) {

@@ -1,0 +1,9 @@
+[try] caught error: template_render: unmatched block — expected {{/if}} before end of template
+[try] caught error: template_render: unmatched block — expected {{/each}} before end of template
+[try] caught error: template_render: {#each items} expected List, got String
+[try] caught error: template_render: {#each missing} — path not found in data
+[try] caught error: template_render: argument 1 (template) must be String, got Float
+[try] caught error: template_render() requires 2 arguments (template, data), got 1
+[try] caught error: template_render: unexpected {{/if}} — no matching opening block
+[try] caught error: template_render: unexpected {{else}} — no matching opening block
+p86_render_errors=8/8

@@ -1,0 +1,60 @@
+// ── Наряд №86 Block 6: render error contract ─────────────────────────
+//
+// Focused regression on the error paths — separate from the main
+// contract because errors deserve explicit verification:
+//   1. Unmatched {{#if}} (no {{/if}}) → Err
+//   2. Unmatched {{#each}} (no {{/each}}) → Err
+//   3. {{#each}} on a non-List (String) → Err (structural — not soft-fail)
+//   4. {{#each}} on a missing path → Err (structural — not soft-fail)
+//   5. Wrong argument types (first arg not String)
+//   6. Too few arguments
+//   7. Unexpected close tag (no matching open) → Err
+//   8. {{else}} outside {{#if}} → Err
+//
+// All error paths return Unit via try; success paths return Html.
+// Output: single summary string, "p86_render_errors=N/N".
+
+pattern P86TemplateRenderErrorsContract(input: String) -> String {
+  // ── 1. Unmatched {{#if}} (missing {{/if}}) ───────────────────────
+  let r1 = try template_render("{{#if show}}hello", {show: true})
+  let ok1 = to_float(type_of(r1) == "Unit")
+
+  // ── 2. Unmatched {{#each}} (missing {{/each}}) ───────────────────
+  let r2 = try template_render("{{#each items}}x", {items: [1.0]})
+  let ok2 = to_float(type_of(r2) == "Unit")
+
+  // ── 3. {{#each}} on a non-List (String) → Err ────────────────────
+  // Per Block 4: items must be a List. A String is a structural type
+  // mismatch — error, not soft-failure.
+  let r3 = try template_render("{{#each items}}x{{/each}}", {items: "not a list"})
+  let ok3 = to_float(type_of(r3) == "Unit")
+
+  // ── 4. {{#each}} on a missing path → Err ─────────────────────────
+  // Per Block 4: missing list_path is a structural error (the render
+  // declares it expects to iterate — a missing path means the data
+  // contract is broken).
+  let r4 = try template_render("{{#each missing}}x{{/each}}", {unused: 0.0})
+  let ok4 = to_float(type_of(r4) == "Unit")
+
+  // ── 5. First arg not a String → Err ──────────────────────────────
+  let r5 = try template_render(42.0, {unused: 0.0})
+  let ok5 = to_float(type_of(r5) == "Unit")
+
+  // ── 6. Too few arguments → Err ───────────────────────────────────
+  let r6 = try template_render("just the first arg")
+  let ok6 = to_float(type_of(r6) == "Unit")
+
+  // ── 7. Unexpected close tag (no matching open) → Err ─────────────
+  let r7 = try template_render("hello {{/if}}", {unused: 0.0})
+  let ok7 = to_float(type_of(r7) == "Unit")
+
+  // ── 8. {{else}} outside {{#if}} → Err ────────────────────────────
+  let r8 = try template_render("hello {{else}} world", {unused: 0.0})
+  let ok8 = to_float(type_of(r8) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6 + ok7 + ok8
+
+  return "p86_render_errors=" + to_string(total) + "/8"
+}
+
+flow Main { input: String = "x" -> P86TemplateRenderErrorsContract -> output }

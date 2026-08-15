@@ -1,0 +1,52 @@
+// ── Наряд №83 Block 1: diagram_venn — invalid count ──────────────────
+//
+// Negative-test contract: diagram_venn must reject any count other
+// than 2 or 3 with an explicit error message. The spec says:
+//   "circles.len() != 2 && circles.len() != 3 → ошибка с явным текстом
+//    ('diagram_venn supports exactly 2 or 3 circles, got N')"
+//
+// We test 4 circles (the most natural "next case" someone might try
+// after 3) and 1 circle (degenerate single-set Venn). Both must error.
+//
+// Tests:
+//   1. 4 circles → Err (the spec's explicit example case)
+//   2. 1 circle → Err (degenerate single-set Venn — meaningless)
+//   3. 0 circles → Err (empty list — meaningless)
+//
+// Output: single summary string, "p83_venn_invalid_checks=N/3".
+
+pattern P83DiagramVennInvalidContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. 4 circles → Err (spec's explicit example case) ────────────
+  let data1 = {
+    circles: [
+      {label: "A"},
+      {label: "B"},
+      {label: "C"},
+      {label: "D"}
+    ]
+  }
+  let r1 = try diagram_venn(data1, style)
+  let ok1 = to_float(type_of(r1) == "Unit")
+
+  // ── 2. 1 circle → Err (degenerate single-set Venn) ──────────────
+  let data2 = {
+    circles: [{label: "Lonely"}]
+  }
+  let r2 = try diagram_venn(data2, style)
+  let ok2 = to_float(type_of(r2) == "Unit")
+
+  // ── 3. 0 circles → Err (empty list) ──────────────────────────────
+  let data3 = {
+    circles: []
+  }
+  let r3 = try diagram_venn(data3, style)
+  let ok3 = to_float(type_of(r3) == "Unit")
+
+  let total = ok1 + ok2 + ok3
+
+  return "p83_venn_invalid_checks=" + to_string(total) + "/3"
+}
+
+flow Main { input: String = "x" -> P83DiagramVennInvalidContract -> output }

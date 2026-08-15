@@ -1,0 +1,76 @@
+// ── Наряд №83 Block 1: diagram_venn — 2-circle case ──────────────────
+//
+// Venn diagram contract for the 2-circle case. This is one of TWO
+// separate contracts for diagram_venn (the other is p83_diagram_venn_3)
+// because the 2- and 3-circle cases use different fixed geometries
+// inside the same function — both must be exercised independently.
+//
+// Tests:
+//   1. Basic 2-circle Venn renders
+//   2. 2-circle Venn with optional overlap_label renders
+//   3. 2-circle Venn with optional value field per circle renders
+//   4. 2-circle Venn with <script> in label — runtime escapes (defensive)
+//
+// Output: single summary string, "p83_venn_2_checks=N/4".
+
+pattern P83DiagramVenn2Contract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Basic 2-circle Venn ────────────────────────────────────────
+  let data1 = {
+    circles: [
+      {label: "Set A"},
+      {label: "Set B"}
+    ]
+  }
+  let r1 = diagram_venn(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. 2-circle Venn with overlap_label (top-level field) ────────
+  // overlap_label is the spec's "easy to forget" top-level field —
+  // this test verifies the function accepts and renders it.
+  let data2 = {
+    circles: [
+      {label: "Engineers"},
+      {label: "Designers"}
+    ],
+    overlap_label: "Both"
+  }
+  let r2 = diagram_venn(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. 2-circle Venn with optional value per circle ──────────────
+  let data3 = {
+    circles: [
+      {label: "Group X", value: 42.0},
+      {label: "Group Y", value: 58.0}
+    ],
+    overlap_label: "Shared"
+  }
+  let r3 = diagram_venn(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // ── 4. <script> in label — runtime must escape (defensive) ────────
+  // The security scanner emits a WARNING for this at AST level; the
+  // runtime ALSO escapes via escape_html_chars. We verify the runtime
+  // path: the output must NOT contain a raw <script> tag.
+  let data4 = {
+    circles: [
+      {label: "<script>alert(1)</script>"},
+      {label: "Safe"}
+    ]
+  }
+  let r4 = diagram_venn(data4, style)
+  // Output is a String; verify it starts with <svg AND does not contain
+  // a raw <script> substring (the runtime should have escaped it to
+  // &lt;script&gt;).
+  let is_svg = to_float(starts_with(r4, "<svg "))
+  let has_raw_script = to_float(contains(r4, "<script>"))
+  let ok4 = to_float(is_svg == 1.0 && has_raw_script == 0.0)
+
+  let total = ok1 + ok2 + ok3 + ok4
+
+  return "p83_venn_2_checks=" + to_string(total) + "/4"
+}
+
+flow Main { input: String = "x" -> P83DiagramVenn2Contract -> output }

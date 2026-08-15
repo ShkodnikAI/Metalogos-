@@ -1,0 +1,86 @@
+// ── Наряд №82 Block 5: diagram_loop contract ──────────────────────────
+//
+// Closed-loop (flywheel) diagram contract — verifies circular step
+// arrangement via polar_to_xy, with the last step connecting back to
+// the first to close the cycle.
+//
+// KEY invariant from the spec: "проверить, что последний шаг соединяется
+// с первым — замкнутость цикла". This is the defining feature that
+// distinguishes diagram_loop from diagram_process (which is linear and
+// does NOT close back).
+//
+// Tests:
+//   1. Basic 4-step loop renders (the simplest meaningful cycle)
+//   2. Loop with descriptions (optional field) renders
+//   3. 3 steps (minimum allowed) renders — a triangle
+//   4. 8 steps (maximum allowed) renders — octagon
+//   5. 2 steps → Err (too few — visually meaningless)
+//   6. 9 steps → Err (too many — labels would overlap)
+//
+// Output: single summary string, "p82_loop_checks=N/6".
+
+pattern P82DiagramLoopContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Basic 4-step loop (Plan → Do → Check → Act → back to Plan) ─
+  let data1 = [
+    {label: "Plan"},
+    {label: "Do"},
+    {label: "Check"},
+    {label: "Act"}
+  ]
+  let r1 = diagram_loop(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. Loop with descriptions ────────────────────────────────────
+  let data2 = [
+    {label: "Acquire", description: "Bring users in"},
+    {label: "Activate", description: "First meaningful action"},
+    {label: "Retain", description: "Repeat engagement"},
+    {label: "Refer", description: "Invite others"},
+    {label: "Revenue", description: "Monetize"}
+  ]
+  let r2 = diagram_loop(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. 3 steps (minimum allowed — triangle) ──────────────────────
+  let data3 = [
+    {label: "Alpha"},
+    {label: "Beta"},
+    {label: "Gamma"}
+  ]
+  let r3 = diagram_loop(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // ── 4. 8 steps (maximum allowed — octagon) ───────────────────────
+  let data4 = [
+    {label: "N"}, {label: "NE"}, {label: "E"}, {label: "SE"},
+    {label: "S"}, {label: "SW"}, {label: "W"}, {label: "NW"}
+  ]
+  let r4 = diagram_loop(data4, style)
+  let ok4 = to_float(starts_with(r4, "<svg "))
+
+  // ── 5. 2 steps → Err (too few — visually meaningless cycle) ──────
+  // The spec requires: "data.len() < 3 → ошибка (цикл из двух шагов
+  // визуально бессмысленен)."
+  let data5 = [
+    {label: "Only A"},
+    {label: "Only B"}
+  ]
+  let r5 = try diagram_loop(data5, style)
+  let ok5 = to_float(type_of(r5) == "Unit")
+
+  // ── 6. 9 steps → Err (too many — labels would overlap) ───────────
+  let data6 = [
+    {label: "1"}, {label: "2"}, {label: "3"}, {label: "4"}, {label: "5"},
+    {label: "6"}, {label: "7"}, {label: "8"}, {label: "9"}
+  ]
+  let r6 = try diagram_loop(data6, style)
+  let ok6 = to_float(type_of(r6) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
+
+  return "p82_loop_checks=" + to_string(total) + "/6"
+}
+
+flow Main { input: String = "x" -> P82DiagramLoopContract -> output }

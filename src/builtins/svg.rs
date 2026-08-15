@@ -4248,6 +4248,1136 @@ pub fn builtin_diagram_layers(args: &[Value]) -> Result<Value, String> {
     )))
 }
 
+// ── Наряд №82: Diagrams, part 2 — temporal & process ────────────────
+//
+// Five additional diagram builtins, all built on top of the geometric
+// primitives delivered by Н81 (draw_connector, polar_to_xy) — no new
+// geometry is invented here.
+//
+//   Block 1 — diagram_sequence  (uses draw_connector)
+//   Block 2 — diagram_timeline  (uses svg_circle inline + horizontal line)
+//   Block 3 — diagram_gantt     (uses svg_rect inline)
+//   Block 4 — diagram_process   (uses draw_connector; NOT flowchart — strictly linear)
+//   Block 5 — diagram_loop      (uses polar_to_xy + draw_connector; closed cycle)
+//
+// All five reuse the DIAGRAM_CANVAS_W/H constants (600×400) defined above
+// for visual consistency with the Н81 diagram suite.
+
+// ── Block 1: diagram_sequence ──────────────────────────────────────
+//
+// UML-style sequence diagram: vertical "lifelines" for each actor,
+// horizontal arrows between lifelines for each message.
+//
+// Data shape:
+//   Struct {
+//     actors:   List<String>,                          // lifeline names
+//     messages: List<Struct { from, to, label? }>,     // arrows
+//   }
+//
+// Layout:
+//   - N actors → evenly spaced columns across canvas_w
+//   - Each actor: vertical dashed line top→bottom + name at top
+//   - Each message: horizontal arrow from actor[from] to actor[to]
+//     at Y = top_pad + msg_idx × step (top-down chronological order)
+//   - Non-adjacent messages (e.g. actor 0 → actor 3) draw a longer
+//     diagonal line — this is the spec's "проверить, что диагональные
+//     стрелки строятся корректно" requirement.
+//
+// Limits: actors.len() ≤ 8, messages.len() ≤ 30.
+
+const SEQ_MAX_ACTORS: usize = 8;
+const SEQ_MAX_MESSAGES: usize = 30;
+const SEQ_TOP_PAD: f64 = 50.0; // space for actor name labels at top
+const SEQ_BOTTOM_PAD: f64 = 30.0;
+const SEQ_LIFELINE_HALF_H: f64 = 12.0; // half-height of actor head box
+
+/// `diagram_sequence(data, style) -> String`
+///
+/// Renders a UML-style sequence diagram. `data` is
+/// `Struct { actors: List<String>, messages: List<Struct{from, to, label?}> }`.
+///
+/// Returns Err if:
+///   - actors is empty or > 8
+///   - messages > 30
+///   - a message references an unknown actor name
+pub fn builtin_diagram_sequence(args: &[Value]) -> Result<Value, String> {
+    let data_value = args.first().cloned().unwrap_or(Value::Unit);
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+
+    // Extract top-level Struct { actors, messages }
+    let data_fields = match &data_value {
+        Value::Struct { fields, .. } => fields,
+        other => {
+            return Err(format!(
+                "diagram_sequence: data must be Struct {{actors, messages}}, got {}",
+                other.type_name()
+            ));
+        }
+    };
+
+    // actors: List<String>
+    let actors_value = data_fields
+        .get("actors")
+        .ok_or_else(|| "diagram_sequence: missing required field 'actors'".to_string())?;
+    let actors: Vec<String> = match actors_value {
+        Value::List(items) => {
+            let mut out = Vec::with_capacity(items.len());
+            for (i, v) in items.iter().enumerate() {
+                match v {
+                    Value::String(s) => out.push(s.clone()),
+                    other => {
+                        return Err(format!(
+                            "diagram_sequence: actors[{}] must be String, got {}",
+                            i,
+                            other.type_name()
+                        ));
+                    }
+                }
+            }
+            out
+        }
+        other => {
+            return Err(format!(
+                "diagram_sequence: 'actors' must be List<String>, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    if actors.is_empty() {
+        return Err("diagram_sequence: actors list must not be empty".to_string());
+    }
+    if actors.len() > SEQ_MAX_ACTORS {
+        return Err(format!(
+            "diagram_sequence: too many actors ({}), maximum is {} — lifelines become too narrow",
+            actors.len(),
+            SEQ_MAX_ACTORS
+        ));
+    }
+
+    // messages: List<Struct{from, to, label?}>
+    let messages_value = data_fields
+        .get("messages")
+        .ok_or_else(|| "diagram_sequence: missing required field 'messages'".to_string())?;
+    let messages_list = match messages_value {
+        Value::List(items) => items,
+        other => {
+            return Err(format!(
+                "diagram_sequence: 'messages' must be List<Struct>, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    if messages_list.len() > SEQ_MAX_MESSAGES {
+        return Err(format!(
+            "diagram_sequence: too many messages ({}), maximum is {}",
+            messages_list.len(),
+            SEQ_MAX_MESSAGES
+        ));
+    }
+    // Extract messages — validate that from/to reference known actors
+    struct SeqMessage {
+        from_idx: usize,
+        to_idx: usize,
+        label: Option<String>,
+    }
+    let mut messages: Vec<SeqMessage> = Vec::with_capacity(messages_list.len());
+    for (i, item) in messages_list.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_sequence: messages[{}] must be Struct {{from, to, label?}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let from = struct_string_field("diagram_sequence message", f, "from")?;
+        let to = struct_string_field("diagram_sequence message", f, "to")?;
+        let label = struct_opt_string_field(f, "label");
+        let from_idx = actors.iter().position(|a| a == &from).ok_or_else(|| {
+            format!(
+                "diagram_sequence: messages[{}].from references unknown actor {:?}",
+                i, from
+            )
+        })?;
+        let to_idx = actors.iter().position(|a| a == &to).ok_or_else(|| {
+            format!(
+                "diagram_sequence: messages[{}].to references unknown actor {:?}",
+                i, to
+            )
+        })?;
+        messages.push(SeqMessage {
+            from_idx,
+            to_idx,
+            label,
+        });
+    }
+
+    // Geometry
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    let n_actors = actors.len();
+    // Evenly space actors across canvas width with side padding
+    let pad_x = 60.0_f64;
+    let usable_w = canvas_w - 2.0 * pad_x;
+    let actor_step = if n_actors > 1 {
+        usable_w / (n_actors as f64 - 1.0)
+    } else {
+        0.0
+    };
+    let actor_x: Vec<f64> = (0..n_actors)
+        .map(|i| {
+            if n_actors > 1 {
+                pad_x + (i as f64) * actor_step
+            } else {
+                canvas_w / 2.0
+            }
+        })
+        .collect();
+
+    let lifeline_top = SEQ_TOP_PAD + SEQ_LIFELINE_HALF_H;
+    let lifeline_bottom = canvas_h - SEQ_BOTTOM_PAD;
+    // Message Y positions: distribute between lifeline_top+10 and lifeline_bottom-10
+    let msg_top = lifeline_top + 20.0;
+    let msg_bottom = lifeline_bottom - 10.0;
+    let msg_step = if messages.is_empty() {
+        0.0
+    } else if messages.len() > 1 {
+        (msg_bottom - msg_top) / (messages.len() as f64 - 1.0)
+    } else {
+        0.0
+    };
+
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+
+    let mut parts: Vec<String> = Vec::new();
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+
+    // Lifelines + actor labels
+    for (i, name) in actors.iter().enumerate() {
+        let x = actor_x[i];
+        // Actor head box — small rounded rect with name centered
+        let head_w = 90.0_f64.min(actor_step.max(80.0) - 12.0).max(60.0);
+        let head_x = x - head_w / 2.0;
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" stroke="{}" stroke-width="1.5" rx="4" ry="4" />"#,
+            fmt_num(head_x),
+            fmt_num(SEQ_TOP_PAD - SEQ_LIFELINE_HALF_H),
+            fmt_num(head_w),
+            fmt_num(2.0 * SEQ_LIFELINE_HALF_H),
+            escape_attr(&paper),
+            escape_attr(&rule)
+        ));
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="12" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(x),
+            fmt_num(SEQ_TOP_PAD + 4.0),
+            escape_attr(&ink),
+            escape_html_chars(name)
+        ));
+        // Vertical dashed lifeline below the head box
+        parts.push(format!(
+            r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" stroke-dasharray="4 4" />"#,
+            fmt_num(x),
+            fmt_num(lifeline_top),
+            fmt_num(x),
+            fmt_num(lifeline_bottom),
+            escape_attr(&rule)
+        ));
+    }
+
+    // Messages — horizontal arrows from actor[from] to actor[to]
+    for (i, msg) in messages.iter().enumerate() {
+        let y = msg_top + (i as f64) * msg_step;
+        let x1 = actor_x[msg.from_idx];
+        let x2 = actor_x[msg.to_idx];
+        // Skip self-messages (from==to) drawn as a small loop — for MVP
+        // we still emit a tiny U-shaped arrow. Simpler: skip the line and
+        // just place a small note. For correctness of the contract test
+        // "messages not only between neighbors", we handle the diagonal
+        // case (different actors) here.
+        if msg.from_idx == msg.to_idx {
+            // Self-message: small loop on the lifeline
+            let loop_w = 24.0_f64;
+            let loop_h = 14.0_f64;
+            // Draw a tiny rectangular loop returning to the same lifeline
+            parts.push(format!(
+                r#"<path d="M {} {} L {} {} L {} {} L {} {}" fill="none" stroke="{}" stroke-width="1.5" />"#,
+                fmt_num(x1),
+                fmt_num(y),
+                fmt_num(x1 + loop_w),
+                fmt_num(y),
+                fmt_num(x1 + loop_w),
+                fmt_num(y + loop_h),
+                fmt_num(x1),
+                fmt_num(y + loop_h),
+                escape_attr(&rule)
+            ));
+            // Arrowhead at the end (pointing left into the lifeline)
+            parts.push(format!(
+                r#"<path d="M {} {} L {} {} L {} {} Z" fill="{}" stroke="none" />"#,
+                fmt_num(x1),
+                fmt_num(y + loop_h),
+                fmt_num(x1 + 7.0),
+                fmt_num(y + loop_h - 3.0),
+                fmt_num(x1 + 7.0),
+                fmt_num(y + loop_h + 3.0),
+                escape_attr(&rule)
+            ));
+        } else {
+            // Different actors — connector from (x1, y) to (x2, y)
+            parts.push(draw_connector(x1, y, x2, y, &style));
+        }
+        // Optional label above the arrow midpoint
+        if let Some(label) = &msg.label {
+            let mid_x = (x1 + x2) / 2.0;
+            let label_y = y - 6.0;
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(mid_x),
+                fmt_num(label_y),
+                escape_attr(&muted),
+                escape_html_chars(label)
+            ));
+        }
+    }
+    // accent unused for now — kept for visual parity with other diagrams
+    let _ = &accent;
+
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+// ── Block 2: diagram_timeline ──────────────────────────────────────
+//
+// Horizontal timeline with event dots. MVP — no real date parsing,
+// the `date` field is just a textual label; list order = timeline order.
+//
+// Data shape:
+//   List<Struct { date: String, label: String, description?: String }>
+//
+// Layout:
+//   - Horizontal axis line across the middle of the canvas
+//   - N events → evenly spaced across chart_w (point i at
+//     chart_x + i × chart_w / (N-1) for N>1; for N=1, single point at
+//     chart_x + chart_w/2)
+//   - Small circle (r=5) at each event position via inline <circle>
+//     (we don't call builtin_svg_circle because we'd need to round-trip
+//     through Value::String — direct format! is simpler and matches the
+//     pattern used by chart_radar's vertex dots).
+//   - `date` label ABOVE the dot for even-indexed events, BELOW for odd.
+//     This is the "alternating by parity" rule from the spec — not a
+//     real anti-overlap engine (that's Н87).
+//   - `label` and `description` go on the OPPOSITE side of the dot
+//     from `date`, so each event has at most: date (one side) +
+//     label/description (other side).
+//
+// Limits: data.len() ≤ 12.
+
+const TIMELINE_MAX_EVENTS: usize = 12;
+const TIMELINE_AXIS_Y: f64 = 200.0; // middle of 400px canvas
+const TIMELINE_DOT_R: f64 = 5.0;
+const TIMELINE_LABEL_OFFSET: f64 = 22.0; // distance from dot to label
+
+/// `diagram_timeline(data, style) -> String`
+///
+/// `data` is `List<Struct{date, label, description?}>`. Renders a horizontal
+/// timeline with event dots. Labels alternate above/below by index parity
+/// (simple alternation — not a full anti-overlap engine, that's Н87).
+pub fn builtin_diagram_timeline(args: &[Value]) -> Result<Value, String> {
+    let data = expect_list_arg("diagram_timeline", args, 0)?;
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    if data.is_empty() {
+        return Err("diagram_timeline: data list must not be empty".to_string());
+    }
+    if data.len() > TIMELINE_MAX_EVENTS {
+        return Err(format!(
+            "diagram_timeline: too many events ({}), maximum is {}",
+            data.len(),
+            TIMELINE_MAX_EVENTS
+        ));
+    }
+    // Extract items
+    struct TlEvent {
+        date: String,
+        label: String,
+        description: Option<String>,
+    }
+    let mut items: Vec<TlEvent> = Vec::with_capacity(data.len());
+    for (i, item) in data.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_timeline: data[{}] must be Struct {{date, label, description?}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let date = struct_string_field("diagram_timeline item", f, "date")?;
+        let label = struct_string_field("diagram_timeline item", f, "label")?;
+        let description = struct_opt_string_field(f, "description");
+        items.push(TlEvent {
+            date,
+            label,
+            description,
+        });
+    }
+
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    let chart_x = 60.0_f64;
+    let chart_w = canvas_w - 2.0 * chart_x;
+    let n = items.len();
+    let step = if n > 1 {
+        chart_w / (n as f64 - 1.0)
+    } else {
+        0.0
+    };
+
+    let mut parts: Vec<String> = Vec::new();
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+    // Horizontal axis line
+    parts.push(format!(
+        r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="2" />"#,
+        fmt_num(chart_x - 10.0),
+        fmt_num(TIMELINE_AXIS_Y),
+        fmt_num(canvas_w - chart_x + 10.0),
+        fmt_num(TIMELINE_AXIS_Y),
+        escape_attr(&rule)
+    ));
+    // End caps (small ticks)
+    for cap_x in &[chart_x - 10.0, canvas_w - chart_x + 10.0] {
+        parts.push(format!(
+            r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="2" />"#,
+            fmt_num(*cap_x),
+            fmt_num(TIMELINE_AXIS_Y - 6.0),
+            fmt_num(*cap_x),
+            fmt_num(TIMELINE_AXIS_Y + 6.0),
+            escape_attr(&rule)
+        ));
+    }
+
+    // Events
+    for (i, ev) in items.iter().enumerate() {
+        let x = if n > 1 {
+            chart_x + (i as f64) * step
+        } else {
+            canvas_w / 2.0
+        };
+        let y = TIMELINE_AXIS_Y;
+        // Event dot — accent fill
+        parts.push(format!(
+            r#"<circle cx="{}" cy="{}" r="{}" fill="{}" stroke="{}" stroke-width="1.5" />"#,
+            fmt_num(x),
+            fmt_num(y),
+            fmt_num(TIMELINE_DOT_R),
+            escape_attr(&accent),
+            escape_attr(&paper)
+        ));
+        // Alternate label position by parity:
+        //   even index → date ABOVE, label/description BELOW
+        //   odd  index → date BELOW, label/description ABOVE
+        let date_above = i % 2 == 0;
+        let date_y = if date_above {
+            y - TIMELINE_LABEL_OFFSET
+        } else {
+            y + TIMELINE_LABEL_OFFSET + 4.0
+        };
+        let label_y = if date_above {
+            y + TIMELINE_LABEL_OFFSET + 4.0
+        } else {
+            y - TIMELINE_LABEL_OFFSET
+        };
+        // Small tick connecting dot to date label
+        let tick_y1 = if date_above {
+            y - TIMELINE_DOT_R
+        } else {
+            y + TIMELINE_DOT_R
+        };
+        let tick_y2 = if date_above {
+            date_y + 4.0
+        } else {
+            date_y - 8.0
+        };
+        parts.push(format!(
+            r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+            fmt_num(x),
+            fmt_num(tick_y1),
+            fmt_num(x),
+            fmt_num(tick_y2),
+            escape_attr(&rule)
+        ));
+        // Date label (accent color, slightly bold via font-size)
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="11" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(x),
+            fmt_num(date_y),
+            escape_attr(&accent),
+            escape_html_chars(&ev.date)
+        ));
+        // Event label (ink, primary)
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="12" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(x),
+            fmt_num(label_y),
+            escape_attr(&ink),
+            escape_html_chars(&ev.label)
+        ));
+        // Optional description (muted, smaller, below/above label)
+        if let Some(desc) = &ev.description {
+            let desc_y = if date_above {
+                label_y + 14.0
+            } else {
+                label_y - 14.0
+            };
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(x),
+                fmt_num(desc_y),
+                escape_attr(&muted),
+                escape_html_chars(desc)
+            ));
+        }
+    }
+
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+// ── Block 3: diagram_gantt ─────────────────────────────────────────
+//
+// Gantt chart: one horizontal bar per task, scaled to fit canvas.
+// `start` and `duration` are abstract numeric units (days/weeks/etc —
+// MVP does not bind to a calendar).
+//
+// Data shape:
+//   List<Struct { task: String, start: Float, duration: Float }>
+//
+// Layout:
+//   - canvas 600×400, chart area x=[140, 580] (left 140px reserved for
+//     task labels), y=[40, 360]
+//   - row_h = chart_h / N (each task gets equal vertical space)
+//   - bar_y = chart_y_top + i × row_h + row_h × 0.25
+//     (top + i×row + 25% inset so bars don't touch)
+//   - bar_h = row_h × 0.5 (half the row height — leaves breathing room)
+//   - bar_x = chart_x + (start / max_end) × chart_w
+//   - bar_w = (duration / max_end) × chart_w
+//     where max_end = max(start + duration) across all tasks
+//   - Task label left-aligned to the right of the left margin
+//     (i.e. at x = chart_x - 8, right-anchored)
+//
+// Limits: data.len() ≤ 15. duration ≤ 0 → Err (invalid input, not a
+// silent zero-width bar).
+
+const GANTT_MAX_TASKS: usize = 15;
+const GANTT_CHART_X: f64 = 140.0; // left margin for task labels
+const GANTT_CHART_W: f64 = 440.0; // 580 - 140
+const GANTT_CHART_Y_TOP: f64 = 40.0;
+const GANTT_CHART_H: f64 = 320.0; // 360 - 40
+
+/// `diagram_gantt(data, style) -> String`
+///
+/// `data` is `List<Struct{task, start, duration}>`. Renders a Gantt chart
+/// with one horizontal bar per task. The horizontal scale is derived from
+/// `max(start + duration)` across all tasks.
+pub fn builtin_diagram_gantt(args: &[Value]) -> Result<Value, String> {
+    let data = expect_list_arg("diagram_gantt", args, 0)?;
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    if data.is_empty() {
+        return Err("diagram_gantt: data list must not be empty".to_string());
+    }
+    if data.len() > GANTT_MAX_TASKS {
+        return Err(format!(
+            "diagram_gantt: too many tasks ({}), maximum is {}",
+            data.len(),
+            GANTT_MAX_TASKS
+        ));
+    }
+    // Extract items — validate duration > 0
+    struct GanttTask {
+        task: String,
+        start: f64,
+        duration: f64,
+    }
+    let mut items: Vec<GanttTask> = Vec::with_capacity(data.len());
+    for (i, item) in data.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_gantt: data[{}] must be Struct {{task, start, duration}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let task = struct_string_field("diagram_gantt item", f, "task")?;
+        let start = struct_float_field("diagram_gantt item", f, "start")?;
+        let duration = struct_float_field("diagram_gantt item", f, "duration")?;
+        if duration <= 0.0 {
+            return Err(format!(
+                "diagram_gantt: data[{}].duration must be positive (got {}) — invalid input, not a zero-width bar",
+                i, duration
+            ));
+        }
+        if start < 0.0 {
+            return Err(format!(
+                "diagram_gantt: data[{}].start must be non-negative (got {})",
+                i, start
+            ));
+        }
+        items.push(GanttTask {
+            task,
+            start,
+            duration,
+        });
+    }
+    // Scale: max(start + duration) across all tasks
+    let max_end = items
+        .iter()
+        .map(|t| t.start + t.duration)
+        .fold(f64::NEG_INFINITY, f64::max);
+    if max_end <= 0.0 {
+        return Err(format!(
+            "diagram_gantt: max(start + duration) must be positive (got {})",
+            max_end
+        ));
+    }
+    let scale = GANTT_CHART_W / max_end;
+
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    let n = items.len();
+    let row_h = GANTT_CHART_H / (n as f64);
+    let bar_h = (row_h * 0.5).clamp(8.0, 28.0);
+
+    let mut parts: Vec<String> = Vec::new();
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+    // Header rule (above first bar) — separates "title row" from bars
+    parts.push(format!(
+        r#"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+        fmt_num(GANTT_CHART_Y_TOP - 8.0),
+        fmt_num(canvas_w),
+        fmt_num(GANTT_CHART_Y_TOP - 8.0),
+        escape_attr(&rule)
+    ));
+    // Vertical separator between task labels and bar area
+    parts.push(format!(
+        r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+        fmt_num(GANTT_CHART_X - 8.0),
+        fmt_num(GANTT_CHART_Y_TOP - 8.0),
+        fmt_num(GANTT_CHART_X - 8.0),
+        fmt_num(GANTT_CHART_Y_TOP + GANTT_CHART_H + 8.0),
+        escape_attr(&rule)
+    ));
+    // Bottom rule
+    parts.push(format!(
+        r#"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+        fmt_num(GANTT_CHART_Y_TOP + GANTT_CHART_H + 8.0),
+        fmt_num(canvas_w),
+        fmt_num(GANTT_CHART_Y_TOP + GANTT_CHART_H + 8.0),
+        escape_attr(&rule)
+    ));
+
+    // Bars + labels
+    for (i, t) in items.iter().enumerate() {
+        let row_y = GANTT_CHART_Y_TOP + (i as f64) * row_h;
+        let bar_y = row_y + (row_h - bar_h) / 2.0;
+        let bar_x = GANTT_CHART_X + t.start * scale;
+        let bar_w = t.duration * scale;
+        // Alternating row tint for readability
+        if i % 2 == 1 {
+            parts.push(format!(
+                r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" opacity="0.12" />"#,
+                fmt_num(GANTT_CHART_X),
+                fmt_num(row_y),
+                fmt_num(GANTT_CHART_W),
+                fmt_num(row_h),
+                escape_attr(&rule)
+            ));
+        }
+        // Task label (right-aligned, ink)
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="12" fill="{}" text-anchor="end">{}</text>"#,
+            fmt_num(GANTT_CHART_X - 12.0),
+            fmt_num(bar_y + bar_h / 2.0 + 4.0),
+            escape_attr(&ink),
+            escape_html_chars(&t.task)
+        ));
+        // Bar — accent fill, paper stroke (subtle outline)
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" stroke="{}" stroke-width="1" rx="2" ry="2" />"#,
+            fmt_num(bar_x),
+            fmt_num(bar_y),
+            fmt_num(bar_w),
+            fmt_num(bar_h),
+            escape_attr(&accent),
+            escape_attr(&paper)
+        ));
+        // Duration label inside bar (if bar is wide enough)
+        if bar_w > 40.0 {
+            let dur_label = format!("{:.1}", t.duration);
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(bar_x + bar_w / 2.0),
+                fmt_num(bar_y + bar_h / 2.0 + 3.0),
+                escape_attr(&paper),
+                escape_html_chars(&dur_label)
+            ));
+        }
+    }
+    // muted is used for nothing here but kept for style-token parity
+    let _ = &muted;
+
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+// ── Block 4: diagram_process ───────────────────────────────────────
+//
+// Strictly LINEAR chain of numbered steps — NOT a flowchart.
+//
+// Difference from diagram_flowchart (Н81 Block 4):
+//   - flowchart: arbitrary graph with branches/merges, topological sort
+//     into layers, nodes/edges data shape.
+//   - process: linear chain only, no branches, List<Struct{label, ...}>
+//     data shape (NOT nodes/edges). Each step has a numbered badge
+//     (1, 2, 3, ...) and is connected to the next via draw_connector.
+//
+// Data shape:
+//   List<Struct { label: String, description?: String }>
+//
+// Layout:
+//   - Horizontal chain of boxes left→right
+//   - N steps → evenly spaced across chart_w
+//   - Each box: 80w × 50h (or 60w × 60h if N is large) with rounded
+//     corners, paper fill, rule border
+//   - Numbered badge: small circle (r=10) in the top-left corner of
+//     each box, filled with accent, containing the step number (1-indexed)
+//   - Connectors between consecutive boxes via draw_connector
+//
+// Limits: data.len() ≤ 8.
+
+const PROCESS_MAX_STEPS: usize = 8;
+const PROCESS_BOX_W: f64 = 90.0;
+const PROCESS_BOX_H: f64 = 56.0;
+const PROCESS_BADGE_R: f64 = 10.0;
+
+/// `diagram_process(data, style) -> String`
+///
+/// `data` is `List<Struct{label, description?}>`. Renders a strictly
+/// linear chain of numbered steps connected by arrows. This is NOT the
+/// same as diagram_flowchart — process has no branches/merges and a
+/// different data shape (List<Struct>, not Struct{nodes, edges}).
+pub fn builtin_diagram_process(args: &[Value]) -> Result<Value, String> {
+    let data = expect_list_arg("diagram_process", args, 0)?;
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    if data.is_empty() {
+        return Err("diagram_process: data list must not be empty".to_string());
+    }
+    if data.len() > PROCESS_MAX_STEPS {
+        return Err(format!(
+            "diagram_process: too many steps ({}), maximum is {} — linear chain longer than 8 doesn't fit a reasonable canvas",
+            data.len(),
+            PROCESS_MAX_STEPS
+        ));
+    }
+    // Extract items
+    struct ProcStep {
+        label: String,
+        description: Option<String>,
+    }
+    let mut items: Vec<ProcStep> = Vec::with_capacity(data.len());
+    for (i, item) in data.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_process: data[{}] must be Struct {{label, description?}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let label = struct_string_field("diagram_process item", f, "label")?;
+        let description = struct_opt_string_field(f, "description");
+        items.push(ProcStep { label, description });
+    }
+
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    let n = items.len();
+    // Center the chain horizontally — each box center at:
+    //   x_i = pad + (i + 0.5) × (canvas_w - 2×pad) / n
+    // where pad reserves space for half a box on each side.
+    let pad = PROCESS_BOX_W / 2.0 + 12.0;
+    let usable_w = canvas_w - 2.0 * pad;
+    let step_w = usable_w / (n as f64);
+    let box_cy = canvas_h / 2.0;
+    let box_y = box_cy - PROCESS_BOX_H / 2.0;
+
+    let mut parts: Vec<String> = Vec::new();
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+
+    // Connectors FIRST (so boxes render on top of any line tips)
+    for i in 1..n {
+        let prev_cx = pad + ((i - 1) as f64 + 0.5) * step_w;
+        let curr_cx = pad + (i as f64 + 0.5) * step_w;
+        let start_x = prev_cx + PROCESS_BOX_W / 2.0;
+        let end_x = curr_cx - PROCESS_BOX_W / 2.0;
+        // Horizontal connector at box vertical midpoint
+        parts.push(draw_connector(start_x, box_cy, end_x, box_cy, &style));
+    }
+
+    // Boxes + badges + labels
+    for (i, step) in items.iter().enumerate() {
+        let cx = pad + (i as f64 + 0.5) * step_w;
+        let box_x = cx - PROCESS_BOX_W / 2.0;
+        // Box — paper fill, rule border, rounded
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" stroke="{}" stroke-width="1.5" rx="6" ry="6" />"#,
+            fmt_num(box_x),
+            fmt_num(box_y),
+            fmt_num(PROCESS_BOX_W),
+            fmt_num(PROCESS_BOX_H),
+            escape_attr(&paper),
+            escape_attr(&rule)
+        ));
+        // Numbered badge — top-left corner, accent fill, paper text
+        let badge_cx = box_x + 4.0 + PROCESS_BADGE_R;
+        let badge_cy = box_y + 4.0 + PROCESS_BADGE_R;
+        parts.push(format!(
+            r#"<circle cx="{}" cy="{}" r="{}" fill="{}" stroke="{}" stroke-width="1" />"#,
+            fmt_num(badge_cx),
+            fmt_num(badge_cy),
+            fmt_num(PROCESS_BADGE_R),
+            escape_attr(&accent),
+            escape_attr(&paper)
+        ));
+        // Step number (1-indexed)
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="11" font-weight="bold" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(badge_cx),
+            fmt_num(badge_cy + 4.0),
+            escape_attr(&paper),
+            i + 1
+        ));
+        // Label — centered horizontally, slightly below badge
+        let label_y = box_y + PROCESS_BOX_H / 2.0 + 4.0;
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="12" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(cx),
+            fmt_num(label_y),
+            escape_attr(&ink),
+            escape_html_chars(&step.label)
+        ));
+        // Optional description below the box (small, muted)
+        if let Some(desc) = &step.description {
+            let desc_y = box_y + PROCESS_BOX_H + 14.0;
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(cx),
+                fmt_num(desc_y),
+                escape_attr(&muted),
+                escape_html_chars(desc)
+            ));
+        }
+    }
+
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+// ── Block 5: diagram_loop ──────────────────────────────────────────
+//
+// Closed-loop (flywheel) diagram — steps arranged on a circle, last
+// step connects back to the first to close the cycle.
+//
+// Data shape:
+//   List<Struct { label: String, description?: String }>
+//
+// Layout:
+//   - N steps placed on a circle using polar_to_xy
+//   - angle_i = 2π × i / N − π/2  (start at top, same orientation as
+//     chart_radar from Н79 — preserved for visual consistency between
+//     circular functions in the graphics suite)
+//   - Each step rendered as a small box at polar_to_xy(cx, cy, r, angle_i)
+//   - Connectors via draw_connector from step i to step i+1
+//   - Last step (i = N-1) connects back to step 0 (closed loop)
+//
+// Limits: 3 ≤ N ≤ 8 (N < 3 → visually meaningless cycle; N > 8 → labels
+// overlap on the circle's circumference).
+
+const LOOP_MIN_STEPS: usize = 3;
+const LOOP_MAX_STEPS: usize = 8;
+const LOOP_BOX_W: f64 = 90.0;
+const LOOP_BOX_H: f64 = 44.0;
+
+/// `diagram_loop(data, style) -> String`
+///
+/// `data` is `List<Struct{label, description?}>`. Renders a closed-loop
+/// (flywheel) diagram with steps arranged on a circle. The last step
+/// connects back to the first to close the cycle.
+pub fn builtin_diagram_loop(args: &[Value]) -> Result<Value, String> {
+    let data = expect_list_arg("diagram_loop", args, 0)?;
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    if data.is_empty() {
+        return Err("diagram_loop: data list must not be empty".to_string());
+    }
+    if data.len() < LOOP_MIN_STEPS {
+        return Err(format!(
+            "diagram_loop: too few steps ({}), minimum is {} — a cycle with <3 steps is visually meaningless",
+            data.len(),
+            LOOP_MIN_STEPS
+        ));
+    }
+    if data.len() > LOOP_MAX_STEPS {
+        return Err(format!(
+            "diagram_loop: too many steps ({}), maximum is {} — labels would overlap on the circle",
+            data.len(),
+            LOOP_MAX_STEPS
+        ));
+    }
+    // Extract items
+    struct LoopStep {
+        label: String,
+        description: Option<String>,
+    }
+    let mut items: Vec<LoopStep> = Vec::with_capacity(data.len());
+    for (i, item) in data.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_loop: data[{}] must be Struct {{label, description?}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let label = struct_string_field("diagram_loop item", f, "label")?;
+        let description = struct_opt_string_field(f, "description");
+        items.push(LoopStep { label, description });
+    }
+
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    let cx = canvas_w / 2.0;
+    let cy = canvas_h / 2.0;
+    // Reserve room for labels OUTSIDE the boxes — reduce radius so boxes
+    // fit comfortably inside the canvas (box half-diagonal ≈ 50px).
+    let r = (canvas_h / 2.0 - 70.0).min(canvas_w / 2.0 - 80.0);
+    let n = items.len();
+
+    // Compute box centers via polar_to_xy
+    let centers: Vec<(f64, f64)> = (0..n)
+        .map(|i| {
+            // angle_i = 2π × i / N − π/2  (start at top)
+            let angle =
+                2.0 * std::f64::consts::PI * (i as f64) / (n as f64) - std::f64::consts::PI / 2.0;
+            polar_to_xy(cx, cy, r, angle)
+        })
+        .collect();
+
+    let mut parts: Vec<String> = Vec::new();
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+    // Faint reference circle (visual anchor — shows the conceptual loop)
+    parts.push(format!(
+        r#"<circle cx="{}" cy="{}" r="{}" fill="none" stroke="{}" stroke-width="1" stroke-opacity="0.25" stroke-dasharray="3 3" />"#,
+        fmt_num(cx),
+        fmt_num(cy),
+        fmt_num(r),
+        escape_attr(&rule)
+    ));
+
+    // Connectors FIRST (so boxes render on top)
+    // For each step i, draw connector from centers[i] to centers[(i+1) % n].
+    // The modular +1 ensures the last step connects back to the first —
+    // this is the closed-loop invariant from the narazd spec.
+    for i in 0..n {
+        let (x1, y1) = centers[i];
+        let (x2, y2) = centers[(i + 1) % n];
+        // Trim endpoints so connectors touch box edges, not centers
+        let (sx, sy) = box_edge_point(x1, y1, x2, y2, LOOP_BOX_W, LOOP_BOX_H);
+        let (ex, ey) = box_edge_point(x2, y2, x1, y1, LOOP_BOX_W, LOOP_BOX_H);
+        parts.push(draw_connector(sx, sy, ex, ey, &style));
+    }
+
+    // Boxes + labels
+    for (i, step) in items.iter().enumerate() {
+        let (bx, by) = centers[i];
+        let box_x = bx - LOOP_BOX_W / 2.0;
+        let box_y = by - LOOP_BOX_H / 2.0;
+        // Box — paper fill, accent border (loop is "the protagonist" so
+        // its border is accent rather than rule — visual emphasis)
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" stroke="{}" stroke-width="1.5" rx="6" ry="6" />"#,
+            fmt_num(box_x),
+            fmt_num(box_y),
+            fmt_num(LOOP_BOX_W),
+            fmt_num(LOOP_BOX_H),
+            escape_attr(&paper),
+            escape_attr(&accent)
+        ));
+        // Step number (small badge in top-left, similar to diagram_process)
+        let badge_cx = box_x + 12.0;
+        let badge_cy = box_y + 12.0;
+        parts.push(format!(
+            r#"<circle cx="{}" cy="{}" r="8" fill="{}" />"#,
+            fmt_num(badge_cx),
+            fmt_num(badge_cy),
+            escape_attr(&accent)
+        ));
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="10" font-weight="bold" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(badge_cx),
+            fmt_num(badge_cy + 3.0),
+            escape_attr(&paper),
+            i + 1
+        ));
+        // Label — centered horizontally, vertically just below center
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="12" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(bx),
+            fmt_num(by + 4.0),
+            escape_attr(&ink),
+            escape_html_chars(&step.label)
+        ));
+        // Optional description below the box, anchored to the side facing
+        // away from the center (so it doesn't overlap the loop interior).
+        if let Some(desc) = &step.description {
+            // Direction from center to box → outward normal
+            let dx = bx - cx;
+            let dy = by - cy;
+            let len = (dx * dx + dy * dy).sqrt().max(0.001);
+            let nx = dx / len;
+            let ny = dy / len;
+            let desc_x = bx + nx * (LOOP_BOX_W / 2.0 + 14.0);
+            let desc_y = by + ny * (LOOP_BOX_H / 2.0 + 14.0) + 4.0;
+            // Anchor depends on which side of the circle we're on
+            let anchor = if nx > 0.3 {
+                "start"
+            } else if nx < -0.3 {
+                "end"
+            } else {
+                "middle"
+            };
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="{}">{}</text>"#,
+                fmt_num(desc_x),
+                fmt_num(desc_y),
+                escape_attr(&muted),
+                anchor,
+                escape_html_chars(desc)
+            ));
+        }
+    }
+
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
 // ── Internal: escape XML attribute values ────────────────────────────
 //
 // For attribute values (inside "..."), we must escape: & < > " '

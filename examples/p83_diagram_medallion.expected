@@ -1,0 +1,3 @@
+[try] caught error: diagram_medallion: too many items (7), maximum is 6 — medallions won't fit horizontally on the canvas
+[try] caught error: diagram_medallion: unknown icon name 'nonexistent_icon'. Available: server, laptop, phone, database, cloud, arrow-right, check, warning, user, document
+p83_medallion_checks=6/6

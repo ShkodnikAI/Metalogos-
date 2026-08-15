@@ -1,0 +1,3 @@
+[try] caught error: diagram_sequence: messages[0].to references unknown actor "Ghost"
+[try] caught error: diagram_sequence: too many actors (9), maximum is 8 — lifelines become too narrow
+p82_seq_checks=6/6

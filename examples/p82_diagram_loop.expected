@@ -1,0 +1,3 @@
+[try] caught error: diagram_loop: too few steps (2), minimum is 3 — a cycle with <3 steps is visually meaningless
+[try] caught error: diagram_loop: too many steps (9), maximum is 8 — labels would overlap on the circle
+p82_loop_checks=6/6

@@ -1,0 +1,3 @@
+[try] caught error: diagram_gantt: data[1].duration must be positive (got 0) — invalid input, not a zero-width bar
+[try] caught error: diagram_gantt: too many tasks (16), maximum is 15
+p82_gantt_checks=6/6

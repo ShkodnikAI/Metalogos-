@@ -904,6 +904,12 @@ impl Builtins {
             builtin_diagram_architecture as BuiltinFn,
         );
 
+        // ── Наряд №86: Mini template engine ──
+        funcs.insert(
+            "template_render".to_string(),
+            builtin_template_render as BuiltinFn,
+        );
+
         // ── Наряд №50 Block 3: SHA-256 / HMAC / hex builtins ──
         funcs.insert("sha256".to_string(), builtin_sha256 as BuiltinFn);
         funcs.insert("hmac_sha256".to_string(), builtin_hmac_sha256 as BuiltinFn);
@@ -971,6 +977,8 @@ use contacts::*;
 // Наряд №74: Native SVG Graphics & Diagrams (ADR-0102)
 pub(crate) mod svg;
 use svg::*;
-
+// Наряд №86: Mini template engine (template_render)
+pub(crate) mod template;
+use template::*;
 #[cfg(test)]
 mod tests;

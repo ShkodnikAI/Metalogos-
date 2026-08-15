@@ -431,6 +431,15 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("diagram_data_flow", 2, "diagram"), // data, style — graph w/ cycles OK
     spec!("diagram_high_level", 2, "diagram"), // data, style — large bolder blocks, no cycles
     spec!("diagram_architecture", 2, "diagram"), // data, style — high_level + svg_icon per node
+    // ── Наряд №86: Mini template engine ──
+    //   template_render(template, data) -> Html
+    //   Parses Mustache/Handlebars-like subset: {{ var }} (auto-escaped),
+    //   {{{ var }}} (raw), {{#if cond}}...{{else}}...{{/if}},
+    //   {{#each items}}...{{/each}}. Returns opaque Value::Html.
+    //   INTENTIONALLY NOT in SVG_AUTO_ESCAPE_BUILTINS — the template is
+    //   trusted code (written by the .mlog programmer, not user input);
+    //   data substitution is escaped at runtime via escape_html_chars.
+    spec!("template_render", 2, "template"),
 ];
 
 /// Total number of registered builtins.

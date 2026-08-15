@@ -822,6 +822,23 @@ impl Builtins {
             "svg_canvas_preset".to_string(),
             builtin_svg_canvas_preset as BuiltinFn,
         );
+        // Level 3.1: diagrams (Наряд №81) — hierarchies & flows
+        funcs.insert(
+            "diagram_tree".to_string(),
+            builtin_diagram_tree as BuiltinFn,
+        );
+        funcs.insert(
+            "diagram_org_chart".to_string(),
+            builtin_diagram_org_chart as BuiltinFn,
+        );
+        funcs.insert(
+            "diagram_flowchart".to_string(),
+            builtin_diagram_flowchart as BuiltinFn,
+        );
+        funcs.insert(
+            "diagram_layers".to_string(),
+            builtin_diagram_layers as BuiltinFn,
+        );
 
         // ── Наряд №50 Block 3: SHA-256 / HMAC / hex builtins ──
         funcs.insert("sha256".to_string(), builtin_sha256 as BuiltinFn);

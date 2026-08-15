@@ -813,6 +813,15 @@ impl Builtins {
             "color_palette".to_string(),
             builtin_color_palette as BuiltinFn,
         );
+        // Level 2.6/2.7: procedural backgrounds + canvas presets (Наряд №80)
+        funcs.insert(
+            "svg_generate".to_string(),
+            builtin_svg_generate as BuiltinFn,
+        );
+        funcs.insert(
+            "svg_canvas_preset".to_string(),
+            builtin_svg_canvas_preset as BuiltinFn,
+        );
 
         // ── Наряд №50 Block 3: SHA-256 / HMAC / hex builtins ──
         funcs.insert("sha256".to_string(), builtin_sha256 as BuiltinFn);

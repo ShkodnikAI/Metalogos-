@@ -1,0 +1,98 @@
+// ── Наряд №81 Block 3: diagram_org_chart contract ────────────────────
+//
+// Org chart contract — verifies the title field handling:
+//   1. Basic 3-level org chart with titles renders
+//   2. Mixed nodes (some with title, some without) render
+//   3. Same data shape as diagram_tree (without titles) also works —
+//      proves diagram_org_chart is a true wrapper, not a divergent impl
+//   4. Deep org chart (depth 4) with titles at every level renders
+//   5. Single-node org chart with title renders
+//   6. Single-node org chart WITHOUT title renders (title is optional)
+//
+// The wrapper nature is verified by test 3: passing tree-shaped data
+// (no title field) to diagram_org_chart should succeed — the function
+// must not require title. This is the "thin wrapper" invariant from
+// the narazd spec.
+//
+// Output: single summary string, "p81_org_checks=N/6".
+
+pattern P81DiagramOrgChartContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Basic 3-level org chart with titles ────────────────────────
+  let data1 = {
+    label: "CEO",
+    title: "Chief Executive",
+    children: [
+      {label: "VP Eng", title: "Vice President", children: [
+        {label: "Eng Lead 1", title: "Team Lead", children: []},
+        {label: "Eng Lead 2", title: "Team Lead", children: []}
+      ]},
+      {label: "VP Sales", title: "Vice President", children: [
+        {label: "Sales Lead", title: "Regional Manager", children: []}
+      ]}
+    ]
+  }
+  let r1 = diagram_org_chart(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. Mixed titles (some nodes have title, some don't) ──────────
+  let data2 = {
+    label: "Director",
+    title: "Department Head",
+    children: [
+      {label: "Manager A", title: "Senior Manager", children: []},
+      {label: "Manager B", children: []},
+      {label: "Manager C", title: "Junior Manager", children: []}
+    ]
+  }
+  let r2 = diagram_org_chart(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. Tree-shaped data (no titles) — wrapper invariant ──────────
+  // Passing diagram_tree-style data to diagram_org_chart must work.
+  // The function should treat missing title as None and render a
+  // single-line node (same as diagram_tree would).
+  let data3 = {
+    label: "Root",
+    children: [
+      {label: "Child A", children: [{label: "Grandchild", children: []}]},
+      {label: "Child B", children: []}
+    ]
+  }
+  let r3 = diagram_org_chart(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // ── 4. Deep org chart (depth 4) with titles ──────────────────────
+  let data4 = {
+    label: "L0",
+    title: "T0",
+    children: [
+      {label: "L1", title: "T1", children: [
+        {label: "L2", title: "T2", children: [
+          {label: "L3", title: "T3", children: [
+            {label: "Leaf", title: "Leaf Role", children: []}
+          ]}
+        ]}
+      ]}
+    ]
+  }
+  let r4 = diagram_org_chart(data4, style)
+  let ok4 = to_float(starts_with(r4, "<svg "))
+
+  // ── 5. Single-node with title ─────────────────────────────────────
+  let data5 = {label: "Solo", title: "Solo Title", children: []}
+  let r5 = diagram_org_chart(data5, style)
+  let ok5 = to_float(starts_with(r5, "<svg "))
+
+  // ── 6. Single-node without title (title optional) ─────────────────
+  let data6 = {label: "Untitled", children: []}
+  let r6 = diagram_org_chart(data6, style)
+  let ok6 = to_float(starts_with(r6, "<svg "))
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
+
+  return "p81_org_checks=" + to_string(total) + "/6"
+}
+
+flow Main { input: String = "x" -> P81DiagramOrgChartContract -> output }

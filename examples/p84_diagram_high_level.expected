@@ -1,0 +1,4 @@
+[try] caught error: flowchart contains a cycle involving nodes: A, B
+[try] caught error: flowchart contains a cycle: A→A (self-loop)
+[try] caught error: diagram_high_level: edges[0].to references unknown node "Z"
+p84_high_level_checks=6/6

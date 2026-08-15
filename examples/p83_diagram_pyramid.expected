@@ -1,0 +1,3 @@
+[try] caught error: diagram_pyramid: too few layers (1), minimum is 2 — a single-layer pyramid is meaningless
+[try] caught error: diagram_pyramid: too many layers (7), maximum is 6 — layers would become too thin vertically
+p83_pyramid_checks=6/6

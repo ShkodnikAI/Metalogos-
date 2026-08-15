@@ -1,0 +1,110 @@
+// ── Наряд №84 Block 8: diagram_swimlane contract ────────────────────
+//
+// Swimlane diagram contract. The KEY invariants:
+//   1. Basic 2-lane × 3-step layout renders
+//   2. Steps in different lanes aligned by `order` (NOT list index)
+//   3. 6 lanes (maximum) render
+//   4. > 6 lanes → Err (limit)
+//   5. > 30 steps → Err (limit)
+//   6. Step with unknown lane name → Err (input validation)
+//
+// Test 2 is the subtle one: steps `[A.order=1, B.order=1, C.order=2]`
+// mean A and B are at the same horizontal position regardless of which
+// lane they're in. We can't assert pixel positions from .mlog, but we
+// verify the function accepts this input shape (mixed orders across
+// lanes is the normal case).
+//
+// Output: single summary string, "p84_swimlane_checks=N/6".
+
+pattern P84DiagramSwimlaneContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Basic 2-lane × 3-step layout ───────────────────────────────
+  let data1 = {
+    lanes: ["Frontend", "Backend"],
+    steps: [
+      {lane: "Frontend", label: "Render", order: 1.0},
+      {lane: "Backend", label: "Fetch", order: 2.0},
+      {lane: "Frontend", label: "Update", order: 3.0}
+    ]
+  }
+  let r1 = diagram_swimlane(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. Steps with same `order` in different lanes ─────────────────
+  // Two steps with order=1.0 in different lanes — both at the left edge.
+  // Two steps with order=2.0 in different lanes — both at the right edge.
+  // This is the canonical swimlane "aligned by time" pattern.
+  let data2 = {
+    lanes: ["Client", "Server"],
+    steps: [
+      {lane: "Client", label: "Request", order: 1.0},
+      {lane: "Server", label: "Receive", order: 1.0},
+      {lane: "Server", label: "Respond", order: 2.0},
+      {lane: "Client", label: "Display", order: 2.0}
+    ]
+  }
+  let r2 = diagram_swimlane(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. 6 lanes (maximum) render ───────────────────────────────────
+  let data3 = {
+    lanes: ["L1", "L2", "L3", "L4", "L5", "L6"],
+    steps: [
+      {lane: "L1", label: "a", order: 1.0},
+      {lane: "L6", label: "b", order: 2.0}
+    ]
+  }
+  let r3 = diagram_swimlane(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // ── 4. > 6 lanes → Err ────────────────────────────────────────────
+  let data4 = {
+    lanes: ["L1", "L2", "L3", "L4", "L5", "L6", "L7"],
+    steps: []
+  }
+  let r4 = try diagram_swimlane(data4, style)
+  let ok4 = to_float(type_of(r4) == "Unit")
+
+  // ── 5. > 30 steps → Err ───────────────────────────────────────────
+  let many_steps = [
+    {lane: "L1", label: "s1", order: 1.0}, {lane: "L1", label: "s2", order: 2.0},
+    {lane: "L1", label: "s3", order: 3.0}, {lane: "L1", label: "s4", order: 4.0},
+    {lane: "L1", label: "s5", order: 5.0}, {lane: "L1", label: "s6", order: 6.0},
+    {lane: "L1", label: "s7", order: 7.0}, {lane: "L1", label: "s8", order: 8.0},
+    {lane: "L1", label: "s9", order: 9.0}, {lane: "L1", label: "s10", order: 10.0},
+    {lane: "L1", label: "s11", order: 11.0}, {lane: "L1", label: "s12", order: 12.0},
+    {lane: "L1", label: "s13", order: 13.0}, {lane: "L1", label: "s14", order: 14.0},
+    {lane: "L1", label: "s15", order: 15.0}, {lane: "L1", label: "s16", order: 16.0},
+    {lane: "L1", label: "s17", order: 17.0}, {lane: "L1", label: "s18", order: 18.0},
+    {lane: "L1", label: "s19", order: 19.0}, {lane: "L1", label: "s20", order: 20.0},
+    {lane: "L1", label: "s21", order: 21.0}, {lane: "L1", label: "s22", order: 22.0},
+    {lane: "L1", label: "s23", order: 23.0}, {lane: "L1", label: "s24", order: 24.0},
+    {lane: "L1", label: "s25", order: 25.0}, {lane: "L1", label: "s26", order: 26.0},
+    {lane: "L1", label: "s27", order: 27.0}, {lane: "L1", label: "s28", order: 28.0},
+    {lane: "L1", label: "s29", order: 29.0}, {lane: "L1", label: "s30", order: 30.0},
+    {lane: "L1", label: "s31", order: 31.0}
+  ]
+  let data5 = {
+    lanes: ["L1"],
+    steps: many_steps
+  }
+  let r5 = try diagram_swimlane(data5, style)
+  let ok5 = to_float(type_of(r5) == "Unit")
+
+  // ── 6. Step references unknown lane → Err ──────────────────────────
+  let data6 = {
+    lanes: ["Real"],
+    steps: [
+      {lane: "Imaginary", label: "x", order: 1.0}
+    ]
+  }
+  let r6 = try diagram_swimlane(data6, style)
+  let ok6 = to_float(type_of(r6) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
+
+  return "p84_swimlane_checks=" + to_string(total) + "/6"
+}
+
+flow Main { input: String = "x" -> P84DiagramSwimlaneContract -> output }

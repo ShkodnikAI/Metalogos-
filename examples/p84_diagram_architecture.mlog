@@ -1,0 +1,104 @@
+// ── Наряд №84 Block 8: diagram_architecture contract ────────────────
+//
+// Architecture diagram contract — same shape as diagram_high_level,
+// PLUS optional `icon` per node (validated against svg_icon's 10 known
+// names). The KEY invariants:
+//   1. Nodes WITH icons render (each from svg_icon's 10 names)
+//   2. Nodes WITHOUT icons render (fallback to plain block, like high_level)
+//   3. Mixed row (some with icons, some without) renders
+//   4. Cycle → Err (same acyclic requirement as high_level)
+//   5. Unknown icon name → Err (delegation to icon_path_data)
+//   6. Unknown node reference → Err
+//
+// Test 5 verifies the same "don't duplicate icon name list" invariant
+// as diagram_medallion (Н83 Block 5) — the architecture function
+// delegates to icon_path_data() and produces an error on unknown names
+// BEFORE any SVG output is produced.
+//
+// Output: single summary string, "p84_architecture_checks=N/6".
+
+pattern P84DiagramArchitectureContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Nodes WITH icons (from svg_icon's 10 known names) ──────────
+  let data1 = {
+    nodes: [
+      {id: "api", label: "API Server", icon: "server"},
+      {id: "db", label: "Database", icon: "database"},
+      {id: "cdn", label: "CDN", icon: "cloud"}
+    ],
+    edges: [
+      {from: "api", to: "db"},
+      {from: "cdn", to: "api"}
+    ]
+  }
+  let r1 = diagram_architecture(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. Nodes WITHOUT icons render (plain block, like high_level) ──
+  let data2 = {
+    nodes: [
+      {id: "X", label: "Plain Service"},
+      {id: "Y", label: "Other Service"}
+    ],
+    edges: [
+      {from: "X", to: "Y"}
+    ]
+  }
+  let r2 = diagram_architecture(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. Mixed: some nodes with icons, some without ─────────────────
+  let data3 = {
+    nodes: [
+      {id: "srv", label: "Server", icon: "server"},
+      {id: "worker", label: "Worker"},         // no icon
+      {id: "store", label: "Store", icon: "database"}
+    ],
+    edges: [
+      {from: "srv", to: "worker"},
+      {from: "worker", to: "store"}
+    ]
+  }
+  let r3 = diagram_architecture(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // ── 4. Cycle A↔B → Err ────────────────────────────────────────────
+  let data4 = {
+    nodes: [
+      {id: "A", label: "A", icon: "server"},
+      {id: "B", label: "B", icon: "server"}
+    ],
+    edges: [
+      {from: "A", to: "B"},
+      {from: "B", to: "A"}
+    ]
+  }
+  let r4 = try diagram_architecture(data4, style)
+  let ok4 = to_float(type_of(r4) == "Unit")
+
+  // ── 5. Unknown icon name → Err ────────────────────────────────────
+  // Reuses svg_icon's validation — same delegation as diagram_medallion.
+  let data5 = {
+    nodes: [
+      {id: "A", label: "A", icon: "nonexistent_icon"}
+    ],
+    edges: []
+  }
+  let r5 = try diagram_architecture(data5, style)
+  let ok5 = to_float(type_of(r5) == "Unit")
+
+  // ── 6. Unknown node reference → Err ───────────────────────────────
+  let data6 = {
+    nodes: [{id: "A", label: "A", icon: "server"}],
+    edges: [{from: "A", to: "Z"}]
+  }
+  let r6 = try diagram_architecture(data6, style)
+  let ok6 = to_float(type_of(r6) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
+
+  return "p84_architecture_checks=" + to_string(total) + "/6"
+}
+
+flow Main { input: String = "x" -> P84DiagramArchitectureContract -> output }

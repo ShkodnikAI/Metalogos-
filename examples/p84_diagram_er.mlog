@@ -1,0 +1,106 @@
+// ── Наряд №84 Block 8: diagram_er contract ───────────────────────────
+//
+// Entity-Relationship diagram contract. The KEY invariants verified:
+//   1. Multiple entities with fields render — basic case
+//   2. Relations between entities render (draw_connector + label)
+//   3. More than 3 entities wrap to multiple grid rows (grid layout)
+//   4. Entity with no fields renders (just the header bar)
+//   5. > 12 entities → Err (limit)
+//   6. > 8 fields in one entity → Err (limit)
+//
+// Layout is a SIMPLE GRID (3 per row) — NOT graph layout. The spec is
+// explicit: "Не решать общую задачу graph layout для diagram_er —
+// простая сетка, не анализ связей для позиционирования." We verify
+// this by NOT asserting any positional property (no "B is below A"
+// claim that would imply graph-based positioning).
+//
+// Output: single summary string, "p84_er_checks=N/6".
+
+pattern P84DiagramErContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Basic: 3 entities with fields + 2 relations ────────────────
+  let data1 = {
+    entities: [
+      {name: "User", fields: ["id", "email", "name"]},
+      {name: "Post", fields: ["id", "title", "body"]},
+      {name: "Comment", fields: ["id", "text"]}
+    ],
+    relations: [
+      {from: "User", to: "Post", label: "1:N"},
+      {from: "Post", to: "Comment", label: "1:N"}
+    ]
+  }
+  let r1 = diagram_er(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. Relations without labels render (label optional) ──────────
+  let data2 = {
+    entities: [
+      {name: "A", fields: ["x"]},
+      {name: "B", fields: ["y"]}
+    ],
+    relations: [
+      {from: "A", to: "B"}
+    ]
+  }
+  let r2 = diagram_er(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. > 3 entities → multi-row grid ──────────────────────────────
+  // 5 entities on a 3-per-row grid → 2 rows. We don't assert layout
+  // details (the spec says no graph analysis); we just verify it renders.
+  let data3 = {
+    entities: [
+      {name: "E1", fields: ["a"]},
+      {name: "E2", fields: ["b"]},
+      {name: "E3", fields: ["c"]},
+      {name: "E4", fields: ["d"]},
+      {name: "E5", fields: ["e"]}
+    ],
+    relations: []
+  }
+  let r3 = diagram_er(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // ── 4. Entity with empty fields list renders (just header bar) ────
+  let data4 = {
+    entities: [
+      {name: "Empty", fields: []},
+      {name: "Other", fields: ["x"]}
+    ],
+    relations: []
+  }
+  let r4 = diagram_er(data4, style)
+  let ok4 = to_float(starts_with(r4, "<svg "))
+
+  // ── 5. > 12 entities → Err ────────────────────────────────────────
+  let data5 = {
+    entities: [
+      {name: "E1", fields: []}, {name: "E2", fields: []}, {name: "E3", fields: []},
+      {name: "E4", fields: []}, {name: "E5", fields: []}, {name: "E6", fields: []},
+      {name: "E7", fields: []}, {name: "E8", fields: []}, {name: "E9", fields: []},
+      {name: "E10", fields: []}, {name: "E11", fields: []}, {name: "E12", fields: []},
+      {name: "E13", fields: []}
+    ],
+    relations: []
+  }
+  let r5 = try diagram_er(data5, style)
+  let ok5 = to_float(type_of(r5) == "Unit")
+
+  // ── 6. > 8 fields in one entity → Err ─────────────────────────────
+  let data6 = {
+    entities: [
+      {name: "Big", fields: ["a", "b", "c", "d", "e", "f", "g", "h", "i"]}
+    ],
+    relations: []
+  }
+  let r6 = try diagram_er(data6, style)
+  let ok6 = to_float(type_of(r6) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
+
+  return "p84_er_checks=" + to_string(total) + "/6"
+}
+
+flow Main { input: String = "x" -> P84DiagramErContract -> output }

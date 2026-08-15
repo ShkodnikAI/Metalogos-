@@ -1,0 +1,107 @@
+// ── Наряд №84 Block 8: topological_layers regression contract ───────
+//
+// Н84 Block 4 generalized `topological_layers` from a typed signature
+// (`&[FlowNode], &[FlowEdge]`) to a generic one (`&[String], &[(String, String)]`).
+// This is a NON-NEW contract — it's a regression check that the
+// EXISTING diagram_flowchart behavior (Н81) is unchanged after the
+// signature change. The spec mandates this: "проверить, что старый
+// контракт diagram_flowchart (наряд №81) по-прежнему проходит без
+// изменений после обобщения функции в блоке 4 (не новый контракт,
+// проверка регрессии старого)".
+//
+// This contract re-runs the SAME 6 cases as p81_diagram_flowchart.mlog.
+// If all 6 still produce the same ok/N results, the generalization
+// preserved behavior. The contract is intentionally SEPARATE from
+// p81_diagram_flowchart.mlog so a future regression that breaks only
+// the generalized version (but not, hypothetically, the original
+// typed version that no longer exists) is caught.
+//
+// Output: single summary string, "p84_topo_regression_checks=N/6".
+// Expected: 6/6 (same as p81_diagram_flowchart.mlog).
+
+pattern P84TopologicalLayersRegressionContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Linear chain A→B→C ─────────────────────────────────────────
+  let data1 = {
+    nodes: [
+      {id: "A", label: "Start"},
+      {id: "B", label: "Middle"},
+      {id: "C", label: "End"}
+    ],
+    edges: [
+      {from: "A", to: "B"},
+      {from: "B", to: "C"}
+    ]
+  }
+  let r1 = diagram_flowchart(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. Diamond: branch + merge (A→B, A→C, B→D, C→D) ───────────────
+  let data2 = {
+    nodes: [
+      {id: "A", label: "Source"},
+      {id: "B", label: "Branch 1"},
+      {id: "C", label: "Branch 2"},
+      {id: "D", label: "Merge"}
+    ],
+    edges: [
+      {from: "A", to: "B"},
+      {from: "A", to: "C"},
+      {from: "B", to: "D"},
+      {from: "C", to: "D"}
+    ]
+  }
+  let r2 = diagram_flowchart(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. Multi-source (two roots, one sink) ─────────────────────────
+  let data3 = {
+    nodes: [
+      {id: "A", label: "Root 1"},
+      {id: "B", label: "Root 2"},
+      {id: "C", label: "Join"}
+    ],
+    edges: [
+      {from: "A", to: "C"},
+      {from: "B", to: "C"}
+    ]
+  }
+  let r3 = diagram_flowchart(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // ── 4. Edge labels render ─────────────────────────────────────────
+  let data4 = {
+    nodes: [
+      {id: "X", label: "Source"},
+      {id: "Y", label: "Sink"}
+    ],
+    edges: [
+      {from: "X", to: "Y", label: "data flow"}
+    ]
+  }
+  let r4 = diagram_flowchart(data4, style)
+  let ok4 = to_float(starts_with(r4, "<svg "))
+
+  // ── 5. Self-loop → Err (trivial cycle, must still be rejected) ────
+  let data5 = {
+    nodes: [{id: "A", label: "Self"}],
+    edges: [{from: "A", to: "A"}]
+  }
+  let r5 = try diagram_flowchart(data5, style)
+  let ok5 = to_float(type_of(r5) == "Unit")
+
+  // ── 6. Unknown node reference in edge → Err ───────────────────────
+  let data6 = {
+    nodes: [{id: "A", label: "Real"}],
+    edges: [{from: "A", to: "Z"}]
+  }
+  let r6 = try diagram_flowchart(data6, style)
+  let ok6 = to_float(type_of(r6) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
+
+  return "p84_topo_regression_checks=" + to_string(total) + "/6"
+}
+
+flow Main { input: String = "x" -> P84TopologicalLayersRegressionContract -> output }

@@ -47,14 +47,29 @@ pub(super) fn preprocess_templates(source: &str) -> (String, HashMap<String, Str
         // Find "template" keyword (ASCII-only, find() is safe)
         if let Some(start) = result[search_from..].find("template") {
             let abs_start = search_from + start;
-            // Skip if this is part of a longer identifier (check preceding char)
-            if abs_start > 0
+            // Skip if this is part of a longer identifier.
+            // Check BOTH the preceding char AND the following char:
+            //   - preceding char alphanumeric (e.g. "mytemplate")
+            //   - following char alphanumeric or '_' (e.g. "template_render")
+            // The keyword `template` in a declaration is ALWAYS followed
+            // by whitespace then an IDENT (e.g. `template Card(...)`),
+            // so a following `_` or alnum char means this is NOT the
+            // keyword — it's an identifier like `template_render`.
+            // Наряд №86: without this check, `template_render(...)`
+            // calls get mis-preprocessed (their arguments' `{` get
+            // extracted as template bodies, breaking the call).
+            let prev_is_alnum = abs_start > 0
                 && result
                     .as_bytes()
                     .get(abs_start - 1)
                     .map(|&b| b.is_ascii_alphanumeric())
-                    .unwrap_or(false)
-            {
+                    .unwrap_or(false);
+            let next_is_ident = result
+                .as_bytes()
+                .get(abs_start + "template".len())
+                .map(|&b| b.is_ascii_alphanumeric() || b == b'_')
+                .unwrap_or(false);
+            if prev_is_alnum || next_is_ident {
                 search_from = abs_start + 1;
                 continue;
             }

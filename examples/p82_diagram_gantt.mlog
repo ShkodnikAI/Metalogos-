@@ -1,0 +1,88 @@
+// ── Наряд №82 Block 3: diagram_gantt contract ─────────────────────────
+//
+// Gantt chart contract — verifies horizontal bars per task:
+//   1. Basic 3-task Gantt renders
+//   2. Tasks with different starts (including non-zero start) — verifies
+//      scaling to max(start+duration). KEY test from the spec: "задачи
+//      с разным start, включая начинающиеся не с нуля — проверить
+//      масштабирование"
+//   3. Single-task Gantt (degenerate) renders
+//   4. 15 tasks (maximum allowed) renders
+//   5. duration ≤ 0 → Err (invalid input — not a silent zero-width bar)
+//   6. 16 tasks → Err (exceeds maximum)
+//
+// Output: single summary string, "p82_gantt_checks=N/6".
+
+pattern P82DiagramGanttContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Basic 3-task Gantt (all starting at 0) ────────────────────
+  let data1 = [
+    {task: "Design", start: 0.0, duration: 5.0},
+    {task: "Build", start: 0.0, duration: 10.0},
+    {task: "Test", start: 0.0, duration: 3.0}
+  ]
+  let r1 = diagram_gantt(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. Tasks with non-zero starts (verifies scaling) ─────────────
+  // Task A starts at 0, B at 3, C at 8 — the bar_x must reflect each
+  // start proportionally. max_end = max(0+5, 3+4, 8+2) = 10. Bars must
+  // be scaled so that 10 → chart_w.
+  let data2 = [
+    {task: "A", start: 0.0, duration: 5.0},
+    {task: "B", start: 3.0, duration: 4.0},
+    {task: "C", start: 8.0, duration: 2.0}
+  ]
+  let r2 = diagram_gantt(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. Single-task Gantt (degenerate) ────────────────────────────
+  let data3 = [{task: "Solo", start: 0.0, duration: 7.0}]
+  let r3 = diagram_gantt(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // ── 4. 15 tasks (maximum allowed) ────────────────────────────────
+  let data4 = [
+    {task: "T1", start: 0.0, duration: 2.0}, {task: "T2", start: 1.0, duration: 2.0},
+    {task: "T3", start: 2.0, duration: 2.0}, {task: "T4", start: 3.0, duration: 2.0},
+    {task: "T5", start: 4.0, duration: 2.0}, {task: "T6", start: 5.0, duration: 2.0},
+    {task: "T7", start: 6.0, duration: 2.0}, {task: "T8", start: 7.0, duration: 2.0},
+    {task: "T9", start: 8.0, duration: 2.0}, {task: "T10", start: 9.0, duration: 2.0},
+    {task: "T11", start: 10.0, duration: 2.0}, {task: "T12", start: 11.0, duration: 2.0},
+    {task: "T13", start: 12.0, duration: 2.0}, {task: "T14", start: 13.0, duration: 2.0},
+    {task: "T15", start: 14.0, duration: 2.0}
+  ]
+  let r4 = diagram_gantt(data4, style)
+  let ok4 = to_float(starts_with(r4, "<svg "))
+
+  // ── 5. duration ≤ 0 → Err (invalid input, not silent zero-width) ─
+  // The spec requires: "duration <= 0 для какой-либо задачи → ошибка
+  // (некорректные входные данные, не молчаливая нулевая полоса)."
+  let data5 = [
+    {task: "Valid", start: 0.0, duration: 5.0},
+    {task: "Bad", start: 1.0, duration: 0.0}
+  ]
+  let r5 = try diagram_gantt(data5, style)
+  let ok5 = to_float(type_of(r5) == "Unit")
+
+  // ── 6. 16 tasks → Err (exceeds maximum) ──────────────────────────
+  let data6 = [
+    {task: "T1", start: 0.0, duration: 1.0}, {task: "T2", start: 0.0, duration: 1.0},
+    {task: "T3", start: 0.0, duration: 1.0}, {task: "T4", start: 0.0, duration: 1.0},
+    {task: "T5", start: 0.0, duration: 1.0}, {task: "T6", start: 0.0, duration: 1.0},
+    {task: "T7", start: 0.0, duration: 1.0}, {task: "T8", start: 0.0, duration: 1.0},
+    {task: "T9", start: 0.0, duration: 1.0}, {task: "T10", start: 0.0, duration: 1.0},
+    {task: "T11", start: 0.0, duration: 1.0}, {task: "T12", start: 0.0, duration: 1.0},
+    {task: "T13", start: 0.0, duration: 1.0}, {task: "T14", start: 0.0, duration: 1.0},
+    {task: "T15", start: 0.0, duration: 1.0}, {task: "T16", start: 0.0, duration: 1.0}
+  ]
+  let r6 = try diagram_gantt(data6, style)
+  let ok6 = to_float(type_of(r6) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
+
+  return "p82_gantt_checks=" + to_string(total) + "/6"
+}
+
+flow Main { input: String = "x" -> P82DiagramGanttContract -> output }

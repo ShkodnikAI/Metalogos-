@@ -385,6 +385,25 @@ const SVG_AUTO_ESCAPE_BUILTINS: &[&str] = &[
     "diagram_org_chart",
     "diagram_flowchart",
     "diagram_layers",
+    // Наряд №82 Block 6: temporal & process diagrams.
+    //   diagram_sequence  — Struct{actors: List<String>, messages: [{from,to,label?}]}.
+    //     actors[] is a List<String> (NOT List<Struct>) — special scanner.
+    //     messages[].label is the rendered text (from/to are idents, scanned
+    //     defensively).
+    //   diagram_timeline  — List<Struct{date, label, description?}> — flat
+    //     list pattern, same shape as diagram_layers (3 string fields, not 2).
+    //   diagram_gantt     — List<Struct{task, start, duration}> — task is
+    //     the only string field; start/duration are floats, never rendered.
+    //   diagram_process   — List<Struct{label, description?}> — identical
+    //     shape to diagram_layers (reuses scan_layers_labels logic by name).
+    //   diagram_loop      — List<Struct{label, description?}> — same shape
+    //     as diagram_layers/diagram_process.
+    // All five escape text via escape_html_chars at runtime (svg.rs).
+    "diagram_sequence",
+    "diagram_timeline",
+    "diagram_gantt",
+    "diagram_process",
+    "diagram_loop",
 ];
 
 /// Builtins whose string arguments are NOT auto-escaped (structural).
@@ -727,6 +746,154 @@ fn scan_layers_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult)
     }
 }
 
+/// Наряд №82 Block 6 — scanner for `diagram_sequence` data shape.
+///
+/// Sequence has TWO independent lists, each containing user text:
+///   Struct {
+///     actors:   List<String>,                         // scan each StringLit directly
+///     messages: List<Struct{from, to, label?}>,       // scan messages[].label
+///   }
+///
+/// `actors` is a `List<String>` (NOT `List<Struct>`) — this is the
+/// special case called out in the narazd spec: "список строк — не забыть,
+/// это другая форма, чем везде остальные". The scanner walks each
+/// StringLit in actors[] directly (no struct unwrap), unlike
+/// scan_chart_labels/scan_layers_labels which expect StructLit elements.
+///
+/// `messages[].label` is the only rendered text field in messages;
+/// `from`/`to` are identifier strings used for actor lookup, not
+/// rendered — but we scan them defensively (same pattern as
+/// scan_flowchart_labels for edges[].from/to).
+///
+/// All findings are WARNINGs (runtime escapes via escape_html_chars —
+/// defense-in-depth, not a hard error).
+fn scan_sequence_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
+    if let Some(Expr::StructLit(fields)) = args.first() {
+        // actors: List<String> — scan each StringLit directly (no struct
+        // unwrap, this is the spec's "list of strings, not list of structs"
+        // special case).
+        if let Some(Expr::List(actor_items)) = fields.get("actors") {
+            for (i, actor) in actor_items.iter().enumerate() {
+                if let Expr::StringLit(s) = actor {
+                    if let Some(reason) = detect_xss_payload(s) {
+                        result.warnings.push(format!(
+                            "security: {} data.actors[{}] string literal {} — runtime will escape, but review intent",
+                            fn_name, i, reason
+                        ));
+                    }
+                }
+            }
+        }
+        // messages: List<Struct{from, to, label?}> — scan from/to
+        // defensively (identifiers, not rendered) and label as primary
+        // (rendered edge label at midpoint).
+        if let Some(Expr::List(msg_items)) = fields.get("messages") {
+            for (i, item) in msg_items.iter().enumerate() {
+                if let Expr::StructLit(msg_fields) = item {
+                    // from/to (defensive — identifiers, not rendered)
+                    for ident_key in &["from", "to"] {
+                        if let Some(Expr::StringLit(s)) = msg_fields.get(*ident_key) {
+                            if let Some(reason) = detect_xss_payload(s) {
+                                result.warnings.push(format!(
+                                    "security: {} data.messages[{}].{} string literal {} — field not rendered but review intent",
+                                    fn_name, i, ident_key, reason
+                                ));
+                            }
+                        }
+                    }
+                    // label (rendered as edge midpoint text)
+                    if let Some(Expr::StringLit(s)) = msg_fields.get("label") {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(format!(
+                                "security: {} data.messages[{}].label string literal {} — runtime will escape, but review intent",
+                                fn_name, i, reason
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Наряд №82 Block 6 — scanner for `diagram_gantt` data shape.
+///
+/// Gantt is a flat list of structs with exactly ONE string field:
+///   List<Struct{task: String, start: Float, duration: Float}>
+///
+/// Only `task` is rendered (as the bar label). `start`/`duration` are
+/// floats used for geometry — never reach SVG output. We scan `task`
+/// as a WARNING (runtime escapes via escape_html_chars — same as
+/// scan_chart_labels scans `label`, just under a different field name).
+///
+/// Implementation note: this is essentially scan_chart_labels with the
+/// field name changed from "label" to "task". We could parametrize
+/// scan_chart_labels to take a field name, but the existing call sites
+/// all use "label" — keeping a separate function preserves the
+/// self-documenting nature of each scanner and avoids changing
+/// behavior for the five existing chart_* builtins.
+fn scan_gantt_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
+    if let Some(Expr::List(items)) = args.first() {
+        for (i, item) in items.iter().enumerate() {
+            if let Expr::StructLit(fields) = item {
+                // task is the only string field; start/duration are floats
+                if let Some(Expr::StringLit(s)) = fields.get("task") {
+                    if let Some(reason) = detect_xss_payload(s) {
+                        result.warnings.push(format!(
+                            "security: {} data[{}].task string literal {} — runtime will escape, but review intent",
+                            fn_name, i, reason
+                        ));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Наряд №82 Block 6 — scanner for `diagram_timeline` data shape.
+///
+/// Timeline is a flat list of structs with THREE string fields:
+///   List<Struct{date: String, label: String, description?: String}>
+///
+/// All three are rendered as text (`date` and `label` always, `description`
+/// when present). All three must be scanned. Same per-struct walk pattern
+/// as scan_layers_labels — extended to check `date` as the first field.
+fn scan_timeline_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
+    if let Some(Expr::List(items)) = args.first() {
+        for (i, item) in items.iter().enumerate() {
+            if let Expr::StructLit(fields) = item {
+                // date (always rendered, above/below the dot)
+                if let Some(Expr::StringLit(s)) = fields.get("date") {
+                    if let Some(reason) = detect_xss_payload(s) {
+                        result.warnings.push(format!(
+                            "security: {} data[{}].date string literal {} — runtime will escape, but review intent",
+                            fn_name, i, reason
+                        ));
+                    }
+                }
+                // label (always rendered)
+                if let Some(Expr::StringLit(s)) = fields.get("label") {
+                    if let Some(reason) = detect_xss_payload(s) {
+                        result.warnings.push(format!(
+                            "security: {} data[{}].label string literal {} — runtime will escape, but review intent",
+                            fn_name, i, reason
+                        ));
+                    }
+                }
+                // description (rendered, optional)
+                if let Some(Expr::StringLit(s)) = fields.get("description") {
+                    if let Some(reason) = detect_xss_payload(s) {
+                        result.warnings.push(format!(
+                            "security: {} data[{}].description string literal {} — runtime will escape, but review intent",
+                            fn_name, i, reason
+                        ));
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Walk an expression and run the security check on every FnCall node.
 fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &str) {
     match expr {
@@ -801,6 +968,31 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
                     scan_flowchart_labels(name, args, result);
                 }
                 if name == "diagram_layers" {
+                    scan_layers_labels(name, args, result);
+                }
+                // Наряд №82 Block 6: temporal & process diagram scanners.
+                //   diagram_sequence — Struct{actors: List<String>, messages: ...}.
+                //     actors is List<String> (special case — direct StringLit
+                //     scan, no StructLit unwrap). messages[].label is rendered.
+                //     Scanned by scan_sequence_labels.
+                //   diagram_timeline — flat List<Struct{date, label, description?}>.
+                //     3 string fields — scan_timeline_labels checks all three.
+                //   diagram_gantt — flat List<Struct{task, start, duration}>.
+                //     Only `task` is rendered — scan_gantt_labels checks it.
+                //   diagram_process / diagram_loop — same shape as diagram_layers
+                //     (List<Struct{label, description?}>) — REUSES
+                //     scan_layers_labels (no need to write a new scanner for
+                //     an identical shape — "не писать заново" per spec).
+                if name == "diagram_sequence" {
+                    scan_sequence_labels(name, args, result);
+                }
+                if name == "diagram_timeline" {
+                    scan_timeline_labels(name, args, result);
+                }
+                if name == "diagram_gantt" {
+                    scan_gantt_labels(name, args, result);
+                }
+                if name == "diagram_process" || name == "diagram_loop" {
                     scan_layers_labels(name, args, result);
                 }
             }

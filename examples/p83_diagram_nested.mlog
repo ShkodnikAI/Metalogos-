@@ -1,0 +1,60 @@
+// ── Наряд №83 Block 4: diagram_nested contract ───────────────────────
+//
+// Concentric circles contract. Verifies:
+//   1. Basic 3-ring nested diagram renders (outer=first, inner=last)
+//   2. 5-ring nested diagram (maximum allowed) renders
+//   3. 1-ring nested diagram (degenerate single circle) renders
+//   4. 6 rings → Err (too many — rings would be indistinguishably thin)
+//   5. Empty list → Err
+//
+// Output: single summary string, "p83_nested_checks=N/5".
+
+pattern P83DiagramNestedContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Basic 3-ring nested (outermost first) ─────────────────────
+  // Order: first element = OUTERMOST ring. This is the spec's ordering
+  // convention ("снаружи внутрь, как в списке").
+  let data1 = [
+    {label: "Universe"},
+    {label: "Galaxy"},
+    {label: "Solar System"}
+  ]
+  let r1 = diagram_nested(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. 5-ring nested (maximum allowed) ───────────────────────────
+  let data2 = [
+    {label: "L1", value: 100.0},
+    {label: "L2", value: 80.0},
+    {label: "L3", value: 60.0},
+    {label: "L4", value: 40.0},
+    {label: "L5", value: 20.0}
+  ]
+  let r2 = diagram_nested(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. 1-ring nested (degenerate single circle) ──────────────────
+  let data3 = [{label: "Only Ring"}]
+  let r3 = diagram_nested(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // ── 4. 6 rings → Err (too many) ──────────────────────────────────
+  let data4 = [
+    {label: "1"}, {label: "2"}, {label: "3"},
+    {label: "4"}, {label: "5"}, {label: "6"}
+  ]
+  let r4 = try diagram_nested(data4, style)
+  let ok4 = to_float(type_of(r4) == "Unit")
+
+  // ── 5. Empty list → Err ──────────────────────────────────────────
+  let data5 = []
+  let r5 = try diagram_nested(data5, style)
+  let ok5 = to_float(type_of(r5) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5
+
+  return "p83_nested_checks=" + to_string(total) + "/5"
+}
+
+flow Main { input: String = "x" -> P83DiagramNestedContract -> output }

@@ -404,6 +404,31 @@ const SVG_AUTO_ESCAPE_BUILTINS: &[&str] = &[
     "diagram_gantt",
     "diagram_process",
     "diagram_loop",
+    // Наряд №83 Block 6: sets & comparison diagrams.
+    //   diagram_venn     — Struct{circles: [{label, value?}], overlap_label?}.
+    //     circles[].label is rendered; overlap_label is a TOP-LEVEL field
+    //     (NOT inside the list) — easy to forget, called out explicitly in
+    //     the spec. Special scanner scan_venn_labels covers both.
+    //   diagram_quadrant — Struct{x_axis_label, y_axis_label, items: [{label, x, y}]}.
+    //     BOTH axis labels are TOP-LEVEL fields (not in items[]) — same
+    //     "easy to forget" category as overlap_label. items[].label is the
+    //     only rendered text in the list (x/y are floats). Special scanner
+    //     scan_quadrant_labels covers all three.
+    //   diagram_pyramid  — List<Struct{label, value?}> — same flat shape
+    //     as diagram_layers (label rendered, value is float). REUSES
+    //     scan_layers_labels (no new scanner for an identical shape).
+    //   diagram_nested   — List<Struct{label, value?}> — identical shape
+    //     to diagram_pyramid. REUSES scan_layers_labels.
+    //   diagram_medallion — List<Struct{icon?, label, value?}>. label is
+    //     rendered; icon is a controlled enum (validated against the 10
+    //     svg_icon names at runtime), NOT user free-form text — explicitly
+    //     NOT scanned per the spec. value is float. New scanner
+    //     scan_medallion_labels checks only `label`.
+    "diagram_venn",
+    "diagram_quadrant",
+    "diagram_pyramid",
+    "diagram_nested",
+    "diagram_medallion",
 ];
 
 /// Builtins whose string arguments are NOT auto-escaped (structural).
@@ -894,6 +919,152 @@ fn scan_timeline_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResul
     }
 }
 
+/// Наряд №83 Block 6 — scanner for `diagram_venn` data shape.
+///
+/// Venn has a nested structure with a TOP-LEVEL string field:
+///   Struct {
+///     circles:      List<Struct{label: String, value?: Float}>,
+///     overlap_label: String?,                          ← TOP-LEVEL, not in list
+///   }
+///
+/// `overlap_label` is the spec-called-out "easy to forget" case: it's a
+/// field on the outer Struct, not an element of `circles[]`. A scanner
+/// that only walks List elements would miss it entirely. We scan it
+/// separately as a top-level StringLit field.
+///
+/// `circles[].label` is rendered inside each circle (offset from center).
+/// `circles[].value` is a Float — never rendered as text, skipped.
+///
+/// All findings are WARNINGs (runtime escapes via escape_html_chars —
+/// defense-in-depth, not a hard error).
+fn scan_venn_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
+    if let Some(Expr::StructLit(fields)) = args.first() {
+        // circles: List<Struct{label, value?}> — scan each circle's label
+        if let Some(Expr::List(circle_items)) = fields.get("circles") {
+            for (i, item) in circle_items.iter().enumerate() {
+                if let Expr::StructLit(circle_fields) = item {
+                    if let Some(Expr::StringLit(s)) = circle_fields.get("label") {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(format!(
+                                "security: {} data.circles[{}].label string literal {} — runtime will escape, but review intent",
+                                fn_name, i, reason
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        // overlap_label — TOP-LEVEL field (the spec's "don't forget" case).
+        // This is NOT inside the circles list; a scanner that only walks
+        // list elements would miss it.
+        if let Some(Expr::StringLit(s)) = fields.get("overlap_label") {
+            if let Some(reason) = detect_xss_payload(s) {
+                result.warnings.push(format!(
+                    "security: {} data.overlap_label string literal {} — runtime will escape, but review intent",
+                    fn_name, reason
+                ));
+            }
+        }
+    }
+}
+
+/// Наряд №83 Block 6 — scanner for `diagram_quadrant` data shape.
+///
+/// Quadrant has TWO top-level string fields PLUS a nested list:
+///   Struct {
+///     x_axis_label: String,                            ← TOP-LEVEL
+///     y_axis_label: String,                            ← TOP-LEVEL
+///     items: List<Struct{label: String, x: Float, y: Float}>,
+///   }
+///
+/// Both `x_axis_label` and `y_axis_label` are TOP-LEVEL fields (the spec
+/// calls them out as "поля верхнего уровня, не элементы списка, легко
+/// забыть"). A scanner that only walks List elements would miss BOTH.
+///
+/// `items[].label` is rendered next to each point marker. `items[].x`
+/// and `items[].y` are Floats — geometry, never rendered as text, skipped.
+///
+/// All findings are WARNINGs (runtime escapes via escape_html_chars —
+/// defense-in-depth, not a hard error).
+fn scan_quadrant_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
+    if let Some(Expr::StructLit(fields)) = args.first() {
+        // x_axis_label — top-level, easy to forget
+        if let Some(Expr::StringLit(s)) = fields.get("x_axis_label") {
+            if let Some(reason) = detect_xss_payload(s) {
+                result.warnings.push(format!(
+                    "security: {} data.x_axis_label string literal {} — runtime will escape, but review intent",
+                    fn_name, reason
+                ));
+            }
+        }
+        // y_axis_label — top-level, easy to forget
+        if let Some(Expr::StringLit(s)) = fields.get("y_axis_label") {
+            if let Some(reason) = detect_xss_payload(s) {
+                result.warnings.push(format!(
+                    "security: {} data.y_axis_label string literal {} — runtime will escape, but review intent",
+                    fn_name, reason
+                ));
+            }
+        }
+        // items: List<Struct{label, x, y}> — scan each item's label
+        if let Some(Expr::List(item_list)) = fields.get("items") {
+            for (i, item) in item_list.iter().enumerate() {
+                if let Expr::StructLit(item_fields) = item {
+                    if let Some(Expr::StringLit(s)) = item_fields.get("label") {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(format!(
+                                "security: {} data.items[{}].label string literal {} — runtime will escape, but review intent",
+                                fn_name, i, reason
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Наряд №83 Block 6 — scanner for `diagram_medallion` data shape.
+///
+/// Medallion is a flat list of structs:
+///   List<Struct{icon: String?, label: String, value?: Float}>
+///
+/// `label` is rendered below each medallion — primary scan target.
+/// `icon` is a CONTROLLED ENUM (validated at runtime against the 10
+/// known svg_icon names) — NOT user free-form text, explicitly NOT
+/// scanned per the spec ("icon не сканировать как текст — это controlled
+/// enum-подобное значение"). If a user passes `<script>` as an icon name,
+/// the runtime rejects it with an "unknown icon name" error before any
+/// SVG output is produced.
+/// `value` is a Float — never rendered as text, skipped.
+///
+/// This scanner is essentially scan_chart_labels (single `label` field
+/// per struct). We keep it as a separate function for self-documenting
+/// naming and to leave room for medallion-specific extensions later.
+fn scan_medallion_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
+    if let Some(Expr::List(items)) = args.first() {
+        for (i, item) in items.iter().enumerate() {
+            if let Expr::StructLit(fields) = item {
+                // label — rendered below the medallion (primary target)
+                if let Some(Expr::StringLit(s)) = fields.get("label") {
+                    if let Some(reason) = detect_xss_payload(s) {
+                        result.warnings.push(format!(
+                            "security: {} data[{}].label string literal {} — runtime will escape, but review intent",
+                            fn_name, i, reason
+                        ));
+                    }
+                }
+                // NOTE: `icon` is intentionally NOT scanned here. It is a
+                // controlled enum (one of 10 known svg_icon names), validated
+                // at runtime via icon_path_data() before any SVG output.
+                // Scanning it as text would produce false positives for
+                // legitimate icon names that happen to contain angle brackets
+                // (none currently do, but the principle holds).
+            }
+        }
+    }
+}
+
 /// Walk an expression and run the security check on every FnCall node.
 fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &str) {
     match expr {
@@ -994,6 +1165,34 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
                 }
                 if name == "diagram_process" || name == "diagram_loop" {
                     scan_layers_labels(name, args, result);
+                }
+                // Наряд №83 Block 6: sets & comparison diagram scanners.
+                //   diagram_venn — Struct{circles: [{label, value?}], overlap_label?}.
+                //     Special scanner: overlap_label is a TOP-LEVEL field
+                //     (not in circles[]), easy to forget — scan_venn_labels
+                //     checks both the nested circles[].label and the top-level
+                //     overlap_label in one pass.
+                //   diagram_quadrant — Struct{x_axis_label, y_axis_label, items: [...]}.
+                //     BOTH axis labels are top-level fields. scan_quadrant_labels
+                //     checks both axis labels + items[].label.
+                //   diagram_pyramid / diagram_nested — same flat shape as
+                //     diagram_layers (List<Struct{label, value?}>) — REUSES
+                //     scan_layers_labels (no new scanner for identical shape).
+                //   diagram_medallion — List<Struct{icon?, label, value?}>.
+                //     Only `label` is scanned; `icon` is a controlled enum
+                //     (validated at runtime against 10 known svg_icon names),
+                //     NOT free-form text — explicitly NOT scanned per spec.
+                if name == "diagram_venn" {
+                    scan_venn_labels(name, args, result);
+                }
+                if name == "diagram_quadrant" {
+                    scan_quadrant_labels(name, args, result);
+                }
+                if name == "diagram_pyramid" || name == "diagram_nested" {
+                    scan_layers_labels(name, args, result);
+                }
+                if name == "diagram_medallion" {
+                    scan_medallion_labels(name, args, result);
                 }
             }
             if SVG_NO_ESCAPE_BUILTINS.contains(&name.as_str()) {

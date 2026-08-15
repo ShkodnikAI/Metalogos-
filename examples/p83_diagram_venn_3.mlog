@@ -1,0 +1,60 @@
+// ── Наряд №83 Block 1: diagram_venn — 3-circle case ──────────────────
+//
+// Venn diagram contract for the 3-circle case. The 3-circle layout uses
+// a DIFFERENT fixed geometry from the 2-circle case (equilateral triangle
+// of centers vs horizontal offset) — both must be exercised independently
+// to verify the function's count-based branch selection works correctly.
+//
+// Tests:
+//   1. Basic 3-circle Venn renders
+//   2. 3-circle Venn with overlap_label renders (central triple-overlap)
+//   3. 3-circle Venn with all optional fields populated renders
+//
+// Output: single summary string, "p83_venn_3_checks=N/3".
+
+pattern P83DiagramVenn3Contract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Basic 3-circle Venn ────────────────────────────────────────
+  let data1 = {
+    circles: [
+      {label: "A"},
+      {label: "B"},
+      {label: "C"}
+    ]
+  }
+  let r1 = diagram_venn(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. 3-circle Venn with overlap_label (central triple-overlap) ─
+  // The overlap_label is rendered at the canvas center, which is the
+  // visual centroid of the triple-overlap region in the 3-circle layout.
+  let data2 = {
+    circles: [
+      {label: "Frontend"},
+      {label: "Backend"},
+      {label: "DevOps"}
+    ],
+    overlap_label: "Full-Stack"
+  }
+  let r2 = diagram_venn(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. 3-circle Venn with all optional fields ────────────────────
+  let data3 = {
+    circles: [
+      {label: "Cats", value: 30.0},
+      {label: "Dogs", value: 40.0},
+      {label: "Birds", value: 15.0}
+    ],
+    overlap_label: "Multi-pet"
+  }
+  let r3 = diagram_venn(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  let total = ok1 + ok2 + ok3
+
+  return "p83_venn_3_checks=" + to_string(total) + "/3"
+}
+
+flow Main { input: String = "x" -> P83DiagramVenn3Contract -> output }

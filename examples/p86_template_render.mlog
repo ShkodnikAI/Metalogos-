@@ -1,0 +1,80 @@
+// ── Наряд №86 Block 6: render contract ───────────────────────────────
+//
+// Mini render-engine contract. Tests the three core constructs:
+//   {{ var }}       — auto-escaped substitution
+//   {{#if}}/{{else}}/{{/if}}
+//   {{#each}}/{{/each}} with {{ this.field }}
+//
+// Plus the critical regression: {{#each}} INSIDE {{#if}} — verifies
+// the recursive parser actually handles nesting (not just flat blocks).
+//
+// Output: single summary string, "p86_render_checks=N/N".
+//
+// Verification approach: the function returns Value::Html (opaque —
+// cannot be inspected as String from .mlog). We verify via:
+//   - type_of(result) == "Html" → success
+//   - try the-call + type_of(result) == "Unit" → error path
+//
+// Parser note: data is passed INLINE in each call (not via `let`
+// bindings) because the language's render-declaration preprocessor
+// scans for a keyword that overlaps with the function name; inline
+// literals keep the next `{` adjacent to the call site.
+
+pattern P86TemplateRenderContract(input: String) -> String {
+  // ── 1. Simple var substitution (auto-escaped) ────────────────────
+  let r1 = template_render("<p>Hello, {{name}}!</p>", {name: "Alice"})
+  let ok1 = to_float(type_of(r1) == "Html")
+
+  // ── 2. {{#if}} with both branches (truthy case) ──────────────────
+  let r2 = template_render("{{#if show}}visible{{else}}hidden{{/if}}", {show: true})
+  let ok2 = to_float(type_of(r2) == "Html")
+
+  // ── 3. {{#if}} with falsy case (empty String is falsy) ──────────
+  let r3 = template_render("{{#if show}}visible{{else}}hidden{{/if}}", {show: ""})
+  let ok3 = to_float(type_of(r3) == "Html")
+
+  // ── 4. {{#each}} over list of 3 structs with {{ this.field }} ───
+  let r4 = template_render("{{#each items}}<li>{{this.name}}: {{this.qty}}</li>{{/each}}", {items: [{name: "A", qty: 1.0}, {name: "B", qty: 2.0}, {name: "C", qty: 3.0}]})
+  let ok4 = to_float(type_of(r4) == "Html")
+
+  // ── 5. CRITICAL: {{#each}} nested INSIDE {{#if}} ─────────────────
+  // Regression test — verifies the recursive parser actually handles
+  // nesting. If non-recursive, {{/each}} would close {{#if}} and we'd
+  // get an "unmatched" error.
+  let r5 = template_render("{{#if show}}<ul>{{#each items}}<li>{{this.label}}</li>{{/each}}</ul>{{/if}}", {show: true, items: [{label: "first"}, {label: "second"}, {label: "third"}]})
+  let ok5 = to_float(type_of(r5) == "Html")
+
+  // ── 6. {{{ raw }}} (triple-brace, no escaping) ──────────────────
+  // For when the data is already trusted HTML (e.g. embedding an SVG
+  // fragment from one of the diagram_* functions).
+  let r6 = template_render("<div>{{{trusted_html}}}</div>", {trusted_html: "<b>bold</b>"})
+  let ok6 = to_float(type_of(r6) == "Html")
+
+  // ── 7. {{#if}} with == comparison ────────────────────────────────
+  let r7 = template_render("{{#if role == \"admin\"}}admin panel{{else}}user panel{{/if}}", {role: "admin"})
+  let ok7 = to_float(type_of(r7) == "Html")
+
+  // ── 8. {{#if}} with != comparison ────────────────────────────────
+  let r8 = template_render("{{#if role != \"admin\"}}user panel{{else}}admin panel{{/if}}", {role: "user"})
+  let ok8 = to_float(type_of(r8) == "Html")
+
+  // ── 9. Missing field → soft-failure (empty string), NOT error ────
+  // Per Block 5 decision: missing data field renders empty, doesn't
+  // crash the whole render. Matches Mustache/Handlebars semantics.
+  let r9 = template_render("[{{missing}}]", {present: "yes"})
+  let ok9 = to_float(type_of(r9) == "Html")
+
+  // ── 10. {{ obj.field }} one-level field access ───────────────────
+  let r10 = template_render("<p>{{user.name}}</p>", {user: {name: "Bob"}})
+  let ok10 = to_float(type_of(r10) == "Html")
+
+  // ── 11. Empty {{#each}} list renders nothing (no error) ──────────
+  let r11 = template_render("[{{#each items}}x{{/each}}]", {items: []})
+  let ok11 = to_float(type_of(r11) == "Html")
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6 + ok7 + ok8 + ok9 + ok10 + ok11
+
+  return "p86_render_checks=" + to_string(total) + "/11"
+}
+
+flow Main { input: String = "x" -> P86TemplateRenderContract -> output }

@@ -860,6 +860,27 @@ impl Builtins {
             "diagram_loop".to_string(),
             builtin_diagram_loop as BuiltinFn,
         );
+        // Level 3.3: diagrams (Наряд №83) — sets & comparisons
+        funcs.insert(
+            "diagram_venn".to_string(),
+            builtin_diagram_venn as BuiltinFn,
+        );
+        funcs.insert(
+            "diagram_quadrant".to_string(),
+            builtin_diagram_quadrant as BuiltinFn,
+        );
+        funcs.insert(
+            "diagram_pyramid".to_string(),
+            builtin_diagram_pyramid as BuiltinFn,
+        );
+        funcs.insert(
+            "diagram_nested".to_string(),
+            builtin_diagram_nested as BuiltinFn,
+        );
+        funcs.insert(
+            "diagram_medallion".to_string(),
+            builtin_diagram_medallion as BuiltinFn,
+        );
 
         // ── Наряд №50 Block 3: SHA-256 / HMAC / hex builtins ──
         funcs.insert("sha256".to_string(), builtin_sha256 as BuiltinFn);

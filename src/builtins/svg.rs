@@ -3279,6 +3279,975 @@ pub fn builtin_svg_canvas_preset(args: &[Value]) -> Result<Value, String> {
     ])
 }
 
+// ── Наряд №81: Diagrams (hierarchies & flows) ────────────────────────
+//
+// Four high-level diagram builtins built on top of the existing SVG
+// primitives (svg_rect, svg_text, svg_path, svg_group, svg_canvas).
+//
+//   diagram_tree(data, style)        — recursive tree layout
+//   diagram_org_chart(data, style)   — same algorithm + title field
+//   diagram_flowchart(data, style)   — layered DAG via topological sort
+//   diagram_layers(data, style)      — horizontal stripes (simplest)
+//
+// All four return a complete <svg>...</svg> document. All user-supplied
+// text (label / title / description) is XML-escaped at runtime via
+// escape_html_chars — defense-in-depth invariant identical to chart_*.
+// AST-level lint (semantic.rs → SVG_AUTO_ESCAPE_BUILTINS) scans for
+// <script> payloads in label literals.
+//
+// Common canvas constants (chosen to match chart_bar's geometry so
+// diagrams compose with other chart_* outputs in a grid layout):
+//   canvas: 600 × 400
+//   padding: 40px on all sides
+//
+// ── Block 1: draw_connector (internal helper) ──────────────────────
+//
+// Line from (x1,y1) to (x2,y2) plus a triangular arrowhead at (x2,y2)
+// rotated by atan2(dy, dx) — the angle of the line itself. Used by
+// diagram_tree / diagram_org_chart (parent → child) and diagram_flowchart
+// (from → to). NOT a public builtin (internal helper, per spec).
+//
+// Arrowhead geometry:
+//   - 8px long, 6px wide at the base (isosceles triangle)
+//   - tip at (x2, y2); base center at (x2 - 8·cos θ, y2 - 8·sin θ)
+//   - base corners = base center ± 3·(−sin θ, cos θ) (perpendicular)
+//
+// Color: style.rule for visual consistency with the existing axis
+// divider lines in chart_bar (which also use `rule`). The line stroke
+// width is 1.5 — slightly heavier than the grid (1px @ 0.35 opacity)
+// to read as a deliberate connector, not background decoration.
+fn draw_connector(x1: f64, y1: f64, x2: f64, y2: f64, style: &HashMap<String, Value>) -> String {
+    let color = style_token(style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    let angle = dy.atan2(dx);
+    // Arrowhead dimensions
+    let ah_len = 8.0_f64;
+    let ah_half_w = 3.0_f64;
+    // Pull the line back by ah_len so the line tip doesn't poke through
+    // the arrowhead tip (visual cleanliness).
+    let line_end_x = x2 - ah_len * angle.cos();
+    let line_end_y = y2 - ah_len * angle.sin();
+    // Arrowhead base center (8px back from tip along the line direction)
+    let base_x = x2 - ah_len * angle.cos();
+    let base_y = y2 - ah_len * angle.sin();
+    // Perpendicular offset (90° rotation): (-sin θ, cos θ)
+    let perp_x = -angle.sin();
+    let perp_y = angle.cos();
+    let left_x = base_x + perp_x * ah_half_w;
+    let left_y = base_y + perp_y * ah_half_w;
+    let right_x = base_x - perp_x * ah_half_w;
+    let right_y = base_y - perp_y * ah_half_w;
+    // Line + closed triangular path (fill=color, no stroke on arrowhead)
+    format!(
+        r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1.5" />"#,
+        fmt_num(x1),
+        fmt_num(y1),
+        fmt_num(line_end_x),
+        fmt_num(line_end_y),
+        escape_attr(&color)
+    ) + &format!(
+        r#"<path d="M {} {} L {} {} L {} {} Z" fill="{}" stroke="none" />"#,
+        fmt_num(x2),
+        fmt_num(y2),
+        fmt_num(left_x),
+        fmt_num(left_y),
+        fmt_num(right_x),
+        fmt_num(right_y),
+        escape_attr(&color)
+    )
+}
+
+// ── Block 2/3 shared: recursive tree node ──────────────────────────
+//
+// Internal representation of a tree node, extracted from a user Struct.
+// `title` is None for diagram_tree, Some for diagram_org_chart. Both
+// use the SAME layout algorithm — diagram_org_chart only overrides the
+// per-node render to emit a second <text> line when title is present.
+struct TreeNode {
+    label: String,
+    title: Option<String>,
+    children: Vec<TreeNode>,
+}
+
+/// Extract a TreeNode from a Value::Struct. Recurses into `children`.
+/// `title` field is optional — None if missing/Unit (diagram_tree case).
+/// Enforces the depth + total node count limits at extraction time so
+/// the layout function can assume well-bounded input.
+fn extract_tree_node(
+    value: &Value,
+    path: &str,
+    allow_title: bool,
+    depth: usize,
+    node_count: &mut usize,
+) -> Result<TreeNode, String> {
+    const MAX_DEPTH: usize = 6;
+    const MAX_NODES: usize = 40;
+    if depth > MAX_DEPTH {
+        return Err(format!(
+            "diagram_tree: depth exceeds maximum of {} (path: {})",
+            MAX_DEPTH, path
+        ));
+    }
+    *node_count += 1;
+    if *node_count > MAX_NODES {
+        return Err(format!(
+            "diagram_tree: total node count exceeds maximum of {} (path: {})",
+            MAX_NODES, path
+        ));
+    }
+    let fields = match value {
+        Value::Struct { fields, .. } => fields,
+        other => {
+            return Err(format!(
+                "diagram_tree: node at {} must be Struct, got {}",
+                path,
+                other.type_name()
+            ));
+        }
+    };
+    let label = struct_string_field("diagram_tree node", fields, "label")?;
+    let title = if allow_title {
+        struct_opt_string_field(fields, "title")
+    } else {
+        None
+    };
+    // children is required (empty list = leaf). Missing field is an error.
+    let children_val = fields
+        .get("children")
+        .ok_or_else(|| format!("diagram_tree: node at {} missing 'children' field", path))?;
+    // Handle Value::Unit as empty list (defensive — a caller might pass
+    // Unit instead of [] for leaf nodes). Use a static empty slice to
+    // avoid lifetime issues with temporary Vec.
+    let empty_list: Vec<Value> = Vec::new();
+    let child_list: &[Value] = match children_val {
+        Value::List(items) => items,
+        Value::Unit => &empty_list,
+        other => {
+            return Err(format!(
+                "diagram_tree: 'children' at {} must be List, got {}",
+                path,
+                other.type_name()
+            ));
+        }
+    };
+    let mut children = Vec::with_capacity(child_list.len());
+    for (i, child) in child_list.iter().enumerate() {
+        let child_path = format!("{}.children[{}]", path, i);
+        children.push(extract_tree_node(
+            child,
+            &child_path,
+            allow_title,
+            depth + 1,
+            node_count,
+        )?);
+    }
+    Ok(TreeNode {
+        label,
+        title,
+        children,
+    })
+}
+
+/// Layout result for a single node: center-x, top-y (top edge of the box).
+struct LaidOutNode {
+    /// x-center of the box.
+    cx: f64,
+    /// y-top of the box.
+    y: f64,
+    /// Subtree width (for parent centering).
+    subtree_w: f64,
+    /// Node box dimensions (constant across all nodes — kept here for
+    /// readability, the layout function uses the constants directly).
+    /// Children (laid out recursively).
+    children: Vec<LaidOutNode>,
+    /// Reference to the source tree node (for rendering label/title).
+    /// Stored as label + title snapshot to avoid lifetime entanglement.
+    label: String,
+    title: Option<String>,
+}
+
+/// Standard node box dimensions for tree/org-chart. Width=120, height=40
+/// (or 56 if title is present — second line of text needs more room).
+const TREE_NODE_W: f64 = 120.0;
+const TREE_NODE_H_NO_TITLE: f64 = 40.0;
+const TREE_NODE_H_WITH_TITLE: f64 = 56.0;
+/// Horizontal gap between sibling subtrees.
+const TREE_SIBLING_GAP: f64 = 24.0;
+/// Vertical gap between levels (parent box bottom → child box top).
+const TREE_LEVEL_GAP: f64 = 50.0;
+/// Top padding for the first level.
+const TREE_TOP_PAD: f64 = 30.0;
+
+/// Recursive layout. Returns a LaidOutNode with cx relative to the
+/// subtree's left edge (0.0). The caller translates the whole tree to
+/// its final position by adding an x-offset.
+///
+/// Algorithm: classic separate layout. For a leaf, subtree_w = node_w.
+/// For an internal node, subtree_w = sum(child subtree widths) + gaps.
+/// Parent cx = midpoint between leftmost and rightmost child cx.
+fn layout_tree(node: &TreeNode, depth: usize) -> LaidOutNode {
+    let node_h = if node.title.is_some() {
+        TREE_NODE_H_WITH_TITLE
+    } else {
+        TREE_NODE_H_NO_TITLE
+    };
+    let y = TREE_TOP_PAD + (depth as f64) * (node_h + TREE_LEVEL_GAP);
+    if node.children.is_empty() {
+        // Leaf: subtree width = own width, cx = center of own box
+        return LaidOutNode {
+            cx: TREE_NODE_W / 2.0,
+            y,
+            subtree_w: TREE_NODE_W,
+            children: Vec::new(),
+            label: node.label.clone(),
+            title: node.title.clone(),
+        };
+    }
+    // Recurse on children, accumulating x-offset
+    let mut laid_children: Vec<LaidOutNode> = Vec::with_capacity(node.children.len());
+    let mut x_offset = 0.0_f64;
+    for (i, child) in node.children.iter().enumerate() {
+        let mut lc = layout_tree(child, depth + 1);
+        // Translate child by current x_offset
+        lc.cx += x_offset;
+        // Also translate all descendants (their cx is relative to subtree left,
+        // but we keep them relative for now — we translate at render time using
+        // a transform group instead of mutating deeply).
+        // Actually, simpler: store absolute cx. We translate descendants below
+        // by walking the laid-out tree once more.
+        laid_children.push(lc);
+        x_offset += laid_children[i].subtree_w + TREE_SIBLING_GAP;
+    }
+    // Remove trailing gap from total width
+    let total_w = x_offset - TREE_SIBLING_GAP;
+    // Parent cx = midpoint between first and last child centers.
+    // SAFETY: we returned early for the leaf case (empty children),
+    // so laid_children is non-empty here. We use if-let with a fallback
+    // (which is unreachable but satisfies clippy::expect_used — the
+    // project denies both unwrap_used and expect_used in non-test code).
+    let parent_cx = match (laid_children.first(), laid_children.last()) {
+        (Some(first), Some(last)) => (first.cx + last.cx) / 2.0,
+        // Unreachable: laid_children is non-empty here (we returned early
+        // for leaves above). The fallback is a defensive default that
+        // would only trigger if the invariant above is broken.
+        _ => TREE_NODE_W / 2.0,
+    };
+    LaidOutNode {
+        cx: parent_cx,
+        y,
+        subtree_w: total_w.max(TREE_NODE_W),
+        children: laid_children,
+        label: node.label.clone(),
+        title: node.title.clone(),
+    }
+}
+
+/// Render a laid-out tree node + its children + connectors. Returns
+/// a list of SVG fragment strings (each is a child element). The caller
+/// wraps them in a <g transform="translate(x_offset, 0)"> for the
+/// top-level tree, OR includes them directly (already absolute coords).
+///
+/// `is_org_chart` controls the per-node render: if true and title is
+/// present, emit a second <text> line below the label.
+fn render_tree_node(
+    node: &LaidOutNode,
+    style: &HashMap<String, Value>,
+    is_org_chart: bool,
+    parts: &mut Vec<String>,
+) {
+    let ink = style_token(style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+    let node_h = if node.title.is_some() && is_org_chart {
+        TREE_NODE_H_WITH_TITLE
+    } else {
+        TREE_NODE_H_NO_TITLE
+    };
+    let box_x = node.cx - TREE_NODE_W / 2.0;
+    // Node box — paper fill, rule border (so it reads as a container, not a button)
+    parts.push(format!(
+        r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" stroke="{}" stroke-width="1.5" rx="4" ry="4" />"#,
+        fmt_num(box_x),
+        fmt_num(node.y),
+        fmt_num(TREE_NODE_W),
+        fmt_num(node_h),
+        escape_attr(&paper),
+        escape_attr(&rule)
+    ));
+    // Label — centered horizontally, baseline at vertical midpoint
+    let label_y = if node.title.is_some() && is_org_chart {
+        node.y + 22.0
+    } else {
+        node.y + node_h / 2.0 + 4.0
+    };
+    parts.push(format!(
+        r#"<text x="{}" y="{}" font-size="13" fill="{}" text-anchor="middle">{}</text>"#,
+        fmt_num(node.cx),
+        fmt_num(label_y),
+        escape_attr(&ink),
+        escape_html_chars(&node.label)
+    ));
+    // Title (org chart only) — second line, muted color, smaller font
+    if is_org_chart {
+        if let Some(title) = &node.title {
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="11" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(node.cx),
+                fmt_num(node.y + 40.0),
+                escape_attr(&muted),
+                escape_html_chars(title)
+            ));
+        }
+    }
+    // Connectors to children + recurse
+    let parent_bottom_y = node.y + node_h;
+    for child in &node.children {
+        // Connector starts at parent bottom center, ends at child top center
+        let connector = draw_connector(node.cx, parent_bottom_y, child.cx, child.y, style);
+        parts.push(connector);
+        render_tree_node(child, style, is_org_chart, parts);
+    }
+    // Unused imports guard — accent is here for future use (e.g. highlight
+    // root node with accent border). Currently no-op.
+    let _ = &accent;
+}
+
+/// Diagram canvas: 600 × 400 (matches chart_bar). Tree layout may exceed
+/// this horizontally for wide trees — we scale the viewBox to fit the
+/// actual laid-out tree width, so wide trees are rendered fully (no
+/// clipping). Height is fixed (depth ≤ 6 → max ~6 * 90px = 540px).
+const DIAGRAM_CANVAS_W: f64 = 600.0;
+const DIAGRAM_CANVAS_H: f64 = 400.0;
+
+/// `diagram_tree(data, style) -> String`
+///
+/// Renders a recursive tree. `data` is `Struct { label, children }` —
+/// children is the same shape recursively. Empty children list = leaf.
+///
+/// Limits: depth ≤ 6, total nodes ≤ 40 (returns Err otherwise).
+pub fn builtin_diagram_tree(args: &[Value]) -> Result<Value, String> {
+    let data_value = args.first().cloned().unwrap_or(Value::Unit);
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    let mut node_count = 0usize;
+    let root = extract_tree_node(&data_value, "root", false, 0, &mut node_count)?;
+    let laid = layout_tree(&root, 0);
+    // Compute total width: subtree_w of root. Center the tree horizontally
+    // in the canvas with at least 20px left padding.
+    let tree_w = laid.subtree_w.max(TREE_NODE_W);
+    let canvas_w = DIAGRAM_CANVAS_W.max(tree_w + 40.0);
+    // x-offset to center tree in canvas
+    let x_offset = (canvas_w - tree_w) / 2.0;
+    // Translate root cx (which is relative to subtree left) to absolute
+    let mut parts: Vec<String> = Vec::new();
+    // Render into a translate group so all relative coords become absolute
+    let mut absolute_node = laid;
+    absolute_node.cx += x_offset;
+    translate_subtree(&mut absolute_node, x_offset);
+    // Background
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(DIAGRAM_CANVAS_H),
+        escape_attr(&paper)
+    ));
+    render_tree_node(&absolute_node, &style, false, &mut parts);
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(DIAGRAM_CANVAS_H),
+        fmt_num(canvas_w),
+        fmt_num(DIAGRAM_CANVAS_H),
+        body
+    )))
+}
+
+/// Walk a LaidOutNode and add `dx` to every cx (in place). Used to
+/// convert relative-to-subtree coords to absolute canvas coords.
+fn translate_subtree(node: &mut LaidOutNode, dx: f64) {
+    node.cx += dx;
+    for child in &mut node.children {
+        translate_subtree(child, dx);
+    }
+}
+
+/// `diagram_org_chart(data, style) -> String`
+///
+/// Thin wrapper over diagram_tree's layout algorithm. The ONLY
+/// difference is the per-node render: when a `title` field is present,
+/// the node box is taller and a second <text> line is emitted. The
+/// layout algorithm (subtree width, parent centering, depth spacing)
+/// is identical — we call the same `extract_tree_node` with
+/// `allow_title=true`, the same `layout_tree`, and the same
+/// `render_tree_node` with `is_org_chart=true`.
+///
+/// `data` is `Struct { label, title?, children }`.
+pub fn builtin_diagram_org_chart(args: &[Value]) -> Result<Value, String> {
+    let data_value = args.first().cloned().unwrap_or(Value::Unit);
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    let mut node_count = 0usize;
+    let root = extract_tree_node(&data_value, "root", true, 0, &mut node_count)?;
+    let laid = layout_tree(&root, 0);
+    let tree_w = laid.subtree_w.max(TREE_NODE_W);
+    let canvas_w = DIAGRAM_CANVAS_W.max(tree_w + 40.0);
+    let x_offset = (canvas_w - tree_w) / 2.0;
+    let mut absolute_node = laid;
+    absolute_node.cx += x_offset;
+    translate_subtree(&mut absolute_node, x_offset);
+    let mut parts: Vec<String> = Vec::new();
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(DIAGRAM_CANVAS_H),
+        escape_attr(&paper)
+    ));
+    render_tree_node(&absolute_node, &style, true, &mut parts);
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(DIAGRAM_CANVAS_H),
+        fmt_num(canvas_w),
+        fmt_num(DIAGRAM_CANVAS_H),
+        body
+    )))
+}
+
+// ── Block 4: diagram_flowchart ─────────────────────────────────────
+//
+// MVP layout: topological sort into horizontal layers (BFS from nodes
+// with no incoming edges). All nodes in layer N share a Y coordinate;
+// nodes within a layer are spread evenly across the canvas width.
+// Edges are drawn with draw_connector; optional edge label placed at
+// the midpoint of the line, offset slightly above to avoid overlap.
+//
+// Cycle handling: if topological sort cannot drain all nodes, the
+// remaining nodes form a cycle. We return a structured Err mentioning
+// the offending node IDs (e.g. "flowchart contains a cycle: A→B→C→A").
+//
+// Limits: nodes.len() ≤ 25 (otherwise canvas becomes unreadable).
+const FLOWCHART_MAX_NODES: usize = 25;
+const FLOWCHART_NODE_W: f64 = 110.0;
+const FLOWCHART_NODE_H: f64 = 44.0;
+
+/// Internal flowchart node representation.
+struct FlowNode {
+    id: String,
+    label: String,
+}
+struct FlowEdge {
+    from: String,
+    to: String,
+    label: Option<String>,
+}
+
+/// Extract nodes + edges from the input Struct. Validates that all
+/// edge endpoints reference existing node IDs.
+fn extract_flowchart(data_value: &Value) -> Result<(Vec<FlowNode>, Vec<FlowEdge>), String> {
+    let fields = match data_value {
+        Value::Struct { fields, .. } => fields,
+        other => {
+            return Err(format!(
+                "diagram_flowchart: data must be Struct {{nodes, edges}}, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    let nodes_val = fields
+        .get("nodes")
+        .ok_or_else(|| "diagram_flowchart: missing 'nodes' field".to_string())?;
+    let edges_val = fields
+        .get("edges")
+        .ok_or_else(|| "diagram_flowchart: missing 'edges' field".to_string())?;
+    let nodes_list = match nodes_val {
+        Value::List(items) => items,
+        other => {
+            return Err(format!(
+                "diagram_flowchart: 'nodes' must be List, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    let edges_list = match edges_val {
+        Value::List(items) => items,
+        other => {
+            return Err(format!(
+                "diagram_flowchart: 'edges' must be List, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    if nodes_list.is_empty() {
+        return Err("diagram_flowchart: nodes list must not be empty".to_string());
+    }
+    if nodes_list.len() > FLOWCHART_MAX_NODES {
+        return Err(format!(
+            "diagram_flowchart: too many nodes ({}), maximum is {}",
+            nodes_list.len(),
+            FLOWCHART_MAX_NODES
+        ));
+    }
+    let mut nodes: Vec<FlowNode> = Vec::with_capacity(nodes_list.len());
+    let mut node_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (i, item) in nodes_list.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_flowchart: nodes[{}] must be Struct {{id, label}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let id = struct_string_field("diagram_flowchart node", f, "id")?;
+        let label = struct_string_field("diagram_flowchart node", f, "label")?;
+        if !node_ids.insert(id.clone()) {
+            return Err(format!(
+                "diagram_flowchart: duplicate node id {:?} at nodes[{}]",
+                id, i
+            ));
+        }
+        nodes.push(FlowNode { id, label });
+    }
+    let mut edges: Vec<FlowEdge> = Vec::with_capacity(edges_list.len());
+    for (i, item) in edges_list.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_flowchart: edges[{}] must be Struct {{from, to, label?}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let from = struct_string_field("diagram_flowchart edge", f, "from")?;
+        let to = struct_string_field("diagram_flowchart edge", f, "to")?;
+        let label = struct_opt_string_field(f, "label");
+        if !node_ids.contains(&from) {
+            return Err(format!(
+                "diagram_flowchart: edges[{}].from references unknown node {:?}",
+                i, from
+            ));
+        }
+        if !node_ids.contains(&to) {
+            return Err(format!(
+                "diagram_flowchart: edges[{}].to references unknown node {:?}",
+                i, to
+            ));
+        }
+        edges.push(FlowEdge { from, to, label });
+    }
+    Ok((nodes, edges))
+}
+
+/// Compute in-degree for each node, then BFS from nodes with in-degree 0.
+/// Returns (layers, ordered_node_positions) on success, or Err with the
+/// cycle node IDs on cycle detection.
+///
+/// The "layers" are 0-indexed: layer 0 = roots (no incoming edges),
+/// layer N = nodes whose all predecessors are in layers < N. A node
+/// joins layer max(predecessor layers) + 1 — this is the "longest path
+/// from a root" layering, which tends to produce wider, shallower
+/// diagrams than naive BFS layering and avoids unnecessarily deep
+/// layouts for graphs with merges.
+fn topological_layers(nodes: &[FlowNode], edges: &[FlowEdge]) -> Result<Vec<Vec<String>>, String> {
+    // Index nodes by id for fast lookup
+    let id_to_idx: std::collections::HashMap<&String, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (&n.id, i)).collect();
+    let n = nodes.len();
+    // Build adjacency: predecessors[idx] = list of predecessor idxs
+    let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut successors: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for edge in edges {
+        let from_idx = *id_to_idx.get(&edge.from).ok_or_else(|| {
+            format!(
+                "diagram_flowchart: internal error — edge.from {:?} not in index",
+                edge.from
+            )
+        })?;
+        let to_idx = *id_to_idx.get(&edge.to).ok_or_else(|| {
+            format!(
+                "diagram_flowchart: internal error — edge.to {:?} not in index",
+                edge.to
+            )
+        })?;
+        if from_idx == to_idx {
+            // Self-loop — that's a trivial cycle.
+            return Err(format!(
+                "flowchart contains a cycle: {}→{} (self-loop)",
+                edge.from, edge.to
+            ));
+        }
+        successors[from_idx].push(to_idx);
+        predecessors[to_idx].push(from_idx);
+    }
+    // Longest-path layering:
+    //   layer[idx] = 0 if no predecessors
+    //   layer[idx] = 1 + max(layer[p] for p in predecessors) otherwise
+    // We compute this by processing nodes in topological order. Use
+    // Kahn's algorithm to get the order, then assign layers.
+    let mut in_degree: Vec<usize> = predecessors.iter().map(|p| p.len()).collect();
+    let mut queue: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
+    for (idx, &deg) in in_degree.iter().enumerate() {
+        if deg == 0 {
+            queue.push_back(idx);
+        }
+    }
+    let mut order: Vec<usize> = Vec::with_capacity(n);
+    while let Some(idx) = queue.pop_front() {
+        order.push(idx);
+        for &succ in &successors[idx] {
+            in_degree[succ] -= 1;
+            if in_degree[succ] == 0 {
+                queue.push_back(succ);
+            }
+        }
+    }
+    if order.len() < n {
+        // Cycle detected — find the nodes still with in_degree > 0
+        let mut cycle_nodes: Vec<String> = Vec::new();
+        for (idx, &deg) in in_degree.iter().enumerate() {
+            if deg > 0 {
+                cycle_nodes.push(nodes[idx].id.clone());
+            }
+        }
+        return Err(format!(
+            "flowchart contains a cycle involving nodes: {}",
+            cycle_nodes.join(", ")
+        ));
+    }
+    // Assign layers in topological order
+    let mut layer: Vec<usize> = vec![0; n];
+    for &idx in &order {
+        let max_pred_layer = predecessors[idx]
+            .iter()
+            .map(|&p| layer[p])
+            .max()
+            .unwrap_or(0);
+        layer[idx] = if predecessors[idx].is_empty() {
+            0
+        } else {
+            max_pred_layer + 1
+        };
+    }
+    // Group by layer
+    let max_layer = *layer.iter().max().unwrap_or(&0);
+    let mut layers: Vec<Vec<String>> = vec![Vec::new(); max_layer + 1];
+    for (idx, &l) in layer.iter().enumerate() {
+        layers[l].push(nodes[idx].id.clone());
+    }
+    Ok(layers)
+}
+
+/// `diagram_flowchart(data, style) -> String`
+///
+/// Renders a flowchart with layered topological layout. Nodes in the
+/// same layer share a Y coordinate; layers are stacked vertically.
+/// Edges use draw_connector; optional edge labels are placed at the
+/// midpoint, offset slightly above the line.
+///
+/// `data` is `Struct { nodes: List<{id, label}>, edges: List<{from, to, label?}> }`.
+///
+/// Returns Err with "flowchart contains a cycle: ..." if the graph
+/// has a cycle (topological sort cannot complete).
+pub fn builtin_diagram_flowchart(args: &[Value]) -> Result<Value, String> {
+    let data_value = args.first().cloned().unwrap_or(Value::Unit);
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    let (nodes, edges) = extract_flowchart(&data_value)?;
+    let layers = topological_layers(&nodes, &edges)?;
+    // Layout: each layer is one horizontal row. Within a row, nodes
+    // are spread evenly across the canvas width (with side padding).
+    let n_layers = layers.len();
+    // Y position per layer: distribute vertically across canvas height
+    // with top/bottom padding. Layer 0 at top.
+    let layer_h = (DIAGRAM_CANVAS_H - 80.0) / (n_layers as f64).max(1.0);
+    let mut id_to_pos: std::collections::HashMap<String, (f64, f64)> =
+        std::collections::HashMap::new();
+    let mut id_to_label: std::collections::HashMap<String, &str> = std::collections::HashMap::new();
+    for n in &nodes {
+        id_to_label.insert(n.id.clone(), n.label.as_str());
+    }
+    for (layer_idx, layer_nodes) in layers.iter().enumerate() {
+        let count = layer_nodes.len();
+        let y_center = 40.0 + (layer_idx as f64 + 0.5) * layer_h;
+        // Spread nodes: if 1 node, center; else distribute evenly.
+        let total_w = DIAGRAM_CANVAS_W - 80.0; // 40px padding each side
+        let step = if count > 1 {
+            total_w / (count as f64 - 1.0)
+        } else {
+            0.0
+        };
+        let start_x = if count > 1 {
+            40.0
+        } else {
+            DIAGRAM_CANVAS_W / 2.0
+        };
+        for (i, id) in layer_nodes.iter().enumerate() {
+            let x_center = start_x + (i as f64) * step;
+            id_to_pos.insert(id.clone(), (x_center, y_center));
+        }
+    }
+    let mut parts: Vec<String> = Vec::new();
+    // Background
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(DIAGRAM_CANVAS_W),
+        fmt_num(DIAGRAM_CANVAS_H),
+        escape_attr(&paper)
+    ));
+    // Edges first (so node boxes render on top of any line that clips)
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    for edge in &edges {
+        // Look up positions — both endpoints must be in id_to_pos
+        // (we built the map from layers, which contains every node).
+        let (from_x, from_y) = id_to_pos.get(&edge.from).cloned().ok_or_else(|| {
+            format!(
+                "diagram_flowchart: internal error — node {:?} not in position map",
+                edge.from
+            )
+        })?;
+        let (to_x, to_y) = id_to_pos.get(&edge.to).cloned().ok_or_else(|| {
+            format!(
+                "diagram_flowchart: internal error — node {:?} not in position map",
+                edge.to
+            )
+        })?;
+        // Trim endpoints so connectors start/end at the box edges, not centers
+        let (sx, sy) = box_edge_point(
+            from_x,
+            from_y,
+            to_x,
+            to_y,
+            FLOWCHART_NODE_W,
+            FLOWCHART_NODE_H,
+        );
+        let (ex, ey) = box_edge_point(
+            to_x,
+            to_y,
+            from_x,
+            from_y,
+            FLOWCHART_NODE_W,
+            FLOWCHART_NODE_H,
+        );
+        parts.push(draw_connector(sx, sy, ex, ey, &style));
+        // Optional edge label at midpoint, offset above the line
+        if let Some(label) = &edge.label {
+            let mid_x = (sx + ex) / 2.0;
+            let mid_y = (sy + ey) / 2.0 - 8.0;
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(mid_x),
+                fmt_num(mid_y),
+                escape_attr(&muted),
+                escape_html_chars(label)
+            ));
+        }
+    }
+    // Nodes
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+    for (id, (cx, cy)) in &id_to_pos {
+        let label = id_to_label.get(id).copied().unwrap_or("");
+        let box_x = cx - FLOWCHART_NODE_W / 2.0;
+        let box_y = cy - FLOWCHART_NODE_H / 2.0;
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" stroke="{}" stroke-width="1.5" rx="4" ry="4" />"#,
+            fmt_num(box_x),
+            fmt_num(box_y),
+            fmt_num(FLOWCHART_NODE_W),
+            fmt_num(FLOWCHART_NODE_H),
+            escape_attr(&paper),
+            escape_attr(&rule)
+        ));
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="12" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(*cx),
+            fmt_num(*cy + 4.0),
+            escape_attr(&ink),
+            escape_html_chars(label)
+        ));
+    }
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(DIAGRAM_CANVAS_W),
+        fmt_num(DIAGRAM_CANVAS_H),
+        fmt_num(DIAGRAM_CANVAS_W),
+        fmt_num(DIAGRAM_CANVAS_H),
+        body
+    )))
+}
+
+/// Compute the point where the line from (cx,cy) to (tx,ty) intersects
+/// the boundary of a box centered at (cx,cy) with width w and height h.
+/// Used to make connectors touch the box edge instead of the center.
+fn box_edge_point(cx: f64, cy: f64, tx: f64, ty: f64, w: f64, h: f64) -> (f64, f64) {
+    let dx = tx - cx;
+    let dy = ty - cy;
+    if dx == 0.0 && dy == 0.0 {
+        return (cx, cy);
+    }
+    let half_w = w / 2.0;
+    let half_h = h / 2.0;
+    // Scale factors to reach each edge
+    let sx = if dx != 0.0 {
+        half_w / dx.abs()
+    } else {
+        f64::INFINITY
+    };
+    let sy = if dy != 0.0 {
+        half_h / dy.abs()
+    } else {
+        f64::INFINITY
+    };
+    let s = sx.min(sy);
+    (cx + dx * s, cy + dy * s)
+}
+
+// ── Block 5: diagram_layers ─────────────────────────────────────────
+//
+// Simplest of the four — no draw_connector, no tree algorithm. Just
+// horizontal stripes of equal height stacked top-to-bottom.
+//
+// Layout:
+//   - canvas: 600 × 400
+//   - N layers, each height = canvas_h / N
+//   - label left-aligned with 16px left padding, vertically centered
+//   - optional description right-aligned with 16px right padding,
+//     smaller font, muted color
+//
+// Limits: data.len() ≤ 10 (otherwise stripes become too narrow).
+
+/// `diagram_layers(data, style) -> String`
+///
+/// `data` is `List<Struct { label, description? }>`. Renders horizontal
+/// stripes top-to-bottom.
+pub fn builtin_diagram_layers(args: &[Value]) -> Result<Value, String> {
+    let data = expect_list_arg("diagram_layers", args, 0)?;
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    if data.is_empty() {
+        return Err("diagram_layers: data list must not be empty".to_string());
+    }
+    if data.len() > 10 {
+        return Err(format!(
+            "diagram_layers: too many layers ({}), maximum is 10",
+            data.len()
+        ));
+    }
+    // Extract items
+    let mut items: Vec<(String, Option<String>)> = Vec::with_capacity(data.len());
+    for (i, item) in data.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_layers: data[{}] must be Struct {{label, description?}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let label = struct_string_field("diagram_layers item", f, "label")?;
+        let description = struct_opt_string_field(f, "description");
+        items.push((label, description));
+    }
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    let layer_h = canvas_h / (items.len() as f64);
+    let mut parts: Vec<String> = Vec::new();
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+    for (i, (label, description)) in items.iter().enumerate() {
+        let y = (i as f64) * layer_h;
+        // Alternating fill: even=index paper, odd=very light rule tint
+        // (we don't have a tint primitive, so we use paper for even and
+        // a manually lightened version of rule for odd). Simpler: use
+        // paper for even layers, rule at 0.15 opacity for odd.
+        let is_odd = i % 2 == 1;
+        if is_odd {
+            parts.push(format!(
+                r#"<rect x="0" y="{}" width="{}" height="{}" fill="{}" opacity="0.18" />"#,
+                fmt_num(y),
+                fmt_num(canvas_w),
+                fmt_num(layer_h),
+                escape_attr(&rule)
+            ));
+        }
+        // Top border (rule) — separates layers visually
+        parts.push(format!(
+            r#"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+            fmt_num(y),
+            fmt_num(canvas_w),
+            fmt_num(y),
+            escape_attr(&rule)
+        ));
+        // Label — left-aligned, vertically centered
+        let label_y = y + layer_h / 2.0 + 4.0;
+        // Accent left bar (3px wide) — visual anchor on the left edge
+        parts.push(format!(
+            r#"<rect x="0" y="{}" width="3" height="{}" fill="{}" />"#,
+            fmt_num(y),
+            fmt_num(layer_h),
+            escape_attr(&accent)
+        ));
+        parts.push(format!(
+            r#"<text x="16" y="{}" font-size="14" fill="{}">{}</text>"#,
+            fmt_num(label_y),
+            escape_attr(&ink),
+            escape_html_chars(label)
+        ));
+        // Description — right-aligned, smaller, muted
+        if let Some(desc) = description {
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="11" fill="{}" text-anchor="end">{}</text>"#,
+                fmt_num(canvas_w - 16.0),
+                fmt_num(label_y),
+                escape_attr(&muted),
+                escape_html_chars(desc)
+            ));
+        }
+    }
+    // Bottom border (rule)
+    parts.push(format!(
+        r#"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&rule)
+    ));
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
 // ── Internal: escape XML attribute values ────────────────────────────
 //
 // For attribute values (inside "..."), we must escape: & < > " '

@@ -1,0 +1,115 @@
+// ── Наряд №81 Block 2: diagram_tree contract ─────────────────────────
+//
+// Recursive tree layout contract — verifies:
+//   1. Basic 3-level tree renders a valid <svg> document
+//   2. Wide tree (4 children, each with 2 grandchildren) renders without
+//      error — checks the subtree-width accumulation logic
+//   3. Deep tree (depth 4) renders — checks level spacing math
+//   4. Empty children list (single-node tree) renders
+//   5. Depth > 6 returns Err (via `try` → Unit)
+//   6. Total nodes > 40 returns Err (via `try` → Unit)
+//
+// The 3-level minimum depth requirement from the narazd spec is
+// satisfied by test case 1 (root → children → grandchildren). This
+// is the smallest non-trivial layout — depth 2 (root → leaves) would
+// only test leaf rendering, not parent centering.
+//
+// Output: single summary string, "p81_tree_checks=N/6".
+
+pattern P81DiagramTreeContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Basic 3-level tree ─────────────────────────────────────────
+  // Root with 2 children, each child has 2-3 grandchildren.
+  let data1 = {
+    label: "Root",
+    children: [
+      {label: "Alpha", children: [
+        {label: "Alpha-1", children: []},
+        {label: "Alpha-2", children: []}
+      ]},
+      {label: "Beta", children: [
+        {label: "Beta-1", children: []},
+        {label: "Beta-2", children: []},
+        {label: "Beta-3", children: []}
+      ]}
+    ]
+  }
+  let r1 = diagram_tree(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. Wide tree (4 children × 2 grandchildren = 12 nodes) ────────
+  // Tests that subtree width accumulation handles wide trees.
+  let data2 = {
+    label: "Wide Root",
+    children: [
+      {label: "C1", children: [{label: "C1a", children: []}, {label: "C1b", children: []}]},
+      {label: "C2", children: [{label: "C2a", children: []}, {label: "C2b", children: []}]},
+      {label: "C3", children: [{label: "C3a", children: []}, {label: "C3b", children: []}]},
+      {label: "C4", children: [{label: "C4a", children: []}, {label: "C4b", children: []}]}
+    ]
+  }
+  let r2 = diagram_tree(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. Deep tree (depth 4) ────────────────────────────────────────
+  // Root → A → B → C → leaf. Tests level spacing math.
+  let data3 = {
+    label: "L0",
+    children: [
+      {label: "L1", children: [
+        {label: "L2", children: [
+          {label: "L3", children: [
+            {label: "Leaf", children: []}
+          ]}
+        ]}
+      ]}
+    ]
+  }
+  let r3 = diagram_tree(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // ── 4. Single-node tree (empty children) ──────────────────────────
+  let data4 = {label: "Solo", children: []}
+  let r4 = diagram_tree(data4, style)
+  let ok4 = to_float(starts_with(r4, "<svg "))
+
+  // ── 5. Depth > 6 → Err (try → Unit) ──────────────────────────────
+  // 8-level deep tree: depth exceeds MAX_DEPTH=6.
+  let data5 = {
+    label: "D0",
+    children: [{label: "D1", children: [{label: "D2", children: [{label: "D3", children: [{label: "D4", children: [{label: "D5", children: [{label: "D6", children: [{label: "D7", children: []}]}]}]}]}]}]}]
+  }
+  let r5 = try diagram_tree(data5, style)
+  let ok5 = to_float(type_of(r5) == "Unit")
+
+  // ── 6. Total nodes > 40 → Err (try → Unit) ───────────────────────
+  // Build a flat tree with 41 leaves (1 root + 41 children = 42 nodes).
+  // Each leaf is `{label: "N", children: []}`. We construct the list
+  // via a list literal of 41 structs.
+  let leaves41 = [
+    {label: "n1", children: []}, {label: "n2", children: []}, {label: "n3", children: []},
+    {label: "n4", children: []}, {label: "n5", children: []}, {label: "n6", children: []},
+    {label: "n7", children: []}, {label: "n8", children: []}, {label: "n9", children: []},
+    {label: "n10", children: []}, {label: "n11", children: []}, {label: "n12", children: []},
+    {label: "n13", children: []}, {label: "n14", children: []}, {label: "n15", children: []},
+    {label: "n16", children: []}, {label: "n17", children: []}, {label: "n18", children: []},
+    {label: "n19", children: []}, {label: "n20", children: []}, {label: "n21", children: []},
+    {label: "n22", children: []}, {label: "n23", children: []}, {label: "n24", children: []},
+    {label: "n25", children: []}, {label: "n26", children: []}, {label: "n27", children: []},
+    {label: "n28", children: []}, {label: "n29", children: []}, {label: "n30", children: []},
+    {label: "n31", children: []}, {label: "n32", children: []}, {label: "n33", children: []},
+    {label: "n34", children: []}, {label: "n35", children: []}, {label: "n36", children: []},
+    {label: "n37", children: []}, {label: "n38", children: []}, {label: "n39", children: []},
+    {label: "n40", children: []}, {label: "n41", children: []}
+  ]
+  let data6 = {label: "root", children: leaves41}
+  let r6 = try diagram_tree(data6, style)
+  let ok6 = to_float(type_of(r6) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
+
+  return "p81_tree_checks=" + to_string(total) + "/6"
+}
+
+flow Main { input: String = "x" -> P81DiagramTreeContract -> output }

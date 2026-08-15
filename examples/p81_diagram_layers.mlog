@@ -1,0 +1,74 @@
+// ── Наряд №81 Block 5: diagram_layers contract ───────────────────────
+//
+// Layers contract — verifies the simplest of the four diagram types:
+//   1. Basic 3-layer stack renders
+//   2. Layers with descriptions (optional field) render
+//   3. Single layer renders (degenerate case)
+//   4. 10 layers (maximum allowed) renders
+//   5. 11 layers → Err (exceeds maximum)
+//   6. Empty list → Err (must have at least one layer)
+//
+// No draw_connector is used by diagram_layers — this is the "no new
+// math" case from the spec. The contract verifies only the structural
+// composition (svg_rect + svg_text) and the input validation limits.
+//
+// Output: single summary string, "p81_layers_checks=N/6".
+
+pattern P81DiagramLayersContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Basic 3-layer stack ────────────────────────────────────────
+  let data1 = [
+    {label: "Presentation"},
+    {label: "Business Logic"},
+    {label: "Data Storage"}
+  ]
+  let r1 = diagram_layers(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. Layers with descriptions ───────────────────────────────────
+  let data2 = [
+    {label: "UI", description: "React components"},
+    {label: "API", description: "REST endpoints"},
+    {label: "DB", description: "PostgreSQL"}
+  ]
+  let r2 = diagram_layers(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. Single layer (degenerate) ──────────────────────────────────
+  let data3 = [{label: "Only Layer"}]
+  let r3 = diagram_layers(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // ── 4. 10 layers (maximum allowed) ────────────────────────────────
+  let data4 = [
+    {label: "L1"}, {label: "L2"}, {label: "L3"}, {label: "L4"}, {label: "L5"},
+    {label: "L6"}, {label: "L7"}, {label: "L8"}, {label: "L9"}, {label: "L10"}
+  ]
+  let r4 = diagram_layers(data4, style)
+  let ok4 = to_float(starts_with(r4, "<svg "))
+
+  // ── 5. 11 layers → Err (exceeds maximum) ──────────────────────────
+  let data5 = [
+    {label: "L1"}, {label: "L2"}, {label: "L3"}, {label: "L4"}, {label: "L5"},
+    {label: "L6"}, {label: "L7"}, {label: "L8"}, {label: "L9"}, {label: "L10"},
+    {label: "L11"}
+  ]
+  let r5 = try diagram_layers(data5, style)
+  let ok5 = to_float(type_of(r5) == "Unit")
+
+  // ── 6. Empty list → Err ───────────────────────────────────────────
+  // Note: mlog's let_binding grammar does not support type annotations
+  // (let x: T = ...), so we use an empty list literal directly. The
+  // builtin checks `data.is_empty()` and returns Err before any layout
+  // work happens.
+  let data6 = []
+  let r6 = try diagram_layers(data6, style)
+  let ok6 = to_float(type_of(r6) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
+
+  return "p81_layers_checks=" + to_string(total) + "/6"
+}
+
+flow Main { input: String = "x" -> P81DiagramLayersContract -> output }

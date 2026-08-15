@@ -1,0 +1,77 @@
+// ── Наряд №82 Block 2: diagram_timeline contract ─────────────────────
+//
+// Timeline diagram contract — verifies horizontal axis with event dots:
+//   1. Basic 3-event timeline renders
+//   2. Single-event timeline (degenerate) renders
+//   3. Timeline with descriptions (optional field) renders
+//   4. Events with long labels render (parity alternation handles overlap
+//      at the simple level — not a real anti-overlap engine, that's Н87)
+//   5. 12 events (maximum allowed) renders
+//   6. 13 events → Err (exceeds maximum)
+//
+// Output: single summary string, "p82_timeline_checks=N/6".
+
+pattern P82DiagramTimelineContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. Basic 3-event timeline ────────────────────────────────────
+  let data1 = [
+    {date: "2024-01", label: "Project start"},
+    {date: "2024-06", label: "Beta launch"},
+    {date: "2024-12", label: "GA release"}
+  ]
+  let r1 = diagram_timeline(data1, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. Single-event timeline (degenerate) ────────────────────────
+  let data2 = [{date: "now", label: "Only event"}]
+  let r2 = diagram_timeline(data2, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. Timeline with descriptions ────────────────────────────────
+  let data3 = [
+    {date: "Q1", label: "Research", description: "User interviews + market scan"},
+    {date: "Q2", label: "Design", description: "Wireframes + prototypes"},
+    {date: "Q3", label: "Build", description: "Implementation sprint"},
+    {date: "Q4", label: "Ship", description: "GA release"}
+  ]
+  let r3 = diagram_timeline(data3, style)
+  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // ── 4. Long labels (verify parity alternation doesn't crash) ─────
+  let data4 = [
+    {date: "Step 1", label: "Initialize system with default configuration"},
+    {date: "Step 2", label: "Load user preferences from persistent storage"},
+    {date: "Step 3", label: "Establish network connection to remote API"},
+    {date: "Step 4", label: "Synchronize state with upstream server"}
+  ]
+  let r4 = diagram_timeline(data4, style)
+  let ok4 = to_float(starts_with(r4, "<svg "))
+
+  // ── 5. 12 events (maximum allowed) ───────────────────────────────
+  let data5 = [
+    {date: "M1", label: "Jan"}, {date: "M2", label: "Feb"}, {date: "M3", label: "Mar"},
+    {date: "M4", label: "Apr"}, {date: "M5", label: "May"}, {date: "M6", label: "Jun"},
+    {date: "M7", label: "Jul"}, {date: "M8", label: "Aug"}, {date: "M9", label: "Sep"},
+    {date: "M10", label: "Oct"}, {date: "M11", label: "Nov"}, {date: "M12", label: "Dec"}
+  ]
+  let r5 = diagram_timeline(data5, style)
+  let ok5 = to_float(starts_with(r5, "<svg "))
+
+  // ── 6. 13 events → Err (exceeds maximum) ─────────────────────────
+  let data6 = [
+    {date: "1", label: "a"}, {date: "2", label: "b"}, {date: "3", label: "c"},
+    {date: "4", label: "d"}, {date: "5", label: "e"}, {date: "6", label: "f"},
+    {date: "7", label: "g"}, {date: "8", label: "h"}, {date: "9", label: "i"},
+    {date: "10", label: "j"}, {date: "11", label: "k"}, {date: "12", label: "l"},
+    {date: "13", label: "m"}
+  ]
+  let r6 = try diagram_timeline(data6, style)
+  let ok6 = to_float(type_of(r6) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
+
+  return "p82_timeline_checks=" + to_string(total) + "/6"
+}
+
+flow Main { input: String = "x" -> P82DiagramTimelineContract -> output }

@@ -342,8 +342,8 @@ fn parse_string_literal(s: &str) -> Result<String, String> {
 /// Path can be:
 ///   - `var`            — direct field lookup
 ///   - `obj.field`      — one-level nested field lookup
-///   - `this`           — the implicit `this` from `{{#each}}` (the
-///                        current item; caller passes item as `data`)
+///   - `this`           — the implicit `this` from `{{#each}}`
+///     (the current item; caller passes item as `data`)
 ///   - `this.field`     — field of the current item
 fn resolve_path<'a>(data: &'a Value, path: &str) -> Option<&'a Value> {
     let path = path.trim();

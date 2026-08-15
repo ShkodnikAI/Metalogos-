@@ -429,6 +429,36 @@ const SVG_AUTO_ESCAPE_BUILTINS: &[&str] = &[
     "diagram_pyramid",
     "diagram_nested",
     "diagram_medallion",
+    // Наряд №84 Block 7: data & state diagrams.
+    //   diagram_er — Struct{entities: [{name, fields: List<String>}], relations: [{from,to,label?}]}.
+    //     entities[].name and relations[].label are rendered as text.
+    //     entities[].fields is a List<String> NESTED INSIDE a struct field —
+    //     this is the THIRD nesting form encountered in the SVG suite
+    //     (1st: top-level List<String> like diagram_sequence.actors in Н82;
+    //      2nd: List<Struct> like diagram_layers in Н81;
+    //      3rd: List<String> inside a struct field, here). The scanner
+    //     scan_er_labels walks both levels: per-entity name + per-field string.
+    //   diagram_state — Struct{states: List<String>, transitions: [{from,to,label?}], initial?}.
+    //     states[] is List<String> (same as diagram_sequence.actors — scan
+    //     each StringLit directly). transitions[].label is rendered.
+    //     `initial` is a TOP-LEVEL String? field (like diagram_venn.overlap_label).
+    //   diagram_swimlane — Struct{lanes: List<String>, steps: [{lane,label,order}]}.
+    //     lanes[] is List<String>. steps[].label is rendered (lane is an
+    //     identifier, scanned defensively). steps[].order is Float, skipped.
+    //   diagram_data_flow / diagram_high_level / diagram_architecture —
+    //     Struct{nodes:[{id,label,icon?}], edges:[{from,to,label?}]}.
+    //     Same shape as diagram_flowchart (Н81) — REUSES scan_flowchart_labels
+    //     (no new scanner for an identical shape, per spec: "переиспользовать
+    //     сканер, не писать заново для каждой из трёх").
+    //     For diagram_architecture, the `icon` field is a controlled enum
+    //     (validated against svg_icon's 10 names at runtime) — NOT scanned,
+    //     same decision as diagram_medallion.
+    "diagram_er",
+    "diagram_state",
+    "diagram_swimlane",
+    "diagram_data_flow",
+    "diagram_high_level",
+    "diagram_architecture",
 ];
 
 /// Builtins whose string arguments are NOT auto-escaped (structural).
@@ -1065,6 +1095,232 @@ fn scan_medallion_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResu
     }
 }
 
+/// Наряд №84 Block 7 — scanner for `diagram_er` data shape.
+///
+/// ER has two lists, each with rendered text:
+///   Struct {
+///     entities:  List<Struct{name: String, fields: List<String>}>,
+///     relations: List<Struct{from: String, to: String, label?: String}>,
+///   }
+///
+/// The novel case here is `entities[].fields` — a `List<String>` NESTED
+/// INSIDE a struct field. This is the THIRD nesting form in the SVG
+/// suite (after top-level `List<String>` in diagram_sequence.actors,
+/// and `List<Struct>` everywhere else). A scanner that only walks one
+/// level of struct fields would miss `fields[]` entirely — each field
+/// name is rendered as a separate line inside the entity box, so an
+/// injection in `fields[2]` would reach the SVG output.
+///
+/// We walk per-entity: scan `name` (rendered in the header bar), then
+/// iterate `fields[]` and scan each `StringLit` element directly (no
+/// struct unwrap — same approach as scan_sequence_labels.actors).
+///
+/// `relations[].label` is rendered at the connector midpoint (same as
+/// flowchart edges). `relations[].from` and `.to` are entity-name
+/// identifiers, scanned defensively (not rendered, but suspicious if
+/// they contain a payload).
+///
+/// All findings are WARNINGs (runtime escapes via escape_html_chars —
+/// defense-in-depth, not a hard error).
+fn scan_er_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
+    if let Some(Expr::StructLit(fields)) = args.first() {
+        // entities: List<Struct{name, fields: List<String>}>
+        if let Some(Expr::List(entity_items)) = fields.get("entities") {
+            for (i, item) in entity_items.iter().enumerate() {
+                if let Expr::StructLit(entity_fields) = item {
+                    // name — rendered in the entity header bar (primary target)
+                    if let Some(Expr::StringLit(s)) = entity_fields.get("name") {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(format!(
+                                "security: {} data.entities[{}].name string literal {} — runtime will escape, but review intent",
+                                fn_name, i, reason
+                            ));
+                        }
+                    }
+                    // fields: List<String> NESTED inside a struct field —
+                    // the third nesting form. Each StringLit is rendered
+                    // as a separate line inside the entity box.
+                    if let Some(Expr::List(field_items)) = entity_fields.get("fields") {
+                        for (j, f_item) in field_items.iter().enumerate() {
+                            if let Expr::StringLit(s) = f_item {
+                                if let Some(reason) = detect_xss_payload(s) {
+                                    result.warnings.push(format!(
+                                        "security: {} data.entities[{}].fields[{}] string literal {} — runtime will escape, but review intent",
+                                        fn_name, i, j, reason
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // relations: List<Struct{from, to, label?}> — same shape as
+        // diagram_flowchart.edges. Scan from/to defensively, label as primary.
+        if let Some(Expr::List(rel_items)) = fields.get("relations") {
+            for (i, item) in rel_items.iter().enumerate() {
+                if let Expr::StructLit(rel_fields) = item {
+                    for ident_key in &["from", "to"] {
+                        if let Some(Expr::StringLit(s)) = rel_fields.get(*ident_key) {
+                            if let Some(reason) = detect_xss_payload(s) {
+                                result.warnings.push(format!(
+                                    "security: {} data.relations[{}].{} string literal {} — field not rendered but review intent",
+                                    fn_name, i, ident_key, reason
+                                ));
+                            }
+                        }
+                    }
+                    if let Some(Expr::StringLit(s)) = rel_fields.get("label") {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(format!(
+                                "security: {} data.relations[{}].label string literal {} — runtime will escape, but review intent",
+                                fn_name, i, reason
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Наряд №84 Block 7 — scanner for `diagram_state` data shape.
+///
+/// State has TWO independent text sources plus a top-level optional:
+///   Struct {
+///     states:      List<String>,                              // scan each StringLit
+///     transitions: List<Struct{from, to, label?}>,            // scan transitions[].label
+///     initial:     String?,                                   // TOP-LEVEL field, like venn.overlap_label
+///   }
+///
+/// `states[]` is `List<String>` (same form as diagram_sequence.actors —
+/// scan each StringLit directly, no struct unwrap).
+/// `transitions[].label` is rendered at the connector midpoint (self-
+/// loops render the label above the loop arc — same scan rule applies).
+/// `transitions[].from`/`.to` are state-name identifiers, scanned
+/// defensively (not rendered).
+/// `initial` is a TOP-LEVEL `String?` field — easy to forget, called
+/// out explicitly in the spec. We scan it separately at the outer
+/// StructLit level (not inside any list).
+///
+/// All findings are WARNINGs (runtime escapes via escape_html_chars —
+/// defense-in-depth, not a hard error).
+fn scan_state_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
+    if let Some(Expr::StructLit(fields)) = args.first() {
+        // states: List<String> — scan each StringLit directly
+        if let Some(Expr::List(state_items)) = fields.get("states") {
+            for (i, state) in state_items.iter().enumerate() {
+                if let Expr::StringLit(s) = state {
+                    if let Some(reason) = detect_xss_payload(s) {
+                        result.warnings.push(format!(
+                            "security: {} data.states[{}] string literal {} — runtime will escape, but review intent",
+                            fn_name, i, reason
+                        ));
+                    }
+                }
+            }
+        }
+        // transitions: List<Struct{from, to, label?}> — same pattern as
+        // diagram_flowchart.edges / diagram_sequence.messages.
+        if let Some(Expr::List(trans_items)) = fields.get("transitions") {
+            for (i, item) in trans_items.iter().enumerate() {
+                if let Expr::StructLit(trans_fields) = item {
+                    for ident_key in &["from", "to"] {
+                        if let Some(Expr::StringLit(s)) = trans_fields.get(*ident_key) {
+                            if let Some(reason) = detect_xss_payload(s) {
+                                result.warnings.push(format!(
+                                    "security: {} data.transitions[{}].{} string literal {} — field not rendered but review intent",
+                                    fn_name, i, ident_key, reason
+                                ));
+                            }
+                        }
+                    }
+                    if let Some(Expr::StringLit(s)) = trans_fields.get("label") {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(format!(
+                                "security: {} data.transitions[{}].label string literal {} — runtime will escape, but review intent",
+                                fn_name, i, reason
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        // initial — TOP-LEVEL String? field (the spec's "easy to forget" case,
+        // same category as diagram_venn.overlap_label). It's rendered as the
+        // entry-arrow target state name, but ALSO drawn near the initial node.
+        if let Some(Expr::StringLit(s)) = fields.get("initial") {
+            if let Some(reason) = detect_xss_payload(s) {
+                result.warnings.push(format!(
+                    "security: {} data.initial string literal {} — runtime will escape, but review intent",
+                    fn_name, reason
+                ));
+            }
+        }
+    }
+}
+
+/// Наряд №84 Block 7 — scanner for `diagram_swimlane` data shape.
+///
+/// Swimlane has TWO lists, each containing user text:
+///   Struct {
+///     lanes: List<String>,                              // scan each StringLit
+///     steps: List<Struct{lane, label, order}>,          // scan steps[].label
+///   }
+///
+/// `lanes[]` is `List<String>` (same form as diagram_sequence.actors
+/// and diagram_state.states — scan each StringLit directly).
+/// `steps[].label` is rendered inside each step pill (primary target).
+/// `steps[].lane` is a lane-name identifier (defensive scan — not
+/// rendered, but suspicious if it carries a payload).
+/// `steps[].order` is a Float — geometry, never rendered as text, skipped.
+///
+/// All findings are WARNINGs (runtime escapes via escape_html_chars —
+/// defense-in-depth, not a hard error).
+fn scan_swimlane_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
+    if let Some(Expr::StructLit(fields)) = args.first() {
+        // lanes: List<String> — scan each StringLit directly
+        if let Some(Expr::List(lane_items)) = fields.get("lanes") {
+            for (i, lane) in lane_items.iter().enumerate() {
+                if let Expr::StringLit(s) = lane {
+                    if let Some(reason) = detect_xss_payload(s) {
+                        result.warnings.push(format!(
+                            "security: {} data.lanes[{}] string literal {} — runtime will escape, but review intent",
+                            fn_name, i, reason
+                        ));
+                    }
+                }
+            }
+        }
+        // steps: List<Struct{lane, label, order}> — scan lane defensively,
+        // label as primary. order is Float, skipped.
+        if let Some(Expr::List(step_items)) = fields.get("steps") {
+            for (i, item) in step_items.iter().enumerate() {
+                if let Expr::StructLit(step_fields) = item {
+                    // lane — defensive (identifier, not rendered as free text)
+                    if let Some(Expr::StringLit(s)) = step_fields.get("lane") {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(format!(
+                                "security: {} data.steps[{}].lane string literal {} — field not rendered but review intent",
+                                fn_name, i, reason
+                            ));
+                        }
+                    }
+                    // label — rendered inside the step pill (primary target)
+                    if let Some(Expr::StringLit(s)) = step_fields.get("label") {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(format!(
+                                "security: {} data.steps[{}].label string literal {} — runtime will escape, but review intent",
+                                fn_name, i, reason
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Walk an expression and run the security check on every FnCall node.
 fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &str) {
     match expr {
@@ -1193,6 +1449,41 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
                 }
                 if name == "diagram_medallion" {
                     scan_medallion_labels(name, args, result);
+                }
+                // Наряд №84 Block 7: data & state diagram scanners.
+                //   diagram_er — Struct{entities:[{name, fields:[String]}],
+                //     relations:[{from,to,label?}]}. Special scanner
+                //     scan_er_labels walks the nested List<String> inside
+                //     each entity (the third nesting form — see comment
+                //     on the scanner for why this needs bespoke handling).
+                //   diagram_state — Struct{states:[String], transitions:[...],
+                //     initial?}. scan_state_labels scans states[] as a direct
+                //     List<String>, transitions[].label as rendered text, and
+                //     `initial` as a TOP-LEVEL String? field (overlap_label form).
+                //   diagram_swimlane — Struct{lanes:[String], steps:[{lane,label,order}]}.
+                //     scan_swimlane_labels scans lanes[] directly + steps[].label.
+                //   diagram_data_flow / diagram_high_level / diagram_architecture —
+                //     Struct{nodes:[{id,label,icon?}], edges:[{from,to,label?}]}.
+                //     Same shape as diagram_flowchart (Н81) — REUSES
+                //     scan_flowchart_labels (no new scanner for an identical
+                //     shape, per spec). The `icon` field on diagram_architecture
+                //     nodes is a controlled enum (validated against svg_icon's
+                //     10 names at runtime), NOT free-form text — explicitly
+                //     NOT scanned, same decision as diagram_medallion.
+                if name == "diagram_er" {
+                    scan_er_labels(name, args, result);
+                }
+                if name == "diagram_state" {
+                    scan_state_labels(name, args, result);
+                }
+                if name == "diagram_swimlane" {
+                    scan_swimlane_labels(name, args, result);
+                }
+                if name == "diagram_data_flow"
+                    || name == "diagram_high_level"
+                    || name == "diagram_architecture"
+                {
+                    scan_flowchart_labels(name, args, result);
                 }
             }
             if SVG_NO_ESCAPE_BUILTINS.contains(&name.as_str()) {

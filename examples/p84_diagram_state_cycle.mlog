@@ -1,0 +1,72 @@
+// ── Наряд №84 Block 8: diagram_state_cycle contract ─────────────────
+//
+// FOCUSED regression on the cycle/self-loop invariant — the spec
+// mandates a SEPARATE contract for this: "Отдельно —
+// p84_diagram_state_cycle.mlog (машина состояний с self-loop и обычным
+// циклом — подтвердить, что оба не дают ошибку, в отличие от
+// diagram_flowchart)".
+//
+// The contract asserts that BOTH a regular cycle (A↔B) and a self-loop
+// (A→A) succeed in diagram_state, AND that the same cycle DOES fail
+// in diagram_flowchart — making the behavioral contrast explicit and
+// testable. Without the flowchart-side assertion, a regression that
+// accidentally accepts cycles in flowchart (or rejects them in state)
+// would slip past the per-function contract above.
+//
+// Output: single summary string, "p84_state_cycle_checks=N/4".
+
+pattern P84DiagramStateCycleContract(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+
+  // ── 1. diagram_state: regular cycle A↔B succeeds ──────────────────
+  let cycle_data = {
+    states: ["A", "B"],
+    transitions: [
+      {from: "A", to: "B"},
+      {from: "B", to: "A"}
+    ]
+  }
+  let r1 = diagram_state(cycle_data, style)
+  let ok1 = to_float(starts_with(r1, "<svg "))
+
+  // ── 2. diagram_state: self-loop A→A succeeds ──────────────────────
+  let self_loop_data = {
+    states: ["Only"],
+    transitions: [
+      {from: "Only", to: "Only", label: "self"}
+    ]
+  }
+  let r2 = diagram_state(self_loop_data, style)
+  let ok2 = to_float(starts_with(r2, "<svg "))
+
+  // ── 3. diagram_flowchart: same cycle A↔B FAILS (contrast) ─────────
+  // This is the spec-called-out behavioral difference. If this assertion
+  // ever flips to OK, it means we accidentally loosened flowchart's
+  // cycle detection — a regression.
+  let fc_cycle_data = {
+    nodes: [
+      {id: "A", label: "Node A"},
+      {id: "B", label: "Node B"}
+    ],
+    edges: [
+      {from: "A", to: "B"},
+      {from: "B", to: "A"}
+    ]
+  }
+  let r3 = try diagram_flowchart(fc_cycle_data, style)
+  let ok3 = to_float(type_of(r3) == "Unit")
+
+  // ── 4. diagram_flowchart: self-loop A→A FAILS (contrast) ──────────
+  let fc_self_loop_data = {
+    nodes: [{id: "A", label: "Self"}],
+    edges: [{from: "A", to: "A"}]
+  }
+  let r4 = try diagram_flowchart(fc_self_loop_data, style)
+  let ok4 = to_float(type_of(r4) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4
+
+  return "p84_state_cycle_checks=" + to_string(total) + "/4"
+}
+
+flow Main { input: String = "x" -> P84DiagramStateCycleContract -> output }

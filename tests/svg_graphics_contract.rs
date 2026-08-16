@@ -397,12 +397,12 @@ fn sketchy_filter_composes_with_group() {
 
 #[test]
 fn timeline_anti_overlap_basic_3_events() {
-    let src = r#"pattern __t(input: String) -> String {
+    let src = r##"pattern __t(input: String) -> String {
         let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
         let data = [{date: "2024-01", label: "Start"}, {date: "2024-06", label: "Beta"}, {date: "2024-12", label: "GA"}]
         return diagram_timeline(data, style)
     }
-flow Main { input: String = "x" -> __t -> output }"#;
+flow Main { input: String = "x" -> __t -> output }"##;
     let svg = match metalogos::run_program(src) {
         Ok(Some(s)) => s,
         _ => panic!("failed"),
@@ -417,11 +417,11 @@ flow Main { input: String = "x" -> __t -> output }"#;
 
 #[test]
 fn timeline_anti_overlap_single_event() {
-    let src = r#"pattern __t(input: String) -> String {
+    let src = r##"pattern __t(input: String) -> String {
         let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
         return diagram_timeline([{date: "now", label: "Only"}], style)
     }
-flow Main { input: String = "x" -> __t -> output }"#;
+flow Main { input: String = "x" -> __t -> output }"##;
     let svg = match metalogos::run_program(src) {
         Ok(Some(s)) => s,
         _ => panic!("failed"),
@@ -435,7 +435,7 @@ fn timeline_anti_overlap_dense_long_labels() {
     // Deliberately create a dense timeline with long labels that
     // WOULD overlap under simple parity alternation. The anti-overlap
     // engine must reposition them so the SVG still renders correctly.
-    let src = r#"pattern __t(input: String) -> String {
+    let src = r##"pattern __t(input: String) -> String {
         let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
         let data = [
             {date: "2024-01-15", label: "Initialize system with defaults"},
@@ -447,7 +447,7 @@ fn timeline_anti_overlap_dense_long_labels() {
         ]
         return diagram_timeline(data, style)
     }
-flow Main { input: String = "x" -> __t -> output }"#;
+flow Main { input: String = "x" -> __t -> output }"##;
     let svg = match metalogos::run_program(src) {
         Ok(Some(s)) => s,
         _ => panic!("failed"),
@@ -460,7 +460,7 @@ flow Main { input: String = "x" -> __t -> output }"#;
 
 #[test]
 fn timeline_anti_overlap_with_descriptions() {
-    let src = r#"pattern __t(input: String) -> String {
+    let src = r##"pattern __t(input: String) -> String {
         let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
         let data = [
             {date: "Q1", label: "Research", description: "User interviews"},
@@ -470,7 +470,7 @@ fn timeline_anti_overlap_with_descriptions() {
         ]
         return diagram_timeline(data, style)
     }
-flow Main { input: String = "x" -> __t -> output }"#;
+flow Main { input: String = "x" -> __t -> output }"##;
     let svg = match metalogos::run_program(src) {
         Ok(Some(s)) => s,
         _ => panic!("failed"),
@@ -482,7 +482,7 @@ flow Main { input: String = "x" -> __t -> output }"#;
 
 #[test]
 fn timeline_anti_overlap_12_events_max() {
-    let src = r#"pattern __t(input: String) -> String {
+    let src = r##"pattern __t(input: String) -> String {
         let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
         let data = [
             {date: "M1", label: "Jan"}, {date: "M2", label: "Feb"}, {date: "M3", label: "Mar"},
@@ -492,7 +492,7 @@ fn timeline_anti_overlap_12_events_max() {
         ]
         return diagram_timeline(data, style)
     }
-flow Main { input: String = "x" -> __t -> output }"#;
+flow Main { input: String = "x" -> __t -> output }"##;
     let svg = match metalogos::run_program(src) {
         Ok(Some(s)) => s,
         _ => panic!("failed"),
@@ -503,7 +503,7 @@ flow Main { input: String = "x" -> __t -> output }"#;
 
 #[test]
 fn timeline_anti_overlap_13_events_error() {
-    let src = r#"pattern __t(input: String) -> String {
+    let src = r##"pattern __t(input: String) -> String {
         let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
         let data = [
             {date: "1", label: "a"}, {date: "2", label: "b"}, {date: "3", label: "c"},
@@ -514,7 +514,7 @@ fn timeline_anti_overlap_13_events_error() {
         ]
         return diagram_timeline(data, style)
     }
-flow Main { input: String = "x" -> __t -> output }"#;
+flow Main { input: String = "x" -> __t -> output }"##;
     let err = eval_err(src);
     assert!(
         err.contains("too many events") || err.contains("maximum"),
@@ -527,7 +527,7 @@ flow Main { input: String = "x" -> __t -> output }"#;
 fn timeline_anti_overlap_deterministic() {
     // Same input must produce identical output (resolve_overlaps is
     // deterministic because pairs are processed in index order).
-    let src = r#"pattern __t(input: String) -> String {
+    let src = r##"pattern __t(input: String) -> String {
         let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
         let data = [
             {date: "2024-01", label: "Start project"},
@@ -538,7 +538,7 @@ fn timeline_anti_overlap_deterministic() {
         ]
         return diagram_timeline(data, style)
     }
-flow Main { input: String = "x" -> __t -> output }"#;
+flow Main { input: String = "x" -> __t -> output }"##;
     let out1 = match metalogos::run_program(src) {
         Ok(Some(s)) => s,
         _ => panic!("first run failed"),

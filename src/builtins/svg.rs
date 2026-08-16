@@ -5032,16 +5032,13 @@ pub fn builtin_diagram_timeline(args: &[Value]) -> Result<Value, String> {
         // Convert box top back to text baseline (box.y = baseline - line_h + 3)
         match meta.role {
             TextRole::Date => {
-                resolved_date_ys[meta.event_idx] =
-                    label_boxes[bi].y + DATE_LINE_H - 3.0;
+                resolved_date_ys[meta.event_idx] = label_boxes[bi].y + DATE_LINE_H - 3.0;
             }
             TextRole::Label => {
-                resolved_label_ys[meta.event_idx] =
-                    label_boxes[bi].y + LABEL_LINE_H - 3.0;
+                resolved_label_ys[meta.event_idx] = label_boxes[bi].y + LABEL_LINE_H - 3.0;
             }
             TextRole::Description => {
-                resolved_desc_ys[meta.event_idx] =
-                    Some(label_boxes[bi].y + DESC_LINE_H - 3.0);
+                resolved_desc_ys[meta.event_idx] = Some(label_boxes[bi].y + DESC_LINE_H - 3.0);
             }
         }
     }

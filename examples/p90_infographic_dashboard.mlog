@@ -1,0 +1,59 @@
+// ── Наряд №90: InfographicDashboard contract ────────────────────────
+//
+// Verifies InfographicDashboard pattern:
+//   1. Dashboard with KPIs and bar chart renders valid SVG
+//   2. infographic_qa on result produces checks_run=3
+//   3. >4 charts returns error string (starts with "ERROR:")
+//   4. Unknown chart_type returns error string
+//
+// Note: No `try` used — InfographicDashboard returns error strings
+// normally (not as Err), so direct call + starts_with is sufficient.
+// The VM backend does not implement `try` (always returns Unit),
+// so `try`-based tests would diverge between TW and VM.
+
+import std/infographic
+
+pattern P90InfographicDashboard(input: String) -> String {
+  let kpis = [
+    {label: "Revenue", value: "2.4", unit: "M"},
+    {label: "Users", value: "18", unit: "K"},
+    {label: "Growth", value: "23", unit: "%"},
+    {label: "NPS", value: "72", unit: ""}
+  ]
+  let charts = [
+    {chart_type: "bar", data: [{label: "Q1", value: 30.0}, {label: "Q2", value: 65.0}, {label: "Q3", value: 45.0}, {label: "Q4", value: 80.0}]},
+    {chart_type: "donut", data: [{label: "Desktop", value: 55.0}, {label: "Mobile", value: 35.0}, {label: "Tablet", value: 10.0}]},
+    {chart_type: "line", data: [{label: "Jan", value: 20.0}, {label: "Feb", value: 35.0}, {label: "Mar", value: 28.0}, {label: "Apr", value: 50.0}]},
+    {chart_type: "bar", data: [{label: "A", value: 40.0}, {label: "B", value: 60.0}]}
+  ]
+
+  // ── 1. Dashboard renders ─────────────────────────────────────────
+  let svg = InfographicDashboard("Q4 Performance", "energy", kpis, charts)
+  let ok1 = to_float(starts_with(svg, "<svg "))
+
+  // ── 2. infographic_qa on dashboard result ────────────────────────
+  let report = infographic_qa(svg)
+  let n_checks = report.checks_run
+
+  // ── 3. >4 charts error (returns "ERROR:..." string) ──────────────
+  let too_many = [
+    {chart_type: "bar", data: [{label: "A", value: 1.0}]},
+    {chart_type: "bar", data: [{label: "B", value: 2.0}]},
+    {chart_type: "bar", data: [{label: "C", value: 3.0}]},
+    {chart_type: "bar", data: [{label: "D", value: 4.0}]},
+    {chart_type: "bar", data: [{label: "E", value: 5.0}]}
+  ]
+  let err_result = InfographicDashboard("Too Many", "calm", kpis, too_many)
+  let ok3 = to_float(starts_with(err_result, "ERROR:"))
+
+  // ── 4. Unknown chart_type error (returns "ERROR:..." string) ─────
+  let bad_type = [{chart_type: "scatter", data: [{label: "X", value: 1.0}]}]
+  let err2 = InfographicDashboard("Bad Type", "calm", kpis, bad_type)
+  let ok4 = to_float(starts_with(err2, "ERROR:"))
+
+  let total = ok1 + ok3 + ok4
+
+  return "p90_dashboard: ok=" + to_string(total) + "/3 qa_checks=" + to_string(n_checks)
+}
+
+flow Main { input: String = "x" -> P90InfographicDashboard -> output }

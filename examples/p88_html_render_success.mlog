@@ -1,0 +1,44 @@
+// ── Наряд №88: html_render contract — real browser render ─────────
+//
+// This contract verifies SUCCESSFUL rendering with a real Chromium
+// binary. It is INTENTIONALLY excluded from CI (#[ignore]) because
+// CI environments do not have a Chromium binary installed.
+//
+// To run locally:
+//   METALOGOS_BROWSER_BIN=/usr/bin/chromium cargo test html_render_success
+//
+// Reason for #[ignore]: "requires METALOGOS_BROWSER_BIN and a real
+// Chromium/Chrome binary — not available in CI"
+//
+// Checks:
+//   1. Simple HTML renders → returns a PNG path string
+//   2. HTML with inline CSS renders → returns a PNG path string
+//   3. html_render with zero width → error (not crash)
+//   4. html_render with zero height → error (not crash)
+
+pattern P88HtmlRenderSuccess(input: String) -> String {
+  // ── 1. Simple HTML ────────────────────────────────────────────
+  let html1 = "<html><body style='background:white'><h1>Test</h1></body></html>"
+  let r1 = try html_render(html1, 800.0, 600.0)
+  // Success: result is a String (path to PNG), not Unit
+  let ok1 = to_float(type_of(r1) == "String")
+
+  // ── 2. HTML with inline CSS ───────────────────────────────────
+  let html2 = "<html><head><style>body{background:#f0f0f0;font-family:sans-serif}</style></head><body><h2>Styled</h2></body></html>"
+  let r2 = try html_render(html2, 1024.0, 768.0)
+  let ok2 = to_float(type_of(r2) == "String")
+
+  // ── 3. Zero width → error ─────────────────────────────────────
+  let r3 = try html_render("<html></html>", 0.0, 600.0)
+  let ok3 = to_float(type_of(r3) == "Unit")
+
+  // ── 4. Zero height → error ────────────────────────────────────
+  let r4 = try html_render("<html></html>", 800.0, 0.0)
+  let ok4 = to_float(type_of(r4) == "Unit")
+
+  let total = ok1 + ok2 + ok3 + ok4
+
+  return "p88_html_render_success=" + to_string(total) + "/4"
+}
+
+flow Main { input: String = "x" -> P88HtmlRenderSuccess -> output }

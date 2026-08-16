@@ -1,29 +1,39 @@
-// ── Наряд №77 Block 3: std/infographic.mlog — MVP composition ────────
+// ── Наряд №77+90: std/infographic.mlog — composition patterns ────────
 //
 // Pure .mlog module — composes existing builtins, NO new Rust primitives.
-// Single pattern: InfographicPoster.
 //
 // Architecture:
 //   - color_palette(intent, mode) → DiagramStyle  (5 tokens, same hue family)
-//   - chart_donut(stats, style)   → complete <svg> donut chart
-//   - svg_canvas / svg_rect / svg_text / svg_line → layout primitives
+//   - chart_bar / chart_donut / chart_line → complete <svg> charts
+//   - diagram_timeline → horizontal axis with event dots
+//   - svg_canvas / svg_rect / svg_text / svg_line / svg_group → layout primitives
 //
-// What's IN (MVP):
-//   - Header band with title
-//   - Donut chart from stats: [{label, value}, ...]
-//   - Footer rule + caption
+// Patterns (Наряд №77):
+//   - InfographicPoster — header + donut chart + footer
 //
-// What's CONSCIOUSLY OUT (deferred to a future narad):
-//   - InfographicDashboard (multi-chart grid)
-//   - InfographicComparison (side-by-side donuts)
-//   - InfographicTimeline (horizontal timeline)
-//   - Per-stat stat_block cards with big numbers
-//   - svg_icon decoration in header
-//   - svg_callout editorial annotations
-//   - Multi-section layout with column splits
+// Patterns (Наряд №90):
+//   - InfographicDashboard — header + KPI cards + 2×2 chart grid + footer
+//   - InfographicComparison — header + side-by-side charts + vertical divider + footer
+//   - InfographicTimeline — header + diagram_timeline + footer
+//
+// Visual grammar (shared across all patterns):
+//   - Dark header band (ink bg, paper text) with title
+//   - Paper-colored body background
+//   - Thin rule divider + muted caption footer
+//   Reader seeing multiple Metalogos infographics should recognise the same hand.
+//
+// What's CONSCIOUSLY OUT:
+//   - stat_block as a Rust builtin — composed from svg_rect/svg_text here
+//   - General grid-solver — fixed 2×2 grid, 4 chart ceiling
+//   - svg_icon / svg_callout decorations — future narad
+//   - Multi-section layout with column splits — future narad
 //
 // If a real consumer needs any of the above, that's the signal to design
 // a new narad — not to bolt a new Rust builtin into this module.
+
+// ═══════════════════════════════════════════════════════════════════════
+// Наряд №77: InfographicPoster
+// ═══════════════════════════════════════════════════════════════════════
 
 pattern InfographicPoster(title: String, intent: String, stats: List) -> String {
   // ── Step 1: derive 5-token DiagramStyle from intent ──────────────
@@ -65,4 +75,243 @@ pattern InfographicPoster(title: String, intent: String, stats: List) -> String 
   ]
 
   return svg_canvas(720.0, 960.0, "0 0 720 960", children)
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Наряд №90 Block 1: InfographicDashboard
+// ═══════════════════════════════════════════════════════════════════════
+//
+// InfographicDashboard(title, intent, kpis, charts)
+//
+//   kpis: List<Struct { label: String, value: String, unit: String }>
+//         Large numbers in a row, e.g. {label: "Revenue", value: "2.4", unit: "M"}
+//         (unit may be empty string "" for no unit display)
+//
+//   charts: List<Struct { chart_type: String, data: List }>
+//           chart_type ∈ {"bar", "donut", "line"} — three supported types
+//           Maximum 4 charts (2×2 grid). Error if more.
+//
+// Layout: 1200×1080 landscape canvas
+//   - Header: 0-80 (ink band + paper title, same pattern as InfographicPoster)
+//   - KPI row: 100-170 (large accent numbers + muted labels)
+//   - Chart grid: 180-980 (2 per row, 600×400 each)
+//   - Footer: 1000-1060 (rule + caption)
+
+pattern InfographicDashboard(title: String, intent: String, kpis: List, charts: List) -> String {
+  let style = color_palette(intent, "light")
+
+  // ── Boundary: max 4 charts ───────────────────────────────────────
+  let n_charts = len(charts)
+  if n_charts > 4.0 {
+    return "ERROR:InfographicDashboard: max 4 charts (2x2 grid), got " + to_string(n_charts)
+  }
+
+  // ── Header band (same pattern as InfographicPoster) ──────────────
+  let header_bg = svg_rect(0.0, 0.0, 1200.0, 80.0, style.ink, "none")
+  let title_text = svg_text(40.0, 50.0, title, 28.0, style.paper, "start")
+
+  // ── KPI row ──────────────────────────────────────────────────────
+  // Position KPI cards evenly across the 1200px width.
+  // Each card: large value+unit in accent, small label in muted below.
+  let mut kpi_fragments = []
+  let mut kpi_x = 0.0
+  let kpi_card_width = 1200.0 / len(kpis)
+  each kpi in kpis {
+    let x_offset = kpi_x + 20.0
+    // Value (large, accent color)
+    let val_display = if kpi.unit == "" then kpi.value else kpi.value + kpi.unit
+    let val_text = svg_text(x_offset, 130.0, val_display, 32.0, style.accent, "start")
+    // Label (small, muted)
+    let label_text = svg_text(x_offset, 155.0, kpi.label, 12.0, style.muted, "start")
+    // Card background (subtle paper tint)
+    let card_bg = svg_rect(kpi_x, 95.0, kpi_card_width, 75.0, style.paper, "none")
+    kpi_fragments = push(kpi_fragments, card_bg)
+    kpi_fragments = push(kpi_fragments, val_text)
+    kpi_fragments = push(kpi_fragments, label_text)
+    kpi_x = kpi_x + kpi_card_width
+  }
+
+  // ── Chart grid (2 per row) ──────────────────────────────────────
+  // Dispatch by chart_type, position with svg_group + translate.
+  // Charts are 600×400 each; 2 per row in a 1200px canvas.
+  let mut chart_fragments = []
+  let mut chart_x = 0.0
+  let mut chart_y = 180.0
+  let mut charts_in_row = 0.0
+  each c in charts {
+    let ct = c.chart_type
+    // Dispatch: only "bar", "donut", "line" supported
+    let raw_svg = if ct == "bar" then chart_bar(c.data, style)
+                  else if ct == "donut" then chart_donut(c.data, style)
+                  else if ct == "line" then chart_line(c.data, style)
+                  else "ERROR:unsupported_chart_type:" + ct
+
+    // Error propagation: if chart returned error string, bubble up
+    if starts_with(raw_svg, "ERROR:") {
+      return raw_svg
+    }
+
+    // Position chart in grid cell
+    let transform_str = "translate(" + to_string(chart_x) + "," + to_string(chart_y) + ")"
+    let positioned = svg_group([raw_svg], transform_str)
+    chart_fragments = push(chart_fragments, positioned)
+
+    // Advance position: 2 per row
+    charts_in_row = charts_in_row + 1.0
+    if charts_in_row < 2.0 {
+      chart_x = chart_x + 600.0
+    } else {
+      chart_x = 0.0
+      chart_y = chart_y + 400.0
+      charts_in_row = 0.0
+    }
+  }
+
+  // ── Footer (same pattern as InfographicPoster, adapted for 1200px) ──
+  let footer_rule = svg_line(40.0, 1030.0, 1160.0, 1030.0, style.rule, 1.0)
+  let footer_text = svg_text(40.0, 1055.0, "Generated by Metalogos", 10.0, style.muted, "start")
+
+  // ── Compose ──────────────────────────────────────────────────────
+  // Start with header + KPI fragments
+  let mut children = [header_bg, title_text]
+  each f in kpi_fragments {
+    children = push(children, f)
+  }
+  // Add chart fragments
+  each f in chart_fragments {
+    children = push(children, f)
+  }
+  // Add footer
+  children = push(children, footer_rule)
+  children = push(children, footer_text)
+
+  return svg_canvas(1200.0, 1080.0, "0 0 1200 1080", children)
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Наряд №90 Block 2: InfographicComparison
+// ═══════════════════════════════════════════════════════════════════════
+//
+// InfographicComparison(title, intent, left, right)
+//
+//   left, right: Struct { label: String, chart_type: String, data: List }
+//
+// Side-by-side charts with a vertical divider between them.
+// Both must have the same chart_type — comparing different visualizations
+// side by side doesn't make sense.
+//
+// Layout: 1200×600 landscape canvas
+//   - Header: 0-80
+//   - Left chart: at (0, 100), with label above
+//   - Vertical divider: at x=600, from y=90 to y=540, in rule color
+//   - Right chart: at (600, 100), with label above
+//   - Footer: 560-600
+
+pattern InfographicComparison(title: String, intent: String, left: Struct, right: Struct) -> String {
+  let style = color_palette(intent, "light")
+
+  // ── Boundary: chart_type must match ──────────────────────────────
+  if left.chart_type != right.chart_type {
+    return "ERROR:InfographicComparison: left.chart_type (" + left.chart_type + ") != right.chart_type (" + right.chart_type + ") — side-by-side comparison requires same chart type"
+  }
+
+  // ── Header band ──────────────────────────────────────────────────
+  let header_bg = svg_rect(0.0, 0.0, 1200.0, 80.0, style.ink, "none")
+  let title_text = svg_text(40.0, 50.0, title, 28.0, style.paper, "start")
+
+  // ── Left chart ───────────────────────────────────────────────────
+  let ct = left.chart_type
+  let left_svg = if ct == "bar" then chart_bar(left.data, style)
+                 else if ct == "donut" then chart_donut(left.data, style)
+                 else if ct == "line" then chart_line(left.data, style)
+                 else "ERROR:unsupported_chart_type:" + ct
+
+  if starts_with(left_svg, "ERROR:") {
+    return left_svg
+  }
+
+  let left_label = svg_text(20.0, 95.0, left.label, 14.0, style.ink, "start")
+  let left_positioned = svg_group([left_svg], "translate(0, 110)")
+
+  // ── Right chart ──────────────────────────────────────────────────
+  let right_svg = if ct == "bar" then chart_bar(right.data, style)
+                  else if ct == "donut" then chart_donut(right.data, style)
+                  else if ct == "line" then chart_line(right.data, style)
+                  else "ERROR:unsupported_chart_type:" + ct
+
+  if starts_with(right_svg, "ERROR:") {
+    return right_svg
+  }
+
+  let right_label = svg_text(620.0, 95.0, right.label, 14.0, style.ink, "start")
+  let right_positioned = svg_group([right_svg], "translate(600, 110)")
+
+  // ── Vertical divider ─────────────────────────────────────────────
+  // Same rule color as horizontal footer divider, but vertical.
+  let divider = svg_line(600.0, 90.0, 600.0, 540.0, style.rule, 1.0)
+
+  // ── Footer ───────────────────────────────────────────────────────
+  let footer_rule = svg_line(40.0, 560.0, 1160.0, 560.0, style.rule, 1.0)
+  let footer_text = svg_text(40.0, 585.0, "Generated by Metalogos", 10.0, style.muted, "start")
+
+  // ── Compose ──────────────────────────────────────────────────────
+  let children = [
+    header_bg,
+    title_text,
+    left_label,
+    left_positioned,
+    divider,
+    right_label,
+    right_positioned,
+    footer_rule,
+    footer_text
+  ]
+
+  return svg_canvas(1200.0, 600.0, "0 0 1200 600", children)
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Наряд №90 Block 3: InfographicTimeline
+// ═══════════════════════════════════════════════════════════════════════
+//
+// InfographicTimeline(title, intent, events)
+//
+//   events: List<Struct { date: String, label: String, description: String? }>
+//
+// Thin wrapper: header + diagram_timeline(events, style) + footer.
+// Same composition pattern as InfographicPoster around chart_donut.
+// diagram_timeline already includes anti-overlap from Наряд №87.
+//
+// Layout: 800×600 canvas
+//   - Header: 0-80
+//   - diagram_timeline: positioned below header
+//   - Footer: 540-600
+
+pattern InfographicTimeline(title: String, intent: String, events: List) -> String {
+  let style = color_palette(intent, "light")
+
+  // ── Header band ──────────────────────────────────────────────────
+  let header_bg = svg_rect(0.0, 0.0, 800.0, 80.0, style.ink, "none")
+  let title_text = svg_text(40.0, 50.0, title, 28.0, style.paper, "start")
+
+  // ── Timeline ─────────────────────────────────────────────────────
+  // diagram_timeline returns a complete <svg>; position below header.
+  // diagram_timeline intrinsic size is 800×300; center below header.
+  let timeline_svg = diagram_timeline(events, style)
+  let timeline_positioned = svg_group([timeline_svg], "translate(0, 90)")
+
+  // ── Footer ───────────────────────────────────────────────────────
+  let footer_rule = svg_line(40.0, 540.0, 760.0, 540.0, style.rule, 1.0)
+  let footer_text = svg_text(40.0, 570.0, "Generated by Metalogos", 10.0, style.muted, "start")
+
+  // ── Compose ──────────────────────────────────────────────────────
+  let children = [
+    header_bg,
+    title_text,
+    timeline_positioned,
+    footer_rule,
+    footer_text
+  ]
+
+  return svg_canvas(800.0, 600.0, "0 0 800 600", children)
 }

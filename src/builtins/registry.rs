@@ -440,6 +440,14 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     //   trusted code (written by the .mlog programmer, not user input);
     //   data substitution is escaped at runtime via escape_html_chars.
     spec!("template_render", 2, "template"),
+    // ── Наряд №88: HTML rendering via headless browser ──
+    //   html_render(html, width, height) -> String (path to PNG)
+    //   Renders self-contained HTML to a PNG screenshot using
+    //   Chromium/Chrome (configured via METALOGOS_BROWSER_BIN env var).
+    //   NO shell interpretation — uses exec_restricted internally.
+    //   Network isolation: caller's responsibility (self-contained HTML
+    //   with data: URIs; external resources NOT blocked at OS level).
+    spec!("html_render", 3, "web"),
 ];
 
 /// Total number of registered builtins.

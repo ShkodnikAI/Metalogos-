@@ -4693,13 +4693,151 @@ pub fn builtin_diagram_sequence(args: &[Value]) -> Result<Value, String> {
 //     through Value::String — direct format! is simpler and matches the
 //     pattern used by chart_radar's vertex dots).
 //   - `date` label ABOVE the dot for even-indexed events, BELOW for odd.
-//     This is the "alternating by parity" rule from the spec — not a
-//     real anti-overlap engine (that's Н87).
+//     This is the initial placement; Н87 anti-overlap engine then
+//     resolves any collisions by pushing overlapping boxes apart.
 //   - `label` and `description` go on the OPPOSITE side of the dot
 //     from `date`, so each event has at most: date (one side) +
 //     label/description (other side).
 //
 // Limits: data.len() ≤ 12.
+
+// ── Наряд №87: Anti-overlap engine ─────────────────────────────────────
+//
+// Two internal helpers:
+//
+//   1. `estimate_text_width(text, font_size) → f64`
+//      Heuristic: 0.55 × font_size × char_count.
+//      Coefficient 0.55 chosen as a reasonable average for proportional
+//      fonts (Latin + digits): narrower than monospace (0.60) but wider
+//      than pure lowercase (0.50). Matches the mid-range of common
+//      sans-serif faces at typical diagram font sizes (10–14 px).
+//
+//   2. `resolve_overlaps(labels, axis, max_iterations)`
+//      Iterative pairwise overlap resolution. On each iteration, scans
+//      all label pairs; if two boxes overlap, pushes them apart along
+//      the given axis (Vertical or Radial). Terminates when no overlaps
+//      remain or max_iterations is exhausted.
+//
+// Neither is exposed as a public builtin — they are internal machinery
+// for diagram_timeline (and future diagram types).
+
+/// Estimate the pixel width of `text` rendered at `font_size`.
+///
+/// Uses the heuristic: width = 0.55 × font_size × len(text).
+/// The coefficient 0.55 is calibrated for proportional sans-serif fonts
+/// (e.g. system-ui, Helvetica, Arial) at the font sizes typical in
+/// Metalogos diagrams (10–14 px). It sits between monospace (≈0.60)
+/// and all-lowercase proportional (≈0.50), providing a safe estimate
+/// that is slightly wider than actual rendering — conservative overlap
+/// detection is better than missed overlaps.
+fn estimate_text_width(text: &str, font_size: f64) -> f64 {
+    0.55 * font_size * (text.chars().count() as f64)
+}
+
+/// Axis along which to resolve overlaps.
+enum Axis {
+    /// Push overlapping labels apart vertically (y-direction).
+    /// Used by timeline, Gantt, and other horizontal-layout diagrams.
+    Vertical,
+    /// Push overlapping labels apart radially (along a line from center).
+    /// Reserved for radar/loop/venn — not wired in this narad.
+    #[allow(dead_code)]
+    Radial,
+}
+
+/// A rectangular bounding box for a text label, used for overlap detection.
+struct LabelBox {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+
+/// Iteratively resolve pairwise overlaps among `labels` along `axis`.
+///
+/// Algorithm:
+///   for each iteration up to max_iterations:
+///     found_overlap = false
+///     for each pair (i, j) where i < j:
+///       if boxes i and j overlap (AABB intersection):
+///         push them apart along the axis by half the overlap each
+///         found_overlap = true
+///     if !found_overlap: break (stable — no overlaps remain)
+///
+/// For Vertical axis: if two boxes overlap in both x and y, push the
+/// lower one down and the upper one up by half the y-overlap.
+/// This is deterministic (same input → same output) because we process
+/// pairs in index order and always push symmetrically.
+///
+/// Returns the number of iterations actually performed (useful for
+/// diagnostics and testing).
+fn resolve_overlaps(labels: &mut [LabelBox], axis: Axis, max_iterations: usize) -> usize {
+    let n = labels.len();
+    if n < 2 {
+        return 0;
+    }
+    let mut iterations = 0;
+    for _ in 0..max_iterations {
+        let mut found_overlap = false;
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let (li, lj) = {
+                    // Borrow two elements simultaneously
+                    let (a, b) = labels.split_at_mut(j);
+                    (&mut a[i], &mut b[0])
+                };
+                // AABB overlap test: boxes overlap iff they overlap
+                // on BOTH axes.
+                let overlap_x = li.x < lj.x + lj.w && lj.x < li.x + li.w;
+                let overlap_y = li.y < lj.y + lj.h && lj.y < li.y + li.h;
+                if overlap_x && overlap_y {
+                    match axis {
+                        Axis::Vertical => {
+                            // Push apart vertically: compute y-overlap amount
+                            let overlap_top = li.y.max(lj.y);
+                            let overlap_bottom = (li.y + li.h).min(lj.y + lj.h);
+                            let overlap_amount = overlap_bottom - overlap_top;
+                            if overlap_amount > 0.0 {
+                                let push = overlap_amount / 2.0 + 1.0; // +1px breathing room
+                                if li.y <= lj.y {
+                                    li.y -= push;
+                                    lj.y += push;
+                                } else {
+                                    li.y += push;
+                                    lj.y -= push;
+                                }
+                            }
+                        }
+                        Axis::Radial => {
+                            // Radial: push apart vertically (same as Vertical
+                            // for MVP — true radial push along the spoke would
+                            // need angle information, deferred to future narad).
+                            let overlap_top = li.y.max(lj.y);
+                            let overlap_bottom = (li.y + li.h).min(lj.y + lj.h);
+                            let overlap_amount = overlap_bottom - overlap_top;
+                            if overlap_amount > 0.0 {
+                                let push = overlap_amount / 2.0 + 1.0;
+                                if li.y <= lj.y {
+                                    li.y -= push;
+                                    lj.y += push;
+                                } else {
+                                    li.y += push;
+                                    lj.y -= push;
+                                }
+                            }
+                        }
+                    }
+                    found_overlap = true;
+                }
+            }
+        }
+        iterations += 1;
+        if !found_overlap {
+            break;
+        }
+    }
+    iterations
+}
 
 const TIMELINE_MAX_EVENTS: usize = 12;
 const TIMELINE_AXIS_Y: f64 = 200.0; // middle of 400px canvas
@@ -4709,8 +4847,9 @@ const TIMELINE_LABEL_OFFSET: f64 = 22.0; // distance from dot to label
 /// `diagram_timeline(data, style) -> String`
 ///
 /// `data` is `List<Struct{date, label, description?}>`. Renders a horizontal
-/// timeline with event dots. Labels alternate above/below by index parity
-/// (simple alternation — not a full anti-overlap engine, that's Н87).
+/// timeline with event dots. Uses the Н87 anti-overlap engine to prevent
+/// label collisions: initial placement by parity (even=above, odd=below),
+/// then `resolve_overlaps` pushes apart any overlapping bounding boxes.
 pub fn builtin_diagram_timeline(args: &[Value]) -> Result<Value, String> {
     let data = expect_list_arg("diagram_timeline", args, 0)?;
     let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
@@ -4770,6 +4909,144 @@ pub fn builtin_diagram_timeline(args: &[Value]) -> Result<Value, String> {
         0.0
     };
 
+    // ── Н87: Build label bounding boxes for anti-overlap ─────────────
+    //
+    // For each event we create up to 3 label boxes: date (font 11),
+    // label (font 12), description (font 10). Initial placement uses
+    // parity alternation (same as pre-Н87), then resolve_overlaps
+    // pushes apart any overlapping boxes vertically.
+    //
+    // We track which box belongs to which event and which text role
+    // (date / label / description) so we can read back resolved y.
+
+    const DATE_FONT_SIZE: f64 = 11.0;
+    const LABEL_FONT_SIZE: f64 = 12.0;
+    const DESC_FONT_SIZE: f64 = 10.0;
+    const DATE_LINE_H: f64 = 14.0; // approximate line height for font 11
+    const LABEL_LINE_H: f64 = 16.0; // approximate line height for font 12
+    const DESC_LINE_H: f64 = 13.0; // approximate line height for font 10
+
+    /// Which text role a LabelBox represents within a timeline event.
+    #[derive(Clone, Copy)]
+    enum TextRole {
+        Date,
+        Label,
+        Description,
+    }
+
+    /// Index into items[] + role, so we can map resolved boxes back.
+    struct BoxMeta {
+        event_idx: usize,
+        role: TextRole,
+    }
+
+    let mut label_boxes: Vec<LabelBox> = Vec::new();
+    let mut box_metas: Vec<BoxMeta> = Vec::new();
+
+    // First pass: compute x positions and initial y for all labels
+    let event_xs: Vec<f64> = items
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            if n > 1 {
+                chart_x + (i as f64) * step
+            } else {
+                canvas_w / 2.0
+            }
+        })
+        .collect();
+
+    for (i, ev) in items.iter().enumerate() {
+        let x = event_xs[i];
+        let y = TIMELINE_AXIS_Y;
+        // Parity alternation for initial placement (same as pre-Н87)
+        let date_above = i % 2 == 0;
+        let date_y = if date_above {
+            y - TIMELINE_LABEL_OFFSET
+        } else {
+            y + TIMELINE_LABEL_OFFSET + 4.0
+        };
+        let label_y = if date_above {
+            y + TIMELINE_LABEL_OFFSET + 4.0
+        } else {
+            y - TIMELINE_LABEL_OFFSET
+        };
+
+        // Date label box (text-anchor=middle → x is center)
+        let date_w = estimate_text_width(&ev.date, DATE_FONT_SIZE);
+        label_boxes.push(LabelBox {
+            x: x - date_w / 2.0,
+            y: date_y - DATE_LINE_H + 3.0, // top of text line
+            w: date_w,
+            h: DATE_LINE_H,
+        });
+        box_metas.push(BoxMeta {
+            event_idx: i,
+            role: TextRole::Date,
+        });
+
+        // Event label box
+        let lbl_w = estimate_text_width(&ev.label, LABEL_FONT_SIZE);
+        label_boxes.push(LabelBox {
+            x: x - lbl_w / 2.0,
+            y: label_y - LABEL_LINE_H + 3.0,
+            w: lbl_w,
+            h: LABEL_LINE_H,
+        });
+        box_metas.push(BoxMeta {
+            event_idx: i,
+            role: TextRole::Label,
+        });
+
+        // Optional description box
+        if let Some(desc) = &ev.description {
+            let desc_y = if date_above {
+                label_y + 14.0
+            } else {
+                label_y - 14.0
+            };
+            let desc_w = estimate_text_width(desc, DESC_FONT_SIZE);
+            label_boxes.push(LabelBox {
+                x: x - desc_w / 2.0,
+                y: desc_y - DESC_LINE_H + 3.0,
+                w: desc_w,
+                h: DESC_LINE_H,
+            });
+            box_metas.push(BoxMeta {
+                event_idx: i,
+                role: TextRole::Description,
+            });
+        }
+    }
+
+    // Run anti-overlap engine (Н87)
+    let _iterations = resolve_overlaps(&mut label_boxes, Axis::Vertical, 20);
+
+    // Read back resolved positions into per-event arrays
+    // Each event has: date_y, label_y, desc_y (Option)
+    let mut resolved_date_ys: Vec<f64> = vec![0.0; n];
+    let mut resolved_label_ys: Vec<f64> = vec![0.0; n];
+    let mut resolved_desc_ys: Vec<Option<f64>> = vec![None; n];
+
+    for (bi, meta) in box_metas.iter().enumerate() {
+        // Convert box top back to text baseline (box.y = baseline - line_h + 3)
+        match meta.role {
+            TextRole::Date => {
+                resolved_date_ys[meta.event_idx] =
+                    label_boxes[bi].y + DATE_LINE_H - 3.0;
+            }
+            TextRole::Label => {
+                resolved_label_ys[meta.event_idx] =
+                    label_boxes[bi].y + LABEL_LINE_H - 3.0;
+            }
+            TextRole::Description => {
+                resolved_desc_ys[meta.event_idx] =
+                    Some(label_boxes[bi].y + DESC_LINE_H - 3.0);
+            }
+        }
+    }
+
+    // ── Render SVG ────────────────────────────────────────────────────
     let mut parts: Vec<String> = Vec::new();
     // Background
     parts.push(format!(
@@ -4799,14 +5076,13 @@ pub fn builtin_diagram_timeline(args: &[Value]) -> Result<Value, String> {
         ));
     }
 
-    // Events
+    // Events — render at resolved positions
     for (i, ev) in items.iter().enumerate() {
-        let x = if n > 1 {
-            chart_x + (i as f64) * step
-        } else {
-            canvas_w / 2.0
-        };
+        let x = event_xs[i];
         let y = TIMELINE_AXIS_Y;
+        let date_y = resolved_date_ys[i];
+        let label_y = resolved_label_ys[i];
+
         // Event dot — accent fill
         parts.push(format!(
             r#"<circle cx="{}" cy="{}" r="{}" fill="{}" stroke="{}" stroke-width="1.5" />"#,
@@ -4816,21 +5092,9 @@ pub fn builtin_diagram_timeline(args: &[Value]) -> Result<Value, String> {
             escape_attr(&accent),
             escape_attr(&paper)
         ));
-        // Alternate label position by parity:
-        //   even index → date ABOVE, label/description BELOW
-        //   odd  index → date BELOW, label/description ABOVE
-        let date_above = i % 2 == 0;
-        let date_y = if date_above {
-            y - TIMELINE_LABEL_OFFSET
-        } else {
-            y + TIMELINE_LABEL_OFFSET + 4.0
-        };
-        let label_y = if date_above {
-            y + TIMELINE_LABEL_OFFSET + 4.0
-        } else {
-            y - TIMELINE_LABEL_OFFSET
-        };
-        // Small tick connecting dot to date label
+
+        // Tick connecting dot to date label
+        let date_above = date_y < y;
         let tick_y1 = if date_above {
             y - TIMELINE_DOT_R
         } else {
@@ -4849,7 +5113,8 @@ pub fn builtin_diagram_timeline(args: &[Value]) -> Result<Value, String> {
             fmt_num(tick_y2),
             escape_attr(&rule)
         ));
-        // Date label (accent color, slightly bold via font-size)
+
+        // Date label (accent color)
         parts.push(format!(
             r#"<text x="{}" y="{}" font-size="11" fill="{}" text-anchor="middle">{}</text>"#,
             fmt_num(x),
@@ -4865,20 +5130,17 @@ pub fn builtin_diagram_timeline(args: &[Value]) -> Result<Value, String> {
             escape_attr(&ink),
             escape_html_chars(&ev.label)
         ));
-        // Optional description (muted, smaller, below/above label)
-        if let Some(desc) = &ev.description {
-            let desc_y = if date_above {
-                label_y + 14.0
-            } else {
-                label_y - 14.0
-            };
-            parts.push(format!(
-                r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
-                fmt_num(x),
-                fmt_num(desc_y),
-                escape_attr(&muted),
-                escape_html_chars(desc)
-            ));
+        // Optional description (muted, smaller)
+        if let Some(desc_y) = resolved_desc_ys[i] {
+            if let Some(desc) = &ev.description {
+                parts.push(format!(
+                    r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+                    fmt_num(x),
+                    fmt_num(desc_y),
+                    escape_attr(&muted),
+                    escape_html_chars(desc)
+                ));
+            }
         }
     }
 

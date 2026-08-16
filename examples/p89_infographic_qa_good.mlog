@@ -1,0 +1,19 @@
+// ── Наряд №89: infographic_qa contract — GOOD case ─────────────
+//
+// A well-designed chart_bar with reasonable palette should pass
+// all three checks: good contrast, moderate saturation, normal density.
+
+pattern P89InfographicQaGood(input: String) -> String {
+  let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+  let data = [{label: "Q1", value: 30.0}, {label: "Q2", value: 65.0}, {label: "Q3", value: 45.0}, {label: "Q4", value: 80.0}]
+  let svg = chart_bar(data, style)
+  let report = infographic_qa(svg)
+
+  let ok_passed = to_float(report.passed)
+  let n_warnings = to_float(len(report.warnings))
+  let checks = report.checks_run
+
+  return "p89_good: passed=" + to_string(ok_passed) + " warnings=" + to_string(n_warnings) + " checks=" + to_string(checks)
+}
+
+flow Main { input: String = "x" -> P89InfographicQaGood -> output }

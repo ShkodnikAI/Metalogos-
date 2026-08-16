@@ -1,3 +1,1 @@
-[try] caught error: diagram_layers: too many layers (11), maximum is 10
-[try] caught error: diagram_layers: data list must not be empty
 p81_layers_checks=6/6

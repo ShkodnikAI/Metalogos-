@@ -1,3 +1,1 @@
-[try] caught error: diagram_tree: depth exceeds maximum of 6 (path: root.children[0].children[0].children[0].children[0].children[0].children[0].children[0])
-[try] caught error: diagram_tree: total node count exceeds maximum of 40 (path: root.children[39])
 p81_tree_checks=6/6

@@ -4,8 +4,8 @@
 //   1. Basic 3-event timeline renders
 //   2. Single-event timeline (degenerate) renders
 //   3. Timeline with descriptions (optional field) renders
-//   4. Events with long labels render (parity alternation handles overlap
-//      at the simple level — not a real anti-overlap engine, that's Н87)
+//   4. Events with long labels render (Н87 anti-overlap engine resolves
+//      collisions; parity alternation is initial placement only)
 //   5. 12 events (maximum allowed) renders
 //   6. 13 events → Err (exceeds maximum)
 //

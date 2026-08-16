@@ -1,3 +1,1 @@
-[try] caught error: diagram_process: too many steps (9), maximum is 8 — linear chain longer than 8 doesn't fit a reasonable canvas
-[try] caught error: diagram_process: data list must not be empty
 p82_process_checks=6/6

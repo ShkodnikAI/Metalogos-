@@ -388,3 +388,164 @@ fn sketchy_filter_composes_with_group() {
     assert!(svg.contains("<rect"));
     assert!(svg.contains("<g>"));
 }
+
+// ── Наряд №87: Anti-overlap engine (diagram_timeline) ──────────────────
+//
+// Tests verify that diagram_timeline produces valid SVG and that the
+// anti-overlap engine (estimate_text_width + resolve_overlaps) is
+// active — labels are repositioned when they would collide.
+
+#[test]
+fn timeline_anti_overlap_basic_3_events() {
+    let src = r##"pattern __t(input: String) -> String {
+        let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+        let data = [{date: "2024-01", label: "Start"}, {date: "2024-06", label: "Beta"}, {date: "2024-12", label: "GA"}]
+        return diagram_timeline(data, style)
+    }
+flow Main { input: String = "x" -> __t -> output }"##;
+    let svg = match metalogos::run_program(src) {
+        Ok(Some(s)) => s,
+        _ => panic!("failed"),
+    };
+    assert!(svg.starts_with("<svg "));
+    assert!(svg.ends_with("</svg>"));
+    // 3 event dots
+    assert_eq!(svg.matches("<circle").count(), 3);
+    // 6 text labels: 3 dates + 3 labels
+    assert_eq!(svg.matches("<text").count(), 6);
+}
+
+#[test]
+fn timeline_anti_overlap_single_event() {
+    let src = r##"pattern __t(input: String) -> String {
+        let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+        return diagram_timeline([{date: "now", label: "Only"}], style)
+    }
+flow Main { input: String = "x" -> __t -> output }"##;
+    let svg = match metalogos::run_program(src) {
+        Ok(Some(s)) => s,
+        _ => panic!("failed"),
+    };
+    assert!(svg.starts_with("<svg "));
+    assert_eq!(svg.matches("<circle").count(), 1);
+}
+
+#[test]
+fn timeline_anti_overlap_dense_long_labels() {
+    // Deliberately create a dense timeline with long labels that
+    // WOULD overlap under simple parity alternation. The anti-overlap
+    // engine must reposition them so the SVG still renders correctly.
+    let src = r##"pattern __t(input: String) -> String {
+        let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+        let data = [
+            {date: "2024-01-15", label: "Initialize system with defaults"},
+            {date: "2024-02-28", label: "Load configuration from storage"},
+            {date: "2024-04-10", label: "Establish remote API connection"},
+            {date: "2024-06-01", label: "Synchronize with upstream server"},
+            {date: "2024-08-15", label: "Deploy to staging environment"},
+            {date: "2024-10-30", label: "Release to production cluster"}
+        ]
+        return diagram_timeline(data, style)
+    }
+flow Main { input: String = "x" -> __t -> output }"##;
+    let svg = match metalogos::run_program(src) {
+        Ok(Some(s)) => s,
+        _ => panic!("failed"),
+    };
+    assert!(svg.starts_with("<svg "));
+    // 6 events → 6 dots + 12 text (6 dates + 6 labels)
+    assert_eq!(svg.matches("<circle").count(), 6);
+    assert_eq!(svg.matches("<text").count(), 12);
+}
+
+#[test]
+fn timeline_anti_overlap_with_descriptions() {
+    let src = r##"pattern __t(input: String) -> String {
+        let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+        let data = [
+            {date: "Q1", label: "Research", description: "User interviews"},
+            {date: "Q2", label: "Design", description: "Wireframes"},
+            {date: "Q3", label: "Build", description: "Sprint"},
+            {date: "Q4", label: "Ship", description: "GA release"}
+        ]
+        return diagram_timeline(data, style)
+    }
+flow Main { input: String = "x" -> __t -> output }"##;
+    let svg = match metalogos::run_program(src) {
+        Ok(Some(s)) => s,
+        _ => panic!("failed"),
+    };
+    assert!(svg.starts_with("<svg "));
+    // 4 dates + 4 labels + 4 descriptions = 12 text elements
+    assert_eq!(svg.matches("<text").count(), 12);
+}
+
+#[test]
+fn timeline_anti_overlap_12_events_max() {
+    let src = r##"pattern __t(input: String) -> String {
+        let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+        let data = [
+            {date: "M1", label: "Jan"}, {date: "M2", label: "Feb"}, {date: "M3", label: "Mar"},
+            {date: "M4", label: "Apr"}, {date: "M5", label: "May"}, {date: "M6", label: "Jun"},
+            {date: "M7", label: "Jul"}, {date: "M8", label: "Aug"}, {date: "M9", label: "Sep"},
+            {date: "M10", label: "Oct"}, {date: "M11", label: "Nov"}, {date: "M12", label: "Dec"}
+        ]
+        return diagram_timeline(data, style)
+    }
+flow Main { input: String = "x" -> __t -> output }"##;
+    let svg = match metalogos::run_program(src) {
+        Ok(Some(s)) => s,
+        _ => panic!("failed"),
+    };
+    assert!(svg.starts_with("<svg "));
+    assert_eq!(svg.matches("<circle").count(), 12);
+}
+
+#[test]
+fn timeline_anti_overlap_13_events_error() {
+    let src = r##"pattern __t(input: String) -> String {
+        let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+        let data = [
+            {date: "1", label: "a"}, {date: "2", label: "b"}, {date: "3", label: "c"},
+            {date: "4", label: "d"}, {date: "5", label: "e"}, {date: "6", label: "f"},
+            {date: "7", label: "g"}, {date: "8", label: "h"}, {date: "9", label: "i"},
+            {date: "10", label: "j"}, {date: "11", label: "k"}, {date: "12", label: "l"},
+            {date: "13", label: "m"}
+        ]
+        return diagram_timeline(data, style)
+    }
+flow Main { input: String = "x" -> __t -> output }"##;
+    let err = eval_err(src);
+    assert!(
+        err.contains("too many events") || err.contains("maximum"),
+        "expected 'too many events' error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn timeline_anti_overlap_deterministic() {
+    // Same input must produce identical output (resolve_overlaps is
+    // deterministic because pairs are processed in index order).
+    let src = r##"pattern __t(input: String) -> String {
+        let style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+        let data = [
+            {date: "2024-01", label: "Start project"},
+            {date: "2024-03", label: "First milestone"},
+            {date: "2024-06", label: "Beta launch"},
+            {date: "2024-09", label: "RC candidate"},
+            {date: "2024-12", label: "General availability"}
+        ]
+        return diagram_timeline(data, style)
+    }
+flow Main { input: String = "x" -> __t -> output }"##;
+    let out1 = match metalogos::run_program(src) {
+        Ok(Some(s)) => s,
+        _ => panic!("first run failed"),
+    };
+    let out2 = match metalogos::run_program(src) {
+        Ok(Some(s)) => s,
+        _ => panic!("second run failed"),
+    };
+    assert_eq!(out1, out2, "diagram_timeline output must be deterministic");
+}

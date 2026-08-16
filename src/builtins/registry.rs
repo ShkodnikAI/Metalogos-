@@ -448,6 +448,11 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     //   Network isolation: caller's responsibility (self-contained HTML
     //   with data: URIs; external resources NOT blocked at OS level).
     spec!("html_render", 3, "web"),
+    // ── Наряд №89: Infographic quality assurance ──
+    //   infographic_qa(svg_string) -> Struct { passed, warnings, checks_run }
+    //   Three mechanical checks: contrast (WCAG), saturation discipline,
+    //   element density. Advisory — passed:false means "review", not "broken".
+    spec!("infographic_qa", 1, "diagram"),
 ];
 
 /// Total number of registered builtins.

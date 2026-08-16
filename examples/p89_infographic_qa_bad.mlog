@@ -1,0 +1,31 @@
+// ── Наряд №89: infographic_qa contract — BAD case ─────────────
+//
+// Intentionally poor design: low contrast (similar luminance paper/ink),
+// many high-saturation colors. Should trigger at least one warning.
+
+pattern P89InfographicQaBad(input: String) -> String {
+  // Low-contrast palette: paper and ink have similar luminance
+  let style = diagram_style({paper: "#555555", ink: "#777777", accent: "#ff0000", muted: "#00ff00", rule: "#0000ff"})
+  let data = [{label: "A", value: 10.0}, {label: "B", value: 20.0}, {label: "C", value: 30.0}]
+  let svg = chart_bar(data, style)
+  let report = infographic_qa(svg)
+
+  let ok_not_passed = 1.0 - to_float(report.passed)
+  let n_warnings = to_float(len(report.warnings))
+  let checks = report.checks_run
+
+  // Also test with a good manual style — should pass
+  let good_style = diagram_style({paper: "#fff", ink: "#000", accent: "#eb6c36", muted: "#4f5d75", rule: "#ccc"})
+  let good_svg = chart_bar(data, good_style)
+  let good_report = infographic_qa(good_svg)
+  let good_passed = to_float(good_report.passed)
+
+  // ok_not_passed should be 1 (bad palette → not passed)
+  // n_warnings should be > 0
+  // good_passed should be 1 (good manual palette → passed)
+  let total = ok_not_passed + good_passed + to_float(n_warnings > 0.0)
+
+  return "p89_bad: total=" + to_string(total) + "/3 warnings=" + to_string(n_warnings) + " checks=" + to_string(checks)
+}
+
+flow Main { input: String = "x" -> P89InfographicQaBad -> output }

@@ -6,12 +6,21 @@
 // WOULD overlap under the old parity-alternation scheme. The engine must
 // push them apart so no bounding boxes intersect.
 //
+// Check 3 is the REAL COLLISION proof: it extracts all y=" attributes
+// from <text> elements in the SVG and counts unique Y-values. Under
+// naive parity alternation, all date-labels share one Y and all
+// event-labels share another → exactly 2 unique Y values. After
+// resolve_overlap pushes colliding boxes apart, labels spread across
+// more Y levels → unique_Y > 2. This is a structural invariant that
+// survives minor float-formatting differences.
+//
 // Output: single summary string, "p87_anti_overlap_checks=N/6".
 //
 // Checks:
 //   1. Basic 3-event timeline renders (smoke test)
 //   2. Single-event timeline renders (degenerate case)
 //   3. Dense 6-event timeline with long labels — REAL COLLISION case
+//      (verifies unique Y-count in <text> elements > 2)
 //   4. 12 events (maximum) with short labels renders
 //   5. Timeline with descriptions renders
 //   6. 13 events → Err (exceeds maximum)
@@ -37,6 +46,11 @@ pattern P87AntiOverlapTimelineContract(input: String) -> String {
   //    Adjacent events with long date+label strings placed close
   //    together on the timeline. Under old parity alternation these
   //    would visually overlap; the anti-overlap engine must resolve.
+  //
+  //    PROOF: Extract y=" values from all <text> elements and count
+  //    unique Y-coordinates. With naive parity there would be exactly
+  //    2 unique Y (one for dates, one for labels). With resolve_overlap
+  //    pushing colliding boxes apart, the count must exceed 2.
   let data3 = [
     {date: "2024-01-15", label: "Initialize system with defaults"},
     {date: "2024-02-28", label: "Load configuration from storage"},
@@ -46,7 +60,66 @@ pattern P87AntiOverlapTimelineContract(input: String) -> String {
     {date: "2024-10-30", label: "Release to production cluster"}
   ]
   let r3 = diagram_timeline(data3, style)
-  let ok3 = to_float(starts_with(r3, "<svg "))
+
+  // Scan <text> elements, extract y="..." values, count uniques.
+  // We walk the SVG string looking for "<text " markers, then
+  // find the next 'y="' and read the number between quotes.
+  // Unique values are tracked in a pipe-separated accumulator string
+  // (e.g. "|178|226|") — contains() checks membership.
+  let mut scan_pos = 0.0
+  let mut seen_y = "|"
+  let mut unique_count = 0.0
+  let svg_len = to_float(len(r3))
+  while scan_pos < svg_len {
+    // Find next "<text " from scan_pos by working on a shrinking tail.
+    // index_of always searches from start, so we substring from scan_pos.
+    let tail = substring(r3, to_float(scan_pos), svg_len)
+    let tpos = index_of(tail, "<text ")
+    if tpos < 0.0 {
+      // No more <text> elements
+      scan_pos = svg_len
+    } else {
+      // Absolute position of "<text " in r3
+      let abs_text = scan_pos + tpos
+      // Find 'y="' after this <text tag
+      let after_tag = substring(r3, abs_text + 6.0, svg_len)
+      let yq_pos = index_of(after_tag, "y=\"")
+      if yq_pos < 0.0 {
+        // Malformed — skip this text element
+        scan_pos = abs_text + 6.0
+      } else {
+        // y=" starts at abs_text + 6 + yq_pos; value starts +3 for y="
+        let val_start = abs_text + 6.0 + yq_pos + 3.0
+        // Find closing quote
+        let after_yq = substring(r3, val_start, svg_len)
+        let close_q = index_of(after_yq, "\"")
+        if close_q < 0.0 {
+          scan_pos = abs_text + 6.0
+        } else {
+          // Extract the y value string (e.g. "178" or "178.5")
+          let y_val = substring(r3, val_start, val_start + close_q)
+          // Round to integer to normalize float formatting differences
+          // (e.g. "178" vs "178.0" — both round to 178)
+          let y_int = to_string(round(to_float(y_val)))
+          // Deduplicate: check if already seen
+          let marker = "|" + y_int + "|"
+          let is_new = 1.0 - to_float(contains(seen_y, marker))
+          if is_new > 0.0 {
+            seen_y = seen_y + y_int + "|"
+            unique_count = unique_count + 1.0
+          }
+          // Advance past this <text element (skip past closing >)
+          scan_pos = abs_text + 6.0 + yq_pos + 3.0 + close_q + 1.0
+        }
+      }
+    }
+  }
+
+  // Under parity-only: unique_count == 2 (one Y for dates, one for labels)
+  // With resolve_overlap active: unique_count > 2
+  // We require >= 4 as strong evidence of label divergence (the dense
+  // 6-event case with long labels should spread across many Y levels).
+  let ok3 = to_float(unique_count >= 4.0)
 
   // ── 4. 12 events (maximum) with short labels ────────────────────
   let data4 = [

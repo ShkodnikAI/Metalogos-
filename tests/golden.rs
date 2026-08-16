@@ -25,11 +25,13 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
             if let Some(ext) = path.extension() {
                 if ext == "mlog" {
                     // p7_* tests require env vars or a live server (Наряд №49 БЛОК 2)
+                    // p88_html_render_success requires a real Chromium binary —
+                    // not available in CI; tracked in p88_browser_contract_visibility.
                     let stem = path
                         .file_stem()
                         .map(|s| s.to_string_lossy().to_string())
                         .unwrap_or_default();
-                    if stem.starts_with("p7_") {
+                    if stem.starts_with("p7_") || stem == "p88_html_render_success" {
                         continue;
                     }
                     let expected = path.with_extension("expected");
@@ -258,4 +260,40 @@ fn all_error_tests_pass() {
             }
         }
     }
+}
+
+/// p88_html_render_success requires METALOGOS_BROWSER_BIN and a real
+/// Chromium/Chrome binary. Not available in CI — tracked here for
+/// visibility, never blocking. Наряд №88: "Hidden red is worse than
+/// visible red" (same principle as Наряд №49).
+#[test]
+#[ignore] // requires METALOGOS_BROWSER_BIN and a real Chromium binary — not available in CI
+fn p88_browser_contract_visibility() {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+    let examples_dir = Path::new(&manifest_dir).join("examples");
+
+    let mlog_path = examples_dir.join("p88_html_render_success.mlog");
+    let expected_path = examples_dir.join("p88_html_render_success.expected");
+
+    assert!(
+        mlog_path.exists(),
+        "p88_html_render_success.mlog must exist"
+    );
+    assert!(
+        expected_path.exists(),
+        "p88_html_render_success.expected must exist"
+    );
+
+    let source = fs::read_to_string(&mlog_path).unwrap();
+    let expected = fs::read_to_string(&expected_path).unwrap();
+
+    let result = metalogos::run_program(&source)
+        .map(|v| v.unwrap_or_default())
+        .unwrap_or_default();
+
+    assert_eq!(
+        result.trim_end(),
+        expected.trim_end(),
+        "p88_html_render_success contract mismatch"
+    );
 }

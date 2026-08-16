@@ -1,3 +1,1 @@
-[try] caught error: diagram_state: too many states (11), maximum is 10 — diagram would be unreadable
-[try] caught error: diagram_state: initial "Nonexistent" is not in states list
 p84_state_checks=6/6

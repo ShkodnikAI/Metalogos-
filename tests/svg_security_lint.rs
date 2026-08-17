@@ -425,3 +425,572 @@ fn chart_boxplot_clean_program_passes_lint() {
         sec_findings
     );
 }
+
+// ── 11. Наряд №92: diagram_* security lint tests ──────────────────────
+//
+// The diagram_* builtins have been in SVG_AUTO_ESCAPE_BUILTINS with
+// dedicated scan_*_labels scanners since наряды №81–84, but had ZERO
+// test coverage in this file. These tests pin that coverage for each
+// scanner group, testing the most representative builtin per scanner.
+//
+// Scanner coverage map:
+//   scan_flowchart_labels  → diagram_flowchart, diagram_data_flow,
+//                             diagram_high_level, diagram_architecture
+//   scan_layers_labels     → diagram_layers, diagram_process,
+//                             diagram_loop, diagram_pyramid, diagram_nested
+//   scan_sequence_labels   → diagram_sequence
+//   scan_timeline_labels   → diagram_timeline
+//   scan_gantt_labels      → diagram_gantt
+//   scan_venn_labels       → diagram_venn
+//   scan_quadrant_labels   → diagram_quadrant
+//   scan_medallion_labels  → diagram_medallion
+//   scan_er_labels         → diagram_er
+//   scan_state_labels      → diagram_state
+//   scan_swimlane_labels   → diagram_swimlane
+//   scan_tree_labels_recursive → diagram_tree, diagram_org_chart
+
+// ── diagram_flowchart: <script> in node label → WARN ─────────────────
+
+#[test]
+fn diagram_flowchart_script_in_node_label_warns() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_flowchart({nodes: [{id: \"a\", label: \"<script>alert(1)</script>\"}, {id: \"b\", label: \"safe\"}], edges: [{from: \"a\", to: \"b\"}]}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_flowchart")),
+        "diagram_flowchart with <script> in label should NOT error (runtime escapes), errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_flowchart") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_flowchart with <script> in node label MUST warn (proves scan_flowchart_labels), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+#[test]
+fn diagram_flowchart_script_in_edge_label_warns() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_flowchart({nodes: [{id: \"a\", label: \"A\"}, {id: \"b\", label: \"B\"}], edges: [{from: \"a\", to: \"b\", label: \"<script>alert(1)</script>\"}]}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_flowchart")),
+        "diagram_flowchart with <script> in edge label should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_flowchart") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_flowchart with <script> in edge label MUST warn (proves scan_flowchart_labels checks edges), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+#[test]
+fn diagram_flowchart_clean_passes_lint() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_flowchart({nodes: [{id: \"a\", label: \"Start\"}, {id: \"b\", label: \"End\"}], edges: [{from: \"a\", to: \"b\", label: \"go\"}]}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    let sec_findings: Vec<&str> = r
+        .errors
+        .iter()
+        .chain(r.warnings.iter())
+        .filter(|m| m.contains("security:"))
+        .map(|s| s.as_str())
+        .collect();
+    assert!(
+        sec_findings.is_empty(),
+        "clean diagram_flowchart should produce NO security findings, got: {:?}",
+        sec_findings
+    );
+}
+
+// ── diagram_data_flow: reuses scan_flowchart_labels ──────────────────
+
+#[test]
+fn diagram_data_flow_script_in_node_label_warns() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_data_flow({nodes: [{id: \"a\", label: \"<script>alert(1)</script>\"}, {id: \"b\", label: \"safe\"}], edges: [{from: \"a\", to: \"b\"}]}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_data_flow")),
+        "diagram_data_flow with <script> in label should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_data_flow") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_data_flow with <script> in node label MUST warn (proves scan_flowchart_labels reuse), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+// ── diagram_architecture: reuses scan_flowchart_labels ───────────────
+
+#[test]
+fn diagram_architecture_script_in_node_label_warns() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_architecture({nodes: [{id: \"a\", label: \"<script>alert(1)</script>\"}, {id: \"b\", label: \"safe\"}], edges: [{from: \"a\", to: \"b\"}]}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r)
+            .iter()
+            .any(|e| e.contains("diagram_architecture")),
+        "diagram_architecture with <script> in label should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_architecture") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_architecture with <script> in node label MUST warn, warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+// ── diagram_layers: <script> in label → WARN ─────────────────────────
+
+#[test]
+fn diagram_layers_script_in_label_warns() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_layers([{label: \"<script>alert(1)</script>\", description: \"safe\"}, {label: \"ok\", description: \"ok\"}], style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_layers")),
+        "diagram_layers with <script> should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_layers") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_layers with <script> in label MUST warn (proves scan_layers_labels), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+// ── diagram_process: reuses scan_layers_labels ───────────────────────
+
+#[test]
+fn diagram_process_script_in_label_warns() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_process([{label: \"<script>alert(1)</script>\"}, {label: \"safe\"}], style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_process")),
+        "diagram_process with <script> should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_process") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_process with <script> in label MUST warn (proves scan_layers_labels reuse), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+// ── diagram_loop: reuses scan_layers_labels ──────────────────────────
+
+#[test]
+fn diagram_loop_script_in_label_warns() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_loop([{label: \"<script>alert(1)</script>\"}, {label: \"safe\"}], style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_loop")),
+        "diagram_loop with <script> should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_loop") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_loop with <script> in label MUST warn, warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+// ── diagram_pyramid: reuses scan_layers_labels ───────────────────────
+
+#[test]
+fn diagram_pyramid_script_in_label_warns() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_pyramid([{label: \"<script>alert(1)</script>\", value: 10.0}, {label: \"safe\", value: 20.0}], style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_pyramid")),
+        "diagram_pyramid with <script> should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_pyramid") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_pyramid with <script> in label MUST warn, warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+// ── diagram_nested: reuses scan_layers_labels ────────────────────────
+
+#[test]
+fn diagram_nested_script_in_label_warns() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_nested([{label: \"<script>alert(1)</script>\", value: 10.0}, {label: \"safe\", value: 20.0}], style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_nested")),
+        "diagram_nested with <script> should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_nested") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_nested with <script> in label MUST warn, warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+// ── diagram_sequence: <script> in actor → WARN ───────────────────────
+
+#[test]
+fn diagram_sequence_script_in_actor_warns() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_sequence({actors: [\"<script>alert(1)</script>\", \"B\"], messages: [{from: \"A\", to: \"B\"}]}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_sequence")),
+        "diagram_sequence with <script> in actor should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_sequence") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_sequence with <script> in actor MUST warn (proves scan_sequence_labels), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+#[test]
+fn diagram_sequence_clean_passes_lint() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_sequence({actors: [\"A\", \"B\"], messages: [{from: \"A\", to: \"B\", label: \"msg\"}]}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    let sec_findings: Vec<&str> = r
+        .errors
+        .iter()
+        .chain(r.warnings.iter())
+        .filter(|m| m.contains("security:"))
+        .map(|s| s.as_str())
+        .collect();
+    assert!(
+        sec_findings.is_empty(),
+        "clean diagram_sequence should produce NO security findings, got: {:?}",
+        sec_findings
+    );
+}
+
+// ── diagram_timeline: <script> in label → WARN ───────────────────────
+
+#[test]
+fn diagram_timeline_script_in_label_warns() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_timeline([{date: \"2024\", label: \"<script>alert(1)</script>\"}, {date: \"2025\", label: \"safe\"}], style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_timeline")),
+        "diagram_timeline with <script> should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_timeline") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_timeline with <script> in label MUST warn (proves scan_timeline_labels), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+// ── diagram_gantt: <script> in task → WARN ───────────────────────────
+
+#[test]
+fn diagram_gantt_script_in_task_warns() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_gantt([{task: \"<script>alert(1)</script>\", start: 0.0, duration: 5.0}, {task: \"safe\", start: 5.0, duration: 3.0}], style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_gantt")),
+        "diagram_gantt with <script> should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_gantt") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_gantt with <script> in task MUST warn (proves scan_gantt_labels), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+// ── diagram_venn: <script> in circle label AND overlap_label → WARN ─
+
+#[test]
+fn diagram_venn_script_in_circle_label_warns() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_venn({circles: [{label: \"<script>alert(1)</script>\"}, {label: \"B\"}], overlap_label: \"AB\"}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_venn")),
+        "diagram_venn with <script> should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_venn") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_venn with <script> in circle label MUST warn (proves scan_venn_labels), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+#[test]
+fn diagram_venn_script_in_overlap_label_warns() {
+    // CRITICAL: overlap_label is a TOP-LEVEL field, not inside circles[].
+    // This is the "easy to forget" case that scan_venn_labels was
+    // specifically written to catch.
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_venn({circles: [{label: \"A\"}, {label: \"B\"}], overlap_label: \"<script>alert(1)</script>\"}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_venn")),
+        "diagram_venn with <script> in overlap_label should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_venn") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_venn with <script> in overlap_label MUST warn (proves scan_venn_labels catches top-level field), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+// ── diagram_quadrant: <script> in axis labels → WARN ─────────────────
+
+#[test]
+fn diagram_quadrant_script_in_axis_label_warns() {
+    // CRITICAL: x_axis_label and y_axis_label are TOP-LEVEL fields,
+    // not inside items[]. Same "easy to forget" pattern as overlap_label.
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_quadrant({x_axis_label: \"<script>alert(1)</script>\", y_axis_label: \"Y\", items: [{label: \"item\", x: 0.5, y: 0.5}]}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_quadrant")),
+        "diagram_quadrant with <script> in axis label should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_quadrant") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_quadrant with <script> in axis label MUST warn (proves scan_quadrant_labels catches top-level), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+// ── diagram_medallion: <script> in label → WARN ──────────────────────
+
+#[test]
+fn diagram_medallion_script_in_label_warns() {
+    // icon field is a controlled enum (NOT scanned); label IS scanned.
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_medallion([{icon: \"check\", label: \"<script>alert(1)</script>\", value: 10.0}, {label: \"safe\", value: 20.0}], style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_medallion")),
+        "diagram_medallion with <script> should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_medallion") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_medallion with <script> in label MUST warn (proves scan_medallion_labels), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+// ── diagram_er: <script> in entity name AND fields[] → WARN ─────────
+
+#[test]
+fn diagram_er_script_in_entity_name_warns() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_er({entities: [{name: \"<script>alert(1)</script>\", fields: [\"id\"]}, {name: \"B\", fields: [\"id\"]}], relations: []}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_er")),
+        "diagram_er with <script> should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_er") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_er with <script> in entity name MUST warn (proves scan_er_labels), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+#[test]
+fn diagram_er_script_in_nested_field_warns() {
+    // CRITICAL: entities[].fields is a List<String> NESTED INSIDE a struct —
+    // the "third nesting form" (top-level List<String>, List<Struct>,
+    // and now List<String> inside struct). scan_er_labels must walk both levels.
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_er({entities: [{name: \"User\", fields: [\"id\", \"<script>alert(1)</script>\"]}, {name: \"Post\", fields: [\"id\"]}], relations: []}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_er")),
+        "diagram_er with <script> in nested field should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_er") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_er with <script> in nested fields[] MUST warn (proves scan_er_labels walks nested List<String>), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+// ── diagram_state: <script> in states[] AND initial → WARN ──────────
+
+#[test]
+fn diagram_state_script_in_state_warns() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_state({states: [\"<script>alert(1)</script>\", \"B\"], transitions: [{from: \"A\", to: \"B\"}], initial: \"A\"}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_state")),
+        "diagram_state with <script> should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_state") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_state with <script> in states[] MUST warn (proves scan_state_labels), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+#[test]
+fn diagram_state_script_in_initial_warns() {
+    // CRITICAL: `initial` is a TOP-LEVEL String? field (like overlap_label).
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_state({states: [\"A\", \"B\"], transitions: [{from: \"A\", to: \"B\"}], initial: \"<script>alert(1)</script>\"}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_state")),
+        "diagram_state with <script> in initial should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_state") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_state with <script> in initial MUST warn (proves scan_state_labels catches top-level field), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+// ── diagram_swimlane: <script> in lanes[] AND steps[].label → WARN ──
+
+#[test]
+fn diagram_swimlane_script_in_lane_warns() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_swimlane({lanes: [\"<script>alert(1)</script>\", \"B\"], steps: [{lane: \"A\", label: \"step\", order: 1.0}]}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_swimlane")),
+        "diagram_swimlane with <script> should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_swimlane") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_swimlane with <script> in lanes[] MUST warn (proves scan_swimlane_labels), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+// ── diagram_tree: <script> in recursive label → WARN ────────────────
+
+#[test]
+fn diagram_tree_script_in_label_warns() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_tree({label: \"<script>alert(1)</script>\", children: [{label: \"child\", children: []}]}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_tree")),
+        "diagram_tree with <script> should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_tree") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_tree with <script> in label MUST warn (proves scan_tree_labels_recursive), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+// ── diagram_org_chart: <script> in title field → WARN ────────────────
+
+#[test]
+fn diagram_org_chart_script_in_title_warns() {
+    // diagram_org_chart has `title` field (allow_title=true) that
+    // diagram_tree does not — this test pins the allow_title=true path.
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_org_chart({label: \"CEO\", title: \"<script>alert(1)</script>\", children: []}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_org_chart")),
+        "diagram_org_chart with <script> in title should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_org_chart") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_org_chart with <script> in title MUST warn (proves scan_tree_labels_recursive with allow_title=true), warnings: {:?}",
+        warnings(&r)
+    );
+}
+
+// ── diagram_high_level: reuses scan_flowchart_labels ─────────────────
+
+#[test]
+fn diagram_high_level_script_in_node_label_warns() {
+    let src = "pattern P(input: String) -> String {\n    let style = diagram_style({paper: \"#fff\", ink: \"#000\", accent: \"#f00\", muted: \"#888\", rule: \"#ccc\"})\n    return diagram_high_level({nodes: [{id: \"a\", label: \"<script>alert(1)</script>\"}, {id: \"b\", label: \"safe\"}], edges: [{from: \"a\", to: \"b\"}]}, style)\n}\nflow Main { input: String = \"x\" -> P -> output }";
+    let r = check_program(src).unwrap();
+    assert!(
+        !errors(&r).iter().any(|e| e.contains("diagram_high_level")),
+        "diagram_high_level with <script> should NOT error, errors: {:?}",
+        errors(&r)
+    );
+    let has_warning = warnings(&r)
+        .iter()
+        .any(|w| w.contains("diagram_high_level") && w.contains("script"));
+    assert!(
+        has_warning,
+        "diagram_high_level with <script> in node label MUST warn, warnings: {:?}",
+        warnings(&r)
+    );
+}

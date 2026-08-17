@@ -707,6 +707,17 @@ impl Vm {
                     ip += 1;
                 }
 
+                // ── Error Handling ──────────────────────────────
+                // Наряд №91: real `try` for the VM — catch errors locally
+                Instruction::TryEval(inner_code) => {
+                    let inner: Vec<Instruction> = inner_code.clone();
+                    match self.execute_code(&inner, &mut stack, &mut call_stack, program) {
+                        Ok(val) => stack.push(val),
+                        Err(_) => stack.push(Value::Unit),
+                    }
+                    ip += 1;
+                }
+
                 // ── Rule Engine ─────────────────────────────────
                 Instruction::ExecuteRules => {
                     self.execute_rules()?;
@@ -1090,6 +1101,16 @@ impl Vm {
                         _ => Value::Float(0.0),
                     };
                     stack.push(result);
+                    ip += 1;
+                }
+                // ── Error Handling ──────────────────────────────
+                // Наряд №91: real `try` for the VM — catch errors locally
+                Instruction::TryEval(inner_code) => {
+                    let inner: Vec<Instruction> = inner_code.clone();
+                    match self.execute_code(&inner, stack, call_stack, program) {
+                        Ok(val) => stack.push(val),
+                        Err(_) => stack.push(Value::Unit),
+                    }
                     ip += 1;
                 }
                 // For any unhandled instruction, skip

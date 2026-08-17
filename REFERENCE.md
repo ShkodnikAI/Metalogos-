@@ -32,6 +32,7 @@
    - [Прочее](#417-прочее)
    - [PDF (pdf-inspector)](#418-pdf-наряд-48-pdf-inspector)
    - [SVG-графика и диаграммы](#419-svg-графика-и-диаграммы-наряды-77-92-adr-0102)
+   - [Email, календарь, контакты](#420-email-календарь-контакты-наряды-mlg-456)
 5. [Объявления верхнего уровня](#5-объявления-верхнего-уровня)
 6. [Stdlib (стандартная библиотека)](#6-stdlib-стандартная-библиотека)
 7. [Changelog](#7-changelog-кратко)
@@ -785,6 +786,76 @@ let text = json_get(ocr, "markdown", "")
 + сетка чартов 2×2), `InfographicComparison` (side-by-side, требует
 одинаковый `chart_type` слева и справа), `InfographicTimeline`
 (обёртка над `diagram_timeline`).
+
+---
+
+### 4.20. Email, календарь, контакты (наряды MLG-4/5/6)
+
+27 функций, все на чистом Rust (`lettre`/`imap` для почты, hand-rolled
+CalDAV/CardDAV клиент для календаря и контактов). Две разные модели
+работы с учётными данными — не путать при использовании.
+
+#### Email (SMTP/IMAP) — учётные данные через переменные окружения
+
+**Не принимают host/user/pass как аргументы.** Конфигурация читается
+из окружения при каждом вызове: `SMTP_HOST`, `SMTP_PORT` (по умолчанию
+587), `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` (по умолчанию — `SMTP_USER`);
+`IMAP_HOST`, `IMAP_PORT`, `IMAP_USER`, `IMAP_PASS`. Отсутствие
+обязательной переменной — понятная ошибка (`smtp_send: SMTP_HOST env
+not set`), не молчаливый сбой.
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `smtp_send(to, subject, body, attachments_json?, from?, reply_to?)` | `String×3, String?×3 -> String` | String | Отправка plain-text письма, TLS/STARTTLS. Арность 3..6 |
+| `smtp_send_html(to, subject, html_body, attachments_json?)` | `String×3, String? -> String` | String | HTML-письмо. Арность 3..4 |
+| `imap_list(folder, limit, offset?)` | `String, Float, Float? -> String` | String (JSON) | Список писем — envelope + флаги. Арность 2..3 |
+| `imap_read(message_id)` | `String -> String` | String | Полное письмо: заголовки, тело, вложения |
+| `imap_search(folder, query)` | `String, String -> String` | String (JSON) | Поиск по тексту (IMAP `TEXT` criteria) |
+| `imap_mark_read(message_id)` | `String -> String` | String | Пометка как прочитанного |
+| `imap_move(message_id, target_folder)` | `String, String -> String` | String | Перемещение (RFC 6851 `MOVE`, откат на `COPY`+`DELETE`) |
+
+#### Календарь (CalDAV/iCal) — сессия через `cal_connect`
+
+**Модель session-based**, не переменные окружения. `cal_connect`
+возвращает `session_id`, который передаётся во все последующие вызовы —
+ближе к тому, как работают `whisper_transcribe`/другие stateful
+интеграции, чем к email-функциям выше.
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `cal_connect(url, user, pass)` | `String×3` (пароль принимает `Secret`, наряд №70) `-> String` | String | `session_id`. PROPFIND, discovery `calendar-home-set` |
+| `cal_list(session_id)` | `String -> String` | String (JSON) | Список календарей (PROPFIND Depth:1) |
+| `cal_events(session_id, start_date, end_date)` | `String×3 -> String` | String (JSON) | События в диапазоне (CalDAV REPORT `calendar-query`, RFC 4791 §7.8) |
+| `cal_read(event_url)` | `String -> String` | String | Одно событие по URL |
+| `cal_create(calendar_id, summary, start, end, description?, location?, attendees_json?)` | `String×4, String?×3 -> String` | String | Создаёт `.ics`, возвращает UID. Арность 4..7 |
+| `cal_update(event_url, fields_json)` | `String×2 -> String` | String | GET+PUT с `ETag`/`If-Match` |
+| `cal_delete(event_url)` | `String -> String` | String | DELETE с `If-Match` |
+| `cal_freebusy(session_id, start_date, end_date)` | `String×3 -> String` | String (JSON) | CalDAV REPORT `free-busy-query`, RFC 4791 §7.10 |
+| `ical_parse(text)` | `String -> String` | String (JSON) | Разбор iCalendar-текста (RFC 5545) |
+| `ical_generate(json)` | `String -> String` | String | Сборка `VEVENT`+`VCALENDAR` из JSON |
+
+#### Контакты (CardDAV/vCard) — та же session-модель
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `card_connect(url, user, pass)` | `String×3` (`Secret`-совместимо) `-> String` | String | `session_id`. PROPFIND, discovery `addressbook-home-set` |
+| `card_list(session_id)` | `String -> String` | String (JSON) | Список адресных книг |
+| `card_contacts(session_id, addressbook_id)` | `String×2 -> String` | String (JSON) | Контакты книги (CardDAV REPORT `addressbook-query`, RFC 6352 §8.6) |
+| `card_read(contact_url)` | `String -> String` | String | Один контакт по URL |
+| `card_create(addressbook_id, fn, email, tel?, org?, title?, note?)` | `String×3, String?×4 -> String` | String | Создаёт `.vcf`, возвращает UID. Арность 3..7 |
+| `card_update(contact_url, fields_json)` | `String×2 -> String` | String | GET+PUT с `ETag`/`If-Match` |
+| `card_delete(contact_url)` | `String -> String` | String | DELETE с `If-Match` |
+| `card_search(session_id, query)` | `String×2 -> String` | String (JSON) | Поиск по всем книгам (`FN` + `EMAIL`) |
+| `vcard_parse(text)` | `String -> String` | String (JSON) | Разбор vCard-текста (RFC 6350) |
+| `vcard_generate(json)` | `String -> String` | String | Сборка vCard v4.0 из JSON |
+
+> **Конфигурация подключения** — в отличие от email-функций выше,
+> `cal_connect`/`card_connect` **не имеют** встроенного резерва на
+> переменные окружения — все три аргумента (`url`, `user`, `pass`)
+> обязательны при каждом вызове. Соглашение об именах `CALDAV_URL`/
+> `CALDAV_USER`/`CALDAV_PASS`, `CARDDAV_URL`/`CARDDAV_USER`/
+> `CARDDAV_PASS` — рекомендация для `.mlog`-кода, который сам читает
+> их через `env()` и передаёт в `connect()`, не поведение самого билтина.
 
 ---
 

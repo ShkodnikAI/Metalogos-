@@ -7,9 +7,9 @@
 **AI-native programming language with security by design. Written in Rust.**
 
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/v0.12.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
+[![Version](https://img.shields.io/badge/v0.17.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
-[![CI](https://img.shields.io/badge/CI-4%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
+[![CI](https://img.shields.io/badge/CI-6%20blocking%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 [![Open Collective](https://img.shields.io/opencollective/all/metalogos?label=Backers&logo=open-collective&color=7fadf2)](https://opencollective.com/metalogos)
 
 </div>
@@ -64,7 +64,7 @@ OWASP Top 10 is covered at the language level, not through middleware. XSS is im
 
 ### 3. Dual Execution Backend
 
-Tree-walking interpreter + bytecode VM (44 instructions) with identical semantics. Every program is verified by `crosscheck_backends` — a test ensuring both backends return the same result. This is unique for a language of this size.
+Tree-walking interpreter + bytecode VM (46 instructions) with identical semantics. Every program is verified by `crosscheck_backends` — a test ensuring both backends return the same result. This is unique for a language of this size.
 
 ### 4. Typed Semantic Memory with Hybrid Search
 
@@ -112,26 +112,26 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 
 | Component | Technology | Lines |
 |---|---|---|
-| Parser | Pest 2.7 PEG grammar (384 lines, ~180 rules) | 2 176 |
+| Parser | Pest 2.7 PEG grammar (~400 lines, 259 rules) | 2 176 |
 | AST | 27 Declaration variants, 14 Expr, 12 Statement, 4 MatchArm | 731 |
-| Semantic analysis | Opaque types, arity checking, security audit | 473 |
-| Compiler | Bytecode, 246+ builtins indexed | 659 |
-| Bytecode format | 44 VM instructions | — |
+| Semantic analysis | Opaque types, arity checking, security audit, SVG XSS lint | 473 |
+| Compiler | Bytecode, 348 builtins indexed | 659 |
+| Bytecode format | 46 VM instructions | — |
 | Tree-walking interpreter | Full feature support, 12 modules | ~4 400 |
 | VM | Stack-based bytecode executor | 2 143 |
-| Built-in functions | 246+ functions across 14 modules | ~9 500 |
+| Built-in functions | 348 functions across 22 modules | ~9 500 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 2 357 |
 | LLM backend | Trait + mock + real providers | 1 421 |
 | Memory store | Typed memory with FTS5 BM25 + cosine RRF hybrid recall + KV store | 1 540 |
 | Security audit | Static OWASP analysis | 1 075 |
 | Embeddings | TF-IDF + OpenAI cosine similarity, FTS5 BM25 | 601 |
-| **Total effective Rust LOC** | | **~30 500** |
+| **Total effective Rust LOC** | | **~58 000** |
 
 ### Project Structure
 
 ```
 Metalogos-/
-├── Cargo.toml                       # v0.12.0, workspace root
+├── Cargo.toml                       # v0.17.0, workspace root
 ├── logo.jpg                          # Brand logo
 ├── README.md                         # This file
 ├── REFERENCE.md                      # Full builtin reference (50 KB)
@@ -142,13 +142,13 @@ Metalogos-/
 ├── CNAME                             # Custom domain
 ├── index.html                        # Landing page / docs site
 │
-├── src/                              # Core compiler + interpreter (~30 500 LOC)
+├── src/                              # Core compiler + interpreter (~58 000 LOC)
 │   ├── main.rs                        # CLI: run/repl/check/serve/compile/eval/audit
 │   ├── grammar.pest                   # Pest PEG grammar (384 lines)
 │   ├── ast.rs                         # AST definitions (27 Declaration variants)
 │   ├── semantic.rs                    # Semantic analysis + opaque type enforcement
 │   ├── compiler.rs                    # Bytecode compiler
-│   ├── bytecode.rs                    # VM instruction set (44 instructions)
+│   ├── bytecode.rs                    # VM instruction set (46 instructions)
 │   ├── vm.rs                          # Bytecode VM executor
 │   ├── jit.rs                         # JIT scaffold (experimental, ADR-0073)
 │   ├── server.rs                      # Axum HTTP server + cron scheduler
@@ -179,7 +179,7 @@ Metalogos-/
 │   │   ├── db.rs                      # SQLite database access
 │   │   └── learnable.rs               # Learnable pattern support
 │   │
-│   └── builtins/                      # 246+ built-in functions (14 modules)
+│   └── builtins/                      # 348 built-in functions (22 modules)
 │       ├── mod.rs                     # Builtin dispatch
 │       ├── registry.rs               # BUILTIN_REGISTRY (SSOT for all builtins)
 │       ├── core.rs                    # print, let, type, inspect, sleep
@@ -221,7 +221,7 @@ Metalogos-/
 │   ├── crosscheck_backends.rs          # TW vs VM parity verification
 │   ├── repl_integration.rs            # REPL tests
 │   ├── definition_of_done.rs          # Project completeness validation
-│   └── ...                            # Contract + feature tests (35 files)
+│   └── ...                            # Contract + feature tests (53 files)
 │
 ├── examples/                          # 116 .mlog programs
 │   ├── m1_hello.mlog                  # Hello World
@@ -299,12 +299,54 @@ Every item in the OWASP Top 10 (2021) is addressed at the language level: type-s
 ### Two Execution Backends
 
 - **Tree-walking interpreter** — full feature support, used for `mlog run` and `mlog serve`
-- **Bytecode VM** — 44 instructions, stack-based, used for `mlog compile` + `mlog run file.mbc`
+- **Bytecode VM** — 46 instructions, stack-based, used for `mlog compile` + `mlog run file.mbc`
 - **JIT** — declared experimental, scaffold only (see ADR-0073)
 
-### 246+ Built-in Functions
+### 348 Built-in Functions
 
-String ops, math, collections, type conversion, LLM/AI, HTTP, JSON, file I/O, KV store, session memory, encryption, authentication, HTTP server, templates, databases, Telegram/Discord bots, time/date/calendar, geolocation, weather, reminders, cron, goals, todos, memory tree, preferences, approval workflows, fuzzy matching, hashline editing, context compaction, budget awareness, replay logging, policy enforcement, PDF processing (classify, extract, OCR), typed semantic memory (FTS5 BM25 + cosine RRF), and more. See [REFERENCE.md](REFERENCE.md) for the full list.
+String ops, math, collections, type conversion, LLM/AI, HTTP, JSON, file I/O, KV store, session memory, encryption, authentication, HTTP server, templates, databases, Telegram/Discord bots, time/date/calendar, geolocation, weather, reminders, cron, goals, todos, memory tree, preferences, approval workflows, fuzzy matching, hashline editing, context compaction, budget awareness, replay logging, policy enforcement, PDF processing (classify, extract, OCR), typed semantic memory (FTS5 BM25 + cosine RRF), SMTP/IMAP email, CalDAV/CardDAV calendar and contacts, native SVG graphics, and more. See [REFERENCE.md](REFERENCE.md) for the full list.
+
+### Native SVG/Graphics Subsystem
+
+44 builtins, hand-rolled in pure Rust — zero external SVG/charting/
+rendering dependencies. Every text-carrying function is covered by a
+dedicated static security lint (`SVG_AUTO_ESCAPE_BUILTINS` /
+`SVG_NO_ESCAPE_BUILTINS`), the same "unsafe by construction" discipline
+as the rest of the language:
+
+```mlog
+let style = color_palette("energy", "dark")
+let chart = chart_bar(revenue_data, style)
+let flow  = diagram_flowchart(nodes, edges, style)
+let poster = InfographicPoster("Q3 Revenue", "energy", stats, narrative)
+```
+
+- **Primitives** — `svg_rect`, `svg_circle`, `svg_path`, `svg_text`,
+  `svg_group`, `svg_canvas` (+ named presets: `doc_inline`,
+  `slide_16x9`, `social_og`, print A4), `svg_icon` (10 glyphs)
+- **9 chart types** — bar, donut, line, scatter, area, heatmap, radar
+  (multi-series), boxplot (real quartile math)
+- **22 diagram types** — flowchart (topological layering, cycle
+  detection), tree, org chart, sequence, timeline, Gantt, state machine,
+  ER, swimlane, Venn (2/3-circle), quadrant, pyramid, and more
+- **`color_palette`** — HSL-cascade generator, 5 intents × 2 modes
+- **`template_render`** — `{{ var }}`, `{{#if}}/{{else}}`, `{{#each}}`,
+  hand-written recursive parser, no templating crate
+- **Anti-overlap engine** — iterative label-collision resolution,
+  wired into `diagram_timeline`
+- **`infographic_qa`** — advisory contrast/saturation/density checks
+- **`html_render`** — headless-browser screenshot, hardened `exec()`
+  underneath (real timeout + kill, file audit log, no shell
+  interpretation); network isolation is a documented caller
+  responsibility, not an OS-level guarantee
+- **`std/infographic.mlog`** — `InfographicPoster`, `InfographicDashboard`,
+  `InfographicComparison`, `InfographicTimeline`
+
+Delivered across naryads №77–92 (see [CHANGELOG.md](CHANGELOG.md)).
+Found and fixed one critical, previously-invisible bug along the way:
+the bytecode VM discarded `try`'s result on the success path since
+naryad №14 — masked for the project's entire history because every
+existing `try`-using test only checked the error path.
 
 ### Human Intelligence Layer
 
@@ -468,10 +510,10 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 
 | Metric | Value |
 |---|---|
-| Effective Rust LOC | ~30 500 |
-| Built-in Functions | 246+ (14 modules) |
+| Effective Rust LOC | ~58 000 |
+| Built-in Functions | 348 (22 modules) |
 | Example Programs | 116 |
-| Integration Tests | 37 test suites |
+| Integration Tests | 53 test suites |
 | Architecture Decision Records | 91 |
 | Parser Rules | ~180 (Pest PEG) |
 | VM Instructions | 44 |
@@ -511,7 +553,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete. 24+ development narads (work orders) delivered. 246+ builtins, 37 test files, 116 golden-file examples, 91 ADRs. 463 commits.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 92+ development narads (work orders) delivered. 348 builtins, 53 test files, 172 golden-file examples, 101 ADRs. 634 commits.
 
 ### Next
 

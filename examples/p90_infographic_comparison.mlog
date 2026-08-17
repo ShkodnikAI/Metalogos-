@@ -1,0 +1,54 @@
+// ── Наряд №90: InfographicComparison contract ──────────────────────
+//
+// Verifies InfographicComparison pattern:
+//   1. Side-by-side bar comparison renders valid SVG
+//   2. infographic_qa on result
+//   3. Mismatched chart_type returns error string
+//   4. Donut comparison also works
+//
+// Note: No `try` used — InfographicComparison returns error strings
+// normally (not as Err), so direct call + starts_with is sufficient.
+
+import std/infographic
+
+pattern P90InfographicComparison(input: String) -> String {
+  let left = {
+    label: "2023",
+    chart_type: "bar",
+    data: [{label: "Q1", value: 30.0}, {label: "Q2", value: 45.0}, {label: "Q3", value: 55.0}]
+  }
+  let right = {
+    label: "2024",
+    chart_type: "bar",
+    data: [{label: "Q1", value: 40.0}, {label: "Q2", value: 60.0}, {label: "Q3", value: 75.0}]
+  }
+
+  // ── 1. Comparison renders ────────────────────────────────────────
+  let svg = InfographicComparison("Year-over-Year Revenue", "authority", left, right)
+  let ok1 = to_float(starts_with(svg, "<svg "))
+
+  // ── 2. infographic_qa on comparison result ──────────────────────
+  let report = infographic_qa(svg)
+  let n_checks = report.checks_run
+
+  // ── 3. Mismatched chart_type error (returns "ERROR:..." string) ──
+  let bad_right = {
+    label: "2024",
+    chart_type: "donut",
+    data: [{label: "A", value: 50.0}, {label: "B", value: 50.0}]
+  }
+  let err_result = InfographicComparison("Mismatch", "calm", left, bad_right)
+  let ok3 = to_float(starts_with(err_result, "ERROR:"))
+
+  // ── 4. Donut comparison also works ───────────────────────────────
+  let left_d = {label: "Current", chart_type: "donut", data: [{label: "Pass", value: 80.0}, {label: "Fail", value: 20.0}]}
+  let right_d = {label: "Previous", chart_type: "donut", data: [{label: "Pass", value: 65.0}, {label: "Fail", value: 35.0}]}
+  let svg2 = InfographicComparison("Test Pass Rate", "calm", left_d, right_d)
+  let ok4 = to_float(starts_with(svg2, "<svg "))
+
+  let total = ok1 + ok3 + ok4
+
+  return "p90_comparison: ok=" + to_string(total) + "/3 qa_checks=" + to_string(n_checks)
+}
+
+flow Main { input: String = "x" -> P90InfographicComparison -> output }

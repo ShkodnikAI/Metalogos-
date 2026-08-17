@@ -1,6 +1,6 @@
 # METALOGOS — Справочник языка (Reference)
 
-> **Версия:** 0.12.0
+> **Версия:** 0.17.0
 > **Единый источник истины** для разработчиков, пишущих на Металогосе.
 > Содержит полный список встроенных функций с сигнатурами, типами, описанием и примерами,
 > а также справочник по синтаксису, типам данных и CLI.
@@ -31,6 +31,7 @@
    - [Боты (Telegram/Discord)](#416-боты-telegramdiscord)
    - [Прочее](#417-прочее)
    - [PDF (pdf-inspector)](#418-pdf-наряд-48-pdf-inspector)
+   - [SVG-графика и диаграммы](#419-svg-графика-и-диаграммы-наряды-77-92-adr-0102)
 5. [Объявления верхнего уровня](#5-объявления-верхнего-уровня)
 6. [Stdlib (стандартная библиотека)](#6-stdlib-стандартная-библиотека)
 7. [Changelog](#7-changelog-кратко)
@@ -675,6 +676,115 @@ let text = json_get(ocr, "markdown", "")
 | `now()` | `-> Float` | Float | Текущий Unix-timestamp в секундах |
 | `str(value)` | `Any -> String` | String | Преобразует любое значение в строку |
 | `to_string(value)` | `Any -> String` | String | Аналог `str()` (Float без `.0` для целых) |
+
+---
+
+### 4.19. SVG-графика и диаграммы (наряды №77–92, ADR-0102)
+
+44 встроенные функции, написанные вручную на чистом Rust — без единой
+внешней SVG/chart/rendering-библиотеки. Все диспетчеризуются через
+общий путь (не спец-кейс), паритет TW/VM гарантирован конструкцией
+и проверен `crosscheck`. Полная история решений — ADR-0102 и наряды
+№77–92.
+
+> **Безопасность:** каждая функция классифицирована в `svg_security_lint`
+> (`src/semantic.rs`) — текстовые аргументы либо автоматически
+> экранируются рантаймом (`SVG_AUTO_ESCAPE_BUILTINS`, предупреждение
+> при `mlog check`), либо структурные аргументы (`d`, `viewbox`,
+> `transform` — мини-языки, которые нельзя безопасно экранировать)
+> дают жёсткую **ошибку** компиляции при подозрении на инъекцию
+> (`SVG_NO_ESCAPE_BUILTINS`). Наряд №92 проверил все 44 функции —
+> пробелов не найдено.
+
+#### Палитра
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `color_palette(intent, mode)` | `String, String -> Struct` | `DiagramStyle` | HSL-каскадная палитра. `intent` ∈ {calm, tension, energy, authority, warmth}, `mode` ∈ {light, dark}. Вывод — 5 токенов (`paper`, `ink`, `accent`, `muted`, `rule`) |
+| `diagram_style(paper, ink, accent, muted, rule)` | `String×5 -> Struct` | `DiagramStyle` | Валидатор для вручную заданных токенов (без генерации через `color_palette`) |
+
+#### SVG-примитивы
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `svg_rect(x, y, w, h, fill, stroke)` | `Float×4, String×2 -> String` | String | Прямоугольник |
+| `svg_circle(cx, cy, r, fill, stroke)` | `Float×3, String×2 -> String` | String | Круг |
+| `svg_line(x1, y1, x2, y2, stroke, width)` | `Float×4, String, Float -> String` | String | Линия |
+| `svg_text(x, y, text, font_size, fill, anchor)` | `Float×2, String, Float, String×2 -> String` | String | Текст (экранируется автоматически) |
+| `svg_path(d, fill, stroke)` | `String×3 -> String` | String | Произвольный путь. `d` — структурный аргумент, **не экранируется**, ошибка компиляции при инъекции |
+| `svg_group(children, transform)` | `List, String -> String` | String | Группа с опциональной трансформацией (`transform` структурный, как `d`) |
+| `svg_canvas(w, h, viewbox, children)` | `Float×2, String, List -> String` | String | Корневой `<svg>` (`viewbox` структурный) |
+| `svg_canvas_preset(preset_name, viewbox, children)` | `String, String, List -> String` | String | То же, с именованным размером холста: `doc_inline` (960×600), `slide_16x9` (1280×720), `social_og` (1200×632), `print_a4_landscape`, `print_a4_portrait` |
+| `svg_icon(name, x, y, size, fill)` | `String, Float×3, String -> String` | String | Готовая иконка. `name` ∈ {server, laptop, phone, database, cloud, arrow-right, check, warning, user, document} |
+| `svg_sketchy_filter(id, roughness)` | `String, Float -> String` | String | SVG-фильтр «рукописного» стиля (`id` структурный) |
+| `svg_generate(kind, intent, w, h)` | `String, String, Float×2 -> String` | String | Процедурный фон. `kind` ∈ {flow, grid, noise}. Детерминированный (одинаковый `intent` → идентичный результат, без `rand`/системных часов) |
+
+#### Чарты
+
+| Функция | Форма данных | Особенность |
+|---------|-------------|-------------|
+| `chart_bar(data, style)` | `List<Struct{label, value}>` | Базовый столбчатый |
+| `chart_donut(data, style)` | `List<Struct{label, value}>` | Дуги через `svg_path` |
+| `chart_line(data, style)` | `List<Struct{label, value}>` | Соединённые точки |
+| `chart_area(data, style)` | `List<Struct{label, value}>` | Заливка под линией |
+| `chart_scatter(data, style)` | `List<Struct{x, y, label?}>` | Независимое масштабирование обеих осей — **другая форма данных**, чем остальные |
+| `chart_heatmap(data, style)` | `List<List<Float>>` | HSL-интерполяция цвета по значению; без текста — сознательно вне security-lint |
+| `chart_radar(data, style)` | `Struct{axes: List<String>, series: List<Struct{name, values}>}` | Многосерийный, полярные координаты, фиксированная палитра до 5 серий |
+| `chart_boxplot(data, style)` | `List<Struct{label, values: List<Float>}>` | Реальные квартили (linear interpolation / R-7 метод), усы 1.5×IQR, выбросы |
+
+#### Диаграммы — иерархии и потоки
+
+| Функция | Форма данных | Особенность |
+|---------|-------------|-------------|
+| `diagram_tree(data, style)` | `Struct{label, children: List<Struct>}` (рекурсивно) | Раздельная раскладка поддеревьев |
+| `diagram_org_chart(data, style)` | То же + опциональный `title` | Тонкая обёртка над `diagram_tree` |
+| `diagram_flowchart(data, style)` | `Struct{nodes, edges}` | Топологическая сортировка по слоям; **цикл — ошибка** с явным текстом |
+| `diagram_layers(data, style)` | `List<Struct{label, description?}>` | Горизонтальные полосы |
+
+#### Диаграммы — временные и процессные
+
+| Функция | Форма данных | Особенность |
+|---------|-------------|-------------|
+| `diagram_sequence(data, style)` | `Struct{actors: List<String>, messages: List<Struct{from, to, label?}>}` | Вертикальные lifeline, `actors` — список строк, не структур |
+| `diagram_timeline(data, style)` | `List<Struct{date, label, description?}>` | Anti-overlap engine применяется автоматически (наряд №87) |
+| `diagram_gantt(data, style)` | `List<Struct{task, start, duration}>` | Условные единицы времени, без привязки к календарю |
+| `diagram_process(data, style)` | `List<Struct{label, description?}>` | Строго линейно — **не путать** с `diagram_flowchart` |
+| `diagram_loop(data, style)` | `List<Struct{label, description?}>` | Замкнутый цикл, полярные координаты, минимум 3 шага |
+
+#### Диаграммы — множества и сравнения
+
+| Функция | Форма данных | Особенность |
+|---------|-------------|-------------|
+| `diagram_venn(data, style)` | `Struct{circles: List<Struct{label, value?}>, overlap_label?}` | Строго 2 или 3 круга, фиксированная симметричная геометрия — общий N-круговой Venn вне объёма |
+| `diagram_quadrant(data, style)` | `Struct{x_axis_label, y_axis_label, items: List<Struct{label,x,y}>}` | `x`,`y` ∈ [-1.0, 1.0] |
+| `diagram_pyramid(data, style)` | `List<Struct{label, value?}>` | Первый элемент — верхний узкий слой (не основание) |
+| `diagram_nested(data, style)` | `List<Struct{label, value?}>` | Концентрические кольца, первый элемент — внешнее |
+| `diagram_medallion(data, style)` | `List<Struct{icon?, label, value?}>` | `icon` — имя из `svg_icon`, валидация переиспользована |
+
+#### Диаграммы — данные и состояния
+
+| Функция | Форма данных | Особенность |
+|---------|-------------|-------------|
+| `diagram_er(data, style)` | `Struct{entities: List<Struct{name, fields: List<String>}>, relations}` | Простая сетка 3-в-ряд, не анализ связей для позиционирования |
+| `diagram_state(data, style)` | `Struct{states: List<String>, transitions, initial?}` | **Циклы и self-loop валидны** (в отличие от flowchart) |
+| `diagram_swimlane(data, style)` | `Struct{lanes: List<String>, steps}` | Позиция по `order`, не по индексу |
+| `diagram_data_flow(data, style)` | `Struct{nodes, edges}` | Циклы валидны (обратная связь данных) |
+| `diagram_high_level(data, style)` | `Struct{nodes, edges}` | Без иконок, ациклический (топологическая сортировка) |
+| `diagram_architecture(data, style)` | `Struct{nodes: List<Struct{id,label,icon?}>, edges}` | То же + `svg_icon` для узлов |
+
+#### Композиция и качество
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `template_render(template, data)` | `String, Struct -> Html` | Html | Отдельный движок (не расширение `render()`): `{{ var }}` (экранируется), `{{{ var }}}` (без экранирования), `{{#if}}/{{else}}`, `{{#each}}`. Содержимое шаблона — доверенный код автора, не сканируется lint'ом |
+| `infographic_qa(svg)` | `String -> Struct{passed, warnings, checks_run}` | Struct | Advisory-проверка: контраст (WCAG, порог 4.5), дисциплина насыщенности (>2 цветов с S>60% — предупреждение), плотность элементов. `passed: false` — совет, не блокировка |
+| `html_render(html, width, height)` | `String, Float×2 -> String` | String | Скриншот через headless-браузер (`METALOGOS_BROWSER_BIN`, без дефолтного пути). Единственная функция серии, порождающая внешний процесс — через `exec_restricted` (argv, не shell). Сетевая изоляция не гарантируется на уровне ОС — вход должен быть самодостаточным HTML |
+
+`std/infographic.mlog` — паттерны верхнего уровня, компонующие
+перечисленное: `InfographicPoster`, `InfographicDashboard` (KPI-карточки
++ сетка чартов 2×2), `InfographicComparison` (side-by-side, требует
+одинаковый `chart_type` слева и справа), `InfographicTimeline`
+(обёртка над `diagram_timeline`).
 
 ---
 

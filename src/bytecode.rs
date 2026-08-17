@@ -134,6 +134,11 @@ pub enum Instruction {
         branch_defs: Vec<(String, Vec<BranchDef>)>,
     },
 
+    // ── Error Handling ───────────────────────────────────────
+    /// Evaluate inner bytecode in a try-catch: on Ok push result, on Err push Unit.
+    /// Наряд №91: real `try` semantics for the VM (previously always Unit).
+    TryEval(Vec<Instruction>),
+
     // ── Rule Engine ───────────────────────────────────────────
     /// Execute all registered rules (conditions + assignments).
     /// This is also a macro instruction — the VM evaluates rules internally.

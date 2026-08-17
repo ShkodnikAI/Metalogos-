@@ -1,0 +1,41 @@
+// ── Наряд №90: InfographicTimeline contract ────────────────────────
+//
+// Verifies InfographicTimeline pattern:
+//   1. Timeline with events renders valid SVG
+//   2. infographic_qa on result
+//   3. Timeline with descriptions renders
+
+import std/infographic
+
+pattern P90InfographicTimeline(input: String) -> String {
+  // ── 1. Basic timeline ────────────────────────────────────────────
+  let events = [
+    {date: "2024-01", label: "Kickoff"},
+    {date: "2024-03", label: "Alpha"},
+    {date: "2024-06", label: "Beta"},
+    {date: "2024-09", label: "RC"},
+    {date: "2024-12", label: "GA"}
+  ]
+  let svg = InfographicTimeline("Project Roadmap", "energy", events)
+  let ok1 = to_float(starts_with(svg, "<svg "))
+
+  // ── 2. infographic_qa on timeline result ─────────────────────────
+  let report = infographic_qa(svg)
+  let n_checks = report.checks_run
+
+  // ── 3. Timeline with descriptions ────────────────────────────────
+  let events2 = [
+    {date: "Phase 1", label: "Research", description: "User interviews"},
+    {date: "Phase 2", label: "Design", description: "Wireframes"},
+    {date: "Phase 3", label: "Build", description: "Implementation"},
+    {date: "Phase 4", label: "Ship", description: "GA release"}
+  ]
+  let svg2 = InfographicTimeline("Development Phases", "warmth", events2)
+  let ok3 = to_float(starts_with(svg2, "<svg "))
+
+  let total = ok1 + ok3
+
+  return "p90_timeline: ok=" + to_string(total) + "/2 qa_checks=" + to_string(n_checks)
+}
+
+flow Main { input: String = "x" -> P90InfographicTimeline -> output }

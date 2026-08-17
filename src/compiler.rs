@@ -712,9 +712,13 @@ impl Compiler {
                 // Compiled as Unit placeholder; tree-walking interpreter handles it
                 code.push(Instruction::Const(Value::Unit));
             }
-            // Наряд №14 P1-4: try expression — deferred to tree-walking
-            Expr::Try(_) => {
-                code.push(Instruction::Const(Value::Unit));
+            // Наряд №91: try expression — real compilation for VM
+            // Compile inner expression into a separate instruction block,
+            // wrapped in TryEval so the VM can catch errors locally.
+            Expr::Try(inner) => {
+                let mut inner_code = Vec::new();
+                self.compile_expr_with_locals(inner, &mut inner_code, locals)?;
+                code.push(Instruction::TryEval(inner_code));
             }
         }
         Ok(())

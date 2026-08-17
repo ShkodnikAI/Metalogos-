@@ -464,6 +464,15 @@ const SVG_AUTO_ESCAPE_BUILTINS: &[&str] = &[
 /// Builtins whose string arguments are NOT auto-escaped (structural).
 /// String literals with `<script>` here generate an ERROR (injection
 /// vector — runtime cannot catch it).
+///
+/// [Наряд №92 Category 2] These 4 builtins are covered by this separate,
+/// stricter lint path (ERROR not WARNING). Each has runtime validation
+/// that rejects dangerous inputs:
+///   svg_path          — d argument validated: rejects < and > chars
+///   svg_canvas        — viewbox validated: must be exactly 4 numbers
+///   svg_group         — transform escaped via escape_attr(); children
+///                        are trusted prior-builtin outputs (not user text)
+///   svg_sketchy_filter — id escaped via escape_attr()
 const SVG_NO_ESCAPE_BUILTINS: &[&str] = &[
     "svg_path",           // d is path-data mini-language, not escaped
     "svg_canvas",         // viewbox is structural, not escaped
@@ -471,8 +480,46 @@ const SVG_NO_ESCAPE_BUILTINS: &[&str] = &[
     "svg_sketchy_filter", // id is structural, validated but not escaped as text
 ];
 
-/// Argument indices that are auto-escaped within SVG_AUTO_ESCAPE_BUILTINS.
-/// For svg_text: arg 2 (content). For svg_callout: arg 0 (text).
+// [Наряд №92 Category 1] Builtins intentionally NOT in either
+// SVG_AUTO_ESCAPE_BUILTINS or SVG_NO_ESCAPE_BUILTINS.
+//
+// None of these accept free-form user text that is inserted as-is
+// into SVG markup. Each is excluded for a documented reason:
+//
+//   svg_rect / svg_circle / svg_line — attribute values only (fill,
+//     stroke, color strings), escaped at runtime via escape_attr().
+//     No text *content* inserted between XML tags.
+//
+//   svg_icon — name is a validated enum (10 known icon names, error
+//     on unknown); color is an escaped attribute. No free-form text
+//     injection surface.
+//
+//   diagram_style — returns a DiagramStyle Struct, NOT SVG markup.
+//     Color strings are consumed and escaped by downstream builtins
+//     (chart_*/diagram_*), which are in SVG_AUTO_ESCAPE_BUILTINS.
+//
+//   color_palette — returns a DiagramStyle Struct, NOT SVG markup.
+//     intent/mode are validated enums; no SVG output at all.
+//
+//   svg_generate — kind/intent are validated enums. Procedural
+//     background generation with no free-form text output.
+//
+//   svg_canvas_preset — preset_name is a validated enum; viewbox
+//     validated as 4 numbers; children are trusted prior-builtin
+//     outputs (same trust model as svg_group/svg_canvas children).
+//
+//   chart_heatmap — pure numeric grid (List<List<Float>>). No user
+//     text at all. Documented exclusion per Наряд №79.
+//
+//   infographic_qa — read-only analysis of an SVG string, produces
+//     no new markup. Documented exclusion per Наряд №89.
+//
+//   template_render — template is trusted code; data values escaped
+//     at runtime via escape_html_chars. Documented exclusion per
+//     Наряд №86.
+
+// Argument indices that are auto-escaped within SVG_AUTO_ESCAPE_BUILTINS.
+// For svg_text: arg 2 (content). For svg_callout: arg 0 (text).
 fn auto_escaped_arg_index(builtin: &str) -> Option<usize> {
     match builtin {
         "svg_text" => Some(2),

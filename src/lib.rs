@@ -8,6 +8,7 @@
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod ast;
+use crate::audit::{audit_category_a, Severity};
 pub mod audit;
 pub mod builtins;
 pub mod bytecode;
@@ -38,11 +39,21 @@ pub fn run_program_with_dir(
 
     // Наряд №98: enforce Category A security invariants before execution.
     // SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION are now compile-time errors.
-    let analysis = semantic::check_program(&declarations);
-    if !analysis.is_ok() {
+    // We call audit_category_a directly (not check_program) because the
+    // interpreter resolves imports at runtime — check_program would
+    // false-positive on "undefined function" for imported symbols.
+    let cat_a = audit_category_a(&declarations, "");
+    let cat_a_errors: Vec<String> = cat_a
+        .iter()
+        .filter_map(|f| match f.severity {
+            Severity::Error | Severity::Warning => Some(format!("[{}] {}", f.check_id, f.message)),
+            Severity::Info => None,
+        })
+        .collect();
+    if !cat_a_errors.is_empty() {
         return Err(format!(
-            "security check failed:\n{}",
-            analysis.errors.join("\n")
+            "Category A security invariant violated:\n{}",
+            cat_a_errors.join("\n")
         ));
     }
 
@@ -156,11 +167,20 @@ pub fn compile_program(source: &str) -> Result<bytecode::Program, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
 
     // Наряд №98: enforce Category A security invariants before compilation.
-    let analysis = semantic::check_program(&declarations);
-    if !analysis.is_ok() {
+    // Same as run_program_with_dir: call audit_category_a directly,
+    // not check_program — the compiler handles its own semantic errors.
+    let cat_a = audit_category_a(&declarations, "");
+    let cat_a_errors: Vec<String> = cat_a
+        .iter()
+        .filter_map(|f| match f.severity {
+            Severity::Error | Severity::Warning => Some(format!("[{}] {}", f.check_id, f.message)),
+            Severity::Info => None,
+        })
+        .collect();
+    if !cat_a_errors.is_empty() {
         return Err(format!(
-            "security check failed:\n{}",
-            analysis.errors.join("\n")
+            "Category A security invariant violated:\n{}",
+            cat_a_errors.join("\n")
         ));
     }
 

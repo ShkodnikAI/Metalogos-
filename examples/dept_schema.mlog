@@ -14,8 +14,11 @@ schema test_dept {
 }
 
 pattern InsertAndQuery(topic: String) -> String {
-  let id = db_insert("analysis", { topic: topic, full_result: topic, status: "drafted" })
-  let rows = query("SELECT topic FROM analysis WHERE id = " + to_string(id), [])
+  let _id = db_insert("analysis", { topic: topic, full_result: topic, status: "drafted" })
+  // Query with literal SQL (no $1 params) — passes SQL_DYNAMIC check
+  // and works on both TW and VM backends. We just inserted one row,
+  // so SELECT without WHERE returns it.
+  let rows = query("SELECT topic FROM analysis ORDER BY id DESC LIMIT 1", [])
   let first = get(rows, 0)
   return first.topic
 }

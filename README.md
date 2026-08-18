@@ -124,14 +124,14 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 
 | Component | Technology | Lines |
 |---|---|---|
-| Parser | Pest 2.7 PEG grammar (~400 lines, 180 rules) | 2 176 |
+| Parser | Pest 2.7 PEG grammar (~400 lines, 259 rules) | 2 176 |
 | AST | 27 Declaration variants, 14 Expr, 12 Statement, 4 MatchArm | 731 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION), SVG XSS lint | 473 |
-| Compiler | Bytecode, 359 builtins indexed | 659 |
+| Compiler | Bytecode, 349 builtins indexed | 659 |
 | Bytecode format | 46 VM instructions | — |
 | Tree-walking interpreter | Full feature support, 12 modules | ~4 400 |
 | VM | Stack-based bytecode executor | 2 143 |
-| Built-in functions | 359 functions across 22 modules | ~9 500 |
+| Built-in functions | 349 functions across 22 modules | ~9 500 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 2 357 |
 | LLM backend | Trait + mock + real providers | 1 421 |
 | Memory store | Typed memory with FTS5 BM25 + cosine RRF hybrid recall + KV store | 1 540 |
@@ -187,7 +187,7 @@ Metalogos-/
 │   │   ├── db.rs                      # SQLite database access
 │   │   └── learnable.rs               # Learnable pattern support
 │   │
-│   └── builtins/                      # 359 built-in functions (22 modules)
+│   └── builtins/                      # 349 built-in functions (22 modules)
 │       ├── mod.rs                     # Builtin dispatch
 │       ├── registry.rs               # BUILTIN_REGISTRY (SSOT for all builtins)
 │       ├── core.rs                    # print, let, type, inspect, sleep
@@ -221,14 +221,14 @@ Metalogos-/
 │   └── tests/
 │       └── pkg_integration.rs
 │
-├── tests/                             # 52 Rust test files
+├── tests/                             # 53 Rust test files
 │   ├── fixtures/                      # PDF test fixtures
 │   ├── golden.rs                      # Golden test runner (66/70 pass)
 │   ├── vm_golden.rs                   # VM golden tests
 │   ├── crosscheck_backends.rs          # TW vs VM parity verification
 │   ├── repl_integration.rs            # REPL tests
 │   ├── definition_of_done.rs          # Project completeness validation
-│   └── ...                            # Contract + feature tests (52 files)
+│   └── ...                            # Contract + feature tests (53 files)
 │
 ├── examples/                          # 174 .mlog programs
 │   ├── m1_hello.mlog                  # Hello World
@@ -307,13 +307,13 @@ Every item in the OWASP Top 10 (2021) is addressed at the language level: type-s
 - **Bytecode VM** — 46 instructions, stack-based, used for `mlog compile` + `mlog run file.mbc`
 - **JIT** — experimental scaffold, not part of the build (see ADR-0073)
 
-### 359 Built-in Functions
+### 349 Built-in Functions
 
 String ops, math, collections, type conversion, LLM/AI, HTTP, JSON, file I/O, KV store, session memory, encryption, authentication, HTTP server, templates, databases, Telegram/Discord bots, time/date/calendar, geolocation, weather, reminders, cron, goals, todos, memory tree, preferences, approval workflows, fuzzy matching, hashline editing, context compaction, budget awareness, replay logging, policy enforcement, PDF processing (classify, extract, OCR), typed semantic memory (FTS5 BM25 + cosine RRF), SMTP/IMAP email, CalDAV/CardDAV calendar and contacts, native SVG graphics, and more. See [REFERENCE.md](REFERENCE.md) for the full list.
 
 ### Native SVG/Graphics Subsystem
 
-42 builtins, hand-rolled in pure Rust — zero external SVG/charting/
+44 builtins, hand-rolled in pure Rust — zero external SVG/charting/
 rendering dependencies. Every text-carrying function is covered by a
 dedicated static security lint (`SVG_AUTO_ESCAPE_BUILTINS` /
 `SVG_NO_ESCAPE_BUILTINS`), the same "unsafe by construction" discipline
@@ -516,11 +516,11 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 | Metric | Value |
 |---|---|
 | Effective Rust LOC | ~58 000 |
-| Built-in Functions | 359 (22 modules) |
+| Built-in Functions | 349 (22 modules) |
 | Example Programs | 174 |
-| Integration Tests | 52 test suites |
+| Integration Tests | 53 test suites |
 | Architecture Decision Records | 100 |
-| Parser Rules | ~180 (Pest PEG) |
+| Parser Rules | 259 (Pest PEG) |
 | VM Instructions | 46 |
 | Execution Backends | 2 (interpreter + bytecode VM) |
 | Workspace Crates | 3 (mlog, mlog-lsp, mlogpkg) |
@@ -558,7 +558,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 92+ development narads (work orders) delivered. 359 builtins, 52 test files, 174 golden-file examples, 100 ADRs. 653 commits.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 92+ development narads (work orders) delivered. 349 builtins, 53 test files, 174 golden-file examples, 100 ADRs. 653 commits.
 
 ### Next
 

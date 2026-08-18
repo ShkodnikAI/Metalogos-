@@ -60,7 +60,19 @@ In Python/JS, AI requires SDKs, prompt templates, API clients, and HTTP error ha
 
 ### 2. Security by Design — Zero Configuration
 
-OWASP Top 10 is covered at the language level, not through middleware. XSS is impossible (Html is an opaque type with auto-escaping). SQL injection is impossible (parameterized queries only). Plaintext secret leakage is impossible (Secret type blocks print/to_string). There is no way to bypass these constraints — they are built into the semantics.
+OWASP Top 10 is covered at the language level, not through middleware.
+
+**Eliminated by the compiler** (these are structural errors — `mlog check`, `mlog run`, `mlog serve`, and `mlog compile` all refuse to proceed):
+- **SQL injection is impossible** — `query()` with non-literal SQL is a compile-time error; only parameterized queries are allowed
+- **Plaintext secret leakage is impossible** — passing `env()` results to `respond()`/`write_file()` is a compile-time error
+- **XSS via LLM output is impossible** — passing `call_llm()`/`call_claude()` results to `respond()` without `render()`/`escape_html()` is a compile-time error
+
+**Checked by `mlog audit`** (these are heuristic advisories — context-dependent, may have legitimate exceptions):
+- Hardcoded secrets in source (heuristic; can false-positive on error messages)
+- Missing sandbox for `adapt`/`mutate` (cross-file context needed)
+- Missing `rate_limit` middleware (external infra may handle it)
+- Missing CSRF middleware (not needed for token-authenticated APIs)
+- Open redirect via user-controlled `respond_html()` (custom validation not recognized)
 
 ### 3. Dual Execution Backend
 
@@ -114,7 +126,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 |---|---|---|
 | Parser | Pest 2.7 PEG grammar (~400 lines, 259 rules) | 2 176 |
 | AST | 27 Declaration variants, 14 Expr, 12 Statement, 4 MatchArm | 731 |
-| Semantic analysis | Opaque types, arity checking, security audit, SVG XSS lint | 473 |
+| Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION), SVG XSS lint | 473 |
 | Compiler | Bytecode, 348 builtins indexed | 659 |
 | Bytecode format | 46 VM instructions | — |
 | Tree-walking interpreter | Full feature support, 12 modules | ~4 400 |
@@ -273,24 +285,22 @@ Metalogos-/
 
 ### Security by Design
 
-Unsafe operations are syntactically impossible, not just discouraged:
+The compiler enforces structural security invariants — these are errors, not warnings:
 
 ```mlog
-// XSS impossible — Html is opaque, auto-escaped in templates
-template Page(title: String) -> Html {
-  <h1>{{ title }}</h1>   // <script> becomes &lt;script&gt;
-}
-
-// SQL injection impossible — parameterized only
+// SQL injection impossible — non-literal query() is a compile-time error
 let user = query("SELECT * FROM users WHERE id = $1", [id])
 
-// Plaintext secrets impossible — Secret type blocks print/to_string
+// Secret leak impossible — env() to respond() is a compile-time error
 entity token: Secret = env("API_KEY")
-print(token)   // Compile error
+respond(token)   // Compile error: [SECRET_LEAK]
 
-// Broken access control — routes require roles
-route "/admin" method=GET requires=[admin] { ... }
+// XSS via LLM impossible — unsanitized LLM output to respond() is a compile-time error
+let reply = call_llm(prompt)
+respond(reply)   // Compile error: [HTML_INJECTION] — use render() or escape_html()
 ```
+
+Heuristic security checks (hardcoded secrets, sandbox coverage, rate limiting, CSRF, open redirect) are advisory — run `mlog audit` for a full report.
 
 ### OWASP Top 10 Coverage
 

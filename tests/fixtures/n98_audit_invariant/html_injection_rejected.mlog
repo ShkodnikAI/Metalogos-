@@ -1,0 +1,9 @@
+// Наряд №98 golden contract: HTML_INJECTION is a compiler error
+mlogserver {
+    port: 8080
+    route "/ask" method=POST {
+        let data = form_data()
+        let reply = call_llm(data.question)
+        respond(reply)
+    }
+}

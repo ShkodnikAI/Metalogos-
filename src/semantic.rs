@@ -3,6 +3,7 @@
 // Phase 6+: Enforces opaque type constraints (Html, Query, Secret, etc.)
 
 use crate::ast::*;
+use crate::audit::{audit_category_a, Severity};
 use std::collections::HashSet;
 
 /// Result of semantic analysis: errors prevent execution, warnings are advisory.
@@ -306,6 +307,31 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                 }
             }
             _ => {}
+        }
+    }
+
+    // ── Наряд №98: Category A audit → compiler errors ──
+    // SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION are structural security
+    // invariants — a finding is never a legitimate false positive.
+    // These run in `mlog check`/`run`/`serve`/`compile`, not just `mlog audit`.
+    // Source text is not available here (we only have AST), so we pass ""
+    // for line-number resolution; the check_id and message are sufficient.
+    let cat_a_findings = audit_category_a(declarations, "");
+    for finding in &cat_a_findings {
+        match finding.severity {
+            Severity::Error => {
+                result
+                    .errors
+                    .push(format!("[{}] {}", finding.check_id, finding.message));
+            }
+            Severity::Warning => {
+                // check_html_injection currently emits Warning;
+                // promote to Error per Наряд №98 Block 1 classification.
+                result
+                    .errors
+                    .push(format!("[{}] {}", finding.check_id, finding.message));
+            }
+            Severity::Info => {}
         }
     }
 

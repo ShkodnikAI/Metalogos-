@@ -1,0 +1,5 @@
+// Наряд №98 golden contract: SQL_DYNAMIC is a compiler error
+pattern BadQuery(table: String) -> String {
+    let result = query(table)
+    return result
+}

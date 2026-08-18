@@ -1125,6 +1125,30 @@ fn check_open_redirect(
 
 // ── Public API ───────────────────────────────────────────────────────
 
+/// Run only Category A audit checks (compiler-enforced security invariants).
+/// These are checks where a finding is never a legitimate false positive —
+/// the code IS insecure if the check fires. Promoted from `mlog audit` to
+/// `mlog check`/`mlog run`/`mlog serve`/`mlog compile` by Наряд №98.
+///
+/// Category A (Наряд №98):
+///   - SQL_DYNAMIC: query() with non-literal SQL (SQL injection vector)
+///   - SECRET_LEAK: env() result passed to sink (respond/write_file)
+///   - HTML_INJECTION: LLM output to respond() without sanitization (XSS)
+///
+/// Category B (advisory, stays in `mlog audit` only):
+///   - SECRETS: heuristic, can false-positive on error messages/doc strings
+///   - SANDBOX_COVERAGE: cross-file context needed
+///   - RATE_LIMIT: external infra can handle this
+///   - CSRF: not needed for token-authenticated APIs
+///   - OPEN_REDIRECT: custom validation not recognized
+pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<AuditFinding> {
+    let mut findings: Vec<AuditFinding> = Vec::new();
+    check_sql_dynamic(declarations, source, &mut findings);
+    check_secret_leak(declarations, source, &mut findings);
+    check_html_injection(declarations, source, &mut findings);
+    findings
+}
+
 /// Perform static security analysis on a .mlog source string.
 /// Returns an AuditResult with findings, or an error if parsing fails.
 pub fn audit_program(source: &str) -> Result<AuditResult, String> {

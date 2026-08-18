@@ -35,6 +35,17 @@ pub fn run_program_with_dir(
     base_dir: std::path::PathBuf,
 ) -> Result<Option<String>, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+
+    // Наряд №98: enforce Category A security invariants before execution.
+    // SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION are now compile-time errors.
+    let analysis = semantic::check_program(&declarations);
+    if !analysis.is_ok() {
+        return Err(format!(
+            "security check failed:\n{}",
+            analysis.errors.join("\n")
+        ));
+    }
+
     let mut interp = interpreter::Interpreter::new();
     interp.set_base_dir(base_dir);
     let output = interp.run(declarations)?;
@@ -143,6 +154,16 @@ pub async fn serve_program(source: &str) -> Result<(), Box<dyn std::error::Error
 /// Note: imports are not resolved during compilation. Use `mlog serve` for import support.
 pub fn compile_program(source: &str) -> Result<bytecode::Program, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+
+    // Наряд №98: enforce Category A security invariants before compilation.
+    let analysis = semantic::check_program(&declarations);
+    if !analysis.is_ok() {
+        return Err(format!(
+            "security check failed:\n{}",
+            analysis.errors.join("\n")
+        ));
+    }
+
     // Warn if imports are present — bytecode compiler cannot resolve them
     for decl in &declarations {
         if let ast::Declaration::Import(import) = decl {

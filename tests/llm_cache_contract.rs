@@ -8,6 +8,7 @@
 use metalogos::ast::*;
 use metalogos::interpreter::Interpreter;
 use metalogos::llm::MockLlm;
+use serial_test::serial;
 
 /// Helper: create a cached learnable pattern declaration.
 fn make_cached_learnable_decl(name: &str, prompt: &str, cache: bool, ttl: u64) -> Declaration {
@@ -33,7 +34,7 @@ fn make_cached_learnable_decl(name: &str, prompt: &str, cache: bool, ttl: u64) -
 // ── C1: Identical calls to cached pattern → LLM called exactly once ────
 
 #[test]
-#[ignore = "TODO: global AtomicU64 counter corrupted by parallel tests; needs #[serial_test::serial]"]
+#[serial]
 fn test_cache_identical_calls_single_llm_invocation() {
     MockLlm::reset_call_count();
 
@@ -85,7 +86,7 @@ fn test_cache_identical_calls_single_llm_invocation() {
 // ── C2: Different inputs → separate LLM calls ───────────────────────
 
 #[test]
-#[ignore = "TODO: global AtomicU64 counter corrupted by parallel tests; needs #[serial_test::serial]"]
+#[serial]
 fn test_cache_different_inputs_separate_calls() {
     MockLlm::reset_call_count();
 
@@ -134,7 +135,7 @@ fn test_cache_different_inputs_separate_calls() {
 // ── C3: Uncached pattern → every call invokes LLM ────────────────────
 
 #[test]
-#[ignore = "global AtomicU64 counter corrupted by parallel tests (3 instead of 2); needs #[serial_test::serial]"]
+#[serial]
 fn test_uncached_pattern_always_invokes_llm() {
     MockLlm::reset_call_count();
 
@@ -170,7 +171,7 @@ fn test_uncached_pattern_always_invokes_llm() {
 // ── C4: Cache stores the response correctly (MockLlm returns prompt) ─
 
 #[test]
-#[ignore = "global AtomicU64 counter corrupted by parallel tests (3 instead of 1); needs #[serial_test::serial]"]
+#[serial]
 fn test_cache_stores_correct_response() {
     MockLlm::reset_call_count();
 

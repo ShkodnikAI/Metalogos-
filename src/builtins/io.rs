@@ -303,11 +303,9 @@ pub(crate) fn builtin_exec(args: &[Value]) -> Result<Value, String> {
     // server itself, so the check never triggered. Now exec() requires
     // METALOGOS_ALLOW_EXEC=1 in ALL contexts — mlog run, check, serve.
     if std::env::var("METALOGOS_ALLOW_EXEC").unwrap_or_default() != "1" {
-        return Err(
-            "exec() is disabled by default. Set METALOGOS_ALLOW_EXEC=1 \
+        return Err("exec() is disabled by default. Set METALOGOS_ALLOW_EXEC=1 \
              to enable — this applies to mlog run, check, and serve alike."
-                .to_string(),
-        );
+            .to_string());
     }
 
     let cmd = expect_string_arg("exec", args, 0)?;
@@ -427,11 +425,7 @@ pub(crate) fn builtin_exec_argv(args: &[Value]) -> Result<Value, String> {
 
     let binary = match &args[0] {
         Value::String(s) => s.clone(),
-        _ => {
-            return Err(
-                "exec_argv(): first argument must be a string (binary path)".to_string(),
-            )
-        }
+        _ => return Err("exec_argv(): first argument must be a string (binary path)".to_string()),
     };
 
     let argv: Vec<String> = match args.get(1) {
@@ -442,11 +436,7 @@ pub(crate) fn builtin_exec_argv(args: &[Value]) -> Result<Value, String> {
                 _ => Err("exec_argv(): all args must be strings".to_string()),
             })
             .collect::<Result<_, _>>()?,
-        Some(_) => {
-            return Err(
-                "exec_argv(): second argument must be a list of strings".to_string(),
-            )
-        }
+        Some(_) => return Err("exec_argv(): second argument must be a list of strings".to_string()),
         None => vec![],
     };
 

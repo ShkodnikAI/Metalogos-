@@ -8,6 +8,7 @@
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod ast;
+use crate::audit::{audit_category_a, Severity};
 pub mod audit;
 pub mod builtins;
 pub mod bytecode;
@@ -35,6 +36,27 @@ pub fn run_program_with_dir(
     base_dir: std::path::PathBuf,
 ) -> Result<Option<String>, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+
+    // Наряд №98: enforce Category A security invariants before execution.
+    // SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION are now compile-time errors.
+    // We call audit_category_a directly (not check_program) because the
+    // interpreter resolves imports at runtime — check_program would
+    // false-positive on "undefined function" for imported symbols.
+    let cat_a = audit_category_a(&declarations, "");
+    let cat_a_errors: Vec<String> = cat_a
+        .iter()
+        .filter_map(|f| match f.severity {
+            Severity::Error | Severity::Warning => Some(format!("[{}] {}", f.check_id, f.message)),
+            Severity::Info => None,
+        })
+        .collect();
+    if !cat_a_errors.is_empty() {
+        return Err(format!(
+            "Category A security invariant violated:\n{}",
+            cat_a_errors.join("\n")
+        ));
+    }
+
     let mut interp = interpreter::Interpreter::new();
     interp.set_base_dir(base_dir);
     let output = interp.run(declarations)?;
@@ -143,6 +165,25 @@ pub async fn serve_program(source: &str) -> Result<(), Box<dyn std::error::Error
 /// Note: imports are not resolved during compilation. Use `mlog serve` for import support.
 pub fn compile_program(source: &str) -> Result<bytecode::Program, String> {
     let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+
+    // Наряд №98: enforce Category A security invariants before compilation.
+    // Same as run_program_with_dir: call audit_category_a directly,
+    // not check_program — the compiler handles its own semantic errors.
+    let cat_a = audit_category_a(&declarations, "");
+    let cat_a_errors: Vec<String> = cat_a
+        .iter()
+        .filter_map(|f| match f.severity {
+            Severity::Error | Severity::Warning => Some(format!("[{}] {}", f.check_id, f.message)),
+            Severity::Info => None,
+        })
+        .collect();
+    if !cat_a_errors.is_empty() {
+        return Err(format!(
+            "Category A security invariant violated:\n{}",
+            cat_a_errors.join("\n")
+        ));
+    }
+
     // Warn if imports are present — bytecode compiler cannot resolve them
     for decl in &declarations {
         if let ast::Declaration::Import(import) = decl {

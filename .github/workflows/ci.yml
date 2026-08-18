@@ -45,6 +45,16 @@ jobs:
       - name: Registry/dispatcher arity sync
         run: cargo test --workspace --test registry_arity_check --no-fail-fast
 
+  test-llm-cache-contract:
+    name: test-llm-cache-contract (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: LLM cache contract tests
+        run: cargo test --workspace --test llm_cache_contract --no-fail-fast
+
   test-integration:
     name: test-integration (advisory)
     runs-on: ubuntu-latest
@@ -53,8 +63,8 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Integration tests (excluding crosscheck, registry-arity-check)
-        run: cargo test --workspace --tests --no-fail-fast -- --skip crosscheck --skip registry_arity_check
+      - name: Integration tests (excluding blocking tests)
+        run: cargo test --workspace --tests --no-fail-fast -- --skip crosscheck --skip registry_arity_check --skip llm_cache_contract
 
   fmt:
     name: fmt (blocking)

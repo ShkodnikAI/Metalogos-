@@ -107,6 +107,7 @@ pdf-ocr = ["tesseract"]
 tempfile = "3"
 serial_test = "3"
 criterion = { version = "0.5", features = ["html_reports"] }
+regex = "1"
 
 [[bench]]
 name = "core_benchmarks"

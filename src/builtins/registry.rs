@@ -92,6 +92,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("file_exists", 1, "io"),
     spec!("list_dir", 1, "io"),
     spec!("exec", 1, "io"),
+    spec!("exec_argv", 1, 2, "io"), // binary required, args list optional
     spec!("git_push", 1, "io"),
     // ── List builtins ──
     spec!("get", 2, "list"),

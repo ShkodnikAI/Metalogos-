@@ -312,6 +312,7 @@ impl Builtins {
             builtin_base64_decode as BuiltinFn,
         );
         funcs.insert("exec".to_string(), builtin_exec as BuiltinFn);
+        funcs.insert("exec_argv".to_string(), builtin_exec_argv as BuiltinFn);
         funcs.insert("escape_js".to_string(), builtin_escape_js as BuiltinFn);
         funcs.insert("dict_get".to_string(), builtin_json_get as BuiltinFn); // alias
         funcs.insert("dict_set".to_string(), builtin_dict_set as BuiltinFn);

@@ -1,6 +1,36 @@
 use super::*;
 use crate::ast::*;
 
+/// Наряд №99: Unified SQL parameter conversion — one function, four call sites.
+/// Returns typed `rusqlite::types::Value` for each parameter, rejecting
+/// unsupported types with an error instead of silently dropping or
+/// degrading them.
+///
+/// Supported types:
+///   - String → Text
+///   - Float  → Real   (covers Int, since Metalogos represents ints as f64)
+///   - Bool   → Integer(0 or 1) — idiomatic SQLite boolean representation
+///   - Unit   → Null
+///
+/// Unsupported types (Secret, Struct, List, Html, etc.) produce an error.
+fn convert_params(items: &[Value]) -> Result<Vec<rusqlite::types::Value>, String> {
+    items
+        .iter()
+        .enumerate()
+        .map(|(i, v)| match v {
+            Value::String(s) => Ok(rusqlite::types::Value::Text(s.clone())),
+            Value::Float(n) => Ok(rusqlite::types::Value::Real(*n)),
+            Value::Bool(b) => Ok(rusqlite::types::Value::Integer(if *b { 1 } else { 0 })),
+            Value::Unit => Ok(rusqlite::types::Value::Null),
+            other => Err(format!(
+                "SQL parameter ${} must be String, Float, Bool, or Unit — got {}",
+                i + 1,
+                other.type_name()
+            )),
+        })
+        .collect()
+}
+
 impl Interpreter {
     /// Map Metalogos type names to SQLite column types (Problem C).
     pub(super) fn mlog_type_to_sql(t: &str) -> &'static str {
@@ -128,17 +158,10 @@ impl Interpreter {
             }
             None => return Err("query() requires at least 1 argument (SQL string)".to_string()),
         };
-        let params: Vec<String> = if args.len() > 1 {
+        // Наряд №99: convert_params — type-safe, no silent shift/degradation
+        let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
             match &args[1] {
-                Value::List(items) => items
-                    .iter()
-                    .filter_map(|v| match v {
-                        Value::String(s) => Some(s.clone()),
-                        Value::Float(n) => Some(format!("{}", n)),
-                        Value::Bool(b) => Some(format!("{}", b)),
-                        _ => None,
-                    })
-                    .collect(),
+                Value::List(items) => convert_params(items)?,
                 _ => Vec::new(),
             }
         } else {
@@ -220,18 +243,9 @@ impl Interpreter {
                 return Err("db_execute() requires at least 1 argument (SQL string)".to_string())
             }
         };
-        // Optional second argument: List of parameter values (par with query())
-        // Types: String→Text, Float→Real, Unit→NULL. ADR-0068.
+        // Наряд №99: convert_params — type-safe, no silent empty-string degradation
         let params: Vec<rusqlite::types::Value> = match args.get(1) {
-            Some(Value::List(items)) => items
-                .iter()
-                .map(|v| match v {
-                    Value::String(s) => rusqlite::types::Value::Text(s.clone()),
-                    Value::Float(n) => rusqlite::types::Value::Real(*n),
-                    Value::Unit => rusqlite::types::Value::Null,
-                    _ => rusqlite::types::Value::Text(String::new()),
-                })
-                .collect(),
+            Some(Value::List(items)) => convert_params(items)?,
             Some(other) => {
                 return Err(format!(
                     "db_execute() second argument must be List, got {}",
@@ -270,17 +284,10 @@ impl Interpreter {
                 return Err("query_scalar() requires at least 1 argument (SQL string)".to_string())
             }
         };
-        let params: Vec<String> = if args.len() > 1 {
+        // Наряд №99: convert_params — type-safe, no silent shift
+        let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
             match &args[1] {
-                Value::List(items) => items
-                    .iter()
-                    .filter_map(|v| match v {
-                        Value::String(s) => Some(s.clone()),
-                        Value::Float(n) => Some(format!("{}", n)),
-                        Value::Bool(b) => Some(format!("{}", b)),
-                        _ => None,
-                    })
-                    .collect(),
+                Value::List(items) => convert_params(items)?,
                 _ => Vec::new(),
             }
         } else {
@@ -335,17 +342,10 @@ impl Interpreter {
             }
             None => return Err("query_row() requires at least 1 argument (SQL string)".to_string()),
         };
-        let params: Vec<String> = if args.len() > 1 {
+        // Наряд №99: convert_params — type-safe, no silent shift
+        let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
             match &args[1] {
-                Value::List(items) => items
-                    .iter()
-                    .filter_map(|v| match v {
-                        Value::String(s) => Some(s.clone()),
-                        Value::Float(n) => Some(format!("{}", n)),
-                        Value::Bool(b) => Some(format!("{}", b)),
-                        _ => None,
-                    })
-                    .collect(),
+                Value::List(items) => convert_params(items)?,
                 _ => Vec::new(),
             }
         } else {

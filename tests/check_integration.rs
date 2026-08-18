@@ -205,3 +205,109 @@ fn n98_run_blocks_on_sql_dynamic() {
         "error should mention SQL_DYNAMIC"
     );
 }
+
+// ── Наряд №99: Type-safe SQL parameters ────────────────────────────
+//
+// Bug A: query()/query_scalar()/query_row() used filter_map which
+// silently dropped unsupported types from the param list, shifting
+// $N positions. Now unsupported type → error.
+//
+// Bug B: db_execute() silently converted unsupported types to empty
+// string. Now unsupported type → error.
+
+/// Bug A: query() with struct element in param list must error,
+/// not silently drop it (which would shift remaining $N positions).
+#[test]
+fn n99_query_rejects_struct_in_params() {
+    let source = r#"
+        db { url: "sqlite::memory:" }
+        pattern BadQuery(trigger: String) -> String {
+            query("CREATE TABLE t (id INTEGER, name TEXT)", [])
+            let row = { id: 1, name: "test" }
+            let result = query("SELECT * FROM t WHERE id = $1 AND name = $2", [row, "Alice"])
+            return "ok"
+        }
+        flow Main { input: String = "x" -> BadQuery -> output }
+    "#;
+    let result = metalogos::run_program(source);
+    assert!(result.is_err(), "query() with Struct param should error");
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("SQL parameter"),
+        "error should mention SQL parameter, got: {}",
+        err
+    );
+}
+
+/// Bug B: db_execute() with struct element in param list must error,
+/// not silently convert to empty string.
+#[test]
+fn n99_db_execute_rejects_struct_in_params() {
+    let source = r#"
+        db { url: "sqlite::memory:" }
+        pattern BadInsert(trigger: String) -> String {
+            query("CREATE TABLE t (id INTEGER, name TEXT)", [])
+            let row = { id: 1, name: "test" }
+            let result = db_execute("INSERT INTO t VALUES ($1, $2)", [row, "Alice"])
+            return result
+        }
+        flow Main { input: String = "x" -> BadInsert -> output }
+    "#;
+    let result = metalogos::run_program(source);
+    assert!(
+        result.is_err(),
+        "db_execute() with Struct param should error"
+    );
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("SQL parameter"),
+        "error should mention SQL parameter, got: {}",
+        err
+    );
+}
+
+/// Backward compat: String, Float, Bool, Unit params all work correctly.
+#[test]
+fn n99_supported_types_pass() {
+    let source = r#"
+        db { url: "sqlite::memory:" }
+        pattern GoodQuery(trigger: String) -> String {
+            query("CREATE TABLE t (id INTEGER, name TEXT, active INTEGER, score REAL)", [])
+            let _r1 = db_execute("INSERT INTO t VALUES ($1, $2, $3, $4)", [1.0, "Alice", true, 4.5])
+            let _r2 = db_execute("INSERT INTO t VALUES ($1, $2, $3, $4)", [2.0, "Bob", false, 3.7])
+            let rows = query("SELECT name FROM t WHERE id = $1", [1.0])
+            let first = get(rows, 0)
+            return first.name
+        }
+        flow Main { input: String = "x" -> GoodQuery -> output }
+    "#;
+    let result = metalogos::run_program(source);
+    assert!(
+        result.is_ok(),
+        "String/Float/Bool/Unit params should work, got: {:?}",
+        result
+    );
+}
+
+/// Bool true → Integer(1), Bool false → Integer(0) — idiomatic SQLite.
+#[test]
+fn n99_bool_maps_to_integer() {
+    let source = r#"
+        db { url: "sqlite::memory:" }
+        pattern BoolTest(trigger: String) -> String {
+            query("CREATE TABLE flags (id INTEGER, flag INTEGER)", [])
+            let _r1 = db_execute("INSERT INTO flags VALUES ($1, $2)", [1.0, true])
+            let _r2 = db_execute("INSERT INTO flags VALUES ($1, $2)", [2.0, false])
+            let row1 = query_row("SELECT flag FROM flags WHERE id = $1", [1.0])
+            let row2 = query_row("SELECT flag FROM flags WHERE id = $1", [2.0])
+            return "ok"
+        }
+        flow Main { input: String = "x" -> BoolTest -> output }
+    "#;
+    let result = metalogos::run_program(source);
+    assert!(
+        result.is_ok(),
+        "Bool→Integer mapping should work, got: {:?}",
+        result
+    );
+}

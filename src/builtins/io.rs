@@ -297,17 +297,17 @@ pub(crate) fn builtin_list_dir(args: &[Value]) -> Result<Value, String> {
 /// with all .mlog code that uses `exec()`. New internal callers
 /// (html_render, future builtins) use `exec_restricted` instead.
 pub(crate) fn builtin_exec(args: &[Value]) -> Result<Value, String> {
-    // Security: disable in server context unless explicitly allowed
+    // Security (Наряд №97): unconditional deny by default.
+    // The previous in_server heuristic (METALOGOS_PORT / METALOGOS_DB)
+    // was structurally broken — neither variable is ever set by the
+    // server itself, so the check never triggered. Now exec() requires
+    // METALOGOS_ALLOW_EXEC=1 in ALL contexts — mlog run, check, serve.
     if std::env::var("METALOGOS_ALLOW_EXEC").unwrap_or_default() != "1" {
-        // Check if we're likely in server mode (has METALOGOS_PORT or METALOGOS_DB env)
-        let in_server =
-            std::env::var("METALOGOS_PORT").is_ok() || std::env::var("METALOGOS_DB").is_ok();
-        if in_server {
-            return Err(
-                "exec() is disabled in server mode. Set METALOGOS_ALLOW_EXEC=1 to enable."
-                    .to_string(),
-            );
-        }
+        return Err(
+            "exec() is disabled by default. Set METALOGOS_ALLOW_EXEC=1 \
+             to enable — this applies to mlog run, check, and serve alike."
+                .to_string(),
+        );
     }
 
     let cmd = expect_string_arg("exec", args, 0)?;
@@ -393,6 +393,98 @@ pub(crate) fn builtin_exec(args: &[Value]) -> Result<Value, String> {
             Err(e) => {
                 return Err(format!("exec(): failed to wait on child: {}", e));
             }
+        }
+    }
+}
+
+/// `exec_argv(binary: String, args: List<String>) -> String`
+///
+/// Execute a command with explicit argument list — NO shell interpretation.
+/// Unlike `exec()`, this function does NOT pass arguments through `sh -c`,
+/// so shell metacharacters (`;`, `&&`, `|`, `$()`) are treated as literal
+/// argument content, not as shell operators.
+///
+/// This is the RECOMMENDED way to call external commands when any argument
+/// may come from user input. Use `exec()` only for fully literal command
+/// strings where no injection is possible.
+///
+/// Requires `METALOGOS_ALLOW_EXEC=1` — same gate as `exec()`.
+///
+/// **Наряд №97 Блок 2 (P1):** added alongside `exec()` (Путь А — not replacing).
+pub(crate) fn builtin_exec_argv(args: &[Value]) -> Result<Value, String> {
+    // Security: same gate as exec() — unconditional deny without METALOGOS_ALLOW_EXEC=1
+    if std::env::var("METALOGOS_ALLOW_EXEC").unwrap_or_default() != "1" {
+        return Err(
+            "exec_argv() is disabled by default. Set METALOGOS_ALLOW_EXEC=1 \
+             to enable — this applies to mlog run, check, and serve alike."
+                .to_string(),
+        );
+    }
+
+    if args.is_empty() {
+        return Err("exec_argv() requires at least 1 argument (binary path)".to_string());
+    }
+
+    let binary = match &args[0] {
+        Value::String(s) => s.clone(),
+        _ => {
+            return Err(
+                "exec_argv(): first argument must be a string (binary path)".to_string(),
+            )
+        }
+    };
+
+    let argv: Vec<String> = match args.get(1) {
+        Some(Value::List(items)) => items
+            .iter()
+            .map(|v| match v {
+                Value::String(s) => Ok(s.clone()),
+                _ => Err("exec_argv(): all args must be strings".to_string()),
+            })
+            .collect::<Result<_, _>>()?,
+        Some(_) => {
+            return Err(
+                "exec_argv(): second argument must be a list of strings".to_string(),
+            )
+        }
+        None => vec![],
+    };
+
+    let argv_refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
+
+    // Use the same timeout configuration as exec()
+    let timeout_secs: u64 = match std::env::var("METALOGOS_EXEC_TIMEOUT_SECS") {
+        Ok(s) => {
+            let parsed = s.parse::<u64>().unwrap_or(EXEC_DEFAULT_TIMEOUT_SECS);
+            parsed.clamp(1, EXEC_MAX_TIMEOUT_SECS)
+        }
+        Err(_) => EXEC_DEFAULT_TIMEOUT_SECS,
+    };
+    let timeout = Duration::from_secs(timeout_secs);
+
+    let result = exec_restricted(&binary, &argv_refs, timeout);
+
+    // Audit log
+    let detail = format!("{} {:?}", binary, argv_refs);
+    match result {
+        Ok(output) => {
+            let exit_status_str = format!("{}", output.status);
+            append_subprocess_audit("exec_argv", &detail, &exit_status_str);
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                return Err(format!(
+                    "exec_argv() command exited with {}: {}",
+                    output.status,
+                    stderr.trim()
+                ));
+            }
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            Ok(Value::String(stdout))
+        }
+        Err(e) => {
+            append_subprocess_audit("exec_argv", &detail, &format!("ERROR: {}", e));
+            Err(format!("exec_argv({}): {}", binary, e))
         }
     }
 }

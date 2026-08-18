@@ -74,6 +74,7 @@ fn registry_arity_exhaustive() {
         ("file_exists", 1, 1),
         ("list_dir", 1, 1),
         ("exec", 1, 1),
+        ("exec_argv", 2, 2),
         ("git_push", 1, 1),
         // ── List builtins ──
         ("get", 2, 2),

@@ -40,7 +40,10 @@ fn eval_program(src: &str) -> Result<String, String> {
 #[test]
 fn n88_exec_still_works_for_simple_commands() {
     // Basic contract: exec() signature and behavior unchanged
+    // Наряд №97: exec() now requires METALOGOS_ALLOW_EXEC=1
+    std::env::set_var("METALOGOS_ALLOW_EXEC", "1");
     let result = eval_expr("exec(\"echo hello_n88\")");
+    std::env::remove_var("METALOGOS_ALLOW_EXEC");
     assert!(
         result.contains("hello_n88"),
         "exec('echo hello_n88') should contain 'hello_n88', got: {:?}",
@@ -51,7 +54,9 @@ fn n88_exec_still_works_for_simple_commands() {
 #[test]
 fn n88_exec_timeout_short_command_succeeds() {
     // A command that finishes quickly should succeed even with the default timeout
+    std::env::set_var("METALOGOS_ALLOW_EXEC", "1");
     let result = eval_expr("exec(\"echo fast\")");
+    std::env::remove_var("METALOGOS_ALLOW_EXEC");
     assert!(
         result.contains("fast"),
         "quick command should succeed within default timeout, got: {:?}",
@@ -63,9 +68,11 @@ fn n88_exec_timeout_short_command_succeeds() {
 fn n88_exec_timeout_exceeded() {
     // Set a very short timeout (1s) and run a command that sleeps for 5s.
     // The exec should time out and return an error.
+    std::env::set_var("METALOGOS_ALLOW_EXEC", "1");
     std::env::set_var("METALOGOS_EXEC_TIMEOUT_SECS", "1");
     let result = eval_expr_err("exec(\"sleep 5\")");
     std::env::remove_var("METALOGOS_EXEC_TIMEOUT_SECS");
+    std::env::remove_var("METALOGOS_ALLOW_EXEC");
 
     assert!(
         result.contains("timeout"),
@@ -77,6 +84,7 @@ fn n88_exec_timeout_exceeded() {
 #[test]
 fn n88_exec_audit_log_created() {
     // Run exec and verify the audit log file is created.
+    std::env::set_var("METALOGOS_ALLOW_EXEC", "1");
     let audit_path = format!("_n88_test_audit_{}.log", std::process::id());
     std::env::set_var("METALOGOS_AUDIT_LOG_PATH", &audit_path);
 
@@ -110,6 +118,7 @@ fn n88_exec_audit_log_created() {
     // Clean up
     let _ = std::fs::remove_file(&audit_path);
     std::env::remove_var("METALOGOS_AUDIT_LOG_PATH");
+    std::env::remove_var("METALOGOS_ALLOW_EXEC");
 }
 
 // ── html_render (Блок 2) ──────────────────────────────────────────────
@@ -202,4 +211,78 @@ fn n88_html_render_audit_log_on_missing_binary() {
     let _ = std::fs::remove_file(&audit_path);
     std::env::remove_var("METALOGOS_AUDIT_LOG_PATH");
     std::env::remove_var("METALOGOS_BROWSER_BIN");
+}
+
+// ── Наряд №97: exec() unconditional deny + exec_argv ──────────────────
+
+#[test]
+fn n97_exec_denied_by_default() {
+    // Without METALOGOS_ALLOW_EXEC=1, exec() must be denied in ALL contexts
+    std::env::remove_var("METALOGOS_ALLOW_EXEC");
+    let result = eval_expr_err("exec(\"echo should_not_run\")");
+    assert!(
+        result.contains("disabled by default"),
+        "exec() should be denied by default, got: {:?}",
+        result
+    );
+    assert!(
+        result.contains("METALOGOS_ALLOW_EXEC=1"),
+        "error should mention METALOGOS_ALLOW_EXEC=1, got: {:?}",
+        result
+    );
+}
+
+#[test]
+fn n97_exec_argv_denied_by_default() {
+    // Without METALOGOS_ALLOW_EXEC=1, exec_argv() must also be denied
+    std::env::remove_var("METALOGOS_ALLOW_EXEC");
+    let result = eval_expr_err("exec_argv(\"echo\", [\"hello\"])");
+    assert!(
+        result.contains("disabled by default"),
+        "exec_argv() should be denied by default, got: {:?}",
+        result
+    );
+}
+
+#[test]
+fn n97_exec_argv_works_with_allow() {
+    // With METALOGOS_ALLOW_EXEC=1, exec_argv works and no shell injection
+    std::env::set_var("METALOGOS_ALLOW_EXEC", "1");
+    let result = eval_expr("exec_argv(\"echo\", [\"hello_n97\"])");
+    std::env::remove_var("METALOGOS_ALLOW_EXEC");
+    assert!(
+        result.contains("hello_n97"),
+        "exec_argv('echo', ['hello_n97']) should contain 'hello_n97', got: {:?}",
+        result
+    );
+}
+
+#[test]
+fn n97_exec_argv_no_shell_injection() {
+    // Shell metacharacters in exec_argv args are NOT interpreted
+    // This would be command injection with exec(), but safe with exec_argv
+    std::env::set_var("METALOGOS_ALLOW_EXEC", "1");
+    // "hello; rm -rf /" is passed as a LITERAL argument to echo
+    let result = eval_expr("exec_argv(\"echo\", [\"hello; rm -rf /\"])");
+    std::env::remove_var("METALOGOS_ALLOW_EXEC");
+    assert!(
+        result.contains("hello; rm -rf /"),
+        "exec_argv should pass shell metacharacters literally, got: {:?}",
+        result
+    );
+    // It should NOT contain just "hello" without the rest (that would mean shell parsed it)
+}
+
+#[test]
+fn n97_exec_argv_no_args() {
+    // exec_argv with just binary path (no args list) should work
+    std::env::set_var("METALOGOS_ALLOW_EXEC", "1");
+    let result = eval_expr("exec_argv(\"echo\")");
+    std::env::remove_var("METALOGOS_ALLOW_EXEC");
+    // echo with no args outputs a newline
+    assert!(
+        result.trim().is_empty() || result.contains("echo"),
+        "exec_argv('echo') with no args should succeed, got: {:?}",
+        result
+    );
 }

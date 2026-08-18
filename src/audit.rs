@@ -230,6 +230,7 @@ fn find_line(source: &str, keyword: &str) -> usize {
 
 /// Substrings that indicate a hardcoded secret.
 const SECRET_PATTERNS: &[&str] = &[
+    // original 18 — do not modify
     "sk-",
     "sk_",
     "skant",
@@ -248,17 +249,43 @@ const SECRET_PATTERNS: &[&str] = &[
     "privatekey",
     "token=",
     "TOKEN=",
+    // real token formats — naryad #102
+    "ghp_",
+    "gho_",
+    "ghs_",
+    "github_pat_", // GitHub (classic + fine-grained)
+    "xoxb-",
+    "xoxp-",
+    "xoxa-",      // Slack
+    "glpat-",     // GitLab
+    "AIza",       // Google API key
+    "-----BEGIN", // PEM private key
 ];
 
-/// Minimum string length to be considered a possible secret.
+/// Patterns with their own, lower length threshold — inherently distinctive
+/// formats that don't need the generic 30-char guard.
+const SHORT_SECRET_PATTERNS: &[(&str, usize)] = &[
+    ("AKIA", 20), // AWS access key ID: AKIA + 16 alphanumeric
+    ("ASIA", 20), // AWS temporary access key ID: ASIA + 16 alphanumeric
+];
+
+/// Minimum string length to be considered a possible secret (generic guard).
 const SECRET_MIN_LENGTH: usize = 30;
 
 /// Check if a string literal looks like a hardcoded secret.
 fn looks_like_secret(s: &str) -> bool {
+    let lower = s.to_lowercase();
+
+    // Check short patterns first — they have their own length thresholds
+    for (pattern, min_len) in SHORT_SECRET_PATTERNS {
+        if s.len() >= *min_len && lower.contains(&pattern.to_lowercase()) {
+            return true;
+        }
+    }
+
     if s.len() < SECRET_MIN_LENGTH {
         return false;
     }
-    let lower = s.to_lowercase();
     for pattern in SECRET_PATTERNS {
         if lower.contains(&pattern.to_lowercase()) {
             return true;
@@ -1543,5 +1570,71 @@ mod tests {
         "#;
         let result = audit_program(source).unwrap();
         assert_eq!(result.exit_code(), 2);
+    }
+
+    // ── Наряд #102: expanded SECRET_PATTERNS + SHORT_SECRET_PATTERNS ──
+
+    #[test]
+    fn test_github_pat_detected() {
+        // Exact reproduction of audit #5 finding format
+        let source = r#"
+            pattern Init() -> String {
+                let token = "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"
+                return token
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result.findings.iter().any(|f| f.check_id == "SECRETS"),
+            "ghp_ token must be detected by expanded SECRET_PATTERNS"
+        );
+    }
+
+    #[test]
+    fn test_aws_access_key_detected_despite_short_length() {
+        // AWS access key ID is exactly 20 chars (AKIA + 16), below generic threshold of 30
+        let source = r#"
+            pattern Init() -> String {
+                let key = "AKIA1234567890ABCDEF"
+                return key
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result.findings.iter().any(|f| f.check_id == "SECRETS"),
+            "AWS AKIA key (20 chars) must be detected despite being below generic 30-char threshold"
+        );
+    }
+
+    #[test]
+    fn test_original_patterns_still_work() {
+        // Backward compatibility: original sk- pattern still triggers
+        let source = r#"
+            pattern Init() -> String {
+                let key = "sk-ant-api03-very-long-string-here-abcdef1234567890"
+                return key
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result.findings.iter().any(|f| f.check_id == "SECRETS"),
+            "Original sk- pattern must still be detected (backward compat)"
+        );
+    }
+
+    #[test]
+    fn test_short_random_string_not_flagged() {
+        // A short string (< 20 chars) without recognizable prefix must NOT trigger
+        let source = r#"
+            pattern Init() -> String {
+                let x = "hello_world_123"
+                return x
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result.findings.iter().all(|f| f.check_id != "SECRETS"),
+            "Short random string without recognizable prefix must not be flagged"
+        );
     }
 }

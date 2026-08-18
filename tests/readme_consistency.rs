@@ -173,3 +173,120 @@ fn readme_version_matches_cargo_toml() {
         real_version
     );
 }
+
+// ── Test: Parser rules ─────────────────────────────────────────────
+
+/// Count real Pest PEG grammar rules in grammar.pest.
+/// A rule is a line starting with `identifier =` (or `identifier   =`).
+fn real_parser_rule_count() -> usize {
+    let path = repo_root().join("src").join("grammar.pest");
+    let content =
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {:?}: {}", path, e));
+    let re = Regex::new(r"^[a-zA-Z_][a-zA-Z_0-9]*\s*=").unwrap();
+    content.lines().filter(|line| re.is_match(line)).count()
+}
+
+#[test]
+fn readme_parser_rules_match_reality() {
+    let readme = read_readme();
+    let real = real_parser_rule_count();
+
+    // Find "N rules" mentions on non-historical lines in README.
+    let re = Regex::new(r"(\d+)\s+rules").unwrap();
+    let mut claimed_counts: Vec<(usize, usize)> = Vec::new();
+
+    for (i, line) in readme.lines().enumerate() {
+        let line_num = i + 1;
+
+        if is_changelog_historical_line(line) || is_historical_by_adjacent_version(line) {
+            continue;
+        }
+
+        let line_lower = line.to_lowercase();
+        if !line_lower.contains("rules") {
+            continue;
+        }
+
+        for cap in re.captures_iter(line) {
+            if let Some(m) = cap.get(1) {
+                if let Ok(n) = m.as_str().parse::<usize>() {
+                    claimed_counts.push((line_num, n));
+                }
+            }
+        }
+    }
+
+    assert!(
+        !claimed_counts.is_empty(),
+        "README should mention parser rule count at least once on a non-historical line"
+    );
+
+    for (line_num, claimed) in &claimed_counts {
+        assert_eq!(
+            claimed, &real,
+            "README line {} claims {} parser rules, but real count is {}",
+            line_num, claimed, real
+        );
+    }
+}
+
+// ── Test: SVG builtins ─────────────────────────────────────────────
+
+/// Count SVG/Graphics subsystem builtins from the registry.
+/// The SVG subsystem comprises builtins in these categories:
+///   "svg" (includes color_palette), "chart", "diagram",
+///   "template" (template_render), "web" (html_render).
+/// Note: diagram_style has category "tokens" but starts with "diagram_"
+/// and is part of the SVG subsystem.
+fn real_svg_builtins_count() -> usize {
+    let path = repo_root().join("src").join("builtins").join("registry.rs");
+    let content =
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {:?}: {}", path, e));
+
+    // Count spec! entries whose name starts with svg_/chart_/diagram_/color_palette/
+    // template_render/html_render — these constitute the SVG/Graphics subsystem.
+    let re =
+        Regex::new(r#"spec!\("(svg_|chart_|diagram_|color_palette|template_render|html_render)"#)
+            .unwrap();
+    content.lines().filter(|line| re.is_match(line)).count()
+}
+
+#[test]
+fn readme_svg_builtins_match_reality() {
+    let readme = read_readme();
+    let real = real_svg_builtins_count();
+
+    // Find the SVG subsystem line: "N builtins, hand-rolled in pure Rust"
+    // This is the specific SVG/Graphics count, NOT the total builtins count.
+    let re = Regex::new(r"(\d+)\s+builtins,\s+hand-rolled").unwrap();
+    let mut claimed_counts: Vec<(usize, usize)> = Vec::new();
+
+    for (i, line) in readme.lines().enumerate() {
+        let line_num = i + 1;
+
+        if is_changelog_historical_line(line) || is_historical_by_adjacent_version(line) {
+            continue;
+        }
+
+        for cap in re.captures_iter(line) {
+            if let Some(m) = cap.get(1) {
+                if let Ok(n) = m.as_str().parse::<usize>() {
+                    claimed_counts.push((line_num, n));
+                }
+            }
+        }
+    }
+
+    assert!(
+        !claimed_counts.is_empty(),
+        "README should mention SVG builtin count (\"N builtins, hand-rolled\") at least once"
+    );
+
+    for (line_num, claimed) in &claimed_counts {
+        assert_eq!(
+            claimed, &real,
+            "README line {} claims {} SVG builtins, but real count is {}",
+            line_num, claimed, real
+        );
+    }
+}

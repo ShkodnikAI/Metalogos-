@@ -12,8 +12,8 @@ pub struct FluidValueVariant {
 
 /// Opaque secret string with automatic memory zeroing on drop (Phase 7.3).
 /// Implements serde by serializing as "[SECRET]" marker — actual value is NEVER persisted.
-#[derive(Clone, Debug)]
-pub struct SecretString(pub Zeroizing<String>);
+#[derive(Clone)]
+pub struct SecretString(Zeroizing<String>);
 
 impl serde::Serialize for SecretString {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
@@ -29,10 +29,9 @@ impl<'de> serde::Deserialize<'de> for SecretString {
     }
 }
 
-impl std::ops::Deref for SecretString {
-    type Target = String;
-    fn deref(&self) -> &Self::Target {
-        &self.0
+impl std::fmt::Debug for SecretString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SecretString([REDACTED])")
     }
 }
 
@@ -217,5 +216,31 @@ impl Value {
     /// Check if this value is a Fluid superposition.
     pub fn is_fluid(&self) -> bool {
         matches!(self, Value::Fluid(_))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn secret_debug_never_leaks() {
+        let secret = SecretString::new("super-secret-value-12345".to_string());
+        let debug_output = format!("{:?}", secret);
+        assert!(
+            !debug_output.contains("super-secret-value-12345"),
+            "Debug output must not contain the actual secret value"
+        );
+        assert_eq!(debug_output, "SecretString([REDACTED])");
+    }
+
+    #[test]
+    fn value_secret_debug_never_leaks() {
+        let value = Value::Secret(SecretString::new("another-secret".to_string()));
+        let debug_output = format!("{:?}", value);
+        assert!(
+            !debug_output.contains("another-secret"),
+            "Value Debug output must not contain the actual secret value"
+        );
     }
 }

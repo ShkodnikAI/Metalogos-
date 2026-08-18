@@ -162,17 +162,13 @@ Metalogos-/
 │   ├── compiler.rs                    # Bytecode compiler
 │   ├── bytecode.rs                    # VM instruction set (46 instructions)
 │   ├── vm.rs                          # Bytecode VM executor
-│   ├── jit.rs                         # JIT scaffold (experimental, ADR-0073)
 │   ├── server.rs                      # Axum HTTP server + cron scheduler
 │   ├── llm.rs                         # LLM backend trait + providers
 │   ├── memory_store.rs               # Semantic memory + KV store (SQLite)
 │   ├── memory_graph.rs               # Knowledge graph (petgraph)
 │   ├── audit.rs                       # Static security audit
-│   ├── embedding.rs / embeddings.rs  # TF-IDF + OpenAI cosine similarity
-│   ├── ml.rs                          # ML backend
+│   ├── embeddings.rs                  # TF-IDF + OpenAI cosine similarity
 │   ├── error.rs                       # Error types
-│   ├── codegen.rs                     # Code generation
-│   ├── ir.rs                          # Intermediate Representation
 │   │
 │   ├── parser/                        # Pest tokens -> AST
 │   │   ├── mod.rs, expr.rs, stmt.rs, decl.rs, helpers.rs, tests.rs
@@ -225,11 +221,10 @@ Metalogos-/
 │   └── tests/
 │       └── pkg_integration.rs
 │
-├── tests/                             # 37 Rust test files
+├── tests/                             # 36 Rust test files
 │   ├── fixtures/                      # PDF test fixtures
 │   ├── golden.rs                      # Golden test runner (66/70 pass)
 │   ├── vm_golden.rs                   # VM golden tests
-│   ├── jit_golden.rs                  # JIT golden tests
 │   ├── crosscheck_backends.rs          # TW vs VM parity verification
 │   ├── repl_integration.rs            # REPL tests
 │   ├── definition_of_done.rs          # Project completeness validation
@@ -310,7 +305,7 @@ Every item in the OWASP Top 10 (2021) is addressed at the language level: type-s
 
 - **Tree-walking interpreter** — full feature support, used for `mlog run` and `mlog serve`
 - **Bytecode VM** — 46 instructions, stack-based, used for `mlog compile` + `mlog run file.mbc`
-- **JIT** — declared experimental, scaffold only (see ADR-0073)
+- **JIT** — experimental scaffold, not part of the build (see ADR-0073)
 
 ### 348 Built-in Functions
 

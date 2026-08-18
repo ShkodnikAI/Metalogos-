@@ -200,6 +200,28 @@ pub enum ServeBackend {
 pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let declarations = crate::parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
 
+    // Наряд №98: enforce Category A security invariants before serving.
+    // SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION are now compile-time errors.
+    // Call audit_category_a directly (not check_program) — the interpreter
+    // resolves imports at runtime; check_program would false-positive.
+    let cat_a = crate::audit::audit_category_a(&declarations, "");
+    let cat_a_errors: Vec<String> = cat_a
+        .iter()
+        .filter_map(|f| match f.severity {
+            crate::audit::Severity::Error | crate::audit::Severity::Warning => {
+                Some(format!("[{}] {}", f.check_id, f.message))
+            }
+            crate::audit::Severity::Info => None,
+        })
+        .collect();
+    if !cat_a_errors.is_empty() {
+        return Err(format!(
+            "Category A security invariant violated:\n{}",
+            cat_a_errors.join("\n")
+        )
+        .into());
+    }
+
     let mut interp = Interpreter::new();
     // Run declarations to populate templates, patterns, etc. (skip flows)
     for decl in declarations.clone() {

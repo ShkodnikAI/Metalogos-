@@ -1,10 +1,7 @@
 *.log
 .env
 /target
-FOSVED-office-v2/
-metalogos-build/
-metalogos-src/
-tool-results/
+metalogos-src/ # residual gitlink (non-remote commit 7a75f89), see dodelka M0-M2
 *.db
 metalogos/target/
 
@@ -15,7 +12,7 @@ off/
 *_repo.json
 *_profile.json
 *_github.json
-*_search.json
+*_search*.json
 ci_*.json
 *.bak
 identical_skills_208.txt

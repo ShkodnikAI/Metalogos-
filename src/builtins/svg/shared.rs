@@ -107,15 +107,6 @@ pub(super) fn fmt_num(n: f64) -> String {
 // Each primitive returns an XML fragment (String). Composing them via
 // svg_group / svg_canvas produces a complete <svg> document.
 //
-// Security: text content (svg_text content arg, svg_callout text arg)
-// is ALWAYS escaped via escape_html_chars. Attribute values that could
-// contain user input (fill, stroke, anchor, transform, id) are also
-// escaped — defense in depth, even though they typically come from
-// trusted .mlog source.
-
-/// `svg_rect(x, y, width, height, fill, stroke) -> String`
-/// fill and stroke are color strings; use "none" for no fill/stroke.
-
 pub(crate) fn extract_style(value: &Value) -> Result<HashMap<String, Value>, String> {
     match value {
         Value::Struct { type_name, fields } => {
@@ -140,8 +131,6 @@ pub(crate) fn extract_style(value: &Value) -> Result<HashMap<String, Value>, Str
     }
 }
 
-/// Get a color token from a style HashMap. Returns the string value.
-
 pub(crate) fn style_token(style: &HashMap<String, Value>, key: &str) -> Result<String, String> {
     match style.get(key) {
         Some(Value::String(s)) => Ok(s.clone()),
@@ -162,7 +151,6 @@ pub(super) fn polar_to_xy(cx: f64, cy: f64, r: f64, angle: f64) -> (f64, f64) {
 /// (accent + ink, alternating). For N=1, return [accent]. For N>1, alternate
 /// accent and ink so adjacent slices have different colors but the whole
 /// chart stays within the same hue family (palette.md V2.1).
-
 pub(super) fn hex_to_hsl(hex: &str) -> Option<(f64, f64, f64)> {
     let s = hex.strip_prefix('#')?;
     // Accept both 6-digit (#rrggbb) and 3-digit (#rgb) shorthand.
@@ -214,7 +202,6 @@ pub(super) fn hex_to_hsl(hex: &str) -> Option<(f64, f64, f64)> {
 /// Hue takes the shorter arc around the wheel (handles wraparound,
 /// so interpolating from h=350 to h=10 goes forward through 0, not
 /// backward through 180).
-
 pub(super) fn interpolate_hsl(c1: (f64, f64, f64), c2: (f64, f64, f64), t: f64) -> (f64, f64, f64) {
     let (h1, s1, l1) = c1;
     let (h2, s2, l2) = c2;
@@ -234,7 +221,27 @@ pub(super) fn interpolate_hsl(c1: (f64, f64, f64), c2: (f64, f64, f64), t: f64) 
     (h, s, l)
 }
 
-
+/// chart_heatmap: numeric grid rendered with HSL color interpolation.
+///
+/// Data shape (pure numeric — no user text, intentionally NOT in the
+/// security lint list):
+///   List<List<Float>>   // rows of equal length; row count and col count
+///                       // both must be in 1..=30
+///
+/// Color: each cell value is normalized to [min, max] across the entire
+/// grid, then linearly interpolated in HSL space between `style.paper`
+/// (low value) and `style.accent` (high value). HSL chosen over RGB to
+/// avoid the muddy intermediate hues RGB produces between complements.
+///
+/// The HSL helpers `hex_to_hsl` and `interpolate_hsl` are private to
+/// this module and are NOT exposed to .mlog programs — the surface area
+/// for the spec is "give us a grid, get a heatmap SVG", nothing more.
+///
+/// Geometry: same canvas constants as chart_bar (600×400, chart_x=80,
+/// chart_y_top=40, chart_w=500, chart_h=300). Each cell is a `<rect>`
+/// of size (chart_w/cols) × (chart_h/rows) with a 1px right/bottom gap
+/// for visual separation (last row/col fills to the border so the outer
+/// rectangle stays clean). Below the chart: min/max value labels and a
 pub(super) fn hsl_to_hex(h: f64, s: f64, l: f64) -> String {
     // Normalize hue to [0, 360)
     let h_norm = ((h % 360.0) + 360.0) % 360.0 / 360.0;
@@ -283,7 +290,6 @@ pub(super) fn hsl_to_hex(h: f64, s: f64, l: f64) -> String {
 /// `color_palette(intent: String, mode: String) -> Struct`
 /// Returns DiagramStyle { paper, ink, accent, muted, rule } derived from
 /// intent (calm/tension/energy/authority/warmth) and mode (light/dark).
-
 pub(super) fn draw_connector(x1: f64, y1: f64, x2: f64, y2: f64, style: &HashMap<String, Value>) -> String {
     let color = style_token(style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
     let dx = x2 - x1;
@@ -441,11 +447,14 @@ pub(super) fn resolve_overlaps(labels: &mut [LabelBox], axis: Axis, max_iteratio
     iterations
 }
 
-pub(super) const TIMELINE_MAX_EVENTS: usize = 12;
-pub(super) const TIMELINE_AXIS_Y: f64 = 200.0; // middle of 400px canvas
-pub(super) const TIMELINE_DOT_R: f64 = 5.0;
-pub(super) const TIMELINE_LABEL_OFFSET: f64 = 22.0; // distance from dot to label
+const TIMELINE_MAX_EVENTS: usize = 12;
+const TIMELINE_AXIS_Y: f64 = 200.0; // middle of 400px canvas
+const TIMELINE_DOT_R: f64 = 5.0;
 
+pub(super) const TIMELINE_MAX_EVENTS: usize = 12;
+pub(super) const TIMELINE_AXIS_Y: f64 = 200.0;
+pub(super) const TIMELINE_DOT_R: f64 = 5.0;
+pub(super) const TIMELINE_LABEL_OFFSET: f64 = 22.0;
 
 pub(super) fn intent_to_hue(intent: &str) -> Option<f64> {
     match intent {
@@ -458,6 +467,7 @@ pub(super) fn intent_to_hue(intent: &str) -> Option<f64> {
     }
 }
 
+/// Convert HSL color to hex string (#rrggbb).
 pub(super) fn escape_attr(s: &str) -> String {
     escape_html_chars(s)
 }

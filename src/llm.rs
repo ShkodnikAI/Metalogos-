@@ -1809,7 +1809,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_naryad4_failover_to_echo_server() {
         // Start echo server
         let (echo_port, echo_shutdown) = start_echo_server();
@@ -1878,7 +1877,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_naryad4_circuit_breaker_opens() {
         // Single dead provider, circuit_threshold=3
         let providers = vec![(

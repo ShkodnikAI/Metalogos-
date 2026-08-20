@@ -6,12 +6,6 @@ use crate::builtins::string::escape_html_chars;
 use crate::interpreter::Value;
 use std::collections::HashMap;
 
-// ── Helpers ──────────────────────────────────────────────────────────
-
-/// Extract a struct argument as a HashMap<String, Value>.
-/// Accepts Value::Struct with any type_name (we don't enforce a specific
-/// type tag — duck-typing is more flexible and matches how diagram_style
-/// is constructed via literal `{ key: value, ... }`).
 pub(super) fn expect_struct_arg(
     fn_name: &str,
     args: &[Value],
@@ -83,8 +77,6 @@ pub(super) fn struct_opt_float_field(fields: &HashMap<String, Value>, key: &str)
     }
 }
 
-/// Format a float for SVG output. Trims trailing zeros and unnecessary
-/// decimal point for cleaner output. NaN/Inf become "0" (defensive).
 pub(super) fn fmt_num(n: f64) -> String {
     if !n.is_finite() {
         return "0".to_string();
@@ -98,12 +90,19 @@ pub(super) fn fmt_num(n: f64) -> String {
     }
 }
 
-/// Escape a string for use in SVG attribute values.
 pub(super) fn escape_attr(s: &str) -> String {
     escape_html_chars(s)
 }
 
-// ── Geometry / color helpers used across groups ──────────────────────
+pub(crate) fn style_token(style: &HashMap<String, Value>, key: &str) -> Result<String, String> {
+    match style.get(key) {
+        Some(Value::String(s)) => Ok(s.clone()),
+        _ => Err(format!(
+            "DiagramStyle: token '{}' missing or not String",
+            key
+        )),
+    }
+}
 
 pub(super) fn polar_to_xy(cx: f64, cy: f64, r: f64, angle: f64) -> (f64, f64) {
     (cx + r * angle.cos(), cy + r * angle.sin())
@@ -112,13 +111,8 @@ pub(super) fn polar_to_xy(cx: f64, cy: f64, r: f64, angle: f64) -> (f64, f64) {
 pub(super) fn interpolate_hsl(c1: (f64, f64, f64), c2: (f64, f64, f64), t: f64) -> (f64, f64, f64) {
     let (h1, s1, l1) = c1;
     let (h2, s2, l2) = c2;
-    // Shorter hue arc
     let dh = if (h2 - h1).abs() > 180.0 {
-        if h2 > h1 {
-            h2 - h1 - 360.0
-        } else {
-            h2 - h1 + 360.0
-        }
+        if h2 > h1 { h2 - h1 - 360.0 } else { h2 - h1 + 360.0 }
     } else {
         h2 - h1
     };
@@ -128,16 +122,32 @@ pub(super) fn interpolate_hsl(c1: (f64, f64, f64), c2: (f64, f64, f64), t: f64) 
     (h, s, l)
 }
 
-// Note: full draw_connector, estimate_text_width, resolve_overlaps, Axis, LabelBox
-// bodies are present in the complete local file; this is a minimal correct set
-// for the structural commit. Full bodies will be verified in subsequent steps.
-
 pub(super) fn draw_connector(
     x1: f64, y1: f64, x2: f64, y2: f64, style: &HashMap<String, Value>,
 ) -> String {
-    // Exact body from original will be restored; placeholder for structural integrity
-    let _ = (x1, y1, x2, y2, style);
-    String::new()
+    let color = style_token(style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    let angle = dy.atan2(dx);
+    let ah_len = 8.0_f64;
+    let ah_half_w = 3.0_f64;
+    let line_end_x = x2 - ah_len * angle.cos();
+    let line_end_y = y2 - ah_len * angle.sin();
+    let base_x = x2 - ah_len * angle.cos();
+    let base_y = y2 - ah_len * angle.sin();
+    let perp_x = (-angle.sin()) * ah_half_w;
+    let perp_y = angle.cos() * ah_half_w;
+    let left_x = base_x + perp_x;
+    let left_y = base_y + perp_y;
+    let right_x = base_x - perp_x;
+    let right_y = base_y - perp_y;
+    format!(
+        r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1.5" />"#,
+        fmt_num(x1), fmt_num(y1), fmt_num(line_end_x), fmt_num(line_end_y), escape_attr(&color)
+    ) + &format!(
+        r#"<path d="M {} {} L {} {} L {} {} Z" fill="{}" stroke="none" />"#,
+        fmt_num(x2), fmt_num(y2), fmt_num(left_x), fmt_num(left_y), fmt_num(right_x), fmt_num(right_y), escape_attr(&color)
+    )
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -160,8 +170,47 @@ pub(super) fn estimate_text_width(text: &str, font_size: f64) -> f64 {
 }
 
 pub(super) fn resolve_overlaps(
-    labels: &mut [LabelBox], axis: Axis, max_iterations: usize,
+    labels: &mut [LabelBox],
+    axis: Axis,
+    max_iterations: usize,
 ) -> usize {
-    let _ = (labels, axis, max_iterations);
-    0
+    let n = labels.len();
+    if n < 2 {
+        return 0;
+    }
+    let mut iterations = 0;
+    for _ in 0..max_iterations {
+        let mut found_overlap = false;
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let (li, lj) = {
+                    let (a, b) = labels.split_at_mut(j);
+                    (&mut a[i], &mut b[0])
+                };
+                let overlap_x = li.x < lj.x + lj.w && lj.x < li.x + li.w;
+                let overlap_y = li.y < lj.y + lj.h && lj.y < li.y + li.h;
+                if overlap_x && overlap_y {
+                    found_overlap = true;
+                    match axis {
+                        Axis::Vertical => {
+                            let overlap = (li.y + li.h).min(lj.y + lj.h) - li.y.max(lj.y);
+                            if li.y < lj.y {
+                                li.y -= overlap / 2.0;
+                                lj.y += overlap / 2.0;
+                            } else {
+                                lj.y -= overlap / 2.0;
+                                li.y += overlap / 2.0;
+                            }
+                        }
+                        Axis::Radial => {}
+                    }
+                }
+            }
+        }
+        iterations += 1;
+        if !found_overlap {
+            break;
+        }
+    }
+    iterations
 }

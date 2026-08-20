@@ -5180,6 +5180,7 @@ pub(crate) fn builtin_infographic_qa(args: &[Value]) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::super::*;  // svg module re-exports
+    use std::collections::HashMap;
     use crate::interpreter::Value;
 
     fn s(v: &str) -> Value {

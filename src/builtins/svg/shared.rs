@@ -447,7 +447,6 @@ pub(super) fn resolve_overlaps(labels: &mut [LabelBox], axis: Axis, max_iteratio
     iterations
 }
 
-const TIMELINE_AXIS_Y: f64 = 200.0; // middle of 400px canvas
 
 
 pub(super) fn intent_to_hue(intent: &str) -> Option<f64> {

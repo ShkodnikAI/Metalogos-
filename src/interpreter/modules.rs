@@ -252,10 +252,12 @@ impl Interpreter {
                 }
                 Declaration::LlmConfig(config) => {
                     // Наряд №4: store LLM config and create smart router
-                    let router = llm::SmartRouter::from_config(&config);
+                    let router_interpreter = llm::SmartRouter::from_config(&config);
                     if let Ok(mut sr) = self.smart_router.lock() {
-                        *sr = Some(router);
+                        *sr = Some(router_interpreter);
                     }
+                    let router_global = llm::SmartRouter::from_config(&config);
+                    llm::set_global_smart_router(router_global);
                     self.llm_config = Some(config);
                 }
                 Declaration::Tool(t) => {

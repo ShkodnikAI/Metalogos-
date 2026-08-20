@@ -192,9 +192,13 @@ impl Interpreter {
     }
 
     /// Summarize conversation text via LLM call.
+    /// Uses SmartRouter if available, falls back to legacy backend.
     fn summarize_conversation(&self, text: &str) -> Result<String, String> {
-        let backend = llm::create_llm_backend();
         let prompt = "Summarize this conversation concisely, preserving key facts and decisions.";
+        if let Some(result) = llm::call_via_global_router(prompt, text, None) {
+            return result;
+        }
+        let backend = llm::create_llm_backend();
         backend.call(prompt, text)
     }
 

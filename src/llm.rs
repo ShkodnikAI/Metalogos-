@@ -637,6 +637,90 @@ pub fn create_llm_backend() -> Box<dyn LlmBackend> {
 pub static GLOBAL_LLM_USAGE: once_cell::sync::Lazy<StdMutex<LlmUsageTracker>> =
     once_cell::sync::Lazy::new(|| StdMutex::new(LlmUsageTracker::new_empty()));
 
+/// Global SmartRouter bridge (Наряд №4 fix).
+/// Set by the interpreter when it processes `Declaration::LlmConfig`.
+/// Read by `builtin_call_llm` and other builtins that need router access
+/// but don't have a reference to the Interpreter instance.
+///
+/// Why OnceLock and not once_cell::Lazy: the router may never be created
+/// (no `llm {}` declaration in the program), and we need `reset` for tests.
+pub static GLOBAL_SMART_ROUTER: std::sync::OnceLock<StdMutex<Option<SmartRouter>>> =
+    std::sync::OnceLock::new();
+
+/// Install a SmartRouter into the global slot.
+/// Called by the interpreter when processing `Declaration::LlmConfig`.
+pub fn set_global_smart_router(router: SmartRouter) {
+    let guard = GLOBAL_SMART_ROUTER
+        .get_or_init(|| StdMutex::new(None));
+    if let Ok(mut r) = guard.lock() {
+        *r = Some(router);
+    }
+}
+
+/// Reset the global SmartRouter (for tests).
+pub fn reset_global_smart_router() {
+    if let Some(guard) = GLOBAL_SMART_ROUTER.get() {
+        if let Ok(mut r) = guard.lock() {
+            *r = None;
+        }
+    }
+}
+
+/// Check whether a global SmartRouter is configured.
+/// Returns the number of providers (0 = no router).
+pub fn global_router_provider_count() -> usize {
+    if let Some(guard) = GLOBAL_SMART_ROUTER.get() {
+        if let Ok(r) = guard.lock() {
+            if let Some(ref router) = *r {
+                return router.provider_count();
+            }
+        }
+    }
+    0
+}
+
+/// Call LLM through the global SmartRouter if available.
+/// Returns None if no router is configured (caller should fall back to legacy).
+pub fn call_via_global_router(
+    prompt: &str,
+    input: &str,
+    model_override: Option<&str>,
+) -> Option<Result<String, String>> {
+    if let Some(guard) = GLOBAL_SMART_ROUTER.get() {
+        if let Ok(r) = guard.lock() {
+            if let Some(ref router) = *r {
+                return Some(router.call(prompt, input, model_override));
+            }
+        }
+    }
+    None
+}
+
+/// Determine whether mock mode should be active.
+/// Mock is enabled ONLY if:
+///   1. METALOGOS_LLM_MOCK is explicitly set to "true" or "1", OR
+///   2. No global SmartRouter is configured AND no METALOGOS_API_KEY is set
+///      (empty dev environment — honest fallback, not a silent trap).
+pub fn should_use_llm_mock() -> bool {
+    // Explicit override takes priority
+    if let Ok(val) = std::env::var("METALOGOS_LLM_MOCK") {
+        return val == "true" || val == "1";
+    }
+    // If a router is configured with providers, we're in production — no mock
+    if global_router_provider_count() > 0 {
+        return false;
+    }
+    // If any API key is set, assume user wants real calls
+    if std::env::var("METALOGOS_API_KEY").is_ok()
+        || std::env::var("OPENAI_API_KEY").is_ok()
+        || std::env::var("ANTHROPIC_API_KEY").is_ok()
+    {
+        return false;
+    }
+    // No router, no keys — empty dev environment, mock is the honest fallback
+    true
+}
+
 /// Reset the global LLM usage tracker (for tests).
 pub fn reset_global_llm_usage() {
     if let Ok(mut tracker) = GLOBAL_LLM_USAGE.lock() {

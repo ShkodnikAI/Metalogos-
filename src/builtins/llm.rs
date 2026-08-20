@@ -55,9 +55,17 @@ pub(crate) fn builtin_call_claude(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(content))
 }
 
-/// `call_llm(prompt, input)` — call the LLM backend with a prompt and input.
-/// When METALOGOS_LLM_MOCK=true (default), returns "[MOCK: <prompt> | <input>]".
-/// When METALOGOS_LLM_MOCK=false, calls the real LLM backend (30s timeout).
+/// `call_llm(prompt)` / `call_llm(prompt, input)` / `call_llm(prompt, input, model)`
+/// ─────────────────────────────────────────────────────────────────
+/// Routes through SmartRouter if `llm {}` is declared in the program.
+/// Falls back to legacy `create_llm_backend()` only when no router is configured.
+///
+/// Model override: optional 3rd argument selects a specific model for this call.
+///
+/// Mock logic (revised):
+///   - `METALOGOS_LLM_MOCK=true` → mock unconditionally
+///   - `METALOGOS_LLM_MOCK=false` → real call unconditionally
+///   - Not set: mock only if no router AND no API keys (empty dev environment)
 pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
     let prompt = match args.first() {
         Some(Value::String(s)) => s.clone(),
@@ -74,22 +82,30 @@ pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
         Some(other) => format!("{}", other),
         None => String::new(),
     };
+    // Optional 3rd argument: model override
+    let model_override = match args.get(2) {
+        Some(Value::String(s)) if !s.is_empty() => Some(s.as_str()),
+        _ => None,
+    };
 
-    // Check mock mode
-    let mock_mode = std::env::var("METALOGOS_LLM_MOCK")
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(true); // Default: mock mode ON
-
-    if mock_mode {
-        Ok(Value::String(format!("[MOCK: {} | {}]", prompt, input)))
-    } else {
-        // Real LLM call
-        let backend = crate::llm::create_llm_backend();
-        backend
-            .call(&prompt, &input)
-            .map(Value::String)
-            .map_err(|e| format!("call_llm() failed: {}", e))
+    // 1. Check mock mode (revised logic — see crate::llm::should_use_llm_mock)
+    if crate::llm::should_use_llm_mock() {
+        return Ok(Value::String(format!("[MOCK: {} | {}]", prompt, input)));
     }
+
+    // 2. Try SmartRouter (set by `llm {}` declaration)
+    if let Some(result) =
+        crate::llm::call_via_global_router(&prompt, &input, model_override)
+    {
+        return result.map(Value::String);
+    }
+
+    // 3. Legacy fallback: no router, no mock — use create_llm_backend()
+    let backend = crate::llm::create_llm_backend();
+    backend
+        .call_with_model(&prompt, &input, model_override)
+        .map(Value::String)
+        .map_err(|e| format!("call_llm() failed: {}", e))
 }
 
 /// Наряд №4: `llm_usage()` — returns LLM usage statistics as a Struct.

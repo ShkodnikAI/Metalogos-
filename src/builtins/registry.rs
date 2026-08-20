@@ -165,7 +165,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("query", 1, 2, "db"),
     spec!("db_execute", 1, 2, "db"), // ADR-0068: optional params list
     // ── LLM builtins ──
-    spec!("call_llm", 1, 2, "llm"), // prompt | prompt,input
+    spec!("call_llm", 1, 3, "llm"), // prompt | prompt,input | prompt,input,model
     spec!("call_claude", 4, "llm"), // api_key,model,system,user
     spec!("llm_usage", 0, "llm"),
     // ── Memory builtins ──

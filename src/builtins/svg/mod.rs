@@ -8,11 +8,11 @@
 //!   pub(crate) mod svg;
 //!   use svg::*;
 
-mod shared;
-mod primitives;
 mod charts;
 mod diagrams;
+mod primitives;
+mod shared;
 
-pub use primitives::*;
 pub use charts::*;
 pub use diagrams::*;
+pub use primitives::*;

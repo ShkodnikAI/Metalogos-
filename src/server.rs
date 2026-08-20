@@ -694,6 +694,7 @@ pub fn generate_csrf_token() -> String {
     hex::encode(buf)
 }
 
+#[allow(clippy::result_large_err)] // Response as Err is intentional for axum handlers
 async fn check_csrf(state: &ServerState, headers: &HeaderMap) -> Result<(), Response> {
     // Read CSRF token from cookie
     let cookie_token = headers
@@ -791,6 +792,7 @@ fn extract_client_ip(headers: &HeaderMap) -> String {
 // ── Rate Limiting (Phase 7.4) ─────────────────────────────────────
 
 /// Check rate limit using sliding window. Returns Err(429) if exceeded.
+#[allow(clippy::result_large_err)] // Response as Err is intentional for axum handlers
 pub async fn check_rate_limit(
     state: &ServerState,
     ip: &str,
@@ -824,6 +826,7 @@ pub async fn check_rate_limit(
 
 // ── Session & Role Middleware ────────────────────────────────────────
 
+#[allow(clippy::result_large_err)] // Response as Err is intentional for axum handlers
 async fn check_roles(
     state: &ServerState,
     headers: &HeaderMap,
@@ -945,6 +948,7 @@ pub async fn create_session_db(
 
 /// Validate a session against SQLite: check existence and expiry.
 /// Returns Ok(()) if valid, Err(Response) if expired or not found.
+#[allow(clippy::result_large_err)] // Response as Err is intentional for axum handlers
 pub async fn validate_session_in_db(state: &ServerState, session_id: &str) -> Result<(), Response> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

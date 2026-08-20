@@ -446,6 +446,18 @@ pub(super) const TIMELINE_AXIS_Y: f64 = 200.0; // middle of 400px canvas
 pub(super) const TIMELINE_DOT_R: f64 = 5.0;
 pub(super) const TIMELINE_LABEL_OFFSET: f64 = 22.0; // distance from dot to label
 
+
+pub(super) fn intent_to_hue(intent: &str) -> Option<f64> {
+    match intent {
+        "calm" => Some(210.0),
+        "tension" => Some(0.0),
+        "energy" => Some(30.0),
+        "authority" => Some(280.0),
+        "warmth" => Some(20.0),
+        _ => None,
+    }
+}
+
 pub(super) fn escape_attr(s: &str) -> String {
     escape_html_chars(s)
 }

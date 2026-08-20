@@ -447,14 +447,8 @@ pub(super) fn resolve_overlaps(labels: &mut [LabelBox], axis: Axis, max_iteratio
     iterations
 }
 
-const TIMELINE_MAX_EVENTS: usize = 12;
 const TIMELINE_AXIS_Y: f64 = 200.0; // middle of 400px canvas
-const TIMELINE_DOT_R: f64 = 5.0;
 
-pub(super) const TIMELINE_MAX_EVENTS: usize = 12;
-pub(super) const TIMELINE_AXIS_Y: f64 = 200.0;
-pub(super) const TIMELINE_DOT_R: f64 = 5.0;
-pub(super) const TIMELINE_LABEL_OFFSET: f64 = 22.0;
 
 pub(super) fn intent_to_hue(intent: &str) -> Option<f64> {
     match intent {
@@ -468,6 +462,11 @@ pub(super) fn intent_to_hue(intent: &str) -> Option<f64> {
 }
 
 /// Convert HSL color to hex string (#rrggbb).
+pub(super) const TIMELINE_MAX_EVENTS: usize = 12;
+pub(super) const TIMELINE_AXIS_Y: f64 = 200.0;
+pub(super) const TIMELINE_DOT_R: f64 = 5.0;
+pub(super) const TIMELINE_LABEL_OFFSET: f64 = 22.0;
+
 pub(super) fn escape_attr(s: &str) -> String {
     escape_html_chars(s)
 }

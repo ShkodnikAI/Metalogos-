@@ -6,9 +6,8 @@ The following versions of Metalogos are currently supported with security update
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.3.x   | :white_check_mark: |
-| 0.2.x   | :white_check_mark: |
-| 0.1.x   | :x:                |
+| 0.17.x  | :white_check_mark: |
+| < 0.17  | :x:                |
 
 ## Reporting a Vulnerability
 
@@ -78,7 +77,7 @@ The following are **out of scope**:
 1. **Keep your compiler updated** — Always use the latest supported version
 2. **Review dependencies** — Audit third-party packages before use
 3. **Follow the principle of least privilege** — Run compiled code with minimal permissions
-4. **Enable security features** — Use built-in security flags and sandboxing when available
+4. **Use sandboxes** — Declare `sandbox` blocks to restrict filesystem access and cap iteration limits at runtime
 5. **Report suspicious behavior** — If you notice unexpected behavior, report it
 
 ### For Developers Building on Metalogos
@@ -86,7 +85,7 @@ The following are **out of scope**:
 1. **Validate all inputs** — Never trust external data
 2. **Use memory-safe patterns** — Leverage Metalogos's security-by-design features
 3. **Keep dependencies minimal** — Reduce attack surface
-4. **Enable compiler security checks** — Use `--security-level` flags where available
+4. **Run `mlog audit`** — Static analysis for secrets, SQL injection, HTML injection, and more (`src/audit.rs`). Three critical checks (dynamic SQL, secret leaks via env sinks, unsanitized HTML in responses) are also enforced automatically at compile time by `mlog run`/`check`/`serve` — they cannot be bypassed even without an explicit `mlog audit` run (Наряд №98).
 5. **Regular audits** — Periodically review your code for security issues
 
 ## Security Features of Metalogos
@@ -95,10 +94,9 @@ Metalogos is designed with security as a first-class concern:
 
 - **Memory safety by default** — Built on Rust's ownership model
 - **Type safety** — Prevents entire classes of bugs at compile time
-- **Sandboxed execution** — Optional runtime isolation
+- **Sandboxed execution** — `sandbox` declarations restrict filesystem access to an allowlist, block `exec()` calls, and cap loop iterations (10 000 per loop) at runtime
 - **Formal verification support** — Integration with proof assistants (planned)
-- **Secure standard library** — All standard library functions are audited for security
-- **Dependency scanning** — Built-in `cargo audit` integration
+- **Static security analysis** — Core security invariants (SQL injection, secret leaks, HTML injection) are enforced at compile time; additional advisory checks (hardcoded secrets, sandbox coverage, rate limiting, CSRF, open redirects) are available via `mlog audit`
 
 ## Acknowledgments
 
@@ -106,4 +104,4 @@ We thank the security researchers and community members who help keep Metalogos 
 
 ---
 
-*Last updated: 2026-08-09*
+*Last updated: 2026-08-20*

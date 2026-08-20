@@ -36,7 +36,7 @@ use std::collections::HashMap;
 /// Accepts Value::Struct with any type_name (we don't enforce a specific
 /// type tag — duck-typing is more flexible and matches how diagram_style
 /// is constructed via literal `{ key: value, ... }`).
-fn expect_struct_arg(
+pub(super) fn expect_struct_arg(
     fn_name: &str,
     args: &[Value],
     idx: usize,
@@ -62,7 +62,7 @@ fn expect_struct_arg(
 
 /// Extract a string field from a struct (HashMap). Returns Err if missing
 /// or not a string.
-fn struct_string_field(
+pub(super) fn struct_string_field(
     struct_name: &str,
     fields: &HashMap<String, Value>,
     key: &str,
@@ -81,7 +81,7 @@ fn struct_string_field(
 
 
 /// Extract a float field from a struct. Returns Err if missing or not a float.
-fn struct_float_field(
+pub(super) fn struct_float_field(
     struct_name: &str,
     fields: &HashMap<String, Value>,
     key: &str,
@@ -101,7 +101,7 @@ fn struct_float_field(
 
 /// Extract an optional string field (returns None if missing or Unit).
 #[allow(dead_code)] // reserved for future chart_* types (timeline, pyramid, etc.)
-fn struct_opt_string_field(fields: &HashMap<String, Value>, key: &str) -> Option<String> {
+pub(super) fn struct_opt_string_field(fields: &HashMap<String, Value>, key: &str) -> Option<String> {
     match fields.get(key) {
         Some(Value::String(s)) => Some(s.clone()),
         Some(Value::Unit) | None => None,
@@ -112,7 +112,7 @@ fn struct_opt_string_field(fields: &HashMap<String, Value>, key: &str) -> Option
 
 /// Extract an optional float field (returns None if missing or Unit).
 #[allow(dead_code)] // reserved for future chart_* types (timeline, pyramid, etc.)
-fn struct_opt_float_field(fields: &HashMap<String, Value>, key: &str) -> Option<f64> {
+pub(super) fn struct_opt_float_field(fields: &HashMap<String, Value>, key: &str) -> Option<f64> {
     match fields.get(key) {
         Some(Value::Float(f)) => Some(*f),
         Some(Value::Unit) | None => None,
@@ -123,7 +123,7 @@ fn struct_opt_float_field(fields: &HashMap<String, Value>, key: &str) -> Option<
 
 /// Format a float for SVG output. Trims trailing zeros and unnecessary
 /// decimal point for cleaner output. NaN/Inf become "0" (defensive).
-fn fmt_num(n: f64) -> String {
+pub(super) fn fmt_num(n: f64) -> String {
     if !n.is_finite() {
         return "0".to_string();
     }
@@ -180,7 +180,7 @@ pub(crate) fn style_token(style: &HashMap<String, Value>, key: &str) -> Result<S
 /// Convert polar coordinates (center + angle in radians) to SVG cartesian.
 /// SVG Y-axis points down, so we use sin(angle) directly (no negation).
 /// angle = -π/2 corresponds to the top of the circle.
-fn polar_to_xy(cx: f64, cy: f64, r: f64, angle: f64) -> (f64, f64) {
+pub(super) fn polar_to_xy(cx: f64, cy: f64, r: f64, angle: f64) -> (f64, f64) {
     (cx + r * angle.cos(), cy + r * angle.sin())
 }
 
@@ -189,7 +189,7 @@ fn polar_to_xy(cx: f64, cy: f64, r: f64, angle: f64) -> (f64, f64) {
 /// (accent + ink, alternating). For N=1, return [accent]. For N>1, alternate
 /// accent and ink so adjacent slices have different colors but the whole
 /// chart stays within the same hue family (palette.md V2.1).
-fn build_slice_colors(accent: &str, ink: &str, n: usize) -> Vec<String> {
+pub(super) fn build_slice_colors(accent: &str, ink: &str, n: usize) -> Vec<String> {
     if n == 0 {
         return Vec::new();
     }
@@ -241,7 +241,7 @@ fn build_slice_colors(accent: &str, ink: &str, n: usize) -> Vec<String> {
 ///   slot 2: hsl(135, 0.40, 0.45)  muted green
 ///   slot 3: hsl(205, 0.50, 0.55)  muted blue
 ///   slot 4: hsl(285, 0.45, 0.60)  muted violet
-fn radar_series_palette() -> Vec<String> {
+pub(super) fn radar_series_palette() -> Vec<String> {
     vec![
         hsl_to_hex(0.0, 0.55, 0.55),
         hsl_to_hex(45.0, 0.55, 0.50),
@@ -262,7 +262,7 @@ fn radar_series_palette() -> Vec<String> {
 /// (avoiding the muddy browns that RGB interpolation produces between
 /// complementary hues). The forward direction `hsl_to_hex` already
 /// exists for `color_palette` (Наряд №77); this is the inverse.
-fn hex_to_hsl(hex: &str) -> Option<(f64, f64, f64)> {
+pub(super) fn hex_to_hsl(hex: &str) -> Option<(f64, f64, f64)> {
     let s = hex.strip_prefix('#')?;
     // Accept both 6-digit (#rrggbb) and 3-digit (#rgb) shorthand.
     // The 3-digit form is expanded by doubling each digit: #fff → #ffffff,
@@ -314,7 +314,7 @@ fn hex_to_hsl(hex: &str) -> Option<(f64, f64, f64)> {
 /// Hue takes the shorter arc around the wheel (handles wraparound,
 /// so interpolating from h=350 to h=10 goes forward through 0, not
 /// backward through 180).
-fn interpolate_hsl(c1: (f64, f64, f64), c2: (f64, f64, f64), t: f64) -> (f64, f64, f64) {
+pub(super) fn interpolate_hsl(c1: (f64, f64, f64), c2: (f64, f64, f64), t: f64) -> (f64, f64, f64) {
     let (h1, s1, l1) = c1;
     let (h2, s2, l2) = c2;
     // Shorter hue arc
@@ -354,7 +354,7 @@ fn interpolate_hsl(c1: (f64, f64, f64), c2: (f64, f64, f64), t: f64) -> (f64, f6
 /// and the contract test in tests/p79_charts.rs pins specific expected
 /// numbers that are only correct under R-7. Changing the method without
 /// updating the contract would silently break the test.
-fn percentile_r7(sorted: &[f64], p: f64) -> f64 {
+pub(super) fn percentile_r7(sorted: &[f64], p: f64) -> f64 {
     let n = sorted.len();
     if n == 0 {
         return 0.0;
@@ -412,7 +412,7 @@ fn percentile_r7(sorted: &[f64], p: f64) -> f64 {
 
 /// Intent name → base hue (degrees on HSL wheel).
 /// Values sourced verbatim from design_engine.py::INTENT_HUES.
-fn intent_to_hue(intent: &str) -> Option<f64> {
+pub(super) fn intent_to_hue(intent: &str) -> Option<f64> {
     match intent {
         "calm" => Some(210.0),
         "tension" => Some(0.0),
@@ -426,7 +426,7 @@ fn intent_to_hue(intent: &str) -> Option<f64> {
 
 /// Convert HSL color to hex string (#rrggbb).
 /// h: 0-360 degrees, s: 0.0-1.0, l: 0.0-1.0.
-fn hsl_to_hex(h: f64, s: f64, l: f64) -> String {
+pub(super) fn hsl_to_hex(h: f64, s: f64, l: f64) -> String {
     // Normalize hue to [0, 360)
     let h_norm = ((h % 360.0) + 360.0) % 360.0 / 360.0;
     let s_clamped = s.clamp(0.0, 1.0);
@@ -480,7 +480,7 @@ fn hsl_to_hex(h: f64, s: f64, l: f64) -> String {
 // embedded directly in a <g transform="translate(x,y) scale(s)">.
 
 /// Map icon name to its path data. Returns None for unknown names.
-fn icon_path_data(name: &str) -> Option<&'static str> {
+pub(super) fn icon_path_data(name: &str) -> Option<&'static str> {
     match name {
         "server" => Some("M3 4m0 3 0 8a1 1 0 0 0 1 1h16a1 1 0 0 0 1 -1v-8a1 1 0 0 0 -1 -1h-16a1 1 0 0 0 -1 1zm0 -3.5m0 1a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v0a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1zm7 4.5l0 .01m-7 4l0 .01m7 0l0 .01"),
         "laptop" => Some("M3 19h18M5 6m0 1a1 1 0 0 1 1 -1h12a1 1 0 0 1 1 1v8a1 1 0 0 1 -1 1h-12a1 1 0 0 1 -1 -1zm3 12h8"),
@@ -528,7 +528,7 @@ fn icon_path_data(name: &str) -> Option<&'static str> {
 /// Validate `intent` and return the corresponding DiagramStyle (light mode).
 /// All three background generators share this — it gives them a consistent
 /// color family derived from the same base_hue as `color_palette`.
-fn background_style(intent: &str) -> Result<HashMap<String, Value>, String> {
+pub(super) fn background_style(intent: &str) -> Result<HashMap<String, Value>, String> {
     // Validate intent via intent_to_hue (same known-list as color_palette).
     // This is the security boundary: anything that's not one of the 5
     // known intents is rejected before any string reaches SVG output.
@@ -557,7 +557,7 @@ fn background_style(intent: &str) -> Result<HashMap<String, Value>, String> {
 /// compact than N separate `<line>` elements, but harder to read in
 /// SVG output. We emit separate `<line>` elements for clarity — the
 /// size penalty is ~30 bytes/line, negligible for ≤60 lines.
-fn generate_grid(style: &HashMap<String, Value>, w: f64, h: f64) -> String {
+pub(super) fn generate_grid(style: &HashMap<String, Value>, w: f64, h: f64) -> String {
     let rule = style_token(style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
     let step = (w.max(h) / 12.0).clamp(20.0, 100.0);
     let mut out = String::new();
@@ -606,7 +606,7 @@ fn generate_grid(style: &HashMap<String, Value>, w: f64, h: f64) -> String {
 ///
 /// Stroke width: 1.5px, opacity 0.25 — recessive, doesn't compete
 /// with foreground content.
-fn generate_flow(style: &HashMap<String, Value>, w: f64, h: f64, intent: &str) -> String {
+pub(super) fn generate_flow(style: &HashMap<String, Value>, w: f64, h: f64, intent: &str) -> String {
     let muted = style_token(style, "muted").unwrap_or_else(|_| "#888888".to_string());
     let base_hue = intent_to_hue(intent).unwrap_or(210.0);
     // Derive curve count from canvas aspect: wider canvases get more
@@ -682,7 +682,7 @@ fn generate_flow(style: &HashMap<String, Value>, w: f64, h: f64, intent: &str) -
 /// calls to svg_generate("noise", "energy", 600, 400) MUST produce the
 /// same string. This is a direct consequence of using only arithmetic
 /// on the input parameters (no thread-local RNG, no clock, no I/O).
-fn generate_noise(style: &HashMap<String, Value>, w: f64, h: f64, intent: &str) -> String {
+pub(super) fn generate_noise(style: &HashMap<String, Value>, w: f64, h: f64, intent: &str) -> String {
     let paper = style_token(style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
     let accent = style_token(style, "accent").unwrap_or_else(|_| "#000000".to_string());
     let c1 = hex_to_hsl(&paper).unwrap_or((0.0, 0.0, 1.0));
@@ -798,7 +798,7 @@ pub(crate) fn canvas_preset(name: &str) -> Option<(f64, f64)> {
 // divider lines in chart_bar (which also use `rule`). The line stroke
 // width is 1.5 — slightly heavier than the grid (1px @ 0.35 opacity)
 // to read as a deliberate connector, not background decoration.
-fn draw_connector(x1: f64, y1: f64, x2: f64, y2: f64, style: &HashMap<String, Value>) -> String {
+pub(super) fn draw_connector(x1: f64, y1: f64, x2: f64, y2: f64, style: &HashMap<String, Value>) -> String {
     let color = style_token(style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
     let dx = x2 - x1;
     let dy = y2 - y1;
@@ -847,17 +847,17 @@ fn draw_connector(x1: f64, y1: f64, x2: f64, y2: f64, style: &HashMap<String, Va
 // `title` is None for diagram_tree, Some for diagram_org_chart. Both
 // use the SAME layout algorithm — diagram_org_chart only overrides the
 // per-node render to emit a second <text> line when title is present.
-struct TreeNode {
-    label: String,
-    title: Option<String>,
-    children: Vec<TreeNode>,
+pub(super) struct TreeNode {
+    pub(super) label: String,
+    pub(super) title: Option<String>,
+    pub(super) children: Vec<TreeNode>,
 }
 
 /// Extract a TreeNode from a Value::Struct. Recurses into `children`.
 /// `title` field is optional — None if missing/Unit (diagram_tree case).
 /// Enforces the depth + total node count limits at extraction time so
 /// the layout function can assume well-bounded input.
-fn extract_tree_node(
+pub(super) fn extract_tree_node(
     value: &Value,
     path: &str,
     allow_title: bool,
@@ -934,21 +934,21 @@ fn extract_tree_node(
 
 
 /// Layout result for a single node: center-x, top-y (top edge of the box).
-struct LaidOutNode {
+pub(super) struct LaidOutNode {
     /// x-center of the box.
-    cx: f64,
+    pub(super) cx: f64,
     /// y-top of the box.
-    y: f64,
+    pub(super) y: f64,
     /// Subtree width (for parent centering).
-    subtree_w: f64,
+    pub(super) subtree_w: f64,
     /// Node box dimensions (constant across all nodes — kept here for
     /// readability, the layout function uses the constants directly).
     /// Children (laid out recursively).
-    children: Vec<LaidOutNode>,
+    pub(super) children: Vec<LaidOutNode>,
     /// Reference to the source tree node (for rendering label/title).
     /// Stored as label + title snapshot to avoid lifetime entanglement.
-    label: String,
-    title: Option<String>,
+    pub(super) label: String,
+    pub(super) title: Option<String>,
 }
 
 /// Standard node box dimensions for tree/org-chart. Width=120, height=40
@@ -970,7 +970,7 @@ const TREE_TOP_PAD: f64 = 30.0;
 /// Algorithm: classic separate layout. For a leaf, subtree_w = node_w.
 /// For an internal node, subtree_w = sum(child subtree widths) + gaps.
 /// Parent cx = midpoint between leftmost and rightmost child cx.
-fn layout_tree(node: &TreeNode, depth: usize) -> LaidOutNode {
+pub(super) fn layout_tree(node: &TreeNode, depth: usize) -> LaidOutNode {
     let node_h = if node.title.is_some() {
         TREE_NODE_H_WITH_TITLE
     } else {
@@ -1035,7 +1035,7 @@ fn layout_tree(node: &TreeNode, depth: usize) -> LaidOutNode {
 ///
 /// `is_org_chart` controls the per-node render: if true and title is
 /// present, emit a second <text> line below the label.
-fn render_tree_node(
+pub(super) fn render_tree_node(
     node: &LaidOutNode,
     style: &HashMap<String, Value>,
     is_org_chart: bool,
@@ -1103,7 +1103,7 @@ fn render_tree_node(
 
 /// Walk a LaidOutNode and add `dx` to every cx (in place). Used to
 /// convert relative-to-subtree coords to absolute canvas coords.
-fn translate_subtree(node: &mut LaidOutNode, dx: f64) {
+pub(super) fn translate_subtree(node: &mut LaidOutNode, dx: f64) {
     node.cx += dx;
     for child in &mut node.children {
         translate_subtree(child, dx);
@@ -1129,19 +1129,19 @@ const FLOWCHART_NODE_W: f64 = 110.0;
 const FLOWCHART_NODE_H: f64 = 44.0;
 
 /// Internal flowchart node representation.
-struct FlowNode {
-    id: String,
-    label: String,
+pub(super) struct FlowNode {
+    pub(super) id: String,
+    pub(super) label: String,
 }
-struct FlowEdge {
-    from: String,
-    to: String,
-    label: Option<String>,
+pub(super) struct FlowEdge {
+    pub(super) from: String,
+    pub(super) to: String,
+    pub(super) label: Option<String>,
 }
 
 /// Extract nodes + edges from the input Struct. Validates that all
 /// edge endpoints reference existing node IDs.
-fn extract_flowchart(data_value: &Value) -> Result<(Vec<FlowNode>, Vec<FlowEdge>), String> {
+pub(super) fn extract_flowchart(data_value: &Value) -> Result<(Vec<FlowNode>, Vec<FlowEdge>), String> {
     let fields = match data_value {
         Value::Struct { fields, .. } => fields,
         other => {
@@ -1266,7 +1266,7 @@ fn extract_flowchart(data_value: &Value) -> Result<(Vec<FlowNode>, Vec<FlowEdge>
 /// rejection. The p81_diagram_flowchart contract continues to pass
 /// without modification (verified by the regression contract
 /// p84_topological_layers_regression.mlog).
-fn topological_layers(
+pub(super) fn topological_layers(
     node_ids: &[String],
     edges: &[(String, String)],
 ) -> Result<Vec<Vec<String>>, String> {
@@ -1381,7 +1381,7 @@ fn topological_layers(
 ///
 /// Returns a non-empty Vec<Vec<String>> (at least one layer containing
 /// `root`) — never returns Err.
-fn bfs_layers_with_cycles(
+pub(super) fn bfs_layers_with_cycles(
     node_ids: &[String],
     edges: &[(String, String)],
     root: &str,
@@ -1445,7 +1445,7 @@ fn bfs_layers_with_cycles(
 /// Compute the point where the line from (cx,cy) to (tx,ty) intersects
 /// the boundary of a box centered at (cx,cy) with width w and height h.
 /// Used to make connectors touch the box edge instead of the center.
-fn box_edge_point(cx: f64, cy: f64, tx: f64, ty: f64, w: f64, h: f64) -> (f64, f64) {
+pub(super) fn box_edge_point(cx: f64, cy: f64, tx: f64, ty: f64, w: f64, h: f64) -> (f64, f64) {
     let dx = tx - cx;
     let dy = ty - cy;
     if dx == 0.0 && dy == 0.0 {
@@ -1524,13 +1524,13 @@ fn box_edge_point(cx: f64, cy: f64, tx: f64, ty: f64, w: f64, h: f64) -> (f64, f
 /// and all-lowercase proportional (≈0.50), providing a safe estimate
 /// that is slightly wider than actual rendering — conservative overlap
 /// detection is better than missed overlaps.
-fn estimate_text_width(text: &str, font_size: f64) -> f64 {
+pub(super) fn estimate_text_width(text: &str, font_size: f64) -> f64 {
     0.55 * font_size * (text.chars().count() as f64)
 }
 
 
 /// Axis along which to resolve overlaps.
-enum Axis {
+pub(super) enum Axis {
     /// Push overlapping labels apart vertically (y-direction).
     /// Used by timeline, Gantt, and other horizontal-layout diagrams.
     Vertical,
@@ -1541,11 +1541,11 @@ enum Axis {
 }
 
 /// A rectangular bounding box for a text label, used for overlap detection.
-struct LabelBox {
-    x: f64,
-    y: f64,
-    w: f64,
-    h: f64,
+pub(super) struct LabelBox {
+    pub(super) x: f64,
+    pub(super) y: f64,
+    pub(super) w: f64,
+    pub(super) h: f64,
 }
 
 /// Iteratively resolve pairwise overlaps among `labels` along `axis`.
@@ -1566,7 +1566,7 @@ struct LabelBox {
 ///
 /// Returns the number of iterations actually performed (useful for
 /// diagnostics and testing).
-fn resolve_overlaps(labels: &mut [LabelBox], axis: Axis, max_iterations: usize) -> usize {
+pub(super) fn resolve_overlaps(labels: &mut [LabelBox], axis: Axis, max_iterations: usize) -> usize {
     let n = labels.len();
     if n < 2 {
         return 0;
@@ -1643,16 +1643,16 @@ fn resolve_overlaps(labels: &mut [LabelBox], axis: Axis, max_iterations: usize) 
 // We parse all three into a common (GraphNode, GraphEdge) representation
 // and dispatch to the appropriate layer function at the call site.
 
-struct GraphNode {
-    id: String,
-    label: String,
-    icon: Option<String>,
+pub(super) struct GraphNode {
+    pub(super) id: String,
+    pub(super) label: String,
+    pub(super) icon: Option<String>,
 }
 
-struct GraphEdge {
-    from: String,
-    to: String,
-    label: Option<String>,
+pub(super) struct GraphEdge {
+    pub(super) from: String,
+    pub(super) to: String,
+    pub(super) label: Option<String>,
 }
 
 /// Parse `Struct{nodes: [{id, label, icon?}], edges: [{from, to, label?}]}`
@@ -1660,7 +1660,7 @@ struct GraphEdge {
 /// the `icon` field is read on each node — diagram_architecture passes
 /// true; data_flow and high_level pass false (the field is silently
 /// ignored if present, matching the spec's "icon not used" wording).
-fn extract_graph(
+pub(super) fn extract_graph(
     data_value: &Value,
     fn_name: &str,
     allow_icon: bool,
@@ -1790,7 +1790,7 @@ fn extract_graph(
 /// Shared by diagram_data_flow / high_level / architecture. The layering
 /// function (topological_layers or bfs_layers_with_cycles) is chosen by
 /// the caller; this helper just places nodes on the canvas.
-fn layout_layered_nodes(
+pub(super) fn layout_layered_nodes(
     layers: &[Vec<String>],
     canvas_w: f64,
     canvas_h: f64,
@@ -1822,7 +1822,7 @@ fn layout_layered_nodes(
 //
 // For attribute values (inside "..."), we must escape: & < > " '
 // We reuse escape_html_chars which already handles all 5.
-fn escape_attr(s: &str) -> String {
+pub(super) fn escape_attr(s: &str) -> String {
     escape_html_chars(s)
 }
 
@@ -1847,7 +1847,7 @@ fn escape_attr(s: &str) -> String {
 // is created (same rationale as chart_heatmap in N79).
 
 /// Parse a hex color string (#RGB or #RRGGBB) into (R, G, B) in 0.0–1.0.
-fn parse_hex_color(hex: &str) -> Result<(f64, f64, f64), String> {
+pub(super) fn parse_hex_color(hex: &str) -> Result<(f64, f64, f64), String> {
     let h = hex.trim_start_matches('#');
     match h.len() {
         3 => {
@@ -1884,7 +1884,7 @@ fn parse_hex_color(hex: &str) -> Result<(f64, f64, f64), String> {
 /// L = 0.2126 * R_lin + 0.7152 * G_lin + 0.0722 * B_lin
 /// where channel_lin = channel/12.92 if channel <= 0.03928,
 ///                       else ((channel + 0.055) / 1.055)^2.4
-fn relative_luminance(hex: &str) -> Result<f64, String> {
+pub(super) fn relative_luminance(hex: &str) -> Result<f64, String> {
     let (r, g, b) = parse_hex_color(hex)?;
     let lin = |c: f64| -> f64 {
         if c <= 0.03928 {
@@ -1899,7 +1899,7 @@ fn relative_luminance(hex: &str) -> Result<f64, String> {
 
 /// WCAG 2.0 contrast ratio between two hex colors.
 /// ratio = (L_lighter + 0.05) / (L_darker + 0.05)
-fn contrast_ratio(hex1: &str, hex2: &str) -> Result<f64, String> {
+pub(super) fn contrast_ratio(hex1: &str, hex2: &str) -> Result<f64, String> {
     let l1 = relative_luminance(hex1)?;
     let l2 = relative_luminance(hex2)?;
     let (lighter, darker) = if l1 > l2 { (l1, l2) } else { (l2, l1) };
@@ -1909,7 +1909,7 @@ fn contrast_ratio(hex1: &str, hex2: &str) -> Result<f64, String> {
 
 /// Convert RGB (0.0–1.0) to HSL. Returns (h, s, l) where
 /// h in 0–360, s in 0–1, l in 0–1.
-fn rgb_to_hsl(r: f64, g: f64, b: f64) -> (f64, f64, f64) {
+pub(super) fn rgb_to_hsl(r: f64, g: f64, b: f64) -> (f64, f64, f64) {
     let max = r.max(g).max(b);
     let min = r.min(g).min(b);
     let l = (max + min) / 2.0;
@@ -1939,7 +1939,7 @@ fn rgb_to_hsl(r: f64, g: f64, b: f64) -> (f64, f64, f64) {
 
 /// Extract all unique hex colors from fill="..." and stroke="..." attributes
 /// in an SVG string. Returns a Vec of hex color strings (lowercase, with #).
-fn extract_svg_colors(svg: &str) -> Vec<String> {
+pub(super) fn extract_svg_colors(svg: &str) -> Vec<String> {
     let mut colors = Vec::new();
     // Scan for fill="#XXXXXX" and stroke="#XXXXXX" patterns
     for prefix in &["fill=\"", "stroke=\""] {
@@ -1970,7 +1970,7 @@ fn extract_svg_colors(svg: &str) -> Vec<String> {
 
 /// Count SVG primitive element tags in a string.
 /// Looks for <rect, <circle, <path, <text, <line, <ellipse, <polygon, <polyline.
-fn count_svg_elements(svg: &str) -> usize {
+pub(super) fn count_svg_elements(svg: &str) -> usize {
     let tags = [
         "<rect",
         "<circle",
@@ -1992,7 +1992,7 @@ fn count_svg_elements(svg: &str) -> usize {
 /// Extract canvas dimensions from an SVG string.
 /// Looks for width="..." height="..." attributes, or falls back to
 /// parsing viewBox="minX minY w h".
-fn extract_canvas_dimensions(svg: &str) -> (f64, f64) {
+pub(super) fn extract_canvas_dimensions(svg: &str) -> (f64, f64) {
     // Try width/height attributes first
     let w = svg
         .split("width=\"")

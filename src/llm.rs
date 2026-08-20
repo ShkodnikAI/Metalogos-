@@ -1223,7 +1223,9 @@ impl SmartRouter {
                 "cerebras" => "https://api.cerebras.ai/v1/chat/completions",
                 "nvidia" => "https://integrate.api.nvidia.com/v1/chat/completions",
                 "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
-                "google" => "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                "google" => {
+                    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+                }
                 _ => "https://api.openai.com/v1/chat/completions",
             };
             // Наряд №32 dedup: strip versioned prefix, get suffix only
@@ -1632,33 +1634,22 @@ mod tests {
     fn test_smart_router_resolve_endpoint_full_path_no_dup() {
         let router = make_test_router();
         // Full endpoint URL — should NOT double the path
-        let result = router.resolve_endpoint(
-            "openai",
-            Some("http://localhost:8080/v1/chat/completions"),
-        );
-        assert_eq!(
-            result,
-            "http://localhost:8080/v1/chat/completions"
-        );
+        let result =
+            router.resolve_endpoint("openai", Some("http://localhost:8080/v1/chat/completions"));
+        assert_eq!(result, "http://localhost:8080/v1/chat/completions");
     }
 
     #[test]
     fn test_smart_router_resolve_endpoint_ollama_full_path_no_dup() {
         let router = make_test_router();
-        let result = router.resolve_endpoint(
-            "ollama",
-            Some("http://localhost:11434/api/generate"),
-        );
+        let result = router.resolve_endpoint("ollama", Some("http://localhost:11434/api/generate"));
         assert_eq!(result, "http://localhost:11434/api/generate");
     }
 
     #[test]
     fn test_smart_router_resolve_endpoint_anthropic_full_path_no_dup() {
         let router = make_test_router();
-        let result = router.resolve_endpoint(
-            "anthropic",
-            Some("https://myproxy.com/v1/messages"),
-        );
+        let result = router.resolve_endpoint("anthropic", Some("https://myproxy.com/v1/messages"));
         assert_eq!(result, "https://myproxy.com/v1/messages");
     }
 
@@ -1670,10 +1661,7 @@ mod tests {
             "groq",
             Some("https://myproxy.com/openai/v1/chat/completions"),
         );
-        assert_eq!(
-            result,
-            "https://myproxy.com/openai/v1/chat/completions"
-        );
+        assert_eq!(result, "https://myproxy.com/openai/v1/chat/completions");
     }
 
     #[test]
@@ -1829,18 +1817,28 @@ mod tests {
 
         // Create router: first provider dead, second is echo
         let providers = vec![
-            ("dead".to_string(), "openai".to_string(), None, Some(format!("http://127.0.0.1:19999"))),
-            ("echo".to_string(), "openai".to_string(), None, Some(format!("http://127.0.0.1:{}/v1/chat/completions", echo_port))),
+            (
+                "dead".to_string(),
+                "openai".to_string(),
+                None,
+                Some("http://127.0.0.1:19999".to_string()),
+            ),
+            (
+                "echo".to_string(),
+                "openai".to_string(),
+                None,
+                Some(format!(
+                    "http://127.0.0.1:{}/v1/chat/completions",
+                    echo_port
+                )),
+            ),
         ];
         let router = SmartRouter {
             providers,
             default_model: Some("test-model".to_string()),
             failover: true,
             timeout: 5,
-            tracker: LlmUsageTracker::new(
-                vec!["dead".to_string(), "echo".to_string()],
-                3,
-            ),
+            tracker: LlmUsageTracker::new(vec!["dead".to_string(), "echo".to_string()], 3),
         };
 
         let start = Instant::now();
@@ -1854,33 +1852,47 @@ mod tests {
         eprintln!("  Result: {:?}", result);
 
         // Assertions
-        assert!(result.is_ok(), "SmartRouter failover should succeed, got: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "SmartRouter failover should succeed, got: {:?}",
+            result
+        );
         let resp = result.unwrap();
-        assert!(resp.contains("ECHO"), "Response should come from echo server, got: {}", resp);
+        assert!(
+            resp.contains("ECHO"),
+            "Response should come from echo server, got: {}",
+            resp
+        );
 
         // Verify usage: 2 calls total (1 dead fail + 1 echo success), 1 error
         let report = router.usage_report();
-        eprintln!("  Usage: calls={}, errors={}", report.total_calls, report.total_errors);
+        eprintln!(
+            "  Usage: calls={}, errors={}",
+            report.total_calls, report.total_errors
+        );
         assert_eq!(report.total_calls, 2.0, "Should have tried 2 providers");
-        assert_eq!(report.total_errors, 1.0, "Should have 1 error (dead provider)");
+        assert_eq!(
+            report.total_errors, 1.0,
+            "Should have 1 error (dead provider)"
+        );
     }
 
     #[test]
     #[ignore]
     fn test_naryad4_circuit_breaker_opens() {
         // Single dead provider, circuit_threshold=3
-        let providers = vec![
-            ("dead".to_string(), "openai".to_string(), None, Some("http://127.0.0.1:19999".to_string())),
-        ];
+        let providers = vec![(
+            "dead".to_string(),
+            "openai".to_string(),
+            None,
+            Some("http://127.0.0.1:19999".to_string()),
+        )];
         let router = SmartRouter {
             providers,
             default_model: Some("test-model".to_string()),
             failover: true,
             timeout: 2,
-            tracker: LlmUsageTracker::new(
-                vec!["dead".to_string()],
-                3,
-            ),
+            tracker: LlmUsageTracker::new(vec!["dead".to_string()], 3),
         };
 
         // Calls 1-3: should attempt the dead provider (each ~2s timeout)
@@ -1903,7 +1915,10 @@ mod tests {
         let avg_first_three_us: u128 = timings[..3].iter().map(|d| d.as_micros()).sum::<u128>() / 3;
         let call4_us = timings[3].as_micros();
 
-        eprintln!("  Avg calls 1-3: {}µs, Call 4: {}µs", avg_first_three_us, call4_us);
+        eprintln!(
+            "  Avg calls 1-3: {}µs, Call 4: {}µs",
+            avg_first_three_us, call4_us
+        );
 
         // Call 4 must be near-instant — circuit breaker skips the provider entirely.
         // Use a generous 1ms threshold; the actual value should be <100µs.
@@ -1922,10 +1937,15 @@ mod tests {
 
         // Usage: 3 provider attempts (call 4 skips via circuit)
         let report = router.usage_report();
-        eprintln!("  Usage: total_calls={}, total_errors={}", report.total_calls, report.total_errors);
+        eprintln!(
+            "  Usage: total_calls={}, total_errors={}",
+            report.total_calls, report.total_errors
+        );
         // Calls 1-3 hit the provider, call 4 was skipped by circuit breaker
-        assert_eq!(report.total_calls, 3.0, "Only 3 actual provider calls (call 4 skipped by CB)");
+        assert_eq!(
+            report.total_calls, 3.0,
+            "Only 3 actual provider calls (call 4 skipped by CB)"
+        );
         assert_eq!(report.total_errors, 3.0, "All 3 provider calls failed");
     }
 }
-

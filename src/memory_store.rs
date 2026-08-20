@@ -465,7 +465,8 @@ impl SqliteStore {
     /// Convert BLOB bytes back to Vec<f32>.
     fn blob_to_embedding(blob: &[u8]) -> Vec<f32> {
         let mut result = Vec::with_capacity(blob.len() / 4);
-        #[allow(clippy::chunks_exact_to_as_chunks)] // pre-existing; naryad-110 does not touch this path
+        #[allow(clippy::chunks_exact_to_as_chunks)]
+        // pre-existing; naryad-110 does not touch this path
         for chunk in blob.chunks_exact(4) {
             let val = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
             result.push(val);

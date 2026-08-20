@@ -658,6 +658,36 @@ pub fn global_llm_usage_report() -> LlmUsageReport {
     }
 }
 
+/// Global SmartRouter bridge (Наряд №4).
+/// Set by Interpreter when it processes Declaration::LlmConfig.
+/// Read by builtin_call_llm() to route through SmartRouter instead of legacy create_llm_backend().
+/// SmartRouter is not Clone (contains Mutex<Instant> fields), so we wrap in Option.
+pub static GLOBAL_SMART_ROUTER: once_cell::sync::Lazy<StdMutex<Option<SmartRouter>>> =
+    once_cell::sync::Lazy::new(|| StdMutex::new(None));
+
+/// Install a SmartRouter into the global bridge.
+/// Called from interpreter/execution.rs when Declaration::LlmConfig is processed.
+pub fn set_global_smart_router(router: SmartRouter) {
+    if let Ok(mut g) = GLOBAL_SMART_ROUTER.lock() {
+        *g = Some(router);
+    }
+}
+
+/// Call LLM through the global SmartRouter if available, else return None.
+/// The caller should fall back to legacy create_llm_backend() if this returns None.
+pub fn call_via_smart_router(
+    prompt: &str,
+    input: &str,
+    model_override: Option<&str>,
+) -> Option<Result<String, String>> {
+    if let Ok(g) = GLOBAL_SMART_ROUTER.lock() {
+        if let Some(ref router) = *g {
+            return Some(router.call(prompt, input, model_override));
+        }
+    }
+    None
+}
+
 // ── Smart Router (Наряд №4: LLM Routing with Failover + Circuit Breaker) ──
 
 use std::sync::Mutex as StdMutex;
@@ -1178,15 +1208,30 @@ impl SmartRouter {
     }
 
     /// Resolve the endpoint URL for a provider type.
+    /// Наряд №4 fix: reuse RealLlm's deduplication logic (Наряд №32).
+    /// Uses extract_endpoint_suffix() to avoid doubling path segments
+    /// when the custom URL already contains the full endpoint path.
     fn resolve_endpoint(&self, provider_type: &str, url: Option<&str>) -> String {
         if let Some(u) = url {
-            // Custom URL: append /v1/chat/completions for OpenAI-compatible, or /api/generate for ollama
-            if provider_type == "ollama" {
-                format!("{}/api/generate", u.trim_end_matches('/'))
-            } else if provider_type == "anthropic" {
-                format!("{}/v1/messages", u.trim_end_matches('/'))
+            let u = u.trim_end_matches('/');
+            // Get the default endpoint for this provider type
+            let default_endpoint = match provider_type {
+                "anthropic" => "https://api.anthropic.com/v1/messages",
+                "openai" => "https://api.openai.com/v1/chat/completions",
+                "ollama" => "http://localhost:11434/api/generate",
+                "groq" => "https://api.groq.com/openai/v1/chat/completions",
+                "cerebras" => "https://api.cerebras.ai/v1/chat/completions",
+                "nvidia" => "https://integrate.api.nvidia.com/v1/chat/completions",
+                "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
+                "google" => "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                _ => "https://api.openai.com/v1/chat/completions",
+            };
+            // Наряд №32 dedup: strip versioned prefix, get suffix only
+            let suffix = extract_endpoint_suffix(default_endpoint);
+            if u.ends_with(suffix) {
+                u.to_string()
             } else {
-                format!("{}/v1/chat/completions", u.trim_end_matches('/'))
+                format!("{}{}", u, suffix)
             }
         } else {
             match provider_type {
@@ -1565,6 +1610,89 @@ mod tests {
         );
     }
 
+    // ── SmartRouter resolve_endpoint deduplication (Наряд №4 fix) ──
+
+    #[test]
+    fn test_smart_router_resolve_endpoint_base_url_only() {
+        let router = make_test_router();
+        // Base URL without path — suffix should be appended
+        let result = router.resolve_endpoint("openai", Some("http://localhost:8080"));
+        assert_eq!(result, "http://localhost:8080/chat/completions");
+    }
+
+    #[test]
+    fn test_smart_router_resolve_endpoint_base_with_v1() {
+        let router = make_test_router();
+        // Base URL with /v1 — suffix appended (same as RealLlm Наряд №32 behavior)
+        let result = router.resolve_endpoint("openai", Some("http://localhost:8080/v1"));
+        assert_eq!(result, "http://localhost:8080/v1/chat/completions");
+    }
+
+    #[test]
+    fn test_smart_router_resolve_endpoint_full_path_no_dup() {
+        let router = make_test_router();
+        // Full endpoint URL — should NOT double the path
+        let result = router.resolve_endpoint(
+            "openai",
+            Some("http://localhost:8080/v1/chat/completions"),
+        );
+        assert_eq!(
+            result,
+            "http://localhost:8080/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn test_smart_router_resolve_endpoint_ollama_full_path_no_dup() {
+        let router = make_test_router();
+        let result = router.resolve_endpoint(
+            "ollama",
+            Some("http://localhost:11434/api/generate"),
+        );
+        assert_eq!(result, "http://localhost:11434/api/generate");
+    }
+
+    #[test]
+    fn test_smart_router_resolve_endpoint_anthropic_full_path_no_dup() {
+        let router = make_test_router();
+        let result = router.resolve_endpoint(
+            "anthropic",
+            Some("https://myproxy.com/v1/messages"),
+        );
+        assert_eq!(result, "https://myproxy.com/v1/messages");
+    }
+
+    #[test]
+    fn test_smart_router_resolve_endpoint_groq_full_path_no_dup() {
+        let router = make_test_router();
+        // groq default has /openai/v1/chat/completions — extract_endpoint_suffix strips /openai/v1/ → /chat/completions
+        let result = router.resolve_endpoint(
+            "groq",
+            Some("https://myproxy.com/openai/v1/chat/completions"),
+        );
+        assert_eq!(
+            result,
+            "https://myproxy.com/openai/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn test_smart_router_resolve_endpoint_no_custom_url() {
+        let router = make_test_router();
+        let result = router.resolve_endpoint("openai", None);
+        assert_eq!(result, "https://api.openai.com/v1/chat/completions");
+    }
+
+    fn make_test_router() -> SmartRouter {
+        SmartRouter {
+            providers: vec![],
+            default_model: None,
+            failover: true,
+            timeout: 30,
+            tracker: LlmUsageTracker::new(vec![], 3),
+        }
+    }
+
     // ── Integration Tests (require real API keys) ──────────────────
 
     #[test]
@@ -1629,4 +1757,175 @@ mod tests {
             response
         );
     }
+
+    // ── SmartRouter integration: failover + circuit breaker (Наряд №4) ──
+    // These tests use a real HTTP listener as echo server.
+    // Run with: cargo test --lib naryad4_integration -- --ignored --nocapture
+
+    /// Minimal OpenAI-compatible echo server running in a background thread.
+    /// Returns (port, shutdown_trigger).
+    /// The server responds 200 with the user's message prefixed by "ECHO: ".
+    fn start_echo_server() -> (u16, std::sync::mpsc::Sender<()>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind echo server");
+        let port = listener.local_addr().unwrap().port();
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+
+        std::thread::spawn(move || {
+            listener.set_nonblocking(true).ok();
+            let mut buf = [0u8; 8192];
+            loop {
+                // Check shutdown
+                if rx.try_recv().is_ok() {
+                    break;
+                }
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
+                        let n = stream.read(&mut buf).unwrap_or(0);
+                        if n > 0 {
+                            let body = String::from_utf8_lossy(&buf[..n]);
+                            // Extract user message
+                            let user_msg = extract_user_msg_inner(&body);
+                            let response = format!(
+                                r#"{{"choices":[{{"message":{{"role":"assistant","content":"ECHO: {}"}},"finish_reason":"stop"}}]}}"#,
+                                user_msg.replace('"', "\\\"")
+                            );
+                            let resp = format!(
+                                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                                response.len(),
+                                response
+                            );
+                            let _ = stream.write_all(resp.as_bytes());
+                            eprintln!("  [ECHO] 200 OK — {} bytes", n);
+                        }
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        (port, tx)
+    }
+
+    fn extract_user_msg_inner(json_str: &str) -> String {
+        if let Some(start) = json_str.find("\"content\":\"") {
+            let rest = &json_str[start + 11..];
+            if let Some(end) = rest.find('"') {
+                return rest[..end].to_string();
+            }
+        }
+        "(no message found)".to_string()
+    }
+
+    #[test]
+    #[ignore]
+    fn test_naryad4_failover_to_echo_server() {
+        // Start echo server
+        let (echo_port, echo_shutdown) = start_echo_server();
+        std::thread::sleep(Duration::from_millis(200));
+
+        // Create router: first provider dead, second is echo
+        let providers = vec![
+            ("dead".to_string(), "openai".to_string(), None, Some(format!("http://127.0.0.1:19999"))),
+            ("echo".to_string(), "openai".to_string(), None, Some(format!("http://127.0.0.1:{}/v1/chat/completions", echo_port))),
+        ];
+        let router = SmartRouter {
+            providers,
+            default_model: Some("test-model".to_string()),
+            failover: true,
+            timeout: 5,
+            tracker: LlmUsageTracker::new(
+                vec!["dead".to_string(), "echo".to_string()],
+                3,
+            ),
+        };
+
+        let start = Instant::now();
+        let result = router.call("Say hello", "world", None);
+        let elapsed = start.elapsed();
+
+        // Cleanup
+        let _ = echo_shutdown.send(());
+
+        eprintln!("  Failover test: elapsed={:?}", elapsed);
+        eprintln!("  Result: {:?}", result);
+
+        // Assertions
+        assert!(result.is_ok(), "SmartRouter failover should succeed, got: {:?}", result);
+        let resp = result.unwrap();
+        assert!(resp.contains("ECHO"), "Response should come from echo server, got: {}", resp);
+
+        // Verify usage: 2 calls total (1 dead fail + 1 echo success), 1 error
+        let report = router.usage_report();
+        eprintln!("  Usage: calls={}, errors={}", report.total_calls, report.total_errors);
+        assert_eq!(report.total_calls, 2.0, "Should have tried 2 providers");
+        assert_eq!(report.total_errors, 1.0, "Should have 1 error (dead provider)");
+    }
+
+    #[test]
+    #[ignore]
+    fn test_naryad4_circuit_breaker_opens() {
+        // Single dead provider, circuit_threshold=3
+        let providers = vec![
+            ("dead".to_string(), "openai".to_string(), None, Some("http://127.0.0.1:19999".to_string())),
+        ];
+        let router = SmartRouter {
+            providers,
+            default_model: Some("test-model".to_string()),
+            failover: true,
+            timeout: 2,
+            tracker: LlmUsageTracker::new(
+                vec!["dead".to_string()],
+                3,
+            ),
+        };
+
+        // Calls 1-3: should attempt the dead provider (each ~2s timeout)
+        let mut timings = Vec::new();
+        for i in 1..=4 {
+            let start = Instant::now();
+            let result = router.call(&format!("test{}", i), "input", None);
+            let elapsed = start.elapsed();
+            timings.push(elapsed);
+            eprintln!(
+                "  Call {}: {:?} — {}",
+                i,
+                elapsed,
+                if result.is_err() { "ERR" } else { "OK" }
+            );
+        }
+
+        // Verify: calls 1-3 should actually attempt the provider,
+        // call 4 should be near-instant (circuit open, provider skipped).
+        let avg_first_three_us: u128 = timings[..3].iter().map(|d| d.as_micros()).sum::<u128>() / 3;
+        let call4_us = timings[3].as_micros();
+
+        eprintln!("  Avg calls 1-3: {}µs, Call 4: {}µs", avg_first_three_us, call4_us);
+
+        // Call 4 must be near-instant — circuit breaker skips the provider entirely.
+        // Use a generous 1ms threshold; the actual value should be <100µs.
+        assert!(
+            call4_us < 1000,
+            "Call 4 should be near-instant (circuit open), took {}µs",
+            call4_us
+        );
+        // Calls 1-3 must have actually attempted the provider (at least a TCP connect attempt).
+        // Connection refused is fast (~1ms), but still orders of magnitude slower than skipping.
+        assert!(
+            avg_first_three_us > 100,
+            "Calls 1-3 should attempt the provider, avg was {}µs",
+            avg_first_three_us
+        );
+
+        // Usage: 3 provider attempts (call 4 skips via circuit)
+        let report = router.usage_report();
+        eprintln!("  Usage: total_calls={}, total_errors={}", report.total_calls, report.total_errors);
+        // Calls 1-3 hit the provider, call 4 was skipped by circuit breaker
+        assert_eq!(report.total_calls, 3.0, "Only 3 actual provider calls (call 4 skipped by CB)");
+        assert_eq!(report.total_errors, 3.0, "All 3 provider calls failed");
+    }
 }
+

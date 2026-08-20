@@ -56,8 +56,8 @@ pub(crate) fn builtin_call_claude(args: &[Value]) -> Result<Value, String> {
 }
 
 /// `call_llm(prompt, input)` — call the LLM backend with a prompt and input.
-/// When METALOGOS_LLM_MOCK=true (default), returns "[MOCK: <prompt> | <input>]".
-/// When METALOGOS_LLM_MOCK=false, calls the real LLM backend (30s timeout).
+/// Наряд №4: tries GLOBAL_SMART_ROUTER first; falls back to legacy create_llm_backend().
+/// When no SmartRouter is installed and METALOGOS_LLM_MOCK=true (default), returns mock.
 pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
     let prompt = match args.first() {
         Some(Value::String(s)) => s.clone(),
@@ -75,6 +75,12 @@ pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
         None => String::new(),
     };
 
+    // Наряд №4: try SmartRouter first
+    if let Some(result) = crate::llm::call_via_smart_router(&prompt, &input, None) {
+        return result.map(Value::String);
+    }
+
+    // Fallback: legacy path
     // Check mock mode
     let mock_mode = std::env::var("METALOGOS_LLM_MOCK")
         .map(|v| v == "true" || v == "1")

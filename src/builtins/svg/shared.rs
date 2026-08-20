@@ -28,6 +28,8 @@ pub(super) fn expect_struct_arg(
     }
 }
 
+/// Extract a string field from a struct (HashMap). Returns Err if missing
+/// or not a string.
 pub(super) fn struct_string_field(
     struct_name: &str,
     fields: &HashMap<String, Value>,
@@ -45,6 +47,7 @@ pub(super) fn struct_string_field(
     }
 }
 
+/// Extract a float field from a struct. Returns Err if missing or not a float.
 pub(super) fn struct_float_field(
     struct_name: &str,
     fields: &HashMap<String, Value>,
@@ -62,7 +65,8 @@ pub(super) fn struct_float_field(
     }
 }
 
-#[allow(dead_code)]
+/// Extract an optional string field (returns None if missing or Unit).
+#[allow(dead_code)] // reserved for future chart_* types (timeline, pyramid, etc.)
 pub(super) fn struct_opt_string_field(fields: &HashMap<String, Value>, key: &str) -> Option<String> {
     match fields.get(key) {
         Some(Value::String(s)) => Some(s.clone()),
@@ -71,7 +75,8 @@ pub(super) fn struct_opt_string_field(fields: &HashMap<String, Value>, key: &str
     }
 }
 
-#[allow(dead_code)]
+/// Extract an optional float field (returns None if missing or Unit).
+#[allow(dead_code)] // reserved for future chart_* types (timeline, pyramid, etc.)
 pub(super) fn struct_opt_float_field(fields: &HashMap<String, Value>, key: &str) -> Option<f64> {
     match fields.get(key) {
         Some(Value::Float(f)) => Some(*f),
@@ -80,18 +85,62 @@ pub(super) fn struct_opt_float_field(fields: &HashMap<String, Value>, key: &str)
     }
 }
 
+/// Format a float for SVG output. Trims trailing zeros and unnecessary
+/// decimal point for cleaner output. NaN/Inf become "0" (defensive).
 pub(super) fn fmt_num(n: f64) -> String {
     if !n.is_finite() {
         return "0".to_string();
     }
+    // Round to 3 decimal places to avoid float artifacts like 10.0000000001
     let rounded = (n * 1000.0).round() / 1000.0;
     if rounded == rounded.trunc() {
         format!("{}", rounded as i64)
     } else {
+        // Trim trailing zeros
         let s = format!("{:.3}", rounded);
         s.trim_end_matches('0').trim_end_matches('.').to_string()
     }
 }
+
+// ── Level 1: SVG Primitives ──────────────────────────────────────────
+//
+// Each primitive returns an XML fragment (String). Composing them via
+// svg_group / svg_canvas produces a complete <svg> document.
+//
+// Security: text content (svg_text content arg, svg_callout text arg)
+// is ALWAYS escaped via escape_html_chars. Attribute values that could
+// contain user input (fill, stroke, anchor, transform, id) are also
+// escaped — defense in depth, even though they typically come from
+// trusted .mlog source.
+
+/// `svg_rect(x, y, width, height, fill, stroke) -> String`
+/// fill and stroke are color strings; use "none" for no fill/stroke.
+
+pub(crate) fn extract_style(value: &Value) -> Result<HashMap<String, Value>, String> {
+    match value {
+        Value::Struct { type_name, fields } => {
+            if type_name != "DiagramStyle" {
+                return Err(format!(
+                    "expected DiagramStyle struct, got struct with type_name '{}'",
+                    type_name
+                ));
+            }
+            // Verify all 5 canonical tokens are present
+            for k in &["paper", "ink", "accent", "muted", "rule"] {
+                if !fields.contains_key(*k) {
+                    return Err(format!("DiagramStyle missing required token '{}'", k));
+                }
+            }
+            Ok(fields.clone())
+        }
+        other => Err(format!(
+            "expected DiagramStyle struct, got {}",
+            other.type_name()
+        )),
+    }
+}
+
+/// Get a color token from a style HashMap. Returns the string value.
 
 pub(crate) fn style_token(style: &HashMap<String, Value>, key: &str) -> Result<String, String> {
     match style.get(key) {
@@ -103,12 +152,22 @@ pub(crate) fn style_token(style: &HashMap<String, Value>, key: &str) -> Result<S
     }
 }
 
+// ── Level 3 (item 1): chart_bar ──────────────────────────────────────
+
 pub(super) fn polar_to_xy(cx: f64, cy: f64, r: f64, angle: f64) -> (f64, f64) {
     (cx + r * angle.cos(), cy + r * angle.sin())
 }
 
+/// Build a list of N slice colors that stay within the same color family
+/// (accent + ink, alternating). For N=1, return [accent]. For N>1, alternate
+/// accent and ink so adjacent slices have different colors but the whole
+/// chart stays within the same hue family (palette.md V2.1).
+
 pub(super) fn hex_to_hsl(hex: &str) -> Option<(f64, f64, f64)> {
     let s = hex.strip_prefix('#')?;
+    // Accept both 6-digit (#rrggbb) and 3-digit (#rgb) shorthand.
+    // The 3-digit form is expanded by doubling each digit: #fff → #ffffff,
+    // #abc → #aabbcc. This matches CSS / SVG color parsing conventions.
     let expanded: String = if s.len() == 3 {
         let chars = s.chars().collect::<Vec<_>>();
         format!(
@@ -130,6 +189,7 @@ pub(super) fn hex_to_hsl(hex: &str) -> Option<(f64, f64, f64)> {
     let min = r.min(g).min(b);
     let l = (max + min) / 2.0;
     if (max - min).abs() < f64::EPSILON {
+        // Achromatic (gray) — hue undefined, saturation 0
         return Some((0.0, 0.0, l));
     }
     let d = max - min;
@@ -138,9 +198,9 @@ pub(super) fn hex_to_hsl(hex: &str) -> Option<(f64, f64, f64)> {
     } else {
         d / (max + min)
     };
-    let h = if (max - r).abs() < f64::EPSILON {
+    let h = if max == r {
         ((g - b) / d) % 6.0
-    } else if (max - g).abs() < f64::EPSILON {
+    } else if max == g {
         (b - r) / d + 2.0
     } else {
         (r - g) / d + 4.0
@@ -150,9 +210,15 @@ pub(super) fn hex_to_hsl(hex: &str) -> Option<(f64, f64, f64)> {
     Some((h, s, l))
 }
 
+/// Linear interpolation between two HSL colors. `t` in [0, 1].
+/// Hue takes the shorter arc around the wheel (handles wraparound,
+/// so interpolating from h=350 to h=10 goes forward through 0, not
+/// backward through 180).
+
 pub(super) fn interpolate_hsl(c1: (f64, f64, f64), c2: (f64, f64, f64), t: f64) -> (f64, f64, f64) {
     let (h1, s1, l1) = c1;
     let (h2, s2, l2) = c2;
+    // Shorter hue arc
     let dh = if (h2 - h1).abs() > 180.0 {
         if h2 > h1 {
             h2 - h1 - 360.0
@@ -168,10 +234,13 @@ pub(super) fn interpolate_hsl(c1: (f64, f64, f64), c2: (f64, f64, f64), t: f64) 
     (h, s, l)
 }
 
+
 pub(super) fn hsl_to_hex(h: f64, s: f64, l: f64) -> String {
+    // Normalize hue to [0, 360)
     let h_norm = ((h % 360.0) + 360.0) % 360.0 / 360.0;
     let s_clamped = s.clamp(0.0, 1.0);
     let l_clamped = l.clamp(0.0, 1.0);
+
     let (r, g, b) = if s_clamped == 0.0 {
         (l_clamped, l_clamped, l_clamped)
     } else {
@@ -181,8 +250,8 @@ pub(super) fn hsl_to_hex(h: f64, s: f64, l: f64) -> String {
             l_clamped + s_clamped - l_clamped * s_clamped
         };
         let p = 2.0 * l_clamped - q;
-        let hue2rgb = |p: f64, q: f64, t: f64| -> f64 {
-            let mut t = t;
+
+        let hue2rgb = |p: f64, q: f64, mut t: f64| -> f64 {
             if t < 0.0 {
                 t += 1.0;
             }
@@ -190,53 +259,54 @@ pub(super) fn hsl_to_hex(h: f64, s: f64, l: f64) -> String {
                 t -= 1.0;
             }
             if t < 1.0 / 6.0 {
-                return p + (q - p) * 6.0 * t;
+                p + (q - p) * 6.0 * t
+            } else if t < 1.0 / 2.0 {
+                q
+            } else if t < 2.0 / 3.0 {
+                p + (q - p) * (2.0 / 3.0 - t) * 6.0
+            } else {
+                p
             }
-            if t < 1.0 / 2.0 {
-                return q;
-            }
-            if t < 2.0 / 3.0 {
-                return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
-            }
-            p
         };
+
         (
             hue2rgb(p, q, h_norm + 1.0 / 3.0),
             hue2rgb(p, q, h_norm),
             hue2rgb(p, q, h_norm - 1.0 / 3.0),
         )
     };
-    format!(
-        "#{:02x}{:02x}{:02x}",
-        (r * 255.0).round() as u8,
-        (g * 255.0).round() as u8,
-        (b * 255.0).round() as u8
-    )
+
+    let to_u8 = |c: f64| (c.clamp(0.0, 1.0) * 255.0).round() as u8;
+    format!("#{:02x}{:02x}{:02x}", to_u8(r), to_u8(g), to_u8(b))
 }
 
-pub(super) fn draw_connector(
-    x1: f64,
-    y1: f64,
-    x2: f64,
-    y2: f64,
-    style: &HashMap<String, Value>,
-) -> String {
+/// `color_palette(intent: String, mode: String) -> Struct`
+/// Returns DiagramStyle { paper, ink, accent, muted, rule } derived from
+/// intent (calm/tension/energy/authority/warmth) and mode (light/dark).
+
+pub(super) fn draw_connector(x1: f64, y1: f64, x2: f64, y2: f64, style: &HashMap<String, Value>) -> String {
     let color = style_token(style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
     let dx = x2 - x1;
     let dy = y2 - y1;
     let angle = dy.atan2(dx);
+    // Arrowhead dimensions
     let ah_len = 8.0_f64;
     let ah_half_w = 3.0_f64;
+    // Pull the line back by ah_len so the line tip doesn't poke through
+    // the arrowhead tip (visual cleanliness).
     let line_end_x = x2 - ah_len * angle.cos();
     let line_end_y = y2 - ah_len * angle.sin();
+    // Arrowhead base center (8px back from tip along the line direction)
     let base_x = x2 - ah_len * angle.cos();
     let base_y = y2 - ah_len * angle.sin();
+    // Perpendicular offset (90° rotation): (-sin θ, cos θ)
     let perp_x = -angle.sin();
     let perp_y = angle.cos();
     let left_x = base_x + perp_x * ah_half_w;
     let left_y = base_y + perp_y * ah_half_w;
     let right_x = base_x - perp_x * ah_half_w;
     let right_y = base_y - perp_y * ah_half_w;
+    // Line + closed triangular path (fill=color, no stroke on arrowhead)
     format!(
         r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1.5" />"#,
         fmt_num(x1),
@@ -256,18 +326,28 @@ pub(super) fn draw_connector(
     )
 }
 
+// ── Block 2/3 shared: recursive tree node ──────────────────────────
+//
+// Internal representation of a tree node, extracted from a user Struct.
+// `title` is None for diagram_tree, Some for diagram_org_chart. Both
+// use the SAME layout algorithm — diagram_org_chart only overrides the
+
 pub(super) fn estimate_text_width(text: &str, font_size: f64) -> f64 {
     0.55 * font_size * (text.chars().count() as f64)
 }
 
-#[derive(Clone, Copy, Debug)]
+/// Axis along which to resolve overlaps.
 pub(super) enum Axis {
+    /// Push overlapping labels apart vertically (y-direction).
+    /// Used by timeline, Gantt, and other horizontal-layout diagrams.
     Vertical,
+    /// Push overlapping labels apart radially (along a line from center).
+    /// Reserved for radar/loop/venn — not wired in this narad.
     #[allow(dead_code)]
     Radial,
 }
 
-#[derive(Clone, Debug)]
+/// A rectangular bounding box for a text label, used for overlap detection.
 pub(super) struct LabelBox {
     pub x: f64,
     pub y: f64,
@@ -275,11 +355,25 @@ pub(super) struct LabelBox {
     pub h: f64,
 }
 
-pub(super) fn resolve_overlaps(
-    labels: &mut [LabelBox],
-    axis: Axis,
-    max_iterations: usize,
-) -> usize {
+/// Iteratively resolve pairwise overlaps among `labels` along `axis`.
+///
+/// Algorithm:
+///   for each iteration up to max_iterations:
+///     found_overlap = false
+///     for each pair (i, j) where i < j:
+///       if boxes i and j overlap (AABB intersection):
+///         push them apart along the axis by half the overlap each
+///         found_overlap = true
+///     if !found_overlap: break (stable — no overlaps remain)
+///
+/// For Vertical axis: if two boxes overlap in both x and y, push the
+/// lower one down and the upper one up by half the y-overlap.
+/// This is deterministic (same input → same output) because we process
+/// pairs in index order and always push symmetrically.
+///
+/// Returns the number of iterations actually performed (useful for
+/// diagnostics and testing).
+pub(super) fn resolve_overlaps(labels: &mut [LabelBox], axis: Axis, max_iterations: usize) -> usize {
     let n = labels.len();
     if n < 2 {
         return 0;
@@ -290,14 +384,36 @@ pub(super) fn resolve_overlaps(
         for i in 0..n {
             for j in (i + 1)..n {
                 let (li, lj) = {
+                    // Borrow two elements simultaneously
                     let (a, b) = labels.split_at_mut(j);
                     (&mut a[i], &mut b[0])
                 };
+                // AABB overlap test: boxes overlap iff they overlap
+                // on BOTH axes.
                 let overlap_x = li.x < lj.x + lj.w && lj.x < li.x + li.w;
                 let overlap_y = li.y < lj.y + lj.h && lj.y < li.y + li.h;
                 if overlap_x && overlap_y {
                     match axis {
-                        Axis::Vertical | Axis::Radial => {
+                        Axis::Vertical => {
+                            // Push apart vertically: compute y-overlap amount
+                            let overlap_top = li.y.max(lj.y);
+                            let overlap_bottom = (li.y + li.h).min(lj.y + lj.h);
+                            let overlap_amount = overlap_bottom - overlap_top;
+                            if overlap_amount > 0.0 {
+                                let push = overlap_amount / 2.0 + 1.0; // +1px breathing room
+                                if li.y <= lj.y {
+                                    li.y -= push;
+                                    lj.y += push;
+                                } else {
+                                    li.y += push;
+                                    lj.y -= push;
+                                }
+                            }
+                        }
+                        Axis::Radial => {
+                            // Radial: push apart vertically (same as Vertical
+                            // for MVP — true radial push along the spoke would
+                            // need angle information, deferred to future narad).
                             let overlap_top = li.y.max(lj.y);
                             let overlap_bottom = (li.y + li.h).min(lj.y + lj.h);
                             let overlap_amount = overlap_bottom - overlap_top;
@@ -324,6 +440,31 @@ pub(super) fn resolve_overlaps(
     }
     iterations
 }
+
+const TIMELINE_MAX_EVENTS: usize = 12;
+const TIMELINE_AXIS_Y: f64 = 200.0; // middle of 400px canvas
+const TIMELINE_DOT_R: f64 = 5.0;
+const TIMELINE_LABEL_OFFSET: f64 = 22.0; // distance from dot to label
+
+/// `diagram_timeline(data, style) -> String`
+///
+/// `data` is `List<Struct{date, label, description?}>`. Renders a horizontal
+/// timeline with event dots. Uses the Н87 anti-overlap engine to prevent
+/// label collisions: initial placement by parity (even=above, odd=below),
+/// then `resolve_overlaps` pushes apart any overlapping bounding boxes.
+
+pub(super) fn intent_to_hue(intent: &str) -> Option<f64> {
+    match intent {
+        "calm" => Some(210.0),
+        "tension" => Some(0.0),
+        "energy" => Some(30.0),
+        "authority" => Some(280.0),
+        "warmth" => Some(20.0),
+        _ => None,
+    }
+}
+
+/// Convert HSL color to hex string (#rrggbb).
 
 pub(super) fn escape_attr(s: &str) -> String {
     escape_html_chars(s)

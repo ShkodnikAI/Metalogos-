@@ -644,14 +644,14 @@ pub static GLOBAL_LLM_USAGE: once_cell::sync::Lazy<StdMutex<LlmUsageTracker>> =
 ///
 /// Why OnceLock and not once_cell::Lazy: the router may never be created
 /// (no `llm {}` declaration in the program), and we need `reset` for tests.
-pub static GLOBAL_SMART_ROUTER: std::sync::OnceLock<StdMutex<Option<SmartRouter>>> =
+pub static GLOBAL_SMART_ROUTER: std::sync::OnceLock<std::sync::Mutex<Option<SmartRouter>>> =
     std::sync::OnceLock::new();
 
 /// Install a SmartRouter into the global slot.
 /// Called by the interpreter when processing `Declaration::LlmConfig`.
 pub fn set_global_smart_router(router: SmartRouter) {
     let guard = GLOBAL_SMART_ROUTER
-        .get_or_init(|| StdMutex::new(None));
+        .get_or_init(|| std::sync::Mutex::new(None));
     if let Ok(mut r) = guard.lock() {
         *r = Some(router);
     }
@@ -696,10 +696,10 @@ pub fn call_via_global_router(
 ///      (empty dev environment — honest fallback, not a silent trap).
 pub fn should_use_llm_mock() -> bool {
     // Explicit override takes priority
-    if std::env::var("METALOGOS_LLM_MOCK")
-        .is_ok_and(|v| v == "true" || v == "1")
-    {
-        return true;
+    if let Ok(val) = std::env::var("METALOGOS_LLM_MOCK") {
+        if val == "true" || val == "1" {
+            return true;
+        }
     }
     // If a router is configured with providers, we're in production — no mock
     if global_router_provider_count() > 0 {

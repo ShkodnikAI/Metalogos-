@@ -26,13 +26,13 @@ fn test_llm_config_sets_global_router() {
     assert_eq!(
         metalogos::llm::global_router_provider_count(),
         0,
-        "T1: no router before llm {} declaration"
+        "T1: no router before llm declaration"
     );
 
     let source = r#"
 llm {
   providers: [
-    { alias: "test_provider", provider: "openai-compatible", key: env("TEST_KEY"), url: "http://127.0.0.1:99999/v1/chat" }
+    { alias: test_provider, provider: openai, key: env("TEST_KEY"), url: "http://127.0.0.1:99999/v1/chat" }
   ],
   failover: auto,
   circuit_breaker: 3,
@@ -54,7 +54,7 @@ flow Main { input: String = "x" -> T -> output }
     assert_eq!(
         metalogos::llm::global_router_provider_count(),
         1,
-        "T1: global router should have 1 provider after llm {} declaration"
+        "T1: global router should have 1 provider after llm declaration"
     );
 
     metalogos::llm::reset_global_smart_router();
@@ -110,7 +110,7 @@ fn test_call_llm_with_config_not_silently_mocked() {
     let source = r#"
 llm {
   providers: [
-    { alias: "primary", provider: "openai-compatible", key: env("TEST_KEY"), url: "http://127.0.0.1:19999/v1/chat" }
+    { alias: primary, provider: openai, key: env("TEST_KEY"), url: "http://127.0.0.1:19999/v1/chat" }
   ],
   failover: auto,
   circuit_breaker: 3,
@@ -169,7 +169,7 @@ fn test_explicit_mock_overrides_router() {
     let source = r#"
 llm {
   providers: [
-    { alias: "p", provider: "openai-compatible", key: env("TEST_KEY"), url: "http://127.0.0.1:19999/v1/chat" }
+    { alias: p, provider: openai, key: env("TEST_KEY"), url: "http://127.0.0.1:19999/v1/chat" }
   ],
   failover: auto,
   circuit_breaker: 3,

@@ -11,7 +11,8 @@ declaration = _{ context_budget_decl | llm_decl | mlogserver_decl | template_dec
 // llm { providers: [...], default_model: "...", failover: auto, circuit_breaker: 3, timeout: 30 }
 // If absent → backward compatible (env vars, single provider).
 llm_decl      = { LLM_KW ~ LBRACE ~ llm_body ~ RBRACE }
-llm_body      = { llm_providers? ~ (COMMA ~ llm_default_model?)? ~ (COMMA ~ llm_failover?)? ~ (COMMA ~ llm_circuit_breaker?)? ~ (COMMA ~ llm_timeout?)? }
+llm_body      = { llm_providers? ~ llm_field* }
+llm_field     = _{ COMMA ~ (llm_default_model | llm_failover | llm_circuit_breaker | llm_timeout) }
 llm_providers = { "providers" ~ COLON ~ LBRACKET ~ llm_provider_list? ~ RBRACKET }
 llm_provider_list = { llm_provider_entry ~ (COMMA ~ llm_provider_entry)* }
 llm_provider_entry = { LBRACE ~ llm_provider_alias ~ COMMA ~ llm_provider_name ~ (COMMA ~ llm_provider_key)? ~ (COMMA ~ llm_provider_url)? ~ RBRACE }

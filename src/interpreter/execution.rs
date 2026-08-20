@@ -251,6 +251,8 @@ impl Interpreter {
                 Declaration::LlmConfig(config) => {
                     // Наряд №4: store LLM config and create smart router
                     let router = llm::SmartRouter::from_config(&config);
+                    // Наряд №4: install into global bridge for builtin_call_llm()
+                    llm::set_global_smart_router(llm::SmartRouter::from_config(&config));
                     if let Ok(mut sr) = self.smart_router.lock() {
                         *sr = Some(router);
                     }

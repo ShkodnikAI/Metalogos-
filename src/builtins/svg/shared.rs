@@ -1,7 +1,6 @@
 //! Shared helpers for SVG / chart / diagram builtins.
 //! Visibility: `pub(super)` — visible inside the `svg` module only.
 
-use crate::builtins::core::{expect_float_arg, expect_list_arg, expect_string_arg};
 use crate::builtins::string::escape_html_chars;
 use crate::interpreter::Value;
 use std::collections::HashMap;
@@ -94,8 +93,61 @@ pub(super) fn fmt_num(n: f64) -> String {
     }
 }
 
+pub(crate) fn style_token(style: &HashMap<String, Value>, key: &str) -> Result<String, String> {
+    match style.get(key) {
+        Some(Value::String(s)) => Ok(s.clone()),
+        _ => Err(format!(
+            "DiagramStyle: token '{}' missing or not String",
+            key
+        )),
+    }
+}
+
 pub(super) fn polar_to_xy(cx: f64, cy: f64, r: f64, angle: f64) -> (f64, f64) {
     (cx + r * angle.cos(), cy + r * angle.sin())
+}
+
+pub(super) fn hex_to_hsl(hex: &str) -> Option<(f64, f64, f64)> {
+    let s = hex.strip_prefix('#')?;
+    let expanded: String = if s.len() == 3 {
+        let chars = s.chars().collect::<Vec<_>>();
+        format!(
+            "{}{}{}{}{}{}",
+            chars[0], chars[0], chars[1], chars[1], chars[2], chars[2]
+        )
+    } else if s.len() == 6 {
+        s.to_string()
+    } else {
+        return None;
+    };
+    let r = u8::from_str_radix(&expanded[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&expanded[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&expanded[4..6], 16).ok()?;
+    let r = r as f64 / 255.0;
+    let g = g as f64 / 255.0;
+    let b = b as f64 / 255.0;
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let l = (max + min) / 2.0;
+    if (max - min).abs() < f64::EPSILON {
+        return Some((0.0, 0.0, l));
+    }
+    let d = max - min;
+    let s = if l > 0.5 {
+        d / (2.0 - max - min)
+    } else {
+        d / (max + min)
+    };
+    let h = if (max - r).abs() < f64::EPSILON {
+        ((g - b) / d) % 6.0
+    } else if (max - g).abs() < f64::EPSILON {
+        (b - r) / d + 2.0
+    } else {
+        (r - g) / d + 4.0
+    };
+    let h = h * 60.0;
+    let h = if h < 0.0 { h + 360.0 } else { h };
+    Some((h, s, l))
 }
 
 pub(super) fn interpolate_hsl(c1: (f64, f64, f64), c2: (f64, f64, f64), t: f64) -> (f64, f64, f64) {
@@ -116,14 +168,50 @@ pub(super) fn interpolate_hsl(c1: (f64, f64, f64), c2: (f64, f64, f64), t: f64) 
     (h, s, l)
 }
 
-pub(crate) fn style_token(style: &HashMap<String, Value>, key: &str) -> Result<String, String> {
-    match style.get(key) {
-        Some(Value::String(s)) => Ok(s.clone()),
-        _ => Err(format!(
-            "DiagramStyle: token '{}' missing or not String",
-            key
-        )),
-    }
+pub(super) fn hsl_to_hex(h: f64, s: f64, l: f64) -> String {
+    let h_norm = ((h % 360.0) + 360.0) % 360.0 / 360.0;
+    let s_clamped = s.clamp(0.0, 1.0);
+    let l_clamped = l.clamp(0.0, 1.0);
+    let (r, g, b) = if s_clamped == 0.0 {
+        (l_clamped, l_clamped, l_clamped)
+    } else {
+        let q = if l_clamped < 0.5 {
+            l_clamped * (1.0 + s_clamped)
+        } else {
+            l_clamped + s_clamped - l_clamped * s_clamped
+        };
+        let p = 2.0 * l_clamped - q;
+        let hue2rgb = |p: f64, q: f64, t: f64| -> f64 {
+            let mut t = t;
+            if t < 0.0 {
+                t += 1.0;
+            }
+            if t > 1.0 {
+                t -= 1.0;
+            }
+            if t < 1.0 / 6.0 {
+                return p + (q - p) * 6.0 * t;
+            }
+            if t < 1.0 / 2.0 {
+                return q;
+            }
+            if t < 2.0 / 3.0 {
+                return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
+            }
+            p
+        };
+        (
+            hue2rgb(p, q, h_norm + 1.0 / 3.0),
+            hue2rgb(p, q, h_norm),
+            hue2rgb(p, q, h_norm - 1.0 / 3.0),
+        )
+    };
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        (r * 255.0).round() as u8,
+        (g * 255.0).round() as u8,
+        (b * 255.0).round() as u8
+    )
 }
 
 pub(super) fn draw_connector(

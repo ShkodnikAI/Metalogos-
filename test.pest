@@ -1,4 +1,0 @@
-WHITESPACE = _{ " " | "\t" | "\n" | "\r" }
-program = { SOI ~ (decl)* ~ EOI }
-IDENT = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
-decl = { "entity" ~ IDENT ~ !":" ~ "{" ~ IDENT* "}" }

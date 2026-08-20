@@ -142,7 +142,7 @@ fn registry_arity_exhaustive() {
         ("query", 1, 2),
         ("db_execute", 1, 2), // ADR-0068: optional params list
         // ── LLM builtins ──
-        ("call_llm", 1, 2),
+        ("call_llm", 1, 3), // prompt | prompt,input | prompt,input,model
         ("call_claude", 4, 4),
         // ── Memory builtins ──
         ("kv_set", 2, 2),

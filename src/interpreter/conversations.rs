@@ -195,11 +195,13 @@ impl Interpreter {
     /// Uses SmartRouter if available, falls back to legacy backend.
     fn summarize_conversation(&self, text: &str) -> Result<String, String> {
         let prompt = "Summarize this conversation concisely, preserving key facts and decisions.";
-        if let Some(result) = llm::call_via_global_router(prompt, text, None) {
-            return result;
+        match llm::call_via_global_router(prompt, text, None) {
+            Some(result) => result,
+            None => {
+                let backend = llm::create_llm_backend();
+                backend.call(prompt, text)
+            }
         }
-        let backend = llm::create_llm_backend();
-        backend.call(prompt, text)
     }
 
     /// Get conversation history as a formatted string for LLM multi-turn injection.

@@ -94,18 +94,17 @@ pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
     }
 
     // 2. Try SmartRouter (set by `llm {}` declaration)
-    if let Some(result) =
-        crate::llm::call_via_global_router(&prompt, &input, model_override)
-    {
-        return result.map(Value::String);
+    // 3. Legacy fallback: no router configured
+    match crate::llm::call_via_global_router(&prompt, &input, model_override) {
+        Some(result) => result.map(Value::String),
+        None => {
+            let backend = crate::llm::create_llm_backend();
+            backend
+                .call_with_model(&prompt, &input, model_override)
+                .map(Value::String)
+                .map_err(|e| format!("call_llm() failed: {}", e))
+        }
     }
-
-    // 3. Legacy fallback: no router, no mock — use create_llm_backend()
-    let backend = crate::llm::create_llm_backend();
-    backend
-        .call_with_model(&prompt, &input, model_override)
-        .map(Value::String)
-        .map_err(|e| format!("call_llm() failed: {}", e))
 }
 
 /// Наряд №4: `llm_usage()` — returns LLM usage statistics as a Struct.

@@ -669,14 +669,11 @@ pub fn reset_global_smart_router() {
 /// Check whether a global SmartRouter is configured.
 /// Returns the number of providers (0 = no router).
 pub fn global_router_provider_count() -> usize {
-    if let Some(guard) = GLOBAL_SMART_ROUTER.get() {
-        if let Ok(r) = guard.lock() {
-            if let Some(ref router) = *r {
-                return router.provider_count();
-            }
-        }
-    }
-    0
+    GLOBAL_SMART_ROUTER
+        .get()
+        .and_then(|g| g.lock().ok())
+        .and_then(|r| r.as_ref().map(|router| router.provider_count()))
+        .unwrap_or(0)
 }
 
 /// Call LLM through the global SmartRouter if available.
@@ -686,14 +683,10 @@ pub fn call_via_global_router(
     input: &str,
     model_override: Option<&str>,
 ) -> Option<Result<String, String>> {
-    if let Some(guard) = GLOBAL_SMART_ROUTER.get() {
-        if let Ok(r) = guard.lock() {
-            if let Some(ref router) = *r {
-                return Some(router.call(prompt, input, model_override));
-            }
-        }
-    }
-    None
+    let guard = GLOBAL_SMART_ROUTER.get()?;
+    let r = guard.lock().ok()?;
+    let router = r.as_ref()?;
+    Some(router.call(prompt, input, model_override))
 }
 
 /// Determine whether mock mode should be active.
@@ -703,22 +696,28 @@ pub fn call_via_global_router(
 ///      (empty dev environment — honest fallback, not a silent trap).
 pub fn should_use_llm_mock() -> bool {
     // Explicit override takes priority
-    if let Ok(val) = std::env::var("METALOGOS_LLM_MOCK") {
-        return val == "true" || val == "1";
+    if std::env::var("METALOGOS_LLM_MOCK")
+        .is_ok_and(|v| v == "true" || v == "1")
+    {
+        return true;
     }
     // If a router is configured with providers, we're in production — no mock
     if global_router_provider_count() > 0 {
         return false;
     }
     // If any API key is set, assume user wants real calls
-    if std::env::var("METALOGOS_API_KEY").is_ok()
-        || std::env::var("OPENAI_API_KEY").is_ok()
-        || std::env::var("ANTHROPIC_API_KEY").is_ok()
-    {
+    if has_any_api_key() {
         return false;
     }
     // No router, no keys — empty dev environment, mock is the honest fallback
     true
+}
+
+/// Check if any well-known LLM API key is set in the environment.
+fn has_any_api_key() -> bool {
+    std::env::var("METALOGOS_API_KEY").is_ok()
+        || std::env::var("OPENAI_API_KEY").is_ok()
+        || std::env::var("ANTHROPIC_API_KEY").is_ok()
 }
 
 /// Reset the global LLM usage tracker (for tests).

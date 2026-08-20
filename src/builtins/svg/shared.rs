@@ -441,30 +441,10 @@ pub(super) fn resolve_overlaps(labels: &mut [LabelBox], axis: Axis, max_iteratio
     iterations
 }
 
-const TIMELINE_MAX_EVENTS: usize = 12;
-const TIMELINE_AXIS_Y: f64 = 200.0; // middle of 400px canvas
-const TIMELINE_DOT_R: f64 = 5.0;
-const TIMELINE_LABEL_OFFSET: f64 = 22.0; // distance from dot to label
-
-/// `diagram_timeline(data, style) -> String`
-///
-/// `data` is `List<Struct{date, label, description?}>`. Renders a horizontal
-/// timeline with event dots. Uses the Н87 anti-overlap engine to prevent
-/// label collisions: initial placement by parity (even=above, odd=below),
-/// then `resolve_overlaps` pushes apart any overlapping bounding boxes.
-
-pub(super) fn intent_to_hue(intent: &str) -> Option<f64> {
-    match intent {
-        "calm" => Some(210.0),
-        "tension" => Some(0.0),
-        "energy" => Some(30.0),
-        "authority" => Some(280.0),
-        "warmth" => Some(20.0),
-        _ => None,
-    }
-}
-
-/// Convert HSL color to hex string (#rrggbb).
+pub(super) const TIMELINE_MAX_EVENTS: usize = 12;
+pub(super) const TIMELINE_AXIS_Y: f64 = 200.0; // middle of 400px canvas
+pub(super) const TIMELINE_DOT_R: f64 = 5.0;
+pub(super) const TIMELINE_LABEL_OFFSET: f64 = 22.0; // distance from dot to label
 
 pub(super) fn escape_attr(s: &str) -> String {
     escape_html_chars(s)

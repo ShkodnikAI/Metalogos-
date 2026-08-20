@@ -67,7 +67,10 @@ pub(super) fn struct_float_field(
 
 /// Extract an optional string field (returns None if missing or Unit).
 #[allow(dead_code)] // reserved for future chart_* types (timeline, pyramid, etc.)
-pub(super) fn struct_opt_string_field(fields: &HashMap<String, Value>, key: &str) -> Option<String> {
+pub(super) fn struct_opt_string_field(
+    fields: &HashMap<String, Value>,
+    key: &str,
+) -> Option<String> {
     match fields.get(key) {
         Some(Value::String(s)) => Some(s.clone()),
         Some(Value::Unit) | None => None,
@@ -287,10 +290,13 @@ pub(super) fn hsl_to_hex(h: f64, s: f64, l: f64) -> String {
     format!("#{:02x}{:02x}{:02x}", to_u8(r), to_u8(g), to_u8(b))
 }
 
-/// `color_palette(intent: String, mode: String) -> Struct`
-/// Returns DiagramStyle { paper, ink, accent, muted, rule } derived from
-/// intent (calm/tension/energy/authority/warmth) and mode (light/dark).
-pub(super) fn draw_connector(x1: f64, y1: f64, x2: f64, y2: f64, style: &HashMap<String, Value>) -> String {
+pub(super) fn draw_connector(
+    x1: f64,
+    y1: f64,
+    x2: f64,
+    y2: f64,
+    style: &HashMap<String, Value>,
+) -> String {
     let color = style_token(style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
     let dx = x2 - x1;
     let dy = y2 - y1;
@@ -379,7 +385,11 @@ pub(super) struct LabelBox {
 ///
 /// Returns the number of iterations actually performed (useful for
 /// diagnostics and testing).
-pub(super) fn resolve_overlaps(labels: &mut [LabelBox], axis: Axis, max_iterations: usize) -> usize {
+pub(super) fn resolve_overlaps(
+    labels: &mut [LabelBox],
+    axis: Axis,
+    max_iterations: usize,
+) -> usize {
     let n = labels.len();
     if n < 2 {
         return 0;
@@ -446,8 +456,6 @@ pub(super) fn resolve_overlaps(labels: &mut [LabelBox], axis: Axis, max_iteratio
     }
     iterations
 }
-
-
 
 pub(super) fn intent_to_hue(intent: &str) -> Option<f64> {
     match intent {

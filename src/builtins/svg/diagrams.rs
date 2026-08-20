@@ -4,7 +4,7 @@
 
 use super::shared::*;
 use super::primitives::icon_path_data;
-use crate::builtins::core::{expect_float_arg, expect_list_arg, expect_string_arg};
+use crate::builtins::core::{expect_list_arg, expect_string_arg};
 use crate::builtins::string::escape_html_chars;
 use crate::interpreter::Value;
 use std::collections::HashMap;
@@ -5180,7 +5180,7 @@ pub(crate) fn builtin_infographic_qa(args: &[Value]) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::super::*;  // svg module re-exports
-    use super::super::shared::{extract_style, style_token};
+    use super::super::shared::extract_style;
     use std::collections::HashMap;
     use crate::interpreter::Value;
 

@@ -2,10 +2,9 @@
 //! Category: "chart" (from registry.rs)
 
 use super::shared::*;
-use crate::builtins::core::{expect_float_arg, expect_list_arg, expect_string_arg};
+use crate::builtins::core::expect_list_arg;
 use crate::builtins::string::escape_html_chars;
 use crate::interpreter::Value;
-use std::collections::HashMap;
 
 pub fn builtin_chart_bar(args: &[Value]) -> Result<Value, String> {
     let data = expect_list_arg("chart_bar", args, 0)?;

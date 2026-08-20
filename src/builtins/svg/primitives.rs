@@ -271,8 +271,6 @@ pub fn builtin_diagram_style(args: &[Value]) -> Result<Value, String> {
     })
 }
 
-/// Extract a DiagramStyle from a Value (helper for chart_* functions).
-
 pub fn builtin_color_palette(args: &[Value]) -> Result<Value, String> {
     let intent = expect_string_arg("color_palette", args, 0)?;
     let mode = expect_string_arg("color_palette", args, 1)?;

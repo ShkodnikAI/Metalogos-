@@ -158,7 +158,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     #[cfg(feature = "llm")]
     spec!("call_claude", 4, "llm"), // api_key,model,system,user
     #[cfg(feature = "llm")]
-    spec!("llm_usage", 0, "llm"), // ── Memory builtins ──
+    spec!("llm_usage", 0, "llm"),
+    // ── Memory builtins ──
     spec!("kv_set", 2, "memory"),
     spec!("kv_get", 1, "memory"),
     spec!("kv_delete", 1, "memory"),
@@ -167,11 +168,13 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("mem_set", 2, "memory"),
     spec!("mem_get", 1, "memory"),
     spec!("mem_delete", 1, "memory"),
-    spec!("memorize", 2, 3, "memory"), // recall/forget/find/inspect: planned high-level memory API; no handler (use kv_*/mem_* instead)
+    spec!("memorize", 2, 3, "memory"),
+    // recall/forget/find/inspect: planned high-level memory API; no handler (use kv_*/mem_* instead)
     spec!("recall", 0, "stub"),
     spec!("forget", 0, "stub"),
     spec!("find", 4, "stub"),
-    spec!("inspect", 1, "stub"), // conv_start/add/history/context/end: conversation lifecycle management; not yet implemented
+    spec!("inspect", 1, "stub"),
+    // conv_start/add/history/context/end: conversation lifecycle management; not yet implemented
     spec!("conv_start", 1, "stub"),
     spec!("conv_add", 3, "stub"),
     spec!("conv_history", 1, "stub"),

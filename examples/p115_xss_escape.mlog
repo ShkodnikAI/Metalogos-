@@ -2,7 +2,7 @@
 template Card(name: String) -> Html {
 <div>{{ name }}</div>
 }
-pattern Main() -> Html {
+pattern Main(x: String) -> Html {
   return render(Card, "<script>alert(1)</script>")
 }
 flow F { input: String = "x" -> Main -> output }

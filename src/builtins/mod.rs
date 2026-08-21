@@ -234,6 +234,7 @@ impl Builtins {
         funcs.insert("reverse".to_string(), builtin_reverse as BuiltinFn);
 
         // v0.5.0 — LLM call builtin
+        #[cfg(feature = "llm")]
         funcs.insert("call_llm".to_string(), builtin_call_llm as BuiltinFn);
 
         // v0.5.0 — KV memory builtins
@@ -259,9 +260,11 @@ impl Builtins {
         funcs.insert("list_dir".to_string(), builtin_list_dir as BuiltinFn);
 
         // Anthropic Claude LLM integration (Phase 7.7)
+        #[cfg(feature = "llm")]
         funcs.insert("call_claude".to_string(), builtin_call_claude as BuiltinFn);
 
         // Наряд №4: LLM usage tracking
+        #[cfg(feature = "llm")]
         funcs.insert("llm_usage".to_string(), builtin_llm_usage as BuiltinFn);
 
         // JSON escape utility (Phase 7.7)
@@ -770,146 +773,154 @@ impl Builtins {
             builtin_vcard_generate as BuiltinFn,
         );
 
-        // ── Наряд №74: Native SVG Graphics & Diagrams (ADR-0102) ──
-        // Level 1: SVG primitives
-        funcs.insert("svg_rect".to_string(), builtin_svg_rect as BuiltinFn);
-        funcs.insert("svg_circle".to_string(), builtin_svg_circle as BuiltinFn);
-        funcs.insert("svg_line".to_string(), builtin_svg_line as BuiltinFn);
-        funcs.insert("svg_text".to_string(), builtin_svg_text as BuiltinFn);
-        funcs.insert("svg_path".to_string(), builtin_svg_path as BuiltinFn);
-        funcs.insert("svg_group".to_string(), builtin_svg_group as BuiltinFn);
-        funcs.insert("svg_canvas".to_string(), builtin_svg_canvas as BuiltinFn);
-        // Level 2: design tokens
-        funcs.insert(
-            "diagram_style".to_string(),
-            builtin_diagram_style as BuiltinFn,
-        );
-        // Level 2.5: wow-effects
-        funcs.insert(
-            "svg_sketchy_filter".to_string(),
-            builtin_svg_sketchy_filter as BuiltinFn,
-        );
-        funcs.insert("svg_icon".to_string(), builtin_svg_icon as BuiltinFn);
-        funcs.insert("svg_callout".to_string(), builtin_svg_callout as BuiltinFn);
-        // Level 3: high-level chart types
-        funcs.insert("chart_bar".to_string(), builtin_chart_bar as BuiltinFn);
-        funcs.insert("chart_donut".to_string(), builtin_chart_donut as BuiltinFn);
-        funcs.insert("chart_line".to_string(), builtin_chart_line as BuiltinFn);
-        funcs.insert(
-            "chart_scatter".to_string(),
-            builtin_chart_scatter as BuiltinFn,
-        );
-        funcs.insert("chart_area".to_string(), builtin_chart_area as BuiltinFn);
-        funcs.insert("chart_radar".to_string(), builtin_chart_radar as BuiltinFn);
-        funcs.insert(
-            "chart_heatmap".to_string(),
-            builtin_chart_heatmap as BuiltinFn,
-        );
-        funcs.insert(
-            "chart_boxplot".to_string(),
-            builtin_chart_boxplot as BuiltinFn,
-        );
-        // Level 2.6: derived palette (Наряд №77 Block 1)
-        funcs.insert(
-            "color_palette".to_string(),
-            builtin_color_palette as BuiltinFn,
-        );
-        // Level 2.6/2.7: procedural backgrounds + canvas presets (Наряд №80)
-        funcs.insert(
-            "svg_generate".to_string(),
-            builtin_svg_generate as BuiltinFn,
-        );
-        funcs.insert(
-            "svg_canvas_preset".to_string(),
-            builtin_svg_canvas_preset as BuiltinFn,
-        );
-        // Level 3.1: diagrams (Наряд №81) — hierarchies & flows
-        funcs.insert(
-            "diagram_tree".to_string(),
-            builtin_diagram_tree as BuiltinFn,
-        );
-        funcs.insert(
-            "diagram_org_chart".to_string(),
-            builtin_diagram_org_chart as BuiltinFn,
-        );
-        funcs.insert(
-            "diagram_flowchart".to_string(),
-            builtin_diagram_flowchart as BuiltinFn,
-        );
-        funcs.insert(
-            "diagram_layers".to_string(),
-            builtin_diagram_layers as BuiltinFn,
-        );
-        // Level 3.2: diagrams (Наряд №82) — temporal & process
-        funcs.insert(
-            "diagram_sequence".to_string(),
-            builtin_diagram_sequence as BuiltinFn,
-        );
-        funcs.insert(
-            "diagram_timeline".to_string(),
-            builtin_diagram_timeline as BuiltinFn,
-        );
-        funcs.insert(
-            "diagram_gantt".to_string(),
-            builtin_diagram_gantt as BuiltinFn,
-        );
-        funcs.insert(
-            "diagram_process".to_string(),
-            builtin_diagram_process as BuiltinFn,
-        );
-        funcs.insert(
-            "diagram_loop".to_string(),
-            builtin_diagram_loop as BuiltinFn,
-        );
-        // Level 3.3: diagrams (Наряд №83) — sets & comparisons
-        funcs.insert(
-            "diagram_venn".to_string(),
-            builtin_diagram_venn as BuiltinFn,
-        );
-        funcs.insert(
-            "diagram_quadrant".to_string(),
-            builtin_diagram_quadrant as BuiltinFn,
-        );
-        funcs.insert(
-            "diagram_pyramid".to_string(),
-            builtin_diagram_pyramid as BuiltinFn,
-        );
-        funcs.insert(
-            "diagram_nested".to_string(),
-            builtin_diagram_nested as BuiltinFn,
-        );
-        funcs.insert(
-            "diagram_medallion".to_string(),
-            builtin_diagram_medallion as BuiltinFn,
-        );
-        // ── Наряд №84: data & state diagrams ──
-        funcs.insert("diagram_er".to_string(), builtin_diagram_er as BuiltinFn);
-        funcs.insert(
-            "diagram_state".to_string(),
-            builtin_diagram_state as BuiltinFn,
-        );
-        funcs.insert(
-            "diagram_swimlane".to_string(),
-            builtin_diagram_swimlane as BuiltinFn,
-        );
-        funcs.insert(
-            "diagram_data_flow".to_string(),
-            builtin_diagram_data_flow as BuiltinFn,
-        );
-        funcs.insert(
-            "diagram_high_level".to_string(),
-            builtin_diagram_high_level as BuiltinFn,
-        );
-        funcs.insert(
-            "diagram_architecture".to_string(),
-            builtin_diagram_architecture as BuiltinFn,
-        );
+        #[cfg(feature = "svg")]
+        {
+            // ── Наряд №74/№111: SVG primitives + tokens ──
+            funcs.insert("svg_rect".to_string(), builtin_svg_rect as BuiltinFn);
+            funcs.insert("svg_circle".to_string(), builtin_svg_circle as BuiltinFn);
+            funcs.insert("svg_line".to_string(), builtin_svg_line as BuiltinFn);
+            funcs.insert("svg_text".to_string(), builtin_svg_text as BuiltinFn);
+            funcs.insert("svg_path".to_string(), builtin_svg_path as BuiltinFn);
+            funcs.insert("svg_group".to_string(), builtin_svg_group as BuiltinFn);
+            funcs.insert("svg_canvas".to_string(), builtin_svg_canvas as BuiltinFn);
+            funcs.insert(
+                "diagram_style".to_string(),
+                builtin_diagram_style as BuiltinFn,
+            );
+            funcs.insert(
+                "svg_sketchy_filter".to_string(),
+                builtin_svg_sketchy_filter as BuiltinFn,
+            );
+            funcs.insert("svg_icon".to_string(), builtin_svg_icon as BuiltinFn);
+            funcs.insert("svg_callout".to_string(), builtin_svg_callout as BuiltinFn);
+            funcs.insert(
+                "color_palette".to_string(),
+                builtin_color_palette as BuiltinFn,
+            );
+            funcs.insert(
+                "svg_generate".to_string(),
+                builtin_svg_generate as BuiltinFn,
+            );
+            funcs.insert(
+                "svg_canvas_preset".to_string(),
+                builtin_svg_canvas_preset as BuiltinFn,
+            );
+        }
+        #[cfg(feature = "chart")]
+        {
+            // ── chart_* ──
+            funcs.insert("chart_bar".to_string(), builtin_chart_bar as BuiltinFn);
+            funcs.insert("chart_donut".to_string(), builtin_chart_donut as BuiltinFn);
+            funcs.insert("chart_line".to_string(), builtin_chart_line as BuiltinFn);
+            funcs.insert(
+                "chart_scatter".to_string(),
+                builtin_chart_scatter as BuiltinFn,
+            );
+            funcs.insert("chart_area".to_string(), builtin_chart_area as BuiltinFn);
+            funcs.insert("chart_radar".to_string(), builtin_chart_radar as BuiltinFn);
+            funcs.insert(
+                "chart_heatmap".to_string(),
+                builtin_chart_heatmap as BuiltinFn,
+            );
+            funcs.insert(
+                "chart_boxplot".to_string(),
+                builtin_chart_boxplot as BuiltinFn,
+            );
+        }
+        #[cfg(feature = "diagram")]
+        {
+            // ── diagram_* ──
+            funcs.insert(
+                "diagram_tree".to_string(),
+                builtin_diagram_tree as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_org_chart".to_string(),
+                builtin_diagram_org_chart as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_flowchart".to_string(),
+                builtin_diagram_flowchart as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_layers".to_string(),
+                builtin_diagram_layers as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_sequence".to_string(),
+                builtin_diagram_sequence as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_timeline".to_string(),
+                builtin_diagram_timeline as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_gantt".to_string(),
+                builtin_diagram_gantt as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_process".to_string(),
+                builtin_diagram_process as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_loop".to_string(),
+                builtin_diagram_loop as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_venn".to_string(),
+                builtin_diagram_venn as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_quadrant".to_string(),
+                builtin_diagram_quadrant as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_pyramid".to_string(),
+                builtin_diagram_pyramid as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_nested".to_string(),
+                builtin_diagram_nested as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_medallion".to_string(),
+                builtin_diagram_medallion as BuiltinFn,
+            );
+            funcs.insert("diagram_er".to_string(), builtin_diagram_er as BuiltinFn);
+            funcs.insert(
+                "diagram_state".to_string(),
+                builtin_diagram_state as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_swimlane".to_string(),
+                builtin_diagram_swimlane as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_data_flow".to_string(),
+                builtin_diagram_data_flow as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_high_level".to_string(),
+                builtin_diagram_high_level as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_architecture".to_string(),
+                builtin_diagram_architecture as BuiltinFn,
+            );
+            funcs.insert(
+                "infographic_qa".to_string(),
+                builtin_infographic_qa as BuiltinFn,
+            );
+        }
 
-        // ── Наряд №86: Mini template engine ──
-        funcs.insert(
-            "template_render".to_string(),
-            builtin_template_render as BuiltinFn,
-        );
+        #[cfg(feature = "template")]
+        {
+            // ── Наряд №86: Mini template engine ──
+            funcs.insert(
+                "template_render".to_string(),
+                builtin_template_render as BuiltinFn,
+            );
+        }
 
         // ── Наряд №88: HTML rendering via headless browser ──
         funcs.insert("html_render".to_string(), builtin_html_render as BuiltinFn);
@@ -973,7 +984,9 @@ impl Builtins {
     }
 }
 
+#[cfg(feature = "server")]
 pub(crate) mod server;
+#[cfg(feature = "server")]
 use server::*;
 pub(crate) mod office;
 use office::*;
@@ -984,11 +997,15 @@ use calendar::*;
 pub(crate) mod contacts;
 use contacts::*;
 
-// Наряд №74: Native SVG Graphics & Diagrams (ADR-0102)
+// Наряд №74 / №111: SVG Graphics & Diagrams (feature-gated)
+#[cfg(any(feature = "svg", feature = "chart", feature = "diagram"))]
 pub(crate) mod svg;
+#[cfg(any(feature = "svg", feature = "chart", feature = "diagram"))]
 use svg::*;
-// Наряд №86: Mini template engine (template_render)
+// Наряд №86 / №111: Mini template engine
+#[cfg(feature = "template")]
 pub(crate) mod template;
+#[cfg(feature = "template")]
 use template::*;
 #[cfg(test)]
 mod tests;

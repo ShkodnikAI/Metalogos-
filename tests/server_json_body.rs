@@ -1,3 +1,4 @@
+#![cfg(feature = "server")]
 // ── Наряд №3: json_body() integration tests ──────────────────────
 // Verifies that json_body() correctly parses JSON from POST requests
 // and supports nested field access via dot notation.

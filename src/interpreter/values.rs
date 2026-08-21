@@ -219,6 +219,21 @@ impl Value {
     }
 }
 
+
+/// Opaque / sensitive values that must not be rendered by print.
+/// Наряд №114.
+pub fn is_nonprintable(v: &Value) -> bool {
+    matches!(
+        v,
+        Value::Html(_)
+            | Value::Query(_)
+            | Value::Secret(_)
+            | Value::Encrypted(_)
+            | Value::Hash(_)
+            | Value::Subgraph(_)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

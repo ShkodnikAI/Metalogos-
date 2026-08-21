@@ -233,6 +233,10 @@ impl Interpreter {
                     self.server_config = Some(srv);
                 }
                 Declaration::Template(t) => {
+                    // Наряд №115: also register in global map for builtin_render (TW/VM parity)
+                    let param_names: Vec<String> =
+                        t.params.iter().map(|p| p.name.clone()).collect();
+                    crate::builtins::http::register_template(&t.name, &t.body, param_names);
                     self.templates.insert(t.name.clone(), t);
                 }
                 Declaration::Memory(m) => {
@@ -1068,7 +1072,14 @@ impl Interpreter {
             }
             Expr::FnCall(name, args) => {
                 let mut eval_args = Vec::new();
-                for arg in args {
+                for (i, arg) in args.iter().enumerate() {
+                    // Наряд №115: render(TemplateName, ...) — bare Ident is the template name
+                    if name == "render" && i == 0 {
+                        if let Expr::Ident(n) = arg {
+                            eval_args.push(Value::String(n.clone()));
+                            continue;
+                        }
+                    }
                     eval_args.push(self.eval_expr_with_env(arg, env)?);
                 }
 

@@ -294,6 +294,9 @@ print(token)     // runtime error: print() refused: Secret values cannot be prin
 // XSS via LLM impossible — unsanitized LLM output to respond() is a compile-time error
 let reply = call_llm(prompt)
 respond(reply)   // Compile error: [HTML_INJECTION] — use render() or escape_html()
+
+// Templates: render(Name, args...) substitutes {{ var }} with HTML-escaped values (naryad 115)
+// Concatenating into Html at runtime errors; compile-time opaque Html check is not implemented yet
 ```
 
 Heuristic security checks (hardcoded secrets, sandbox coverage, rate limiting, CSRF, open redirect) are advisory — run `mlog audit` for a full report.

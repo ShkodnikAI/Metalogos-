@@ -4,6 +4,12 @@ template Card(name: String) -> Html {
 server {
   port: 8081
   route "/card" method=GET {
-    render(Card, "<script>alert(1)</script>")
+    render("Card", "<script>alert(1)</script>")
   }
 }
+
+// Наряд №115: flow so golden/crosscheck can see escaped render
+pattern Show(x: String) -> Html {
+  return render("Card", "<script>alert(1)</script>")
+}
+flow Main { input: String = "x" -> Show -> output }

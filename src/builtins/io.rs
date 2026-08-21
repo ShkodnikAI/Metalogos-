@@ -138,6 +138,24 @@ fn exec_restricted(
 // ── Public builtins ──
 
 pub(crate) fn builtin_print(args: &[Value]) -> Result<Value, String> {
+    // Наряд №114: refuse Secret / other opaque values with a clear message.
+    // expect_string_arg would also reject Secret, but with a generic wording.
+    if let Some(arg) = args.first() {
+        if matches!(
+            arg,
+            Value::Html(_)
+                | Value::Query(_)
+                | Value::Secret(_)
+                | Value::Encrypted(_)
+                | Value::Hash(_)
+                | Value::Subgraph(_)
+        ) {
+            return Err(format!(
+                "print() refused: {} values cannot be printed (Secret and other opaque types)",
+                arg.type_name()
+            ));
+        }
+    }
     let s = expect_string_arg("print", args, 0)?;
     eprintln!("[print] {}", s);
     Ok(Value::String(s))
@@ -697,5 +715,29 @@ pub(crate) fn builtin_html_render(args: &[Value]) -> Result<Value, String> {
 
             Err(format!("html_render: {}", e))
         }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::interpreter::{SecretString, Value};
+
+    #[test]
+    fn print_rejects_secret() {
+        let secret = Value::Secret(SecretString::new("s3cr3t".into()));
+        let err = builtin_print(&[secret]).unwrap_err();
+        assert!(
+            err.contains("Secret") && err.contains("refused"),
+            "unexpected message: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn print_allows_string() {
+        let ok = builtin_print(&[Value::String("hello".into())]).unwrap();
+        assert_eq!(ok, Value::String("hello".into()));
     }
 }

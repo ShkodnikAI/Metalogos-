@@ -1671,20 +1671,6 @@ impl Interpreter {
         )
     }
 
-    /// Opaque / sensitive values that must not be rendered by print.
-    /// Наряд №114: used by builtin_print for a clear runtime error.
-    pub(crate) fn is_nonprintable_type(v: &Value) -> bool {
-        matches!(
-            v,
-            Value::Html(_)
-                | Value::Query(_)
-                | Value::Secret(_)
-                | Value::Encrypted(_)
-                | Value::Hash(_)
-                | Value::Subgraph(_)
-        )
-    }
-
     /// Apply entity type annotation for security-critical opaque types.
     ///
     /// - `Secret` + String → wrap as Value::Secret

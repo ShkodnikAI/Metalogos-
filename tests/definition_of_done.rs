@@ -168,6 +168,7 @@ fn test_dod_memorize_callable() {
 
 // ── Integration: POST webhook + json_body + respond ──────────────
 
+#[cfg(feature = "server")]
 #[tokio::test]
 async fn test_dod_webhook_responds_ok() {
     let source = r#"

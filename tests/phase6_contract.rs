@@ -453,8 +453,10 @@ mlogserver {
 
 #[cfg(test)]
 mod phase6_xss_prevention_tests {
+    #[cfg(feature = "server")]
     use metalogos::server;
 
+    #[cfg(feature = "server")]
     #[test]
     fn test_html_escaping_script_tag() {
         assert_eq!(
@@ -463,11 +465,13 @@ mod phase6_xss_prevention_tests {
         );
     }
 
+    #[cfg(feature = "server")]
     #[test]
     fn test_html_escaping_ampersand() {
         assert_eq!(server::escape_html("foo & bar"), "foo &amp; bar");
     }
 
+    #[cfg(feature = "server")]
     #[test]
     fn test_html_escaping_quotes() {
         assert_eq!(
@@ -476,6 +480,7 @@ mod phase6_xss_prevention_tests {
         );
     }
 
+    #[cfg(feature = "server")]
     #[test]
     fn test_template_xss_prevention() {
         let template = "<div>{{content}}</div>";

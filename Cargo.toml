@@ -101,6 +101,18 @@ version = "0.15"
 optional = true
 
 [features]
+default = ["svg", "chart", "diagram", "template", "llm", "server"]
+
+# Наряд №111: modular capability gates (opt-out via --no-default-features)
+svg = []
+chart = ["svg"]      # charts use shared + polar etc from svg module
+diagram = ["svg"]    # diagrams.rs imports icon_path_data from primitives
+template = []
+llm = []
+server = []
+full = ["svg", "chart", "diagram", "template", "llm", "server"]
+
+# Optional OCR (pre-existing)
 pdf-ocr = ["tesseract"]
 
 [dev-dependencies]

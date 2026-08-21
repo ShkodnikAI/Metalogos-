@@ -1,18 +1,21 @@
 //! SVG / Chart / Diagram builtins module
 //!
-//! Наряд №110: split of the former monolithic `svg.rs` into
-//! focused submodules in preparation for future Cargo features.
-//!
-//! Re-exports everything so that `src/builtins/mod.rs` continues to work
-//! unchanged with:
-//!   pub(crate) mod svg;
-//!   use svg::*;
+//! Наряд №110: split of the former monolithic `svg.rs`.
+//! Наряд №111: Cargo features — `svg` / `chart` / `diagram`.
 
-mod charts;
-mod diagrams;
-mod primitives;
+#[cfg(any(feature = "svg", feature = "chart", feature = "diagram"))]
 mod shared;
 
-pub use charts::*;
-pub use diagrams::*;
+#[cfg(feature = "svg")]
+mod primitives;
+#[cfg(feature = "chart")]
+mod charts;
+#[cfg(feature = "diagram")]
+mod diagrams;
+
+#[cfg(feature = "svg")]
 pub use primitives::*;
+#[cfg(feature = "chart")]
+pub use charts::*;
+#[cfg(feature = "diagram")]
+pub use diagrams::*;

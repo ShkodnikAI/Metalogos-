@@ -43,6 +43,7 @@ enum Commands {
         root: Option<PathBuf>,
     },
     /// Start HTTP server from mlogserver block (Phase 6)
+    #[cfg(feature = "server")]
     Serve {
         /// Path to .mlog source file
         file: PathBuf,
@@ -82,6 +83,7 @@ fn main() {
         Commands::Run { file } => cmd_run(file),
         Commands::Repl => cmd_repl_stdio(),
         Commands::Check { file, root } => cmd_check(file, root),
+        #[cfg(feature = "server")]
         Commands::Serve { file } => cmd_serve(file),
         Commands::Compile { file } => cmd_compile(file),
         Commands::Eval { file } => cmd_eval(file),
@@ -297,6 +299,7 @@ fn cmd_check(file: PathBuf, root: Option<PathBuf>) {
 }
 
 /// `mlog serve <file>` — parse + start HTTP server
+#[cfg(feature = "server")]
 fn cmd_serve(file: PathBuf) {
     let source = match fs::read_to_string(&file) {
         Ok(s) => s,

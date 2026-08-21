@@ -257,6 +257,10 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
     // ── Наряд №40: Read METALOGOS_SERVE_BACKEND once at startup ──
     let backend = match std::env::var("METALOGOS_SERVE_BACKEND") {
         Ok(ref val) if val == "vm" => {
+            // Наряд №109 / ADR-0105: explicit opt-in — surface known gaps
+            eprintln!(
+                "[WARN] METALOGOS_SERVE_BACKEND=vm — experimental, known                  limitations: `match` statements fail to compile, block                  if/else silently evaluates to Unit. See ADR-0105.                  Default (tree-walking) does not have these limitations."
+            );
             eprintln!("[server] backend: vm (bytecode VM)");
             ServeBackend::Vm
         }

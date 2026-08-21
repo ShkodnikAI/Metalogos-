@@ -1,8 +1,9 @@
 // Наряд №115: real template substitution
+// Template name as string so both TW and VM resolve it (VM has no Ident special-case).
 template Greeting(who: String) -> Html {
 <p>Hello {{ who }}</p>
 }
 pattern Main(x: String) -> Html {
-  return render(Greeting, "Metalogos")
+  return render("Greeting", "Metalogos")
 }
 flow F { input: String = "x" -> Main -> output }

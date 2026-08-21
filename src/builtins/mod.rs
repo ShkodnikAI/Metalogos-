@@ -925,12 +925,6 @@ impl Builtins {
         // ── Наряд №88: HTML rendering via headless browser ──
         funcs.insert("html_render".to_string(), builtin_html_render as BuiltinFn);
 
-        // ── Наряд №89: Infographic quality assurance ──
-        funcs.insert(
-            "infographic_qa".to_string(),
-            builtin_infographic_qa as BuiltinFn,
-        );
-
         // ── Наряд №50 Block 3: SHA-256 / HMAC / hex builtins ──
         funcs.insert("sha256".to_string(), builtin_sha256 as BuiltinFn);
         funcs.insert("hmac_sha256".to_string(), builtin_hmac_sha256 as BuiltinFn);

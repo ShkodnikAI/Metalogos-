@@ -1,0 +1,8 @@
+// Наряд №115: XSS auto-escape contract
+template Card(name: String) -> Html {
+<div>{{ name }}</div>
+}
+pattern Main() -> Html {
+  return render(Card, "<script>alert(1)</script>")
+}
+flow F { input: String = "x" -> Main -> output }

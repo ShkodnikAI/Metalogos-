@@ -1,3 +1,4 @@
+#![cfg(feature = "server")]
 // ── Наряд №2: POST/PUT/DELETE routes integration tests ──────────
 // Verifies that non-GET HTTP methods are correctly routed through axum.
 // Contract (Telegram webhook pattern):

@@ -21,6 +21,7 @@ pub mod memory_graph;
 pub mod memory_store;
 pub mod parser;
 pub mod semantic;
+#[cfg(feature = "server")]
 pub mod server;
 pub mod vm;
 
@@ -157,6 +158,7 @@ pub fn feed_line(
 
 /// Serve a .mlog program as an HTTP server.
 /// Parses the source, finds the mlogserver block, and starts Axum.
+#[cfg(feature = "server")]
 pub async fn serve_program(source: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     server::run_server(source).await
 }

@@ -6,16 +6,16 @@
 #[cfg(any(feature = "svg", feature = "chart", feature = "diagram"))]
 mod shared;
 
-#[cfg(feature = "svg")]
-mod primitives;
 #[cfg(feature = "chart")]
 mod charts;
 #[cfg(feature = "diagram")]
 mod diagrams;
-
 #[cfg(feature = "svg")]
-pub use primitives::*;
+mod primitives;
+
 #[cfg(feature = "chart")]
 pub use charts::*;
 #[cfg(feature = "diagram")]
 pub use diagrams::*;
+#[cfg(feature = "svg")]
+pub use primitives::*;

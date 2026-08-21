@@ -6,7 +6,6 @@ use chrono::{Datelike, TimeZone, Timelike};
 use super::core::*;
 use super::string::escape_html_chars;
 
-
 // ── Наряд №115: global template registry (Path B — parity TW/VM) ──
 // Populated when Declaration::Template is processed; builtin_render reads it.
 // Same pattern as GLOBAL_SMART_ROUTER (naryad №4).
@@ -56,7 +55,6 @@ pub(crate) fn render_template_body(body: &str, vars: &HashMap<String, String>) -
     }
     result
 }
-
 
 // ── Phase 6.1 — HTTP server stubs ───────────────────────────
 
@@ -173,7 +171,6 @@ pub(crate) fn builtin_render(args: &[Value]) -> Result<Value, String> {
     let html = render_template_body(&entry.body, &vars);
     Ok(Value::Html(html))
 }
-
 
 pub(crate) fn parse_status_line(status_body: &str) -> (u16, String) {
     let parts: Vec<&str> = status_body.splitn(2, ' ').collect();

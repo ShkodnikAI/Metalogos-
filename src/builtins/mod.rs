@@ -132,18 +132,12 @@ impl Builtins {
         funcs.insert("index_of".to_string(), builtin_index_of as BuiltinFn);
         funcs.insert("substring".to_string(), builtin_substring as BuiltinFn);
         funcs.insert("char_at".to_string(), builtin_char_at as BuiltinFn);
-        funcs.insert(
-            "starts_with".to_string(),
-            builtin_starts_with as BuiltinFn,
-        );
+        funcs.insert("starts_with".to_string(), builtin_starts_with as BuiltinFn);
         funcs.insert("ends_with".to_string(), builtin_ends_with as BuiltinFn);
         funcs.insert("to_float".to_string(), builtin_to_float as BuiltinFn);
 
         // Fluid confidence accessor
-        funcs.insert(
-            "confidence".to_string(),
-            builtin_confidence as BuiltinFn,
-        );
+        funcs.insert("confidence".to_string(), builtin_confidence as BuiltinFn);
 
         // Phase 5.4 — stdlib backing builtins (double-underscore prefix)
         funcs.insert("__trim".to_string(), builtin_trim as BuiltinFn);
@@ -172,24 +166,15 @@ impl Builtins {
         );
         funcs.insert("form_data".to_string(), builtin_form_data as BuiltinFn);
         funcs.insert("json_body".to_string(), builtin_json_body as BuiltinFn);
-        funcs.insert(
-            "query_param".to_string(),
-            builtin_query_param as BuiltinFn,
-        );
+        funcs.insert("query_param".to_string(), builtin_query_param as BuiltinFn);
 
         // Phase 6.2 — Template stubs
         funcs.insert("render".to_string(), builtin_render as BuiltinFn);
-        funcs.insert(
-            "escape_html".to_string(),
-            builtin_escape_html as BuiltinFn,
-        );
+        funcs.insert("escape_html".to_string(), builtin_escape_html as BuiltinFn);
 
         // Phase 6.3 — Database stubs
         funcs.insert("query".to_string(), builtin_query as BuiltinFn);
-        funcs.insert(
-            "db_execute".to_string(),
-            builtin_db_execute as BuiltinFn,
-        );
+        funcs.insert("db_execute".to_string(), builtin_db_execute as BuiltinFn);
 
         // Phase 6.4 — Encryption stubs
         funcs.insert(
@@ -264,57 +249,30 @@ impl Builtins {
         // Наряд №6 — exact key-value memory (mem_set/mem_get/mem_delete)
         funcs.insert("mem_set".to_string(), builtin_mem_set as BuiltinFn);
         funcs.insert("mem_get".to_string(), builtin_mem_get as BuiltinFn);
-        funcs.insert(
-            "mem_delete".to_string(),
-            builtin_mem_delete as BuiltinFn,
-        );
+        funcs.insert("mem_delete".to_string(), builtin_mem_delete as BuiltinFn);
 
         // v0.5.0 — File I/O builtins (full set)
         funcs.insert("read_file".to_string(), builtin_read_file as BuiltinFn);
-        funcs.insert(
-            "write_file".to_string(),
-            builtin_write_file as BuiltinFn,
-        );
-        funcs.insert(
-            "append_file".to_string(),
-            builtin_append_file as BuiltinFn,
-        );
-        funcs.insert(
-            "delete_file".to_string(),
-            builtin_delete_file as BuiltinFn,
-        );
-        funcs.insert(
-            "file_exists".to_string(),
-            builtin_file_exists as BuiltinFn,
-        );
+        funcs.insert("write_file".to_string(), builtin_write_file as BuiltinFn);
+        funcs.insert("append_file".to_string(), builtin_append_file as BuiltinFn);
+        funcs.insert("delete_file".to_string(), builtin_delete_file as BuiltinFn);
+        funcs.insert("file_exists".to_string(), builtin_file_exists as BuiltinFn);
         funcs.insert("list_dir".to_string(), builtin_list_dir as BuiltinFn);
 
         // Anthropic Claude LLM integration (Phase 7.7)
         #[cfg(feature = "llm")]
-        funcs.insert(
-            "call_claude".to_string(),
-            builtin_call_claude as BuiltinFn,
-        );
+        funcs.insert("call_claude".to_string(), builtin_call_claude as BuiltinFn);
 
         // Наряд №4: LLM usage tracking
         #[cfg(feature = "llm")]
         funcs.insert("llm_usage".to_string(), builtin_llm_usage as BuiltinFn);
 
         // JSON escape utility (Phase 7.7)
-        funcs.insert(
-            "escape_json".to_string(),
-            builtin_escape_json as BuiltinFn,
-        );
+        funcs.insert("escape_json".to_string(), builtin_escape_json as BuiltinFn);
 
         // Phase 7.7 — new builtins for department modularity
-        funcs.insert(
-            "parse_json".to_string(),
-            builtin_parse_json as BuiltinFn,
-        );
-        funcs.insert(
-            "json_encode".to_string(),
-            builtin_json_encode as BuiltinFn,
-        );
+        funcs.insert("parse_json".to_string(), builtin_parse_json as BuiltinFn);
+        funcs.insert("json_encode".to_string(), builtin_json_encode as BuiltinFn);
         funcs.insert("json_get".to_string(), builtin_json_get as BuiltinFn);
         funcs.insert("has_field".to_string(), builtin_has_field as BuiltinFn);
         funcs.insert("http_get".to_string(), builtin_http_get as BuiltinFn);
@@ -329,14 +287,8 @@ impl Builtins {
         );
 
         // ADR-0049 — session memory (temporary per-session KV store)
-        funcs.insert(
-            "session_set".to_string(),
-            builtin_session_set as BuiltinFn,
-        );
-        funcs.insert(
-            "session_get".to_string(),
-            builtin_session_get as BuiltinFn,
-        );
+        funcs.insert("session_set".to_string(), builtin_session_set as BuiltinFn);
+        funcs.insert("session_get".to_string(), builtin_session_get as BuiltinFn);
         funcs.insert(
             "session_clear".to_string(),
             builtin_session_clear as BuiltinFn,
@@ -368,10 +320,7 @@ impl Builtins {
         funcs.insert("dict_get".to_string(), builtin_json_get as BuiltinFn); // alias
         funcs.insert("dict_set".to_string(), builtin_dict_set as BuiltinFn);
         funcs.insert("dict_keys".to_string(), builtin_dict_keys as BuiltinFn);
-        funcs.insert(
-            "dict_values".to_string(),
-            builtin_dict_values as BuiltinFn,
-        );
+        funcs.insert("dict_values".to_string(), builtin_dict_values as BuiltinFn);
         funcs.insert("dict_has".to_string(), builtin_dict_has as BuiltinFn);
         funcs.insert("type_of".to_string(), builtin_type_of as BuiltinFn);
         // Наряд №17 В.3: format() — positional string interpolation
@@ -379,23 +328,14 @@ impl Builtins {
 
         // Наряд №24: git_push, web_search, make_list
         funcs.insert("git_push".to_string(), builtin_git_push as BuiltinFn);
-        funcs.insert(
-            "web_search".to_string(),
-            builtin_web_search as BuiltinFn,
-        );
+        funcs.insert("web_search".to_string(), builtin_web_search as BuiltinFn);
         funcs.insert("make_list".to_string(), builtin_make_list as BuiltinFn);
         // time() alias for now()
         funcs.insert("time".to_string(), builtin_now as BuiltinFn);
         // format_date() — format unix timestamp or current time (enhanced v0.8.0)
-        funcs.insert(
-            "format_date".to_string(),
-            builtin_format_date as BuiltinFn,
-        );
+        funcs.insert("format_date".to_string(), builtin_format_date as BuiltinFn);
         // v0.8.0 — Time / Date / Calendar (additional)
-        funcs.insert(
-            "date_parts".to_string(),
-            builtin_date_parts as BuiltinFn,
-        );
+        funcs.insert("date_parts".to_string(), builtin_date_parts as BuiltinFn);
         funcs.insert(
             "days_between".to_string(),
             builtin_days_between as BuiltinFn,
@@ -445,10 +385,7 @@ impl Builtins {
             builtin_check_reminders as BuiltinFn,
         );
         // request_body() alias for json_body() — common in web frameworks
-        funcs.insert(
-            "request_body".to_string(),
-            builtin_json_body as BuiltinFn,
-        );
+        funcs.insert("request_body".to_string(), builtin_json_body as BuiltinFn);
         // Public first/last (without __ prefix)
         funcs.insert("first".to_string(), builtin_first as BuiltinFn);
         funcs.insert("last".to_string(), builtin_last as BuiltinFn);
@@ -458,10 +395,7 @@ impl Builtins {
             "human_create".to_string(),
             builtin_human_create as BuiltinFn,
         );
-        funcs.insert(
-            "human_mood".to_string(),
-            builtin_human_mood as BuiltinFn,
-        );
+        funcs.insert("human_mood".to_string(), builtin_human_mood as BuiltinFn);
         funcs.insert(
             "human_remember".to_string(),
             builtin_human_remember as BuiltinFn,
@@ -502,10 +436,7 @@ impl Builtins {
             builtin_estimate_tokens as BuiltinFn,
         );
         // Problem A (reverse-iteration): skill index helpers
-        funcs.insert(
-            "matches_any".to_string(),
-            builtin_matches_any as BuiltinFn,
-        );
+        funcs.insert("matches_any".to_string(), builtin_matches_any as BuiltinFn);
         funcs.insert(
             "read_file_tokens".to_string(),
             builtin_read_file_tokens as BuiltinFn,
@@ -514,10 +445,7 @@ impl Builtins {
         // ── OpenHuman-inspired: Scheduling (Tier 1 #1) ──
         funcs.insert("cron_add".to_string(), builtin_cron_add as BuiltinFn);
         funcs.insert("cron_list".to_string(), builtin_cron_list as BuiltinFn);
-        funcs.insert(
-            "cron_remove".to_string(),
-            builtin_cron_remove as BuiltinFn,
-        );
+        funcs.insert("cron_remove".to_string(), builtin_cron_remove as BuiltinFn);
         funcs.insert("cron_run".to_string(), builtin_cron_run as BuiltinFn);
         funcs.insert(
             "cron_mark_fired".to_string(),
@@ -537,20 +465,14 @@ impl Builtins {
             "goal_complete".to_string(),
             builtin_goal_complete as BuiltinFn,
         );
-        funcs.insert(
-            "goals_list".to_string(),
-            builtin_goals_list as BuiltinFn,
-        );
+        funcs.insert("goals_list".to_string(), builtin_goals_list as BuiltinFn);
         funcs.insert("goals_add".to_string(), builtin_goals_add as BuiltinFn);
         funcs.insert(
             "goals_reflect".to_string(),
             builtin_goals_reflect as BuiltinFn,
         );
         funcs.insert("todo_add".to_string(), builtin_todo_add as BuiltinFn);
-        funcs.insert(
-            "todo_update".to_string(),
-            builtin_todo_update as BuiltinFn,
-        );
+        funcs.insert("todo_update".to_string(), builtin_todo_update as BuiltinFn);
         funcs.insert("todo_list".to_string(), builtin_todo_list as BuiltinFn);
 
         // ── OpenHuman-inspired: Entity Extraction (Tier 1 #4) ──
@@ -576,16 +498,10 @@ impl Builtins {
             "learn_preference".to_string(),
             builtin_learn_preference as BuiltinFn,
         );
-        funcs.insert(
-            "get_profile".to_string(),
-            builtin_get_profile as BuiltinFn,
-        );
+        funcs.insert("get_profile".to_string(), builtin_get_profile as BuiltinFn);
 
         // ── Memory Tree (OpenHuman-inspired Tier 1 #9) ──
-        funcs.insert(
-            "mtree_store".to_string(),
-            builtin_mtree_store as BuiltinFn,
-        );
+        funcs.insert("mtree_store".to_string(), builtin_mtree_store as BuiltinFn);
         funcs.insert(
             "mtree_retrieve".to_string(),
             builtin_mtree_retrieve as BuiltinFn,
@@ -598,18 +514,9 @@ impl Builtins {
             "mtree_summarize".to_string(),
             builtin_mtree_summarize as BuiltinFn,
         );
-        funcs.insert(
-            "mtree_stats".to_string(),
-            builtin_mtree_stats as BuiltinFn,
-        );
-        funcs.insert(
-            "graph_query".to_string(),
-            builtin_graph_query as BuiltinFn,
-        );
-        funcs.insert(
-            "graph_path".to_string(),
-            builtin_graph_path as BuiltinFn,
-        );
+        funcs.insert("mtree_stats".to_string(), builtin_mtree_stats as BuiltinFn);
+        funcs.insert("graph_query".to_string(), builtin_graph_query as BuiltinFn);
+        funcs.insert("graph_path".to_string(), builtin_graph_path as BuiltinFn);
         funcs.insert(
             "graph_neighbors".to_string(),
             builtin_graph_neighbors as BuiltinFn,
@@ -642,10 +549,7 @@ impl Builtins {
             "subgraph_json".to_string(),
             builtin_subgraph_json as BuiltinFn,
         );
-        funcs.insert(
-            "trace_start".to_string(),
-            builtin_trace_start as BuiltinFn,
-        );
+        funcs.insert("trace_start".to_string(), builtin_trace_start as BuiltinFn);
         funcs.insert("trace_end".to_string(), builtin_trace_end as BuiltinFn);
         funcs.insert("assert_eq".to_string(), builtin_assert_eq as BuiltinFn);
         funcs.insert(
@@ -664,45 +568,24 @@ impl Builtins {
         funcs.insert("lines".to_string(), builtin_lines as BuiltinFn);
         funcs.insert("words".to_string(), builtin_words as BuiltinFn);
         // ── sqz-inspired: TOON encoding (P2) ──
-        funcs.insert(
-            "toon_encode".to_string(),
-            builtin_toon_encode as BuiltinFn,
-        );
-        funcs.insert(
-            "toon_decode".to_string(),
-            builtin_toon_decode as BuiltinFn,
-        );
+        funcs.insert("toon_encode".to_string(), builtin_toon_encode as BuiltinFn);
+        funcs.insert("toon_decode".to_string(), builtin_toon_decode as BuiltinFn);
         // ── sqz-inspired: Content-addressed refs (P2) ──
         funcs.insert("ref".to_string(), builtin_content_ref as BuiltinFn);
         funcs.insert("deref".to_string(), builtin_content_deref as BuiltinFn);
         // ── sqz-inspired: Token awareness (P3) ──
-        funcs.insert(
-            "token_count".to_string(),
-            builtin_token_count as BuiltinFn,
-        );
+        funcs.insert("token_count".to_string(), builtin_token_count as BuiltinFn);
         // ── AgentSkillOS-inspired: Recipe system + DAG orchestration (ADR-0062) ──
-        funcs.insert(
-            "recipe_save".to_string(),
-            builtin_recipe_save as BuiltinFn,
-        );
+        funcs.insert("recipe_save".to_string(), builtin_recipe_save as BuiltinFn);
         funcs.insert(
             "recipe_search".to_string(),
             builtin_recipe_search as BuiltinFn,
         );
-        funcs.insert(
-            "recipe_list".to_string(),
-            builtin_recipe_list as BuiltinFn,
-        );
-        funcs.insert(
-            "dag_phases".to_string(),
-            builtin_dag_phases as BuiltinFn,
-        );
+        funcs.insert("recipe_list".to_string(), builtin_recipe_list as BuiltinFn);
+        funcs.insert("dag_phases".to_string(), builtin_dag_phases as BuiltinFn);
         funcs.insert("topo_sort".to_string(), builtin_topo_sort as BuiltinFn);
         // ── OpenPlanter-inspired: Fuzzy matching, safe editing, agent utilities (ADR-0063) ──
-        funcs.insert(
-            "fuzzy_match".to_string(),
-            builtin_fuzzy_match as BuiltinFn,
-        );
+        funcs.insert("fuzzy_match".to_string(), builtin_fuzzy_match as BuiltinFn);
         funcs.insert(
             "fuzzy_find_best".to_string(),
             builtin_fuzzy_find_best as BuiltinFn,
@@ -737,10 +620,7 @@ impl Builtins {
             "semantic_search".to_string(),
             builtin_semantic_search as BuiltinFn,
         );
-        funcs.insert(
-            "config_load".to_string(),
-            builtin_config_load as BuiltinFn,
-        );
+        funcs.insert("config_load".to_string(), builtin_config_load as BuiltinFn);
         funcs.insert(
             "vault_validate".to_string(),
             builtin_vault_validate as BuiltinFn,
@@ -762,10 +642,7 @@ impl Builtins {
         funcs.insert("pdf_ocr".to_string(), builtin_pdf_ocr as BuiltinFn);
 
         // Наряд MLG-1: PDF creation, manipulation, and Telegram document sending
-        funcs.insert(
-            "pdf_create".to_string(),
-            builtin_pdf_create as BuiltinFn,
-        );
+        funcs.insert("pdf_create".to_string(), builtin_pdf_create as BuiltinFn);
         funcs.insert(
             "pdf_add_page".to_string(),
             builtin_pdf_add_page as BuiltinFn,
@@ -793,10 +670,7 @@ impl Builtins {
             "pdf_set_metadata".to_string(),
             builtin_pdf_set_metadata as BuiltinFn,
         );
-        funcs.insert(
-            "html_to_pdf".to_string(),
-            builtin_html_to_pdf as BuiltinFn,
-        );
+        funcs.insert("html_to_pdf".to_string(), builtin_html_to_pdf as BuiltinFn);
         funcs.insert(
             "send_document".to_string(),
             builtin_send_document as BuiltinFn,
@@ -853,10 +727,7 @@ impl Builtins {
         );
         funcs.insert("imap_list".to_string(), builtin_imap_list as BuiltinFn);
         funcs.insert("imap_read".to_string(), builtin_imap_read as BuiltinFn);
-        funcs.insert(
-            "imap_search".to_string(),
-            builtin_imap_search as BuiltinFn,
-        );
+        funcs.insert("imap_search".to_string(), builtin_imap_search as BuiltinFn);
         funcs.insert(
             "imap_mark_read".to_string(),
             builtin_imap_mark_read as BuiltinFn,
@@ -864,36 +735,18 @@ impl Builtins {
         funcs.insert("imap_move".to_string(), builtin_imap_move as BuiltinFn);
 
         // Наряд MLG-5: Calendar (CalDAV + iCal)
-        funcs.insert(
-            "cal_connect".to_string(),
-            builtin_cal_connect as BuiltinFn,
-        );
+        funcs.insert("cal_connect".to_string(), builtin_cal_connect as BuiltinFn);
         funcs.insert("cal_list".to_string(), builtin_cal_list as BuiltinFn);
-        funcs.insert(
-            "cal_events".to_string(),
-            builtin_cal_events as BuiltinFn,
-        );
+        funcs.insert("cal_events".to_string(), builtin_cal_events as BuiltinFn);
         funcs.insert("cal_read".to_string(), builtin_cal_read as BuiltinFn);
-        funcs.insert(
-            "cal_create".to_string(),
-            builtin_cal_create as BuiltinFn,
-        );
-        funcs.insert(
-            "cal_update".to_string(),
-            builtin_cal_update as BuiltinFn,
-        );
-        funcs.insert(
-            "cal_delete".to_string(),
-            builtin_cal_delete as BuiltinFn,
-        );
+        funcs.insert("cal_create".to_string(), builtin_cal_create as BuiltinFn);
+        funcs.insert("cal_update".to_string(), builtin_cal_update as BuiltinFn);
+        funcs.insert("cal_delete".to_string(), builtin_cal_delete as BuiltinFn);
         funcs.insert(
             "cal_freebusy".to_string(),
             builtin_cal_freebusy as BuiltinFn,
         );
-        funcs.insert(
-            "ical_parse".to_string(),
-            builtin_ical_parse as BuiltinFn,
-        );
+        funcs.insert("ical_parse".to_string(), builtin_ical_parse as BuiltinFn);
         funcs.insert(
             "ical_generate".to_string(),
             builtin_ical_generate as BuiltinFn,
@@ -910,26 +763,11 @@ impl Builtins {
             builtin_card_contacts as BuiltinFn,
         );
         funcs.insert("card_read".to_string(), builtin_card_read as BuiltinFn);
-        funcs.insert(
-            "card_create".to_string(),
-            builtin_card_create as BuiltinFn,
-        );
-        funcs.insert(
-            "card_update".to_string(),
-            builtin_card_update as BuiltinFn,
-        );
-        funcs.insert(
-            "card_delete".to_string(),
-            builtin_card_delete as BuiltinFn,
-        );
-        funcs.insert(
-            "card_search".to_string(),
-            builtin_card_search as BuiltinFn,
-        );
-        funcs.insert(
-            "vcard_parse".to_string(),
-            builtin_vcard_parse as BuiltinFn,
-        );
+        funcs.insert("card_create".to_string(), builtin_card_create as BuiltinFn);
+        funcs.insert("card_update".to_string(), builtin_card_update as BuiltinFn);
+        funcs.insert("card_delete".to_string(), builtin_card_delete as BuiltinFn);
+        funcs.insert("card_search".to_string(), builtin_card_search as BuiltinFn);
+        funcs.insert("vcard_parse".to_string(), builtin_vcard_parse as BuiltinFn);
         funcs.insert(
             "vcard_generate".to_string(),
             builtin_vcard_generate as BuiltinFn,
@@ -938,34 +776,13 @@ impl Builtins {
         #[cfg(feature = "svg")]
         {
             // ── Наряд №74/№111: SVG primitives + tokens ──
-            funcs.insert(
-                "svg_rect".to_string(),
-                builtin_svg_rect as BuiltinFn,
-            );
-            funcs.insert(
-                "svg_circle".to_string(),
-                builtin_svg_circle as BuiltinFn,
-            );
-            funcs.insert(
-                "svg_line".to_string(),
-                builtin_svg_line as BuiltinFn,
-            );
-            funcs.insert(
-                "svg_text".to_string(),
-                builtin_svg_text as BuiltinFn,
-            );
-            funcs.insert(
-                "svg_path".to_string(),
-                builtin_svg_path as BuiltinFn,
-            );
-            funcs.insert(
-                "svg_group".to_string(),
-                builtin_svg_group as BuiltinFn,
-            );
-            funcs.insert(
-                "svg_canvas".to_string(),
-                builtin_svg_canvas as BuiltinFn,
-            );
+            funcs.insert("svg_rect".to_string(), builtin_svg_rect as BuiltinFn);
+            funcs.insert("svg_circle".to_string(), builtin_svg_circle as BuiltinFn);
+            funcs.insert("svg_line".to_string(), builtin_svg_line as BuiltinFn);
+            funcs.insert("svg_text".to_string(), builtin_svg_text as BuiltinFn);
+            funcs.insert("svg_path".to_string(), builtin_svg_path as BuiltinFn);
+            funcs.insert("svg_group".to_string(), builtin_svg_group as BuiltinFn);
+            funcs.insert("svg_canvas".to_string(), builtin_svg_canvas as BuiltinFn);
             funcs.insert(
                 "diagram_style".to_string(),
                 builtin_diagram_style as BuiltinFn,
@@ -974,14 +791,8 @@ impl Builtins {
                 "svg_sketchy_filter".to_string(),
                 builtin_svg_sketchy_filter as BuiltinFn,
             );
-            funcs.insert(
-                "svg_icon".to_string(),
-                builtin_svg_icon as BuiltinFn,
-            );
-            funcs.insert(
-                "svg_callout".to_string(),
-                builtin_svg_callout as BuiltinFn,
-            );
+            funcs.insert("svg_icon".to_string(), builtin_svg_icon as BuiltinFn);
+            funcs.insert("svg_callout".to_string(), builtin_svg_callout as BuiltinFn);
             funcs.insert(
                 "color_palette".to_string(),
                 builtin_color_palette as BuiltinFn,
@@ -998,30 +809,15 @@ impl Builtins {
         #[cfg(feature = "chart")]
         {
             // ── chart_* ──
-            funcs.insert(
-                "chart_bar".to_string(),
-                builtin_chart_bar as BuiltinFn,
-            );
-            funcs.insert(
-                "chart_donut".to_string(),
-                builtin_chart_donut as BuiltinFn,
-            );
-            funcs.insert(
-                "chart_line".to_string(),
-                builtin_chart_line as BuiltinFn,
-            );
+            funcs.insert("chart_bar".to_string(), builtin_chart_bar as BuiltinFn);
+            funcs.insert("chart_donut".to_string(), builtin_chart_donut as BuiltinFn);
+            funcs.insert("chart_line".to_string(), builtin_chart_line as BuiltinFn);
             funcs.insert(
                 "chart_scatter".to_string(),
                 builtin_chart_scatter as BuiltinFn,
             );
-            funcs.insert(
-                "chart_area".to_string(),
-                builtin_chart_area as BuiltinFn,
-            );
-            funcs.insert(
-                "chart_radar".to_string(),
-                builtin_chart_radar as BuiltinFn,
-            );
+            funcs.insert("chart_area".to_string(), builtin_chart_area as BuiltinFn);
+            funcs.insert("chart_radar".to_string(), builtin_chart_radar as BuiltinFn);
             funcs.insert(
                 "chart_heatmap".to_string(),
                 builtin_chart_heatmap as BuiltinFn,
@@ -1090,10 +886,7 @@ impl Builtins {
                 "diagram_medallion".to_string(),
                 builtin_diagram_medallion as BuiltinFn,
             );
-            funcs.insert(
-                "diagram_er".to_string(),
-                builtin_diagram_er as BuiltinFn,
-            );
+            funcs.insert("diagram_er".to_string(), builtin_diagram_er as BuiltinFn);
             funcs.insert(
                 "diagram_state".to_string(),
                 builtin_diagram_state as BuiltinFn,
@@ -1130,10 +923,7 @@ impl Builtins {
         }
 
         // ── Наряд №88: HTML rendering via headless browser ──
-        funcs.insert(
-            "html_render".to_string(),
-            builtin_html_render as BuiltinFn,
-        );
+        funcs.insert("html_render".to_string(), builtin_html_render as BuiltinFn);
 
         // ── Наряд №89: Infographic quality assurance ──
         funcs.insert(
@@ -1143,24 +933,12 @@ impl Builtins {
 
         // ── Наряд №50 Block 3: SHA-256 / HMAC / hex builtins ──
         funcs.insert("sha256".to_string(), builtin_sha256 as BuiltinFn);
-        funcs.insert(
-            "hmac_sha256".to_string(),
-            builtin_hmac_sha256 as BuiltinFn,
-        );
-        funcs.insert(
-            "hex_encode".to_string(),
-            builtin_hex_encode as BuiltinFn,
-        );
-        funcs.insert(
-            "hex_decode".to_string(),
-            builtin_hex_decode as BuiltinFn,
-        );
+        funcs.insert("hmac_sha256".to_string(), builtin_hmac_sha256 as BuiltinFn);
+        funcs.insert("hex_encode".to_string(), builtin_hex_encode as BuiltinFn);
+        funcs.insert("hex_decode".to_string(), builtin_hex_decode as BuiltinFn);
 
         // ── Наряд №54: Regular expression builtins ──
-        funcs.insert(
-            "regex_match".to_string(),
-            builtin_regex_match as BuiltinFn,
-        );
+        funcs.insert("regex_match".to_string(), builtin_regex_match as BuiltinFn);
         funcs.insert(
             "regex_captures".to_string(),
             builtin_regex_captures as BuiltinFn,

@@ -2,7 +2,7 @@
 template Greeting(who: String) -> Html {
 <p>Hello {{ who }}</p>
 }
-pattern Main() -> Html {
+pattern Main(x: String) -> Html {
   return render(Greeting, "Metalogos")
 }
 flow F { input: String = "x" -> Main -> output }

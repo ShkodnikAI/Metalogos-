@@ -6,6 +6,58 @@ use chrono::{Datelike, TimeZone, Timelike};
 use super::core::*;
 use super::string::escape_html_chars;
 
+
+// ── Наряд №115: global template registry (Path B — parity TW/VM) ──
+// Populated when Declaration::Template is processed; builtin_render reads it.
+// Same pattern as GLOBAL_SMART_ROUTER (naryad №4).
+
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+#[derive(Clone, Debug)]
+pub(crate) struct TemplateEntry {
+    pub body: String,
+    pub params: Vec<String>,
+}
+
+pub(crate) static GLOBAL_TEMPLATES: Lazy<Mutex<HashMap<String, TemplateEntry>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// Register a template body + param names (called from interpreter on Declaration::Template).
+pub(crate) fn register_template(name: &str, body: &str, params: Vec<String>) {
+    if let Ok(mut g) = GLOBAL_TEMPLATES.lock() {
+        g.insert(
+            name.to_string(),
+            TemplateEntry {
+                body: body.to_string(),
+                params,
+            },
+        );
+    }
+}
+
+/// Clear registry (tests).
+#[cfg(test)]
+pub(crate) fn clear_templates() {
+    if let Ok(mut g) = GLOBAL_TEMPLATES.lock() {
+        g.clear();
+    }
+}
+
+/// Substitute `{{ key }}` with HTML-escaped values. Shared with server path.
+pub(crate) fn render_template_body(body: &str, vars: &HashMap<String, String>) -> String {
+    let mut result = body.to_string();
+    for (key, val) in vars {
+        let escaped = escape_html_chars(val);
+        // Support both {{key}} and {{ key }} (with spaces)
+        result = result.replace(&format!("{{{{{}}}}}", key), &escaped);
+        result = result.replace(&format!("{{{{ {} }}}}", key), &escaped);
+    }
+    result
+}
+
+
 // ── Phase 6.1 — HTTP server stubs ───────────────────────────
 
 pub(crate) fn builtin_respond(args: &[Value]) -> Result<Value, String> {
@@ -76,52 +128,53 @@ pub(crate) fn builtin_query_param(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(crate) fn builtin_render(args: &[Value]) -> Result<Value, String> {
-    // render(template_name, key1, val1, key2, val2, ...)
-    // Simple {{ var }} substitution with auto-escaping
-    // In interpreter mode, do basic string substitution
-    if args.len() < 3 || !(args.len() - 1).is_multiple_of(2) {
-        return Err("render() requires template name + key/value pairs (odd count)".to_string());
+    // render(TemplateName, arg1, arg2, ...) — positional args map to template params.
+    // Наряд №115: real body substitution via GLOBAL_TEMPLATES (not stub markup).
+    if args.is_empty() {
+        return Err("render() requires a template name".to_string());
     }
     let template_name = expect_string_arg("render", args, 0)?;
 
-    // Build substitution map from remaining args (key, value pairs)
-    let mut vars = std::collections::HashMap::new();
-    let mut i = 1;
-    while i + 1 < args.len() {
-        let key = match &args[i] {
-            Value::String(s) => s.clone(),
-            other => {
-                return Err(format!(
-                    "render() key must be String, got {}",
-                    other.type_name()
-                ))
-            }
-        };
-        let val = match &args[i + 1] {
-            Value::String(s) => s.clone(),
-            other => format!("{}", other),
-        };
-        vars.insert(key, val);
-        i += 2;
-    }
+    let entry = {
+        let g = GLOBAL_TEMPLATES
+            .lock()
+            .map_err(|e| format!("template registry lock poisoned: {}", e))?;
+        g.get(&template_name).cloned()
+    };
+    let entry = entry.ok_or_else(|| {
+        format!(
+            "render(): unknown template '{}' — declare it with `template {}(...) -> Html {{ ... }}`",
+            template_name, template_name
+        )
+    })?;
 
-    // In interpreter mode, generate a simple HTML string from the template name and vars
-    let mut html = String::from("<div class=\"template-");
-    html.push_str(&escape_html_chars(&template_name));
-    html.push_str("\">");
-    for (key, val) in &vars {
-        html.push_str(&format!(
-            "<span data-key=\"{}\">{}</span>",
-            escape_html_chars(key),
-            escape_html_chars(val)
+    // Map positional args (after name) to param names
+    let values = &args[1..];
+    if values.len() != entry.params.len() {
+        return Err(format!(
+            "render('{}'): expected {} argument(s) for params {:?}, got {}",
+            template_name,
+            entry.params.len(),
+            entry.params,
+            values.len()
         ));
     }
-    html.push_str("</div>");
 
+    let mut vars = HashMap::new();
+    for (param, val) in entry.params.iter().zip(values.iter()) {
+        let s = match val {
+            Value::String(s) => s.clone(),
+            Value::Html(h) => h.clone(), // allow Html for composition (still escaped unless |safe)
+            other => format!("{}", other),
+        };
+        vars.insert(param.clone(), s);
+    }
+
+    let html = render_template_body(&entry.body, &vars);
     Ok(Value::Html(html))
 }
 
-/// Parse a status line like "200 OK" into (status_code, body).
+
 pub(crate) fn parse_status_line(status_body: &str) -> (u16, String) {
     let parts: Vec<&str> = status_body.splitn(2, ' ').collect();
     let status = parts

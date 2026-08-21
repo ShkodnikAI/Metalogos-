@@ -55,6 +55,16 @@ jobs:
       - name: LLM cache contract tests
         run: cargo test --workspace --test llm_cache_contract --no-fail-fast
 
+  minimal-build:
+    name: minimal-build (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build with minimal features (no server/llm)
+        run: cargo build --release --no-default-features --features "svg,chart,diagram,template"
+
   test-integration:
     name: test-integration (advisory)
     runs-on: ubuntu-latest

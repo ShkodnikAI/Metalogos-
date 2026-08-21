@@ -7,3 +7,9 @@ server {
     render(Card, "<script>alert(1)</script>")
   }
 }
+
+// Наряд №115: flow so golden/crosscheck can see escaped render
+pattern Show() -> Html {
+  return render(Card, "<script>alert(1)</script>")
+}
+flow Main { input: String = "x" -> Show -> output }

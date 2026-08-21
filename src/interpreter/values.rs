@@ -219,7 +219,6 @@ impl Value {
     }
 }
 
-
 /// Opaque / sensitive values that must not be rendered by print.
 /// Наряд №114.
 pub fn is_nonprintable(v: &Value) -> bool {

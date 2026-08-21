@@ -311,6 +311,12 @@ Every item in the OWASP Top 10 (2021) is addressed at the language level: type-s
 
 String ops, math, collections, type conversion, LLM/AI, HTTP, JSON, file I/O, KV store, session memory, encryption, authentication, HTTP server, templates, databases, Telegram/Discord bots, time/date/calendar, geolocation, weather, reminders, cron, goals, todos, memory tree, preferences, approval workflows, fuzzy matching, hashline editing, context compaction, budget awareness, replay logging, policy enforcement, PDF processing (classify, extract, OCR), typed semantic memory (FTS5 BM25 + cosine RRF), SMTP/IMAP email, CalDAV/CardDAV calendar and contacts, native SVG graphics, and more. See [REFERENCE.md](REFERENCE.md) for the full list.
 
+### Cargo feature gates
+
+Optional compile-time gates (`svg`, `chart`, `diagram`, `template`, `llm`, `server`;
+default = all). Measured impact of building without the server stack: ~7% smaller
+release binary — see [ADR-0104](docs/adr/0104-feature-gating-measured-impact.md).
+
 ### Native SVG/Graphics Subsystem
 
 44 builtins, hand-rolled in pure Rust — zero external SVG/charting/

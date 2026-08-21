@@ -984,9 +984,7 @@ impl Builtins {
     }
 }
 
-#[cfg(feature = "server")]
 pub(crate) mod server;
-#[cfg(feature = "server")]
 use server::*;
 pub(crate) mod office;
 use office::*;

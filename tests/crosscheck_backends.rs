@@ -1,10 +1,11 @@
-// ── Block 4: Triple-backend cross-check test ───────────────────────
+// ── Block 4: TW vs VM cross-check test ─────────────────────────────
 // Runs .mlog programs through interpreter (tree-walking) and VM,
-// comparing outputs. JIT is declared experimental (ADR-0073) — skipped.
+// comparing outputs. JIT is experimental (ADR-0073) — skipped.
+// VM is experimental for full-language coverage (ADR-0105): programs
+// that need `match` / block if-else are excluded (e.g. p_match_switch).
 //
 // Discrepancies are red tests — each mismatch is a separate assertion.
-// This test is designed to be informational first: it collects ALL
-// mismatches and reports them, then fails if any exist.
+// Collects ALL mismatches, then fails if any exist.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -44,6 +45,13 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                     let name = path.file_name().unwrap_or_default().to_string_lossy();
                     // Skip negative-test contracts (designed to produce errors)
                     if name.contains("unknown_fn") || name.contains("wrong_") {
+                        continue;
+                    }
+                    // Наряд №109 / ADR-0105: p_match_switch exercises `match`,
+                    // which the VM cannot compile. TW has a golden .expected;
+                    // full TW↔VM parity for this file is out of scope until
+                    // a deliberate decision to implement Match in the VM.
+                    if name == "p_match_switch.mlog" {
                         continue;
                     }
                     let expected = path.with_extension("expected");

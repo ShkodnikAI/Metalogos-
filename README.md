@@ -76,7 +76,7 @@ OWASP Top 10 is covered at the language level, not through middleware.
 
 ### 3. Dual Execution Backend
 
-Tree-walking interpreter + bytecode VM (46 instructions) with identical semantics. Every program is verified by `crosscheck_backends` — a test ensuring both backends return the same result. This is unique for a language of this size.
+Tree-walking interpreter (full language) + bytecode VM (46 instructions; experimental for full-language use — `match` and block `if/else` not supported yet, see [ADR-0105](docs/adr/0105-vm-experimental-scope.md)). Programs both backends can run are checked by `crosscheck_backends` for TW↔VM output parity.
 
 ### 4. Typed Semantic Memory with Hybrid Search
 
@@ -109,7 +109,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 ## Architecture
 
 ```
- .mlog source        Pest PEG          AST              Semantic            Two Backends
+ .mlog source        Pest PEG          AST              Semantic            TW + VM backends
 ─────────────  ──>  ────────────  ──>  ───────────  ──>  ────────────  ──>  ────────────
  entity             parse tokens      27 Declaration    cross-reference     tree-walking
  pattern            syntax rules      14 Expr           validation          bytecode VM
@@ -225,7 +225,7 @@ Metalogos-/
 │   ├── fixtures/                      # PDF test fixtures
 │   ├── golden.rs                      # Golden test runner (66/70 pass)
 │   ├── vm_golden.rs                   # VM golden tests
-│   ├── crosscheck_backends.rs          # TW vs VM parity verification
+│   ├── crosscheck_backends.rs          # TW vs VM parity (subset both can run; see ADR-0105)
 │   ├── repl_integration.rs            # REPL tests
 │   ├── definition_of_done.rs          # Project completeness validation
 │   └── ...                            # Contract + feature tests (53 files)

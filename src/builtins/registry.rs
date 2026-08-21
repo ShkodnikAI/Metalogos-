@@ -165,8 +165,11 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("query", 1, 2, "db"),
     spec!("db_execute", 1, 2, "db"), // ADR-0068: optional params list
     // ── LLM builtins ──
+    #[cfg(feature = "llm")]
     spec!("call_llm", 1, 2, "llm"), // prompt | prompt,input
+    #[cfg(feature = "llm")]
     spec!("call_claude", 4, "llm"), // api_key,model,system,user
+    #[cfg(feature = "llm")]
     spec!("llm_usage", 0, "llm"),
     // ── Memory builtins ──
     spec!("kv_set", 2, "memory"),
@@ -371,49 +374,85 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("vcard_generate", 1, "contacts"), // contact_json
     // ── Наряд №74: Native SVG Graphics & Diagrams (ADR-0102) ──
     // Level 1: SVG primitives — return XML fragments
+    #[cfg(feature = "svg")]
     spec!("svg_rect", 5, 6, "svg"),  // x, y, w, h, fill [, stroke]
+    #[cfg(feature = "svg")]
     spec!("svg_circle", 4, "svg"),   // cx, cy, r, fill
+    #[cfg(feature = "svg")]
     spec!("svg_line", 5, 6, "svg"),  // x1, y1, x2, y2, stroke [, width]
+    #[cfg(feature = "svg")]
     spec!("svg_text", 5, 6, "svg"),  // x, y, content, font_size, fill [, anchor]
+    #[cfg(feature = "svg")]
     spec!("svg_path", 2, 3, "svg"),  // d, fill [, stroke]
+    #[cfg(feature = "svg")]
     spec!("svg_group", 1, 2, "svg"), // children [, transform]
+    #[cfg(feature = "svg")]
     spec!("svg_canvas", 4, "svg"),   // width, height, viewbox, children
     // Level 2: design tokens
+    #[cfg(feature = "svg")]
     spec!("diagram_style", 1, "tokens"), // {paper, ink, accent, muted, rule}
     // Level 2.5: wow-effects
+    #[cfg(feature = "svg")]
     spec!("svg_sketchy_filter", 1, 5, "svg"), // id [, base_freq, octaves, scale, seed]
+    #[cfg(feature = "svg")]
     spec!("svg_icon", 5, "svg"),              // name, x, y, size, color
+    #[cfg(feature = "svg")]
     spec!("svg_callout", 5, 6, "svg"),        // text, from_x, from_y, to_x, to_y [, intent]
     // Level 3: high-level chart types
+    #[cfg(feature = "chart")]
     spec!("chart_bar", 2, "chart"),     // data, style
+    #[cfg(feature = "chart")]
     spec!("chart_donut", 2, "chart"),   // data, style — Наряд №77 Block 2
+    #[cfg(feature = "chart")]
     spec!("chart_line", 2, "chart"),    // data, style — Наряд №78 Block 1
+    #[cfg(feature = "chart")]
     spec!("chart_scatter", 2, "chart"), // data, style — Наряд №78 Block 2
+    #[cfg(feature = "chart")]
     spec!("chart_area", 2, "chart"),    // data, style — Наряд №78 Block 3
+    #[cfg(feature = "chart")]
     spec!("chart_radar", 2, "chart"),   // data, style — Наряд №79 Block 1
+    #[cfg(feature = "chart")]
     spec!("chart_heatmap", 2, "chart"), // data, style — Наряд №79 Block 2
+    #[cfg(feature = "chart")]
     spec!("chart_boxplot", 2, "chart"), // data, style — Наряд №79 Block 3
     // Level 2.6: derived palette (Наряд №77 Block 1)
+    #[cfg(feature = "svg")]
     spec!("color_palette", 2, "svg"), // intent, mode → DiagramStyle
     // Level 2.6/2.7: procedural backgrounds + canvas presets (Наряд №80)
+    #[cfg(feature = "svg")]
     spec!("svg_generate", 4, "svg"), // kind, intent, w, h → SVG fragment
+    #[cfg(feature = "svg")]
     spec!("svg_canvas_preset", 3, "svg"), // preset_name, viewbox, children
     // Level 3.1: diagrams (Наряд №81) — hierarchies & flows
+    #[cfg(feature = "diagram")]
     spec!("diagram_tree", 2, "diagram"), // data, style — recursive tree
+    #[cfg(feature = "diagram")]
     spec!("diagram_org_chart", 2, "diagram"), // data, style — tree with title field
+    #[cfg(feature = "diagram")]
     spec!("diagram_flowchart", 2, "diagram"), // data, style — layered DAG
+    #[cfg(feature = "diagram")]
     spec!("diagram_layers", 2, "diagram"), // data, style — horizontal stripes
     // Level 3.2: diagrams (Наряд №82) — temporal & process
+    #[cfg(feature = "diagram")]
     spec!("diagram_sequence", 2, "diagram"), // data, style — UML sequence (lifelines + messages)
+    #[cfg(feature = "diagram")]
     spec!("diagram_timeline", 2, "diagram"), // data, style — horizontal axis with event dots
+    #[cfg(feature = "diagram")]
     spec!("diagram_gantt", 2, "diagram"),    // data, style — horizontal bars per task
+    #[cfg(feature = "diagram")]
     spec!("diagram_process", 2, "diagram"),  // data, style — linear numbered step chain
+    #[cfg(feature = "diagram")]
     spec!("diagram_loop", 2, "diagram"),     // data, style — closed-loop circular steps
     // Level 3.3: diagrams (Наряд №83) — sets & comparisons
+    #[cfg(feature = "diagram")]
     spec!("diagram_venn", 2, "diagram"), // data, style — 2 or 3 overlapping circles
+    #[cfg(feature = "diagram")]
     spec!("diagram_quadrant", 2, "diagram"), // data, style — 2x2 strategic quadrant
+    #[cfg(feature = "diagram")]
     spec!("diagram_pyramid", 2, "diagram"), // data, style — stacked trapezoids (top=apex)
+    #[cfg(feature = "diagram")]
     spec!("diagram_nested", 2, "diagram"), // data, style — concentric circles
+    #[cfg(feature = "diagram")]
     spec!("diagram_medallion", 2, "diagram"), // data, style — row of round badges w/ icons
     // Level 3.4: diagrams (Наряд №84) — data & state
     //   diagram_er         — Struct{entities: [{name, fields: [String]}], relations: [{from,to,label?}]}
@@ -426,11 +465,17 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     //                       same shape as flowchart, but cycles VALID (uses bfs_layers_with_cycles).
     //   diagram_high_level — same shape, NO cycles (topological), larger bolder blocks.
     //   diagram_architecture — same shape + optional `icon` per node (reuses svg_icon's 10 names).
+    #[cfg(feature = "diagram")]
     spec!("diagram_er", 2, "diagram"), // data, style — entity boxes on a grid w/ relations
+    #[cfg(feature = "diagram")]
     spec!("diagram_state", 2, "diagram"), // data, style — state machine (cycles OK)
+    #[cfg(feature = "diagram")]
     spec!("diagram_swimlane", 2, "diagram"), // data, style — lanes × steps positioned by order
+    #[cfg(feature = "diagram")]
     spec!("diagram_data_flow", 2, "diagram"), // data, style — graph w/ cycles OK
+    #[cfg(feature = "diagram")]
     spec!("diagram_high_level", 2, "diagram"), // data, style — large bolder blocks, no cycles
+    #[cfg(feature = "diagram")]
     spec!("diagram_architecture", 2, "diagram"), // data, style — high_level + svg_icon per node
     // ── Наряд №86: Mini template engine ──
     //   template_render(template, data) -> Html
@@ -440,6 +485,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     //   INTENTIONALLY NOT in SVG_AUTO_ESCAPE_BUILTINS — the template is
     //   trusted code (written by the .mlog programmer, not user input);
     //   data substitution is escaped at runtime via escape_html_chars.
+    #[cfg(feature = "template")]
     spec!("template_render", 2, "template"),
     // ── Наряд №88: HTML rendering via headless browser ──
     //   html_render(html, width, height) -> String (path to PNG)
@@ -453,6 +499,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     //   infographic_qa(svg_string) -> Struct { passed, warnings, checks_run }
     //   Three mechanical checks: contrast (WCAG), saturation discipline,
     //   element density. Advisory — passed:false means "review", not "broken".
+    #[cfg(feature = "diagram")]
     spec!("infographic_qa", 1, "diagram"),
 ];
 

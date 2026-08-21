@@ -286,9 +286,10 @@ The compiler enforces structural security invariants — these are errors, not w
 // SQL injection impossible — non-literal query() is a compile-time error
 let user = query("SELECT * FROM users WHERE id = $1", [id])
 
-// Secret leak impossible — env() to respond() is a compile-time error
+// Secret leak impossible — env() to respond()/print() is a static SECRET_LEAK finding
 entity token: Secret = env("API_KEY")
-respond(token)   // Compile error: [SECRET_LEAK]
+respond(token)   // [SECRET_LEAK] via mlog audit / Category A checks
+print(token)     // runtime error: print() refused: Secret values cannot be printed
 
 // XSS via LLM impossible — unsanitized LLM output to respond() is a compile-time error
 let reply = call_llm(prompt)

@@ -169,6 +169,10 @@ fn get_expr_taint(expr: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
             if fn_name == "render" || fn_name == "escape_html" {
                 return Some(TaintKind::Sanitized);
             }
+            // env() is a secret source even with no tainted args
+            if fn_name == "env" {
+                return Some(TaintKind::Secret);
+            }
             // Propagate taint from first tainted argument
             for arg in args {
                 if let Some(taint) = get_expr_taint(arg, tracker) {
@@ -867,7 +871,7 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
     /// Note: http_post is NOT a blanket sink — passing secrets in headers
     /// (arg 3) is intentional (Bearer auth). Only body (arg 1) is flagged.
     /// send_message is also not a sink — it is an intentional API call point.
-    const SINK_FUNCTIONS: &[&str] = &["respond", "respond_html", "write_file"];
+    const SINK_FUNCTIONS: &[&str] = &["respond", "respond_html", "write_file", "print"];
 
     fn is_sink(name: &str) -> bool {
         SINK_FUNCTIONS.contains(&name)
@@ -958,19 +962,18 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
             if let Expr::FnCall(fn_name, args) = expr {
                 if is_sink(fn_name) {
                     for arg in args {
-                        if let Expr::Ident(var) = arg {
-                            if tracker.get_taint(var) == Some(TaintKind::Secret) {
-                                let line = find_line(source, fn_name);
-                                findings.push(AuditFinding {
-                                    severity: Severity::Error,
-                                    check_id: "SECRET_LEAK",
-                                    line,
-                                    message: format!(
-                                        "secret may be leaked — env() value passed to {}()",
-                                        fn_name
-                                    ),
-                                });
-                            }
+                        // Ident + direct env()/tainted expr (e.g. print(env("X")))
+                        if get_expr_taint(arg, tracker) == Some(TaintKind::Secret) {
+                            let line = find_line(source, fn_name);
+                            findings.push(AuditFinding {
+                                severity: Severity::Error,
+                                check_id: "SECRET_LEAK",
+                                line,
+                                message: format!(
+                                    "secret may be leaked — env() value passed to {}()",
+                                    fn_name
+                                ),
+                            });
                         }
                     }
                 }
@@ -1635,6 +1638,40 @@ mod tests {
         assert!(
             result.findings.iter().all(|f| f.check_id != "SECRETS"),
             "Short random string without recognizable prefix must not be flagged"
+        );
+    }
+
+    // ── Наряд №114: print is a SECRET_LEAK sink ──
+    #[test]
+    fn secret_leak_print_ident() {
+        let source = r#"
+            pattern Leak() -> String {
+                let token = env("API_KEY")
+                let _ = print(token)
+                return "x"
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result.findings.iter().any(|f| f.check_id == "SECRET_LEAK"),
+            "print(token) where token from env must be SECRET_LEAK, got {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn secret_leak_print_direct_env() {
+        let source = r#"
+            pattern Leak() -> String {
+                let _ = print(env("API_KEY"))
+                return "x"
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result.findings.iter().any(|f| f.check_id == "SECRET_LEAK"),
+            "print(env(...)) must be SECRET_LEAK, got {:?}",
+            result.findings
         );
     }
 }

@@ -783,13 +783,28 @@ impl Builtins {
             funcs.insert("svg_path".to_string(), builtin_svg_path as BuiltinFn);
             funcs.insert("svg_group".to_string(), builtin_svg_group as BuiltinFn);
             funcs.insert("svg_canvas".to_string(), builtin_svg_canvas as BuiltinFn);
-            funcs.insert("diagram_style".to_string(), builtin_diagram_style as BuiltinFn);
-            funcs.insert("svg_sketchy_filter".to_string(), builtin_svg_sketchy_filter as BuiltinFn);
+            funcs.insert(
+                "diagram_style".to_string(),
+                builtin_diagram_style as BuiltinFn,
+            );
+            funcs.insert(
+                "svg_sketchy_filter".to_string(),
+                builtin_svg_sketchy_filter as BuiltinFn,
+            );
             funcs.insert("svg_icon".to_string(), builtin_svg_icon as BuiltinFn);
             funcs.insert("svg_callout".to_string(), builtin_svg_callout as BuiltinFn);
-            funcs.insert("color_palette".to_string(), builtin_color_palette as BuiltinFn);
-            funcs.insert("svg_generate".to_string(), builtin_svg_generate as BuiltinFn);
-            funcs.insert("svg_canvas_preset".to_string(), builtin_svg_canvas_preset as BuiltinFn);
+            funcs.insert(
+                "color_palette".to_string(),
+                builtin_color_palette as BuiltinFn,
+            );
+            funcs.insert(
+                "svg_generate".to_string(),
+                builtin_svg_generate as BuiltinFn,
+            );
+            funcs.insert(
+                "svg_canvas_preset".to_string(),
+                builtin_svg_canvas_preset as BuiltinFn,
+            );
         }
         #[cfg(feature = "chart")]
         {
@@ -800,33 +815,81 @@ impl Builtins {
             funcs.insert("chart_scatter".to_string(), builtin_chart_scatter as BuiltinFn);
             funcs.insert("chart_area".to_string(), builtin_chart_area as BuiltinFn);
             funcs.insert("chart_radar".to_string(), builtin_chart_radar as BuiltinFn);
-            funcs.insert("chart_heatmap".to_string(), builtin_chart_heatmap as BuiltinFn);
-            funcs.insert("chart_boxplot".to_string(), builtin_chart_boxplot as BuiltinFn);
+            funcs.insert(
+                "chart_heatmap".to_string(),
+                builtin_chart_heatmap as BuiltinFn,
+            );
+            funcs.insert(
+                "chart_boxplot".to_string(),
+                builtin_chart_boxplot as BuiltinFn,
+            );
         }
         #[cfg(feature = "diagram")]
         {
             // ── diagram_* ──
             funcs.insert("diagram_tree".to_string(), builtin_diagram_tree as BuiltinFn);
-            funcs.insert("diagram_org_chart".to_string(), builtin_diagram_org_chart as BuiltinFn);
-            funcs.insert("diagram_flowchart".to_string(), builtin_diagram_flowchart as BuiltinFn);
+            funcs.insert(
+                "diagram_org_chart".to_string(),
+                builtin_diagram_org_chart as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_flowchart".to_string(),
+                builtin_diagram_flowchart as BuiltinFn,
+            );
             funcs.insert("diagram_layers".to_string(), builtin_diagram_layers as BuiltinFn);
-            funcs.insert("diagram_sequence".to_string(), builtin_diagram_sequence as BuiltinFn);
-            funcs.insert("diagram_timeline".to_string(), builtin_diagram_timeline as BuiltinFn);
+            funcs.insert(
+                "diagram_sequence".to_string(),
+                builtin_diagram_sequence as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_timeline".to_string(),
+                builtin_diagram_timeline as BuiltinFn,
+            );
             funcs.insert("diagram_gantt".to_string(), builtin_diagram_gantt as BuiltinFn);
-            funcs.insert("diagram_process".to_string(), builtin_diagram_process as BuiltinFn);
+            funcs.insert(
+                "diagram_process".to_string(),
+                builtin_diagram_process as BuiltinFn,
+            );
             funcs.insert("diagram_loop".to_string(), builtin_diagram_loop as BuiltinFn);
             funcs.insert("diagram_venn".to_string(), builtin_diagram_venn as BuiltinFn);
-            funcs.insert("diagram_quadrant".to_string(), builtin_diagram_quadrant as BuiltinFn);
-            funcs.insert("diagram_pyramid".to_string(), builtin_diagram_pyramid as BuiltinFn);
-            funcs.insert("diagram_nested".to_string(), builtin_diagram_nested as BuiltinFn);
-            funcs.insert("diagram_medallion".to_string(), builtin_diagram_medallion as BuiltinFn);
+            funcs.insert(
+                "diagram_quadrant".to_string(),
+                builtin_diagram_quadrant as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_pyramid".to_string(),
+                builtin_diagram_pyramid as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_nested".to_string(),
+                builtin_diagram_nested as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_medallion".to_string(),
+                builtin_diagram_medallion as BuiltinFn,
+            );
             funcs.insert("diagram_er".to_string(), builtin_diagram_er as BuiltinFn);
             funcs.insert("diagram_state".to_string(), builtin_diagram_state as BuiltinFn);
-            funcs.insert("diagram_swimlane".to_string(), builtin_diagram_swimlane as BuiltinFn);
-            funcs.insert("diagram_data_flow".to_string(), builtin_diagram_data_flow as BuiltinFn);
-            funcs.insert("diagram_high_level".to_string(), builtin_diagram_high_level as BuiltinFn);
-            funcs.insert("diagram_architecture".to_string(), builtin_diagram_architecture as BuiltinFn);
-            funcs.insert("infographic_qa".to_string(), builtin_infographic_qa as BuiltinFn);
+            funcs.insert(
+                "diagram_swimlane".to_string(),
+                builtin_diagram_swimlane as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_data_flow".to_string(),
+                builtin_diagram_data_flow as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_high_level".to_string(),
+                builtin_diagram_high_level as BuiltinFn,
+            );
+            funcs.insert(
+                "diagram_architecture".to_string(),
+                builtin_diagram_architecture as BuiltinFn,
+            );
+            funcs.insert(
+                "infographic_qa".to_string(),
+                builtin_infographic_qa as BuiltinFn,
+            );
         }
 
         #[cfg(feature = "template")]

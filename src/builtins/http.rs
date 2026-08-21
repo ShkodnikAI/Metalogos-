@@ -36,14 +36,6 @@ pub(crate) fn register_template(name: &str, body: &str, params: Vec<String>) {
     }
 }
 
-/// Clear registry (tests).
-#[cfg(test)]
-pub(crate) fn clear_templates() {
-    if let Ok(mut g) = GLOBAL_TEMPLATES.lock() {
-        g.clear();
-    }
-}
-
 /// Substitute `{{ key }}` with HTML-escaped values. Shared with server path.
 pub(crate) fn render_template_body(body: &str, vars: &HashMap<String, String>) -> String {
     let mut result = body.to_string();

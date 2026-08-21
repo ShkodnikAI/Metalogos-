@@ -1,0 +1,8 @@
+// Наряд №115: real template substitution
+template Greeting(who: String) -> Html {
+<p>Hello {{ who }}</p>
+}
+pattern Main() -> Html {
+  return render(Greeting, "Metalogos")
+}
+flow F { input: String = "x" -> Main -> output }

@@ -52,6 +52,8 @@ impl Interpreter {
                 }
                 Declaration::EntitySimple(e) => {
                     let value = self.eval_expr(&e.value)?;
+                    // Наряд №114: apply declared opaque types (esp. Secret)
+                    let value = Self::coerce_to_declared_type(value, &e.type_name)?;
                     self.variables.insert(e.name.clone(), value);
                 }
                 Declaration::Rule(r) => {
@@ -1669,18 +1671,36 @@ impl Interpreter {
         )
     }
 
-    /// Check if a value is an opaque type that cannot be printed.
-    #[allow(dead_code)]
-    fn is_nonprintable_type(v: &Value) -> bool {
-        matches!(
-            v,
-            Value::Html(_)
-                | Value::Query(_)
-                | Value::Secret(_)
-                | Value::Encrypted(_)
-                | Value::Hash(_)
-                | Value::Subgraph(_)
-        )
+    /// Apply entity type annotation for security-critical opaque types.
+    ///
+    /// - `Secret` + String → wrap as Value::Secret
+    /// - Html / Query / Encrypted / Hash: refuse constructing from plain String
+    ///   (must use their constructors: query(), encrypt(), hash_password(), …)
+    /// - All other declared types: leave value unchanged
+    fn coerce_to_declared_type(value: Value, type_name: &str) -> Result<Value, String> {
+        match type_name {
+            "Secret" => match value {
+                Value::Secret(_) => Ok(value),
+                Value::String(s) => Ok(Value::Secret(SecretString::new(s))),
+                other => Err(format!(
+                    "cannot coerce {} to Secret (expected String from env() or similar)",
+                    other.type_name()
+                )),
+            },
+            "Html" | "Query" | "Encrypted" | "Hash" => match &value {
+                Value::Html(_) | Value::Query(_) | Value::Encrypted(_) | Value::Hash(_) => Ok(value),
+                Value::String(_) => Err(format!(
+                    "cannot construct opaque type {} from String — use the dedicated builtin                      (query(), encrypt(), hash_password(), render(), …)",
+                    type_name
+                )),
+                other => Err(format!(
+                    "cannot coerce {} to opaque type {}",
+                    other.type_name(),
+                    type_name
+                )),
+            },
+            _ => Ok(value),
+        }
     }
 
     fn is_truthy(value: &Value) -> bool {

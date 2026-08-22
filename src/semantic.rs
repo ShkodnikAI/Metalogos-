@@ -549,6 +549,10 @@ const SVG_NO_ESCAPE_BUILTINS: &[&str] = &[
 //     transformations. No SVG markup produced, no user text
 //     inserted into HTML/SVG. Not applicable to SVG escape
 //     classification.
+//
+//   НАРЯД №118 collection builtins (unique, chunk, sort) — pure
+//     list transformations. No SVG/HTML markup produced.
+//     Not applicable to SVG escape classification.
 
 // Argument indices that are auto-escaped within SVG_AUTO_ESCAPE_BUILTINS.
 // For svg_text: arg 2 (content). For svg_callout: arg 0 (text).

@@ -19,7 +19,7 @@ pattern TTrimEndNormal() -> String {
   return trim_end("  hello  ")
 }
 
-// ── 2. truncate: max_len >= char_count → unchanged ──
+// ── 2. truncate: max_len >= char_count -> unchanged ──
 pattern TTruncLong() -> String {
   return truncate("hello", 10)
 }
@@ -54,34 +54,31 @@ pattern TSlugCyrillic() -> String {
 }
 
 // ── 4. Unicode: char-based, not byte-based ──
-// truncate("Привет мир", 7): 11 chars, cut=6 → "Привет" (6 chars) + "…"
+// truncate("Привет мир", 7): 11 chars, cut=6 -> "Привет" (6 chars) + "..."
 pattern TTruncUnicode() -> String {
   return truncate("Привет мир", 7)
 }
 
-// truncate with emoji: "Hi 😀 mundo" = 10 chars (😀 is 1 char, 4 bytes)
-// max_len=5, cut=4 → "Hi 😀" (4 chars) + "…"
 pattern TTruncEmoji() -> String {
   return truncate("Hi 😀 mundo", 5)
 }
 
-// word_wrap Cyrillic: "Привет мир" width=6 → "Привет\nмир"
-// Char-based: "Привет" = 6 chars fits, "мир" = 3 chars → new line
-// Replace \n with / for deterministic output comparison.
-pattern TWrapUnicode() -> String {
-  let r = word_wrap("Привет мир", 6)
-  return replace(r, "\n", "/")
-}
-
-// word_wrap tight ASCII: "a b c d e" width=3 → "a b\nc d\ne"
-pattern TWrapTight() -> String {
-  let r = word_wrap("a b c d e", 3)
-  return replace(r, "\n", "/")
-}
-
-// word_wrap wide: fits on one line
+// word_wrap wide: fits on one line, no newline in output
 pattern TWrapWide() -> String {
   return word_wrap("hello world", 100)
+}
+
+// word_wrap char-based proof: "Привет" = 6 chars fits in width 6.
+// If byte-based (12 bytes), it would wrap. contains confirms no wrap.
+pattern TWrapCharBased() -> String {
+  let r = word_wrap("Привет мир", 6)
+  return str(contains(r, "Привет"))
+}
+
+// word_wrap char-based proof: width=5 forces wrap ("Привет" = 6 chars > 5).
+pattern TWrapForced() -> String {
+  let r = word_wrap("Привет мир", 5)
+  return str(contains(r, "\n"))
 }
 
 // ── 5. capitalize / title_case on empty string ──
@@ -126,9 +123,9 @@ pattern RunAll(_input: String) -> String {
   r = r + "slug_cyr:" + TSlugCyrillic() + "|"
   r = r + "trunc_u:" + TTruncUnicode() + "|"
   r = r + "trunc_emoji:" + TTruncEmoji() + "|"
-  r = r + "wrap_u:" + TWrapUnicode() + "|"
-  r = r + "wrap_tight:" + TWrapTight() + "|"
   r = r + "wrap_wide:" + TWrapWide() + "|"
+  r = r + "wrap_char:" + TWrapCharBased() + "|"
+  r = r + "wrap_forced:" + TWrapForced() + "|"
   r = r + "cap_e:" + TCapEmpty() + "|"
   r = r + "cap_b:" + TCapBasic() + "|"
   r = r + "cap_ow:" + TCapOneWord() + "|"

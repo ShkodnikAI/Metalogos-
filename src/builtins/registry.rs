@@ -36,6 +36,14 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("token_count", 1, "string"),
     spec!("type_of", 1, "string"),
     spec!("format", 0, "string"), // variadic: 1 template + N fill args
+    // НАРЯД №117: missing string utilities
+    spec!("trim_start", 1, "string"),
+    spec!("trim_end", 1, "string"),
+    spec!("truncate", 2, "string"),
+    spec!("slugify", 1, "string"),
+    spec!("word_wrap", 2, "string"),
+    spec!("capitalize", 1, "string"),
+    spec!("title_case", 1, "string"),
     // ── Stdlib backing (double-underscore prefix) ──
     spec!("__trim", 1, "std"),
     spec!("__replace", 3, "std"),

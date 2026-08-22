@@ -121,7 +121,7 @@ pattern TestSortMixed() -> String {
 }
 
 // ── Accumulate all results into single output ──
-pattern RunAll() -> String {
+pattern RunAll(_input: String) -> String {
   let mut r = ""
   r = r + "unique_basic:" + TestUniqueBasic() + "|"
   r = r + "unique_empty:" + TestUniqueEmpty() + "|"

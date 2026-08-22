@@ -399,10 +399,7 @@ pub(crate) fn builtin_chunk(args: &[Value]) -> Result<Value, String> {
     if size == 0 {
         return Err("chunk() size must be > 0".to_string());
     }
-    let chunks: Vec<Value> = list
-        .chunks(size)
-        .map(|c| Value::List(c.to_vec()))
-        .collect();
+    let chunks: Vec<Value> = list.chunks(size).map(|c| Value::List(c.to_vec())).collect();
     Ok(Value::List(chunks))
 }
 

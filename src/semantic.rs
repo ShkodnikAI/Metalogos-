@@ -543,6 +543,12 @@ const SVG_NO_ESCAPE_BUILTINS: &[&str] = &[
 //   template_render — template is trusted code; data values escaped
 //     at runtime via escape_html_chars. Documented exclusion per
 //     Наряд №86.
+//
+//   НАРЯД №117 string builtins (trim_start, trim_end, truncate,
+//     slugify, word_wrap, capitalize, title_case) — pure string
+//     transformations. No SVG markup produced, no user text
+//     inserted into HTML/SVG. Not applicable to SVG escape
+//     classification.
 
 // Argument indices that are auto-escaped within SVG_AUTO_ESCAPE_BUILTINS.
 // For svg_text: arg 2 (content). For svg_callout: arg 0 (text).

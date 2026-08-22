@@ -34,6 +34,7 @@ const REGISTRY_ONLY_CATEGORIES: &[&str] = &[
     "std",      // __trim, __replace etc. — compile-time only
     "convert",  // float(), to_string() etc.
     "web",      // respond, web etc. — server-only
+    "template", // template_render — feature-gated, handled by specialized invoke
 ];
 
 /// Categories whose members have BOTH a spec! entry AND a dispatcher entry.

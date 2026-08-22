@@ -568,7 +568,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 92+ development narads (work orders) delivered. 349 builtins, 53 test files, 174 golden-file examples, 100 ADRs. 653 commits.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 92+ development narads (work orders) delivered. 356 builtins, 53 test files, 174 golden-file examples, 107 ADRs. 653 commits.
 
 ### Next
 

@@ -355,8 +355,8 @@ mod phase73_real_encryption_contracts {
         );
         match result {
             Err(msg) => assert!(
-                msg.contains("expected String"),
-                "print(Secret) should error, got: {}",
+                msg.contains("Secret"),
+                "print(Secret) should error with Secret mention, got: {}",
                 msg
             ),
             Ok(v) => panic!("print(Secret) should error, but got: {:?}", v),

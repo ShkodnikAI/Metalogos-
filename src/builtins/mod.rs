@@ -560,6 +560,10 @@ impl Builtins {
         funcs.insert("squeeze".to_string(), builtin_squeeze as BuiltinFn);
         funcs.insert("dedup".to_string(), builtin_dedup as BuiltinFn);
         funcs.insert("condense".to_string(), builtin_condense as BuiltinFn);
+        // НАРЯД №118: collection utilities (unique, chunk, sort)
+        funcs.insert("unique".to_string(), builtin_unique as BuiltinFn);
+        funcs.insert("chunk".to_string(), builtin_chunk as BuiltinFn);
+        funcs.insert("sort".to_string(), builtin_sort as BuiltinFn);
         funcs.insert("strip".to_string(), builtin_strip as BuiltinFn);
         funcs.insert("chomp".to_string(), builtin_chomp as BuiltinFn);
         funcs.insert("repeat".to_string(), builtin_repeat as BuiltinFn);

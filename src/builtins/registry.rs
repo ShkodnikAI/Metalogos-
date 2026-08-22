@@ -107,6 +107,10 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("reduce", 3, "list"),
     spec!("dedup", 1, "list"),
     spec!("condense", 1, "list"),
+    // НАРЯД №118: collection utilities (unique, chunk, sort)
+    spec!("unique", 1, "list"),
+    spec!("chunk", 2, "list"),
+    spec!("sort", 1, "list"),
     spec!("first", 1, "list"),
     spec!("last", 1, "list"),
     spec!("make_list", 0, "list"),

@@ -1,0 +1,1 @@
+unique_basic:a,b,c|unique_empty:|unique_already:1,2,3|unique_mixed:a,1,2|unique_allsame:x|chunk_exact:1,2|3,4|5,6|chunk_remainder:a,b,c|d,e|chunk_single:2|chunk_oversize:1:1,2|chunk_empty:0|sort_numbers:1,1,2,3,4,5,6,9|sort_strings:apple,banana,cherry|sort_empty:0|sort_single:42|sort_numeric:1,2,5,10|sort_mixed:3,a,true

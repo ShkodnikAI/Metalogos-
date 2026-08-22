@@ -567,6 +567,14 @@ impl Builtins {
         funcs.insert("pad_right".to_string(), builtin_pad_right as BuiltinFn);
         funcs.insert("lines".to_string(), builtin_lines as BuiltinFn);
         funcs.insert("words".to_string(), builtin_words as BuiltinFn);
+        // ── НАРЯД №117: missing string utilities ──
+        funcs.insert("trim_start".to_string(), builtin_trim_start as BuiltinFn);
+        funcs.insert("trim_end".to_string(), builtin_trim_end as BuiltinFn);
+        funcs.insert("truncate".to_string(), builtin_truncate as BuiltinFn);
+        funcs.insert("slugify".to_string(), builtin_slugify as BuiltinFn);
+        funcs.insert("word_wrap".to_string(), builtin_word_wrap as BuiltinFn);
+        funcs.insert("capitalize".to_string(), builtin_capitalize as BuiltinFn);
+        funcs.insert("title_case".to_string(), builtin_title_case as BuiltinFn);
         // ── sqz-inspired: TOON encoding (P2) ──
         funcs.insert("toon_encode".to_string(), builtin_toon_encode as BuiltinFn);
         funcs.insert("toon_decode".to_string(), builtin_toon_decode as BuiltinFn);

@@ -106,6 +106,126 @@ pub(crate) fn builtin_trim(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(s.trim().to_string()))
 }
 
+// -- НАРЯД №117: additional string builtins ------------------------------
+// All seven are Unicode-correct (operate on chars, not bytes),
+// consistent with the existing len/substring/char_at precedent.
+
+pub(crate) fn builtin_trim_start(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("trim_start", args, 0)?;
+    Ok(Value::String(s.trim_start().to_string()))
+}
+
+pub(crate) fn builtin_trim_end(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("trim_end", args, 0)?;
+    Ok(Value::String(s.trim_end().to_string()))
+}
+
+pub(crate) fn builtin_truncate(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("truncate", args, 0)?;
+    let max_len = expect_float_arg("truncate", args, 1)? as usize;
+    // If max_len is 0, return empty (even though ellipsis is 1 char).
+    if max_len == 0 {
+        return Ok(Value::String(String::new()));
+    }
+    let char_count = s.chars().count();
+    if char_count <= max_len {
+        return Ok(Value::String(s));
+    }
+    // Reserve 1 char for ellipsis; if max_len < 1 this is handled above.
+    let cut = if max_len <= 1 { 0 } else { max_len - 1 };
+    let truncated: String = s.chars().take(cut).collect();
+    Ok(Value::String(format!("{}\u{2026}", truncated)))
+}
+
+pub(crate) fn builtin_slugify(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("slugify", args, 0)?;
+    let mut result = String::with_capacity(s.len());
+    let mut prev_was_dash = false;
+    for ch in s.chars() {
+        if ch.is_ascii_alphanumeric() {
+            result.push(ch.to_ascii_lowercase());
+            prev_was_dash = false;
+        } else if ch == '-' || ch == '_' || ch.is_whitespace() {
+            if !prev_was_dash {
+                result.push('-');
+                prev_was_dash = true;
+            }
+        }
+        // Non-ASCII letters (Cyrillic, CJK, accented Latin) are dropped.
+        // Decision: transliteration is locale-dependent and error-prone;
+        // dropping is deterministic and documented.
+    }
+    // Trim trailing dash if present
+    let trimmed = result.trim_end_matches('-');
+    Ok(Value::String(trimmed.to_string()))
+}
+
+pub(crate) fn builtin_word_wrap(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("word_wrap", args, 0)?;
+    let width = expect_float_arg("word_wrap", args, 1)? as usize;
+    if width == 0 {
+        return Err("word_wrap: width must be > 0".to_string());
+    }
+    // Unicode-correct: count chars, not bytes. No unicode-width crate,
+    // consistent with existing len/substring precedent.
+    let mut result = String::with_capacity(s.len() + s.len() / 10);
+    let mut line_len: usize = 0;
+    for word in s.split_whitespace() {
+        let word_char_len = word.chars().count();
+        if line_len == 0 {
+            // First word on line
+            result.push_str(word);
+            line_len = word_char_len;
+        } else if line_len + 1 + word_char_len <= width {
+            result.push(' ');
+            result.push_str(word);
+            line_len += 1 + word_char_len;
+        } else {
+            // Word doesn't fit — start new line
+            result.push('\n');
+            result.push_str(word);
+            line_len = word_char_len;
+        }
+    }
+    Ok(Value::String(result))
+}
+
+pub(crate) fn builtin_capitalize(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("capitalize", args, 0)?;
+    let mut chars = s.chars();
+    match chars.next() {
+        None => Ok(Value::String(String::new())),
+        Some(first) => {
+            let mut result = String::with_capacity(s.len());
+            for ch in first.to_uppercase() {
+                result.push(ch);
+            }
+            result.extend(chars);
+            Ok(Value::String(result))
+        }
+    }
+}
+
+pub(crate) fn builtin_title_case(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("title_case", args, 0)?;
+    let mut result = String::with_capacity(s.len());
+    let mut prev_was_space = true; // capitalize first character
+    for ch in s.chars() {
+        if ch.is_whitespace() {
+            result.push(ch);
+            prev_was_space = true;
+        } else if prev_was_space {
+            for upper in ch.to_uppercase() {
+                result.push(upper);
+            }
+            prev_was_space = false;
+        } else {
+            result.push(ch);
+        }
+    }
+    Ok(Value::String(result))
+}
+
 pub(crate) fn builtin_replace(args: &[Value]) -> Result<Value, String> {
     let s = expect_string_arg("__replace", args, 0)?;
     let old = expect_string_arg("__replace", args, 1)?;

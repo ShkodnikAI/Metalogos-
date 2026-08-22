@@ -132,7 +132,7 @@ pub(crate) fn builtin_truncate(args: &[Value]) -> Result<Value, String> {
         return Ok(Value::String(s));
     }
     // Reserve 1 char for ellipsis; if max_len < 1 this is handled above.
-    let cut = if max_len <= 1 { 0 } else { max_len - 1 };
+    let cut = max_len.saturating_sub(1);
     let truncated: String = s.chars().take(cut).collect();
     Ok(Value::String(format!("{}\u{2026}", truncated)))
 }
@@ -145,11 +145,9 @@ pub(crate) fn builtin_slugify(args: &[Value]) -> Result<Value, String> {
         if ch.is_ascii_alphanumeric() {
             result.push(ch.to_ascii_lowercase());
             prev_was_dash = false;
-        } else if ch == '-' || ch == '_' || ch.is_whitespace() {
-            if !prev_was_dash {
-                result.push('-');
-                prev_was_dash = true;
-            }
+        } else if (ch == '-' || ch == '_' || ch.is_whitespace()) && !prev_was_dash {
+            result.push('-');
+            prev_was_dash = true;
         }
         // Non-ASCII letters (Cyrillic, CJK, accented Latin) are dropped.
         // Decision: transliteration is locale-dependent and error-prone;

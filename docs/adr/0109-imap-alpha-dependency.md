@@ -1,4 +1,4 @@
-# ADR-0106: `imap` 3.0.0-alpha.15 — intentional pre-release dependency
+# ADR-0109: `imap` 3.0.0-alpha.15 — intentional pre-release dependency
 
 > **Status:** Accepted  
 > **Date:** 2026-08-21  

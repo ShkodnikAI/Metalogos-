@@ -83,7 +83,7 @@ regex = "1"
 
 # Наряд MLG-4: Email (SMTP + IMAP, pure Rust)
 lettre = { version = "0.11", features = ["builder", "smtp-transport", "native-tls"] }
-# imap 3.0.0-alpha.15 — intentional choice, not an oversight (naryad №116 / ADR-0106).
+# imap 3.0.0-alpha.15 — intentional choice, not an oversight (naryad №116 / ADR-0109).
 # Stable 2.4.1 uses the older connect() API; our code (src/builtins/email.rs) is built
 # on ClientBuilder, which exists only in the 3.0 line (not released stable yet; last
 # crates.io release alpha.15 = 2025-02-08, development continues on crate main).

@@ -1,0 +1,145 @@
+// Наряд №118: unique / chunk / sort — contract tests
+
+// ── unique: basic dedup, preserves first-occurrence order ──
+pattern TestUniqueBasic() -> String {
+  let xs = make_list("a", "b", "a", "c", "b")
+  let r = unique(xs)
+  return join(r, ",")
+}
+
+// ── unique: empty list ──
+pattern TestUniqueEmpty() -> String {
+  let xs = make_list()
+  let r = unique(xs)
+  return join(r, ",")
+}
+
+// ── unique: already unique ──
+pattern TestUniqueAlreadyUnique() -> String {
+  let xs = make_list(1, 2, 3)
+  let r = unique(xs)
+  return join(r, ",")
+}
+
+// ── unique: mixed types (strings and floats) ──
+pattern TestUniqueMixed() -> String {
+  let xs = make_list("a", 1, "a", 1, 2)
+  let r = unique(xs)
+  return join(r, ",")
+}
+
+// ── unique: all same ──
+pattern TestUniqueAllSame() -> String {
+  let xs = make_list("x", "x", "x")
+  let r = unique(xs)
+  return join(r, ",")
+}
+
+// ── chunk: exact division ──
+pattern TestChunkExact() -> String {
+  let xs = make_list(1, 2, 3, 4, 5, 6)
+  let r = chunk(xs, 2)
+  let c1 = join(get(r, 0), ",")
+  let c2 = join(get(r, 1), ",")
+  let c3 = join(get(r, 2), ",")
+  return c1 + "|" + c2 + "|" + c3
+}
+
+// ── chunk: last chunk shorter ──
+pattern TestChunkRemainder() -> String {
+  let xs = make_list("a", "b", "c", "d", "e")
+  let r = chunk(xs, 3)
+  let c1 = join(get(r, 0), ",")
+  let c2 = join(get(r, 1), ",")
+  return c1 + "|" + c2
+}
+
+// ── chunk: single element per chunk ──
+pattern TestChunkSingle() -> String {
+  let xs = make_list(10, 20)
+  let r = chunk(xs, 1)
+  return str(len(r))
+}
+
+// ── chunk: size larger than list ──
+pattern TestChunkOversize() -> String {
+  let xs = make_list(1, 2)
+  let r = chunk(xs, 10)
+  return str(len(r)) + ":" + join(get(r, 0), ",")
+}
+
+// ── chunk: empty list ──
+pattern TestChunkEmpty() -> String {
+  let xs = make_list()
+  let r = chunk(xs, 3)
+  return str(len(r))
+}
+
+// ── sort: homogeneous numbers ──
+pattern TestSortNumbers() -> String {
+  let xs = make_list(3, 1, 4, 1, 5, 9, 2, 6)
+  let r = sort(xs)
+  return join(r, ",")
+}
+
+// ── sort: homogeneous strings ──
+pattern TestSortStrings() -> String {
+  let xs = make_list("cherry", "apple", "banana")
+  let r = sort(xs)
+  return join(r, ",")
+}
+
+// ── sort: empty list ──
+pattern TestSortEmpty() -> String {
+  let xs = make_list()
+  let r = sort(xs)
+  return str(len(r))
+}
+
+// ── sort: single element ──
+pattern TestSortSingle() -> String {
+  let xs = make_list(42)
+  let r = sort(xs)
+  return str(get(r, 0))
+}
+
+// ── sort: numeric coercion ──
+pattern TestSortNumericCoercion() -> String {
+  let xs = make_list(10, 2, 5, 1)
+  let r = sort(xs)
+  return join(r, ",")
+}
+
+// ── sort: mixed types — Display fallback (no error) ──
+// Mirrors compare_values() convention: numeric first, else Display string.
+// Bool(true) displays as "true", Float(3) as "3", String("a") as "a"
+// Sorted lexicographically: "3" < "a" < "true"
+pattern TestSortMixed() -> String {
+  let xs = make_list(true, "a", 3)
+  let r = sort(xs)
+  return str(get(r, 0)) + "," + str(get(r, 1)) + "," + str(get(r, 2))
+}
+
+// ── Accumulate all results into single output ──
+pattern RunAll(_input: String) -> String {
+  let mut r = ""
+  r = r + "unique_basic:" + TestUniqueBasic() + "|"
+  r = r + "unique_empty:" + TestUniqueEmpty() + "|"
+  r = r + "unique_already:" + TestUniqueAlreadyUnique() + "|"
+  r = r + "unique_mixed:" + TestUniqueMixed() + "|"
+  r = r + "unique_allsame:" + TestUniqueAllSame() + "|"
+  r = r + "chunk_exact:" + TestChunkExact() + "|"
+  r = r + "chunk_remainder:" + TestChunkRemainder() + "|"
+  r = r + "chunk_single:" + TestChunkSingle() + "|"
+  r = r + "chunk_oversize:" + TestChunkOversize() + "|"
+  r = r + "chunk_empty:" + TestChunkEmpty() + "|"
+  r = r + "sort_numbers:" + TestSortNumbers() + "|"
+  r = r + "sort_strings:" + TestSortStrings() + "|"
+  r = r + "sort_empty:" + TestSortEmpty() + "|"
+  r = r + "sort_single:" + TestSortSingle() + "|"
+  r = r + "sort_numeric:" + TestSortNumericCoercion() + "|"
+  r = r + "sort_mixed:" + TestSortMixed()
+  return r
+}
+
+flow Main { input: String = "start" -> RunAll -> output }

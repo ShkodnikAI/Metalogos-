@@ -349,3 +349,95 @@ pub(crate) fn builtin_condense(args: &[Value]) -> Result<Value, String> {
     }
     Ok(Value::List(result))
 }
+
+/// `unique(list)` — remove duplicates preserving first-occurrence order.
+/// Uses the same equality semantics as `dedup` (JSON serialization for
+/// complex types = deep structural comparison for Struct, not reference identity).
+pub(crate) fn builtin_unique(args: &[Value]) -> Result<Value, String> {
+    let list = match args.first() {
+        Some(Value::List(items)) => items.clone(),
+        Some(other) => {
+            return Err(format!(
+                "unique() expected List argument, got {}",
+                other.type_name()
+            ))
+        }
+        None => return Err("unique() requires 1 argument".to_string()),
+    };
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut result = Vec::new();
+    for item in &list {
+        let key = match item {
+            Value::String(s) => s.clone(),
+            Value::Float(f) => format!("{}", f),
+            Value::Bool(b) => format!("{}", b),
+            other => {
+                // JSON serialization provides deep structural equality for Struct.
+                let json = super::mlog_value_to_json(other);
+                serde_json::to_string(&json).unwrap_or_else(|_| format!("{}", other))
+            }
+        };
+        if seen.insert(key) {
+            result.push(item.clone());
+        }
+    }
+    Ok(Value::List(result))
+}
+
+/// `chunk(items, size)` — split a list into sublists of at most `size` elements.
+/// The last chunk may be shorter. Returns List<List>.
+/// Error if size <= 0.
+pub(crate) fn builtin_chunk(args: &[Value]) -> Result<Value, String> {
+    let list = match args.first() {
+        Some(Value::List(items)) => items,
+        _ => return Err("chunk() expects first argument to be a List".to_string()),
+    };
+    let size = match args.get(1) {
+        Some(Value::Float(f)) => *f as usize,
+        _ => return Err("chunk() expects second argument to be a Float (size)".to_string()),
+    };
+    if size == 0 {
+        return Err("chunk() size must be > 0".to_string());
+    }
+    let chunks: Vec<Value> = list.chunks(size).map(|c| Value::List(c.to_vec())).collect();
+    Ok(Value::List(chunks))
+}
+
+/// `sort(list)` — sort list elements in ascending order.
+///
+/// Comparison strategy for heterogeneous lists: mirrors the convention
+/// established by `compare_values()` in execution.rs (used by rule/match):
+///   1. If both values coerce to Float, compare numerically.
+///   2. Otherwise, fall back to Display-based string comparison.
+///
+/// This means `sort([3, "a", true])` sorts by Display text, producing
+/// `[3, "a", true]` (since "3" < "a" < "true" lexicographically).
+/// This is a total order — no error on mixed types.
+pub(crate) fn builtin_sort(args: &[Value]) -> Result<Value, String> {
+    let list = match args.first() {
+        Some(Value::List(items)) => items.clone(),
+        Some(other) => {
+            return Err(format!(
+                "sort() expected List argument, got {}",
+                other.type_name()
+            ))
+        }
+        None => return Err("sort() requires 1 argument".to_string()),
+    };
+    let mut sorted = list;
+    sorted.sort_by(|a, b| {
+        // Strategy mirrors compare_values() in execution.rs:
+        // numeric first, then Display string fallback.
+        let af = a.as_float().ok();
+        let bf = b.as_float().ok();
+        match (af, bf) {
+            (Some(lf), Some(rf)) => lf.partial_cmp(&rf).unwrap_or(std::cmp::Ordering::Equal),
+            _ => {
+                let ls = format!("{}", a);
+                let rs = format!("{}", b);
+                ls.cmp(&rs)
+            }
+        }
+    });
+    Ok(Value::List(sorted))
+}

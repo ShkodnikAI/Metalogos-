@@ -246,7 +246,10 @@ fn cmd_test(file: PathBuf, filter: Option<String>) {
         }
     };
 
-    let base_dir = file.parent().unwrap_or_else(|| std::path::Path::new(".")).to_path_buf();
+    let base_dir = file
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .to_path_buf();
     match metalogos::test_program_with_dir(&source, base_dir) {
         Ok(results) => {
             let filtered: Vec<_> = match &filter {

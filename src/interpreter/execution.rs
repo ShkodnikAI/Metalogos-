@@ -308,6 +308,8 @@ impl Interpreter {
                 Declaration::SkillIndex(idx) => {
                     self.skill_indices.insert(idx.name.clone(), idx);
                 }
+                // Наряд №119: type aliases handled via type_alias_map (built above)
+                Declaration::TypeAlias(_) => {}
             }
         }
 

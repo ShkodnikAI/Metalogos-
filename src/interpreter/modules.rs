@@ -283,6 +283,8 @@ impl Interpreter {
                 Declaration::SkillIndex(idx) => {
                     self.skill_indices.insert(idx.name.clone(), idx);
                 }
+                // Наряд №119: type aliases — no runtime action for modules
+                Declaration::TypeAlias(_) => {}
             }
         }
 

@@ -113,7 +113,7 @@ entity greeting: MyStr = "hello"
 
         let mut interp = metalogos::interpreter::Interpreter::new();
         let _ = interp.run(decls).expect("run");
-        let val = interp.variables.get("greeting").expect("entity exists");
+        let val = interp.get_variable("greeting").expect("entity exists");
         match val {
             metalogos::interpreter::Value::String(s) => assert_eq!(s, "hello"),
             other => panic!("expected String, got {:?}", other),
@@ -158,7 +158,7 @@ entity x: String = "hi"
         let decls_direct = metalogos::parser::parse(src_direct).expect("parse");
         let mut interp = metalogos::interpreter::Interpreter::new();
         let _ = interp.run(decls_direct).expect("run direct");
-        let val = interp.variables.get("sec").unwrap();
+        let val = interp.get_variable("sec").unwrap();
         // Secret value should be wrapped
         match val {
             metalogos::interpreter::Value::String(s) => {
@@ -179,7 +179,7 @@ entity tok: Token = "my-token"
         let decls_aliased = metalogos::parser::parse(src_aliased).expect("parse");
         let mut interp = metalogos::interpreter::Interpreter::new();
         let _ = interp.run(decls_aliased).expect("run aliased");
-        let val = interp.variables.get("tok").unwrap();
+        let val = interp.get_variable("tok").unwrap();
         match val {
             metalogos::interpreter::Value::String(s) => {
                 assert!(s.starts_with("[Opaque:Secret]"));

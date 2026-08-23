@@ -69,6 +69,14 @@ enum Commands {
         #[arg(long)]
         from: String,
     },
+    /// Run test blocks: execute `test "..." { }` declarations (Наряд №120)
+    Test {
+        /// Path to .mlog source file
+        file: PathBuf,
+        /// Only run tests whose name contains this substring
+        #[arg(long)]
+        filter: Option<String>,
+    },
     /// Static security analysis without execution (ADR-0057)
     Audit {
         /// Path to .mlog source file
@@ -87,6 +95,7 @@ fn main() {
         Commands::Serve { file } => cmd_serve(file),
         Commands::Compile { file } => cmd_compile(file),
         Commands::Eval { file } => cmd_eval(file),
+        Commands::Test { file, filter } => cmd_test(file, filter),
         Commands::Resume { file, flow, from } => cmd_resume(file, &flow, &from),
         Commands::Audit { file } => cmd_audit(file),
     }
@@ -217,6 +226,46 @@ fn cmd_eval(file: PathBuf) {
                 }
             }
             if any_failed {
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// `mlog test <file> [--filter=name]` — run test blocks (Наряд №120)
+fn cmd_test(file: PathBuf, filter: Option<String>) {
+    let source = match fs::read_to_string(&file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: cannot read {:?}: {}", file, e);
+            std::process::exit(1);
+        }
+    };
+
+    let base_dir = file.parent().unwrap_or_else(|| std::path::Path::new(".")).to_path_buf();
+    match metalogos::test_program_with_dir(&source, base_dir) {
+        Ok(results) => {
+            let filtered: Vec<_> = match &filter {
+                Some(f) => results.into_iter().filter(|r| r.name.contains(f)).collect(),
+                None => results,
+            };
+            let mut passed = 0usize;
+            let mut failed = 0usize;
+            for result in &filtered {
+                println!("{}", result.format_line());
+                if result.passed {
+                    passed += 1;
+                } else {
+                    failed += 1;
+                }
+            }
+            eprintln!("
+{}/{} tests passed", passed, passed + failed);
+            if failed > 0 {
                 std::process::exit(1);
             }
         }

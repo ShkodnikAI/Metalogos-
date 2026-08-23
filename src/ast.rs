@@ -89,6 +89,9 @@ pub enum Declaration {
     /// `eval PatternName { dataset: [("input", "expected"), ...] metric: accuracy threshold: 0.8 }`
     /// (ADR-0050: eval harness)
     Eval(EvalDecl),
+    /// `test "name" { <statements> }` (Наряд №120)
+    /// Isolated test block: runs statements, catches assert_* failures.
+    Test(TestDecl),
     /// `pattern Name(params) -> Type { body }`
     Pattern(PatternDecl),
     /// `learnable pattern Name(params) -> Type { prompt: "..." }`
@@ -132,6 +135,7 @@ impl Declaration {
             Declaration::Adapt(d) => Some(&d.pattern_name),
             Declaration::Mutate(d) => Some(&d.pattern_name),
             Declaration::Eval(d) => Some(&d.pattern_name),
+            Declaration::Test(d) => Some(&d.name),
             Declaration::ContextBudget(d) => Some(&d.pattern_name),
             Declaration::TypeAlias(d) => Some(&d.alias),
             // No name: singleton/config/action declarations
@@ -171,6 +175,7 @@ impl Declaration {
             Declaration::Hook(_) => "hook",
             Declaration::Mutate(_) => "mutate",
             Declaration::Eval(_) => "eval",
+            Declaration::Test(_) => "test",
             Declaration::Pattern(_) => "pattern",
             Declaration::LearnablePattern(_) => "learnable_pattern",
             Declaration::Flow(_) => "flow",
@@ -652,6 +657,19 @@ pub struct MutateDecl {
     pub new_examples: Vec<(Expr, Expr)>,
     pub rollback_threshold: Option<f64>,
     pub rollback_op: Option<CompareOp>,
+}
+
+// ── Test Declaration (Наряд №120) ──────────────────────────────────────
+
+/// `test "name" { <statements> }`
+/// Isolated test block. Statements execute in sequence;
+/// assert_eq/assert_contains failures are caught per-test.
+#[derive(Debug, Clone)]
+pub struct TestDecl {
+    /// Human-readable test name (from the string literal).
+    pub name: String,
+    /// Statements to execute inside the test block.
+    pub body: Vec<Statement>,
 }
 
 // ── Eval Harness (ADR-0050) ────────────────────────────────────────

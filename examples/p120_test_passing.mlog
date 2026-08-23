@@ -1,0 +1,17 @@
+// Наряд №120 Contract 1: simple passing test
+pattern Shout(input: String) -> String {
+  return upper(input) + "!"
+}
+
+test "Shout uppercases and adds exclamation" {
+  let result = Shout("hello")
+  assert_eq(result, "HELLO!")
+}
+
+test "empty input handled gracefully" {
+  let result = Shout("")
+  assert_eq(result, "!")
+}
+
+// Dummy flow so file is a valid program
+type Dummy = String

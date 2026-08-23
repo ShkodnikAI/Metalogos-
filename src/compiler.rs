@@ -484,6 +484,7 @@ impl Compiler {
                 | Declaration::Memory(_)
                 | Declaration::Hook(_)
                 | Declaration::Eval(_)
+                | Declaration::Test(_)
                 | Declaration::Conversation(_)
                 | Declaration::ContextBudget(_)
                 | Declaration::TypeAlias(_)

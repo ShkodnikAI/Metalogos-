@@ -1,0 +1,21 @@
+// Наряд №120 Contract 4: tests for --filter
+pattern Double(x: Float) -> Float {
+  return x * 2
+}
+
+test "double of two is four" {
+  let result = Double(2)
+  assert_eq(result, 4)
+}
+
+test "double of zero is zero" {
+  let result = Double(0)
+  assert_eq(result, 0)
+}
+
+test "unrelated: add works" {
+  let result = Double(3)
+  assert_eq(result, 6)
+}
+
+type Dummy = String

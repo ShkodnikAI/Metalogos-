@@ -53,6 +53,7 @@
 | `mlog eval <file.mlog>` | Запустить `eval`-блоки (тестирование learnable patterns) |
 | `mlog resume <file.mlog> --flow=<name> --from=<checkpoint>` | Возобновить flow с контрольной точки |
 | `mlog audit <file.mlog>` | Статический security-аудит без выполнения |
+| `mlog test <file.mlog> [--filter=substring]` | Запустить `test`-блоки (юнит-тесты) |
 
 ### Переменные окружения
 
@@ -1139,6 +1140,17 @@ type Y = X   // ОШИБКА: cyclic type alias
 ```
 
 Синтаксис не конфликтует с `type` внутри `memory { kv: { type: key_value } }` — PEG грамматика различает их по контексту.
+
+### 5.19. Test (юнит-тесты)
+
+```mlog
+test "название теста" {
+  let result = PatternName(args)
+  assert_eq(result, expected)
+}
+```
+
+Запуск: `mlog test file.mlog`. Флаг `--filter=substring` фильтрует тесты по подстроке в названии.
 
 ---
 

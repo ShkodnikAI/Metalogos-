@@ -132,10 +132,10 @@ impl Interpreter {
     /// Run a single test block. Assertion errors (from assert_eq / assert_contains)
     /// are caught and reported as test failures. Panics are also caught.
     fn run_single_test(&self, test_decl: &TestDecl) -> TestResult {
-        let mut scope = self.patterns.clone();
-        let result = self.exec_statements(&test_decl.body, &mut scope);
+        let mut scope: HashMap<String, Value> = HashMap::new();
+        let result = self.eval_statements(&test_decl.body, &mut scope);
         match result {
-            Ok(()) => TestResult {
+            Ok(_) => TestResult {
                 name: test_decl.name.clone(),
                 passed: true,
                 error: None,

@@ -43,7 +43,28 @@ pub struct CompiledLearnable {
     pub conversation: Option<String>,
 }
 
-/// Result of running a single test block (Наряд №120).\n#[derive(Debug, Clone)]\npub struct TestResult {\n    /// Test name from the `test \"...\"` declaration.\n    pub name: String,\n    /// Whether the test passed (no assertion errors).\n    pub passed: bool,\n    /// Error message if the test failed, None if passed.\n    pub error: Option<String>,\n}\n\nimpl TestResult {\n    /// Human-readable one-line summary for `mlog test` output.\n    pub fn format_line(&self) -> String {\n        match &self.error {\n            None => format!(\"\u{2705} {}\", self.name),\n            Some(e) => format!(\"\u{274c} {}: {}\", self.name, e),\n        }\n    }\n}\n\n/// Result of running an eval block (ADR-0050).
+/// Result of running a single test block (Наряд №120).
+#[derive(Debug, Clone)]
+pub struct TestResult {
+    /// Test name from the `test "..."` declaration.
+    pub name: String,
+    /// Whether the test passed (no assertion errors).
+    pub passed: bool,
+    /// Error message if the test failed, None if passed.
+    pub error: Option<String>,
+}
+
+impl TestResult {
+    /// Human-readable one-line summary for `mlog test` output.
+    pub fn format_line(&self) -> String {
+        match &self.error {
+            None => format!("\u{2705} {}", self.name),
+            Some(e) => format!("\u{274c} {}: {}", self.name, e),
+        }
+    }
+}
+
+/// Result of running an eval block (ADR-0050).
 /// Contains accuracy, confusion matrix, and failure details.
 #[derive(Debug, Clone)]
 pub struct EvalResult {

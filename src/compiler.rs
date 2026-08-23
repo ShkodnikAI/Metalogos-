@@ -257,6 +257,7 @@ impl Compiler {
                 | Declaration::Memory(_)
                 | Declaration::Conversation(_)
                 | Declaration::ContextBudget(_)
+                | Declaration::TypeAlias(_)
                 | Declaration::Tool(_)
                 | Declaration::LlmConfig(_) => {
                     // Phase 6: handled elsewhere
@@ -485,6 +486,7 @@ impl Compiler {
                 | Declaration::Eval(_)
                 | Declaration::Conversation(_)
                 | Declaration::ContextBudget(_)
+                | Declaration::TypeAlias(_)
                 | Declaration::Tool(_)
                 | Declaration::LlmConfig(_) => {
                     // Phase 6+: no bytecode instruction needed

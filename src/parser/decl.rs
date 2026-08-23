@@ -1716,7 +1716,7 @@ pub(super) fn parse_test_decl(pair: Pair<Rule>) -> Declaration {
     let body: Vec<Statement> = children
         .iter()
         .filter(|c| c.as_rule() == Rule::statement)
-        .filter_map(|s| parse_statement(s.clone()).ok())
+        .filter_map(|s| parse_single_statement(s.clone()).ok())
         .collect();
     Declaration::Test(TestDecl { name, body })
 }

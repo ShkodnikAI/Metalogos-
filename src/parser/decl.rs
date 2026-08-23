@@ -1705,4 +1705,20 @@ pub(super) fn parse_type_alias_decl(pair: Pair<Rule>) -> Declaration {
     })
 }
 
+// ── Test Declaration (Наряд №120) ─────────────────────────────────
+
+/// `test "name" { <statements> }`
+pub(super) fn parse_test_decl(pair: Pair<Rule>) -> Declaration {
+    let children = children_of(&pair);
+    let name = find_child_str(&children, Rule::STRING_LITERAL)
+        .map(|s| unescape_string(s.trim_matches('"')))
+        .unwrap_or_default();
+    let body: Vec<Statement> = children
+        .iter()
+        .filter(|c| c.as_rule() == Rule::statement)
+        .filter_map(|s| parse_single_statement(s.clone()).ok())
+        .collect();
+    Declaration::Test(TestDecl { name, body })
+}
+
 // ── Expressions ─────────────────────────────────────────────────────

@@ -43,6 +43,27 @@ pub struct CompiledLearnable {
     pub conversation: Option<String>,
 }
 
+/// Result of running a single test block (Наряд №120).
+#[derive(Debug, Clone)]
+pub struct TestResult {
+    /// Test name from the `test "..."` declaration.
+    pub name: String,
+    /// Whether the test passed (no assertion errors).
+    pub passed: bool,
+    /// Error message if the test failed, None if passed.
+    pub error: Option<String>,
+}
+
+impl TestResult {
+    /// Human-readable one-line summary for `mlog test` output.
+    pub fn format_line(&self) -> String {
+        match &self.error {
+            None => format!("\u{2705} {}", self.name),
+            Some(e) => format!("\u{274c} {}: {}", self.name, e),
+        }
+    }
+}
+
 /// Result of running an eval block (ADR-0050).
 /// Contains accuracy, confusion matrix, and failure details.
 #[derive(Debug, Clone)]

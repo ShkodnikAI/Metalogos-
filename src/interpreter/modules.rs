@@ -285,6 +285,9 @@ impl Interpreter {
                 }
                 // Наряд №119: type aliases — no runtime action for modules
                 Declaration::TypeAlias(_) => {}
+                Declaration::Test(t) => {
+                    self.test_blocks.push(t);
+                }
             }
         }
 

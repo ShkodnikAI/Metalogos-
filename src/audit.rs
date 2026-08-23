@@ -423,6 +423,7 @@ fn check_secrets(declarations: &[Declaration], source: &str, findings: &mut Vec<
                     walk_string_exprs(&fi.value, &mut strings);
                 }
             }
+            Declaration::Test(_) => {}
             _ => {}
         }
 
@@ -616,6 +617,7 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                 &mut all_literal,
                 &mut literal_count,
             ),
+            Declaration::Test(_) => {}
             _ => {}
         }
     }
@@ -665,6 +667,7 @@ fn check_sandbox_coverage(
                         message: format!("mutate {} without sandbox declaration", m.pattern_name),
                     });
                 }
+                Declaration::Test(_) => {}
                 _ => {}
             }
         }
@@ -858,6 +861,7 @@ fn check_html_injection(
                 }
             }
             Declaration::Hook(h) => analyze_scope(&h.body, source, findings),
+            Declaration::Test(_) => {}
             _ => {}
         }
     }
@@ -1015,6 +1019,7 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                 }
             }
             Declaration::Hook(h) => analyze_scope(&h.body, source, findings),
+            Declaration::Test(_) => {}
             _ => {}
         }
     }
@@ -1148,6 +1153,7 @@ fn check_open_redirect(
                 }
             }
             Declaration::Hook(h) => analyze_scope(&h.body, source, findings),
+            Declaration::Test(_) => {}
             _ => {}
         }
     }

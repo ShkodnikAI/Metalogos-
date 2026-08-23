@@ -1,0 +1,4 @@
+// НАРЯД №119 — error test: cyclic type alias
+type A = B
+type B = A
+entity x: String = "hi"

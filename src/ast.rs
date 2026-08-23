@@ -106,6 +106,8 @@ pub enum Declaration {
     LlmConfig(LlmConfigDecl),
     /// `context_budget { pattern: "name", limit: 4096 }` (sqz-inspired P3)
     ContextBudget(ContextBudgetDecl),
+    /// `type Token = Secret` (Наряд №119: type aliases)
+    TypeAlias(TypeAliasDecl),
 }
 
 impl Declaration {
@@ -131,6 +133,7 @@ impl Declaration {
             Declaration::Mutate(d) => Some(&d.pattern_name),
             Declaration::Eval(d) => Some(&d.pattern_name),
             Declaration::ContextBudget(d) => Some(&d.pattern_name),
+            Declaration::TypeAlias(d) => Some(&d.alias),
             // No name: singleton/config/action declarations
             Declaration::MlogServer(_)
             | Declaration::Db(_)
@@ -175,6 +178,7 @@ impl Declaration {
             Declaration::Tool(_) => "tool",
             Declaration::LlmConfig(_) => "llm_config",
             Declaration::ContextBudget(_) => "context_budget",
+            Declaration::TypeAlias(_) => "type_alias",
         }
     }
 
@@ -275,6 +279,9 @@ impl Declaration {
                     "context_budget {{ pattern: {}, limit: {} }}",
                     d.pattern_name, limit_str
                 )
+            }
+            Declaration::TypeAlias(d) => {
+                format!("type {} = {}", d.alias, d.target)
             }
             Declaration::MlogServer(d) => {
                 format!(
@@ -733,6 +740,66 @@ pub struct ContextBudgetDecl {
     /// Maximum token count for the prompt. Evaluated at runtime.
     /// If None, no limit is enforced (budget is informational only).
     pub limit: Option<f64>,
+}
+
+// ── Type Alias (Наряд №119) ────────────────────────────────────────
+
+/// `type Token = Secret` — creates an opaque alias for an existing type.
+/// The alias inherits all semantics of the target type (e.g. Secret protection).
+#[derive(Debug, Clone)]
+pub struct TypeAliasDecl {
+    /// The alias name being defined (e.g. "Token").
+    pub alias: String,
+    /// The target type name (e.g. "Secret").
+    pub target: String,
+}
+
+/// Maximum depth for type alias chain resolution to prevent infinite loops.
+pub const TYPE_ALIAS_MAX_DEPTH: usize = 10;
+
+/// Build a map of type alias → target type from a list of declarations.
+/// Returns (alias_map, errors) where errors contains any cycle or duplicate messages.
+pub fn build_type_alias_map(
+    declarations: &[Declaration],
+) -> (HashMap<String, String>, Vec<String>) {
+    let mut map = HashMap::new();
+    let mut errors = Vec::new();
+    for decl in declarations {
+        if let Declaration::TypeAlias(ta) = decl {
+            if map.contains_key(&ta.alias) {
+                errors.push(format!("duplicate type alias: {}", ta.alias));
+            } else {
+                map.insert(ta.alias.clone(), ta.target.clone());
+            }
+        }
+    }
+    // Detect cycles by attempting to resolve each alias
+    let aliases: Vec<String> = map.keys().cloned().collect();
+    for alias in &aliases {
+        if let Err(e) = resolve_type_alias(&map, alias) {
+            if !errors.iter().any(|err| err.contains(alias)) {
+                errors.push(e);
+            }
+        }
+    }
+    (map, errors)
+}
+
+/// Resolve a type name through alias chains.
+/// Returns the final concrete type name, or an error if a cycle is detected.
+pub fn resolve_type_alias(
+    aliases: &HashMap<String, String>,
+    type_name: &str,
+) -> Result<String, String> {
+    let mut current = type_name.to_string();
+    for _ in 0..TYPE_ALIAS_MAX_DEPTH {
+        if let Some(target) = aliases.get(&current) {
+            current = target.clone();
+        } else {
+            return Ok(current);
+        }
+    }
+    Err(format!("cyclic type alias: {} (depth exceeded)", type_name))
 }
 
 // ── Learnable Pattern (M3) ────────────────────────────────────────────

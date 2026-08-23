@@ -89,6 +89,13 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     let mut role_names: HashSet<String> = HashSet::new();
     let mut pattern_param_counts: HashSet<(String, usize)> = HashSet::new();
 
+    // Наряд №119: build type alias map and collect errors
+    let (type_alias_map, alias_errors) = build_type_alias_map(declarations);
+    for e in alias_errors {
+        result.errors.push(e);
+    }
+    let alias_names: HashSet<String> = type_alias_map.keys().cloned().collect();
+
     // First pass: collect all declarations (names)
     for decl in declarations {
         match decl {
@@ -174,8 +181,14 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                     "Hash",
                     "Session",
                 ];
-                if !known_primitives.contains(&e.type_name.as_str())
-                    && !entity_types.contains(&e.type_name)
+                // Наряд №119: resolve type alias before checking
+                let resolved = type_alias_map
+                    .get(&e.type_name)
+                    .map(|s| s.as_str())
+                    .unwrap_or(&e.type_name);
+                if !known_primitives.contains(&resolved.as_str())
+                    && !entity_types.contains(resolved)
+                    && !alias_names.contains(&e.type_name)
                 {
                     result.warnings.push(format!(
                         "entity '{}' uses undeclared type '{}' (may be a forward reference)",

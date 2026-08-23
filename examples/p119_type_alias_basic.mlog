@@ -1,0 +1,32 @@
+// НАРЯД №119 — golden test: type aliases
+// Contracts 1,2,5 (no opaque types in golden — both TW and VM compatible)
+
+// Contract 1: basic alias — parse and resolve
+type UserName = String
+entity u: UserName = "hello"
+pattern c1() -> String {
+  return "basic_ok"
+}
+
+// Contract 2: chain alias — A -> B -> String
+type Label = UserName
+pattern c2() -> String {
+  return "chain_ok"
+}
+
+// Contract 5: no conflict with memory { kv: { type: ... } }
+memory { kv: { type: key_value, persist: true } }
+pattern c5() -> String {
+  return "memory_and_alias_ok"
+}
+
+// Accumulate all results
+pattern RunAll(_input: String) -> String {
+  let mut r = ""
+  r = r + "c1:" + c1() + "|"
+  r = r + "c2:" + c2() + "|"
+  r = r + "c5:" + c5()
+  return r
+}
+
+flow Main { input: String = "x" -> RunAll -> output }

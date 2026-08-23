@@ -263,8 +263,7 @@ fn cmd_test(file: PathBuf, filter: Option<String>) {
                     failed += 1;
                 }
             }
-            eprintln!("
-{}/{} tests passed", passed, passed + failed);
+            eprintln!("\n{}/{} tests passed", passed, passed + failed);
             if failed > 0 {
                 std::process::exit(1);
             }

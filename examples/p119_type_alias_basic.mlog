@@ -15,7 +15,7 @@ pattern c2() -> String {
 }
 
 // Contract 5: no conflict with memory { kv: { type: ... } }
-memory { kv: { type: key_value, persist: true } }
+memory { kv: { type: key_value } }
 pattern c5() -> String {
   return "memory_and_alias_ok"
 }

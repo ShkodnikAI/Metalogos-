@@ -124,7 +124,7 @@ entity greeting: MyStr = "hello"
     fn no_conflict_with_memory_type_keyword() {
         // `type` inside memory { kv: { type: key_value } } must still parse
         let src = r#"
-memory { kv: { type: key_value, persist: true } }
+memory { kv: { type: key_value } }
 type Token = String
 entity t: Token = "ok"
 "#;
@@ -152,20 +152,16 @@ entity x: String = "hi"
 
     #[test]
     fn opaque_alias_inherits_secret_protection() {
-        // Direct Secret entity blocks print (Наряд №114)
+        // Direct Secret entity gets Value::Secret (Наряд №114)
         let src_direct = r#"entity sec: Secret = "s3cret"
 "#;
         let decls_direct = metalogos::parser::parse(src_direct).expect("parse");
         let mut interp = metalogos::interpreter::Interpreter::new();
         let _ = interp.run(decls_direct).expect("run direct");
         let val = interp.get_variable("sec").unwrap();
-        // Secret value should be wrapped
-        match val {
-            metalogos::interpreter::Value::String(s) => {
-                // After coercion, Secret values are wrapped
-                assert!(s.starts_with("[Opaque:Secret]"));
-            }
-            other => panic!("expected String wrapper, got {:?}", other),
+        match &val {
+            metalogos::interpreter::Value::Secret(_) => {}
+            other => panic!("expected Secret, got {:?}", other),
         }
     }
 
@@ -180,11 +176,9 @@ entity tok: Token = "my-token"
         let mut interp = metalogos::interpreter::Interpreter::new();
         let _ = interp.run(decls_aliased).expect("run aliased");
         let val = interp.get_variable("tok").unwrap();
-        match val {
-            metalogos::interpreter::Value::String(s) => {
-                assert!(s.starts_with("[Opaque:Secret]"));
-            }
-            other => panic!("expected String wrapper, got {:?}", other),
+        match &val {
+            metalogos::interpreter::Value::Secret(_) => {}
+            other => panic!("expected Secret (via alias), got {:?}", other),
         }
     }
 }

@@ -186,7 +186,7 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                     .get(&e.type_name)
                     .map(|s| s.as_str())
                     .unwrap_or(&e.type_name);
-                if !known_primitives.contains(&resolved.as_str())
+                if !known_primitives.contains(resolved)
                     && !entity_types.contains(resolved)
                     && !alias_names.contains(&e.type_name)
                 {

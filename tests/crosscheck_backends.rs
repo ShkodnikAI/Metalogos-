@@ -64,15 +64,7 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                     if name == "p118_collection_utils.mlog" {
                         continue;
                     }
-                    // Наряд №117 Block 3 / ADR-0105: p117_string_builtins
-                    // accumulates 21 test results via sequential r = r + ...
-                    // (20+ concatenation steps). The VM corrupts the accumulated
-                    // string after ~15 steps (stack/state bug), losing the
-                    // first portion of the output. TW output is correct and
-                    // verified by golden test. VM fix tracked separately.
-                    if name == "p117_string_builtins.mlog" {
-                        continue;
-                    }
+
                     let expected = path.with_extension("expected");
                     if expected.exists() {
                         pairs.push((path, expected));

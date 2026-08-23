@@ -303,23 +303,30 @@ impl Vm {
                     // Switch to pattern code
                     let result =
                         self.execute_code(&pattern.code, &mut stack, &mut call_stack, program)?;
+                    // Clean up locals left on the stack by the called pattern
+                    // (StoreLocal writes to base_bp+slot which may resize the Vec;
+                    //  execute_code's Return only pops the return value, leaving
+                    //  locals behind). Truncate back to pre-call size, then push result.
+                    stack.truncate(base_bp);
                     stack.push(result);
                     // IP already advanced by 1 (return_ip)
                     ip = return_ip;
                 }
                 Instruction::Return => {
-                    let _return_val = stack.pop().unwrap_or(Value::Unit);
-                    // Pop call frame and restore stack
+                    // This Return handler in execute_main_code is only reachable
+                    // if the main (flow-level) code itself contains a Return
+                    // instruction — not from nested pattern calls (those go
+                    // through execute_code which has its own Return handler).
+                    // For correctness, truncate the stack and stop execution.
+                    let return_val = stack.pop().unwrap_or(Value::Unit);
                     if let Some(frame) = call_stack.pop() {
-                        // Remove locals from stack
                         stack.truncate(frame.base_bp);
-                        // We'll push the return value after returning
-                        // (handled by the caller)
                     }
-                    // Return the value to the execute_code caller
-                    // Actually, this is tricky with the current design...
-                    // Let me use a different approach — see execute_code below
-                    ip += 1;
+                    flow_output = match return_val {
+                        Value::String(s) => Some(s),
+                        _ => Some(return_val.to_string()),
+                    };
+                    break; // Exit the main execution loop
                 }
                 Instruction::LlmCall(idx, arity) => {
                     let mut args = Vec::new();
@@ -883,6 +890,11 @@ impl Vm {
                         stack.push(local);
                     }
                     let result = self.execute_code(&pattern.code, stack, call_stack, program)?;
+                    // Clean up: the called pattern's locals (written via
+                    // StoreLocal to base_bp+slot) remain on the stack after
+                    // execute_code's Return pops only the return value.
+                    // Truncate back to pre-call boundary before pushing result.
+                    stack.truncate(base_bp);
                     call_stack.pop();
                     stack.push(result);
                     ip += 1;

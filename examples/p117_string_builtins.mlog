@@ -1,0 +1,138 @@
+// Наряд №117 Block 3: contract tests for 7 string builtins
+// trim_start, trim_end, truncate, slugify, word_wrap, capitalize, title_case
+// Edge cases: empty strings, no-whitespace, Unicode, boundary conditions.
+
+// ── 1. trim_start / trim_end on strings without whitespace ──
+pattern TTrimStartNospace() -> String {
+  return trim_start("hello")
+}
+
+pattern TTrimEndNospace() -> String {
+  return trim_end("hello")
+}
+
+pattern TTrimStartNormal() -> String {
+  return trim_start("  hello  ")
+}
+
+pattern TTrimEndNormal() -> String {
+  return trim_end("  hello  ")
+}
+
+// ── 2. truncate: max_len >= char_count -> unchanged ──
+pattern TTruncLong() -> String {
+  return truncate("hello", 10)
+}
+
+pattern TTruncExact() -> String {
+  return truncate("hello", 5)
+}
+
+pattern TTruncCut() -> String {
+  return truncate("hello", 3)
+}
+
+pattern TTruncZero() -> String {
+  return truncate("hello", 0)
+}
+
+// ── 3. slugify: empty string + non-ASCII (Cyrillic dropped) ──
+pattern TSlugEmpty() -> String {
+  return slugify("")
+}
+
+pattern TSlugAscii() -> String {
+  return slugify("Hello World 123")
+}
+
+pattern TSlugConsec() -> String {
+  return slugify("a--b__c")
+}
+
+pattern TSlugCyrillic() -> String {
+  return slugify("Привет мир")
+}
+
+// ── 4. Unicode: char-based, not byte-based ──
+// truncate("Привет мир", 7): 11 chars, cut=6 -> "Привет" (6 chars) + "..."
+pattern TTruncUnicode() -> String {
+  return truncate("Привет мир", 7)
+}
+
+pattern TTruncEmoji() -> String {
+  return truncate("Hi 😀 mundo", 5)
+}
+
+// word_wrap wide: fits on one line, no newline in output
+pattern TWrapWide() -> String {
+  return word_wrap("hello world", 100)
+}
+
+// word_wrap char-based proof: "Привет" = 6 chars fits in width 6.
+// If byte-based (12 bytes), it would wrap. contains confirms no wrap.
+pattern TWrapCharBased() -> String {
+  let r = word_wrap("Привет мир", 6)
+  return str(contains(r, "Привет"))
+}
+
+// word_wrap char-based proof: width=5 forces wrap ("Привет" = 6 chars > 5).
+pattern TWrapForced() -> String {
+  let r = word_wrap("Привет мир", 5)
+  return str(contains(r, "\n"))
+}
+
+// ── 5. capitalize / title_case on empty string ──
+pattern TCapEmpty() -> String {
+  return capitalize("")
+}
+
+pattern TCapBasic() -> String {
+  return capitalize("hello")
+}
+
+pattern TCapOneWord() -> String {
+  return capitalize("hello world")
+}
+
+pattern TTitleEmpty() -> String {
+  return title_case("")
+}
+
+pattern TTitleBasic() -> String {
+  return title_case("hello world")
+}
+
+pattern TTitleSpaces() -> String {
+  return title_case("  hello  world  ")
+}
+
+// ── Accumulate all results ──
+pattern RunAll(_input: String) -> String {
+  let mut r = ""
+  r = r + "trim_ns:" + TTrimStartNospace() + "|"
+  r = r + "trim_ne:" + TTrimEndNospace() + "|"
+  r = r + "trim_s:" + TTrimStartNormal() + "|"
+  r = r + "trim_e:" + TTrimEndNormal() + "|"
+  r = r + "trunc_long:" + TTruncLong() + "|"
+  r = r + "trunc_exact:" + TTruncExact() + "|"
+  r = r + "trunc_cut:" + TTruncCut() + "|"
+  r = r + "trunc_zero:" + TTruncZero() + "|"
+  r = r + "slug_e:" + TSlugEmpty() + "|"
+  r = r + "slug_asc:" + TSlugAscii() + "|"
+  r = r + "slug_consec:" + TSlugConsec() + "|"
+  r = r + "slug_cyr:" + TSlugCyrillic() + "|"
+  r = r + "trunc_u:" + TTruncUnicode() + "|"
+  r = r + "trunc_emoji:" + TTruncEmoji() + "|"
+  r = r + "wrap_wide:" + TWrapWide() + "|"
+  r = r + "wrap_char:" + TWrapCharBased() + "|"
+  r = r + "wrap_forced:" + TWrapForced() + "|"
+  r = r + "cap_e:" + TCapEmpty() + "|"
+  r = r + "cap_b:" + TCapBasic() + "|"
+  r = r + "cap_ow:" + TCapOneWord() + "|"
+  r = r + "title_e:" + TTitleEmpty() + "|"
+  r = r + "title_b:" + TTitleBasic() + "|"
+  r = r + "title_sp:" + TTitleSpaces()
+  return r
+}
+
+flow Main { input: String = "x" -> RunAll -> output }

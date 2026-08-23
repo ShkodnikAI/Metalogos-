@@ -1692,4 +1692,17 @@ pub(super) fn parse_branch_condition(pair: Pair<Rule>) -> Result<BranchCondition
     })
 }
 
+// ── Type Alias (Наряд №119) ─────────────────────────────────────
+
+/// `type Token = Secret`
+pub(super) fn parse_type_alias_decl(pair: Pair<Rule>) -> Declaration {
+    let children = children_of(&pair);
+    let alias = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+    let target = find_child_str(&children, Rule::type_name).unwrap_or_default();
+    Declaration::TypeAlias(TypeAliasDecl {
+        alias: alias.to_string(),
+        target: target.to_string(),
+    })
+}
+
 // ── Expressions ─────────────────────────────────────────────────────

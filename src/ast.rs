@@ -305,6 +305,9 @@ impl Declaration {
                 Some(a) => format!("import {} as {}", d.path, a),
                 None => format!("import {}", d.path),
             },
+            Declaration::Test(d) => {
+                format!("test \"{}\" {{ {} statements }}", d.name, d.body.len())
+            }
         }
     }
 

@@ -1,0 +1,73 @@
+// Наряд №122: regression contract for VM CallPattern stack leak bug.
+//
+// Root cause (confirmed by debug tracing):
+//   execute_code's CallPattern handler did NOT truncate the stack after
+//   the called pattern returned. The called pattern's local variables
+//   (written via StoreLocal to base_bp+slot) remained on the stack,
+//   corrupting subsequent Add/Sub/Mul/Div binary operations.
+//
+// This contract specifically tests the pattern that triggered the bug:
+//   - Outer pattern with local `r` (accumulator) calls inner pattern
+//   - Inner pattern also has a local `r` (same name, different scope)
+//   - Inner pattern's `r` leaked onto the stack, causing the outer's
+//     next Add to pick up the leaked value instead of the accumulator
+
+// Inner pattern with a local variable (the trigger)
+pattern InnerWithLocal(x: String) -> String {
+  let r = x + "!"
+  return r
+}
+
+// Outer pattern that accumulates results from multiple calls
+// Each call to InnerWithLocal would leak one local if the bug is present
+pattern OuterAccumulator(items: String) -> String {
+  let mut r = ""
+  r = r + InnerWithLocal("a")
+  r = r + "|" + InnerWithLocal("b")
+  r = r + "|" + InnerWithLocal("c")
+  return r
+}
+
+// Same pattern but with 2 local variables in the inner function
+// to test multi-local leak
+pattern InnerTwoLocals(x: String) -> String {
+  let a = x + "-first"
+  let b = a + "-second"
+  return b
+}
+
+pattern OuterTwoLocalAccum() -> String {
+  let mut r = "start:"
+  r = r + InnerTwoLocals("x")
+  r = r + "|" + InnerTwoLocals("y")
+  return r
+}
+
+// Triple-nested: outer calls middle, middle calls inner
+pattern DeepInner(v: String) -> String {
+  let tmp = v + "-deep"
+  return tmp
+}
+
+pattern DeepMiddle(v: String) -> String {
+  let tmp = v + "-mid"
+  return tmp + "(" + DeepInner(v) + ")"
+}
+
+pattern DeepOuter() -> String {
+  let mut r = ""
+  r = r + DeepMiddle("a")
+  r = r + "|" + DeepMiddle("b")
+  return r
+}
+
+// Accumulate all results
+pattern RunAll(_input: String) -> String {
+  let mut r = ""
+  r = r + "single:" + OuterAccumulator("test") + "|"
+  r = r + "two_local:" + OuterTwoLocalAccum() + "|"
+  r = r + "deep:" + DeepOuter()
+  return r
+}
+
+flow Main { input: String = "x" -> RunAll -> output }

@@ -319,6 +319,8 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                     );
                 }
             }
+            // Test declarations: no semantic checks needed (statements inside are checked by patterns)
+            Declaration::Test(_) => {}
             _ => {}
         }
     }

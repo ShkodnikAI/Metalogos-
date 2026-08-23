@@ -310,6 +310,9 @@ impl Interpreter {
                 }
                 // Наряд №119: type aliases handled via type_alias_map (built above)
                 Declaration::TypeAlias(_) => {}
+                Declaration::Test(t) => {
+                    self.test_blocks.push(t);
+                }
             }
         }
 

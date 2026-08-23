@@ -1,0 +1,1 @@
+trim_ns:hello|trim_ne:hello|trim_s:hello  |trim_e:  hello|trunc_long:hello|trunc_exact:hello|trunc_cut:he…|trunc_zero:|slug_e:|slug_asc:hello-world-123|slug_consec:a-b-c|slug_cyr:|trunc_u:Привет…|trunc_emoji:Hi 😀…|wrap_wide:hello world|wrap_char:true|wrap_forced:true|cap_e:|cap_b:Hello|cap_ow:Hello world|title_e:|title_b:Hello World|title_sp:  Hello  World  

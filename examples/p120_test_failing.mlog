@@ -1,0 +1,16 @@
+// Наряд №120 Contract 2: test with failing assert_eq
+pattern Shout(input: String) -> String {
+  return upper(input) + "!"
+}
+
+test "this should fail - wrong expected" {
+  let result = Shout("hello")
+  assert_eq(result, "WRONG")
+}
+
+test "this passes" {
+  let result = Shout("hi")
+  assert_eq(result, "HI!")
+}
+
+type Dummy = String

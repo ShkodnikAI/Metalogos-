@@ -16,7 +16,7 @@ pub mod values;
 pub(crate) use types::ControlFlow;
 pub use types::{
     CompiledLearnable, ConvMessage, Conversation, ConversationConfig, EvalResult, Event,
-    PatternStats,
+    PatternStats, TestResult,
 };
 pub use values::{FluidValueVariant, SecretString, Value};
 
@@ -169,6 +169,8 @@ pub struct Interpreter {
     hooks_session_end: Vec<HookDecl>,
     /// Eval blocks (ADR-0050): collected during run(), executed by run_eval_blocks().
     eval_blocks: Vec<EvalDecl>,
+    /// Test blocks: collected during run(), executed by test runner.
+    test_blocks: Vec<TestDecl>,
     /// Per-pattern runtime statistics (ADR-0051): calls, confidence, cache hits, adapt info.
     /// Key = pattern name. Used by the `inspect()` builtin.
     pattern_stats: std::sync::Mutex<std::collections::HashMap<String, PatternStats>>,
@@ -253,6 +255,7 @@ impl Interpreter {
             hooks_on_write: Vec::new(),
             hooks_session_end: Vec::new(),
             eval_blocks: Vec::new(),
+            test_blocks: Vec::new(),
             pattern_stats: std::sync::Mutex::new(std::collections::HashMap::new()),
             event_log: std::sync::Mutex::new(Vec::new()),
             event_next_id: std::sync::atomic::AtomicU64::new(1),

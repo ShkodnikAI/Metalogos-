@@ -220,6 +220,24 @@ pub fn eval_program_with_dir(
     interp.run_eval_blocks()
 }
 
+/// Parse a .mlog program, execute declarations, then run all test blocks (Наряд №120).
+/// Each test block runs in isolation; assertion errors are caught per-test.
+pub fn test_program(source: &str) -> Result<Vec<interpreter::TestResult>, String> {
+    test_program_with_dir(source, std::path::PathBuf::from("."))
+}
+
+/// Parse with explicit base directory, execute declarations, then run test blocks.
+pub fn test_program_with_dir(
+    source: &str,
+    base_dir: std::path::PathBuf,
+) -> Result<Vec<interpreter::TestResult>, String> {
+    let declarations = parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+    let mut interp = interpreter::Interpreter::new();
+    interp.set_base_dir(base_dir);
+    interp.run(declarations)?;
+    Ok(interp.run_test_blocks())
+}
+
 /// ADR-0056: Resume a flow from a checkpoint.
 /// Parses the source, sets resume target, then runs — the flow skips to the checkpoint.
 pub fn resume_program(

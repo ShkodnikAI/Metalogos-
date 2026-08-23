@@ -96,6 +96,7 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::hook_decl => declarations.push(parse_hook_decl(inner_pair)?),
                 Rule::mutate_decl => declarations.push(parse_mutate_decl(inner_pair)?),
                 Rule::eval_decl => declarations.push(parse_eval_decl(inner_pair)),
+                Rule::test_decl => declarations.push(parse_test_decl(inner_pair)),
                 Rule::conversation_decl => declarations.push(parse_conversation_decl(inner_pair)),
                 Rule::context_budget_decl => {
                     declarations.push(parse_context_budget_decl(inner_pair))

@@ -118,6 +118,36 @@ impl Interpreter {
         std::mem::take(&mut self.mutate_log)
     }
 
+    // ── Test Blocks (Наряд №120) ──────────────────────────────────────
+
+    /// Run all collected test blocks. Each test runs in isolation:
+    /// assertion errors are caught per-test, other tests continue.
+    pub fn run_test_blocks(&self) -> Vec<TestResult> {
+        self.test_blocks
+            .iter()
+            .map(|td| self.run_single_test(td))
+            .collect()
+    }
+
+    /// Run a single test block. Assertion errors (from assert_eq / assert_contains)
+    /// are caught and reported as test failures. Panics are also caught.
+    fn run_single_test(&self, test_decl: &TestDecl) -> TestResult {
+        let mut scope: HashMap<String, Value> = HashMap::new();
+        let result = self.eval_statements(&test_decl.body, &mut scope);
+        match result {
+            Ok(_) => TestResult {
+                name: test_decl.name.clone(),
+                passed: true,
+                error: None,
+            },
+            Err(e) => TestResult {
+                name: test_decl.name.clone(),
+                passed: false,
+                error: Some(e),
+            },
+        }
+    }
+
     // ── Eval Harness (ADR-0050) ──────────────────────────────────────────
 
     /// Run all collected eval blocks and return results.

@@ -7,6 +7,12 @@ impl Interpreter {
     pub fn run(&mut self, declarations: Vec<Declaration>) -> Result<Option<String>, String> {
         let mut output: Option<String> = None;
 
+        // Наряд №119: build type alias map for runtime resolution
+        let (type_alias_map, alias_errors) = crate::ast::build_type_alias_map(&declarations);
+        if !alias_errors.is_empty() {
+            return Err(alias_errors.join("\n"));
+        }
+
         // O-2: Fire on_session_start hooks (first pass: register them, then fire)
         // We do a two-phase approach: first collect all declarations to register hooks,
         // then fire session_start, then process remaining declarations.
@@ -47,13 +53,22 @@ impl Interpreter {
                     );
                 }
                 Declaration::EntityRecord(e) => {
-                    let value = self.instantiate_struct(&e.type_name, &e.fields)?;
+                    let resolved_type = type_alias_map
+                        .get(&e.type_name)
+                        .map(|s| s.as_str())
+                        .unwrap_or(&e.type_name);
+                    let value = self.instantiate_struct(resolved_type, &e.fields)?;
                     self.variables.insert(e.name.clone(), value);
                 }
                 Declaration::EntitySimple(e) => {
                     let value = self.eval_expr(&e.value)?;
                     // Наряд №114: apply declared opaque types (esp. Secret)
-                    let value = Self::coerce_to_declared_type(value, &e.type_name)?;
+                    // Наряд №119: resolve type alias before coercion
+                    let resolved_type = type_alias_map
+                        .get(&e.type_name)
+                        .map(|s| s.as_str())
+                        .unwrap_or(&e.type_name);
+                    let value = Self::coerce_to_declared_type(value, resolved_type)?;
                     self.variables.insert(e.name.clone(), value);
                 }
                 Declaration::Rule(r) => {
@@ -293,6 +308,8 @@ impl Interpreter {
                 Declaration::SkillIndex(idx) => {
                     self.skill_indices.insert(idx.name.clone(), idx);
                 }
+                // Наряд №119: type aliases handled via type_alias_map (built above)
+                Declaration::TypeAlias(_) => {}
             }
         }
 

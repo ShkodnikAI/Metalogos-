@@ -100,6 +100,7 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::context_budget_decl => {
                     declarations.push(parse_context_budget_decl(inner_pair))
                 }
+                Rule::type_alias_decl => declarations.push(parse_type_alias_decl(inner_pair)),
                 Rule::llm_decl => declarations.push(parse_llm_decl(inner_pair)?),
                 Rule::tool_decl => declarations.push(parse_tool_decl(inner_pair)?),
                 Rule::learnable_pattern_decl => {

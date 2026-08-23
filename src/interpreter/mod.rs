@@ -16,7 +16,7 @@ pub mod values;
 pub(crate) use types::ControlFlow;
 pub use types::{
     CompiledLearnable, ConvMessage, Conversation, ConversationConfig, EvalResult, Event,
-    PatternStats,
+    PatternStats, TestResult,
 };
 pub use values::{FluidValueVariant, SecretString, Value};
 

@@ -856,7 +856,7 @@ pub enum ContextMode {
     /// Uses the first parameter's runtime value as the recall query.
     Auto,
     /// Explicit recall with query expression and optional limit.
-    /// `context: recall(text, limit=5)` → Recall(Expr::Ident("text"), Some(5))
+    /// `context: recall(text, limit=5)` → Recall(Expr::Ident { name: "text", span: Span::unknown() }, Some(5))
     Recall(Expr, Option<usize>),
     /// Static string literal: prepended as-is to the prompt.
     /// `context: "Always respond in Russian"` → Literal("Always respond in Russian")
@@ -1052,25 +1052,26 @@ pub struct BranchCondition {
 
 #[derive(Debug, Clone)]
 pub enum Expr {
-    StringLit(String),
-    FloatLit(f64),
-    BoolLit(bool),
-    Ident(String),
-    FieldAccess(Box<Expr>, String),
-    FnCall(String, Vec<Expr>),
+    StringLit { value: String, span: Span },
+    FloatLit { value: f64, span: Span },
+    BoolLit { value: bool, span: Span },
+    Ident { name: String, span: Span },
+    FieldAccess { object: Box<Expr>, field: String, span: Span },
+    FnCall { name: String, args: Vec<Expr>, span: Span },
     /// Qualified call: `module.function(args)` — resolved through namespace imports.
     QualifiedCall {
         module: String,
         function: String,
         args: Vec<Expr>,
+        span: Span,
     },
-    BinaryOp(Box<Expr>, BinOp, Box<Expr>),
-    IfElse(Box<Expr>, Box<Expr>, Box<Expr>),
-    List(Vec<Expr>),
+    BinaryOp { left: Box<Expr>, op: BinOp, right: Box<Expr>, span: Span },
+    IfElse { condition: Box<Expr>, then_branch: Box<Expr>, else_branch: Box<Expr>, span: Span },
+    List { items: Vec<Expr>, span: Span },
     /// Index access: `list[index]` or `struct["field"]` (v0.5.0)
-    IndexAccess(Box<Expr>, Box<Expr>),
+    IndexAccess { object: Box<Expr>, index: Box<Expr>, span: Span },
     /// Struct literal: `{key: val, ...}` — creates a Struct value inline
-    StructLit(HashMap<String, Expr>),
+    StructLit { fields: HashMap<String, Expr>, span: Span },
     /// Block if/else as expression: `if cond { stmts } else { stmts }` (Наряд №14 P0-3)
     /// Value is the last expression in the matched branch. Returns Unit if no non-Unit expr.
     BlockIfElse {
@@ -1078,9 +1079,10 @@ pub enum Expr {
         then_body: Vec<Statement>,
         else_ifs: Vec<(Box<Expr>, Vec<Statement>)>,
         else_body: Option<Vec<Statement>>,
+        span: Span,
     },
     /// Try expression: `try expr` — returns Unit on error instead of propagating (Наряд №14 P1-4)
-    Try(Box<Expr>),
+    Try { expr: Box<Expr>, span: Span },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1114,6 +1116,28 @@ impl fmt::Display for BinOp {
             BinOp::Ne => write!(f, "!="),
             BinOp::And => write!(f, "and"),
             BinOp::Or => write!(f, "or"),
+        }
+    }
+}
+
+impl Expr {
+    /// Returns the source span of this expression.
+    pub fn span(&self) -> &Span {
+        match self {
+            Expr::StringLit { span, .. }
+            | Expr::FloatLit { span, .. }
+            | Expr::BoolLit { span, .. }
+            | Expr::Ident { span, .. }
+            | Expr::FieldAccess { span, .. }
+            | Expr::FnCall { span, .. }
+            | Expr::QualifiedCall { span, .. }
+            | Expr::BinaryOp { span, .. }
+            | Expr::IfElse { span, .. }
+            | Expr::List { span, .. }
+            | Expr::IndexAccess { span, .. }
+            | Expr::StructLit { span, .. }
+            | Expr::BlockIfElse { span, .. }
+            | Expr::Try { span, .. } => span,
         }
     }
 }

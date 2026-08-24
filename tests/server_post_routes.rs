@@ -59,8 +59,8 @@ mlogserver {
     if let metalogos::ast::Declaration::MlogServer(srv) = &decls[0] {
         assert_eq!(srv.routes[0].body.len(), 1);
         match &srv.routes[0].body[0] {
-            metalogos::ast::Statement::Return(expr) => match expr {
-                metalogos::ast::Expr::StringLit(s) => assert_eq!(s, "POST works"),
+            metalogos::ast::Statement::Return { value: expr, .. } => match expr {
+                metalogos::ast::Expr::StringLit { value: s, .. } => assert_eq!(s, "POST works"),
                 other => panic!("expected StringLit, got: {:?}", other),
             },
             other => panic!("expected Return statement, got: {:?}", other),

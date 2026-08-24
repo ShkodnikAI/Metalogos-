@@ -21,10 +21,14 @@ fn run_source(source: &str) -> Result<Interpreter, String> {
 
 /// Helper: call mem_get builtin and return the value string.
 fn kv_get(interp: &Interpreter, key: &str) -> String {
-    let result = interp.eval_expr(&metalogos::ast::Expr::FnCall(
-        "mem_get".to_string(),
-        vec![metalogos::ast::Expr::StringLit(key.to_string())],
-    ));
+    let result = interp.eval_expr(&metalogos::ast::Expr::FnCall {
+        name: "mem_get".to_string(),
+        args: vec![metalogos::ast::Expr::StringLit {
+            value: key.to_string(),
+            span: metalogos::ast::Span::unknown(),
+        }],
+        span: metalogos::ast::Span::unknown(),
+    });
     match result {
         Ok(v) => format!("{}", v),
         Err(_) => String::new(),

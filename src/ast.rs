@@ -3,14 +3,18 @@
 use std::collections::HashMap;
 use std::fmt;
 
-/// Source span: line/column positions (0-indexed) for LSP integration.
-/// Stored as (start_line, start_col, end_line, end_col).
-/// Populated by text-based search in mlog-lsp (Variant B: no parser changes).
+/// Source span: line/column position in the source code.
+/// Lines are 1-indexed, columns are 0-indexed (matches pest parser convention).
+/// Populated from `pest::Span` during parsing via `Span::from_pest()`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Span {
+    /// 1-indexed start line.
     pub start_line: u32,
+    /// 0-indexed start column.
     pub start_col: u32,
+    /// 1-indexed end line.
     pub end_line: u32,
+    /// 0-indexed end column.
     pub end_col: u32,
 }
 
@@ -24,7 +28,7 @@ impl Span {
         }
     }
 
-    /// Zero-span placeholder (used when position is not yet resolved).
+    /// Zero-span placeholder for programmatic constructions (tests, server-generated code).
     pub fn unknown() -> Self {
         Self {
             start_line: 0,
@@ -33,15 +37,32 @@ impl Span {
             end_col: 0,
         }
     }
+
+    /// Convert a `pest::Span` into an `ast::Span`.
+    /// pest uses 1-indexed lines and 0-indexed columns — same convention.
+    pub fn from_pest(span: pest::Span) -> Self {
+        Self {
+            start_line: span.start_pos().line_col().0 as u32,
+            start_col: span.start_pos().line_col().1 as u32,
+            end_line: span.end_pos().line_col().0 as u32,
+            end_col: span.end_pos().line_col().1 as u32,
+        }
+    }
 }
 
 impl fmt::Display for Span {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}:{}-{}:{}",
-            self.start_line, self.start_col, self.end_line, self.end_col
-        )
+        if self.start_line == self.end_line {
+            // Single-line span: show compact "line:col" format.
+            write!(f, "{}:{}", self.start_line, self.start_col)
+        } else {
+            // Multi-line span: show full range.
+            write!(
+                f,
+                "{}:{}-{}:{}",
+                self.start_line, self.start_col, self.end_line, self.end_col
+            )
+        }
     }
 }
 
@@ -312,11 +333,38 @@ impl Declaration {
     }
 
     /// Source span of this declaration.
-    /// NOTE: AST nodes do not carry position info from the parser.
-    /// This always returns Span::unknown(). LSP clients (mlog-lsp) resolve
-    /// positions via text-based search (Variant B: ADR-0100).
-    pub fn span(&self) -> Span {
-        Span::unknown()
+    pub fn span(&self) -> &Span {
+        match self {
+            Declaration::MlogServer(d) => &d.span,
+            Declaration::Template(d) => &d.span,
+            Declaration::Db(d) => &d.span,
+            Declaration::Schema(d) => &d.span,
+            Declaration::SkillIndex(d) => &d.span,
+            Declaration::Memory(d) => &d.span,
+            Declaration::Import(d) => &d.span,
+            Declaration::EntityType(d) => &d.span,
+            Declaration::EntityRecord(d) => &d.span,
+            Declaration::EntitySimple(d) => &d.span,
+            Declaration::Rule(d) => &d.span,
+            Declaration::Memorize(d) => &d.span,
+            Declaration::Forget(d) => &d.span,
+            Declaration::Fluid(d) => &d.span,
+            Declaration::Adapt(d) => &d.span,
+            Declaration::Relate(d) => &d.span,
+            Declaration::Sandbox(d) => &d.span,
+            Declaration::Hook(d) => &d.span,
+            Declaration::Mutate(d) => &d.span,
+            Declaration::Eval(d) => &d.span,
+            Declaration::Test(d) => &d.span,
+            Declaration::Pattern(d) => &d.span,
+            Declaration::LearnablePattern(d) => &d.span,
+            Declaration::Flow(d) => &d.span,
+            Declaration::Conversation(d) => &d.span,
+            Declaration::Tool(d) => &d.span,
+            Declaration::LlmConfig(d) => &d.span,
+            Declaration::ContextBudget(d) => &d.span,
+            Declaration::TypeAlias(d) => &d.span,
+        }
     }
 }
 
@@ -325,6 +373,7 @@ impl Declaration {
 /// A single provider entry in the `llm { providers: [...] }` list.
 #[derive(Debug, Clone)]
 pub struct LlmProviderEntry {
+    pub span: Span,
     /// User-chosen alias for this provider (e.g. "primary", "fast", "fallback").
     pub alias: String,
     /// Provider type: "anthropic", "openai", "ollama", "groq", "cerebras", etc.
@@ -340,6 +389,7 @@ pub struct LlmProviderEntry {
 /// If absent → backward compatible (env vars, single provider via create_llm_backend()).
 #[derive(Debug, Clone)]
 pub struct LlmConfigDecl {
+    pub span: Span,
     /// Ordered list of provider entries (priority = order).
     pub providers: Vec<LlmProviderEntry>,
     /// Default model name/alias.
@@ -357,6 +407,7 @@ pub struct LlmConfigDecl {
 /// `mlogserver { port: 8080, middleware: [...], route ... { body } }`
 #[derive(Debug, Clone)]
 pub struct MlogServerDecl {
+    pub span: Span,
     pub port: u16,
     pub host: Option<String>,
     pub middleware: Vec<String>,
@@ -366,6 +417,7 @@ pub struct MlogServerDecl {
 /// `route "/path" method=GET requires=[admin] { body }`
 #[derive(Debug, Clone)]
 pub struct RouteDecl {
+    pub span: Span,
     pub path: String,
     pub method: String,        // "GET", "POST", "PUT", "DELETE"
     pub requires: Vec<String>, // role names
@@ -377,6 +429,7 @@ pub struct RouteDecl {
 /// `template Page(title: String, body: String) -> Html { <html>...</html> }`
 #[derive(Debug, Clone)]
 pub struct TemplateDecl {
+    pub span: Span,
     pub name: String,
     pub params: Vec<Param>,
     pub return_type: String,
@@ -388,6 +441,7 @@ pub struct TemplateDecl {
 /// `db { url: expr, pool_size: 10, migrate: "./migrations" }`
 #[derive(Debug, Clone)]
 pub struct DbDecl {
+    pub span: Span,
     pub url: Option<Expr>,
     pub pool_size: Option<u32>,
     pub migrate: Option<String>,
@@ -398,6 +452,7 @@ pub struct DbDecl {
 /// A trigger rule for tier 2/3: match skill if any trigger appears in query.
 #[derive(Debug, Clone)]
 pub struct SkillTriggerRule {
+    pub span: Span,
     pub skill: String,
     pub triggers: Vec<String>,
 }
@@ -405,6 +460,7 @@ pub struct SkillTriggerRule {
 /// A tier within a skill_index.
 #[derive(Debug, Clone)]
 pub struct SkillTier {
+    pub span: Span,
     pub level: u32,
     pub mode: String,                 // "always" or "when_matches"
     pub skills: Vec<String>, // for "always": skill names; for "when_matches": not used directly
@@ -421,6 +477,7 @@ pub enum TruncationMode {
 /// `skill_index osp { tier 1 always [...], tier 2 when_matches [...], budget: 25000 tokens, truncation: whole_skill_only }`
 #[derive(Debug, Clone)]
 pub struct SkillIndexDecl {
+    pub span: Span,
     pub name: String,
     pub tiers: Vec<SkillTier>,
     pub budget: Option<f64>,
@@ -442,6 +499,7 @@ pub enum ColumnModifier {
 /// Column definition inside a schema table.
 #[derive(Debug, Clone)]
 pub struct SchemaColumn {
+    pub span: Span,
     pub name: String,
     pub col_type: String,
     pub modifiers: Vec<ColumnModifier>,
@@ -451,6 +509,7 @@ pub struct SchemaColumn {
 /// Table definition inside a schema block.
 #[derive(Debug, Clone)]
 pub struct SchemaTable {
+    pub span: Span,
     pub name: String,
     pub columns: Vec<SchemaColumn>,
 }
@@ -458,6 +517,7 @@ pub struct SchemaTable {
 /// `schema osp_analysis { table analysis { id: Int primary_key auto_increment, ... } }`
 #[derive(Debug, Clone)]
 pub struct SchemaDecl {
+    pub span: Span,
     pub name: String,
     pub tables: Vec<SchemaTable>,
 }
@@ -469,6 +529,7 @@ pub struct SchemaDecl {
 /// With persist → SQLite, auto-creates file and directories.
 #[derive(Debug, Clone)]
 pub struct MemoryDecl {
+    pub span: Span,
     /// Path to SQLite database file. If None, uses in-memory stores.
     pub persist: Option<String>,
 }
@@ -478,6 +539,7 @@ pub struct MemoryDecl {
 /// `import std/string as str` or `import ./my_utils`
 #[derive(Debug, Clone)]
 pub struct ImportDecl {
+    pub span: Span,
     /// Module path: "std/string", "./my_utils", "pkg/utils"
     pub path: String,
     /// Optional alias: `as str` → Some("str"). Without `as` → None (global merge).
@@ -489,12 +551,14 @@ pub struct ImportDecl {
 /// `entity Message { text: String, urgency: Float = 0.0 }`
 #[derive(Debug, Clone)]
 pub struct EntityTypeDecl {
+    pub span: Span,
     pub name: String,
     pub fields: Vec<FieldDecl>,
 }
 
 #[derive(Debug, Clone)]
 pub struct FieldDecl {
+    pub span: Span,
     pub name: String,
     pub type_name: String,
     pub default: Option<Expr>,
@@ -503,6 +567,7 @@ pub struct FieldDecl {
 /// `entity m: Message = { text: "срочно нужна помощь", urgency: 0.0 }`
 #[derive(Debug, Clone)]
 pub struct EntityRecordDecl {
+    pub span: Span,
     pub name: String,
     pub type_name: String,
     pub fields: Vec<FieldInit>,
@@ -510,6 +575,7 @@ pub struct EntityRecordDecl {
 
 #[derive(Debug, Clone)]
 pub struct FieldInit {
+    pub span: Span,
     pub name: String,
     pub value: Expr,
 }
@@ -517,6 +583,7 @@ pub struct FieldInit {
 /// `entity greeting: String = "Hello, Metalogos!"` (M1)
 #[derive(Debug, Clone)]
 pub struct EntitySimpleDecl {
+    pub span: Span,
     pub name: String,
     pub type_name: String,
     pub value: Expr,
@@ -527,6 +594,7 @@ pub struct EntitySimpleDecl {
 /// `rule If(m.text contains "срочно") then m.urgency = 0.9 with priority=10`
 #[derive(Debug, Clone)]
 pub struct RuleDecl {
+    pub span: Span,
     pub condition: Condition,
     pub target: Expr,
     pub field: String,
@@ -576,6 +644,7 @@ impl fmt::Display for CompareOp {
 /// A superposition of typed variants with confidence scores.
 #[derive(Debug, Clone)]
 pub struct FluidDecl {
+    pub span: Span,
     pub name: String,
     pub variants: Vec<FluidVariant>,
 }
@@ -593,6 +662,7 @@ pub struct FluidVariant {
 /// `adapt PatternName add_example("input", "output")`
 #[derive(Debug, Clone)]
 pub struct AdaptDecl {
+    pub span: Span,
     pub pattern_name: String,
     pub input_example: Expr,
     pub output_example: Expr,
@@ -603,6 +673,7 @@ pub struct AdaptDecl {
 /// `relate "from" to "to" as "relation"`
 #[derive(Debug, Clone)]
 pub struct RelateDecl {
+    pub span: Span,
     pub from: Expr,
     pub to: Expr,
     pub relation: String,
@@ -613,6 +684,7 @@ pub struct RelateDecl {
 /// `sandbox name { allowed: [...], forbidden: [...], timeout: N }`
 #[derive(Debug, Clone)]
 pub struct SandboxDecl {
+    pub span: Span,
     pub name: String,
     pub allowed: Vec<String>,
     pub forbidden: Vec<String>,
@@ -647,6 +719,7 @@ pub enum HookPhase {
 ///   on_write: target (String), args (List)
 #[derive(Debug, Clone)]
 pub struct HookDecl {
+    pub span: Span,
     pub phase: HookPhase,
     pub body: Vec<Statement>,
 }
@@ -656,6 +729,7 @@ pub struct HookDecl {
 /// `mutate PatternName { add_example("in", "out") rollback_if: accuracy op threshold }`
 #[derive(Debug, Clone)]
 pub struct MutateDecl {
+    pub span: Span,
     pub pattern_name: String,
     pub new_examples: Vec<(Expr, Expr)>,
     pub rollback_threshold: Option<f64>,
@@ -669,6 +743,7 @@ pub struct MutateDecl {
 /// assert_eq/assert_contains failures are caught per-test.
 #[derive(Debug, Clone)]
 pub struct TestDecl {
+    pub span: Span,
     /// Human-readable test name (from the string literal).
     pub name: String,
     /// Statements to execute inside the test block.
@@ -681,6 +756,7 @@ pub struct TestDecl {
 /// Evaluates a learnable pattern against a labeled dataset and reports accuracy.
 #[derive(Debug, Clone)]
 pub struct EvalDecl {
+    pub span: Span,
     /// Name of the learnable pattern to evaluate.
     pub pattern_name: String,
     /// Test dataset: list of (input_string, expected_label) pairs.
@@ -696,6 +772,7 @@ pub struct EvalDecl {
 /// `memorize "fact" with priority=0.9`
 #[derive(Debug, Clone)]
 pub struct MemorizeDecl {
+    pub span: Span,
     pub value: Expr,
     pub priority: f64,
 }
@@ -703,6 +780,7 @@ pub struct MemorizeDecl {
 /// `forget "query" after 30.days`
 #[derive(Debug, Clone)]
 pub struct ForgetDecl {
+    pub span: Span,
     pub query: Expr,
     pub days: i64,
 }
@@ -714,6 +792,7 @@ pub struct ForgetDecl {
 /// tool.method(args) resolves via QualifiedCall, same as module.pattern().
 #[derive(Debug, Clone)]
 pub struct ToolDecl {
+    pub span: Span,
     /// Tool name (e.g., "telegram", "math_api").
     pub name: String,
     /// Methods inside the tool. Each is effectively a pattern.
@@ -724,6 +803,7 @@ pub struct ToolDecl {
 /// Structurally identical to a PatternDecl but scoped under a tool namespace.
 #[derive(Debug, Clone)]
 pub struct ToolMethod {
+    pub span: Span,
     /// Method name (e.g., "send", "get_updates").
     pub name: String,
     /// Parameters with types.
@@ -740,6 +820,7 @@ pub struct ToolMethod {
 /// Configures conversation state management for the interpreter.
 #[derive(Debug, Clone)]
 pub struct ConversationDecl {
+    pub span: Span,
     /// Time-to-live in seconds. Default: 1800 (30 minutes).
     /// Conversations inactive longer than this are auto-cleaned.
     pub ttl: u64,
@@ -756,6 +837,7 @@ pub struct ConversationDecl {
 /// `context_budget { pattern: "summarize_text", limit: 4096 }`
 #[derive(Debug, Clone)]
 pub struct ContextBudgetDecl {
+    pub span: Span,
     /// Name of the learnable pattern this budget applies to.
     pub pattern_name: String,
     /// Maximum token count for the prompt. Evaluated at runtime.
@@ -769,6 +851,7 @@ pub struct ContextBudgetDecl {
 /// The alias inherits all semantics of the target type (e.g. Secret protection).
 #[derive(Debug, Clone)]
 pub struct TypeAliasDecl {
+    pub span: Span,
     /// The alias name being defined (e.g. "Token").
     pub alias: String,
     /// The target type name (e.g. "Secret").
@@ -835,7 +918,7 @@ pub enum ContextMode {
     /// Uses the first parameter's runtime value as the recall query.
     Auto,
     /// Explicit recall with query expression and optional limit.
-    /// `context: recall(text, limit=5)` → Recall(Expr::Ident("text"), Some(5))
+    /// `context: recall(text, limit=5)` → Recall(Expr::Ident { name: "text", span: Span::unknown() }, Some(5))
     Recall(Expr, Option<usize>),
     /// Static string literal: prepended as-is to the prompt.
     /// `context: "Always respond in Russian"` → Literal("Always respond in Russian")
@@ -871,6 +954,7 @@ pub enum ContextStrategy {
 /// }`
 #[derive(Debug, Clone)]
 pub struct LearnablePatternDecl {
+    pub span: Span,
     pub name: String,
     pub params: Vec<Param>,
     pub return_type: String,
@@ -912,6 +996,7 @@ pub struct LearnablePatternDecl {
 
 #[derive(Debug, Clone)]
 pub struct PatternDecl {
+    pub span: Span,
     pub name: String,
     pub params: Vec<Param>,
     pub return_type: String,
@@ -920,6 +1005,7 @@ pub struct PatternDecl {
 
 #[derive(Debug, Clone)]
 pub struct Param {
+    pub span: Span,
     pub name: String,
     pub type_name: String,
 }
@@ -930,15 +1016,18 @@ pub enum Statement {
         name: String,
         value: Expr,
         mutable: bool,
+        span: Span,
     },
     Assign {
         name: String,
         value: Expr,
+        span: Span,
     },
     Each {
         variable: String,
         iterable: Expr,
         body: Vec<Statement>,
+        span: Span,
     },
     /// `each i, item in list { ... }` — iteration with index (Наряд №17.3)
     EachWithIndex {
@@ -946,10 +1035,12 @@ pub enum Statement {
         item_var: String,
         iterable: Expr,
         body: Vec<Statement>,
+        span: Span,
     },
     While {
         condition: Expr,
         body: Vec<Statement>,
+        span: Span,
     },
     /// Block-style if: `if expr { stmts } else if expr { stmts } else { stmts }` (v0.5.0)
     IfElseBlock {
@@ -957,19 +1048,31 @@ pub enum Statement {
         then_body: Vec<Statement>,
         else_ifs: Vec<(Expr, Vec<Statement>)>,
         else_body: Option<Vec<Statement>>,
+        span: Span,
     },
     /// Single-branch if-then (no else): `if expr then { stmts }` (Phase 7.7)
-    IfThen(Box<Expr>, Vec<Statement>),
-    Return(Expr),
+    IfThen {
+        condition: Box<Expr>,
+        body: Vec<Statement>,
+        span: Span,
+    },
+    Return {
+        value: Expr,
+        span: Span,
+    },
     /// Bare expression statement: `respond("ok")`, `http_post(...)` etc.
     /// The expression is evaluated for side effects; result is discarded unless in route context.
-    ExprStmt(Expr),
+    ExprStmt {
+        expr: Expr,
+        span: Span,
+    },
     /// Match statement: `match expr { "val" then { stmts } ... else { stmts } }` (Наряд №14)
     /// Supports: exact string, starts_with, contains, comparison arms.
     Match {
         scrutinee: Expr,
         arms: Vec<MatchArm>,
         else_body: Option<Vec<Statement>>,
+        span: Span,
     },
     /// Break: exit the innermost each/while loop (Наряд №17)
     Break,
@@ -998,6 +1101,7 @@ pub enum MatchArm {
 
 #[derive(Debug, Clone)]
 pub struct FlowDecl {
+    pub span: Span,
     pub name: String,
     pub input_type: String,
     pub source: Expr,
@@ -1013,6 +1117,7 @@ pub struct FlowDecl {
 
 #[derive(Debug, Clone)]
 pub struct Branch {
+    pub span: Span,
     pub label: String,
     pub condition: BranchCondition,
     pub target: String,
@@ -1021,6 +1126,7 @@ pub struct Branch {
 /// Condition inside a flow branch: `m.urgency > 0.8`
 #[derive(Debug, Clone)]
 pub struct BranchCondition {
+    pub span: Span,
     pub target: Expr,
     pub field: String,
     pub op: CompareOp,
@@ -1031,25 +1137,66 @@ pub struct BranchCondition {
 
 #[derive(Debug, Clone)]
 pub enum Expr {
-    StringLit(String),
-    FloatLit(f64),
-    BoolLit(bool),
-    Ident(String),
-    FieldAccess(Box<Expr>, String),
-    FnCall(String, Vec<Expr>),
+    StringLit {
+        value: String,
+        span: Span,
+    },
+    FloatLit {
+        value: f64,
+        span: Span,
+    },
+    BoolLit {
+        value: bool,
+        span: Span,
+    },
+    Ident {
+        name: String,
+        span: Span,
+    },
+    FieldAccess {
+        object: Box<Expr>,
+        field: String,
+        span: Span,
+    },
+    FnCall {
+        name: String,
+        args: Vec<Expr>,
+        span: Span,
+    },
     /// Qualified call: `module.function(args)` — resolved through namespace imports.
     QualifiedCall {
         module: String,
         function: String,
         args: Vec<Expr>,
+        span: Span,
     },
-    BinaryOp(Box<Expr>, BinOp, Box<Expr>),
-    IfElse(Box<Expr>, Box<Expr>, Box<Expr>),
-    List(Vec<Expr>),
+    BinaryOp {
+        left: Box<Expr>,
+        op: BinOp,
+        right: Box<Expr>,
+        span: Span,
+    },
+    IfElse {
+        condition: Box<Expr>,
+        then_branch: Box<Expr>,
+        else_branch: Box<Expr>,
+        span: Span,
+    },
+    List {
+        items: Vec<Expr>,
+        span: Span,
+    },
     /// Index access: `list[index]` or `struct["field"]` (v0.5.0)
-    IndexAccess(Box<Expr>, Box<Expr>),
+    IndexAccess {
+        object: Box<Expr>,
+        index: Box<Expr>,
+        span: Span,
+    },
     /// Struct literal: `{key: val, ...}` — creates a Struct value inline
-    StructLit(HashMap<String, Expr>),
+    StructLit {
+        fields: HashMap<String, Expr>,
+        span: Span,
+    },
     /// Block if/else as expression: `if cond { stmts } else { stmts }` (Наряд №14 P0-3)
     /// Value is the last expression in the matched branch. Returns Unit if no non-Unit expr.
     BlockIfElse {
@@ -1057,9 +1204,13 @@ pub enum Expr {
         then_body: Vec<Statement>,
         else_ifs: Vec<(Box<Expr>, Vec<Statement>)>,
         else_body: Option<Vec<Statement>>,
+        span: Span,
     },
     /// Try expression: `try expr` — returns Unit on error instead of propagating (Наряд №14 P1-4)
-    Try(Box<Expr>),
+    Try {
+        expr: Box<Expr>,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1093,6 +1244,28 @@ impl fmt::Display for BinOp {
             BinOp::Ne => write!(f, "!="),
             BinOp::And => write!(f, "and"),
             BinOp::Or => write!(f, "or"),
+        }
+    }
+}
+
+impl Expr {
+    /// Returns the source span of this expression.
+    pub fn span(&self) -> &Span {
+        match self {
+            Expr::StringLit { span, .. }
+            | Expr::FloatLit { span, .. }
+            | Expr::BoolLit { span, .. }
+            | Expr::Ident { span, .. }
+            | Expr::FieldAccess { span, .. }
+            | Expr::FnCall { span, .. }
+            | Expr::QualifiedCall { span, .. }
+            | Expr::BinaryOp { span, .. }
+            | Expr::IfElse { span, .. }
+            | Expr::List { span, .. }
+            | Expr::IndexAccess { span, .. }
+            | Expr::StructLit { span, .. }
+            | Expr::BlockIfElse { span, .. }
+            | Expr::Try { span, .. } => span,
         }
     }
 }

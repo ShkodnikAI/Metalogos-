@@ -13,8 +13,10 @@ use serial_test::serial;
 /// Helper: create a cached learnable pattern declaration.
 fn make_cached_learnable_decl(name: &str, prompt: &str, cache: bool, ttl: u64) -> Declaration {
     Declaration::LearnablePattern(LearnablePatternDecl {
+        span: metalogos::ast::Span::unknown(),
         name: name.to_string(),
         params: vec![Param {
+            span: metalogos::ast::Span::unknown(),
             name: "text".to_string(),
             type_name: "String".to_string(),
         }],
@@ -52,10 +54,14 @@ fn test_cache_identical_calls_single_llm_invocation() {
         .unwrap();
 
     // First call — should invoke LLM
-    let r1 = interp.eval_expr(&Expr::FnCall(
-        "Echo".to_string(),
-        vec![Expr::StringLit("hello".to_string())],
-    ));
+    let r1 = interp.eval_expr(&Expr::FnCall {
+        name: "Echo".to_string(),
+        args: vec![Expr::StringLit {
+            value: "hello".to_string(),
+            span: metalogos::ast::Span::unknown(),
+        }],
+        span: metalogos::ast::Span::unknown(),
+    });
     assert!(r1.is_ok(), "C1: first call should succeed");
     assert_eq!(
         MockLlm::call_count(),
@@ -64,10 +70,14 @@ fn test_cache_identical_calls_single_llm_invocation() {
     );
 
     // Second call with IDENTICAL input — should hit cache, NOT invoke LLM
-    let r2 = interp.eval_expr(&Expr::FnCall(
-        "Echo".to_string(),
-        vec![Expr::StringLit("hello".to_string())],
-    ));
+    let r2 = interp.eval_expr(&Expr::FnCall {
+        name: "Echo".to_string(),
+        args: vec![Expr::StringLit {
+            value: "hello".to_string(),
+            span: metalogos::ast::Span::unknown(),
+        }],
+        span: metalogos::ast::Span::unknown(),
+    });
     assert!(r2.is_ok(), "C1: second call should succeed");
     assert_eq!(
         MockLlm::call_count(),
@@ -103,17 +113,25 @@ fn test_cache_different_inputs_separate_calls() {
         .unwrap();
 
     // First call
-    let _ = interp.eval_expr(&Expr::FnCall(
-        "Echo".to_string(),
-        vec![Expr::StringLit("hello".to_string())],
-    ));
+    let _ = interp.eval_expr(&Expr::FnCall {
+        name: "Echo".to_string(),
+        args: vec![Expr::StringLit {
+            value: "hello".to_string(),
+            span: metalogos::ast::Span::unknown(),
+        }],
+        span: metalogos::ast::Span::unknown(),
+    });
     assert_eq!(MockLlm::call_count(), 1, "C2: first call");
 
     // Second call with DIFFERENT input — cache miss → new LLM call
-    let _ = interp.eval_expr(&Expr::FnCall(
-        "Echo".to_string(),
-        vec![Expr::StringLit("world".to_string())],
-    ));
+    let _ = interp.eval_expr(&Expr::FnCall {
+        name: "Echo".to_string(),
+        args: vec![Expr::StringLit {
+            value: "world".to_string(),
+            span: metalogos::ast::Span::unknown(),
+        }],
+        span: metalogos::ast::Span::unknown(),
+    });
     assert_eq!(
         MockLlm::call_count(),
         2,
@@ -121,10 +139,14 @@ fn test_cache_different_inputs_separate_calls() {
     );
 
     // Third call with first input again — cache hit
-    let _ = interp.eval_expr(&Expr::FnCall(
-        "Echo".to_string(),
-        vec![Expr::StringLit("hello".to_string())],
-    ));
+    let _ = interp.eval_expr(&Expr::FnCall {
+        name: "Echo".to_string(),
+        args: vec![Expr::StringLit {
+            value: "hello".to_string(),
+            span: metalogos::ast::Span::unknown(),
+        }],
+        span: metalogos::ast::Span::unknown(),
+    });
     assert_eq!(
         MockLlm::call_count(),
         2,
@@ -153,14 +175,22 @@ fn test_uncached_pattern_always_invokes_llm() {
         .unwrap();
 
     // Two identical calls — both should invoke LLM (no caching)
-    let _ = interp.eval_expr(&Expr::FnCall(
-        "NoCache".to_string(),
-        vec![Expr::StringLit("hello".to_string())],
-    ));
-    let _ = interp.eval_expr(&Expr::FnCall(
-        "NoCache".to_string(),
-        vec![Expr::StringLit("hello".to_string())],
-    ));
+    let _ = interp.eval_expr(&Expr::FnCall {
+        name: "NoCache".to_string(),
+        args: vec![Expr::StringLit {
+            value: "hello".to_string(),
+            span: metalogos::ast::Span::unknown(),
+        }],
+        span: metalogos::ast::Span::unknown(),
+    });
+    let _ = interp.eval_expr(&Expr::FnCall {
+        name: "NoCache".to_string(),
+        args: vec![Expr::StringLit {
+            value: "hello".to_string(),
+            span: metalogos::ast::Span::unknown(),
+        }],
+        span: metalogos::ast::Span::unknown(),
+    });
     assert_eq!(
         MockLlm::call_count(),
         2,
@@ -190,18 +220,26 @@ fn test_cache_stores_correct_response() {
 
     // First call: MockLlm returns the system prompt as response
     let r1 = interp
-        .eval_expr(&Expr::FnCall(
-            "Classify".to_string(),
-            vec![Expr::StringLit("I love this".to_string())],
-        ))
+        .eval_expr(&Expr::FnCall {
+            name: "Classify".to_string(),
+            args: vec![Expr::StringLit {
+                value: "I love this".to_string(),
+                span: metalogos::ast::Span::unknown(),
+            }],
+            span: metalogos::ast::Span::unknown(),
+        })
         .unwrap();
 
     // Second call: should return same cached value
     let r2 = interp
-        .eval_expr(&Expr::FnCall(
-            "Classify".to_string(),
-            vec![Expr::StringLit("I love this".to_string())],
-        ))
+        .eval_expr(&Expr::FnCall {
+            name: "Classify".to_string(),
+            args: vec![Expr::StringLit {
+                value: "I love this".to_string(),
+                span: metalogos::ast::Span::unknown(),
+            }],
+            span: metalogos::ast::Span::unknown(),
+        })
         .unwrap();
 
     assert_eq!(

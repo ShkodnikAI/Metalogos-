@@ -3,14 +3,18 @@
 use std::collections::HashMap;
 use std::fmt;
 
-/// Source span: line/column positions (0-indexed) for LSP integration.
-/// Stored as (start_line, start_col, end_line, end_col).
-/// Populated by text-based search in mlog-lsp (Variant B: no parser changes).
+/// Source span: line/column position in the source code.
+/// Lines are 1-indexed, columns are 0-indexed (matches pest parser convention).
+/// Populated from `pest::Span` during parsing via `Span::from_pest()`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Span {
+    /// 1-indexed start line.
     pub start_line: u32,
+    /// 0-indexed start column.
     pub start_col: u32,
+    /// 1-indexed end line.
     pub end_line: u32,
+    /// 0-indexed end column.
     pub end_col: u32,
 }
 
@@ -24,7 +28,7 @@ impl Span {
         }
     }
 
-    /// Zero-span placeholder (used when position is not yet resolved).
+    /// Zero-span placeholder for programmatic constructions (tests, server-generated code).
     pub fn unknown() -> Self {
         Self {
             start_line: 0,
@@ -33,15 +37,32 @@ impl Span {
             end_col: 0,
         }
     }
+
+    /// Convert a `pest::Span` into an `ast::Span`.
+    /// pest uses 1-indexed lines and 0-indexed columns — same convention.
+    pub fn from_pest(span: pest::Span) -> Self {
+        Self {
+            start_line: span.start_pos().line_col().0 as u32,
+            start_col: span.start_pos().line_col().1 as u32,
+            end_line: span.end_pos().line_col().0 as u32,
+            end_col: span.end_pos().line_col().1 as u32,
+        }
+    }
 }
 
 impl fmt::Display for Span {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}:{}-{}:{}",
-            self.start_line, self.start_col, self.end_line, self.end_col
-        )
+        if self.start_line == self.end_line {
+            // Single-line span: show compact "line:col" format.
+            write!(f, "{}:{}", self.start_line, self.start_col)
+        } else {
+            // Multi-line span: show full range.
+            write!(
+                f,
+                "{}:{}-{}:{}",
+                self.start_line, self.start_col, self.end_line, self.end_col
+            )
+        }
     }
 }
 

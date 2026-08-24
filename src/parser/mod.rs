@@ -84,6 +84,7 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::memorize_decl => declarations.push(parse_memorize_decl(inner_pair)?),
                 Rule::forget_decl => declarations.push(parse_forget_decl(inner_pair)?),
                 Rule::if_block_stmt => declarations.push(Declaration::Pattern(PatternDecl {
+                    span: Span::from_pest(inner_pair.as_span()),
                     name: "_top_level_if".to_string(),
                     params: vec![],
                     return_type: "Unit".to_string(),

@@ -1078,6 +1078,7 @@ pub(crate) async fn execute_route_body(
     // Initialize memory persistence (per-request SQLite connection to shared DB)
     if let Some(ref persist_path) = state.memory_persist {
         interp.configure_memory(&MemoryDecl {
+            span: Span::unknown(),
             persist: Some(persist_path.clone()),
         });
     }

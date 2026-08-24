@@ -229,6 +229,29 @@ covered by a dedicated security lint pass.**
 - render_pdf: поддерживает Table/Image/Watermark элементы, рендерит header/footer/page_numbers/watermark на каждую страницу
 
 ## [Unreleased]
+### Наряд №121 — Отслеживание позиций в AST (span infrastructure, ADR-0111)
+
+- **Feature:** Каждый узел АСТ теперь хранит своё положение в исходном коде
+  (`Span { start_line, start_col, end_line, end_col }`). Все 15 вариантов
+  `Expr`, 9 вариантов `Statement` и 41 структура `Declaration` содержат
+  поле `span`.
+- **Feature:** `Span::from_pest()` — метод для прямого преобразования
+  `pest::Span` в `ast::Span`. Улучшен `Display`: однострочные спаны
+  показывают `"строка:столбец"` вместо полного диапазона.
+- **Feature:** `Expr::span()` и `Declaration::span()` — методы для получения
+  ссылки на `span` из любого варианта перечисления.
+- **Feature:** Ошибки семантического анализа показывают номер строки:
+  `"строка N: duplicate entity type: User"` вместо `"duplicate entity type: User"`.
+- **Refactor:** Все 15 кортежных вариантов `Expr` преобразованы в
+  структурные с именованными полями (например, `StringLit(String)` →
+  `StringLit { value, span }`). Аналогично `IfThen`, `Return`, `ExprStmt`
+  в `Statement`.
+- **Tests:** 5 новых тестов в `parser/tests.rs` проверяют реальные позиции
+  в сообщениях об ошибках. Все 539 тестов проходят, crosscheck — 1 passed,
+  0 failed.
+- **ADR-0111:** Архитектурное решение: inline `span`-поле вместо обёртки
+  `Spanned<T>`, 0-indexed столбцы / 1-indexed строки.
+
 ### Наряд №55 — Дыры в реестре блокируют перенос офиса
 
 - **db_execute arity 1..2:** Registry updated to reflect ADR-0068 parameterised queries. Office 86 call sites now pass `mlog check`.

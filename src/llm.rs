@@ -994,7 +994,7 @@ impl SmartRouter {
             .map(|p| {
                 // Evaluate key expression: if it's env("KEY"), resolve at runtime
                 let key = p.key.as_ref().and_then(|expr| match expr {
-                    crate::ast::Expr::FnCall { name: name, args: args, .. } if name == "env" => {
+                    crate::ast::Expr::FnCall { name, args, .. } if name == "env" => {
                         args.first().and_then(|a| {
                             if let crate::ast::Expr::StringLit { value: s, .. } = a {
                                 std::env::var(s).ok()

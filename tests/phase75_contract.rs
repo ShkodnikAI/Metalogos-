@@ -13,6 +13,7 @@ use metalogos::interpreter::Interpreter;
 /// Helper: create a SandboxDecl for testing.
 fn make_sandbox(name: &str, allowed: Vec<&str>, forbidden: Vec<&str>, timeout: i64) -> SandboxDecl {
     SandboxDecl {
+        span: metalogos::ast::Span::unknown(),
         name: name.to_string(),
         allowed: allowed.into_iter().map(String::from).collect(),
         forbidden: forbidden.into_iter().map(String::from).collect(),
@@ -23,8 +24,10 @@ fn make_sandbox(name: &str, allowed: Vec<&str>, forbidden: Vec<&str>, timeout: i
 /// Helper: create a minimal learnable pattern declaration.
 fn make_learnable_decl(name: &str, prompt: &str) -> Declaration {
     Declaration::LearnablePattern(LearnablePatternDecl {
+        span: metalogos::ast::Span::unknown(),
         name: name.to_string(),
         params: vec![Param {
+            span: metalogos::ast::Span::unknown(),
             name: "input".to_string(),
             type_name: "String".to_string(),
         }],
@@ -44,9 +47,10 @@ fn make_learnable_decl(name: &str, prompt: &str) -> Declaration {
 /// Helper: create an adapt declaration.
 fn make_adapt_decl(pattern_name: &str, input: &str, output: &str) -> Declaration {
     Declaration::Adapt(AdaptDecl {
+        span: metalogos::ast::Span::unknown(),
         pattern_name: pattern_name.to_string(),
-        input_example: Expr::StringLit(input.to_string()),
-        output_example: Expr::StringLit(output.to_string()),
+        input_example: Expr::StringLit { value: input.to_string(), span: metalogos::ast::Span::unknown() },
+        output_example: Expr::StringLit { value: output.to_string(), span: metalogos::ast::Span::unknown() },
     })
 }
 
@@ -54,16 +58,19 @@ fn make_adapt_decl(pattern_name: &str, input: &str, output: &str) -> Declaration
 #[allow(dead_code)]
 fn make_while_true_pattern() -> Declaration {
     Declaration::Pattern(PatternDecl {
+        span: metalogos::ast::Span::unknown(),
         name: "infinite_loop".to_string(),
         params: vec![],
         return_type: "Unit".to_string(),
         body: vec![Statement::While {
-            condition: Expr::BoolLit(true),
+            condition: Expr::BoolLit { value: true, span: metalogos::ast::Span::unknown() },
             body: vec![Statement::LetBinding {
                 name: "_x".to_string(),
-                value: Expr::FloatLit(1.0),
+                value: Expr::FloatLit { value: 1.0, span: metalogos::ast::Span::unknown() },
                 mutable: false,
+                span: metalogos::ast::Span::unknown(),
             }],
+            span: metalogos::ast::Span::unknown(),
         }],
     })
 }
@@ -71,25 +78,30 @@ fn make_while_true_pattern() -> Declaration {
 /// Helper: create a pattern with a while(true) loop body that increments a counter.
 fn make_counting_while_pattern() -> Declaration {
     Declaration::Pattern(PatternDecl {
+        span: metalogos::ast::Span::unknown(),
         name: "counting_loop".to_string(),
         params: vec![],
         return_type: "Unit".to_string(),
         body: vec![
             Statement::LetBinding {
                 name: "counter".to_string(),
-                value: Expr::FloatLit(0.0),
+                value: Expr::FloatLit { value: 0.0, span: metalogos::ast::Span::unknown() },
                 mutable: true,
+                span: metalogos::ast::Span::unknown(),
             },
             Statement::While {
-                condition: Expr::BoolLit(true),
+                condition: Expr::BoolLit { value: true, span: metalogos::ast::Span::unknown() },
                 body: vec![Statement::Assign {
                     name: "counter".to_string(),
-                    value: Expr::BinaryOp(
-                        Box::new(Expr::Ident("counter".to_string())),
-                        BinOp::Add,
-                        Box::new(Expr::FloatLit(1.0)),
-                    ),
+                    value: Expr::BinaryOp {
+                        left: Box::new(Expr::Ident { name: "counter".to_string(), span: metalogos::ast::Span::unknown() }),
+                        op: BinOp::Add,
+                        right: Box::new(Expr::FloatLit { value: 1.0, span: metalogos::ast::Span::unknown() }),
+                        span: metalogos::ast::Span::unknown(),
+                    },
+                    span: metalogos::ast::Span::unknown(),
                 }],
+                span: metalogos::ast::Span::unknown(),
             },
         ],
     })
@@ -110,10 +122,11 @@ fn test_75_sandbox_network_forbidden() {
     interp.set_active_sandbox(make_sandbox("strict", vec![], vec!["network"], 30));
 
     // Try to invoke the learnable pattern (which needs LLM call)
-    let result = interp.eval_expr(&Expr::FnCall(
-        "Classify".to_string(),
-        vec![Expr::StringLit("hello world".to_string())],
-    ));
+    let result = interp.eval_expr(&Expr::FnCall {
+        name: "Classify".to_string(),
+        args: vec![Expr::StringLit { value: "hello world".to_string(), span: metalogos::ast::Span::unknown() }],
+        span: metalogos::ast::Span::unknown(),
+    });
 
     // Should fail with network access forbidden error
     assert!(
@@ -146,7 +159,7 @@ fn test_75_sandbox_iteration_limit() {
     interp.set_active_sandbox(make_sandbox("limited", vec![], vec![], 30));
 
     // Try to invoke the pattern — should hit 10,000 iteration limit
-    let result = interp.eval_expr(&Expr::FnCall("counting_loop".to_string(), vec![]));
+    let result = interp.eval_expr(&Expr::FnCall { name: "counting_loop".to_string(), args: vec![], span: metalogos::ast::Span::unknown() });
 
     assert!(
         result.is_err(),
@@ -210,7 +223,7 @@ fn test_75_no_sandbox_unlimited() {
     let _ = interp.run(vec![make_counting_while_pattern()]).unwrap();
 
     // NO sandbox active — should use the 100,000 safety limit
-    let result = interp.eval_expr(&Expr::FnCall("counting_loop".to_string(), vec![]));
+    let result = interp.eval_expr(&Expr::FnCall { name: "counting_loop".to_string(), args: vec![], span: metalogos::ast::Span::unknown() });
 
     assert!(result.is_err(), "C4: while(true) should eventually fail");
     let err_msg = result.unwrap_err();
@@ -286,14 +299,15 @@ template Page(title: String) -> Html {
         .unwrap();
 
     // Call render() with template name + key/value pairs (3 args minimum)
-    let result = interp.eval_expr(&Expr::FnCall(
-        "render".to_string(),
-        vec![
-            Expr::StringLit("Page".to_string()),
-            Expr::StringLit("title".to_string()),
-            Expr::StringLit("Test".to_string()),
+    let result = interp.eval_expr(&Expr::FnCall {
+        name: "render".to_string(),
+        args: vec![
+            Expr::StringLit { value: "Page".to_string(), span: metalogos::ast::Span::unknown() },
+            Expr::StringLit { value: "title".to_string(), span: metalogos::ast::Span::unknown() },
+            Expr::StringLit { value: "Test".to_string(), span: metalogos::ast::Span::unknown() },
         ],
-    ));
+        span: metalogos::ast::Span::unknown(),
+    });
 
     // render() should succeed and return Html
     assert!(
@@ -336,7 +350,7 @@ fn test_75_sandbox_deactivate_restores_limits() {
     interp.clear_active_sandbox();
 
     // Should use 100,000 limit now
-    let result = interp.eval_expr(&Expr::FnCall("counting_loop".to_string(), vec![]));
+    let result = interp.eval_expr(&Expr::FnCall { name: "counting_loop".to_string(), args: vec![], span: metalogos::ast::Span::unknown() });
 
     assert!(result.is_err());
     let err_msg = result.unwrap_err();

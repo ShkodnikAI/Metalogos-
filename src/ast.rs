@@ -1051,11 +1051,21 @@ pub enum Statement {
         span: Span,
     },
     /// Single-branch if-then (no else): `if expr then { stmts }` (Phase 7.7)
-    IfThen { condition: Box<Expr>, body: Vec<Statement>, span: Span },
-    Return { value: Expr, span: Span },
+    IfThen {
+        condition: Box<Expr>,
+        body: Vec<Statement>,
+        span: Span,
+    },
+    Return {
+        value: Expr,
+        span: Span,
+    },
     /// Bare expression statement: `respond("ok")`, `http_post(...)` etc.
     /// The expression is evaluated for side effects; result is discarded unless in route context.
-    ExprStmt { expr: Expr, span: Span },
+    ExprStmt {
+        expr: Expr,
+        span: Span,
+    },
     /// Match statement: `match expr { "val" then { stmts } ... else { stmts } }` (Наряд №14)
     /// Supports: exact string, starts_with, contains, comparison arms.
     Match {
@@ -1127,12 +1137,32 @@ pub struct BranchCondition {
 
 #[derive(Debug, Clone)]
 pub enum Expr {
-    StringLit { value: String, span: Span },
-    FloatLit { value: f64, span: Span },
-    BoolLit { value: bool, span: Span },
-    Ident { name: String, span: Span },
-    FieldAccess { object: Box<Expr>, field: String, span: Span },
-    FnCall { name: String, args: Vec<Expr>, span: Span },
+    StringLit {
+        value: String,
+        span: Span,
+    },
+    FloatLit {
+        value: f64,
+        span: Span,
+    },
+    BoolLit {
+        value: bool,
+        span: Span,
+    },
+    Ident {
+        name: String,
+        span: Span,
+    },
+    FieldAccess {
+        object: Box<Expr>,
+        field: String,
+        span: Span,
+    },
+    FnCall {
+        name: String,
+        args: Vec<Expr>,
+        span: Span,
+    },
     /// Qualified call: `module.function(args)` — resolved through namespace imports.
     QualifiedCall {
         module: String,
@@ -1140,13 +1170,33 @@ pub enum Expr {
         args: Vec<Expr>,
         span: Span,
     },
-    BinaryOp { left: Box<Expr>, op: BinOp, right: Box<Expr>, span: Span },
-    IfElse { condition: Box<Expr>, then_branch: Box<Expr>, else_branch: Box<Expr>, span: Span },
-    List { items: Vec<Expr>, span: Span },
+    BinaryOp {
+        left: Box<Expr>,
+        op: BinOp,
+        right: Box<Expr>,
+        span: Span,
+    },
+    IfElse {
+        condition: Box<Expr>,
+        then_branch: Box<Expr>,
+        else_branch: Box<Expr>,
+        span: Span,
+    },
+    List {
+        items: Vec<Expr>,
+        span: Span,
+    },
     /// Index access: `list[index]` or `struct["field"]` (v0.5.0)
-    IndexAccess { object: Box<Expr>, index: Box<Expr>, span: Span },
+    IndexAccess {
+        object: Box<Expr>,
+        index: Box<Expr>,
+        span: Span,
+    },
     /// Struct literal: `{key: val, ...}` — creates a Struct value inline
-    StructLit { fields: HashMap<String, Expr>, span: Span },
+    StructLit {
+        fields: HashMap<String, Expr>,
+        span: Span,
+    },
     /// Block if/else as expression: `if cond { stmts } else { stmts }` (Наряд №14 P0-3)
     /// Value is the last expression in the matched branch. Returns Unit if no non-Unit expr.
     BlockIfElse {
@@ -1157,7 +1207,10 @@ pub enum Expr {
         span: Span,
     },
     /// Try expression: `try expr` — returns Unit on error instead of propagating (Наряд №14 P1-4)
-    Try { expr: Box<Expr>, span: Span },
+    Try {
+        expr: Box<Expr>,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]

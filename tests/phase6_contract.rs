@@ -132,10 +132,11 @@ mod phase6_encryption_tests {
     fn test_64_env_builtin_returns_secret() {
         std::env::set_var("TEST_MLOG_KEY", "secret_value");
         let interp = metalogos::interpreter::Interpreter::new();
-        let result = interp.eval_expr(&metalogos::ast::Expr::FnCall(
-            "env".to_string(),
-            vec![metalogos::ast::Expr::StringLit("TEST_MLOG_KEY".to_string())],
-        ));
+        let result = interp.eval_expr(&metalogos::ast::Expr::FnCall {
+            name: "env".to_string(),
+            args: vec![metalogos::ast::Expr::StringLit { value: "TEST_MLOG_KEY".to_string(), span: metalogos::ast::Span::unknown() }],
+            span: metalogos::ast::Span::unknown(),
+        });
         match result {
             Ok(Value::String(s)) => assert_eq!(s, "secret_value"),
             other => panic!("env() should return String, got: {:?}", other),
@@ -146,10 +147,11 @@ mod phase6_encryption_tests {
     #[test]
     fn test_64_hash_password_builtin() {
         let interp = metalogos::interpreter::Interpreter::new();
-        let result = interp.eval_expr(&metalogos::ast::Expr::FnCall(
-            "hash_password".to_string(),
-            vec![metalogos::ast::Expr::StringLit("password123".to_string())],
-        ));
+        let result = interp.eval_expr(&metalogos::ast::Expr::FnCall {
+            name: "hash_password".to_string(),
+            args: vec![metalogos::ast::Expr::StringLit { value: "password123".to_string(), span: metalogos::ast::Span::unknown() }],
+            span: metalogos::ast::Span::unknown(),
+        });
         match result {
             Ok(Value::Hash(_)) => {} // Hash is opaque — we can't see the value
             other => panic!("hash_password() should return Hash, got: {:?}", other),

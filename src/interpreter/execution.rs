@@ -740,7 +740,9 @@ impl Interpreter {
                         }
                     }
                 }
-                Statement::While { condition, body, .. } => {
+                Statement::While {
+                    condition, body, ..
+                } => {
                     let mut iterations: u64 = 0;
                     loop {
                         if iterations >= iter_limit {
@@ -808,7 +810,11 @@ impl Interpreter {
                     let val = self.eval_expr_with_env(expr, env)?;
                     return Ok(ControlFlow::Return(val));
                 }
-                Statement::IfThen { condition: cond, body, .. } => {
+                Statement::IfThen {
+                    condition: cond,
+                    body,
+                    ..
+                } => {
                     let cond_val = self.eval_expr_with_env(cond, env)?;
                     if cond_val.as_bool()? {
                         eval_block!(body, env);
@@ -897,7 +903,7 @@ impl Interpreter {
                 }
                 Ok(Value::List(items))
             }
-            Expr::StructLit { fields: fields, .. } => {
+            Expr::StructLit { fields, .. } => {
                 let mut resolved = std::collections::HashMap::new();
                 for (k, v) in fields {
                     resolved.insert(k.clone(), self.eval_expr_with_env(v, env)?);
@@ -941,7 +947,12 @@ impl Interpreter {
                     Ok(Value::Unit)
                 }
             },
-            Expr::IfElse { condition: cond, then_branch: then_br, else_branch: else_br, .. } => {
+            Expr::IfElse {
+                condition: cond,
+                then_branch: then_br,
+                else_branch: else_br,
+                ..
+            } => {
                 let cond_val = self.eval_expr_with_env(cond, env)?;
                 if cond_val.as_bool()? {
                     self.eval_expr_with_env(then_br, env)
@@ -949,15 +960,23 @@ impl Interpreter {
                     self.eval_expr_with_env(else_br, env)
                 }
             }
-            Expr::Ident { name: name, .. } => env
+            Expr::Ident { name, .. } => env
                 .get(name)
                 .cloned()
                 .ok_or_else(|| format!("undefined variable: {}", name)),
-            Expr::FieldAccess { object: base, field: field, .. } => {
+            Expr::FieldAccess {
+                object: base,
+                field,
+                ..
+            } => {
                 let base_val = self.eval_expr_with_env(base, env)?;
                 base_val.get_field(field).cloned()
             }
-            Expr::IndexAccess { object: base, index: index, .. } => {
+            Expr::IndexAccess {
+                object: base,
+                index,
+                ..
+            } => {
                 let base_val = self.eval_expr_with_env(base, env)?;
                 let idx_val = self.eval_expr_with_env(index, env)?;
                 match (&base_val, &idx_val) {
@@ -1097,7 +1116,7 @@ impl Interpreter {
                     self.eval_statements(&pattern.body, &mut local_env)
                 })
             }
-            Expr::FnCall { name: name, args: args, .. } => {
+            Expr::FnCall { name, args, .. } => {
                 let mut eval_args = Vec::new();
                 for (i, arg) in args.iter().enumerate() {
                     // Наряд №115: render(TemplateName, ...) — bare Ident is the template name
@@ -1550,7 +1569,9 @@ impl Interpreter {
                     .unwrap_or_else(|e| e.into_inner());
                 Self::maybe_wrap_with_confidence(result, conf)
             }
-            Expr::BinaryOp { left: left, op: op, right: right, .. } => {
+            Expr::BinaryOp {
+                left, op, right, ..
+            } => {
                 // Short-circuit for logical operators: and/or
                 if matches!(op, BinOp::And) {
                     let l = self.eval_expr_with_env(left, env)?;

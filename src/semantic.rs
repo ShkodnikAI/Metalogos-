@@ -6,6 +6,17 @@ use crate::ast::*;
 use crate::audit::{audit_category_a, Severity};
 use std::collections::HashSet;
 
+/// Prefix an error message with the source line number from a declaration's span.
+/// If the span is unknown (start_line == 0), returns the message unchanged.
+fn with_line_prefix(decl: &Declaration, msg: String) -> String {
+    let span = decl.span();
+    if span.start_line > 0 {
+        format!("строка {}: {}", span.start_line, msg)
+    } else {
+        msg
+    }
+}
+
 /// Result of semantic analysis: errors prevent execution, warnings are advisory.
 #[derive(Debug, Clone, Default)]
 pub struct AnalysisResult {
@@ -101,47 +112,61 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         match decl {
             Declaration::EntityType(e) => {
                 if !entity_types.insert(e.name.clone()) {
-                    result
-                        .errors
-                        .push(format!("duplicate entity type: {}", e.name));
+                    result.errors.push(with_line_prefix(
+                        decl,
+                        format!("duplicate entity type: {}", e.name),
+                    ));
                 }
             }
             Declaration::EntityRecord(e) => {
                 if !entity_names.insert(e.name.clone()) {
-                    result.errors.push(format!("duplicate entity: {}", e.name));
+                    result.errors.push(with_line_prefix(
+                        decl,
+                        format!("duplicate entity: {}", e.name),
+                    ));
                 }
             }
             Declaration::EntitySimple(e) => {
                 if !entity_names.insert(e.name.clone()) {
-                    result.errors.push(format!("duplicate entity: {}", e.name));
+                    result.errors.push(with_line_prefix(
+                        decl,
+                        format!("duplicate entity: {}", e.name),
+                    ));
                 }
             }
             Declaration::Pattern(p) => {
                 if !pattern_names.insert(p.name.clone()) {
-                    result.errors.push(format!("duplicate pattern: {}", p.name));
+                    result.errors.push(with_line_prefix(
+                        decl,
+                        format!("duplicate pattern: {}", p.name),
+                    ));
                 }
                 pattern_param_counts.insert((p.name.clone(), p.params.len()));
             }
             Declaration::LearnablePattern(lp) => {
                 if !learnable_names.insert(lp.name.clone()) {
-                    result
-                        .errors
-                        .push(format!("duplicate learnable pattern: {}", lp.name));
+                    result.errors.push(with_line_prefix(
+                        decl,
+                        format!("duplicate learnable pattern: {}", lp.name),
+                    ));
                 }
             }
             Declaration::Flow(f) => {
                 if !flow_names.insert(f.name.clone()) {
-                    result.errors.push(format!("duplicate flow: {}", f.name));
+                    result.errors.push(with_line_prefix(
+                        decl,
+                        format!("duplicate flow: {}", f.name),
+                    ));
                 }
             }
             Declaration::Template(t) => {
                 // Templates are also callable as render targets
                 pattern_names.insert(t.name.clone());
                 if is_opaque_type(&t.return_type) && t.return_type != "Html" {
-                    result.errors.push(format!(
+                    result.errors.push(with_line_prefix(decl, format!(
                         "template '{}' returns opaque type '{}' — only Html is supported as template return type",
                         t.name, t.return_type
-                    ));
+                    )));
                 }
             }
             _ => {}
@@ -153,17 +178,23 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         match decl {
             Declaration::EntityRecord(e) => {
                 if !entity_types.contains(&e.type_name) {
-                    result.errors.push(format!(
-                        "entity '{}' references unknown type '{}'",
-                        e.name, e.type_name
+                    result.errors.push(with_line_prefix(
+                        decl,
+                        format!(
+                            "entity '{}' references unknown type '{}'",
+                            e.name, e.type_name
+                        ),
                     ));
                 }
                 if let Some(fields) = get_type_fields(declarations, &e.type_name) {
                     for init in &e.fields {
                         if !fields.contains(&init.name.as_str()) {
-                            result.errors.push(format!(
-                                "entity '{}' initializes unknown field '{}' on type '{}'",
-                                e.name, init.name, e.type_name
+                            result.errors.push(with_line_prefix(
+                                decl,
+                                format!(
+                                    "entity '{}' initializes unknown field '{}' on type '{}'",
+                                    e.name, init.name, e.type_name
+                                ),
                             ));
                         }
                     }
@@ -190,49 +221,55 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                     && !entity_types.contains(resolved)
                     && !alias_names.contains(&e.type_name)
                 {
-                    result.warnings.push(format!(
-                        "entity '{}' uses undeclared type '{}' (may be a forward reference)",
-                        e.name, e.type_name
+                    result.warnings.push(with_line_prefix(
+                        decl,
+                        format!(
+                            "entity '{}' uses undeclared type '{}' (may be a forward reference)",
+                            e.name, e.type_name
+                        ),
                     ));
                 }
             }
             Declaration::Rule(r) => {
-                if let Expr::Ident { name: name, .. } = &r.target {
+                if let Expr::Ident { name, .. } = &r.target {
                     if !entity_names.contains(name) {
-                        result.errors.push(format!(
-                            "rule target '{}' references undefined entity",
-                            name
+                        result.errors.push(with_line_prefix(
+                            decl,
+                            format!("rule target '{}' references undefined entity", name),
                         ));
                     }
                 }
             }
             Declaration::Adapt(a) => {
                 if !learnable_names.contains(&a.pattern_name) {
-                    result.errors.push(format!(
-                        "adapt: learnable pattern '{}' not found",
-                        a.pattern_name
+                    result.errors.push(with_line_prefix(
+                        decl,
+                        format!("adapt: learnable pattern '{}' not found", a.pattern_name),
                     ));
                 }
             }
             Declaration::Mutate(m) => {
                 if !learnable_names.contains(&m.pattern_name) {
-                    result.errors.push(format!(
-                        "mutate: learnable pattern '{}' not found",
-                        m.pattern_name
+                    result.errors.push(with_line_prefix(
+                        decl,
+                        format!("mutate: learnable pattern '{}' not found", m.pattern_name),
                     ));
                 }
             }
             Declaration::Eval(e) => {
                 if !learnable_names.contains(&e.pattern_name) {
-                    result.errors.push(format!(
-                        "eval: learnable pattern '{}' not found",
-                        e.pattern_name
+                    result.errors.push(with_line_prefix(
+                        decl,
+                        format!("eval: learnable pattern '{}' not found", e.pattern_name),
                     ));
                 }
                 if e.dataset.is_empty() {
-                    result.warnings.push(format!(
-                        "eval '{}': dataset is empty — eval will trivially pass",
-                        e.pattern_name
+                    result.warnings.push(with_line_prefix(
+                        decl,
+                        format!(
+                            "eval '{}': dataset is empty — eval will trivially pass",
+                            e.pattern_name
+                        ),
                     ));
                 }
             }
@@ -245,10 +282,10 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                     if !known {
                         let has_branch_def = f.branch_defs.iter().any(|(name, _)| name == step);
                         if !has_branch_def {
-                            result.errors.push(format!(
+                            result.errors.push(with_line_prefix(decl, format!(
                                 "flow '{}': pipeline step '{}' is not a known pattern, builtin, or branch definition",
                                 f.name, step
-                            ));
+                            )));
                         }
                     }
                 }
@@ -258,9 +295,12 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                             && !learnable_names.contains(&branch.target)
                             && !builtin_names.contains(&branch.target)
                         {
-                            result.errors.push(format!(
-                                "flow '{}': branch '{}' target '{}' is not a known pattern",
-                                f.name, branch.label, branch.target
+                            result.errors.push(with_line_prefix(
+                                decl,
+                                format!(
+                                    "flow '{}': branch '{}' target '{}' is not a known pattern",
+                                    f.name, branch.label, branch.target
+                                ),
                             ));
                         }
                     }
@@ -283,18 +323,24 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                 // Validate middleware names
                 for mw in &srv.middleware {
                     if !VALID_MIDDLEWARE.contains(&mw.as_str()) {
-                        result.errors.push(format!(
-                            "mlogserver: unknown middleware '{}'. Valid: {:?}",
-                            mw, VALID_MIDDLEWARE
+                        result.errors.push(with_line_prefix(
+                            decl,
+                            format!(
+                                "mlogserver: unknown middleware '{}'. Valid: {:?}",
+                                mw, VALID_MIDDLEWARE
+                            ),
                         ));
                     }
                 }
                 // Validate route methods and role references
                 for route in &srv.routes {
                     if !VALID_METHODS.contains(&route.method.as_str()) {
-                        result.errors.push(format!(
-                            "route '{}': unknown HTTP method '{}'. Valid: {:?}",
-                            route.path, route.method, VALID_METHODS
+                        result.errors.push(with_line_prefix(
+                            decl,
+                            format!(
+                                "route '{}': unknown HTTP method '{}'. Valid: {:?}",
+                                route.path, route.method, VALID_METHODS
+                            ),
                         ));
                     }
                     for role in &route.requires {
@@ -305,7 +351,7 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                 // Warn if no security_headers middleware
                 if !srv.middleware.contains(&"security_headers".to_string()) {
                     result.warnings.push(
-                        "mlogserver: no 'security_headers' middleware — recommend adding it for OWASP compliance".to_string()
+                        with_line_prefix(decl, "mlogserver: no 'security_headers' middleware — recommend adding it for OWASP compliance".to_string())
                     );
                 }
                 // Warn if POST routes but no csrf middleware
@@ -315,7 +361,7 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                     .any(|r| r.method == "POST" || r.method == "PUT" || r.method == "DELETE");
                 if has_post && !srv.middleware.contains(&"csrf".to_string()) {
                     result.warnings.push(
-                        "mlogserver: has mutating routes but no 'csrf' middleware — recommend adding it".to_string()
+                        with_line_prefix(decl, "mlogserver: has mutating routes but no 'csrf' middleware — recommend adding it".to_string())
                     );
                 }
             }
@@ -647,9 +693,9 @@ fn is_whitelisted_url(url: &str) -> bool {
 /// WARNING (runtime escapes label text via escape_html_chars — this is
 /// a defense-in-depth review hint, not a hard error).
 fn scan_chart_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
-    if let Some(Expr::List { items: items, .. }) = args.first() {
+    if let Some(Expr::List { items, .. }) = args.first() {
         for item in items {
-            if let Expr::StructLit { fields: fields, .. } = item {
+            if let Expr::StructLit { fields, .. } = item {
                 if let Some(Expr::StringLit { value: s, .. }) = fields.get("label") {
                     if let Some(reason) = detect_xss_payload(s) {
                         result.warnings.push(format!(
@@ -682,9 +728,12 @@ fn scan_chart_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) 
 /// hard error). The warning identifies WHICH field is suspicious
 /// (axes vs series[].name) so the caller can locate the input.
 fn scan_radar_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
-    if let Some(Expr::StructLit { fields: fields, .. }) = args.first() {
+    if let Some(Expr::StructLit { fields, .. }) = args.first() {
         // axes: List<String> — scan each StringLit directly
-        if let Some(Expr::List { items: axes_items, .. }) = fields.get("axes") {
+        if let Some(Expr::List {
+            items: axes_items, ..
+        }) = fields.get("axes")
+        {
             for axis in axes_items {
                 if let Expr::StringLit { value: s, .. } = axis {
                     if let Some(reason) = detect_xss_payload(s) {
@@ -697,9 +746,17 @@ fn scan_radar_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) 
             }
         }
         // series: List<Struct{name, values}> — scan each series.name
-        if let Some(Expr::List { items: series_items, .. }) = fields.get("series") {
+        if let Some(Expr::List {
+            items: series_items,
+            ..
+        }) = fields.get("series")
+        {
             for item in series_items {
-                if let Expr::StructLit { fields: series_fields, .. } = item {
+                if let Expr::StructLit {
+                    fields: series_fields,
+                    ..
+                } = item
+                {
                     if let Some(Expr::StringLit { value: s, .. }) = series_fields.get("name") {
                         if let Some(reason) = detect_xss_payload(s) {
                             result.warnings.push(format!(
@@ -745,7 +802,7 @@ fn scan_tree_labels_recursive(
     allow_title: bool,
     result: &mut AnalysisResult,
 ) {
-    if let Expr::StructLit { fields: fields, .. } = arg {
+    if let Expr::StructLit { fields, .. } = arg {
         // Scan `label` (always present per spec — required field)
         if let Some(Expr::StringLit { value: s, .. }) = fields.get("label") {
             if let Some(reason) = detect_xss_payload(s) {
@@ -782,7 +839,10 @@ fn scan_tree_labels_recursive(
             }
         }
         // Recurse into children (if present)
-        if let Some(Expr::List { items: child_items, .. }) = fields.get("children") {
+        if let Some(Expr::List {
+            items: child_items, ..
+        }) = fields.get("children")
+        {
             for (i, child) in child_items.iter().enumerate() {
                 let child_path = format!("{}.children[{}]", path, i);
                 scan_tree_labels_recursive(fn_name, child, &child_path, allow_title, result);
@@ -808,11 +868,18 @@ fn scan_tree_labels_recursive(
 /// Both lists are scanned to WARNINGs (runtime escapes label text via
 /// escape_html_chars — defense-in-depth, same as chart_*).
 fn scan_flowchart_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
-    if let Some(Expr::StructLit { fields: fields, .. }) = args.first() {
+    if let Some(Expr::StructLit { fields, .. }) = args.first() {
         // nodes: List<Struct{id, label}>
-        if let Some(Expr::List { items: node_items, .. }) = fields.get("nodes") {
+        if let Some(Expr::List {
+            items: node_items, ..
+        }) = fields.get("nodes")
+        {
             for (i, item) in node_items.iter().enumerate() {
-                if let Expr::StructLit { fields: node_fields, .. } = item {
+                if let Expr::StructLit {
+                    fields: node_fields,
+                    ..
+                } = item
+                {
                     // Scan id (defensive — not rendered, but suspicious if payload)
                     if let Some(Expr::StringLit { value: s, .. }) = node_fields.get("id") {
                         if let Some(reason) = detect_xss_payload(s) {
@@ -835,12 +902,20 @@ fn scan_flowchart_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResu
             }
         }
         // edges: List<Struct{from, to, label?}>
-        if let Some(Expr::List { items: edge_items, .. }) = fields.get("edges") {
+        if let Some(Expr::List {
+            items: edge_items, ..
+        }) = fields.get("edges")
+        {
             for (i, item) in edge_items.iter().enumerate() {
-                if let Expr::StructLit { fields: edge_fields, .. } = item {
+                if let Expr::StructLit {
+                    fields: edge_fields,
+                    ..
+                } = item
+                {
                     // from/to are identifiers (defensive scan)
                     for ident_key in &["from", "to"] {
-                        if let Some(Expr::StringLit { value: s, .. }) = edge_fields.get(*ident_key) {
+                        if let Some(Expr::StringLit { value: s, .. }) = edge_fields.get(*ident_key)
+                        {
                             if let Some(reason) = detect_xss_payload(s) {
                                 result.warnings.push(format!(
                                     "security: {} data.edges[{}].{} string literal {} — field not rendered but review intent",
@@ -873,9 +948,9 @@ fn scan_flowchart_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResu
 /// scanned. Uses the same per-struct pattern as scan_chart_labels but
 /// checks TWO fields instead of one.
 fn scan_layers_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
-    if let Some(Expr::List { items: items, .. }) = args.first() {
+    if let Some(Expr::List { items, .. }) = args.first() {
         for (i, item) in items.iter().enumerate() {
-            if let Expr::StructLit { fields: fields, .. } = item {
+            if let Expr::StructLit { fields, .. } = item {
                 // label (always rendered)
                 if let Some(Expr::StringLit { value: s, .. }) = fields.get("label") {
                     if let Some(reason) = detect_xss_payload(s) {
@@ -921,11 +996,14 @@ fn scan_layers_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult)
 /// All findings are WARNINGs (runtime escapes via escape_html_chars —
 /// defense-in-depth, not a hard error).
 fn scan_sequence_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
-    if let Some(Expr::StructLit { fields: fields, .. }) = args.first() {
+    if let Some(Expr::StructLit { fields, .. }) = args.first() {
         // actors: List<String> — scan each StringLit directly (no struct
         // unwrap, this is the spec's "list of strings, not list of structs"
         // special case).
-        if let Some(Expr::List { items: actor_items, .. }) = fields.get("actors") {
+        if let Some(Expr::List {
+            items: actor_items, ..
+        }) = fields.get("actors")
+        {
             for (i, actor) in actor_items.iter().enumerate() {
                 if let Expr::StringLit { value: s, .. } = actor {
                     if let Some(reason) = detect_xss_payload(s) {
@@ -940,9 +1018,15 @@ fn scan_sequence_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResul
         // messages: List<Struct{from, to, label?}> — scan from/to
         // defensively (identifiers, not rendered) and label as primary
         // (rendered edge label at midpoint).
-        if let Some(Expr::List { items: msg_items, .. }) = fields.get("messages") {
+        if let Some(Expr::List {
+            items: msg_items, ..
+        }) = fields.get("messages")
+        {
             for (i, item) in msg_items.iter().enumerate() {
-                if let Expr::StructLit { fields: msg_fields, .. } = item {
+                if let Expr::StructLit {
+                    fields: msg_fields, ..
+                } = item
+                {
                     // from/to (defensive — identifiers, not rendered)
                     for ident_key in &["from", "to"] {
                         if let Some(Expr::StringLit { value: s, .. }) = msg_fields.get(*ident_key) {
@@ -986,9 +1070,9 @@ fn scan_sequence_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResul
 /// self-documenting nature of each scanner and avoids changing
 /// behavior for the five existing chart_* builtins.
 fn scan_gantt_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
-    if let Some(Expr::List { items: items, .. }) = args.first() {
+    if let Some(Expr::List { items, .. }) = args.first() {
         for (i, item) in items.iter().enumerate() {
-            if let Expr::StructLit { fields: fields, .. } = item {
+            if let Expr::StructLit { fields, .. } = item {
                 // task is the only string field; start/duration are floats
                 if let Some(Expr::StringLit { value: s, .. }) = fields.get("task") {
                     if let Some(reason) = detect_xss_payload(s) {
@@ -1012,9 +1096,9 @@ fn scan_gantt_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) 
 /// when present). All three must be scanned. Same per-struct walk pattern
 /// as scan_layers_labels — extended to check `date` as the first field.
 fn scan_timeline_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
-    if let Some(Expr::List { items: items, .. }) = args.first() {
+    if let Some(Expr::List { items, .. }) = args.first() {
         for (i, item) in items.iter().enumerate() {
-            if let Expr::StructLit { fields: fields, .. } = item {
+            if let Expr::StructLit { fields, .. } = item {
                 // date (always rendered, above/below the dot)
                 if let Some(Expr::StringLit { value: s, .. }) = fields.get("date") {
                     if let Some(reason) = detect_xss_payload(s) {
@@ -1066,11 +1150,19 @@ fn scan_timeline_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResul
 /// All findings are WARNINGs (runtime escapes via escape_html_chars —
 /// defense-in-depth, not a hard error).
 fn scan_venn_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
-    if let Some(Expr::StructLit { fields: fields, .. }) = args.first() {
+    if let Some(Expr::StructLit { fields, .. }) = args.first() {
         // circles: List<Struct{label, value?}> — scan each circle's label
-        if let Some(Expr::List { items: circle_items, .. }) = fields.get("circles") {
+        if let Some(Expr::List {
+            items: circle_items,
+            ..
+        }) = fields.get("circles")
+        {
             for (i, item) in circle_items.iter().enumerate() {
-                if let Expr::StructLit { fields: circle_fields, .. } = item {
+                if let Expr::StructLit {
+                    fields: circle_fields,
+                    ..
+                } = item
+                {
                     if let Some(Expr::StringLit { value: s, .. }) = circle_fields.get("label") {
                         if let Some(reason) = detect_xss_payload(s) {
                             result.warnings.push(format!(
@@ -1115,7 +1207,7 @@ fn scan_venn_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
 /// All findings are WARNINGs (runtime escapes via escape_html_chars —
 /// defense-in-depth, not a hard error).
 fn scan_quadrant_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
-    if let Some(Expr::StructLit { fields: fields, .. }) = args.first() {
+    if let Some(Expr::StructLit { fields, .. }) = args.first() {
         // x_axis_label — top-level, easy to forget
         if let Some(Expr::StringLit { value: s, .. }) = fields.get("x_axis_label") {
             if let Some(reason) = detect_xss_payload(s) {
@@ -1135,9 +1227,16 @@ fn scan_quadrant_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResul
             }
         }
         // items: List<Struct{label, x, y}> — scan each item's label
-        if let Some(Expr::List { items: item_list, .. }) = fields.get("items") {
+        if let Some(Expr::List {
+            items: item_list, ..
+        }) = fields.get("items")
+        {
             for (i, item) in item_list.iter().enumerate() {
-                if let Expr::StructLit { fields: item_fields, .. } = item {
+                if let Expr::StructLit {
+                    fields: item_fields,
+                    ..
+                } = item
+                {
                     if let Some(Expr::StringLit { value: s, .. }) = item_fields.get("label") {
                         if let Some(reason) = detect_xss_payload(s) {
                             result.warnings.push(format!(
@@ -1170,9 +1269,9 @@ fn scan_quadrant_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResul
 /// per struct). We keep it as a separate function for self-documenting
 /// naming and to leave room for medallion-specific extensions later.
 fn scan_medallion_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
-    if let Some(Expr::List { items: items, .. }) = args.first() {
+    if let Some(Expr::List { items, .. }) = args.first() {
         for (i, item) in items.iter().enumerate() {
-            if let Expr::StructLit { fields: fields, .. } = item {
+            if let Expr::StructLit { fields, .. } = item {
                 // label — rendered below the medallion (primary target)
                 if let Some(Expr::StringLit { value: s, .. }) = fields.get("label") {
                     if let Some(reason) = detect_xss_payload(s) {
@@ -1221,11 +1320,19 @@ fn scan_medallion_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResu
 /// All findings are WARNINGs (runtime escapes via escape_html_chars —
 /// defense-in-depth, not a hard error).
 fn scan_er_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
-    if let Some(Expr::StructLit { fields: fields, .. }) = args.first() {
+    if let Some(Expr::StructLit { fields, .. }) = args.first() {
         // entities: List<Struct{name, fields: List<String>}>
-        if let Some(Expr::List { items: entity_items, .. }) = fields.get("entities") {
+        if let Some(Expr::List {
+            items: entity_items,
+            ..
+        }) = fields.get("entities")
+        {
             for (i, item) in entity_items.iter().enumerate() {
-                if let Expr::StructLit { fields: entity_fields, .. } = item {
+                if let Expr::StructLit {
+                    fields: entity_fields,
+                    ..
+                } = item
+                {
                     // name — rendered in the entity header bar (primary target)
                     if let Some(Expr::StringLit { value: s, .. }) = entity_fields.get("name") {
                         if let Some(reason) = detect_xss_payload(s) {
@@ -1238,7 +1345,10 @@ fn scan_er_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
                     // fields: List<String> NESTED inside a struct field —
                     // the third nesting form. Each StringLit is rendered
                     // as a separate line inside the entity box.
-                    if let Some(Expr::List { items: field_items, .. }) = entity_fields.get("fields") {
+                    if let Some(Expr::List {
+                        items: field_items, ..
+                    }) = entity_fields.get("fields")
+                    {
                         for (j, f_item) in field_items.iter().enumerate() {
                             if let Expr::StringLit { value: s, .. } = f_item {
                                 if let Some(reason) = detect_xss_payload(s) {
@@ -1255,9 +1365,15 @@ fn scan_er_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
         }
         // relations: List<Struct{from, to, label?}> — same shape as
         // diagram_flowchart.edges. Scan from/to defensively, label as primary.
-        if let Some(Expr::List { items: rel_items, .. }) = fields.get("relations") {
+        if let Some(Expr::List {
+            items: rel_items, ..
+        }) = fields.get("relations")
+        {
             for (i, item) in rel_items.iter().enumerate() {
-                if let Expr::StructLit { fields: rel_fields, .. } = item {
+                if let Expr::StructLit {
+                    fields: rel_fields, ..
+                } = item
+                {
                     for ident_key in &["from", "to"] {
                         if let Some(Expr::StringLit { value: s, .. }) = rel_fields.get(*ident_key) {
                             if let Some(reason) = detect_xss_payload(s) {
@@ -1304,9 +1420,12 @@ fn scan_er_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
 /// All findings are WARNINGs (runtime escapes via escape_html_chars —
 /// defense-in-depth, not a hard error).
 fn scan_state_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
-    if let Some(Expr::StructLit { fields: fields, .. }) = args.first() {
+    if let Some(Expr::StructLit { fields, .. }) = args.first() {
         // states: List<String> — scan each StringLit directly
-        if let Some(Expr::List { items: state_items, .. }) = fields.get("states") {
+        if let Some(Expr::List {
+            items: state_items, ..
+        }) = fields.get("states")
+        {
             for (i, state) in state_items.iter().enumerate() {
                 if let Expr::StringLit { value: s, .. } = state {
                     if let Some(reason) = detect_xss_payload(s) {
@@ -1320,11 +1439,19 @@ fn scan_state_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) 
         }
         // transitions: List<Struct{from, to, label?}> — same pattern as
         // diagram_flowchart.edges / diagram_sequence.messages.
-        if let Some(Expr::List { items: trans_items, .. }) = fields.get("transitions") {
+        if let Some(Expr::List {
+            items: trans_items, ..
+        }) = fields.get("transitions")
+        {
             for (i, item) in trans_items.iter().enumerate() {
-                if let Expr::StructLit { fields: trans_fields, .. } = item {
+                if let Expr::StructLit {
+                    fields: trans_fields,
+                    ..
+                } = item
+                {
                     for ident_key in &["from", "to"] {
-                        if let Some(Expr::StringLit { value: s, .. }) = trans_fields.get(*ident_key) {
+                        if let Some(Expr::StringLit { value: s, .. }) = trans_fields.get(*ident_key)
+                        {
                             if let Some(reason) = detect_xss_payload(s) {
                                 result.warnings.push(format!(
                                     "security: {} data.transitions[{}].{} string literal {} — field not rendered but review intent",
@@ -1376,9 +1503,12 @@ fn scan_state_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) 
 /// All findings are WARNINGs (runtime escapes via escape_html_chars —
 /// defense-in-depth, not a hard error).
 fn scan_swimlane_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
-    if let Some(Expr::StructLit { fields: fields, .. }) = args.first() {
+    if let Some(Expr::StructLit { fields, .. }) = args.first() {
         // lanes: List<String> — scan each StringLit directly
-        if let Some(Expr::List { items: lane_items, .. }) = fields.get("lanes") {
+        if let Some(Expr::List {
+            items: lane_items, ..
+        }) = fields.get("lanes")
+        {
             for (i, lane) in lane_items.iter().enumerate() {
                 if let Expr::StringLit { value: s, .. } = lane {
                     if let Some(reason) = detect_xss_payload(s) {
@@ -1392,9 +1522,16 @@ fn scan_swimlane_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResul
         }
         // steps: List<Struct{lane, label, order}> — scan lane defensively,
         // label as primary. order is Float, skipped.
-        if let Some(Expr::List { items: step_items, .. }) = fields.get("steps") {
+        if let Some(Expr::List {
+            items: step_items, ..
+        }) = fields.get("steps")
+        {
             for (i, item) in step_items.iter().enumerate() {
-                if let Expr::StructLit { fields: step_fields, .. } = item {
+                if let Expr::StructLit {
+                    fields: step_fields,
+                    ..
+                } = item
+                {
                     // lane — defensive (identifier, not rendered as free text)
                     if let Some(Expr::StringLit { value: s, .. }) = step_fields.get("lane") {
                         if let Some(reason) = detect_xss_payload(s) {
@@ -1422,7 +1559,7 @@ fn scan_swimlane_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResul
 /// Walk an expression and run the security check on every FnCall node.
 fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &str) {
     match expr {
-        Expr::FnCall { name: name, args: args, .. } => {
+        Expr::FnCall { name, args, .. } => {
             // Check string-literal arguments to SVG builtins
             if SVG_AUTO_ESCAPE_BUILTINS.contains(&name.as_str()) {
                 if let Some(content_idx) = auto_escaped_arg_index(name) {
@@ -1638,7 +1775,11 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
             }
             let _ = function;
         }
-        Expr::BinaryOp { left: lhs, right: rhs, .. } => {
+        Expr::BinaryOp {
+            left: lhs,
+            right: rhs,
+            ..
+        } => {
             // String concatenation: walk BOTH sides to scan all string literals.
             // If a StringLit appears inside a concat that's an arg to an SVG
             // no-escape builtin, the surrounding FnCall walker has already
@@ -1668,17 +1809,22 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
             walk_expr_for_svg_security(lhs, result, ctx);
             walk_expr_for_svg_security(rhs, result, ctx);
         }
-        Expr::IfElse { condition: cond, then_branch: then_e, else_branch: else_e, .. } => {
+        Expr::IfElse {
+            condition: cond,
+            then_branch: then_e,
+            else_branch: else_e,
+            ..
+        } => {
             walk_expr_for_svg_security(cond, result, ctx);
             walk_expr_for_svg_security(then_e, result, ctx);
             walk_expr_for_svg_security(else_e, result, ctx);
         }
-        Expr::List { items: items, .. } => {
+        Expr::List { items, .. } => {
             for item in items {
                 walk_expr_for_svg_security(item, result, ctx);
             }
         }
-        Expr::StructLit { fields: fields, .. } => {
+        Expr::StructLit { fields, .. } => {
             for v in fields.values() {
                 walk_expr_for_svg_security(v, result, ctx);
             }
@@ -1686,7 +1832,11 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
         Expr::FieldAccess { object: inner, .. } => {
             walk_expr_for_svg_security(inner, result, ctx);
         }
-        Expr::IndexAccess { object: inner, index: idx, .. } => {
+        Expr::IndexAccess {
+            object: inner,
+            index: idx,
+            ..
+        } => {
             walk_expr_for_svg_security(inner, result, ctx);
             walk_expr_for_svg_security(idx, result, ctx);
         }
@@ -1716,7 +1866,10 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
                 }
             }
         }
-        Expr::StringLit { .. } | Expr::FloatLit { .. } | Expr::BoolLit { .. } | Expr::Ident { .. } => {}
+        Expr::StringLit { .. }
+        | Expr::FloatLit { .. }
+        | Expr::BoolLit { .. }
+        | Expr::Ident { .. } => {}
     }
     let _ = ctx;
 }
@@ -1741,7 +1894,9 @@ fn walk_stmt_for_svg_security(stmt: &Statement, result: &mut AnalysisResult, ctx
                 walk_stmt_for_svg_security(s, result, ctx);
             }
         }
-        Statement::While { condition, body, .. } => {
+        Statement::While {
+            condition, body, ..
+        } => {
             walk_expr_for_svg_security(condition, result, ctx);
             for s in body {
                 walk_stmt_for_svg_security(s, result, ctx);
@@ -1770,7 +1925,11 @@ fn walk_stmt_for_svg_security(stmt: &Statement, result: &mut AnalysisResult, ctx
                 }
             }
         }
-        Statement::IfThen { condition: cond, body, .. } => {
+        Statement::IfThen {
+            condition: cond,
+            body,
+            ..
+        } => {
             walk_expr_for_svg_security(cond, result, ctx);
             for s in body {
                 walk_stmt_for_svg_security(s, result, ctx);
@@ -1887,7 +2046,7 @@ fn check_expr_calls(
     learnable_names: &HashSet<String>,
     errors: &mut Vec<String>,
 ) {
-    if let Expr::FnCall { name: name, args: args, .. } = expr {
+    if let Expr::FnCall { name, args, .. } = expr {
         let is_known = builtin_names.contains(name)
             || pattern_param_counts.iter().any(|(n, _)| n == name)
             || learnable_names.contains(name);
@@ -1933,7 +2092,13 @@ fn check_expr_calls(
                 errors,
             );
         }
-    } else if let Expr::BinaryOp { left: left, op: _op, right: right, .. } = expr {
+    } else if let Expr::BinaryOp {
+        left,
+        op: _op,
+        right,
+        ..
+    } = expr
+    {
         check_expr_calls(
             left,
             builtin_names,
@@ -1948,7 +2113,13 @@ fn check_expr_calls(
             learnable_names,
             errors,
         );
-    } else if let Expr::IfElse { condition: cond, then_branch: then_br, else_branch: else_br, .. } = expr {
+    } else if let Expr::IfElse {
+        condition: cond,
+        then_branch: then_br,
+        else_branch: else_br,
+        ..
+    } = expr
+    {
         check_expr_calls(
             cond,
             builtin_names,
@@ -1970,7 +2141,7 @@ fn check_expr_calls(
             learnable_names,
             errors,
         );
-    } else if let Expr::List { items: items, .. } = expr {
+    } else if let Expr::List { items, .. } = expr {
         for item in items {
             check_expr_calls(
                 item,
@@ -1980,7 +2151,12 @@ fn check_expr_calls(
                 errors,
             );
         }
-    } else if let Expr::IndexAccess { object: inner, index: idx, .. } = expr {
+    } else if let Expr::IndexAccess {
+        object: inner,
+        index: idx,
+        ..
+    } = expr
+    {
         check_expr_calls(
             inner,
             builtin_names,
@@ -1995,7 +2171,7 @@ fn check_expr_calls(
             learnable_names,
             errors,
         );
-    } else if let Expr::StructLit { fields: fields, .. } = expr {
+    } else if let Expr::StructLit { fields, .. } = expr {
         for v in fields.values() {
             check_expr_calls(
                 v,
@@ -2089,7 +2265,9 @@ fn check_stmt_exprs(
                 );
             }
         }
-        Statement::While { condition, body, .. } => {
+        Statement::While {
+            condition, body, ..
+        } => {
             check_expr_calls(
                 condition,
                 builtin_names,
@@ -2160,7 +2338,11 @@ fn check_stmt_exprs(
                 }
             }
         }
-        Statement::IfThen { condition: cond, body, .. } => {
+        Statement::IfThen {
+            condition: cond,
+            body,
+            ..
+        } => {
             check_expr_calls(
                 cond,
                 builtin_names,

@@ -349,8 +349,8 @@ fn check_secrets(declarations: &[Declaration], source: &str, findings: &mut Vec<
             match stmt {
                 Statement::LetBinding { value, .. } => walk_string_exprs(value, acc),
                 Statement::Assign { value, .. } => walk_string_exprs(value, acc),
-                Statement::ExprStmt(expr) => walk_string_exprs(expr, acc),
-                Statement::Return(expr) => walk_string_exprs(expr, acc),
+                Statement::ExprStmt { expr, .. } => walk_string_exprs(expr, acc),
+                Statement::Return { value: expr, .. } => walk_string_exprs(expr, acc),
                 Statement::Each { body, .. } => walk_string_stmts(body, acc),
                 Statement::While { body, .. } => walk_string_stmts(body, acc),
                 Statement::IfElseBlock {
@@ -367,7 +367,7 @@ fn check_secrets(declarations: &[Declaration], source: &str, findings: &mut Vec<
                         walk_string_stmts(body, acc);
                     }
                 }
-                Statement::IfThen(_, body) => walk_string_stmts(body, acc),
+                Statement::IfThen { body, .. } => walk_string_stmts(body, acc),
                 _ => {}
             }
         }
@@ -530,10 +530,10 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                 Statement::Assign { value, .. } => {
                     walk_query(value, source, findings, all_literal, literal_count)
                 }
-                Statement::ExprStmt(expr) => {
+                Statement::ExprStmt { expr, .. } => {
                     walk_query(expr, source, findings, all_literal, literal_count)
                 }
-                Statement::Return(expr) => {
+                Statement::Return { value: expr, .. } => {
                     walk_query(expr, source, findings, all_literal, literal_count)
                 }
                 Statement::Each { body, .. } => {
@@ -566,7 +566,7 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                         }
                     }
                 }
-                Statement::IfThen(_, body) => {
+                Statement::IfThen { body, .. } => {
                     for s in body {
                         walk_stmt(s, source, findings, all_literal, literal_count);
                     }
@@ -777,7 +777,7 @@ fn check_html_injection(
                 Statement::LetBinding {
                     name,
                     value,
-                    mutable: _,
+                    ..
                 } => {
                     // Check if this let-binding calls respond() with tainted args
                     check_respond_for_html(value, tracker, source, findings);
@@ -790,17 +790,17 @@ fn check_html_injection(
                         tracker.untaint(name);
                     }
                 }
-                Statement::Assign { name, value } => {
+                Statement::Assign { name, value, .. } => {
                     if let Some(taint) = binding_taint(value, tracker) {
                         tracker.taint(name, taint);
                     } else {
                         tracker.untaint(name);
                     }
                 }
-                Statement::ExprStmt(expr) => {
+                Statement::ExprStmt { expr, .. } => {
                     check_respond_for_html(expr, tracker, source, findings);
                 }
-                Statement::Return(expr) => {
+                Statement::Return { value: expr, .. } => {
                     check_respond_for_html(expr, tracker, source, findings);
                 }
                 Statement::Each { body, .. } => {
@@ -833,7 +833,7 @@ fn check_html_injection(
                         }
                     }
                 }
-                Statement::IfThen(_, body) => {
+                Statement::IfThen { body, .. } => {
                     for s in body {
                         process_stmt(s, tracker, source, findings);
                     }
@@ -894,7 +894,7 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                 Statement::LetBinding {
                     name,
                     value,
-                    mutable: _,
+                    ..
                 } => {
                     // Check if this let-binding calls a sink function with tainted args
                     check_expr_for_leak(value, tracker, source, findings);
@@ -905,17 +905,17 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                         tracker.untaint(name);
                     }
                 }
-                Statement::Assign { name, value } => {
+                Statement::Assign { name, value, .. } => {
                     if let Some(taint) = binding_taint(value, tracker) {
                         tracker.taint(name, taint);
                     } else {
                         tracker.untaint(name);
                     }
                 }
-                Statement::ExprStmt(expr) => {
+                Statement::ExprStmt { expr, .. } => {
                     check_expr_for_leak(expr, tracker, source, findings);
                 }
-                Statement::Return(expr) => {
+                Statement::Return { value: expr, .. } => {
                     check_expr_for_leak(expr, tracker, source, findings);
                 }
                 Statement::Each { body, .. } => {
@@ -948,7 +948,7 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                         }
                     }
                 }
-                Statement::IfThen(_, body) => {
+                Statement::IfThen { body, .. } => {
                     for s in body {
                         process_stmt(s, tracker, source, findings);
                     }
@@ -1071,7 +1071,7 @@ fn check_open_redirect(
                 Statement::LetBinding {
                     name,
                     value,
-                    mutable: _,
+                    ..
                 } => {
                     // Check if this let-binding calls respond() with tainted args
                     check_expr_for_redirect(value, tracker, source, findings);
@@ -1082,17 +1082,17 @@ fn check_open_redirect(
                         tracker.untaint(name);
                     }
                 }
-                Statement::Assign { name, value } => {
+                Statement::Assign { name, value, .. } => {
                     if let Some(taint) = binding_taint(value, tracker) {
                         tracker.taint(name, taint);
                     } else {
                         tracker.untaint(name);
                     }
                 }
-                Statement::ExprStmt(expr) => {
+                Statement::ExprStmt { expr, .. } => {
                     check_expr_for_redirect(expr, tracker, source, findings);
                 }
-                Statement::Return(expr) => {
+                Statement::Return { value: expr, .. } => {
                     check_expr_for_redirect(expr, tracker, source, findings);
                 }
                 Statement::Each { body, .. } => {
@@ -1125,7 +1125,7 @@ fn check_open_redirect(
                         }
                     }
                 }
-                Statement::IfThen(_, body) => {
+                Statement::IfThen { body, .. } => {
                     for s in body {
                         process_stmt(s, tracker, source, findings);
                     }
@@ -1499,6 +1499,7 @@ mod tests {
                             span: Span::unknown(),
                         },
                         mutable: false,
+                        span: Span::unknown(),
                     },
                     Statement::LetBinding {
                         name: "result".to_string(),
@@ -1508,6 +1509,7 @@ mod tests {
                             span: Span::unknown(),
                         },
                         mutable: false,
+                        span: Span::unknown(),
                     },
                     Statement::LetBinding {
                         name: "resp".to_string(),
@@ -1520,8 +1522,9 @@ mod tests {
                             span: Span::unknown(),
                         },
                         mutable: false,
+                        span: Span::unknown(),
                     },
-                    Statement::Return(Expr::Ident { name: "resp".to_string(), span: Span::unknown() }),
+                    Statement::Return { value: Expr::Ident { name: "resp".to_string(), span: Span::unknown() }, span: Span::unknown() },
                 ],
             }],
         };

@@ -747,7 +747,7 @@ impl Compiler {
                 Statement::LetBinding {
                     name,
                     value,
-                    mutable: _,
+                    ..
                 } => {
                     // Function-level scoping: if name already exists in locals,
                     // reuse the existing slot (matches interpreter behavior).
@@ -763,7 +763,7 @@ impl Compiler {
                         code.push(Instruction::StoreLocal(slot));
                     }
                 }
-                Statement::Assign { name, value } => {
+                Statement::Assign { name, value, .. } => {
                     // Reassignment: look up existing slot, compile value, store.
                     if let Some(&slot) = locals.get(name) {
                         self.compile_expr_with_locals(value, &mut code, locals)?;
@@ -774,11 +774,11 @@ impl Compiler {
                     }
                     // If not found, silently skip (interpreter would error).
                 }
-                Statement::Return(expr) => {
+                Statement::Return { value: expr, .. } => {
                     self.compile_expr_with_locals(expr, &mut code, locals)?;
                     code.push(Instruction::Return);
                 }
-                Statement::While { condition, body } => {
+                Statement::While { condition, body, .. } => {
                     let loop_start = code.len();
                     let break_fixups: Vec<usize> = Vec::new();
                     let continue_fixups: Vec<usize> = Vec::new();
@@ -842,6 +842,7 @@ impl Compiler {
                     variable,
                     iterable,
                     body,
+                    ..
                 } => {
                     // Compile: iterable → load → iterate with index
                     // Alloc local slots for: _list (hidden), _index (hidden), item (visible)
@@ -945,6 +946,7 @@ impl Compiler {
                     item_var,
                     iterable,
                     body,
+                    ..
                 } => {
                     // Same as Each but also binds index_var
                     let list_slot = next_slot;
@@ -1036,7 +1038,7 @@ impl Compiler {
                         locals.remove(index_var);
                     }
                 }
-                Statement::IfThen(cond, then_body) => {
+                Statement::IfThen { condition: cond, body: then_body, .. } => {
                     self.compile_expr_with_locals(cond, &mut code, locals)?;
                     code.push(Instruction::JumpIfNot(0)); // placeholder
                     let jmp_idx = code.len() - 1;
@@ -1061,6 +1063,7 @@ impl Compiler {
                     then_body,
                     else_ifs,
                     else_body,
+                    ..
                 } => {
                     // Compile if/else if/else chain
                     let mut jump_to_end_fixups: Vec<usize> = Vec::new();
@@ -1135,16 +1138,12 @@ impl Compiler {
                         code[fixup] = Instruction::Jump(block_end);
                     }
                 }
-                Statement::ExprStmt(expr) => {
+                Statement::ExprStmt { expr, .. } => {
                     self.compile_expr_with_locals(expr, &mut code, locals)?;
                     // Discard result (side-effect expression like respond(), write_file())
                     code.push(Instruction::Pop);
                 }
-                Statement::Match {
-                    scrutinee: _,
-                    arms: _,
-                    else_body: _,
-                } => {
+                Statement::Match { .. } => {
                     return Err("compile: Match statement not yet supported in VM bytecode \
                          (use tree-walking interpreter)"
                         .into());
@@ -1169,7 +1168,7 @@ impl Compiler {
             Statement::LetBinding {
                 name,
                 value,
-                mutable: _,
+                ..
             } => {
                 // Function-level scoping: reuse existing slot if name exists.
                 if let Some(&existing_slot) = locals.get(name) {
@@ -1183,7 +1182,7 @@ impl Compiler {
                     code.push(Instruction::StoreLocal(slot));
                 }
             }
-            Statement::Assign { name, value } => {
+            Statement::Assign { name, value, .. } => {
                 if let Some(&slot) = locals.get(name) {
                     self.compile_expr_with_locals(value, code, locals)?;
                     code.push(Instruction::StoreLocal(slot));
@@ -1192,11 +1191,11 @@ impl Compiler {
                     code.push(Instruction::StoreGlobal(slot));
                 }
             }
-            Statement::Return(expr) => {
+            Statement::Return { value: expr, .. } => {
                 self.compile_expr_with_locals(expr, code, locals)?;
                 code.push(Instruction::Return);
             }
-            Statement::While { condition, body } => {
+            Statement::While { condition, body, .. } => {
                 let loop_start = code.len();
                 let break_fixups: Vec<usize> = Vec::new();
 
@@ -1233,7 +1232,7 @@ impl Compiler {
                     code[*f] = Instruction::Jump(after_loop);
                 }
             }
-            Statement::IfThen(cond, then_body) => {
+            Statement::IfThen { condition: cond, body: then_body, .. } => {
                 self.compile_expr_with_locals(cond, code, locals)?;
                 code.push(Instruction::JumpIfNot(0));
                 let jmp_idx = code.len() - 1;
@@ -1249,6 +1248,7 @@ impl Compiler {
                 then_body,
                 else_ifs,
                 else_body,
+                ..
             } => {
                 let mut end_fixups: Vec<usize> = Vec::new();
                 self.compile_expr_with_locals(condition, code, locals)?;
@@ -1290,7 +1290,7 @@ impl Compiler {
                     code[f] = Instruction::Jump(end);
                 }
             }
-            Statement::ExprStmt(expr) => {
+            Statement::ExprStmt { expr, .. } => {
                 self.compile_expr_with_locals(expr, code, locals)?;
                 code.push(Instruction::Pop);
             }

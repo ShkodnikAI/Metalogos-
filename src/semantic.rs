@@ -1727,8 +1727,8 @@ fn walk_stmt_for_svg_security(stmt: &Statement, result: &mut AnalysisResult, ctx
         Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
             walk_expr_for_svg_security(value, result, ctx);
         }
-        Statement::Return(e) => walk_expr_for_svg_security(e, result, ctx),
-        Statement::ExprStmt(e) => walk_expr_for_svg_security(e, result, ctx),
+        Statement::Return { value: e, .. } => walk_expr_for_svg_security(e, result, ctx),
+        Statement::ExprStmt { expr: e, .. } => walk_expr_for_svg_security(e, result, ctx),
         Statement::Each { iterable, body, .. } => {
             walk_expr_for_svg_security(iterable, result, ctx);
             for s in body {
@@ -1741,7 +1741,7 @@ fn walk_stmt_for_svg_security(stmt: &Statement, result: &mut AnalysisResult, ctx
                 walk_stmt_for_svg_security(s, result, ctx);
             }
         }
-        Statement::While { condition, body } => {
+        Statement::While { condition, body, .. } => {
             walk_expr_for_svg_security(condition, result, ctx);
             for s in body {
                 walk_stmt_for_svg_security(s, result, ctx);
@@ -1752,6 +1752,7 @@ fn walk_stmt_for_svg_security(stmt: &Statement, result: &mut AnalysisResult, ctx
             then_body,
             else_ifs,
             else_body,
+            ..
         } => {
             walk_expr_for_svg_security(condition, result, ctx);
             for s in then_body {
@@ -1769,7 +1770,7 @@ fn walk_stmt_for_svg_security(stmt: &Statement, result: &mut AnalysisResult, ctx
                 }
             }
         }
-        Statement::IfThen(cond, body) => {
+        Statement::IfThen { condition: cond, body, .. } => {
             walk_expr_for_svg_security(cond, result, ctx);
             for s in body {
                 walk_stmt_for_svg_security(s, result, ctx);
@@ -1779,6 +1780,7 @@ fn walk_stmt_for_svg_security(stmt: &Statement, result: &mut AnalysisResult, ctx
             scrutinee,
             arms,
             else_body,
+            ..
         } => {
             walk_expr_for_svg_security(scrutinee, result, ctx);
             for arm in arms {
@@ -2033,7 +2035,7 @@ fn check_stmt_exprs(
                 errors,
             );
         }
-        Statement::Return(expr) => {
+        Statement::Return { value: expr, .. } => {
             check_expr_calls(
                 expr,
                 builtin_names,
@@ -2042,7 +2044,7 @@ fn check_stmt_exprs(
                 errors,
             );
         }
-        Statement::ExprStmt(expr) => {
+        Statement::ExprStmt { expr, .. } => {
             check_expr_calls(
                 expr,
                 builtin_names,
@@ -2087,7 +2089,7 @@ fn check_stmt_exprs(
                 );
             }
         }
-        Statement::While { condition, body } => {
+        Statement::While { condition, body, .. } => {
             check_expr_calls(
                 condition,
                 builtin_names,
@@ -2110,6 +2112,7 @@ fn check_stmt_exprs(
             then_body,
             else_ifs,
             else_body,
+            ..
         } => {
             check_expr_calls(
                 condition,
@@ -2157,7 +2160,7 @@ fn check_stmt_exprs(
                 }
             }
         }
-        Statement::IfThen(cond, body) => {
+        Statement::IfThen { condition: cond, body, .. } => {
             check_expr_calls(
                 cond,
                 builtin_names,
@@ -2179,6 +2182,7 @@ fn check_stmt_exprs(
             scrutinee,
             arms,
             else_body,
+            ..
         } => {
             check_expr_calls(
                 scrutinee,

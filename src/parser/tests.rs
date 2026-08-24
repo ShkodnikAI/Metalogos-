@@ -87,7 +87,7 @@ fn test_parse_pattern_string_return() {
     if let Declaration::Pattern(p) = &decls[0] {
         assert_eq!(p.return_type, "String");
         match &p.body[0] {
-            Statement::Return(Expr::StringLit { value: s, .. }) => assert_eq!(s, "hello"),
+            Statement::Return { value: Expr::StringLit { value: s, .. }, .. } => assert_eq!(s, "hello"),
             other => panic!("expected Return(StringLit), got {:?}", other),
         }
     } else {
@@ -102,7 +102,7 @@ fn test_parse_pattern_bool_return() {
     if let Declaration::Pattern(p) = &decls[0] {
         assert_eq!(p.return_type, "Bool");
         match &p.body[0] {
-            Statement::Return(Expr::BoolLit { value: b, .. }) => assert!(*b),
+            Statement::Return { value: Expr::BoolLit { value: b, .. }, .. } => assert!(*b),
             other => panic!("expected Return(BoolLit(true)), got {:?}", other),
         }
     } else {
@@ -117,7 +117,7 @@ fn test_parse_pattern_unit_return() {
     if let Declaration::Pattern(p) = &decls[0] {
         assert_eq!(p.return_type, "Unit");
         match &p.body[0] {
-            Statement::Return(Expr::Ident { name: name, .. }) => assert_eq!(name, "unit"),
+            Statement::Return { value: Expr::Ident { name: name, .. }, .. } => assert_eq!(name, "unit"),
             other => panic!("expected Return(Ident(\"unit\")), got {:?}", other),
         }
     } else {
@@ -770,6 +770,7 @@ fn test_parse_let_binding() {
                 name,
                 value,
                 mutable,
+                ..
             } => {
                 assert_eq!(name, "x");
                 assert!(!*mutable);
@@ -835,7 +836,7 @@ fn test_parse_while_loop() {
         // body: while_stmt, return
         assert_eq!(p.body.len(), 2);
         match &p.body[0] {
-            Statement::While { condition, body } => {
+            Statement::While { condition, body, .. } => {
                 assert!(matches!(condition, Expr::BinaryOp { .. }));
                 assert_eq!(body.len(), 1);
             }
@@ -859,6 +860,7 @@ fn test_parse_each_loop() {
                 variable,
                 iterable,
                 body,
+                ..
             } = s
             {
                 assert_eq!(variable, "item");
@@ -880,7 +882,7 @@ fn test_parse_return_statement() {
     if let Declaration::Pattern(p) = &decls[0] {
         assert_eq!(p.body.len(), 1);
         match &p.body[0] {
-            Statement::Return(expr) => match expr {
+            Statement::Return { value: expr, .. } => match expr {
                 Expr::FloatLit { value: v, .. } => assert_eq!(*v, 42.0),
                 other => panic!("expected FloatLit, got {:?}", other),
             },
@@ -899,7 +901,7 @@ fn test_parse_assignment_statement() {
         // let_binding, assign, return
         assert_eq!(p.body.len(), 3);
         match &p.body[1] {
-            Statement::Assign { name, value } => {
+            Statement::Assign { name, value, .. } => {
                 assert_eq!(name, "x");
                 match value {
                     Expr::FloatLit { value: v, .. } => assert_eq!(*v, 5.0),
@@ -947,7 +949,7 @@ fn test_parse_expr_stmt() {
     if let Declaration::Pattern(p) = &decls[0] {
         assert_eq!(p.body.len(), 2);
         match &p.body[0] {
-            Statement::ExprStmt(Expr::FnCall { name: name, args: args, .. }) => {
+            Statement::ExprStmt { expr: Expr::FnCall { name: name, args: args, .. }, .. } => {
                 assert_eq!(name, "respond");
                 assert_eq!(args.len(), 1);
             }
@@ -1135,7 +1137,7 @@ fn test_parse_string_literal_simple() {
     let decls = parse(src).unwrap();
     if let Declaration::Pattern(p) = &decls[0] {
         match &p.body[0] {
-            Statement::Return(Expr::StringLit { value: s, .. }) => assert_eq!(s, "hello"),
+            Statement::Return { value: Expr::StringLit { value: s, .. }, .. } => assert_eq!(s, "hello"),
             other => panic!("expected StringLit, got {:?}", other),
         }
     } else {
@@ -1149,7 +1151,7 @@ fn test_parse_string_literal_with_newline_escape() {
     let decls = parse(src).unwrap();
     if let Declaration::Pattern(p) = &decls[0] {
         match &p.body[0] {
-            Statement::Return(Expr::StringLit { value: s, .. }) => assert_eq!(s, "line1\nline2"),
+            Statement::Return { value: Expr::StringLit { value: s, .. }, .. } => assert_eq!(s, "line1\nline2"),
             other => panic!("expected StringLit, got {:?}", other),
         }
     }
@@ -1161,7 +1163,7 @@ fn test_parse_string_literal_with_tab_escape() {
     let decls = parse(src).unwrap();
     if let Declaration::Pattern(p) = &decls[0] {
         match &p.body[0] {
-            Statement::Return(Expr::StringLit { value: s, .. }) => assert_eq!(s, "a\tb"),
+            Statement::Return { value: Expr::StringLit { value: s, .. }, .. } => assert_eq!(s, "a\tb"),
             other => panic!("expected StringLit, got {:?}", other),
         }
     }
@@ -1173,7 +1175,7 @@ fn test_parse_string_literal_with_quote_escape() {
     let decls = parse(src).unwrap();
     if let Declaration::Pattern(p) = &decls[0] {
         match &p.body[0] {
-            Statement::Return(Expr::StringLit { value: s, .. }) => assert_eq!(s, "say \"hi\""),
+            Statement::Return { value: Expr::StringLit { value: s, .. }, .. } => assert_eq!(s, "say \"hi\""),
             other => panic!("expected StringLit, got {:?}", other),
         }
     }
@@ -1185,7 +1187,7 @@ fn test_parse_string_literal_with_backslash_escape() {
     let decls = parse(src).unwrap();
     if let Declaration::Pattern(p) = &decls[0] {
         match &p.body[0] {
-            Statement::Return(Expr::StringLit { value: s, .. }) => assert_eq!(s, "C:\\path"),
+            Statement::Return { value: Expr::StringLit { value: s, .. }, .. } => assert_eq!(s, "C:\\path"),
             other => panic!("expected StringLit, got {:?}", other),
         }
     }
@@ -1197,7 +1199,7 @@ fn test_parse_string_literal_with_unicode_escape() {
     let decls = parse(src).unwrap();
     if let Declaration::Pattern(p) = &decls[0] {
         match &p.body[0] {
-            Statement::Return(Expr::StringLit { value: s, .. }) => assert_eq!(s, "A"),
+            Statement::Return { value: Expr::StringLit { value: s, .. }, .. } => assert_eq!(s, "A"),
             other => panic!("expected StringLit, got {:?}", other),
         }
     }
@@ -1209,7 +1211,7 @@ fn test_parse_multiline_string() {
     let decls = parse(src).unwrap();
     if let Declaration::Pattern(p) = &decls[0] {
         match &p.body[0] {
-            Statement::Return(Expr::StringLit { value: s, .. }) => {
+            Statement::Return { value: Expr::StringLit { value: s, .. }, .. } => {
                 assert!(s.contains("multi"));
                 assert!(s.contains("line"));
                 assert!(s.contains("string"));
@@ -1286,7 +1288,7 @@ fn test_parse_int_literal_returns_floatlit() {
     let decls = parse(src).unwrap();
     if let Declaration::Pattern(p) = &decls[0] {
         match &p.body[0] {
-            Statement::Return(Expr::FloatLit { value: v, .. }) => assert_eq!(*v, 42.0),
+            Statement::Return { value: Expr::FloatLit { value: v, .. }, .. } => assert_eq!(*v, 42.0),
             other => panic!("expected FloatLit(42.0), got {:?}", other),
         }
     } else {
@@ -1300,7 +1302,7 @@ fn test_parse_boolean_false_literal() {
     let decls = parse(src).unwrap();
     if let Declaration::Pattern(p) = &decls[0] {
         match &p.body[0] {
-            Statement::Return(Expr::BoolLit { value: b, .. }) => assert!(!*b, "expected false"),
+            Statement::Return { value: Expr::BoolLit { value: b, .. }, .. } => assert!(!*b, "expected false"),
             other => panic!("expected BoolLit(false), got {:?}", other),
         }
     } else {
@@ -1499,7 +1501,7 @@ fn test_parse_if_then_no_else() {
     if let Declaration::Pattern(p) = &decls[0] {
         // body: [if_then, return]
         assert_eq!(p.body.len(), 2);
-        assert!(matches!(&p.body[0], Statement::IfThen(_, _)));
+        assert!(matches!(&p.body[0], Statement::IfThen { .. }));
     } else {
         panic!("expected Pattern");
     }
@@ -1892,7 +1894,7 @@ fn test_parse_comment_inside_pattern_body() {
         // Comments should be filtered out, leaving only 2 statements
         assert_eq!(p.body.len(), 2);
         assert!(matches!(&p.body[0], Statement::LetBinding { .. }));
-        assert!(matches!(&p.body[1], Statement::Return(_)));
+        assert!(matches!(&p.body[1], Statement::Return { .. }));
     } else {
         panic!("expected Pattern");
     }
@@ -1904,7 +1906,7 @@ fn test_parse_return_with_arithmetic_expression() {
     let decls = parse(src).unwrap();
     if let Declaration::Pattern(p) = &decls[0] {
         match &p.body[0] {
-            Statement::Return(Expr::BinaryOp { op: op, .. }) => {
+            Statement::Return { value: Expr::BinaryOp { op: op, .. }, .. } => {
                 // Top-level should be Add (multiplication binds tighter)
                 assert!(matches!(op, BinOp::Add));
             }

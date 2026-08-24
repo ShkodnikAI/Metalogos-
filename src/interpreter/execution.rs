@@ -642,6 +642,7 @@ impl Interpreter {
                     name,
                     value,
                     mutable,
+                    ..
                 } => {
                     let val = self.eval_expr_with_env(value, env)?;
                     if *mutable {
@@ -649,7 +650,7 @@ impl Interpreter {
                     }
                     env.insert(name.clone(), val);
                 }
-                Statement::Assign { name, value } => {
+                Statement::Assign { name, value, .. } => {
                     if !mutable_vars.contains(name) {
                         return Err(format!("cannot assign to immutable variable: {} (use 'let mut {}' to make it mutable)", name, name));
                     }
@@ -660,6 +661,7 @@ impl Interpreter {
                     variable,
                     iterable,
                     body,
+                    ..
                 } => {
                     let iter_val = self.eval_expr_with_env(iterable, env)?;
                     let items = match iter_val {
@@ -701,6 +703,7 @@ impl Interpreter {
                     item_var,
                     iterable,
                     body,
+                    ..
                 } => {
                     let iter_val = self.eval_expr_with_env(iterable, env)?;
                     let items = match iter_val {
@@ -737,7 +740,7 @@ impl Interpreter {
                         }
                     }
                 }
-                Statement::While { condition, body } => {
+                Statement::While { condition, body, .. } => {
                     let mut iterations: u64 = 0;
                     loop {
                         if iterations >= iter_limit {
@@ -779,6 +782,7 @@ impl Interpreter {
                     then_body,
                     else_ifs,
                     else_body,
+                    ..
                 } => {
                     let cond_val = self.eval_expr_with_env(condition, env)?;
                     if cond_val.as_bool()? {
@@ -800,11 +804,11 @@ impl Interpreter {
                         }
                     }
                 }
-                Statement::Return(expr) => {
+                Statement::Return { value: expr, .. } => {
                     let val = self.eval_expr_with_env(expr, env)?;
                     return Ok(ControlFlow::Return(val));
                 }
-                Statement::IfThen(cond, body) => {
+                Statement::IfThen { condition: cond, body, .. } => {
                     let cond_val = self.eval_expr_with_env(cond, env)?;
                     if cond_val.as_bool()? {
                         eval_block!(body, env);
@@ -814,6 +818,7 @@ impl Interpreter {
                     scrutinee,
                     ref arms,
                     ref else_body,
+                    ..
                 } => {
                     let scrutinee_val = self.eval_expr_with_env(scrutinee, env)?;
                     let scrutinee_str = format!("{}", scrutinee_val);
@@ -855,7 +860,7 @@ impl Interpreter {
                 Statement::Break => return Ok(ControlFlow::Break),
                 // Наряд №17: continue statement
                 Statement::Continue => return Ok(ControlFlow::ContinueLoop),
-                Statement::ExprStmt(expr) => {
+                Statement::ExprStmt { expr, .. } => {
                     let val = self.eval_expr_with_env(expr, env)?;
                     // Наряда-26 P0-2: respond() as early return.
                     // When an ExprStmt produces HttpResponse inside any block (if/while/match/route),

@@ -213,10 +213,10 @@ pub(super) fn parse_literal_to_expr(pair: &Pair<Rule>) -> Result<Expr, ParseErro
             pair_error(pair, "GRAMMAR INVARIANT: literal must have inner content")
         })?;
     match inner.as_rule() {
-        Rule::STRING_LITERAL => Ok(Expr::StringLit(unescape_string(inner.as_str()))),
-        Rule::FLOAT_LITERAL => Ok(Expr::FloatLit(inner.as_str().parse().unwrap_or(0.0))),
-        Rule::IDENT => Ok(Expr::Ident(inner.as_str().to_string())),
-        _ => Ok(Expr::StringLit(pair.as_str().to_string())),
+        Rule::STRING_LITERAL => Ok(Expr::StringLit { value: unescape_string(inner.as_str()), span: Span::unknown() }),
+        Rule::FLOAT_LITERAL => Ok(Expr::FloatLit { value: inner.as_str().parse().unwrap_or(0.0), span: Span::unknown() }),
+        Rule::IDENT => Ok(Expr::Ident { name: inner.as_str().to_string(), span: Span::unknown() }),
+        _ => Ok(Expr::StringLit { value: pair.as_str().to_string(), span: Span::unknown() }),
     }
 }
 

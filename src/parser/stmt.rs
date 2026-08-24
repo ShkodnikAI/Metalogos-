@@ -164,7 +164,7 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
             .find(|c| c.as_rule() == Rule::expression)
             .cloned()
             .map(|c| parse_expression(c))
-            .unwrap_or(Ok(Expr::BoolLit(true)))?;
+            .unwrap_or(Ok(Expr::BoolLit { value: true, span: Span::unknown() }))?;
         let body: Vec<Statement> = it_children
             .iter()
             .filter(|c| c.as_rule() == Rule::statement)
@@ -184,7 +184,7 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
                         .iter()
                         .find(|c| c.as_rule() == Rule::expression)
                         .map(|c| parse_expression(c.clone()))
-                        .unwrap_or(Ok(Expr::BoolLit(true)))?;
+                        .unwrap_or(Ok(Expr::BoolLit { value: true, span: Span::unknown() }))?;
                     let ei_body: Vec<Statement> = ei_children
                         .iter()
                         .filter(|c| c.as_rule() == Rule::statement)
@@ -278,7 +278,7 @@ pub(super) fn parse_match_stmt(pair: Pair<Rule>) -> Result<Statement, ParseError
         .iter()
         .find(|c| c.as_rule() == Rule::expression)
         .map(|c| parse_expression(c.clone()))
-        .unwrap_or(Ok(Expr::StringLit(String::new())))?;
+        .unwrap_or(Ok(Expr::StringLit { value: String::new(), span: Span::unknown() }))?;
 
     // Parse match arms
     let mut arms = Vec::new();
@@ -349,7 +349,7 @@ pub(super) fn parse_match_stmt(pair: Pair<Rule>) -> Result<Statement, ParseError
                     .iter()
                     .find(|c| c.as_rule() == Rule::expression)
                     .map(|c| parse_expression(c.clone()))
-                    .unwrap_or(Ok(Expr::FloatLit(0.0)))?;
+                    .unwrap_or(Ok(Expr::FloatLit { value: 0.0, span: Span::unknown() }))?;
                 let body = arm_children
                     .iter()
                     .filter(|c| c.as_rule() == Rule::statement)
@@ -389,7 +389,7 @@ pub(super) fn parse_if_block_stmt(pair: Pair<Rule>) -> Result<Statement, ParseEr
         .iter()
         .find(|c| c.as_rule() == Rule::expression)
         .map(|c| parse_expression(c.clone()))
-        .unwrap_or(Ok(Expr::BoolLit(true)))?;
+        .unwrap_or(Ok(Expr::BoolLit { value: true, span: Span::unknown() }))?;
 
     let mut then_body = Vec::new();
     let mut else_ifs = Vec::new();
@@ -414,7 +414,7 @@ pub(super) fn parse_if_block_stmt(pair: Pair<Rule>) -> Result<Statement, ParseEr
                     .iter()
                     .find(|c| c.as_rule() == Rule::expression)
                     .map(|c| parse_expression(c.clone()))
-                    .unwrap_or(Ok(Expr::BoolLit(true)))?;
+                    .unwrap_or(Ok(Expr::BoolLit { value: true, span: Span::unknown() }))?;
                 let ei_body: Vec<Statement> = ei_children
                     .iter()
                     .filter(|c| c.as_rule() == Rule::statement)

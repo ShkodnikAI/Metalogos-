@@ -189,7 +189,7 @@ impl Compiler {
                 }
                 Declaration::Db(db) => {
                     // Extract URL if it's a string literal (for VM db support)
-                    if let Some(crate::ast::Expr::StringLit(url)) = &db.url {
+                    if let Some(crate::ast::Expr::StringLit { value: url, .. }) = &db.url {
                         self.db_url = Some(url.clone());
                     }
                 }
@@ -348,8 +348,8 @@ impl Compiler {
                         Some(ContextMode::Recall(expr, limit)) => {
                             // Extract param name from expression (must be Ident)
                             let param_name = match expr {
-                                crate::ast::Expr::Ident(name) => name.clone(),
-                                crate::ast::Expr::FieldAccess(_obj, field) => {
+                                crate::ast::Expr::Ident { name: name, .. } => name.clone(),
+                                crate::ast::Expr::FieldAccess { object: _obj, field: field, .. } => {
                                     // e.g., text.some_field — just use field name
                                     field.clone()
                                 }
@@ -512,13 +512,13 @@ impl Compiler {
         locals: &HashMap<String, usize>,
     ) -> Result<(), String> {
         match expr {
-            Expr::StringLit(s) => {
+            Expr::StringLit { value: s, .. } => {
                 code.push(Instruction::Const(Value::String(s.clone())));
             }
-            Expr::FloatLit(f) => {
+            Expr::FloatLit { value: f, .. } => {
                 code.push(Instruction::Const(Value::Float(*f)));
             }
-            Expr::Ident(name) => {
+            Expr::Ident { name: name, .. } => {
                 // Check if it's a local (parameter or let binding) first
                 if let Some(&slot) = locals.get(name) {
                     code.push(Instruction::LoadLocal(slot));
@@ -528,11 +528,11 @@ impl Compiler {
                     code.push(Instruction::LoadGlobalByName(name.clone()));
                 }
             }
-            Expr::FieldAccess(base, field) => {
+            Expr::FieldAccess { object: base, field: field, .. } => {
                 self.compile_expr_with_locals(base, code, locals)?;
                 code.push(Instruction::GetField(field.clone()));
             }
-            Expr::FnCall(name, args) => {
+            Expr::FnCall { name: name, args: args, .. } => {
                 for arg in args {
                     self.compile_expr_with_locals(arg, code, locals)?;
                 }
@@ -548,7 +548,7 @@ impl Compiler {
                     return Err(format!("compile: undefined function: {}", name));
                 }
             }
-            Expr::BinaryOp(left, op, right) => match op {
+            Expr::BinaryOp { left: left, op: op, right: right, .. } => match op {
                 BinOp::And | BinOp::Or => {
                     // Short-circuit evaluation — result is always Value::Bool.
                     // Must NOT eagerly compile both operands.
@@ -640,7 +640,7 @@ impl Compiler {
                     }
                 }
             },
-            Expr::IfElse(cond, then_expr, else_expr) => {
+            Expr::IfElse { condition: cond, then_branch: then_expr, else_branch: else_expr, .. } => {
                 // Compile condition
                 self.compile_expr_with_locals(cond, code, locals)?;
                 // Jump to else branch if falsy
@@ -665,13 +665,14 @@ impl Compiler {
                 }
             }
             // Additional expression forms in Metalogos- AST
-            Expr::BoolLit(b) => {
+            Expr::BoolLit { value: b, .. } => {
                 code.push(Instruction::Const(Value::Float(if *b { 1.0 } else { 0.0 })));
             }
             Expr::QualifiedCall {
                 module,
                 function,
                 args,
+                ..
             } => {
                 // Resolve the qualified call:
                 // Priority 1: builtin "module.function" (e.g., "std/math.abs" if registered)
@@ -691,19 +692,19 @@ impl Compiler {
                     ));
                 }
             }
-            Expr::List(items) => {
+            Expr::List { items: items, .. } => {
                 // Push each item onto stack, then MakeList(count) pops them into a list.
                 for item in items {
                     self.compile_expr_with_locals(item, code, locals)?;
                 }
                 code.push(Instruction::MakeList(items.len()));
             }
-            Expr::IndexAccess(base, index) => {
+            Expr::IndexAccess { object: base, index: index, .. } => {
                 self.compile_expr_with_locals(base, code, locals)?;
                 self.compile_expr_with_locals(index, code, locals)?;
                 code.push(Instruction::IndexAccess);
             }
-            Expr::StructLit(fields) => {
+            Expr::StructLit { fields: fields, .. } => {
                 let field_names: Vec<String> = fields.keys().cloned().collect();
                 for val_expr in fields.values() {
                     self.compile_expr_with_locals(val_expr, code, locals)?;
@@ -718,7 +719,7 @@ impl Compiler {
             // Наряд №91: try expression — real compilation for VM
             // Compile inner expression into a separate instruction block,
             // wrapped in TryEval so the VM can catch errors locally.
-            Expr::Try(inner) => {
+            Expr::Try { expr: inner, .. } => {
                 let mut inner_code = Vec::new();
                 self.compile_expr_with_locals(inner, &mut inner_code, locals)?;
                 code.push(Instruction::TryEval(inner_code));
@@ -1302,15 +1303,15 @@ impl Compiler {
     #[allow(dead_code)]
     fn compile_flow_expr(&self, expr: &Expr) -> FlowExpr {
         match expr {
-            Expr::Ident(name) => {
+            Expr::Ident { name: name, .. } => {
                 if let Some(&slot) = self.global_slots.get(name) {
                     FlowExpr::GlobalSlot(slot)
                 } else {
                     FlowExpr::Ident(name.clone())
                 }
             }
-            Expr::StringLit(s) => FlowExpr::Const(Value::String(s.clone())),
-            Expr::FloatLit(f) => FlowExpr::Const(Value::Float(*f)),
+            Expr::StringLit { value: s, .. } => FlowExpr::Const(Value::String(s.clone())),
+            Expr::FloatLit { value: f, .. } => FlowExpr::Const(Value::Float(*f)),
             _ => FlowExpr::Ident(format!("{:?}", expr)),
         }
     }
@@ -1318,8 +1319,8 @@ impl Compiler {
     /// Try to evaluate an expression to a constant Value.
     fn eval_const_expr(&self, expr: &Expr) -> Value {
         match expr {
-            Expr::StringLit(s) => Value::String(s.clone()),
-            Expr::FloatLit(f) => Value::Float(*f),
+            Expr::StringLit { value: s, .. } => Value::String(s.clone()),
+            Expr::FloatLit { value: f, .. } => Value::Float(*f),
             _ => Value::Unit,
         }
     }
@@ -1348,7 +1349,7 @@ impl Compiler {
         };
 
         let target_name = match &rule.target {
-            Expr::Ident(name) => name.clone(),
+            Expr::Ident { name: name, .. } => name.clone(),
             _ => return Err("rule target must be an identifier".to_string()),
         };
 
@@ -1364,11 +1365,11 @@ impl Compiler {
     /// Convert an AST expression to a simplified rule value expression.
     fn rule_value_expr(&self, expr: &Expr) -> RuleValueExpr {
         match expr {
-            Expr::Ident(name) => RuleValueExpr::Ident(name.clone()),
-            Expr::StringLit(s) => RuleValueExpr::StringLit(s.clone()),
-            Expr::FloatLit(f) => RuleValueExpr::FloatLit(*f),
-            Expr::FieldAccess(base, field) => {
-                if let Expr::Ident(name) = base.as_ref() {
+            Expr::Ident { name: name, .. } => RuleValueExpr::Ident(name.clone()),
+            Expr::StringLit { value: s, .. } => RuleValueExpr::StringLit(s.clone()),
+            Expr::FloatLit { value: f, .. } => RuleValueExpr::FloatLit(*f),
+            Expr::FieldAccess { object: base, field: field, .. } => {
+                if let Expr::Ident { name: name, .. } = base.as_ref() {
                     RuleValueExpr::FieldAccess(name.clone(), field.clone())
                 } else {
                     RuleValueExpr::Ident(format!("{:?}", expr))

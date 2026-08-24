@@ -584,7 +584,7 @@ pub(super) fn parse_rule_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErro
     // assignment = { IDENT ~ "." ~ IDENT ~ "=" ~ expression }
     // Children: [IDENT(target), IDENT(field), expression(value)]
     let assignment_children = children_of(&children[1]);
-    let target = Expr::Ident(pair_str(&assignment_children[0]));
+    let target = Expr::Ident { name: pair_str(&assignment_children[0]), span: Span::unknown() };
     let field = pair_str(&assignment_children[1]);
     let value = parse_expression(assignment_children[2].clone())?;
 
@@ -671,7 +671,7 @@ pub(super) fn parse_fluid_branch(pair: Pair<Rule>) -> Result<FluidVariant, Parse
     let value = if !exprs.is_empty() {
         parse_expression(exprs[0].clone())?
     } else {
-        Expr::StringLit(String::new())
+        Expr::StringLit { value: String::new(), span: Span::unknown() }
     };
 
     let floats: Vec<&Pair<Rule>> = children
@@ -710,12 +710,12 @@ pub(super) fn parse_adapt_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErr
     let input_example = if !exprs.is_empty() {
         parse_expression(exprs[0].clone())?
     } else {
-        Expr::StringLit(String::new())
+        Expr::StringLit { value: String::new(), span: Span::unknown() }
     };
     let output_example = if exprs.len() >= 2 {
         parse_expression(exprs[1].clone())?
     } else {
-        Expr::StringLit(String::new())
+        Expr::StringLit { value: String::new(), span: Span::unknown() }
     };
 
     Ok(Declaration::Adapt(AdaptDecl {
@@ -741,18 +741,18 @@ pub(super) fn parse_relate_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
     let from = if !exprs.is_empty() {
         parse_expression(exprs[0].clone())?
     } else {
-        Expr::StringLit(String::new())
+        Expr::StringLit { value: String::new(), span: Span::unknown() }
     };
     let to = if exprs.len() >= 2 {
         parse_expression(exprs[1].clone())?
     } else {
-        Expr::StringLit(String::new())
+        Expr::StringLit { value: String::new(), span: Span::unknown() }
     };
 
     // Extract relation string from third expression
     let relation = if exprs.len() >= 3 {
         match parse_expression(exprs[2].clone())? {
-            Expr::StringLit(s) => s,
+            Expr::StringLit { value: s, .. } => s,
             _ => String::new(),
         }
     } else {
@@ -1087,7 +1087,7 @@ pub(super) fn parse_llm_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError
         .and_then(|c| {
             find_child(&children_of(c), Rule::expression).and_then(|e| {
                 parse_expression(e).ok().and_then(|expr| {
-                    if let Expr::StringLit(s) = expr {
+                    if let Expr::StringLit { value: s, .. } = expr {
                         Some(s)
                     } else {
                         None
@@ -1330,7 +1330,7 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
         {
             let pl_children = children_of(pl_pair);
             if let Some(expr_pair) = pl_children.iter().find(|c| c.as_rule() == Rule::expression) {
-                if let Expr::StringLit(s) = parse_expression(expr_pair.clone())? {
+                if let Expr::StringLit { value: s, .. } = parse_expression(expr_pair.clone())? {
                     prompt = s;
                 }
             }
@@ -1361,7 +1361,7 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
                         .collect::<Result<_, _>>()?;
                     if !exprs.is_empty() {
                         let limit = if exprs.len() >= 2 {
-                            if let Expr::FloatLit(n) = exprs[1].clone() {
+                            if let Expr::FloatLit { value: n, .. } = exprs[1].clone() {
                                 Some(n as usize)
                             } else {
                                 None
@@ -1387,7 +1387,7 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
                         .iter()
                         .find(|c| c.as_rule() == Rule::expression)
                     {
-                        if let Expr::StringLit(s) = parse_expression(expr_pair.clone())? {
+                        if let Expr::StringLit { value: s, .. } = parse_expression(expr_pair.clone())? {
                             context = Some(ContextMode::Literal(s));
                         }
                     }
@@ -1406,7 +1406,7 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
                 .iter()
                 .find(|c| c.as_rule() == Rule::expression)
             {
-                if let Expr::StringLit(s) = parse_expression(expr_pair.clone())? {
+                if let Expr::StringLit { value: s, .. } = parse_expression(expr_pair.clone())? {
                     conversation = Some(s);
                 }
             }
@@ -1419,7 +1419,7 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
         {
             let m_children = children_of(m_pair);
             if let Some(expr_pair) = m_children.iter().find(|c| c.as_rule() == Rule::expression) {
-                if let Expr::StringLit(s) = parse_expression(expr_pair.clone())? {
+                if let Expr::StringLit { value: s, .. } = parse_expression(expr_pair.clone())? {
                     model = Some(s);
                 }
             }
@@ -1432,7 +1432,7 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
         {
             let mt_children = children_of(mt_pair);
             if let Some(expr_pair) = mt_children.iter().find(|c| c.as_rule() == Rule::expression) {
-                if let Expr::FloatLit(n) = parse_expression(expr_pair.clone())? {
+                if let Expr::FloatLit { value: n, .. } = parse_expression(expr_pair.clone())? {
                     max_tokens = Some(n as u32);
                 }
             }
@@ -1471,7 +1471,7 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
                 .map(|c| pair_str(c))
                 .next()
                 .unwrap_or_default();
-            if let Some(Expr::FloatLit(n)) = exprs.first() {
+            if let Some(Expr::FloatLit { value: n, .. }) = exprs.first() {
                 let n_val = *n as u64;
                 cache_ttl = match unit_ident.as_str() {
                     "seconds" | "second" => n_val,
@@ -1650,7 +1650,7 @@ pub(super) fn parse_flow_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErro
     Ok(Declaration::Flow(FlowDecl {
         name: name.clone(),
         input_type,
-        source: source.unwrap_or_else(|| Expr::StringLit(String::new())),
+        source: source.unwrap_or_else(|| Expr::StringLit { value: String::new(), span: Span::unknown() }),
         pipeline: pipeline_steps.clone(),
         branch_defs,
         checkpoints: checkpoints.clone(),
@@ -1685,7 +1685,7 @@ pub(super) fn parse_branch_condition(pair: Pair<Rule>) -> Result<BranchCondition
     // branch_condition = { IDENT ~ "." ~ IDENT ~ compare_op ~ expression }
     // Children: [IDENT(target), IDENT(field), compare_op, expression(threshold)]
     Ok(BranchCondition {
-        target: Expr::Ident(pair_str(&children[0])),
+        target: Expr::Ident { name: pair_str(&children[0]), span: Span::unknown() },
         field: pair_str(&children[1]),
         op: parse_compare_op(&children[2])?,
         threshold: parse_expression(children[3].clone())?,

@@ -16,3 +16,11 @@ off/
 ci_*.json
 *.bak
 identical_skills_208.txt
+
+# Report generation scripts and output (not part of the language)
+download/
+generate_*.py
+generate_*.js
+test_bot.mlog
+test_mlg1_pdf.mlog
+test/

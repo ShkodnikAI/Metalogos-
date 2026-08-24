@@ -283,15 +283,15 @@ Metalogos-/
 The compiler enforces structural security invariants — these are errors, not warnings:
 
 ```mlog
-// SQL injection impossible — non-literal query() is a compile-time error
+// SQL injection — non-literal query() is a compile-time error
 let user = query("SELECT * FROM users WHERE id = $1", [id])
 
-// Secret leak impossible — env() to respond()/print() is a static SECRET_LEAK finding
+// Secret leak — env() to respond()/print() is a static SECRET_LEAK finding
 entity token: Secret = env("API_KEY")
 respond(token)   // [SECRET_LEAK] via mlog audit / Category A checks
 print(token)     // runtime error: print() refused: Secret values cannot be printed
 
-// XSS via LLM impossible — unsanitized LLM output to respond() is a compile-time error
+// XSS via LLM — unsanitized LLM output to respond() is a compile-time error
 let reply = call_llm(prompt)
 respond(reply)   // Compile error: [HTML_INJECTION] — use render() or escape_html()
 
@@ -299,7 +299,18 @@ respond(reply)   // Compile error: [HTML_INJECTION] — use render() or escape_h
 // Concatenating into Html at runtime errors; compile-time opaque Html check is not implemented yet
 ```
 
-Heuristic security checks (hardcoded secrets, sandbox coverage, rate limiting, CSRF, open redirect) are advisory — run `mlog audit` for a full report.
+#### Known boundaries of static analysis
+
+These checks use **intraprocedural taint tracking** — they follow `let`-assignment chains within a single pattern body. The following patterns are **not** detected at compile time:
+
+| Pattern | Why not caught |
+|---|---|
+| `respond(call_llm(p, i))` (inline call) | Taint is not tracked through nested expressions |
+| LLM output passed via pattern call (interprocedural) | Taint does not cross pattern boundaries |
+| LLM output stored via `memorize()` then read back | Data flow through persistence is not tracked |
+| `query(format("...", x))` | `format()` output is not a literal string; check requires compile-time constant |
+
+Use `mlog audit` for additional heuristic checks (hardcoded secrets, sandbox coverage, rate limiting, CSRF, open redirect).
 
 ### OWASP Top 10 Coverage
 
@@ -311,7 +322,7 @@ Every item in the OWASP Top 10 (2021) is addressed at the language level: type-s
 - **Bytecode VM** — 46 instructions, stack-based, used for `mlog compile` + `mlog run file.mbc`
 - **JIT** — experimental scaffold, not part of the build (see ADR-0073)
 
-### 349 Built-in Functions
+### 359 Built-in Functions
 
 String ops, math, collections, type conversion, LLM/AI, HTTP, JSON, file I/O, KV store, session memory, encryption, authentication, HTTP server, templates, databases, Telegram/Discord bots, time/date/calendar, geolocation, weather, reminders, cron, goals, todos, memory tree, preferences, approval workflows, fuzzy matching, hashline editing, context compaction, budget awareness, replay logging, policy enforcement, PDF processing (classify, extract, OCR), typed semantic memory (FTS5 BM25 + cosine RRF), SMTP/IMAP email, CalDAV/CardDAV calendar and contacts, native SVG graphics, and more. See [REFERENCE.md](REFERENCE.md) for the full list.
 
@@ -491,7 +502,7 @@ mlogpkg add dependency@1.0
 
 | Job | Status | Type |
 |---|---|---|
-| `test-lib` | **Blocking** | Unit + golden tests (401 pass) |
+| `test-lib` | **Blocking** | Unit + golden tests (539 pass) |
 | `test-integration` | Advisory | Integration tests (continue-on-error) |
 | `fmt` | **Blocking** | `cargo fmt --check` |
 | `clippy` | **Blocking** | `cargo clippy -- -D warnings` |
@@ -540,16 +551,16 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 
 | Metric | Value |
 |---|---|
-| Effective Rust LOC | ~58 000 |
-| Built-in Functions | 349 (22 modules) |
-| Example Programs | 174 |
-| Integration Tests | 53 test suites |
-| Architecture Decision Records | 100 |
+| Effective Rust LOC | ~59 000 |
+| Built-in Functions | 359 (22 modules) |
+| Example Programs | 186 |
+| Integration Tests | 54 test suites |
+| Architecture Decision Records | 111 |
 | Parser Rules | 259 (Pest PEG) |
 | VM Instructions | 46 |
 | Execution Backends | 2 (interpreter + bytecode VM) |
 | Workspace Crates | 3 (mlog, mlog-lsp, mlogpkg) |
-| Commits | 653 |
+| Commits | 781 |
 | License | MIT / Apache-2.0 |
 
 ---
@@ -583,7 +594,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 92+ development narads (work orders) delivered. 356 builtins, 53 test files, 174 golden-file examples, 107 ADRs. 653 commits.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 359 builtins, 54 test files, 186 golden-file examples, 111 ADRs. 781 commits.
 
 ### Next
 

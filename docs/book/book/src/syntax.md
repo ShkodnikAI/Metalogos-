@@ -108,7 +108,7 @@ Branch conditions compare a field to a threshold.
 fluid name = Type1[value1][confidence1] or Type2[value2][confidence2]
 ```
 
-A superposition of typed variants with confidence scores. Collapses to the highest-confidence matching variant when used in a typed context.
+A superposition of typed variants with confidence scores. Collapses to the highest-confidence matching variant when used in a typed context. Note: confidence does not propagate through pattern calls (see ADR-0089).
 
 ```mlog
 fluid x = Float[42.0][0.9] or String["answer"][0.1]

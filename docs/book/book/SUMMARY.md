@@ -6,8 +6,7 @@ Welcome to the official documentation for **METALOGOS** — an AI-native program
 
 METALOGOS is a programming language designed from the ground up for AI-assisted software development. It natively supports:
 
-- **Fluid Types** — superposition of types with confidence scores
-- **Confidence Propagation** — uncertainty flows through data pipelines
+- **Fluid Types** — confidence-based type collapse at the point of use (does not propagate through calls; see ADR-0089)
 - **Learnable Patterns** — functions powered by LLMs
 - **Adaptive Mutations** — patterns that improve from feedback
 - **Semantic Memory** — persistent knowledge with decay
@@ -22,11 +21,11 @@ If you're new to METALOGOS, start with the [Tutorial](./tutorial.md) — it walk
 
 - [Tutorial: Hello to Adapt](./tutorial.md) — hands-on guide from basics to advanced features
 - [Syntax Reference](./syntax.md) — complete language syntax reference
-- [Standard Library Reference](./stdlib.md) — built-in modules: string, math, collections + 108 builtins including time, weather, geo, reminders (v0.8.0)
+- [Standard Library Reference](./stdlib.md) — built-in modules: string, math, collections, JSON, HTTP, crypto, memory, SVG, and more (359 builtins across 22 modules)
 
 ## Architecture
 
-- [ADR Index](./adr-index.md) — Architecture Decision Records (0001–0057)
+- [ADR Index](../../adr/README.md) — Architecture Decision Records (0001–0111)
 
 ## Tooling
 

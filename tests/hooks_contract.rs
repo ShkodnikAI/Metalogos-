@@ -23,7 +23,10 @@ fn run_source(source: &str) -> Result<Interpreter, String> {
 fn kv_get(interp: &Interpreter, key: &str) -> String {
     let result = interp.eval_expr(&metalogos::ast::Expr::FnCall {
         name: "mem_get".to_string(),
-        args: vec![metalogos::ast::Expr::StringLit { value: key.to_string(), span: metalogos::ast::Span::unknown() }],
+        args: vec![metalogos::ast::Expr::StringLit {
+            value: key.to_string(),
+            span: metalogos::ast::Span::unknown(),
+        }],
         span: metalogos::ast::Span::unknown(),
     });
     match result {

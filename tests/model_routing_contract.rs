@@ -55,7 +55,10 @@ fn test_model_routing_resolves_alias_via_env() {
     let _ = interp
         .eval_expr(&Expr::FnCall {
             name: "FastClassify".to_string(),
-            args: vec![Expr::StringLit { value: "hello".to_string(), span: metalogos::ast::Span::unknown() }],
+            args: vec![Expr::StringLit {
+                value: "hello".to_string(),
+                span: metalogos::ast::Span::unknown(),
+            }],
             span: metalogos::ast::Span::unknown(),
         })
         .unwrap();
@@ -94,7 +97,10 @@ fn test_model_routing_different_aliases_resolve_independently() {
     let _ = interp
         .eval_expr(&Expr::FnCall {
             name: "Fast".to_string(),
-            args: vec![Expr::StringLit { value: "input".to_string(), span: metalogos::ast::Span::unknown() }],
+            args: vec![Expr::StringLit {
+                value: "input".to_string(),
+                span: metalogos::ast::Span::unknown(),
+            }],
             span: metalogos::ast::Span::unknown(),
         })
         .unwrap();
@@ -110,7 +116,10 @@ fn test_model_routing_different_aliases_resolve_independently() {
     let _ = interp
         .eval_expr(&Expr::FnCall {
             name: "Strong".to_string(),
-            args: vec![Expr::StringLit { value: "input".to_string(), span: metalogos::ast::Span::unknown() }],
+            args: vec![Expr::StringLit {
+                value: "input".to_string(),
+                span: metalogos::ast::Span::unknown(),
+            }],
             span: metalogos::ast::Span::unknown(),
         })
         .unwrap();
@@ -148,7 +157,10 @@ fn test_model_routing_passthrough_without_env() {
     let _ = interp
         .eval_expr(&Expr::FnCall {
             name: "Direct".to_string(),
-            args: vec![Expr::StringLit { value: "test".to_string(), span: metalogos::ast::Span::unknown() }],
+            args: vec![Expr::StringLit {
+                value: "test".to_string(),
+                span: metalogos::ast::Span::unknown(),
+            }],
             span: metalogos::ast::Span::unknown(),
         })
         .unwrap();
@@ -183,7 +195,10 @@ fn test_model_routing_no_field_no_override() {
     let _ = interp
         .eval_expr(&Expr::FnCall {
             name: "Default".to_string(),
-            args: vec![Expr::StringLit { value: "test".to_string(), span: metalogos::ast::Span::unknown() }],
+            args: vec![Expr::StringLit {
+                value: "test".to_string(),
+                span: metalogos::ast::Span::unknown(),
+            }],
             span: metalogos::ast::Span::unknown(),
         })
         .unwrap();
@@ -219,7 +234,10 @@ fn test_model_routing_user_defined_alias() {
     let _ = interp
         .eval_expr(&Expr::FnCall {
             name: "Cheap".to_string(),
-            args: vec![Expr::StringLit { value: "input".to_string(), span: metalogos::ast::Span::unknown() }],
+            args: vec![Expr::StringLit {
+                value: "input".to_string(),
+                span: metalogos::ast::Span::unknown(),
+            }],
             span: metalogos::ast::Span::unknown(),
         })
         .unwrap();
@@ -257,7 +275,10 @@ fn test_model_routing_direct_model_name() {
     let _ = interp
         .eval_expr(&Expr::FnCall {
             name: "Gpt4o".to_string(),
-            args: vec![Expr::StringLit { value: "test".to_string(), span: metalogos::ast::Span::unknown() }],
+            args: vec![Expr::StringLit {
+                value: "test".to_string(),
+                span: metalogos::ast::Span::unknown(),
+            }],
             span: metalogos::ast::Span::unknown(),
         })
         .unwrap();

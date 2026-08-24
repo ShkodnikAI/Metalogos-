@@ -407,12 +407,14 @@ impl Interpreter {
         let mut decls = Vec::new();
         for (name, st) in &self.struct_types {
             decls.push(Declaration::EntityType(EntityTypeDecl {
+                span: Span::unknown(),
                 name: name.clone(),
                 fields: st.fields.clone(),
             }));
         }
         for (name, cp) in &self.patterns {
             decls.push(Declaration::Pattern(PatternDecl {
+                span: Span::unknown(),
                 name: name.clone(),
                 params: cp.params.clone(),
                 return_type: "String".to_string(),
@@ -421,6 +423,7 @@ impl Interpreter {
         }
         for (name, lp) in &self.learnable_patterns {
             decls.push(Declaration::LearnablePattern(LearnablePatternDecl {
+                span: Span::unknown(),
                 name: name.clone(),
                 params: lp.params.clone(),
                 return_type: "String".to_string(),

@@ -6,8 +6,10 @@ pub(super) fn parse_params(pair: Pair<Rule>) -> Vec<Param> {
     pair.into_inner()
         .filter(|p| p.as_rule() == Rule::param)
         .map(|p| {
+            let span = Span::from_pest(p.as_span());
             let children = children_of(&p);
             Param {
+                span,
                 name: find_child_str(&children, Rule::IDENT).unwrap_or_default(),
                 type_name: find_child_str(&children, Rule::type_name).unwrap_or_default(),
             }

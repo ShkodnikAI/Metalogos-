@@ -1301,6 +1301,7 @@ mod tests {
     fn test_rate_limit_check_direct() {
         // Test check_rate_limit by constructing a MlogServerDecl directly
         let srv = ast::MlogServerDecl {
+            span: Span::unknown(),
             port: 8080,
             host: None,
             middleware: vec![
@@ -1321,6 +1322,7 @@ mod tests {
     #[test]
     fn test_rate_limit_with_middleware_direct() {
         let srv = ast::MlogServerDecl {
+            span: Span::unknown(),
             port: 8080,
             host: None,
             middleware: vec!["rate_limit".to_string()],
@@ -1337,10 +1339,12 @@ mod tests {
     #[test]
     fn test_csrf_post_without_csrf_direct() {
         let srv = ast::MlogServerDecl {
+            span: Span::unknown(),
             port: 8080,
             host: None,
             middleware: vec!["session".to_string()],
             routes: vec![ast::RouteDecl {
+                span: Span::unknown(),
                 path: "/login".to_string(),
                 method: "POST".to_string(),
                 requires: vec![],
@@ -1358,10 +1362,12 @@ mod tests {
     #[test]
     fn test_csrf_post_with_csrf_direct() {
         let srv = ast::MlogServerDecl {
+            span: Span::unknown(),
             port: 8080,
             host: None,
             middleware: vec!["csrf".to_string()],
             routes: vec![ast::RouteDecl {
+                span: Span::unknown(),
                 path: "/login".to_string(),
                 method: "POST".to_string(),
                 requires: vec![],
@@ -1483,10 +1489,12 @@ mod tests {
     fn test_format_output() {
         // Construct MlogServerDecl directly to test taint + server checks together
         let srv = ast::MlogServerDecl {
+            span: Span::unknown(),
             port: 8080,
             host: None,
             middleware: vec!["session".to_string()],
             routes: vec![ast::RouteDecl {
+                span: Span::unknown(),
                 path: "/data".to_string(),
                 method: "POST".to_string(),
                 requires: vec![],

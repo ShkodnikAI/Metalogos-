@@ -6,6 +6,7 @@ use super::*;
 // ── MlogServer (Phase 6.1) ─────────────────────────────────────
 
 pub(super) fn parse_mlogserver_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let _children = children_of(&pair);
     let body_children: Vec<Pair<Rule>> = pair
         .clone()
@@ -52,6 +53,7 @@ pub(super) fn parse_mlogserver_decl(pair: Pair<Rule>) -> Result<Declaration, Par
         .collect::<Result<_, _>>()?;
 
     Ok(Declaration::MlogServer(MlogServerDecl {
+        span,
         port,
         host,
         middleware,
@@ -60,6 +62,7 @@ pub(super) fn parse_mlogserver_decl(pair: Pair<Rule>) -> Result<Declaration, Par
 }
 
 pub(super) fn parse_route_decl(pair: Pair<Rule>) -> Result<RouteDecl, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children: Vec<Pair<Rule>> = pair.clone().into_inner().collect();
     let path = children
         .iter()
@@ -103,6 +106,7 @@ pub(super) fn parse_route_decl(pair: Pair<Rule>) -> Result<RouteDecl, ParseError
         .collect::<Result<_, _>>()?;
 
     Ok(RouteDecl {
+        span,
         path,
         method,
         requires,
@@ -121,6 +125,7 @@ pub(super) fn parse_template_decl_with_body(
     pair: Pair<Rule>,
     bodies: &HashMap<String, String>,
 ) -> Declaration {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
     let params = find_child(&children, Rule::params)
@@ -146,6 +151,7 @@ pub(super) fn parse_template_decl_with_body(
         .unwrap_or_default();
 
     Declaration::Template(TemplateDecl {
+        span,
         name,
         params,
         return_type,
@@ -156,6 +162,7 @@ pub(super) fn parse_template_decl_with_body(
 // ── DB (Phase 6.3) ─────────────────────────────────────
 
 pub(super) fn parse_db_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children: Vec<Pair<Rule>> = pair
         .into_inner()
         .filter(|c| c.as_rule() == Rule::db_body)
@@ -183,6 +190,7 @@ pub(super) fn parse_db_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError>
         .map(|s| s[1..s.len() - 1].to_string());
 
     Ok(Declaration::Db(DbDecl {
+        span,
         url,
         pool_size,
         migrate,
@@ -194,6 +202,7 @@ pub(super) fn parse_db_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError>
 // ── Schema (Problem C: schema-as-code) ──────────────────────────────
 
 pub(super) fn parse_schema_decl(pair: Pair<Rule>) -> Declaration {
+    let span = Span::from_pest(pair.as_span());
     let mut name = String::new();
     let mut tables = Vec::new();
 
@@ -207,7 +216,7 @@ pub(super) fn parse_schema_decl(pair: Pair<Rule>) -> Declaration {
         }
     }
 
-    Declaration::Schema(SchemaDecl { name, tables })
+    Declaration::Schema(SchemaDecl { span, name, tables })
 }
 
 // ── Skill Index (Problem A: tiered skill index) ──────────────────────────
@@ -215,6 +224,7 @@ pub(super) fn parse_schema_decl(pair: Pair<Rule>) -> Declaration {
 // ── Skill Index (Problem A: tiered skill index) ──────────────────────────
 
 pub(super) fn parse_skill_index_decl(pair: Pair<Rule>) -> Declaration {
+    let span = Span::from_pest(pair.as_span());
     let mut name = String::new();
     let mut tiers = Vec::new();
     let mut budget: Option<f64> = None;
@@ -264,6 +274,7 @@ pub(super) fn parse_skill_index_decl(pair: Pair<Rule>) -> Declaration {
     }
 
     Declaration::SkillIndex(SkillIndexDecl {
+        span,
         name,
         tiers,
         budget,
@@ -272,6 +283,7 @@ pub(super) fn parse_skill_index_decl(pair: Pair<Rule>) -> Declaration {
 }
 
 pub(super) fn parse_skill_tier(pair: Pair<Rule>) -> SkillTier {
+    let span = Span::from_pest(pair.as_span());
     let mut level: u32 = 0;
     let mut mode = String::new();
     let mut skills = Vec::new();
@@ -313,6 +325,7 @@ pub(super) fn parse_skill_tier(pair: Pair<Rule>) -> SkillTier {
                         Rule::tier_matches_list => {
                             for rule_child in content_child.into_inner() {
                                 if rule_child.as_rule() == Rule::tier_match_rule {
+                                    let rule_span = Span::from_pest(rule_child.as_span());
                                     let mut skill_name = String::new();
                                     let mut triggers = Vec::new();
                                     for inner in rule_child.into_inner() {
@@ -351,6 +364,7 @@ pub(super) fn parse_skill_tier(pair: Pair<Rule>) -> SkillTier {
                                         }
                                     }
                                     rules.push(SkillTriggerRule {
+                                        span: rule_span,
                                         skill: skill_name,
                                         triggers,
                                     });
@@ -366,6 +380,7 @@ pub(super) fn parse_skill_tier(pair: Pair<Rule>) -> SkillTier {
     }
 
     SkillTier {
+        span,
         level,
         mode,
         skills,
@@ -374,6 +389,7 @@ pub(super) fn parse_skill_tier(pair: Pair<Rule>) -> SkillTier {
 }
 
 pub(super) fn parse_schema_table(pair: Pair<Rule>) -> SchemaTable {
+    let span = Span::from_pest(pair.as_span());
     let mut table_name = String::new();
     let mut columns = Vec::new();
 
@@ -388,12 +404,14 @@ pub(super) fn parse_schema_table(pair: Pair<Rule>) -> SchemaTable {
     }
 
     SchemaTable {
+        span,
         name: table_name,
         columns,
     }
 }
 
 pub(super) fn parse_schema_column(pair: Pair<Rule>) -> SchemaColumn {
+    let span = Span::from_pest(pair.as_span());
     let mut col_name = String::new();
     let mut col_type = String::new();
     let mut modifiers = Vec::new();
@@ -446,6 +464,7 @@ pub(super) fn parse_schema_column(pair: Pair<Rule>) -> SchemaColumn {
     }
 
     SchemaColumn {
+        span,
         name: col_name,
         col_type,
         modifiers,
@@ -458,6 +477,7 @@ pub(super) fn parse_schema_column(pair: Pair<Rule>) -> SchemaColumn {
 // ── Memory Config (Phase 7.6) ──────────────────────────────────────
 
 pub(super) fn parse_memory_decl(pair: Pair<Rule>) -> Declaration {
+    let span = Span::from_pest(pair.as_span());
     let children: Vec<Pair<Rule>> = pair
         .into_inner()
         .filter(|c| c.as_rule() == Rule::memory_body)
@@ -470,7 +490,7 @@ pub(super) fn parse_memory_decl(pair: Pair<Rule>) -> Declaration {
         .and_then(|c| find_child_str(&children_of(c), Rule::STRING_LITERAL))
         .map(|s| s[1..s.len() - 1].to_string());
 
-    Declaration::Memory(MemoryDecl { persist })
+    Declaration::Memory(MemoryDecl { span, persist })
 }
 
 // ── Import (Phase 5.4) ─────────────────────────────────────
@@ -478,11 +498,12 @@ pub(super) fn parse_memory_decl(pair: Pair<Rule>) -> Declaration {
 // ── Import (Phase 5.4) ─────────────────────────────────────
 
 pub(super) fn parse_import_decl(pair: Pair<Rule>) -> Declaration {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // import_decl = { IMPORT_KW ~ import_path ~ (AS_KW ~ IDENT)? }
     let path = find_child_str(&children, Rule::import_path).unwrap_or_default();
     let alias = find_child_str(&children, Rule::IDENT);
-    Declaration::Import(ImportDecl { path, alias })
+    Declaration::Import(ImportDecl { span, path, alias })
 }
 
 // ── Entity: struct type ─────────────────────────────────────────────
@@ -490,6 +511,7 @@ pub(super) fn parse_import_decl(pair: Pair<Rule>) -> Declaration {
 // ── Entity: struct type ─────────────────────────────────────────────
 
 pub(super) fn parse_entity_type_decl(pair: Pair<Rule>) -> Declaration {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
     let fields: Vec<FieldDecl> = children
@@ -497,10 +519,11 @@ pub(super) fn parse_entity_type_decl(pair: Pair<Rule>) -> Declaration {
         .filter(|c| c.as_rule() == Rule::field_decl)
         .map(|c| parse_field_decl(c.clone()))
         .collect();
-    Declaration::EntityType(EntityTypeDecl { name, fields })
+    Declaration::EntityType(EntityTypeDecl { span, name, fields })
 }
 
 pub(super) fn parse_field_decl(pair: Pair<Rule>) -> FieldDecl {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // Children: IDENT, COLON, type_name, [ASSIGN, literal]
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
@@ -508,6 +531,7 @@ pub(super) fn parse_field_decl(pair: Pair<Rule>) -> FieldDecl {
     let default =
         find_child(&children, Rule::literal).and_then(|lit| parse_literal_to_expr(&lit).ok());
     FieldDecl {
+        span,
         name,
         type_name,
         default,
@@ -518,6 +542,7 @@ pub(super) fn parse_field_decl(pair: Pair<Rule>) -> FieldDecl {
 
 /// Process escape sequences in a string literal (without outer quotes).
 pub(super) fn parse_entity_record_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // Children: IDENT, type_name, field_init, ...
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
@@ -528,6 +553,7 @@ pub(super) fn parse_entity_record_decl(pair: Pair<Rule>) -> Result<Declaration, 
         .map(|c| parse_field_init(c.clone()))
         .collect::<Result<_, _>>()?;
     Ok(Declaration::EntityRecord(EntityRecordDecl {
+        span,
         name,
         type_name,
         fields,
@@ -535,6 +561,7 @@ pub(super) fn parse_entity_record_decl(pair: Pair<Rule>) -> Result<Declaration, 
 }
 
 pub(super) fn parse_field_init(pair: Pair<Rule>) -> Result<FieldInit, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // Children: IDENT, COLON, expression
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
@@ -545,7 +572,7 @@ pub(super) fn parse_field_init(pair: Pair<Rule>) -> Result<FieldInit, ParseError
         )
     })?;
     let value = parse_expression(expr_pair)?;
-    Ok(FieldInit { name, value })
+    Ok(FieldInit { span, name, value })
 }
 
 // ── Entity: simple (M1) ──────────────────────────────────────────────
@@ -553,6 +580,7 @@ pub(super) fn parse_field_init(pair: Pair<Rule>) -> Result<FieldInit, ParseError
 // ── Entity: simple (M1) ──────────────────────────────────────────────
 
 pub(super) fn parse_entity_simple_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // Children: IDENT, type_name, expression
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
@@ -565,6 +593,7 @@ pub(super) fn parse_entity_simple_decl(pair: Pair<Rule>) -> Result<Declaration, 
     })?;
     let value = parse_expression(expr_pair)?;
     Ok(Declaration::EntitySimple(EntitySimpleDecl {
+        span,
         name,
         type_name,
         value,
@@ -576,6 +605,7 @@ pub(super) fn parse_entity_simple_decl(pair: Pair<Rule>) -> Result<Declaration, 
 // ── Rule ──────────────────────────────────────────────────────────────
 
 pub(super) fn parse_rule_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // Children: condition (contains/compare), assignment, [INT]
     let condition_pair = &children[0];
@@ -593,6 +623,7 @@ pub(super) fn parse_rule_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErro
         .unwrap_or(0);
 
     Ok(Declaration::Rule(RuleDecl {
+        span,
         condition,
         target,
         field,
@@ -645,6 +676,7 @@ pub(super) fn parse_compare_op(pair: &Pair<Rule>) -> Result<CompareOp, ParseErro
 // ── Fluid Types (Phase 1) ──────────────────────────────────────────
 
 pub(super) fn parse_fluid_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // fluid_decl = { FLUID_KW ~ IDENT ~ "=" ~ fluid_branch ~ ("or" ~ fluid_branch)* }
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
@@ -655,7 +687,7 @@ pub(super) fn parse_fluid_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErr
         .map(|c| parse_fluid_branch(c.clone()))
         .collect::<Result<_, _>>()?;
 
-    Ok(Declaration::Fluid(FluidDecl { name, variants }))
+    Ok(Declaration::Fluid(FluidDecl { span, name, variants }))
 }
 
 pub(super) fn parse_fluid_branch(pair: Pair<Rule>) -> Result<FluidVariant, ParseError> {
@@ -696,6 +728,7 @@ pub(super) fn parse_fluid_branch(pair: Pair<Rule>) -> Result<FluidVariant, Parse
 // ── Adapt (M5) ──────────────────────────────────────────────────
 
 pub(super) fn parse_adapt_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // adapt_decl = { ADAPT_KW ~ IDENT ~ ADD_EXAMPLE_KW ~ "(" ~ expression ~ COMMA ~ expression ~ ")" }
     // Children: IDENT(pattern_name), "(", expression(input), ",", expression(output), ")"
@@ -719,6 +752,7 @@ pub(super) fn parse_adapt_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErr
     };
 
     Ok(Declaration::Adapt(AdaptDecl {
+        span,
         pattern_name,
         input_example,
         output_example,
@@ -730,6 +764,7 @@ pub(super) fn parse_adapt_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErr
 // ── Relate (knowledge graph edge) ──────────────────────────────
 
 pub(super) fn parse_relate_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // relate_decl = { RELATE_KW ~ expression ~ "to" ~ expression ~ "as" ~ expression }
     // Children: expression(from), expression(to), expression(relation)
@@ -759,7 +794,7 @@ pub(super) fn parse_relate_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
         String::new()
     };
 
-    Ok(Declaration::Relate(RelateDecl { from, to, relation }))
+    Ok(Declaration::Relate(RelateDecl { span, from, to, relation }))
 }
 
 // ── Hook (ADR-0045) ──────────────────────────────────────────────────
@@ -767,6 +802,7 @@ pub(super) fn parse_relate_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
 // ── Hook (ADR-0045) ──────────────────────────────────────────────────
 
 pub(super) fn parse_hook_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // hook_decl = { HOOK_KW ~ hook_kind ~ "{" ~ statement* ~ "}" }
     let phase = children
@@ -806,7 +842,7 @@ pub(super) fn parse_hook_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErro
         .map(|c| parse_single_statement(c.clone()))
         .collect::<Result<_, _>>()?;
 
-    Ok(Declaration::Hook(HookDecl { phase, body }))
+    Ok(Declaration::Hook(HookDecl { span, phase, body }))
 }
 
 // ── Sandbox (P2) ────────────────────────────────────────────────
@@ -814,6 +850,7 @@ pub(super) fn parse_hook_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErro
 // ── Sandbox (P2) ────────────────────────────────────────────────
 
 pub(super) fn parse_sandbox_decl(pair: Pair<Rule>) -> Declaration {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // sandbox_decl = { SANDBOX_KW ~ IDENT ~ "{" ~ sandbox_body "}" }
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
@@ -866,6 +903,7 @@ pub(super) fn parse_sandbox_decl(pair: Pair<Rule>) -> Declaration {
     }
 
     Declaration::Sandbox(SandboxDecl {
+        span,
         name,
         allowed,
         forbidden,
@@ -878,6 +916,7 @@ pub(super) fn parse_sandbox_decl(pair: Pair<Rule>) -> Declaration {
 // ── Mutate (P2) ─────────────────────────────────────────────────
 
 pub(super) fn parse_mutate_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // mutate_decl = { MUTATE_KW ~ IDENT ~ "{" ~ mutate_body "}" }
     let pattern_name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
@@ -923,6 +962,7 @@ pub(super) fn parse_mutate_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
     }
 
     Ok(Declaration::Mutate(MutateDecl {
+        span,
         pattern_name,
         new_examples,
         rollback_threshold,
@@ -935,6 +975,7 @@ pub(super) fn parse_mutate_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
 // ── Conversation Config (ADR-0053) ──────────────────────────────────
 
 pub(super) fn parse_conversation_decl(pair: Pair<Rule>) -> Declaration {
+    let span = Span::from_pest(pair.as_span());
     let children: Vec<Pair<Rule>> = pair
         .into_inner()
         .filter(|c| c.as_rule() == Rule::conversation_body)
@@ -963,6 +1004,7 @@ pub(super) fn parse_conversation_decl(pair: Pair<Rule>) -> Declaration {
         .unwrap_or(20);
 
     Declaration::Conversation(ConversationDecl {
+        span,
         ttl,
         max_messages,
         compress_after,
@@ -975,6 +1017,7 @@ pub(super) fn parse_conversation_decl(pair: Pair<Rule>) -> Declaration {
 
 pub(super) fn parse_context_budget_decl(pair: Pair<Rule>) -> Declaration {
     use crate::ast::ContextBudgetDecl;
+    let span = Span::from_pest(pair.as_span());
     let children: Vec<Pair<Rule>> = pair
         .into_inner()
         .filter(|c| c.as_rule() == Rule::context_budget_body)
@@ -1006,6 +1049,7 @@ pub(super) fn parse_context_budget_decl(pair: Pair<Rule>) -> Declaration {
         });
 
     Declaration::ContextBudget(ContextBudgetDecl {
+        span,
         pattern_name,
         limit,
     })
@@ -1016,6 +1060,7 @@ pub(super) fn parse_context_budget_decl(pair: Pair<Rule>) -> Declaration {
 // ── LLM Config (Наряд №4: Smart LLM Routing) ──────────────────────────
 
 pub(super) fn parse_llm_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children: Vec<Pair<Rule>> = pair
         .into_inner()
         .filter(|c| c.as_rule() == Rule::llm_body)
@@ -1072,6 +1117,7 @@ pub(super) fn parse_llm_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError
                 .map(|s| s[1..s.len() - 1].to_string());
 
             providers.push(LlmProviderEntry {
+                span: Span::from_pest(entry_pair.as_span()),
                 alias,
                 provider,
                 key,
@@ -1119,6 +1165,7 @@ pub(super) fn parse_llm_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError
         .unwrap_or(30);
 
     Ok(Declaration::LlmConfig(LlmConfigDecl {
+        span,
         providers,
         default_model,
         failover,
@@ -1132,6 +1179,7 @@ pub(super) fn parse_llm_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError
 // ── Tool Abstraction (ADR-0054) ──────────────────────────────────────
 
 pub(super) fn parse_tool_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // tool_decl = { TOOL_KW ~ IDENT ~ "{" ~ tool_method* ~ "}" }
     // First IDENT is the tool name; subsequent children are tool_method nodes.
@@ -1143,10 +1191,11 @@ pub(super) fn parse_tool_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErro
         .map(|c| parse_tool_method(c.clone()))
         .collect::<Result<_, _>>()?;
 
-    Ok(Declaration::Tool(ToolDecl { name, methods }))
+    Ok(Declaration::Tool(ToolDecl { span, name, methods }))
 }
 
 pub(super) fn parse_tool_method(pair: Pair<Rule>) -> Result<ToolMethod, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // tool_method = { IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ LBRACE ~ statement* ~ RBRACE }
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
@@ -1160,6 +1209,7 @@ pub(super) fn parse_tool_method(pair: Pair<Rule>) -> Result<ToolMethod, ParseErr
         .map(|c| parse_single_statement(c.clone()))
         .collect::<Result<_, _>>()?;
     Ok(ToolMethod {
+        span,
         name,
         params,
         return_type,
@@ -1172,6 +1222,7 @@ pub(super) fn parse_tool_method(pair: Pair<Rule>) -> Result<ToolMethod, ParseErr
 // ── Eval Harness (ADR-0050) ──────────────────────────────────────────
 
 pub(super) fn parse_eval_decl(pair: Pair<Rule>) -> Declaration {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // eval_decl = { EVAL_KW ~ IDENT ~ "{" ~ eval_body ~ "}" }
     let pattern_name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
@@ -1249,6 +1300,7 @@ pub(super) fn parse_eval_decl(pair: Pair<Rule>) -> Declaration {
     }
 
     Declaration::Eval(EvalDecl {
+        span,
         pattern_name,
         dataset,
         metric,
@@ -1261,6 +1313,7 @@ pub(super) fn parse_eval_decl(pair: Pair<Rule>) -> Declaration {
 // ── Memorize (M4) ──────────────────────────────────────────────────
 
 pub(super) fn parse_memorize_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // Children: expression, ["with", "priority", "=", FLOAT_LITERAL]
     let value = find_child(&children, Rule::expression).ok_or_else(|| {
@@ -1275,10 +1328,11 @@ pub(super) fn parse_memorize_decl(pair: Pair<Rule>) -> Result<Declaration, Parse
         .map(|f| f.as_str().parse().unwrap_or(0.5))
         .unwrap_or(0.5);
 
-    Ok(Declaration::Memorize(MemorizeDecl { value, priority }))
+    Ok(Declaration::Memorize(MemorizeDecl { span, value, priority }))
 }
 
 pub(super) fn parse_forget_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // Children: expression, INT, "days"
     let query = find_child(&children, Rule::expression).ok_or_else(|| {
@@ -1293,7 +1347,7 @@ pub(super) fn parse_forget_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
         .map(|i| i.as_str().parse().unwrap_or(30))
         .unwrap_or(30);
 
-    Ok(Declaration::Forget(ForgetDecl { query, days }))
+    Ok(Declaration::Forget(ForgetDecl { span, query, days }))
 }
 
 // ── Learnable Pattern (M3) ────────────────────────────────────────────
@@ -1301,6 +1355,7 @@ pub(super) fn parse_forget_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
 // ── Learnable Pattern (M3) ────────────────────────────────────────────
 
 pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // Children: IDENT, [params], ARROW, type_name, learnable_body
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
@@ -1512,6 +1567,7 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
     }
 
     Ok(Declaration::LearnablePattern(LearnablePatternDecl {
+        span,
         name,
         params,
         return_type,
@@ -1532,6 +1588,7 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
 // ── Pattern ──────────────────────────────────────────────────────────
 
 pub(super) fn parse_pattern_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // Children: IDENT, params, ARROW, type_name, pattern_body
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
@@ -1544,6 +1601,7 @@ pub(super) fn parse_pattern_decl(pair: Pair<Rule>) -> Result<Declaration, ParseE
         .transpose()?
         .unwrap_or_default();
     Ok(Declaration::Pattern(PatternDecl {
+        span,
         name,
         params,
         return_type,
@@ -1559,6 +1617,7 @@ pub(super) fn parse_pattern_decl(pair: Pair<Rule>) -> Result<Declaration, ParseE
 // branch_def    = { step_ident ~ "{" ~ branch* ~ "}" }
 
 pub(super) fn parse_flow_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
 
@@ -1648,6 +1707,7 @@ pub(super) fn parse_flow_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErro
     }
 
     Ok(Declaration::Flow(FlowDecl {
+        span,
         name: name.clone(),
         input_type,
         source: source.unwrap_or_else(|| Expr::StringLit { value: String::new(), span: Span::unknown() }),
@@ -1658,6 +1718,7 @@ pub(super) fn parse_flow_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErro
 }
 
 pub(super) fn parse_branch(pair: Pair<Rule>) -> Result<Branch, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // branch = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
     let label = pair_str(&children[0]);
@@ -1674,6 +1735,7 @@ pub(super) fn parse_branch(pair: Pair<Rule>) -> Result<Branch, ParseError> {
         )
     })?);
     Ok(Branch {
+        span,
         label,
         condition: parse_branch_condition(cond_pair)?,
         target,
@@ -1681,10 +1743,12 @@ pub(super) fn parse_branch(pair: Pair<Rule>) -> Result<Branch, ParseError> {
 }
 
 pub(super) fn parse_branch_condition(pair: Pair<Rule>) -> Result<BranchCondition, ParseError> {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // branch_condition = { IDENT ~ "." ~ IDENT ~ compare_op ~ expression }
     // Children: [IDENT(target), IDENT(field), compare_op, expression(threshold)]
     Ok(BranchCondition {
+        span,
         target: Expr::Ident { name: pair_str(&children[0]), span: Span::unknown() },
         field: pair_str(&children[1]),
         op: parse_compare_op(&children[2])?,
@@ -1696,10 +1760,12 @@ pub(super) fn parse_branch_condition(pair: Pair<Rule>) -> Result<BranchCondition
 
 /// `type Token = Secret`
 pub(super) fn parse_type_alias_decl(pair: Pair<Rule>) -> Declaration {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     let alias = find_child_str(&children, Rule::IDENT).unwrap_or_default();
     let target = find_child_str(&children, Rule::type_name).unwrap_or_default();
     Declaration::TypeAlias(TypeAliasDecl {
+        span,
         alias: alias.to_string(),
         target: target.to_string(),
     })
@@ -1709,6 +1775,7 @@ pub(super) fn parse_type_alias_decl(pair: Pair<Rule>) -> Declaration {
 
 /// `test "name" { <statements> }`
 pub(super) fn parse_test_decl(pair: Pair<Rule>) -> Declaration {
+    let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     let name = find_child_str(&children, Rule::STRING_LITERAL)
         .map(|s| unescape_string(s.trim_matches('"')))
@@ -1718,7 +1785,7 @@ pub(super) fn parse_test_decl(pair: Pair<Rule>) -> Declaration {
         .filter(|c| c.as_rule() == Rule::statement)
         .filter_map(|s| parse_single_statement(s.clone()).ok())
         .collect();
-    Declaration::Test(TestDecl { name, body })
+    Declaration::Test(TestDecl { span, name, body })
 }
 
 // ── Expressions ─────────────────────────────────────────────────────

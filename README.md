@@ -109,13 +109,13 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 ## Architecture
 
 ```
- .mlog source        Pest PEG          AST              Semantic            TW + VM backends
+ .mlog source        Pest PEG          AST                Semantic            TW + VM backends
 ─────────────  ──>  ────────────  ──>  ───────────  ──>  ────────────  ──>  ────────────
  entity             parse tokens      27 Declaration    cross-reference     tree-walking
- pattern            syntax rules      14 Expr           validation          bytecode VM
+ pattern            syntax rules      15 Expr           validation          bytecode VM
  flow                                  12 Statement      opaque type       enforcement
- memory                                 4 MatchArm
- rule
+ memory                                 4 MatchArm        span-aware
+ rule                                                    error messages
  learn
  adapt
 ```
@@ -125,7 +125,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Component | Technology | Lines |
 |---|---|---|
 | Parser | Pest 2.7 PEG grammar (~400 lines, 259 rules) | 2 176 |
-| AST | 27 Declaration variants, 14 Expr, 12 Statement, 4 MatchArm | 731 |
+| AST | 27 Declaration variants, 15 Expr, 12 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION), SVG XSS lint | 473 |
 | Compiler | Bytecode, 349 builtins indexed | 659 |
 | Bytecode format | 46 VM instructions | — |
@@ -137,7 +137,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Memory store | Typed memory with FTS5 BM25 + cosine RRF hybrid recall + KV store | 1 540 |
 | Security audit | Static OWASP analysis | 1 075 |
 | Embeddings | TF-IDF + OpenAI cosine similarity, FTS5 BM25 | 601 |
-| **Total effective Rust LOC** | | **~58 000** |
+| **Total effective Rust LOC** | | **~59 000** |
 
 ### Project Structure
 
@@ -154,10 +154,10 @@ Metalogos-/
 ├── CNAME                             # Custom domain
 ├── index.html                        # Landing page / docs site
 │
-├── src/                              # Core compiler + interpreter (~58 000 LOC)
+├── src/                              # Core compiler + interpreter (~59 000 LOC)
 │   ├── main.rs                        # CLI: run/repl/check/serve/compile/eval/audit
 │   ├── grammar.pest                   # Pest PEG grammar (384 lines)
-│   ├── ast.rs                         # AST definitions (27 Declaration variants)
+│   ├── ast.rs                         # AST definitions (27 Decl, 15 Expr, 12 Stmt) + Span tracking
 │   ├── semantic.rs                    # Semantic analysis + opaque type enforcement
 │   ├── compiler.rs                    # Bytecode compiler
 │   ├── bytecode.rs                    # VM instruction set (46 instructions)
@@ -314,6 +314,21 @@ Every item in the OWASP Top 10 (2021) is addressed at the language level: type-s
 ### 349 Built-in Functions
 
 String ops, math, collections, type conversion, LLM/AI, HTTP, JSON, file I/O, KV store, session memory, encryption, authentication, HTTP server, templates, databases, Telegram/Discord bots, time/date/calendar, geolocation, weather, reminders, cron, goals, todos, memory tree, preferences, approval workflows, fuzzy matching, hashline editing, context compaction, budget awareness, replay logging, policy enforcement, PDF processing (classify, extract, OCR), typed semantic memory (FTS5 BM25 + cosine RRF), SMTP/IMAP email, CalDAV/CardDAV calendar and contacts, native SVG graphics, and more. See [REFERENCE.md](REFERENCE.md) for the full list.
+
+### Span-Aware Error Messages (ADR-0111)
+
+Every AST node carries source position (`start_line:start_col–end_line:end_col`).
+Semantic errors include line numbers for easy debugging:
+
+```mlog
+entity User { name: String }
+entity User { age: Int }   // строка 2: duplicate entity type: User
+```
+
+Parser fills `Span` from `pest::Span` via `Span::from_pest()`;
+`Expr::span()` and `Declaration::span()` provide uniform access.
+Tuple-style variants (e.g. `StringLit(String)`) converted to struct
+variants with named fields + `span` — zero change in execution logic.
 
 ### Cargo feature gates
 

@@ -1126,11 +1126,7 @@ pub(crate) async fn execute_route_body(
             let mut env = HashMap::new();
             for stmt in &body_stmts_owned {
                 match stmt {
-                    Statement::LetBinding {
-                        name,
-                        value,
-                        ..
-                    } => {
+                    Statement::LetBinding { name, value, .. } => {
                         let val = interp.eval_expr_with_env(value, &env)?;
                         env.insert(name.clone(), val);
                     }
@@ -1149,7 +1145,11 @@ pub(crate) async fn execute_route_body(
                             .unwrap_or_default();
                         return Ok((Some(value_to_response(val)), entries, sandbox));
                     }
-                    Statement::IfThen { condition: cond, body, .. } => {
+                    Statement::IfThen {
+                        condition: cond,
+                        body,
+                        ..
+                    } => {
                         let cond_val = interp.eval_expr_with_env(cond, &env)?;
                         if cond_val.as_bool().unwrap_or(false) {
                             // On a blocking thread, safe to call eval_statements directly
@@ -1204,11 +1204,7 @@ pub(crate) async fn execute_route_body(
                                             sandbox,
                                         ));
                                     }
-                                    Statement::LetBinding {
-                                        name,
-                                        value,
-                                        ..
-                                    } => {
+                                    Statement::LetBinding { name, value, .. } => {
                                         let val = interp.eval_expr_with_env(value, &env)?;
                                         env.insert(name.clone(), val);
                                     }

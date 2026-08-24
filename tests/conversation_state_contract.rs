@@ -25,6 +25,7 @@ fn test_conv_start_creates_conversation() {
     // Set conversation config
     interp
         .run(vec![Declaration::Conversation(ConversationDecl {
+            span: metalogos::ast::Span::unknown(),
             ttl: 1800,
             max_messages: 50,
             compress_after: 20,
@@ -58,6 +59,7 @@ fn test_conv_add_and_history() {
 
     interp
         .run(vec![Declaration::Conversation(ConversationDecl {
+            span: metalogos::ast::Span::unknown(),
             ttl: 1800,
             max_messages: 50,
             compress_after: 20,
@@ -91,6 +93,7 @@ fn test_conv_history_struct_fields() {
 
     interp
         .run(vec![Declaration::Conversation(ConversationDecl {
+            span: metalogos::ast::Span::unknown(),
             ttl: 1800,
             max_messages: 50,
             compress_after: 20,
@@ -124,6 +127,7 @@ fn test_conv_context_formatting() {
 
     interp
         .run(vec![Declaration::Conversation(ConversationDecl {
+            span: metalogos::ast::Span::unknown(),
             ttl: 1800,
             max_messages: 50,
             compress_after: 20,
@@ -160,6 +164,7 @@ fn test_conv_end_removes_conversation() {
 
     interp
         .run(vec![Declaration::Conversation(ConversationDecl {
+            span: metalogos::ast::Span::unknown(),
             ttl: 1800,
             max_messages: 50,
             compress_after: 20,
@@ -189,6 +194,7 @@ fn test_conversation_config_from_declaration() {
 
     interp
         .run(vec![Declaration::Conversation(ConversationDecl {
+            span: metalogos::ast::Span::unknown(),
             ttl: 900,
             max_messages: 10,
             compress_after: 5,
@@ -211,6 +217,7 @@ fn test_max_messages_enforced() {
     // max_messages = 3, compress_after = 100 (disable compression)
     interp
         .run(vec![Declaration::Conversation(ConversationDecl {
+            span: metalogos::ast::Span::unknown(),
             ttl: 1800,
             max_messages: 3,
             compress_after: 100,
@@ -282,6 +289,7 @@ fn test_multiple_conversations_independent() {
 
     interp
         .run(vec![Declaration::Conversation(ConversationDecl {
+            span: metalogos::ast::Span::unknown(),
             ttl: 1800,
             max_messages: 50,
             compress_after: 100,

@@ -18,7 +18,7 @@ impl Interpreter {
         for rule in sorted_rules {
             // Extract target name for dedup tracking
             let target_name = match &rule.target {
-                Expr::Ident { name: name, .. } => name.clone(),
+                Expr::Ident { name, .. } => name.clone(),
                 _ => continue, // non-ident targets are not supported by rules
             };
 
@@ -33,7 +33,7 @@ impl Interpreter {
                 let _target_val = self.eval_expr(&rule.target)?;
                 let value_val = self.eval_expr(&rule.value)?;
 
-                if let Expr::Ident { name: name, .. } = &rule.target {
+                if let Expr::Ident { name, .. } = &rule.target {
                     let entity = self
                         .variables
                         .get_mut(name)

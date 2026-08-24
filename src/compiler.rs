@@ -348,8 +348,12 @@ impl Compiler {
                         Some(ContextMode::Recall(expr, limit)) => {
                             // Extract param name from expression (must be Ident)
                             let param_name = match expr {
-                                crate::ast::Expr::Ident { name: name, .. } => name.clone(),
-                                crate::ast::Expr::FieldAccess { object: _obj, field: field, .. } => {
+                                crate::ast::Expr::Ident { name, .. } => name.clone(),
+                                crate::ast::Expr::FieldAccess {
+                                    object: _obj,
+                                    field,
+                                    ..
+                                } => {
                                     // e.g., text.some_field — just use field name
                                     field.clone()
                                 }
@@ -518,7 +522,7 @@ impl Compiler {
             Expr::FloatLit { value: f, .. } => {
                 code.push(Instruction::Const(Value::Float(*f)));
             }
-            Expr::Ident { name: name, .. } => {
+            Expr::Ident { name, .. } => {
                 // Check if it's a local (parameter or let binding) first
                 if let Some(&slot) = locals.get(name) {
                     code.push(Instruction::LoadLocal(slot));
@@ -528,11 +532,15 @@ impl Compiler {
                     code.push(Instruction::LoadGlobalByName(name.clone()));
                 }
             }
-            Expr::FieldAccess { object: base, field: field, .. } => {
+            Expr::FieldAccess {
+                object: base,
+                field,
+                ..
+            } => {
                 self.compile_expr_with_locals(base, code, locals)?;
                 code.push(Instruction::GetField(field.clone()));
             }
-            Expr::FnCall { name: name, args: args, .. } => {
+            Expr::FnCall { name, args, .. } => {
                 for arg in args {
                     self.compile_expr_with_locals(arg, code, locals)?;
                 }
@@ -548,7 +556,9 @@ impl Compiler {
                     return Err(format!("compile: undefined function: {}", name));
                 }
             }
-            Expr::BinaryOp { left: left, op: op, right: right, .. } => match op {
+            Expr::BinaryOp {
+                left, op, right, ..
+            } => match op {
                 BinOp::And | BinOp::Or => {
                     // Short-circuit evaluation — result is always Value::Bool.
                     // Must NOT eagerly compile both operands.
@@ -640,7 +650,12 @@ impl Compiler {
                     }
                 }
             },
-            Expr::IfElse { condition: cond, then_branch: then_expr, else_branch: else_expr, .. } => {
+            Expr::IfElse {
+                condition: cond,
+                then_branch: then_expr,
+                else_branch: else_expr,
+                ..
+            } => {
                 // Compile condition
                 self.compile_expr_with_locals(cond, code, locals)?;
                 // Jump to else branch if falsy
@@ -692,19 +707,23 @@ impl Compiler {
                     ));
                 }
             }
-            Expr::List { items: items, .. } => {
+            Expr::List { items, .. } => {
                 // Push each item onto stack, then MakeList(count) pops them into a list.
                 for item in items {
                     self.compile_expr_with_locals(item, code, locals)?;
                 }
                 code.push(Instruction::MakeList(items.len()));
             }
-            Expr::IndexAccess { object: base, index: index, .. } => {
+            Expr::IndexAccess {
+                object: base,
+                index,
+                ..
+            } => {
                 self.compile_expr_with_locals(base, code, locals)?;
                 self.compile_expr_with_locals(index, code, locals)?;
                 code.push(Instruction::IndexAccess);
             }
-            Expr::StructLit { fields: fields, .. } => {
+            Expr::StructLit { fields, .. } => {
                 let field_names: Vec<String> = fields.keys().cloned().collect();
                 for val_expr in fields.values() {
                     self.compile_expr_with_locals(val_expr, code, locals)?;
@@ -744,11 +763,7 @@ impl Compiler {
 
         for stmt in body {
             match stmt {
-                Statement::LetBinding {
-                    name,
-                    value,
-                    ..
-                } => {
+                Statement::LetBinding { name, value, .. } => {
                     // Function-level scoping: if name already exists in locals,
                     // reuse the existing slot (matches interpreter behavior).
                     // Per p30_scope_let, `let` inside if/else overwrites outer variable.
@@ -778,7 +793,9 @@ impl Compiler {
                     self.compile_expr_with_locals(expr, &mut code, locals)?;
                     code.push(Instruction::Return);
                 }
-                Statement::While { condition, body, .. } => {
+                Statement::While {
+                    condition, body, ..
+                } => {
                     let loop_start = code.len();
                     let break_fixups: Vec<usize> = Vec::new();
                     let continue_fixups: Vec<usize> = Vec::new();
@@ -1038,7 +1055,11 @@ impl Compiler {
                         locals.remove(index_var);
                     }
                 }
-                Statement::IfThen { condition: cond, body: then_body, .. } => {
+                Statement::IfThen {
+                    condition: cond,
+                    body: then_body,
+                    ..
+                } => {
                     self.compile_expr_with_locals(cond, &mut code, locals)?;
                     code.push(Instruction::JumpIfNot(0)); // placeholder
                     let jmp_idx = code.len() - 1;
@@ -1165,11 +1186,7 @@ impl Compiler {
         loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
     ) -> Result<(), String> {
         match stmt {
-            Statement::LetBinding {
-                name,
-                value,
-                ..
-            } => {
+            Statement::LetBinding { name, value, .. } => {
                 // Function-level scoping: reuse existing slot if name exists.
                 if let Some(&existing_slot) = locals.get(name) {
                     self.compile_expr_with_locals(value, code, locals)?;
@@ -1195,7 +1212,9 @@ impl Compiler {
                 self.compile_expr_with_locals(expr, code, locals)?;
                 code.push(Instruction::Return);
             }
-            Statement::While { condition, body, .. } => {
+            Statement::While {
+                condition, body, ..
+            } => {
                 let loop_start = code.len();
                 let break_fixups: Vec<usize> = Vec::new();
 
@@ -1232,7 +1251,11 @@ impl Compiler {
                     code[*f] = Instruction::Jump(after_loop);
                 }
             }
-            Statement::IfThen { condition: cond, body: then_body, .. } => {
+            Statement::IfThen {
+                condition: cond,
+                body: then_body,
+                ..
+            } => {
                 self.compile_expr_with_locals(cond, code, locals)?;
                 code.push(Instruction::JumpIfNot(0));
                 let jmp_idx = code.len() - 1;
@@ -1303,7 +1326,7 @@ impl Compiler {
     #[allow(dead_code)]
     fn compile_flow_expr(&self, expr: &Expr) -> FlowExpr {
         match expr {
-            Expr::Ident { name: name, .. } => {
+            Expr::Ident { name, .. } => {
                 if let Some(&slot) = self.global_slots.get(name) {
                     FlowExpr::GlobalSlot(slot)
                 } else {
@@ -1349,7 +1372,7 @@ impl Compiler {
         };
 
         let target_name = match &rule.target {
-            Expr::Ident { name: name, .. } => name.clone(),
+            Expr::Ident { name, .. } => name.clone(),
             _ => return Err("rule target must be an identifier".to_string()),
         };
 
@@ -1365,11 +1388,15 @@ impl Compiler {
     /// Convert an AST expression to a simplified rule value expression.
     fn rule_value_expr(&self, expr: &Expr) -> RuleValueExpr {
         match expr {
-            Expr::Ident { name: name, .. } => RuleValueExpr::Ident(name.clone()),
+            Expr::Ident { name, .. } => RuleValueExpr::Ident(name.clone()),
             Expr::StringLit { value: s, .. } => RuleValueExpr::StringLit(s.clone()),
             Expr::FloatLit { value: f, .. } => RuleValueExpr::FloatLit(*f),
-            Expr::FieldAccess { object: base, field: field, .. } => {
-                if let Expr::Ident { name: name, .. } = base.as_ref() {
+            Expr::FieldAccess {
+                object: base,
+                field,
+                ..
+            } => {
+                if let Expr::Ident { name, .. } = base.as_ref() {
                     RuleValueExpr::FieldAccess(name.clone(), field.clone())
                 } else {
                     RuleValueExpr::Ident(format!("{:?}", expr))

@@ -614,7 +614,10 @@ pub(super) fn parse_rule_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErro
     // assignment = { IDENT ~ "." ~ IDENT ~ "=" ~ expression }
     // Children: [IDENT(target), IDENT(field), expression(value)]
     let assignment_children = children_of(&children[1]);
-    let target = Expr::Ident { name: pair_str(&assignment_children[0]), span: Span::unknown() };
+    let target = Expr::Ident {
+        name: pair_str(&assignment_children[0]),
+        span: Span::unknown(),
+    };
     let field = pair_str(&assignment_children[1]);
     let value = parse_expression(assignment_children[2].clone())?;
 
@@ -687,7 +690,11 @@ pub(super) fn parse_fluid_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErr
         .map(|c| parse_fluid_branch(c.clone()))
         .collect::<Result<_, _>>()?;
 
-    Ok(Declaration::Fluid(FluidDecl { span, name, variants }))
+    Ok(Declaration::Fluid(FluidDecl {
+        span,
+        name,
+        variants,
+    }))
 }
 
 pub(super) fn parse_fluid_branch(pair: Pair<Rule>) -> Result<FluidVariant, ParseError> {
@@ -703,7 +710,10 @@ pub(super) fn parse_fluid_branch(pair: Pair<Rule>) -> Result<FluidVariant, Parse
     let value = if !exprs.is_empty() {
         parse_expression(exprs[0].clone())?
     } else {
-        Expr::StringLit { value: String::new(), span: Span::unknown() }
+        Expr::StringLit {
+            value: String::new(),
+            span: Span::unknown(),
+        }
     };
 
     let floats: Vec<&Pair<Rule>> = children
@@ -743,12 +753,18 @@ pub(super) fn parse_adapt_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErr
     let input_example = if !exprs.is_empty() {
         parse_expression(exprs[0].clone())?
     } else {
-        Expr::StringLit { value: String::new(), span: Span::unknown() }
+        Expr::StringLit {
+            value: String::new(),
+            span: Span::unknown(),
+        }
     };
     let output_example = if exprs.len() >= 2 {
         parse_expression(exprs[1].clone())?
     } else {
-        Expr::StringLit { value: String::new(), span: Span::unknown() }
+        Expr::StringLit {
+            value: String::new(),
+            span: Span::unknown(),
+        }
     };
 
     Ok(Declaration::Adapt(AdaptDecl {
@@ -776,12 +792,18 @@ pub(super) fn parse_relate_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
     let from = if !exprs.is_empty() {
         parse_expression(exprs[0].clone())?
     } else {
-        Expr::StringLit { value: String::new(), span: Span::unknown() }
+        Expr::StringLit {
+            value: String::new(),
+            span: Span::unknown(),
+        }
     };
     let to = if exprs.len() >= 2 {
         parse_expression(exprs[1].clone())?
     } else {
-        Expr::StringLit { value: String::new(), span: Span::unknown() }
+        Expr::StringLit {
+            value: String::new(),
+            span: Span::unknown(),
+        }
     };
 
     // Extract relation string from third expression
@@ -794,7 +816,12 @@ pub(super) fn parse_relate_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
         String::new()
     };
 
-    Ok(Declaration::Relate(RelateDecl { span, from, to, relation }))
+    Ok(Declaration::Relate(RelateDecl {
+        span,
+        from,
+        to,
+        relation,
+    }))
 }
 
 // ── Hook (ADR-0045) ──────────────────────────────────────────────────
@@ -1191,7 +1218,11 @@ pub(super) fn parse_tool_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErro
         .map(|c| parse_tool_method(c.clone()))
         .collect::<Result<_, _>>()?;
 
-    Ok(Declaration::Tool(ToolDecl { span, name, methods }))
+    Ok(Declaration::Tool(ToolDecl {
+        span,
+        name,
+        methods,
+    }))
 }
 
 pub(super) fn parse_tool_method(pair: Pair<Rule>) -> Result<ToolMethod, ParseError> {
@@ -1328,7 +1359,11 @@ pub(super) fn parse_memorize_decl(pair: Pair<Rule>) -> Result<Declaration, Parse
         .map(|f| f.as_str().parse().unwrap_or(0.5))
         .unwrap_or(0.5);
 
-    Ok(Declaration::Memorize(MemorizeDecl { span, value, priority }))
+    Ok(Declaration::Memorize(MemorizeDecl {
+        span,
+        value,
+        priority,
+    }))
 }
 
 pub(super) fn parse_forget_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
@@ -1442,7 +1477,9 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
                         .iter()
                         .find(|c| c.as_rule() == Rule::expression)
                     {
-                        if let Expr::StringLit { value: s, .. } = parse_expression(expr_pair.clone())? {
+                        if let Expr::StringLit { value: s, .. } =
+                            parse_expression(expr_pair.clone())?
+                        {
                             context = Some(ContextMode::Literal(s));
                         }
                     }
@@ -1710,7 +1747,10 @@ pub(super) fn parse_flow_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErro
         span,
         name: name.clone(),
         input_type,
-        source: source.unwrap_or_else(|| Expr::StringLit { value: String::new(), span: Span::unknown() }),
+        source: source.unwrap_or_else(|| Expr::StringLit {
+            value: String::new(),
+            span: Span::unknown(),
+        }),
         pipeline: pipeline_steps.clone(),
         branch_defs,
         checkpoints: checkpoints.clone(),
@@ -1749,7 +1789,10 @@ pub(super) fn parse_branch_condition(pair: Pair<Rule>) -> Result<BranchCondition
     // Children: [IDENT(target), IDENT(field), compare_op, expression(threshold)]
     Ok(BranchCondition {
         span,
-        target: Expr::Ident { name: pair_str(&children[0]), span: Span::unknown() },
+        target: Expr::Ident {
+            name: pair_str(&children[0]),
+            span: Span::unknown(),
+        },
         field: pair_str(&children[1]),
         op: parse_compare_op(&children[2])?,
         threshold: parse_expression(children[3].clone())?,

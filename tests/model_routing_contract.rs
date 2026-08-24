@@ -12,8 +12,10 @@ use metalogos::llm::MockLlm;
 /// Helper: create a learnable pattern with optional model override.
 fn make_model_learnable_decl(name: &str, prompt: &str, model: Option<&str>) -> Declaration {
     Declaration::LearnablePattern(LearnablePatternDecl {
+        span: metalogos::ast::Span::unknown(),
         name: name.to_string(),
         params: vec![Param {
+            span: metalogos::ast::Span::unknown(),
             name: "text".to_string(),
             type_name: "String".to_string(),
         }],
@@ -51,10 +53,11 @@ fn test_model_routing_resolves_alias_via_env() {
         .unwrap();
 
     let _ = interp
-        .eval_expr(&Expr::FnCall(
-            "FastClassify".to_string(),
-            vec![Expr::StringLit("hello".to_string())],
-        ))
+        .eval_expr(&Expr::FnCall {
+            name: "FastClassify".to_string(),
+            args: vec![Expr::StringLit { value: "hello".to_string(), span: metalogos::ast::Span::unknown() }],
+            span: metalogos::ast::Span::unknown(),
+        })
         .unwrap();
 
     let last_model = MockLlm::last_model();
@@ -89,10 +92,11 @@ fn test_model_routing_different_aliases_resolve_independently() {
 
     // Call Fast pattern → should resolve "fast" to "model-a"
     let _ = interp
-        .eval_expr(&Expr::FnCall(
-            "Fast".to_string(),
-            vec![Expr::StringLit("input".to_string())],
-        ))
+        .eval_expr(&Expr::FnCall {
+            name: "Fast".to_string(),
+            args: vec![Expr::StringLit { value: "input".to_string(), span: metalogos::ast::Span::unknown() }],
+            span: metalogos::ast::Span::unknown(),
+        })
         .unwrap();
     assert_eq!(
         MockLlm::last_model(),
@@ -104,10 +108,11 @@ fn test_model_routing_different_aliases_resolve_independently() {
 
     // Call Strong pattern → should resolve "strong" to "model-b"
     let _ = interp
-        .eval_expr(&Expr::FnCall(
-            "Strong".to_string(),
-            vec![Expr::StringLit("input".to_string())],
-        ))
+        .eval_expr(&Expr::FnCall {
+            name: "Strong".to_string(),
+            args: vec![Expr::StringLit { value: "input".to_string(), span: metalogos::ast::Span::unknown() }],
+            span: metalogos::ast::Span::unknown(),
+        })
         .unwrap();
     assert_eq!(
         MockLlm::last_model(),
@@ -141,10 +146,11 @@ fn test_model_routing_passthrough_without_env() {
         .unwrap();
 
     let _ = interp
-        .eval_expr(&Expr::FnCall(
-            "Direct".to_string(),
-            vec![Expr::StringLit("test".to_string())],
-        ))
+        .eval_expr(&Expr::FnCall {
+            name: "Direct".to_string(),
+            args: vec![Expr::StringLit { value: "test".to_string(), span: metalogos::ast::Span::unknown() }],
+            span: metalogos::ast::Span::unknown(),
+        })
         .unwrap();
 
     let last_model = MockLlm::last_model();
@@ -175,10 +181,11 @@ fn test_model_routing_no_field_no_override() {
         .unwrap();
 
     let _ = interp
-        .eval_expr(&Expr::FnCall(
-            "Default".to_string(),
-            vec![Expr::StringLit("test".to_string())],
-        ))
+        .eval_expr(&Expr::FnCall {
+            name: "Default".to_string(),
+            args: vec![Expr::StringLit { value: "test".to_string(), span: metalogos::ast::Span::unknown() }],
+            span: metalogos::ast::Span::unknown(),
+        })
         .unwrap();
 
     let last_model = MockLlm::last_model();
@@ -210,10 +217,11 @@ fn test_model_routing_user_defined_alias() {
         .unwrap();
 
     let _ = interp
-        .eval_expr(&Expr::FnCall(
-            "Cheap".to_string(),
-            vec![Expr::StringLit("input".to_string())],
-        ))
+        .eval_expr(&Expr::FnCall {
+            name: "Cheap".to_string(),
+            args: vec![Expr::StringLit { value: "input".to_string(), span: metalogos::ast::Span::unknown() }],
+            span: metalogos::ast::Span::unknown(),
+        })
         .unwrap();
 
     assert_eq!(
@@ -247,10 +255,11 @@ fn test_model_routing_direct_model_name() {
         .unwrap();
 
     let _ = interp
-        .eval_expr(&Expr::FnCall(
-            "Gpt4o".to_string(),
-            vec![Expr::StringLit("test".to_string())],
-        ))
+        .eval_expr(&Expr::FnCall {
+            name: "Gpt4o".to_string(),
+            args: vec![Expr::StringLit { value: "test".to_string(), span: metalogos::ast::Span::unknown() }],
+            span: metalogos::ast::Span::unknown(),
+        })
         .unwrap();
 
     assert_eq!(

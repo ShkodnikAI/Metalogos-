@@ -93,12 +93,14 @@ pattern SaveFact(text: String) -> String {
 fn test_dod_env_in_pattern() {
     std::env::set_var("TEST_TELEGRAM_TOKEN", "123456:ABC-DEF");
     let interp = metalogos::interpreter::Interpreter::new();
-    let result = interp.eval_expr(&metalogos::ast::Expr::FnCall(
-        "env".to_string(),
-        vec![metalogos::ast::Expr::StringLit(
-            "TEST_TELEGRAM_TOKEN".to_string(),
-        )],
-    ));
+    let result = interp.eval_expr(&metalogos::ast::Expr::FnCall {
+        name: "env".to_string(),
+        args: vec![metalogos::ast::Expr::StringLit {
+            value: "TEST_TELEGRAM_TOKEN".to_string(),
+            span: metalogos::ast::Span::unknown(),
+        }],
+        span: metalogos::ast::Span::unknown(),
+    });
     match result {
         Ok(metalogos::interpreter::Value::String(s)) => {
             assert_eq!(s, "123456:ABC-DEF");
@@ -113,13 +115,14 @@ fn test_dod_env_in_pattern() {
 #[test]
 fn test_dod_http_post_builtin_registered() {
     let interp = metalogos::interpreter::Interpreter::new();
-    let result = interp.eval_expr(&metalogos::ast::Expr::FnCall(
-        "http_post".to_string(),
-        vec![
-            metalogos::ast::Expr::StringLit("not-a-url".to_string()),
-            metalogos::ast::Expr::StringLit("{}".to_string()),
+    let result = interp.eval_expr(&metalogos::ast::Expr::FnCall {
+        name: "http_post".to_string(),
+        args: vec![
+            metalogos::ast::Expr::StringLit { value: "not-a-url".to_string(), span: metalogos::ast::Span::unknown() },
+            metalogos::ast::Expr::StringLit { value: "{}".to_string(), span: metalogos::ast::Span::unknown() },
         ],
-    ));
+        span: metalogos::ast::Span::unknown(),
+    });
     // Should fail (not a valid URL) but NOT panic with "undefined pattern or builtin"
     match result {
         Err(msg) => {
@@ -138,23 +141,25 @@ fn test_dod_http_post_builtin_registered() {
 #[test]
 fn test_dod_memorize_callable() {
     let interp = metalogos::interpreter::Interpreter::new();
-    let result = interp.eval_expr(&metalogos::ast::Expr::FnCall(
-        "memorize".to_string(),
-        vec![
-            metalogos::ast::Expr::StringLit("user likes spicy food".to_string()),
-            metalogos::ast::Expr::FloatLit(0.5),
+    let result = interp.eval_expr(&metalogos::ast::Expr::FnCall {
+        name: "memorize".to_string(),
+        args: vec![
+            metalogos::ast::Expr::StringLit { value: "user likes spicy food".to_string(), span: metalogos::ast::Span::unknown() },
+            metalogos::ast::Expr::FloatLit { value: 0.5, span: metalogos::ast::Span::unknown() },
         ],
-    ));
+        span: metalogos::ast::Span::unknown(),
+    });
     match result {
         Ok(metalogos::interpreter::Value::Unit) => {} // Expected
         other => panic!("memorize() should return Unit, got: {:?}", other),
     }
 
     // Verify it was stored — recall should find it
-    let recall_result = interp.eval_expr(&metalogos::ast::Expr::FnCall(
-        "recall".to_string(),
-        vec![metalogos::ast::Expr::StringLit("spicy food".to_string())],
-    ));
+    let recall_result = interp.eval_expr(&metalogos::ast::Expr::FnCall {
+        name: "recall".to_string(),
+        args: vec![metalogos::ast::Expr::StringLit { value: "spicy food".to_string(), span: metalogos::ast::Span::unknown() }],
+        span: metalogos::ast::Span::unknown(),
+    });
     match recall_result {
         Ok(metalogos::interpreter::Value::String(s)) => {
             assert_eq!(

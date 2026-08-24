@@ -10,7 +10,10 @@ pub(super) fn parse_block_if_else_expr(pair: Pair<Rule>) -> Result<Expr, ParseEr
         .iter()
         .find(|c| c.as_rule() == Rule::expression)
         .map(|c| parse_expression(c.clone()))
-        .unwrap_or(Ok(Expr::BoolLit { value: true, span: Span::unknown() }))?;
+        .unwrap_or(Ok(Expr::BoolLit {
+            value: true,
+            span: Span::unknown(),
+        }))?;
 
     let mut then_body = Vec::new();
     let mut else_ifs = Vec::new();
@@ -35,7 +38,10 @@ pub(super) fn parse_block_if_else_expr(pair: Pair<Rule>) -> Result<Expr, ParseEr
                     .iter()
                     .find(|c| c.as_rule() == Rule::expression)
                     .map(|c| parse_expression(c.clone()))
-                    .unwrap_or(Ok(Expr::BoolLit { value: true, span: Span::unknown() }))?;
+                    .unwrap_or(Ok(Expr::BoolLit {
+                        value: true,
+                        span: Span::unknown(),
+                    }))?;
                 let ei_body: Vec<Statement> = ei_children
                     .iter()
                     .filter(|c| c.as_rule() == Rule::statement)
@@ -109,7 +115,10 @@ pub(super) fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
         Rule::or_expr => {
             let children = children_of(&pair);
             if children.is_empty() {
-                return Ok(Expr::StringLit { value: String::new(), span: Span::unknown() });
+                return Ok(Expr::StringLit {
+                    value: String::new(),
+                    span: Span::unknown(),
+                });
             }
             let mut left = parse_expression(children[0].clone())?;
             let mut i = 1;
@@ -131,7 +140,10 @@ pub(super) fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
         Rule::and_expr => {
             let children = children_of(&pair);
             if children.is_empty() {
-                return Ok(Expr::StringLit { value: String::new(), span: Span::unknown() });
+                return Ok(Expr::StringLit {
+                    value: String::new(),
+                    span: Span::unknown(),
+                });
             }
             let mut left = parse_expression(children[0].clone())?;
             let mut i = 1;
@@ -153,7 +165,10 @@ pub(super) fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
         Rule::compare_expr => {
             let children = children_of(&pair);
             if children.is_empty() {
-                return Ok(Expr::StringLit { value: String::new(), span: Span::unknown() });
+                return Ok(Expr::StringLit {
+                    value: String::new(),
+                    span: Span::unknown(),
+                });
             }
             let mut left = parse_expression(children[0].clone())?;
             let mut i = 1;
@@ -176,7 +191,10 @@ pub(super) fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
         Rule::add_expr => {
             let children = children_of(&pair);
             if children.is_empty() {
-                return Ok(Expr::StringLit { value: String::new(), span: Span::unknown() });
+                return Ok(Expr::StringLit {
+                    value: String::new(),
+                    span: Span::unknown(),
+                });
             }
             let mut left = parse_expression(children[0].clone())?;
             let mut i = 1;
@@ -207,7 +225,10 @@ pub(super) fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
         Rule::mul_expr => {
             let children = children_of(&pair);
             if children.is_empty() {
-                return Ok(Expr::StringLit { value: String::new(), span: Span::unknown() });
+                return Ok(Expr::StringLit {
+                    value: String::new(),
+                    span: Span::unknown(),
+                });
             }
             let mut left = parse_expression(children[0].clone())?;
             let mut i = 1;
@@ -260,7 +281,10 @@ pub(super) fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                 )
             })?;
             let expr = parse_expression(inner)?;
-            Ok(Expr::Try { expr: Box::new(expr), span: Span::unknown() })
+            Ok(Expr::Try {
+                expr: Box::new(expr),
+                span: Span::unknown(),
+            })
         }
         Rule::if_else_expr => {
             let children = children_of(&pair);
@@ -291,7 +315,11 @@ pub(super) fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                 let child = &children[i];
                 if child.as_rule() == Rule::IDENT {
                     // Field access: payload.chat_id
-                    base = Expr::FieldAccess { object: Box::new(base), field: pair_str(child), span: Span::unknown() };
+                    base = Expr::FieldAccess {
+                        object: Box::new(base),
+                        field: pair_str(child),
+                        span: Span::unknown(),
+                    };
                 } else if child.as_rule() == Rule::LBRACKET {
                     // Index access: items[0]
                     // LBRACKET is atomic (@{...}) — cannot drill into it.
@@ -344,7 +372,10 @@ pub(super) fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
             // Handle integer literals as function names (e.g., if INT is matched as call_expr)
             if fname == "true" || fname == "false" {
                 // Bool literal parsed as call_expr — shouldn't happen but handle gracefully
-                return Ok(Expr::BoolLit { value: fname == "true", span: Span::unknown() });
+                return Ok(Expr::BoolLit {
+                    value: fname == "true",
+                    span: Span::unknown(),
+                });
             }
             let mut args = Vec::new();
             for child in children.iter().skip(1) {
@@ -360,7 +391,11 @@ pub(super) fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                     _ => {}
                 }
             }
-            Ok(Expr::FnCall { name: fname, args: args, span: Span::unknown() })
+            Ok(Expr::FnCall {
+                name: fname,
+                args,
+                span: Span::unknown(),
+            })
         }
         Rule::unary_minus => {
             let children: Vec<_> = pair.clone().into_inner().collect();
@@ -368,11 +403,17 @@ pub(super) fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
             let inner_expr = if children.len() >= 2 {
                 parse_expression(children[1].clone())?
             } else {
-                Expr::FloatLit { value: 0.0, span: Span::unknown() }
+                Expr::FloatLit {
+                    value: 0.0,
+                    span: Span::unknown(),
+                }
             };
             // Negate: 0.0 - val
             Ok(Expr::BinaryOp {
-                left: Box::new(Expr::FloatLit { value: 0.0, span: Span::unknown() }),
+                left: Box::new(Expr::FloatLit {
+                    value: 0.0,
+                    span: Span::unknown(),
+                }),
                 op: BinOp::Sub,
                 right: Box::new(inner_expr),
                 span: Span::unknown(),
@@ -431,7 +472,10 @@ pub(super) fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                             fields.insert(name, value);
                         }
                     }
-                    Ok(Expr::StructLit { fields: fields, span: Span::unknown() })
+                    Ok(Expr::StructLit {
+                        fields,
+                        span: Span::unknown(),
+                    })
                 }
                 Rule::list_literal => {
                     let mut items = Vec::new();
@@ -451,20 +495,47 @@ pub(super) fn parse_expression(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                             _ => {}
                         }
                     }
-                    Ok(Expr::List { items: items, span: Span::unknown() })
+                    Ok(Expr::List {
+                        items,
+                        span: Span::unknown(),
+                    })
                 }
-                Rule::BOOL_LITERAL => Ok(Expr::BoolLit { value: inner.as_str() == "true", span: Span::unknown() }),
-                Rule::STRING_LITERAL => Ok(Expr::StringLit { value: unescape_string(inner.as_str()), span: Span::unknown() }),
+                Rule::BOOL_LITERAL => Ok(Expr::BoolLit {
+                    value: inner.as_str() == "true",
+                    span: Span::unknown(),
+                }),
+                Rule::STRING_LITERAL => Ok(Expr::StringLit {
+                    value: unescape_string(inner.as_str()),
+                    span: Span::unknown(),
+                }),
                 Rule::MULTILINE_STRING => {
                     // Triple-quoted string: content between """ delimiters, raw (no escape processing)
-                    Ok(Expr::StringLit { value: inner.as_str().to_string(), span: Span::unknown() })
+                    Ok(Expr::StringLit {
+                        value: inner.as_str().to_string(),
+                        span: Span::unknown(),
+                    })
                 }
-                Rule::FLOAT_LITERAL => Ok(Expr::FloatLit { value: inner.as_str().parse().unwrap_or(0.0), span: Span::unknown() }),
-                Rule::INT => Ok(Expr::FloatLit { value: inner.as_str().parse().unwrap_or(0.0), span: Span::unknown() }),
-                Rule::IDENT => Ok(Expr::Ident { name: inner.as_str().to_string(), span: Span::unknown() }),
-                _ => Ok(Expr::Ident { name: inner.as_str().to_string(), span: Span::unknown() }),
+                Rule::FLOAT_LITERAL => Ok(Expr::FloatLit {
+                    value: inner.as_str().parse().unwrap_or(0.0),
+                    span: Span::unknown(),
+                }),
+                Rule::INT => Ok(Expr::FloatLit {
+                    value: inner.as_str().parse().unwrap_or(0.0),
+                    span: Span::unknown(),
+                }),
+                Rule::IDENT => Ok(Expr::Ident {
+                    name: inner.as_str().to_string(),
+                    span: Span::unknown(),
+                }),
+                _ => Ok(Expr::Ident {
+                    name: inner.as_str().to_string(),
+                    span: Span::unknown(),
+                }),
             }
         }
-        _ => Ok(Expr::StringLit { value: pair.as_str().to_string(), span: Span::unknown() }),
+        _ => Ok(Expr::StringLit {
+            value: pair.as_str().to_string(),
+            span: Span::unknown(),
+        }),
     }
 }

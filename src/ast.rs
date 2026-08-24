@@ -951,15 +951,18 @@ pub enum Statement {
         name: String,
         value: Expr,
         mutable: bool,
+        span: Span,
     },
     Assign {
         name: String,
         value: Expr,
+        span: Span,
     },
     Each {
         variable: String,
         iterable: Expr,
         body: Vec<Statement>,
+        span: Span,
     },
     /// `each i, item in list { ... }` — iteration with index (Наряд №17.3)
     EachWithIndex {
@@ -967,10 +970,12 @@ pub enum Statement {
         item_var: String,
         iterable: Expr,
         body: Vec<Statement>,
+        span: Span,
     },
     While {
         condition: Expr,
         body: Vec<Statement>,
+        span: Span,
     },
     /// Block-style if: `if expr { stmts } else if expr { stmts } else { stmts }` (v0.5.0)
     IfElseBlock {
@@ -978,19 +983,21 @@ pub enum Statement {
         then_body: Vec<Statement>,
         else_ifs: Vec<(Expr, Vec<Statement>)>,
         else_body: Option<Vec<Statement>>,
+        span: Span,
     },
     /// Single-branch if-then (no else): `if expr then { stmts }` (Phase 7.7)
-    IfThen(Box<Expr>, Vec<Statement>),
-    Return(Expr),
+    IfThen { condition: Box<Expr>, body: Vec<Statement>, span: Span },
+    Return { value: Expr, span: Span },
     /// Bare expression statement: `respond("ok")`, `http_post(...)` etc.
     /// The expression is evaluated for side effects; result is discarded unless in route context.
-    ExprStmt(Expr),
+    ExprStmt { expr: Expr, span: Span },
     /// Match statement: `match expr { "val" then { stmts } ... else { stmts } }` (Наряд №14)
     /// Supports: exact string, starts_with, contains, comparison arms.
     Match {
         scrutinee: Expr,
         arms: Vec<MatchArm>,
         else_body: Option<Vec<Statement>>,
+        span: Span,
     },
     /// Break: exit the innermost each/while loop (Наряд №17)
     Break,

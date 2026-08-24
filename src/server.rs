@@ -1128,18 +1128,18 @@ pub(crate) async fn execute_route_body(
                     Statement::LetBinding {
                         name,
                         value,
-                        mutable: _,
+                        ..
                     } => {
                         let val = interp.eval_expr_with_env(value, &env)?;
                         env.insert(name.clone(), val);
                     }
-                    Statement::Assign { name, value } => {
+                    Statement::Assign { name, value, .. } => {
                         let val = interp.eval_expr_with_env(value, &env)?;
                         if env.contains_key(name) {
                             env.insert(name.clone(), val);
                         }
                     }
-                    Statement::Return(expr) => {
+                    Statement::Return { value: expr, .. } => {
                         let val = interp.eval_expr_with_env(expr, &env)?;
                         let entries = interp.take_audit_log();
                         let sandbox = interp
@@ -1148,7 +1148,7 @@ pub(crate) async fn execute_route_body(
                             .unwrap_or_default();
                         return Ok((Some(value_to_response(val)), entries, sandbox));
                     }
-                    Statement::IfThen(cond, body) => {
+                    Statement::IfThen { condition: cond, body, .. } => {
                         let cond_val = interp.eval_expr_with_env(cond, &env)?;
                         if cond_val.as_bool().unwrap_or(false) {
                             // On a blocking thread, safe to call eval_statements directly
@@ -1170,6 +1170,7 @@ pub(crate) async fn execute_route_body(
                         then_body,
                         else_ifs,
                         else_body,
+                        ..
                     } => {
                         let cond_val = interp.eval_expr_with_env(condition, &env)?;
                         let branch = if cond_val.as_bool().unwrap_or(false) {
@@ -1189,7 +1190,7 @@ pub(crate) async fn execute_route_body(
                         if let Some(stmts) = branch {
                             for s in stmts {
                                 match s {
-                                    Statement::Return(expr) => {
+                                    Statement::Return { value: expr, .. } => {
                                         let val = interp.eval_expr_with_env(expr, &env)?;
                                         let entries = interp.take_audit_log();
                                         let sandbox = interp
@@ -1205,12 +1206,12 @@ pub(crate) async fn execute_route_body(
                                     Statement::LetBinding {
                                         name,
                                         value,
-                                        mutable: _,
+                                        ..
                                     } => {
                                         let val = interp.eval_expr_with_env(value, &env)?;
                                         env.insert(name.clone(), val);
                                     }
-                                    Statement::ExprStmt(expr) => {
+                                    Statement::ExprStmt { expr, .. } => {
                                         let val = interp.eval_expr_with_env(expr, &env)?;
                                         if let Value::HttpResponse { .. } = val {
                                             let entries = interp.take_audit_log();
@@ -1235,7 +1236,7 @@ pub(crate) async fn execute_route_body(
                         }
                     }
                     // Bare expression statement — evaluate for side effects
-                    Statement::ExprStmt(expr) => {
+                    Statement::ExprStmt { expr, .. } => {
                         let val = interp.eval_expr_with_env(expr, &env)?;
                         // If expression is respond("ok") or similar HttpResponse, use as route response
                         if let Value::HttpResponse { .. } = val {

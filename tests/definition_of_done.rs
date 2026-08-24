@@ -21,7 +21,7 @@ pattern HandleWebhook(text: String, chat_id: String) -> String {
   let _ = memorize(text, 0.5)
   let token = env("TELEGRAM_BOT_TOKEN")
   let url = "https://api.telegram.org/bot" + token + "/sendMessage"
-  let body = "{\"chat_id\":" + chat_id + ",\"text\":\"Echo: " + text + "\"}"
+  let body = json_encode({chat_id: chat_id, text: "Echo: " + text})
   let result = http_post(url, body, "application/json")
   return "sent"
 }

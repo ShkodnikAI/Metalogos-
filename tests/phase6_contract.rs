@@ -134,7 +134,10 @@ mod phase6_encryption_tests {
         let interp = metalogos::interpreter::Interpreter::new();
         let result = interp.eval_expr(&metalogos::ast::Expr::FnCall {
             name: "env".to_string(),
-            args: vec![metalogos::ast::Expr::StringLit { value: "TEST_MLOG_KEY".to_string(), span: metalogos::ast::Span::unknown() }],
+            args: vec![metalogos::ast::Expr::StringLit {
+                value: "TEST_MLOG_KEY".to_string(),
+                span: metalogos::ast::Span::unknown(),
+            }],
             span: metalogos::ast::Span::unknown(),
         });
         match result {
@@ -149,7 +152,10 @@ mod phase6_encryption_tests {
         let interp = metalogos::interpreter::Interpreter::new();
         let result = interp.eval_expr(&metalogos::ast::Expr::FnCall {
             name: "hash_password".to_string(),
-            args: vec![metalogos::ast::Expr::StringLit { value: "password123".to_string(), span: metalogos::ast::Span::unknown() }],
+            args: vec![metalogos::ast::Expr::StringLit {
+                value: "password123".to_string(),
+                span: metalogos::ast::Span::unknown(),
+            }],
             span: metalogos::ast::Span::unknown(),
         });
         match result {

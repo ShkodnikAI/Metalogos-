@@ -118,8 +118,14 @@ fn test_dod_http_post_builtin_registered() {
     let result = interp.eval_expr(&metalogos::ast::Expr::FnCall {
         name: "http_post".to_string(),
         args: vec![
-            metalogos::ast::Expr::StringLit { value: "not-a-url".to_string(), span: metalogos::ast::Span::unknown() },
-            metalogos::ast::Expr::StringLit { value: "{}".to_string(), span: metalogos::ast::Span::unknown() },
+            metalogos::ast::Expr::StringLit {
+                value: "not-a-url".to_string(),
+                span: metalogos::ast::Span::unknown(),
+            },
+            metalogos::ast::Expr::StringLit {
+                value: "{}".to_string(),
+                span: metalogos::ast::Span::unknown(),
+            },
         ],
         span: metalogos::ast::Span::unknown(),
     });
@@ -144,8 +150,14 @@ fn test_dod_memorize_callable() {
     let result = interp.eval_expr(&metalogos::ast::Expr::FnCall {
         name: "memorize".to_string(),
         args: vec![
-            metalogos::ast::Expr::StringLit { value: "user likes spicy food".to_string(), span: metalogos::ast::Span::unknown() },
-            metalogos::ast::Expr::FloatLit { value: 0.5, span: metalogos::ast::Span::unknown() },
+            metalogos::ast::Expr::StringLit {
+                value: "user likes spicy food".to_string(),
+                span: metalogos::ast::Span::unknown(),
+            },
+            metalogos::ast::Expr::FloatLit {
+                value: 0.5,
+                span: metalogos::ast::Span::unknown(),
+            },
         ],
         span: metalogos::ast::Span::unknown(),
     });
@@ -157,7 +169,10 @@ fn test_dod_memorize_callable() {
     // Verify it was stored — recall should find it
     let recall_result = interp.eval_expr(&metalogos::ast::Expr::FnCall {
         name: "recall".to_string(),
-        args: vec![metalogos::ast::Expr::StringLit { value: "spicy food".to_string(), span: metalogos::ast::Span::unknown() }],
+        args: vec![metalogos::ast::Expr::StringLit {
+            value: "spicy food".to_string(),
+            span: metalogos::ast::Span::unknown(),
+        }],
         span: metalogos::ast::Span::unknown(),
     });
     match recall_result {

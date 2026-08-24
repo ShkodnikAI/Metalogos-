@@ -961,12 +961,7 @@ fn test_parse_expr_stmt() {
         assert_eq!(p.body.len(), 2);
         match &p.body[0] {
             Statement::ExprStmt {
-                expr:
-                    Expr::FnCall {
-                        name,
-                        args,
-                        ..
-                    },
+                expr: Expr::FnCall { name, args, .. },
                 ..
             } => {
                 assert_eq!(name, "respond");
@@ -1056,11 +1051,7 @@ fn test_parse_expr_function_call() {
     if let Declaration::Pattern(p) = &decls[0] {
         match &p.body[0] {
             Statement::LetBinding { value, .. } => match value {
-                Expr::FnCall {
-                    name,
-                    args,
-                    ..
-                } => {
+                Expr::FnCall { name, args, .. } => {
                     assert_eq!(name, "upper");
                     assert_eq!(args.len(), 1);
                 }
@@ -1816,11 +1807,7 @@ fn test_parse_nested_function_call() {
     if let Declaration::Pattern(p) = &decls[0] {
         match &p.body[0] {
             Statement::LetBinding { value, .. } => match value {
-                Expr::FnCall {
-                    name,
-                    args,
-                    ..
-                } => {
+                Expr::FnCall { name, args, .. } => {
                     assert_eq!(name, "upper");
                     assert_eq!(args.len(), 1);
                     assert!(matches!(args[0], Expr::FnCall { .. }));
@@ -1841,11 +1828,7 @@ fn test_parse_function_call_with_multiple_args() {
     if let Declaration::Pattern(p) = &decls[0] {
         match &p.body[0] {
             Statement::LetBinding { value, .. } => match value {
-                Expr::FnCall {
-                    name,
-                    args,
-                    ..
-                } => {
+                Expr::FnCall { name, args, .. } => {
                     assert_eq!(name, "f");
                     assert_eq!(args.len(), 3);
                 }
@@ -1904,11 +1887,7 @@ fn test_parse_let_binding_with_function_call_value() {
     if let Declaration::Pattern(p) = &decls[0] {
         match &p.body[0] {
             Statement::LetBinding { value, .. } => match value {
-                Expr::FnCall {
-                    name,
-                    args,
-                    ..
-                } => {
+                Expr::FnCall { name, args, .. } => {
                     assert_eq!(name, "upper");
                     assert_eq!(args.len(), 1);
                 }

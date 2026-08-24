@@ -56,7 +56,10 @@ fn test_cache_identical_calls_single_llm_invocation() {
     // First call — should invoke LLM
     let r1 = interp.eval_expr(&Expr::FnCall {
         name: "Echo".to_string(),
-        args: vec![Expr::StringLit { value: "hello".to_string(), span: metalogos::ast::Span::unknown() }],
+        args: vec![Expr::StringLit {
+            value: "hello".to_string(),
+            span: metalogos::ast::Span::unknown(),
+        }],
         span: metalogos::ast::Span::unknown(),
     });
     assert!(r1.is_ok(), "C1: first call should succeed");
@@ -69,7 +72,10 @@ fn test_cache_identical_calls_single_llm_invocation() {
     // Second call with IDENTICAL input — should hit cache, NOT invoke LLM
     let r2 = interp.eval_expr(&Expr::FnCall {
         name: "Echo".to_string(),
-        args: vec![Expr::StringLit { value: "hello".to_string(), span: metalogos::ast::Span::unknown() }],
+        args: vec![Expr::StringLit {
+            value: "hello".to_string(),
+            span: metalogos::ast::Span::unknown(),
+        }],
         span: metalogos::ast::Span::unknown(),
     });
     assert!(r2.is_ok(), "C1: second call should succeed");
@@ -109,7 +115,10 @@ fn test_cache_different_inputs_separate_calls() {
     // First call
     let _ = interp.eval_expr(&Expr::FnCall {
         name: "Echo".to_string(),
-        args: vec![Expr::StringLit { value: "hello".to_string(), span: metalogos::ast::Span::unknown() }],
+        args: vec![Expr::StringLit {
+            value: "hello".to_string(),
+            span: metalogos::ast::Span::unknown(),
+        }],
         span: metalogos::ast::Span::unknown(),
     });
     assert_eq!(MockLlm::call_count(), 1, "C2: first call");
@@ -117,7 +126,10 @@ fn test_cache_different_inputs_separate_calls() {
     // Second call with DIFFERENT input — cache miss → new LLM call
     let _ = interp.eval_expr(&Expr::FnCall {
         name: "Echo".to_string(),
-        args: vec![Expr::StringLit { value: "world".to_string(), span: metalogos::ast::Span::unknown() }],
+        args: vec![Expr::StringLit {
+            value: "world".to_string(),
+            span: metalogos::ast::Span::unknown(),
+        }],
         span: metalogos::ast::Span::unknown(),
     });
     assert_eq!(
@@ -129,7 +141,10 @@ fn test_cache_different_inputs_separate_calls() {
     // Third call with first input again — cache hit
     let _ = interp.eval_expr(&Expr::FnCall {
         name: "Echo".to_string(),
-        args: vec![Expr::StringLit { value: "hello".to_string(), span: metalogos::ast::Span::unknown() }],
+        args: vec![Expr::StringLit {
+            value: "hello".to_string(),
+            span: metalogos::ast::Span::unknown(),
+        }],
         span: metalogos::ast::Span::unknown(),
     });
     assert_eq!(
@@ -162,12 +177,18 @@ fn test_uncached_pattern_always_invokes_llm() {
     // Two identical calls — both should invoke LLM (no caching)
     let _ = interp.eval_expr(&Expr::FnCall {
         name: "NoCache".to_string(),
-        args: vec![Expr::StringLit { value: "hello".to_string(), span: metalogos::ast::Span::unknown() }],
+        args: vec![Expr::StringLit {
+            value: "hello".to_string(),
+            span: metalogos::ast::Span::unknown(),
+        }],
         span: metalogos::ast::Span::unknown(),
     });
     let _ = interp.eval_expr(&Expr::FnCall {
         name: "NoCache".to_string(),
-        args: vec![Expr::StringLit { value: "hello".to_string(), span: metalogos::ast::Span::unknown() }],
+        args: vec![Expr::StringLit {
+            value: "hello".to_string(),
+            span: metalogos::ast::Span::unknown(),
+        }],
         span: metalogos::ast::Span::unknown(),
     });
     assert_eq!(
@@ -201,7 +222,10 @@ fn test_cache_stores_correct_response() {
     let r1 = interp
         .eval_expr(&Expr::FnCall {
             name: "Classify".to_string(),
-            args: vec![Expr::StringLit { value: "I love this".to_string(), span: metalogos::ast::Span::unknown() }],
+            args: vec![Expr::StringLit {
+                value: "I love this".to_string(),
+                span: metalogos::ast::Span::unknown(),
+            }],
             span: metalogos::ast::Span::unknown(),
         })
         .unwrap();
@@ -210,7 +234,10 @@ fn test_cache_stores_correct_response() {
     let r2 = interp
         .eval_expr(&Expr::FnCall {
             name: "Classify".to_string(),
-            args: vec![Expr::StringLit { value: "I love this".to_string(), span: metalogos::ast::Span::unknown() }],
+            args: vec![Expr::StringLit {
+                value: "I love this".to_string(),
+                span: metalogos::ast::Span::unknown(),
+            }],
             span: metalogos::ast::Span::unknown(),
         })
         .unwrap();

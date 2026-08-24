@@ -642,6 +642,7 @@ impl Interpreter {
                     name,
                     value,
                     mutable,
+                    ..
                 } => {
                     let val = self.eval_expr_with_env(value, env)?;
                     if *mutable {
@@ -649,7 +650,7 @@ impl Interpreter {
                     }
                     env.insert(name.clone(), val);
                 }
-                Statement::Assign { name, value } => {
+                Statement::Assign { name, value, .. } => {
                     if !mutable_vars.contains(name) {
                         return Err(format!("cannot assign to immutable variable: {} (use 'let mut {}' to make it mutable)", name, name));
                     }
@@ -660,6 +661,7 @@ impl Interpreter {
                     variable,
                     iterable,
                     body,
+                    ..
                 } => {
                     let iter_val = self.eval_expr_with_env(iterable, env)?;
                     let items = match iter_val {
@@ -701,6 +703,7 @@ impl Interpreter {
                     item_var,
                     iterable,
                     body,
+                    ..
                 } => {
                     let iter_val = self.eval_expr_with_env(iterable, env)?;
                     let items = match iter_val {
@@ -737,7 +740,9 @@ impl Interpreter {
                         }
                     }
                 }
-                Statement::While { condition, body } => {
+                Statement::While {
+                    condition, body, ..
+                } => {
                     let mut iterations: u64 = 0;
                     loop {
                         if iterations >= iter_limit {
@@ -779,6 +784,7 @@ impl Interpreter {
                     then_body,
                     else_ifs,
                     else_body,
+                    ..
                 } => {
                     let cond_val = self.eval_expr_with_env(condition, env)?;
                     if cond_val.as_bool()? {
@@ -800,11 +806,15 @@ impl Interpreter {
                         }
                     }
                 }
-                Statement::Return(expr) => {
+                Statement::Return { value: expr, .. } => {
                     let val = self.eval_expr_with_env(expr, env)?;
                     return Ok(ControlFlow::Return(val));
                 }
-                Statement::IfThen(cond, body) => {
+                Statement::IfThen {
+                    condition: cond,
+                    body,
+                    ..
+                } => {
                     let cond_val = self.eval_expr_with_env(cond, env)?;
                     if cond_val.as_bool()? {
                         eval_block!(body, env);
@@ -814,6 +824,7 @@ impl Interpreter {
                     scrutinee,
                     ref arms,
                     ref else_body,
+                    ..
                 } => {
                     let scrutinee_val = self.eval_expr_with_env(scrutinee, env)?;
                     let scrutinee_str = format!("{}", scrutinee_val);
@@ -855,7 +866,7 @@ impl Interpreter {
                 Statement::Break => return Ok(ControlFlow::Break),
                 // Наряд №17: continue statement
                 Statement::Continue => return Ok(ControlFlow::ContinueLoop),
-                Statement::ExprStmt(expr) => {
+                Statement::ExprStmt { expr, .. } => {
                     let val = self.eval_expr_with_env(expr, env)?;
                     // Наряда-26 P0-2: respond() as early return.
                     // When an ExprStmt produces HttpResponse inside any block (if/while/match/route),
@@ -882,17 +893,17 @@ impl Interpreter {
         env: &HashMap<String, Value>,
     ) -> Result<Value, String> {
         match expr {
-            Expr::StringLit(s) => Ok(Value::String(s.clone())),
-            Expr::FloatLit(f) => Ok(Value::Float(*f)),
-            Expr::BoolLit(b) => Ok(Value::Bool(*b)),
-            Expr::List(exprs) => {
+            Expr::StringLit { value: s, .. } => Ok(Value::String(s.clone())),
+            Expr::FloatLit { value: f, .. } => Ok(Value::Float(*f)),
+            Expr::BoolLit { value: b, .. } => Ok(Value::Bool(*b)),
+            Expr::List { items: exprs, .. } => {
                 let mut items = Vec::new();
                 for expr in exprs {
                     items.push(self.eval_expr_with_env(expr, env)?);
                 }
                 Ok(Value::List(items))
             }
-            Expr::StructLit(fields) => {
+            Expr::StructLit { fields, .. } => {
                 let mut resolved = std::collections::HashMap::new();
                 for (k, v) in fields {
                     resolved.insert(k.clone(), self.eval_expr_with_env(v, env)?);
@@ -908,6 +919,7 @@ impl Interpreter {
                 ref then_body,
                 ref else_ifs,
                 ref else_body,
+                ..
             } => {
                 let cond_val = self.eval_expr_with_env(condition, env)?;
                 if cond_val.as_bool()? {
@@ -928,14 +940,19 @@ impl Interpreter {
                 Ok(Value::Unit)
             }
             // Наряд №14 P1-4: try expression — catch errors, return Unit
-            Expr::Try(inner) => match self.eval_expr_with_env(inner, env) {
+            Expr::Try { expr: inner, .. } => match self.eval_expr_with_env(inner, env) {
                 Ok(val) => Ok(val),
                 Err(e) => {
                     eprintln!("[try] caught error: {}", e);
                     Ok(Value::Unit)
                 }
             },
-            Expr::IfElse(cond, then_br, else_br) => {
+            Expr::IfElse {
+                condition: cond,
+                then_branch: then_br,
+                else_branch: else_br,
+                ..
+            } => {
                 let cond_val = self.eval_expr_with_env(cond, env)?;
                 if cond_val.as_bool()? {
                     self.eval_expr_with_env(then_br, env)
@@ -943,15 +960,23 @@ impl Interpreter {
                     self.eval_expr_with_env(else_br, env)
                 }
             }
-            Expr::Ident(name) => env
+            Expr::Ident { name, .. } => env
                 .get(name)
                 .cloned()
                 .ok_or_else(|| format!("undefined variable: {}", name)),
-            Expr::FieldAccess(base, field) => {
+            Expr::FieldAccess {
+                object: base,
+                field,
+                ..
+            } => {
                 let base_val = self.eval_expr_with_env(base, env)?;
                 base_val.get_field(field).cloned()
             }
-            Expr::IndexAccess(base, index) => {
+            Expr::IndexAccess {
+                object: base,
+                index,
+                ..
+            } => {
                 let base_val = self.eval_expr_with_env(base, env)?;
                 let idx_val = self.eval_expr_with_env(index, env)?;
                 match (&base_val, &idx_val) {
@@ -1000,6 +1025,7 @@ impl Interpreter {
                 module,
                 function,
                 args,
+                ..
             } => {
                 let mut eval_args = Vec::new();
                 for arg in args {
@@ -1090,12 +1116,12 @@ impl Interpreter {
                     self.eval_statements(&pattern.body, &mut local_env)
                 })
             }
-            Expr::FnCall(name, args) => {
+            Expr::FnCall { name, args, .. } => {
                 let mut eval_args = Vec::new();
                 for (i, arg) in args.iter().enumerate() {
                     // Наряд №115: render(TemplateName, ...) — bare Ident is the template name
                     if name == "render" && i == 0 {
-                        if let Expr::Ident(n) = arg {
+                        if let Expr::Ident { name: n, .. } = arg {
                             eval_args.push(Value::String(n.clone()));
                             continue;
                         }
@@ -1543,7 +1569,9 @@ impl Interpreter {
                     .unwrap_or_else(|e| e.into_inner());
                 Self::maybe_wrap_with_confidence(result, conf)
             }
-            Expr::BinaryOp(left, op, right) => {
+            Expr::BinaryOp {
+                left, op, right, ..
+            } => {
                 // Short-circuit for logical operators: and/or
                 if matches!(op, BinOp::And) {
                     let l = self.eval_expr_with_env(left, env)?;

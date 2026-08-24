@@ -49,10 +49,12 @@ mod tests {
     fn build_map_detects_duplicates() {
         let decls = vec![
             Declaration::TypeAlias(TypeAliasDecl {
+                span: Span::unknown(),
                 alias: "X".to_string(),
                 target: "String".to_string(),
             }),
             Declaration::TypeAlias(TypeAliasDecl {
+                span: Span::unknown(),
                 alias: "X".to_string(),
                 target: "Float".to_string(),
             }),
@@ -65,10 +67,12 @@ mod tests {
     fn build_map_chain_ok() {
         let decls = vec![
             Declaration::TypeAlias(TypeAliasDecl {
+                span: Span::unknown(),
                 alias: "A".to_string(),
                 target: "B".to_string(),
             }),
             Declaration::TypeAlias(TypeAliasDecl {
+                span: Span::unknown(),
                 alias: "B".to_string(),
                 target: "String".to_string(),
             }),
@@ -83,10 +87,12 @@ mod tests {
     fn build_map_cycle_error() {
         let decls = vec![
             Declaration::TypeAlias(TypeAliasDecl {
+                span: Span::unknown(),
                 alias: "A".to_string(),
                 target: "B".to_string(),
             }),
             Declaration::TypeAlias(TypeAliasDecl {
+                span: Span::unknown(),
                 alias: "B".to_string(),
                 target: "A".to_string(),
             }),

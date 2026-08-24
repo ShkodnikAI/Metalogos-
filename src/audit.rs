@@ -156,15 +156,19 @@ impl TaintTracker {
 /// and function call arguments. Returns None for literals and unknown expressions.
 ///
 /// Propagation rules:
-/// - `Expr::Ident(var)` → returns var's taint
-/// - `Expr::FnCall("render"| "escape_html", _)` → Sanitized (overrides args)
-/// - `Expr::FnCall(_, args)` → propagate first non-Sanitized arg taint
-/// - `Expr::BinaryOp(_, left, right)` → propagate from either side
+/// - `Expr::Ident { name: var, span: Span::unknown() }` → returns var's taint
+/// - `Expr::FnCall { name: "render"| "escape_html", span: Span::unknown() }` → Sanitized (overrides args)
+/// - `Expr::FnCall { args: args, span: Span::unknown() }` → propagate first non-Sanitized arg taint
+/// - `Expr::BinaryOp { op: left, right: right, span: Span::unknown() }` → propagate from either side
 /// - Literals → None (clean)
 fn get_expr_taint(expr: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
     match expr {
-        Expr::Ident(var) => tracker.get_taint(var),
-        Expr::FnCall(fn_name, args) => {
+        Expr::Ident { name: var, .. } => tracker.get_taint(var),
+        Expr::FnCall {
+            name: fn_name,
+            args,
+            ..
+        } => {
             // Sanitizers override argument taint
             if fn_name == "render" || fn_name == "escape_html" {
                 return Some(TaintKind::Sanitized);
@@ -183,20 +187,22 @@ fn get_expr_taint(expr: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
             }
             None
         }
-        Expr::BinaryOp(left, _, right) => {
+        Expr::BinaryOp { left, right, .. } => {
             get_expr_taint(left, tracker).or_else(|| get_expr_taint(right, tracker))
         }
-        Expr::FieldAccess(obj, _) => get_expr_taint(obj, tracker),
-        Expr::IndexAccess(_, index) => get_expr_taint(index, tracker),
+        Expr::FieldAccess { object: obj, .. } => get_expr_taint(obj, tracker),
+        Expr::IndexAccess { index, .. } => get_expr_taint(index, tracker),
         // Literals are always clean
-        Expr::StringLit(_)
-        | Expr::FloatLit(_)
-        | Expr::BoolLit(_)
-        | Expr::List(_)
-        | Expr::StructLit(_) => None,
-        Expr::IfElse(_, then_branch, else_branch) => {
-            get_expr_taint(then_branch, tracker).or_else(|| get_expr_taint(else_branch, tracker))
-        }
+        Expr::StringLit { .. }
+        | Expr::FloatLit { .. }
+        | Expr::BoolLit { .. }
+        | Expr::List { .. }
+        | Expr::StructLit { .. } => None,
+        Expr::IfElse {
+            then_branch,
+            else_branch,
+            ..
+        } => get_expr_taint(then_branch, tracker).or_else(|| get_expr_taint(else_branch, tracker)),
         // For other complex expressions, conservatively return None
         _ => None,
     }
@@ -206,7 +212,7 @@ fn get_expr_taint(expr: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
 /// Checks direct function call sources first, then falls back to
 /// expression-level taint propagation.
 fn binding_taint(value: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
-    if let Expr::FnCall(fn_name, _) = value {
+    if let Expr::FnCall { name: fn_name, .. } = value {
         match fn_name.as_str() {
             "call_llm" | "call_claude" => return Some(TaintKind::LlmOutput),
             "env" => return Some(TaintKind::Secret),
@@ -308,8 +314,8 @@ fn looks_like_secret(s: &str) -> bool {
 fn check_secrets(declarations: &[Declaration], source: &str, findings: &mut Vec<AuditFinding>) {
     fn walk_string_exprs<'a>(expr: &'a Expr, acc: &mut Vec<&'a String>) {
         match expr {
-            Expr::StringLit(s) => acc.push(s),
-            Expr::FnCall(name, args) => {
+            Expr::StringLit { value: s, .. } => acc.push(s),
+            Expr::FnCall { name, args, .. } => {
                 // Skip env() calls — they are the OK way to get secrets
                 if name != "env" {
                     for arg in args {
@@ -322,22 +328,33 @@ fn check_secrets(declarations: &[Declaration], source: &str, findings: &mut Vec<
                     walk_string_exprs(arg, acc);
                 }
             }
-            Expr::BinaryOp(l, _, r) => {
+            Expr::BinaryOp {
+                left: l, right: r, ..
+            } => {
                 walk_string_exprs(l, acc);
                 walk_string_exprs(r, acc);
             }
-            Expr::IfElse(c, t, e) => {
+            Expr::IfElse {
+                condition: c,
+                then_branch: t,
+                else_branch: e,
+                ..
+            } => {
                 walk_string_exprs(c, acc);
                 walk_string_exprs(t, acc);
                 walk_string_exprs(e, acc);
             }
-            Expr::List(items) => {
+            Expr::List { items, .. } => {
                 for item in items {
                     walk_string_exprs(item, acc);
                 }
             }
-            Expr::FieldAccess(inner, _) => walk_string_exprs(inner, acc),
-            Expr::IndexAccess(inner, idx) => {
+            Expr::FieldAccess { object: inner, .. } => walk_string_exprs(inner, acc),
+            Expr::IndexAccess {
+                object: inner,
+                index: idx,
+                ..
+            } => {
                 walk_string_exprs(inner, acc);
                 walk_string_exprs(idx, acc);
             }
@@ -349,8 +366,8 @@ fn check_secrets(declarations: &[Declaration], source: &str, findings: &mut Vec<
             match stmt {
                 Statement::LetBinding { value, .. } => walk_string_exprs(value, acc),
                 Statement::Assign { value, .. } => walk_string_exprs(value, acc),
-                Statement::ExprStmt(expr) => walk_string_exprs(expr, acc),
-                Statement::Return(expr) => walk_string_exprs(expr, acc),
+                Statement::ExprStmt { expr, .. } => walk_string_exprs(expr, acc),
+                Statement::Return { value: expr, .. } => walk_string_exprs(expr, acc),
                 Statement::Each { body, .. } => walk_string_stmts(body, acc),
                 Statement::While { body, .. } => walk_string_stmts(body, acc),
                 Statement::IfElseBlock {
@@ -367,7 +384,7 @@ fn check_secrets(declarations: &[Declaration], source: &str, findings: &mut Vec<
                         walk_string_stmts(body, acc);
                     }
                 }
-                Statement::IfThen(_, body) => walk_string_stmts(body, acc),
+                Statement::IfThen { body, .. } => walk_string_stmts(body, acc),
                 _ => {}
             }
         }
@@ -467,19 +484,19 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
             all_literal: &mut bool,
             literal_count: &mut usize,
         ) {
-            if let Expr::FnCall(name, args) = expr {
+            if let Expr::FnCall { name, args, .. } = expr {
                 if name == "query" {
                     if let Some(arg) = args.first() {
                         match arg {
-                            Expr::StringLit(_) => {
+                            Expr::StringLit { .. } => {
                                 *literal_count += 1;
                             }
                             _ => {
                                 *all_literal = false;
                                 let snippet = match arg {
-                                    Expr::Ident(id) => id.clone(),
-                                    Expr::BinaryOp(_, _, _) => "dynamic expression".to_string(),
-                                    Expr::FnCall(n, _) => format!("{}()", n),
+                                    Expr::Ident { name: id, .. } => id.clone(),
+                                    Expr::BinaryOp { .. } => "dynamic expression".to_string(),
+                                    Expr::FnCall { name: n, .. } => format!("{}()", n),
                                     _ => "non-literal".to_string(),
                                 };
                                 let line = find_line(source, &snippet);
@@ -508,7 +525,9 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                             walk_query(arg, source, findings, all_literal, literal_count);
                         }
                     }
-                    Expr::BinaryOp(l, _, r) => {
+                    Expr::BinaryOp {
+                        left: l, right: r, ..
+                    } => {
                         walk_query(l, source, findings, all_literal, literal_count);
                         walk_query(r, source, findings, all_literal, literal_count);
                     }
@@ -530,10 +549,10 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                 Statement::Assign { value, .. } => {
                     walk_query(value, source, findings, all_literal, literal_count)
                 }
-                Statement::ExprStmt(expr) => {
+                Statement::ExprStmt { expr, .. } => {
                     walk_query(expr, source, findings, all_literal, literal_count)
                 }
-                Statement::Return(expr) => {
+                Statement::Return { value: expr, .. } => {
                     walk_query(expr, source, findings, all_literal, literal_count)
                 }
                 Statement::Each { body, .. } => {
@@ -566,7 +585,7 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                         }
                     }
                 }
-                Statement::IfThen(_, body) => {
+                Statement::IfThen { body, .. } => {
                     for s in body {
                         walk_stmt(s, source, findings, all_literal, literal_count);
                     }
@@ -744,10 +763,15 @@ fn check_html_injection(
         source: &str,
         findings: &mut Vec<AuditFinding>,
     ) {
-        if let Expr::FnCall(fn_name, args) = expr {
+        if let Expr::FnCall {
+            name: fn_name,
+            args,
+            ..
+        } = expr
+        {
             if fn_name == "respond" || fn_name == "respond_html" {
                 for arg in args {
-                    if let Expr::Ident(var) = arg {
+                    if let Expr::Ident { name: var, .. } = arg {
                         if tracker.get_taint(var) == Some(TaintKind::LlmOutput) {
                             let line = find_line(source, "respond");
                             findings.push(AuditFinding {
@@ -774,11 +798,7 @@ fn check_html_injection(
             findings: &mut Vec<AuditFinding>,
         ) {
             match stmt {
-                Statement::LetBinding {
-                    name,
-                    value,
-                    mutable: _,
-                } => {
+                Statement::LetBinding { name, value, .. } => {
                     // Check if this let-binding calls respond() with tainted args
                     check_respond_for_html(value, tracker, source, findings);
                     // Propagate taint from expression (handles both direct
@@ -790,17 +810,17 @@ fn check_html_injection(
                         tracker.untaint(name);
                     }
                 }
-                Statement::Assign { name, value } => {
+                Statement::Assign { name, value, .. } => {
                     if let Some(taint) = binding_taint(value, tracker) {
                         tracker.taint(name, taint);
                     } else {
                         tracker.untaint(name);
                     }
                 }
-                Statement::ExprStmt(expr) => {
+                Statement::ExprStmt { expr, .. } => {
                     check_respond_for_html(expr, tracker, source, findings);
                 }
-                Statement::Return(expr) => {
+                Statement::Return { value: expr, .. } => {
                     check_respond_for_html(expr, tracker, source, findings);
                 }
                 Statement::Each { body, .. } => {
@@ -833,7 +853,7 @@ fn check_html_injection(
                         }
                     }
                 }
-                Statement::IfThen(_, body) => {
+                Statement::IfThen { body, .. } => {
                     for s in body {
                         process_stmt(s, tracker, source, findings);
                     }
@@ -891,11 +911,7 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
             findings: &mut Vec<AuditFinding>,
         ) {
             match stmt {
-                Statement::LetBinding {
-                    name,
-                    value,
-                    mutable: _,
-                } => {
+                Statement::LetBinding { name, value, .. } => {
                     // Check if this let-binding calls a sink function with tainted args
                     check_expr_for_leak(value, tracker, source, findings);
                     // Propagate taint from expression
@@ -905,17 +921,17 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                         tracker.untaint(name);
                     }
                 }
-                Statement::Assign { name, value } => {
+                Statement::Assign { name, value, .. } => {
                     if let Some(taint) = binding_taint(value, tracker) {
                         tracker.taint(name, taint);
                     } else {
                         tracker.untaint(name);
                     }
                 }
-                Statement::ExprStmt(expr) => {
+                Statement::ExprStmt { expr, .. } => {
                     check_expr_for_leak(expr, tracker, source, findings);
                 }
-                Statement::Return(expr) => {
+                Statement::Return { value: expr, .. } => {
                     check_expr_for_leak(expr, tracker, source, findings);
                 }
                 Statement::Each { body, .. } => {
@@ -948,7 +964,7 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                         }
                     }
                 }
-                Statement::IfThen(_, body) => {
+                Statement::IfThen { body, .. } => {
                     for s in body {
                         process_stmt(s, tracker, source, findings);
                     }
@@ -963,7 +979,12 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
             source: &str,
             findings: &mut Vec<AuditFinding>,
         ) {
-            if let Expr::FnCall(fn_name, args) = expr {
+            if let Expr::FnCall {
+                name: fn_name,
+                args,
+                ..
+            } = expr
+            {
                 if is_sink(fn_name) {
                     for arg in args {
                         // Ident + direct env()/tainted expr (e.g. print(env("X")))
@@ -984,7 +1005,7 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                 // http_post: секрет в теле запроса (арг 1) — утечка.
                 // Секрет в заголовках (арг 3) — штатная авторизация, НЕ флагируем.
                 if fn_name == "http_post" {
-                    if let Some(Expr::Ident(var)) = args.get(1) {
+                    if let Some(Expr::Ident { name: var, .. }) = args.get(1) {
                         if tracker.get_taint(var) == Some(TaintKind::Secret) {
                             let line = find_line(source, fn_name);
                             findings.push(AuditFinding {
@@ -1038,11 +1059,16 @@ fn check_open_redirect(
         source: &str,
         findings: &mut Vec<AuditFinding>,
     ) {
-        if let Expr::FnCall(fn_name, args) = expr {
+        if let Expr::FnCall {
+            name: fn_name,
+            args,
+            ..
+        } = expr
+        {
             // Only flag respond_html for open redirect (HTML can set Location header)
             if fn_name == "respond_html" {
                 for arg in args {
-                    if let Expr::Ident(var) = arg {
+                    if let Expr::Ident { name: var, .. } = arg {
                         if tracker.get_taint(var) == Some(TaintKind::UserInput) {
                             let line = find_line(source, "respond_html");
                             findings.push(AuditFinding {
@@ -1068,11 +1094,7 @@ fn check_open_redirect(
             findings: &mut Vec<AuditFinding>,
         ) {
             match stmt {
-                Statement::LetBinding {
-                    name,
-                    value,
-                    mutable: _,
-                } => {
+                Statement::LetBinding { name, value, .. } => {
                     // Check if this let-binding calls respond() with tainted args
                     check_expr_for_redirect(value, tracker, source, findings);
                     // Propagate taint from expression
@@ -1082,17 +1104,17 @@ fn check_open_redirect(
                         tracker.untaint(name);
                     }
                 }
-                Statement::Assign { name, value } => {
+                Statement::Assign { name, value, .. } => {
                     if let Some(taint) = binding_taint(value, tracker) {
                         tracker.taint(name, taint);
                     } else {
                         tracker.untaint(name);
                     }
                 }
-                Statement::ExprStmt(expr) => {
+                Statement::ExprStmt { expr, .. } => {
                     check_expr_for_redirect(expr, tracker, source, findings);
                 }
-                Statement::Return(expr) => {
+                Statement::Return { value: expr, .. } => {
                     check_expr_for_redirect(expr, tracker, source, findings);
                 }
                 Statement::Each { body, .. } => {
@@ -1125,7 +1147,7 @@ fn check_open_redirect(
                         }
                     }
                 }
-                Statement::IfThen(_, body) => {
+                Statement::IfThen { body, .. } => {
                     for s in body {
                         process_stmt(s, tracker, source, findings);
                     }
@@ -1301,6 +1323,7 @@ mod tests {
     fn test_rate_limit_check_direct() {
         // Test check_rate_limit by constructing a MlogServerDecl directly
         let srv = ast::MlogServerDecl {
+            span: Span::unknown(),
             port: 8080,
             host: None,
             middleware: vec![
@@ -1321,6 +1344,7 @@ mod tests {
     #[test]
     fn test_rate_limit_with_middleware_direct() {
         let srv = ast::MlogServerDecl {
+            span: Span::unknown(),
             port: 8080,
             host: None,
             middleware: vec!["rate_limit".to_string()],
@@ -1337,10 +1361,12 @@ mod tests {
     #[test]
     fn test_csrf_post_without_csrf_direct() {
         let srv = ast::MlogServerDecl {
+            span: Span::unknown(),
             port: 8080,
             host: None,
             middleware: vec!["session".to_string()],
             routes: vec![ast::RouteDecl {
+                span: Span::unknown(),
                 path: "/login".to_string(),
                 method: "POST".to_string(),
                 requires: vec![],
@@ -1358,10 +1384,12 @@ mod tests {
     #[test]
     fn test_csrf_post_with_csrf_direct() {
         let srv = ast::MlogServerDecl {
+            span: Span::unknown(),
             port: 8080,
             host: None,
             middleware: vec!["csrf".to_string()],
             routes: vec![ast::RouteDecl {
+                span: Span::unknown(),
                 path: "/login".to_string(),
                 method: "POST".to_string(),
                 requires: vec![],
@@ -1483,42 +1511,68 @@ mod tests {
     fn test_format_output() {
         // Construct MlogServerDecl directly to test taint + server checks together
         let srv = ast::MlogServerDecl {
+            span: Span::unknown(),
             port: 8080,
             host: None,
             middleware: vec!["session".to_string()],
             routes: vec![ast::RouteDecl {
+                span: Span::unknown(),
                 path: "/data".to_string(),
                 method: "POST".to_string(),
                 requires: vec![],
                 body: vec![
                     Statement::LetBinding {
                         name: "api_key".to_string(),
-                        value: Expr::FnCall(
-                            "env".to_string(),
-                            vec![Expr::StringLit("KEY".to_string())],
-                        ),
+                        value: Expr::FnCall {
+                            name: "env".to_string(),
+                            args: vec![Expr::StringLit {
+                                value: "KEY".to_string(),
+                                span: Span::unknown(),
+                            }],
+                            span: Span::unknown(),
+                        },
                         mutable: false,
+                        span: Span::unknown(),
                     },
                     Statement::LetBinding {
                         name: "result".to_string(),
-                        value: Expr::FnCall(
-                            "call_llm".to_string(),
-                            vec![Expr::StringLit("summarize".to_string())],
-                        ),
+                        value: Expr::FnCall {
+                            name: "call_llm".to_string(),
+                            args: vec![Expr::StringLit {
+                                value: "summarize".to_string(),
+                                span: Span::unknown(),
+                            }],
+                            span: Span::unknown(),
+                        },
                         mutable: false,
+                        span: Span::unknown(),
                     },
                     Statement::LetBinding {
                         name: "resp".to_string(),
-                        value: Expr::FnCall(
-                            "respond".to_string(),
-                            vec![
-                                Expr::StringLit("200 OK".to_string()),
-                                Expr::Ident("result".to_string()),
+                        value: Expr::FnCall {
+                            name: "respond".to_string(),
+                            args: vec![
+                                Expr::StringLit {
+                                    value: "200 OK".to_string(),
+                                    span: Span::unknown(),
+                                },
+                                Expr::Ident {
+                                    name: "result".to_string(),
+                                    span: Span::unknown(),
+                                },
                             ],
-                        ),
+                            span: Span::unknown(),
+                        },
                         mutable: false,
+                        span: Span::unknown(),
                     },
-                    Statement::Return(Expr::Ident("resp".to_string())),
+                    Statement::Return {
+                        value: Expr::Ident {
+                            name: "resp".to_string(),
+                            span: Span::unknown(),
+                        },
+                        span: Span::unknown(),
+                    },
                 ],
             }],
         };

@@ -6,8 +6,10 @@ pub(super) fn parse_params(pair: Pair<Rule>) -> Vec<Param> {
     pair.into_inner()
         .filter(|p| p.as_rule() == Rule::param)
         .map(|p| {
+            let span = Span::from_pest(p.as_span());
             let children = children_of(&p);
             Param {
+                span,
                 name: find_child_str(&children, Rule::IDENT).unwrap_or_default(),
                 type_name: find_child_str(&children, Rule::type_name).unwrap_or_default(),
             }
@@ -71,6 +73,7 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
                 item_var,
                 iterable,
                 body,
+                span: Span::unknown(),
             })
         } else {
             let variable = idents[0].clone();
@@ -78,6 +81,7 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
                 variable,
                 iterable,
                 body,
+                span: Span::unknown(),
             })
         }
     } else if let Some(while_pair) = children.iter().find(|c| c.as_rule() == Rule::while_stmt) {
@@ -89,7 +93,11 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
             .filter(|c| c.as_rule() == Rule::statement)
             .map(|c| parse_single_statement(c.clone()))
             .collect::<Result<_, _>>()?;
-        Ok(Statement::While { condition, body })
+        Ok(Statement::While {
+            condition,
+            body,
+            span: Span::unknown(),
+        })
     } else if let Some(lb_pair) = children.iter().find(|c| c.as_rule() == Rule::let_binding) {
         let lb_children = children_of(lb_pair);
         let name = find_child_str(&lb_children, Rule::IDENT).unwrap_or_default();
@@ -104,6 +112,7 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
             name,
             value: parse_expression(expr)?,
             mutable,
+            span: Span::unknown(),
         })
     } else if let Some(ae_pair) = children
         .iter()
@@ -128,6 +137,7 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
             Ok(Statement::Assign {
                 name,
                 value: parse_expression(expr)?,
+                span: Span::unknown(),
             })
         } else {
             // Expression statement (function call, etc.)
@@ -141,7 +151,10 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
                         "GRAMMAR INVARIANT: assign_or_expr expression must have expression",
                     )
                 })?;
-            Ok(Statement::ExprStmt(parse_expression(expr)?))
+            Ok(Statement::ExprStmt {
+                expr: parse_expression(expr)?,
+                span: Span::unknown(),
+            })
         }
     } else if let Some(rs_pair) = children.iter().find(|c| c.as_rule() == Rule::return_stmt) {
         let rs_children = children_of(rs_pair);
@@ -151,7 +164,10 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
                 "GRAMMAR INVARIANT: expected Rule::expression in return_stmt",
             )
         })?;
-        Ok(Statement::Return(parse_expression(expr)?))
+        Ok(Statement::Return {
+            value: parse_expression(expr)?,
+            span: Span::unknown(),
+        })
     } else if let Some(_br_pair) = children.iter().find(|c| c.as_rule() == Rule::break_stmt) {
         Ok(Statement::Break)
     } else if let Some(_co_pair) = children.iter().find(|c| c.as_rule() == Rule::continue_stmt) {
@@ -164,7 +180,10 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
             .find(|c| c.as_rule() == Rule::expression)
             .cloned()
             .map(|c| parse_expression(c))
-            .unwrap_or(Ok(Expr::BoolLit(true)))?;
+            .unwrap_or(Ok(Expr::BoolLit {
+                value: true,
+                span: Span::unknown(),
+            }))?;
         let body: Vec<Statement> = it_children
             .iter()
             .filter(|c| c.as_rule() == Rule::statement)
@@ -184,7 +203,10 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
                         .iter()
                         .find(|c| c.as_rule() == Rule::expression)
                         .map(|c| parse_expression(c.clone()))
-                        .unwrap_or(Ok(Expr::BoolLit(true)))?;
+                        .unwrap_or(Ok(Expr::BoolLit {
+                            value: true,
+                            span: Span::unknown(),
+                        }))?;
                     let ei_body: Vec<Statement> = ei_children
                         .iter()
                         .filter(|c| c.as_rule() == Rule::statement)
@@ -226,13 +248,18 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
         }
 
         if else_ifs.is_empty() && else_body.is_none() {
-            Ok(Statement::IfThen(Box::new(condition), body))
+            Ok(Statement::IfThen {
+                condition: Box::new(condition),
+                body,
+                span: Span::unknown(),
+            })
         } else {
             Ok(Statement::IfElseBlock {
                 condition,
                 then_body: body,
                 else_ifs,
                 else_body,
+                span: Span::unknown(),
             })
         }
     } else if let Some(es_pair) = children.iter().find(|c| c.as_rule() == Rule::expr_stmt) {
@@ -247,7 +274,10 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
                     "GRAMMAR INVARIANT: expr_stmt must contain expression",
                 )
             })?;
-        Ok(Statement::ExprStmt(parse_expression(expr)?))
+        Ok(Statement::ExprStmt {
+            expr: parse_expression(expr)?,
+            span: Span::unknown(),
+        })
     } else if let Some(as_pair) = children.iter().find(|c| c.as_rule() == Rule::assign_stmt) {
         // Legacy assign_stmt fallback
         let as_children = children_of(as_pair);
@@ -261,6 +291,7 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
         Ok(Statement::Assign {
             name,
             value: parse_expression(expr)?,
+            span: Span::unknown(),
         })
     } else {
         // Fallback: unrecognized statement — return proper parse error with position
@@ -278,7 +309,10 @@ pub(super) fn parse_match_stmt(pair: Pair<Rule>) -> Result<Statement, ParseError
         .iter()
         .find(|c| c.as_rule() == Rule::expression)
         .map(|c| parse_expression(c.clone()))
-        .unwrap_or(Ok(Expr::StringLit(String::new())))?;
+        .unwrap_or(Ok(Expr::StringLit {
+            value: String::new(),
+            span: Span::unknown(),
+        }))?;
 
     // Parse match arms
     let mut arms = Vec::new();
@@ -349,7 +383,10 @@ pub(super) fn parse_match_stmt(pair: Pair<Rule>) -> Result<Statement, ParseError
                     .iter()
                     .find(|c| c.as_rule() == Rule::expression)
                     .map(|c| parse_expression(c.clone()))
-                    .unwrap_or(Ok(Expr::FloatLit(0.0)))?;
+                    .unwrap_or(Ok(Expr::FloatLit {
+                        value: 0.0,
+                        span: Span::unknown(),
+                    }))?;
                 let body = arm_children
                     .iter()
                     .filter(|c| c.as_rule() == Rule::statement)
@@ -375,6 +412,7 @@ pub(super) fn parse_match_stmt(pair: Pair<Rule>) -> Result<Statement, ParseError
         scrutinee,
         arms,
         else_body,
+        span: Span::unknown(),
     })
 }
 
@@ -389,7 +427,10 @@ pub(super) fn parse_if_block_stmt(pair: Pair<Rule>) -> Result<Statement, ParseEr
         .iter()
         .find(|c| c.as_rule() == Rule::expression)
         .map(|c| parse_expression(c.clone()))
-        .unwrap_or(Ok(Expr::BoolLit(true)))?;
+        .unwrap_or(Ok(Expr::BoolLit {
+            value: true,
+            span: Span::unknown(),
+        }))?;
 
     let mut then_body = Vec::new();
     let mut else_ifs = Vec::new();
@@ -414,7 +455,10 @@ pub(super) fn parse_if_block_stmt(pair: Pair<Rule>) -> Result<Statement, ParseEr
                     .iter()
                     .find(|c| c.as_rule() == Rule::expression)
                     .map(|c| parse_expression(c.clone()))
-                    .unwrap_or(Ok(Expr::BoolLit(true)))?;
+                    .unwrap_or(Ok(Expr::BoolLit {
+                        value: true,
+                        span: Span::unknown(),
+                    }))?;
                 let ei_body: Vec<Statement> = ei_children
                     .iter()
                     .filter(|c| c.as_rule() == Rule::statement)
@@ -440,6 +484,7 @@ pub(super) fn parse_if_block_stmt(pair: Pair<Rule>) -> Result<Statement, ParseEr
         then_body,
         else_ifs,
         else_body,
+        span: Span::unknown(),
     })
 }
 

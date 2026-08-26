@@ -125,7 +125,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Component | Technology | Lines |
 |---|---|---|
 | Parser | Pest 2.7 PEG grammar (~400 lines, 259 rules) | 2 176 |
-| AST | 27 Declaration variants, 15 Expr, 12 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
+| AST | 29 Declaration variants, 15 Expr, 12 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION), SVG XSS lint | 473 |
 | Compiler | Bytecode, 349 builtins indexed | 659 |
 | Bytecode format | 46 VM instructions | — |
@@ -594,7 +594,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 359 builtins, 54 test files, 186 golden-file examples, 111 ADRs. 781 commits.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 359 builtins, 54 test files, 186 golden-file examples, 108 ADRs. 781 commits.
 
 ### Next
 

@@ -1,1 +1,1 @@
-type mismatch
+upper() expected String argument, got Float

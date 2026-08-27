@@ -4,6 +4,14 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Docs — Наряд №124: honestly document mock accuracy metric in `adapt`
+- README §5: replaced unconditional "quality metrics, and automatic rollback
+  on degradation. No analogues exist" with honest description — rollback
+  mechanism is real, quality metric is a fixed mock (0.95). See ADR-0112.
+- ADR-0112: documented open question — real quality metric requires semantic
+  decision (what to measure, what to compare against), not mechanical addition.
+  Revisit only when mock value creates a concrete problem in real `mutate` usage.
+
 ### Fixed — Наряд №125: CSRF cookie missing HttpOnly so JS can double-submit
 - `_mlog_csrf` cookie: removed `HttpOnly` flag — JS clients must read this
   cookie to perform double-submit. Session cookie `_mlog_session` retains

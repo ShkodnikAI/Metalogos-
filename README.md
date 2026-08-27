@@ -84,7 +84,7 @@ More than a key-value store. Hierarchical memory (Memory Tree L0/L1/L2), typed r
 
 ### 5. Self-Modification with Sandbox and Rollback
 
-The `adapt` statement allows a program to modify its own patterns at runtime — with sandboxing, quality metrics, and automatic rollback on degradation. No analogues exist in mainstream languages.
+The `adapt` statement allows a program to modify its own patterns at runtime — with sandboxing, few-shot mutation, and automatic rollback. The rollback mechanism is real and tested. Quality metric is currently a fixed mock value (0.95), not a real accuracy computation — rollback logic exists but does not yet respond to actual quality degradation. See ADR-0112.
 
 ### 6. Complete Toolchain in One Binary
 

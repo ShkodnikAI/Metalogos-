@@ -67,19 +67,23 @@ async fn test_csrf_double_submit_accept() {
     // Step 1: GET — obtain CSRF token
     let resp = reqwest::get(&format!("{}/", base)).await.unwrap();
     assert_eq!(resp.status(), 200);
-    let token = extract_csrf_from_set_cookie(resp.headers())
-        .expect("GET should set _mlog_csrf cookie");
+    let token =
+        extract_csrf_from_set_cookie(resp.headers()).expect("GET should set _mlog_csrf cookie");
 
     // Step 2: POST with matching token → accepted (200)
     let client = reqwest::Client::new();
     let resp = client
-        .post(&format!("{}/data", base))
+        .post(format!("{}/data", base))
         .header("X-CSRF-Token", &token)
         .header("Cookie", format!("_mlog_csrf={}", token))
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200, "POST with valid double-submit should be accepted");
+    assert_eq!(
+        resp.status(),
+        200,
+        "POST with valid double-submit should be accepted"
+    );
     assert_eq!(resp.text().await.unwrap(), "posted");
 }
 
@@ -95,12 +99,12 @@ async fn test_csrf_double_submit_reject_missing() {
 
     // POST without any CSRF token → 403
     let client = reqwest::Client::new();
-    let resp = client
-        .post(&format!("{}/data", base))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 403, "POST without CSRF token should be rejected");
+    let resp = client.post(format!("{}/data", base)).send().await.unwrap();
+    assert_eq!(
+        resp.status(),
+        403,
+        "POST without CSRF token should be rejected"
+    );
 }
 
 #[tokio::test]
@@ -112,17 +116,21 @@ async fn test_csrf_double_submit_reject_wrong() {
 
     // GET — obtain real token
     let resp = reqwest::get(&format!("{}/", base)).await.unwrap();
-    let real_token = extract_csrf_from_set_cookie(resp.headers())
-        .expect("GET should set _mlog_csrf cookie");
+    let real_token =
+        extract_csrf_from_set_cookie(resp.headers()).expect("GET should set _mlog_csrf cookie");
 
     // POST with wrong token → 403
     let client = reqwest::Client::new();
     let resp = client
-        .post(&format!("{}/data", base))
+        .post(format!("{}/data", base))
         .header("X-CSRF-Token", "wrong_token_value")
         .header("Cookie", format!("_mlog_csrf={}", real_token))
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 403, "POST with wrong CSRF token should be rejected");
+    assert_eq!(
+        resp.status(),
+        403,
+        "POST with wrong CSRF token should be rejected"
+    );
 }

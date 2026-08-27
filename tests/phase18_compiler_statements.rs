@@ -417,3 +417,49 @@ entity result: String = str(add(3.0, 4.0))
         result.err()
     );
 }
+
+// ── Наряд №129: BlockIfElse expression → loud compile error ────────
+
+#[test]
+fn test_compile_block_if_else_expr_is_err() {
+    // BlockIfElse as expression (assigned to let) must fail compilation.
+    // Before НАРЯД №129 this silently compiled to Const(Unit),
+    // producing wrong results without any error signal.
+    let source = r#"
+pattern block_if_else_expr(x: Float) -> String {
+    let label = if x > 0.0 then { "pos" } else { "neg" }
+    return label
+}
+"#;
+    let decls = parser::parse(source)
+        .map_err(|e| format!("parse: {}", e))
+        .unwrap();
+    let mut compiler = Compiler::new();
+    let err = compiler
+        .compile(decls)
+        .expect_err("compile should FAIL for BlockIfElse expression");
+    assert!(
+        err.contains("block if/else expression not yet supported"),
+        "error message should mention BlockIfElse limitation, got: {}",
+        err
+    );
+    assert!(
+        err.contains("VM bytecode"),
+        "error message should mention VM, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_compile_block_if_else_stmt_still_ok() {
+    // BlockIfElse as STATEMENT (not expression) must still compile fine.
+    // The fix in НАРЯД №129 only affects Expr::BlockIfElse.
+    let source = r#"
+pattern block_if_else_stmt(x: Float) -> String {
+    let result = ""
+    if x > 0.0 then { result = "pos" } else { result = "neg" }
+    return result
+}
+"#;
+    compile_ok(source);
+}

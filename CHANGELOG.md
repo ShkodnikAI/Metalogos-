@@ -2,6 +2,17 @@
 
 All notable changes to the Metalogos project.
 
+## [Unreleased]
+
+### Fixed — Наряд №129: BlockIfElse in VM now produces loud compile error
+- `Expr::BlockIfElse` (block if/else used as expression: `let x = if c then { ... } else { ... }`)
+  previously compiled to `Const(Value::Unit)` in the VM, silently producing wrong results.
+  Now returns a clear compile error: "block if/else expression not yet supported in VM bytecode".
+- `Statement::IfElseBlock` (block if/else used as statement) is **not affected** — still fully supported.
+- Two contract tests added: expression form fails, statement form still compiles.
+- ADR-0105 updated: BlockIfElse gap description corrected, Наряд №129 referenced.
+- No golden examples were masking this defect (verified).
+
 ## [0.17.0] - 2026-08-17
 
 **Native SVG/graphics subsystem — 44 builtins, zero external rendering

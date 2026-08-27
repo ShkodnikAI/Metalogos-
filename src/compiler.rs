@@ -730,10 +730,10 @@ impl Compiler {
                 }
                 code.push(Instruction::MakeStruct("Struct".to_string(), field_names));
             }
-            // Наряд №14 P0-3: block if/else expression — deferred to tree-walking
             Expr::BlockIfElse { .. } => {
-                // Compiled as Unit placeholder; tree-walking interpreter handles it
-                code.push(Instruction::Const(Value::Unit));
+                return Err("compile: block if/else expression not yet supported \
+                     in VM bytecode (use tree-walking interpreter)"
+                    .into());
             }
             // Наряд №91: try expression — real compilation for VM
             // Compile inner expression into a separate instruction block,

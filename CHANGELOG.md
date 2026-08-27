@@ -4,6 +4,16 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Fixed — НАРЯД №127: Dockerfile stub build silently failed — dependency cache never worked
+- Root cause: `|| true` hid TWO failures in the stub build step: missing
+  `src/lib.rs` (needed by mlogpkg/mlog-lsp that depend on metalogos lib)
+  AND missing `benches/core_benchmarks.rs` (needed by `[[bench]]` manifest entry).
+- Fix: added `src/lib.rs` and `benches/core_benchmarks.rs` stubs, removed `|| true`.
+- Dependency caching layer now actually compiles — verified by simulating the
+  stub build locally (`cargo build --release` succeeds in ~5 min).
+- `2>/dev/null` kept: suppresses noisy dep compilation output (expected),
+  but build failures now correctly surface (non-zero exit code).
+
 ### Security — НАРЯД №130: SSRF guard for http_get/http_post/http_post_multipart
 - Outgoing HTTP requests now resolve DNS **before** connecting and block
   requests to loopback, private, link-local, and cloud metadata addresses.

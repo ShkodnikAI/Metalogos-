@@ -11,16 +11,22 @@ COPY Cargo.toml Cargo.lock ./
 COPY mlogpkg/Cargo.toml mlogpkg/
 COPY mlog-lsp/Cargo.toml mlog-lsp/
 
-# Create stub sources so dependency layer compiles
-RUN mkdir -p src mlogpkg/src mlog-lsp/src && \
+# Create stub sources so dependency layer compiles.
+# src/lib.rs stub: mlogpkg and mlog-lsp depend on the metalogos lib target.
+# benches/ stub: [[bench]] in Cargo.toml requires the file for manifest parsing.
+# Without these, the stub build fails — the old || true hid BOTH failures,
+# meaning dependency caching was never actually effective (Наряд №127).
+RUN mkdir -p src mlogpkg/src mlog-lsp/src benches && \
     echo "fn main() {}" > src/main.rs && \
+    echo "" > src/lib.rs && \
     echo "fn main() {}" > mlogpkg/src/main.rs && \
     echo "fn main() {}" > mlog-lsp/src/main.rs && \
-    cargo build --release 2>/dev/null || true
+    echo "" > benches/core_benchmarks.rs && \
+    cargo build --release 2>/dev/null
 
 # Copy real source and rebuild (only application code changes)
 COPY . .
-RUN touch src/main.rs mlogpkg/src/main.rs mlog-lsp/src/main.rs && \
+RUN touch src/lib.rs src/main.rs mlogpkg/src/main.rs mlog-lsp/src/main.rs && \
     cargo build --release
 
 # ── Runtime image ────────────────────────────────────

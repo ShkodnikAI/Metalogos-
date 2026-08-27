@@ -151,7 +151,6 @@ Metalogos-/
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
 ├── Dockerfile                        # Docker build
-├── CNAME                             # Custom domain
 ├── index.html                        # Landing page / docs site
 │
 ├── src/                              # Core compiler + interpreter (~59 000 LOC)

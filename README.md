@@ -64,8 +64,8 @@ OWASP Top 10 is covered at the language level, not through middleware.
 
 **Eliminated by the compiler** (these are structural errors — `mlog check`, `mlog run`, `mlog serve`, and `mlog compile` all refuse to proceed):
 - **SQL injection is impossible** — `query()` with non-literal SQL is a compile-time error; only parameterized queries are allowed
-- **Plaintext secret leakage is impossible** — passing `env()` results to `respond()`/`write_file()` is a compile-time error
-- **XSS via LLM output is impossible** — passing `call_llm()`/`call_claude()` results to `respond()` without `render()`/`escape_html()` is a compile-time error
+- **Plaintext secret leakage is impossible** — passing `env()` results to `respond()`/`write_file()`/`http_post()` body is a compile-time error
+- **XSS via LLM output is impossible** — passing `call_llm()`/`call_claude()` results to `respond()` without `render()`/`escape_html()` is a compile-time error — for both direct variable flow and single-level inline nesting; see Known boundaries for interprocedural/persisted flow
 
 **Checked by `mlog audit`** (these are heuristic advisories — context-dependent, may have legitimate exceptions):
 - Hardcoded secrets in source (heuristic; can false-positive on error messages)
@@ -300,10 +300,10 @@ These checks use **intraprocedural taint tracking** — they follow `let`-assign
 
 | Pattern | Why not caught |
 |---|---|
-| `respond(call_llm(p, i))` (inline call) | Taint is not tracked through nested expressions |
 | LLM output passed via pattern call (interprocedural) | Taint does not cross pattern boundaries |
 | LLM output stored via `memorize()` then read back | Data flow through persistence is not tracked |
 | `query(format("...", x))` | `format()` output is not a literal string; check requires compile-time constant |
+| `respond_html(query_param("url"))` (direct user-input nesting) | Open-redirect check only tracks via variable, not inline call |
 
 Use `mlog audit` for additional heuristic checks (hardcoded secrets, sandbox coverage, rate limiting, CSRF, open redirect).
 

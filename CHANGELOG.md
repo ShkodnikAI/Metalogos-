@@ -12,6 +12,18 @@ All notable changes to the Metalogos project.
   decision (what to measure, what to compare against), not mechanical addition.
   Revisit only when mock value creates a concrete problem in real `mutate` usage.
 
+### Fixed — Наряд №126: sandbox timeout is now truly preemptive, not post-factum
+- `invoke_learnable_with_env`: LLM calls in a sandbox with `timeout > 0` now run
+  in a separate thread with `mpsc::recv_timeout`. The calling thread stops
+  waiting at the deadline instead of detecting the timeout after the call
+  already returned.
+- Known limitation (honestly documented): the background HTTP request to
+  the LLM provider may still be running — only the *wait* is cancelled.
+  Full request cancellation requires `reqwest::AbortHandle`, a separate наряд.
+- `MockLlm`: added `set_delay_ms`/`reset_delay` for timeout contract tests.
+- 4 contract tests: C1 preemptive timeout within budget, C2 call completes
+  within timeout, C3 no sandbox no timeout, C4 timeout=0 backward compat.
+
 ### Fixed — Наряд №125: CSRF cookie missing HttpOnly so JS can double-submit
 - `_mlog_csrf` cookie: removed `HttpOnly` flag — JS clients must read this
   cookie to perform double-submit. Session cookie `_mlog_session` retains

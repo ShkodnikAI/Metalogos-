@@ -676,7 +676,8 @@ async fn route_handler(
                 token.clone(),
                 (session_id_for_csrf, std::time::Instant::now()),
             );
-            let cookie_value = format!("_mlog_csrf={}; HttpOnly; SameSite=Strict; Path=/", token);
+            // Наряд №125: NO HttpOnly — JS must read this cookie for double-submit.
+            let cookie_value = format!("_mlog_csrf={}; SameSite=Strict; Path=/", token);
             if let Ok(val) = HeaderValue::from_str(&cookie_value) {
                 response.headers_mut().append(header::SET_COOKIE, val);
             }

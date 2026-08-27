@@ -4,6 +4,14 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Fixed — Наряд №125: CSRF cookie missing HttpOnly so JS can double-submit
+- `_mlog_csrf` cookie: removed `HttpOnly` flag — JS clients must read this
+  cookie to perform double-submit. Session cookie `_mlog_session` retains
+  `HttpOnly; Secure` (correctly, opposite requirement).
+- 4 integration tests: cookie lacks HttpOnly, double-submit accept,
+  reject missing token, reject wrong token.
+- README OWASP wording verified — already correct.
+
 ### Fixed — Наряд №123: Taint checks now catch nested calls, not only variables
 - `check_html_injection`: `respond(call_llm(...))` and `respond(call_claude(...))` now flagged (previously only `respond(x)` where `x` is a variable was caught).
 - `check_secret_leak`: `http_post(url, env("KEY"), headers)` now flagged

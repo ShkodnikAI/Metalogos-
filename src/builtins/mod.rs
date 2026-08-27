@@ -91,6 +91,7 @@ pub(crate) mod llm;
 use llm::*;
 pub(crate) mod http;
 use http::*;
+pub use http::{check_url_ssrf, is_blocked_address};
 pub(crate) mod memory;
 pub use memory::init_kv_persist;
 use memory::*;

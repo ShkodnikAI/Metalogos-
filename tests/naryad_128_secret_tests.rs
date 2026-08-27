@@ -19,8 +19,10 @@ fn test_n128_to_string_secret_returns_placeholder() {
     let secret = Value::Secret("super-secret-value-12345".to_string());
     let displayed = format!("{}", secret);
     assert_eq!(displayed, "[Secret]");
-    assert!(!displayed.contains("super-secret-value"),
-        "to_string(Secret) must NOT contain the actual secret value");
+    assert!(
+        !displayed.contains("super-secret-value"),
+        "to_string(Secret) must NOT contain the actual secret value"
+    );
 }
 
 // ── C2: is_nonprintable блокирует Secret ─────────────────────────
@@ -29,8 +31,7 @@ fn test_n128_to_string_secret_returns_placeholder() {
 fn test_n128_secret_is_nonprintable() {
     use metalogos::interpreter::values::is_nonprintable;
     let secret = Value::Secret("any-value".to_string());
-    assert!(is_nonprintable(&secret),
-        "Secret must be non-printable");
+    assert!(is_nonprintable(&secret), "Secret must be non-printable");
 }
 
 // ── C3: String НЕ nonprintable ───────────────────────────────────
@@ -38,8 +39,7 @@ fn test_n128_secret_is_nonprintable() {
 fn test_n128_string_is_printable() {
     use metalogos::interpreter::values::is_nonprintable;
     let s = Value::String("hello".to_string());
-    assert!(!is_nonprintable(&s),
-        "String must be printable");
+    assert!(!is_nonprintable(&s), "String must be printable");
 }
 
 // ── C4: другие непечатаемые типы тоже блокируются ──────────────────

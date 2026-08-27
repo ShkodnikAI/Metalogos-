@@ -199,9 +199,10 @@ fn p7_contract_visibility() {
     // environment variables or a live HTTP server. Visibility is the goal.
 }
 
-/// Find .mlog files in `examples/` paired with .error files.
-/// Covers p30_* and p31_* prefixes — verified semantic contracts.
-/// Legacy .error files (err_*, p2_*) are reference-only, not automated.
+/// Find all .mlog files in `examples/` paired with .error files.
+/// Same "pair exists → include" logic as `collect_pairs` for .expected.
+/// Наряд №134: removed p30_/p31_ prefix filter that silently skipped
+/// p114_secret_no_print and other valid error contracts.
 fn collect_error_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
     let mut pairs = Vec::new();
     if let Ok(entries) = fs::read_dir(examples_dir) {
@@ -212,13 +213,6 @@ fn collect_error_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
             }
             if let Some(ext) = path.extension() {
                 if ext == "mlog" {
-                    let file_name = path
-                        .file_name()
-                        .map(|f| f.to_string_lossy().to_string())
-                        .unwrap_or_default();
-                    if !file_name.starts_with("p30_") && !file_name.starts_with("p31_") {
-                        continue;
-                    }
                     let error_file = path.with_extension("error");
                     if error_file.exists() {
                         pairs.push((path, error_file));
@@ -227,6 +221,7 @@ fn collect_error_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
             }
         }
     }
+    pairs.sort_by(|a, b| a.0.file_name().cmp(&b.0.file_name()));
     pairs
 }
 

@@ -4,6 +4,23 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Fixed — НАРЯД №134: `collect_error_pairs` blind spot — 5 error contracts never ran in CI
+- `collect_error_pairs` in `tests/golden.rs` had a hardcoded `p30_/p31_` prefix
+  filter that silently skipped ALL other `.error` contracts, including
+  `p114_secret_no_print.error` (Secret protection contract).
+- Removed the prefix filter; now uses the same "pair exists → include" logic
+  as `collect_pairs` for `.expected` files. Added deterministic sort order.
+- Verified and updated all previously-skipped error contracts:
+  - `err_undef.error`: updated message ("undefined entity" → "undefined variable")
+  - `p2_multi_errors.error`: updated ("2 errors" → "unknown struct type: FakeType")
+  - `p2_type_mismatch.error`: updated ("type mismatch" → "upper() expected String argument, got Float")
+  - `p114_secret_no_print.error`: confirmed correct, no change needed
+  - `err_unknown_step.mlog`/`.error`: **deleted** — program succeeds (soft-error
+    pattern in `invoke()`), not an error contract. The pair was fundamentally
+    wrong for the current architecture.
+- Block 3 check: no other functions in `golden.rs` have the same hard-coded
+  prefix pattern. `collect_pairs` uses justified exclusions (p7_, p88) with ADRs.
+
 ### Fixed — НАРЯД №128: misleading `#[ignore]` Secret tests removed
 - Two tests in `phase19_22_constraints.rs` (`test_z19_print_secret_forbidden`,
   `test_z19_to_string_secret_forbidden`) were marked `#[ignore]` with a comment

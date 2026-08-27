@@ -1,3 +1,0 @@
-entity greeting: String = "hello"
-
-flow Main { input: String = greeting -> NonexistentStep -> output }

@@ -111,7 +111,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 ```
  .mlog source        Pest PEG          AST                Semantic            TW + VM backends
 ─────────────  ──>  ────────────  ──>  ───────────  ──>  ────────────  ──>  ────────────
- entity             parse tokens      27 Declaration    cross-reference     tree-walking
+ entity             parse tokens      29 Declaration    cross-reference     tree-walking
  pattern            syntax rules      15 Expr           validation          bytecode VM
  flow                                  12 Statement      opaque type       enforcement
  memory                                 4 MatchArm        span-aware
@@ -127,11 +127,11 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Parser | Pest 2.7 PEG grammar (~400 lines, 259 rules) | 2 176 |
 | AST | 29 Declaration variants, 15 Expr, 12 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION), SVG XSS lint | 473 |
-| Compiler | Bytecode, 349 builtins indexed | 659 |
+| Compiler | Bytecode, 359 builtins indexed | 659 |
 | Bytecode format | 46 VM instructions | — |
 | Tree-walking interpreter | Full feature support, 12 modules | ~4 400 |
 | VM | Stack-based bytecode executor | 2 143 |
-| Built-in functions | 349 functions across 22 modules | ~9 500 |
+| Built-in functions | 359 functions across 32 modules | ~9 500 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 2 357 |
 | LLM backend | Trait + mock + real providers | 1 421 |
 | Memory store | Typed memory with FTS5 BM25 + cosine RRF hybrid recall + KV store | 1 540 |
@@ -155,9 +155,9 @@ Metalogos-/
 ├── index.html                        # Landing page / docs site
 │
 ├── src/                              # Core compiler + interpreter (~59 000 LOC)
-│   ├── main.rs                        # CLI: run/repl/check/serve/compile/eval/audit
-│   ├── grammar.pest                   # Pest PEG grammar (384 lines)
-│   ├── ast.rs                         # AST definitions (27 Decl, 15 Expr, 12 Stmt) + Span tracking
+│   ├── main.rs                        # CLI: run/check/repl/compile/serve/eval/resume/test/audit
+│   ├── grammar.pest                   # Pest PEG grammar (392 lines)
+│   ├── ast.rs                         # AST definitions (29 Decl, 15 Expr, 12 Stmt) + Span tracking
 │   ├── semantic.rs                    # Semantic analysis + opaque type enforcement
 │   ├── compiler.rs                    # Bytecode compiler
 │   ├── bytecode.rs                    # VM instruction set (46 instructions)
@@ -187,7 +187,7 @@ Metalogos-/
 │   │   ├── db.rs                      # SQLite database access
 │   │   └── learnable.rs               # Learnable pattern support
 │   │
-│   └── builtins/                      # 349 built-in functions (22 modules)
+│   └── builtins/                      # 359 built-in functions (32 modules)
 │       ├── mod.rs                     # Builtin dispatch
 │       ├── registry.rs               # BUILTIN_REGISTRY (SSOT for all builtins)
 │       ├── core.rs                    # print, let, type, inspect, sleep
@@ -221,26 +221,27 @@ Metalogos-/
 │   └── tests/
 │       └── pkg_integration.rs
 │
-├── tests/                             # 53 Rust test files
+├── tests/                             # 54 Rust test files
 │   ├── fixtures/                      # PDF test fixtures
-│   ├── golden.rs                      # Golden test runner (66/70 pass)
+│   ├── golden.rs                      # Golden test runner
 │   ├── vm_golden.rs                   # VM golden tests
-│   ├── crosscheck_backends.rs          # TW vs VM parity (subset both can run; see ADR-0105)
+│   ├── crosscheck_backends.rs          # TW vs VM parity (see ADR-0105 for known gaps)
 │   ├── repl_integration.rs            # REPL tests
 │   ├── definition_of_done.rs          # Project completeness validation
-│   └── ...                            # Contract + feature tests (53 files)
+│   └── ...                            # Contract + feature tests (54 files)
 │
-├── examples/                          # 174 .mlog programs
+├── examples/                          # 186 .mlog programs
 │   ├── m1_hello.mlog                  # Hello World
 │   ├── p6_full_app.mlog               # Full web app with routes
 │   ├── p23_ml_learn.mlog              # ML learning
 │   ├── dag_demo.mlog                  # DAG orchestration
 │   └── contracts/                     # Golden-file test contracts
 │
-├── std/                               # Standard library (3 .mlog files)
+├── std/                               # Standard library (4 .mlog files)
 │   ├── string.mlog
 │   ├── math.mlog
-│   └── collections.mlog
+│   ├── collections.mlog
+│   └── infographic.mlog
 │
 ├── self-host/                         # Self-hosting experiments
 │   ├── lexer.mlog                     # Lexer written in .mlog itself
@@ -252,25 +253,20 @@ Metalogos-/
 │   └── syntaxes/mlog.tmLanguage.json  # TextMate syntax highlighting
 │
 ├── assets/                            # Brand assets
-│   ├── logo.svg
 │   └── qr_wallet.jpg                  # Crypto wallet QR code
 │
 ├── benches/                           # Criterion benchmarks
 │   └── core_benchmarks.rs
 │
 ├── docs/
-│   └── adr/                           # 100 Architecture Decision Records (ADR-0001..0103)
+│   ├── book/                          # mdBook documentation (syntax, stdlib, tutorial)
+│   └── adr/                           # 108 Architecture Decision Records (ADR-0001..0111)
 │       ├── 0001-m1-architecture.md
 │       ├── ...
-│       └── 0103-idiomatic-ignore-reasons.md
-│
-├── scripts/                           # Development utilities (7 files)
-│   ├── add_builtins.py                # Builtin registration helpers
-│   ├── dl_artifact.py                 # CI artifact downloader
-│   └── generate_o2_order.js           # Narad execution order generator
+│       └── 0111-ast-span-tracking.md
 │
 └── .github/workflows/                  # CI/CD
-    ├── ci.yml                         # test-lib (blocking), test-integration, fmt, clippy
+    ├── ci.yml                         # 8 blocking jobs + test-integration (advisory)
     └── build.yml                      # Release build + artifact upload
 ```
 
@@ -552,7 +548,7 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 | Metric | Value |
 |---|---|
 | Effective Rust LOC | ~59 000 |
-| Built-in Functions | 359 (22 modules) |
+| Built-in Functions | 359 (32 modules) |
 | Example Programs | 186 |
 | Integration Tests | 54 test suites |
 | Architecture Decision Records | 111 |

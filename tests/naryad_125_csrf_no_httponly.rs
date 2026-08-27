@@ -37,8 +37,7 @@ fn csrf_cookie_lacks_httponly(headers: &reqwest::header::HeaderMap) -> bool {
         .iter()
         .any(|v| {
             v.to_str()
-                .map(|s| s.contains("_mlog_csrf=") && !s.contains("HttpOnly"))
-                .unwrap_or(false)
+                .is_ok_and(|s| s.contains("_mlog_csrf=") && !s.contains("HttpOnly"))
         })
 }
 

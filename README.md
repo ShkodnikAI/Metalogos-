@@ -560,6 +560,18 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 
 ---
 
+## Development Process
+
+Metalogos was built through iterative, verification-first development:
+every feature started as a minimal example with an expected output,
+followed by the smallest implementation that made it pass, followed by
+review before merge. Architectural decisions are recorded as ADRs
+(108 as of this writing, in `docs/adr/`) rather than left implicit —
+including several honest "Rejected" decisions where a proposed feature
+was deliberately not built, with the reasoning kept on record. The full
+commit history and every ADR remain in this repository; detailed
+internal work-order logs are not published separately.
+
 ## Version History (selected)
 
 | Version | Highlights |

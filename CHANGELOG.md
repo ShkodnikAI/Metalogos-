@@ -20,6 +20,11 @@ All notable changes to the Metalogos project.
     wrong for the current architecture.
 - Block 3 check: no other functions in `golden.rs` have the same hard-coded
   prefix pattern. `collect_pairs` uses justified exclusions (p7_, p88) with ADRs.
+- **CI fix**: `p114_secret_no_print.mlog` pattern had 0 params but flow dispatch
+  always passes 1 arg (arity mismatch). Fixed: pattern now accepts Secret
+  param, flow passes entity through. Also fixed compilation errors in
+  `naryad_128_secret_tests.rs` (wrong types: `Secret` takes `SecretString`,
+  `Hash` takes `String`). Applied `cargo fmt` to all files.
 
 ### Fixed — НАРЯД №128: misleading `#[ignore]` Secret tests removed
 - Two tests in `phase19_22_constraints.rs` (`test_z19_print_secret_forbidden`,

@@ -224,6 +224,24 @@ fn binding_taint(value: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
     get_expr_taint(value, tracker)
 }
 
+/// Check whether an expression carries LLM-output taint.
+/// Handles both variable references (via tracker) and direct LLM
+/// function calls (call_llm / call_claude) without an intermediate
+/// variable binding. Single-level nesting only — interprocedural
+/// analysis is a separate, larger task.
+fn expr_is_llm_tainted(expr: &Expr, tracker: &TaintTracker) -> bool {
+    match expr {
+        Expr::Ident { name, .. } => tracker.get_taint(name) == Some(TaintKind::LlmOutput),
+        Expr::FnCall { name, .. } => is_llm_source(name),
+        _ => false,
+    }
+}
+
+/// Returns true if the function name is a known LLM output source.
+fn is_llm_source(name: &str) -> bool {
+    matches!(name, "call_llm" | "call_claude")
+}
+
 // ── Helper: find line number for a keyword in source ────────────────
 
 /// Find the 1-based line number of the first occurrence of `keyword` in source.
@@ -771,16 +789,17 @@ fn check_html_injection(
         {
             if fn_name == "respond" || fn_name == "respond_html" {
                 for arg in args {
-                    if let Expr::Ident { name: var, .. } = arg {
-                        if tracker.get_taint(var) == Some(TaintKind::LlmOutput) {
-                            let line = find_line(source, "respond");
-                            findings.push(AuditFinding {
-                                severity: Severity::Warning,
-                                check_id: "HTML_INJECTION",
-                                line,
-                                message: "LLM output passed to respond() — use template/render for XSS safety".to_string(),
-                            });
-                        }
+                    // Наряд №123: catch both variable references
+                    // (tracker) and direct nested LLM calls
+                    // (e.g. respond(call_llm(...))).
+                    if expr_is_llm_tainted(arg, tracker) {
+                        let line = find_line(source, "respond");
+                        findings.push(AuditFinding {
+                            severity: Severity::Warning,
+                            check_id: "HTML_INJECTION",
+                            line,
+                            message: "LLM output passed to respond() — use template/render for XSS safety".to_string(),
+                        });
                     }
                 }
             }
@@ -1004,9 +1023,11 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                 }
                 // http_post: секрет в теле запроса (арг 1) — утечка.
                 // Секрет в заголовках (арг 3) — штатная авторизация, НЕ флагируем.
+                // Наряд №123: use get_expr_taint to catch both variable refs
+                // and direct env() calls (e.g. http_post(u, env("K"), h)).
                 if fn_name == "http_post" {
-                    if let Some(Expr::Ident { name: var, .. }) = args.get(1) {
-                        if tracker.get_taint(var) == Some(TaintKind::Secret) {
+                    if let Some(arg) = args.get(1) {
+                        if get_expr_taint(arg, tracker) == Some(TaintKind::Secret) {
                             let line = find_line(source, fn_name);
                             findings.push(AuditFinding {
                                 severity: Severity::Error,
@@ -1731,6 +1752,112 @@ mod tests {
         assert!(
             result.findings.iter().any(|f| f.check_id == "SECRET_LEAK"),
             "print(env(...)) must be SECRET_LEAK, got {:?}",
+            result.findings
+        );
+    }
+
+    // ── Наряд №123: nested call taint — single-level inline nesting ──
+
+    #[test]
+    fn html_injection_nested_call_llm_in_respond() {
+        // respond(call_llm(...)) — direct nesting without intermediate variable.
+        // Before №123 this was NOT caught (only Ident args were checked).
+        let source = r#"
+            pattern Direct() -> String {
+                let r = respond("200 OK", call_llm("Tell me a joke"))
+                return r
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "HTML_INJECTION" && f.severity == Severity::Warning),
+            "respond(call_llm(...)) must trigger HTML_INJECTION, got {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn html_injection_nested_call_claude_in_respond() {
+        // respond(call_claude(...)) — same check for call_claude.
+        let source = r#"
+            pattern Direct() -> String {
+                let r = respond("200 OK", call_claude("Tell me a joke"))
+                return r
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "HTML_INJECTION" && f.severity == Severity::Warning),
+            "respond(call_claude(...)) must trigger HTML_INJECTION, got {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn html_injection_via_variable_still_caught() {
+        // Regression: existing case (let x = call_llm(...); respond(x)) must still work.
+        let source = r#"
+            pattern Indirect() -> String {
+                let result = call_llm("Tell me a joke")
+                let r = respond("200 OK", result)
+                return r
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "HTML_INJECTION" && f.severity == Severity::Warning),
+            "respond(x) where x from call_llm must still trigger HTML_INJECTION, got {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn secret_leak_http_post_direct_env() {
+        // http_post(url, env("KEY"), headers) — direct nesting without variable.
+        // Before №123 this was NOT caught (only Ident args were checked).
+        let source = r#"
+            pattern Leak() -> String {
+                let r = http_post("https://api.example.com", env("AUTH_TOKEN"), "application/json")
+                return r
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "SECRET_LEAK" && f.severity == Severity::Error),
+            "http_post(u, env(...), h) must trigger SECRET_LEAK, got {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn secret_leak_http_post_via_variable_still_caught() {
+        // Regression: existing case (let t = env(...); http_post(u, t, h)) must still work.
+        let source = r#"
+            pattern Leak() -> String {
+                let token = env("AUTH_TOKEN")
+                let r = http_post("https://api.example.com", token, "application/json")
+                return r
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "SECRET_LEAK" && f.severity == Severity::Error),
+            "http_post(u, token, h) where token from env must still trigger SECRET_LEAK, got {:?}",
             result.findings
         );
     }

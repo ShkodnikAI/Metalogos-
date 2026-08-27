@@ -4,6 +4,17 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Fixed — Наряд №123: Taint checks now catch nested calls, not only variables
+- `check_html_injection`: `respond(call_llm(...))` and `respond(call_claude(...))` now flagged (previously only `respond(x)` where `x` is a variable was caught).
+- `check_secret_leak`: `http_post(url, env("KEY"), headers)` now flagged
+  (previously only variable references in http_post body were checked).
+- `check_sql_dynamic`: verified — no gap (checks literal vs non-literal, not taint).
+- New helpers: `expr_is_llm_tainted()`, `is_llm_source()`.
+- 5 contract tests added (2 HTML_INJECTION + 2 SECRET_LEAK + 1 regression).
+- README: removed `respond(call_llm(p, i))` from Known boundaries table;
+  added `respond_html(query_param("url"))` (open-redirect inline nesting) as remaining gap.
+- Note: `check_open_redirect` has the same inline-nesting gap; tracked separately.
+
 ### Fixed — Наряд №129: BlockIfElse in VM now produces loud compile error
 - `Expr::BlockIfElse` (block if/else used as expression: `let x = if c then { ... } else { ... }`)
   previously compiled to `Const(Value::Unit)` in the VM, silently producing wrong results.

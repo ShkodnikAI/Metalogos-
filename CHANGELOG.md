@@ -4,6 +4,21 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Fixed — НАРЯД №128: misleading `#[ignore]` Secret tests removed
+- Two tests in `phase19_22_constraints.rs` (`test_z19_print_secret_forbidden`,
+  `test_z19_to_string_secret_forbidden`) were marked `#[ignore]` with a comment
+  claiming "Secret type constraints removed" — **incorrect and misleading**.
+- The comment already provoked one incorrect external audit conclusion
+  ("типовая защита секретов удалена").
+- Investigation found Secret protection works through *different* mechanisms than
+  the obsolete semantic checker the old tests targeted:
+  - `print(secret)` → runtime `is_nonprintable()` + audit `SECRET_LEAK`
+  - `to_string(secret)` → `Display` returns `[Secret]` (not the real value);
+    audit taint tracker still propagates Secret taint to downstream sinks
+- No actual vulnerability found for `to_string()` — it is safe by design.
+- Old tests deleted; replacement contract tests added in `naryad_128_secret_tests.rs`
+  documenting the *actual* protection mechanisms (5 tests).
+
 ### Fixed — НАРЯД №127: Dockerfile stub build silently failed — dependency cache never worked
 - Root cause: `|| true` hid TWO failures in the stub build step: missing
   `src/lib.rs` (needed by mlogpkg/mlog-lsp that depend on metalogos lib)

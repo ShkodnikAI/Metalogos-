@@ -35,41 +35,17 @@ fn semantic_check(source: &str) -> AnalysisResult {
 // ═══════════════════════════════════════════════════════════════════
 // Наряд №19: Opaque type constraints in semantic analysis
 // ═══════════════════════════════════════════════════════════════════
-
-#[test]
-#[ignore = "TODO: Secret type constraints removed when env() changed to return String; re-add when Secret is re-implemented"]
-fn test_z19_print_secret_forbidden() {
-    let source = r#"
-entity key: Secret = env("KEY")
-pattern leak() -> String {
-    print(key)
-    return "done"
-}
-"#;
-    let result = semantic_check(source);
-    assert!(!result.is_ok());
-    assert!(result
-        .errors
-        .iter()
-        .any(|e| e.contains("opaque type constraint") && e.contains("print")));
-}
-
-#[test]
-#[ignore = "TODO: Secret type constraints removed when env() changed to return String"]
-fn test_z19_to_string_secret_forbidden() {
-    let source = r#"
-entity key: Secret = env("KEY")
-pattern leak2() -> String {
-    return to_string(key)
-}
-"#;
-    let result = semantic_check(source);
-    assert!(!result.is_ok());
-    assert!(result
-        .errors
-        .iter()
-        .any(|e| e.contains("opaque type constraint") && e.contains("to_string")));
-}
+//
+// Наряд №128: два старых теста (print_secret_forbidden, to_string_secret_forbidden)
+// удалены. Они проверяли устаревший механизм (semantic check_program с сообщением
+// «opaque type constraint»), которого больше нет. Защита Secret теперь обеспечивается
+// другими механизмами, которые имеют собственные тесты:
+//   • print(secret) — runtime is_nonprintable() + audit SECRET_LEAK
+//     (тесты: audit::secret_leak_print_ident, audit::secret_leak_print_direct_env,
+//      examples/p114_secret_no_print.mlog + .error)
+//   • to_string(secret) — Display для Value::Secret возвращает «[Secret]»,
+//     реальное значение не утекает; taint-трекер audit propagates Secret
+//     через to_string() к downstream-стокам
 
 #[test]
 #[ignore = "TODO: Opaque type concat constraints not yet implemented in semantic checker"]

@@ -50,6 +50,11 @@ pub struct MockLlm;
 /// two identical invocations).
 static MOCK_LLM_CALL_COUNT: AtomicU64 = AtomicU64::new(0);
 
+/// Global artificial delay for MockLlm (milliseconds). Used by timeout
+/// contract tests (Наряд №126) to simulate a slow/hung LLM provider.
+/// Default 0 = no delay.
+static MOCK_LLM_DELAY_MS: AtomicU64 = AtomicU64::new(0);
+
 /// Global last-model tracker for MockLlm (ADR-0048).
 /// Records the model name passed to call_with_model().
 static MOCK_LLM_LAST_MODEL: Mutex<String> = Mutex::new(String::new());
@@ -81,10 +86,26 @@ impl MockLlm {
             .unwrap_or_else(|e| e.into_inner())
             .clone()
     }
+
+    /// Set an artificial delay for all MockLlm calls (Наряд №126).
+    /// Used by timeout contract tests to simulate a slow/hung LLM provider.
+    pub fn set_delay_ms(ms: u64) {
+        MOCK_LLM_DELAY_MS.store(ms, Ordering::SeqCst);
+    }
+
+    /// Reset the artificial delay to zero.
+    pub fn reset_delay() {
+        MOCK_LLM_DELAY_MS.store(0, Ordering::SeqCst);
+    }
 }
 
 impl LlmBackend for MockLlm {
     fn call(&self, prompt: &str, _input: &str) -> Result<String, String> {
+        // Наряд №126: apply artificial delay if set (for timeout tests)
+        let delay_ms = MOCK_LLM_DELAY_MS.load(Ordering::SeqCst);
+        if delay_ms > 0 {
+            std::thread::sleep(Duration::from_millis(delay_ms));
+        }
         MOCK_LLM_CALL_COUNT.fetch_add(1, Ordering::SeqCst);
         Ok(prompt.to_string())
     }
@@ -95,6 +116,11 @@ impl LlmBackend for MockLlm {
         _input: &str,
         model: Option<&str>,
     ) -> Result<String, String> {
+        // Наряд №126: apply artificial delay if set (for timeout tests)
+        let delay_ms = MOCK_LLM_DELAY_MS.load(Ordering::SeqCst);
+        if delay_ms > 0 {
+            std::thread::sleep(Duration::from_millis(delay_ms));
+        }
         MOCK_LLM_CALL_COUNT.fetch_add(1, Ordering::SeqCst);
         // Record model for contract tests
         if let Some(m) = model {

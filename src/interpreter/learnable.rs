@@ -279,35 +279,29 @@ impl Interpreter {
         }
 
         // No few-shot match — call LLM backend
-        let start = SystemTime::now();
-
         // Наряд №4: Use SmartRouter if llm config is present, otherwise legacy backend
         let resolved_model = learnable
             .model
             .as_ref()
             .map(|alias| llm::resolve_model(alias));
-        let response = match self.smart_router.lock() {
-            Ok(guard) => {
-                if let Some(ref router) = *guard {
-                    router.call(&effective_prompt, &input, resolved_model.as_deref())
-                } else {
-                    let backend = llm::create_llm_backend();
-                    backend.call_with_model(&effective_prompt, &input, resolved_model.as_deref())
-                }
-            }
-            Err(_) => {
-                let backend = llm::create_llm_backend();
-                backend.call_with_model(&effective_prompt, &input, resolved_model.as_deref())
-            }
-        }?;
 
-        // Phase 7.5: Sandbox enforcement — timeout check
-        if let Some(ref sb) = self.active_sandbox {
-            let elapsed = start.elapsed().unwrap_or_default();
-            if sb.timeout > 0 && elapsed.as_secs() >= sb.timeout as u64 {
-                return Err(format!("operation timed out in sandbox '{}'", sb.name));
+        // Наряд №126: Preemptive timeout via separate thread when sandbox timeout is set.
+        // If no sandbox or timeout is 0, call directly (no thread overhead).
+        let response = if let Some(ref sb) = self.active_sandbox {
+            if sb.timeout > 0 {
+                let timeout_dur = std::time::Duration::from_secs(sb.timeout as u64);
+                self.call_llm_with_timeout(
+                    &effective_prompt,
+                    &input,
+                    resolved_model.as_deref(),
+                    timeout_dur,
+                )?
+            } else {
+                self.call_llm_direct(&effective_prompt, &input, resolved_model.as_deref())?
             }
-        }
+        } else {
+            self.call_llm_direct(&effective_prompt, &input, resolved_model.as_deref())?
+        };
 
         // ADR-0047: Store response in cache
         if learnable.cache {
@@ -348,6 +342,89 @@ impl Interpreter {
         }
 
         Ok(Value::String(response))
+    }
+
+    /// Наряд №126: Direct LLM call (no timeout). Extracted from the former
+    /// inline call so both the direct and timeout paths share the same
+    /// routing logic (SmartRouter vs legacy backend).
+    fn call_llm_direct(
+        &self,
+        prompt: &str,
+        input: &str,
+        model: Option<&str>,
+    ) -> Result<String, String> {
+        match self.smart_router.lock() {
+            Ok(guard) => {
+                if let Some(ref router) = *guard {
+                    router.call(prompt, input, model)
+                } else {
+                    let backend = llm::create_llm_backend();
+                    backend.call_with_model(prompt, input, model)
+                }
+            }
+            Err(_) => {
+                let backend = llm::create_llm_backend();
+                backend.call_with_model(prompt, input, model)
+            }
+        }
+    }
+
+    /// Наряд №126: Preemptive LLM call with real timeout via a separate thread.
+    ///
+    /// The calling thread stops waiting after `timeout`, returning an error.
+    /// **Known limitation:** the background HTTP request to the LLM provider
+    /// may still be running — this only stops the *wait*, not the request itself.
+    /// Cancelling an in-flight HTTP request would require AbortHandle support
+    /// in the HTTP client (reqwest), which is out of scope for this наряд.
+    fn call_llm_with_timeout(
+        &self,
+        prompt: &str,
+        input: &str,
+        model: Option<&str>,
+        timeout: std::time::Duration,
+    ) -> Result<String, String> {
+        use std::sync::mpsc;
+
+        let (tx, rx) = mpsc::channel();
+
+        // Clone the Arc<Mutex<Option<SmartRouter>>> — cheap, only clones the pointer.
+        // LlmBackend is Send+Sync; SmartRouter auto-derives Send+Sync (all fields
+        // are Send+Sync: Vec, Option<String>, bool, u32, LlmUsageTracker with StdMutex).
+        let smart_router = self.smart_router.clone();
+        let prompt = prompt.to_string();
+        let input = input.to_string();
+        let model = model.map(String::from);
+
+        std::thread::spawn(move || {
+            let result = match smart_router.lock() {
+                Ok(guard) => {
+                    if let Some(ref router) = *guard {
+                        router.call(&prompt, &input, model.as_deref())
+                    } else {
+                        let backend = llm::create_llm_backend();
+                        backend.call_with_model(&prompt, &input, model.as_deref())
+                    }
+                }
+                Err(_) => {
+                    let backend = llm::create_llm_backend();
+                    backend.call_with_model(&prompt, &input, model.as_deref())
+                }
+            };
+            let _ = tx.send(result);
+        });
+
+        match rx.recv_timeout(timeout) {
+            Ok(result) => result,
+            Err(mpsc::RecvTimeoutError::Timeout) => Err(format!(
+                "LLM call timed out after {:?} — the caller stopped waiting, \
+                 but the HTTP request to the provider may still be running \
+                 in the background",
+                timeout
+            )),
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                Err("LLM call thread terminated unexpectedly".to_string())
+            }
+        }
     }
 
     /// ADR-0047: Compute a cache key from prompt + input using simple SipHash.

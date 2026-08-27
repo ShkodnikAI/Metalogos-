@@ -4,7 +4,19 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-### Docs — Наряд №124: honestly document mock accuracy metric in `adapt`
+### Security — НАРЯД №130: SSRF guard for http_get/http_post/http_post_multipart
+- Outgoing HTTP requests now resolve DNS **before** connecting and block
+  requests to loopback, private, link-local, and cloud metadata addresses.
+- DNS rebinding protection: resolved IPs are pinned via `reqwest::ClientBuilder::resolve()`,
+  preventing TOCTOU between check and connection.
+- Opt-out: `METALOGOS_HTTP_ALLOW_PRIVATE=1` disables the guard for local dev
+  and internal integrations. Guard is on by default.
+- Protected ranges: `127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`,
+  `169.254.0.0/16` (link-local + cloud metadata `169.254.169.254`), `::1`, `fe80::/10`.
+- 8 contract tests: C1 loopback blocked, C2 cloud metadata blocked, C3 IP
+  classification + public IP passes, C4 opt-out allows private.
+
+### Fixed — Наряд №124: honestly document mock accuracy metric in `adapt`
 - README §5: replaced unconditional "quality metrics, and automatic rollback
   on degradation. No analogues exist" with honest description — rollback
   mechanism is real, quality metric is a fixed mock (0.95). See ADR-0112.

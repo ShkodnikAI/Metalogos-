@@ -2,6 +2,7 @@
 
 use crate::interpreter::Value;
 use chrono::{Datelike, TimeZone, Timelike};
+use std::net::ToSocketAddrs;
 
 use super::core::*;
 use super::string::escape_html_chars;
@@ -239,6 +240,100 @@ fn should_retry_http(status: u16) -> bool {
     status == 429 || (500..600).contains(&status)
 }
 
+// ── НАРЯД №130: SSRF guard for http_get / http_post / http_post_multipart ──
+
+/// Check whether a resolved IP address is blocked by the SSRF guard.
+/// Blocks: loopback, link-local, private networks, cloud metadata endpoint.
+pub fn is_blocked_address(ip: &std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_private()
+                // Cloud metadata endpoints (AWS/GCP/Azure) — explicitly blocked
+                || *v4 == std::net::Ipv4Addr::new(169, 254, 169, 254)
+        }
+        std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.is_unicast_link_local(),
+    }
+}
+
+/// Whether SSRF protection is disabled via env var (Наряд №130 БЛОК 2).
+fn ssrf_guard_enabled() -> bool {
+    !std::env::var("METALOGOS_HTTP_ALLOW_PRIVATE")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false)
+}
+
+/// SSRF guard: resolve DNS, check all resolved IPs, return pinned addresses.
+///
+/// Returns a list of `(domain, SocketAddr)` pairs that should be passed to
+/// `reqwest::ClientBuilder::resolve()` to **pin** the resolution and prevent
+/// DNS rebinding (TOCTOU between check and actual connection).
+///
+/// Returns `Ok(vec![])` when SSRF guard is disabled via env var
+/// (no resolves needed — reqwest uses default DNS).
+pub fn check_url_ssrf(url: &str) -> Result<Vec<(String, std::net::SocketAddr)>, String> {
+    // Opt-out: local dev / internal integrations
+    if !ssrf_guard_enabled() {
+        return Ok(vec![]);
+    }
+
+    // Parse URL to extract host and port
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|e| format!("SSRF guard: invalid URL '{}': {}", url, e))?;
+
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| format!("SSRF guard: URL '{}' has no host", url))?;
+    let port = parsed.port_or_known_default().unwrap_or(80);
+
+    // Resolve DNS for the host — get ALL addresses
+    let socket_addrs: Vec<std::net::SocketAddr> = (host, port)
+        .to_socket_addrs()
+        .map_err(|e| format!("SSRF guard: DNS resolution failed for '{}': {}", host, e))?
+        .collect();
+
+    if socket_addrs.is_empty() {
+        return Err(format!(
+            "SSRF guard: DNS resolution returned no addresses for '{}'",
+            host
+        ));
+    }
+
+    // Check ALL resolved addresses — if any is blocked, reject the request
+    for addr in &socket_addrs {
+        if is_blocked_address(&addr.ip()) {
+            return Err(format!(
+                "SSRF guard: URL '{}' resolves to {} which is a private/loopback/link-local \
+                 address — outgoing requests to internal networks are blocked. \
+                 Set METALOGOS_HTTP_ALLOW_PRIVATE=1 to disable this protection.",
+                url,
+                addr.ip()
+            ));
+        }
+    }
+
+    // Return pinned addresses for reqwest .resolve() to prevent DNS rebinding
+    Ok(socket_addrs
+        .into_iter()
+        .map(|sa| (host.to_string(), sa))
+        .collect())
+}
+
+/// Apply SSRF guard resolves to a reqwest ClientBuilder.
+/// Pins DNS resolution to prevent TOCTOU / DNS rebinding.
+fn apply_ssrf_resolves(
+    builder: reqwest::blocking::ClientBuilder,
+    url: &str,
+) -> Result<reqwest::blocking::ClientBuilder, String> {
+    let resolves = check_url_ssrf(url)?;
+    let mut builder = builder;
+    for (domain, addr) in resolves {
+        builder = builder.resolve(&domain, addr);
+    }
+    Ok(builder)
+}
+
 /// Send an HTTP POST request. Returns the response body as String.
 /// Usage: http_post(url, body, content_type)
 /// Usage: http_post(url, body, content_type, auth_token)        — sets Authorization: Bearer <auth_token>
@@ -306,10 +401,12 @@ pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
         30
     };
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(timeout_secs))
-        .build()
-        .map_err(|e| format!("http_post(): failed to create client: {}", e))?;
+    let client = apply_ssrf_resolves(
+        reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(timeout_secs)),
+        &url,
+    )?
+    .build()
+    .map_err(|e| format!("http_post(): failed to create client: {}", e))?;
 
     // Optional headers argument (index depends on whether content_type was provided)
     let headers_idx =
@@ -459,10 +556,12 @@ pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
         }
     };
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(timeout_secs))
-        .build()
-        .map_err(|e| format!("http_get(): failed to create client: {}", e))?;
+    let client = apply_ssrf_resolves(
+        reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(timeout_secs)),
+        &url,
+    )?
+    .build()
+    .map_err(|e| format!("http_get(): failed to create client: {}", e))?;
 
     // Extract extra headers into a Vec so we can rebuild the request on retry
     let mut extra_headers: Vec<(String, String)> = Vec::new();
@@ -722,10 +821,12 @@ pub(crate) fn builtin_http_post_multipart(args: &[Value]) -> Result<Value, Strin
         }
     };
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .map_err(|e| format!("http_post_multipart(): client error: {}", e))?;
+    let client = apply_ssrf_resolves(
+        reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(120)),
+        &url,
+    )?
+    .build()
+    .map_err(|e| format!("http_post_multipart(): client error: {}", e))?;
 
     let mut form = reqwest::blocking::multipart::Form::new();
 

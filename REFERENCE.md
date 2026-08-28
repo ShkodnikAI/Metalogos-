@@ -235,9 +235,16 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Встроенные функции (Builtins)
 
-Все встроенные функции зарегистрированы в едином реестре `BUILTIN_REGISTRY` (файл `src/builtins.rs`). Реестр — **Single Source of Truth**: compiler, VM и semantic analysis читают имена и арности из него. Для добавления нового builtin достаточно добавить одну строку в `BUILTIN_REGISTRY` и один `funcs.insert()` в `Builtins::new()`.
+> **Coverage note (v0.17):** This section documents **~47%** of the 357 registered builtins (166 of 357).
+> The remaining 191 functions (pdf, cron, graph, time, bot, encoding, std helpers, etc.)
+> are not yet documented here. REFERENCE.md is **not exhaustive** — see
+> `src/builtins/registry.rs` for the authoritative list.
+>
+> Registered builtins live in `src/builtins/` (34 domain modules, ~29K lines).
+> The registry (`spec!()` macro) is the single source of truth for names, arities,
+> and categories — compiler, VM, and semantic analysis all derive from it.
 
-Всего зарегистрировано **135 builtins** в категориях: string, convert, list, math, std, web, json, crypto, auth, db, llm, memory, io, time, bot, voice, stateful, graph, mtree, cron, test, encoding, stub, fluid, system.
+Все встроенные функции зарегистрированы в едином реестре `BUILTIN_REGISTRY` (файл `src/builtins/registry.rs`).
 
 ### 4.1. Строковые функции
 

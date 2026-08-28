@@ -24,3 +24,7 @@ generate_*.js
 test_bot.mlog
 test_mlg1_pdf.mlog
 test/
+
+# Build artifacts
+*.mbc
+docs/book/book/

@@ -76,7 +76,7 @@ OWASP Top 10 is covered at the language level, not through middleware.
 
 ### 3. Dual Execution Backend
 
-Tree-walking interpreter (full language) + bytecode VM (65 instructions; experimental for full-language use — `match` and block `if/else` **expression** not supported yet, see [ADR-0105](docs/adr/0105-vm-experimental-scope.md)). Programs both backends can run are checked by `crosscheck_backends` for TW↔VM output parity.
+Tree-walking interpreter (full language) + bytecode VM (46 instructions; experimental for full-language use — `match` and block `if/else` **expression** not supported yet, see [ADR-0105](docs/adr/0105-vm-experimental-scope.md)). Programs both backends can run are checked by `crosscheck_backends` for TW↔VM output parity.
 
 ### 4. Typed Semantic Memory with Hybrid Search
 
@@ -128,7 +128,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | AST | 29 Declaration variants, 14 Expr, 12 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION), SVG XSS lint | 473 |
 | Compiler | Bytecode, 357 builtins indexed | 1 516 |
-| Bytecode format | 65 VM instructions | — |
+| Bytecode format | 46 VM instructions | — |
 | Tree-walking interpreter | Full feature support, 12 modules | ~4 400 |
 | VM | Stack-based bytecode executor | 2 143 |
 | Built-in functions | 357 functions across 34 modules | ~18 000 |
@@ -314,7 +314,7 @@ Every item in the OWASP Top 10 (2021) is addressed at the language level: type-s
 ### Two Execution Backends
 
 - **Tree-walking interpreter** — full feature support, used for `mlog run` and `mlog serve`
-- **Bytecode VM** — 65 instructions, stack-based, used for `mlog compile` + `mlog run file.mbc`
+- **Bytecode VM** — 46 instructions, stack-based, used for `mlog compile` + `mlog run file.mbc`
 - **JIT** — experimental scaffold, not part of the build (see ADR-0073)
 
 ### 357 Built-in Functions
@@ -552,7 +552,7 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 | Integration Tests | 59 test suites |
 | Architecture Decision Records | 110 |
 | Parser Rules | 262 (Pest PEG) |
-| VM Instructions | 65 |
+| VM Instructions | 46 |
 | Execution Backends | 2 (interpreter + bytecode VM) |
 | Workspace Crates | 3 (mlog, mlog-lsp, mlogpkg) |
 | Commits | 821 |

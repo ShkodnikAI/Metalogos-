@@ -186,10 +186,7 @@ pub(crate) fn sandbox_path(path: &str) -> Result<std::path::PathBuf, String> {
 
 /// Like `sandbox_path` but allows specifying whether the operation is
 /// a read (file must exist) or a write (file may be new).
-pub(crate) fn sandbox_path_ex(
-    path: &str,
-    mode: SandboxMode,
-) -> Result<std::path::PathBuf, String> {
+pub(crate) fn sandbox_path_ex(path: &str, mode: SandboxMode) -> Result<std::path::PathBuf, String> {
     let p = std::path::Path::new(path);
     // Reject absolute paths
     if p.is_absolute() {
@@ -212,11 +209,9 @@ pub(crate) fn sandbox_path_ex(
     // Resolve the base directory (cwd) and the target path.
     // Verify the resolved target stays inside the base.
     let base = std::env::current_dir().map_err(|e| format!("sandbox: {}", e))?;
-    let canonical_base = base
-        .canonicalize()
-        .map_err(|e| format!("sandbox: {}", e))?;
+    let canonical_base = base.canonicalize().map_err(|e| format!("sandbox: {}", e))?;
 
-    let full = base.join(&p);
+    let full = base.join(p);
     let canonical_target = match mode {
         // For reads: canonicalize the full path (file must exist).
         SandboxMode::ForRead => full.canonicalize(),
@@ -224,10 +219,7 @@ pub(crate) fn sandbox_path_ex(
         // may not exist yet (e.g. write_file to a new file).
         SandboxMode::ForWrite => match full.parent() {
             Some(parent) => parent.canonicalize(),
-            None => return Err(format!(
-                "file I/O sandbox: path has no parent: '{}'",
-                path
-            )),
+            None => return Err(format!("file I/O sandbox: path has no parent: '{}'", path)),
         },
     };
 
@@ -235,10 +227,7 @@ pub(crate) fn sandbox_path_ex(
         Ok(c) => c,
         // If canonicalization fails (e.g. broken symlink), reject.
         Err(_) => {
-            return Err(format!(
-                "file I/O sandbox: cannot resolve path: '{}'",
-                path
-            ));
+            return Err(format!("file I/O sandbox: cannot resolve path: '{}'", path));
         }
     };
 
@@ -812,6 +801,7 @@ mod tests {
 #[cfg(test)]
 mod tests_n131 {
     use super::*;
+    use serial_test::serial;
     use std::fs;
     use std::path::PathBuf;
 
@@ -838,6 +828,7 @@ mod tests_n131 {
     // ── C1: обычный относительный путь внутри директории ──
 
     #[test]
+    #[serial]
     fn n131_normal_relative_read() {
         with_temp_sandbox("metalogos_n131_c1r", || {
             fs::write("existing.txt", "data").unwrap();
@@ -846,6 +837,7 @@ mod tests_n131 {
     }
 
     #[test]
+    #[serial]
     fn n131_normal_relative_write() {
         with_temp_sandbox("metalogos_n131_c1w", || {
             // "new.txt" does not exist — ForWrite canonicalizes parent only
@@ -856,6 +848,7 @@ mod tests_n131 {
     // ── C2: симлинк на файл снаружи — отклонён ──
 
     #[test]
+    #[serial]
     fn n131_symlink_to_outside_file_rejected() {
         let sandbox = make_temp_dir("metalogos_n131_c2a_sandbox");
         let outside = make_temp_dir("metalogos_n131_c2a_outside");
@@ -876,7 +869,11 @@ mod tests_n131 {
         let result = sandbox_path("escape");
         std::env::set_current_dir(&prev).unwrap();
 
-        assert!(result.is_err(), "symlink to outside must be rejected: {:?}", result);
+        assert!(
+            result.is_err(),
+            "symlink to outside must be rejected: {:?}",
+            result
+        );
         let err = result.unwrap_err();
         assert!(
             err.contains("escapes sandbox"),
@@ -889,6 +886,7 @@ mod tests_n131 {
     }
 
     #[test]
+    #[serial]
     fn n131_symlink_via_subdir_rejected() {
         let sandbox = make_temp_dir("metalogos_n131_c2b_sandbox");
         let outside = make_temp_dir("metalogos_n131_c2b_outside");
@@ -909,7 +907,11 @@ mod tests_n131 {
         let result = sandbox_path("sub/link");
         std::env::set_current_dir(&prev).unwrap();
 
-        assert!(result.is_err(), "symlink via subdir must be rejected: {:?}", result);
+        assert!(
+            result.is_err(),
+            "symlink via subdir must be rejected: {:?}",
+            result
+        );
 
         let _ = fs::remove_dir_all(&sandbox);
         let _ = fs::remove_dir_all(&outside);
@@ -918,6 +920,7 @@ mod tests_n131 {
     // ── C3: write на новый файл — не ломается ──
 
     #[test]
+    #[serial]
     fn n131_write_new_file_passes() {
         with_temp_sandbox("metalogos_n131_c3a", || {
             assert!(sandbox_path_ex("brand_new.txt", SandboxMode::ForWrite).is_ok());
@@ -925,6 +928,7 @@ mod tests_n131 {
     }
 
     #[test]
+    #[serial]
     fn n131_write_new_in_subdir_passes() {
         with_temp_sandbox("metalogos_n131_c3b", || {
             fs::create_dir_all("sub").unwrap();
@@ -935,6 +939,7 @@ mod tests_n131 {
     // ── C3b: write через симлинк-директорию наружу — отклонён ──
 
     #[test]
+    #[serial]
     fn n131_write_via_symlink_dir_rejected() {
         let sandbox = make_temp_dir("metalogos_n131_c3c_sandbox");
         let outside = make_temp_dir("metalogos_n131_c3c_outside");
@@ -951,7 +956,11 @@ mod tests_n131 {
         let result = sandbox_path_ex("escape_dir/evil.txt", SandboxMode::ForWrite);
         std::env::set_current_dir(&prev).unwrap();
 
-        assert!(result.is_err(), "write via symlink dir must be rejected: {:?}", result);
+        assert!(
+            result.is_err(),
+            "write via symlink dir must be rejected: {:?}",
+            result
+        );
         let err = result.unwrap_err();
         assert!(
             err.contains("escapes sandbox"),
@@ -982,6 +991,7 @@ mod tests_n131 {
     // ── Additional: broken symlink ──
 
     #[test]
+    #[serial]
     fn n131_broken_symlink_rejected() {
         let sandbox = make_temp_dir("metalogos_n131_broken");
 
@@ -997,7 +1007,11 @@ mod tests_n131 {
         std::env::set_current_dir(&prev).unwrap();
 
         // Broken symlink: canonicalize fails → rejected
-        assert!(result.is_err(), "broken symlink must be rejected: {:?}", result);
+        assert!(
+            result.is_err(),
+            "broken symlink must be rejected: {:?}",
+            result
+        );
 
         let _ = fs::remove_dir_all(&sandbox);
     }

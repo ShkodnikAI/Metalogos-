@@ -19,7 +19,7 @@ Implement `mlog audit <file.mlog>` as a static analysis subcommand that parses t
 3. **CLI**: `mlog audit <file>` in `src/main.rs` via clap derive
 4. **Taint tracking**: `TaintTracker` per scope, tracking data provenance through variable bindings (`env()` -> Secret, `call_llm()` -> LlmOutput, `query_param()` -> UserInput, `render()` -> Sanitized)
 
-### Security Checks (8 total)
+### Security Checks (10 total)
 
 | Check ID | Severity | What it detects |
 |---|---|---|
@@ -31,6 +31,8 @@ Implement `mlog audit <file.mlog>` as a static analysis subcommand that parses t
 | `HTML_INJECTION` | Warning | LLM output (`call_llm`/`call_claude` result) passed directly to `respond()`/`respond_html()` without `render()` or `escape_html()` sanitization. |
 | `SECRET_LEAK` | Error | `env()` result passed to sink functions (`respond`, `respond_html`, `http_post`, `write_file`, `send_message`). |
 | `OPEN_REDIRECT` | Warning | User-controlled input (`query_param`, `form_data`, `json_body`) passed to `respond()`/`respond_html()`. |
+| `TAINT_PERSISTENCE` | Warning | File has both `memorize(call_llm(...))` and a scope using `recall()` + `respond()` — potential taint through memory persistence (heuristic, not data-flow). |
+| `TAINT_PASSTHROUGH` | Warning | `respond()`/`respond_html()` arg is a trivial passthrough pattern call (single param, `return param`) wrapping an LLM source — potential taint through indirection (heuristic). |
 
 ### Output Format
 
@@ -48,7 +50,7 @@ Summary: 1 error, 1 warning, 1 passed
 |---|---|
 | 0 | Clean — no errors, no warnings |
 | 1 | Has errors (SECRET_LEAK, SQL_DYNAMIC) |
-| 2 | Has warnings only (SECRETS, SANDBOX_COVERAGE, RATE_LIMIT, CSRF, HTML_INJECTION, OPEN_REDIRECT) |
+| 2 | Has warnings only (SECRETS, SANDBOX_COVERAGE, RATE_LIMIT, CSRF, HTML_INJECTION, OPEN_REDIRECT, TAINT_PERSISTENCE, TAINT_PASSTHROUGH) |
 
 ### Prior Art
 

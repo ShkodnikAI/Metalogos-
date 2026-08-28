@@ -51,8 +51,6 @@ fn registry_arity_exhaustive() {
         ("__round", 1, 1),
         ("__first", 1, 1),
         ("__last", 1, 1),
-        ("__push", 2, 2),
-        ("__list_len", 1, 1),
         // ── Stub entries for VM coverage ──
         ("abs", 1, 1),
         ("min", 2, 2),

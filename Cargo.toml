@@ -38,7 +38,7 @@ hyper = { version = "1", features = ["full"], optional = true }
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
-base64 = "0.22"
+base64 = "0.23"
 aes-gcm = "0.10"
 rand = "0.8"
 uuid = { version = "1", features = ["v4"] }

@@ -11,7 +11,7 @@ jobs:
     name: test-lib (blocking)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Guard against large files
         run: |
           find . -type f -size +50M -not -path './.git/*' | tee /tmp/large.txt
@@ -29,7 +29,7 @@ jobs:
     name: crosscheck (blocking)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: TW vs VM parity
@@ -39,7 +39,7 @@ jobs:
     name: registry-arity-check (blocking)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Registry/dispatcher arity sync
@@ -49,7 +49,7 @@ jobs:
     name: test-llm-cache-contract (blocking)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: LLM cache contract tests
@@ -59,7 +59,7 @@ jobs:
     name: minimal-build (blocking)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build with minimal features (no server/llm)
@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Integration tests (excluding blocking tests)
@@ -80,7 +80,7 @@ jobs:
     name: fmt (blocking)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -92,7 +92,7 @@ jobs:
     name: clippy (blocking)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -104,7 +104,7 @@ jobs:
     name: ADR numbering (blocking)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: ADR numbering collision check
         run: |
           dupes=$(ls docs/adr/ | sed -E 's/^([0-9]+)-.*/\1/' | sort | uniq -d)
@@ -117,7 +117,7 @@ jobs:
     name: cargo-audit (blocking)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked

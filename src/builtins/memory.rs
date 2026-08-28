@@ -564,7 +564,7 @@ pub(crate) fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
 
         let combined: String = texts.join(" | ");
         let summary = if combined.len() > 500 {
-            format!("{}...", &combined[..497])
+            format!("{}...", crate::util::safe_byte_truncate(&combined, 497))
         } else {
             combined
         };
@@ -618,7 +618,7 @@ pub(crate) fn builtin_mtree_summarize(args: &[Value]) -> Result<Value, String> {
 
         let combined: String = l1_texts.join("\n---\n");
         let global_summary = if combined.len() > 1000 {
-            format!("{}...", &combined[..997])
+            format!("{}...", crate::util::safe_byte_truncate(&combined, 997))
         } else {
             combined
         };

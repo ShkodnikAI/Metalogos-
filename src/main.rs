@@ -386,6 +386,24 @@ fn cmd_serve(file: PathBuf) {
 
     eprintln!("[mlog serve] tokio runtime: {} worker thread(s)", workers);
 
+    // --- Loud warnings for dangerous opt-out env vars ---
+    let mut danger_flags: Vec<&str> = Vec::new();
+    if std::env::var("METALOGOS_ALLOW_EXEC").unwrap_or_default() == "1" {
+        danger_flags.push("METALOGOS_ALLOW_EXEC=1");
+    }
+    if std::env::var("METALOGOS_HTTP_ALLOW_PRIVATE").unwrap_or_default() == "1" {
+        danger_flags.push("METALOGOS_HTTP_ALLOW_PRIVATE=1");
+    }
+    if !danger_flags.is_empty() {
+        eprintln!();
+        eprintln!("  WARNING: security protections are DISABLED by:");
+        for flag in &danger_flags {
+            eprintln!("    - {}", flag);
+        }
+        eprintln!("  Use only in trusted development environments.");
+        eprintln!();
+    }
+
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(workers)
         .enable_all()

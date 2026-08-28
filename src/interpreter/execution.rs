@@ -95,11 +95,7 @@ impl Interpreter {
                         mem_type: String::new(),
                     });
                     // ADR-0052: emit memory_store event
-                    let preview = if value_str.len() > 30 {
-                        &value_str[..30]
-                    } else {
-                        &value_str
-                    };
+                    let preview = crate::util::safe_byte_truncate(&value_str, 30);
                     let mut data = HashMap::new();
                     data.insert("key_preview".to_string(), preview.to_string());
                     data.insert("priority".to_string(), m.priority.to_string());

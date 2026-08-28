@@ -451,7 +451,7 @@ pub(crate) fn builtin_exec(args: &[Value]) -> Result<Value, String> {
                         "exec(): timeout after {}s for command: {}",
                         timeout_secs,
                         if cmd.len() > 200 {
-                            format!("{}...", &cmd[..200])
+                            format!("{}...", crate::util::safe_byte_truncate(&cmd, 200))
                         } else {
                             cmd.clone()
                         }

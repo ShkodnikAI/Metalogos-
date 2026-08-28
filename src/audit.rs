@@ -465,7 +465,7 @@ fn check_secrets(declarations: &[Declaration], source: &str, findings: &mut Vec<
         for s in strings {
             if looks_like_secret(s) {
                 // Find a snippet to locate in source
-                let snippet = if s.len() > 20 { &s[..20] } else { s.as_str() };
+                let snippet = crate::util::safe_byte_truncate(s, 20);
                 let line = find_line(source, snippet);
                 findings.push(AuditFinding {
                     severity: Severity::Warning,

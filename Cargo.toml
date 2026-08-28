@@ -95,7 +95,7 @@ imap-proto = "0.16"
 native-tls = "0.2"
 
 # Наряд MLG-5: Calendar (CalDAV + iCal, pure Rust)
-ical = "0.8"
+ical = "0.11"
 chrono-tz = "0.10"
 
 # Наряд MLG-6: Contacts (CardDAV + vCard, pure Rust)

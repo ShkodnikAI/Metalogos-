@@ -1,7 +1,8 @@
 // ── Static security analysis for METALOGOS (.mlog) programs ─────
 // ADR-0057: `mlog audit <file>` — analyzes without executing.
 // Checks: SECRETS, HTML_INJECTION, SQL_DYNAMIC, SANDBOX_COVERAGE,
-//         RATE_LIMIT, CSRF, SECRET_LEAK, OPEN_REDIRECT.
+//         RATE_LIMIT, CSRF, SECRET_LEAK, OPEN_REDIRECT,
+//         TAINT_PERSISTENCE, TAINT_PASSTHROUGH.
 
 use crate::ast::*;
 use crate::parser;
@@ -1223,6 +1224,278 @@ fn check_open_redirect(
     }
 }
 
+// ── Check: TAINT_PERSISTENCE — memorize(LLM-source) + recall in respond() ──
+// Наряд #141: file-level heuristic — if a file both stores LLM output via
+// `memorize` and passes `recall()` results to `respond`/`respond_html`,
+// warn about potential taint through persistence. Does NOT track precise
+// data-flow through the memory subsystem — honest warning, not a guarantee.
+
+fn check_taint_persistence(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    /// Recursively check if an expression contains an LLM source call.
+    fn expr_contains_llm_source(expr: &Expr) -> bool {
+        match expr {
+            Expr::FnCall { name, args, .. } => {
+                if is_llm_source(name) {
+                    return true;
+                }
+                args.iter().any(expr_contains_llm_source)
+            }
+            _ => false,
+        }
+    }
+
+    // Step 1: Check if any `memorize` declaration stores an LLM-sourced value.
+    let has_llm_memorize = declarations.iter().any(|d| {
+        if let Declaration::Memorize(m) = d {
+            expr_contains_llm_source(&m.value)
+        } else {
+            false
+        }
+    });
+
+    if !has_llm_memorize {
+        return;
+    }
+
+    // Step 2: Check if any scope uses both recall() and respond()/respond_html().
+    // This covers both `respond(recall(...))` and `let ctx = recall(...); respond(..., ctx)`.
+    fn scope_has_recall_and_respond(stmts: &[Statement]) -> bool {
+        let mut has_recall = false;
+        let mut has_respond = false;
+        fn walk_expr(expr: &Expr, has_recall: &mut bool, has_respond: &mut bool) {
+            if let Expr::FnCall { name, args, .. } = expr {
+                if name == "recall" {
+                    *has_recall = true;
+                }
+                if name == "respond" || name == "respond_html" {
+                    *has_respond = true;
+                }
+                for arg in args {
+                    walk_expr(arg, has_recall, has_respond);
+                }
+            }
+        }
+        fn walk_stmts(stmts: &[Statement], has_recall: &mut bool, has_respond: &mut bool) {
+            for stmt in stmts {
+                match stmt {
+                    Statement::LetBinding { value, .. } => {
+                        walk_expr(value, has_recall, has_respond)
+                    }
+                    Statement::Assign { value, .. } => walk_expr(value, has_recall, has_respond),
+                    Statement::ExprStmt { expr, .. } => walk_expr(expr, has_recall, has_respond),
+                    Statement::Return { value, .. } => walk_expr(value, has_recall, has_respond),
+                    Statement::Each { body, .. } => walk_stmts(body, has_recall, has_respond),
+                    Statement::EachWithIndex { body, .. } => {
+                        walk_stmts(body, has_recall, has_respond)
+                    }
+                    Statement::While { body, .. } => walk_stmts(body, has_recall, has_respond),
+                    Statement::IfElseBlock {
+                        then_body,
+                        else_ifs,
+                        else_body,
+                        ..
+                    } => {
+                        walk_stmts(then_body, has_recall, has_respond);
+                        for (_, body) in else_ifs {
+                            walk_stmts(body, has_recall, has_respond);
+                        }
+                        if let Some(body) = else_body {
+                            walk_stmts(body, has_recall, has_respond);
+                        }
+                    }
+                    Statement::IfThen { body, .. } => walk_stmts(body, has_recall, has_respond),
+                    _ => {}
+                }
+                if *has_recall && *has_respond {
+                    return; // early exit
+                }
+            }
+        }
+        walk_stmts(stmts, &mut has_recall, &mut has_respond);
+        has_recall && has_respond
+    }
+
+    for decl in declarations {
+        let has_both = match decl {
+            Declaration::Pattern(p) => scope_has_recall_and_respond(&p.body),
+            Declaration::Tool(t) => t
+                .methods
+                .iter()
+                .any(|m| scope_has_recall_and_respond(&m.body)),
+            Declaration::MlogServer(srv) => srv
+                .routes
+                .iter()
+                .any(|r| scope_has_recall_and_respond(&r.body)),
+            Declaration::Hook(h) => scope_has_recall_and_respond(&h.body),
+            _ => false,
+        };
+        if has_both {
+            let line = find_line(source, "recall");
+            findings.push(AuditFinding {
+                severity: Severity::Warning,
+                check_id: "TAINT_PERSISTENCE",
+                line,
+                message: "potential taint through memorize/recall — LLM output was memorized in this file and recall() result may reach respond(); use render()/escape_html() on recalled data"
+                    .to_string(),
+            });
+            // One warning per file is enough
+            return;
+        }
+    }
+}
+
+// ── Check: TAINT_PASSTHROUGH_PATTERN — respond(Wrap(call_llm(...))) ────────
+// Наряд #141: heuristic for trivial passthrough patterns. If a pattern
+// has exactly one parameter and its only return is that parameter
+// (trivial passthrough like `pattern Wrap(x) { return x }`), and it is
+// called wrapping an LLM source in a respond/respond_html sink, warn.
+// This is NOT full interprocedural analysis — it only catches the
+// simplest case of indirection.
+
+/// Check if a pattern is a trivial passthrough: exactly one parameter,
+/// body is a single `return <param_name>`.
+fn is_trivial_passthrough(p: &PatternDecl) -> bool {
+    if p.params.len() != 1 {
+        return false;
+    }
+    let param_name = &p.params[0].name;
+    // Body must be exactly one statement: `return <param_name>`
+    if p.body.len() != 1 {
+        return false;
+    }
+    if let Statement::Return {
+        value: Expr::Ident { name, .. },
+        ..
+    } = &p.body[0]
+    {
+        return name == param_name;
+    }
+    false
+}
+
+fn check_taint_passthrough_pattern(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    // Step 1: Collect names of all trivial passthrough patterns.
+    let passthrough_names: std::collections::HashSet<String> = declarations
+        .iter()
+        .filter_map(|d| {
+            if let Declaration::Pattern(p) = d {
+                if is_trivial_passthrough(p) {
+                    return Some(p.name.clone());
+                }
+            }
+            None
+        })
+        .collect();
+
+    if passthrough_names.is_empty() {
+        return;
+    }
+
+    // Step 2: Check respond/respond_html calls whose arg is a passthrough
+    // pattern call wrapping an LLM source.
+    fn is_passthrough_with_llm(
+        expr: &Expr,
+        passthrough_names: &std::collections::HashSet<String>,
+    ) -> bool {
+        if let Expr::FnCall { name, args, .. } = expr {
+            if passthrough_names.contains(name) {
+                return args.iter().any(expr_contains_llm_source_nested);
+            }
+        }
+        false
+    }
+
+    fn expr_contains_llm_source_nested(expr: &Expr) -> bool {
+        match expr {
+            Expr::FnCall { name, args, .. } => {
+                if is_llm_source(name) {
+                    return true;
+                }
+                args.iter().any(expr_contains_llm_source_nested)
+            }
+            _ => false,
+        }
+    }
+
+    fn collect_stmt_exprs<'a>(stmts: &'a [Statement], acc: &mut Vec<&'a Expr>) {
+        for stmt in stmts {
+            match stmt {
+                Statement::LetBinding { value, .. } => acc.push(value),
+                Statement::Assign { value, .. } => acc.push(value),
+                Statement::ExprStmt { expr, .. } => acc.push(expr),
+                Statement::Return { value, .. } => acc.push(value),
+                Statement::Each { body, .. } => collect_stmt_exprs(body, acc),
+                Statement::EachWithIndex { body, .. } => collect_stmt_exprs(body, acc),
+                Statement::While { body, .. } => collect_stmt_exprs(body, acc),
+                Statement::IfElseBlock {
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
+                    collect_stmt_exprs(then_body, acc);
+                    for (_, body) in else_ifs {
+                        collect_stmt_exprs(body, acc);
+                    }
+                    if let Some(body) = else_body {
+                        collect_stmt_exprs(body, acc);
+                    }
+                }
+                Statement::IfThen { body, .. } => collect_stmt_exprs(body, acc),
+                _ => {}
+            }
+        }
+    }
+
+    for decl in declarations {
+        let mut exprs: Vec<&Expr> = Vec::new();
+        match decl {
+            Declaration::Pattern(p) => collect_stmt_exprs(&p.body, &mut exprs),
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    collect_stmt_exprs(&m.body, &mut exprs);
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for route in &srv.routes {
+                    collect_stmt_exprs(&route.body, &mut exprs);
+                }
+            }
+            Declaration::Hook(h) => collect_stmt_exprs(&h.body, &mut exprs),
+            _ => continue,
+        }
+
+        for expr in &exprs {
+            if let Expr::FnCall { name, args, .. } = expr {
+                if name == "respond" || name == "respond_html" {
+                    for arg in args {
+                        if is_passthrough_with_llm(arg, &passthrough_names) {
+                            let line = find_line(source, name);
+                            findings.push(AuditFinding {
+                                severity: Severity::Warning,
+                                check_id: "TAINT_PASSTHROUGH",
+                                line,
+                                message: format!(
+                                    "LLM output passed to {}() via trivial passthrough pattern — use render()/escape_html() for XSS safety",
+                                    name
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // ── Public API ───────────────────────────────────────────────────────
 
 /// Run only Category A audit checks (compiler-enforced security invariants).
@@ -1265,6 +1538,8 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     check_html_injection(&declarations, source, &mut findings);
     check_secret_leak(&declarations, source, &mut findings);
     check_open_redirect(&declarations, source, &mut findings);
+    check_taint_persistence(&declarations, source, &mut findings);
+    check_taint_passthrough_pattern(&declarations, source, &mut findings);
 
     // Sort findings by line number for deterministic output
     findings.sort_by_key(|f| (f.line, f.check_id));
@@ -2088,6 +2363,188 @@ mod tests {
             !findings.iter().any(|f| f.check_id == "OPEN_REDIRECT"),
             "respond_html(call_llm(...)) must NOT trigger OPEN_REDIRECT (wrong taint kind), got {:?}",
             findings
+        );
+    }
+
+    // ── Наряд #141: TAINT_PERSISTENCE — memorize(LLM) + respond(recall()) ──
+
+    #[test]
+    fn taint_persistence_memorize_llm_and_respond_recall() {
+        let source = r#"
+            memorize call_llm("store this") with priority=0.9
+            pattern Handler() -> String {
+                let ctx = recall("relevant")
+                let r = respond("200 OK", ctx)
+                return r
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "TAINT_PERSISTENCE" && f.severity == Severity::Warning),
+            "memorize(call_llm(...)) + respond(recall(...)) must trigger TAINT_PERSISTENCE, got {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn taint_persistence_no_warning_without_recall() {
+        let source = r#"
+            memorize call_llm("store this") with priority=0.9
+            pattern Handler() -> String {
+                let r = respond("200 OK", "safe")
+                return r
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            !result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "TAINT_PERSISTENCE"),
+            "no recall in respond -> no TAINT_PERSISTENCE, got {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn taint_persistence_no_warning_with_non_llm_memorize() {
+        let source = r#"
+            memorize "just a static fact" with priority=0.5
+            pattern Handler() -> String {
+                let ctx = recall("relevant")
+                let r = respond("200 OK", ctx)
+                return r
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            !result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "TAINT_PERSISTENCE"),
+            "memorize(literal) is not LLM taint -> no TAINT_PERSISTENCE, got {:?}",
+            result.findings
+        );
+    }
+
+    // ── Наряд #141: TAINT_PASSTHROUGH — respond(Wrap(call_llm(...))) ──
+
+    #[test]
+    fn taint_passthrough_respond_wrap_call_llm() {
+        let source = r#"
+            pattern Wrap(x: String) -> String {
+                return x
+            }
+            pattern Handler() -> String {
+                let r = respond("200 OK", Wrap(call_llm("Tell me a joke")))
+                return r
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "TAINT_PASSTHROUGH" && f.severity == Severity::Warning),
+            "respond(Wrap(call_llm(...))) must trigger TAINT_PASSTHROUGH, got {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn taint_passthrough_respond_html_wrap_call_llm() {
+        let source = r#"
+            pattern Wrap(x: String) -> String {
+                return x
+            }
+            pattern Handler() -> String {
+                let r = respond_html(Wrap(call_claude("Summarize")))
+                return r
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "TAINT_PASSTHROUGH" && f.severity == Severity::Warning),
+            "respond_html(Wrap(call_claude(...))) must trigger TAINT_PASSTHROUGH, got {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn taint_passthrough_non_passthrough_pattern_no_warning() {
+        let source = r#"
+            pattern Combine(a: String, b: String) -> String {
+                return a
+            }
+            pattern Handler() -> String {
+                let r = respond("200 OK", Combine(call_llm("prompt")))
+                return r
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            !result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "TAINT_PASSTHROUGH"),
+            "two-param pattern is not trivial passthrough -> no TAINT_PASSTHROUGH, got {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn taint_passthrough_pattern_with_logic_no_warning() {
+        let source = r#"
+            pattern Safe(x: String) -> String {
+                let escaped = escape_html(x)
+                return escaped
+            }
+            pattern Handler() -> String {
+                let r = respond("200 OK", Safe(call_llm("prompt")))
+                return r
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            !result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "TAINT_PASSTHROUGH"),
+            "pattern with escape_html is not trivial passthrough -> no TAINT_PASSTHROUGH, got {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn taint_passthrough_no_false_positive_existing_html_injection() {
+        let source = r#"
+            pattern Handler() -> String {
+                let r = respond("200 OK", call_llm("Tell me a joke"))
+                return r
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "HTML_INJECTION" && f.severity == Severity::Warning),
+            "direct respond(call_llm(...)) must still trigger HTML_INJECTION, got {:?}",
+            result.findings
+        );
+        assert!(
+            !result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "TAINT_PASSTHROUGH"),
+            "no passthrough pattern -> no TAINT_PASSTHROUGH, got {:?}",
+            result.findings
         );
     }
 }

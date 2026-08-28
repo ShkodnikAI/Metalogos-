@@ -60,19 +60,42 @@ In Python/JS, AI requires SDKs, prompt templates, API clients, and HTTP error ha
 
 ### 2. Security by Design — Zero Configuration
 
-OWASP Top 10 is covered at the language level, not through middleware.
+OWASP Top 10 is addressed at the language level through a combination of compiler-enforced checks, opaque types, and static audit heuristics.
 
-**Eliminated by the compiler** (these are structural errors — `mlog check`, `mlog run`, `mlog serve`, and `mlog compile` all refuse to proceed):
-- **SQL injection is impossible** — `query()` with non-literal SQL is a compile-time error; only parameterized queries are allowed
-- **Plaintext secret leakage is impossible** — passing `env()` results to `respond()`/`write_file()`/`http_post()` body is a compile-time error
-- **XSS via LLM output is impossible** — passing `call_llm()`/`call_claude()` results to `respond()` without `render()`/`escape_html()` is a compile-time error — for both direct variable flow and single-level inline nesting; see Known boundaries for interprocedural/persisted flow
+**Rejected by static checks** (Category A — `mlog check`, `mlog run`, `mlog serve`, and `mlog compile` all refuse to proceed for these data-flow shapes):
+- **SQL injection** — `query()` with non-literal SQL is rejected; only parameterized queries compile
+- **Plaintext secret leakage** — passing `env()` results to `respond()`/`write_file()`/`http_post()` body is rejected
+- **XSS via LLM output** — passing `call_llm()`/`call_claude()` results to `respond()` without `render()`/`escape_html()` is rejected — for both direct variable flow and single-level inline nesting; see Known boundaries below
 
-**Checked by `mlog audit`** (these are heuristic advisories — context-dependent, may have legitimate exceptions):
+**Checked by `mlog audit`** (heuristic advisories — context-dependent, may have legitimate exceptions):
 - Hardcoded secrets in source (heuristic; can false-positive on error messages)
 - Missing sandbox for `adapt`/`mutate` (cross-file context needed)
 - Missing `rate_limit` middleware (external infra may handle it)
 - Missing CSRF middleware (not needed for token-authenticated APIs)
 - Open redirect via user-controlled `respond_html()` (custom validation not recognized)
+- Taint through `memorize`/`recall` persistence (file-level heuristic)
+- Taint through trivial passthrough pattern indirection (single-param, `return param` only)
+
+#### Known boundaries of static analysis
+
+These checks use **intraprocedural taint tracking** — they follow `let`-assignment chains within a single pattern body. The following patterns are **not** detected at compile time:
+
+| Pattern | Why not caught |
+|---|---|
+| LLM output passed via pattern call (interprocedural) | Taint does not cross pattern boundaries |
+| LLM output stored via `memorize()` then read back via `recall()` | Data flow through persistence is not tracked |
+| `query(format("...", x))` | `format()` output is not a literal string; check requires compile-time constant |
+| `respond_html(query_param("url"))` (direct user-input nesting) | Open-redirect check only tracks via variable, not inline call |
+| `{{{ var }}}` (raw template substitution) | `template_render` with `raw=true` skips escaping by design — trusted author code only |
+
+`mlog audit` provides **heuristic warnings** (not errors) for two narrow sub-cases:
+
+| Warning | Scope | Example |
+|---|---|---|
+| `TAINT_PERSISTENCE` | Same-scope: `memorize(call_llm(...))` + `recall()` + `respond()` | `memorize call_llm("summarize")` then `let ctx = recall("q"); respond("200 OK", ctx)` |
+| `TAINT_PASSTHROUGH` | Trivial passthrough pattern wrapping LLM output | `pattern Wrap(x: String) { return x }` then `respond("200 OK", Wrap(call_llm("...")))` |
+
+These are file-level heuristics, not data-flow guarantees — they may false-positive in safe code and miss complex indirection.
 
 ### 3. Dual Execution Backend
 
@@ -278,38 +301,36 @@ Metalogos-/
 The compiler enforces structural security invariants — these are errors, not warnings:
 
 ```mlog
-// SQL injection — non-literal query() is a compile-time error
+// SQL injection — non-literal query() is rejected by Category A
 let user = query("SELECT * FROM users WHERE id = $1", [id])
 
-// Secret leak — env() to respond()/print() is a static SECRET_LEAK finding
+// Secret leak — env() to respond()/print() is rejected by Category A
 entity token: Secret = env("API_KEY")
 respond(token)   // [SECRET_LEAK] via mlog audit / Category A checks
 print(token)     // runtime error: print() refused: Secret values cannot be printed
 
-// XSS via LLM — unsanitized LLM output to respond() is a compile-time error
+// XSS via LLM — unsanitized LLM output to respond() is rejected by Category A
 let reply = call_llm(prompt)
-respond(reply)   // Compile error: [HTML_INJECTION] — use render() or escape_html()
+respond(reply)   // [HTML_INJECTION] — use render() or escape_html()
 
 // Templates: render(Name, args...) substitutes {{ var }} with HTML-escaped values (naryad 115)
-// Concatenating into Html at runtime errors; compile-time opaque Html check is not implemented yet
+// {{{ var }}} skips escaping — trusted author code only, not caught by audit
 ```
-
-#### Known boundaries of static analysis
-
-These checks use **intraprocedural taint tracking** — they follow `let`-assignment chains within a single pattern body. The following patterns are **not** detected at compile time:
-
-| Pattern | Why not caught |
-|---|---|
-| LLM output passed via pattern call (interprocedural) | Taint does not cross pattern boundaries |
-| LLM output stored via `memorize()` then read back | Data flow through persistence is not tracked |
-| `query(format("...", x))` | `format()` output is not a literal string; check requires compile-time constant |
-| `respond_html(query_param("url"))` (direct user-input nesting) | Open-redirect check only tracks via variable, not inline call |
-
-Use `mlog audit` for additional heuristic checks (hardcoded secrets, sandbox coverage, rate limiting, CSRF, open redirect).
 
 ### OWASP Top 10 Coverage
 
-Every item in the OWASP Top 10 (2021) is addressed at the language level: type-safe HTML (A03), parameterized queries (A03), Secret/Encrypted/Hash opaque types (A02), role-based routes + `require` assertions (A01), HMAC-SHA256 sessions (A07), CSRF double-submit (A08), CSP/HSTS/X-Frame-Options headers (A05), LLM sandbox (A10), audit logging (A09).
+| OWASP Item | Mechanism | Boundary |
+|---|---|---|
+| A01 Broken Access Control | `requires=[role]` on routes, `require` assertions in patterns | — |
+| A02 Cryptographic Failures | `Secret`/`Encrypted`/`Hash` opaque types; AES-256-GCM | `Secret` printable only in tests; `env()` to sink caught by Category A |
+| A03 Injection | `Query` opaque type (parameterized only); `Html` type; template `{{ }}` auto-escapes | `{{{ raw }}}` skips escaping; interprocedural taint not tracked |
+| A04 Insecure Design | Security-first language design; opaque types; static audit | See Known boundaries (section 2 above) |
+| A05 Security Misconfiguration | CSP/HSTS/X-Frame-Options headers set by default | Developer can override headers |
+| A06 Vulnerable Components | Minimal dependency tree; `cargo-audit` in CI; Dependabot | Transitive deps may have unpatched CVEs (see RUSTSEC ignores) |
+| A07 Auth Failures | `hash_password`/`verify_password`; HMAC-SHA256 signed sessions | — |
+| A08 Data Integrity Failures | CSRF double-submit on mutating routes; signed cookies | CSRF not needed for token-authenticated APIs |
+| A09 Logging Failures | Audit log for `require` failures, `adapt` mutations, `unsafe_html` | — |
+| A10 SSRF | LLM sandbox `forbidden: [network]`; outbound HTTP restricted | Sandbox is opt-in; `http_get`/`http_post` available outside sandbox |
 
 ### Two Execution Backends
 

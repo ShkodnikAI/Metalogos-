@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Metalogos — AI-Native Programming Language</title>
-<meta name="description" content="The first programming language designed by AI, for AI. Security built into the language. OWASP Top 10 closed.">
+<meta name="description" content="The first programming language designed by AI, for AI. Security built into the language. OWASP Top 10 addressed at the language level.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x2B22;</text></svg>">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -229,7 +229,7 @@ footer a:hover{color:var(--accent2)}
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
       </div>
       <h3>Security by Design</h3>
-      <p>XSS, SQL injection, and plaintext secrets are <strong>syntactically impossible</strong> &mdash; not just discouraged. Opaque types (<code>Html</code>, <code>Query</code>, <code>Secret</code>) enforce safety at the language level. Like Rust's ownership model applied to web security.</p>
+      <p>XSS, SQL injection, and plaintext secret leakage are <strong>rejected by static checks</strong> on the listed data-flow shapes. Opaque types (<code>Html</code>, <code>Query</code>, <code>Secret</code>) enforce safety at the language level. Like Rust's ownership model applied to web security.</p>
     </div>
     <div class="pillar-card p2">
       <div class="pillar-icon">
@@ -257,7 +257,7 @@ footer a:hover{color:var(--accent2)}
 <!-- OWASP -->
 <section id="security">
   <h2>OWASP <span>Top 10</span></h2>
-  <p class="subtitle">Every threat addressed at the language level, not through middleware or best practices.</p>
+  <p class="subtitle">Each threat addressed at the language level, with documented boundaries.</p>
   <table class="owasp-table">
     <thead>
       <tr><th>#</th><th>Threat</th><th>How Metalogos Prevents It</th></tr>
@@ -266,7 +266,7 @@ footer a:hover{color:var(--accent2)}
       <tr><td class="num">A01</td><td class="threat">Broken Access Control</td><td class="fix"><code>requires=[role]</code> on routes, <code>require</code> assertions in patterns</td></tr>
       <tr><td class="num">A02</td><td class="threat">Cryptographic Failures</td><td class="fix"><code>Secret</code> opaque type &mdash; no print, no to_string; AES-256-GCM encryption</td></tr>
       <tr><td class="num">A03</td><td class="threat">Injection</td><td class="fix"><code>Query</code> opaque type &mdash; parameterized only, SQL is a literal not a variable</td></tr>
-      <tr><td class="num">A04</td><td class="threat">Insecure Design</td><td class="fix">Security by design &mdash; unsafe operations are syntactically impossible</td></tr>
+      <tr><td class="num">A04</td><td class="threat">Insecure Design</td><td class="fix">Opaque types, static audit, compiler-enforced checks &mdash; see <a href="https://github.com/ShkodnikAI/Metalogos-/blob/main/README.md#known-boundaries-of-static-analysis" style="color:var(--accent2)">Known boundaries</a></td></tr>
       <tr><td class="num">A05</td><td class="threat">Security Misconfiguration</td><td class="fix">Security headers (CSP, HSTS, X-Frame-Options) enabled by default</td></tr>
       <tr><td class="num">A06</td><td class="threat">Vulnerable Components</td><td class="fix">Minimal dependency tree; lockfile enforcement</td></tr>
       <tr><td class="num">A07</td><td class="threat">Auth Failures</td><td class="fix"><code>hash_password</code> / <code>verify_password</code>; HMAC-SHA256 signed sessions</td></tr>

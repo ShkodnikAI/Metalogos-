@@ -5,6 +5,7 @@ use chrono::{Datelike, TimeZone, Timelike};
 use std::net::ToSocketAddrs;
 
 use super::core::*;
+use super::io::SandboxMode;
 use super::string::escape_html_chars;
 
 // ── Наряд №115: global template registry (Path B — parity TW/VM) ──
@@ -649,8 +650,8 @@ pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
 /// propagates the binary bytes through `Value`. The `.mlog` code only
 /// receives a `Bool` and reads the file back via `read_file`/etc.
 ///
-/// Sandbox: reuses `sandbox_path` from `io.rs` — same protection against
-/// absolute paths and `..`-traversal as `write_file`.
+/// Sandbox: reuses `sandbox_path_ex` from `io.rs` (Наряд №131) — same protection against
+/// absolute paths, `..`-traversal, and symlink escapes as `write_file`.
 ///
 /// Client/timeout: same `reqwest::blocking::Client` builder pattern as
 /// `http_get`, fixed 30s timeout (downloads are expected to be small —
@@ -669,7 +670,8 @@ pub(crate) fn builtin_http_download(args: &[Value]) -> Result<Value, String> {
     // Sandbox-check the destination path. Soft-failure on violation —
     // mirror write_file's behavior so .mlog code can branch on `false`
     // instead of catching an interpreter error.
-    let safe_path = match super::io::sandbox_path(&dest) {
+    // Наряд №131: ForWrite — downloaded file may not exist yet.
+    let safe_path = match super::io::sandbox_path_ex(&dest, SandboxMode::ForWrite) {
         Ok(p) => p,
         Err(_) => return Ok(Value::Bool(false)),
     };

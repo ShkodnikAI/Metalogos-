@@ -1242,7 +1242,7 @@ fn check_taint_persistence(
                 if is_llm_source(name) {
                     return true;
                 }
-                args.iter().any(|a| expr_contains_llm_source(a))
+                args.iter().any(expr_contains_llm_source)
             }
             _ => false,
         }
@@ -1282,12 +1282,16 @@ fn check_taint_persistence(
         fn walk_stmts(stmts: &[Statement], has_recall: &mut bool, has_respond: &mut bool) {
             for stmt in stmts {
                 match stmt {
-                    Statement::LetBinding { value, .. } => walk_expr(value, has_recall, has_respond),
+                    Statement::LetBinding { value, .. } => {
+                        walk_expr(value, has_recall, has_respond)
+                    }
                     Statement::Assign { value, .. } => walk_expr(value, has_recall, has_respond),
                     Statement::ExprStmt { expr, .. } => walk_expr(expr, has_recall, has_respond),
                     Statement::Return { value, .. } => walk_expr(value, has_recall, has_respond),
                     Statement::Each { body, .. } => walk_stmts(body, has_recall, has_respond),
-                    Statement::EachWithIndex { body, .. } => walk_stmts(body, has_recall, has_respond),
+                    Statement::EachWithIndex { body, .. } => {
+                        walk_stmts(body, has_recall, has_respond)
+                    }
                     Statement::While { body, .. } => walk_stmts(body, has_recall, has_respond),
                     Statement::IfElseBlock {
                         then_body,
@@ -1363,10 +1367,12 @@ fn is_trivial_passthrough(p: &PatternDecl) -> bool {
     if p.body.len() != 1 {
         return false;
     }
-    if let Statement::Return { value, .. } = &p.body[0] {
-        if let Expr::Ident { name, .. } = value {
-            return name == param_name;
-        }
+    if let Statement::Return {
+        value: Expr::Ident { name, .. },
+        ..
+    } = &p.body[0]
+    {
+        return name == param_name;
     }
     false
 }
@@ -1401,7 +1407,7 @@ fn check_taint_passthrough_pattern(
     ) -> bool {
         if let Expr::FnCall { name, args, .. } = expr {
             if passthrough_names.contains(name) {
-                return args.iter().any(|a| expr_contains_llm_source_nested(a));
+                return args.iter().any(expr_contains_llm_source_nested);
             }
         }
         false
@@ -1413,7 +1419,7 @@ fn check_taint_passthrough_pattern(
                 if is_llm_source(name) {
                     return true;
                 }
-                args.iter().any(|a| expr_contains_llm_source_nested(a))
+                args.iter().any(expr_contains_llm_source_nested)
             }
             _ => false,
         }

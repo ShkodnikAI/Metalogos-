@@ -19,7 +19,7 @@ jobs:
         run: cargo build --release --bin mlog
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mlog-linux-x86_64
           path: target/release/mlog

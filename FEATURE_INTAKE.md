@@ -9,18 +9,16 @@
 ## 1. The Cost of a Builtin
 
 Every new builtin is not a single function — it is a permanent maintenance contract.
-Adding one builtin touches 5 files and costs ~30 minutes of disciplined work:
+Adding one builtin touches 2 files and costs ~30 minutes of disciplined work:
 
 | Step | File | What changes |
 |---|---|---|
-| Implementation | `builtins.rs` | Function body + registration in dispatch |
-| Semantic arity | `semantic.rs` | Name + argument count in `builtin_names` / `builtin_arity` |
-| Compiler index | `compiler.rs` | Entry in `builtin_indices` array (exact order matters for VM) |
-| VM name table | `vm.rs` | Entry in `builtin_names` (must match compiler order) |
+| Implementation | `src/builtins/*.rs` | Function body in the appropriate domain module |
+| Registry spec | `src/builtins/registry.rs` | `spec!()` entry (name, arity, category) |
 | Documentation | `REFERENCE.md` | Signature, description, return type, example |
 | Tests | `tests/` | At least 1 integration test covering happy path + error path |
 
-Total per builtin: **6 locations, ~200 lines of changes across the codebase**.
+Total per builtin: **4 locations**. Semantic arity, compiler index, and VM name table are all derived from `registry.rs` automatically.
 
 This cost is why we filter strictly. A builtin added hastily is a builtin maintained forever.
 
@@ -30,7 +28,7 @@ This cost is why we filter strictly. A builtin added hastily is a builtin mainta
 
 Not all features are equal. Metalogos has three tiers of adoption:
 
-### Tier 1 — Core Builtin (in `builtins.rs`)
+### Tier 1 — Core Builtin (in `src/builtins/`)
 
 Goes into the Rust runtime. Available in all execution modes (interpreter, VM, JIT).
 
@@ -195,13 +193,18 @@ Naming a builtin after its first use case: `telegram_send_voice_as_alloy` instea
 
 | Metric | Current | Warning at | Hard limit |
 |---|---|---|---|
-| Total builtins | 171 | 200 | 250 |
-| `builtins.rs` lines | 5 048 | 6 000 | 8 000 |
 | New dependencies per version | — | 2 | 5 |
-| Compile time (clean) | ~45s | 60s | 90s |
-| Binary size (Linux x86_64) | ~4.9MB | 6MB | 10MB |
+| Compile time (clean) | ~60s | 90s | 120s |
+| Binary size (Linux x86_64) | ~6MB | 8MB | 12MB |
+| Per-module LOC (any `src/builtins/*.rs`) | 3 170 | 4 000 | 5 000 |
 
 When a warning threshold is hit, the next feature intake MUST justify why it should still be Tier 1.
+
+> **Note (v0.17):** The "Total builtins" and "`builtins.rs` lines" rows were removed.
+> The codebase migrated from a single 5K-line `builtins.rs` to 34 domain modules
+> (29K lines total, avg 10.5 builtins per module). A hard cap on total builtin
+> count no longer reflects the project's architecture — per-module complexity
+> and dependency hygiene are more meaningful signals.
 
 ---
 

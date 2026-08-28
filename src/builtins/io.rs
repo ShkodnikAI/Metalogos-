@@ -161,7 +161,32 @@ pub(crate) fn builtin_env(args: &[Value]) -> Result<Value, String> {
     }
 }
 
+/// Whether the file being sandbox-checked is expected to already exist.
+/// When `ForRead`, the file itself is canonicalized.
+/// When `ForWrite`, only the parent directory is canonicalized (the file
+/// may not exist yet — e.g. `write_file("new.txt", ...)`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SandboxMode {
+    ForRead,
+    ForWrite,
+}
+
+/// Sanitize a file path for I/O sandbox.
+///
+/// Three-layer defence (Наряд №131):
+///   1. Text checks: reject absolute paths and `..` components.
+///   2. Symlink canonicalization: resolve the path and verify it stays
+///      inside the sandbox base directory. For writes to new files,
+///      canonicalize only the parent directory (the file may not exist).
+///   3. Prefix check: the canonicalized path must start with the
+///      canonicalized base directory.
 pub(crate) fn sandbox_path(path: &str) -> Result<std::path::PathBuf, String> {
+    sandbox_path_ex(path, SandboxMode::ForRead)
+}
+
+/// Like `sandbox_path` but allows specifying whether the operation is
+/// a read (file must exist) or a write (file may be new).
+pub(crate) fn sandbox_path_ex(path: &str, mode: SandboxMode) -> Result<std::path::PathBuf, String> {
     let p = std::path::Path::new(path);
     // Reject absolute paths
     if p.is_absolute() {
@@ -179,6 +204,40 @@ pub(crate) fn sandbox_path(path: &str) -> Result<std::path::PathBuf, String> {
             ));
         }
     }
+
+    // ── Наряд №131: symlink canonicalization ──
+    // Resolve the base directory (cwd) and the target path.
+    // Verify the resolved target stays inside the base.
+    let base = std::env::current_dir().map_err(|e| format!("sandbox: {}", e))?;
+    let canonical_base = base.canonicalize().map_err(|e| format!("sandbox: {}", e))?;
+
+    let full = base.join(p);
+    let canonical_target = match mode {
+        // For reads: canonicalize the full path (file must exist).
+        SandboxMode::ForRead => full.canonicalize(),
+        // For writes: canonicalize only the parent dir; the file itself
+        // may not exist yet (e.g. write_file to a new file).
+        SandboxMode::ForWrite => match full.parent() {
+            Some(parent) => parent.canonicalize(),
+            None => return Err(format!("file I/O sandbox: path has no parent: '{}'", path)),
+        },
+    };
+
+    let canonical_target = match canonical_target {
+        Ok(c) => c,
+        // If canonicalization fails (e.g. broken symlink), reject.
+        Err(_) => {
+            return Err(format!("file I/O sandbox: cannot resolve path: '{}'", path));
+        }
+    };
+
+    if !canonical_target.starts_with(&canonical_base) {
+        return Err(format!(
+            "file I/O sandbox: resolved path escapes sandbox: '{}'",
+            path
+        ));
+    }
+
     Ok(std::path::PathBuf::from(path))
 }
 
@@ -205,7 +264,8 @@ pub(crate) fn builtin_write_file(args: &[Value]) -> Result<Value, String> {
         Some(other) => format!("{}", other),
         None => return Ok(Value::String(String::new())), // soft-failure
     };
-    let safe_path = match sandbox_path(&path) {
+    // Наряд №131: ForWrite — file may not exist yet.
+    let safe_path = match sandbox_path_ex(&path, SandboxMode::ForWrite) {
         Ok(p) => p,
         Err(_) => return Ok(Value::String(String::new())), // soft-failure on sandbox violation
     };
@@ -228,7 +288,8 @@ pub(crate) fn builtin_append_file(args: &[Value]) -> Result<Value, String> {
         Some(other) => format!("{}", other),
         None => return Ok(Value::String(String::new())), // soft-failure
     };
-    let safe_path = match sandbox_path(&path) {
+    // Наряд №131: ForWrite — file may not exist yet.
+    let safe_path = match sandbox_path_ex(&path, SandboxMode::ForWrite) {
         Ok(p) => p,
         Err(_) => return Ok(Value::String(String::new())), // soft-failure on sandbox violation
     };
@@ -733,5 +794,225 @@ mod tests {
             Value::String(s) => assert_eq!(s, "hello"),
             other => panic!("expected String, got {}", other.type_name()),
         }
+    }
+}
+
+// ── Наряд №131: sandbox_path — канонизация против обхода через симлинки ──
+#[cfg(test)]
+mod tests_n131 {
+    use super::*;
+    use serial_test::serial;
+    use std::fs;
+    use std::path::PathBuf;
+
+    /// Create a temp dir, change CWD to it, run f, restore CWD, cleanup.
+    fn with_temp_sandbox(name: &str, f: impl FnOnce()) {
+        let dir = std::env::temp_dir().join(name);
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("setup");
+        let prev = std::env::current_dir().expect("get cwd");
+        std::env::set_current_dir(&dir).expect("chdir");
+        f();
+        std::env::set_current_dir(&prev).expect("restore cwd");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Create a temp dir, return its path (caller manages lifetime).
+    fn make_temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(name);
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("setup");
+        dir
+    }
+
+    // ── C1: обычный относительный путь внутри директории ──
+
+    #[test]
+    #[serial]
+    fn n131_normal_relative_read() {
+        with_temp_sandbox("metalogos_n131_c1r", || {
+            fs::write("existing.txt", "data").unwrap();
+            assert!(sandbox_path("existing.txt").is_ok());
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn n131_normal_relative_write() {
+        with_temp_sandbox("metalogos_n131_c1w", || {
+            // "new.txt" does not exist — ForWrite canonicalizes parent only
+            assert!(sandbox_path_ex("new.txt", SandboxMode::ForWrite).is_ok());
+        });
+    }
+
+    // ── C2: симлинк на файл снаружи — отклонён ──
+
+    #[test]
+    #[serial]
+    fn n131_symlink_to_outside_file_rejected() {
+        let sandbox = make_temp_dir("metalogos_n131_c2a_sandbox");
+        let outside = make_temp_dir("metalogos_n131_c2a_outside");
+
+        // Secret file outside sandbox
+        let secret = outside.join("secret.txt");
+        fs::write(&secret, "TOP SECRET").unwrap();
+
+        // Symlink inside sandbox → outside
+        let link = sandbox.join("escape");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&secret, &link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&secret, &link).unwrap();
+
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&sandbox).unwrap();
+        let result = sandbox_path("escape");
+        std::env::set_current_dir(&prev).unwrap();
+
+        assert!(
+            result.is_err(),
+            "symlink to outside must be rejected: {:?}",
+            result
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("escapes sandbox"),
+            "expected 'escapes sandbox', got: {}",
+            err
+        );
+
+        let _ = fs::remove_dir_all(&sandbox);
+        let _ = fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    #[serial]
+    fn n131_symlink_via_subdir_rejected() {
+        let sandbox = make_temp_dir("metalogos_n131_c2b_sandbox");
+        let outside = make_temp_dir("metalogos_n131_c2b_outside");
+
+        let secret = outside.join("data.bin");
+        fs::write(&secret, "binary").unwrap();
+
+        let sub = sandbox.join("sub");
+        fs::create_dir_all(&sub).unwrap();
+        let link = sub.join("link");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&secret, &link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&secret, &link).unwrap();
+
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&sandbox).unwrap();
+        let result = sandbox_path("sub/link");
+        std::env::set_current_dir(&prev).unwrap();
+
+        assert!(
+            result.is_err(),
+            "symlink via subdir must be rejected: {:?}",
+            result
+        );
+
+        let _ = fs::remove_dir_all(&sandbox);
+        let _ = fs::remove_dir_all(&outside);
+    }
+
+    // ── C3: write на новый файл — не ломается ──
+
+    #[test]
+    #[serial]
+    fn n131_write_new_file_passes() {
+        with_temp_sandbox("metalogos_n131_c3a", || {
+            assert!(sandbox_path_ex("brand_new.txt", SandboxMode::ForWrite).is_ok());
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn n131_write_new_in_subdir_passes() {
+        with_temp_sandbox("metalogos_n131_c3b", || {
+            fs::create_dir_all("sub").unwrap();
+            assert!(sandbox_path_ex("sub/new.txt", SandboxMode::ForWrite).is_ok());
+        });
+    }
+
+    // ── C3b: write через симлинк-директорию наружу — отклонён ──
+
+    #[test]
+    #[serial]
+    fn n131_write_via_symlink_dir_rejected() {
+        let sandbox = make_temp_dir("metalogos_n131_c3c_sandbox");
+        let outside = make_temp_dir("metalogos_n131_c3c_outside");
+
+        // Symlink *directory* inside sandbox → outside
+        let link = sandbox.join("escape_dir");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&outside, &link).unwrap();
+
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&sandbox).unwrap();
+        let result = sandbox_path_ex("escape_dir/evil.txt", SandboxMode::ForWrite);
+        std::env::set_current_dir(&prev).unwrap();
+
+        assert!(
+            result.is_err(),
+            "write via symlink dir must be rejected: {:?}",
+            result
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("escapes sandbox"),
+            "expected 'escapes sandbox', got: {}",
+            err
+        );
+
+        let _ = fs::remove_dir_all(&sandbox);
+        let _ = fs::remove_dir_all(&outside);
+    }
+
+    // ── C4: существующие текстовые проверки не сломаны ──
+
+    #[test]
+    fn n131_absolute_path_rejected() {
+        let result = sandbox_path("/etc/passwd");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("absolute paths not allowed"));
+    }
+
+    #[test]
+    fn n131_dotdot_rejected() {
+        let result = sandbox_path("../../etc/passwd");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("path traversal"));
+    }
+
+    // ── Additional: broken symlink ──
+
+    #[test]
+    #[serial]
+    fn n131_broken_symlink_rejected() {
+        let sandbox = make_temp_dir("metalogos_n131_broken");
+
+        let link = sandbox.join("dangling");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("/nonexistent/target", &link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file("/nonexistent/target", &link).unwrap();
+
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&sandbox).unwrap();
+        let result = sandbox_path("dangling");
+        std::env::set_current_dir(&prev).unwrap();
+
+        // Broken symlink: canonicalize fails → rejected
+        assert!(
+            result.is_err(),
+            "broken symlink must be rejected: {:?}",
+            result
+        );
+
+        let _ = fs::remove_dir_all(&sandbox);
     }
 }

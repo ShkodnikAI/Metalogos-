@@ -4,6 +4,20 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Security — НАРЯД №131: `sandbox_path` symlink escape via `canonicalize()`
+- `sandbox_path()` blocked absolute paths and `..` in text but did NOT
+  resolve symlinks. A symlink inside the CWD pointing outside would pass
+  both text checks and allow reading/writing arbitrary files.
+- Added three-layer defence: (1) text checks preserved, (2) `canonicalize()`
+  with `starts_with(canonical_base)` prefix verification, (3) ForWrite
+  mode that canonicalizes only the parent directory (so `write_file` to
+  a new file still works).
+- `write_file`, `append_file`, `http_download` use `ForWrite` mode;
+  `read_file`, `delete_file`, `file_exists`, `list_dir` use `ForRead`.
+- 9 unit tests: normal read/write pass, symlink-to-outside rejected
+  (file + subdir + dir symlink), write-to-new-file passes, absolute/`..`
+  still rejected, broken symlink rejected.
+
 ### Fixed — НАРЯД №134: `collect_error_pairs` blind spot — 5 error contracts never ran in CI
 - `collect_error_pairs` in `tests/golden.rs` had a hardcoded `p30_/p31_` prefix
   filter that silently skipped ALL other `.error` contracts, including

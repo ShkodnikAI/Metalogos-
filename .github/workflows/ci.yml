@@ -112,3 +112,21 @@ jobs:
             echo "::error::Duplicate ADR numbers found: $dupes"
             exit 1
           fi
+
+  cargo-audit:
+    name: cargo-audit (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Run cargo audit
+        run: |
+          # RUSTSEC-2026-0187 (lopdf stack overflow, severity 7.5):
+          #   Our direct lopdf updated to 0.44 (safe). Remaining instance is
+          #   transitive via pdf-inspector 0.1.x -> lopdf 0.41.0. Upgrading
+          #   pdf-inspector to 1.x requires major API rewrite (classify_pdf_mem,
+          #   process_pdf_mem, extract_text_with_positions_mem all changed).
+          #   Tracked for resolution in a future naryad.
+          cargo audit --ignore RUSTSEC-2026-0187

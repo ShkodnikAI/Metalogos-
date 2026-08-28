@@ -1,5 +1,3 @@
 pattern first(items: List) -> String { return __first(items) }
 
 pattern last(items: List) -> String { return __last(items) }
-
-pattern push(items: List, item: String) -> List { return __push(items, item) }

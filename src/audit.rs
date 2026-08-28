@@ -242,6 +242,24 @@ fn is_llm_source(name: &str) -> bool {
     matches!(name, "call_llm" | "call_claude")
 }
 
+/// Check whether an expression carries user-input taint.
+/// Handles both variable references (via tracker) and direct
+/// user-input function calls (query_param, form_data, json_body)
+/// without an intermediate variable binding.
+/// Наряд №140: mirrors expr_is_llm_tainted but for UserInput source.
+fn expr_is_user_input_tainted(expr: &Expr, tracker: &TaintTracker) -> bool {
+    match expr {
+        Expr::Ident { name, .. } => tracker.get_taint(name) == Some(TaintKind::UserInput),
+        Expr::FnCall { name, .. } => is_user_input_source(name),
+        _ => false,
+    }
+}
+
+/// Returns true if the function name is a known user-input source.
+fn is_user_input_source(name: &str) -> bool {
+    matches!(name, "query_param" | "form_data" | "json_body")
+}
+
 // ── Helper: find line number for a keyword in source ────────────────
 
 /// Find the 1-based line number of the first occurrence of `keyword` in source.
@@ -1089,16 +1107,19 @@ fn check_open_redirect(
             // Only flag respond_html for open redirect (HTML can set Location header)
             if fn_name == "respond_html" {
                 for arg in args {
-                    if let Expr::Ident { name: var, .. } = arg {
-                        if tracker.get_taint(var) == Some(TaintKind::UserInput) {
-                            let line = find_line(source, "respond_html");
-                            findings.push(AuditFinding {
-                                severity: Severity::Warning,
-                                check_id: "OPEN_REDIRECT",
-                                line,
-                                message: "possible open redirect — respond_html() with user-controlled input".to_string(),
-                            });
-                        }
+                    // Наряд №140: catch both variable references
+                    // (tracker) and direct nested user-input calls
+                    // (e.g. respond_html(query_param("url"))).
+                    if expr_is_user_input_tainted(arg, tracker) {
+                        let line = find_line(source, "respond_html");
+                        findings.push(AuditFinding {
+                            severity: Severity::Warning,
+                            check_id: "OPEN_REDIRECT",
+                            line,
+                            message:
+                                "possible open redirect — respond_html() with user-controlled input"
+                                    .to_string(),
+                        });
                     }
                 }
             }
@@ -1859,6 +1880,214 @@ mod tests {
                 .any(|f| f.check_id == "SECRET_LEAK" && f.severity == Severity::Error),
             "http_post(u, token, h) where token from env must still trigger SECRET_LEAK, got {:?}",
             result.findings
+        );
+    }
+
+    // ── Наряд №140: open-redirect catches nested user-input calls ──
+
+    /// Helper: build a MlogServerDecl with a single route containing the given statements.
+    fn make_server_route(stmts: Vec<Statement>) -> Declaration {
+        Declaration::MlogServer(ast::MlogServerDecl {
+            span: Span::unknown(),
+            port: 8080,
+            host: None,
+            middleware: vec![],
+            routes: vec![ast::RouteDecl {
+                span: Span::unknown(),
+                path: "/redirect".to_string(),
+                method: "GET".to_string(),
+                requires: vec![],
+                body: stmts,
+            }],
+        })
+    }
+
+    #[test]
+    fn open_redirect_nested_query_param() {
+        // respond_html(query_param("url")) — direct nesting without variable.
+        // Before №140 this was NOT caught (only Ident args were checked).
+        let route_body = vec![Statement::LetBinding {
+            name: "r".to_string(),
+            value: Expr::FnCall {
+                name: "respond_html".to_string(),
+                args: vec![Expr::FnCall {
+                    name: "query_param".to_string(),
+                    args: vec![Expr::StringLit {
+                        value: "url".to_string(),
+                        span: Span::unknown(),
+                    }],
+                    span: Span::unknown(),
+                }],
+                span: Span::unknown(),
+            },
+            mutable: false,
+            span: Span::unknown(),
+        }];
+        let decls = vec![make_server_route(route_body)];
+        let mut findings: Vec<AuditFinding> = Vec::new();
+        check_open_redirect(&decls, "respond_html", &mut findings);
+        assert!(
+            findings.iter().any(|f| f.check_id == "OPEN_REDIRECT"),
+            "respond_html(query_param(\"url\")) must trigger OPEN_REDIRECT, got {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn open_redirect_nested_form_data() {
+        // respond_html(form_data("target")) — another user-input source.
+        let route_body = vec![Statement::LetBinding {
+            name: "r".to_string(),
+            value: Expr::FnCall {
+                name: "respond_html".to_string(),
+                args: vec![Expr::FnCall {
+                    name: "form_data".to_string(),
+                    args: vec![Expr::StringLit {
+                        value: "target".to_string(),
+                        span: Span::unknown(),
+                    }],
+                    span: Span::unknown(),
+                }],
+                span: Span::unknown(),
+            },
+            mutable: false,
+            span: Span::unknown(),
+        }];
+        let decls = vec![make_server_route(route_body)];
+        let mut findings: Vec<AuditFinding> = Vec::new();
+        check_open_redirect(&decls, "respond_html", &mut findings);
+        assert!(
+            findings.iter().any(|f| f.check_id == "OPEN_REDIRECT"),
+            "respond_html(form_data(\"target\")) must trigger OPEN_REDIRECT, got {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn open_redirect_nested_json_body() {
+        // respond_html(json_body("url")) — third user-input source.
+        let route_body = vec![Statement::LetBinding {
+            name: "r".to_string(),
+            value: Expr::FnCall {
+                name: "respond_html".to_string(),
+                args: vec![Expr::FnCall {
+                    name: "json_body".to_string(),
+                    args: vec![Expr::StringLit {
+                        value: "url".to_string(),
+                        span: Span::unknown(),
+                    }],
+                    span: Span::unknown(),
+                }],
+                span: Span::unknown(),
+            },
+            mutable: false,
+            span: Span::unknown(),
+        }];
+        let decls = vec![make_server_route(route_body)];
+        let mut findings: Vec<AuditFinding> = Vec::new();
+        check_open_redirect(&decls, "respond_html", &mut findings);
+        assert!(
+            findings.iter().any(|f| f.check_id == "OPEN_REDIRECT"),
+            "respond_html(json_body(\"url\")) must trigger OPEN_REDIRECT, got {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn open_redirect_via_variable_still_caught() {
+        // Regression: existing case (let u = query_param(...); respond_html(u)) must still work.
+        let route_body = vec![
+            Statement::LetBinding {
+                name: "url".to_string(),
+                value: Expr::FnCall {
+                    name: "query_param".to_string(),
+                    args: vec![Expr::StringLit {
+                        value: "target".to_string(),
+                        span: Span::unknown(),
+                    }],
+                    span: Span::unknown(),
+                },
+                mutable: false,
+                span: Span::unknown(),
+            },
+            Statement::LetBinding {
+                name: "r".to_string(),
+                value: Expr::FnCall {
+                    name: "respond_html".to_string(),
+                    args: vec![Expr::Ident {
+                        name: "url".to_string(),
+                        span: Span::unknown(),
+                    }],
+                    span: Span::unknown(),
+                },
+                mutable: false,
+                span: Span::unknown(),
+            },
+        ];
+        let decls = vec![make_server_route(route_body)];
+        let mut findings: Vec<AuditFinding> = Vec::new();
+        check_open_redirect(&decls, "respond_html", &mut findings);
+        assert!(
+            findings.iter().any(|f| f.check_id == "OPEN_REDIRECT"),
+            "respond_html(url) where url from query_param must still trigger OPEN_REDIRECT, got {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn open_redirect_clean_literal_not_flagged() {
+        // respond_html with a literal string must NOT trigger.
+        let route_body = vec![Statement::LetBinding {
+            name: "r".to_string(),
+            value: Expr::FnCall {
+                name: "respond_html".to_string(),
+                args: vec![Expr::StringLit {
+                    value: "<h1>Hello</h1>".to_string(),
+                    span: Span::unknown(),
+                }],
+                span: Span::unknown(),
+            },
+            mutable: false,
+            span: Span::unknown(),
+        }];
+        let decls = vec![make_server_route(route_body)];
+        let mut findings: Vec<AuditFinding> = Vec::new();
+        check_open_redirect(&decls, "respond_html", &mut findings);
+        assert!(
+            !findings.iter().any(|f| f.check_id == "OPEN_REDIRECT"),
+            "respond_html(literal) must NOT trigger OPEN_REDIRECT, got {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn open_redirect_llm_not_confused_with_user_input() {
+        // respond_html(call_llm(...)) must NOT trigger OPEN_REDIRECT
+        // (LLM taint is not user-input taint — separate sources).
+        let route_body = vec![Statement::LetBinding {
+            name: "r".to_string(),
+            value: Expr::FnCall {
+                name: "respond_html".to_string(),
+                args: vec![Expr::FnCall {
+                    name: "call_llm".to_string(),
+                    args: vec![Expr::StringLit {
+                        value: "generate page".to_string(),
+                        span: Span::unknown(),
+                    }],
+                    span: Span::unknown(),
+                }],
+                span: Span::unknown(),
+            },
+            mutable: false,
+            span: Span::unknown(),
+        }];
+        let decls = vec![make_server_route(route_body)];
+        let mut findings: Vec<AuditFinding> = Vec::new();
+        check_open_redirect(&decls, "respond_html", &mut findings);
+        assert!(
+            !findings.iter().any(|f| f.check_id == "OPEN_REDIRECT"),
+            "respond_html(call_llm(...)) must NOT trigger OPEN_REDIRECT (wrong taint kind), got {:?}",
+            findings
         );
     }
 }

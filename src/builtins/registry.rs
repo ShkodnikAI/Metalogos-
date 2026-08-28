@@ -56,8 +56,6 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("__round", 1, "std"),
     spec!("__first", 1, "std"),
     spec!("__last", 1, "std"),
-    spec!("__push", 2, "stub"), // no handler; planned stdlib helper, superseded by 'push' builtin
-    spec!("__list_len", 1, "stub"), // no handler; planned stdlib helper, use 'len' instead
     // ── Math builtins (public aliases for __abs/__min/__max/__clamp/__round) ──
     spec!("abs", 1, "math"),
     spec!("min", 2, "math"),

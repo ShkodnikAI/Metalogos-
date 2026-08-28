@@ -9,7 +9,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
 [![Version](https://img.shields.io/badge/v0.17.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
-[![CI](https://img.shields.io/badge/CI-6%20blocking%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
+[![CI](https://img.shields.io/badge/CI-8%20blocking%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 [![Open Collective](https://img.shields.io/opencollective/all/metalogos?label=Backers&logo=open-collective&color=7fadf2)](https://opencollective.com/metalogos)
 
 </div>
@@ -124,15 +124,15 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 
 | Component | Technology | Lines |
 |---|---|---|
-| Parser | Pest 2.7 PEG grammar (~400 lines, 259 rules) | 2 176 |
-| AST | 29 Declaration variants, 15 Expr, 12 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
+| Parser | Pest 2.7 PEG grammar (~392 lines, 262 rules) | 2 176 |
+| AST | 29 Declaration variants, 14 Expr, 12 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION), SVG XSS lint | 473 |
-| Compiler | Bytecode, 359 builtins indexed | 659 |
+| Compiler | Bytecode, 357 builtins indexed | 1 516 |
 | Bytecode format | 46 VM instructions | — |
 | Tree-walking interpreter | Full feature support, 12 modules | ~4 400 |
 | VM | Stack-based bytecode executor | 2 143 |
-| Built-in functions | 359 functions across 32 modules | ~9 500 |
-| HTTP server | Axum 0.8 + Tokio, security middleware | 2 357 |
+| Built-in functions | 357 functions across 34 modules | ~18 000 |
+| HTTP server | Axum 0.8 + Tokio, security middleware | 2 433 |
 | LLM backend | Trait + mock + real providers | 1 421 |
 | Memory store | Typed memory with FTS5 BM25 + cosine RRF hybrid recall + KV store | 1 540 |
 | Security audit | Static OWASP analysis | 1 075 |
@@ -146,7 +146,7 @@ Metalogos-/
 ├── Cargo.toml                       # v0.17.0, workspace root
 ├── logo.jpg                          # Brand logo
 ├── README.md                         # This file
-├── REFERENCE.md                      # Full builtin reference (50 KB)
+├── REFERENCE.md                      # Full builtin reference (~68 KB)
 ├── CHANGELOG.md                      # Version history (45 KB)
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
@@ -186,7 +186,7 @@ Metalogos-/
 │   │   ├── db.rs                      # SQLite database access
 │   │   └── learnable.rs               # Learnable pattern support
 │   │
-│   └── builtins/                      # 359 built-in functions (32 modules)
+│   └── builtins/                      # 357 built-in functions (34 modules)
 │       ├── mod.rs                     # Builtin dispatch
 │       ├── registry.rs               # BUILTIN_REGISTRY (SSOT for all builtins)
 │       ├── core.rs                    # print, let, type, inspect, sleep
@@ -211,7 +211,7 @@ Metalogos-/
 │       ├── main.rs                    # LSP server binary
 │       ├── lib.rs                     # LSP implementation (diagnostics, goto-def, hover)
 │   └── tests/
-│       └── lsp_integration.rs        # 8 integration tests
+│       └── lsp_integration.rs        # 7 integration tests
 │
 ├── mlogpkg/                           # Package manager (workspace crate)
 │   ├── Cargo.toml
@@ -220,16 +220,16 @@ Metalogos-/
 │   └── tests/
 │       └── pkg_integration.rs
 │
-├── tests/                             # 54 Rust test files
+├── tests/                             # 59 Rust test files
 │   ├── fixtures/                      # PDF test fixtures
 │   ├── golden.rs                      # Golden test runner
 │   ├── vm_golden.rs                   # VM golden tests
 │   ├── crosscheck_backends.rs          # TW vs VM parity (see ADR-0105 for known gaps)
 │   ├── repl_integration.rs            # REPL tests
 │   ├── definition_of_done.rs          # Project completeness validation
-│   └── ...                            # Contract + feature tests (54 files)
+│   └── ...                            # Contract + feature tests (59 files)
 │
-├── examples/                          # 186 .mlog programs
+├── examples/                          # 185 .mlog programs
 │   ├── m1_hello.mlog                  # Hello World
 │   ├── p6_full_app.mlog               # Full web app with routes
 │   ├── p23_ml_learn.mlog              # ML learning
@@ -259,7 +259,7 @@ Metalogos-/
 │
 ├── docs/
 │   ├── book/                          # mdBook documentation (syntax, stdlib, tutorial)
-│   └── adr/                           # 108 Architecture Decision Records (ADR-0001..0111)
+│   └── adr/                           # 110 Architecture Decision Records (ADR-0001..0112)
 │       ├── 0001-m1-architecture.md
 │       ├── ...
 │       └── 0111-ast-span-tracking.md
@@ -317,7 +317,7 @@ Every item in the OWASP Top 10 (2021) is addressed at the language level: type-s
 - **Bytecode VM** — 46 instructions, stack-based, used for `mlog compile` + `mlog run file.mbc`
 - **JIT** — experimental scaffold, not part of the build (see ADR-0073)
 
-### 359 Built-in Functions
+### 357 Built-in Functions
 
 String ops, math, collections, type conversion, LLM/AI, HTTP, JSON, file I/O, KV store, session memory, encryption, authentication, HTTP server, templates, databases, Telegram/Discord bots, time/date/calendar, geolocation, weather, reminders, cron, goals, todos, memory tree, preferences, approval workflows, fuzzy matching, hashline editing, context compaction, budget awareness, replay logging, policy enforcement, PDF processing (classify, extract, OCR), typed semantic memory (FTS5 BM25 + cosine RRF), SMTP/IMAP email, CalDAV/CardDAV calendar and contacts, native SVG graphics, and more. See [REFERENCE.md](REFERENCE.md) for the full list.
 
@@ -344,7 +344,7 @@ release binary — see [ADR-0104](docs/adr/0104-feature-gating-measured-impact.m
 
 ### Native SVG/Graphics Subsystem
 
-44 builtins, hand-rolled in pure Rust — zero external SVG/charting/
+43 builtins, hand-rolled in pure Rust — zero external SVG/charting/
 rendering dependencies. Every text-carrying function is covered by a
 dedicated static security lint (`SVG_AUTO_ESCAPE_BUILTINS` /
 `SVG_NO_ESCAPE_BUILTINS`), the same "unsafe by construction" discipline
@@ -359,10 +359,10 @@ let poster = InfographicPoster("Q3 Revenue", "energy", stats, narrative)
 
 - **Primitives** — `svg_rect`, `svg_circle`, `svg_path`, `svg_text`,
   `svg_group`, `svg_canvas` (+ named presets: `doc_inline`,
-  `slide_16x9`, `social_og`, print A4), `svg_icon` (10 glyphs)
-- **9 chart types** — bar, donut, line, scatter, area, heatmap, radar
+  `slide_16x9`, `social_og`, print A4), `svg_icon` (9 glyphs)
+- **8 chart types** — bar, donut, line, scatter, area, heatmap, radar
   (multi-series), boxplot (real quartile math)
-- **22 diagram types** — flowchart (topological layering, cycle
+- **21 diagram types** — flowchart (topological layering, cycle
   detection), tree, org chart, sequence, timeline, Gantt, state machine,
   ER, swimlane, Venn (2/3-circle), quadrant, pyramid, and more
 - **`color_palette`** — HSL-cascade generator, 5 intents × 2 modes
@@ -497,7 +497,7 @@ mlogpkg add dependency@1.0
 
 | Job | Status | Type |
 |---|---|---|
-| `test-lib` | **Blocking** | Unit + golden tests (539 pass) |
+| `test-lib` | **Blocking** | Unit + golden tests (564 pass) |
 | `test-integration` | Advisory | Integration tests (continue-on-error) |
 | `fmt` | **Blocking** | `cargo fmt --check` |
 | `clippy` | **Blocking** | `cargo clippy -- -D warnings` |
@@ -547,15 +547,15 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 | Metric | Value |
 |---|---|
 | Effective Rust LOC | ~59 000 |
-| Built-in Functions | 359 (32 modules) |
-| Example Programs | 186 |
-| Integration Tests | 54 test suites |
-| Architecture Decision Records | 111 |
-| Parser Rules | 259 (Pest PEG) |
+| Built-in Functions | 357 (34 modules) |
+| Example Programs | 185 |
+| Integration Tests | 59 test suites |
+| Architecture Decision Records | 110 |
+| Parser Rules | 262 (Pest PEG) |
 | VM Instructions | 46 |
 | Execution Backends | 2 (interpreter + bytecode VM) |
 | Workspace Crates | 3 (mlog, mlog-lsp, mlogpkg) |
-| Commits | 781 |
+| Commits | 821 |
 | License | MIT / Apache-2.0 |
 
 ---
@@ -650,7 +650,7 @@ Direct support from anywhere in the world, regardless of banking restrictions:
 
 ## License
 
-Licensed under either [MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE-2.0) at your option.
+Licensed under either [MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE) at your option.
 
 ---
 

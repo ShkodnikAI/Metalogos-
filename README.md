@@ -18,6 +18,8 @@
 
 <a href="https://youtube.com/shorts/Y8IFieOZQLo?feature=shared"><img src="https://img.youtube.com/vi/Y8IFieOZQLo/hqdefault.jpg" alt="Metalogos Presentation" width="400"/></a>
 
+<sub>Short, Aug 12 2026 — visual pitch, not the security contract; see <a href="#security-by-design">Known boundaries</a> for what's actually guaranteed.</sub>
+
 </div>
 
 ---

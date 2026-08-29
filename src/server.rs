@@ -1560,7 +1560,7 @@ fn load_hmac_key() -> Vec<u8> {
 }
 
 pub fn sign_cookie(value: &str, key: &[u8]) -> String {
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
     type HmacSha256 = Hmac<Sha256>;
 
@@ -1583,7 +1583,7 @@ pub fn sign_cookie(value: &str, key: &[u8]) -> String {
 }
 
 pub fn verify_cookie(cookie: &str, key: &[u8]) -> Option<String> {
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
     type HmacSha256 = Hmac<Sha256>;
 

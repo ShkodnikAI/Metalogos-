@@ -109,6 +109,8 @@ More than a key-value store. Hierarchical memory (Memory Tree L0/L1/L2), typed r
 
 The `adapt` statement allows a program to modify its own patterns at runtime — with sandboxing, few-shot mutation, and automatic rollback. The rollback mechanism is real and tested. Quality metric is currently a fixed mock value (0.95), not a real accuracy computation — rollback logic exists but does not yet respond to actual quality degradation. See ADR-0112.
 
+**Sandbox timeout caveat**: when a `sandbox` block specifies `timeout > 0`, the calling thread stops *waiting* at the deadline (preemptive via `mpsc::recv_timeout`). However, the background HTTP request to the LLM provider may still be in flight — only the wait is cancelled, not the request itself. Full request cancellation requires `reqwest::AbortHandle` (a separate наряд).
+
 ### 6. Complete Toolchain in One Binary
 
 `mlog run`, `mlog serve`, `mlog compile`, `mlog repl`, `mlog check`, `mlog audit`, `mlog eval` — all in a single binary. The LSP server (`mlog-lsp`) and package manager (`mlogpkg`) are separate binaries in the same workspace. A VS Code extension with syntax highlighting is included in the repository.

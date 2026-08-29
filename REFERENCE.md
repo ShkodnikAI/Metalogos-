@@ -1103,6 +1103,8 @@ forget "outdated fact" after 30.0 days
 relate entity1 to entity2 as "relationship"
 ```
 
+**Sandbox `timeout` caveat**: `timeout > 0` makes the calling thread stop *waiting* at the deadline (preemptive via `mpsc::recv_timeout`). The background HTTP request to the LLM provider may still be in flight — only the wait is cancelled, not the request itself. Full request cancellation (`reqwest::AbortHandle`) is a separate наряд.
+
 ### 5.16. Conversation (конфигурация)
 
 ```mlog

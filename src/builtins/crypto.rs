@@ -82,8 +82,8 @@ pub(crate) fn builtin_encrypt(args: &[Value]) -> Result<Value, String> {
         None => return Err("encrypt() requires 2 arguments".to_string()),
     };
     // Real AES-256-GCM with random 96-bit nonce (Phase 7.3)
-    use aes_gcm::aead::{Aead, KeyInit, OsRng};
-    use aes_gcm::{AeadCore, Aes256Gcm, Key};
+    use aes_gcm::aead::{Aead, KeyInit};
+    use aes_gcm::{Aes256Gcm, Key, Nonce};
 
     let key_bytes = hex::decode(key_str)
         .map_err(|e| format!("encrypt() invalid key format (expected hex): {}", e))?;
@@ -93,9 +93,14 @@ pub(crate) fn builtin_encrypt(args: &[Value]) -> Result<Value, String> {
             key_bytes.len()
         ));
     }
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    let cipher = Aes256Gcm::new(key);
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng); // 96-bit random nonce
+    let key = Key::<Aes256Gcm>::try_from(key_bytes.as_slice())
+        .map_err(|_| "encrypt() key conversion failed".to_string())?;
+    let cipher = Aes256Gcm::new(&key);
+    let mut nonce_bytes = [0u8; 12]; // 96-bit nonce
+    use rand::RngCore;
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::try_from(nonce_bytes.as_slice())
+        .map_err(|_| "encrypt() nonce conversion failed".to_string())?;
 
     match cipher.encrypt(&nonce, data.as_ref()) {
         Ok(ciphertext) => {
@@ -149,11 +154,13 @@ pub(crate) fn builtin_decrypt(args: &[Value]) -> Result<Value, String> {
     }
 
     let (nonce_bytes, ciphertext) = encrypted.split_at(12);
-    let nonce = Nonce::from_slice(nonce_bytes);
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    let cipher = Aes256Gcm::new(key);
+    let nonce = Nonce::try_from(nonce_bytes)
+        .map_err(|_| "decrypt() nonce conversion failed".to_string())?;
+    let key = Key::<Aes256Gcm>::try_from(key_bytes.as_slice())
+        .map_err(|_| "decrypt() key conversion failed".to_string())?;
+    let cipher = Aes256Gcm::new(&key);
 
-    match cipher.decrypt(nonce, ciphertext) {
+    match cipher.decrypt(&nonce, ciphertext) {
         Ok(plaintext) => match String::from_utf8(plaintext) {
             Ok(s) => Ok(Value::String(s)),
             Err(_) => Err("decrypt() decrypted data is not valid UTF-8".to_string()),
@@ -234,7 +241,7 @@ pub(crate) fn builtin_hmac_sha256(args: &[Value]) -> Result<Value, String> {
         Value::String(s) => s.as_bytes(),
         _ => return Err("hmac_sha256() message must be String".to_string()),
     };
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     type HmacSha256 = Hmac<sha2::Sha256>;
     let mut mac =
         HmacSha256::new_from_slice(key).map_err(|e| format!("hmac_sha256() invalid key: {}", e))?;

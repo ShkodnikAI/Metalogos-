@@ -125,233 +125,7 @@ All notable changes to the Metalogos project.
 - ADR-0105 updated: BlockIfElse gap description corrected, Наряд №129 referenced.
 - No golden examples were masking this defect (verified).
 
-## [0.17.0] - 2026-08-17
 
-**Native SVG/graphics subsystem — 44 builtins, zero external rendering
-dependencies. Sixteen naryads (№77–92), hand-rolled in pure Rust,
-covered by a dedicated security lint pass.**
-
-### Added — SVG primitives (наряд №77, ADR-0102)
-- `svg_rect`, `svg_circle`, `svg_line`, `svg_text`, `svg_path`,
-  `svg_group`, `svg_canvas`, `svg_icon` (10 built-in glyphs),
-  `svg_callout`, `svg_sketchy_filter`
-- `chart_bar`, `diagram_style` (5-token `DiagramStyle`: paper/ink/
-  accent/muted/rule)
-- `svg_security_lint` static analysis pass in `semantic.rs` —
-  `SVG_AUTO_ESCAPE_BUILTINS` / `SVG_NO_ESCAPE_BUILTINS`, catches XSS
-  attempts (including string-concatenation evasion) at `mlog check`
-  time
-
-### Added — Palette + first composition (наряд №77)
-- `color_palette(intent, mode)` — HSL-cascade generator, 5 intents ×
-  2 modes, outputs `DiagramStyle`-compatible tokens
-- `chart_donut`
-- `std/infographic.mlog` — `InfographicPoster` pattern (MVP)
-
-### Added — Chart types (наряды №78–79)
-- `chart_line`, `chart_scatter` (independent two-axis scaling),
-  `chart_area`
-- `chart_heatmap` (HSL interpolation, no user text — intentionally
-  excluded from the lint), `chart_radar` (multi-series, polar
-  coordinates), `chart_boxplot` (real quartile computation, linear
-  interpolation / R-7 method)
-
-### Added — Procedural backgrounds + canvas presets (наряд №80)
-- `svg_generate("flow"/"grid"/"noise", intent, w, h)` — deterministic,
-  hash-based noise (no external noise crate)
-- `svg_canvas_preset` — named viewBox presets (`doc_inline`,
-  `slide_16x9`, `social_og`, `print_a4_landscape`, `print_a4_portrait`)
-
-### Added — Diagram types, 22 total (наряды №81–84)
-- Hierarchies/flow: `diagram_tree`, `diagram_org_chart`,
-  `diagram_flowchart` (topological layering, cycle detection with a
-  clear error), `diagram_layers`
-- Temporal/process: `diagram_sequence`, `diagram_timeline`,
-  `diagram_gantt`, `diagram_process`, `diagram_loop` (closed cycle via
-  `polar_to_xy`)
-- Sets/comparison: `diagram_venn` (2 or 3 circles, fixed symmetric
-  geometry — general N-circle Venn intentionally out of scope),
-  `diagram_quadrant`, `diagram_pyramid`, `diagram_nested`,
-  `diagram_medallion` (reuses `svg_icon` validation)
-- Data/state: `diagram_er`, `diagram_state` (cycles and self-loops are
-  valid, unlike flowchart), `diagram_swimlane`, `diagram_data_flow`,
-  `diagram_high_level`, `diagram_architecture` — all three graph-based
-  types share a generalized `topological_layers`
-- Shared primitive: `draw_connector` (arrow with computed head angle)
-
-### Added — Retroactive crosscheck coverage (наряд №85)
-- 36 `.expected` files generated for every example from наряды №77–84
-  — none had been covered by `crosscheck_backends` before this naryad
-- Found and fixed one real contract bug during the backfill
-  (`p83_diagram_venn_2.mlog` used C-style `&&` instead of `and` —
-  TW/VM had been "passing" only because both backends produced the
-  same parse error)
-
-### Added — Template engine (наряд №86)
-- `template_render(template, data) -> Html` — new dedicated engine,
-  built from scratch (the existing `render()` does not parse `{{ }}`
-  at all and was left untouched)
-- `{{ var }}` (auto-escaped), `{{{ var }}}` (raw, added ahead of
-  schedule for naryад №90's SVG-in-HTML composition needs),
-  `{{#if}}/{{else}}`, `{{#each}}` with `{{ this }}` context, verified
-  nesting (`{{#each}}` inside `{{#if}}`)
-- Template content itself is intentionally NOT auto-escaped — treated
-  as trusted `.mlog`-author code, not end-user input
-
-### Added — Anti-overlap engine (наряд №87)
-- `estimate_text_width`, `resolve_overlaps` — iterative pairwise
-  bounding-box displacement (not force-directed simulation)
-- Wired into `diagram_timeline`, replacing the parity-alternation
-  stopgap (kept as the initial seed position, refined by the real
-  algorithm)
-
-### Added — `html_render` + `exec()` hardening (наряд №88)
-- `exec()`: configurable timeout (default 30s, ceiling 300s, real
-  process kill on expiry), file-based audit log
-  (`METALOGOS_AUDIT_LOG_PATH`) — added without moving `exec`/
-  `html_render` into interpreter-special-cased dispatch
-- `exec_restricted` — `Command::new(binary).args(args)`, no shell
-  interpretation, closes a class of injection by construction
-- `html_render(html, width, height)` — headless-browser screenshot via
-  `METALOGOS_BROWSER_BIN` (no hardcoded path; clear error if unset or
-  missing). Network isolation is NOT enforced at the OS level —
-  documented, not hidden: caller is responsible for self-contained
-  HTML (inline styles, `data:` URIs)
-
-### Added — `infographic_qa` (наряд №89)
-- WCAG-style contrast ratio check, saturation-discipline check
-  (counts high-saturation colors in generated SVG), density check
-  (element count / canvas area) — advisory only, `passed: false` is a
-  suggestion, not a gate
-
-### Added — Full `std/infographic.mlog` suite (наряд №90)
-- `InfographicDashboard` (KPI cards + 2×2 chart grid),
-  `InfographicComparison` (side-by-side, shared `chart_type`
-  required), `InfographicTimeline` (thin wrapper over
-  `diagram_timeline`, anti-overlap applies automatically)
-- All three reuse `InfographicPoster`'s header/footer visual grammar
-
-### Fixed — Critical: VM discarded `try`'s result on the success path
-- `src/compiler.rs` compiled `Expr::Try(_)` as `Const(Unit)`
-  unconditionally since наряд №14 — the wrapped expression was never
-  evaluated by the VM at all
-- New `Instruction::TryEval(Vec<Instruction>)` — compiles the inner
-  expression into its own block, executes it, pushes the real value on
-  success or `Unit` on error (matching tree-walking semantics exactly)
-- Found by accident during наряд №90; masked for the entire project
-  history because all 30 pre-existing `try`-using golden examples only
-  tested the error path, where `Unit` happened to be correct either
-  way — first golden contract testing the success path is
-  `p91_try_success_path.mlog`
-
-### Added — Security audit sweep (наряд №92)
-- Classified all 44 SVG/graphics builtins: 0 real gaps found (23
-  initial suspects from a naive array-membership grep were false
-  positives — either legitimately excluded, e.g. `template_render`,
-  `infographic_qa`, `chart_heatmap`, or covered via `SVG_NO_ESCAPE_BUILTINS`
-  and dedicated per-function scanners not visible to a literal-array search)
-- Added 26 injection tests for the `diagram_*` family — 0 existed
-  before this naryад, despite наряд №84's report claiming coverage was
-  confirmed (the scanners were real and wired correctly; the tests
-  proving they fire were simply never written)
-
-### Changed
-- Cargo.toml version 0.16.0 → 0.17.0
-- `registry_arity_check.rs` promoted from `test-integration` (advisory)
-  to its own `registry-arity-check` (blocking) CI job — the same
-  regression class that let a stale `http_get`/`http_post` arity
-  assertion sit unnoticed for days (see наряд №73)
-
-## [0.16.0] - 2026-08-13
-
-### Added
-- card_connect — подключение к CardDAV-серверу (PROPFIND, addressbook-home-set discovery)
-- card_list — список адресных книг (PROPFIND Depth:1)
-- card_contacts — контакты из адресной книги с фильтрацией (CardDAV REPORT addressbook-query, RFC 6352 §8.6)
-- card_read — чтение одного контакта по URL
-- card_create — создание контакта (PUT .vcf, возвращает UID, arity 3..7)
-- card_update — обновление полей контакта (GET+PUT с ETag/If-Match)
-- card_delete — удаление контакта (DELETE с If-Match)
-- card_search — поиск по всем адресным книгам (FN + EMAIL)
-- vcard_parse — парсинг vCard текста в JSON (RFC 6350, hand-rolled parser)
-- vcard_generate — генерация vCard текста из JSON (v4.0)
-- 14 inline-тестов в contacts.rs (UUID, vCard parse/generate/roundtrip, folding, escaping)
-- Интеграционные тесты tests/phase_mlg6_contacts.rs (10 тестов)
-- CardDAV config через env vars: CARDDAV_URL/USER/PASS
-
-### Changed
-- Cargo.toml version 0.15.0 → 0.16.0
-- BUILTIN_REGISTRY: +10 contacts functions (category "contacts")
-- Builtins::new(): +10 dispatcher entries for card_*/vcard_*
-
-## [0.15.0] - 2026-08-13
-
-### Added
-- cal_connect — подключение к CalDAV-серверу (PROPFIND, calendar-home-set discovery)
-- cal_list — список календарей (PROPFIND Depth:1)
-- cal_events — события в диапазоне дат (CalDAV REPORT calendar-query, RFC 4791 §7.8)
-- cal_read — чтение одного события по URL
-- cal_create — создание события (PUT .ics, возвращает UID)
-- cal_update — обновление полей события (GET+PUT с ETag/If-Match)
-- cal_delete — удаление события (DELETE с If-Match)
-- cal_freebusy — запрос занятости (CalDAV REPORT free-busy-query, RFC 4791 §7.10)
-- ical_parse — парсинг iCalendar текста в JSON (ical crate, RFC 5545)
-- ical_generate — генерация iCalendar текста из JSON (VEVENT + VCALENDAR)
-- ical (v0.8), chrono-tz (v0.10) dependencies
-- 10 inline-тестов в calendar.rs (datetime formatting, iCal escaping, parse, generate, roundtrip)
-- Интеграционные тесты tests/phase_mlg5_calendar.rs (10 тестов)
-- CalDAV config через env vars: CALDAV_URL/USER/PASS
-
-### Changed
-- Cargo.toml version 0.14.0 → 0.15.0
-- BUILTIN_REGISTRY: +10 calendar functions (category "calendar")
-- Builtins::new(): +10 dispatcher entries for cal_*/ical_*
-
-## [0.14.0] - 2026-08-13
-
-### Added
-- smtp_send — отправка plain-text email через SMTP (lettre crate, TLS/STARTTLS)
-- smtp_send_html — отправка HTML email через SMTP
-- imap_list — список входящих писем (IMAP, envelope + flags)
-- imap_read — чтение полного письма (заголовки, тело, вложения)
-- imap_search — поиск писем по тексту (TEXT criteria)
-- imap_mark_read — пометка письма как прочитанного
-- imap_move — перемещение письма в другую папку (RFC 6851 MOVE / fallback COPY+DELETE)
-- lettre (v0.11), imap (v3.0.0-alpha.15), imap-proto (v0.16), native-tls (v0.2) dependencies
-- 6 inline-тестов в email.rs (env guard, content type, header parsing, flag detection)
-- Интеграционные тесты tests/phase_mlg4_email.rs (10 тестов)
-- Email config через env vars: SMTP_HOST/PORT/USER/PASS/FROM, IMAP_HOST/PORT/USER/PASS
-
-### Changed
-- Cargo.toml version 0.13.0 → 0.14.0
-- BUILTIN_REGISTRY: +7 email functions (category "email")
-- Builtins::new(): +7 dispatcher entries for smtp_*/imap_*
-
-## [0.13.0] - 2026-08-12
-
-### Added
-- pdf_draw_table — таблицы в PDF (Наряд MLG-3)
-- pdf_add_image — вставка PNG/JPEG изображений
-- pdf_set_page_header / pdf_set_page_footer — колонтитулы
-- pdf_page_numbers — автоматическая нумерация страниц
-- pdf_watermark — водяные знаки (диагональный текст с прозрачностью)
-- pdf_fill_form — заполнение AcroForm-полей
-- pdf_rotate_page — поворот страниц (90/180/270°)
-- pdf_delete_pages — удаление страниц
-- pdf_extract_images — извлечение изображений из PDF
-- html_to_pdf улучшен: базовый рендер на чистом Rust с fallback на wkhtmltopdf
-- png crate dependency (v0.17) для декодирования PNG-изображений
-- 18 inline-тестов в pdf.rs для новых функций
-- Интеграционные тесты tests/phase_mlg3_pdf_office.rs (13 тестов)
-- Пример examples/p_pdf_office.mlog
-
-### Changed
-- PdfDocument struct: добавлены поля header, footer, watermark, page_number_format, page_number_pos
-- PdfElement enum: добавлены вариации Table, Image, Watermark
-- html_to_pdf: приоритет Rust-рендера (простой HTML) над wkhtmltopdf (сложный HTML)
-- render_pdf: поддерживает Table/Image/Watermark элементы, рендерит header/footer/page_numbers/watermark на каждую страницу
-
-## [Unreleased]
 ### Наряд №121 — Отслеживание позиций в AST (span infrastructure, ADR-0111)
 
 - **Feature:** Каждый узел АСТ теперь хранит своё положение в исходном коде
@@ -624,6 +398,232 @@ covered by a dedicated security lint pass.**
   219/311 integration tests pass. Ключевые группы: missing builtins (Phase 23),
   BUILTIN_REGISTRY gaps (8 Telegram/Voice entries), VM unimplemented (5 instructions),
   server-dependent (11 tests), immutable variable (4 tests).
+
+## [0.18.0] - 2026-08-29
+
+**Native SVG/graphics subsystem — 44 builtins, zero external rendering
+dependencies. Sixteen naryads (№77–92), hand-rolled in pure Rust,
+covered by a dedicated security lint pass.**
+
+### Added — SVG primitives (наряд №77, ADR-0102)
+- `svg_rect`, `svg_circle`, `svg_line`, `svg_text`, `svg_path`,
+  `svg_group`, `svg_canvas`, `svg_icon` (10 built-in glyphs),
+  `svg_callout`, `svg_sketchy_filter`
+- `chart_bar`, `diagram_style` (5-token `DiagramStyle`: paper/ink/
+  accent/muted/rule)
+- `svg_security_lint` static analysis pass in `semantic.rs` —
+  `SVG_AUTO_ESCAPE_BUILTINS` / `SVG_NO_ESCAPE_BUILTINS`, catches XSS
+  attempts (including string-concatenation evasion) at `mlog check`
+  time
+
+### Added — Palette + first composition (наряд №77)
+- `color_palette(intent, mode)` — HSL-cascade generator, 5 intents ×
+  2 modes, outputs `DiagramStyle`-compatible tokens
+- `chart_donut`
+- `std/infographic.mlog` — `InfographicPoster` pattern (MVP)
+
+### Added — Chart types (наряды №78–79)
+- `chart_line`, `chart_scatter` (independent two-axis scaling),
+  `chart_area`
+- `chart_heatmap` (HSL interpolation, no user text — intentionally
+  excluded from the lint), `chart_radar` (multi-series, polar
+  coordinates), `chart_boxplot` (real quartile computation, linear
+  interpolation / R-7 method)
+
+### Added — Procedural backgrounds + canvas presets (наряд №80)
+- `svg_generate("flow"/"grid"/"noise", intent, w, h)` — deterministic,
+  hash-based noise (no external noise crate)
+- `svg_canvas_preset` — named viewBox presets (`doc_inline`,
+  `slide_16x9`, `social_og`, `print_a4_landscape`, `print_a4_portrait`)
+
+### Added — Diagram types, 22 total (наряды №81–84)
+- Hierarchies/flow: `diagram_tree`, `diagram_org_chart`,
+  `diagram_flowchart` (topological layering, cycle detection with a
+  clear error), `diagram_layers`
+- Temporal/process: `diagram_sequence`, `diagram_timeline`,
+  `diagram_gantt`, `diagram_process`, `diagram_loop` (closed cycle via
+  `polar_to_xy`)
+- Sets/comparison: `diagram_venn` (2 or 3 circles, fixed symmetric
+  geometry — general N-circle Venn intentionally out of scope),
+  `diagram_quadrant`, `diagram_pyramid`, `diagram_nested`,
+  `diagram_medallion` (reuses `svg_icon` validation)
+- Data/state: `diagram_er`, `diagram_state` (cycles and self-loops are
+  valid, unlike flowchart), `diagram_swimlane`, `diagram_data_flow`,
+  `diagram_high_level`, `diagram_architecture` — all three graph-based
+  types share a generalized `topological_layers`
+- Shared primitive: `draw_connector` (arrow with computed head angle)
+
+### Added — Retroactive crosscheck coverage (наряд №85)
+- 36 `.expected` files generated for every example from наряды №77–84
+  — none had been covered by `crosscheck_backends` before this naryad
+- Found and fixed one real contract bug during the backfill
+  (`p83_diagram_venn_2.mlog` used C-style `&&` instead of `and` —
+  TW/VM had been "passing" only because both backends produced the
+  same parse error)
+
+### Added — Template engine (наряд №86)
+- `template_render(template, data) -> Html` — new dedicated engine,
+  built from scratch (the existing `render()` does not parse `{{ }}`
+  at all and was left untouched)
+- `{{ var }}` (auto-escaped), `{{{ var }}}` (raw, added ahead of
+  schedule for naryад №90's SVG-in-HTML composition needs),
+  `{{#if}}/{{else}}`, `{{#each}}` with `{{ this }}` context, verified
+  nesting (`{{#each}}` inside `{{#if}}`)
+- Template content itself is intentionally NOT auto-escaped — treated
+  as trusted `.mlog`-author code, not end-user input
+
+### Added — Anti-overlap engine (наряд №87)
+- `estimate_text_width`, `resolve_overlaps` — iterative pairwise
+  bounding-box displacement (not force-directed simulation)
+- Wired into `diagram_timeline`, replacing the parity-alternation
+  stopgap (kept as the initial seed position, refined by the real
+  algorithm)
+
+### Added — `html_render` + `exec()` hardening (наряд №88)
+- `exec()`: configurable timeout (default 30s, ceiling 300s, real
+  process kill on expiry), file-based audit log
+  (`METALOGOS_AUDIT_LOG_PATH`) — added without moving `exec`/
+  `html_render` into interpreter-special-cased dispatch
+- `exec_restricted` — `Command::new(binary).args(args)`, no shell
+  interpretation, closes a class of injection by construction
+- `html_render(html, width, height)` — headless-browser screenshot via
+  `METALOGOS_BROWSER_BIN` (no hardcoded path; clear error if unset or
+  missing). Network isolation is NOT enforced at the OS level —
+  documented, not hidden: caller is responsible for self-contained
+  HTML (inline styles, `data:` URIs)
+
+### Added — `infographic_qa` (наряд №89)
+- WCAG-style contrast ratio check, saturation-discipline check
+  (counts high-saturation colors in generated SVG), density check
+  (element count / canvas area) — advisory only, `passed: false` is a
+  suggestion, not a gate
+
+### Added — Full `std/infographic.mlog` suite (наряд №90)
+- `InfographicDashboard` (KPI cards + 2×2 chart grid),
+  `InfographicComparison` (side-by-side, shared `chart_type`
+  required), `InfographicTimeline` (thin wrapper over
+  `diagram_timeline`, anti-overlap applies automatically)
+- All three reuse `InfographicPoster`'s header/footer visual grammar
+
+### Fixed — Critical: VM discarded `try`'s result on the success path
+- `src/compiler.rs` compiled `Expr::Try(_)` as `Const(Unit)`
+  unconditionally since наряд №14 — the wrapped expression was never
+  evaluated by the VM at all
+- New `Instruction::TryEval(Vec<Instruction>)` — compiles the inner
+  expression into its own block, executes it, pushes the real value on
+  success or `Unit` on error (matching tree-walking semantics exactly)
+- Found by accident during наряд №90; masked for the entire project
+  history because all 30 pre-existing `try`-using golden examples only
+  tested the error path, where `Unit` happened to be correct either
+  way — first golden contract testing the success path is
+  `p91_try_success_path.mlog`
+
+### Added — Security audit sweep (наряд №92)
+- Classified all 44 SVG/graphics builtins: 0 real gaps found (23
+  initial suspects from a naive array-membership grep were false
+  positives — either legitimately excluded, e.g. `template_render`,
+  `infographic_qa`, `chart_heatmap`, or covered via `SVG_NO_ESCAPE_BUILTINS`
+  and dedicated per-function scanners not visible to a literal-array search)
+- Added 26 injection tests for the `diagram_*` family — 0 existed
+  before this naryад, despite наряд №84's report claiming coverage was
+  confirmed (the scanners were real and wired correctly; the tests
+  proving they fire were simply never written)
+
+### Changed
+- Cargo.toml version 0.16.0 → 0.17.0
+- `registry_arity_check.rs` promoted from `test-integration` (advisory)
+  to its own `registry-arity-check` (blocking) CI job — the same
+  regression class that let a stale `http_get`/`http_post` arity
+  assertion sit unnoticed for days (see наряд №73)
+
+## [0.16.0] - 2026-08-13
+
+### Added
+- card_connect — подключение к CardDAV-серверу (PROPFIND, addressbook-home-set discovery)
+- card_list — список адресных книг (PROPFIND Depth:1)
+- card_contacts — контакты из адресной книги с фильтрацией (CardDAV REPORT addressbook-query, RFC 6352 §8.6)
+- card_read — чтение одного контакта по URL
+- card_create — создание контакта (PUT .vcf, возвращает UID, arity 3..7)
+- card_update — обновление полей контакта (GET+PUT с ETag/If-Match)
+- card_delete — удаление контакта (DELETE с If-Match)
+- card_search — поиск по всем адресным книгам (FN + EMAIL)
+- vcard_parse — парсинг vCard текста в JSON (RFC 6350, hand-rolled parser)
+- vcard_generate — генерация vCard текста из JSON (v4.0)
+- 14 inline-тестов в contacts.rs (UUID, vCard parse/generate/roundtrip, folding, escaping)
+- Интеграционные тесты tests/phase_mlg6_contacts.rs (10 тестов)
+- CardDAV config через env vars: CARDDAV_URL/USER/PASS
+
+### Changed
+- Cargo.toml version 0.15.0 → 0.16.0
+- BUILTIN_REGISTRY: +10 contacts functions (category "contacts")
+- Builtins::new(): +10 dispatcher entries for card_*/vcard_*
+
+## [0.15.0] - 2026-08-13
+
+### Added
+- cal_connect — подключение к CalDAV-серверу (PROPFIND, calendar-home-set discovery)
+- cal_list — список календарей (PROPFIND Depth:1)
+- cal_events — события в диапазоне дат (CalDAV REPORT calendar-query, RFC 4791 §7.8)
+- cal_read — чтение одного события по URL
+- cal_create — создание события (PUT .ics, возвращает UID)
+- cal_update — обновление полей события (GET+PUT с ETag/If-Match)
+- cal_delete — удаление события (DELETE с If-Match)
+- cal_freebusy — запрос занятости (CalDAV REPORT free-busy-query, RFC 4791 §7.10)
+- ical_parse — парсинг iCalendar текста в JSON (ical crate, RFC 5545)
+- ical_generate — генерация iCalendar текста из JSON (VEVENT + VCALENDAR)
+- ical (v0.8), chrono-tz (v0.10) dependencies
+- 10 inline-тестов в calendar.rs (datetime formatting, iCal escaping, parse, generate, roundtrip)
+- Интеграционные тесты tests/phase_mlg5_calendar.rs (10 тестов)
+- CalDAV config через env vars: CALDAV_URL/USER/PASS
+
+### Changed
+- Cargo.toml version 0.14.0 → 0.15.0
+- BUILTIN_REGISTRY: +10 calendar functions (category "calendar")
+- Builtins::new(): +10 dispatcher entries for cal_*/ical_*
+
+## [0.14.0] - 2026-08-13
+
+### Added
+- smtp_send — отправка plain-text email через SMTP (lettre crate, TLS/STARTTLS)
+- smtp_send_html — отправка HTML email через SMTP
+- imap_list — список входящих писем (IMAP, envelope + flags)
+- imap_read — чтение полного письма (заголовки, тело, вложения)
+- imap_search — поиск писем по тексту (TEXT criteria)
+- imap_mark_read — пометка письма как прочитанного
+- imap_move — перемещение письма в другую папку (RFC 6851 MOVE / fallback COPY+DELETE)
+- lettre (v0.11), imap (v3.0.0-alpha.15), imap-proto (v0.16), native-tls (v0.2) dependencies
+- 6 inline-тестов в email.rs (env guard, content type, header parsing, flag detection)
+- Интеграционные тесты tests/phase_mlg4_email.rs (10 тестов)
+- Email config через env vars: SMTP_HOST/PORT/USER/PASS/FROM, IMAP_HOST/PORT/USER/PASS
+
+### Changed
+- Cargo.toml version 0.13.0 → 0.14.0
+- BUILTIN_REGISTRY: +7 email functions (category "email")
+- Builtins::new(): +7 dispatcher entries for smtp_*/imap_*
+
+## [0.13.0] - 2026-08-12
+
+### Added
+- pdf_draw_table — таблицы в PDF (Наряд MLG-3)
+- pdf_add_image — вставка PNG/JPEG изображений
+- pdf_set_page_header / pdf_set_page_footer — колонтитулы
+- pdf_page_numbers — автоматическая нумерация страниц
+- pdf_watermark — водяные знаки (диагональный текст с прозрачностью)
+- pdf_fill_form — заполнение AcroForm-полей
+- pdf_rotate_page — поворот страниц (90/180/270°)
+- pdf_delete_pages — удаление страниц
+- pdf_extract_images — извлечение изображений из PDF
+- html_to_pdf улучшен: базовый рендер на чистом Rust с fallback на wkhtmltopdf
+- png crate dependency (v0.17) для декодирования PNG-изображений
+- 18 inline-тестов в pdf.rs для новых функций
+- Интеграционные тесты tests/phase_mlg3_pdf_office.rs (13 тестов)
+- Пример examples/p_pdf_office.mlog
+
+### Changed
+- PdfDocument struct: добавлены поля header, footer, watermark, page_number_format, page_number_pos
+- PdfElement enum: добавлены вариации Table, Image, Watermark
+- html_to_pdf: приоритет Rust-рендера (простой HTML) над wkhtmltopdf (сложный HTML)
+- render_pdf: поддерживает Table/Image/Watermark элементы, рендерит header/footer/page_numbers/watermark на каждую страницу
 
 ## [0.12.0] - 2026-07-30
 

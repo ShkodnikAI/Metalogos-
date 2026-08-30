@@ -14,17 +14,21 @@ fn test_parser_never_panics_on_garbage() {
     // Ensure opt-out is NOT set
     std::env::remove_var("METALOGOS_HTTP_ALLOW_PRIVATE");
 
+    let nested_parens: String = "(".repeat(50);
+    let nested_brackets: String = "[".repeat(50);
+    let long_flat: String = "a".repeat(4000);
+
     let garbage_inputs: Vec<&str> = vec![
         // Empty
         "",
         // Control characters
         "\x00\x01\x02\x03",
         // Deeply nested (but within 8MB stack)
-        &"(".repeat(50),
-        &"[".repeat(50),
-        &"((((((((((((1))))))))))))",
+        &nested_parens,
+        &nested_brackets,
+        "((((((((((((1))))))))))))",
         // Long flat input
-        &"a".repeat(4000),
+        &long_flat,
         // Unterminated string
         "let x = \"",
         // Mismatched delimiters
@@ -67,8 +71,7 @@ fn test_parser_deep_nesting_returns_err_not_panic() {
             // Should be a normal parse error or "parser thread panicked"
             // Both are acceptable — the key is no panic propagated.
             assert!(
-                msg.contains("parser thread panicked")
-                    || !msg.contains("panicked"),
+                msg.contains("parser thread panicked") || !msg.contains("panicked"),
                 "Unexpected error format: {}",
                 msg
             );

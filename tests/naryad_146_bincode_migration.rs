@@ -88,7 +88,10 @@ fn e2e_serialize_deserialize_preserves_instructions() {
     let bytes = program.serialize().unwrap();
     let restored = Program::deserialize(&bytes).unwrap();
     match (&program.main_code[0], &restored.main_code[0]) {
-        (Instruction::Const(a), Instruction::Const(b)) => assert_eq!(a, b),
+        (Instruction::Const(a), Instruction::Const(b)) => {
+            // Value does not implement PartialEq; compare via Debug repr.
+            assert_eq!(format!("{:?}", a), format!("{:?}", b));
+        }
         _ => panic!("first instruction shape changed across round-trip"),
     }
 }

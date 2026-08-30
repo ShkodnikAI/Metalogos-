@@ -62,16 +62,14 @@ impl Interpreter {
 
         // Check against threshold
         let kept = match (&m.rollback_op, &m.rollback_threshold) {
-            (Some(op), Some(threshold)) => {
-                match op {
-                    CompareOp::Lt => accuracy >= *threshold,
-                    CompareOp::Le => accuracy > *threshold,
-                    CompareOp::Gt => accuracy <= *threshold,
-                    CompareOp::Ge => accuracy < *threshold,
-                    CompareOp::Eq => (accuracy - threshold).abs() < 1e-9,
-                    CompareOp::Ne => (accuracy - threshold).abs() >= 1e-9,
-                }
-            }
+            (Some(op), Some(threshold)) => match op {
+                CompareOp::Lt => accuracy >= *threshold,
+                CompareOp::Le => accuracy > *threshold,
+                CompareOp::Gt => accuracy <= *threshold,
+                CompareOp::Ge => accuracy < *threshold,
+                CompareOp::Eq => (accuracy - threshold).abs() < 1e-9,
+                CompareOp::Ne => (accuracy - threshold).abs() >= 1e-9,
+            },
             _ => true, // No rollback condition → always keep
         };
 

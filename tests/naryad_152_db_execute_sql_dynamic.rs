@@ -36,20 +36,14 @@ fn n152_db_execute_format_rejected() {
         }
     "#;
     let result = metalogos::check_program(source).unwrap();
-    assert!(
-        !result.is_ok(),
-        "db_execute(format(...)) should fail check"
-    );
+    assert!(!result.is_ok(), "db_execute(format(...)) should fail check");
     assert!(
         result.errors.iter().any(|e| e.contains("SQL_DYNAMIC")),
         "error should mention SQL_DYNAMIC, got: {:?}",
         result.errors
     );
     assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.contains("db_execute")),
+        result.errors.iter().any(|e| e.contains("db_execute")),
         "error should mention db_execute, got: {:?}",
         result.errors
     );
@@ -99,10 +93,7 @@ fn n152_query_still_rejects_non_literal() {
         }
     "#;
     let result = metalogos::check_program(source).unwrap();
-    assert!(
-        !result.is_ok(),
-        "query(variable) should still fail check"
-    );
+    assert!(!result.is_ok(), "query(variable) should still fail check");
     assert!(
         result.errors.iter().any(|e| e.contains("SQL_DYNAMIC")),
         "error should mention SQL_DYNAMIC, got: {:?}",
@@ -121,7 +112,7 @@ fn n152_run_blocks_db_execute_dynamic() {
             return "ok"
         }
     "#;
-    let result = metalogos::run_program(source, &[]);
+    let result = metalogos::run_program(source);
     assert!(result.is_err(), "mlog run should block on SQL_DYNAMIC");
     assert!(
         result.unwrap_err().contains("SQL_DYNAMIC"),

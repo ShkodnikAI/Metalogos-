@@ -384,10 +384,7 @@ fn n152_db_execute_format_inlined_rejected() {
     let result = metalogos::check_program(source).unwrap();
     assert!(!result.is_ok(), "db_execute(format(...)) should fail check");
     assert!(
-        result
-            .errors
-            .iter()
-            .any(|e| e.contains("SQL_DYNAMIC")),
+        result.errors.iter().any(|e| e.contains("SQL_DYNAMIC")),
         "error should mention SQL_DYNAMIC, got: {:?}",
         result.errors
     );

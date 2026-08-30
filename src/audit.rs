@@ -500,9 +500,11 @@ fn check_secrets(declarations: &[Declaration], source: &str, findings: &mut Vec<
     }
 }
 
-// ── Check: SQL_DYNAMIC — non-literal SQL in query() ──────────────────
+// ── Check: SQL_DYNAMIC — non-literal SQL in query()/db_execute() ──────
 
-/// Check that all query() calls use literal SQL strings.
+/// Check that all query() and db_execute() calls use literal SQL strings.
+/// НАРЯД #152: db_execute() was not covered — it accepts raw SQL with
+/// optional params (ADR-0068), same injection surface as query().
 fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut Vec<AuditFinding>) {
     let mut all_literal = true;
     let mut literal_count = 0usize;
@@ -522,7 +524,7 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
             literal_count: &mut usize,
         ) {
             if let Expr::FnCall { name, args, .. } = expr {
-                if name == "query" {
+                if name == "query" || name == "db_execute" {
                     if let Some(arg) = args.first() {
                         match arg {
                             Expr::StringLit { .. } => {
@@ -542,15 +544,15 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
                                     check_id: "SQL_DYNAMIC",
                                     line,
                                     message: format!(
-                                        "SQL injection risk — query() with non-literal SQL ({})",
-                                        snippet
+                                        "SQL injection risk — {}() with non-literal SQL ({})",
+                                        name, snippet
                                     ),
                                 });
                             }
                         }
                     }
                 }
-                // Recurse into args to find nested query() calls
+                // Recurse into args to find nested query()/db_execute() calls
                 for arg in args {
                     walk_query(arg, source, findings, all_literal, literal_count);
                 }
@@ -684,7 +686,7 @@ fn check_sql_dynamic(declarations: &[Declaration], source: &str, findings: &mut 
             check_id: "SQL_DYNAMIC",
             line: 1,
             message: format!(
-                "all {} query() calls use literal SQL \u{2713}",
+                "all {} query()/db_execute() calls use literal SQL \u{2713}",
                 literal_count
             ),
         });

@@ -158,7 +158,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Bytecode format | 46 VM instructions | — |
 | Tree-walking interpreter | Full feature support, 12 modules | ~4 400 |
 | VM | Stack-based bytecode executor | 2 143 |
-| Built-in functions | 357 functions across 34 modules | ~18 000 |
+| Built-in functions | 357 functions across 35 modules | ~18 000 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 2 433 |
 | LLM backend | Trait + mock + real providers | 1 421 |
 | Memory store | Typed memory with FTS5 BM25 + cosine RRF hybrid recall + KV store | 1 540 |
@@ -213,7 +213,7 @@ Metalogos-/
 │   │   ├── db.rs                      # SQLite database access
 │   │   └── learnable.rs               # Learnable pattern support
 │   │
-│   └── builtins/                      # 357 built-in functions (34 modules)
+│   └── builtins/                      # 357 built-in functions (35 modules)
 │       ├── mod.rs                     # Builtin dispatch
 │       ├── registry.rs               # BUILTIN_REGISTRY (SSOT for all builtins)
 │       ├── core.rs                    # print, let, type, inspect, sleep
@@ -286,7 +286,7 @@ Metalogos-/
 │
 ├── docs/
 │   ├── book/                          # mdBook documentation (syntax, stdlib, tutorial)
-│   └── adr/                           # 110 Architecture Decision Records (ADR-0001..0112)
+│   └── adr/                           # 109 Architecture Decision Records (ADR-0001..0112)
 │       ├── 0001-m1-architecture.md
 │       ├── ...
 │       └── 0111-ast-span-tracking.md
@@ -572,10 +572,10 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 | Metric | Value |
 |---|---|
 | Effective Rust LOC | ~59 000 |
-| Built-in Functions | 357 (34 modules) |
+| Built-in Functions | 357 (35 modules) |
 | Example Programs | 185 |
 | Integration Tests | 59 test suites |
-| Architecture Decision Records | 110 |
+| Architecture Decision Records | 109 |
 | Parser Rules | 262 (Pest PEG) |
 | VM Instructions | 46 |
 | Execution Backends | 2 (interpreter + bytecode VM) |
@@ -626,7 +626,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 359 builtins, 54 test files, 186 golden-file examples, 108 ADRs. 781 commits.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 357 builtins, 54 test files, 186 golden-file examples, 109 ADRs. 781 commits.
 
 ### Next
 

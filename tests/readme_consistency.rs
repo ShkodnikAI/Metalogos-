@@ -290,3 +290,146 @@ fn readme_svg_builtins_match_reality() {
         );
     }
 }
+
+// ── Test: Total builtin count (Наряд №149) ───────────────────────
+
+/// Count all spec!() entries in registry.rs — the single source of truth
+/// for the total number of built-in functions.
+fn real_total_builtins_count() -> usize {
+    let path = repo_root().join("src").join("builtins").join("registry.rs");
+    let content =
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {:?}: {}", path, e));
+    Regex::new(r"spec!\(").unwrap().find_iter(&content).count()
+}
+
+#[test]
+fn readme_total_builtins_match_reality() {
+    let readme = read_readme();
+    let real = real_total_builtins_count();
+
+    // Match "N functions", "N builtins", "N built-in functions"
+    // but NOT SVG-specific "N builtins, hand-rolled" (covered by readme_svg_builtins_match_reality).
+    let re = Regex::new(r"(\d+)\s+(?:built-in\s+)?(?:functions?|builtins?)").unwrap();
+    let mut claimed_counts: Vec<(usize, usize)> = Vec::new();
+
+    for (i, line) in readme.lines().enumerate() {
+        let line_num = i + 1;
+
+        // Skip historical lines (changelog table rows or adjacent-version markers)
+        if is_changelog_historical_line(line) || is_historical_by_adjacent_version(line) {
+            continue;
+        }
+
+        // Skip SVG-specific line ("N builtins, hand-rolled in pure Rust")
+        if line.contains("hand-rolled") {
+            continue;
+        }
+
+        for cap in re.captures_iter(line) {
+            if let Some(m) = cap.get(1) {
+                if let Ok(n) = m.as_str().parse::<usize>() {
+                    claimed_counts.push((line_num, n));
+                }
+            }
+        }
+    }
+
+    assert!(
+        !claimed_counts.is_empty(),
+        "README should mention total builtin count (\"N functions\" / \"N builtins\") at least once on a non-historical line"
+    );
+
+    for (line_num, claimed) in &claimed_counts {
+        assert_eq!(
+            claimed, &real,
+            "README line {} claims {} total builtins, but real spec! count in registry.rs is {}",
+            line_num, claimed, real
+        );
+    }
+}
+
+// ── Test: Builtin module (category) count (Наряд №149) ─────────────
+
+/// Count unique builtin categories from registry.rs spec! entries.
+/// Each spec! macro's category string (last string before optional => layer)
+/// represents a logical "module".
+/// Uses line-by-line parsing to avoid `)` in comments breaking `[^)]+`.
+fn real_builtin_category_count() -> usize {
+    let path = repo_root().join("src").join("builtins").join("registry.rs");
+    let content =
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {:?}: {}", path, e));
+
+    let string_re = Regex::new(r#""([^"]+)"#).unwrap();
+    let layer_re = Regex::new(r#"=>\s*"[^"]+"#).unwrap();
+
+    let mut categories: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for line in content.lines() {
+        if !line.contains("spec!(") {
+            continue;
+        }
+        // Strip comments to avoid `)` in comments breaking parsing
+        let code_part = line.split("//").next().unwrap_or(line);
+        // Strip => "layer" so it isn't mistaken for a category
+        let clean = layer_re.replace_all(code_part, "");
+        // Extract all string literals; category is the last one
+        let strings: Vec<&str> = string_re
+            .captures_iter(&clean)
+            .map(|c| c.get(1).unwrap().as_str())
+            .collect();
+        if let Some(&cat) = strings.last() {
+            categories.insert(cat.to_string());
+        }
+    }
+
+    categories.len()
+}
+
+#[test]
+fn readme_builtin_module_count_matches_reality() {
+    let readme = read_readme();
+    let real = real_builtin_category_count();
+
+    // Match "N modules" only on lines that also mention "function" or "builtin"
+    // (to avoid matching unrelated "12 modules" for the tree-walking interpreter).
+    let re = Regex::new(r"(\d+)\s+modules").unwrap();
+    let mut claimed_counts: Vec<(usize, usize)> = Vec::new();
+
+    for (i, line) in readme.lines().enumerate() {
+        let line_num = i + 1;
+
+        if is_changelog_historical_line(line) || is_historical_by_adjacent_version(line) {
+            continue;
+        }
+
+        // Only check lines in builtin context
+        let line_lower = line.to_lowercase();
+        if !line_lower.contains("function")
+            && !line_lower.contains("builtin")
+            && !line_lower.contains("built-in")
+        {
+            continue;
+        }
+
+        for cap in re.captures_iter(line) {
+            if let Some(m) = cap.get(1) {
+                if let Ok(n) = m.as_str().parse::<usize>() {
+                    claimed_counts.push((line_num, n));
+                }
+            }
+        }
+    }
+
+    assert!(
+        !claimed_counts.is_empty(),
+        "README should mention builtin module count (\"N modules\" near \"functions\"/\"builtins\") at least once"
+    );
+
+    for (line_num, claimed) in &claimed_counts {
+        assert_eq!(
+            claimed, &real,
+            "README line {} claims {} builtin modules, but real category count in registry.rs is {}",
+            line_num, claimed, real
+        );
+    }
+}

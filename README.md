@@ -65,7 +65,7 @@ In Python/JS, AI requires SDKs, prompt templates, API clients, and HTTP error ha
 OWASP Top 10 is addressed at the language level through a combination of compiler-enforced checks, opaque types, and static audit heuristics.
 
 **Rejected by static checks** (Category A — `mlog check`, `mlog run`, `mlog serve`, and `mlog compile` all refuse to proceed for these data-flow shapes):
-- **SQL injection** — `query()` with non-literal SQL is rejected; only parameterized queries compile
+- **SQL injection** — `query()`/`db_execute()` with non-literal SQL is rejected; only parameterized queries compile
 - **Plaintext secret leakage** — passing `env()` results to `respond()`/`write_file()`/`http_post()` body is rejected
 - **XSS via LLM output** — passing `call_llm()`/`call_claude()` results to `respond()` without `render()`/`escape_html()` is rejected — for both direct variable flow and single-level inline nesting; see Known boundaries below
 

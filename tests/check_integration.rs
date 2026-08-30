@@ -311,3 +311,106 @@ fn n99_bool_maps_to_integer() {
         result
     );
 }
+
+// ── Наряд №152: db_execute() covered by SQL_DYNAMIC ─────────
+
+/// SQL_DYNAMIC: db_execute() with non-literal SQL must be a compile-time error.
+/// db_execute(format(...)) is a SQL injection vector — no safe path exists
+/// without a literal SQL template (Наряд №152).
+#[test]
+fn n152_db_execute_dynamic_rejected_by_check() {
+    let source = r#"
+        pattern DeleteRow(id: String) -> String {
+            let sql = format("DELETE FROM t WHERE id={}", id)
+            db_execute(sql)
+            return "ok"
+        }
+    "#;
+    let result = metalogos::check_program(source).unwrap();
+    assert!(!result.is_ok(), "db_execute(variable) should fail check");
+    assert!(
+        result
+            .errors
+            .iter()
+            .any(|e| e.contains("SQL_DYNAMIC") && e.contains("db_execute")),
+        "error should mention SQL_DYNAMIC + db_execute, got: {:?}",
+        result.errors
+    );
+}
+
+/// SQL_DYNAMIC: db_execute() with literal SQL passes check (parameterized).
+#[test]
+fn n152_db_execute_literal_passes_check() {
+    let source = r#"
+        pattern SafeDelete(id: String) -> String {
+            db_execute("DELETE FROM t WHERE id = $1", [id])
+            return "ok"
+        }
+    "#;
+    let result = metalogos::check_program(source).unwrap();
+    assert!(
+        result.is_ok(),
+        "db_execute(literal) should pass check, got: {:?}",
+        result.errors
+    );
+}
+
+/// SQL_DYNAMIC: db_execute() with plain literal DDL passes check.
+#[test]
+fn n152_db_execute_literal_ddl_passes_check() {
+    let source = r#"
+        pattern CreateSchema() -> String {
+            db_execute("CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY, name TEXT)")
+            return "ok"
+        }
+    "#;
+    let result = metalogos::check_program(source).unwrap();
+    assert!(
+        result.is_ok(),
+        "db_execute(literal DDL) should pass check, got: {:?}",
+        result.errors
+    );
+}
+
+/// SQL_DYNAMIC: db_execute() with format() directly inlined also caught.
+#[test]
+fn n152_db_execute_format_inlined_rejected() {
+    let source = r#"
+        pattern DropTable(tbl: String) -> String {
+            db_execute(format("DROP TABLE {}", tbl))
+            return "ok"
+        }
+    "#;
+    let result = metalogos::check_program(source).unwrap();
+    assert!(!result.is_ok(), "db_execute(format(...)) should fail check");
+    assert!(
+        result
+            .errors
+            .iter()
+            .any(|e| e.contains("SQL_DYNAMIC")),
+        "error should mention SQL_DYNAMIC, got: {:?}",
+        result.errors
+    );
+}
+
+/// Verify that mlog run also blocks db_execute() with non-literal SQL.
+#[test]
+fn n152_run_blocks_db_execute_dynamic() {
+    let source = r#"
+        pattern BadExec(id: String) -> String {
+            let sql = format("DELETE FROM t WHERE id={}", id)
+            db_execute(sql)
+            return "ok"
+        }
+        flow Main { input: String = "x" -> BadExec -> output }
+    "#;
+    let result = metalogos::run_program(source);
+    assert!(
+        result.is_err(),
+        "mlog run should block on db_execute SQL_DYNAMIC"
+    );
+    assert!(
+        result.unwrap_err().contains("SQL_DYNAMIC"),
+        "error should mention SQL_DYNAMIC"
+    );
+}

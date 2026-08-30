@@ -256,9 +256,7 @@ pub fn is_blocked_address(ip: &std::net::IpAddr) -> bool {
                 || *v4 == std::net::Ipv4Addr::new(169, 254, 169, 254)
         }
         std::net::IpAddr::V6(v6) => {
-            v6.is_loopback()
-                || v6.is_unicast_link_local()
-                || v6.is_unique_local()
+            v6.is_loopback() || v6.is_unicast_link_local() || v6.is_unique_local()
         }
     }
 }

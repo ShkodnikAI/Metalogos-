@@ -36,15 +36,24 @@ fn test_ssrf_public_v6_passes() {
 
     // Google Public DNS IPv6
     let google: IpAddr = "2001:4860:4860::8888".parse().unwrap();
-    assert!(!blocked(&google), "C3: 2001:4860:4860::8888 (public) must NOT be blocked");
+    assert!(
+        !blocked(&google),
+        "C3: 2001:4860:4860::8888 (public) must NOT be blocked"
+    );
 
     // Cloudflare DNS IPv6
     let cloudflare: IpAddr = "2606:4700:4700::1111".parse().unwrap();
-    assert!(!blocked(&cloudflare), "C3: 2606:4700:4700::1111 (public) must NOT be blocked");
+    assert!(
+        !blocked(&cloudflare),
+        "C3: 2606:4700:4700::1111 (public) must NOT be blocked"
+    );
 
     // Documentation range 2001:db8::1 — not private, not ULA
     let doc: IpAddr = "2001:db8::1".parse().unwrap();
-    assert!(!blocked(&doc), "C3: 2001:db8::1 (documentation) must NOT be blocked");
+    assert!(
+        !blocked(&doc),
+        "C3: 2001:db8::1 (documentation) must NOT be blocked"
+    );
 }
 
 // ── C4: Existing v6 loopback/link-local still blocked ───────────────────
@@ -55,9 +64,15 @@ fn test_ssrf_v6_loopback_and_link_local_still_blocked() {
 
     // Loopback
     let lo: IpAddr = "::1".parse().unwrap();
-    assert!(blocked(&lo), "C4: ::1 (v6 loopback) must still be blocked");
+    assert!(
+        blocked(&lo),
+        "C4: ::1 (v6 loopback) must still be blocked"
+    );
 
     // Link-local
     let ll: IpAddr = "fe80::1".parse().unwrap();
-    assert!(blocked(&ll), "C4: fe80::1 (v6 link-local) must still be blocked");
+    assert!(
+        blocked(&ll),
+        "C4: fe80::1 (v6 link-local) must still be blocked"
+    );
 }

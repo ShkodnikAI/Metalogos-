@@ -64,10 +64,7 @@ fn test_ssrf_v6_loopback_and_link_local_still_blocked() {
 
     // Loopback
     let lo: IpAddr = "::1".parse().unwrap();
-    assert!(
-        blocked(&lo),
-        "C4: ::1 (v6 loopback) must still be blocked"
-    );
+    assert!(blocked(&lo), "C4: ::1 (v6 loopback) must still be blocked");
 
     // Link-local
     let ll: IpAddr = "fe80::1".parse().unwrap();

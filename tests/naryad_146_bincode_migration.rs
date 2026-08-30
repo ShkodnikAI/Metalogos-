@@ -74,7 +74,10 @@ fn reject_at_exact_boundary_does_not_panic() {
 fn small_garbage_input_rejected_gracefully() {
     let garbage = vec![0xFFu8; 16];
     let result = Program::deserialize(&garbage);
-    assert!(result.is_err(), "garbage bytes must not deserialize successfully");
+    assert!(
+        result.is_err(),
+        "garbage bytes must not deserialize successfully"
+    );
 }
 
 // ── C3: end-to-end compile -> serialize -> deserialize -> run ───

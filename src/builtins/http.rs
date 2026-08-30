@@ -244,7 +244,8 @@ fn should_retry_http(status: u16) -> bool {
 // ── НАРЯД №130: SSRF guard for http_get / http_post / http_post_multipart ──
 
 /// Check whether a resolved IP address is blocked by the SSRF guard.
-/// Blocks: loopback, link-local, private networks, cloud metadata endpoint.
+/// Blocks: loopback, link-local, private networks, cloud metadata endpoint,
+/// and IPv6 Unique Local Addresses (fc00::/7, НАРЯД №150).
 pub fn is_blocked_address(ip: &std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(v4) => {
@@ -254,7 +255,9 @@ pub fn is_blocked_address(ip: &std::net::IpAddr) -> bool {
                 // Cloud metadata endpoints (AWS/GCP/Azure) — explicitly blocked
                 || *v4 == std::net::Ipv4Addr::new(169, 254, 169, 254)
         }
-        std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.is_unicast_link_local(),
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback() || v6.is_unicast_link_local() || v6.is_unique_local()
+        }
     }
 }
 

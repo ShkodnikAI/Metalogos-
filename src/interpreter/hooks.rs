@@ -66,8 +66,8 @@ impl Interpreter {
                 match op {
                     CompareOp::Lt => accuracy >= *threshold,
                     CompareOp::Le => accuracy > *threshold,
-                    CompareOp::Gt => false, // accuracy >= threshold is the "kept" condition
-                    CompareOp::Ge => false,
+                    CompareOp::Gt => accuracy <= *threshold,
+                    CompareOp::Ge => accuracy < *threshold,
                     CompareOp::Eq => (accuracy - threshold).abs() < 1e-9,
                     CompareOp::Ne => (accuracy - threshold).abs() >= 1e-9,
                 }

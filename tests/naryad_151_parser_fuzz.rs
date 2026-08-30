@@ -86,13 +86,13 @@ fn test_parser_deep_nesting_returns_err_not_panic() {
 fn test_parser_tight_loop_no_leaks() {
     std::env::remove_var("METALOGOS_HTTP_ALLOW_PRIVATE");
 
-    let inputs = vec![
-        "let x = 1".to_string(),
-        "rule r { x = 1 }".to_string(),
-        "flow f -> s { x = 1 }".to_string(),
-        "struct Point { x: Int }".to_string(),
-        "{ garbage".to_string(),
-        "".to_string(),
+    let inputs: [&str; 6] = [
+        "let x = 1",
+        "rule r { x = 1 }",
+        "flow f -> s { x = 1 }",
+        "struct Point { x: Int }",
+        "{ garbage",
+        "",
     ];
 
     // 1000 iterations — if threads leaked, this would OOM or hang

@@ -301,15 +301,30 @@ pub struct Program {
     pub collections_loaded: bool,
 }
 
+/// Maximum accepted size for .mbc byte input. Real programs compile to
+/// well under 1 MB; this bounds worst-case memory use on untrusted input.
+/// Наряд №146.
+const DESERIALIZE_BYTE_LIMIT: usize = 50 * 1024 * 1024;
+
 impl Program {
     /// Serialize the program to a binary .mbc file.
     pub fn serialize(&self) -> Result<Vec<u8>, String> {
-        bincode::serialize(self).map_err(|e| format!("serialize: {}", e))
+        bincode::serde::encode_to_vec(self, bincode::config::legacy())
+            .map_err(|e| format!("serialize: {}", e))
     }
 
     /// Deserialize a program from binary .mbc data.
     pub fn deserialize(data: &[u8]) -> Result<Program, String> {
-        bincode::deserialize(data).map_err(|e| format!("deserialize: {}", e))
+        if data.len() > DESERIALIZE_BYTE_LIMIT {
+            return Err(format!(
+                "deserialize: input exceeds {} bytes limit",
+                DESERIALIZE_BYTE_LIMIT
+            ));
+        }
+        let config = bincode::config::legacy().with_limit::<DESERIALIZE_BYTE_LIMIT>();
+        let (program, _bytes_read) = bincode::serde::decode_from_slice(data, config)
+            .map_err(|e| format!("deserialize: {}", e))?;
+        Ok(program)
     }
 }
 

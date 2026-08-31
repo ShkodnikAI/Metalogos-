@@ -1134,6 +1134,7 @@ impl SmartRouter {
     /// Наряд #156: effective timeout = min(timeout_override, self.timeout).
     /// `reqwest::blocking::Client::timeout()` performs real HTTP-level
     /// cancellation (drops TCP connection) when it fires.
+    #[allow(clippy::too_many_arguments)]
     fn call_provider(
         &self,
         provider_type: &str,

@@ -103,8 +103,12 @@ pub(crate) fn builtin_human_respond(args: &[Value]) -> Result<Value, String> {
 
     // Call LLM — Наряд #156: route through GLOBAL_SMART_ROUTER when available
     // (same as call_llm builtin), falling back to legacy backend.
-    let llm_result =
-        crate::llm::call_via_smart_router(&full_prompt, "", None, None);
+    let llm_result = crate::llm::call_via_smart_router(
+        &full_prompt,
+        "",
+        None,
+        None,
+    );
     let response = if let Some(result) = llm_result {
         result.map_err(|e| format!("human_respond() LLM call failed: {}", e))?
     } else {

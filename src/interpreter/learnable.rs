@@ -3,7 +3,7 @@ use crate::ast::{ContextMode, ContextStrategy};
 use crate::embeddings::cosine_similarity;
 use crate::llm;
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 impl Interpreter {
     /// Injects hook variables: pattern_name (String), args (List),
@@ -221,7 +221,7 @@ impl Interpreter {
              Output a single paragraph.\n\n{}",
             context_block
         );
-        let result = self.call_llm_direct(&summary_prompt, "", None);
+        let result = self.call_llm(&summary_prompt, "", None, None);
         match result {
             Ok(summary) => {
                 let trimmed = summary.trim().to_string();
@@ -286,23 +286,25 @@ impl Interpreter {
             .as_ref()
             .map(|alias| llm::resolve_model(alias));
 
-        // Наряд №126: Preemptive timeout via separate thread when sandbox timeout is set.
-        // If no sandbox or timeout is 0, call directly (no thread overhead).
-        let response = if let Some(ref sb) = self.active_sandbox {
+        // Наряд #156: Pass sandbox timeout to LLM call.
+        // SmartRouter path: reqwest::blocking::Client::timeout() performs
+        // real HTTP-level cancellation (drops TCP connection).
+        // Legacy path (MockLlm/RealLlm): uses thread wrapper with recv_timeout.
+        let timeout_override = if let Some(ref sb) = self.active_sandbox {
             if sb.timeout > 0 {
-                let timeout_dur = std::time::Duration::from_secs(sb.timeout as u64);
-                self.call_llm_with_timeout(
-                    &effective_prompt,
-                    &input,
-                    resolved_model.as_deref(),
-                    timeout_dur,
-                )?
+                Some(Duration::from_secs(sb.timeout as u64))
             } else {
-                self.call_llm_direct(&effective_prompt, &input, resolved_model.as_deref())?
+                None
             }
         } else {
-            self.call_llm_direct(&effective_prompt, &input, resolved_model.as_deref())?
+            None
         };
+        let response = self.call_llm(
+            &effective_prompt,
+            &input,
+            resolved_model.as_deref(),
+            timeout_override,
+        )?;
 
         // ADR-0047: Store response in cache
         if learnable.cache {
@@ -345,85 +347,61 @@ impl Interpreter {
         Ok(Value::String(response))
     }
 
-    /// Наряд №126: Direct LLM call (no timeout). Extracted from the former
-    /// inline call so both the direct and timeout paths share the same
-    /// routing logic (SmartRouter vs legacy backend).
-    fn call_llm_direct(
+    /// Наряд #156: Unified LLM call with optional per-call timeout.
+    ///
+    /// **SmartRouter path** (providers configured): timeout is passed to
+    /// `reqwest::blocking::Client::timeout()` which performs real HTTP-level
+    /// cancellation (drops the TCP connection). No thread needed — this
+    /// is the key improvement over the Наряд №126 thread hack.
+    ///
+    /// **Legacy path** (MockLlm / RealLlm without SmartRouter): the
+    /// `LlmBackend` trait has no timeout concept. If `timeout_override` is
+    /// Some, we wrap the call in a thread with `recv_timeout`. This is the
+    /// same mechanism as Наряд №126, but now clearly documented as a
+    /// legacy-only fallback. For MockLlm (test-only), the "background"
+    /// is just a `thread::sleep`. For RealLlm, reqwest's own 120s timeout
+    /// will eventually fire if the thread outlives our wait.
+    fn call_llm(
         &self,
         prompt: &str,
         input: &str,
         model: Option<&str>,
+        timeout_override: Option<Duration>,
     ) -> Result<String, String> {
-        match self.smart_router.lock() {
-            Ok(guard) => {
-                if let Some(ref router) = *guard {
-                    router.call(prompt, input, model)
-                } else {
-                    let backend = llm::create_llm_backend();
-                    backend.call_with_model(prompt, input, model)
-                }
-            }
-            Err(_) => {
-                let backend = llm::create_llm_backend();
-                backend.call_with_model(prompt, input, model)
+        // SmartRouter path: real cancellation via reqwest timeout
+        if let Ok(guard) = self.smart_router.lock() {
+            if let Some(ref router) = *guard {
+                return router.call(prompt, input, model, timeout_override);
             }
         }
-    }
 
-    /// Наряд №126: Preemptive LLM call with real timeout via a separate thread.
-    ///
-    /// The calling thread stops waiting after `timeout`, returning an error.
-    /// **Known limitation:** the background HTTP request to the LLM provider
-    /// may still be running — this only stops the *wait*, not the request itself.
-    /// Cancelling an in-flight HTTP request would require AbortHandle support
-    /// in the HTTP client (reqwest), which is out of scope for this наряд.
-    fn call_llm_with_timeout(
-        &self,
-        prompt: &str,
-        input: &str,
-        model: Option<&str>,
-        timeout: std::time::Duration,
-    ) -> Result<String, String> {
-        use std::sync::mpsc;
-
-        let (tx, rx) = mpsc::channel();
-
-        // Clone the Arc<Mutex<Option<SmartRouter>>> — cheap, only clones the pointer.
-        // LlmBackend is Send+Sync; SmartRouter auto-derives Send+Sync (all fields
-        // are Send+Sync: Vec, Option<String>, bool, u32, LlmUsageTracker with StdMutex).
-        let smart_router = self.smart_router.clone();
-        let prompt = prompt.to_string();
-        let input = input.to_string();
-        let model = model.map(String::from);
-
-        std::thread::spawn(move || {
-            let result = match smart_router.lock() {
-                Ok(guard) => {
-                    if let Some(ref router) = *guard {
-                        router.call(&prompt, &input, model.as_deref())
-                    } else {
-                        let backend = llm::create_llm_backend();
-                        backend.call_with_model(&prompt, &input, model.as_deref())
+        // Legacy path (no SmartRouter installed)
+        match timeout_override {
+            Some(timeout) => {
+                use std::sync::mpsc;
+                let (tx, rx) = mpsc::channel();
+                let prompt = prompt.to_string();
+                let input = input.to_string();
+                let model = model.map(String::from);
+                std::thread::spawn(move || {
+                    let backend = llm::create_llm_backend();
+                    let _ = tx
+                        .send(backend.call_with_model(&prompt, &input, model.as_deref()));
+                });
+                match rx.recv_timeout(timeout) {
+                    Ok(result) => result,
+                    Err(mpsc::RecvTimeoutError::Timeout) => Err(format!(
+                        "LLM call timed out after {:?}",
+                        timeout
+                    )),
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        Err("LLM call thread terminated unexpectedly".to_string())
                     }
                 }
-                Err(_) => {
-                    let backend = llm::create_llm_backend();
-                    backend.call_with_model(&prompt, &input, model.as_deref())
-                }
-            };
-            let _ = tx.send(result);
-        });
-
-        match rx.recv_timeout(timeout) {
-            Ok(result) => result,
-            Err(mpsc::RecvTimeoutError::Timeout) => Err(format!(
-                "LLM call timed out after {:?} — the caller stopped waiting, \
-                 but the HTTP request to the provider may still be running \
-                 in the background",
-                timeout
-            )),
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                Err("LLM call thread terminated unexpectedly".to_string())
+            }
+            None => {
+                let backend = llm::create_llm_backend();
+                backend.call_with_model(prompt, input, model)
             }
         }
     }

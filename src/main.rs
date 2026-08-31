@@ -85,7 +85,18 @@ enum Commands {
 }
 
 fn main() {
-    let cli = Cli::parse();
+    let version_long = format!(
+        "mlog {}\ngrammar rev: {}",
+        env!("CARGO_PKG_VERSION"),
+        metalogos::GRAMMAR_REV
+    );
+    let cli = Cli::from_arg_matches(
+        &Cli::command().long_version(version_long).get_matches(),
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("{e}");
+        std::process::exit(1);
+    });
 
     match cli.command {
         Commands::Run { file } => cmd_run(file),

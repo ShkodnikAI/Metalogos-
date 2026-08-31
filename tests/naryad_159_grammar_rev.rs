@@ -1,3 +1,4 @@
+#![allow(clippy::assertions_on_constants)]
 /// НАРЯД #159 Block 2 — grammar revision marker contract tests.
 
 #[test]

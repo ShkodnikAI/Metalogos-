@@ -4,7 +4,7 @@
 // `mlog check <file.mlog>`  — semantic analysis without execution
 // `mlog serve <file.mlog>`  — start HTTP server from mlogserver block
 
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches, Parser};
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 use std::fs;
@@ -85,7 +85,19 @@ enum Commands {
 }
 
 fn main() {
-    let cli = Cli::parse();
+    let version_long: &'static str = Box::leak(
+        format!(
+            "mlog {}\ngrammar rev: {}",
+            env!("CARGO_PKG_VERSION"),
+            metalogos::GRAMMAR_REV
+        )
+        .into_boxed_str(),
+    );
+    let cli = Cli::from_arg_matches(&Cli::command().long_version(version_long).get_matches())
+        .unwrap_or_else(|e| {
+            eprintln!("{e}");
+            std::process::exit(1);
+        });
 
     match cli.command {
         Commands::Run { file } => cmd_run(file),

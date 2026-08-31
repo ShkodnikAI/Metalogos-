@@ -385,8 +385,11 @@ impl Interpreter {
                 let model = model.map(String::from);
                 std::thread::spawn(move || {
                     let backend = llm::create_llm_backend();
-                    let _ = tx.send(backend
-                        .call_with_model(&prompt, &input, model.as_deref()));
+                    let _ = tx.send(backend.call_with_model(
+                        &prompt,
+                        &input,
+                        model.as_deref(),
+                    ));
                 });
                 match rx.recv_timeout(timeout) {
                     Ok(result) => result,

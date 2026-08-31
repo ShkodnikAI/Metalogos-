@@ -7,6 +7,14 @@
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
+/// Grammar/ABI revision counter.
+/// Increment when making incompatible changes to the grammar
+/// (grammar.pest) or bytecode format that would cause .mlog files
+/// or .mbc bytecode compiled under a different revision to behave
+/// incorrectly. This is a visible diagnostic marker, not a full
+/// compatibility contract.
+pub const GRAMMAR_REV: u32 = 1;
+
 pub mod ast;
 use crate::audit::{audit_category_a, Severity};
 pub mod audit;

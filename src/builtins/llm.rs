@@ -76,7 +76,8 @@ pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
     };
 
     // Наряд №4: try SmartRouter first
-    if let Some(result) = crate::llm::call_via_smart_router(&prompt, &input, None) {
+    // Наряд #156: no sandbox timeout for builtin call_llm — None
+    if let Some(result) = crate::llm::call_via_smart_router(&prompt, &input, None, None) {
         return result.map(Value::String);
     }
 

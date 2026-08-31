@@ -4,6 +4,12 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-08-29
+
+**Security hardening, SVG/graphics subsystem (44 builtins), VM backend parity,
+office automation (PDF, email, calendar, contacts), code quality, and 60+ naryads of
+improvements since v0.12.0.**
+
 ### Security — НАРЯД №131: `sandbox_path` symlink escape via `canonicalize()`
 - `sandbox_path()` blocked absolute paths and `..` in text but did NOT
   resolve symlinks. A symlink inside the CWD pointing outside would pass
@@ -399,12 +405,6 @@ All notable changes to the Metalogos project.
   BUILTIN_REGISTRY gaps (8 Telegram/Voice entries), VM unimplemented (5 instructions),
   server-dependent (11 tests), immutable variable (4 tests).
 
-## [0.18.0] - 2026-08-29
-
-**Native SVG/graphics subsystem — 44 builtins, zero external rendering
-dependencies. Sixteen naryads (№77–92), hand-rolled in pure Rust,
-covered by a dedicated security lint pass.**
-
 ### Added — SVG primitives (наряд №77, ADR-0102)
 - `svg_rect`, `svg_circle`, `svg_line`, `svg_text`, `svg_path`,
   `svg_group`, `svg_canvas`, `svg_icon` (10 built-in glyphs),
@@ -530,7 +530,7 @@ covered by a dedicated security lint pass.**
   proving they fire were simply never written)
 
 ### Changed
-- Cargo.toml version 0.16.0 → 0.17.0
+- Cargo.toml version 0.17.0 → 0.18.0
 - `registry_arity_check.rs` promoted from `test-integration` (advisory)
   to its own `registry-arity-check` (blocking) CI job — the same
   regression class that let a stale `http_get`/`http_post` arity

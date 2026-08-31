@@ -195,15 +195,11 @@ impl Interpreter {
     /// Наряд #156: routes through SmartRouter when available (same as learnable calls).
     fn summarize_conversation(&self, text: &str) -> Result<String, String> {
         let prompt = "Summarize this conversation concisely, preserving key facts and decisions.";
-        // Use call_llm_direct which routes through SmartRouter if configured.
-        // Falling back to legacy create_llm_backend() when no SmartRouter is set.
-        match self.smart_router.lock() {
-            Ok(guard) => {
-                if let Some(ref router) = *guard {
-                    return router.call(prompt, text, None);
-                }
+        // Route through SmartRouter if configured, otherwise legacy backend.
+        if let Ok(guard) = self.smart_router.lock() {
+            if let Some(ref router) = *guard {
+                return router.call(prompt, text, None);
             }
-            Err(_) => {}
         }
         let backend = llm::create_llm_backend();
         backend.call(prompt, text)

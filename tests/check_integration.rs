@@ -206,6 +206,65 @@ fn n98_run_blocks_on_sql_dynamic() {
     );
 }
 
+// ── Наряд #157: TAINT_PERSISTENCE promoted to Category A ─────────
+
+/// TAINT_PERSISTENCE: memorize(LLM) + respond(recall()) must fail mlog check.
+#[test]
+fn n157_taint_persistence_rejected_by_check() {
+    let source = r#"
+        memorize call_llm("store this") with priority=0.9
+        pattern Handler() -> String {
+            let ctx = recall("relevant")
+            let r = respond("200 OK", ctx)
+            return r
+        }
+    "#;
+    let result = metalogos::check_program(source).unwrap();
+    assert!(
+        !result.is_ok(),
+        "memorize(LLM) + respond(recall()) should fail check, got: {:?}",
+        result.errors
+    );
+    assert!(
+        result
+            .errors
+            .iter()
+            .any(|e| e.contains("TAINT_PERSISTENCE")),
+        "error should mention TAINT_PERSISTENCE, got: {:?}",
+        result.errors
+    );
+}
+
+// ── Наряд #157: TAINT_PASSTHROUGH promoted to Category A ────────
+
+/// TAINT_PASSTHROUGH: respond(Wrap(call_llm(...))) must fail mlog check.
+#[test]
+fn n157_taint_passthrough_rejected_by_check() {
+    let source = r#"
+        pattern Wrap(x: String) -> String {
+            return x
+        }
+        pattern Handler() -> String {
+            let r = respond("200 OK", Wrap(call_llm("Tell me a joke")))
+            return r
+        }
+    "#;
+    let result = metalogos::check_program(source).unwrap();
+    assert!(
+        !result.is_ok(),
+        "respond(Wrap(call_llm(...))) should fail check, got: {:?}",
+        result.errors
+    );
+    assert!(
+        result
+            .errors
+            .iter()
+            .any(|e| e.contains("TAINT_PASSTHROUGH")),
+        "error should mention TAINT_PASSTHROUGH, got: {:?}",
+        result.errors
+    );
+}
+
 // ── Наряд №99: Type-safe SQL parameters ────────────────────────────
 //
 // Bug A: query()/query_scalar()/query_row() used filter_map which

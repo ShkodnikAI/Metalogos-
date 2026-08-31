@@ -214,14 +214,15 @@ impl Interpreter {
     /// ADR-0055: Compress a context block via LLM summarization.
     /// Calls the LLM with a summarization prompt and returns the compressed text.
     /// If the LLM call fails, returns the original context block (graceful degradation).
+    /// Наряд #156: routes through SmartRouter when available (same as learnable calls).
     fn compress_context(&self, context_block: &str) -> String {
-        let backend = llm::create_llm_backend();
         let summary_prompt = format!(
             "Summarize the following facts concisely. Retain key information. \
              Output a single paragraph.\n\n{}",
             context_block
         );
-        match backend.call(&summary_prompt, "") {
+        let result = self.call_llm_direct(&summary_prompt, "", None);
+        match result {
             Ok(summary) => {
                 let trimmed = summary.trim().to_string();
                 if trimmed.is_empty() {

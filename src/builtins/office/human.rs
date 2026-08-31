@@ -101,18 +101,24 @@ pub(crate) fn builtin_human_respond(args: &[Value]) -> Result<Value, String> {
         )
     };
 
-    // Call LLM (reuses existing call_llm infrastructure)
-    let mock_mode = std::env::var("METALOGOS_LLM_MOCK")
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(true);
-
-    let response = if mock_mode {
-        format!("[{} (mood: {}): {}]", persona, mood, message)
+    // Call LLM — Наряд #156: route through GLOBAL_SMART_ROUTER when available
+    // (same as call_llm builtin), falling back to legacy backend.
+    let response = if let Some(result) = crate::llm::call_via_smart_router(&full_prompt, "", None) {
+        result.map_err(|e| format!("human_respond() LLM call failed: {}", e))?
     } else {
-        let backend = crate::llm::create_llm_backend();
-        backend
-            .call(&full_prompt, "")
-            .map_err(|e| format!("human_respond() LLM call failed: {}", e))?
+        // No SmartRouter — check mock mode, then legacy backend
+        let mock_mode = std::env::var("METALOGOS_LLM_MOCK")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(true);
+
+        if mock_mode {
+            format!("[{} (mood: {}): {}]", persona, mood, message)
+        } else {
+            let backend = crate::llm::create_llm_backend();
+            backend
+                .call(&full_prompt, "")
+                .map_err(|e| format!("human_respond() LLM call failed: {}", e))?
+        }
     };
 
     Ok(Value::String(response))

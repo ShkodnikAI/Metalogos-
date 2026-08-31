@@ -1051,7 +1051,7 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                 // and direct env() calls (e.g. http_post(u, env("K"), h)).
                 if fn_name == "http_post" {
                     // arg 0: URL — secret leak
-                    if let Some(arg) = args.get(0) {
+                    if let Some(arg) = args.first() {
                         if get_expr_taint(arg, tracker) == Some(TaintKind::Secret) {
                             let line = find_line(source, fn_name);
                             findings.push(AuditFinding {
@@ -2199,12 +2199,9 @@ mod tests {
         "#;
         let result = audit_program(source).unwrap();
         assert!(
-            result
-                .findings
-                .iter()
-                .any(|f| f.check_id == "SECRET_LEAK"
-                    && f.severity == Severity::Error
-                    && f.message.contains("http_post URL")),
+            result.findings.iter().any(|f| f.check_id == "SECRET_LEAK"
+                && f.severity == Severity::Error
+                && f.message.contains("http_post URL")),
             "http_post(url+env(...), b, h) must trigger SECRET_LEAK for URL, got {:?}",
             result.findings
         );
@@ -2222,10 +2219,7 @@ mod tests {
         "#;
         let result = audit_program(source).unwrap();
         assert!(
-            !result
-                .findings
-                .iter()
-                .any(|f| f.check_id == "SECRET_LEAK"),
+            !result.findings.iter().any(|f| f.check_id == "SECRET_LEAK"),
             "http_post(u, b, env(...)) — headers auth must NOT trigger SECRET_LEAK, got {:?}",
             result.findings
         );

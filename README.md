@@ -87,7 +87,6 @@ These checks use **intraprocedural taint tracking** — they follow `let`-assign
 | LLM output passed via pattern call (interprocedural) | Taint does not cross pattern boundaries |
 | LLM output stored via `memorize()` then read back via `recall()` | Data flow through persistence is not tracked |
 | `query(format("...", x))` | `format()` output is not a literal string; check requires compile-time constant |
-| `respond_html(query_param("url"))` (direct user-input nesting) | Open-redirect check only tracks via variable, not inline call |
 | `{{{ var }}}` (raw template substitution) | `template_render` with `raw=true` skips escaping by design — trusted author code only |
 
 `mlog audit` provides **heuristic warnings** (not errors) for two narrow sub-cases:

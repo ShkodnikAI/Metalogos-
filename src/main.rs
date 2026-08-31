@@ -91,7 +91,7 @@ fn main() {
             env!("CARGO_PKG_VERSION"),
             metalogos::GRAMMAR_REV
         )
-        .into_box_str(),
+        .into_boxed_str(),
     );
     let cli = Cli::from_arg_matches(&Cli::command().long_version(version_long).get_matches())
         .unwrap_or_else(|e| {

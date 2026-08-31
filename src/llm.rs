@@ -701,14 +701,16 @@ pub fn set_global_smart_router(router: SmartRouter) {
 
 /// Call LLM through the global SmartRouter if available, else return None.
 /// The caller should fall back to legacy create_llm_backend() if this returns None.
+/// Наряд #156: `timeout_override` passed through for real HTTP cancellation.
 pub fn call_via_smart_router(
     prompt: &str,
     input: &str,
     model_override: Option<&str>,
+    timeout_override: Option<Duration>,
 ) -> Option<Result<String, String>> {
     if let Ok(g) = GLOBAL_SMART_ROUTER.lock() {
         if let Some(ref router) = *g {
-            return Some(router.call(prompt, input, model_override));
+            return Some(router.call(prompt, input, model_override, timeout_override));
         }
     }
     None
@@ -1049,11 +1051,20 @@ impl SmartRouter {
     /// 1. Pick best available provider (by health_score)
     /// 2. Try it; on failure, try next available provider (failover)
     /// 3. Track usage for each attempt
+    ///
+    /// Наряд #156 Block 1 (real cancellation):
+    /// `timeout_override` allows passing a per-call timeout (e.g. sandbox
+    /// timeout). Uses `min(timeout_override, self.timeout)` — the
+    /// effective value is fed to `reqwest::blocking::Client::timeout()`
+    /// which performs real HTTP-level cancellation (drops the TCP
+    /// connection). This replaces the former thread-based approach
+    /// (Наряд №126) for the SmartRouter path.
     pub fn call(
         &self,
         prompt: &str,
         input: &str,
         model_override: Option<&str>,
+        timeout_override: Option<Duration>,
     ) -> Result<String, String> {
         if self.providers.is_empty() {
             // No providers configured — fall back to legacy behavior
@@ -1088,6 +1099,7 @@ impl SmartRouter {
                 prompt,
                 input,
                 model_override,
+                timeout_override,
             );
 
             let latency_ms = start.elapsed().as_millis() as u64;
@@ -1119,6 +1131,10 @@ impl SmartRouter {
     }
 
     /// Make a single provider call using the appropriate format.
+    /// Наряд #156: effective timeout = min(timeout_override, self.timeout).
+    /// `reqwest::blocking::Client::timeout()` performs real HTTP-level
+    /// cancellation (drops TCP connection) when it fires.
+    #[allow(clippy::too_many_arguments)]
     fn call_provider(
         &self,
         provider_type: &str,
@@ -1127,9 +1143,17 @@ impl SmartRouter {
         prompt: &str,
         input: &str,
         model_override: Option<&str>,
+        timeout_override: Option<Duration>,
     ) -> Result<String, String> {
+        let effective_timeout = match timeout_override {
+            Some(override_dur) => {
+                let config_dur = Duration::from_secs(self.timeout.max(5) as u64);
+                override_dur.min(config_dur)
+            }
+            None => Duration::from_secs(self.timeout.max(5) as u64),
+        };
         let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(self.timeout.max(5) as u64))
+            .timeout(effective_timeout)
             .connect_timeout(Duration::from_secs(10))
             .build()
             .map_err(|e| format!("HTTP client build error: {}", e))?;
@@ -1867,7 +1891,7 @@ mod tests {
         };
 
         let start = Instant::now();
-        let result = router.call("Say hello", "world", None);
+        let result = router.call("Say hello", "world", None, None);
         let elapsed = start.elapsed();
 
         // Cleanup
@@ -1923,7 +1947,7 @@ mod tests {
         let mut timings = Vec::new();
         for i in 1..=4 {
             let start = Instant::now();
-            let result = router.call(&format!("test{}", i), "input", None);
+            let result = router.call(&format!("test{}", i), "input", None, None);
             let elapsed = start.elapsed();
             timings.push(elapsed);
             eprintln!(

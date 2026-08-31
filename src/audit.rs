@@ -928,12 +928,13 @@ fn check_html_injection(
 }
 
 // ── Check: SECRET_LEAK — env() result passed to respond/write_file sinks;
-//   http_post: positional — body (arg 1) is a leak, headers (arg 3) is normal auth
+//   http_post: positional — url (arg 0) is a leak, body (arg 1) is a leak,
+//   headers (arg 3) is normal auth (Bearer tokens etc.)
 
 fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut Vec<AuditFinding>) {
-    /// Sink functions that must not receive secrets.
-    /// Note: http_post is NOT a blanket sink — passing secrets in headers
-    /// (arg 3) is intentional (Bearer auth). Only body (arg 1) is flagged.
+    /// Sink functions where ANY argument carrying a secret is a leak.
+    /// http_post is handled separately with positional logic below:
+    ///   arg 0 (url) — leak;  arg 1 (body) — leak;  arg 3 (headers) — safe.
     /// send_message is also not a sink — it is an intentional API call point.
     const SINK_FUNCTIONS: &[&str] = &["respond", "respond_html", "write_file", "print"];
 
@@ -1042,11 +1043,27 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                         }
                     }
                 }
-                // http_post: секрет в теле запроса (арг 1) — утечка.
-                // Секрет в заголовках (арг 3) — штатная авторизация, НЕ флагируем.
+                // http_post positional logic (Наряд #157):
+                //   arg 0 (url) — secret in URL is a leak (logged, visible).
+                //   arg 1 (body) — secret in request body is a leak.
+                //   arg 3 (headers) — legitimate auth (Bearer tokens), NOT flagged.
                 // Наряд №123: use get_expr_taint to catch both variable refs
                 // and direct env() calls (e.g. http_post(u, env("K"), h)).
                 if fn_name == "http_post" {
+                    // arg 0: URL — secret leak
+                    if let Some(arg) = args.first() {
+                        if get_expr_taint(arg, tracker) == Some(TaintKind::Secret) {
+                            let line = find_line(source, fn_name);
+                            findings.push(AuditFinding {
+                                severity: Severity::Error,
+                                check_id: "SECRET_LEAK",
+                                line,
+                                message: "secret may be leaked \u{2014} env() value passed as http_post URL"
+                                    .to_string(),
+                            });
+                        }
+                    }
+                    // arg 1: body — secret leak
                     if let Some(arg) = args.get(1) {
                         if get_expr_taint(arg, tracker) == Some(TaintKind::Secret) {
                             let line = find_line(source, fn_name);
@@ -1059,6 +1076,7 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                             });
                         }
                     }
+                    // arg 3 (headers) intentionally NOT checked — Bearer auth is legitimate.
                 }
             }
         }
@@ -1229,8 +1247,10 @@ fn check_open_redirect(
 // ── Check: TAINT_PERSISTENCE — memorize(LLM-source) + recall in respond() ──
 // Наряд #141: file-level heuristic — if a file both stores LLM output via
 // `memorize` and passes `recall()` results to `respond`/`respond_html`,
-// warn about potential taint through persistence. Does NOT track precise
-// data-flow through the memory subsystem — honest warning, not a guarantee.
+// this is a taint-through-persistence violation. Does NOT track precise
+// data-flow through the memory subsystem — but the pattern IS a real
+// security issue (FOSVED: HandleX → AuditLog → db_execute).
+// Promoted to Error / Category A by Наряд #157.
 
 fn check_taint_persistence(
     declarations: &[Declaration],
@@ -1338,13 +1358,13 @@ fn check_taint_persistence(
         if has_both {
             let line = find_line(source, "recall");
             findings.push(AuditFinding {
-                severity: Severity::Warning,
+                severity: Severity::Error,
                 check_id: "TAINT_PERSISTENCE",
                 line,
                 message: "potential taint through memorize/recall — LLM output was memorized in this file and recall() result may reach respond(); use render()/escape_html() on recalled data"
                     .to_string(),
             });
-            // One warning per file is enough
+            // One finding per file is enough
             return;
         }
     }
@@ -1354,9 +1374,9 @@ fn check_taint_persistence(
 // Наряд #141: heuristic for trivial passthrough patterns. If a pattern
 // has exactly one parameter and its only return is that parameter
 // (trivial passthrough like `pattern Wrap(x) { return x }`), and it is
-// called wrapping an LLM source in a respond/respond_html sink, warn.
-// This is NOT full interprocedural analysis — it only catches the
-// simplest case of indirection.
+// called wrapping an LLM source in a respond/respond_html sink, this is
+// an XSS vector — the LLM output reaches the user without sanitization.
+// Promoted to Error / Category A by Наряд #157.
 
 /// Check if a pattern is a trivial passthrough: exactly one parameter,
 /// body is a single `return <param_name>`.
@@ -1482,7 +1502,7 @@ fn check_taint_passthrough_pattern(
                         if is_passthrough_with_llm(arg, &passthrough_names) {
                             let line = find_line(source, name);
                             findings.push(AuditFinding {
-                                severity: Severity::Warning,
+                                severity: Severity::Error,
                                 check_id: "TAINT_PASSTHROUGH",
                                 line,
                                 message: format!(
@@ -1505,10 +1525,12 @@ fn check_taint_passthrough_pattern(
 /// the code IS insecure if the check fires. Promoted from `mlog audit` to
 /// `mlog check`/`mlog run`/`mlog serve`/`mlog compile` by Наряд №98.
 ///
-/// Category A (Наряд №98):
+/// Category A (Наряд №98, expanded Наряд #157):
 ///   - SQL_DYNAMIC: query()/db_execute() with non-literal SQL (SQL injection vector)
-///   - SECRET_LEAK: env() result passed to sink (respond/write_file)
+///   - SECRET_LEAK: env() result passed to sink (respond/write_file/http_post)
 ///   - HTML_INJECTION: LLM output to respond() without sanitization (XSS)
+///   - TAINT_PERSISTENCE: memorize(LLM) + respond(recall()) (Наряд #157)
+///   - TAINT_PASSTHROUGH: respond(Wrap(call_llm(...))) trivial passthrough (Наряд #157)
 ///
 /// Category B (advisory, stays in `mlog audit` only):
 ///   - SECRETS: heuristic, can false-positive on error messages/doc strings
@@ -1521,6 +1543,8 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     check_sql_dynamic(declarations, source, &mut findings);
     check_secret_leak(declarations, source, &mut findings);
     check_html_injection(declarations, source, &mut findings);
+    check_taint_persistence(declarations, source, &mut findings);
+    check_taint_passthrough_pattern(declarations, source, &mut findings);
     findings
 }
 
@@ -2160,6 +2184,47 @@ mod tests {
         );
     }
 
+    // ── Наряд #157: http_post URL leak + headers safety contracts ──
+
+    #[test]
+    fn secret_leak_http_post_url_with_secret() {
+        // http_post(url + env("TOKEN"), body, headers) — secret in URL is a leak.
+        let source = r#"
+            pattern LeakUrl() -> String {
+                let token = env("AUTH_TOKEN")
+                let url = "https://api.example.com/" + token
+                let r = http_post(url, "{}", "application/json")
+                return r
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result.findings.iter().any(|f| f.check_id == "SECRET_LEAK"
+                && f.severity == Severity::Error
+                && f.message.contains("http_post URL")),
+            "http_post(url+env(...), b, h) must trigger SECRET_LEAK for URL, got {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn secret_leak_http_post_headers_safe() {
+        // http_post(url, body, env("TOKEN")) — secret in headers is legitimate auth.
+        let source = r#"
+            pattern AuthPost() -> String {
+                let token = env("AUTH_TOKEN")
+                let r = http_post("https://api.example.com", "{\"data\": 1}", token)
+                return r
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            !result.findings.iter().any(|f| f.check_id == "SECRET_LEAK"),
+            "http_post(u, b, env(...)) — headers auth must NOT trigger SECRET_LEAK, got {:?}",
+            result.findings
+        );
+    }
+
     // ── Наряд №140: open-redirect catches nested user-input calls ──
 
     /// Helper: build a MlogServerDecl with a single route containing the given statements.
@@ -2385,7 +2450,7 @@ mod tests {
             result
                 .findings
                 .iter()
-                .any(|f| f.check_id == "TAINT_PERSISTENCE" && f.severity == Severity::Warning),
+                .any(|f| f.check_id == "TAINT_PERSISTENCE" && f.severity == Severity::Error),
             "memorize(call_llm(...)) + respond(recall(...)) must trigger TAINT_PERSISTENCE, got {:?}",
             result.findings
         );
@@ -2450,7 +2515,7 @@ mod tests {
             result
                 .findings
                 .iter()
-                .any(|f| f.check_id == "TAINT_PASSTHROUGH" && f.severity == Severity::Warning),
+                .any(|f| f.check_id == "TAINT_PASSTHROUGH" && f.severity == Severity::Error),
             "respond(Wrap(call_llm(...))) must trigger TAINT_PASSTHROUGH, got {:?}",
             result.findings
         );
@@ -2472,7 +2537,7 @@ mod tests {
             result
                 .findings
                 .iter()
-                .any(|f| f.check_id == "TAINT_PASSTHROUGH" && f.severity == Severity::Warning),
+                .any(|f| f.check_id == "TAINT_PASSTHROUGH" && f.severity == Severity::Error),
             "respond_html(Wrap(call_claude(...))) must trigger TAINT_PASSTHROUGH, got {:?}",
             result.findings
         );

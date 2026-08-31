@@ -198,7 +198,7 @@ impl Interpreter {
         // Route through SmartRouter if configured, otherwise legacy backend.
         if let Ok(guard) = self.smart_router.lock() {
             if let Some(ref router) = *guard {
-                return router.call(prompt, text, None);
+                return router.call(prompt, text, None, None);
             }
         }
         let backend = llm::create_llm_backend();

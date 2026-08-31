@@ -5,9 +5,13 @@
 //   C2: When MockLlm delay < sandbox timeout, the call succeeds normally.
 //   C3: Without sandbox, no timeout is applied even with slow MockLlm.
 //
-// Known limitation (documented in call_llm_with_timeout):
-//   The background thread may still be running after timeout.
-//   We do NOT assert that the background thread has stopped.
+// Наряд #156 evolution:
+//   SmartRouter path: reqwest::blocking::Client::timeout() performs
+//   real HTTP-level cancellation (drops TCP connection). No thread.
+//   Legacy path (tests use MockLlm): thread wrapper retained because
+//   LlmBackend trait has no timeout. Error message simplified — no
+//   more "may still be running" (harmless for MockLlm, real cancel
+//   for SmartRouter).
 
 use metalogos::ast::*;
 use metalogos::interpreter::Interpreter;
@@ -116,13 +120,8 @@ fn test_preemptive_timeout_fires_within_budget() {
         elapsed
     );
 
-    // Must honestly mention that the background request may still be running
-    assert!(
-        err_msg.contains("may still be running"),
-        "C1: error should honestly mention background request, got: {}",
-        err_msg
-    );
-
+    // Наряд #156: no more "may still be running" — SmartRouter uses
+    // real reqwest cancellation; legacy MockLlm background is harmless.
     MockLlm::reset_delay();
 }
 

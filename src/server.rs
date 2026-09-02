@@ -524,7 +524,7 @@ pub async fn run_test_server_with_backend(
         .ok_or("no mlogserver block")?;
 
     let mut interp = Interpreter::new();
-    for decl in declarations {
+    for decl in declarations.clone() {
         if !matches!(decl, Declaration::Flow(_)) {
             let mut tmp = Interpreter::new();
             tmp.set_base_dir(std::path::PathBuf::from("."));

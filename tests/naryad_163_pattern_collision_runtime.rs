@@ -42,8 +42,7 @@ fn load(dir: PathBuf, source: &str, strict: bool) -> Result<Interpreter, String>
 fn format_matches_check_prefix() {
     let msg = "duplicate pattern: HandleDev";
     assert!(msg.starts_with("duplicate pattern:"));
-    let msg =
-        "duplicate pattern: HandleDev (already defined in dept/dev, redefined in dept/chain)";
+    let msg = "duplicate pattern: HandleDev (already defined in dept/dev, redefined in dept/chain)";
     assert!(msg.starts_with("duplicate pattern: HandleDev"));
     assert!(msg.contains("dept/dev"));
     assert!(msg.contains("dept/chain"));
@@ -66,16 +65,8 @@ fn check_still_reports_duplicate_pattern() {
 #[test]
 fn two_imports_same_name_warns_and_runs() {
     let dir = scratch_dir();
-    write_mod(
-        &dir,
-        "mod_a",
-        "pattern Shared() -> String { return \"a\" }",
-    );
-    write_mod(
-        &dir,
-        "mod_b",
-        "pattern Shared() -> String { return \"b\" }",
-    );
+    write_mod(&dir, "mod_a", "pattern Shared() -> String { return \"a\" }");
+    write_mod(&dir, "mod_b", "pattern Shared() -> String { return \"b\" }");
     let source = concat!(
         "import mod_a as a\n",
         "import mod_b as b\n",
@@ -139,11 +130,7 @@ fn unique_names_are_silent() {
 #[test]
 fn reimport_same_module_is_silent() {
     let dir = scratch_dir();
-    write_mod(
-        &dir,
-        "mod_a",
-        "pattern Shared() -> String { return \"a\" }",
-    );
+    write_mod(&dir, "mod_a", "pattern Shared() -> String { return \"a\" }");
     write_mod(&dir, "mid", "import mod_a as a\n");
     let source = concat!(
         "import mid as mid\n",

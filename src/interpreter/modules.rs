@@ -299,3 +299,105 @@ impl Interpreter {
         Ok(())
     }
 }
+
+fn n163_strict_enabled(interp: &Interpreter) -> bool {
+    if interp
+        .module_namespaces
+        .get("__n163_strict")
+        .map(|s| s.as_str())
+        == Some("1")
+    {
+        return true;
+    }
+    match std::env::var("METALOGOS_STRICT") {
+        Ok(v) => matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"),
+        Err(_) => false,
+    }
+}
+
+impl Interpreter {
+    pub(super) fn current_origin(&self) -> &str {
+        self.loading_stack
+            .last()
+            .map(|s| s.as_str())
+            .unwrap_or("<program>")
+    }
+
+    pub fn set_strict_pattern_names(&mut self, strict: bool) {
+        if strict {
+            self.module_namespaces
+                .insert("__n163_strict".to_string(), "1".to_string());
+        } else {
+            self.module_namespaces.remove("__n163_strict");
+        }
+    }
+
+    pub fn name_collision_warnings(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for (k, v) in &self.module_namespaces {
+            if k.starts_with("__n163_warn::") {
+                out.push(v.clone());
+            }
+        }
+        out.sort();
+        out
+    }
+
+    fn record_collision_warning(&mut self, msg: String) {
+        let idx = self
+            .module_namespaces
+            .keys()
+            .filter(|k| k.starts_with("__n163_warn::"))
+            .count();
+        self.module_namespaces
+            .insert(format!("__n163_warn::{idx}"), msg);
+    }
+
+    pub(super) fn register_pattern(
+        &mut self,
+        name: String,
+        pat: CompiledPattern,
+        origin: &str,
+    ) -> Result<(), String> {
+        let key = format!("__n163_origin::{name}");
+        if let Some(prev) = self.module_namespaces.get(&key) {
+            if prev != origin {
+                let msg = format!(
+                    "duplicate pattern: {name} (already defined in {prev}, redefined in {origin})"
+                );
+                if n163_strict_enabled(self) {
+                    return Err(msg);
+                }
+                eprintln!("warning: {msg}");
+                self.record_collision_warning(msg);
+            }
+        }
+        self.module_namespaces.insert(key, origin.to_string());
+        self.patterns.insert(name, pat);
+        Ok(())
+    }
+
+    pub(super) fn register_learnable(
+        &mut self,
+        name: String,
+        pat: CompiledLearnable,
+        origin: &str,
+    ) -> Result<(), String> {
+        let key = format!("__n163_learnable::{name}");
+        if let Some(prev) = self.module_namespaces.get(&key) {
+            if prev != origin {
+                let msg = format!(
+                    "duplicate learnable pattern: {name} (already defined in {prev}, redefined in {origin})"
+                );
+                if n163_strict_enabled(self) {
+                    return Err(msg);
+                }
+                eprintln!("warning: {msg}");
+                self.record_collision_warning(msg);
+            }
+        }
+        self.module_namespaces.insert(key, origin.to_string());
+        self.learnable_patterns.insert(name, pat);
+        Ok(())
+    }
+}

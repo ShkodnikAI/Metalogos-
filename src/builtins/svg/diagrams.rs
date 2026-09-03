@@ -5594,7 +5594,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn color_palette_mono_exact_hex_tokens() {
         // Наряд №162: hand-picked values must not drift (not HSL-derived).

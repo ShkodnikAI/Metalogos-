@@ -275,9 +275,38 @@ pub fn builtin_color_palette(args: &[Value]) -> Result<Value, String> {
     let intent = expect_string_arg("color_palette", args, 0)?;
     let mode = expect_string_arg("color_palette", args, 1)?;
 
+    // Наряд №162: mono is hand-picked achromatic tokens (not HSL-derived).
+    // Early branch — must not go through intent_to_hue / hsl_to_hex.
+    // accent = ink: mono has no chromatic accent; importance = brightness,
+    // so the strongest signal is ink. Keeps DiagramStyle 5-token shape so
+    // extract_style / chart_* compose without special cases.
+    if intent == "mono" {
+        let (paper, ink, muted, rule) = match mode.as_str() {
+            "light" => ("#F0EFEB", "#1C1C1A", "#8F8E88", "#DEDDD6"),
+            "dark" => ("#1C1C1A", "#F0EFEB", "#8F8E88", "#2E2D29"),
+            _ => {
+                return Err(format!(
+                    "color_palette: mode must be \"light\" or \"dark\" (got {:?})",
+                    mode
+                ));
+            }
+        };
+        let accent = ink; // see comment above
+        let mut style_fields = HashMap::new();
+        style_fields.insert("paper".to_string(), Value::String(paper.to_string()));
+        style_fields.insert("ink".to_string(), Value::String(ink.to_string()));
+        style_fields.insert("accent".to_string(), Value::String(accent.to_string()));
+        style_fields.insert("muted".to_string(), Value::String(muted.to_string()));
+        style_fields.insert("rule".to_string(), Value::String(rule.to_string()));
+        return Ok(Value::Struct {
+            type_name: "DiagramStyle".to_string(),
+            fields: style_fields,
+        });
+    }
+
     let base_hue = intent_to_hue(&intent).ok_or_else(|| {
         format!(
-            "color_palette: intent must be one of calm/tension/energy/authority/warmth (got {:?})",
+            "color_palette: intent must be one of calm/tension/energy/authority/warmth/mono (got {:?})",
             intent
         )
     })?;

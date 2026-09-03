@@ -8,16 +8,19 @@ use std::time::{SystemTime, UNIX_EPOCH};
 impl Interpreter {
     /// Handle an import declaration: load module, register namespace or merge globally.
     pub(super) fn handle_import(&mut self, import: &ImportDecl) -> Result<(), String> {
-        let module_path = &import.path;
+        // Parser may include trailing whitespace in `import_path` when the
+        // optional `as alias` group is present; trim so file lookup and
+        // collision origins use the canonical module path.
+        let module_path = import.path.trim();
 
         // Register namespace mapping (alias or path itself for global merge)
         let alias = import
             .alias
             .as_ref()
             .cloned()
-            .unwrap_or_else(|| module_path.clone());
+            .unwrap_or_else(|| module_path.to_string());
         self.module_namespaces
-            .insert(alias.clone(), module_path.clone());
+            .insert(alias.clone(), module_path.to_string());
 
         // Load the module file and execute its declarations into this interpreter
         self.load_module(module_path)?;
@@ -87,16 +90,19 @@ impl Interpreter {
                     self.variables.insert(e.name.clone(), value);
                 }
                 Declaration::Pattern(p) => {
-                    self.patterns.insert(
+                    let origin = self.current_origin().to_string();
+                    self.register_pattern(
                         p.name.clone(),
                         CompiledPattern {
                             params: p.params.clone(),
                             body: p.body.clone(),
                         },
-                    );
+                        &origin,
+                    )?;
                 }
                 Declaration::LearnablePattern(lp) => {
-                    self.learnable_patterns.insert(
+                    let origin = self.current_origin().to_string();
+                    self.register_learnable(
                         lp.name.clone(),
                         CompiledLearnable {
                             params: lp.params.clone(),
@@ -111,7 +117,8 @@ impl Interpreter {
                             model: lp.model.clone(),
                             conversation: lp.conversation.clone(),
                         },
-                    );
+                        &origin,
+                    )?;
                 }
                 Declaration::Rule(r) => self.rules.push(r),
                 Declaration::Memorize(m) => {
@@ -260,13 +267,15 @@ impl Interpreter {
                         .insert(t.name.clone(), format!("tool:{}", t.name));
                     for method in &t.methods {
                         let qualified_name = format!("{}.{}", t.name, method.name);
-                        self.patterns.insert(
+                        let origin = self.current_origin().to_string();
+                        self.register_pattern(
                             qualified_name,
                             CompiledPattern {
                                 params: method.params.clone(),
                                 body: method.body.clone(),
                             },
-                        );
+                            &origin,
+                        )?;
                     }
                 }
                 Declaration::Db(db) => {

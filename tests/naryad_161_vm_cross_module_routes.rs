@@ -192,7 +192,10 @@ async fn block3_tw_serves_imported_pattern() {
     let (port, _handle) = start_server(SOURCE_WITH_IMPORT, ServeBackend::Interpreter).await;
     let (status, body) = http_get(port, "/").await;
     assert_eq!(status, 200, "TW should return 200");
-    assert_eq!(body, "handled: world", "TW should call imported HandleHelper");
+    assert_eq!(
+        body, "handled: world",
+        "TW should call imported HandleHelper"
+    );
 }
 
 #[tokio::test]
@@ -200,7 +203,10 @@ async fn block3_vm_serves_imported_pattern() {
     let (port, _handle) = start_server(SOURCE_WITH_IMPORT, ServeBackend::Vm).await;
     let (status, body) = http_get(port, "/").await;
     assert_eq!(status, 200, "VM should return 200");
-    assert_eq!(body, "handled: world", "VM should call imported HandleHelper");
+    assert_eq!(
+        body, "handled: world",
+        "VM should call imported HandleHelper"
+    );
 }
 
 #[tokio::test]
@@ -212,7 +218,11 @@ async fn block3_tw_vm_parity_imported_pattern() {
     let (vm_status, vm_body) = http_get(vm_port, "/").await;
     vm_handle.abort();
     assert_eq!(tw_status, vm_status, "TW/VM status mismatch");
-    assert_eq!(tw_body, vm_body, "TW/VM body mismatch: TW={:?} VM={:?}", tw_body, vm_body);
+    assert_eq!(
+        tw_body, vm_body,
+        "TW/VM body mismatch: TW={:?} VM={:?}",
+        tw_body, vm_body
+    );
 }
 
 #[tokio::test]

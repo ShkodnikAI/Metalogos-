@@ -85,27 +85,16 @@ async fn start_server(
 
 async fn http_get(port: u16, path: &str) -> (u16, String) {
     let url = format!("http://127.0.0.1:{}{}", port, path);
-    let resp = reqwest::get(&url)
-        .await
-        .expect("GET request should succeed");
+    let resp = reqwest::get(&url).await.expect("GET request should succeed");
     let status = resp.status().as_u16();
     let body = resp.text().await.expect("response body should be readable");
     (status, body)
 }
 
-async fn http_post_json(
-    port: u16,
-    path: &str,
-    json: &serde_json::Value,
-) -> (u16, String) {
+async fn http_post_json(port: u16, path: &str, json: &serde_json::Value) -> (u16, String) {
     let url = format!("http://127.0.0.1:{}{}", port, path);
     let client = reqwest::Client::new();
-    let resp = client
-        .post(&url)
-        .json(json)
-        .send()
-        .await
-        .expect("POST request should succeed");
+    let resp = client.post(&url).json(json).send().await.expect("POST request should succeed");
     let status = resp.status().as_u16();
     let body = resp.text().await.expect("response body should be readable");
     (status, body)
@@ -144,9 +133,7 @@ mlogserver {
   }
 }
 "#;
-    let result =
-        metalogos::server::run_test_server_with_backend(source, ServeBackend::Vm)
-            .await;
+    let result = metalogos::server::run_test_server_with_backend(source, ServeBackend::Vm).await;
     assert!(
         result.is_err(),
         "Block 1: VM server with match in route should fail to start"
@@ -161,8 +148,7 @@ mlogserver {
 
 #[test]
 fn block1_scan_all_examples_for_match_in_routes() {
-    let manifest_dir =
-        std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     let examples_dir = std::path::Path::new(&manifest_dir).join("examples");
     if let Ok(entries) = std::fs::read_dir(&examples_dir) {
         for entry in entries.flatten() {
@@ -297,8 +283,7 @@ async fn block2_vm_405_wrong_method() {
 
 #[tokio::test]
 async fn block2_tw_get_with_query_param() {
-    let (port, _handle) =
-        start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
+    let (port, _handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
     let (status, body) = http_get(port, "/hello?name=Bob").await;
     assert_eq!(status, 200);
     assert_eq!(body, "hello Bob");
@@ -326,17 +311,14 @@ async fn block3_vm_parallel_query_param_isolation() {
         let url = format!("http://127.0.0.1:{}/whoami?{}", port, query);
         let expected = expected_body.to_string();
         handles.push(tokio::spawn(async move {
-            let resp = reqwest::get(&url)
-                .await
-                .expect("request should succeed");
+            let resp = reqwest::get(&url).await.expect("request should succeed");
             let status = resp.status().as_u16();
             let body = resp.text().await.expect("body should be readable");
             assert_eq!(
                 status,
                 200,
                 "parallel /whoami?{}: expected 200, got {}",
-                query,
-                status
+                query, status
             );
             assert_eq!(
                 body,
@@ -361,9 +343,7 @@ async fn block3_vm_parallel_mixed_routes() {
         let url = format!("http://127.0.0.1:{}/whoami?id=worker-{}", port, i);
         let expected = format!("you are worker-{}", i);
         handles.push(tokio::spawn(async move {
-            let resp = reqwest::get(&url)
-                .await
-                .expect("request should succeed");
+            let resp = reqwest::get(&url).await.expect("request should succeed");
             assert_eq!(resp.status().as_u16(), 200);
             let body = resp.text().await.unwrap();
             assert_eq!(body, expected);
@@ -373,9 +353,7 @@ async fn block3_vm_parallel_mixed_routes() {
         let url = format!("http://127.0.0.1:{}/echo_n?n={}", port, i);
         let expected = format!("n={}", i);
         handles.push(tokio::spawn(async move {
-            let resp = reqwest::get(&url)
-                .await
-                .expect("request should succeed");
+            let resp = reqwest::get(&url).await.expect("request should succeed");
             assert_eq!(resp.status().as_u16(), 200);
             let body = resp.text().await.unwrap();
             assert_eq!(body, expected);
@@ -394,9 +372,7 @@ async fn block3_vm_parallel_kv_isolation() {
         let url = format!("http://127.0.0.1:{}/set?key=n160-{}&val=v{}", port, i, i);
         let expected = format!("set n160-{}=v{}", i, i);
         handles.push(tokio::spawn(async move {
-            let resp = reqwest::get(&url)
-                .await
-                .expect("set request should succeed");
+            let resp = reqwest::get(&url).await.expect("set request should succeed");
             assert_eq!(resp.status().as_u16(), 200);
             let body = resp.text().await.unwrap();
             assert_eq!(body, expected);
@@ -412,9 +388,7 @@ async fn block3_vm_parallel_kv_isolation() {
             body,
             format!("v{}", i),
             "kv_get for n160-{}: expected v{}, got {}",
-            i,
-            i,
-            body
+            i, i, body
         );
     }
 }
@@ -425,12 +399,10 @@ async fn block3_vm_parallel_kv_isolation() {
 
 #[tokio::test]
 async fn block4_tw_vs_vm_get_query_param() {
-    let (tw_port, tw_handle) =
-        start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
+    let (tw_port, tw_handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
     let (tw_status, tw_body) = http_get(tw_port, "/hello?name=TestUser").await;
     tw_handle.abort();
-    let (vm_port, vm_handle) =
-        start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
+    let (vm_port, vm_handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
     let (vm_status, vm_body) = http_get(vm_port, "/hello?name=TestUser").await;
     vm_handle.abort();
     assert_eq!(
@@ -448,12 +420,10 @@ async fn block4_tw_vs_vm_get_query_param() {
 #[tokio::test]
 async fn block4_tw_vs_vm_post_json_body() {
     let json = serde_json::json!({"message": "hello world"});
-    let (tw_port, tw_handle) =
-        start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
+    let (tw_port, tw_handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
     let (tw_status, tw_body) = http_post_json(tw_port, "/echo", &json).await;
     tw_handle.abort();
-    let (vm_port, vm_handle) =
-        start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
+    let (vm_port, vm_handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
     let (vm_status, vm_body) = http_post_json(vm_port, "/echo", &json).await;
     vm_handle.abort();
     assert_eq!(
@@ -470,12 +440,10 @@ async fn block4_tw_vs_vm_post_json_body() {
 
 #[tokio::test]
 async fn block4_tw_vs_vm_get_concat() {
-    let (tw_port, tw_handle) =
-        start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
+    let (tw_port, tw_handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
     let (tw_status, tw_body) = http_get(tw_port, "/concat?a=hello&b=world").await;
     tw_handle.abort();
-    let (vm_port, vm_handle) =
-        start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
+    let (vm_port, vm_handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
     let (vm_status, vm_body) = http_get(vm_port, "/concat?a=hello&b=world").await;
     vm_handle.abort();
     assert_eq!(tw_status, vm_status, "Block 4: GET /concat status mismatch");
@@ -488,12 +456,10 @@ async fn block4_tw_vs_vm_get_concat() {
 
 #[tokio::test]
 async fn block4_tw_vs_vm_custom_status() {
-    let (tw_port, tw_handle) =
-        start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
+    let (tw_port, tw_handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
     let (tw_status, tw_body) = http_get(tw_port, "/status").await;
     tw_handle.abort();
-    let (vm_port, vm_handle) =
-        start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
+    let (vm_port, vm_handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
     let (vm_status, vm_body) = http_get(vm_port, "/status").await;
     vm_handle.abort();
     assert_eq!(
@@ -511,12 +477,10 @@ async fn block4_tw_vs_vm_custom_status() {
 #[tokio::test]
 async fn block4_tw_vs_vm_post_upper() {
     let json = serde_json::json!({"name": "metalogos"});
-    let (tw_port, tw_handle) =
-        start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
+    let (tw_port, tw_handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
     let (tw_status, tw_body) = http_post_json(tw_port, "/greet", &json).await;
     tw_handle.abort();
-    let (vm_port, vm_handle) =
-        start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
+    let (vm_port, vm_handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
     let (vm_status, vm_body) = http_post_json(vm_port, "/greet", &json).await;
     vm_handle.abort();
     assert_eq!(
@@ -533,12 +497,10 @@ async fn block4_tw_vs_vm_post_upper() {
 
 #[tokio::test]
 async fn block4_tw_vs_vm_empty_query_param() {
-    let (tw_port, tw_handle) =
-        start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
+    let (tw_port, tw_handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
     let (tw_status, tw_body) = http_get(tw_port, "/hello").await;
     tw_handle.abort();
-    let (vm_port, vm_handle) =
-        start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
+    let (vm_port, vm_handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
     let (vm_status, vm_body) = http_get(vm_port, "/hello").await;
     vm_handle.abort();
     assert_eq!(tw_status, vm_status, "Block 4: /hello no-param status mismatch");
@@ -551,12 +513,10 @@ async fn block4_tw_vs_vm_empty_query_param() {
 
 #[tokio::test]
 async fn block4_tw_vs_vm_404() {
-    let (tw_port, tw_handle) =
-        start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
+    let (tw_port, tw_handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
     let (tw_status, tw_body) = http_get(tw_port, "/nonexistent").await;
     tw_handle.abort();
-    let (vm_port, vm_handle) =
-        start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
+    let (vm_port, vm_handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
     let (vm_status, vm_body) = http_get(vm_port, "/nonexistent").await;
     vm_handle.abort();
     assert_eq!(tw_status, vm_status, "Block 4: 404 status mismatch");
@@ -566,14 +526,12 @@ async fn block4_tw_vs_vm_404() {
 #[tokio::test]
 async fn block4_tw_vs_vm_405() {
     let client = reqwest::Client::new();
-    let (tw_port, tw_handle) =
-        start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
+    let (tw_port, tw_handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
     let url_tw = format!("http://127.0.0.1:{}/hello", tw_port);
     let tw_resp = client.post(&url_tw).send().await.unwrap();
     let tw_status = tw_resp.status().as_u16();
     tw_handle.abort();
-    let (vm_port, vm_handle) =
-        start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
+    let (vm_port, vm_handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
     let url_vm = format!("http://127.0.0.1:{}/hello", vm_port);
     let vm_resp = client.post(&url_vm).send().await.unwrap();
     let vm_status = vm_resp.status().as_u16();
@@ -587,20 +545,16 @@ async fn block4_tw_vs_vm_405() {
 
 #[tokio::test]
 async fn block4_tw_vm_kv_shared_store() {
-    let (tw_port, tw_handle) =
-        start_server(SOURCE_KV_ROUTES, ServeBackend::Interpreter).await;
-    let (tw_status, tw_body) =
-        http_get(tw_port, "/set?key=n160-shared&val=tw-wrote-this").await;
+    let (tw_port, tw_handle) = start_server(SOURCE_KV_ROUTES, ServeBackend::Interpreter).await;
+    let (tw_status, tw_body) = http_get(tw_port, "/set?key=n160-shared&val=tw-wrote-this").await;
     assert_eq!(tw_status, 200);
     assert_eq!(tw_body, "set n160-shared=tw-wrote-this");
     tw_handle.abort();
-    let (vm_port, vm_handle) =
-        start_server(SOURCE_KV_ROUTES, ServeBackend::Vm).await;
+    let (vm_port, vm_handle) = start_server(SOURCE_KV_ROUTES, ServeBackend::Vm).await;
     let (vm_status, vm_body) = http_get(vm_port, "/get?key=n160-shared").await;
     assert_eq!(vm_status, 200);
     assert_eq!(
-        vm_body,
-        "",
+        vm_body, "",
         "Block 4: kv store should NOT be shared across server instances"
     );
     vm_handle.abort();

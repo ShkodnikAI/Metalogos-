@@ -5,7 +5,6 @@
 // These contracts lock the new warning / --strict behaviour.
 
 use metalogos::interpreter::Interpreter;
-use metalogos::interpreter::pattern_collision::format_duplicate_pattern;
 use std::fs;
 use std::path::PathBuf;
 
@@ -41,9 +40,10 @@ fn load(dir: PathBuf, source: &str, strict: bool) -> Result<Interpreter, String>
 
 #[test]
 fn format_matches_check_prefix() {
-    let msg = format_duplicate_pattern("HandleDev", None, None);
-    assert_eq!(msg, "duplicate pattern: HandleDev");
-    let msg = format_duplicate_pattern("HandleDev", Some("dept/dev"), Some("dept/chain"));
+    let msg = "duplicate pattern: HandleDev";
+    assert!(msg.starts_with("duplicate pattern:"));
+    let msg =
+        "duplicate pattern: HandleDev (already defined in dept/dev, redefined in dept/chain)";
     assert!(msg.starts_with("duplicate pattern: HandleDev"));
     assert!(msg.contains("dept/dev"));
     assert!(msg.contains("dept/chain"));

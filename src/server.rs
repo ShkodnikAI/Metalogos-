@@ -496,6 +496,71 @@ pub async fn run_test_server(
     Ok((port, handle))
 }
 
+/// НАРЯД #160/#161: Test server with explicit backend parameter.
+/// Unlike `run_test_server` (always Interpreter), this supports both
+/// `ServeBackend::Interpreter` and `ServeBackend::Vm`.
+pub async fn run_test_server_with_backend(
+    source: &str,
+    backend: ServeBackend,
+) -> Result<
+    (
+        u16,
+        tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+    ),
+    Box<dyn std::error::Error + Send + Sync>,
+> {
+    let declarations =
+        crate::parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+
+    let server_config = declarations
+        .iter()
+        .find_map(|d| match d {
+            Declaration::MlogServer(s) => Some(s.clone()),
+            _ => None,
+        })
+        .ok_or("no mlogserver block")?;
+
+    let mut interp = Interpreter::new();
+    for decl in declarations.clone() {
+        if !matches!(decl, Declaration::Flow(_)) {
+            let mut tmp = Interpreter::new();
+            tmp.set_base_dir(std::path::PathBuf::from("."));
+            let _ = tmp.run(vec![decl]);
+            interp = merge_interpreter(tmp, interp);
+        }
+    }
+
+    let mut config = server_config.clone();
+    config.port = 0;
+
+    let mut state = build_state(config.clone(), interp).await?;
+    state.backend = backend;
+
+    if state.backend == ServeBackend::Vm {
+        let mut compiler = Compiler::new();
+        let program = compiler
+            .compile(declarations)
+            .map_err(|e| format!("VM compile error: {}", e))?;
+        let compiled_routes = compiler
+            .compile_routes(&server_config.routes)
+            .map_err(|e| format!("VM route compile error: {}", e))?;
+        state.vm_program = Some(Arc::new(program));
+        state.vm_routes = compiled_routes;
+    }
+
+    let app = build_router(state);
+
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await?;
+    let port = listener.local_addr()?.port();
+
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await?;
+        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+    });
+
+    Ok((port, handle))
+}
+
 // ── Internal: Build State ──────────────────────────────────────────
 
 pub(crate) async fn build_state(

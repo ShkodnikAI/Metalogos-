@@ -5,7 +5,7 @@
 // These contracts lock the new warning / --strict behaviour.
 
 use metalogos::interpreter::Interpreter;
-use metalogos::semantic::format_duplicate_pattern;
+use metalogos::interpreter::pattern_collision::format_duplicate_pattern;
 use std::fs;
 use std::path::PathBuf;
 
@@ -69,18 +69,18 @@ fn two_imports_same_name_warns_and_runs() {
     write_mod(
         &dir,
         "mod_a",
-        r#"pattern Shared() -> String { return \"a\" }"#,
+        "pattern Shared() -> String { return \"a\" }",
     );
     write_mod(
         &dir,
         "mod_b",
-        r#"pattern Shared() -> String { return \"b\" }"#,
+        "pattern Shared() -> String { return \"b\" }",
     );
-    let source = r#"
-import mod_a as a
-import mod_b as b
-pattern Main() -> String { return \"ok\" }
-"#;
+    let source = concat!(
+        "import mod_a as a\n",
+        "import mod_b as b\n",
+        "pattern Main() -> String { return \"ok\" }\n",
+    );
     let interp = load(dir, source, false).expect("run must not fail on a collision");
     let warnings = interp.name_collision_warnings();
     assert_eq!(
@@ -103,16 +103,16 @@ pattern Main() -> String { return \"ok\" }
 #[test]
 fn serve_bootstrap_warns_but_loads() {
     let dir = scratch_dir();
-    write_mod(&dir, "mod_a", r#"pattern Shared() -> String { return \"a\" }"#);
-    write_mod(&dir, "mod_b", r#"pattern Shared() -> String { return \"b\" }"#);
-    let source = r#"
-import mod_a as a
-import mod_b as b
-mlogserver {
-  port: 0
-  route \"/\" method=GET { return \"ok\" }
-}
-"#;
+    write_mod(&dir, "mod_a", "pattern Shared() -> String { return \"a\" }");
+    write_mod(&dir, "mod_b", "pattern Shared() -> String { return \"b\" }");
+    let source = concat!(
+        "import mod_a as a\n",
+        "import mod_b as b\n",
+        "mlogserver {\n",
+        "  port: 0\n",
+        "  route \"/\" method=GET { return \"ok\" }\n",
+        "}\n",
+    );
     let interp = load(dir, source, false).expect("serve bootstrap must not refuse to load");
     assert_eq!(interp.name_collision_warnings().len(), 1);
     assert!(interp.get_server_config().is_some());
@@ -121,13 +121,13 @@ mlogserver {
 #[test]
 fn unique_names_are_silent() {
     let dir = scratch_dir();
-    write_mod(&dir, "mod_a", r#"pattern Alpha() -> String { return \"a\" }"#);
-    write_mod(&dir, "mod_b", r#"pattern Beta() -> String { return \"b\" }"#);
-    let source = r#"
-import mod_a as a
-import mod_b as b
-pattern Gamma() -> String { return \"c\" }
-"#;
+    write_mod(&dir, "mod_a", "pattern Alpha() -> String { return \"a\" }");
+    write_mod(&dir, "mod_b", "pattern Beta() -> String { return \"b\" }");
+    let source = concat!(
+        "import mod_a as a\n",
+        "import mod_b as b\n",
+        "pattern Gamma() -> String { return \"c\" }\n",
+    );
     let interp = load(dir, source, false).expect("clean program runs");
     assert!(
         interp.name_collision_warnings().is_empty(),
@@ -142,14 +142,14 @@ fn reimport_same_module_is_silent() {
     write_mod(
         &dir,
         "mod_a",
-        r#"pattern Shared() -> String { return \"a\" }"#,
+        "pattern Shared() -> String { return \"a\" }",
     );
     write_mod(&dir, "mid", "import mod_a as a\n");
-    let source = r#"
-import mid as mid
-import mod_a as a
-pattern Main() -> String { return \"ok\" }
-"#;
+    let source = concat!(
+        "import mid as mid\n",
+        "import mod_a as a\n",
+        "pattern Main() -> String { return \"ok\" }\n",
+    );
     let interp = load(dir, source, false).expect("re-import is not an error");
     assert!(
         interp.name_collision_warnings().is_empty(),
@@ -161,12 +161,9 @@ pattern Main() -> String { return \"ok\" }
 #[test]
 fn strict_mode_fails_the_load() {
     let dir = scratch_dir();
-    write_mod(&dir, "mod_a", r#"pattern Shared() -> String { return \"a\" }"#);
-    write_mod(&dir, "mod_b", r#"pattern Shared() -> String { return \"b\" }"#);
-    let source = r#"
-import mod_a as a
-import mod_b as b
-"#;
+    write_mod(&dir, "mod_a", "pattern Shared() -> String { return \"a\" }");
+    write_mod(&dir, "mod_b", "pattern Shared() -> String { return \"b\" }");
+    let source = "import mod_a as a\nimport mod_b as b\n";
     let err = match load(dir, source, true) {
         Err(e) => e,
         Ok(_) => panic!("strict mode must error"),

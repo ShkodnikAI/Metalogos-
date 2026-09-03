@@ -1,0 +1,3 @@
+pattern DeepC(x: String) -> String {
+  return "deep-c: " + x
+}

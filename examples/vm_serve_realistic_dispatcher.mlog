@@ -1,0 +1,19 @@
+import vm_serve_realistic_dept_a
+import vm_serve_realistic_dept_b
+import vm_serve_realistic_dept_c
+
+pattern RouteByDept(dept: String, query: String) -> String {
+  if dept == "a" then { return HandleDeptA(query) }
+  if dept == "b" then { return HandleDeptB(query) }
+  if dept == "c" then { return HandleDeptC(query) }
+  return "unknown dept"
+}
+
+mlogserver {
+  port: 0
+  route "/dispatch" method=GET {
+    let dept = query_param("dept")
+    let q = query_param("q")
+    respond("200 " + RouteByDept(dept, q))
+  }
+}

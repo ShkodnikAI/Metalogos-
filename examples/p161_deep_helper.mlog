@@ -1,0 +1,3 @@
+pattern DeepFunc(x: String) -> String {
+  return "deep: " + x
+}

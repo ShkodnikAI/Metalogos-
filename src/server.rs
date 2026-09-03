@@ -496,10 +496,9 @@ pub async fn run_test_server(
     Ok((port, handle))
 }
 
-/// НАРЯД #160: Test server that accepts an explicit backend parameter.
-/// Unlike `run_test_server` which always uses the interpreter backend,
-/// this function supports both `ServeBackend::Interpreter` and
-/// `ServeBackend::Vm` — enabling real HTTP-stack TW vs VM comparison.
+/// НАРЯД #160/#161: Test server with explicit backend parameter.
+/// Unlike `run_test_server` (always Interpreter), this supports both
+/// `ServeBackend::Interpreter` and `ServeBackend::Vm`.
 pub async fn run_test_server_with_backend(
     source: &str,
     backend: ServeBackend,

@@ -1,0 +1,5 @@
+import p161_deep_c
+
+pattern DeepB(x: String) -> String {
+  return DeepC(x)
+}

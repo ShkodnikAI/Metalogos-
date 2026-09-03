@@ -510,10 +510,8 @@ pub async fn run_test_server_with_backend(
     ),
     Box<dyn std::error::Error + Send + Sync>,
 > {
-    use crate::parser;
-
     let declarations =
-        parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
+        crate::parser::parse(source).map_err(|e| format!("parse error: {}", e))?;
 
     let server_config = declarations
         .iter()

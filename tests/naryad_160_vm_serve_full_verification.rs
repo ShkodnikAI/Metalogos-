@@ -167,7 +167,7 @@ fn extract_route_bodies(source: &str) -> Vec<(String, String)> {
     while i < lines.len() {
         let line = lines[i].trim();
         if line.starts_with("route ") {
-            let mut sig = line.to_string();
+            let sig = line.to_string();
             let mut body_lines = Vec::new();
             let mut brace_depth = 0;
             let mut found_open = false;
@@ -362,29 +362,6 @@ async fn block3_vm_parallel_kv_isolation() {
 // ═══════════════════════════════════════════════════════════════════
 // БЛОК 4 — TW vs VM бок о бок
 // ═══════════════════════════════════════════════════════════════════
-
-macro_rules! assert_tw_vm_eq {
-    ($name:expr, $source:expr, $method:expr, $path:expr, $body:expr) => {
-        let (tw_port, tw_handle) = start_server($source, ServeBackend::Interpreter).await;
-        let (tw_status, tw_body) = if $method == "POST" {
-            http_post_json(tw_port, $path, $body).await
-        } else {
-            http_get(tw_port, $path).await
-        };
-        tw_handle.abort();
-
-        let (vm_port, vm_handle) = start_server($source, ServeBackend::Vm).await;
-        let (vm_status, vm_body) = if $method == "POST" {
-            http_post_json(vm_port, $path, $body).await
-        } else {
-            http_get(vm_port, $path).await
-        };
-        vm_handle.abort();
-
-        assert_eq!(tw_status, vm_status, concat!("Block 4: ", $name, " status mismatch: TW={}", " VM={}"), tw_status, vm_status);
-        assert_eq!(tw_body, vm_body, concat!("Block 4: ", $name, " body mismatch"));
-    };
-}
 
 #[tokio::test]
 async fn block4_tw_vs_vm_get_query_param() {

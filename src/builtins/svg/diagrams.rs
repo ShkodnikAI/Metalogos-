@@ -5562,8 +5562,9 @@ mod tests {
     }
 
     #[test]
-    fn color_palette_all_5_intents_all_2_modes_produce_valid_hex() {
-        for intent in &["calm", "tension", "energy", "authority", "warmth"] {
+    fn color_palette_all_6_intents_all_2_modes_produce_valid_hex() {
+        // Наряд №162: mono added to the intent set
+        for intent in &["calm", "tension", "energy", "authority", "warmth", "mono"] {
             for mode in &["light", "dark"] {
                 let out = builtin_color_palette(&[s(intent), s(mode)]).unwrap();
                 if let Value::Struct { fields, .. } = out {
@@ -5591,6 +5592,49 @@ mod tests {
                 }
             }
         }
+    }
+
+
+    #[test]
+    fn color_palette_mono_exact_hex_tokens() {
+        // Наряд №162: hand-picked values must not drift (not HSL-derived).
+        let light = builtin_color_palette(&[s("mono"), s("light")]).unwrap();
+        if let Value::Struct { fields, .. } = light {
+            let get = |k: &str| match fields.get(k) {
+                Some(Value::String(v)) => v.clone(),
+                _ => panic!("missing {}", k),
+            };
+            assert_eq!(get("paper"), "#F0EFEB");
+            assert_eq!(get("ink"), "#1C1C1A");
+            assert_eq!(get("muted"), "#8F8E88");
+            assert_eq!(get("rule"), "#DEDDD6");
+            // accent = ink (no chromatic accent in mono aesthetic)
+            assert_eq!(get("accent"), "#1C1C1A");
+        } else {
+            panic!("expected Struct");
+        }
+
+        let dark = builtin_color_palette(&[s("mono"), s("dark")]).unwrap();
+        if let Value::Struct { fields, .. } = dark {
+            let get = |k: &str| match fields.get(k) {
+                Some(Value::String(v)) => v.clone(),
+                _ => panic!("missing {}", k),
+            };
+            assert_eq!(get("paper"), "#1C1C1A");
+            assert_eq!(get("ink"), "#F0EFEB");
+            assert_eq!(get("muted"), "#8F8E88");
+            assert_eq!(get("rule"), "#2E2D29");
+            assert_eq!(get("accent"), "#F0EFEB");
+        } else {
+            panic!("expected Struct");
+        }
+    }
+
+    #[test]
+    fn color_palette_mono_rejects_bad_mode() {
+        let r = builtin_color_palette(&[s("mono"), s("neon")]);
+        assert!(r.is_err());
+        assert!(r.unwrap_err().contains("mode"));
     }
 
     #[test]

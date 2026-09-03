@@ -1,0 +1,1 @@
+pattern HandleDeptA(query: String) -> String { return "dept-a: " + query }

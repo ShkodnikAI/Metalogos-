@@ -48,8 +48,9 @@ fn color_palette_returns_diagram_style_struct() {
 }
 
 #[test]
-fn color_palette_all_5_intents_work_in_light_mode() {
-    for intent in &["calm", "tension", "energy", "authority", "warmth"] {
+fn color_palette_all_6_intents_work_in_light_mode() {
+    // Наряд №162: mono included
+    for intent in &["calm", "tension", "energy", "authority", "warmth", "mono"] {
         let src = format!(
             r##"chart_bar([{{label: "A", value: 10.0}}], color_palette("{}", "light"))"##,
             intent
@@ -65,8 +66,9 @@ fn color_palette_all_5_intents_work_in_light_mode() {
 }
 
 #[test]
-fn color_palette_all_5_intents_work_in_dark_mode() {
-    for intent in &["calm", "tension", "energy", "authority", "warmth"] {
+fn color_palette_all_6_intents_work_in_dark_mode() {
+    // Наряд №162: mono included
+    for intent in &["calm", "tension", "energy", "authority", "warmth", "mono"] {
         let src = format!(
             r##"chart_bar([{{label: "A", value: 10.0}}], color_palette("{}", "dark"))"##,
             intent

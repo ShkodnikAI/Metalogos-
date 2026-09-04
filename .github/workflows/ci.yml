@@ -113,6 +113,32 @@ jobs:
             exit 1
           fi
 
+  vscode-extension:
+    name: vscode-extension (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: editors/vscode/package-lock.json
+      - name: Install dependencies
+        working-directory: editors/vscode
+        run: npm ci
+      - name: Compile TypeScript
+        working-directory: editors/vscode
+        run: npm run compile
+      - name: Verify out/extension.js exists
+        working-directory: editors/vscode
+        run: |
+          if [ ! -f out/extension.js ]; then
+            echo "::error::out/extension.js not found after compile. package.json main: \"./out/extension.js\" points nowhere."
+            exit 1
+          fi
+          echo "✓ out/extension.js exists ($(stat -c%s out/extension.js) bytes)"
+
   cargo-audit:
     name: cargo-audit (blocking)
     runs-on: ubuntu-latest

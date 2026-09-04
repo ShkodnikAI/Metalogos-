@@ -1,0 +1,13 @@
+# Node dependencies — must never be committed
+node_modules/
+
+# TypeScript build output
+out/
+
+# VS Code extension package output (if .vsix is built locally)
+*.vsix
+
+# npm/pnpm debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

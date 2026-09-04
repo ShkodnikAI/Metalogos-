@@ -172,7 +172,7 @@ Metalogos-/
 ├── Cargo.toml                       # v0.17.0, workspace root
 ├── logo.jpg                          # Brand logo
 ├── README.md                         # This file
-├── REFERENCE.md                      # Full builtin reference (~68 KB)
+├── REFERENCE.md                      # Full builtin reference (~79 KB)
 ├── CHANGELOG.md                      # Version history (~72 KB)
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap

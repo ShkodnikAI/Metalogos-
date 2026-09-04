@@ -659,3 +659,129 @@ fn readme_does_not_claim_static_commit_count() {
         }
     }
 }
+
+// ── Наряд №167: REFERENCE.md builtin coverage baseline ───────────────
+//
+// Block 2: connect scripts/gen_reference_check.py logic to CI as a
+// blocking test. The test does NOT require 100% coverage — that would
+// be unrealistic for a 357-builtin codebase with new builtins added
+// frequently. Instead it freezes a BASELINE: the number of missing
+// builtins must not GROW.
+//
+// When a new builtin is added to registry.rs without REFERENCE.md
+// documentation, this test fails and the contributor must either:
+//   1. Document the builtin in REFERENCE.md (preferred — see Block 3
+//      of naryad 167 for the batched documentation effort)
+//   2. Bump the BASELINE constant with a comment explaining why this
+//      specific builtin is undocumented (e.g. experimental, behind a
+//      feature gate, internal-only)
+//
+// The baseline is the count of missing builtins at the time this test
+// was added. As naryad 167 (and follow-up batches) close the gap, the
+// baseline should DECREASE — never increase.
+
+/// Names declared in `src/builtins/registry.rs` via `spec!("name", ...)`.
+/// Mirrors `scripts/gen_reference_check.py::collect_builtin_names`.
+fn collect_registry_builtin_names() -> Vec<String> {
+    let path = repo_root().join("src").join("builtins").join("registry.rs");
+    let content =
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {:?}: {}", path, e));
+    let re = Regex::new(r#"spec!\("(\w+)""#).unwrap();
+    let mut names = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for cap in re.captures_iter(&content) {
+        let name = cap.get(1).unwrap().as_str().to_string();
+        if seen.insert(name.clone()) {
+            names.push(name);
+        }
+    }
+    names
+}
+
+/// Names documented in REFERENCE.md (matched as `` `name(` `` — requires
+/// an actual signature with arguments, not a bare prose mention).
+/// Mirrors `scripts/gen_reference_check.py::collect_documented_names`.
+fn collect_documented_builtin_names() -> std::collections::HashSet<String> {
+    let path = repo_root().join("REFERENCE.md");
+    let content =
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {:?}: {}", path, e));
+    let re = Regex::new(r"`(\w+)\(").unwrap();
+    re.captures_iter(&content)
+        .map(|c| c.get(1).unwrap().as_str().to_string())
+        .collect()
+}
+
+#[test]
+fn reference_md_builtin_coverage_does_not_regression() {
+    // Наряд №167 Block 2: freeze the number of missing builtins.
+    //
+    // At the time this test was committed, 191 of 357 builtins were
+    // missing from REFERENCE.md (46.5% covered, 53.5% missing). The
+    // baseline was 191. After naryad 167 Block 3 (crypto/encoding/
+    // test/system/fluid/mtree/graph/cron/time/json-dict documentation
+    // batches), coverage rose to 212/357 (59.4%), 145 missing.
+    // Baseline lowered from 191 to 145 to lock in the gain.
+    //
+    // As follow-up batches land (string/*, ext/*, pdf/*, etc.), the
+    // baseline should DECREASE further — never increase.
+    //
+    // If you added a new builtin to registry.rs and this test fails,
+    // you have two options (in order of preference):
+    //
+    //   1. Document the builtin in REFERENCE.md (see section 4.x for
+    //      the appropriate category table).
+    //
+    //   2. If the builtin is experimental / behind a feature gate /
+    //      internal-only and intentionally undocumented, bump
+    //      `BASELINE_MISSING_COUNT` and add a comment explaining why.
+    //      Do NOT bump it just to make the test pass — every bump
+    //      is a regression in user-facing documentation.
+    const BASELINE_MISSING_COUNT: usize = 145;
+
+    let all_names = collect_registry_builtin_names();
+    let documented = collect_documented_builtin_names();
+    let missing: Vec<&String> = all_names
+        .iter()
+        .filter(|n| !documented.contains(*n))
+        .collect();
+
+    let total = all_names.len();
+    let missing_count = missing.len();
+    let covered = total - missing_count;
+    let pct = (covered as f64 / total as f64) * 100.0;
+
+    assert!(
+        missing_count <= BASELINE_MISSING_COUNT,
+        "REFERENCE.md builtin coverage regression: {} missing (baseline {}), {} total builtins, \
+         {:.1}% covered. Missing builtins:\n{}\n\
+         To fix: document these builtins in REFERENCE.md, OR if some are intentionally \
+         undocumented (experimental/feature-gated), bump BASELINE_MISSING_COUNT in \
+         tests/readme_consistency.rs with a comment explaining why. See Наряд №167.",
+        missing_count,
+        BASELINE_MISSING_COUNT,
+        total,
+        pct,
+        missing
+            .iter()
+            .take(20)
+            .map(|n| format!("  - {}", n))
+            .collect::<Vec<_>>()
+            .join("\n")
+            + if missing_count > 20 {
+                "\n  ... (truncated)"
+            } else {
+                ""
+            }
+    );
+
+    // Sanity: ensure the baseline is still meaningful. If documentation
+    // efforts have closed the gap significantly, the baseline should be
+    // lowered — print a reminder.
+    if missing_count < BASELINE_MISSING_COUNT.saturating_sub(20) {
+        eprintln!(
+            "[INFO] REFERENCE.md coverage improved significantly: {} missing (baseline {}). \
+             Consider lowering BASELINE_MISSING_COUNT in tests/readme_consistency.rs to lock in the gain.",
+            missing_count, BASELINE_MISSING_COUNT
+        );
+    }
+}

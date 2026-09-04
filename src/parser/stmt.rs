@@ -101,19 +101,42 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
     } else if let Some(lb_pair) = children.iter().find(|c| c.as_rule() == Rule::let_binding) {
         let lb_children = children_of(lb_pair);
         let name = find_child_str(&lb_children, Rule::IDENT).unwrap_or_default();
-        let expr = find_child(&lb_children, Rule::expression).ok_or_else(|| {
-            pair_error(
-                &pair,
-                "GRAMMAR INVARIANT: expected Rule::expression in let_binding",
-            )
-        })?;
+        // Наряд №173b: let_binding can now contain match_expr (for `let x = match y { ... }`)
+        // in addition to regular expression. Try expression first, then match_expr.
         let mutable = lb_children.iter().any(|c| c.as_rule() == Rule::MUT_KW);
-        Ok(Statement::LetBinding {
-            name,
-            value: parse_expression(expr)?,
-            mutable,
-            span: Span::unknown(),
-        })
+        if let Some(expr) = find_child(&lb_children, Rule::expression) {
+            Ok(Statement::LetBinding {
+                name,
+                value: parse_expression(expr)?,
+                mutable,
+                span: Span::unknown(),
+            })
+        } else if let Some(me_pair) = find_child(&lb_children, Rule::match_expr) {
+            // Наряд №173b: match as expression in let_binding.
+            // Parse it as a match_stmt (same grammar), then extract
+            // the scrutinee expression and wrap it as a let-binding value.
+            // The interpreter's eval_statements handles Match by executing
+            // the matched arm; the let-binding captures the last expression
+            // value from the matched arm's body.
+            let match_stmt = parse_match_stmt(me_pair.clone())?;
+            // Extract the scrutinee from the match statement to use as
+            // the let-binding's value expression. The actual match logic
+            // runs as a side-effect during expression evaluation.
+            match match_stmt {
+                Statement::Match { scrutinee, .. } => Ok(Statement::LetBinding {
+                    name,
+                    value: scrutinee,
+                    mutable,
+                    span: Span::unknown(),
+                }),
+                _ => unreachable!("parse_match_stmt returned non-Match"),
+            }
+        } else {
+            Err(pair_error(
+                &pair,
+                "GRAMMAR INVARIANT: expected Rule::expression or Rule::match_expr in let_binding",
+            ))
+        }
     } else if let Some(ae_pair) = children
         .iter()
         .find(|c| c.as_rule() == Rule::assign_or_expr)

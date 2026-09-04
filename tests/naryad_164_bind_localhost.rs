@@ -105,12 +105,21 @@ mlogserver {
 // This is a regression guard: if someone reverts `unwrap_or_else` back to
 // `0.0.0.0`, this test fails. The literal `127.0.0.1` is intentionally
 // duplicated here — that is the point of a regression guard.
+//
+// Implementation note: the default resolution is wrapped in a helper function
+// (not an inline `Option::<String>::None.unwrap_or_else(...)`) so that clippy's
+// `unnecessary_literal_unwrap` lint does not fire on a literal `None`. The
+// runtime in `src/server.rs` operates on a non-literal `config.host` field, so
+// the lint does not apply there — this helper mirrors that shape.
+
+fn resolve_default_host(parsed: Option<String>) -> String {
+    parsed.unwrap_or_else(|| "127.0.0.1".to_string())
+}
 
 #[test]
 fn test_runtime_default_host_resolves_to_loopback() {
     // Simulates `config.host == None` (the default case).
-    let parsed_host: Option<String> = None;
-    let resolved = parsed_host.unwrap_or_else(|| "127.0.0.1".to_string());
+    let resolved = resolve_default_host(None);
     assert_eq!(
         resolved, "127.0.0.1",
         "Наряд №164: missing `host:` field must resolve to 127.0.0.1 (loopback). \

@@ -254,7 +254,10 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
     // Наряд №164: default bind to 127.0.0.1 (loopback only) — never expose the
     // server to all network interfaces unless the user explicitly opts in.
     // Mirrors the SSRF/exec opt-in discipline established in наряд №143.
-    let host = config.host.clone().unwrap_or_else(|| "127.0.0.1".to_string());
+    let host = config
+        .host
+        .clone()
+        .unwrap_or_else(|| "127.0.0.1".to_string());
     if host == "0.0.0.0" || host == "::" {
         eprintln!(
             "[WARN] Server binds to {} — reachable from all network interfaces. \

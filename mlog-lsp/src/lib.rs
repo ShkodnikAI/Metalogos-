@@ -129,33 +129,66 @@ impl Backend {
 }
 
 /// Convert semantic AnalysisResult to LSP Diagnostic vec.
+///
+/// Наряд №165: each `SpannedError` now carries the AST `Span` of the
+/// offending node. We convert that span to an LSP `Range`.
+///
+/// Span indexing note: AST `Span` uses **1-indexed** lines (matches
+/// the pest parser convention, see `src/ast.rs`), but LSP `Position`
+/// is **0-indexed**. We subtract 1 from `start_line`/`end_line` (with
+/// `saturating_sub` so an unknown span with `start_line == 0` maps to
+/// line 0, matching the previous fallback `Range::new(0..0, 0..100)`).
+///
+/// `span_to_range` (kept for the goto-def / hover path that uses
+/// `find_declaration_span` returning 0-indexed spans) is intentionally
+/// NOT reused here — the two paths have different indexing conventions
+/// and merging them would silently introduce an off-by-one.
 fn to_lsp_diagnostics(analysis: &AnalysisResult) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-    for err in &analysis.errors {
-        diagnostics.push(Diagnostic {
-            range: Range::new(Position::new(0, 0), Position::new(0, 100)),
-            severity: Some(DiagnosticSeverity::ERROR),
+    fn diagnostic_from(
+        err: &metalogos::semantic::SpannedError,
+        severity: DiagnosticSeverity,
+    ) -> Diagnostic {
+        // AST Span is 1-indexed; LSP Position is 0-indexed. An unknown
+        // span (start_line == 0) maps to line 0 — matches the previous
+        // hardcoded `Range::new(Position::new(0, 0), Position::new(0, 100))`
+        // fallback for parse-error diagnostics.
+        let start_line = err.span.start_line.saturating_sub(1);
+        let end_line = if err.span.end_line > 0 {
+            err.span.end_line.saturating_sub(1)
+        } else {
+            start_line
+        };
+        // If the span has no column extent (start_col == end_col), give
+        // the LSP client a small non-empty range so the squiggle is
+        // visible — a zero-width range is technically legal but renders
+        // as a tiny dot in some editors.
+        let start_col = err.span.start_col;
+        let end_col = if err.span.end_col > err.span.start_col {
+            err.span.end_col
+        } else {
+            err.span.start_col.saturating_add(1)
+        };
+        Diagnostic {
+            range: Range::new(
+                Position::new(start_line, start_col),
+                Position::new(end_line, end_col),
+            ),
+            severity: Some(severity),
             code: None,
             code_description: None,
             source: Some("mlog".to_string()),
-            message: err.clone(),
+            message: err.message.clone(),
             related_information: None,
             tags: None,
             data: None,
-        });
+        }
+    }
+    let mut diagnostics = Vec::with_capacity(analysis.errors.len() + analysis.warnings.len());
+    for err in &analysis.errors {
+        diagnostics.push(diagnostic_from(err, DiagnosticSeverity::ERROR));
     }
     for warn in &analysis.warnings {
-        diagnostics.push(Diagnostic {
-            range: Range::new(Position::new(0, 0), Position::new(0, 100)),
-            severity: Some(DiagnosticSeverity::WARNING),
-            code: None,
-            code_description: None,
-            source: Some("mlog".to_string()),
-            message: warn.clone(),
-            related_information: None,
-            tags: None,
-            data: None,
-        });
+        diagnostics.push(diagnostic_from(warn, DiagnosticSeverity::WARNING));
     }
     diagnostics
 }

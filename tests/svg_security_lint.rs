@@ -15,11 +15,13 @@
 use metalogos::check_program;
 
 fn errors(result: &metalogos::semantic::AnalysisResult) -> Vec<&str> {
-    result.errors.iter().map(|s| s.as_str()).collect()
+    // Наряд №165: result.errors is now Vec<SpannedError>; .message is the
+    // human-readable diagnostic text previously stored as the bare String.
+    result.errors.iter().map(|s| s.message.as_str()).collect()
 }
 
 fn warnings(result: &metalogos::semantic::AnalysisResult) -> Vec<&str> {
-    result.warnings.iter().map(|s| s.as_str()).collect()
+    result.warnings.iter().map(|s| s.message.as_str()).collect()
 }
 
 // ── 1. svg_text content with <script> → WARNING (auto-escaped) ───────
@@ -377,8 +379,8 @@ fn chart_radar_clean_program_passes_lint() {
         .errors
         .iter()
         .chain(r.warnings.iter())
-        .filter(|m| m.contains("security:"))
-        .map(|s| s.as_str())
+        .filter(|m| m.message.contains("security:"))
+        .map(|s| s.message.as_str())
         .collect();
     assert!(
         sec_findings.is_empty(),
@@ -416,8 +418,8 @@ fn chart_boxplot_clean_program_passes_lint() {
         .errors
         .iter()
         .chain(r.warnings.iter())
-        .filter(|m| m.contains("security:"))
-        .map(|s| s.as_str())
+        .filter(|m| m.message.contains("security:"))
+        .map(|s| s.message.as_str())
         .collect();
     assert!(
         sec_findings.is_empty(),
@@ -497,8 +499,8 @@ fn diagram_flowchart_clean_passes_lint() {
         .errors
         .iter()
         .chain(r.warnings.iter())
-        .filter(|m| m.contains("security:"))
-        .map(|s| s.as_str())
+        .filter(|m| m.message.contains("security:"))
+        .map(|s| s.message.as_str())
         .collect();
     assert!(
         sec_findings.is_empty(),
@@ -685,8 +687,8 @@ fn diagram_sequence_clean_passes_lint() {
         .errors
         .iter()
         .chain(r.warnings.iter())
-        .filter(|m| m.contains("security:"))
-        .map(|s| s.as_str())
+        .filter(|m| m.message.contains("security:"))
+        .map(|s| s.message.as_str())
         .collect();
     assert!(
         sec_findings.is_empty(),

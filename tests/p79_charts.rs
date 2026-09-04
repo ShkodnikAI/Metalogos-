@@ -320,8 +320,8 @@ fn chart_heatmap_no_security_finding_on_numeric_data() {
         .errors
         .iter()
         .chain(r.warnings.iter())
-        .filter(|m| m.contains("security:"))
-        .map(|s| s.as_str())
+        .filter(|m| m.message.contains("security:"))
+        .map(|s| s.message.as_str())
         .collect();
     assert!(
         sec_findings.is_empty(),

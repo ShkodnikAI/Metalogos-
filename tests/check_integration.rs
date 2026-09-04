@@ -19,7 +19,10 @@ fn check_undefined_type_error() {
     "#;
     let result = metalogos::check_program(source).unwrap();
     assert!(!result.is_ok());
-    assert!(result.errors.iter().any(|e| e.contains("unknown type")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.message.contains("unknown type")));
 }
 
 #[test]
@@ -29,7 +32,10 @@ fn check_adapt_target_not_found() {
     "#;
     let result = metalogos::check_program(source).unwrap();
     assert!(!result.is_ok());
-    assert!(result.errors.iter().any(|e| e.contains("not found")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.message.contains("not found")));
 }
 
 #[test]
@@ -43,7 +49,7 @@ fn check_duplicate_entity_type() {
     assert!(result
         .errors
         .iter()
-        .any(|e| e.contains("duplicate entity type")));
+        .any(|e| e.message.contains("duplicate entity type")));
 }
 
 #[test]
@@ -77,7 +83,10 @@ fn n98_sql_dynamic_rejected_by_check() {
     let result = metalogos::check_program(source).unwrap();
     assert!(!result.is_ok(), "query(variable) should fail check");
     assert!(
-        result.errors.iter().any(|e| e.contains("SQL_DYNAMIC")),
+        result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("SQL_DYNAMIC")),
         "error should mention SQL_DYNAMIC, got: {:?}",
         result.errors
     );
@@ -116,7 +125,10 @@ fn n98_secret_leak_rejected_by_check() {
     let result = metalogos::check_program(source).unwrap();
     assert!(!result.is_ok(), "env() to respond() should fail check");
     assert!(
-        result.errors.iter().any(|e| e.contains("SECRET_LEAK")),
+        result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("SECRET_LEAK")),
         "error should mention SECRET_LEAK, got: {:?}",
         result.errors
     );
@@ -136,7 +148,10 @@ fn n98_secret_used_safely_passes_check() {
     // http_post with secret in headers position (arg 3+) is allowed
     // This should not have SECRET_LEAK error
     assert!(
-        !result.errors.iter().any(|e| e.contains("SECRET_LEAK")),
+        !result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("SECRET_LEAK")),
         "env() in http_post headers should not be SECRET_LEAK, got: {:?}",
         result.errors
     );
@@ -159,7 +174,10 @@ fn n98_html_injection_rejected_by_check() {
     let result = metalogos::check_program(source).unwrap();
     assert!(!result.is_ok(), "LLM output to respond() should fail check");
     assert!(
-        result.errors.iter().any(|e| e.contains("HTML_INJECTION")),
+        result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("HTML_INJECTION")),
         "error should mention HTML_INJECTION, got: {:?}",
         result.errors
     );
@@ -183,7 +201,10 @@ fn n98_html_injection_sanitized_passes_check() {
     "#;
     let result = metalogos::check_program(source).unwrap();
     assert!(
-        !result.errors.iter().any(|e| e.contains("HTML_INJECTION")),
+        !result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("HTML_INJECTION")),
         "LLM output via render() should not be HTML_INJECTION, got: {:?}",
         result.errors
     );
@@ -229,7 +250,7 @@ fn n157_taint_persistence_rejected_by_check() {
         result
             .errors
             .iter()
-            .any(|e| e.contains("TAINT_PERSISTENCE")),
+            .any(|e| e.message.contains("TAINT_PERSISTENCE")),
         "error should mention TAINT_PERSISTENCE, got: {:?}",
         result.errors
     );
@@ -259,7 +280,7 @@ fn n157_taint_passthrough_rejected_by_check() {
         result
             .errors
             .iter()
-            .any(|e| e.contains("TAINT_PASSTHROUGH")),
+            .any(|e| e.message.contains("TAINT_PASSTHROUGH")),
         "error should mention TAINT_PASSTHROUGH, got: {:?}",
         result.errors
     );
@@ -391,7 +412,7 @@ fn n152_db_execute_dynamic_rejected_by_check() {
         result
             .errors
             .iter()
-            .any(|e| e.contains("SQL_DYNAMIC") && e.contains("db_execute")),
+            .any(|e| e.message.contains("SQL_DYNAMIC") && e.message.contains("db_execute")),
         "error should mention SQL_DYNAMIC + db_execute, got: {:?}",
         result.errors
     );
@@ -443,7 +464,10 @@ fn n152_db_execute_format_inlined_rejected() {
     let result = metalogos::check_program(source).unwrap();
     assert!(!result.is_ok(), "db_execute(format(...)) should fail check");
     assert!(
-        result.errors.iter().any(|e| e.contains("SQL_DYNAMIC")),
+        result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("SQL_DYNAMIC")),
         "error should mention SQL_DYNAMIC, got: {:?}",
         result.errors
     );

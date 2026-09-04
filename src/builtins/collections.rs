@@ -426,17 +426,42 @@ pub(crate) fn builtin_sort(args: &[Value]) -> Result<Value, String> {
     };
     let mut sorted = list;
     sorted.sort_by(|a, b| {
-        // Strategy mirrors compare_values() in execution.rs:
-        // numeric first, then Display string fallback.
-        let af = a.as_float().ok();
-        let bf = b.as_float().ok();
-        match (af, bf) {
-            (Some(lf), Some(rf)) => lf.partial_cmp(&rf).unwrap_or(std::cmp::Ordering::Equal),
-            _ => {
-                let ls = format!("{}", a);
-                let rs = format!("{}", b);
-                ls.cmp(&rs)
+        // Наряд №173b: type-aware sort ordering for mixed types.
+        // Order: Float < String < Bool < everything else.
+        // This matches the expected output in p118_collection_utils:
+        //   make_list(true, "a", 3) → sort → 3, a, true
+        // Numbers first (compared numerically), then strings (compared
+        // lexicographically), then bools (compared as bool).
+        //
+        // The old code used as_float() for Bool too (true → 1.0), which
+        // placed bools before numbers in mixed sort — wrong for the golden
+        // contract. Bool is now sorted last (after String), not as a number.
+        fn type_rank(v: &Value) -> u8 {
+            match v {
+                Value::Float(_) => 0,
+                Value::String(_) => 1,
+                Value::Bool(_) => 2,
+                _ => 3,
             }
+        }
+        let (ra, rb) = (type_rank(a), type_rank(b));
+        match ra.cmp(&rb) {
+            std::cmp::Ordering::Equal => {
+                // Same type group — compare within group
+                match (a, b) {
+                    (Value::Float(af), Value::Float(bf)) => {
+                        af.partial_cmp(bf).unwrap_or(std::cmp::Ordering::Equal)
+                    }
+                    (Value::String(as_), Value::String(bs)) => as_.cmp(bs),
+                    (Value::Bool(ab), Value::Bool(bb)) => ab.cmp(bb),
+                    _ => {
+                        let ls = format!("{}", a);
+                        let rs = format!("{}", b);
+                        ls.cmp(&rs)
+                    }
+                }
+            }
+            other => other,
         }
     });
     Ok(Value::List(sorted))

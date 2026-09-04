@@ -123,7 +123,19 @@ impl std::fmt::Display for Value {
                 }
             }
             Value::Unit => write!(f, "()"),
-            Value::Html(_) => write!(f, "[Html]"),
+            // Наряд №173b: Html renders its content through Display — the
+            // content was already sanitized by render()/escape_html() before
+            // being wrapped in Value::Html. The [Html] placeholder was
+            // causing 3 golden test failures (p115_render_basic,
+            // p115_xss_escape, p6_xss_safe) where the expected output is
+            // the actual HTML string, not "[Html]".
+            //
+            // This is safe because Value::Html is only created by:
+            //   1. render() — which escapes all interpolated values
+            //   2. escape_html() — which escapes the entire string
+            //   3. template rendering — which uses {{ }} (auto-escaped)
+            // There is no way to create Value::Html with unsanitized content.
+            Value::Html(s) => write!(f, "{}", s),
             Value::Query(_) => write!(f, "[Query]"),
             Value::Secret(_) => write!(f, "[Secret]"),
             Value::Encrypted(_) => write!(f, "[Encrypted]"),

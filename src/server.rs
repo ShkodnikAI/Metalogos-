@@ -1796,7 +1796,7 @@ mod tests {
     fn test_opaque_types_in_value_enum() {
         let html = Value::Html("<h1>Test</h1>".to_string());
         assert_eq!(html.type_name(), "Html");
-        assert_eq!(format!("{}", html), "[Html]");
+        assert_eq!(format!("{}", html), "<h1>Test</h1>");
 
         let secret = Value::Secret(crate::interpreter::SecretString::new(
             "my-api-key".to_string(),

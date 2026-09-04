@@ -163,7 +163,14 @@ pub(crate) fn builtin_render(args: &[Value]) -> Result<Value, String> {
     }
 
     let html = render_template_body(&entry.body, &vars);
-    Ok(Value::Html(html))
+    // Наряд №173b: trim leading/trailing whitespace from template output.
+    // Template bodies in .mlog source start with a newline after the `{`:
+    //   template Foo(x: String) -> Html {
+    //   <p>{{ x }}</p>
+    //   }
+    // That newline leaks into the output. Trim it so the rendered HTML
+    // matches the expected golden output exactly.
+    Ok(Value::Html(html.trim().to_string()))
 }
 
 pub(crate) fn parse_status_line(status_body: &str) -> (u16, String) {

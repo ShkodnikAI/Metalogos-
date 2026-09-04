@@ -73,7 +73,7 @@ strsim = "0.11"
 crc32fast = "1.4"
 
 # Наряд №48: PDF processing (native Rust, zero IPC)
-pdf-inspector = "0.1"
+pdf-inspector = "1.17"
 
 # Наряд MLG-2: PDF manipulation (pure Rust, zero Python IPC)
 lopdf = "0.44"

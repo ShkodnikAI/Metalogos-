@@ -34,9 +34,11 @@
 mod tests;
 
 mod all_legacy;
+mod flow_seq;
 mod layout;
 mod tree_org;
 
 pub use all_legacy::*;
+pub use flow_seq::*;
 pub(crate) use layout::*;
 pub use tree_org::*;

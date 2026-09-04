@@ -59,7 +59,7 @@ fn check_still_reports_duplicate_pattern() {
     assert!(result
         .errors
         .iter()
-        .any(|e| e.contains("duplicate pattern: Foo")));
+        .any(|e| e.message.contains("duplicate pattern: Foo")));
 }
 
 #[test]

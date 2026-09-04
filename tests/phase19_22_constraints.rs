@@ -62,7 +62,7 @@ pattern xss() -> String {
     assert!(result
         .errors
         .iter()
-        .any(|e| e.contains("concatenate") && e.contains("opaque")));
+        .any(|e| e.message.contains("concatenate") && e.message.contains("opaque")));
 }
 
 #[test]
@@ -99,7 +99,7 @@ pattern bad() -> String {
     assert!(result
         .errors
         .iter()
-        .any(|e| e.contains("undefined variable")));
+        .any(|e| e.message.contains("undefined variable")));
 }
 
 #[test]
@@ -130,7 +130,7 @@ pattern wrong() -> String {
     assert!(result
         .errors
         .iter()
-        .any(|e| e.contains("expects 1 argument") && e.contains("got 2")));
+        .any(|e| e.message.contains("expects 1 argument") && e.message.contains("got 2")));
 }
 
 #[test]
@@ -146,7 +146,7 @@ pattern caller() -> String {
     assert!(result
         .errors
         .iter()
-        .any(|e| e.contains("expects 1 argument") && e.contains("one")));
+        .any(|e| e.message.contains("expects 1 argument") && e.message.contains("one")));
 }
 
 #[test]
@@ -166,7 +166,7 @@ pattern call_undef() -> String {
         result
             .errors
             .iter()
-            .any(|e| e.contains("undefined") && e.contains("function")),
+            .any(|e| e.message.contains("undefined") && e.message.contains("function")),
         "expected 'undefined...function' error, got errors: {:?}",
         result.errors
     );
@@ -186,7 +186,7 @@ pattern bad_assign() -> String {
     assert!(result
         .errors
         .iter()
-        .any(|e| e.contains("assignment to undefined variable")));
+        .any(|e| e.message.contains("assignment to undefined variable")));
 }
 
 // ═══════════════════════════════════════════════════════════════════

@@ -2129,10 +2129,13 @@ entity User { name: String }
 entity User { name: String }"#;
     let result = crate::semantic::check_program(&crate::parser::parse(src).unwrap());
     assert!(!result.errors.is_empty(), "expected duplicate entity error");
-    assert!(
-        result.errors[0].contains("строка 5:"),
-        "error should contain line number: {}",
-        result.errors[0]
+    // Наряд №165: SpannedError now stores span separately — verify
+    // span.start_line instead of parsing the "строка N:" prefix out of
+    // the message. The duplicate is on line 5 (1-indexed).
+    assert_eq!(
+        result.errors[0].span.start_line, 5,
+        "duplicate-entity error should point at line 5. Span: {:?}, message: {}",
+        result.errors[0].span, result.errors[0].message
     );
 }
 
@@ -2142,10 +2145,11 @@ fn naryad_121_duplicate_pattern_shows_line() {
     let src = "pattern P() -> String { return \"ok\" }\npattern P() -> String { return \"ok\" }";
     let result = crate::semantic::check_program(&crate::parser::parse(src).unwrap());
     assert!(!result.errors.is_empty());
-    assert!(
-        result.errors[0].contains("строка 2:"),
-        "error should contain line number: {}",
-        result.errors[0]
+    // Наряд №165: verify span.start_line directly.
+    assert_eq!(
+        result.errors[0].span.start_line, 2,
+        "duplicate-pattern error should point at line 2. Span: {:?}, message: {}",
+        result.errors[0].span, result.errors[0].message
     );
 }
 
@@ -2159,10 +2163,12 @@ mlogserver { port: 8080 }
 entity bob: NonExistent = { name: "test" }"#;
     let result = crate::semantic::check_program(&crate::parser::parse(src).unwrap());
     assert!(!result.errors.is_empty());
-    assert!(
-        result.errors[0].contains("строка 5:"),
-        "error should contain line number: {}",
-        result.errors[0]
+    // Наряд №165: verify span.start_line directly. The entity 'bob'
+    // declaration is on line 5 (1-indexed).
+    assert_eq!(
+        result.errors[0].span.start_line, 5,
+        "entity-unknown-type error should point at line 5. Span: {:?}, message: {}",
+        result.errors[0].span, result.errors[0].message
     );
 }
 
@@ -2175,10 +2181,11 @@ fn naryad_121_unknown_type_in_entity_simple_shows_line() {
         !result.warnings.is_empty(),
         "expected undeclared type warning"
     );
-    assert!(
-        result.warnings[0].contains("строка 1:"),
-        "warning should contain line number: {}",
-        result.warnings[0]
+    // Наряд №165: verify span.start_line directly. Warning is on line 1.
+    assert_eq!(
+        result.warnings[0].span.start_line, 1,
+        "undeclared-type warning should point at line 1. Span: {:?}, message: {}",
+        result.warnings[0].span, result.warnings[0].message
     );
 }
 

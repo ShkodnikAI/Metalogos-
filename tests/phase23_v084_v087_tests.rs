@@ -317,7 +317,10 @@ fn test_semantic_send_message_arity() {
         "expected arity error for send_message()"
     );
     assert!(
-        result.errors.iter().any(|e| e.contains("send_message")),
+        result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("send_message")),
         "expected send_message in error, got: {:?}",
         result.errors
     );
@@ -352,7 +355,10 @@ fn test_semantic_session_logout_arity() {
         "expected arity error for session_logout()"
     );
     assert!(
-        result.errors.iter().any(|e| e.contains("session_logout")),
+        result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("session_logout")),
         "expected session_logout in error, got: {:?}",
         result.errors
     );
@@ -406,7 +412,7 @@ fn test_semantic_correct_arity_no_error() {
     let arity_errors: Vec<_> = result
         .errors
         .iter()
-        .filter(|e| e.contains("arity") || e.contains("expects"))
+        .filter(|e| e.message.contains("arity") || e.message.contains("expects"))
         .collect();
     assert!(
         arity_errors.is_empty(),

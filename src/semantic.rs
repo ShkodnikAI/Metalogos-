@@ -1,27 +1,80 @@
 // ── Semantic analysis for METALOGOS ──────────────────────────────
 // Validates declarations without execution. Reports errors and warnings.
 // Phase 6+: Enforces opaque type constraints (Html, Query, Secret, etc.)
+//
+// Наряд №165: every diagnostic carries the AST `Span` of the offending
+// node. The previous `Vec<String>` API was a flat list — diagnostics
+// lost the position that наряд №121 already added to every AST node.
+// `SpannedError` restores the link. Callers that previously iterated
+// `result.errors.iter()` as `&String` now see `&SpannedError` and must
+// read `.message` (or `.span` for LSP / programmatic consumers).
 
 use crate::ast::*;
 use crate::audit::{audit_category_a, Severity};
 use std::collections::HashSet;
 
-/// Prefix an error message with the source line number from a declaration's span.
-/// If the span is unknown (start_line == 0), returns the message unchanged.
-fn with_line_prefix(decl: &Declaration, msg: String) -> String {
-    let span = decl.span();
-    if span.start_line > 0 {
-        format!("строка {}: {}", span.start_line, msg)
-    } else {
-        msg
+/// A diagnostic with the AST `Span` of the offending node.
+///
+/// `span` is the source position of the AST node that triggered the
+/// diagnostic — never computed, always taken from the node via
+/// `decl.span()` / `expr.span()`. If a node genuinely has no span
+/// (synthetic nodes, programmatic constructions), `Span::unknown()`
+/// (all-zero) is used and consumers should treat `start_line == 0` as
+/// "no position available".
+#[derive(Debug, Clone)]
+pub struct SpannedError {
+    pub message: String,
+    pub span: Span,
+}
+
+impl SpannedError {
+    /// Build a `SpannedError` from a message and an explicit span.
+    pub fn at(message: impl Into<String>, span: Span) -> Self {
+        Self {
+            message: message.into(),
+            span,
+        }
+    }
+
+    /// Build a `SpannedError` from a message and a declaration's span.
+    /// Mirrors the legacy `with_line_prefix` shape — but instead of
+    /// prefixing the message with the line number, it carries the span
+    /// structurally so LSP / programmatic consumers can read it
+    /// directly. The message itself stays clean.
+    pub fn at_decl(decl: &Declaration, message: impl Into<String>) -> Self {
+        Self::at(message, decl.span().clone())
+    }
+
+    /// Build a `SpannedError` from a message and an expression's span.
+    pub fn at_expr(expr: &Expr, message: impl Into<String>) -> Self {
+        Self::at(message, expr.span().clone())
+    }
+
+    /// Build a `SpannedError` with no source position. Used for
+    /// diagnostics whose originating node is not in the AST (e.g.
+    /// audit-category findings that come back with only a line number).
+    /// If `line > 0`, the span is constructed to point at that line so
+    /// the LSP can still highlight something; otherwise the span is
+    /// `Span::unknown()`.
+    pub fn at_line(message: impl Into<String>, line: usize) -> Self {
+        if line > 0 {
+            Self::at(message, Span::new(line as u32, 0, line as u32, 0))
+        } else {
+            Self::at(message, Span::unknown())
+        }
     }
 }
 
 /// Result of semantic analysis: errors prevent execution, warnings are advisory.
+///
+/// Наряд №165: `errors` and `warnings` now carry `SpannedError` (with
+/// `Span`) instead of bare `String`. This is an internal breaking
+/// change — every caller inside the crate has been updated to access
+/// `.message` for display and `.span` for LSP / programmatic use.
 #[derive(Debug, Clone, Default)]
 pub struct AnalysisResult {
-    pub errors: Vec<String>,
-    pub warnings: Vec<String>,
+    pub errors: Vec<SpannedError>,
+    pub warnings: Vec<SpannedError>,
 }
 
 impl AnalysisResult {
@@ -38,7 +91,19 @@ impl AnalysisResult {
     }
 
     /// Format analysis result for display.
+    ///
+    /// Preserves the human-readable form previously produced by
+    /// `with_line_prefix` (so `mlog check` output stays stable): each
+    /// diagnostic is shown as `строка N: <message>` when a span is
+    /// present, or just `<message>` when the span is unknown.
     pub fn format(&self) -> String {
+        fn render(err: &SpannedError) -> String {
+            if err.span.start_line > 0 {
+                format!("строка {}: {}", err.span.start_line, err.message)
+            } else {
+                err.message.clone()
+            }
+        }
         let mut lines = Vec::new();
         if !self.errors.is_empty() {
             let n = self.errors.len();
@@ -48,7 +113,7 @@ impl AnalysisResult {
                 lines.push(format!("{} errors:", n));
             }
             for (i, e) in self.errors.iter().enumerate() {
-                lines.push(format!("  {}: {}", i + 1, e));
+                lines.push(format!("  {}: {}", i + 1, render(e)));
             }
         }
         if !self.warnings.is_empty() {
@@ -59,7 +124,7 @@ impl AnalysisResult {
                 lines.push(format!("{} warnings:", n));
             }
             for (i, w) in self.warnings.iter().enumerate() {
-                lines.push(format!("  {}: {}", i + 1, w));
+                lines.push(format!("  {}: {}", i + 1, render(w)));
             }
         }
         if self.errors.is_empty() && self.warnings.is_empty() {
@@ -67,6 +132,13 @@ impl AnalysisResult {
         }
         lines.join("\n")
     }
+}
+
+/// Legacy helper preserved for backward compatibility with call sites
+/// that already pass `(decl, format!(...))`. Now returns a `SpannedError`
+/// instead of a `String` — same ergonomic shape, but carries the span.
+fn with_line_prefix(decl: &Declaration, msg: String) -> SpannedError {
+    SpannedError::at_decl(decl, msg)
 }
 
 /// Valid middleware names for mlogserver blocks.
@@ -103,7 +175,12 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     // Наряд №119: build type alias map and collect errors
     let (type_alias_map, alias_errors) = build_type_alias_map(declarations);
     for e in alias_errors {
-        result.errors.push(e);
+        // build_type_alias_map returns Vec<String> (defined in ast.rs,
+        // also consumed by interpreter/execution.rs). The errors don't
+        // carry a span — `SpannedError::at_line(e, 0)` produces a
+        // Span::unknown() which the LSP layer maps to line 0 (the
+        // previous hardcoded fallback behavior).
+        result.errors.push(SpannedError::at_line(e, 0));
     }
     let alias_names: HashSet<String> = type_alias_map.keys().cloned().collect();
 
@@ -381,16 +458,18 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     for finding in &cat_a_findings {
         match finding.severity {
             Severity::Error => {
-                result
-                    .errors
-                    .push(format!("[{}] {}", finding.check_id, finding.message));
+                result.errors.push(SpannedError::at_line(
+                    format!("[{}] {}", finding.check_id, finding.message),
+                    finding.line,
+                ));
             }
             Severity::Warning => {
                 // check_html_injection currently emits Warning;
                 // promote to Error per Наряд №98 Block 1 classification.
-                result
-                    .errors
-                    .push(format!("[{}] {}", finding.check_id, finding.message));
+                result.errors.push(SpannedError::at_line(
+                    format!("[{}] {}", finding.check_id, finding.message),
+                    finding.line,
+                ));
             }
             Severity::Info => {}
         }
@@ -696,12 +775,17 @@ fn scan_chart_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) 
     if let Some(Expr::List { items, .. }) = args.first() {
         for item in items {
             if let Expr::StructLit { fields, .. } = item {
-                if let Some(Expr::StringLit { value: s, .. }) = fields.get("label") {
-                    if let Some(reason) = detect_xss_payload(s) {
-                        result.warnings.push(format!(
-                            "security: {} data[].label string literal {} — runtime will escape, but review intent",
-                            fn_name, reason
-                        ));
+                if let Some(label_expr) = fields.get("label") {
+                    if let Expr::StringLit { value: s, .. } = label_expr {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(SpannedError::at_expr(
+                                label_expr,
+                                format!(
+                                    "security: {} data[].label string literal {} — runtime will escape, but review intent",
+                                    fn_name, reason
+                                ),
+                            ));
+                        }
                     }
                 }
             }
@@ -737,9 +821,12 @@ fn scan_radar_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) 
             for axis in axes_items {
                 if let Expr::StringLit { value: s, .. } = axis {
                     if let Some(reason) = detect_xss_payload(s) {
-                        result.warnings.push(format!(
-                            "security: {} data.axes string literal {} — runtime will escape, but review intent",
-                            fn_name, reason
+                        result.warnings.push(SpannedError::at_expr(
+                            axis,
+                            format!(
+                                "security: {} data.axes string literal {} — runtime will escape, but review intent",
+                                fn_name, reason
+                            ),
                         ));
                     }
                 }
@@ -757,12 +844,17 @@ fn scan_radar_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) 
                     ..
                 } = item
                 {
-                    if let Some(Expr::StringLit { value: s, .. }) = series_fields.get("name") {
-                        if let Some(reason) = detect_xss_payload(s) {
-                            result.warnings.push(format!(
-                                "security: {} data.series[].name string literal {} — runtime will escape, but review intent",
-                                fn_name, reason
-                            ));
+                    if let Some(name_expr) = series_fields.get("name") {
+                        if let Expr::StringLit { value: s, .. } = name_expr {
+                            if let Some(reason) = detect_xss_payload(s) {
+                                result.warnings.push(SpannedError::at_expr(
+                                    name_expr,
+                                    format!(
+                                        "security: {} data.series[].name string literal {} — runtime will escape, but review intent",
+                                        fn_name, reason
+                                    ),
+                                ));
+                            }
                         }
                     }
                 }
@@ -804,12 +896,17 @@ fn scan_tree_labels_recursive(
 ) {
     if let Expr::StructLit { fields, .. } = arg {
         // Scan `label` (always present per spec — required field)
-        if let Some(Expr::StringLit { value: s, .. }) = fields.get("label") {
-            if let Some(reason) = detect_xss_payload(s) {
-                result.warnings.push(format!(
-                    "security: {} data.{}.label string literal {} — runtime will escape, but review intent",
-                    fn_name, path, reason
-                ));
+        if let Some(label_expr) = fields.get("label") {
+            if let Expr::StringLit { value: s, .. } = label_expr {
+                if let Some(reason) = detect_xss_payload(s) {
+                    result.warnings.push(SpannedError::at_expr(
+                        label_expr,
+                        format!(
+                            "security: {} data.{}.label string literal {} — runtime will escape, but review intent",
+                            fn_name, path, reason
+                        ),
+                    ));
+                }
             }
         }
         // Scan `title` (org chart only — but scan defensively regardless
@@ -817,24 +914,34 @@ fn scan_tree_labels_recursive(
         // diagram_tree too; the runtime still escapes it via svg_text if
         // it ends up in the output. Better to over-warn.)
         if allow_title {
-            if let Some(Expr::StringLit { value: s, .. }) = fields.get("title") {
-                if let Some(reason) = detect_xss_payload(s) {
-                    result.warnings.push(format!(
-                        "security: {} data.{}.title string literal {} — runtime will escape, but review intent",
-                        fn_name, path, reason
-                    ));
+            if let Some(title_expr) = fields.get("title") {
+                if let Expr::StringLit { value: s, .. } = title_expr {
+                    if let Some(reason) = detect_xss_payload(s) {
+                        result.warnings.push(SpannedError::at_expr(
+                            title_expr,
+                            format!(
+                                "security: {} data.{}.title string literal {} — runtime will escape, but review intent",
+                                fn_name, path, reason
+                            ),
+                        ));
+                    }
                 }
             }
         } else {
             // Even for diagram_tree (allow_title=false), if a title is
             // present we should warn — it's not used, but its presence
             // in literal form is suspicious intent.
-            if let Some(Expr::StringLit { value: s, .. }) = fields.get("title") {
-                if let Some(reason) = detect_xss_payload(s) {
-                    result.warnings.push(format!(
-                        "security: {} data.{}.title string literal {} — field not used by diagram_tree but review intent",
-                        fn_name, path, reason
-                    ));
+            if let Some(title_expr) = fields.get("title") {
+                if let Expr::StringLit { value: s, .. } = title_expr {
+                    if let Some(reason) = detect_xss_payload(s) {
+                        result.warnings.push(SpannedError::at_expr(
+                            title_expr,
+                            format!(
+                                "security: {} data.{}.title string literal {} — field not used by diagram_tree but review intent",
+                                fn_name, path, reason
+                            ),
+                        ));
+                    }
                 }
             }
         }
@@ -881,21 +988,31 @@ fn scan_flowchart_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResu
                 } = item
                 {
                     // Scan id (defensive — not rendered, but suspicious if payload)
-                    if let Some(Expr::StringLit { value: s, .. }) = node_fields.get("id") {
-                        if let Some(reason) = detect_xss_payload(s) {
-                            result.warnings.push(format!(
-                                "security: {} data.nodes[{}].id string literal {} — field not rendered but review intent",
-                                fn_name, i, reason
-                            ));
+                    if let Some(id_expr) = node_fields.get("id") {
+                        if let Expr::StringLit { value: s, .. } = id_expr {
+                            if let Some(reason) = detect_xss_payload(s) {
+                                result.warnings.push(SpannedError::at_expr(
+                                    id_expr,
+                                    format!(
+                                        "security: {} data.nodes[{}].id string literal {} — field not rendered but review intent",
+                                        fn_name, i, reason
+                                    ),
+                                ));
+                            }
                         }
                     }
                     // Scan label (rendered — primary injection vector)
-                    if let Some(Expr::StringLit { value: s, .. }) = node_fields.get("label") {
-                        if let Some(reason) = detect_xss_payload(s) {
-                            result.warnings.push(format!(
-                                "security: {} data.nodes[{}].label string literal {} — runtime will escape, but review intent",
-                                fn_name, i, reason
-                            ));
+                    if let Some(label_expr) = node_fields.get("label") {
+                        if let Expr::StringLit { value: s, .. } = label_expr {
+                            if let Some(reason) = detect_xss_payload(s) {
+                                result.warnings.push(SpannedError::at_expr(
+                                    label_expr,
+                                    format!(
+                                        "security: {} data.nodes[{}].label string literal {} — runtime will escape, but review intent",
+                                        fn_name, i, reason
+                                    ),
+                                ));
+                            }
                         }
                     }
                 }
@@ -914,23 +1031,32 @@ fn scan_flowchart_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResu
                 {
                     // from/to are identifiers (defensive scan)
                     for ident_key in &["from", "to"] {
-                        if let Some(Expr::StringLit { value: s, .. }) = edge_fields.get(*ident_key)
-                        {
-                            if let Some(reason) = detect_xss_payload(s) {
-                                result.warnings.push(format!(
-                                    "security: {} data.edges[{}].{} string literal {} — field not rendered but review intent",
-                                    fn_name, i, ident_key, reason
-                                ));
+                        if let Some(ident_expr) = edge_fields.get(*ident_key) {
+                            if let Expr::StringLit { value: s, .. } = ident_expr {
+                                if let Some(reason) = detect_xss_payload(s) {
+                                    result.warnings.push(SpannedError::at_expr(
+                                        ident_expr,
+                                        format!(
+                                            "security: {} data.edges[{}].{} string literal {} — field not rendered but review intent",
+                                            fn_name, i, ident_key, reason
+                                        ),
+                                    ));
+                                }
                             }
                         }
                     }
                     // label is rendered as edge midpoint text
-                    if let Some(Expr::StringLit { value: s, .. }) = edge_fields.get("label") {
-                        if let Some(reason) = detect_xss_payload(s) {
-                            result.warnings.push(format!(
-                                "security: {} data.edges[{}].label string literal {} — runtime will escape, but review intent",
-                                fn_name, i, reason
-                            ));
+                    if let Some(label_expr) = edge_fields.get("label") {
+                        if let Expr::StringLit { value: s, .. } = label_expr {
+                            if let Some(reason) = detect_xss_payload(s) {
+                                result.warnings.push(SpannedError::at_expr(
+                                    label_expr,
+                                    format!(
+                                        "security: {} data.edges[{}].label string literal {} — runtime will escape, but review intent",
+                                        fn_name, i, reason
+                                    ),
+                                ));
+                            }
                         }
                     }
                 }
@@ -952,21 +1078,31 @@ fn scan_layers_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult)
         for (i, item) in items.iter().enumerate() {
             if let Expr::StructLit { fields, .. } = item {
                 // label (always rendered)
-                if let Some(Expr::StringLit { value: s, .. }) = fields.get("label") {
-                    if let Some(reason) = detect_xss_payload(s) {
-                        result.warnings.push(format!(
-                            "security: {} data[{}].label string literal {} — runtime will escape, but review intent",
-                            fn_name, i, reason
-                        ));
+                if let Some(label_expr) = fields.get("label") {
+                    if let Expr::StringLit { value: s, .. } = label_expr {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(SpannedError::at_expr(
+                                label_expr,
+                                format!(
+                                    "security: {} data[{}].label string literal {} — runtime will escape, but review intent",
+                                    fn_name, i, reason
+                                ),
+                            ));
+                        }
                     }
                 }
                 // description (rendered, optional)
-                if let Some(Expr::StringLit { value: s, .. }) = fields.get("description") {
-                    if let Some(reason) = detect_xss_payload(s) {
-                        result.warnings.push(format!(
-                            "security: {} data[{}].description string literal {} — runtime will escape, but review intent",
-                            fn_name, i, reason
-                        ));
+                if let Some(description_expr) = fields.get("description") {
+                    if let Expr::StringLit { value: s, .. } = description_expr {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(SpannedError::at_expr(
+                                description_expr,
+                                format!(
+                                    "security: {} data[{}].description string literal {} — runtime will escape, but review intent",
+                                    fn_name, i, reason
+                                ),
+                            ));
+                        }
                     }
                 }
             }
@@ -1007,9 +1143,12 @@ fn scan_sequence_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResul
             for (i, actor) in actor_items.iter().enumerate() {
                 if let Expr::StringLit { value: s, .. } = actor {
                     if let Some(reason) = detect_xss_payload(s) {
-                        result.warnings.push(format!(
-                            "security: {} data.actors[{}] string literal {} — runtime will escape, but review intent",
-                            fn_name, i, reason
+                        result.warnings.push(SpannedError::at_expr(
+                            actor,
+                            format!(
+                                "security: {} data.actors[{}] string literal {} — runtime will escape, but review intent",
+                                fn_name, i, reason
+                            ),
                         ));
                     }
                 }
@@ -1029,22 +1168,32 @@ fn scan_sequence_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResul
                 {
                     // from/to (defensive — identifiers, not rendered)
                     for ident_key in &["from", "to"] {
-                        if let Some(Expr::StringLit { value: s, .. }) = msg_fields.get(*ident_key) {
-                            if let Some(reason) = detect_xss_payload(s) {
-                                result.warnings.push(format!(
-                                    "security: {} data.messages[{}].{} string literal {} — field not rendered but review intent",
-                                    fn_name, i, ident_key, reason
-                                ));
+                        if let Some(ident_expr) = msg_fields.get(*ident_key) {
+                            if let Expr::StringLit { value: s, .. } = ident_expr {
+                                if let Some(reason) = detect_xss_payload(s) {
+                                    result.warnings.push(SpannedError::at_expr(
+                                        ident_expr,
+                                        format!(
+                                            "security: {} data.messages[{}].{} string literal {} — field not rendered but review intent",
+                                            fn_name, i, ident_key, reason
+                                        ),
+                                    ));
+                                }
                             }
                         }
                     }
                     // label (rendered as edge midpoint text)
-                    if let Some(Expr::StringLit { value: s, .. }) = msg_fields.get("label") {
-                        if let Some(reason) = detect_xss_payload(s) {
-                            result.warnings.push(format!(
-                                "security: {} data.messages[{}].label string literal {} — runtime will escape, but review intent",
-                                fn_name, i, reason
-                            ));
+                    if let Some(label_expr) = msg_fields.get("label") {
+                        if let Expr::StringLit { value: s, .. } = label_expr {
+                            if let Some(reason) = detect_xss_payload(s) {
+                                result.warnings.push(SpannedError::at_expr(
+                                    label_expr,
+                                    format!(
+                                        "security: {} data.messages[{}].label string literal {} — runtime will escape, but review intent",
+                                        fn_name, i, reason
+                                    ),
+                                ));
+                            }
                         }
                     }
                 }
@@ -1074,12 +1223,17 @@ fn scan_gantt_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) 
         for (i, item) in items.iter().enumerate() {
             if let Expr::StructLit { fields, .. } = item {
                 // task is the only string field; start/duration are floats
-                if let Some(Expr::StringLit { value: s, .. }) = fields.get("task") {
-                    if let Some(reason) = detect_xss_payload(s) {
-                        result.warnings.push(format!(
-                            "security: {} data[{}].task string literal {} — runtime will escape, but review intent",
-                            fn_name, i, reason
-                        ));
+                if let Some(task_expr) = fields.get("task") {
+                    if let Expr::StringLit { value: s, .. } = task_expr {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(SpannedError::at_expr(
+                                task_expr,
+                                format!(
+                                    "security: {} data[{}].task string literal {} — runtime will escape, but review intent",
+                                    fn_name, i, reason
+                                ),
+                            ));
+                        }
                     }
                 }
             }
@@ -1100,30 +1254,45 @@ fn scan_timeline_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResul
         for (i, item) in items.iter().enumerate() {
             if let Expr::StructLit { fields, .. } = item {
                 // date (always rendered, above/below the dot)
-                if let Some(Expr::StringLit { value: s, .. }) = fields.get("date") {
-                    if let Some(reason) = detect_xss_payload(s) {
-                        result.warnings.push(format!(
-                            "security: {} data[{}].date string literal {} — runtime will escape, but review intent",
-                            fn_name, i, reason
-                        ));
+                if let Some(date_expr) = fields.get("date") {
+                    if let Expr::StringLit { value: s, .. } = date_expr {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(SpannedError::at_expr(
+                                date_expr,
+                                format!(
+                                    "security: {} data[{}].date string literal {} — runtime will escape, but review intent",
+                                    fn_name, i, reason
+                                ),
+                            ));
+                        }
                     }
                 }
                 // label (always rendered)
-                if let Some(Expr::StringLit { value: s, .. }) = fields.get("label") {
-                    if let Some(reason) = detect_xss_payload(s) {
-                        result.warnings.push(format!(
-                            "security: {} data[{}].label string literal {} — runtime will escape, but review intent",
-                            fn_name, i, reason
-                        ));
+                if let Some(label_expr) = fields.get("label") {
+                    if let Expr::StringLit { value: s, .. } = label_expr {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(SpannedError::at_expr(
+                                label_expr,
+                                format!(
+                                    "security: {} data[{}].label string literal {} — runtime will escape, but review intent",
+                                    fn_name, i, reason
+                                ),
+                            ));
+                        }
                     }
                 }
                 // description (rendered, optional)
-                if let Some(Expr::StringLit { value: s, .. }) = fields.get("description") {
-                    if let Some(reason) = detect_xss_payload(s) {
-                        result.warnings.push(format!(
-                            "security: {} data[{}].description string literal {} — runtime will escape, but review intent",
-                            fn_name, i, reason
-                        ));
+                if let Some(description_expr) = fields.get("description") {
+                    if let Expr::StringLit { value: s, .. } = description_expr {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(SpannedError::at_expr(
+                                description_expr,
+                                format!(
+                                    "security: {} data[{}].description string literal {} — runtime will escape, but review intent",
+                                    fn_name, i, reason
+                                ),
+                            ));
+                        }
                     }
                 }
             }
@@ -1163,12 +1332,17 @@ fn scan_venn_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
                     ..
                 } = item
                 {
-                    if let Some(Expr::StringLit { value: s, .. }) = circle_fields.get("label") {
-                        if let Some(reason) = detect_xss_payload(s) {
-                            result.warnings.push(format!(
-                                "security: {} data.circles[{}].label string literal {} — runtime will escape, but review intent",
-                                fn_name, i, reason
-                            ));
+                    if let Some(label_expr) = circle_fields.get("label") {
+                        if let Expr::StringLit { value: s, .. } = label_expr {
+                            if let Some(reason) = detect_xss_payload(s) {
+                                result.warnings.push(SpannedError::at_expr(
+                                    label_expr,
+                                    format!(
+                                        "security: {} data.circles[{}].label string literal {} — runtime will escape, but review intent",
+                                        fn_name, i, reason
+                                    ),
+                                ));
+                            }
                         }
                     }
                 }
@@ -1177,12 +1351,17 @@ fn scan_venn_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
         // overlap_label — TOP-LEVEL field (the spec's "don't forget" case).
         // This is NOT inside the circles list; a scanner that only walks
         // list elements would miss it.
-        if let Some(Expr::StringLit { value: s, .. }) = fields.get("overlap_label") {
-            if let Some(reason) = detect_xss_payload(s) {
-                result.warnings.push(format!(
-                    "security: {} data.overlap_label string literal {} — runtime will escape, but review intent",
-                    fn_name, reason
-                ));
+        if let Some(overlap_expr) = fields.get("overlap_label") {
+            if let Expr::StringLit { value: s, .. } = overlap_expr {
+                if let Some(reason) = detect_xss_payload(s) {
+                    result.warnings.push(SpannedError::at_expr(
+                        overlap_expr,
+                        format!(
+                            "security: {} data.overlap_label string literal {} — runtime will escape, but review intent",
+                            fn_name, reason
+                        ),
+                    ));
+                }
             }
         }
     }
@@ -1209,21 +1388,31 @@ fn scan_venn_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
 fn scan_quadrant_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
     if let Some(Expr::StructLit { fields, .. }) = args.first() {
         // x_axis_label — top-level, easy to forget
-        if let Some(Expr::StringLit { value: s, .. }) = fields.get("x_axis_label") {
-            if let Some(reason) = detect_xss_payload(s) {
-                result.warnings.push(format!(
-                    "security: {} data.x_axis_label string literal {} — runtime will escape, but review intent",
-                    fn_name, reason
-                ));
+        if let Some(x_axis_expr) = fields.get("x_axis_label") {
+            if let Expr::StringLit { value: s, .. } = x_axis_expr {
+                if let Some(reason) = detect_xss_payload(s) {
+                    result.warnings.push(SpannedError::at_expr(
+                        x_axis_expr,
+                        format!(
+                            "security: {} data.x_axis_label string literal {} — runtime will escape, but review intent",
+                            fn_name, reason
+                        ),
+                    ));
+                }
             }
         }
         // y_axis_label — top-level, easy to forget
-        if let Some(Expr::StringLit { value: s, .. }) = fields.get("y_axis_label") {
-            if let Some(reason) = detect_xss_payload(s) {
-                result.warnings.push(format!(
-                    "security: {} data.y_axis_label string literal {} — runtime will escape, but review intent",
-                    fn_name, reason
-                ));
+        if let Some(y_axis_expr) = fields.get("y_axis_label") {
+            if let Expr::StringLit { value: s, .. } = y_axis_expr {
+                if let Some(reason) = detect_xss_payload(s) {
+                    result.warnings.push(SpannedError::at_expr(
+                        y_axis_expr,
+                        format!(
+                            "security: {} data.y_axis_label string literal {} — runtime will escape, but review intent",
+                            fn_name, reason
+                        ),
+                    ));
+                }
             }
         }
         // items: List<Struct{label, x, y}> — scan each item's label
@@ -1237,12 +1426,17 @@ fn scan_quadrant_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResul
                     ..
                 } = item
                 {
-                    if let Some(Expr::StringLit { value: s, .. }) = item_fields.get("label") {
-                        if let Some(reason) = detect_xss_payload(s) {
-                            result.warnings.push(format!(
-                                "security: {} data.items[{}].label string literal {} — runtime will escape, but review intent",
-                                fn_name, i, reason
-                            ));
+                    if let Some(label_expr) = item_fields.get("label") {
+                        if let Expr::StringLit { value: s, .. } = label_expr {
+                            if let Some(reason) = detect_xss_payload(s) {
+                                result.warnings.push(SpannedError::at_expr(
+                                    label_expr,
+                                    format!(
+                                        "security: {} data.items[{}].label string literal {} — runtime will escape, but review intent",
+                                        fn_name, i, reason
+                                    ),
+                                ));
+                            }
                         }
                     }
                 }
@@ -1273,12 +1467,17 @@ fn scan_medallion_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResu
         for (i, item) in items.iter().enumerate() {
             if let Expr::StructLit { fields, .. } = item {
                 // label — rendered below the medallion (primary target)
-                if let Some(Expr::StringLit { value: s, .. }) = fields.get("label") {
-                    if let Some(reason) = detect_xss_payload(s) {
-                        result.warnings.push(format!(
-                            "security: {} data[{}].label string literal {} — runtime will escape, but review intent",
-                            fn_name, i, reason
-                        ));
+                if let Some(label_expr) = fields.get("label") {
+                    if let Expr::StringLit { value: s, .. } = label_expr {
+                        if let Some(reason) = detect_xss_payload(s) {
+                            result.warnings.push(SpannedError::at_expr(
+                                label_expr,
+                                format!(
+                                    "security: {} data[{}].label string literal {} — runtime will escape, but review intent",
+                                    fn_name, i, reason
+                                ),
+                            ));
+                        }
                     }
                 }
                 // NOTE: `icon` is intentionally NOT scanned here. It is a
@@ -1334,12 +1533,17 @@ fn scan_er_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
                 } = item
                 {
                     // name — rendered in the entity header bar (primary target)
-                    if let Some(Expr::StringLit { value: s, .. }) = entity_fields.get("name") {
-                        if let Some(reason) = detect_xss_payload(s) {
-                            result.warnings.push(format!(
-                                "security: {} data.entities[{}].name string literal {} — runtime will escape, but review intent",
-                                fn_name, i, reason
-                            ));
+                    if let Some(name_expr) = entity_fields.get("name") {
+                        if let Expr::StringLit { value: s, .. } = name_expr {
+                            if let Some(reason) = detect_xss_payload(s) {
+                                result.warnings.push(SpannedError::at_expr(
+                                    name_expr,
+                                    format!(
+                                        "security: {} data.entities[{}].name string literal {} — runtime will escape, but review intent",
+                                        fn_name, i, reason
+                                    ),
+                                ));
+                            }
                         }
                     }
                     // fields: List<String> NESTED inside a struct field —
@@ -1352,9 +1556,12 @@ fn scan_er_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
                         for (j, f_item) in field_items.iter().enumerate() {
                             if let Expr::StringLit { value: s, .. } = f_item {
                                 if let Some(reason) = detect_xss_payload(s) {
-                                    result.warnings.push(format!(
-                                        "security: {} data.entities[{}].fields[{}] string literal {} — runtime will escape, but review intent",
-                                        fn_name, i, j, reason
+                                    result.warnings.push(SpannedError::at_expr(
+                                        f_item,
+                                        format!(
+                                            "security: {} data.entities[{}].fields[{}] string literal {} — runtime will escape, but review intent",
+                                            fn_name, i, j, reason
+                                        ),
                                     ));
                                 }
                             }
@@ -1375,21 +1582,31 @@ fn scan_er_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) {
                 } = item
                 {
                     for ident_key in &["from", "to"] {
-                        if let Some(Expr::StringLit { value: s, .. }) = rel_fields.get(*ident_key) {
-                            if let Some(reason) = detect_xss_payload(s) {
-                                result.warnings.push(format!(
-                                    "security: {} data.relations[{}].{} string literal {} — field not rendered but review intent",
-                                    fn_name, i, ident_key, reason
-                                ));
+                        if let Some(ident_expr) = rel_fields.get(*ident_key) {
+                            if let Expr::StringLit { value: s, .. } = ident_expr {
+                                if let Some(reason) = detect_xss_payload(s) {
+                                    result.warnings.push(SpannedError::at_expr(
+                                        ident_expr,
+                                        format!(
+                                            "security: {} data.relations[{}].{} string literal {} — field not rendered but review intent",
+                                            fn_name, i, ident_key, reason
+                                        ),
+                                    ));
+                                }
                             }
                         }
                     }
-                    if let Some(Expr::StringLit { value: s, .. }) = rel_fields.get("label") {
-                        if let Some(reason) = detect_xss_payload(s) {
-                            result.warnings.push(format!(
-                                "security: {} data.relations[{}].label string literal {} — runtime will escape, but review intent",
-                                fn_name, i, reason
-                            ));
+                    if let Some(label_expr) = rel_fields.get("label") {
+                        if let Expr::StringLit { value: s, .. } = label_expr {
+                            if let Some(reason) = detect_xss_payload(s) {
+                                result.warnings.push(SpannedError::at_expr(
+                                    label_expr,
+                                    format!(
+                                        "security: {} data.relations[{}].label string literal {} — runtime will escape, but review intent",
+                                        fn_name, i, reason
+                                    ),
+                                ));
+                            }
                         }
                     }
                 }
@@ -1429,9 +1646,12 @@ fn scan_state_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) 
             for (i, state) in state_items.iter().enumerate() {
                 if let Expr::StringLit { value: s, .. } = state {
                     if let Some(reason) = detect_xss_payload(s) {
-                        result.warnings.push(format!(
-                            "security: {} data.states[{}] string literal {} — runtime will escape, but review intent",
-                            fn_name, i, reason
+                        result.warnings.push(SpannedError::at_expr(
+                            state,
+                            format!(
+                                "security: {} data.states[{}] string literal {} — runtime will escape, but review intent",
+                                fn_name, i, reason
+                            ),
                         ));
                     }
                 }
@@ -1450,22 +1670,31 @@ fn scan_state_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) 
                 } = item
                 {
                     for ident_key in &["from", "to"] {
-                        if let Some(Expr::StringLit { value: s, .. }) = trans_fields.get(*ident_key)
-                        {
-                            if let Some(reason) = detect_xss_payload(s) {
-                                result.warnings.push(format!(
-                                    "security: {} data.transitions[{}].{} string literal {} — field not rendered but review intent",
-                                    fn_name, i, ident_key, reason
-                                ));
+                        if let Some(ident_expr) = trans_fields.get(*ident_key) {
+                            if let Expr::StringLit { value: s, .. } = ident_expr {
+                                if let Some(reason) = detect_xss_payload(s) {
+                                    result.warnings.push(SpannedError::at_expr(
+                                        ident_expr,
+                                        format!(
+                                            "security: {} data.transitions[{}].{} string literal {} — field not rendered but review intent",
+                                            fn_name, i, ident_key, reason
+                                        ),
+                                    ));
+                                }
                             }
                         }
                     }
-                    if let Some(Expr::StringLit { value: s, .. }) = trans_fields.get("label") {
-                        if let Some(reason) = detect_xss_payload(s) {
-                            result.warnings.push(format!(
-                                "security: {} data.transitions[{}].label string literal {} — runtime will escape, but review intent",
-                                fn_name, i, reason
-                            ));
+                    if let Some(label_expr) = trans_fields.get("label") {
+                        if let Expr::StringLit { value: s, .. } = label_expr {
+                            if let Some(reason) = detect_xss_payload(s) {
+                                result.warnings.push(SpannedError::at_expr(
+                                    label_expr,
+                                    format!(
+                                        "security: {} data.transitions[{}].label string literal {} — runtime will escape, but review intent",
+                                        fn_name, i, reason
+                                    ),
+                                ));
+                            }
                         }
                     }
                 }
@@ -1474,12 +1703,17 @@ fn scan_state_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResult) 
         // initial — TOP-LEVEL String? field (the spec's "easy to forget" case,
         // same category as diagram_venn.overlap_label). It's rendered as the
         // entry-arrow target state name, but ALSO drawn near the initial node.
-        if let Some(Expr::StringLit { value: s, .. }) = fields.get("initial") {
-            if let Some(reason) = detect_xss_payload(s) {
-                result.warnings.push(format!(
-                    "security: {} data.initial string literal {} — runtime will escape, but review intent",
-                    fn_name, reason
-                ));
+        if let Some(initial_expr) = fields.get("initial") {
+            if let Expr::StringLit { value: s, .. } = initial_expr {
+                if let Some(reason) = detect_xss_payload(s) {
+                    result.warnings.push(SpannedError::at_expr(
+                        initial_expr,
+                        format!(
+                            "security: {} data.initial string literal {} — runtime will escape, but review intent",
+                            fn_name, reason
+                        ),
+                    ));
+                }
             }
         }
     }
@@ -1512,9 +1746,12 @@ fn scan_swimlane_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResul
             for (i, lane) in lane_items.iter().enumerate() {
                 if let Expr::StringLit { value: s, .. } = lane {
                     if let Some(reason) = detect_xss_payload(s) {
-                        result.warnings.push(format!(
-                            "security: {} data.lanes[{}] string literal {} — runtime will escape, but review intent",
-                            fn_name, i, reason
+                        result.warnings.push(SpannedError::at_expr(
+                            lane,
+                            format!(
+                                "security: {} data.lanes[{}] string literal {} — runtime will escape, but review intent",
+                                fn_name, i, reason
+                            ),
                         ));
                     }
                 }
@@ -1533,21 +1770,31 @@ fn scan_swimlane_labels(fn_name: &str, args: &[Expr], result: &mut AnalysisResul
                 } = item
                 {
                     // lane — defensive (identifier, not rendered as free text)
-                    if let Some(Expr::StringLit { value: s, .. }) = step_fields.get("lane") {
-                        if let Some(reason) = detect_xss_payload(s) {
-                            result.warnings.push(format!(
-                                "security: {} data.steps[{}].lane string literal {} — field not rendered but review intent",
-                                fn_name, i, reason
-                            ));
+                    if let Some(lane_expr) = step_fields.get("lane") {
+                        if let Expr::StringLit { value: s, .. } = lane_expr {
+                            if let Some(reason) = detect_xss_payload(s) {
+                                result.warnings.push(SpannedError::at_expr(
+                                    lane_expr,
+                                    format!(
+                                        "security: {} data.steps[{}].lane string literal {} — field not rendered but review intent",
+                                        fn_name, i, reason
+                                    ),
+                                ));
+                            }
                         }
                     }
                     // label — rendered inside the step pill (primary target)
-                    if let Some(Expr::StringLit { value: s, .. }) = step_fields.get("label") {
-                        if let Some(reason) = detect_xss_payload(s) {
-                            result.warnings.push(format!(
-                                "security: {} data.steps[{}].label string literal {} — runtime will escape, but review intent",
-                                fn_name, i, reason
-                            ));
+                    if let Some(label_expr) = step_fields.get("label") {
+                        if let Expr::StringLit { value: s, .. } = label_expr {
+                            if let Some(reason) = detect_xss_payload(s) {
+                                result.warnings.push(SpannedError::at_expr(
+                                    label_expr,
+                                    format!(
+                                        "security: {} data.steps[{}].label string literal {} — runtime will escape, but review intent",
+                                        fn_name, i, reason
+                                    ),
+                                ));
+                            }
                         }
                     }
                 }
@@ -1563,12 +1810,17 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
             // Check string-literal arguments to SVG builtins
             if SVG_AUTO_ESCAPE_BUILTINS.contains(&name.as_str()) {
                 if let Some(content_idx) = auto_escaped_arg_index(name) {
-                    if let Some(Expr::StringLit { value: s, .. }) = args.get(content_idx) {
-                        if let Some(reason) = detect_xss_payload(s) {
-                            result.warnings.push(format!(
-                                "security: {}({} arg) string literal {} — runtime will escape, but review intent",
-                                name, content_idx + 1, reason
-                            ));
+                    if let Some(content_expr) = args.get(content_idx) {
+                        if let Expr::StringLit { value: s, .. } = content_expr {
+                            if let Some(reason) = detect_xss_payload(s) {
+                                result.warnings.push(SpannedError::at_expr(
+                                    content_expr,
+                                    format!(
+                                        "security: {}({} arg) string literal {} — runtime will escape, but review intent",
+                                        name, content_idx + 1, reason
+                                    ),
+                                ));
+                            }
                         }
                     }
                 }
@@ -1726,9 +1978,12 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
                 for (i, arg) in args.iter().enumerate() {
                     if let Expr::StringLit { value: s, .. } = arg {
                         if let Some(reason) = detect_xss_payload(s) {
-                            result.errors.push(format!(
-                                "security: {}({} arg) string literal {} — this builtin does NOT auto-escape this argument; potential injection vector",
-                                name, i + 1, reason
+                            result.errors.push(SpannedError::at_expr(
+                                arg,
+                                format!(
+                                    "security: {}({} arg) string literal {} — this builtin does NOT auto-escape this argument; potential injection vector",
+                                    name, i + 1, reason
+                                ),
                             ));
                         }
                         // For svg_canvas, check viewbox arg specifically
@@ -1736,9 +1991,12 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
                             // viewbox should be 4 numbers — any other format is suspicious
                             let parts: Vec<&str> = s.split_whitespace().collect();
                             if parts.len() != 4 || parts.iter().any(|p| p.parse::<f64>().is_err()) {
-                                result.warnings.push(format!(
-                                    "security: svg_canvas viewbox argument should be 4 numbers, got {:?}",
-                                    s
+                                result.warnings.push(SpannedError::at_expr(
+                                    arg,
+                                    format!(
+                                        "security: svg_canvas viewbox argument should be 4 numbers, got {:?}",
+                                        s
+                                    ),
                                 ));
                             }
                         }
@@ -1755,11 +2013,14 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
             for (i, arg) in args.iter().enumerate() {
                 if let Expr::StringLit { value: s, .. } = arg {
                     if s.starts_with("javascript:") || s.starts_with("data:text/html") {
-                        result.errors.push(format!(
-                            "security: {}({} arg) contains potentially dangerous URL scheme: {:?}",
-                            name,
-                            i + 1,
-                            s
+                        result.errors.push(SpannedError::at_expr(
+                            arg,
+                            format!(
+                                "security: {}({} arg) contains potentially dangerous URL scheme: {:?}",
+                                name,
+                                i + 1,
+                                s
+                            ),
                         ));
                     }
                 }
@@ -1792,17 +2053,23 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
                     // This is a WARNING only — we don't know if this concat
                     // feeds an SVG context. The FnCall walker will escalate
                     // to ERROR if appropriate.
-                    result.warnings.push(format!(
-                        "security: string literal in concatenation {} — review usage",
-                        reason
+                    result.warnings.push(SpannedError::at_expr(
+                        lhs.as_ref(),
+                        format!(
+                            "security: string literal in concatenation {} — review usage",
+                            reason
+                        ),
                     ));
                 }
             }
             if let Expr::StringLit { value: s, .. } = rhs.as_ref() {
                 if let Some(reason) = detect_xss_payload(s) {
-                    result.warnings.push(format!(
-                        "security: string literal in concatenation {} — review usage",
-                        reason
+                    result.warnings.push(SpannedError::at_expr(
+                        rhs.as_ref(),
+                        format!(
+                            "security: string literal in concatenation {} — review usage",
+                            reason
+                        ),
                     ));
                 }
             }
@@ -2012,9 +2279,12 @@ fn svg_security_lint(declarations: &[Declaration], result: &mut AnalysisResult) 
                 // not parsed statements. We do a simple text scan for XSS payloads.
                 let ctx = format!("template {}", t.name);
                 if let Some(reason) = detect_xss_payload(&t.body) {
-                    result.errors.push(format!(
-                        "security: template '{}' body {} — templates are raw HTML, no auto-escaping",
-                        t.name, reason
+                    result.errors.push(SpannedError::at_decl(
+                        decl,
+                        format!(
+                            "security: template '{}' body {} — templates are raw HTML, no auto-escaping",
+                            t.name, reason
+                        ),
                     ));
                 }
                 let _ = ctx;
@@ -2044,7 +2314,7 @@ fn check_expr_calls(
     builtin_names: &HashSet<String>,
     pattern_param_counts: &HashSet<(String, usize)>,
     learnable_names: &HashSet<String>,
-    errors: &mut Vec<String>,
+    errors: &mut Vec<SpannedError>,
 ) {
     if let Expr::FnCall { name, args, .. } = expr {
         let is_known = builtin_names.contains(name)
@@ -2054,16 +2324,21 @@ fn check_expr_calls(
         const INTERCEPTED_FUNCTIONS: &[&str] = &["recall_top_k"];
 
         if !is_known && !INTERCEPTED_FUNCTIONS.contains(&name.as_str()) {
-            errors.push(format!(
-                "undefined: function '{}' is not a builtin, pattern, or learnable",
-                name
+            // Наряд №165: span taken from the FnCall expression itself —
+            // the call site is the natural place to point the squiggle.
+            errors.push(SpannedError::at_expr(
+                expr,
+                format!(
+                    "undefined: function '{}' is not a builtin, pattern, or learnable",
+                    name
+                ),
             ));
         }
 
         // Check builtin arity
         if builtin_names.contains(name) {
             if let Err(e) = crate::builtins::check_builtin_arity(name, args.len()) {
-                errors.push(e);
+                errors.push(SpannedError::at_expr(expr, e));
             }
         }
 
@@ -2071,11 +2346,14 @@ fn check_expr_calls(
         for (pname, pcount) in pattern_param_counts {
             if *pname == *name && !builtin_names.contains(name) {
                 if args.len() != *pcount {
-                    errors.push(format!(
-                        "function '{}' expects {} argument(s), got {}",
-                        name,
-                        pcount,
-                        args.len()
+                    errors.push(SpannedError::at_expr(
+                        expr,
+                        format!(
+                            "function '{}' expects {} argument(s), got {}",
+                            name,
+                            pcount,
+                            args.len()
+                        ),
                     ));
                 }
                 break;
@@ -2190,7 +2468,7 @@ fn check_stmt_exprs(
     builtin_names: &HashSet<String>,
     pattern_param_counts: &HashSet<(String, usize)>,
     learnable_names: &HashSet<String>,
-    errors: &mut Vec<String>,
+    errors: &mut Vec<SpannedError>,
 ) {
     match stmt {
         Statement::LetBinding { value, .. } => {
@@ -2449,7 +2727,10 @@ mod tests {
         let decls = crate::parser::parse(source).unwrap();
         let result = check_program(&decls);
         assert!(!result.is_ok());
-        assert!(result.errors.iter().any(|e| e.contains("unknown type")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("unknown type")));
     }
 
     #[test]
@@ -2460,7 +2741,10 @@ mod tests {
         let decls = crate::parser::parse(source).unwrap();
         let result = check_program(&decls);
         assert!(!result.is_ok());
-        assert!(result.errors.iter().any(|e| e.contains("not found")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("not found")));
     }
 
     #[test]
@@ -2475,7 +2759,7 @@ mod tests {
         assert!(result
             .errors
             .iter()
-            .any(|e| e.contains("duplicate pattern")));
+            .any(|e| e.message.contains("duplicate pattern")));
     }
 
     // ── Phase 6 semantic tests ────────────────────────────────
@@ -2508,7 +2792,7 @@ mlogserver {
         assert!(result
             .errors
             .iter()
-            .any(|e| e.contains("unknown middleware")));
+            .any(|e| e.message.contains("unknown middleware")));
     }
 
     #[test]
@@ -2524,7 +2808,7 @@ mlogserver {
         assert!(result
             .errors
             .iter()
-            .any(|e| e.contains("unknown HTTP method")));
+            .any(|e| e.message.contains("unknown HTTP method")));
     }
 
     #[test]
@@ -2540,7 +2824,7 @@ mlogserver {
         assert!(result
             .warnings
             .iter()
-            .any(|w| w.contains("security_headers")));
+            .any(|w| w.message.contains("security_headers")));
     }
 
     #[test]
@@ -2554,7 +2838,7 @@ mlogserver {
         let decls = crate::parser::parse(source).unwrap();
         let result = check_program(&decls);
         assert!(result.is_ok());
-        assert!(result.warnings.iter().any(|w| w.contains("csrf")));
+        assert!(result.warnings.iter().any(|w| w.message.contains("csrf")));
     }
 
     #[test]
@@ -2582,6 +2866,6 @@ template Page(title: String) -> Secret {
         assert!(result
             .errors
             .iter()
-            .any(|e| e.contains("only Html is supported")));
+            .any(|e| e.message.contains("only Html is supported")));
     }
 }

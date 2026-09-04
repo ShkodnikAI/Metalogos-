@@ -277,11 +277,13 @@ fn chart_donut_single_slice_renders_full_circle() {
 use metalogos::check_program;
 
 fn lint_errors(result: &metalogos::semantic::AnalysisResult) -> Vec<String> {
-    result.errors.to_vec()
+    // Наряд №165: errors are now SpannedError — extract .message for
+    // substring-based test assertions.
+    result.errors.iter().map(|e| e.message.clone()).collect()
 }
 
 fn lint_warnings(result: &metalogos::semantic::AnalysisResult) -> Vec<String> {
-    result.warnings.to_vec()
+    result.warnings.iter().map(|w| w.message.clone()).collect()
 }
 
 #[test]

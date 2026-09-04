@@ -435,7 +435,7 @@ mlogserver {
 "#;
         let decls = metalogos::parser::parse(source).unwrap();
         let result = metalogos::semantic::check_program(&decls);
-        assert!(result.warnings.iter().any(|w| w.contains("csrf")));
+        assert!(result.warnings.iter().any(|w| w.message.contains("csrf")));
     }
 }
 

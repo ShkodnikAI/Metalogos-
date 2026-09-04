@@ -772,9 +772,11 @@ async fn route_handler(
 
 /// Generate a cryptographically random CSRF token (32 hex chars).
 pub fn generate_csrf_token() -> String {
+    // Наряд №173: rand 0.10 — `thread_rng()` → `rng()`,
+    // `fill(&mut [u8])` → `fill_bytes(&mut [u8])` (renamed in `Rng`).
     use rand::Rng;
     let mut buf = [0u8; 16];
-    rand::thread_rng().fill(&mut buf[..]);
+    rand::rng().fill_bytes(&mut buf);
     hex::encode(buf)
 }
 
@@ -1562,9 +1564,10 @@ fn value_to_response(val: Value) -> Response {
 // Production code now uses `load_hmac_key` which reads METALOGOS_HMAC_KEY env var.
 #[allow(dead_code)]
 fn generate_hmac_key() -> Vec<u8> {
+    // Наряд №173: rand 0.10 API — `rng()` + `fill_bytes`.
     use rand::Rng;
     let mut key = vec![0u8; 32];
-    rand::thread_rng().fill(&mut key[..]);
+    rand::rng().fill_bytes(&mut key);
     key
 }
 
@@ -1632,9 +1635,11 @@ fn load_hmac_key() -> Vec<u8> {
         }
     }
 
-    // Fallback: generate random 32-byte key using rand 0.8 API.
-    use rand::{thread_rng, Rng};
-    let key: [u8; 32] = thread_rng().gen();
+    // Fallback: generate random 32-byte key.
+    // Наряд №173: rand 0.10 API — `rng()` replaces `thread_rng()`,
+    // `gen::<T>()` renamed to `random::<T>()` in `RngExt` (extension trait).
+    use rand::RngExt;
+    let key: [u8; 32] = rand::rng().random();
     key.to_vec()
 }
 

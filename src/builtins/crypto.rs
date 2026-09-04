@@ -18,12 +18,13 @@ pub(crate) fn builtin_hash_password(args: &[Value]) -> Result<Value, String> {
         None => return Err("hash_password() requires 1 argument".to_string()),
     };
     // Argon2id with random salt — real password hashing (Phase 7.3)
-    use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
-    use rand::rngs::OsRng;
+    // Наряд №173: argon2 0.6 dropped `SaltString`. Use `generate_salt()`
+    // (returns `[u8; 16]`) and `hash_password_with_salt(password, &[u8])`.
+    use argon2::{password_hash::generate_salt, Argon2, PasswordHasher};
 
-    let salt = SaltString::generate(&mut OsRng);
+    let salt = generate_salt();
     let argon2 = Argon2::default(); // Argon2id
-    match argon2.hash_password(password.as_bytes(), &salt) {
+    match argon2.hash_password_with_salt(password.as_bytes(), &salt) {
         Ok(hash) => Ok(Value::Hash(hash.to_string())),
         Err(e) => Err(format!("hash_password() failed: {}", e)),
     }
@@ -53,19 +54,17 @@ pub(crate) fn builtin_verify_password(args: &[Value]) -> Result<Value, String> {
         None => return Err("verify_password() requires 2 arguments".to_string()),
     };
     // Real Argon2id verification with constant-time comparison (Phase 7.3)
-    use argon2::{password_hash::PasswordHash, Argon2, PasswordVerifier};
+    // Наряд №173: argon2 0.6 `PasswordVerifier<str>` accepts `&str` directly,
+    // no need to construct `PasswordHash` first. `Error::Password` variant
+    // renamed to `Error::PasswordInvalid` in password-hash 0.6.
+    use argon2::password_hash::Error as PhError;
+    use argon2::{Argon2, PasswordVerifier};
 
     let argon2 = Argon2::default();
-    match PasswordHash::new(hash_str) {
-        Ok(parsed_hash) => {
-            // Constant-time comparison inside argon2
-            match argon2.verify_password(password.as_bytes(), &parsed_hash) {
-                Ok(_) => Ok(Value::Bool(true)),
-                Err(argon2::password_hash::Error::Password) => Ok(Value::Bool(false)),
-                Err(e) => Err(format!("verify_password() failed: {}", e)),
-            }
-        }
-        Err(e) => Err(format!("verify_password() invalid hash format: {}", e)),
+    match argon2.verify_password(password.as_bytes(), hash_str) {
+        Ok(_) => Ok(Value::Bool(true)),
+        Err(PhError::PasswordInvalid) => Ok(Value::Bool(false)),
+        Err(e) => Err(format!("verify_password() failed: {}", e)),
     }
 }
 
@@ -97,8 +96,10 @@ pub(crate) fn builtin_encrypt(args: &[Value]) -> Result<Value, String> {
         .map_err(|_| "encrypt() key conversion failed".to_string())?;
     let cipher = Aes256Gcm::new(&key);
     let mut nonce_bytes = [0u8; 12]; // 96-bit nonce
-    use rand::RngCore;
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+                                     // Наряд №173: rand 0.10 — `thread_rng()` → `rng()`, `RngCore` trait
+                                     // merged into `Rng`. `fill_bytes` is now a method on `Rng` itself.
+    use rand::Rng;
+    rand::rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::try_from(nonce_bytes.as_slice())
         .map_err(|_| "encrypt() nonce conversion failed".to_string())?;
 
@@ -172,10 +173,12 @@ pub(crate) fn builtin_decrypt(args: &[Value]) -> Result<Value, String> {
 pub(crate) fn builtin_generate_key(args: &[Value]) -> Result<Value, String> {
     let _ = args; // no args needed
                   // Generate a real 256-bit random key (Phase 7.3)
-    use rand::RngCore;
+                  // Наряд №173: rand 0.10 API — `rng()` replaces `thread_rng()`,
+                  // `RngCore` merged into `Rng`.
+    use rand::Rng;
 
     let mut key_bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut key_bytes);
+    rand::rng().fill_bytes(&mut key_bytes);
     let key_hex = hex::encode(key_bytes); // 64 hex chars
     Ok(Value::Secret(SecretString::new(key_hex)))
 }

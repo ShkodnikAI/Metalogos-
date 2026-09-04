@@ -124,7 +124,7 @@ pdf-ocr = ["tesseract"]
 
 [dev-dependencies]
 tempfile = "3"
-serial_test = "3"
+serial_test = "4"
 criterion = { version = "0.5", features = ["html_reports"] }
 regex = "1"
 

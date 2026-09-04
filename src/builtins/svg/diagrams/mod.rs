@@ -35,12 +35,14 @@ mod tests;
 
 mod all_legacy;
 mod flow_seq;
+mod layered;
 mod layout;
 mod time_gantt;
 mod tree_org;
 
 pub use all_legacy::*;
 pub use flow_seq::*;
+pub use layered::*;
 pub(crate) use layout::*;
 pub use time_gantt::*;
 pub use tree_org::*;

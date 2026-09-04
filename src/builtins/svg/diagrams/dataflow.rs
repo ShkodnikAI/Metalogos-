@@ -1,6 +1,15 @@
-//! Diagram builtins (diagram_*)
-//! Category: "diagram" (from registry.rs)
-//! diagram_style is in primitives (tokens category)
+//! Data-flow, high-level, and architecture diagram builtins.
+//!
+//! Наряд №169: extracted from former diagrams.rs (all_legacy.rs).
+//! This was the last group — all_legacy.rs is now empty and deleted.
+//!
+//! Includes:
+//! - `diagram_data_flow(data, style)` — data flow between processing nodes
+//! - `diagram_high_level(data, style)` — high-level system overview
+//! - `diagram_architecture(data, style)` — architecture diagram with icons
+//! - Structs: GraphNode, GraphEdge
+//! - `extract_graph`, `layout_layered_nodes` helpers
+//! - Constants: DATAFLOW_*, HIGHLEVEL_*, ARCH_*
 
 use super::super::primitives::icon_path_data;
 use super::super::shared::*;

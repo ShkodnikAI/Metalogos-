@@ -273,11 +273,18 @@ continue_stmt = { "continue" }
 // checkpoint is a pipeline marker (not a step itself) — it saves state after the preceding step.
 flow_decl     = { "flow" ~ IDENT ~ LBRACE ~ flow_pipeline ~ branch_def* ~ RBRACE }
 flow_pipeline = { "input" ~ ":" ~ type_name ~ "=" ~ expression ~ flow_step* ~ ARROW ~ "output" }
-flow_step     = { ARROW ~ (checkpoint_call | step_ident) }
+// Наряд №171: only "output" needs exclusion here — it's the pipeline terminator
+// that flow_step* would greedily consume. All other keywords (~88) were removed
+// because they don't create real parse ambiguity (they just change error messages).
+flow_step     = { ARROW ~ (checkpoint_call | !("output") ~ step_ident) }
 checkpoint_call = { CHECKPOINT_KW ~ "(" ~ STRING_LITERAL ~ ")" }
 CHECKPOINT_KW = @{ "checkpoint" }
 branch_def    = { step_ident ~ LBRACE ~ branch* ~ RBRACE }
-step_ident    = @{ !("output" | "entity" | "pattern" | "flow" | "rule" | "learnable" | "prompt" | "memorize" | "forget" | "adapt" | "add_example" | "relate" | "sandbox" | "mutate" | "eval" | "test" | "dataset" | "metric" | "threshold" | "allowed" | "forbidden" | "timeout" | "rollback_if" | "accuracy" | "to" | "as" | "If" | "then" | "with" | "return" | "contains" | "after" | "days" | "fluid" | "or" | "each" | "while" | "server" | "mlogserver" | "template" | "route" | "middleware" | "port" | "method" | "requires" | "db" | "schema" | "table" | "migrate" | "pool_size" | "memory" | "persist" | "kv" | "type" | "else" | "hook" | "before_pattern" | "after_pattern" | "on_session_start" | "on_write" | "on_session_end" | "match" | "starts_with" | "conversation" | "tool" | "checkpoint" | "llm" | "providers" | "default_model" | "failover" | "circuit_breaker" | "alias" | "provider" | "key" | "url" | "break" | "continue" | "skill_index" | "tier" | "when_matches" | "always" | "triggers" | "skill" | "budget" | "tokens" | "truncation" | "context_budget" | "limit" | "host") ~ IDENT }
+// Наряд №171: step_ident no longer carries a ~89 keyword lookahead list.
+// It's just IDENT — keyword rejection (if needed) is done in Rust code
+// after parsing, with a clear error message. The only grammar-level
+// exclusion is "output" in flow_step above (PEG greedy matching issue).
+step_ident    = { IDENT }
 branch        = { IDENT ~ "(" ~ branch_condition ~ ")" ~ ARROW ~ step_ident }
 branch_condition = { IDENT ~ "." ~ IDENT ~ compare_op ~ expression }
 

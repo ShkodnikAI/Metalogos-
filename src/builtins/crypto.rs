@@ -274,3 +274,30 @@ pub(crate) fn builtin_hex_decode(args: &[Value]) -> Result<Value, String> {
         .map(Value::String)
         .map_err(|e| format!("hex_decode() invalid hex: {}", e))
 }
+
+// ── Наряд №172: builtin secret() — variant B ──────────────────────────
+//
+// `secret("KEY")` reads an env var and returns `Value::Secret` directly,
+// without the intermediate `coerce_to_declared_type` step that `env()`
+// goes through when bound to a `Secret`-typed entity.
+//
+// Difference from `env()` (intentional, NOT the same function):
+//   - `env("KEY")` — soft-failure: returns `Value::String("")` if the
+//     var is missing. The caller must check for emptiness. Protection
+//     is static-only (Category A taint via binding_taint).
+//   - `secret("KEY")` — hard-failure: returns `Err` if the var is
+//     missing. When you explicitly ask for a secret, a missing env
+//     var is a configuration error, not a default-value situation.
+//     Returns `Value::Secret` directly (runtime opacity enforced
+//     immediately, not only when bound to a Secret-typed entity).
+//
+// `binding_taint` in `src/audit.rs` treats `"secret"` the same as
+// `"env"` — both taint the result as `TaintKind::Secret`, so
+// `respond(secret("KEY"))` triggers `SECRET_LEAK` at compile time.
+pub(crate) fn builtin_secret(args: &[Value]) -> Result<Value, String> {
+    let key = expect_string_arg("secret", args, 0)?;
+    match std::env::var(&key) {
+        Ok(v) => Ok(Value::Secret(SecretString::new(v))),
+        Err(_) => Err(format!("secret(): env var '{}' not found", key)),
+    }
+}

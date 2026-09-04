@@ -113,6 +113,34 @@ jobs:
             exit 1
           fi
 
+  module-size-guard:
+    name: module-size-guard (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check per-module LOC limits (src/builtins/*.rs)
+        run: |
+          HARD_LIMIT=5000
+          WARNING_LIMIT=4000
+          violations=""
+          warnings=""
+          for f in $(find src/builtins -name '*.rs' -not -path '*/tests*'); do
+            lines=$(wc -l < "$f")
+            if [ "$lines" -gt "$HARD_LIMIT" ]; then
+              violations="$violations\n  $f: $lines lines (HARD LIMIT $HARD_LIMIT exceeded)"
+            elif [ "$lines" -gt "$WARNING_LIMIT" ]; then
+              warnings="$warnings\n  $f: $lines lines (warning threshold $WARNING_LIMIT exceeded)"
+            fi
+          done
+          if [ -n "$violations" ]; then
+            echo -e "::error::Hard limit violations:$violations"
+            exit 1
+          fi
+          if [ -n "$warnings" ]; then
+            echo -e "::warning::Warning threshold exceeded:$warnings"
+          fi
+          echo "✓ All builtin modules within limits"
+
   vscode-extension:
     name: vscode-extension (blocking)
     runs-on: ubuntu-latest

@@ -1,0 +1,1877 @@
+//! Layered/set/comparison diagram builtins.
+//!
+//! Наряд №169: extracted from former diagrams.rs (all_legacy.rs).
+//! No logic changes — pure move.
+//!
+//! Includes:
+//! - `diagram_layers(data, style)` — horizontal stripes
+//! - `diagram_venn(data, style)` — Venn set diagram
+//! - `diagram_quadrant(data, style)` — 2x2 quadrant matrix
+//! - `diagram_pyramid(data, style)` — stacked trapezoids
+//! - `diagram_nested(data, style)` — concentric rings
+//! - `diagram_medallion(data, style)` — circular badges row
+//! - `diagram_er(data, style)` — entity-relationship diagram
+//! - `diagram_state(data, style)` — state machine diagram
+//! - Structs: ErEntity, ErRelation, StateTransition
+//! - Constants: VENN_*, QUADRANT_*, PYRAMID_*, NESTED_*, MEDALLION_*, ER_*, STATE_*
+
+use super::super::primitives::icon_path_data;
+use super::super::shared::*;
+use super::flow_seq::bfs_layers_with_cycles;
+use super::layout::box_edge_point;
+use super::tree_org::{DIAGRAM_CANVAS_H, DIAGRAM_CANVAS_W};
+use crate::builtins::core::expect_list_arg;
+use crate::builtins::string::escape_html_chars;
+use crate::interpreter::Value;
+
+//
+
+// ── Block 5: diagram_layers ─────────────────────────────────────────
+//
+// Simplest of the four — no draw_connector, no tree algorithm. Just
+// horizontal stripes of equal height stacked top-to-bottom.
+//
+// Layout:
+//   - canvas: 600 × 400
+//   - N layers, each height = canvas_h / N
+//   - label left-aligned with 16px left padding, vertically centered
+//   - optional description right-aligned with 16px right padding,
+//     smaller font, muted color
+//
+// Limits: data.len() ≤ 10 (otherwise stripes become too narrow).
+
+/// `diagram_layers(data, style) -> String`
+///
+/// `data` is `List<Struct { label, description? }>`. Renders horizontal
+/// stripes top-to-bottom.
+pub fn builtin_diagram_layers(args: &[Value]) -> Result<Value, String> {
+    let data = expect_list_arg("diagram_layers", args, 0)?;
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    if data.is_empty() {
+        return Err("diagram_layers: data list must not be empty".to_string());
+    }
+    if data.len() > 10 {
+        return Err(format!(
+            "diagram_layers: too many layers ({}), maximum is 10",
+            data.len()
+        ));
+    }
+    // Extract items
+    let mut items: Vec<(String, Option<String>)> = Vec::with_capacity(data.len());
+    for (i, item) in data.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_layers: data[{}] must be Struct {{label, description?}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let label = struct_string_field("diagram_layers item", f, "label")?;
+        let description = struct_opt_string_field(f, "description");
+        items.push((label, description));
+    }
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    let layer_h = canvas_h / (items.len() as f64);
+    let mut parts: Vec<String> = Vec::new();
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+    for (i, (label, description)) in items.iter().enumerate() {
+        let y = (i as f64) * layer_h;
+        // Alternating fill: even=index paper, odd=very light rule tint
+        // (we don't have a tint primitive, so we use paper for even and
+        // a manually lightened version of rule for odd). Simpler: use
+        // paper for even layers, rule at 0.15 opacity for odd.
+        let is_odd = i % 2 == 1;
+        if is_odd {
+            parts.push(format!(
+                r#"<rect x="0" y="{}" width="{}" height="{}" fill="{}" opacity="0.18" />"#,
+                fmt_num(y),
+                fmt_num(canvas_w),
+                fmt_num(layer_h),
+                escape_attr(&rule)
+            ));
+        }
+        // Top border (rule) — separates layers visually
+        parts.push(format!(
+            r#"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+            fmt_num(y),
+            fmt_num(canvas_w),
+            fmt_num(y),
+            escape_attr(&rule)
+        ));
+        // Label — left-aligned, vertically centered
+        let label_y = y + layer_h / 2.0 + 4.0;
+        // Accent left bar (3px wide) — visual anchor on the left edge
+        parts.push(format!(
+            r#"<rect x="0" y="{}" width="3" height="{}" fill="{}" />"#,
+            fmt_num(y),
+            fmt_num(layer_h),
+            escape_attr(&accent)
+        ));
+        parts.push(format!(
+            r#"<text x="16" y="{}" font-size="14" fill="{}">{}</text>"#,
+            fmt_num(label_y),
+            escape_attr(&ink),
+            escape_html_chars(label)
+        ));
+        // Description — right-aligned, smaller, muted
+        if let Some(desc) = description {
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="11" fill="{}" text-anchor="end">{}</text>"#,
+                fmt_num(canvas_w - 16.0),
+                fmt_num(label_y),
+                escape_attr(&muted),
+                escape_html_chars(desc)
+            ));
+        }
+    }
+    // Bottom border (rule)
+    parts.push(format!(
+        r#"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1" />"#,
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&rule)
+    ));
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+// ── Наряд №82: Diagrams, part 2 — temporal & process ────────────────
+//
+// Five additional diagram builtins, all built on top of the geometric
+// primitives delivered by Н81 (draw_connector, polar_to_xy) — no new
+// geometry is invented here.
+//
+//   Block 1 — diagram_sequence  (uses draw_connector)
+//   Block 2 — diagram_timeline  (uses svg_circle inline + horizontal line)
+//   Block 3 — diagram_gantt     (uses svg_rect inline)
+//   Block 4 — diagram_process   (uses draw_connector; NOT flowchart — strictly linear)
+//   Block 5 — diagram_loop      (uses polar_to_xy + draw_connector; closed cycle)
+//
+// All five reuse the DIAGRAM_CANVAS_W/H constants (600×400) defined above
+// for visual consistency with the Н81 diagram suite.
+
+// ── Block 1: diagram_sequence ──────────────────────────────────────
+//
+// UML-style sequence diagram: vertical "lifelines" for each actor,
+// horizontal arrows between lifelines for each message.
+//
+// Data shape:
+//   Struct {
+//     actors:   List<String>,                          // lifeline names
+//     messages: List<Struct { from, to, label? }>,     // arrows
+//   }
+//
+// Layout:
+//   - N actors → evenly spaced columns across canvas_w
+//   - Each actor: vertical dashed line top→bottom + name at top
+//   - Each message: horizontal arrow from actor[from] to actor[to]
+//     at Y = top_pad + msg_idx × step (top-down chronological order)
+//   - Non-adjacent messages (e.g. actor 0 → actor 3) draw a longer
+//     diagonal line — this is the spec's "проверить, что диагональные
+//     стрелки строятся корректно" requirement.
+//
+// Limits: actors.len() ≤ 8, messages.len() ≤ 30.
+
+// `diagram_sequence(data, style) -> String`
+//
+// Renders a UML-style sequence diagram. `data` is
+// `Struct { actors: List<String>, messages: List<Struct{from, to, label?}> }`.
+// Returns Err if:
+//   - actors is empty or > 8
+//   - messages > 30
+//   - a message references an unknown actor name
+
+// ── Наряд №83: Diagrams, part 3 — sets & comparisons ────────────────
+//
+// Five additional diagram builtins where area/intersection carries the
+// meaning (as opposed to nodes/edges in Н81–82). One of them
+// (diagram_medallion) reuses the existing svg_icon builtin's icon path
+// table — no new icon geometry is invented here.
+//
+//   Block 1 — diagram_venn     (2 or 3 semi-transparent circles)
+//   Block 2 — diagram_quadrant  (cross axes + scattered points in [-1,1]²)
+//   Block 3 — diagram_pyramid   (stacked trapezoids, top = apex)
+//   Block 4 — diagram_nested    (concentric circles, outer = first)
+//   Block 5 — diagram_medallion (row of round badges, reuses svg_icon)
+//
+// All five reuse the DIAGRAM_CANVAS_W/H constants (600×400) defined above
+// for visual consistency with the Н81–82 diagram suite.
+
+// ── Block 1: diagram_venn ───────────────────────────────────────────
+//
+// Venn-style overlap diagram. DELIBERATELY restricted to 2 or 3 circles
+// — the general N-circle case requires polygon intersection math and is
+// explicitly out of scope (see the narazd spec: "Не решать общую задачу
+// N-кругового Venn — строго 2 или 3, фиксированные симметричные позиции").
+//
+// Data shape:
+//   Struct {
+//     circles:      List<Struct { label: String, value: Float? }>,  // len == 2 or 3
+//     overlap_label: String?,                                       // optional center label
+//   }
+//
+// Geometry (fixed symmetric layouts — no overlap area computation):
+//   - 2 circles: centers offset horizontally by ±0.3×radius from canvas
+//     center; both have the same radius. The visible intersection is a
+//     symmetric lens shape.
+//   - 3 circles: centers at vertices of an equilateral triangle inscribed
+//     in a circle of radius `0.7×R / √3` around the canvas center, where
+//     R is the circle radius. Standard 3-set Venn layout — produces a
+//     visible central triple-overlap region.
+//
+// Circles use semi-transparent accent fill (opacity 0.35) so overlap
+// regions are visible as darker tones — same approach as chart_area's
+// translucent fill. Labels render at a fixed offset from each circle's
+// center (the spec explicitly says we don't compute non-overlapping
+// label regions — MVP).
+//
+// Limits: circles.len() must be 2 or 3 (any other count → Err).
+
+const VENN_CIRCLE_R: f64 = 110.0;
+const VENN_2_OFFSET: f64 = 66.0; // 0.6 × R / 2 — centers at ±0.3R
+const VENN_3_RING_R: f64 = 64.0; // ~ 0.7 × R / √3 — equilateral triangle circumradius
+
+/// `diagram_venn(data, style) -> String`
+///
+/// Renders a 2- or 3-circle Venn diagram with semi-transparent fills.
+/// `data` is `Struct { circles: List<Struct{label, value?}>, overlap_label? }`.
+///
+/// Returns Err if:
+///   - circles.len() is not 2 or 3
+///   - any circle is missing the `label` field
+pub fn builtin_diagram_venn(args: &[Value]) -> Result<Value, String> {
+    let data_value = args.first().cloned().unwrap_or(Value::Unit);
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    let data = match &data_value {
+        Value::Struct { fields, .. } => fields.clone(),
+        other => {
+            return Err(format!(
+                "diagram_venn: data must be Struct {{circles, overlap_label?}}, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    // Extract circles list
+    let circles_value = match data.get("circles") {
+        Some(Value::List(l)) => l.clone(),
+        Some(other) => {
+            return Err(format!(
+                "diagram_venn: circles must be List<Struct{{label, value?}}>, got {}",
+                other.type_name()
+            ));
+        }
+        None => {
+            return Err(
+                "diagram_venn: missing required field 'circles' (List<Struct{label, value?}>)"
+                    .to_string(),
+            );
+        }
+    };
+    // Validate count — explicitly restricted to 2 or 3 (no general N-case)
+    if circles_value.len() != 2 && circles_value.len() != 3 {
+        return Err(format!(
+            "diagram_venn: supports exactly 2 or 3 circles, got {}",
+            circles_value.len()
+        ));
+    }
+    // Extract each circle's label and optional value
+    struct VennCircle {
+        label: String,
+        value: Option<f64>,
+    }
+    let mut circles: Vec<VennCircle> = Vec::with_capacity(circles_value.len());
+    for (i, item) in circles_value.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_venn: circles[{}] must be Struct {{label, value?}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let label = struct_string_field("diagram_venn circle", f, "label")?;
+        let value = struct_opt_float_field(f, "value");
+        circles.push(VennCircle { label, value });
+    }
+    // Optional overlap_label — top-level field, not inside the list
+    let overlap_label = struct_opt_string_field(&data, "overlap_label");
+
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    let cx = canvas_w / 2.0;
+    let cy = canvas_h / 2.0;
+
+    // Compute circle centers for the requested layout.
+    let centers: Vec<(f64, f64)> = match circles.len() {
+        2 => vec![(cx - VENN_2_OFFSET, cy), (cx + VENN_2_OFFSET, cy)],
+        3 => {
+            // Equilateral triangle: angles 90°, 210°, 330° (measured from
+            // +x axis) — but we want one vertex pointing UP, so we use
+            // -π/2 (top), -π/2 + 2π/3 (lower-left), -π/2 + 4π/3 (lower-right).
+            // Same orientation convention as chart_radar / diagram_loop.
+            (0..3)
+                .map(|i| {
+                    let angle =
+                        -std::f64::consts::PI / 2.0 + 2.0 * std::f64::consts::PI * (i as f64) / 3.0;
+                    polar_to_xy(cx, cy, VENN_3_RING_R, angle)
+                })
+                .collect()
+        }
+        // Unreachable: count validated above, but the compiler doesn't know.
+        _ => unreachable!("diagram_venn count validated above"),
+    };
+
+    let mut parts: Vec<String> = Vec::new();
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+
+    // Circles — semi-transparent accent fill so overlaps are visible as
+    // darker tones. Stroke with accent at full opacity for crisp edges.
+    for (i, (ccx, ccy)) in centers.iter().enumerate() {
+        parts.push(format!(
+            r#"<circle cx="{}" cy="{}" r="{}" fill="{}" fill-opacity="0.35" stroke="{}" stroke-width="1.5" />"#,
+            fmt_num(*ccx),
+            fmt_num(*ccy),
+            fmt_num(VENN_CIRCLE_R),
+            escape_attr(&accent),
+            escape_attr(&accent)
+        ));
+        // Circle label — placed at a fixed offset from the circle center,
+        // AWAY from the canvas center, so the label sits outside the
+        // densest overlap area. Direction = (center - canvas_center).
+        let dx = *ccx - cx;
+        let dy = *ccy - cy;
+        let len = (dx * dx + dy * dy).sqrt();
+        let (nx, ny) = if len < 0.001 {
+            (0.0, -1.0) // fallback for 2-circle case where centers are horizontal
+        } else {
+            (dx / len, dy / len)
+        };
+        let label_x = *ccx + nx * (VENN_CIRCLE_R * 0.55);
+        let label_y = ccy + ny * (VENN_CIRCLE_R * 0.55) + 4.0;
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="13" font-weight="bold" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(label_x),
+            fmt_num(label_y),
+            escape_attr(&ink),
+            escape_html_chars(&circles[i].label)
+        ));
+        // Optional value — small muted text just below the label
+        if let Some(v) = circles[i].value {
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(label_x),
+                fmt_num(label_y + 14.0),
+                escape_attr(&muted),
+                escape_html_chars(&fmt_num(v))
+            ));
+        }
+    }
+
+    // Optional overlap_label — at canvas center (the visual centroid of
+    // all intersections for both 2- and 3-circle layouts).
+    if let Some(ol) = &overlap_label {
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="12" font-style="italic" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(cx),
+            fmt_num(cy + 4.0),
+            escape_attr(&muted),
+            escape_html_chars(ol)
+        ));
+    }
+
+    // Faint border around canvas — visual frame consistent with other diagrams
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="none" stroke="{}" stroke-width="1" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&rule)
+    ));
+
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+// ── Block 2: diagram_quadrant ───────────────────────────────────────
+//
+// 2×2 strategic quadrant chart (BCG-matrix style). Cross-shaped axes
+// through the canvas center, points scattered in the [-1, 1] × [-1, 1]
+// logical space.
+//
+// Data shape:
+//   Struct {
+//     x_axis_label: String,
+//     y_axis_label: String,
+//     items: List<Struct { label: String, x: Float, y: Float }>,
+//   }
+//
+// Geometry:
+//   - Horizontal axis: full-width line at canvas vertical center.
+//   - Vertical axis: full-height line at canvas horizontal center.
+//   - Axis labels: at the right end (x) and top end (y) of each axis.
+//   - For each item: pixel_x = cx + x × half_w, pixel_y = cy − y × half_h
+//     (y is inverted because SVG y grows downward). Circle marker +
+//     label text anchored to the right of the marker.
+//
+// Limits:
+//   - Any item.x or item.y outside [-1.0, 1.0] → Err
+//   - items.len() > 20 → Err (points would be visually indistinguishable)
+
+const QUADRANT_MAX_ITEMS: usize = 20;
+const QUADRANT_HALF_W: f64 = 250.0; // cx ± half_w → x range [50, 550] on 600 canvas
+const QUADRANT_HALF_H: f64 = 160.0; // cy ± half_h → y range [40, 360] on 400 canvas
+
+/// `diagram_quadrant(data, style) -> String`
+///
+/// Renders a 2×2 quadrant chart with cross axes and scattered points.
+/// `data` is `Struct { x_axis_label, y_axis_label, items: List<Struct{label, x, y}> }`.
+///
+/// Returns Err if:
+///   - any item.x or item.y is outside [-1.0, 1.0]
+///   - items.len() > 20
+///   - missing required fields
+pub fn builtin_diagram_quadrant(args: &[Value]) -> Result<Value, String> {
+    let data_value = args.first().cloned().unwrap_or(Value::Unit);
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    let data = match &data_value {
+        Value::Struct { fields, .. } => fields.clone(),
+        other => {
+            return Err(format!(
+                "diagram_quadrant: data must be Struct {{x_axis_label, y_axis_label, items}}, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    // Both axis labels are TOP-LEVEL fields (not inside the items list) —
+    // the spec explicitly calls this out as a category that's easy to
+    // forget in the security scanner.
+    let x_axis_label = struct_string_field("diagram_quadrant", &data, "x_axis_label")?;
+    let y_axis_label = struct_string_field("diagram_quadrant", &data, "y_axis_label")?;
+    let items_value = match data.get("items") {
+        Some(Value::List(l)) => l.clone(),
+        Some(other) => {
+            return Err(format!(
+                "diagram_quadrant: items must be List<Struct{{label, x, y}}>, got {}",
+                other.type_name()
+            ));
+        }
+        None => {
+            return Err(
+                "diagram_quadrant: missing required field 'items' (List<Struct{label, x, y}>)"
+                    .to_string(),
+            );
+        }
+    };
+    if items_value.is_empty() {
+        return Err("diagram_quadrant: items list must not be empty".to_string());
+    }
+    if items_value.len() > QUADRANT_MAX_ITEMS {
+        return Err(format!(
+            "diagram_quadrant: too many items ({}), maximum is {} — points would be visually indistinguishable",
+            items_value.len(),
+            QUADRANT_MAX_ITEMS
+        ));
+    }
+
+    struct QuadItem {
+        label: String,
+        x: f64,
+        y: f64,
+    }
+    let mut items: Vec<QuadItem> = Vec::with_capacity(items_value.len());
+    for (i, item) in items_value.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_quadrant: items[{}] must be Struct {{label, x, y}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let label = struct_string_field("diagram_quadrant item", f, "label")?;
+        let x = struct_float_field("diagram_quadrant item", f, "x")?;
+        let y = struct_float_field("diagram_quadrant item", f, "y")?;
+        // Range check — explicit error per the spec
+        if !(-1.0..=1.0).contains(&x) {
+            return Err(format!(
+                "diagram_quadrant: items[{}].x = {} is out of range [-1.0, 1.0]",
+                i, x
+            ));
+        }
+        if !(-1.0..=1.0).contains(&y) {
+            return Err(format!(
+                "diagram_quadrant: items[{}].y = {} is out of range [-1.0, 1.0]",
+                i, y
+            ));
+        }
+        items.push(QuadItem { label, x, y });
+    }
+
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    let cx = canvas_w / 2.0;
+    let cy = canvas_h / 2.0;
+
+    let mut parts: Vec<String> = Vec::new();
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+    // Faint quadrant divider tint — very light accent wash to suggest the
+    // four regions without obscuring the points. This is purely cosmetic;
+    // the axes themselves carry the structural meaning.
+    parts.push(format!(
+        r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" fill-opacity="0.05" />"#,
+        fmt_num(cx),
+        fmt_num(40.0),
+        fmt_num(QUADRANT_HALF_W),
+        fmt_num(QUADRANT_HALF_H),
+        escape_attr(&accent)
+    ));
+    // Horizontal axis (x-axis) — through vertical center
+    parts.push(format!(
+        r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1.5" />"#,
+        fmt_num(40.0),
+        fmt_num(cy),
+        fmt_num(canvas_w - 40.0),
+        fmt_num(cy),
+        escape_attr(&rule)
+    ));
+    // Vertical axis (y-axis) — through horizontal center
+    parts.push(format!(
+        r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1.5" />"#,
+        fmt_num(cx),
+        fmt_num(40.0),
+        fmt_num(cx),
+        fmt_num(canvas_h - 40.0),
+        escape_attr(&rule)
+    ));
+    // Axis labels — at the ends of each axis (x: right end, y: top end).
+    // These are top-level fields per the spec; they are NOT items[].label.
+    parts.push(format!(
+        r#"<text x="{}" y="{}" font-size="12" font-weight="bold" fill="{}" text-anchor="end">{}</text>"#,
+        fmt_num(canvas_w - 40.0),
+        fmt_num(cy - 8.0),
+        escape_attr(&ink),
+        escape_html_chars(&x_axis_label)
+    ));
+    parts.push(format!(
+        r#"<text x="{}" y="{}" font-size="12" font-weight="bold" fill="{}" text-anchor="middle">{}</text>"#,
+        fmt_num(cx),
+        fmt_num(32.0),
+        escape_attr(&ink),
+        escape_html_chars(&y_axis_label)
+    ));
+
+    // Items — circle marker + label
+    for item in items.iter() {
+        let px = cx + item.x * QUADRANT_HALF_W;
+        // SVG y grows downward, so positive logical y → smaller pixel y
+        let py = cy - item.y * QUADRANT_HALF_H;
+        parts.push(format!(
+            r#"<circle cx="{}" cy="{}" r="5" fill="{}" stroke="{}" stroke-width="1.5" />"#,
+            fmt_num(px),
+            fmt_num(py),
+            escape_attr(&accent),
+            escape_attr(&paper)
+        ));
+        // Label slightly offset to the right of the marker — simple MVP
+        // placement (the spec doesn't require collision avoidance).
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="11" fill="{}">{}</text>"#,
+            fmt_num(px + 8.0),
+            fmt_num(py + 4.0),
+            escape_attr(&muted),
+            escape_html_chars(&item.label)
+        ));
+    }
+
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+// ── Block 3: diagram_pyramid ────────────────────────────────────────
+//
+// Stacked trapezoidal layers forming a pyramid. CRITICAL ORDERING RULE:
+// the FIRST list element is the TOP (apex) — the narrowest layer. The
+// LAST element is the BOTTOM (base) — the widest layer. This matches the
+// natural top-down description of hierarchies (e.g. Maslow: "self-
+// actualization" first = top of pyramid). DO NOT FLIP.
+//
+// Data shape:
+//   List<Struct { label: String, value: Float? }>
+//
+// Geometry:
+//   - Pyramid centered horizontally at cx = canvas_w / 2.
+//   - Vertical extent: y ∈ [40, 360] (320 px tall, leaving 40 px margin
+//     top/bottom on the 400 px canvas).
+//   - Layer i (0-indexed from top):
+//       top_y    = 40 + i × layer_h
+//       bot_y    = 40 + (i+1) × layer_h
+//       top_w    = (i / N) × max_w     ← linearly proportional to position
+//       bot_w    = ((i+1) / N) × max_w
+//     When i=0 (apex), top_w=0 → the apex is a single point (degenerate
+//     trapezoid that's actually a triangle). This is the classic pyramid
+//     silhouette.
+//   - Trapezoid rendered as <path d="M ... L ... L ... L ... Z"> with
+//     4 explicit corner points (NOT a <rect> — the spec forbids that).
+//   - Label centered in each layer; optional value rendered as smaller
+//     muted text just below the label.
+//
+// Limits:
+//   - data.len() < 2 → Err (a 1-layer pyramid is meaningless)
+//   - data.len() > 6 → Err (layers become too thin vertically)
+
+const PYRAMID_MIN_LAYERS: usize = 2;
+const PYRAMID_MAX_LAYERS: usize = 6;
+const PYRAMID_TOP_Y: f64 = 40.0;
+const PYRAMID_BOT_Y: f64 = 360.0;
+const PYRAMID_MAX_W: f64 = 480.0; // canvas_w − 2 × 60 margin
+
+/// `diagram_pyramid(data, style) -> String`
+///
+/// Renders a pyramid of stacked trapezoids. `data` is
+/// `List<Struct{label, value?}>`. **The first element is the TOP (apex)
+/// of the pyramid** — see the ordering rule in the file-level comment.
+///
+/// Returns Err if:
+///   - data.len() < 2 or > 6
+pub fn builtin_diagram_pyramid(args: &[Value]) -> Result<Value, String> {
+    let data = expect_list_arg("diagram_pyramid", args, 0)?;
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    if data.len() < PYRAMID_MIN_LAYERS {
+        return Err(format!(
+            "diagram_pyramid: too few layers ({}), minimum is {} — a single-layer pyramid is meaningless",
+            data.len(),
+            PYRAMID_MIN_LAYERS
+        ));
+    }
+    if data.len() > PYRAMID_MAX_LAYERS {
+        return Err(format!(
+            "diagram_pyramid: too many layers ({}), maximum is {} — layers would become too thin vertically",
+            data.len(),
+            PYRAMID_MAX_LAYERS
+        ));
+    }
+    struct PyramidLayer {
+        label: String,
+        value: Option<f64>,
+    }
+    let mut layers: Vec<PyramidLayer> = Vec::with_capacity(data.len());
+    for (i, item) in data.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_pyramid: data[{}] must be Struct {{label, value?}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let label = struct_string_field("diagram_pyramid item", f, "label")?;
+        let value = struct_opt_float_field(f, "value");
+        layers.push(PyramidLayer { label, value });
+    }
+
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    let cx = canvas_w / 2.0;
+    let n = layers.len();
+    let pyramid_h = PYRAMID_BOT_Y - PYRAMID_TOP_Y;
+    let layer_h = pyramid_h / (n as f64);
+
+    let mut parts: Vec<String> = Vec::new();
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+
+    // Layers — top-down order is critical: layers[0] is the apex (top).
+    for (i, layer) in layers.iter().enumerate() {
+        let top_y = PYRAMID_TOP_Y + (i as f64) * layer_h;
+        let bot_y = PYRAMID_TOP_Y + ((i + 1) as f64) * layer_h;
+        // Linearly proportional widths: top_w = (i/N) × max_w
+        // For i=0 (apex): top_w = 0 → triangle silhouette
+        let top_w = (i as f64 / n as f64) * PYRAMID_MAX_W;
+        let bot_w = ((i + 1) as f64 / n as f64) * PYRAMID_MAX_W;
+        // 4 corner points of the trapezoid (clockwise from top-left)
+        let tl_x = cx - top_w / 2.0;
+        let tr_x = cx + top_w / 2.0;
+        let br_x = cx + bot_w / 2.0;
+        let bl_x = cx - bot_w / 2.0;
+        // Alternate fill: even layers get accent at low opacity, odd get
+        // muted at low opacity — visual differentiation without heavy
+        // color noise. (Same alternating pattern as diagram_layers.)
+        let fill_color = if i % 2 == 0 { &accent } else { &muted };
+        // Trapezoid as <path> with 4 explicit points + Z (NOT a <rect>).
+        parts.push(format!(
+            r#"<path d="M {} {} L {} {} L {} {} L {} {} Z" fill="{}" fill-opacity="0.18" stroke="{}" stroke-width="1.5" />"#,
+            fmt_num(tl_x),
+            fmt_num(top_y),
+            fmt_num(tr_x),
+            fmt_num(top_y),
+            fmt_num(br_x),
+            fmt_num(bot_y),
+            fmt_num(bl_x),
+            fmt_num(bot_y),
+            escape_attr(fill_color),
+            escape_attr(fill_color)
+        ));
+        // Label — centered horizontally, vertically at the middle of the
+        // layer. For very narrow apex layers (i=0 with top_w=0), the
+        // label may overflow horizontally — we accept that as MVP.
+        let label_y = (top_y + bot_y) / 2.0 + 4.0;
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="13" font-weight="bold" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(cx),
+            fmt_num(label_y),
+            escape_attr(&ink),
+            escape_html_chars(&layer.label)
+        ));
+        // Optional value — small muted text below the label
+        if let Some(v) = layer.value {
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(cx),
+                fmt_num(label_y + 14.0),
+                escape_attr(&muted),
+                escape_html_chars(&fmt_num(v))
+            ));
+        }
+    }
+
+    // Faint canvas border
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="none" stroke="{}" stroke-width="1" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&rule)
+    ));
+
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+// ── Block 4: diagram_nested ─────────────────────────────────────────
+//
+// Concentric circles — outermost ring is the FIRST list element,
+// innermost is the LAST. Useful for "onion" or "scope" diagrams where
+// each layer wraps the ones inside it.
+//
+// Data shape:
+//   List<Struct { label: String, value: Float? }>
+//
+// Geometry:
+//   - All circles centered at canvas center (cx, cy).
+//   - Outermost radius = max_r; innermost = max_r / N (linear steps).
+//   - Ring i radius: r_i = max_r × (N − i) / N
+//     so r_0 = max_r (outermost) and r_{N-1} = max_r / N (innermost).
+//   - Light fill so inner circles remain visible — alternating accent
+//     and muted at very low opacity (0.08). Stroke at full opacity.
+//   - Labels placed at the top of each ring (12 o'clock position),
+//     stacked vertically as the rings get smaller. This is the MVP
+//     placement — pointer lines to a side legend would be the polished
+//     version, deferred per the spec ("решить по месту — MVP").
+//
+// Limits:
+//   - data.len() > 5 → Err (rings become indistinguishably thin)
+
+const NESTED_MAX_RINGS: usize = 5;
+const NESTED_MAX_R: f64 = 160.0; // limited by canvas_h/2 − 40 margin
+
+/// `diagram_nested(data, style) -> String`
+///
+/// Renders concentric circles. `data` is `List<Struct{label, value?}>`.
+/// The FIRST element is the OUTERMOST ring; the LAST is the innermost.
+///
+/// Returns Err if:
+///   - data is empty
+///   - data.len() > 5
+pub fn builtin_diagram_nested(args: &[Value]) -> Result<Value, String> {
+    let data = expect_list_arg("diagram_nested", args, 0)?;
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    if data.is_empty() {
+        return Err("diagram_nested: data list must not be empty".to_string());
+    }
+    if data.len() > NESTED_MAX_RINGS {
+        return Err(format!(
+            "diagram_nested: too many rings ({}), maximum is {} — rings would become indistinguishably thin",
+            data.len(),
+            NESTED_MAX_RINGS
+        ));
+    }
+    struct NestedRing {
+        label: String,
+        value: Option<f64>,
+    }
+    let mut rings: Vec<NestedRing> = Vec::with_capacity(data.len());
+    for (i, item) in data.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_nested: data[{}] must be Struct {{label, value?}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let label = struct_string_field("diagram_nested item", f, "label")?;
+        let value = struct_opt_float_field(f, "value");
+        rings.push(NestedRing { label, value });
+    }
+
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    let cx = canvas_w / 2.0;
+    let cy = canvas_h / 2.0;
+    let n = rings.len();
+
+    let mut parts: Vec<String> = Vec::new();
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+
+    // Rings — draw OUTERMOST first (so inner rings render on top of it).
+    // rings[0] = outermost, so iterating in natural order gives the right
+    // z-order: outer fill is laid down first, inner strokes overwrite it.
+    for (i, ring) in rings.iter().enumerate() {
+        let r = NESTED_MAX_R * (n as f64 - i as f64) / (n as f64);
+        // Alternating fill — very low opacity so nested rings remain
+        // distinguishable without darkening the center excessively.
+        let fill_color = if i % 2 == 0 { &accent } else { &muted };
+        parts.push(format!(
+            r#"<circle cx="{}" cy="{}" r="{}" fill="{}" fill-opacity="0.08" stroke="{}" stroke-width="1.5" />"#,
+            fmt_num(cx),
+            fmt_num(cy),
+            fmt_num(r),
+            escape_attr(fill_color),
+            escape_attr(fill_color)
+        ));
+        // Label at top of each ring (12 o'clock position). Stacked
+        // vertically as rings get smaller — simple MVP placement.
+        let label_y = cy - r + 14.0;
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="11" font-weight="bold" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(cx),
+            fmt_num(label_y),
+            escape_attr(&ink),
+            escape_html_chars(&ring.label)
+        ));
+        // Optional value — small muted text below the label
+        if let Some(v) = ring.value {
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="9" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(cx),
+                fmt_num(label_y + 12.0),
+                escape_attr(&muted),
+                escape_html_chars(&fmt_num(v))
+            ));
+        }
+    }
+
+    // Faint canvas border
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="none" stroke="{}" stroke-width="1" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&rule)
+    ));
+
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+// ── Block 5: diagram_medallion ──────────────────────────────────────
+//
+// Row of round "medallion" badges. Each medallion optionally contains
+// an icon (reusing the existing svg_icon builtin's path table — see
+// icon_path_data) or the first letter of the label as a fallback.
+//
+// Data shape:
+//   List<Struct { icon: String?, label: String, value: Float? }>
+//
+// `icon` is optional. When present, it MUST be one of the 10 known
+// svg_icon names (server, laptop, phone, database, cloud, arrow-right,
+// check, warning, user, document). Unknown names produce the SAME ERROR
+// TEXT that svg_icon itself produces — we deliberately reuse icon_path_data
+// for validation rather than duplicating the name list here (per the
+// spec: "не дублировать список имён иконок").
+//
+// Geometry:
+//   - Row of N medallions, centered horizontally on the canvas.
+//   - Each medallion: 60 px diameter circle, 24 px gap between centers.
+//   - Medallion center Y = 160 (leaves room for label + value below).
+//   - If icon specified: 24×24 icon centered inside the medallion.
+//   - Else: first character of label, large bold text, centered.
+//   - Label below medallion (12 px font, centered).
+//   - Optional value: smaller muted text below label.
+//
+// Limits:
+//   - data.len() > 6 → Err (medallions won't fit horizontally)
+
+const MEDALLION_MAX_ITEMS: usize = 6;
+const MEDALLION_D: f64 = 60.0; // diameter
+const MEDALLION_GAP: f64 = 24.0; // center-to-center gap above diameter
+const MEDALLION_CY: f64 = 160.0;
+const MEDALLION_ICON_SIZE: f64 = 28.0; // icon fits inside the 60px circle
+
+/// `diagram_medallion(data, style) -> String`
+///
+/// Renders a row of round medallion badges. `data` is
+/// `List<Struct{icon?, label, value?}>`. Icons reuse the svg_icon builtin's
+/// validation (no name list duplication).
+///
+/// Returns Err if:
+///   - data is empty
+///   - data.len() > 6
+///   - icon is present but not one of the 10 known names (error text
+///     comes from icon_path_data's validation, identical to svg_icon)
+pub fn builtin_diagram_medallion(args: &[Value]) -> Result<Value, String> {
+    let data = expect_list_arg("diagram_medallion", args, 0)?;
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    if data.is_empty() {
+        return Err("diagram_medallion: data list must not be empty".to_string());
+    }
+    if data.len() > MEDALLION_MAX_ITEMS {
+        return Err(format!(
+            "diagram_medallion: too many items ({}), maximum is {} — medallions won't fit horizontally on the canvas",
+            data.len(),
+            MEDALLION_MAX_ITEMS
+        ));
+    }
+    struct Medallion {
+        icon: Option<String>,
+        label: String,
+        value: Option<f64>,
+    }
+    let mut medallions: Vec<Medallion> = Vec::with_capacity(data.len());
+    for (i, item) in data.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_medallion: data[{}] must be Struct {{icon?, label, value?}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let icon = struct_opt_string_field(f, "icon");
+        let label = struct_string_field("diagram_medallion item", f, "label")?;
+        let value = struct_opt_float_field(f, "value");
+        // Validate icon name by reusing icon_path_data — this is the
+        // spec-mandated "don't duplicate the icon name list" pattern.
+        // If icon is Some(name) and name is unknown, we return the same
+        // shape of error that builtin_svg_icon would, but with the
+        // diagram_medallion: prefix so callers can attribute the failure
+        // to the builtin they actually called.
+        if let Some(ref name) = icon {
+            if icon_path_data(name).is_none() {
+                return Err(format!(
+                    "diagram_medallion: unknown icon name '{}'. Available: server, laptop, phone, database, cloud, arrow-right, check, warning, user, document",
+                    name
+                ));
+            }
+        }
+        medallions.push(Medallion { icon, label, value });
+    }
+
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    let n = medallions.len();
+    // total_width = N × D + (N−1) × GAP (center-to-center spacing = D + GAP)
+    let total_width = (n as f64) * MEDALLION_D + ((n as f64) - 1.0) * MEDALLION_GAP;
+    let start_x = (canvas_w - total_width) / 2.0 + MEDALLION_D / 2.0;
+
+    let mut parts: Vec<String> = Vec::new();
+    // Background
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+
+    for (i, m) in medallions.iter().enumerate() {
+        let cx = start_x + (i as f64) * (MEDALLION_D + MEDALLION_GAP);
+        let cy = MEDALLION_CY;
+        let r = MEDALLION_D / 2.0;
+        // Medallion circle — paper fill, accent stroke (visual emphasis)
+        parts.push(format!(
+            r#"<circle cx="{}" cy="{}" r="{}" fill="{}" stroke="{}" stroke-width="2" />"#,
+            fmt_num(cx),
+            fmt_num(cy),
+            fmt_num(r),
+            escape_attr(&paper),
+            escape_attr(&accent)
+        ));
+        // Content: icon (if specified) OR first letter of label (fallback).
+        if let Some(ref icon_name) = m.icon {
+            // Reuse icon_path_data with proper error propagation — same
+            // pattern as builtin_svg_icon (line 2879). The early validation
+            // in the parse loop above already rejects unknown names, so this
+            // branch is effectively unreachable for valid inputs; but we
+            // still propagate via `?` rather than `unwrap()` because the
+            // project denies clippy::unwrap_used unconditionally.
+            let path_data = icon_path_data(icon_name).ok_or_else(|| {
+                format!(
+                    "diagram_medallion: unknown icon name '{}'. Available: server, laptop, phone, database, cloud, arrow-right, check, warning, user, document",
+                    icon_name
+                )
+            })?;
+            let scale = MEDALLION_ICON_SIZE / 24.0;
+            let icon_x = cx - MEDALLION_ICON_SIZE / 2.0;
+            let icon_y = cy - MEDALLION_ICON_SIZE / 2.0;
+            // Inline the same <svg> wrapper that builtin_svg_icon produces,
+            // so the icon is positioned correctly inside the medallion.
+            // We do NOT call builtin_svg_icon directly because it returns
+            // a Value::String (extra unwrap) and we already have the path
+            // data from the validation step above.
+            parts.push(format!(
+                r#"<svg x="{}" y="{}" width="{}" height="{}" viewBox="0 0 24 24"><g transform="scale({})"><path d="{}" stroke="{}" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></g></svg>"#,
+                fmt_num(icon_x),
+                fmt_num(icon_y),
+                fmt_num(MEDALLION_ICON_SIZE),
+                fmt_num(MEDALLION_ICON_SIZE),
+                fmt_num(scale),
+                path_data,
+                escape_attr(&ink)
+            ));
+        } else {
+            // Fallback: first character of the label, large bold text.
+            // Char-based slicing is safe here because m.label is a valid
+            // UTF-8 String; chars().next() gives us the first grapheme.
+            let first_char = m.label.chars().next().unwrap_or('?');
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="24" font-weight="bold" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(cx),
+                fmt_num(cy + 8.0),
+                escape_attr(&accent),
+                escape_html_chars(&first_char.to_string())
+            ));
+        }
+        // Label below medallion
+        let label_y = cy + r + 18.0;
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="12" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(cx),
+            fmt_num(label_y),
+            escape_attr(&ink),
+            escape_html_chars(&m.label)
+        ));
+        // Optional value — smaller muted text below label
+        if let Some(v) = m.value {
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(cx),
+                fmt_num(label_y + 14.0),
+                escape_attr(&muted),
+                escape_html_chars(&fmt_num(v))
+            ));
+        }
+    }
+
+    // Faint canvas border
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="none" stroke="{}" stroke-width="1" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&rule)
+    ));
+
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+// ── Наряд №84: Diagrams, part 4 — data & state ───────────────────────
+//
+// Six new diagram builtins (the largest single narazd in the diagram
+// series). Three of them (data_flow, high_level, architecture) share
+// the same `Struct{nodes, edges}` graph shape and the generalized
+// topological_layers / bfs_layers_with_cycles helpers from Block 4;
+// they differ only in (a) which layer function they call and (b) how
+// they render each node box (plain rect, large labeled block, or
+// block with svg_icon).
+//
+//   Block 1 — diagram_er         (entity-relation grid; no graph layout)
+//   Block 2 — diagram_state      (state machine, BFS layout, cycles OK)
+//   Block 3 — diagram_swimlane   (vertical lanes, steps positioned by order)
+//   Block 5 — diagram_data_flow  (graph, BFS layout, cycles OK)
+//   Block 6 — diagram_high_level + diagram_architecture
+//                              (graph, topological, no cycles; arch has icons)
+//
+// All reuse DIAGRAM_CANVAS_W/H (600×400) for visual consistency with
+// the Н81–83 diagram suite.
+
+// ── Block 1: diagram_er ─────────────────────────────────────────────
+//
+// Entity-Relationship diagram. Each entity is a rectangle split into
+// a header (entity name) and a body listing its fields. Relations are
+// drawn as connectors between entity box edges, with the optional
+// relation label (e.g. "1:N", "1:1") placed at the line midpoint.
+//
+// Layout is a SIMPLE GRID (3 per row) — the spec is explicit:
+// "Не решать общую задачу graph layout для diagram_er — простая сетка,
+// не анализ связей для позиционирования." ER diagrams routinely
+// contain cycles (bidirectional relationships, many-to-many), so the
+// topological sort from Block 4 doesn't apply here.
+//
+// Limits: entities.len() ≤ 12, fields.len() ≤ 8 per entity.
+
+const ER_MAX_ENTITIES: usize = 12;
+const ER_MAX_FIELDS: usize = 8;
+const ER_PER_ROW: usize = 3;
+const ER_BOX_W: f64 = 160.0;
+const ER_BOX_HEADER_H: f64 = 22.0;
+const ER_FIELD_H: f64 = 14.0;
+const ER_BOX_PADDING: f64 = 14.0;
+const ER_GRID_GAP_X: f64 = 30.0;
+const ER_GRID_GAP_Y: f64 = 30.0;
+const ER_GRID_TOP: f64 = 30.0;
+
+struct ErEntity {
+    name: String,
+    fields: Vec<String>,
+}
+
+struct ErRelation {
+    from: String,
+    to: String,
+    label: Option<String>,
+}
+
+/// `diagram_er(data, style) -> String`
+///
+/// `data` is `Struct { entities: List<Struct{name, fields: List<String>}>,
+/// relations: List<Struct{from, to, label?}> }`.
+///
+/// Returns Err if entities.len() > 12, fields.len() > 8 for any entity,
+/// or a relation endpoint doesn't match any entity name.
+pub fn builtin_diagram_er(args: &[Value]) -> Result<Value, String> {
+    let data_value = args.first().cloned().unwrap_or(Value::Unit);
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    let fields = match &data_value {
+        Value::Struct { fields, .. } => fields,
+        other => {
+            return Err(format!(
+                "diagram_er: data must be Struct {{entities, relations}}, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    let entities_val = fields
+        .get("entities")
+        .ok_or_else(|| "diagram_er: missing 'entities' field".to_string())?;
+    let relations_val = fields
+        .get("relations")
+        .ok_or_else(|| "diagram_er: missing 'relations' field".to_string())?;
+    let entities_list = match entities_val {
+        Value::List(items) => items,
+        other => {
+            return Err(format!(
+                "diagram_er: 'entities' must be List, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    let relations_list = match relations_val {
+        Value::List(items) => items,
+        other => {
+            return Err(format!(
+                "diagram_er: 'relations' must be List, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    if entities_list.is_empty() {
+        return Err("diagram_er: entities list must not be empty".to_string());
+    }
+    if entities_list.len() > ER_MAX_ENTITIES {
+        return Err(format!(
+            "diagram_er: too many entities ({}), maximum is {} — grid would overflow the canvas",
+            entities_list.len(),
+            ER_MAX_ENTITIES
+        ));
+    }
+    let mut entities: Vec<ErEntity> = Vec::with_capacity(entities_list.len());
+    let mut entity_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (i, item) in entities_list.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_er: entities[{}] must be Struct {{name, fields}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let name = struct_string_field("diagram_er entity", f, "name")?;
+        if !entity_names.insert(name.clone()) {
+            return Err(format!(
+                "diagram_er: duplicate entity name {:?} at entities[{}]",
+                name, i
+            ));
+        }
+        let fields_list = match f.get("fields") {
+            Some(Value::List(items)) => items,
+            Some(other) => {
+                return Err(format!(
+                    "diagram_er: entities[{}].fields must be List<String>, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+            None => {
+                return Err(format!(
+                    "diagram_er: entities[{}] missing required 'fields' field",
+                    i
+                ));
+            }
+        };
+        if fields_list.len() > ER_MAX_FIELDS {
+            return Err(format!(
+                "diagram_er: entities[{}].fields has {} entries, maximum is {} — box would be too tall",
+                i,
+                fields_list.len(),
+                ER_MAX_FIELDS
+            ));
+        }
+        let mut fields_vec: Vec<String> = Vec::with_capacity(fields_list.len());
+        for (j, f_item) in fields_list.iter().enumerate() {
+            let field_name = match f_item {
+                Value::String(s) => s.clone(),
+                other => {
+                    return Err(format!(
+                        "diagram_er: entities[{}].fields[{}] must be String, got {}",
+                        i,
+                        j,
+                        other.type_name()
+                    ));
+                }
+            };
+            fields_vec.push(field_name);
+        }
+        entities.push(ErEntity {
+            name,
+            fields: fields_vec,
+        });
+    }
+    let mut relations: Vec<ErRelation> = Vec::with_capacity(relations_list.len());
+    for (i, item) in relations_list.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_er: relations[{}] must be Struct {{from, to, label?}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let from = struct_string_field("diagram_er relation", f, "from")?;
+        let to = struct_string_field("diagram_er relation", f, "to")?;
+        let label = struct_opt_string_field(f, "label");
+        if !entity_names.contains(&from) {
+            return Err(format!(
+                "diagram_er: relations[{}].from references unknown entity {:?}",
+                i, from
+            ));
+        }
+        if !entity_names.contains(&to) {
+            return Err(format!(
+                "diagram_er: relations[{}].to references unknown entity {:?}",
+                i, to
+            ));
+        }
+        relations.push(ErRelation { from, to, label });
+    }
+
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    // Simple grid: ER_PER_ROW entities per row, fixed box width.
+    let n = entities.len();
+    let n_rows = n.div_ceil(ER_PER_ROW).max(1);
+    // Compute box heights (depend on field count per entity).
+    let box_height =
+        |e: &ErEntity| ER_BOX_HEADER_H + (e.fields.len() as f64) * ER_FIELD_H + ER_BOX_PADDING;
+    let row_h: Vec<f64> = (0..n_rows)
+        .map(|r| {
+            (0..ER_PER_ROW)
+                .filter_map(|c| {
+                    let idx = r * ER_PER_ROW + c;
+                    if idx < n {
+                        Some(box_height(&entities[idx]))
+                    } else {
+                        None
+                    }
+                })
+                .fold(0.0_f64, f64::max)
+        })
+        .collect();
+    let total_grid_h: f64 = row_h.iter().sum::<f64>() + (n_rows as f64 - 1.0) * ER_GRID_GAP_Y;
+    // Center the grid vertically.
+    let grid_top = ((canvas_h - total_grid_h) / 2.0).max(ER_GRID_TOP);
+    // Position each entity box on the grid.
+    let mut name_to_box: std::collections::HashMap<String, (f64, f64, f64, f64)> =
+        std::collections::HashMap::new();
+    let mut cursor_y = grid_top;
+    let total_row_w = (ER_PER_ROW as f64) * ER_BOX_W + ((ER_PER_ROW as f64) - 1.0) * ER_GRID_GAP_X;
+    let grid_left = ((canvas_w - total_row_w) / 2.0).max(ER_GRID_GAP_X);
+    for (r, row_max_h) in row_h.iter().enumerate() {
+        for c in 0..ER_PER_ROW {
+            let idx = r * ER_PER_ROW + c;
+            if idx >= n {
+                break;
+            }
+            let x = grid_left + (c as f64) * (ER_BOX_W + ER_GRID_GAP_X);
+            let h = box_height(&entities[idx]);
+            // Vertically center each box in its row cell.
+            let y = cursor_y + ((*row_max_h) - h) / 2.0;
+            name_to_box.insert(entities[idx].name.clone(), (x, y, ER_BOX_W, h));
+        }
+        cursor_y += *row_max_h + ER_GRID_GAP_Y;
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+    // Relations first (so entity boxes render on top of any clipped line).
+    for rel in &relations {
+        let (fx, fy, fw, fh) = name_to_box.get(&rel.from).cloned().ok_or_else(|| {
+            format!(
+                "diagram_er: internal error — entity {:?} not in position map",
+                rel.from
+            )
+        })?;
+        let (tx, ty, tw, th) = name_to_box.get(&rel.to).cloned().ok_or_else(|| {
+            format!(
+                "diagram_er: internal error — entity {:?} not in position map",
+                rel.to
+            )
+        })?;
+        // Use box centers as connector endpoints; box_edge_point trims
+        // the line back to the actual box boundary.
+        let from_cx = fx + fw / 2.0;
+        let from_cy = fy + fh / 2.0;
+        let to_cx = tx + tw / 2.0;
+        let to_cy = ty + th / 2.0;
+        let (sx, sy) = box_edge_point(from_cx, from_cy, to_cx, to_cy, fw, fh);
+        let (ex, ey) = box_edge_point(to_cx, to_cy, from_cx, from_cy, tw, th);
+        parts.push(draw_connector(sx, sy, ex, ey, &style));
+        if let Some(label) = &rel.label {
+            let mid_x = (sx + ex) / 2.0;
+            let mid_y = (sy + ey) / 2.0 - 6.0;
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(mid_x),
+                fmt_num(mid_y),
+                escape_attr(&muted),
+                escape_html_chars(label)
+            ));
+        }
+    }
+    // Entity boxes
+    for entity in &entities {
+        let (x, y, w, h) = name_to_box.get(&entity.name).cloned().ok_or_else(|| {
+            format!(
+                "diagram_er: internal error — entity {:?} not in position map (render pass)",
+                entity.name
+            )
+        })?;
+        // Box body (paper fill, rule stroke).
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" stroke="{}" stroke-width="1.5" />"#,
+            fmt_num(x),
+            fmt_num(y),
+            fmt_num(w),
+            fmt_num(h),
+            escape_attr(&paper),
+            escape_attr(&rule)
+        ));
+        // Header bar (accent fill, paper text) — visually separates name from fields.
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" />"#,
+            fmt_num(x),
+            fmt_num(y),
+            fmt_num(w),
+            fmt_num(ER_BOX_HEADER_H),
+            escape_attr(&accent)
+        ));
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="12" font-weight="bold" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(x + w / 2.0),
+            fmt_num(y + ER_BOX_HEADER_H - 6.0),
+            escape_attr(&paper),
+            escape_html_chars(&entity.name)
+        ));
+        // Fields listed below the header, one per line.
+        for (i, field) in entity.fields.iter().enumerate() {
+            let fy = y + ER_BOX_HEADER_H + (i as f64 + 1.0) * ER_FIELD_H;
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="11" fill="{}">{}</text>"#,
+                fmt_num(x + 8.0),
+                fmt_num(fy),
+                escape_attr(&ink),
+                escape_html_chars(field)
+            ));
+        }
+    }
+    // Canvas border
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="none" stroke="{}" stroke-width="1" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&rule)
+    ));
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}
+
+// ── Block 2: diagram_state ──────────────────────────────────────────
+//
+// State machine diagram. States are rendered as rounded rectangles
+// (radius 14 — visually distinct from flowchart's 4 to signal "this is
+// a state, not a step"). Transitions use draw_connector; self-loops
+// (A→A) are VALID here (a common state-machine construct: a state that
+// transitions to itself on a specific event) — unlike diagram_flowchart
+// where a self-loop is rejected as a trivial cycle.
+//
+// Layout: BFS from the `initial` state (or first state if `initial` not
+// specified), treating edges as undirected for layering — this lets
+// cyclic state machines lay out sanely. See bfs_layers_with_cycles
+// (Block 4) for the algorithm.
+//
+// If `initial` is specified, we draw a small "entry arrow" — a short
+// arrow with no source, terminating at the initial state's left edge.
+// This is the classical state-machine notation for "the start state".
+//
+// Limits: states.len() ≤ 10.
+
+const STATE_MAX_STATES: usize = 10;
+const STATE_NODE_W: f64 = 110.0;
+const STATE_NODE_H: f64 = 40.0;
+const STATE_NODE_RX: f64 = 14.0;
+
+struct StateTransition {
+    from: String,
+    to: String,
+    label: Option<String>,
+}
+
+/// `diagram_state(data, style) -> String`
+///
+/// `data` is `Struct { states: List<String>, transitions: List<Struct{from, to, label?}>, initial: String? }`.
+///
+/// Cycles and self-loops in transitions are VALID (state machines are
+/// inherently cyclic). `initial`, if specified, must be one of `states`.
+pub fn builtin_diagram_state(args: &[Value]) -> Result<Value, String> {
+    let data_value = args.first().cloned().unwrap_or(Value::Unit);
+    let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
+    let style = extract_style(&style_value)?;
+    let fields = match &data_value {
+        Value::Struct { fields, .. } => fields,
+        other => {
+            return Err(format!(
+                "diagram_state: data must be Struct {{states, transitions, initial?}}, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    let states_val = fields
+        .get("states")
+        .ok_or_else(|| "diagram_state: missing 'states' field".to_string())?;
+    let transitions_val = fields
+        .get("transitions")
+        .ok_or_else(|| "diagram_state: missing 'transitions' field".to_string())?;
+    let states_list = match states_val {
+        Value::List(items) => items,
+        other => {
+            return Err(format!(
+                "diagram_state: 'states' must be List<String>, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    let transitions_list = match transitions_val {
+        Value::List(items) => items,
+        other => {
+            return Err(format!(
+                "diagram_state: 'transitions' must be List, got {}",
+                other.type_name()
+            ));
+        }
+    };
+    if states_list.is_empty() {
+        return Err("diagram_state: states list must not be empty".to_string());
+    }
+    if states_list.len() > STATE_MAX_STATES {
+        return Err(format!(
+            "diagram_state: too many states ({}), maximum is {} — diagram would be unreadable",
+            states_list.len(),
+            STATE_MAX_STATES
+        ));
+    }
+    let mut states: Vec<String> = Vec::with_capacity(states_list.len());
+    let mut state_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (i, item) in states_list.iter().enumerate() {
+        let name = match item {
+            Value::String(s) => s.clone(),
+            other => {
+                return Err(format!(
+                    "diagram_state: states[{}] must be String, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        if !state_set.insert(name.clone()) {
+            return Err(format!(
+                "diagram_state: duplicate state name {:?} at states[{}]",
+                name, i
+            ));
+        }
+        states.push(name);
+    }
+    let mut transitions: Vec<StateTransition> = Vec::with_capacity(transitions_list.len());
+    for (i, item) in transitions_list.iter().enumerate() {
+        let f = match item {
+            Value::Struct { fields, .. } => fields,
+            other => {
+                return Err(format!(
+                    "diagram_state: transitions[{}] must be Struct {{from, to, label?}}, got {}",
+                    i,
+                    other.type_name()
+                ));
+            }
+        };
+        let from = struct_string_field("diagram_state transition", f, "from")?;
+        let to = struct_string_field("diagram_state transition", f, "to")?;
+        let label = struct_opt_string_field(f, "label");
+        if !state_set.contains(&from) {
+            return Err(format!(
+                "diagram_state: transitions[{}].from references unknown state {:?}",
+                i, from
+            ));
+        }
+        if !state_set.contains(&to) {
+            return Err(format!(
+                "diagram_state: transitions[{}].to references unknown state {:?}",
+                i, to
+            ));
+        }
+        transitions.push(StateTransition { from, to, label });
+    }
+    let initial = struct_opt_string_field(fields, "initial");
+    if let Some(ref init) = initial {
+        if !state_set.contains(init) {
+            return Err(format!(
+                "diagram_state: initial {:?} is not in states list",
+                init
+            ));
+        }
+    }
+    let root = initial
+        .clone()
+        .unwrap_or_else(|| states.first().cloned().unwrap_or_default());
+    // Build edge pairs for the layering function.
+    let edge_pairs: Vec<(String, String)> = transitions
+        .iter()
+        .map(|t| (t.from.clone(), t.to.clone()))
+        .collect();
+    let layers = bfs_layers_with_cycles(&states, &edge_pairs, &root);
+
+    let ink = style_token(&style, "ink").unwrap_or_else(|_| "#2d3142".to_string());
+    let paper = style_token(&style, "paper").unwrap_or_else(|_| "#ffffff".to_string());
+    let accent = style_token(&style, "accent").unwrap_or_else(|_| "#eb6c36".to_string());
+    let muted = style_token(&style, "muted").unwrap_or_else(|_| "#4f5d75".to_string());
+    let rule = style_token(&style, "rule").unwrap_or_else(|_| "#cccccc".to_string());
+
+    let canvas_w = DIAGRAM_CANVAS_W;
+    let canvas_h = DIAGRAM_CANVAS_H;
+    let n_layers = layers.len();
+    let layer_h = (canvas_h - 80.0) / (n_layers as f64).max(1.0);
+    let mut id_to_pos: std::collections::HashMap<String, (f64, f64)> =
+        std::collections::HashMap::new();
+    for (layer_idx, layer_states) in layers.iter().enumerate() {
+        let count = layer_states.len();
+        let y_center = 40.0 + (layer_idx as f64 + 0.5) * layer_h;
+        let total_w = canvas_w - 80.0;
+        let step = if count > 1 {
+            total_w / (count as f64 - 1.0)
+        } else {
+            0.0
+        };
+        let start_x = if count > 1 { 40.0 } else { canvas_w / 2.0 };
+        for (i, id) in layer_states.iter().enumerate() {
+            let x_center = start_x + (i as f64) * step;
+            id_to_pos.insert(id.clone(), (x_center, y_center));
+        }
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="{}" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&paper)
+    ));
+    // Entry arrow for `initial` — short horizontal arrow ending at the
+    // state's left edge, with no source (visually "from nowhere").
+    if let Some(ref init) = initial {
+        if let Some(&(cx, cy)) = id_to_pos.get(init) {
+            let ex = cx - STATE_NODE_W / 2.0;
+            let sx = ex - 30.0;
+            parts.push(draw_connector(sx, cy, ex, cy, &style));
+        }
+    }
+    // Transitions — including self-loops (A→A), which we render as a
+    // small curved arrow above the state box. Self-loops are VALID in
+    // state machines (unlike flowchart where they're a hard error).
+    for t in &transitions {
+        if t.from == t.to {
+            // Self-loop: small loop above the node.
+            if let Some(&(cx, cy)) = id_to_pos.get(&t.from) {
+                let top_y = cy - STATE_NODE_H / 2.0;
+                let loop_r = 12.0;
+                let arc_cx = cx;
+                let arc_cy = top_y - loop_r;
+                // Half-circle path from left base to right base, drawn
+                // ABOVE the node. Arrowhead points down at the right base.
+                parts.push(format!(
+                    r#"<path d="M {} {} A {} {} 0 0 1 {} {}" fill="none" stroke="{}" stroke-width="1.5" />"#,
+                    fmt_num(cx - loop_r),
+                    fmt_num(top_y),
+                    fmt_num(loop_r),
+                    fmt_num(loop_r),
+                    fmt_num(cx + loop_r),
+                    fmt_num(top_y),
+                    escape_attr(&rule)
+                ));
+                // Arrowhead at the right base, pointing down into the node.
+                parts.push(format!(
+                    r#"<path d="M {} {} L {} {} L {} {} Z" fill="{}" stroke="none" />"#,
+                    fmt_num(cx + loop_r),
+                    fmt_num(top_y),
+                    fmt_num(cx + loop_r - 4.0),
+                    fmt_num(top_y - 6.0),
+                    fmt_num(cx + loop_r + 4.0),
+                    fmt_num(top_y - 6.0),
+                    escape_attr(&rule)
+                ));
+                if let Some(label) = &t.label {
+                    parts.push(format!(
+                        r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+                        fmt_num(arc_cx),
+                        fmt_num(arc_cy - 4.0),
+                        escape_attr(&muted),
+                        escape_html_chars(label)
+                    ));
+                }
+            }
+            continue;
+        }
+        let (from_x, from_y) = id_to_pos.get(&t.from).cloned().ok_or_else(|| {
+            format!(
+                "diagram_state: internal error — state {:?} not in position map",
+                t.from
+            )
+        })?;
+        let (to_x, to_y) = id_to_pos.get(&t.to).cloned().ok_or_else(|| {
+            format!(
+                "diagram_state: internal error — state {:?} not in position map",
+                t.to
+            )
+        })?;
+        let (sx, sy) = box_edge_point(from_x, from_y, to_x, to_y, STATE_NODE_W, STATE_NODE_H);
+        let (ex, ey) = box_edge_point(to_x, to_y, from_x, from_y, STATE_NODE_W, STATE_NODE_H);
+        parts.push(draw_connector(sx, sy, ex, ey, &style));
+        if let Some(label) = &t.label {
+            let mid_x = (sx + ex) / 2.0;
+            let mid_y = (sy + ey) / 2.0 - 6.0;
+            parts.push(format!(
+                r#"<text x="{}" y="{}" font-size="10" fill="{}" text-anchor="middle">{}</text>"#,
+                fmt_num(mid_x),
+                fmt_num(mid_y),
+                escape_attr(&muted),
+                escape_html_chars(label)
+            ));
+        }
+    }
+    // State boxes (rounded rects, larger rx than flowchart for visual distinction).
+    for (id, (cx, cy)) in &id_to_pos {
+        let is_initial = initial.as_deref() == Some(id.as_str());
+        let box_x = cx - STATE_NODE_W / 2.0;
+        let box_y = cy - STATE_NODE_H / 2.0;
+        // Initial state gets an accent border + bolder outline (visual emphasis).
+        let stroke = if is_initial { &accent } else { &rule };
+        let stroke_w = if is_initial { 2.5 } else { 1.5 };
+        parts.push(format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" rx="{}" ry="{}" fill="{}" stroke="{}" stroke-width="{}" />"#,
+            fmt_num(box_x),
+            fmt_num(box_y),
+            fmt_num(STATE_NODE_W),
+            fmt_num(STATE_NODE_H),
+            fmt_num(STATE_NODE_RX),
+            fmt_num(STATE_NODE_RX),
+            escape_attr(&paper),
+            escape_attr(stroke),
+            fmt_num(stroke_w)
+        ));
+        parts.push(format!(
+            r#"<text x="{}" y="{}" font-size="12" fill="{}" text-anchor="middle">{}</text>"#,
+            fmt_num(*cx),
+            fmt_num(cy + 4.0),
+            escape_attr(&ink),
+            escape_html_chars(id)
+        ));
+    }
+    parts.push(format!(
+        r#"<rect x="0" y="0" width="{}" height="{}" fill="none" stroke="{}" stroke-width="1" />"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        escape_attr(&rule)
+    ));
+    let body = parts.join("\n");
+    Ok(Value::String(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">{}</svg>"#,
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        fmt_num(canvas_w),
+        fmt_num(canvas_h),
+        body
+    )))
+}

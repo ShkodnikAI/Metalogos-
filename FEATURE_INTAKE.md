@@ -196,7 +196,7 @@ Naming a builtin after its first use case: `telegram_send_voice_as_alloy` instea
 | New dependencies per version | — | 2 | 5 |
 | Compile time (clean) | ~60s | 90s | 120s |
 | Binary size (Linux x86_64) | ~6MB | 8MB | 12MB |
-| Per-module LOC (any `src/builtins/*.rs`) | 3 170 | 4 000 | 5 000 |
+| Per-module LOC (any `src/builtins/*.rs`) | 3 170 (`pdf.rs`) | 4 000 | 5 000 |
 
 When a warning threshold is hit, the next feature intake MUST justify why it should still be Tier 1.
 

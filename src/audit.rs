@@ -174,8 +174,12 @@ fn get_expr_taint(expr: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
             if fn_name == "render" || fn_name == "escape_html" {
                 return Some(TaintKind::Sanitized);
             }
-            // env() is a secret source even with no tainted args
-            if fn_name == "env" {
+            // env() and secret() are secret sources even with no tainted args.
+            // Наряд №172: secret() has the same taint as env() — both produce
+            // TaintKind::Secret. binding_taint above also handles this, but
+            // get_expr_taint is called for inline calls like respond(secret("K"))
+            // where there's no intermediate let-binding to taint.
+            if fn_name == "env" || fn_name == "secret" {
                 return Some(TaintKind::Secret);
             }
             // Propagate taint from first tainted argument
@@ -216,7 +220,7 @@ fn binding_taint(value: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
     if let Expr::FnCall { name: fn_name, .. } = value {
         match fn_name.as_str() {
             "call_llm" | "call_claude" => return Some(TaintKind::LlmOutput),
-            "env" => return Some(TaintKind::Secret),
+            "env" | "secret" => return Some(TaintKind::Secret),
             "render" | "escape_html" => return Some(TaintKind::Sanitized),
             "form_data" | "json_body" | "query_param" => return Some(TaintKind::UserInput),
             _ => {}

@@ -313,7 +313,10 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("sha256", 1, "crypto"; builtin_sha256),
     spec!("hmac_sha256", 2, "crypto"; builtin_hmac_sha256),
     spec!("hex_encode", 1, "crypto"; builtin_hex_encode),
-    spec!("hex_decode", 1, "crypto"; builtin_hex_decode), // ── Regex (Наряд №54; builtin_hex_decode) ──
+    spec!("hex_decode", 1, "crypto"; builtin_hex_decode),
+    // Наряд №172: secret() — reads env var as Value::Secret directly
+    // (hard-failure if missing, unlike env() which returns empty string).
+    spec!("secret", 1, "crypto"; builtin_secret), // ── Regex (Наряд №54; builtin_hex_decode) ──
     spec!("regex_match", 2, "string"; builtin_regex_match),
     spec!("regex_captures", 2, "string"; builtin_regex_captures),
     spec!("regex_replace", 3, "string"; builtin_regex_replace), // ── PDF office automation (Наряд MLG-3; builtin_regex_replace) ──

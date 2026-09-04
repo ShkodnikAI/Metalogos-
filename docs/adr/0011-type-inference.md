@@ -1,6 +1,11 @@
 # ADR-0011: Type Inference, Error Recovery, and Branch Overlap Detection
 
-**Status:** Implemented
+**Status:** Partially Implemented — multi-error reporting (done, see
+`src/semantic.rs::AnalysisResult` with `errors: Vec<SpannedError>` since
+наряда №165); type inference and branch overlap detection deferred — no
+code in tree as of v0.18.0; revisit if/when typed flows return (see
+ADR-0107 Float-only decision).
+
 **Date:** 2026-05-31
 **Milestone:** Phase 2
 

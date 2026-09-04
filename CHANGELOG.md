@@ -1077,6 +1077,28 @@ improvements since v0.12.0.**
 
 ---
 
+## [0.8.x] — archived (not formalized in this CHANGELOG)
+
+Versions 0.8.0 through 0.8.9 were released informally (no git tags) and
+their highlights were not captured in this CHANGELOG at the time. The
+README.md version-highlights table still references them; the entries
+there are the best summary available without reconstructing from
+individual commits.
+
+If you need the precise per-commit history for 0.8.x:
+
+```bash
+git log --oneline --grep="0\.8\." --reverse
+```
+
+Future naryads may formalize 0.8.x sections here by extracting
+highlights from the actual commit history (Наряд №166 Block 2 noted
+this gap; recovery requires verifying each highlight against the
+real commit, not invented descriptions — see ADR-0110 §2
+"contract before code").
+
+---
+
 ## [0.3.0] — Phases 1–4: Core language, types, ML, ecosystem
 
 **Probabilistic types, ML backend, knowledge graph, vector recall, LSP, packages.**

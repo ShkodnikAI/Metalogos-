@@ -11,7 +11,7 @@ until the data-flow shape is fixed.
 | check_id | Threat | Source → Sink | OWASP | Mitigation |
 |---|---|---|---|---|
 | `SQL_DYNAMIC` | SQL injection | Non-literal SQL string → `query()` | A03 Injection | Reject `query()` unless the SQL argument is a string literal. Only parameterized queries compile. |
-| `SECRET_LEAK` | Plaintext secret leakage | `env()` / `secret()` → `respond()`, `write_file()`, `http_post()` body | A02 Cryptographic Failures | Taint-tracking: `env()` result is opaque (`Secret` type at runtime); audit rejects if it reaches a network or response sink. |
+| `SECRET_LEAK` | Plaintext secret leakage | `env()` → `respond()`, `write_file()`, `http_post()` body | A02 Cryptographic Failures | Static taint-tracking: `env()` result is flagged as secret-derived (Category A). Audit rejects if the tainted value reaches a network or response sink. Runtime opacity (`Value::Secret`) is enforced **only when the value is bound to a `Secret`-typed entity** (`entity k: Secret = env("KEY")`); a bare `env()` call returns a plain `String`. |
 | `HTML_INJECTION` | XSS via LLM output | `call_llm()` / `call_claude()` / `call_gemini()` → `respond()` without sanitization | A03 Injection | Requires `render()` or `escape_html()` between LLM source and `respond()`. Single-level inline nesting (e.g. `respond(upper(call_llm(...)))`) is detected; deeper nesting is a known boundary. |
 
 ## Category B — Advisory (Severity::Warning)
@@ -43,7 +43,7 @@ Patterns the audit does **not** detect (see README for full table):
 
 These are not audit checks but contribute to the overall threat posture:
 
-- **Opaque `Secret` type**: `env()` returns `Secret` at runtime; string concatenation and direct output are blocked. Only authorized sinks (SQL parameters, HTTP headers) can extract the value.
+- **Opaque `Secret` type**: opacity is enforced **when the value is bound to a `Secret`-typed entity** (`entity k: Secret = env("KEY")` → `Value::Secret`, zeroized on drop, `print`/concat blocked at runtime). A bare `env()` call returns a plain `String` — protection is then static-only (Category A taint).
 - **SSRF prevention**: `http_get` / `http_post` reject private/internal IP ranges unless `METALOGOS_HTTP_ALLOW_PRIVATE=1` is set.
 - **Sandbox timeout**: `sandbox { timeout: N }` cancels the *wait* at the deadline (preemptive via `mpsc::recv_timeout`). The in-flight HTTP request to the LLM provider may still complete.
 - **File access sandbox**: `sandbox_path()` resolves symlinks via `canonicalize()` and verifies the path stays within the allowed base directory.

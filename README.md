@@ -173,7 +173,7 @@ Metalogos-/
 ├── logo.jpg                          # Brand logo
 ├── README.md                         # This file
 ├── REFERENCE.md                      # Full builtin reference (~68 KB)
-├── CHANGELOG.md                      # Version history (45 KB)
+├── CHANGELOG.md                      # Version history (~72 KB)
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
 ├── Dockerfile                        # Docker build
@@ -253,14 +253,15 @@ Metalogos-/
 │   ├── crosscheck_backends.rs          # TW vs VM parity (see ADR-0105 for known gaps)
 │   ├── repl_integration.rs            # REPL tests
 │   ├── definition_of_done.rs          # Project completeness validation
-│   └── ...                            # Contract + feature tests (59 files)
+│   └── ...                            # Contract + feature tests (70 files)
 │
-├── examples/                          # 185 .mlog programs
+├── examples/                          # 188 .mlog programs (golden corpus)
 │   ├── m1_hello.mlog                  # Hello World
 │   ├── p6_full_app.mlog               # Full web app with routes
 │   ├── p23_ml_learn.mlog              # ML learning
 │   ├── dag_demo.mlog                  # DAG orchestration
-│   └── contracts/                     # Golden-file test contracts
+│   ├── contracts/                     # Golden-file test contracts
+│   └── debug/                          # Bug-reproduction files (not golden contracts)
 │
 ├── std/                               # Standard library (4 .mlog files)
 │   ├── string.mlog
@@ -368,7 +369,7 @@ release binary — see [ADR-0104](docs/adr/0104-feature-gating-measured-impact.m
 
 ### Native SVG/Graphics Subsystem
 
-43 builtins, hand-rolled in pure Rust — zero external SVG/charting/
+44 builtins, hand-rolled in pure Rust — zero external SVG/charting/
 rendering dependencies. Every text-carrying function is covered by a
 dedicated static security lint (`SVG_AUTO_ESCAPE_BUILTINS` /
 `SVG_NO_ESCAPE_BUILTINS`), the same "unsafe by construction" discipline
@@ -572,14 +573,14 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 |---|---|
 | Effective Rust LOC | ~59 000 |
 | Built-in Functions | 357 (35 modules) |
-| Example Programs | 185 |
-| Integration Tests | 59 test suites |
-| Architecture Decision Records | 109 |
+| Example Programs | 188 |
+| Integration Tests | 70 test suites |
+| Architecture Decision Records | 110 |
 | Parser Rules | 262 (Pest PEG) |
 | VM Instructions | 46 |
 | Execution Backends | 2 (interpreter + bytecode VM) |
 | Workspace Crates | 3 (mlog, mlog-lsp, mlogpkg) |
-| Commits | 821 |
+| Commits | See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) — live value |
 | License | MIT / Apache-2.0 |
 
 ---
@@ -625,7 +626,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 357 builtins, 54 test files, 186 golden-file examples, 109 ADRs. 781 commits.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 357 builtins, 70 test files, 188 golden-file examples, 110 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

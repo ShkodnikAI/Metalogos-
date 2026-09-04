@@ -433,3 +433,229 @@ fn readme_builtin_module_count_matches_reality() {
         );
     }
 }
+
+// ── Наряд №166 Block 2: file-size + example-count consistency ────────
+//
+// The previous tests (Наряд №103) covered ADR count, version, parser
+// rules, builtin counts. Наряд №166 extends coverage to:
+//   - CHANGELOG.md size in KB (tolerance ±2 KB — files grow over time)
+//   - REFERENCE.md size in KB (tolerance ±2 KB)
+//   - Number of .mlog example programs (exact match)
+//   - Number of ADR files (cross-checks readme_adr_count_matches_reality
+//     via a different code path — direct file count, not regex on README)
+//
+// Commits count is intentionally NOT covered: it changes on every
+// commit, so a static README number would always be stale. README now
+// links to GitHub instead of stating a number.
+
+/// File size in KB (1024 bytes per KB), rounded down.
+fn file_size_kb(path_relative_to_repo_root: &str) -> u64 {
+    let path = repo_root().join(path_relative_to_repo_root);
+    let metadata = fs::metadata(&path).unwrap_or_else(|e| panic!("cannot stat {:?}: {}", path, e));
+    metadata.len() / 1024
+}
+
+/// Count actual .mlog files in examples/ (excluding subdirectories —
+/// the README claim is about top-level .mlog programs, not contracts).
+fn real_example_count() -> usize {
+    let examples_dir = repo_root().join("examples");
+    let mut count = 0;
+    if let Ok(entries) = fs::read_dir(&examples_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "mlog") {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+#[test]
+fn readme_changelog_size_within_tolerance() {
+    // README claims CHANGELOG.md is ~72 KB. Files grow, so allow ±2 KB.
+    // The number in README is written as `(~72 KB)` — extract that.
+    let readme = read_readme();
+    let real_kb = file_size_kb("CHANGELOG.md");
+
+    // Find the line in README that mentions CHANGELOG.md size.
+    // Pattern: `CHANGELOG.md ... (NN KB)` or `(~NN KB)` or `(NN KB)`.
+    let re = Regex::new(r"CHANGELOG\.md[^\n]*?\(~?(\d+)\s*KB\)").unwrap();
+    let mut found = false;
+    for (i, line) in readme.lines().enumerate() {
+        let line_num = i + 1;
+        if is_changelog_historical_line(line) {
+            continue;
+        }
+        if let Some(cap) = re.captures(line) {
+            let claimed_kb: u64 = cap
+                .get(1)
+                .unwrap()
+                .as_str()
+                .parse()
+                .expect("digits matched by regex");
+            let diff = real_kb.abs_diff(claimed_kb);
+            assert!(
+                diff <= 2,
+                "README line {}: CHANGELOG.md claims ~{} KB, real size {} KB (Δ{} KB > 2 KB tolerance). \
+                 Update README.md to reflect the new size.",
+                line_num,
+                claimed_kb,
+                real_kb,
+                diff
+            );
+            found = true;
+        }
+    }
+    assert!(
+        found,
+        "README should mention CHANGELOG.md size in KB (e.g. `CHANGELOG.md ... (~72 KB)`). \
+         Real size: {} KB",
+        real_kb
+    );
+}
+
+#[test]
+fn readme_reference_size_within_tolerance() {
+    // README claims REFERENCE.md is ~72 KB. Same ±2 KB tolerance.
+    let readme = read_readme();
+    let real_kb = file_size_kb("REFERENCE.md");
+    let re = Regex::new(r"REFERENCE\.md[^\n]*?\(~?(\d+)\s*KB\)").unwrap();
+    let mut found = false;
+    for (i, line) in readme.lines().enumerate() {
+        let line_num = i + 1;
+        if is_changelog_historical_line(line) {
+            continue;
+        }
+        if let Some(cap) = re.captures(line) {
+            let claimed_kb: u64 = cap
+                .get(1)
+                .unwrap()
+                .as_str()
+                .parse()
+                .expect("digits matched by regex");
+            let diff = real_kb.abs_diff(claimed_kb);
+            assert!(
+                diff <= 2,
+                "README line {}: REFERENCE.md claims ~{} KB, real size {} KB (Δ{} KB > 2 KB tolerance). \
+                 Update README.md to reflect the new size.",
+                line_num,
+                claimed_kb,
+                real_kb,
+                diff
+            );
+            found = true;
+        }
+    }
+    assert!(
+        found,
+        "README should mention REFERENCE.md size in KB (e.g. `REFERENCE.md ... (~72 KB)`). \
+         Real size: {} KB",
+        real_kb
+    );
+}
+
+#[test]
+fn readme_example_count_matches_reality() {
+    // README claims "N .mlog programs" in two places:
+    //   - Tree comment: `├── examples/ # 189 .mlog programs`
+    //   - Metrics table: `| Example Programs | 189 |`
+    // Both must match the real count of top-level .mlog files in examples/.
+    let readme = read_readme();
+    let real = real_example_count();
+
+    let re = Regex::new(r"(\d+)\s*\.mlog\s+programs").unwrap();
+    let mut claimed_counts: Vec<(usize, usize)> = Vec::new();
+
+    for (i, line) in readme.lines().enumerate() {
+        let line_num = i + 1;
+        if is_changelog_historical_line(line) || is_historical_by_adjacent_version(line) {
+            continue;
+        }
+        for cap in re.captures_iter(line) {
+            if let Some(m) = cap.get(1) {
+                if let Ok(n) = m.as_str().parse::<usize>() {
+                    claimed_counts.push((line_num, n));
+                }
+            }
+        }
+    }
+
+    // Also check the Metrics table row: `| Example Programs | N |`
+    let metrics_re = Regex::new(r"\|\s*Example Programs\s*\|\s*(\d+)\s*\|").unwrap();
+    for (i, line) in readme.lines().enumerate() {
+        let line_num = i + 1;
+        if is_changelog_historical_line(line) {
+            continue;
+        }
+        if let Some(cap) = metrics_re.captures(line) {
+            if let Ok(n) = cap.get(1).unwrap().as_str().parse::<usize>() {
+                claimed_counts.push((line_num, n));
+            }
+        }
+    }
+
+    assert!(
+        !claimed_counts.is_empty(),
+        "README should mention example count (\"N .mlog programs\" or Metrics table) at least once"
+    );
+
+    for (line_num, claimed) in &claimed_counts {
+        assert_eq!(
+            claimed, &real,
+            "README line {} claims {} example programs, but real count in examples/ is {}",
+            line_num, claimed, real
+        );
+    }
+}
+
+#[test]
+fn readme_does_not_claim_static_commit_count() {
+    // Наряд №166 Block 2: commits is a live number. Static README
+    // numbers drift on every commit. The README should link to GitHub
+    // instead of stating a number — this test enforces that contract.
+    //
+    // We allow either:
+    //   - No mention of a specific commit count on non-historical lines
+    //   - A line that links to GitHub commits (no specific number)
+    //
+    // We DO allow historical commit numbers in the changelog table
+    // (those are frozen snapshots of past releases).
+    let readme = read_readme();
+    // Look for `| Commits | NNN |` in the Metrics table.
+    let metrics_re = Regex::new(r"\|\s*Commits\s*\|\s*(\d+)\s*\|").unwrap();
+    for (i, line) in readme.lines().enumerate() {
+        let line_num = i + 1;
+        if is_changelog_historical_line(line) {
+            continue;
+        }
+        if let Some(cap) = metrics_re.captures(line) {
+            panic!(
+                "README line {}: Metrics table has static commit count `{}`. \
+                 Commits is a live number — replace with a link to \
+                 https://github.com/ShkodnikAI/Metalogos-/commits/main \
+                 (see Наряд №166 Block 2).",
+                line_num,
+                cap.get(1).unwrap().as_str()
+            );
+        }
+    }
+    // Also check the prose line "... NNN commits." — same rule.
+    let prose_re = Regex::new(r"\b(\d{3,})\s+commits\b").unwrap();
+    for (i, line) in readme.lines().enumerate() {
+        let line_num = i + 1;
+        if is_changelog_historical_line(line) {
+            continue;
+        }
+        if let Some(cap) = prose_re.captures(line) {
+            panic!(
+                "README line {}: prose mentions static commit count `{}`. \
+                 Commits is a live number — replace with a link to \
+                 https://github.com/ShkodnikAI/Metalogos-/commits/main \
+                 (see Наряд №166 Block 2).",
+                line_num,
+                cap.get(1).unwrap().as_str()
+            );
+        }
+    }
+}

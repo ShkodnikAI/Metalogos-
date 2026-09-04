@@ -429,6 +429,11 @@ let data = http_get("https://api.example.com/users", env("API_TOKEN"))
 | `json_get(obj, field_path)` | `Struct, String -> Value` | Value | Доступ к полю по dot-path. Возвращает **реальное значение** (в т.ч. String). Если поле отсутствует или SQL NULL — возвращает Unit. Поддерживает dot-path: `"voice.file_id"` |
 | `json_get(obj, field_path, default)` | `Struct, String, Value -> Value` | Value | С дефолтным значением при отсутствии поля или SQL NULL (v0.9.6) |
 | `has_field(obj, field_path)` | `Struct, String -> Float` | Float | `1.0` если поле существует, `0.0` если нет. Поддерживает dot-path |
+| `dict_get(dict, key, default)` | `Struct, String, Any -> Any` | Any | Доступ к ключу dict-style. Возвращает `default` если ключ отсутствует. Не поддерживает dot-path (для этого есть `json_get`) |
+| `dict_set(dict, key, value)` | `Struct, String, Any -> Struct` | Struct | Возвращает **новый** Struct с обновлённым ключом. Исходный dict не мутируется |
+| `dict_has(dict, key)` | `Struct, String -> Bool` | Bool | `true` если ключ существует в dict. Прямая проверка (без dot-path) |
+| `dict_keys(dict)` | `Struct -> List` | List | Возвращает список всех ключей dict |
+| `dict_values(dict)` | `Struct -> List` | List | Возвращает список всех значений dict (порядок соответствует `dict_keys`) |
 | `escape_json(text)` | `String -> String` | String | Экранирует спецсимволы для встраивания в JSON |
 
 **Примеры:**
@@ -517,6 +522,32 @@ let results = recall_top_k("предпочтения пользователя", 
 let all = recall_top_k("проект", 10.0, "")
 ```
 
+### 4.9.2. Memory Tree (mtree) — многоуровневая память (наряд №63)
+
+Иерархическая память L0 (raw) → L1 (cluster summary) → L2 (high-level).
+Графовая структура с поиском путей и извлечением подграфов.
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `mtree_store(text, source?)` | `String, String? -> String` | String (id) | Сохраняет текст как L0-узел. `source` по умолчанию `"user"`. Возвращает ID узла. Score для admission вычисляется по длине/уникальности |
+| `mtree_retrieve(query, limit?)` | `String, Float? -> String` | String (JSON) | Поиск по графу памяти. `limit` по умолчанию 5. Возвращает JSON-массив узлов с метаданными |
+| `mtree_forget(id)` | `String -> Float` | Float | Удаляет узел по ID. Возвращает `1.0` если существовал, `0.0` если нет |
+| `mtree_summarize()` | `-> Unit` | Unit | L0 → L1 → L2 кластеризация. Группирует L0-узлы в L1-summaries, L1 в L2. Idempotent — повторный вызов пересчитывает summaries |
+| `mtree_stats()` | `-> Dict` | Dict | Возвращает `MemoryStats { l0_count, l1_count, l2_count, total_nodes, edges }` |
+
+### 4.9.3. Граф памяти: пути и подграфы
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `graph_query(query, limit?, level_filter?)` | `String, Float?, String? -> String` | String (JSON) | Поиск по графу с опциональным фильтром уровня (`"L0"`, `"L1"`, `"L2"`). `limit` по умолчанию 5 |
+| `graph_path(from_id, to_id)` | `String, String -> String` | String (JSON) | Кратчайший путь между двумя узлами. Возвращает JSON-массив узлов в пути. Пустой массив если пути нет |
+| `graph_neighbors(id)` | `String -> String` | String (JSON) | Соседи узла (прямые связи). JSON-массив узлов |
+| `subgraph_extract(root_id, depth)` | `String, Float -> String` | String (JSON) | Извлекает подграф от `root_id` на глубину `depth`. JSON с узлами и рёбрами |
+| `subgraph_nodes(root_id, depth)` | `String, Float -> String` | String (JSON) | Только узлы подграфа (без рёбер). JSON-массив узлов |
+| `subgraph_json(root_id, depth)` | `String, Float -> String` | String (JSON) | Полный подграф как JSON (nodes + edges). Готов для визуализации |
+| `trace_start(label)` | `String -> String` | String (id) | Начинает trace-сегмент с меткой. Возвращает trace_id |
+| `trace_end(trace_id)` | `String -> Dict` | Dict | Завершает trace-сегмент. Возвращает `TraceResult { id, label, duration_ms }` |
+
 ### 4.10. Сессионная память
 
 Временное in-memory хранилище, привязанное к session_id. Не персистентно — сбрасывается при перезапуске `mlog serve`.
@@ -537,6 +568,10 @@ let all = recall_top_k("проект", 10.0, "")
 | `decrypt(encrypted, key)` | `Encrypted, Secret -> String` | String | Расшифровывает AES-256-GCM. Ошибка при неверном ключе |
 | `hash_password(password)` | `String -> Hash` | Hash | Хеширует пароль (Argon2id с рандомной солью) |
 | `verify_password(password, hash)` | `String, Hash -> Bool` | Bool | Проверяет пароль (constant-time сравнение) |
+| `sha256(text)` | `String -> String` | String | SHA-256 хеш, hex-представление (64 символа). Unicode-aware: хеширует UTF-8 байты |
+| `hmac_sha256(key, message)` | `String, String -> String` | String | HMAC-SHA256 с ключом, hex-представление (64 символа) |
+| `hex_encode(text)` | `String -> String` | String | Кодирует строку в hex (UTF-8 байты → hex символы) |
+| `hex_decode(hex_str)` | `String -> String` | String | Декодирует hex в строку. Невалидный UTF-8 → `<binary: N bytes>` placeholder |
 | `require(condition)` | `Bool -> Unit` | Unit | Runtime-assertion. Ошибка если `false` |
 | `require(condition, message)` | `Bool, String -> Unit` | Unit | Assertion с сообщением об ошибке |
 
@@ -648,6 +683,63 @@ schema my_dept {
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|
 | `print(s)` | `String -> String` | String | Выводит строку в stdout, возвращает её же |
+| `base64_encode(s)` | `String -> String` | String | Кодирует строку в Base64 (standard alphabet). Unicode-aware: кодирует UTF-8 байты |
+| `base64_decode(s)` | `String -> String` | String | Декодирует Base64. Ошибка если невалидный Base64 или не UTF-8 |
+| `toon_encode(value)` | `Any -> String` | String | Кодирует значение в TOON (Token-Optimized Object Notation). Префикс `TOON:`. Любой Value → строка |
+| `toon_decode(s)` | `String -> Any` | Value | Декодирует TOON-строку обратно в Value. Recursive descent parser |
+| `assert_eq(actual, expected)` | `Any, Any -> Any` | Any | Runtime-equality assertion. Возвращает actual при успехе, паникует с `actual != expected` |
+| `assert_contains(haystack, needle)` | `Any, Any -> Unit` | Unit | Паникует если строковое представление `needle` не найдено в `haystack` |
+
+### 4.17.1. OpenPlanter-inspired system builtins
+
+> Источник: наряд №64 (OpenPlanter agent utilities). Используются в
+> агент-флоу для бюджет-aware выполнения, снимков состояния и
+> безопасного exec.
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `budget_check(step, total_steps)` | `Float, Float -> Dict` | Dict | Возвращает `BudgetStatus { step, total_steps, remaining, fraction, over_budget }`. Ошибка если `total_steps == 0` |
+| `replay_snapshot(data)` | `List -> Dict` | Dict | Сериализует список значений в JSON-снимок. Возвращает `ReplaySnapshot { seq, items, json, created_at }`. seq=0 — полный снимок, seq=N — delta |
+| `policy_check(command)` | `String -> Dict` | Dict | Проверяет команду на соответствие policy: heredoc `<<`, pipe `|`, background `&`, redirect `>`. Возвращает `PolicyResult { command, allowed, reason }` |
+
+### 4.17.2. Fluid-type контроль бюджета
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `budget_check(step, total_steps)` | `Float, Float -> Dict` | Dict | (См. 4.17.1 — указан в категории `system`, также используется в fluid-пайплайнах для контроля лавины правок) |
+
+### 4.17.3. Cron-планировщик (наряд №35)
+
+Персистентный cron-планировщик для отложенных задач. Jobs сохраняются в
+JSON и переживают перезапуск процесса. Выражения — стандартный 5-field
+cron (`min hour dom month dow`).
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `cron_add(cron_expr, prompt)` | `String, String -> String` | String (id) | Добавляет cron-job. `cron_expr` — 5-field cron (например `"0 9 * * 1-5"` — каждый будний день в 9:00). `prompt` — что запускать. Возвращает ID job'а |
+| `cron_list()` | `-> List` | List | Список всех cron-jobs. Каждый элемент — `CronJob { id, cron_expr, prompt, force_run, run_count, last_run, created_at }` |
+| `cron_remove(id)` | `String -> Float` | Float | Удаляет job по ID. Возвращает `1.0` если удалён, `0.0` если не найден |
+| `cron_run(id)` | `String -> Float` | Float | Принудительно запускает job вне расписания (ставит `force_run=true`). Возвращает `1.0` если найден, `0.0` если нет |
+| `cron_mark_fired(id)` | `String -> Float` | Float | Помечает job как выполненный: сбрасывает `force_run`, инкрементирует `run_count`, обновляет `last_run`. Возвращает `1.0` если найден, `0.0` если нет |
+
+### 4.17.4. Время и даты
+
+Все функции работают с Unix timestamps (Float, секунды с эпохи 1970-01-01).
+Локальная таймзона используется для `format_date` / `weekday_name` /
+`date_parts` (на сервере — таймзона процесса).
+
+| Функция | Сигнатура | Возврат | Описание |
+|---------|-----------|---------|----------|
+| `time()` | `-> Float` | Float | Текущий Unix timestamp (секунды с эпохи). Высокая точность (sub-second) |
+| `sleep(seconds)` | `Float -> Unit` | Unit | Блокирует текущий поток на `seconds` секунд. Использовать осторожно в `mlog serve` — блокирует обработку запроса |
+| `format_date(fmt?, timestamp?)` | `String?, Float? -> String` | String | Форматирует timestamp по strftime-строке. `fmt` по умолчанию `"%Y-%m-%d %H:%M:%S"`. `timestamp` по умолчанию — текущий момент |
+| `date_parts(timestamp?)` | `Float? -> Dict` | Dict | Возвращает `DateParts { year, month, day, hour, minute, second, weekday }`. `timestamp` по умолчанию — текущий момент |
+| `days_between(ts1, ts2)` | `Float, Float -> Float` | Float | Абсолютная разница между двумя timestamps в днях. `|ts1 - ts2| / 86400` |
+| `days_in_month(year, month)` | `Float, Float -> Float` | Float | Число дней в месяце. `month` — 1-12. Ошибка если месяц вне диапазона. Учитывает високосные годы |
+| `is_leap_year(year)` | `Float -> Bool` | Bool | `true` если год високосный (Gregorian rules) |
+| `add_days(timestamp, days)` | `Float, Float -> Float` | Float | Прибавляет `days` к timestamp. Отрицательные `days` — вычитание. `ts + days * 86400` |
+| `add_hours(timestamp, hours)` | `Float, Float -> Float` | Float | Прибавляет `hours` к timestamp. Отрицательные `hours` — вычитание. `ts + hours * 3600` |
+| `weekday_name(timestamp)` | `Float -> String` | String | Название дня недели (локализованное через chrono::Local). Например `"Monday"` |
 
 ### 4.18. PDF (Наряд №48, pdf-inspector)
 

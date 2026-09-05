@@ -180,25 +180,23 @@ pub(crate) fn builtin_tanh(args: &[Value]) -> Result<Value, String> {
 /// Numerically stable: for x >= 0 uses 1/(1+exp(-x)),
 /// for x < 0 uses exp(x)/(1+exp(x)) — avoids overflow in exp.
 /// Returns 1.0 for very large positive x, 0.0 for very large negative x.
+///
+/// Наряд №182: the f64 math lives in `super::math_core::sigmoid_raw` —
+/// shared with `nn/activation.rs` to eliminate the pre-Наряд №182
+/// duplication of the numerically stable algorithm between this
+/// `Value`-wrapping handler and the layer-level `&mut [f64]` apply.
 pub(crate) fn builtin_sigmoid(args: &[Value]) -> Result<Value, String> {
     let x = expect_float_arg("sigmoid", args, 0)?;
-    let result = if x >= 0.0 {
-        // For x >= 0: exp(-x) is in (0, 1], no overflow risk.
-        // 1.0 / (1.0 + exp(-x)) — standard formula, safe here.
-        1.0 / (1.0 + (-x).exp())
-    } else {
-        // For x < 0: exp(-x) would overflow for large |x|.
-        // Use the equivalent form: exp(x) / (1 + exp(x))
-        // where exp(x) is in (0, 1) for x < 0 — no overflow.
-        let exp_x = x.exp();
-        exp_x / (1.0 + exp_x)
-    };
-    Ok(Value::Float(result))
+    Ok(Value::Float(super::math_core::sigmoid_raw(x)))
 }
 
 /// `softmax(list)` — numerically stable softmax.
 /// Subtracts max before exp to prevent overflow.
 /// Output sums to 1.0 (within f64 epsilon).
+///
+/// Наряд №182: the f64 math lives in `super::math_core::softmax_raw` —
+/// shared with `nn/activation.rs` for the same dedup reason as
+/// `builtin_sigmoid` above.
 pub(crate) fn builtin_softmax(args: &[Value]) -> Result<Value, String> {
     let list = match args.first() {
         Some(Value::List(items)) => items,
@@ -214,7 +212,9 @@ pub(crate) fn builtin_softmax(args: &[Value]) -> Result<Value, String> {
         return Ok(Value::List(vec![]));
     }
 
-    // Extract float values
+    // Extract float values — Value wrapping is unavoidable here (the
+    // builtin interface is &[Value]), but the numerical work happens
+    // in the shared softmax_raw, not in this handler.
     let values: Vec<f64> = list
         .iter()
         .map(|v| match v {
@@ -223,18 +223,10 @@ pub(crate) fn builtin_softmax(args: &[Value]) -> Result<Value, String> {
         })
         .collect();
 
-    // Numerical stability: subtract max before exp
-    let max_val = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let exps: Vec<f64> = values.iter().map(|v| (v - max_val).exp()).collect();
-    let sum: f64 = exps.iter().sum();
-    if sum == 0.0 {
-        // All inputs were -inf or similar; return uniform distribution
-        let n = values.len() as f64;
-        return Ok(Value::List(
-            values.iter().map(|_| Value::Float(1.0 / n)).collect(),
-        ));
-    }
-    let result: Vec<Value> = exps.iter().map(|e| Value::Float(e / sum)).collect();
+    let result: Vec<Value> = super::math_core::softmax_raw(&values)
+        .into_iter()
+        .map(Value::Float)
+        .collect();
     Ok(Value::List(result))
 }
 

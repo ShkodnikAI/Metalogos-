@@ -2,8 +2,14 @@
 //!
 //! Наряд №178: reuses the numerically stable implementations from
 //! `src/builtins/math.rs` (Наряд №177) — no duplicate math.
-//! The `sigmoid`, `tanh`, and `softmax` functions in math.rs are
-//! already tested on boundary values (±1000.0) and confirmed NaN-free.
+//!
+//! Наряд №182: the duplication of `sigmoid_stable` / inline softmax
+//! between this file and `src/builtins/math.rs` is now eliminated —
+//! both sides call `crate::builtins::math_core::{sigmoid_raw, softmax_raw}`.
+//! The numerical algorithm is byte-identical to the pre-Наряд №182
+//! implementations; existing tests in `tests/naryad_177_reflex_math.rs`
+//! and `tests/naryad_178_dense_forward.rs` must pass unchanged
+//! (Наряд №182 contract: refactor structure, not behavior).
 
 /// Activation function kind — parsed from layer config string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +39,10 @@ impl ActivationKind {
 
     /// Apply the activation to a vector of values (in-place for elementwise,
     /// returns new vec for softmax which needs the full vector).
+    ///
+    /// Наряд №182: sigmoid and softmax delegate to
+    /// `crate::builtins::math_core::sigmoid_raw` / `softmax_raw` —
+    /// the same numerically stable algorithm shared with `math.rs`.
     pub fn apply(&self, input: &mut [f64]) {
         match self {
             ActivationKind::None => {}
@@ -42,9 +52,9 @@ impl ActivationKind {
                 }
             }
             ActivationKind::Sigmoid => {
-                // Reuse the numerically stable sigmoid from Наряд №177.
+                // Numerically stable sigmoid — shared with builtin_sigmoid.
                 for v in input.iter_mut() {
-                    *v = sigmoid_stable(*v);
+                    *v = crate::builtins::math_core::sigmoid_raw(*v);
                 }
             }
             ActivationKind::Tanh => {
@@ -54,30 +64,15 @@ impl ActivationKind {
                 }
             }
             ActivationKind::Softmax => {
-                // Reuse the numerically stable softmax from Наряд №177.
-                // Subtract max before exp to prevent overflow.
-                let max_val = input.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                let exps: Vec<f64> = input.iter().map(|v| (v - max_val).exp()).collect();
-                let sum: f64 = exps.iter().sum();
-                if sum > 0.0 {
-                    for (i, v) in input.iter_mut().enumerate() {
-                        *v = exps[i] / sum;
-                    }
+                // Numerically stable softmax — shared with builtin_softmax.
+                // Returns a new Vec; copy back into the in-place buffer.
+                // (Same edge case handling: sum=0 → uniform distribution.)
+                let softmaxed = crate::builtins::math_core::softmax_raw(input);
+                for (i, v) in input.iter_mut().enumerate() {
+                    *v = softmaxed[i];
                 }
             }
         }
-    }
-}
-
-/// Numerically stable sigmoid — same logic as builtin_sigmoid in math.rs.
-/// For x >= 0: 1/(1+exp(-x)). For x < 0: exp(x)/(1+exp(x)).
-/// Returns 0.0 for very large negative x, 1.0 for very large positive x.
-fn sigmoid_stable(x: f64) -> f64 {
-    if x >= 0.0 {
-        1.0 / (1.0 + (-x).exp())
-    } else {
-        let exp_x = x.exp();
-        exp_x / (1.0 + exp_x)
     }
 }
 

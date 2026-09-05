@@ -3,7 +3,7 @@
 // Block 4 contract: forward pass through real Dense layer on known
 // weights gives mathematically correct result (not just "doesn't panic").
 
-use metalogos::nn::{Layer, Dense, activation::ActivationKind};
+use metalogos::nn::{activation::ActivationKind, Dense, Layer};
 
 #[test]
 fn dense_forward_known_weights() {
@@ -52,15 +52,15 @@ fn dense_forward_with_relu() {
 
 #[test]
 fn dense_forward_with_sigmoid() {
-    let layer = Dense::with_weights(
-        vec![vec![1.0]],
-        vec![0.0],
-        ActivationKind::Sigmoid,
-    );
+    let layer = Dense::with_weights(vec![vec![1.0]], vec![0.0], ActivationKind::Sigmoid);
 
     // Input: [0.0] → y = sigmoid(0) = 0.5
     let output = layer.forward(&[0.0]);
-    assert!((output[0] - 0.5).abs() < 1e-10, "sigmoid(0) = {}", output[0]);
+    assert!(
+        (output[0] - 0.5).abs() < 1e-10,
+        "sigmoid(0) = {}",
+        output[0]
+    );
 }
 
 #[test]
@@ -73,8 +73,16 @@ fn dense_forward_with_softmax() {
 
     // Input: [1.0, 1.0] → logits [1, 1] → softmax = [0.5, 0.5]
     let output = layer.forward(&[1.0, 1.0]);
-    assert!((output[0] - 0.5).abs() < 1e-10, "softmax[0] = {}", output[0]);
-    assert!((output[1] - 0.5).abs() < 1e-10, "softmax[1] = {}", output[1]);
+    assert!(
+        (output[0] - 0.5).abs() < 1e-10,
+        "softmax[0] = {}",
+        output[0]
+    );
+    assert!(
+        (output[1] - 0.5).abs() < 1e-10,
+        "softmax[1] = {}",
+        output[1]
+    );
 
     // Sum = 1.0
     let sum: f64 = output.iter().sum();
@@ -123,6 +131,12 @@ fn dense_deterministic_init() {
     let o1 = l1.forward(&input);
     let o2 = l2.forward(&input);
     for (a, b) in o1.iter().zip(o2.iter()) {
-        assert_eq!(a.to_bits(), b.to_bits(), "deterministic init failed: {} != {}", a, b);
+        assert_eq!(
+            a.to_bits(),
+            b.to_bits(),
+            "deterministic init failed: {} != {}",
+            a,
+            b
+        );
     }
 }

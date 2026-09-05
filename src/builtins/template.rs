@@ -426,6 +426,7 @@ fn value_to_string(v: &Value) -> String {
                 None => "()".to_string(),
             }
         }
+        Value::Reflex(id) => format!("[Reflex#{}]", id.0),
     }
 }
 

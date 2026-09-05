@@ -81,3 +81,44 @@ it into error text before any explicit sink check runs).
   tensor shapes, or a general autograd graph. Those remain out of
   scope for the pillar's initial stages (see the staged
   implementation plan) and would require their own ADR if pursued.
+
+## Addendum (2026-09-05): layer and metric kinds are a registry, not a grammar enumeration
+
+Confirmed with the project owner: model architectures and quality
+metrics available to `Reflex` must be extensible without touching
+`grammar.pest`, mirroring the `BUILTIN_REGISTRY`/`BuiltinSpec` pattern
+(`src/builtins/mod.rs`, наряд №170) — single source of truth, no
+grammar changes required to add a new kind.
+
+**Grammar stays generic:**
+```pest
+layer_spec  = { IDENT ~ "(" ~ layer_arg_list? ")" }
+metric_name = { IDENT }
+```
+No enumeration of `"dense" | "attention" | "moe" | ...` at the
+grammar level. `dense(64, relu)` and a future `attention(8, 64)` parse
+identically — the grammar does not know or care which layer kinds
+exist.
+
+**Validation moves to a registry, checked at `mlog check`-time (same
+phase as builtin-arity checking today), not at parse-time:**
+```rust
+pub struct LayerSpec {
+    pub name: &'static str,
+    pub params: &'static [ParamSpec],   // expected arg names + types
+    pub build: fn(&[Value]) -> Result<Box<dyn Layer>, String>,
+}
+pub struct MetricSpec {
+    pub name: &'static str,
+    pub compute: fn(predictions: &[f32], labels: &[f32]) -> f32,
+}
+```
+Adding `attention`/MoE-routing/a new metric later is a registry entry
+plus its `build`/`compute` function — same shape of change as adding
+a builtin today, not a grammar/parser change.
+
+This does not enlarge the scope of naряды №178–181 (still `dense`
+layers and `accuracy`/`loss` only, per the staged plan) — it changes
+**how** that scope is expressed, so stage 6+ (architecture blocks,
+наряд №176) adds registry entries rather than reopening the grammar.
+

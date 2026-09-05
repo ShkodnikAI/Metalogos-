@@ -304,6 +304,15 @@ escape_json("hello\"world\n")  // "hello\\\"world\\n"
 | `max(a, b)` | `Float, Float -> Float` | Float | Максимум из двух чисел |
 | `clamp(val, lo, hi)` | `Float, Float, Float -> Float` | Float | Ограничивает значение диапазоном `[lo, hi]` |
 | `round(n)` | `Float -> Float` | Float | Округление до ближайшего целого |
+| `exp(x)` | `Float -> Float` | Float | e^x. `exp(0)=1`, `exp(1)=e` |
+| `ln(x)` | `Float -> Float` | Float | Натуральный логарифм. Soft-failure: `0.0` при `x <= 0` |
+| `sqrt(x)` | `Float -> Float` | Float | Квадратный корень. Soft-failure: `0.0` при `x < 0` |
+| `pow(base, exp)` | `Float, Float -> Float` | Float | base^exp |
+| `tanh(x)` | `Float -> Float` | Float | Гиперболический тангенс. ∈ (−1, 1). `tanh(1000)=1`, `tanh(-1000)=-1` |
+| `sigmoid(x)` | `Float -> Float` | Float | Логистическая функция 1/(1+e^−x). Численно устойчивая: `sigmoid(1000)=1`, `sigmoid(-1000)=0` (не NaN) |
+| `softmax(list)` | `List -> List` | List | Numerically stable softmax (вычитает max перед exp). Сумма выхода = 1.0 |
+| `random_seed(n)` | `Float -> Unit` | Unit | Устанавливает seed для детерминированного ГПСЧ (xorshift64). Последующие `random()` воспроизводимы |
+| `random()` | `-> Float` | Float | `[0.0, 1.0)`. Если `random_seed()` был вызван — детерминированный. Иначе — недетерминированный (системное время) |
 | `to_float(s)` | `String\|Float\|Bool -> Float` | Float | Преобразует в Float. Soft-failure: `0.0` |
 | `to_int(s)` | `String\|Float\|Bool -> Float` | Float | Преобразует в целое (усекает дробную часть). Soft-failure: `0.0` |
 | `float(s)` | `String\|Float -> Float` | Float | Аналог `to_float()`, но с ошибкой при невалидной строке |

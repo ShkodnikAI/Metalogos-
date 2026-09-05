@@ -61,7 +61,17 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("min", 2, "math"; builtin_min),
     spec!("max", 2, "math"; builtin_max),
     spec!("clamp", 3, "math"; builtin_clamp),
-    spec!("round", 1, "math"; builtin_round), // ── Phase 4.4 self-hosting — historical placeholders, never implemented ──
+    spec!("round", 1, "math"; builtin_round),
+    // Наряд №177: Math foundation for Reflex (stage 1/6)
+    spec!("exp", 1, "math"; builtin_exp),
+    spec!("ln", 1, "math"; builtin_ln),
+    spec!("sqrt", 1, "math"; builtin_sqrt),
+    spec!("pow", 2, "math"; builtin_pow),
+    spec!("tanh", 1, "math"; builtin_tanh),
+    spec!("sigmoid", 1, "math"; builtin_sigmoid),
+    spec!("softmax", 1, "math"; builtin_softmax),
+    spec!("random_seed", 1, "math"; builtin_random_seed),
+    spec!("random", 0, "math"; builtin_random), // ── Phase 4.4 self-hosting — historical placeholders, never implemented ──
     // ADR-0023 described a hybrid lexer approach using 5 builtins (stdin,
     // split_tokens, if_eq, newline, is_string_token). Handler functions were
     // never committed to main — only the builtin names were registered as

@@ -136,6 +136,9 @@ use io::*;
 pub(crate) mod registry;
 pub use registry::*;
 pub(crate) mod math;
+/// Наряд №182: shared f64 math primitives (sigmoid_raw, softmax_raw) used by
+/// both `math.rs` (builtin_sigmoid/builtin_softmax) and `nn/activation.rs`.
+pub(crate) mod math_core;
 use math::*;
 pub(crate) mod collections;
 use collections::*;

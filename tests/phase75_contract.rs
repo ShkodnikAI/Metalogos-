@@ -41,6 +41,10 @@ fn make_learnable_decl(name: &str, prompt: &str) -> Declaration {
         conversation: None,
         context_strategy: metalogos::ast::ContextStrategy::None,
         max_context_tokens: 2000,
+        // Наряд №181: distillation fields default to None (no distill).
+        distill_to: None,
+        distill_after: 0,
+        fallback_if: None,
     })
 }
 

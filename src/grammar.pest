@@ -210,7 +210,11 @@ CONTEXT_BUDGET_KW = @{ "context_budget" }
 
 // ── Learnable Pattern (M3) ──────────────────────────────────────────
 learnable_pattern_decl = { LEARNABLE_KW ~ "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ LBRACE ~ learnable_body ~ RBRACE }
-learnable_body = { prompt_line* ~ context_line? ~ context_strategy_line? ~ conversation_line? ~ model_line? ~ max_tokens_line? ~ cache_line? ~ cache_ttl_line? ~ max_context_tokens_line? }
+// Наряд №181 (ADR-0117): distill_field* allows distill_to/distill_after/fallback_if
+// in ANY order relative to each other (not in the rigid pre-existing sequence).
+// The pre-existing 8 fields are NOT reordered in this naryad — only the 3 new
+// ones avoid compounding the known ordering rigidity flagged by ADR-0114.
+learnable_body = { prompt_line* ~ context_line? ~ context_strategy_line? ~ conversation_line? ~ model_line? ~ max_tokens_line? ~ cache_line? ~ cache_ttl_line? ~ max_context_tokens_line? ~ distill_field* }
 prompt_line    = { "prompt" ~ COLON ~ expression }
 context_line   = _{ context_recall_line | context_auto_line | context_none_line | context_literal_line }
 context_strategy_line = { "context_strategy" ~ COLON ~ context_strategy_value }
@@ -225,6 +229,17 @@ max_tokens_line = { "max_tokens" ~ COLON ~ expression }
 cache_line    = { "cache" ~ COLON ~ BOOL_LITERAL }
 cache_ttl_line = { "cache_ttl" ~ COLON ~ expression ~ DOT_CHAR ~ IDENT }
 max_context_tokens_line = { "max_context_tokens" ~ COLON ~ INT }
+
+// ── Наряд №181 (ADR-0117): distillation fields for learnable patterns ──
+// silent rule `_{ ... }` — the inner rule (distill_*_line) appears directly
+// in learnable_body's children. Same pattern as `context_line`.
+// Named `distill_field` (NOT `reflex_field` — that name is already taken
+// at line 421 for the `reflex` declaration's field set).
+// Reuses the existing `compare_op` rule defined at line 190 (same operators).
+distill_field      = _{ distill_to_line | distill_after_line | fallback_if_line }
+distill_to_line    = { "distill_to" ~ COLON ~ IDENT }
+distill_after_line = { "distill_after" ~ COLON ~ INT }
+fallback_if_line   = { "fallback_if" ~ COLON ~ "confidence" ~ compare_op ~ FLOAT_LITERAL }
 
 // ── Pattern (M1) ──────────────────────────────────────────────────
 pattern_decl = { "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ LBRACE ~ pattern_body ~ RBRACE }

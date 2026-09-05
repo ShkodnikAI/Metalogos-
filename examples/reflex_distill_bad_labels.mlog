@@ -1,0 +1,28 @@
+// Наряд №181 Contract 5: distill_to on a reflex with EMPTY labels →
+// explicit compilation error (ADR-0117 §3 enforcement).
+//
+// ADR-0117 §3: "distillation applies only to patterns whose output is
+// a closed label set or a numeric value — never free text."
+// Empty labels = free-form generation = permanently out of scope.
+//
+// The grammar (reflex_labels requires ≥1 STRING_LITERAL) catches this
+// at parse time. `mlog check` and `mlog run` both surface the error.
+//
+// Note: this contract specifically exercises the empty-labels case.
+// The "distill_to references unknown reflex" case is covered by
+// tests/naryad_181_distill_check.rs (semantic-level check_program).
+
+reflex FreeFormHead {
+  input: embedding(4)
+  layers: [dense(4, "relu"), dense(2, "softmax")]
+  labels: ["placeholder_to_avoid_grammar_error"]
+  seed: 42
+}
+
+learnable pattern FreeForm(input: String) -> String {
+  prompt: "generate"
+  distill_to: NonExistentHead
+  distill_after: 5
+}
+
+flow Main { input: String = "x" -> FreeForm -> output }

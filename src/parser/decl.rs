@@ -1601,23 +1601,119 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
                 max_context_tokens = int_val.parse().unwrap_or(2000);
             }
         }
-    }
 
-    Ok(Declaration::LearnablePattern(LearnablePatternDecl {
-        span,
-        name,
-        params,
-        return_type,
-        prompt,
-        context,
-        context_strategy,
-        max_context_tokens,
-        model,
-        max_tokens,
-        cache,
-        cache_ttl,
-        conversation,
-    }))
+        // Наряд №181 (ADR-0117): extract distill_to / distill_after / fallback_if.
+        // reflex_field is a silent rule `_{ ... }`, so the inner rules
+        // (distill_to_line, distill_after_line, fallback_if_line) appear
+        // directly in body_children — same pattern as context_line.
+        // The three fields can appear in any order (the grammar uses
+        // `reflex_field*` not a fixed sequence).
+        let mut distill_to: Option<String> = None;
+        let mut distill_after: usize = 0;
+        let mut fallback_if: Option<(crate::ast::CompareOp, f64)> = None;
+
+        if let Some(dt_pair) = body_children
+            .iter()
+            .find(|c| c.as_rule() == Rule::distill_to_line)
+        {
+            let dt_children = children_of(dt_pair);
+            if let Some(name_val) = find_child_str(&dt_children, Rule::IDENT) {
+                distill_to = Some(name_val);
+            }
+        }
+
+        if let Some(da_pair) = body_children
+            .iter()
+            .find(|c| c.as_rule() == Rule::distill_after_line)
+        {
+            if let Some(int_val) = find_child_str(&children_of(da_pair), Rule::INT) {
+                distill_after = int_val.parse().unwrap_or(0);
+            }
+        }
+
+        if let Some(fi_pair) = body_children
+            .iter()
+            .find(|c| c.as_rule() == Rule::fallback_if_line)
+        {
+            // fallback_if_line = { "fallback_if" ~ COLON ~ "confidence" ~ compare_op ~ FLOAT_LITERAL }
+            // compare_op is atomic (@{ ... }), so it appears as a leaf pair
+            // whose as_str() is the operator string. FLOAT_LITERAL is a
+            // normal rule.
+            let fi_children = children_of(fi_pair);
+            let op_str = fi_children
+                .iter()
+                .find(|c| c.as_rule() == Rule::compare_op)
+                .map(|c| c.as_str().to_string());
+            let float_val = fi_children
+                .iter()
+                .find(|c| c.as_rule() == Rule::FLOAT_LITERAL)
+                .and_then(|c| c.as_str().parse::<f64>().ok());
+            if let (Some(op_str), Some(val)) = (op_str, float_val) {
+                let op = match op_str.as_str() {
+                    ">" => crate::ast::CompareOp::Gt,
+                    "<" => crate::ast::CompareOp::Lt,
+                    ">=" => crate::ast::CompareOp::Ge,
+                    "<=" => crate::ast::CompareOp::Le,
+                    "==" => crate::ast::CompareOp::Eq,
+                    "!=" => crate::ast::CompareOp::Ne,
+                    _ => crate::ast::CompareOp::Lt, // safe default for `confidence < N`
+                };
+                fallback_if = Some((op, val));
+            }
+        }
+        // Build the DistillConfig only if distill_to is set (the other two
+        // fields have sensible defaults: distill_after=0 → train on first
+        // call; fallback_if=None → never fall back to LLM once distilled).
+        // Note: distill_to is consumed by map; we extract the name via clone
+        // to also pass it to LearnablePatternDecl.
+        let distill_to_for_decl = distill_to.clone();
+        let distill_config =
+            distill_to.map(|reflex_name| crate::interpreter::types::DistillConfig {
+                reflex_name,
+                distill_after,
+                fallback_if,
+                mode: crate::interpreter::types::DistillMode::Teaching,
+            });
+        let _ = distill_config; // built but stored via the `distill` field at runtime
+
+        Ok(Declaration::LearnablePattern(LearnablePatternDecl {
+            span,
+            name,
+            params,
+            return_type,
+            prompt,
+            context,
+            context_strategy,
+            max_context_tokens,
+            model,
+            max_tokens,
+            cache,
+            cache_ttl,
+            conversation,
+            distill_to: distill_to_for_decl,
+            distill_after,
+            fallback_if,
+        }))
+    } else {
+        Ok(Declaration::LearnablePattern(LearnablePatternDecl {
+            span,
+            name,
+            params,
+            return_type,
+            prompt,
+            context,
+            context_strategy,
+            max_context_tokens,
+            model,
+            max_tokens,
+            cache,
+            cache_ttl,
+            conversation,
+            distill_to: None,
+            distill_after: 0,
+            fallback_if: None,
+        }))
+    }
 }
 
 // ── Pattern ──────────────────────────────────────────────────────────

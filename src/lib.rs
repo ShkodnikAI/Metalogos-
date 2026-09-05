@@ -68,6 +68,27 @@ pub fn run_program_with_dir(
         ));
     }
 
+    // Наряд №181 (ADR-0117 §2-3): enforce distill_to semantic checks at
+    // run_program time too (not just `mlog check`). This catches:
+    //   1. distill_to referencing an undeclared reflex
+    //   2. distill_to on a String-returning pattern with empty labels
+    //      (free-form generation, permanently out of scope per ADR-0117 §3)
+    // We run check_program (the full semantic pass) and surface only
+    // distill_to errors — other semantic findings (e.g., "undefined
+    // function" for imported symbols) are deliberately NOT blocking
+    // here, because the interpreter resolves those at runtime.
+    {
+        let sem_result = semantic::check_program(&declarations);
+        for err in &sem_result.errors {
+            if err.message.contains("distill_to") {
+                return Err(format!(
+                    "Compilation error (ADR-0117 §2-3): {}",
+                    err.message
+                ));
+            }
+        }
+    }
+
     let mut interp = interpreter::Interpreter::new();
     interp.set_base_dir(base_dir);
     let output = interp.run(declarations)?;

@@ -123,6 +123,15 @@ impl Interpreter {
                     );
                 }
                 Declaration::LearnablePattern(lp) => {
+                    // Наряд №181: build DistillConfig if distill_to is set.
+                    let distill = lp.distill_to.as_ref().map(|reflex_name| {
+                        crate::interpreter::types::DistillConfig {
+                            reflex_name: reflex_name.clone(),
+                            distill_after: lp.distill_after,
+                            fallback_if: lp.fallback_if,
+                            mode: crate::interpreter::types::DistillMode::Teaching,
+                        }
+                    });
                     self.learnable_patterns.insert(
                         lp.name.clone(),
                         CompiledLearnable {
@@ -137,6 +146,7 @@ impl Interpreter {
                             cache_ttl: lp.cache_ttl,
                             model: lp.model.clone(),
                             conversation: lp.conversation.clone(),
+                            distill,
                         },
                     );
                 }

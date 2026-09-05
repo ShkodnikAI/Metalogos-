@@ -1,0 +1,47 @@
+// Наряд №181 Contract 3: low confidence in DISTILLED mode → call LLM as
+// fallback, new example recorded.
+//
+// Setup: distill_after=1, fallback_if: confidence > 0.0 (i.e., always
+// fall back to LLM if confidence is positive — guarantees the fallback
+// path is exercised).
+//
+// Note: this example shows the LLM is called for every invocation
+// (because fallback always triggers). Output: each call returns "yes"
+// (LLM echo).
+
+reflex FallbackHead {
+  input: embedding(4)
+  layers: [dense(4, "relu"), dense(2, "softmax")]
+  labels: ["yes", "no"]
+  seed: 42
+}
+
+learnable pattern DecideWithFallback(question: String) -> String {
+  prompt: "yes"
+  distill_to: FallbackHead
+  distill_after: 1
+  fallback_if: confidence > 0.0
+}
+
+pattern DriveFallback(_x: String) -> String {
+  // 10 calls to accumulate examples (TEACHING mode).
+  let r1 = DecideWithFallback("q1")
+  let r2 = DecideWithFallback("q2")
+  let r3 = DecideWithFallback("q3")
+  let r4 = DecideWithFallback("q4")
+  let r5 = DecideWithFallback("q5")
+  let r6 = DecideWithFallback("q6")
+  let r7 = DecideWithFallback("q7")
+  let r8 = DecideWithFallback("q8")
+  let r9 = DecideWithFallback("q9")
+  let r10 = DecideWithFallback("q10")
+  // 11th call: training triggers, mode switches to DISTILLED.
+  // reflex_predict runs, but confidence > 0.0 is always TRUE
+  // → fallback to LLM (which returns "yes" again).
+  let r11 = DecideWithFallback("q11")
+  // 12th call: still DISTILLED, still falls back to LLM.
+  let r12 = DecideWithFallback("q12")
+  return "ok=" + r1 + "|" + r12
+}
+
+flow Main { input: String = "x" -> DriveFallback -> output }

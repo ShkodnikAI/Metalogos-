@@ -1027,6 +1027,39 @@ pub struct LearnablePatternDecl {
     /// When set (e.g., `conversation: current`), the learnable pattern
     /// automatically injects conversation history as multi-turn messages.
     pub conversation: Option<String>,
+    /// Наряд №181 (ADR-0117): distillation target — the name of a `reflex`
+    /// declaration this pattern distills its LLM traffic into.
+    /// None = no distillation (default, backward-compatible LLM-only path).
+    /// Some("X") = enable TEACHING→DISTILLED cycle with reflex X.
+    pub distill_to: Option<String>,
+    /// Наряд №181: minimum number of accumulated examples before training
+    /// the reflex head. While count < distill_after, pattern stays in
+    /// TEACHING mode (calls LLM, records each example).
+    pub distill_after: usize,
+    /// Наряд №181: confidence threshold below which DISTILLED mode falls
+    /// back to LLM. Form: (operator, threshold_value).
+    /// E.g. `fallback_if: confidence < 0.85` → (Lt, 0.85).
+    /// None = no fallback (always return local prediction once DISTILLED).
+    pub fallback_if: Option<(CompareOp, f64)>,
+}
+
+// Наряд №181: extend the existing CompareOp (defined at line 635) with
+// a `compare` method for runtime evaluation in fallback_if checks.
+// We add it here as an impl block instead of modifying the original
+// enum definition — keeps the diff localized.
+impl CompareOp {
+    /// Apply the operator to two f64 values (Наряд №181: used by
+    /// `fallback_if: confidence OP value` in distillation logic).
+    pub fn compare(self, lhs: f64, rhs: f64) -> bool {
+        match self {
+            CompareOp::Gt => lhs > rhs,
+            CompareOp::Lt => lhs < rhs,
+            CompareOp::Ge => lhs >= rhs,
+            CompareOp::Le => lhs <= rhs,
+            CompareOp::Eq => lhs == rhs,
+            CompareOp::Ne => lhs != rhs,
+        }
+    }
 }
 
 // ── Pattern (M1, unchanged) ─────────────────────────────────────────

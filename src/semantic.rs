@@ -11,7 +11,7 @@
 
 use crate::ast::*;
 use crate::audit::{audit_category_a, Severity};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// A diagnostic with the AST `Span` of the offending node.
 ///
@@ -171,6 +171,9 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     let builtin_names = crate::builtins::builtin_name_set();
     let mut role_names: HashSet<String> = HashSet::new();
     let mut pattern_param_counts: HashSet<(String, usize)> = HashSet::new();
+    // Наряд №181 (ADR-0117): reflex declarations — name → labels set.
+    // Used to validate distill_to references and labels-non-empty rule.
+    let mut reflex_decls: HashMap<String, Vec<String>> = HashMap::new();
 
     // Наряд №119: build type alias map and collect errors
     let (type_alias_map, alias_errors) = build_type_alias_map(declarations);
@@ -227,6 +230,19 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                         format!("duplicate learnable pattern: {}", lp.name),
                     ));
                 }
+                pattern_param_counts.insert((lp.name.clone(), lp.params.len()));
+            }
+            // Наряд №181: collect reflex declarations for cross-reference check.
+            Declaration::Reflex(r) => {
+                if reflex_decls
+                    .insert(r.name.clone(), r.labels.clone())
+                    .is_some()
+                {
+                    result.errors.push(with_line_prefix(
+                        decl,
+                        format!("duplicate reflex declaration: {}", r.name),
+                    ));
+                }
             }
             Declaration::Flow(f) => {
                 if !flow_names.insert(f.name.clone()) {
@@ -253,6 +269,45 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     // Second pass: cross-reference validation
     for decl in declarations {
         match decl {
+            // Наряд №181 (ADR-0117) Block 2: validate distill_to reference.
+            // `distill_to: X` requires:
+            //   1. X is declared as `reflex X { ... }` in the same scope
+            //   2. If the pattern returns String, the reflex must have a
+            //      non-empty `labels` list (closed-label enforcement —
+            //      ADR-0117 §3 explicitly excludes free-form generation).
+            Declaration::LearnablePattern(lp) => {
+                if let Some(distill_target) = &lp.distill_to {
+                    match reflex_decls.get(distill_target) {
+                        None => {
+                            result.errors.push(with_line_prefix(
+                                decl,
+                                format!(
+                                    "learnable pattern '{}': distill_to references '{}' \
+                                     which is not declared as `reflex {} {{ ... }}`",
+                                    lp.name, distill_target, distill_target
+                                ),
+                            ));
+                        }
+                        Some(labels) => {
+                            // ADR-0117 §3 enforcement: String-returning patterns
+                            // distilling to a reflex with empty labels is rejected
+                            // (free-form generation is permanently out of scope).
+                            if lp.return_type == "String" && labels.is_empty() {
+                                result.errors.push(with_line_prefix(
+                                    decl,
+                                    format!(
+                                        "learnable pattern '{}': distill_to '{}' has empty labels list. \
+                                         Free-form text distillation is out of scope (ADR-0117 §3) — \
+                                         reflex must declare a closed label set: \
+                                         `reflex {} {{ labels: [\"a\", \"b\", ...] ... }}`",
+                                        lp.name, distill_target, distill_target
+                                    ),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
             Declaration::EntityRecord(e) => {
                 if !entity_types.contains(&e.type_name) {
                     result.errors.push(with_line_prefix(

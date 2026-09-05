@@ -39,6 +39,10 @@ fn make_learnable_decl(name: &str, prompt: &str) -> Declaration {
         cache_ttl: 3600,
         model: None,
         conversation: None,
+        // Наряд №181: distillation fields default to None (no distill).
+        distill_to: None,
+        distill_after: 0,
+        fallback_if: None,
     })
 }
 

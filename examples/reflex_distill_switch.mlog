@@ -1,0 +1,54 @@
+// Наряд №181 Contract 2: distillation switches to DISTILLED mode after
+// accumulating `distill_after` examples. Verified via MockLlm call count:
+// - First 10 calls (TEACHING): each invokes LLM + records example
+// - 11th call: reflex_train triggers (10 examples ≥ ADR-0115 minimum),
+//   mode switches to DISTILLED, reflex_predict is called on this same
+//   invocation — NO LLM call.
+// - 12th call (DISTILLED): reflex_predict, NO LLM call.
+//
+// The minimum-10-examples rule (ADR-0115) is enforced inside
+// reflex_train — distill_after can be set lower, but training won't
+// trigger until ADR-0115's threshold is also met. The distill_after
+// field is the LOWER bound; reflex_train enforces the UPPER bound.
+//
+// Output format:
+//   "r1|r2|r3|...|r12" where r1..r10 = "yes" (LLM echo), r11/r12 = label.
+
+reflex DecideHead {
+  input: embedding(4)
+  layers: [dense(4, "relu"), dense(2, "softmax")]
+  labels: ["yes", "no"]
+  seed: 42
+}
+
+learnable pattern Decide(question: String) -> String {
+  prompt: "yes"
+  distill_to: DecideHead
+  distill_after: 1
+}
+
+pattern DriveDistill(_x: String) -> String {
+  // First 10 calls: TEACHING mode, each records an example + calls LLM.
+  // MockLlm returns the prompt ("yes") verbatim — so all 10 examples
+  // have target_label = "yes", which means reflex_train will learn
+  // to always predict "yes" (one-class dataset).
+  let r1 = Decide("q1")
+  let r2 = Decide("q2")
+  let r3 = Decide("q3")
+  let r4 = Decide("q4")
+  let r5 = Decide("q5")
+  let r6 = Decide("q6")
+  let r7 = Decide("q7")
+  let r8 = Decide("q8")
+  let r9 = Decide("q9")
+  let r10 = Decide("q10")
+  // 11th call: training triggers (10 examples ≥ ADR-0115 minimum),
+  // mode switches to DISTILLED, reflex_predict returns "yes" (the
+  // only class the model has seen). NO LLM call this time.
+  let r11 = Decide("q11")
+  // 12th call: DISTILLED, reflex_predict, NO LLM.
+  let r12 = Decide("q12")
+  return r1 + "|" + r2 + "|" + r3 + "|" + r4 + "|" + r5 + "|" + r6 + "|" + r7 + "|" + r8 + "|" + r9 + "|" + r10 + "|" + r11 + "|" + r12
+}
+
+flow Main { input: String = "x" -> DriveDistill -> output }

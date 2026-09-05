@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use super::values::Value;
-use crate::ast::{ContextMode, ContextStrategy, Param};
+use crate::ast::{CompareOp, ContextMode, ContextStrategy, Param};
 
 /// A learnable pattern that calls an LLM.
 #[derive(Clone)]
@@ -41,6 +41,67 @@ pub struct CompiledLearnable {
     /// Optional conversation binding (ADR-0053).
     /// When set (e.g., "current"), the learnable pattern injects conversation history.
     pub conversation: Option<String>,
+    /// Наряд №181 (ADR-0117): distillation config — None = no distillation
+    /// (LLM-only path, byte-identical to pre-Наряд №181 behavior).
+    /// Some(...) = enable TEACHING→DISTILLED cycle.
+    pub distill: Option<DistillConfig>,
+}
+
+/// Наряд №181 (ADR-0117): distillation configuration for a learnable pattern.
+/// Built from LearnablePatternDecl's distill_to / distill_after / fallback_if.
+#[derive(Clone, Debug)]
+pub struct DistillConfig {
+    /// Name of the `reflex X { ... }` declaration to distill into.
+    pub reflex_name: String,
+    /// Minimum accumulated examples before reflex_train is called once.
+    pub distill_after: usize,
+    /// Confidence threshold for falling back to LLM in DISTILLED mode.
+    /// None = always return local prediction (no fallback).
+    /// Some((op, threshold)) = if !op.compare(predict_confidence, threshold)
+    /// → call LLM as fallback.
+    pub fallback_if: Option<(CompareOp, f64)>,
+    /// Current mode — TEACHING (still accumulating examples) or DISTILLED
+    /// (reflex_train already succeeded, use reflex_predict).
+    /// Starts as TEACHING; switches to DISTILLED after reflex_train returns
+    /// accuracy ≥ 0.0 (i.e., any successful training).
+    /// Mutable runtime state — wrapped in Mutex at the call site, not here.
+    pub mode: DistillMode,
+}
+
+/// Наряд №181: execution mode for a distilling learnable pattern.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DistillMode {
+    /// Still accumulating examples. Each pattern call → LLM + record example.
+    Teaching,
+    /// reflex_train already succeeded. Each pattern call → reflex_predict.
+    /// May fall back to LLM if confidence is below `fallback_if` threshold.
+    Distilled,
+}
+
+/// Наряд №181: per-pattern runtime state for distillation.
+/// Stored in `Interpreter::distill_states` (Mutex<HashMap<name, DistillRuntimeState>>)
+/// so it survives across calls within a single `mlog run` even though
+/// `CompiledLearnable` is cloned fresh on each invocation.
+///
+/// Accumulated examples use the (input_string, output_string) format
+/// already established by `learnable.few_shot` — reuses the same example
+/// shape rather than inventing a parallel one.
+#[derive(Clone, Debug)]
+pub struct DistillRuntimeState {
+    /// Current mode — TEACHING (LLM-only, accumulate) or DISTILLED (predict).
+    pub mode: DistillMode,
+    /// Accumulated (input, target_label) examples.
+    /// Input = the join of pattern args (same string used for few-shot match).
+    /// Target = the LLM's response (a label string, since ADR-0117
+    /// restricts distillation to closed-label patterns).
+    pub examples: Vec<(String, String)>,
+    /// Total example count at the last training attempt. Used to avoid
+    /// retrying training on every call after `distill_after` is crossed
+    /// but training failed (e.g., below ADR-0115 minimum of 10, or
+    /// training accuracy was too low). Next retry: when `examples.len()`
+    /// grows by 5 more past `last_train_attempt`.
+    /// 0 = no training has been attempted yet.
+    pub last_train_attempt: usize,
 }
 
 /// Result of running a single test block (Наряд №120).

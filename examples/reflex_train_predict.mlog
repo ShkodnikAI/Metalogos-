@@ -1,0 +1,55 @@
+// Наряд №179b: reflex_train / reflex_predict — реальное обучение через .mlog
+//
+// 12 samples: 6 near origin (class 0 = "near"), 6 far (class 1 = "far").
+// Linearly separable. After 200 epochs the holdout accuracy should be high.
+//
+// The contract from the naryad:
+//   let result = reflex_train(TestClassifier, [...], 50.0, "accuracy", 0.85)
+//   print(to_string(result))
+//   let p = reflex_predict(TestClassifier, [0.1, 0.1])
+//   print(to_string(p))
+
+reflex TestClassifier {
+  input: embedding(2)
+  layers: [dense(8, relu), dense(2, softmax)]
+  labels: ["near", "far"]
+  seed: 42
+}
+
+pattern TrainAndPredict(_x: String) -> String {
+  // Training data: 12 samples. Each row = [x, y, class_idx]
+  // 6 near origin (class 0), 6 far from origin (class 1).
+  let data = [
+    [0.0, 0.0, 0.0],
+    [0.3, 0.2, 0.0],
+    [0.6, 0.4, 0.0],
+    [0.9, 0.1, 0.0],
+    [0.2, 0.5, 0.0],
+    [0.4, 0.3, 0.0],
+    [10.0, 10.0, 1.0],
+    [10.3, 10.2, 1.0],
+    [10.6, 10.4, 1.0],
+    [10.9, 10.1, 1.0],
+    [10.2, 10.5, 1.0],
+    [10.4, 10.3, 1.0]
+  ]
+
+  // Train the model. 200 epochs, holdout accuracy metric, 0.85 threshold.
+  // Returns a Struct { loss, accuracy, metric, threshold_met }.
+  let result = reflex_train(TestClassifier, data, 200.0, "accuracy", 0.85)
+
+  // reflex_train returns a Struct. Field access extracts accuracy.
+  // Format: fixed-width so output is deterministic.
+  let acc_str = "accuracy=" + to_string(result.accuracy)
+  let loss_str = "loss=" + to_string(result.loss)
+  let thr_str = "threshold_met=" + to_string(result.threshold_met)
+
+  // Predict on a new point near origin — should classify as "near".
+  let p = reflex_predict(TestClassifier, [0.1, 0.1])
+  // Fluid Display shows the highest-confidence variant's value — the label.
+  let p_str = "predict([0.1,0.1])=" + to_string(p)
+
+  return acc_str + " " + loss_str + " " + thr_str + " " + p_str
+}
+
+flow Main { input: String = "x" -> TrainAndPredict -> output }

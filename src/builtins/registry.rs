@@ -497,6 +497,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     //   element density. Advisory — passed:false means "review", not "broken".
     #[cfg(feature = "diagram")]
     spec!("infographic_qa", 1, "diagram"; builtin_infographic_qa),
+    // ── Наряд №179b: Reflex training/prediction builtins ──
+    // Stub handlers — the real dispatch lives in interpreter::execution::invoke()
+    // because reflex_train/reflex_predict need access to ReflexRegistry (which
+    // lives on the Interpreter struct). The stubs produce a clean "VM not yet
+    // supported" error if the VM backend somehow reaches them directly.
+    // When VM gains Reflex support (future naryad), the same dispatch logic
+    // in src/builtins/reflex.rs will be reused — see reflex_train_dispatch /
+    // reflex_predict_dispatch.
+    spec!("reflex_train", 5, "reflex"; builtin_reflex_train_stub),
+    spec!("reflex_predict", 2, "reflex"; builtin_reflex_predict_stub),
 ];
 
 /// Total number of registered builtins.

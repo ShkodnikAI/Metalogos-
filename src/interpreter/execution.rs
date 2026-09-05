@@ -312,7 +312,18 @@ impl Interpreter {
                 Declaration::Reflex(r) => {
                     // Build the ReflexModel from the declaration.
                     let model = build_reflex_model(&r)?;
-                    let id = self.reflex_registry.register(model);
+                    // Наряд №179b: reflex_registry is Mutex<ReflexRegistry>.
+                    // We have &mut self here so get_mut() avoids the lock.
+                    // Poisoning only happens if a thread panicked while
+                    // holding the lock — impossible in single-threaded
+                    // interpreter, but we propagate as an error anyway
+                    // (clippy::expect_used forbids expect/unwrap in
+                    // non-test code, ADR from Наряд №29 §6.4).
+                    let reg = self
+                        .reflex_registry
+                        .get_mut()
+                        .map_err(|e| format!("reflex registry poisoned: {}", e))?;
+                    let id = reg.register(model);
                     // Store the ReflexId for later lookup by name
                     self.reflex_names.insert(r.name.clone(), id);
                 }
@@ -335,6 +346,30 @@ impl Interpreter {
     /// ADR-0045: Hooks (before_pattern / after_pattern) fire around pattern
     /// and learnable pattern invocations, but NOT around builtin calls.
     pub(super) fn invoke(&mut self, name: &str, args: Vec<Value>) -> Result<Value, String> {
+        // Наряд №179b: reflex_train / reflex_predict — need access to the
+        // ReflexRegistry which lives on the Interpreter struct (wrapped in
+        // Mutex). The dispatch logic itself lives in src/builtins/reflex.rs
+        // (reflex_train_dispatch / reflex_predict_dispatch) — shared with VM
+        // when it gains reflex support (future naryad).
+        // This path is only reached when reflex_train/reflex_predict is
+        // called as a flow step name. The common case (let result =
+        // reflex_train(...) inside a pattern body) goes through
+        // eval_expr_with_env → invoke_reflex_train / invoke_reflex_predict.
+        if name == "reflex_train" {
+            let reg = self
+                .reflex_registry
+                .get_mut()
+                .map_err(|e| format!("reflex registry poisoned: {}", e))?;
+            return crate::builtins::reflex_train_dispatch(reg, &args);
+        }
+        if name == "reflex_predict" {
+            let reg = self
+                .reflex_registry
+                .get_mut()
+                .map_err(|e| format!("reflex registry poisoned: {}", e))?;
+            return crate::builtins::reflex_predict_dispatch(reg, &args);
+        }
+
         // Check recall (memory) first — it's a built-in with memory access
         if name == "recall" {
             return self.invoke_recall(args);
@@ -1132,7 +1167,34 @@ impl Interpreter {
                             continue;
                         }
                     }
+                    // Наряд №179b: reflex_train(Model, ...) and reflex_predict(Model, ...) —
+                    // bare Ident is the model name, resolved via reflex_names → Value::Reflex(id).
+                    // This mirrors the render() pattern: the Ident is NOT a runtime variable
+                    // lookup — it's a compile-time reference to a top-level declaration.
+                    if (name == "reflex_train" || name == "reflex_predict") && i == 0 {
+                        if let Expr::Ident { name: n, .. } = arg {
+                            if let Some(id) = self.reflex_names.get(n) {
+                                eval_args.push(Value::Reflex(*id));
+                                continue;
+                            }
+                            return Err(format!(
+                                "reflex_train/predict: model '{}' not declared (no matching `reflex {} {{ ... }}` block)",
+                                n, n
+                            ));
+                        }
+                    }
                     eval_args.push(self.eval_expr_with_env(arg, env)?);
+                }
+
+                // Наряд №179b: reflex_train / reflex_predict need interpreter
+                // state (reflex_registry), so dispatch via &self invoke methods
+                // that use the Mutex-protected registry (same pattern as
+                // invoke_recall / invoke_memorize_fn).
+                if name == "reflex_train" {
+                    return self.invoke_reflex_train(eval_args);
+                }
+                if name == "reflex_predict" {
+                    return self.invoke_reflex_predict(eval_args);
                 }
 
                 // Check recall (memory) first

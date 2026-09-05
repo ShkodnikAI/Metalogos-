@@ -12,6 +12,8 @@ pub(crate) mod hooks;
 pub(crate) mod learnable;
 pub(crate) mod memory;
 pub(crate) mod modules;
+// Наряд №179b: &self wrappers for reflex_train / reflex_predict (Mutex<ReflexRegistry>)
+pub(crate) mod reflex_builtin;
 pub mod types;
 pub mod values;
 pub(crate) use types::ControlFlow;
@@ -201,7 +203,11 @@ pub struct Interpreter {
     /// Problem A: registered skill indices
     skill_indices: HashMap<String, crate::ast::SkillIndexDecl>,
     /// Наряд №178: Reflex model registry (opaque handles, ADR-0114).
-    pub reflex_registry: crate::nn::ReflexRegistry,
+    /// Наряд №179b: wrapped in Mutex so reflex_train/reflex_predict can mutate
+    /// weights from `&self` contexts (pattern body expression evaluation
+    /// goes through eval_expr_with_env which is `&self`, not `&mut self`).
+    /// Matches the existing pattern used by `memory`, `audit_log`, etc.
+    pub reflex_registry: std::sync::Mutex<crate::nn::ReflexRegistry>,
     /// Наряд №178: name → ReflexId map for lookup.
     pub reflex_names: HashMap<String, crate::nn::ReflexId>,
     /// Наряд №4: LLM routing config (providers, circuit breaker, failover).
@@ -271,7 +277,7 @@ impl Interpreter {
             checkpoint_mem: std::sync::Mutex::new(HashMap::new()),
             resume_target: None,
             skill_indices: HashMap::new(),
-            reflex_registry: crate::nn::ReflexRegistry::new(),
+            reflex_registry: std::sync::Mutex::new(crate::nn::ReflexRegistry::new()),
             reflex_names: HashMap::new(),
             llm_config: None,
             smart_router: std::sync::Arc::new(std::sync::Mutex::new(None)),

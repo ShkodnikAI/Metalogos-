@@ -11,7 +11,7 @@ pub type LayerBuildFn =
 // resolves the layer name at `mlog check` time via this registry.
 
 /// A neural network layer — forward-only (training is Наряд №179).
-pub trait Layer: Send + Sync {
+pub trait Layer: Send + Sync + std::any::Any {
     /// Forward pass: input → output.
     /// Input is `&[f64]` (not `Value`) — layers operate on raw floats,
     /// the Value↔float boundary is at the builtin level (reflex_predict).
@@ -31,6 +31,10 @@ pub trait Layer: Send + Sync {
 
     /// Deserialize weights from bytes (used in Наряд №180).
     fn deserialize_weights(&mut self, data: &[u8]) -> Result<(), String>;
+
+    /// Upcast to Any for downcasting to concrete types (Dense, etc.)
+    fn as_any(&self) -> &dyn std::any::Any;
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 
 /// Specification for a layer type — analogous to `BuiltinSpec`.

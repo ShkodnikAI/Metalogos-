@@ -163,14 +163,20 @@ pub(crate) mod regex;
 use regex::*;
 
 // Наряд №179b: Reflex training/prediction builtins.
+// Наряд №180:   Reflex persistence (save/load to SQLite ADR-0116).
 // Handlers are stubs — real dispatch is in interpreter::execution::invoke()
-// and interpreter::reflex_builtin::invoke_reflex_train/predict (for FnCall
+// and interpreter::reflex_builtin::invoke_reflex_* (for FnCall
 // expressions inside pattern bodies). The dispatch functions are pub so
 // the interpreter can call them; the stubs are pub(crate) so the spec!
 // macro in registry.rs can reference them.
 pub(crate) mod reflex;
-use reflex::{builtin_reflex_predict_stub, builtin_reflex_train_stub};
-pub use reflex::{reflex_predict_dispatch, reflex_train_dispatch};
+use reflex::{
+    builtin_reflex_load_stub, builtin_reflex_predict_stub, builtin_reflex_save_stub,
+    builtin_reflex_train_stub,
+};
+pub use reflex::{
+    reflex_load_dispatch, reflex_predict_dispatch, reflex_save_dispatch, reflex_train_dispatch,
+};
 
 impl Default for Builtins {
     fn default() -> Self {

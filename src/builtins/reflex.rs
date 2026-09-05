@@ -78,6 +78,24 @@ pub(crate) fn builtin_reflex_predict_stub(_args: &[Value]) -> Result<Value, Stri
     )
 }
 
+/// Stub — VM not yet supported (Наряд №180 — same pattern as train/predict).
+pub(crate) fn builtin_reflex_save_stub(_args: &[Value]) -> Result<Value, String> {
+    Err(
+        "reflex_save: VM backend does not yet support Reflex (ADR-0114) \
+         — use `mlog run` (interpreter backend)"
+            .to_string(),
+    )
+}
+
+/// Stub — VM not yet supported (Наряд №180 — same pattern as train/predict).
+pub(crate) fn builtin_reflex_load_stub(_args: &[Value]) -> Result<Value, String> {
+    Err(
+        "reflex_load: VM backend does not yet support Reflex (ADR-0114) \
+         — use `mlog run` (interpreter backend)"
+            .to_string(),
+    )
+}
+
 // ── Shared dispatch bodies (reused by TW today, VM tomorrow) ────────
 
 /// `reflex_train(model, data, epochs, metric_name, threshold) -> Struct`
@@ -361,4 +379,159 @@ pub fn reflex_predict_dispatch(registry: &ReflexRegistry, args: &[Value]) -> Res
         .collect();
 
     Ok(Value::Fluid(variants))
+}
+
+// ── Наряд №180: persistence (ADR-0116) ──────────────────────────────
+
+/// `reflex_save(model) -> Unit`
+///
+/// Saves the model's current weights + metadata to the SQLite database
+/// configured by `memory { persist: "..." }`. The model is keyed by its
+/// declared name (e.g. `reflex MyModel { ... }` → key = "MyModel").
+///
+/// Storage format: see `src/nn/serde_weights.rs` (Наряд №178).
+/// Storage location: `reflex_models` table in the same SQLite database
+/// as `memories` and `kv_store`.
+///
+/// Returns `Unit` on success. Errors:
+///   - "reflex_save: persistence not configured" if no `memory { persist: ... }` block
+///   - "reflex_save: model 'X' not declared" if name not in registry
+///   - SQLite errors (failed to open, write, etc.)
+pub fn reflex_save_dispatch(
+    registry: &ReflexRegistry,
+    model_name_to_id: &std::collections::HashMap<String, ReflexId>,
+    persist_path: Option<&str>,
+    args: &[Value],
+) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err(format!(
+            "reflex_save: expected 1 argument (model handle), got {}",
+            args.len()
+        ));
+    }
+
+    // arg 0: model handle (Value::Reflex) — produced by the FnCall
+    // special-case in eval_expr_with_env (same pattern as reflex_train).
+    let model_id: ReflexId = match &args[0] {
+        Value::Reflex(id) => *id,
+        Value::String(name) => {
+            // Allow reflex_save("ModelName") form too — useful from REPL.
+            *model_name_to_id
+                .get(name)
+                .ok_or_else(|| format!("reflex_save: model '{}' not declared", name))?
+        }
+        other => {
+            return Err(format!(
+                "reflex_save: first argument must be a Reflex model handle or String, got {}",
+                other.type_name()
+            ));
+        }
+    };
+
+    // Look up the model name from the id-to-name reverse map.
+    // We don't store id→name on ReflexRegistry (one-way only — name→id
+    // is in model_name_to_id), so we scan.
+    let model_name: String = model_name_to_id
+        .iter()
+        .find(|(_, id)| **id == model_id)
+        .map(|(name, _)| name.clone())
+        .ok_or_else(|| {
+            format!(
+                "reflex_save: model handle {:?} not bound to any declared name",
+                model_id
+            )
+        })?;
+
+    let persist_path = persist_path.ok_or_else(|| {
+        "reflex_save: persistence not configured. Add `memory { persist: \"path.db\" }` \
+         before calling reflex_save."
+            .to_string()
+    })?;
+
+    let model: &ReflexModel = registry
+        .get(model_id)
+        .ok_or_else(|| format!("reflex_save: model handle {:?} not in registry", model_id))?;
+
+    crate::nn::persist::save_model_to_db(model, &model_name, std::path::Path::new(persist_path))?;
+
+    Ok(Value::Unit)
+}
+
+/// `reflex_load(name) -> Value::Reflex`
+///
+/// Loads weights for a previously saved model and applies them to the
+/// *currently declared* `reflex` block with the same name.
+///
+/// Block 3 (Наряд №180): before applying weights, verifies that the
+/// stored layer shapes match the current declaration's layer shapes.
+/// A mismatch is a loud error — never silent corruption.
+///
+/// Returns the same `Value::Reflex(id)` handle that the declaration
+/// already produced (reflex_load does NOT register a new model —
+/// it mutates the weights of the existing one). This matches ADR-0116:
+/// "reflex_load reads and reconstructs a ReflexModel" — the model
+/// already exists from the declaration; reflex_load only restores weights.
+///
+/// Errors:
+///   - "reflex_load: persistence not configured" if no `memory { persist: ... }`
+///   - "reflex_load: no saved model with name 'X'" if name not in DB
+///   - Block 3 shape mismatch (input_size, labels, layer count, layer shape)
+///   - `REFLEX_VERSION` mismatch (handled by `deserialize_model`)
+pub fn reflex_load_dispatch(
+    registry: &mut ReflexRegistry,
+    model_name_to_id: &std::collections::HashMap<String, ReflexId>,
+    persist_path: Option<&str>,
+    args: &[Value],
+) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err(format!(
+            "reflex_load: expected 1 argument (model name String), got {}",
+            args.len()
+        ));
+    }
+
+    let name = match &args[0] {
+        Value::String(s) => s.clone(),
+        Value::Reflex(id) => {
+            // Allow reflex_load(handle) form too — resolve id → name.
+            model_name_to_id
+                .iter()
+                .find(|(_, rid)| **rid == *id)
+                .map(|(n, _)| n.clone())
+                .ok_or_else(|| {
+                    format!(
+                        "reflex_load: model handle {:?} not bound to any declared name",
+                        id
+                    )
+                })?
+        }
+        other => {
+            return Err(format!(
+                "reflex_load: first argument must be a String (model name), got {}",
+                other.type_name()
+            ));
+        }
+    };
+
+    let id: ReflexId = *model_name_to_id.get(&name).ok_or_else(|| {
+        format!(
+            "reflex_load: model '{}' not declared (no matching `reflex {} {{ ... }}` block)",
+            name, name
+        )
+    })?;
+
+    let persist_path = persist_path.ok_or_else(|| {
+        "reflex_load: persistence not configured. Add `memory { persist: \"path.db\" }` \
+         before calling reflex_load."
+            .to_string()
+    })?;
+
+    crate::nn::persist::load_model_from_db(
+        registry,
+        id,
+        &name,
+        std::path::Path::new(persist_path),
+    )?;
+
+    Ok(Value::Reflex(id))
 }

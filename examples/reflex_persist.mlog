@@ -1,0 +1,56 @@
+// Наряд №180: reflex_save / reflex_load — real .mlog persistence contract
+//
+// Single-process run: train a model, save it, load it back, verify
+// predictions are identical. The SQLite file lives under a temp dir
+// controlled by the test runner (the path is provided via env var
+// METALOGOS_PERSIST_TEST_DIR, defaulting to ./target/test_artifacts).
+//
+// This is the "real `mlog run`" contract — not just a cargo test.
+
+memory { persist: "target/test_artifacts/reflex_persist.db" }
+
+reflex PersistClassifier {
+  input: embedding(2)
+  layers: [dense(8, "relu"), dense(2, "softmax")]
+  labels: ["near", "far"]
+  seed: 42
+}
+
+pattern TrainSaveLoadPredict(_x: String) -> String {
+  // Training data: 12 separable samples (6 near origin, 6 far).
+  let data = [
+    [0.0, 0.0, 0.0],
+    [0.3, 0.2, 0.0],
+    [0.6, 0.4, 0.0],
+    [0.9, 0.1, 0.0],
+    [0.2, 0.5, 0.0],
+    [0.4, 0.3, 0.0],
+    [10.0, 10.0, 1.0],
+    [10.3, 10.2, 1.0],
+    [10.6, 10.4, 1.0],
+    [10.9, 10.1, 1.0],
+    [10.2, 10.5, 1.0],
+    [10.4, 10.3, 1.0]
+  ]
+
+  // Train, then capture predictions BEFORE save.
+  let _train = reflex_train(PersistClassifier, data, 200.0, "accuracy", 0.85)
+  let p_before = reflex_predict(PersistClassifier, [0.1, 0.1])
+  let p_before_str = to_string(p_before)
+
+  // Save the trained weights to SQLite.
+  let _saved = reflex_save(PersistClassifier)
+
+  // Load the weights back (overwrites current weights with stored ones —
+  // should be a no-op since we just saved).
+  let _loaded = reflex_load("PersistClassifier")
+
+  // Predict again — should be identical to p_before (same weights).
+  let p_after = reflex_predict(PersistClassifier, [0.1, 0.1])
+  let p_after_str = to_string(p_after)
+
+  // Print both predictions — they should match.
+  return "before=" + p_before_str + " after=" + p_after_str
+}
+
+flow Main { input: String = "x" -> TrainSaveLoadPredict -> output }

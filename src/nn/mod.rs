@@ -14,6 +14,8 @@ pub mod layer;
 pub mod loss;
 pub mod metric;
 pub mod optim;
+/// Наряд №180: persistence (ADR-0116) — save/load trained weights to SQLite.
+pub mod persist;
 pub mod serde_weights;
 
 pub use activation::{Activation, ActivationKind};

@@ -79,6 +79,13 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                     if name == "reflex_train_predict.mlog" {
                         continue;
                     }
+                    // Наряд №180: reflex_persist.mlog uses reflex_save/
+                    // reflex_load (same VM limitation as reflex_train/predict).
+                    // Also writes to a real SQLite file under
+                    // target/test_artifacts/ which the VM cannot reach.
+                    if name == "reflex_persist.mlog" {
+                        continue;
+                    }
 
                     let expected = path.with_extension("expected");
                     if expected.exists() {

@@ -12,9 +12,9 @@ use crate::nn::layer::Layer;
 
 /// Dense layer: y = activation(x · W + b)
 pub struct Dense {
-    weights: Vec<Vec<f64>>, // [output_size][input_size]
-    bias: Vec<f64>,         // [output_size]
-    activation: ActivationKind,
+    pub weights: Vec<Vec<f64>>, // [output_size][input_size]
+    pub bias: Vec<f64>,         // [output_size]
+    pub activation: ActivationKind,
     input_dim: usize,
     output_dim: usize,
 }
@@ -63,6 +63,121 @@ impl Dense {
             activation,
             input_dim,
             output_dim,
+        }
+    }
+
+    /// Backward pass: compute gradients given grad_output (dL/dy).
+    /// Returns (grad_input, grad_weights, grad_bias).
+    /// grad_output has been adjusted for activation derivative already.
+    pub fn backward(
+        &self,
+        input: &[f64],
+        grad_output: &[f64],
+    ) -> (Vec<f64>, Vec<Vec<f64>>, Vec<f64>) {
+        // grad_input = grad_output · W (without activation)
+        // grad_weights[o][i] = grad_output[o] * input[i]
+        // grad_bias[o] = grad_output[o]
+
+        let mut grad_input = vec![0.0; self.input_dim];
+        let mut grad_weights = vec![vec![0.0; self.input_dim]; self.output_dim];
+        let mut grad_bias = vec![0.0; self.output_dim];
+
+        for (o, w_row) in self.weights.iter().enumerate() {
+            let go = grad_output[o];
+            grad_bias[o] = go;
+            for (i, &x) in input.iter().enumerate() {
+                grad_weights[o][i] = go * x;
+                grad_input[i] += go * w_row[i];
+            }
+        }
+
+        (grad_input, grad_weights, grad_bias)
+    }
+
+    /// Apply activation derivative to grad_output.
+    /// This adjusts grad_output in-place to account for the activation function.
+    /// forward_output is the output *after* activation was applied.
+    /// pre_activation is the output *before* activation.
+    pub fn activation_backward(
+        &self,
+        forward_output: &[f64],
+        pre_activation: &[f64],
+        grad_output: &mut [f64],
+    ) {
+        match self.activation {
+            ActivationKind::None => {} // identity: grad passes through
+            ActivationKind::Relu => {
+                for (i, v) in grad_output.iter_mut().enumerate() {
+                    // ReLU derivative: 1 if pre_activation > 0, else 0
+                    if pre_activation[i] <= 0.0 {
+                        *v = 0.0;
+                    }
+                }
+            }
+            ActivationKind::Sigmoid => {
+                // sigmoid'(x) = sigmoid(x) * (1 - sigmoid(x))
+                // = forward_output * (1 - forward_output)
+                for (i, v) in grad_output.iter_mut().enumerate() {
+                    let s = forward_output[i];
+                    *v *= s * (1.0 - s);
+                }
+            }
+            ActivationKind::Tanh => {
+                // tanh'(x) = 1 - tanh(x)^2
+                // = 1 - forward_output^2
+                for (i, v) in grad_output.iter_mut().enumerate() {
+                    let t = forward_output[i];
+                    *v *= 1.0 - t * t;
+                }
+            }
+            ActivationKind::Softmax => {
+                // Softmax Jacobian: for softmax output s,
+                // dL/dz_i = sum_j (dL/ds_j * ds_j/dz_i)
+                // ds_j/dz_i = s_i * (delta_ij - s_j)
+                // => dL/dz_i = s_i * (dL/ds_i - sum_j(dL/ds_j * s_j))
+                // This is the standard softmax+CE backward simplification.
+                // But for general loss, we compute the full Jacobian-vector product.
+                let n = forward_output.len();
+                let mut dot = 0.0;
+                for i in 0..n {
+                    dot += grad_output[i] * forward_output[i];
+                }
+                for i in 0..n {
+                    let s = forward_output[i];
+                    grad_output[i] = s * (grad_output[i] - dot);
+                }
+            }
+        }
+    }
+
+    /// Forward pass returning both pre-activation and post-activation output.
+    /// Used during training to compute gradients.
+    pub fn forward_with_preact(&self, input: &[f64]) -> (Vec<f64>, Vec<f64>) {
+        let mut pre = vec![0.0; self.output_dim];
+        for (o, w_row) in self.weights.iter().enumerate() {
+            let mut sum = self.bias[o];
+            for (i, &x) in input.iter().enumerate() {
+                sum += x * w_row[i];
+            }
+            pre[o] = sum;
+        }
+        let mut post = pre.clone();
+        self.activation.apply(&mut post);
+        (pre, post)
+    }
+
+    /// Update weights and bias (used by optimizer).
+    pub fn update_weights(
+        &mut self,
+        grad_weights: &[Vec<f64>],
+        grad_bias: &[f64],
+        learning_rate: f64,
+    ) {
+        for (o, w_row) in self.weights.iter_mut().enumerate() {
+            for (i, w) in w_row.iter_mut().enumerate() {
+                *w -= learning_rate * grad_weights[o][i];
+            }
+            self.bias[o] -= learning_rate * grad_bias[o];
         }
     }
 }
@@ -180,6 +295,14 @@ impl Layer for Dense {
         }
 
         Ok(())
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }
 

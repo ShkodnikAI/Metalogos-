@@ -203,7 +203,7 @@ pub struct Interpreter {
     /// Наряд №178: Reflex model registry (opaque handles, ADR-0114).
     pub reflex_registry: crate::nn::ReflexRegistry,
     /// Наряд №178: name → ReflexId map for lookup.
-    reflex_names: HashMap<String, crate::nn::ReflexId>,
+    pub reflex_names: HashMap<String, crate::nn::ReflexId>,
     /// Наряд №4: LLM routing config (providers, circuit breaker, failover).
     /// If None → backward compatible (env vars, single provider).
     llm_config: Option<crate::ast::LlmConfigDecl>,

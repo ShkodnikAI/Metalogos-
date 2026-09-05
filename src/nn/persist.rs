@@ -227,8 +227,8 @@ pub fn load_model_from_db(
     // Type alias to keep clippy::type_complexity happy.
     type SavedRow = (Vec<u8>, i64, String, i64, Option<f64>);
 
-    let row_result: Result<SavedRow, rusqlite::Error> = stmt
-        .query_row(rusqlite::params![name], |row| {
+    let row_result: Result<SavedRow, rusqlite::Error> =
+        stmt.query_row(rusqlite::params![name], |row| {
             Ok((
                 row.get::<_, Vec<u8>>(0)?,
                 row.get::<_, i64>(1)?,

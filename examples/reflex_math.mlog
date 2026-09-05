@@ -1,0 +1,83 @@
+// Наряд №177: Reflex math foundation — golden test
+// All functions on known values + numerical stability + determinism.
+
+pattern TestExp(input: String) -> String {
+  let mut r = ""
+  r = r + "exp(0)=" + to_string(exp(0.0)) + " "
+  r = r + "exp(1)=" + to_string(exp(1.0)) + " "
+  r = r + "exp(-1)=" + to_string(exp(-1.0))
+  return r
+}
+
+pattern TestLn(input: String) -> String {
+  let mut r = ""
+  r = r + "ln(1)=" + to_string(ln(1.0)) + " "
+  r = r + "ln(0)=" + to_string(ln(0.0)) + " "
+  r = r + "ln(-1)=" + to_string(ln(-1.0))
+  return r
+}
+
+pattern TestSqrt(input: String) -> String {
+  let mut r = ""
+  r = r + "sqrt(4)=" + to_string(sqrt(4.0)) + " "
+  r = r + "sqrt(2)=" + to_string(sqrt(2.0)) + " "
+  r = r + "sqrt(-1)=" + to_string(sqrt(-1.0))
+  return r
+}
+
+pattern TestPow(input: String) -> String {
+  let mut r = ""
+  r = r + "pow(2,3)=" + to_string(pow(2.0, 3.0)) + " "
+  r = r + "pow(4,0.5)=" + to_string(pow(4.0, 0.5))
+  return r
+}
+
+pattern TestTanh(input: String) -> String {
+  let mut r = ""
+  r = r + "tanh(0)=" + to_string(tanh(0.0)) + " "
+  r = r + "tanh(1000)=" + to_string(tanh(1000.0)) + " "
+  r = r + "tanh(-1000)=" + to_string(tanh(-1000.0))
+  return r
+}
+
+pattern TestSigmoid(input: String) -> String {
+  let mut r = ""
+  r = r + "sigmoid(0)=" + to_string(sigmoid(0.0)) + " "
+  r = r + "sigmoid(1000)=" + to_string(sigmoid(1000.0)) + " "
+  r = r + "sigmoid(-1000)=" + to_string(sigmoid(-1000.0))
+  return r
+}
+
+pattern TestSoftmax(input: String) -> String {
+  let xs = make_list(1.0, 2.0, 3.0)
+  let sm = softmax(xs)
+  let s0 = to_string(get(sm, 0.0))
+  let s1 = to_string(get(sm, 1.0))
+  let s2 = to_string(get(sm, 2.0))
+  let sum = to_float(s0) + to_float(s1) + to_float(s2)
+  return "softmax=[ " + s0 + ", " + s1 + ", " + s2 + " ] sum=" + to_string(sum)
+}
+
+pattern TestRandom(input: String) -> String {
+  random_seed(42.0)
+  let a = random()
+  random_seed(42.0)
+  let b = random()
+  let equal = to_string(to_float(to_string(a)) == to_float(to_string(b)))
+  return "a=" + to_string(a) + " b=" + to_string(b) + " equal=" + equal
+}
+
+pattern RunAll(_input: String) -> String {
+  let mut r = ""
+  r = r + TestExp("x") + "\n"
+  r = r + TestLn("x") + "\n"
+  r = r + TestSqrt("x") + "\n"
+  r = r + TestPow("x") + "\n"
+  r = r + TestTanh("x") + "\n"
+  r = r + TestSigmoid("x") + "\n"
+  r = r + TestSoftmax("x") + "\n"
+  r = r + TestRandom("x")
+  return r
+}
+
+flow Main { input: String = "x" -> RunAll -> output }

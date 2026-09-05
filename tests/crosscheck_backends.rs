@@ -64,6 +64,12 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                     if name == "p118_collection_utils.mlog" {
                         continue;
                     }
+                    // Наряд №177: reflex_math uses random_seed/random (TW-only —
+                    // VM has no PRNG state). Also uses Bool→String formatting
+                    // (to_string(true) → "true" in TW, "1" in VM).
+                    if name == "reflex_math.mlog" {
+                        continue;
+                    }
 
                     let expected = path.with_extension("expected");
                     if expected.exists() {

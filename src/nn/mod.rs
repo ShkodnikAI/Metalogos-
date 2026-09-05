@@ -9,6 +9,10 @@
 //! (ADR-0114): model weights never enter `Value`, only an index.
 
 pub mod activation;
+/// Наряд №183: multi-head self-attention with RoPE — first SequenceLayer.
+/// Feature-gated behind `candle` (off by default).
+#[cfg(feature = "candle")]
+pub mod attention;
 pub mod dense;
 pub mod layer;
 pub mod loss;
@@ -16,12 +20,22 @@ pub mod metric;
 pub mod optim;
 /// Наряд №180: persistence (ADR-0116) — save/load trained weights to SQLite.
 pub mod persist;
+/// Наряд №183 (ADR-0119): sequence-processing layer trait + registry.
+/// Feature-gated behind `candle` — separate scope from initial Reflex rollout.
+#[cfg(feature = "candle")]
+pub mod sequence_layer;
 pub mod serde_weights;
 
 pub use activation::{Activation, ActivationKind};
 pub use dense::Dense;
 pub use layer::{Layer, LayerSpec, LAYER_REGISTRY};
 pub use metric::{compute_accuracy, find_metric, metric_names, MetricSpec, METRIC_REGISTRY};
+// Наряд №183: re-export SequenceLayer types when candle feature is on.
+#[cfg(feature = "candle")]
+pub use sequence_layer::{
+    find_sequence_layer_spec, sequence_layer_names, SequenceLayer, SequenceLayerSpec,
+    SEQUENCE_LAYER_REGISTRY,
+};
 
 /// Opaque handle to a Reflex model in the registry.
 /// Weights are never accessible through this handle — only through

@@ -337,6 +337,40 @@ impl Interpreter {
                     // Store the ReflexId for later lookup by name
                     self.reflex_names.insert(r.name.clone(), id);
                 }
+                // Наряд №183 (ADR-0119): reflex_seq — sequence-model declaration.
+                // When the `candle` feature is enabled, this would register a
+                // `SequenceModel` and dispatch `reflex_seq_predict`/`reflex_seq_train`
+                // through it. This naryad (183) only ships the forward-pass test
+                // (`tests/naryad_183_attention_forward.rs`) and the parse/check
+                // path — runtime registration + integration with the existing
+                // `reflex_predict`/`reflex_train` dispatch is the next naryad.
+                //
+                // When `candle` is off: this arm produces a clean error so
+                // `reflex_seq` blocks don't silently no-op.
+                Declaration::ReflexSeq(r) => {
+                    #[cfg(not(feature = "candle"))]
+                    {
+                        return Err(format!(
+                            "reflex_seq '{}': the 'candle' feature is not enabled in this build. \
+                             Rebuild with: cargo build --features candle",
+                            r.name
+                        ));
+                    }
+                    #[cfg(feature = "candle")]
+                    {
+                        // Validation only — actual runtime registration is
+                        // deferred to the next naryad (training integration).
+                        // For now we verify the declaration parses + layer
+                        // names resolve against `SEQUENCE_LAYER_REGISTRY`.
+                        build_reflex_seq_model(&r)?;
+                        // Silent no-op: model is validated but not yet
+                        // usable via `reflex_predict` (that's the next
+                        // naryad). Returning Ok here means the declaration
+                        // is "registered" — `reflex_seq_declare.mlog` will
+                        // produce empty output, which is what Contract 3
+                        // expects.
+                    }
+                }
                 Declaration::Test(t) => {
                     self.test_blocks.push(t);
                 }
@@ -2204,4 +2238,99 @@ fn build_reflex_model(decl: &crate::ast::ReflexDecl) -> Result<crate::nn::Reflex
         input_size: decl.input_dim,
         labels: decl.labels.clone(),
     })
+}
+
+/// Наряд №183 (ADR-0119): build + validate a `reflex_seq` declaration.
+///
+/// This is a *validation-only* helper in this naryad — it constructs the
+/// `SequenceLayer`s from the declaration (which exercises
+/// `SEQUENCE_LAYER_REGISTRY` resolution and triggers any per-layer shape
+/// errors) but does NOT register a runtime model yet. Training/predict
+/// integration is the next naryad's scope per the spec.
+///
+/// Available only when `candle` feature is enabled (the declaration
+/// parsing itself works without candle, but layer construction requires
+/// the SequenceLayer trait + registry, which are feature-gated).
+#[cfg(feature = "candle")]
+fn build_reflex_seq_model(decl: &crate::ast::ReflexSeqDecl) -> Result<(), String> {
+    use crate::nn::layer::find_layer_spec;
+    use crate::nn::sequence_layer::find_sequence_layer_spec;
+
+    // Validate each layer: it must resolve against SEQUENCE_LAYER_REGISTRY.
+    // A name that only exists in LAYER_REGISTRY (e.g. "dense") is a
+    // mixed-category error (ADR-0119) — explicit compile error, not
+    // silent fallback.
+    for (i, layer_spec) in decl.layers.iter().enumerate() {
+        if find_sequence_layer_spec(&layer_spec.name).is_none() {
+            // Check if it's a classification-only layer (Dense) — that's
+            // the "mixed category" case the spec calls out explicitly.
+            if find_layer_spec(&layer_spec.name).is_some() {
+                return Err(format!(
+                    "reflex_seq '{}': layer {} '{}' is a classification-layer \
+                     (LAYER_REGISTRY), not a sequence-layer (SEQUENCE_LAYER_REGISTRY). \
+                     Mixing categories in one declaration is a compile error (ADR-0119) — \
+                     use `reflex` (not `reflex_seq`) for classification, or replace \
+                     '{}' with a sequence-layer type like 'attention'.",
+                    decl.name, i, layer_spec.name, layer_spec.name
+                ));
+            }
+            return Err(format!(
+                "reflex_seq '{}': unknown layer type '{}' at index {}. \
+                 Available sequence layers: {:?}",
+                decl.name,
+                layer_spec.name,
+                i,
+                crate::nn::sequence_layer::sequence_layer_names()
+            ));
+        }
+    }
+
+    // Construct each layer to validate args + dim divisibility.
+    // We discard the result — actual registration is the next naryad.
+    let mut current_input_size = decl.input_dim;
+    for (i, layer_spec) in decl.layers.iter().enumerate() {
+        let spec = find_sequence_layer_spec(&layer_spec.name).ok_or_else(|| {
+            format!(
+                "reflex_seq '{}': layer {} '{}' not in SEQUENCE_LAYER_REGISTRY \
+                 (this should have been caught earlier — bug)",
+                decl.name, i, layer_spec.name
+            )
+        })?;
+
+        // Build args as Value (matches LayerSpec::build's signature).
+        let args: Vec<crate::interpreter::Value> = layer_spec
+            .args
+            .iter()
+            .map(|s| {
+                if let Ok(f) = s.parse::<f64>() {
+                    crate::interpreter::Value::Float(f)
+                } else {
+                    crate::interpreter::Value::String(s.clone())
+                }
+            })
+            .collect();
+
+        // Build with current_input_size as the expected input dim —
+        // the layer itself validates this.
+        let layer = (spec.build)(&args, decl.seed.wrapping_add(i as u64)).map_err(|e| {
+            format!(
+                "reflex_seq '{}': layer {} build failed: {}",
+                decl.name, i, e
+            )
+        })?;
+
+        // Validate dim chain — input dim must match the layer's expected input.
+        if layer.input_dim() != current_input_size {
+            return Err(format!(
+                "reflex_seq '{}': layer {} expects input_dim={} but previous layer output {}",
+                decl.name,
+                i,
+                layer.input_dim(),
+                current_input_size
+            ));
+        }
+        current_input_size = layer.output_dim();
+    }
+
+    Ok(())
 }

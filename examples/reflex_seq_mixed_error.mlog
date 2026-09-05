@@ -1,0 +1,23 @@
+// Наряд №183 Contract 4: mixing Dense and attention in one declaration →
+// explicit compile error (ADR-0119).
+//
+// ADR-0119: a `reflex_seq` declaration's layers must resolve against
+// `SEQUENCE_LAYER_REGISTRY`. A layer name that only exists in
+// `LAYER_REGISTRY` (e.g. "dense") is the mixed-category case — explicit
+// compile error, not silent fallback.
+//
+// This example is a contract for the candle-on build path: the error
+// is produced by `build_reflex_seq_model` (src/interpreter/execution.rs).
+//
+// When `candle` is off, the error message is different (the candle
+// feature itself is the missing requirement) — this .error file
+// captures the candle-on message.
+
+reflex_seq MixedModel {
+  input: embedding(8)
+  seq_len: 4
+  layers: [dense(8, "relu"), attention(2, 8)]
+  seed: 42
+}
+
+flow Main { input: String = "x" -> output }

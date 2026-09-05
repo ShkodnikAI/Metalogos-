@@ -2046,3 +2046,126 @@ pub(super) fn parse_reflex_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
         seed,
     }))
 }
+
+// ── Наряд №183: reflex_seq declaration parser ───────────────────────
+// reflex_seq Name { input: embedding(dim) seq_len: L layers: [attention(...)] seed: N }
+//
+// Mirrors parse_reflex_decl (Наряд №178) but for sequence models:
+// - Adds `seq_len` field (reflex_seq_len grammar rule).
+// - Does NOT carry `labels` (sequence models are forward-only in this
+//   stage; training integration is the next naryad).
+// - Layers must resolve against `SEQUENCE_LAYER_REGISTRY` at runtime;
+//   the parser only checks field presence here, the registry check
+//   happens at construction time (compile error if candle is off or
+//   if a layer name only exists in `LAYER_REGISTRY`).
+
+pub(super) fn parse_reflex_seq_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let children = children_of(&pair);
+    // Note: children[0] is REFLEX_SEQ_KW (atomic `@{ "reflex_seq" }` —
+    // included in into_inner() as a leaf pair). The IDENT (model name) is
+    // found via find_child_str, same pattern as parse_reflex_decl.
+    let name = find_child_str(&children, Rule::IDENT)
+        .ok_or_else(|| pair_error(&pair, "reflex_seq_decl: missing IDENT (model name)"))?;
+    let mut input_dim = 0;
+    let mut seq_len = 0;
+    let mut layers: Vec<crate::ast::ReflexLayerSpec> = Vec::new();
+    let mut seed: u64 = 0;
+    let mut has_seed = false;
+    let mut has_input = false;
+    let mut has_seq_len = false;
+
+    for child in &children {
+        match child.as_rule() {
+            Rule::reflex_input => {
+                let input_children = children_of(child);
+                for ic in input_children {
+                    if ic.as_rule() == Rule::INT {
+                        input_dim = ic.as_str().parse::<usize>().unwrap_or(0);
+                        has_input = true;
+                    }
+                }
+            }
+            Rule::reflex_seq_len => {
+                let len_children = children_of(child);
+                for lc in len_children {
+                    if lc.as_rule() == Rule::INT {
+                        seq_len = lc.as_str().parse::<usize>().unwrap_or(0);
+                        has_seq_len = true;
+                    }
+                }
+            }
+            Rule::reflex_layers => {
+                let layer_children = children_of(child);
+                for lc in layer_children {
+                    if lc.as_rule() == Rule::layer_spec {
+                        let ls_children = children_of(&lc);
+                        let layer_name = pair_str(&ls_children[0]).to_string();
+                        let mut args: Vec<String> = Vec::new();
+                        for ls_child in &ls_children[1..] {
+                            match ls_child.as_rule() {
+                                Rule::layer_arg_list => {
+                                    let arg_children = children_of(ls_child);
+                                    for ac in arg_children {
+                                        if ac.as_rule() == Rule::layer_arg {
+                                            let s = ac.as_str().trim_matches('"');
+                                            args.push(s.to_string());
+                                        }
+                                    }
+                                }
+                                Rule::layer_arg => {
+                                    let s = ls_child.as_str().trim_matches('"');
+                                    args.push(s.to_string());
+                                }
+                                _ => {}
+                            }
+                        }
+                        layers.push(crate::ast::ReflexLayerSpec {
+                            name: layer_name,
+                            args,
+                        });
+                    }
+                }
+            }
+            Rule::reflex_seed => {
+                let seed_children = children_of(child);
+                for sc in seed_children {
+                    if sc.as_rule() == Rule::INT {
+                        seed = sc.as_str().parse::<u64>().unwrap_or(0);
+                        has_seed = true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if !has_input {
+        return Err(pair_error(
+            &pair,
+            "reflex_seq: 'input' field is required (e.g. input: embedding(64))",
+        ));
+    }
+
+    if !has_seq_len {
+        return Err(pair_error(
+            &pair,
+            "reflex_seq: 'seq_len' field is required (e.g. seq_len: 16)",
+        ));
+    }
+
+    if !has_seed {
+        return Err(pair_error(
+            &pair,
+            "reflex_seq: 'seed' field is required — deterministic weight init",
+        ));
+    }
+
+    Ok(Declaration::ReflexSeq(crate::ast::ReflexSeqDecl {
+        span: Span::from_pest(pair.as_span()),
+        name,
+        input_dim,
+        seq_len,
+        layers,
+        seed,
+    }))
+}

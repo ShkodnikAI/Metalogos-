@@ -260,7 +260,8 @@ impl Compiler {
                 | Declaration::TypeAlias(_)
                 | Declaration::Tool(_)
                 | Declaration::LlmConfig(_)
-                | Declaration::Reflex(_) => {
+                | Declaration::Reflex(_)
+                | Declaration::ReflexSeq(_) => {
                     // Phase 6+: handled elsewhere
                 }
                 _ => {}
@@ -495,7 +496,8 @@ impl Compiler {
                 | Declaration::TypeAlias(_)
                 | Declaration::Tool(_)
                 | Declaration::LlmConfig(_)
-                | Declaration::Reflex(_) => {
+                | Declaration::Reflex(_)
+                | Declaration::ReflexSeq(_) => {
                     // Phase 6+: no bytecode instruction needed
                 }
             }

@@ -1,0 +1,23 @@
+// Наряд №183 Contract 3: reflex_seq declaration parses and compiles.
+//
+// This example exercises the grammar extension (reflex_seq_decl) and
+// the SEQUENCE_LAYER_REGISTRY resolution path. When the `candle`
+// feature is enabled (cargo build --features candle), this program
+// runs cleanly — the declaration is validated and "registered" (though
+// reflex_predict is not yet wired up for sequence models — that's the
+// next naryad's scope).
+//
+// When `candle` is off, this example produces a clean error message
+// naming the missing feature (see execution.rs's ReflexSeq arm).
+//
+// Expected output (candle on): empty (no flow output, declaration only).
+// Expected output (candle off): error mentioning the candle feature.
+
+reflex_seq TinyAttention {
+  input: embedding(8)
+  seq_len: 4
+  layers: [attention(2, 8)]   // 2 heads, dim 8
+  seed: 42
+}
+
+flow Main { input: String = "x" -> output }

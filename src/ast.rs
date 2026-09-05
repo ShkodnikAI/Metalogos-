@@ -135,6 +135,11 @@ pub enum Declaration {
     /// `reflex Name { input: embedding(dim) layers: [...] labels: [...] seed: N }`
     /// (Наряд №178: Reflex pillar, ADR-0114)
     Reflex(ReflexDecl),
+    /// `reflex_seq Name { input: embedding(dim) seq_len: L layers: [attention(...)] seed: N }`
+    /// (Наряд №183: sequence-model extension, ADR-0119 — separate from
+    /// `reflex` classification path; layers must resolve to
+    /// `SEQUENCE_LAYER_REGISTRY`, mixing with Dense is a compile error.)
+    ReflexSeq(ReflexSeqDecl),
 }
 
 impl Declaration {
@@ -163,6 +168,7 @@ impl Declaration {
             Declaration::ContextBudget(d) => Some(&d.pattern_name),
             Declaration::TypeAlias(d) => Some(&d.alias),
             Declaration::Reflex(d) => Some(&d.name),
+            Declaration::ReflexSeq(d) => Some(&d.name),
             // No name: singleton/config/action declarations
             Declaration::MlogServer(_)
             | Declaration::Db(_)
@@ -210,6 +216,7 @@ impl Declaration {
             Declaration::ContextBudget(_) => "context_budget",
             Declaration::TypeAlias(_) => "type_alias",
             Declaration::Reflex(_) => "reflex",
+            Declaration::ReflexSeq(_) => "reflex_seq",
         }
     }
 
@@ -321,6 +328,16 @@ impl Declaration {
                     d.seed
                 )
             }
+            Declaration::ReflexSeq(d) => {
+                format!(
+                    "reflex_seq {} {{ input: {}, seq_len: {}, layers: {}, seed: {} }}",
+                    d.name,
+                    d.input_dim,
+                    d.seq_len,
+                    d.layers.len(),
+                    d.seed
+                )
+            }
             Declaration::TypeAlias(d) => {
                 format!("type {} = {}", d.alias, d.target)
             }
@@ -380,6 +397,7 @@ impl Declaration {
             Declaration::ContextBudget(d) => &d.span,
             Declaration::TypeAlias(d) => &d.span,
             Declaration::Reflex(d) => &d.span,
+            Declaration::ReflexSeq(d) => &d.span,
         }
     }
 }
@@ -893,6 +911,38 @@ pub struct ReflexDecl {
 pub struct ReflexLayerSpec {
     pub name: String,
     pub args: Vec<String>,
+}
+
+// ── reflex_seq declaration (Наряд №183, ADR-0119) ──────────────────
+
+/// `reflex_seq Name { input: embedding(dim) seq_len: L layers: [attention(...)] seed: N }`
+///
+/// Separate from `ReflexDecl` (Наряд №178) per ADR-0119: a model is
+/// EITHER classification (`reflex`, Dense-only, Наряды №177–182) OR
+/// sequence (`reflex_seq`, SequenceLayer-only) — mixing the two
+/// categories in one declaration is a compile-time error, caught at
+/// parse time by routing sequence-only layers through `reflex_seq`.
+///
+/// `seq_len` is the fixed sequence length the model expects at forward
+/// time. (Variable-length sequences are a future-naryad concern; this
+/// initial implementation requires the length to be declared upfront,
+/// matching how `input_dim` is declared upfront in `ReflexDecl`.)
+///
+/// Note: `reflex_seq` does NOT carry `labels` — sequence models in
+/// this stage are forward-only (no classification head); training
+/// integration is the next naryad's scope per the spec.
+#[derive(Debug, Clone)]
+pub struct ReflexSeqDecl {
+    pub span: Span,
+    pub name: String,
+    pub input_dim: usize,
+    /// Fixed sequence length — must match input's first dim at forward time.
+    pub seq_len: usize,
+    /// Layer specs — each must resolve against `SEQUENCE_LAYER_REGISTRY`
+    /// at construction time (compile error if a name appears here that
+    /// only exists in `LAYER_REGISTRY` — the mixed-category case).
+    pub layers: Vec<ReflexLayerSpec>,
+    pub seed: u64,
 }
 
 /// Maximum depth for type alias chain resolution to prevent infinite loops.

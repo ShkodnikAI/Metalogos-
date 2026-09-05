@@ -101,6 +101,13 @@ chrono-tz = "0.10"
 # Наряд MLG-6: Contacts (CardDAV + vCard, pure Rust)
 # vcard parsing is hand-rolled (no external crate needed); CardDAV uses reqwest
 
+# Наряд №183 (ADR-0118): candle for architecture-block (SequenceLayer)
+# extension — separate scope from the initial Reflex rollout
+# (Наряды №177–182, which is dependency-free per ADR-0114).
+# Feature-gated off-by-default via [features].candle in the features table below.
+candle-core = { version = "0.11", optional = true }
+candle-nn = { version = "0.11", optional = true }
+
 # Optional OCR support (requires system tesseract-ocr + training data)
 # Enable with: cargo build --features pdf-ocr
 [dependencies.tesseract]
@@ -118,6 +125,11 @@ template = []
 llm = []
 server = ["dep:axum", "dep:tower", "dep:tower-http", "dep:hyper"]
 full = ["svg", "chart", "diagram", "template", "llm", "server"]
+
+# Наряд №183 (ADR-0118): candle for sequence-layer (attention) extension.
+# Off by default — adds significant build time and dependency surface.
+# Enable with: cargo build --features candle
+candle = ["dep:candle-core", "dep:candle-nn"]
 
 # Optional OCR (pre-existing)
 pdf-ocr = ["tesseract"]

@@ -5,7 +5,7 @@ COMMENT      = _{ "//" ~ (!("\n" | "\r") ~ ANY)* }
 
 program     =  { SOI ~ (declaration ~ WHITESPACE*)* ~ EOI }
 
-declaration = _{ test_decl | type_alias_decl | context_budget_decl | llm_decl | mlogserver_decl | template_decl | db_decl | schema_decl | skill_index_decl | memory_decl | import_decl | hook_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl | conversation_decl | tool_decl | reflex_decl }
+declaration = _{ test_decl | type_alias_decl | context_budget_decl | llm_decl | mlogserver_decl | template_decl | db_decl | schema_decl | skill_index_decl | memory_decl | import_decl | hook_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl | conversation_decl | tool_decl | reflex_decl | reflex_seq_decl }
 
 // ── Type Alias (Наряд №119) ──────────────────────────────────────
 // type Token = Secret
@@ -429,3 +429,26 @@ layer_arg     = { INT | IDENT | STRING_LITERAL }
 reflex_labels = { "labels" ~ COLON ~ LBRACKET ~ STRING_LITERAL ~ (COMMA ~ STRING_LITERAL)* ~ RBRACKET }
 reflex_seed   = { "seed" ~ COLON ~ INT }
 REFLEX_KW     = @{ "reflex" }
+
+// ── Наряд №183 (ADR-0119): reflex_seq — sequence-model declaration ─────
+// Separate declaration from `reflex` (Наряд №178) per ADR-0119: a `reflex`
+// declaration is EITHER a classification/regression head (Dense-only
+// layers, Наряды №177–182) OR a sequence model (SequenceLayer-only),
+// NOT a mix. Mixing the two categories in one declaration is a
+// compile-time error, checked at parse time by routing sequence-only
+// layers through `reflex_seq` and dense-only through `reflex`.
+//
+// Grammar mirrors `reflex_decl` (Наряд №178) — same `layer_spec` rule,
+// same `reflex_seed`, only adds `seq_len` and uses `reflex_seq_body`:
+//
+//   reflex_seq TinyAttention {
+//     input: embedding(64)
+//     seq_len: 16
+//     layers: [attention(4, 64)]   // 4 heads, dim 64
+//     seed: 42
+//   }
+reflex_seq_decl = { REFLEX_SEQ_KW ~ IDENT ~ LBRACE ~ reflex_seq_body ~ RBRACE }
+reflex_seq_body = _{ reflex_seq_field* }
+reflex_seq_field = _{ reflex_input | reflex_seq_len | reflex_layers | reflex_seed }
+reflex_seq_len  = { "seq_len" ~ COLON ~ INT }
+REFLEX_SEQ_KW   = @{ "reflex_seq" }

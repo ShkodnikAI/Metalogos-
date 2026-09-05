@@ -1,0 +1,6 @@
+reflex BadLayer {
+  input: embedding(4)
+  layers: [conv(8, "relu")]
+  labels: ["a"]
+  seed: 42
+}

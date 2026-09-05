@@ -105,6 +105,7 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::type_alias_decl => declarations.push(parse_type_alias_decl(inner_pair)),
                 Rule::llm_decl => declarations.push(parse_llm_decl(inner_pair)?),
                 Rule::tool_decl => declarations.push(parse_tool_decl(inner_pair)?),
+                Rule::reflex_decl => declarations.push(parse_reflex_decl(inner_pair)?),
                 Rule::learnable_pattern_decl => {
                     declarations.push(parse_learnable_pattern_decl(inner_pair)?)
                 }

@@ -1832,3 +1832,117 @@ pub(super) fn parse_test_decl(pair: Pair<Rule>) -> Declaration {
 }
 
 // ── Expressions ─────────────────────────────────────────────────────
+
+// ── Наряд №178: reflex declaration parser ──────────────────────────
+// reflex Name { input: embedding(dim) layers: [dense(8, "relu")] labels: ["a"] seed: 42 }
+
+pub(super) fn parse_reflex_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let children = children_of(&pair);
+    // children[0] = IDENT (name)
+    // children[1..] = reflex_field entries
+
+    let name = pair_str(&children[0]).to_string();
+    let mut input_dim = 0;
+    let mut layers: Vec<crate::ast::ReflexLayerSpec> = Vec::new();
+    let mut labels: Vec<String> = Vec::new();
+    let mut seed: u64 = 0;
+    let mut has_seed = false;
+    let mut has_input = false;
+
+    for child in &children[1..] {
+        match child.as_rule() {
+            Rule::reflex_input => {
+                let input_children = children_of(child);
+                // input_children: ["embedding", "(", INT, ")"]
+                // Find the INT
+                for ic in input_children {
+                    if ic.as_rule() == Rule::INT {
+                        input_dim = ic.as_str().parse::<usize>().unwrap_or(0);
+                        has_input = true;
+                    }
+                }
+            }
+            Rule::reflex_layers => {
+                let layer_children = children_of(child);
+                for lc in layer_children {
+                    if lc.as_rule() == Rule::layer_spec {
+                        let ls_children = children_of(&lc);
+                        // ls_children[0] = IDENT (layer name)
+                        // rest may contain layer_arg_list (non-silent rule)
+                        let layer_name = pair_str(&ls_children[0]).to_string();
+                        let mut args: Vec<String> = Vec::new();
+                        for ls_child in &ls_children[1..] {
+                            match ls_child.as_rule() {
+                                Rule::layer_arg_list => {
+                                    // Extract args from layer_arg_list
+                                    let arg_children = children_of(ls_child);
+                                    for ac in arg_children {
+                                        if ac.as_rule() == Rule::layer_arg {
+                                            let s = ac.as_str();
+                                            // Remove quotes if string literal
+                                            let s = s.trim_matches('"');
+                                            args.push(s.to_string());
+                                        }
+                                    }
+                                }
+                                Rule::layer_arg => {
+                                    let s = ls_child.as_str().trim_matches('"');
+                                    args.push(s.to_string());
+                                }
+                                _ => {}
+                            }
+                        }
+                        layers.push(crate::ast::ReflexLayerSpec {
+                            name: layer_name,
+                            args,
+                        });
+                    }
+                }
+            }
+            Rule::reflex_labels => {
+                let label_children = children_of(child);
+                for lc in label_children {
+                    if lc.as_rule() == Rule::STRING_LITERAL {
+                        let s = lc.as_str();
+                        // Remove surrounding quotes
+                        let s = &s[1..s.len() - 1];
+                        labels.push(s.to_string());
+                    }
+                }
+            }
+            Rule::reflex_seed => {
+                let seed_children = children_of(child);
+                for sc in seed_children {
+                    if sc.as_rule() == Rule::INT {
+                        seed = sc.as_str().parse::<u64>().unwrap_or(0);
+                        has_seed = true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if !has_input {
+        return Err(pair_error(
+            &pair,
+            "reflex: 'input' field is required (e.g. input: embedding(128))",
+        ));
+    }
+
+    if !has_seed {
+        return Err(pair_error(
+            &pair,
+            "reflex: 'seed' field is required — deterministic weight init",
+        ));
+    }
+
+    Ok(Declaration::Reflex(crate::ast::ReflexDecl {
+        span: Span::from_pest(pair.as_span()),
+        name,
+        input_dim,
+        layers,
+        labels,
+        seed,
+    }))
+}

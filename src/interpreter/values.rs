@@ -81,6 +81,10 @@ pub enum Value {
     /// Graph subgraph — opaque first-class graph value (V3).
     /// Contains a serializable GraphSnapshot that can be passed between functions.
     Subgraph(crate::memory_graph::GraphSnapshot),
+    /// Opaque Reflex model handle (Наряд №178, ADR-0114).
+    /// Contains an index into ReflexRegistry — weights never enter Value.
+    /// Debug prints only name and last_metric, not weights.
+    Reflex(crate::nn::ReflexId),
 }
 
 impl std::fmt::Display for Value {
@@ -148,6 +152,7 @@ impl std::fmt::Display for Value {
                 snap.nodes.len(),
                 snap.edges.len()
             ),
+            Value::Reflex(id) => write!(f, "[Reflex#{}]", id.0),
         }
     }
 }
@@ -170,6 +175,7 @@ impl Value {
             Value::Session(_) => "Session",
             Value::HttpResponse { .. } => "HttpResponse",
             Value::Subgraph(_) => "Subgraph",
+            Value::Reflex(_) => "Reflex",
         }
     }
 
@@ -242,6 +248,7 @@ pub fn is_nonprintable(v: &Value) -> bool {
             | Value::Encrypted(_)
             | Value::Hash(_)
             | Value::Subgraph(_)
+            | Value::Reflex(_)
     )
 }
 

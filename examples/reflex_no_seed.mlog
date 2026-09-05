@@ -1,0 +1,5 @@
+reflex NoSeed {
+  input: embedding(4)
+  layers: [dense(8, "relu")]
+  labels: ["a"]
+}

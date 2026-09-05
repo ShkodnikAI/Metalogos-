@@ -27,6 +27,7 @@ pub mod interpreter;
 pub mod llm;
 pub mod memory_graph;
 pub mod memory_store;
+pub mod nn;
 pub mod parser;
 pub mod semantic;
 #[cfg(feature = "server")]

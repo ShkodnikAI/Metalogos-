@@ -306,6 +306,16 @@ impl Interpreter {
                 }
                 // Наряд №119: type aliases handled via type_alias_map (built above)
                 Declaration::TypeAlias(_) => {}
+                // Наряд №178: reflex declarations are registered at runtime
+                // when the interpreter processes them. The model is built
+                // from the declaration and stored in RuntimeContext.
+                Declaration::Reflex(r) => {
+                    // Build the ReflexModel from the declaration.
+                    let model = build_reflex_model(&r)?;
+                    let id = self.reflex_registry.register(model);
+                    // Store the ReflexId for later lookup by name
+                    self.reflex_names.insert(r.name.clone(), id);
+                }
                 Declaration::Test(t) => {
                     self.test_blocks.push(t);
                 }
@@ -1846,6 +1856,7 @@ impl Interpreter {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
     use crate::interpreter::values::{FluidValueVariant, Value};
@@ -1983,4 +1994,82 @@ mod tests {
         let result = interp.maybe_collapse(&fluid, "Float").unwrap();
         assert!(matches!(result, Value::Unit));
     }
+}
+
+// ── Наряд №178: Reflex model builder ──────────────────────────────
+
+/// Build a ReflexModel from a ReflexDecl AST node.
+/// Validates layer names against LAYER_REGISTRY, constructs Dense layers
+/// with deterministic weight init (seed from declaration).
+fn build_reflex_model(decl: &crate::ast::ReflexDecl) -> Result<crate::nn::ReflexModel, String> {
+    use crate::nn::{activation::ActivationKind, dense::Dense, layer, ReflexModel};
+
+    let mut layers: Vec<Box<dyn crate::nn::Layer>> = Vec::new();
+    let mut current_input_size = decl.input_dim;
+
+    for layer_spec in &decl.layers {
+        // Validate layer name against LAYER_REGISTRY
+        let _spec = layer::find_layer_spec(&layer_spec.name).ok_or_else(|| {
+            format!(
+                "reflex '{}': unknown layer type '{}'. Available: {:?}",
+                decl.name,
+                layer_spec.name,
+                layer::layer_names()
+            )
+        })?;
+
+        // Parse args as Values
+        let args: Vec<crate::interpreter::Value> = layer_spec
+            .args
+            .iter()
+            .map(|s| {
+                // Try parsing as float, else keep as string
+                if let Ok(f) = s.parse::<f64>() {
+                    crate::interpreter::Value::Float(f)
+                } else {
+                    crate::interpreter::Value::String(s.clone())
+                }
+            })
+            .collect();
+
+        // For Dense: first arg = units, second arg = activation
+        // Build with current_input_size (chain layers)
+        let units = match args.first() {
+            Some(crate::interpreter::Value::Float(f)) => *f as usize,
+            _ => {
+                return Err(format!(
+                    "reflex '{}': layer '{}' requires 'units' as first arg",
+                    decl.name, layer_spec.name
+                ))
+            }
+        };
+
+        let activation_str = match args.get(1) {
+            Some(crate::interpreter::Value::String(s)) => s.as_str(),
+            _ => "none",
+        };
+        let activation = ActivationKind::parse_kind(activation_str)?;
+
+        // Derive per-layer seed from the model seed + layer index
+        let layer_seed = decl.seed.wrapping_add(layers.len() as u64);
+
+        let layer: Box<dyn crate::nn::Layer> = Box::new(Dense::new(
+            current_input_size,
+            units,
+            activation,
+            layer_seed,
+        ));
+
+        current_input_size = units;
+        layers.push(layer);
+    }
+
+    Ok(ReflexModel {
+        name: decl.name.clone(),
+        layers,
+        seed: decl.seed,
+        last_metric: None,
+        input_size: decl.input_dim,
+        labels: decl.labels.clone(),
+    })
 }

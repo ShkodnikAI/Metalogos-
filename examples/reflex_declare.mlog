@@ -1,0 +1,13 @@
+// Наряд №178: reflex declare — parses and compiles
+reflex MyClassifier {
+  input: embedding(4)
+  layers: [dense(8, "relu"), dense(3, "softmax")]
+  labels: ["cat", "dog", "bird"]
+  seed: 42
+}
+
+pattern TestReflex(input: String) -> String {
+  return "reflex declared: MyClassifier"
+}
+
+flow Main { input: String = "x" -> TestReflex -> output }

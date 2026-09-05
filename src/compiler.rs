@@ -259,8 +259,9 @@ impl Compiler {
                 | Declaration::ContextBudget(_)
                 | Declaration::TypeAlias(_)
                 | Declaration::Tool(_)
-                | Declaration::LlmConfig(_) => {
-                    // Phase 6: handled elsewhere
+                | Declaration::LlmConfig(_)
+                | Declaration::Reflex(_) => {
+                    // Phase 6+: handled elsewhere
                 }
                 _ => {}
             }
@@ -493,7 +494,8 @@ impl Compiler {
                 | Declaration::ContextBudget(_)
                 | Declaration::TypeAlias(_)
                 | Declaration::Tool(_)
-                | Declaration::LlmConfig(_) => {
+                | Declaration::LlmConfig(_)
+                | Declaration::Reflex(_) => {
                     // Phase 6+: no bytecode instruction needed
                 }
             }

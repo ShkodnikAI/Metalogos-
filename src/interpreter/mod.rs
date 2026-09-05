@@ -2,6 +2,7 @@
 // M1: entities, patterns, linear flow
 // M2: struct entities, rules, branching flow, comparisons
 
+pub(crate) mod context;
 pub(crate) mod conversations;
 pub(crate) mod db;
 pub(crate) mod events;
@@ -199,6 +200,10 @@ pub struct Interpreter {
     resume_target: Option<(String, String)>,
     /// Problem A: registered skill indices
     skill_indices: HashMap<String, crate::ast::SkillIndexDecl>,
+    /// Наряд №178: Reflex model registry (opaque handles, ADR-0114).
+    pub reflex_registry: crate::nn::ReflexRegistry,
+    /// Наряд №178: name → ReflexId map for lookup.
+    reflex_names: HashMap<String, crate::nn::ReflexId>,
     /// Наряд №4: LLM routing config (providers, circuit breaker, failover).
     /// If None → backward compatible (env vars, single provider).
     llm_config: Option<crate::ast::LlmConfigDecl>,
@@ -266,6 +271,8 @@ impl Interpreter {
             checkpoint_mem: std::sync::Mutex::new(HashMap::new()),
             resume_target: None,
             skill_indices: HashMap::new(),
+            reflex_registry: crate::nn::ReflexRegistry::new(),
+            reflex_names: HashMap::new(),
             llm_config: None,
             smart_router: std::sync::Arc::new(std::sync::Mutex::new(None)),
             propagated_confidence: std::sync::Mutex::new(1.0),

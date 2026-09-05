@@ -132,6 +132,9 @@ pub enum Declaration {
     ContextBudget(ContextBudgetDecl),
     /// `type Token = Secret` (Наряд №119: type aliases)
     TypeAlias(TypeAliasDecl),
+    /// `reflex Name { input: embedding(dim) layers: [...] labels: [...] seed: N }`
+    /// (Наряд №178: Reflex pillar, ADR-0114)
+    Reflex(ReflexDecl),
 }
 
 impl Declaration {
@@ -159,6 +162,7 @@ impl Declaration {
             Declaration::Test(d) => Some(&d.name),
             Declaration::ContextBudget(d) => Some(&d.pattern_name),
             Declaration::TypeAlias(d) => Some(&d.alias),
+            Declaration::Reflex(d) => Some(&d.name),
             // No name: singleton/config/action declarations
             Declaration::MlogServer(_)
             | Declaration::Db(_)
@@ -205,6 +209,7 @@ impl Declaration {
             Declaration::LlmConfig(_) => "llm_config",
             Declaration::ContextBudget(_) => "context_budget",
             Declaration::TypeAlias(_) => "type_alias",
+            Declaration::Reflex(_) => "reflex",
         }
     }
 
@@ -306,6 +311,16 @@ impl Declaration {
                     d.pattern_name, limit_str
                 )
             }
+            Declaration::Reflex(d) => {
+                format!(
+                    "reflex {} {{ input: {}, layers: {}, labels: {}, seed: {} }}",
+                    d.name,
+                    d.input_dim,
+                    d.layers.len(),
+                    d.labels.len(),
+                    d.seed
+                )
+            }
             Declaration::TypeAlias(d) => {
                 format!("type {} = {}", d.alias, d.target)
             }
@@ -364,6 +379,7 @@ impl Declaration {
             Declaration::LlmConfig(d) => &d.span,
             Declaration::ContextBudget(d) => &d.span,
             Declaration::TypeAlias(d) => &d.span,
+            Declaration::Reflex(d) => &d.span,
         }
     }
 }
@@ -856,6 +872,27 @@ pub struct TypeAliasDecl {
     pub alias: String,
     /// The target type name (e.g. "Secret").
     pub target: String,
+}
+
+// ── Reflex declaration (Наряд №178, ADR-0114) ──────────────────────
+
+/// `reflex Name { input: embedding(dim) layers: [...] labels: [...] seed: N }`
+#[derive(Debug, Clone)]
+pub struct ReflexDecl {
+    pub span: Span,
+    pub name: String,
+    pub input_dim: usize,
+    pub layers: Vec<ReflexLayerSpec>,
+    pub labels: Vec<String>,
+    pub seed: u64,
+}
+
+/// A single layer specification in a reflex declaration.
+/// e.g. `dense(8, "relu")` → { name: "dense", args: ["8", "relu"] }
+#[derive(Debug, Clone)]
+pub struct ReflexLayerSpec {
+    pub name: String,
+    pub args: Vec<String>,
 }
 
 /// Maximum depth for type alias chain resolution to prevent infinite loops.

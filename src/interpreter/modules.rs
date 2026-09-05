@@ -290,6 +290,8 @@ impl Interpreter {
                 }
                 // Наряд №119: type aliases — no runtime action for modules
                 Declaration::TypeAlias(_) => {}
+                // Наряд №178: reflex declarations handled in execution.rs
+                Declaration::Reflex(_) => {}
                 Declaration::Test(t) => {
                     self.test_blocks.push(t);
                 }

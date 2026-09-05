@@ -5,7 +5,7 @@ COMMENT      = _{ "//" ~ (!("\n" | "\r") ~ ANY)* }
 
 program     =  { SOI ~ (declaration ~ WHITESPACE*)* ~ EOI }
 
-declaration = _{ test_decl | type_alias_decl | context_budget_decl | llm_decl | mlogserver_decl | template_decl | db_decl | schema_decl | skill_index_decl | memory_decl | import_decl | hook_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl | conversation_decl | tool_decl }
+declaration = _{ test_decl | type_alias_decl | context_budget_decl | llm_decl | mlogserver_decl | template_decl | db_decl | schema_decl | skill_index_decl | memory_decl | import_decl | hook_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl | conversation_decl | tool_decl | reflex_decl }
 
 // ── Type Alias (Наряд №119) ──────────────────────────────────────
 // type Token = Secret
@@ -400,3 +400,17 @@ INPUT_KW    = @{ "input" }
 OUTPUT_KW   = @{ "output" }
 IMPORT_KW   = @{ "import" }
 AS_KW       = @{ "as" }
+
+// ── Reflex declaration (Наряд №178, этап 2/6) ──────────────────────
+// reflex Name { input: embedding(dim) layers: [dense(units, activation)] labels: ["a", "b"] seed: 42 }
+reflex_decl   = { REFLEX_KW ~ IDENT ~ LBRACE ~ reflex_body ~ RBRACE }
+reflex_body   = _{ reflex_field* }
+reflex_field  = _{ reflex_input | reflex_layers | reflex_labels | reflex_seed }
+reflex_input  = { "input" ~ COLON ~ "embedding" ~ "(" ~ INT ~ ")" }
+reflex_layers = { "layers" ~ COLON ~ LBRACKET ~ layer_spec ~ (COMMA ~ layer_spec)* ~ RBRACKET }
+layer_spec    = { IDENT ~ "(" ~ layer_arg_list? ~ ")" }
+layer_arg_list = { layer_arg ~ (COMMA ~ layer_arg)* }
+layer_arg     = { INT | IDENT | STRING_LITERAL }
+reflex_labels = { "labels" ~ COLON ~ LBRACKET ~ STRING_LITERAL ~ (COMMA ~ STRING_LITERAL)* ~ RBRACKET }
+reflex_seed   = { "seed" ~ COLON ~ INT }
+REFLEX_KW     = @{ "reflex" }

@@ -86,6 +86,18 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                     if name == "reflex_persist.mlog" {
                         continue;
                     }
+                    // Наряд №181: distillation examples use distill_to/
+                    // distill_after/fallback_if in learnable_pattern, which
+                    // require Reflex registry access (Interpreter-only,
+                    // ADR-0114). Also use reflex_train/predict at runtime.
+                    // VM Reflex support is tracked in a future naryad —
+                    // same reason as reflex_train_predict.mlog.
+                    if name == "reflex_distill_teaching.mlog"
+                        || name == "reflex_distill_switch.mlog"
+                        || name == "reflex_distill_fallback.mlog"
+                    {
+                        continue;
+                    }
 
                     let expected = path.with_extension("expected");
                     if expected.exists() {

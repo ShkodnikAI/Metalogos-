@@ -18,8 +18,8 @@ pub mod types;
 pub mod values;
 pub(crate) use types::ControlFlow;
 pub use types::{
-    CompiledLearnable, ConvMessage, Conversation, ConversationConfig, EvalResult, Event,
-    PatternStats, TestResult,
+    CompiledLearnable, ConvMessage, Conversation, ConversationConfig, DistillConfig, DistillMode,
+    DistillRuntimeState, EvalResult, Event, PatternStats, TestResult,
 };
 pub use values::{FluidValueVariant, SecretString, Value};
 
@@ -177,6 +177,14 @@ pub struct Interpreter {
     /// Per-pattern runtime statistics (ADR-0051): calls, confidence, cache hits, adapt info.
     /// Key = pattern name. Used by the `inspect()` builtin.
     pattern_stats: std::sync::Mutex<std::collections::HashMap<String, PatternStats>>,
+    /// Наряд №181 (ADR-0117): per-pattern distillation runtime state.
+    /// Key = pattern name. Tracks accumulated examples + current mode
+    /// (TEACHING vs DISTILLED). Stored separately from `learnable_patterns`
+    /// (which is a static template cloned on each call) so mutations persist
+    /// across calls within a single `mlog run`.
+    distill_states: std::sync::Mutex<
+        std::collections::HashMap<String, crate::interpreter::types::DistillRuntimeState>,
+    >,
     /// Event stream (ADR-0052): in-memory log of all operations.
     /// Each event has id, timestamp, type, source, data, duration.
     event_log: std::sync::Mutex<Vec<Event>>,
@@ -268,6 +276,7 @@ impl Interpreter {
             eval_blocks: Vec::new(),
             test_blocks: Vec::new(),
             pattern_stats: std::sync::Mutex::new(std::collections::HashMap::new()),
+            distill_states: std::sync::Mutex::new(std::collections::HashMap::new()),
             event_log: std::sync::Mutex::new(Vec::new()),
             event_next_id: std::sync::atomic::AtomicU64::new(1),
             conversations: std::sync::Mutex::new(HashMap::new()),
@@ -449,6 +458,13 @@ impl Interpreter {
                 cache_ttl: 3600,
                 model: None,
                 conversation: None,
+                // Наряд №181: serialization back to source — only used by
+                // `mlog check` / inspect. Distillation config doesn't
+                // round-trip through this path (it's runtime state, not
+                // source-level). Set to None to preserve backward compat.
+                distill_to: None,
+                distill_after: 0,
+                fallback_if: None,
             }));
         }
         for r in &self.rules {

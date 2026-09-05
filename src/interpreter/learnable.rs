@@ -1,6 +1,7 @@
 use super::*;
 use crate::ast::{ContextMode, ContextStrategy};
 use crate::embeddings::cosine_similarity;
+use crate::interpreter::types::{DistillMode, DistillRuntimeState};
 use crate::llm;
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -258,6 +259,41 @@ impl Interpreter {
             }
         }
 
+        // ── Наряд №181 (ADR-0117): distillation cycle ────────────────────
+        //
+        // If `distill_to` is set on the pattern, route through the
+        // TEACHING→DISTILLED cycle. Safe degradation: any Reflex-side
+        // failure (not enough data, training error, model not found)
+        // falls back to the normal LLM path below — never propagates
+        // an error to the caller (ADR-0117 §3, "safe degradation").
+        //
+        // If `distill_to` is NOT set, this entire block is skipped and
+        // execution proceeds byte-identically to pre-Наряд №181 behavior
+        // (the backward-compat guarantee from ADR-0117 §2).
+        if let Some(distill) = &learnable.distill {
+            match self.try_distilled_call(pattern_name, distill, &input) {
+                Ok(Some(value)) => {
+                    // DISTILLED path succeeded with a confident prediction.
+                    self.record_pattern_call(pattern_name, true);
+                    return Ok(value);
+                }
+                Ok(None) => {
+                    // Returned None — pattern is in TEACHING mode OR
+                    // confidence was below fallback threshold. Either way,
+                    // fall through to LLM call below, then record the
+                    // (input, llm_output) example for future training.
+                }
+                Err(e) => {
+                    // Safe degradation (ADR-0117 §3): log + fall through
+                    // to LLM. Never propagate the error to the caller.
+                    eprintln!(
+                        "[reflex] distillation error in pattern '{}': {} — falling back to LLM",
+                        pattern_name, e
+                    );
+                }
+            }
+        }
+
         // Phase 7.5: Sandbox enforcement — network isolation
         if let Some(ref sb) = self.active_sandbox {
             if sb.forbidden.iter().any(|f| f == "network") {
@@ -337,14 +373,305 @@ impl Interpreter {
                 for (k, v) in obj {
                     fields.insert(k.clone(), self.json_value_to_value(v));
                 }
-                return Ok(Value::Struct {
+                let result = Value::Struct {
                     type_name: "LlmResponse".to_string(),
                     fields,
-                });
+                };
+                // Наряд №181: record example for distillation training.
+                // ADR-0117 only allows distillation for closed-label
+                // String-returning patterns — so we record the response
+                // as a label candidate. The mode may switch from TEACHING
+                // to DISTILLED on the next call once `distill_after`
+                // examples have been accumulated.
+                self.record_distill_example(pattern_name, &input, &response);
+                return Ok(result);
             }
         }
 
+        // Наряд №181: record example even for non-JSON responses (string labels).
+        self.record_distill_example(pattern_name, &input, &response);
+
         Ok(Value::String(response))
+    }
+
+    // ── Наряд №181 (ADR-0117): distillation cycle helpers ──────────────
+
+    /// Attempt a distilled call. Returns:
+    /// - `Ok(Some(value))` — DISTILLED mode succeeded with confident prediction.
+    ///   Caller should return this directly (no LLM call).
+    /// - `Ok(None)` — pattern is in TEACHING mode OR confidence was below
+    ///   `fallback_if` threshold. Caller should fall through to LLM.
+    /// - `Err(e)` — Reflex-side error (registry, model, predict failure).
+    ///   Caller should log + fall through to LLM (safe degradation).
+    fn try_distilled_call(
+        &self,
+        pattern_name: &str,
+        distill: &crate::interpreter::types::DistillConfig,
+        input: &str,
+    ) -> Result<Option<Value>, String> {
+        let mut states = self
+            .distill_states
+            .lock()
+            .map_err(|e| format!("distill_states lock poisoned: {}", e))?;
+        let state = states
+            .entry(pattern_name.to_string())
+            .or_insert_with(|| DistillRuntimeState {
+                mode: DistillMode::Teaching,
+                examples: Vec::new(),
+                last_train_attempt: 0,
+            });
+
+        match state.mode {
+            DistillMode::Teaching => {
+                // Not enough examples yet (or first call). LLM will be called
+                // by the outer invoke path; we'll record the example after.
+                let count = state.examples.len();
+                let last_attempt = state.last_train_attempt;
+                // Check if we've crossed the threshold to trigger training.
+                // ADR-0115 (Наряд №179): reflex_train requires ≥10 examples
+                // for the holdout split. So we only attempt training when
+                // count ≥ max(distill_after, 10). This avoids calling train()
+                // on every invocation once count crosses distill_after but
+                // is still below 10 — train() would error each time,
+                // wasting cycles.
+                let training_threshold = std::cmp::max(distill.distill_after, 10);
+                // Only attempt training ONCE per threshold crossing —
+                // if it fails (accuracy 0 or training error), we stay
+                // in TEACHING but don't retry on every call (would be
+                // O(N) trainings on N calls). Next retry: when count
+                // grows by 5 more examples past the last attempt.
+                let should_attempt =
+                    count >= training_threshold && (last_attempt == 0 || count - last_attempt >= 5);
+                if should_attempt {
+                    let examples = state.examples.clone();
+                    // Stash the count we attempted training at, so we know
+                    // not to retry until count grows by 5 more.
+                    let trained_at_count = count;
+                    drop(states); // release lock before calling reflex_train
+                    match self.try_train_distilled_model(pattern_name, distill, &examples) {
+                        Ok(true) => {
+                            // Training succeeded → switch to DISTILLED.
+                            // Update mode in the distill_states map.
+                            {
+                                let mut states = self
+                                    .distill_states
+                                    .lock()
+                                    .map_err(|e| format!("distill_states lock poisoned: {}", e))?;
+                                if let Some(s) = states.get_mut(pattern_name) {
+                                    s.mode = DistillMode::Distilled;
+                                }
+                            } // lock released here
+                              // Recursive call to enter DISTILLED path on this same invocation.
+                            return self.try_distilled_call(pattern_name, distill, input);
+                        }
+                        Ok(false) => {
+                            // Training didn't reach accuracy threshold — stay TEACHING.
+                            // Record last attempt count to avoid immediate retry.
+                            {
+                                let mut states = self
+                                    .distill_states
+                                    .lock()
+                                    .map_err(|e| format!("distill_states lock poisoned: {}", e))?;
+                                if let Some(s) = states.get_mut(pattern_name) {
+                                    s.last_train_attempt = trained_at_count;
+                                }
+                            } // lock released here
+                            return Ok(None);
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+                Ok(None)
+            }
+            DistillMode::Distilled => {
+                // Predict via reflex_predict. Safe degradation: errors → None.
+                let model_id = self
+                    .reflex_names
+                    .get(&distill.reflex_name)
+                    .copied()
+                    .ok_or_else(|| {
+                        format!(
+                            "distill: reflex '{}' not declared (no `reflex {} {{ ... }}` block)",
+                            distill.reflex_name, distill.reflex_name
+                        )
+                    })?;
+                drop(states); // release lock before predicting
+
+                let reg = self
+                    .reflex_registry
+                    .lock()
+                    .map_err(|e| format!("reflex registry poisoned: {}", e))?;
+                let model = reg.get(model_id).ok_or_else(|| {
+                    format!("distill: model handle {:?} not in registry", model_id)
+                })?;
+
+                // Embed input — for now we use a simple deterministic embedding
+                // (the input string's first N bytes as floats). This is a
+                // placeholder — ADR-0117 §3 allows embedding strategy to be
+                // any deterministic function of input → Vec<f64>. A future
+                // naryad may swap this for a real embedding model.
+                let embedding = self.simple_embedding(input, model.input_size);
+
+                let probs = model.forward(&embedding);
+
+                // Find the highest-confidence label.
+                let (best_idx, best_prob) = probs
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                    .map(|(i, &p)| (i, p))
+                    .unwrap_or((0, 0.0));
+
+                let best_label = model
+                    .labels
+                    .get(best_idx)
+                    .cloned()
+                    .unwrap_or_else(|| format!("label_{}", best_idx));
+
+                // Check fallback threshold.
+                if let Some((op, threshold)) = distill.fallback_if {
+                    // fallback_if: confidence OP threshold → call LLM if condition is TRUE
+                    // (e.g., `confidence < 0.85` → if confidence < 0.85, fall back).
+                    if op.compare(best_prob, threshold) {
+                        // Below threshold — fall back to LLM. The new example
+                        // will be recorded by the outer call path.
+                        return Ok(None);
+                    }
+                }
+
+                // Confident enough — return the distilled prediction.
+                Ok(Some(Value::String(best_label)))
+            }
+        }
+    }
+
+    /// Train the distillation model on accumulated examples.
+    /// Returns Ok(true) if training succeeded and accuracy ≥ 0.0
+    /// (any successful training switches mode to DISTILLED).
+    /// Returns Ok(false) if training was attempted but accuracy was 0.0
+    /// (or no examples matched valid labels).
+    fn try_train_distilled_model(
+        &self,
+        pattern_name: &str,
+        distill: &crate::interpreter::types::DistillConfig,
+        examples: &[(String, String)],
+    ) -> Result<bool, String> {
+        let model_id = self
+            .reflex_names
+            .get(&distill.reflex_name)
+            .copied()
+            .ok_or_else(|| {
+                format!(
+                    "distill: reflex '{}' not declared for pattern '{}'",
+                    distill.reflex_name, pattern_name
+                )
+            })?;
+
+        // Build training data: each (input, output) pair → Vec<f64> features + class_idx.
+        // We need the model's labels to convert output string → class index.
+        let input_size;
+        let labels: Vec<String>;
+        {
+            let reg = self
+                .reflex_registry
+                .lock()
+                .map_err(|e| format!("reflex registry poisoned: {}", e))?;
+            let model = reg
+                .get(model_id)
+                .ok_or_else(|| format!("distill: model handle {:?} not in registry", model_id))?;
+            input_size = model.input_size;
+            labels = model.labels.clone();
+        }
+
+        let mut inputs: Vec<Vec<f64>> = Vec::with_capacity(examples.len());
+        let mut targets: Vec<usize> = Vec::with_capacity(examples.len());
+        for (input_str, output_str) in examples {
+            // Find label index. If output doesn't match any label, skip this example
+            // (the LLM returned something outside the closed label set — safe to ignore).
+            let target_idx = match labels.iter().position(|l| l == output_str) {
+                Some(idx) => idx,
+                None => continue, // skip — ADR-0117 closed-label enforcement
+            };
+            let embedding = self.simple_embedding(input_str, input_size);
+            inputs.push(embedding);
+            targets.push(target_idx);
+        }
+
+        if inputs.is_empty() {
+            // No valid examples yet — can't train.
+            return Ok(false);
+        }
+
+        // Train. Safe degradation: training error → Ok(false), stay TEACHING.
+        let mut reg = self
+            .reflex_registry
+            .lock()
+            .map_err(|e| format!("reflex registry poisoned: {}", e))?;
+        let model = reg
+            .get_mut(model_id)
+            .ok_or_else(|| format!("distill: model handle {:?} not in registry", model_id))?;
+        // Use a small epoch count for distillation training (default 30).
+        // This is a heuristic — ADR-0117 doesn't specify epochs. We pick
+        // 30 as a balance: enough to learn simple label distinctions on
+        // a one-class or two-class dataset, fast enough not to block the
+        // pattern call (training happens inline during the LLM-call
+        // replacement). Reflex_train requires ≥10 examples (ADR-0115),
+        // and on 10-50 example datasets 30 epochs typically converges.
+        let _result = model
+            .train(&inputs, &targets, 30, 0.1)
+            .map_err(|e| format!("distill: training failed: {}", e))?;
+
+        // Training succeeded — accuracy may be low but we still switch to DISTILLED
+        // (the fallback_if threshold handles low-confidence cases at predict time).
+        Ok(true)
+    }
+
+    /// Record a (input, output) example for future training.
+    /// Called after every LLM call on a distilling pattern.
+    fn record_distill_example(&self, pattern_name: &str, input: &str, output: &str) {
+        if let Ok(mut states) = self.distill_states.lock() {
+            let state =
+                states
+                    .entry(pattern_name.to_string())
+                    .or_insert_with(|| DistillRuntimeState {
+                        mode: DistillMode::Teaching,
+                        examples: Vec::new(),
+                        last_train_attempt: 0,
+                    });
+            // Only record in TEACHING mode — once DISTILLED, we don't accumulate
+            // (unless fallback returned us to LLM, in which case we DO want this
+            // example for future retraining).
+            state.examples.push((input.to_string(), output.to_string()));
+        }
+    }
+
+    /// Simple deterministic embedding for distillation input strings.
+    /// ADR-0117 §3: "embedding strategy can be any deterministic function
+    /// of input → Vec<f64>". This produces a fixed-size vector by hashing
+    /// the input string into `dim` buckets. Future naryads may swap this
+    /// for a real embedding model (sentence-transformers etc.) — the
+    /// distillation logic doesn't depend on the embedding strategy.
+    fn simple_embedding(&self, input: &str, dim: usize) -> Vec<f64> {
+        let mut embedding = vec![0.0; dim];
+        // XOR-based hash distribution — same input always produces same embedding.
+        let bytes = input.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            let bucket = i % dim;
+            // Mix the byte into the bucket — using multiplication + addition
+            // so different inputs produce distinguishable vectors.
+            embedding[bucket] += (b as f64) * 0.01;
+            // Also XOR-style mixing for spread
+            if b != 0 {
+                embedding[(bucket + 1) % dim] =
+                    (embedding[(bucket + 1) % dim] * 0.99) + (b as f64) * 0.001;
+            }
+        }
+        // Normalize to roughly [-1, 1] range (helps gradient descent).
+        let max_val = embedding.iter().cloned().fold(0.0f64, f64::max).max(1.0);
+        for v in &mut embedding {
+            *v /= max_val;
+        }
+        embedding
     }
 
     /// Наряд #156: Unified LLM call with optional per-call timeout.

@@ -30,6 +30,10 @@ fn make_cached_learnable_decl(name: &str, prompt: &str, cache: bool, ttl: u64) -
         cache_ttl: ttl,
         model: None,
         conversation: None,
+        // Наряд №181: distillation fields default to None (no distill).
+        distill_to: None,
+        distill_after: 0,
+        fallback_if: None,
     })
 }
 

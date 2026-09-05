@@ -1,0 +1,20 @@
+// Наряд №181 Contract 1: distill_to before accumulation — behaves as
+// ordinary learnable pattern (calls LLM via MockLlm, which echoes the prompt).
+//
+// The distill_after threshold is set high (100) so the pattern stays in
+// TEACHING mode throughout this run. No reflex_train is attempted.
+
+reflex SentimentHead {
+  input: embedding(4)
+  layers: [dense(8, "relu"), dense(2, "softmax")]
+  labels: ["positive", "negative"]
+  seed: 42
+}
+
+learnable pattern Classify(text: String) -> String {
+  prompt: "classify"
+  distill_to: SentimentHead
+  distill_after: 100
+}
+
+flow Main { input: String = "hello world" -> Classify -> output }

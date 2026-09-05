@@ -249,6 +249,9 @@ fn registry_arity_exhaustive() {
         // ── Наряд №179b: Reflex training/prediction builtins ──
         ("reflex_train", 5, 5),
         ("reflex_predict", 2, 2),
+        // ── Наряд №180: Reflex persistence (ADR-0116) ──
+        ("reflex_save", 1, 1),
+        ("reflex_load", 1, 1),
     ];
 
     for &(name, min_a, max_a) in cases {

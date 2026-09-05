@@ -507,6 +507,14 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // reflex_predict_dispatch.
     spec!("reflex_train", 5, "reflex"; builtin_reflex_train_stub),
     spec!("reflex_predict", 2, "reflex"; builtin_reflex_predict_stub),
+    // ── Наряд №180: Reflex persistence (ADR-0116) ──
+    // Same pattern as reflex_train/reflex_predict: stub handlers — the
+    // real dispatch lives in interpreter::execution::invoke() (and
+    // interpreter::reflex_builtin.rs for FnCall expressions) because
+    // reflex_save/reflex_load need access to both the ReflexRegistry
+    // and the SQLite persist path (set by `memory { persist: "..." }`).
+    spec!("reflex_save", 1, "reflex"; builtin_reflex_save_stub),
+    spec!("reflex_load", 1, "reflex"; builtin_reflex_load_stub),
 ];
 
 /// Total number of registered builtins.

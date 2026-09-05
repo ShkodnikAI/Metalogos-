@@ -369,6 +369,41 @@ impl Interpreter {
                 .map_err(|e| format!("reflex registry poisoned: {}", e))?;
             return crate::builtins::reflex_predict_dispatch(reg, &args);
         }
+        // Наряд №180: reflex_save / reflex_load — persistence (ADR-0116).
+        // Need access to both the ReflexRegistry and the SQLite persist
+        // path (set by `memory { persist: "..." }`). Dispatch functions
+        // in src/builtins/reflex.rs take both as parameters.
+        //
+        // Order matters for the borrow checker: clone persist_path
+        // BEFORE locking the registry (locking takes &mut self, while
+        // get_memory_persist_path takes &self — they conflict otherwise).
+        if name == "reflex_save" {
+            let persist = self.get_memory_persist_path();
+            let reg = self
+                .reflex_registry
+                .get_mut()
+                .map_err(|e| format!("reflex registry poisoned: {}", e))?;
+            return crate::builtins::reflex_save_dispatch(
+                reg,
+                &self.reflex_names,
+                persist.as_deref(),
+                &args,
+            );
+        }
+        if name == "reflex_load" {
+            let persist = self.get_memory_persist_path();
+            let reg = self
+                .reflex_registry
+                .get_mut()
+                .map_err(|e| format!("reflex registry poisoned: {}", e))?;
+            let result = crate::builtins::reflex_load_dispatch(
+                reg,
+                &self.reflex_names,
+                persist.as_deref(),
+                &args,
+            )?;
+            return Ok(result);
+        }
 
         // Check recall (memory) first — it's a built-in with memory access
         if name == "recall" {
@@ -1183,6 +1218,22 @@ impl Interpreter {
                             ));
                         }
                     }
+                    // Наряд №180: reflex_save(Model, ...) — same bare-Ident
+                    // resolution. reflex_load takes a String name, so no
+                    // special-case needed for it (regular expr eval handles
+                    // string literals and variable lookups).
+                    if name == "reflex_save" && i == 0 {
+                        if let Expr::Ident { name: n, .. } = arg {
+                            if let Some(id) = self.reflex_names.get(n) {
+                                eval_args.push(Value::Reflex(*id));
+                                continue;
+                            }
+                            return Err(format!(
+                                "reflex_save: model '{}' not declared (no matching `reflex {} {{ ... }}` block)",
+                                n, n
+                            ));
+                        }
+                    }
                     eval_args.push(self.eval_expr_with_env(arg, env)?);
                 }
 
@@ -1195,6 +1246,15 @@ impl Interpreter {
                 }
                 if name == "reflex_predict" {
                     return self.invoke_reflex_predict(eval_args);
+                }
+                // Наряд №180: reflex_save / reflex_load — persistence (ADR-0116).
+                // Need both the registry (Mutex-protected) and the SQLite
+                // persist path (from `memory { persist: "..." }`).
+                if name == "reflex_save" {
+                    return self.invoke_reflex_save(eval_args);
+                }
+                if name == "reflex_load" {
+                    return self.invoke_reflex_load(eval_args);
                 }
 
                 // Check recall (memory) first

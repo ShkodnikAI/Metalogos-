@@ -70,6 +70,15 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                     if name == "reflex_math.mlog" {
                         continue;
                     }
+                    // Наряд №179b: reflex_train_predict uses reflex_train/
+                    // reflex_predict builtins whose handlers need access to
+                    // the ReflexRegistry (lives on the Interpreter struct,
+                    // not the VM). VM Reflex support is tracked in a future
+                    // naryad (ADR-0114). The TW-only path is exercised by
+                    // the golden test suite.
+                    if name == "reflex_train_predict.mlog" {
+                        continue;
+                    }
 
                     let expected = path.with_extension("expected");
                     if expected.exists() {

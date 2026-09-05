@@ -1838,10 +1838,14 @@ pub(super) fn parse_test_decl(pair: Pair<Rule>) -> Declaration {
 
 pub(super) fn parse_reflex_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
     let children = children_of(&pair);
-    // children[0] = IDENT (name)
-    // children[1..] = reflex_field entries
-
-    let name = pair_str(&children[0]).to_string();
+    // Note: children[0] is REFLEX_KW (atomic `@{ "reflex" }` — included in
+    // into_inner() as a leaf pair). The IDENT (model name) is the child
+    // whose rule is Rule::IDENT. Наряд №179b: previously this used
+    // children[0] which silently registered every model with the literal
+    // name "reflex" — that broke `reflex_train(ModelName, ...)` lookups
+    // for any model whose source name wasn't "reflex".
+    let name = find_child_str(&children, Rule::IDENT)
+        .ok_or_else(|| pair_error(&pair, "reflex_decl: missing IDENT (model name)"))?;
     let mut input_dim = 0;
     let mut layers: Vec<crate::ast::ReflexLayerSpec> = Vec::new();
     let mut labels: Vec<String> = Vec::new();
@@ -1849,7 +1853,7 @@ pub(super) fn parse_reflex_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
     let mut has_seed = false;
     let mut has_input = false;
 
-    for child in &children[1..] {
+    for child in &children {
         match child.as_rule() {
             Rule::reflex_input => {
                 let input_children = children_of(child);

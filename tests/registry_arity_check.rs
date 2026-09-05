@@ -246,6 +246,9 @@ fn registry_arity_exhaustive() {
         ("regex_match", 2, 2),
         ("regex_captures", 2, 2),
         ("regex_replace", 3, 3),
+        // ── Наряд №179b: Reflex training/prediction builtins ──
+        ("reflex_train", 5, 5),
+        ("reflex_predict", 2, 2),
     ];
 
     for &(name, min_a, max_a) in cases {

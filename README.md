@@ -100,7 +100,7 @@ These are file-level heuristics, not data-flow guarantees — they may false-pos
 
 ### 3. Dual Execution Backend
 
-Tree-walking interpreter (full language) + bytecode VM (46 instructions; experimental for full-language use — `match` and block `if/else` **expression** not supported yet, see [ADR-0105](docs/adr/0105-vm-experimental-scope.md)). Programs both backends can run are checked by `crosscheck_backends` for TW↔VM output parity.
+Tree-walking interpreter (full language) + bytecode VM (46 instructions; experimental for full-language use — `match` (statement and `let`-binding expression) and block `if/else` **expression** not supported yet, see [ADR-0105](docs/adr/0105-vm-experimental-scope.md)). Programs both backends can run are checked by `crosscheck_backends` for TW↔VM output parity.
 
 ### 4. Typed Semantic Memory with Hybrid Search
 

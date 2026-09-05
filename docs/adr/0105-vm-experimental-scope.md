@@ -32,6 +32,13 @@ and `BlockIfElse` would be at least two naryads of that calibre, with no
 guarantee that further deferred constructs are not still hidden in the
 compiler.
 
+> **Note (Наряд №173b):** A *separate*, newer construct — `match_expr`
+> (`match` used as a value in `let x = match { ... }`) — was added in
+> Наряд №173b, TW-only. This does not close the gap above (`match` as
+> a statement remains VM-unsupported); it adds a second, narrower
+> TW-only construct on top of it. `p_match_switch.mlog`'s crosscheck
+> exclusion remains — verified unchanged as of this note.
+
 There is no confirmed production demand for full VM language coverage
 today: FOSVED (the only real consumer) runs on TW; `METALOGOS_SERVE_BACKEND=vm`
 is an explicit opt-in and is not the default path.

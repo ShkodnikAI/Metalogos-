@@ -191,6 +191,10 @@ match command {
 ```
 Поддерживаются 4 вида arm: точное совпадение (`"val" then {}`), префикс (`starts_with "pre" then {}`), подстрока (`contains "sub" then {}`), сравнение (`> expr then {}` с любым из `>`, `<`, `>=`, `<=`, `==`, `!=`). Match возвращает значение последнего expression в выбранной ветви.
 
+> **TW-only:** `match` (как statement) и `match` как expression в `let`-binding
+> (`let x = match y { ... }`, Наряд №173b) работают только в tree-walking
+> interpreter. Bytecode VM их не поддерживает — см. [ADR-0105](docs/adr/0105-vm-experimental-scope.md).
+
 **If-else block как expression (Наряд №14):**
 ```mlog
 let label = if score >= 90.0 { "A" } else { "B" }

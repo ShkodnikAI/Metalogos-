@@ -359,8 +359,8 @@ fn real_builtin_category_count() -> usize {
     let content =
         fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {:?}: {}", path, e));
 
-    let string_re = Regex::new(r#""([^"]+)"#).unwrap();
-    let layer_re = Regex::new(r#"=>\s*"[^"]+"#).unwrap();
+    let string_re = Regex::new(r#""([^"]+)""#).unwrap();
+    let layer_re = Regex::new(r#"=>\s*"[^"]+""#).unwrap();
 
     let mut categories: std::collections::HashSet<String> = std::collections::HashSet::new();
 

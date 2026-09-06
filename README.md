@@ -159,7 +159,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Bytecode format | 46 VM instructions | — |
 | Tree-walking interpreter | Full feature support, 12 modules | ~4 400 |
 | VM | Stack-based bytecode executor | 2 143 |
-| Built-in functions | 373 functions across 35 modules | ~18 000 |
+| Built-in functions | 373 functions across 36 modules | ~18 000 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 2 433 |
 | LLM backend | Trait + mock + real providers | 1 421 |
 | Memory store | Typed memory with FTS5 BM25 + cosine RRF hybrid recall + KV store | 1 540 |
@@ -214,7 +214,7 @@ Metalogos-/
 │   │   ├── db.rs                      # SQLite database access
 │   │   └── learnable.rs               # Learnable pattern support
 │   │
-│   └── builtins/                      # 373 built-in functions (35 modules)
+│   └── builtins/                      # 373 built-in functions (36 modules)
 │       ├── mod.rs                     # Builtin dispatch
 │       ├── registry.rs               # BUILTIN_REGISTRY (SSOT for all builtins)
 │       ├── core.rs                    # print, let, type, inspect, sleep
@@ -615,7 +615,7 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 | Metric | Value |
 |---|---|
 | Effective Rust LOC | ~59 000 |
-| Built-in Functions | 373 (35 modules) |
+| Built-in Functions | 373 (36 modules) |
 | Example Programs | 204 |
 | Integration Tests | 70 test suites |
 | Architecture Decision Records | 116 |

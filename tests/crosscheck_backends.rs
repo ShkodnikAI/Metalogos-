@@ -98,6 +98,12 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                     {
                         continue;
                     }
+                    // Наряд №187: reflex_introspect.mlog uses reflex_train +
+                    // reflex_metrics + reflex_list (all need ReflexRegistry,
+                    // same VM limitation as reflex_train_predict.mlog).
+                    if name == "reflex_introspect.mlog" {
+                        continue;
+                    }
                     // Наряд №183: reflex_seq examples use reflex_seq_decl
                     // which the VM doesn't yet handle (compiler.rs treats
                     // ReflexSeq as "Phase 6+: no bytecode instruction needed").

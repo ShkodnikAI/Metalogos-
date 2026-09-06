@@ -350,7 +350,7 @@ impl TrainableAttention {
         let rotated = Tensor::cat(&[&x_first_new, &x_second_new], 2)
             .map_err(|e| format!("trainable_rope concat: {}", e))?;
         rotated
-            .reshape((seq_len, self.dim))
+            .reshape((seq_len, n_h * head_dim))
             .map_err(|e| format!("trainable_rope reshape back: {}", e))
     }
 }

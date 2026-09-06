@@ -1,0 +1,26 @@
+// Наряд №192 Contract 3: reflex_seq with GQA + stacked layers.
+//
+// Stack of 2 attention layers:
+//   - attention(2, 8)      — standard MHA (Наряд №183)
+//   - attention(4, 8, 2)   — GQA with 4 Q heads, 2 KV heads (Наряд №188)
+//
+// This example exercises GQA inside a multi-layer stack (Наряд №190's
+// chaining mechanism). When the `candle` feature is enabled, this
+// program runs cleanly — the declaration is validated against the
+// SEQUENCE_LAYER_REGISTRY.
+//
+// Expected output (candle on): empty (no flow output, declaration only).
+// Expected output (candle off): error mentioning the candle feature.
+
+reflex_seq GqaStack {
+  input: embedding(8)
+  seq_len: 4
+  layers: [
+    attention(2, 8),        // standard MHA
+    attention(4, 8, 2)       // GQA: 4 Q heads, 2 KV heads
+  ]
+  labels: ["signal", "noise"]
+  seed: 42
+}
+
+flow Main { input: String = "x" -> output }

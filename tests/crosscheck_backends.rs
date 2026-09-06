@@ -117,6 +117,7 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                         || name == "reflex_seq_transformer_block.mlog"
                         || name == "reflex_seq_gqa.mlog"
                         || name == "reflex_seq_stacked.mlog"
+                        || name == "reflex_seq_gqa_stack.mlog"
                     {
                         continue;
                     }

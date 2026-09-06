@@ -1,0 +1,28 @@
+// Наряд №184 Contract 4: reflex_seq declaration with transformer_block.
+//
+// This example exercises the grammar extension for the full transformer
+// block — the composite SequenceLayer that wraps attention + 2xRmsNorm
+// + SwiGLU. When the `candle` feature is enabled
+// (cargo build --features candle), this program runs cleanly — the
+// declaration is validated against the SEQUENCE_LAYER_REGISTRY.
+//
+// When `candle` is off, this example produces a clean error message
+// naming the missing feature (same as reflex_seq_declare.mlog).
+//
+// Expected output (candle on): empty (no flow output, declaration only).
+// Expected output (candle off): error mentioning the candle feature.
+//
+// The parameter order is (heads, dim, ff_dim), matching the spec:
+//   transformer_block(4, 64, 256)  →  4 heads, dim 64, ff_dim 256
+//
+// The block uses dim 64 (4 heads × 16 head_dim) and ff_dim 256 (4× dim)
+// — a typical small-transformer configuration.
+
+reflex_seq TinyTransformer {
+  input: embedding(64)
+  seq_len: 16
+  layers: [transformer_block(4, 64, 256)]
+  seed: 42
+}
+
+flow Main { input: String = "x" -> output }

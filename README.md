@@ -503,6 +503,37 @@ learnable pattern Classify(text: String) -> String {
 
 **Architecture blocks (ADR-0118, ADR-0119)** — `reflex_seq` declares sequence models for transformer-family layers: `attention` (multi-head with RoPE, Наряд №183), `rms_norm` / `swiglu` / `transformer_block` (Наряд №184). These require the optional `candle` feature (`cargo build --features candle`), not unconditional — when the feature is off, `reflex_seq` declarations produce a clean error naming the missing feature. Sequence models classify the *whole* sequence into one label (mean pooling + Dense head), not token-by-token generation (ADR-0117 §3 boundary, symmetric).
 
+**Grouped-Query Attention (GQA, Наряд №188)** — `attention` accepts an optional third parameter for the number of KV heads:
+
+```mlog
+reflex_seq GqaModel {
+  input: embedding(64)
+  seq_len: 16
+  layers: [attention(8, 64, 2)]   // 8 query heads, dim 64, 2 KV heads (GQA)
+  labels: ["signal", "noise"]
+  seed: 42
+}
+```
+
+When the third parameter is omitted (`attention(8, 64)`), behaviour is identical to standard multi-head attention (Наряд №183) — `n_kv_heads` defaults to `n_heads`. When `n_kv_heads < n_heads`, K and V weights are smaller (`[dim, kv_dim]` instead of `[dim, dim]`) and repeated along the head axis during the attention computation (Llama 2/3 architecture). Constraints: `n_kv_heads > 0`, `n_kv_heads ≤ n_heads`, `n_heads % n_kv_heads == 0`.
+
+**Stacked transformer blocks (Наряд №190)** — multiple `transformer_block` entries can be chained in the `layers` list. Each block gets its own independent, deterministically different weights (via `VarMap` prefixing — not identical copies):
+
+```mlog
+reflex_seq StackedTransformer {
+  input: embedding(8)
+  seq_len: 4
+  layers: [
+    transformer_block(2, 8, 16),
+    transformer_block(2, 8, 16)   // different weights from block 0
+  ]
+  labels: ["a", "b"]
+  seed: 42
+}
+```
+
+Each layer receives `seed.wrapping_add(layer_index)` for deterministic weight initialization, and registers its parameters under unique `VarMap` names (`block0_attn_w_q`, `block1_attn_w_q`, etc.) so that `backward()` populates gradients for all blocks — gradients flow through the entire stack, not just the last layer.
+
 ---
 
 ## Quick Start

@@ -64,11 +64,19 @@ impl TrainableTransformerBlock {
         ff_dim: usize,
         seed: u64,
         var_map: &candle_nn::VarMap,
+        prefix: &str,
     ) -> Result<Self, String> {
-        // Mirror TransformerBlock's seed offsets (Наряд №184) so the
-        // attention weights are the same as a standalone Attention
-        // with the same seed.
-        let attention = TrainableAttention::new(heads, dim, seed, var_map)?;
+        // Наряд №190: pass prefix to TrainableAttention so each block in a
+        // stack registers under unique VarMap names ("block0_attn_w_q", etc.).
+        // Without this, stacked blocks overwrite each other — bug fixed by this naryad.
+        let attention = TrainableAttention::new_with_kv_heads(
+            heads,
+            heads, // standard MHA inside transformer_block (GQA opt-in only standalone)
+            dim,
+            seed,
+            var_map,
+            &format!("{}_attn", prefix),
+        )?;
         // RmsNorm with ones-init (Наряд №184 default; seed has no effect).
         let norm1 = RmsNorm::new(dim, seed ^ 0x4E44, 1e-6)?;
         // SwiGLU with seed XOR offset (matches Наряд №184's offset).
@@ -124,10 +132,14 @@ impl SequenceLayer for TrainableTransformerBlock {
 
 /// Build function — accepts same args as `build_transformer_block`
 /// (heads, dim, ff_dim) from Наряд №184.
+///
+/// Наряд №190: `prefix` parameter makes each block in a stack register
+/// its weights under unique VarMap names.
 pub fn build_trainable_transformer_block(
     args: &[Value],
     seed: u64,
     var_map: &candle_nn::VarMap,
+    prefix: &str,
 ) -> Result<Box<dyn SequenceLayer>, String> {
     if args.len() != 3 {
         return Err(format!(
@@ -171,6 +183,6 @@ pub fn build_trainable_transformer_block(
             ))
         }
     };
-    let block = TrainableTransformerBlock::new(heads, dim, ff_dim, seed, var_map)?;
+    let block = TrainableTransformerBlock::new(heads, dim, ff_dim, seed, var_map, prefix)?;
     Ok(Box::new(block))
 }

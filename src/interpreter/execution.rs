@@ -2420,24 +2420,34 @@ fn construct_reflex_seq_model(
         // VarBuilder) so it can register Vars with deterministic init.
         // Наряд №185 follow-up: transformer_block also supported (wraps
         // TrainableAttention + forward-only RmsNorm/SwiGLU).
+        // Наряд №190: pass unique prefix per layer (layer index) so stacked
+        // blocks don't overwrite each other in VarMap — bug fixed.
         let layer: Box<dyn crate::nn::sequence_layer::SequenceLayer> = match layer_spec
             .name
             .as_str()
         {
             "attention" => {
-                build_trainable_attention(&args, decl.seed.wrapping_add(i as u64), &var_map)
-                    .map_err(|e| {
-                        format!(
-                            "reflex_seq '{}': layer {} build failed: {}",
-                            decl.name, i, e
-                        )
-                    })?
+                let prefix = format!("layer{}", i);
+                build_trainable_attention(
+                    &args,
+                    decl.seed.wrapping_add(i as u64),
+                    &var_map,
+                    &prefix,
+                )
+                .map_err(|e| {
+                    format!(
+                        "reflex_seq '{}': layer {} build failed: {}",
+                        decl.name, i, e
+                    )
+                })?
             }
             "transformer_block" => {
+                let prefix = format!("block{}", i);
                 crate::nn::trainable_transformer_block::build_trainable_transformer_block(
                     &args,
                     decl.seed.wrapping_add(i as u64),
                     &var_map,
+                    &prefix,
                 )
                 .map_err(|e| {
                     format!(

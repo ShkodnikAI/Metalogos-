@@ -33,6 +33,7 @@
    - [PDF (pdf-inspector)](#418-pdf-наряд-48-pdf-inspector)
    - [SVG-графика и диаграммы](#419-svg-графика-и-диаграммы-наряды-77-92-adr-0102)
    - [Email, календарь, контакты](#420-email-календарь-контакты-наряды-mlg-456)
+   - [Reflex — локальные нейросетевые модели](#421-reflex--локальные-нейросетевые-модели-наряды-177185-adr-011201140117)
 5. [Объявления верхнего уровня](#5-объявления-верхнего-уровня)
 6. [Stdlib (стандартная библиотека)](#6-stdlib-стандартная-библиотека)
 7. [Changelog](#7-changelog-кратко)
@@ -696,6 +697,7 @@ schema my_dept {
 | Функция | Сигнатура | Возврат | Описание |
 |---------|-----------|---------|----------|
 | `print(s)` | `String -> String` | String | Выводит строку в stdout, возвращает её же |
+| `inspect(pattern_name)` | `String -> Struct\|Unit` | Struct (или Unit если паттерн не найден) | Возвращает статистику паттерна (ADR-0051): `examples_count`, `invocation_count`, `last_invocation_at`, `mode` (для learnable: TEACHING/DISTILLED). Soft-failure — несуществующий паттерн → `Unit`, не ошибка |
 | `base64_encode(s)` | `String -> String` | String | Кодирует строку в Base64 (standard alphabet). Unicode-aware: кодирует UTF-8 байты |
 | `base64_decode(s)` | `String -> String` | String | Декодирует Base64. Ошибка если невалидный Base64 или не UTF-8 |
 | `toon_encode(value)` | `Any -> String` | String | Кодирует значение в TOON (Token-Optimized Object Notation). Префикс `TOON:`. Любой Value → строка |
@@ -969,6 +971,57 @@ not set`), не молчаливый сбой.
 > `CALDAV_USER`/`CALDAV_PASS`, `CARDDAV_URL`/`CARDDAV_USER`/
 > `CARDDAV_PASS` — рекомендация для `.mlog`-кода, который сам читает
 > их через `env()` и передаёт в `connect()`, не поведение самого билтина.
+
+### 4.21. Reflex — локальные нейросетевые модели (наряды №177–185, ADR-0112/0114/0117)
+
+Столп `Reflex` обучает, предсказывает, персистентно хранит и дистиллирует локальные нейросетевые модели. LLM выступает учителем, локальная голова — студентом (ADR-0112). Модели — полноправные декларации языка (`reflex Name { ... }`), непрозрачные для `Value`: в значение попадает только дескриптор `ReflexId`, веса никогда не утекают.
+
+**Граница по ADR-0117 §3** — `reflex` и `reflex_seq` классифицируют по **закрытому множеству меток** (`labels: [...]`), не генерируют текст. Свободная генерация токен-за-токеном явно вне области применения. Симметричное ограничение для обычного `reflex` и для `reflex_seq`.
+
+| Функция | Сигнатура | Возвращает | Описание |
+|---|---|---|---|
+| `reflex_train(model, data, epochs, metric, threshold)` | `(Reflex, List<List<Float>>, Float, String, Float) -> Struct` | `Struct{loss: Float, accuracy: Float, metric: String, threshold_met: Bool}` | Обучает модель `model` на данных `data`. Каждая строка `data` = `[features..., class_idx]` (последний элемент — индекс метки). 80/20 holdout-сплит (ADR-0115), минимум 10 примеров. `epochs` — число эпох (≥0), `metric` — имя метрики из `METRIC_REGISTRY` (обычно `"accuracy"`), `threshold` — порог 0.0..1.0 для `threshold_met`. `learning_rate` зафиксирован 0.1. |
+| `reflex_predict(model, input)` | `(Reflex, List<Float>) -> Fluid` | `Fluid` с вариантами по меткам | Предсказание на новом входе. Возвращает `Fluid` с одним вариантом на метку: `type_name: "Label"`, `value: String(имя_метки)`, `confidence: Float` (softmax-вероятность). Варианты отсортированы по убыванию confidence — `to_string(fluid)` показывает метку с наивысшей уверенностью. |
+| `reflex_save(model)` | `(Reflex) -> Unit` | `Unit` | Сохраняет обученные веса + метаданные в SQLite (настраивается через `memory { persist: "path.db" }`, ADR-0116). Ключ — имя модели из декларации. Проверка формата: `REFLEX_VERSION` и shape-мismatch — явные ошибки, не тихая порча. |
+| `reflex_load(name)` | `(String) -> Reflex` | `Reflex` (дескриптор на существующую модель) | Загружает веса для ранее сохранённой модели и применяет их к *текущей* декларации `reflex` с тем же именем. Не регистрирует новую модель — мутация весов существующей. Ошибка shape-mismatch если декларация изменилась. |
+
+**Декларация `reflex`** (наряд №178):
+
+```mlog
+reflex SentimentClassifier {
+  input: embedding(2)                          // размерность входа
+  layers: [dense(8, relu), dense(2, softmax)]  // слои из LAYER_REGISTRY
+  labels: ["positive", "negative"]              // закрытое множество меток (ADR-0117 §3)
+  seed: 42                                     // детерминированный init весов (xorshift64)
+}
+```
+
+**Декларация `reflex_seq`** (наряды №183–185, ADR-0119) — для последовательностей:
+
+```mlog
+reflex_seq TinyClassifier {
+  input: embedding(64)
+  seq_len: 16                                  // фиксированная длина последовательности
+  layers: [attention(4, 64)]                   // SequenceLayer-типы из SEQUENCE_LAYER_REGISTRY
+  labels: ["signal", "noise"]                  // обязательно для reflex_seq (ADR-0117 §3)
+  seed: 42
+}
+```
+
+`reflex_seq` требует опциональную фичу `candle` (`cargo build --features candle`, ADR-0118). Без неё декларация падает с чистой ошибкой. Доступные SequenceLayer-типы: `attention(heads, dim)`, `rms_norm(dim, [eps])`, `swiglu(dim, ff_dim)`, `transformer_block(heads, dim, ff_dim)`.
+
+**Дистилляция** — `learnable pattern` может `distill_to` на reflex-модель (наряд №181):
+
+```mlog
+learnable pattern Classify(text: String) -> String {
+  distill_to: SentimentClassifier
+  fallback_if: confidence < 0.85
+  // тело паттерна (call_llm) — LLM вызывается в режиме TEACHING,
+  // затем заменяется локальной головой когда confidence ≥ threshold
+}
+```
+
+**Контракт по меткам** — отсутствие `labels` в `reflex` или `reflex_seq` = parse-time ошибка (ADR-0117 §3, симметрично для обоих видов). Не паника, не тихое молчание.
 
 ---
 

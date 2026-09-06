@@ -118,7 +118,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 
 ---
 
-## Seven Semantic Primitives
+## Eight Semantic Primitives
 
 | Primitive | Purpose | Analogue in other languages |
 |---|---|---|
@@ -129,6 +129,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | **Rule** | Probabilistic rules with priority and conflict resolution | If/else chains, business logic |
 | **Learn** | Training as a language operation | ML frameworks, training scripts |
 | **Adapt** | Runtime self-modification with sandbox and rollback | No direct analogue |
+| **Reflex** | Local neural models — train, predict, persist, distill. LLM as teacher, local head as student (closes ADR-0112) | ML inference, distillation |
 
 ---
 
@@ -144,20 +145,21 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
  rule                                                    error messages
  learn
  adapt
+ reflex
 ```
 
 ### Implementation Stack
 
 | Component | Technology | Lines |
 |---|---|---|
-| Parser | Pest 2.7 PEG grammar (~392 lines, 262 rules) | 2 176 |
+| Parser | Pest 2.7 PEG grammar (~392 lines, 283 rules) | 2 176 |
 | AST | 29 Declaration variants, 14 Expr, 12 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION), SVG XSS lint | 473 |
-| Compiler | Bytecode, 357 builtins indexed | 1 516 |
+| Compiler | Bytecode, 371 builtins indexed | 1 516 |
 | Bytecode format | 46 VM instructions | — |
 | Tree-walking interpreter | Full feature support, 12 modules | ~4 400 |
 | VM | Stack-based bytecode executor | 2 143 |
-| Built-in functions | 357 functions across 35 modules | ~18 000 |
+| Built-in functions | 371 functions across 35 modules | ~18 000 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 2 433 |
 | LLM backend | Trait + mock + real providers | 1 421 |
 | Memory store | Typed memory with FTS5 BM25 + cosine RRF hybrid recall + KV store | 1 540 |
@@ -172,7 +174,7 @@ Metalogos-/
 ├── Cargo.toml                       # v0.17.0, workspace root
 ├── logo.jpg                          # Brand logo
 ├── README.md                         # This file
-├── REFERENCE.md                      # Full builtin reference (~79 KB)
+├── REFERENCE.md                      # Full builtin reference (~86 KB)
 ├── CHANGELOG.md                      # Version history (~72 KB)
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
@@ -212,7 +214,7 @@ Metalogos-/
 │   │   ├── db.rs                      # SQLite database access
 │   │   └── learnable.rs               # Learnable pattern support
 │   │
-│   └── builtins/                      # 357 built-in functions (35 modules)
+│   └── builtins/                      # 371 built-in functions (35 modules)
 │       ├── mod.rs                     # Builtin dispatch
 │       ├── registry.rs               # BUILTIN_REGISTRY (SSOT for all builtins)
 │       ├── core.rs                    # print, let, type, inspect, sleep
@@ -255,7 +257,7 @@ Metalogos-/
 │   ├── definition_of_done.rs          # Project completeness validation
 │   └── ...                            # Contract + feature tests (70 files)
 │
-├── examples/                          # 188 .mlog programs (golden corpus)
+├── examples/                          # 203 .mlog programs (golden corpus)
 │   ├── m1_hello.mlog                  # Hello World
 │   ├── p6_full_app.mlog               # Full web app with routes
 │   ├── p23_ml_learn.mlog              # ML learning
@@ -342,7 +344,7 @@ respond(reply)   // [HTML_INJECTION] — use render() or escape_html()
 - **Bytecode VM** — 46 instructions, stack-based, used for `mlog compile` + `mlog run file.mbc`
 - **JIT** — experimental scaffold, not part of the build (see ADR-0073)
 
-### 357 Built-in Functions
+### 371 Built-in Functions
 
 String ops, math, collections, type conversion, LLM/AI, HTTP, JSON, file I/O, KV store, session memory, encryption, authentication, HTTP server, templates, databases, Telegram/Discord bots, time/date/calendar, geolocation, weather, reminders, cron, goals, todos, memory tree, preferences, approval workflows, fuzzy matching, hashline editing, context compaction, budget awareness, replay logging, policy enforcement, PDF processing (classify, extract, OCR), typed semantic memory (FTS5 BM25 + cosine RRF), SMTP/IMAP email, CalDAV/CardDAV calendar and contacts, native SVG graphics, and more. See [REFERENCE.md](REFERENCE.md) for the full list.
 
@@ -460,6 +462,47 @@ let results = recall_top_k("food preferences", 5, "persona")
 
 Built-in goal tracking with deadlines and todo management with priorities — all persisted in KV store.
 
+### Reflex — Local Neural Models (ADR-0112, ADR-0114, ADR-0117)
+
+The Reflex pillar trains, predicts, persists, and distills local neural models — the LLM acts as a teacher, the local head as a student. Models are declared as first-class language constructs (`reflex Name { ... }`), opaque to `Value` (only a `ReflexId` handle enters the value system — weights never leak).
+
+**Classification, not generation** — per ADR-0117 §3, `reflex` classifies into a closed-set label list (`labels: ["a", "b", ...]`). Free-form text generation is explicitly out of scope. This is the same boundary that applies to `reflex_seq` (sequence models) — symmetric ADR-0117 enforcement.
+
+```mlog
+// 1. Declare a classifier — input dim, dense layers, closed label set.
+reflex SentimentClassifier {
+  input: embedding(2)
+  layers: [dense(8, relu), dense(2, softmax)]
+  labels: ["positive", "negative"]
+  seed: 42
+}
+
+// 2. Train on labeled data — returns Struct {loss, accuracy, metric, threshold_met}.
+let result = reflex_train(SentimentClassifier, [
+  [0.1, 0.2, 0.0],   // features + class_idx (last element)
+  [0.8, 0.9, 1.0],
+  // ... ≥10 samples for 80/20 holdout (ADR-0115)
+], 200.0, "accuracy", 0.85)
+
+// 3. Predict on new input — returns Fluid with label variants, sorted by confidence.
+let prediction = reflex_predict(SentimentClassifier, [0.15, 0.25])
+// prediction → Fluid{ "positive" (0.92), "negative" (0.08) }
+```
+
+**Distillation** — a `learnable pattern` can `distill_to` a reflex model: the LLM is called during the *teaching* phase, then the local head replaces it once confidence exceeds the `fallback_if` threshold.
+
+```mlog
+learnable pattern Classify(text: String) -> String {
+  distill_to: SentimentClassifier
+  fallback_if: confidence < 0.85
+  call_llm(system_prompt, text)
+}
+```
+
+**Persistence** — `reflex_save`/`reflex_load` serialize trained weights to the SQLite database configured by `memory { persist: "path.db" }` (ADR-0116). Shape mismatches between saved and current declarations are explicit errors, never silent corruption.
+
+**Architecture blocks (ADR-0118, ADR-0119)** — `reflex_seq` declares sequence models for transformer-family layers: `attention` (multi-head with RoPE, Наряд №183), `rms_norm` / `swiglu` / `transformer_block` (Наряд №184). These require the optional `candle` feature (`cargo build --features candle`), not unconditional — when the feature is off, `reflex_seq` declarations produce a clean error naming the missing feature. Sequence models classify the *whole* sequence into one label (mean pooling + Dense head), not token-by-token generation (ADR-0117 §3 boundary, symmetric).
+
 ---
 
 ## Quick Start
@@ -572,11 +615,11 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 | Metric | Value |
 |---|---|
 | Effective Rust LOC | ~59 000 |
-| Built-in Functions | 357 (35 modules) |
-| Example Programs | 188 |
+| Built-in Functions | 371 (35 modules) |
+| Example Programs | 203 |
 | Integration Tests | 70 test suites |
-| Architecture Decision Records | 110 |
-| Parser Rules | 262 (Pest PEG) |
+| Architecture Decision Records | 116 |
+| Parser Rules | 283 (Pest PEG) |
 | VM Instructions | 46 |
 | Execution Backends | 2 (interpreter + bytecode VM) |
 | Workspace Crates | 3 (mlog, mlog-lsp, mlogpkg) |
@@ -626,7 +669,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 357 builtins, 70 test files, 188 golden-file examples, 110 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 371 builtins, 70 test files, 203 golden-file examples, 116 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

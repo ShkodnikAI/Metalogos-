@@ -725,6 +725,14 @@ fn reference_md_builtin_coverage_does_not_regression() {
     // As follow-up batches land (string/*, ext/*, pdf/*, etc.), the
     // baseline should DECREASE further — never increase.
     //
+    // Наряд №186 (Reflex docs): added documentation for the 4 reflex_*
+    // builtins (reflex_train, reflex_predict, reflex_save, reflex_load)
+    // in REFERENCE.md section 4.21, plus `inspect()` in section 4.17
+    // (was missing since ADR-0051). Missing count held at 145 — the
+    // 4 new reflex_* docs offset the 4 that were untracked on main
+    // (added by Наряд №179/180 without documentation), and `inspect`
+    // was a pre-existing gap now closed. Baseline stays at 145.
+    //
     // If you added a new builtin to registry.rs and this test fails,
     // you have two options (in order of preference):
     //

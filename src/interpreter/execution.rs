@@ -452,6 +452,22 @@ impl Interpreter {
             )?;
             return Ok(result);
         }
+        // Наряд №187: reflex_metrics / reflex_list — introspection (read-only).
+        // Same dispatch pattern as reflex_predict, but read-only.
+        if name == "reflex_metrics" {
+            let reg = self
+                .reflex_registry
+                .get_mut()
+                .map_err(|e| format!("reflex registry poisoned: {}", e))?;
+            return crate::builtins::reflex_metrics_dispatch(reg, &args);
+        }
+        if name == "reflex_list" {
+            let reg = self
+                .reflex_registry
+                .get_mut()
+                .map_err(|e| format!("reflex registry poisoned: {}", e))?;
+            return crate::builtins::reflex_list_dispatch(reg, &self.reflex_names, &args);
+        }
 
         // Check recall (memory) first — it's a built-in with memory access
         if name == "recall" {
@@ -1282,6 +1298,21 @@ impl Interpreter {
                             ));
                         }
                     }
+                    // Наряд №187: reflex_metrics(Model) — same bare-Ident
+                    // resolution as reflex_predict. reflex_list takes no
+                    // args, so no special-case needed for it.
+                    if name == "reflex_metrics" && i == 0 {
+                        if let Expr::Ident { name: n, .. } = arg {
+                            if let Some(id) = self.reflex_names.get(n) {
+                                eval_args.push(Value::Reflex(*id));
+                                continue;
+                            }
+                            return Err(format!(
+                                "reflex_metrics: model '{}' not declared (no matching `reflex {} {{ ... }}` block)",
+                                n, n
+                            ));
+                        }
+                    }
                     eval_args.push(self.eval_expr_with_env(arg, env)?);
                 }
 
@@ -1303,6 +1334,13 @@ impl Interpreter {
                 }
                 if name == "reflex_load" {
                     return self.invoke_reflex_load(eval_args);
+                }
+                // Наряд №187: reflex_metrics / reflex_list — introspection.
+                if name == "reflex_metrics" {
+                    return self.invoke_reflex_metrics(eval_args);
+                }
+                if name == "reflex_list" {
+                    return self.invoke_reflex_list(eval_args);
                 }
 
                 // Check recall (memory) first

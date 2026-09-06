@@ -72,4 +72,30 @@ impl Interpreter {
             &args,
         )
     }
+
+    /// `reflex_metrics(model) -> Struct` (Наряд №187, ADR-0114)
+    ///
+    /// `&self` wrapper around `crate::builtins::reflex::reflex_metrics_dispatch`.
+    /// Read-only — acquires the Mutex on `self.reflex_registry` (no mutation,
+    /// but Mutex has no separate read mode).
+    pub(super) fn invoke_reflex_metrics(&self, args: Vec<Value>) -> Result<Value, String> {
+        let reg = self
+            .reflex_registry
+            .lock()
+            .map_err(|e| format!("reflex_metrics: registry lock poisoned: {}", e))?;
+        crate::builtins::reflex_metrics_dispatch(&reg, &args)
+    }
+
+    /// `reflex_list() -> List<String>` (Наряд №187, ADR-0114)
+    ///
+    /// `&self` wrapper around `crate::builtins::reflex::reflex_list_dispatch`.
+    /// Read-only — uses the `reflex_names` HashMap to list declared model names
+    /// in registration order.
+    pub(super) fn invoke_reflex_list(&self, args: Vec<Value>) -> Result<Value, String> {
+        let reg = self
+            .reflex_registry
+            .lock()
+            .map_err(|e| format!("reflex_list: registry lock poisoned: {}", e))?;
+        crate::builtins::reflex_list_dispatch(&reg, &self.reflex_names, &args)
+    }
 }

@@ -155,11 +155,11 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Parser | Pest 2.7 PEG grammar (~392 lines, 283 rules) | 2 176 |
 | AST | 29 Declaration variants, 14 Expr, 12 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION), SVG XSS lint | 473 |
-| Compiler | Bytecode, 371 builtins indexed | 1 516 |
+| Compiler | Bytecode, 373 builtins indexed | 1 516 |
 | Bytecode format | 46 VM instructions | — |
 | Tree-walking interpreter | Full feature support, 12 modules | ~4 400 |
 | VM | Stack-based bytecode executor | 2 143 |
-| Built-in functions | 371 functions across 35 modules | ~18 000 |
+| Built-in functions | 373 functions across 35 modules | ~18 000 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 2 433 |
 | LLM backend | Trait + mock + real providers | 1 421 |
 | Memory store | Typed memory with FTS5 BM25 + cosine RRF hybrid recall + KV store | 1 540 |
@@ -214,7 +214,7 @@ Metalogos-/
 │   │   ├── db.rs                      # SQLite database access
 │   │   └── learnable.rs               # Learnable pattern support
 │   │
-│   └── builtins/                      # 371 built-in functions (35 modules)
+│   └── builtins/                      # 373 built-in functions (35 modules)
 │       ├── mod.rs                     # Builtin dispatch
 │       ├── registry.rs               # BUILTIN_REGISTRY (SSOT for all builtins)
 │       ├── core.rs                    # print, let, type, inspect, sleep
@@ -257,7 +257,7 @@ Metalogos-/
 │   ├── definition_of_done.rs          # Project completeness validation
 │   └── ...                            # Contract + feature tests (70 files)
 │
-├── examples/                          # 203 .mlog programs (golden corpus)
+├── examples/                          # 204 .mlog programs (golden corpus)
 │   ├── m1_hello.mlog                  # Hello World
 │   ├── p6_full_app.mlog               # Full web app with routes
 │   ├── p23_ml_learn.mlog              # ML learning
@@ -344,7 +344,7 @@ respond(reply)   // [HTML_INJECTION] — use render() or escape_html()
 - **Bytecode VM** — 46 instructions, stack-based, used for `mlog compile` + `mlog run file.mbc`
 - **JIT** — experimental scaffold, not part of the build (see ADR-0073)
 
-### 371 Built-in Functions
+### 373 Built-in Functions
 
 String ops, math, collections, type conversion, LLM/AI, HTTP, JSON, file I/O, KV store, session memory, encryption, authentication, HTTP server, templates, databases, Telegram/Discord bots, time/date/calendar, geolocation, weather, reminders, cron, goals, todos, memory tree, preferences, approval workflows, fuzzy matching, hashline editing, context compaction, budget awareness, replay logging, policy enforcement, PDF processing (classify, extract, OCR), typed semantic memory (FTS5 BM25 + cosine RRF), SMTP/IMAP email, CalDAV/CardDAV calendar and contacts, native SVG graphics, and more. See [REFERENCE.md](REFERENCE.md) for the full list.
 
@@ -615,8 +615,8 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 | Metric | Value |
 |---|---|
 | Effective Rust LOC | ~59 000 |
-| Built-in Functions | 371 (35 modules) |
-| Example Programs | 203 |
+| Built-in Functions | 373 (35 modules) |
+| Example Programs | 204 |
 | Integration Tests | 70 test suites |
 | Architecture Decision Records | 116 |
 | Parser Rules | 283 (Pest PEG) |
@@ -669,7 +669,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 371 builtins, 70 test files, 203 golden-file examples, 116 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 373 builtins, 70 test files, 204 golden-file examples, 116 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

@@ -733,6 +733,12 @@ fn reference_md_builtin_coverage_does_not_regression() {
     // (added by Наряд №179/180 without documentation), and `inspect`
     // was a pre-existing gap now closed. Baseline stays at 145.
     //
+    // Наряд №187 (Reflex introspection): added reflex_metrics and
+    // reflex_list to BUILTIN_REGISTRY (2 new builtins) AND documented
+    // them in REFERENCE.md section 4.21 in the same commit. Missing
+    // count stays at 145 — both new builtins are covered. Baseline
+    // unchanged.
+    //
     // If you added a new builtin to registry.rs and this test fails,
     // you have two options (in order of preference):
     //

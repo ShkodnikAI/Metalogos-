@@ -1,0 +1,23 @@
+// Наряд №193b Contract 4: reflex_gen declaration + reflex_generate via `mlog run`.
+//
+// Declares a reflex_gen model, generates tokens from a prompt.
+// Tokenization is out of scope (ADR-0120) — operates on pre-tokenized
+// integer IDs.
+//
+// Expected output (candle on): "generated=[<N>, <N>, <N>, <N>, <N>]"
+// Expected output (candle off): error mentioning the candle feature.
+
+reflex_gen TinyGenerator {
+  input: embedding(8)
+  vocab_size: 16
+  layers: [transformer_block(2, 8, 16)]
+  seed: 42
+}
+
+pattern Generate(_x: String) -> String {
+  // Generate 5 tokens from prompt [1, 2, 3] with greedy (temperature=0)
+  let tokens = reflex_generate(TinyGenerator, [1.0, 2.0, 3.0], 5.0, 0.0)
+  return "generated=" + to_string(tokens)
+}
+
+flow Main { input: String = "x" -> Generate -> output }

@@ -359,8 +359,8 @@ fn real_builtin_category_count() -> usize {
     let content =
         fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {:?}: {}", path, e));
 
-    let string_re = Regex::new(r#""([^"]+)"#).unwrap();
-    let layer_re = Regex::new(r#"=>\s*"[^"]+"#).unwrap();
+    let string_re = Regex::new(r#""([^"]+)""#).unwrap();
+    let layer_re = Regex::new(r#"=>\s*"[^"]+""#).unwrap();
 
     let mut categories: std::collections::HashSet<String> = std::collections::HashSet::new();
 
@@ -732,6 +732,12 @@ fn reference_md_builtin_coverage_does_not_regression() {
     // 4 new reflex_* docs offset the 4 that were untracked on main
     // (added by Наряд №179/180 without documentation), and `inspect`
     // was a pre-existing gap now closed. Baseline stays at 145.
+    //
+    // Наряд №187 (Reflex introspection): added reflex_metrics and
+    // reflex_list to BUILTIN_REGISTRY (2 new builtins) AND documented
+    // them in REFERENCE.md section 4.21 in the same commit. Missing
+    // count stays at 145 — both new builtins are covered. Baseline
+    // unchanged.
     //
     // If you added a new builtin to registry.rs and this test fails,
     // you have two options (in order of preference):

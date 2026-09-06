@@ -96,6 +96,24 @@ pub(crate) fn builtin_reflex_load_stub(_args: &[Value]) -> Result<Value, String>
     )
 }
 
+/// Stub — VM not yet supported (Наряд №187 — introspection, read-only).
+pub(crate) fn builtin_reflex_metrics_stub(_args: &[Value]) -> Result<Value, String> {
+    Err(
+        "reflex_metrics: VM backend does not yet support Reflex (ADR-0114) \
+         — use `mlog run` (interpreter backend)"
+            .to_string(),
+    )
+}
+
+/// Stub — VM not yet supported (Наряд №187 — introspection, read-only).
+pub(crate) fn builtin_reflex_list_stub(_args: &[Value]) -> Result<Value, String> {
+    Err(
+        "reflex_list: VM backend does not yet support Reflex (ADR-0114) \
+         — use `mlog run` (interpreter backend)"
+            .to_string(),
+    )
+}
+
 // ── Shared dispatch bodies (reused by TW today, VM tomorrow) ────────
 
 /// `reflex_train(model, data, epochs, metric_name, threshold) -> Struct`
@@ -689,4 +707,121 @@ pub fn reflex_load_dispatch(
     )?;
 
     Ok(Value::Reflex(id))
+}
+
+// ── Наряд №187: introspection builtins ──────────────────────────────
+
+/// `reflex_metrics(model) -> Struct` (Наряд №187)
+///
+/// Read-only introspection — returns model metadata (NOT weights).
+/// Per ADR-0114: weights never enter `Value`. This builtin exposes
+/// only the same metadata that `ReflexModel::Debug` already prints
+/// (name, is_trained, last_metric, input_size, labels).
+///
+/// Returns a Struct with fields:
+///   - `name`: String — model name from the declaration
+///   - `is_trained`: Bool — true if `last_metric` is Some
+///   - `last_metric`: Float or Unit — last measured accuracy/loss
+///   - `input_size`: Float — input dimension (embedding dim)
+///   - `labels`: List of String — closed-set label names
+///
+/// Works for both Dense (`reflex`) and Sequence (`reflex_seq`) models —
+/// dispatches on `ModelKind`.
+pub fn reflex_metrics_dispatch(registry: &ReflexRegistry, args: &[Value]) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err(format!(
+            "reflex_metrics: expected 1 argument (model), got {}",
+            args.len()
+        ));
+    }
+
+    let model_id: ReflexId = match &args[0] {
+        Value::Reflex(id) => *id,
+        other => {
+            return Err(format!(
+                "reflex_metrics: first argument must be a Reflex model handle, got {}",
+                other.type_name()
+            ))
+        }
+    };
+
+    let model_kind: &crate::nn::ModelKind = registry.get(model_id).ok_or_else(|| {
+        format!(
+            "reflex_metrics: model handle {:?} not in registry",
+            model_id
+        )
+    })?;
+
+    let (name, is_trained, last_metric, input_size, labels): (
+        String,
+        bool,
+        Option<f64>,
+        usize,
+        &[String],
+    ) = match model_kind {
+        crate::nn::ModelKind::Dense(m) => (
+            m.name.clone(),
+            m.last_metric.is_some(),
+            m.last_metric,
+            m.input_size,
+            &m.labels,
+        ),
+        #[cfg(feature = "candle")]
+        crate::nn::ModelKind::Sequence(m) => (
+            m.name.clone(),
+            m.last_metric.is_some(),
+            m.last_metric,
+            m.input_dim,
+            &m.labels,
+        ),
+    };
+
+    let mut fields: HashMap<String, Value> = HashMap::new();
+    fields.insert("name".to_string(), Value::String(name));
+    fields.insert("is_trained".to_string(), Value::Bool(is_trained));
+    fields.insert(
+        "last_metric".to_string(),
+        match last_metric {
+            Some(v) => Value::Float(v),
+            None => Value::Unit,
+        },
+    );
+    fields.insert("input_size".to_string(), Value::Float(input_size as f64));
+    fields.insert(
+        "labels".to_string(),
+        Value::List(labels.iter().map(|s| Value::String(s.clone())).collect()),
+    );
+
+    Ok(Value::Struct {
+        type_name: "ReflexMetrics".to_string(),
+        fields,
+    })
+}
+
+/// `reflex_list() -> List<String>` (Наряд №187)
+///
+/// Returns the names of all declared `reflex` / `reflex_seq` models,
+/// in registration order (declaration order in the source).
+///
+/// Read-only — uses the `reflex_names` HashMap (name → ReflexId) that
+/// the interpreter maintains during declaration processing.
+pub fn reflex_list_dispatch(
+    _registry: &ReflexRegistry,
+    model_names: &std::collections::HashMap<String, ReflexId>,
+    args: &[Value],
+) -> Result<Value, String> {
+    if !args.is_empty() {
+        return Err(format!(
+            "reflex_list: expected 0 arguments, got {}",
+            args.len()
+        ));
+    }
+    // Sort by ReflexId (registration order) — stable, deterministic output.
+    let mut entries: Vec<(&String, &ReflexId)> = model_names.iter().collect();
+    entries.sort_by_key(|(_, id)| id.0);
+    let names: Vec<Value> = entries
+        .into_iter()
+        .map(|(name, _)| Value::String(name.clone()))
+        .collect();
+    Ok(Value::List(names))
 }

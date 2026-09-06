@@ -1,0 +1,1 @@
+ModelA:trained=true,acc=1;ModelB:trained=false,acc=();list=[ModelA, ModelB]

@@ -984,6 +984,8 @@ not set`), не молчаливый сбой.
 | `reflex_predict(model, input)` | `(Reflex, List<Float>) -> Fluid` | `Fluid` с вариантами по меткам | Предсказание на новом входе. Возвращает `Fluid` с одним вариантом на метку: `type_name: "Label"`, `value: String(имя_метки)`, `confidence: Float` (softmax-вероятность). Варианты отсортированы по убыванию confidence — `to_string(fluid)` показывает метку с наивысшей уверенностью. |
 | `reflex_save(model)` | `(Reflex) -> Unit` | `Unit` | Сохраняет обученные веса + метаданные в SQLite (настраивается через `memory { persist: "path.db" }`, ADR-0116). Ключ — имя модели из декларации. Проверка формата: `REFLEX_VERSION` и shape-мismatch — явные ошибки, не тихая порча. |
 | `reflex_load(name)` | `(String) -> Reflex` | `Reflex` (дескриптор на существующую модель) | Загружает веса для ранее сохранённой модели и применяет их к *текущей* декларации `reflex` с тем же именем. Не регистрирует новую модель — мутация весов существующей. Ошибка shape-mismatch если декларация изменилась. |
+| `reflex_metrics(model)` | `(Reflex) -> Struct` | `Struct{name, is_trained, last_metric, input_size, labels}` (Наряд №187) | Read-only интроспекция: возвращает метаданные модели (НЕ веса, ADR-0114). `is_trained: Bool` (true если `last_metric` установлен), `last_metric: Float\|Unit` (последняя accuracy/loss, `Unit` если не обучена), `input_size: Float`, `labels: List<String>`. Работает и для `reflex`, и для `reflex_seq`. |
+| `reflex_list()` | `() -> List<String>` | `List<String>` (Наряд №187) | Возвращает имена всех объявленных `reflex`/`reflex_seq` моделей в порядке декларации. Read-only — для мониторинга, дашбордов, `rollback_if` на основе внешней проверки. |
 
 **Декларация `reflex`** (наряд №178):
 

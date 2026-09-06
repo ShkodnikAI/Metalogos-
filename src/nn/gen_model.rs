@@ -240,9 +240,14 @@ impl ReflexGenModel {
             let neg_log = map_err(log_prob.affine(-1.0, 0.0), "gen loss: neg")?;
             loss_terms.push(neg_log);
         }
-        // Average over positions
+        // Average over positions: stacked is [seq_len, 1, 1], mean(0) → [1, 1]
+        // then squeeze to scalar
         let stacked = map_err(Tensor::stack(&loss_terms, 0), "gen loss: stack")?;
-        map_err(stacked.mean(0), "gen loss: mean")
+        let mean = map_err(stacked.mean(0), "gen loss: mean")?;
+        map_err(
+            mean.squeeze(0).and_then(|t| t.squeeze(0)),
+            "gen loss: squeeze",
+        )
     }
 
     /// Generate tokens autoregressively WITHOUT KV-cache (full recompute each step).
@@ -297,31 +302,43 @@ impl ReflexGenModel {
 
         let device = Device::Cpu;
 
-        // Step 1: Forward the full prompt to populate K/V caches
-        let prompt_tensor = map_err(
-            Tensor::from_vec(prompt.to_vec(), (prompt.len(),), &device),
-            "gen greedy: prompt tensor",
-        )?;
-        let prompt_embedded = map_err(
-            self.token_embedding.embedding(&prompt_tensor),
-            "gen greedy: prompt embedding",
-        )?;
-        let prompt_embedded = map_err(
-            prompt_embedded.to_dtype(DType::F32),
-            "gen greedy: emb dtype",
-        )?;
+        // Step 1: Forward the full prompt through all layers, populating
+        // per-layer K/V caches along the way.
+        //
+        // We use forward_step for EACH prompt position (not forward on the
+        // full sequence), so the K/V caches are populated incrementally.
+        // This ensures the cache state after prompt processing matches
+        // exactly what forward() would produce — the basis for the
+        // kv_cache_matches_no_cache contract.
+        let mut caches: Vec<(Option<Tensor>, Option<Tensor>)> =
+            (0..self.seq_layers.len()).map(|_| (None, None)).collect();
 
-        // Forward through all layers (full sequence) to get hidden states
-        let mut hidden = prompt_embedded.clone();
-        for layer in &self.seq_layers {
-            hidden = layer.forward(&hidden)?;
+        let mut last_hidden: Option<Tensor> = None;
+
+        for (pos, &token) in prompt.iter().enumerate() {
+            let token_tensor = map_err(
+                Tensor::from_vec(vec![token], (1,), &device),
+                "gen greedy prompt: token tensor",
+            )?;
+            let mut current = map_err(
+                self.token_embedding.embedding(&token_tensor),
+                "gen greedy prompt: embedding",
+            )?;
+            current = map_err(current.to_dtype(DType::F32), "gen greedy prompt: emb dtype")?;
+
+            for (i, layer) in self.seq_layers.iter().enumerate() {
+                let (k_cache, v_cache) = &mut caches[i];
+                if let Some(tb) = layer.as_any().downcast_ref::<TrainableTransformerBlock>() {
+                    current = tb.forward_step(&current, pos, k_cache, v_cache)?;
+                } else {
+                    current = layer.forward(&current)?;
+                }
+            }
+            last_hidden = Some(current);
         }
 
         // Take last position → project to vocab → argmax → first generated token
-        let last_hidden = map_err(
-            hidden.narrow(0, prompt.len() - 1, 1),
-            "gen greedy: narrow last",
-        )?;
+        let last_hidden = last_hidden.ok_or("gen greedy: no prompt output")?;
         let logits = map_err(
             last_hidden.matmul(&self.vocab_head_w),
             "gen greedy: vocab matmul",
@@ -404,9 +421,10 @@ impl ReflexGenModel {
         temperature: f64,
     ) -> Result<Vec<u32>, String> {
         if temperature <= 0.0 {
-            // Greedy — use no_cache for simplicity (cache is an optimization,
-            // not a semantic difference; correctness verified by contract #2)
-            return self.generate_no_cache(prompt, max_tokens);
+            // Greedy — use generate_greedy (KV-cache path). This is
+            // semantically identical to generate_no_cache (verified by
+            // the greedy_matches_no_cache contract test), and faster.
+            return self.generate_greedy(prompt, max_tokens);
         }
 
         // Temperature > 0: use sampling (full recompute for simplicity)

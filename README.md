@@ -152,14 +152,14 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 
 | Component | Technology | Lines |
 |---|---|---|
-| Parser | Pest 2.7 PEG grammar (~392 lines, 283 rules) | 2 176 |
+| Parser | Pest 2.7 PEG grammar (~392 lines, 288 rules) | 2 176 |
 | AST | 29 Declaration variants, 14 Expr, 12 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION), SVG XSS lint | 473 |
-| Compiler | Bytecode, 373 builtins indexed | 1 516 |
+| Compiler | Bytecode, 374 builtins indexed | 1 516 |
 | Bytecode format | 46 VM instructions | — |
 | Tree-walking interpreter | Full feature support, 12 modules | ~4 400 |
 | VM | Stack-based bytecode executor | 2 143 |
-| Built-in functions | 373 functions across 36 modules | ~18 000 |
+| Built-in functions | 374 functions across 36 modules | ~18 000 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 2 433 |
 | LLM backend | Trait + mock + real providers | 1 421 |
 | Memory store | Typed memory with FTS5 BM25 + cosine RRF hybrid recall + KV store | 1 540 |
@@ -214,7 +214,7 @@ Metalogos-/
 │   │   ├── db.rs                      # SQLite database access
 │   │   └── learnable.rs               # Learnable pattern support
 │   │
-│   └── builtins/                      # 373 built-in functions (36 modules)
+│   └── builtins/                      # 374 built-in functions (36 modules)
 │       ├── mod.rs                     # Builtin dispatch
 │       ├── registry.rs               # BUILTIN_REGISTRY (SSOT for all builtins)
 │       ├── core.rs                    # print, let, type, inspect, sleep
@@ -257,7 +257,7 @@ Metalogos-/
 │   ├── definition_of_done.rs          # Project completeness validation
 │   └── ...                            # Contract + feature tests (70 files)
 │
-├── examples/                          # 207 .mlog programs (golden corpus)
+├── examples/                          # 208 .mlog programs (golden corpus)
 │   ├── m1_hello.mlog                  # Hello World
 │   ├── p6_full_app.mlog               # Full web app with routes
 │   ├── p23_ml_learn.mlog              # ML learning
@@ -647,10 +647,10 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 |---|---|
 | Effective Rust LOC | ~59 000 |
 | Built-in Functions | 373 (36 modules) |
-| Example Programs | 207 |
+| Example Programs | 208 |
 | Integration Tests | 70 test suites |
-| Architecture Decision Records | 116 |
-| Parser Rules | 283 (Pest PEG) |
+| Architecture Decision Records | 117 |
+| Parser Rules | 288 (Pest PEG) |
 | VM Instructions | 46 |
 | Execution Backends | 2 (interpreter + bytecode VM) |
 | Workspace Crates | 3 (mlog, mlog-lsp, mlogpkg) |
@@ -700,7 +700,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 373 builtins, 70 test files, 207 golden-file examples, 116 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 374 builtins, 70 test files, 208 golden-file examples, 117 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

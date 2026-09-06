@@ -501,18 +501,29 @@ impl Interpreter {
                     .reflex_registry
                     .lock()
                     .map_err(|e| format!("reflex registry poisoned: {}", e))?;
-                let model = reg.get(model_id).ok_or_else(|| {
+                let model_kind = reg.get(model_id).ok_or_else(|| {
                     format!("distill: model handle {:?} not in registry", model_id)
                 })?;
-
-                // Embed input — for now we use a simple deterministic embedding
-                // (the input string's first N bytes as floats). This is a
-                // placeholder — ADR-0117 §3 allows embedding strategy to be
-                // any deterministic function of input → Vec<f64>. A future
-                // naryad may swap this for a real embedding model.
-                let embedding = self.simple_embedding(input, model.input_size);
-
-                let probs = model.forward(&embedding);
+                // Наряд №185: dispatch on ModelKind. distill_to is currently
+                // Dense-only (the existing pattern from Наряд №181) — Sequence
+                // models return a clean error, not silent failure.
+                let (input_size, probs, labels): (usize, Vec<f64>, &[String]) = match model_kind {
+                    crate::nn::ModelKind::Dense(model) => {
+                        let embedding = self.simple_embedding(input, model.input_size);
+                        let probs = model.forward(&embedding);
+                        (model.input_size, probs, &model.labels)
+                    }
+                    #[cfg(feature = "candle")]
+                    crate::nn::ModelKind::Sequence(_) => {
+                        return Err(
+                            "distill: sequence models (reflex_seq) do not yet support distill_to. \
+                             distill_to currently works only with Dense models (reflex). \
+                             Sequence distillation is a future-naryad concern."
+                                .to_string(),
+                        );
+                    }
+                };
+                let _ = input_size; // currently unused beyond this point
 
                 // Find the highest-confidence label.
                 let (best_idx, best_prob) = probs
@@ -522,8 +533,7 @@ impl Interpreter {
                     .map(|(i, &p)| (i, p))
                     .unwrap_or((0, 0.0));
 
-                let best_label = model
-                    .labels
+                let best_label = labels
                     .get(best_idx)
                     .cloned()
                     .unwrap_or_else(|| format!("label_{}", best_idx));
@@ -576,11 +586,21 @@ impl Interpreter {
                 .reflex_registry
                 .lock()
                 .map_err(|e| format!("reflex registry poisoned: {}", e))?;
-            let model = reg
+            let model_kind = reg
                 .get(model_id)
                 .ok_or_else(|| format!("distill: model handle {:?} not in registry", model_id))?;
-            input_size = model.input_size;
-            labels = model.labels.clone();
+            // Наряд №185: dispatch on ModelKind. Distill training is Dense-only.
+            match model_kind {
+                crate::nn::ModelKind::Dense(m) => {
+                    input_size = m.input_size;
+                    labels = m.labels.clone();
+                }
+                #[cfg(feature = "candle")]
+                crate::nn::ModelKind::Sequence(_) => {
+                    return Err("distill: sequence models (reflex_seq) do not yet support distill training. \
+                         Distill currently works only with Dense models (reflex).".to_string());
+                }
+            }
         }
 
         let mut inputs: Vec<Vec<f64>> = Vec::with_capacity(examples.len());
@@ -607,23 +627,36 @@ impl Interpreter {
             .reflex_registry
             .lock()
             .map_err(|e| format!("reflex registry poisoned: {}", e))?;
-        let model = reg
+        let model_kind = reg
             .get_mut(model_id)
             .ok_or_else(|| format!("distill: model handle {:?} not in registry", model_id))?;
-        // Use a small epoch count for distillation training (default 30).
-        // This is a heuristic — ADR-0117 doesn't specify epochs. We pick
-        // 30 as a balance: enough to learn simple label distinctions on
-        // a one-class or two-class dataset, fast enough not to block the
-        // pattern call (training happens inline during the LLM-call
-        // replacement). Reflex_train requires ≥10 examples (ADR-0115),
-        // and on 10-50 example datasets 30 epochs typically converges.
-        let _result = model
-            .train(&inputs, &targets, 30, 0.1)
-            .map_err(|e| format!("distill: training failed: {}", e))?;
-
-        // Training succeeded — accuracy may be low but we still switch to DISTILLED
-        // (the fallback_if threshold handles low-confidence cases at predict time).
-        Ok(true)
+        // Наряд №185: dispatch on ModelKind. Distill training is Dense-only.
+        // (We already validated this above when reading input_size + labels,
+        // so reaching here with a Sequence model would be a bug — but we
+        // still match to satisfy the type system.)
+        match model_kind {
+            crate::nn::ModelKind::Dense(model) => {
+                // Use a small epoch count for distillation training (default 30).
+                // This is a heuristic — ADR-0117 doesn't specify epochs. We pick
+                // 30 as a balance: enough to learn simple label distinctions on
+                // a one-class or two-class dataset, fast enough not to block the
+                // pattern call (training happens inline during the LLM-call
+                // replacement). Reflex_train requires ≥10 examples (ADR-0115),
+                // and on 10-50 example datasets 30 epochs typically converges.
+                let _result = model
+                    .train(&inputs, &targets, 30, 0.1)
+                    .map_err(|e| format!("distill: training failed: {}", e))?;
+                // Training succeeded — accuracy may be low but we still switch to DISTILLED
+                // (the fallback_if threshold handles low-confidence cases at predict time).
+                Ok(true)
+            }
+            #[cfg(feature = "candle")]
+            crate::nn::ModelKind::Sequence(_) => Err(
+                "distill: sequence models (reflex_seq) do not yet support distill training. \
+                 Distill currently works only with Dense models (reflex)."
+                    .to_string(),
+            ),
+        }
     }
 
     /// Record a (input, output) example for future training.

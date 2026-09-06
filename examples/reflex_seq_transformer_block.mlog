@@ -17,11 +17,15 @@
 //
 // The block uses dim 64 (4 heads × 16 head_dim) and ff_dim 256 (4× dim)
 // — a typical small-transformer configuration.
+//
+// Наряд №185: `labels` field is now required for reflex_seq (closed-set
+// classification per ADR-0117 §3 — symmetric to plain reflex).
 
 reflex_seq TinyTransformer {
   input: embedding(64)
   seq_len: 16
   layers: [transformer_block(4, 64, 256)]
+  labels: ["a", "b"]
   seed: 42
 }
 

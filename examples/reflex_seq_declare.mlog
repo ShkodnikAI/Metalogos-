@@ -10,6 +10,9 @@
 // When `candle` is off, this example produces a clean error message
 // naming the missing feature (see execution.rs's ReflexSeq arm).
 //
+// Наряд №185: `labels` field is now required for reflex_seq (closed-set
+// classification per ADR-0117 §3 — symmetric to plain reflex).
+//
 // Expected output (candle on): empty (no flow output, declaration only).
 // Expected output (candle off): error mentioning the candle feature.
 
@@ -17,6 +20,7 @@ reflex_seq TinyAttention {
   input: embedding(8)
   seq_len: 4
   layers: [attention(2, 8)]   // 2 heads, dim 8
+  labels: ["a", "b"]          // Наряд №185: closed-set classification
   seed: 42
 }
 

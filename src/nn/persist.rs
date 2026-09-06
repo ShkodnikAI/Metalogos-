@@ -259,9 +259,23 @@ pub fn load_model_from_db(
     // Sanity: input_size must match the runtime declaration.
     // (This is a metadata-level check; the deeper layer-shape check
     // happens inside deserialize_into_model via Block 3.)
-    let model: &mut ReflexModel = registry
+    //
+    // Наряд №185: dispatch on ModelKind. Sequence models don't yet support
+    // persistence (future naryad) — return clean error.
+    let model_kind: &mut crate::nn::ModelKind = registry
         .get_mut(id)
         .ok_or_else(|| format!("reflex_load: model handle {:?} not in registry", id))?;
+    let model: &mut ReflexModel = match model_kind {
+        crate::nn::ModelKind::Dense(m) => m,
+        #[cfg(feature = "candle")]
+        crate::nn::ModelKind::Sequence(_) => {
+            return Err(
+                "reflex_load: sequence models (reflex_seq) do not yet support persistence. \
+                 Only Dense models (reflex) can be loaded."
+                    .to_string(),
+            );
+        }
+    };
 
     if saved_input_size as usize != model.input_size {
         return Err(format!(

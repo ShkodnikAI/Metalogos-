@@ -27,10 +27,9 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                     // p7_* tests require env vars or a live server (Наряд №49 БЛОК 2)
                     // p88_html_render_success requires a real Chromium binary —
                     // not available in CI; tracked in p88_browser_contract_visibility.
-                    // Наряд №183: reflex_seq_declare.mlog requires the `candle`
+                    // Наряд №183/№184/№185: reflex_seq_*.mlog require the `candle`
                     // feature (off by default) — runtime validation fails without it.
-                    // The contract is exercised by the candle-on test path instead.
-                    // Наряд №184: reflex_seq_transformer_block.mlog — same reason.
+                    // The contracts are exercised by the candle-on test path instead.
                     let stem = path
                         .file_stem()
                         .map(|s| s.to_string_lossy().to_string())
@@ -39,6 +38,7 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                         || stem == "p88_html_render_success"
                         || stem == "reflex_seq_declare"
                         || stem == "reflex_seq_transformer_block"
+                        || stem == "reflex_seq_train_predict"
                     {
                         continue;
                     }

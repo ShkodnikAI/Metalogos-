@@ -441,14 +441,19 @@ REFLEX_KW     = @{ "reflex" }
 // Grammar mirrors `reflex_decl` (Наряд №178) — same `layer_spec` rule,
 // same `reflex_seed`, only adds `seq_len` and uses `reflex_seq_body`:
 //
-//   reflex_seq TinyAttention {
+//   reflex_seq TinyClassifier {
 //     input: embedding(64)
 //     seq_len: 16
-//     layers: [attention(4, 64)]   // 4 heads, dim 64
+//     layers: [attention(4, 64)]
+//     labels: ["positive", "negative", "neutral"]   // Наряд №185: classification head
 //     seed: 42
 //   }
+//
+// Наряд №185: `labels` is REQUIRED for `reflex_seq` (classification of
+// the whole sequence into one label, mirroring ADR-0117 §3's closed-set
+// constraint). Free-form generation is out of scope — see ADR-0117.
 reflex_seq_decl = { REFLEX_SEQ_KW ~ IDENT ~ LBRACE ~ reflex_seq_body ~ RBRACE }
 reflex_seq_body = _{ reflex_seq_field* }
-reflex_seq_field = _{ reflex_input | reflex_seq_len | reflex_layers | reflex_seed }
+reflex_seq_field = _{ reflex_input | reflex_seq_len | reflex_layers | reflex_labels | reflex_seed }
 reflex_seq_len  = { "seq_len" ~ COLON ~ INT }
 REFLEX_SEQ_KW   = @{ "reflex_seq" }

@@ -124,7 +124,7 @@ pub struct SequenceLayerSpec {
 pub static SEQUENCE_LAYER_REGISTRY: &[SequenceLayerSpec] = &[
     SequenceLayerSpec {
         name: "attention",
-        param_names: &["heads", "dim"],
+        param_names: &["heads", "dim", "kv_heads?"],
         build: crate::nn::attention::build_attention,
     },
     // Наряд №184 (Block 1): RmsNorm.

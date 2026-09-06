@@ -1,0 +1,23 @@
+// Наряд №188 Contract 3: reflex_seq with GQA (Grouped-Query Attention).
+//
+// Declares a reflex_seq model using attention(8, 64, 2) — 8 query heads,
+// dim 64, 2 KV heads (GQA: n_rep = 8/2 = 4, each KV head shared by 4 Q heads).
+//
+// When the `candle` feature is enabled, this program runs cleanly — the
+// declaration is validated against the SEQUENCE_LAYER_REGISTRY.
+//
+// When `candle` is off, this example produces a clean error message
+// naming the missing feature (same as reflex_seq_declare.mlog).
+//
+// Expected output (candle on): empty (no flow output, declaration only).
+// Expected output (candle off): error mentioning the candle feature.
+
+reflex_seq GqaModel {
+  input: embedding(64)
+  seq_len: 16
+  layers: [attention(8, 64, 2)]   // 8 query heads, dim 64, 2 KV heads (GQA)
+  labels: ["a", "b"]
+  seed: 42
+}
+
+flow Main { input: String = "x" -> output }

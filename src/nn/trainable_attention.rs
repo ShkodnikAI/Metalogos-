@@ -49,6 +49,7 @@ use candle_core::{DType, Device, Tensor, Var};
 /// `Tensor::backward()` to populate gradients for SGD training.
 pub struct TrainableAttention {
     heads: usize,
+    n_kv_heads: usize,
     dim: usize,
     head_dim: usize,
     w_q: Var,
@@ -59,15 +60,26 @@ pub struct TrainableAttention {
 }
 
 impl TrainableAttention {
-    /// Construct with weights drawn from xorshift64 PRNG (deterministic),
-    /// then inserted into the provided VarMap via `set_one`.
+    /// Construct standard MHA (backward compat, Наряд №185).
     ///
-    /// The weights are NOT registered through `VarBuilder::get` (which
-    /// would use candle's non-seedable RNG on CPU). Instead, we create
-    /// them manually as Tensors, convert to Var, and store in the VarMap
-    /// under well-known names ("attn_w_q", "attn_w_k", etc.).
+    /// Equivalent to `new_with_kv_heads(heads, heads, dim, seed, var_map)`.
     pub fn new(
         heads: usize,
+        dim: usize,
+        seed: u64,
+        var_map: &candle_nn::VarMap,
+    ) -> Result<Self, String> {
+        Self::new_with_kv_heads(heads, heads, dim, seed, var_map)
+    }
+
+    /// Construct with GQA (Наряд №188 — mirrors Attention::new_with_kv_heads).
+    ///
+    /// When `n_kv_heads < n_heads`, K and V weights are smaller
+    /// (`[dim, kv_dim]` instead of `[dim, dim]`) and repeated along
+    /// the head axis during forward.
+    pub fn new_with_kv_heads(
+        heads: usize,
+        n_kv_heads: usize,
         dim: usize,
         seed: u64,
         var_map: &candle_nn::VarMap,
@@ -75,34 +87,50 @@ impl TrainableAttention {
         if heads == 0 {
             return Err("trainable_attention: heads must be > 0".to_string());
         }
+        if n_kv_heads == 0 {
+            return Err("trainable_attention: n_kv_heads must be > 0".to_string());
+        }
+        if n_kv_heads > heads {
+            return Err(format!(
+                "trainable_attention: n_kv_heads ({}) must be <= n_heads ({})",
+                n_kv_heads, heads
+            ));
+        }
         if !dim.is_multiple_of(heads) {
             return Err(format!(
                 "trainable_attention: dim ({}) must be divisible by heads ({})",
                 dim, heads
             ));
         }
+        if !heads.is_multiple_of(n_kv_heads) {
+            return Err(format!(
+                "trainable_attention: n_heads ({}) must be divisible by n_kv_heads ({})",
+                heads, n_kv_heads
+            ));
+        }
         let head_dim = dim / heads;
+        let kv_dim = n_kv_heads * head_dim;
         let bound = 1.0 / (dim as f64).sqrt();
         let device = Device::Cpu;
 
-        let total = 4 * dim * dim;
+        // Weight layout: Q [dim,dim], K [dim,kv_dim], V [dim,kv_dim], O [dim,dim].
+        // When n_kv_heads == n_heads → kv_dim == dim → total == 4*dim*dim
+        // (backward compatible with Наряд №185).
+        let total = 2 * dim * dim + 2 * dim * kv_dim;
         let weights = generate_uniform_f32(seed, total, -bound, bound);
 
         let slice_q = &weights[0..dim * dim];
-        let slice_k = &weights[dim * dim..2 * dim * dim];
-        let slice_v = &weights[2 * dim * dim..3 * dim * dim];
-        let slice_o = &weights[3 * dim * dim..4 * dim * dim];
+        let slice_k = &weights[dim * dim..dim * dim + dim * kv_dim];
+        let slice_v = &weights[dim * dim + dim * kv_dim..dim * dim + 2 * dim * kv_dim];
+        let slice_o = &weights[dim * dim + 2 * dim * kv_dim..];
 
-        let make_var = |slice: &[f32], name: &str| -> Result<Var, String> {
-            let tensor = Tensor::from_slice(slice, (dim, dim), &device)
+        // make_var takes a shape parameter so Q/O use (dim,dim) and K/V use (dim,kv_dim).
+        let make_var = |slice: &[f32], name: &str, shape: (usize, usize)| -> Result<Var, String> {
+            let tensor = Tensor::from_slice(slice, shape, &device)
                 .and_then(|t| t.to_dtype(DType::F32))
                 .map_err(|e| format!("trainable_attn {}: tensor: {}", name, e))?;
             let var = Var::from_tensor(&tensor)
                 .map_err(|e| format!("trainable_attn {}: from_tensor: {}", name, e))?;
-            // VarMap::set_one takes &mut self, which conflicts with the
-            // closure's borrow pattern. Insert directly into the data map
-            // — same effect (VarMap::data() returns &Mutex<HashMap>).
-            // Use map_err to satisfy clippy (no unwrap on Result).
             let mut guard = var_map
                 .data()
                 .lock()
@@ -111,13 +139,14 @@ impl TrainableAttention {
             Ok(var)
         };
 
-        let w_q = make_var(slice_q, "attn_w_q")?;
-        let w_k = make_var(slice_k, "attn_w_k")?;
-        let w_v = make_var(slice_v, "attn_w_v")?;
-        let w_o = make_var(slice_o, "attn_w_o")?;
+        let w_q = make_var(slice_q, "attn_w_q", (dim, dim))?;
+        let w_k = make_var(slice_k, "attn_w_k", (dim, kv_dim))?;
+        let w_v = make_var(slice_v, "attn_w_v", (dim, kv_dim))?;
+        let w_o = make_var(slice_o, "attn_w_o", (dim, dim))?;
 
         Ok(Self {
             heads,
+            n_kv_heads,
             dim,
             head_dim,
             w_q,
@@ -136,7 +165,7 @@ impl TrainableAttention {
 
         // Q, K, V projections — Var as_tensor() returns the underlying
         // Tensor (which is in the autograd graph because it came from
-        // a Var).
+        // a Var). Q: [seq, dim], K/V: [seq, kv_dim].
         let q = input
             .matmul(self.w_q.as_tensor())
             .map_err(|e| format!("trainable_attn Q matmul: {}", e))?;
@@ -147,23 +176,27 @@ impl TrainableAttention {
             .matmul(self.w_v.as_tensor())
             .map_err(|e| format!("trainable_attn V matmul: {}", e))?;
 
-        // RoPE on Q and K
-        let q = self.apply_rope(&q, seq_len, device)?;
-        let k = self.apply_rope(&k, seq_len, device)?;
+        // RoPE on Q (n_heads) and K (n_kv_heads)
+        let q = self.apply_rope(&q, seq_len, self.heads, device)?;
+        let k = self.apply_rope(&k, seq_len, self.n_kv_heads, device)?;
 
-        // Reshape to [heads, seq, head_dim]
+        // Reshape to [heads, seq, head_dim] (Q) / [n_kv_heads, seq, head_dim] (K/V)
         let q = q
             .reshape((seq_len, self.heads, self.head_dim))
             .and_then(|t| t.transpose(0, 1))
             .map_err(|e| format!("trainable_attn Q reshape: {}", e))?;
         let k = k
-            .reshape((seq_len, self.heads, self.head_dim))
+            .reshape((seq_len, self.n_kv_heads, self.head_dim))
             .and_then(|t| t.transpose(0, 1))
             .map_err(|e| format!("trainable_attn K reshape: {}", e))?;
         let v = v
-            .reshape((seq_len, self.heads, self.head_dim))
+            .reshape((seq_len, self.n_kv_heads, self.head_dim))
             .and_then(|t| t.transpose(0, 1))
             .map_err(|e| format!("trainable_attn V reshape: {}", e))?;
+
+        // GQA: repeat K, V to match Q's head count.
+        let k = self.repeat_kv(&k)?;
+        let v = self.repeat_kv(&v)?;
 
         // Attention scores = Q @ K^T / sqrt(head_dim)
         let k_t = k
@@ -200,8 +233,37 @@ impl TrainableAttention {
             .map_err(|e| format!("trainable_attn out proj: {}", e))
     }
 
+    /// GQA: repeat KV heads along head axis (Наряд №188).
+    /// Same as `Attention::repeat_kv` but for TrainableAttention.
+    fn repeat_kv(&self, x: &Tensor) -> Result<Tensor, String> {
+        let n_rep = self.heads / self.n_kv_heads;
+        if n_rep == 1 {
+            return Ok(x.clone());
+        }
+        let dims = x.dims();
+        let n_kv = dims[0];
+        let seq_len = dims[1];
+        let head_dim = dims[2];
+
+        let x = x
+            .unsqueeze(1)
+            .map_err(|e| format!("trainable_gqa unsqueeze: {}", e))?;
+        let x = x
+            .expand((n_kv, n_rep, seq_len, head_dim))
+            .map_err(|e| format!("trainable_gqa expand: {}", e))?;
+        x.reshape((n_kv * n_rep, seq_len, head_dim))
+            .map_err(|e| format!("trainable_gqa reshape: {}", e))
+    }
+
     /// Apply RoPE — same algorithm as `Attention::apply_rope` (Наряд №183).
-    fn apply_rope(&self, x: &Tensor, seq_len: usize, device: &Device) -> Result<Tensor, String> {
+    /// Updated in Наряд №188 to accept `n_h` parameter (K has fewer heads in GQA).
+    fn apply_rope(
+        &self,
+        x: &Tensor,
+        seq_len: usize,
+        n_h: usize,
+        device: &Device,
+    ) -> Result<Tensor, String> {
         let dtype = x.dtype();
         let head_dim = self.head_dim;
         if !head_dim.is_multiple_of(2) {
@@ -242,7 +304,7 @@ impl TrainableAttention {
             .map_err(|e| format!("trainable_rope sin: {}", e))?;
 
         let x_reshaped = x
-            .reshape((seq_len, self.heads, head_dim))
+            .reshape((seq_len, n_h, head_dim))
             .map_err(|e| format!("trainable_rope reshape: {}", e))?;
 
         let x_first = x_reshaped
@@ -307,17 +369,17 @@ impl SequenceLayer for TrainableAttention {
     }
 }
 
-/// Build function — accepts same args as `build_attention` (heads, dim).
-/// Takes the `VarMap` (not VarBuilder) so it can register the Vars
-/// manually with deterministic init values.
+/// Build function — accepts same args as `build_attention` (Наряд №188:
+/// heads, dim, [kv_heads]). Takes the `VarMap` (not VarBuilder) so it can
+/// register the Vars manually with deterministic init values.
 pub fn build_trainable_attention(
     args: &[Value],
     seed: u64,
     var_map: &candle_nn::VarMap,
 ) -> Result<Box<dyn SequenceLayer>, String> {
-    if args.len() != 2 {
+    if args.len() != 2 && args.len() != 3 {
         return Err(format!(
-            "trainable_attention: expected 2 args (heads, dim), got {}",
+            "trainable_attention: expected 2 args (heads, dim) or 3 args (heads, dim, kv_heads), got {}",
             args.len()
         ));
     }
@@ -345,6 +407,23 @@ pub fn build_trainable_attention(
             ))
         }
     };
-    let attn = TrainableAttention::new(heads, dim, seed, var_map)?;
+    // Наряд №188: optional 3rd arg — n_kv_heads for GQA.
+    let n_kv_heads = if args.len() == 3 {
+        match &args[2] {
+            Value::Float(n) => *n as usize,
+            Value::String(s) => s.parse::<usize>().map_err(|_| {
+                format!("trainable_attention: kv_heads must be integer, got '{}'", s)
+            })?,
+            other => {
+                return Err(format!(
+                    "trainable_attention: kv_heads must be a number, got {}",
+                    other.type_name()
+                ))
+            }
+        }
+    } else {
+        heads
+    };
+    let attn = TrainableAttention::new_with_kv_heads(heads, n_kv_heads, dim, seed, var_map)?;
     Ok(Box::new(attn))
 }

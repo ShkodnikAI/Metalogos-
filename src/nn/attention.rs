@@ -3,13 +3,19 @@
 //! Implements the reference structure from наряд №176 (real `candle-transformers`
 //! Llama): RoPE positional encoding + multi-head self-attention.
 //!
+//! Наряд №188 extended this to support GQA (Grouped-Query Attention):
+//!   - Q has `n_heads` heads, K/V have `n_kv_heads` heads (≤ n_heads).
+//!   - When `n_kv_heads == n_heads` → behaviour is identical to Наряд №183
+//!     (backward compatibility, regression-tested).
+//!   - When `n_kv_heads < n_heads` → K and V are repeated (tiled) along
+//!     the head axis before the attention computation. This matches
+//!     Llama 2/3's actual architecture (verified in Наряд №176 reference).
+//!
 //! ## What this is NOT
 //!
 //! Per the naryad spec:
 //!   - NOT a full transformer block (no RmsNorm/SwiGLU/residual) — that's
 //!     a separate, later naryad.
-//!   - NOT GQA (grouped-query attention) — standard multi-head is
-//!     sufficient for the first block; GQA is a separate, later naryad.
 //!   - NOT integrated with `reflex_train`/`reflex_predict` — first
 //!     confirm forward-pass correctness in isolation; training is the
 //!     next naryad.
@@ -51,17 +57,22 @@ use candle_core::{DType, Device, Tensor, D};
 ///
 /// `heads` must divide `hidden_dim` evenly. `head_dim = hidden_dim / heads`.
 pub struct Attention {
-    /// Number of attention heads.
+    /// Number of attention heads (Q heads).
     heads: usize,
+    /// Number of KV heads (n_kv_heads ≤ n_heads, n_heads % n_kv_heads == 0).
+    /// When == n_heads → standard multi-head (Наряд №183 backward compat).
+    /// When < n_heads → GQA (Наряд №188): K and V are repeated by
+    /// n_heads / n_kv_heads before the attention computation.
+    n_kv_heads: usize,
     /// Hidden dimension (input == output for attention blocks).
     dim: usize,
     /// Per-head dimension: `dim / heads`.
     head_dim: usize,
     /// Q projection: `[dim, dim]`.
     w_q: Tensor,
-    /// K projection: `[dim, dim]`.
+    /// K projection: `[dim, kv_dim]` where kv_dim = n_kv_heads * head_dim.
     w_k: Tensor,
-    /// V projection: `[dim, dim]`.
+    /// V projection: `[dim, kv_dim]`.
     w_v: Tensor,
     /// Output projection: `[dim, dim]`.
     w_o: Tensor,
@@ -81,15 +92,57 @@ macro_rules! ctry {
 }
 
 impl Attention {
-    /// Construct an attention block with weights initialized from `seed`.
+    /// Construct a standard multi-head attention block (backward compat).
     ///
-    /// Weights are drawn from a uniform distribution `[-1/sqrt(dim), 1/sqrt(dim)]`
-    /// using the project's `xorshift64` PRNG (наряд №177). Same `seed` always
-    /// produces the same weights → same forward-pass result (Наряд №183
-    /// Contract 5: determinism).
+    /// Equivalent to `new_with_kv_heads(heads, heads, dim, seed)` —
+    /// when `n_kv_heads == n_heads`, K and V have the same number of
+    /// heads as Q, no repetition is needed, and the forward pass is
+    /// identical to Наряд №183's implementation.
+    ///
+    /// This is the constructor used by:
+    ///   - Наряд №183 tests (regression contract — must produce the
+    ///     same numerical output).
+    ///   - TransformerBlock (Наряд №184) — calls `Attention::new(heads, dim, seed)`,
+    ///     which defaults to standard MHA. GQA is opt-in only when the
+    ///     user explicitly writes `attention(heads, dim, kv_heads)`.
     pub fn new(heads: usize, dim: usize, seed: u64) -> Result<Self, String> {
+        Self::new_with_kv_heads(heads, heads, dim, seed)
+    }
+
+    /// Construct an attention block with GQA (Grouped-Query Attention).
+    ///
+    /// `n_kv_heads` is the number of KV heads. When `n_kv_heads < n_heads`,
+    /// K and V are repeated by factor `n_heads / n_kv_heads` before the
+    /// attention computation (Llama 2/3 architecture).
+    ///
+    /// Constraints:
+    ///   - `n_kv_heads > 0`
+    ///   - `n_kv_heads <= n_heads`
+    ///   - `n_heads % n_kv_heads == 0` (even grouping)
+    ///
+    /// Weight layout (same RNG stream order, backward compatible when
+    /// `n_kv_heads == n_heads` because `kv_dim == dim`):
+    ///   1. W_q `[dim, dim]`
+    ///   2. W_k `[dim, kv_dim]` where `kv_dim = n_kv_heads * head_dim`
+    ///   3. W_v `[dim, kv_dim]`
+    ///   4. W_o `[dim, dim]`
+    pub fn new_with_kv_heads(
+        heads: usize,
+        n_kv_heads: usize,
+        dim: usize,
+        seed: u64,
+    ) -> Result<Self, String> {
         if heads == 0 {
             return Err("attention: heads must be > 0".to_string());
+        }
+        if n_kv_heads == 0 {
+            return Err("attention: n_kv_heads must be > 0".to_string());
+        }
+        if n_kv_heads > heads {
+            return Err(format!(
+                "attention: n_kv_heads ({}) must be <= n_heads ({})",
+                n_kv_heads, heads
+            ));
         }
         if !dim.is_multiple_of(heads) {
             return Err(format!(
@@ -97,34 +150,42 @@ impl Attention {
                 dim, heads
             ));
         }
+        if !heads.is_multiple_of(n_kv_heads) {
+            return Err(format!(
+                "attention: n_heads ({}) must be divisible by n_kv_heads ({})",
+                heads, n_kv_heads
+            ));
+        }
         let head_dim = dim / heads;
+        let kv_dim = n_kv_heads * head_dim;
 
         let bound = 1.0 / (dim as f64).sqrt();
 
         // Generate all 4 weight matrices from the project's PRNG.
-        // Same sequence consumed in order: Q first, then K, then V, then O —
-        // so the same seed produces a fully reproducible weight set.
-        let total_floats = 4 * dim * dim;
-        let weights = generate_uniform_f32(seed, total_floats, -bound, bound);
+        // When n_kv_heads == n_heads → kv_dim == dim → total == 4*dim*dim,
+        // and slices match Наряд №183's layout exactly.
+        let total = 2 * dim * dim + 2 * dim * kv_dim;
+        let weights = generate_uniform_f32(seed, total, -bound, bound);
 
         let device = Device::Cpu;
 
-        // Each weight matrix is [dim, dim] in row-major order.
         let slice_q = &weights[0..dim * dim];
-        let slice_k = &weights[dim * dim..2 * dim * dim];
-        let slice_v = &weights[2 * dim * dim..3 * dim * dim];
-        let slice_o = &weights[3 * dim * dim..4 * dim * dim];
+        let slice_k = &weights[dim * dim..dim * dim + dim * kv_dim];
+        let slice_v = &weights[dim * dim + dim * kv_dim..dim * dim + 2 * dim * kv_dim];
+        let slice_o = &weights[dim * dim + 2 * dim * kv_dim..];
 
         let w_q = ctry!(
             Tensor::from_slice(slice_q, (dim, dim), &device).and_then(|t| t.to_dtype(DType::F32)),
             "attention: w_q init"
         )?;
         let w_k = ctry!(
-            Tensor::from_slice(slice_k, (dim, dim), &device).and_then(|t| t.to_dtype(DType::F32)),
+            Tensor::from_slice(slice_k, (dim, kv_dim), &device)
+                .and_then(|t| t.to_dtype(DType::F32)),
             "attention: w_k init"
         )?;
         let w_v = ctry!(
-            Tensor::from_slice(slice_v, (dim, dim), &device).and_then(|t| t.to_dtype(DType::F32)),
+            Tensor::from_slice(slice_v, (dim, kv_dim), &device)
+                .and_then(|t| t.to_dtype(DType::F32)),
             "attention: w_v init"
         )?;
         let w_o = ctry!(
@@ -134,6 +195,7 @@ impl Attention {
 
         Ok(Self {
             heads,
+            n_kv_heads,
             dim,
             head_dim,
             w_q,
@@ -145,16 +207,14 @@ impl Attention {
     }
 
     /// Apply RoPE (rotary position embedding) to a tensor of shape
-    /// `[seq_len, dim]`.
+    /// `[seq_len, n_h * head_dim]`.
     ///
     /// RoPE encodes position by rotating pairs of dimensions. For pair (i, j)
-    /// at position `pos`, the rotation angle is `pos / theta^(2 * pair_idx / dim)`.
+    /// at position `pos`, the rotation angle is `pos / theta^(2 * pair_idx / head_dim)`.
     ///
-    /// This is a minimal, correct implementation matching the standard
-    /// formulation (Llama, GPT-NeoX). Complex-number rotation is
-    /// expressed via real-valued 2x2 rotation matrices applied to
-    /// consecutive pairs of channels (within each head).
-    fn apply_rope(&self, x: &Tensor, seq_len: usize) -> Result<Tensor, String> {
+    /// `n_h` is the number of heads in the tensor — for Q it's `self.heads`,
+    /// for K (in GQA) it's `self.n_kv_heads`. head_dim is the same for both.
+    fn apply_rope(&self, x: &Tensor, seq_len: usize, n_h: usize) -> Result<Tensor, String> {
         let device = x.device();
         let dtype = x.dtype();
         let head_dim = self.head_dim;
@@ -194,12 +254,9 @@ impl Attention {
         let cos = ctry!(angles.cos(), "rope cos")?;
         let sin = ctry!(angles.sin(), "rope sin")?;
 
-        // x shape: [seq_len, dim]. Reshape to [seq_len, heads, head_dim]
+        // x shape: [seq_len, n_h * head_dim]. Reshape to [seq_len, n_h, head_dim]
         // so we can apply RoPE per-head.
-        let x_reshaped = ctry!(
-            x.reshape((seq_len, self.heads, head_dim)),
-            "rope reshape to heads"
-        )?;
+        let x_reshaped = ctry!(x.reshape((seq_len, n_h, head_dim)), "rope reshape to heads")?;
 
         // Split head_dim into two halves: [d_0, d_1, ..., d_{half-1}] and
         // [d_half, ..., d_{head_dim-1}]. RoPE rotates (d_i, d_{i+half}) pairs.
@@ -220,67 +277,98 @@ impl Attention {
         let x_first_new = ctry!(x_first_c - &x_second_s, "rope first_new")?;
         let x_second_new = ctry!(x_first_s + &x_second_c, "rope second_new")?;
 
-        // Concatenate along the head_dim axis and reshape back to [seq, dim].
+        // Concatenate along the head_dim axis and reshape back.
         let rotated = ctry!(
             Tensor::cat(&[&x_first_new, &x_second_new], 2),
             "rope concat"
         )?;
         ctry!(
-            rotated.reshape((seq_len, self.dim)),
-            "rope reshape back to [seq, dim]"
+            rotated.reshape((seq_len, n_h * head_dim)),
+            "rope reshape back"
         )
     }
 
-    /// Multi-head attention forward pass.
+    /// Repeat KV heads along the head axis (GQA).
+    ///
+    /// Input: `[n_kv_heads, seq, head_dim]`
+    /// Output: `[n_kv_heads * n_rep, seq, head_dim]` where `n_rep = n_heads / n_kv_heads`.
+    ///
+    /// Uses the unsqueeze + expand + reshape pattern (same as
+    /// candle-transformers' `repeat_kv`). When `n_rep == 1` (standard
+    /// MHA), this is a no-op.
+    fn repeat_kv(&self, x: &Tensor) -> Result<Tensor, String> {
+        let n_rep = self.heads / self.n_kv_heads;
+        if n_rep == 1 {
+            return Ok(x.clone());
+        }
+        // x: [n_kv_heads, seq, head_dim]
+        let dims = x.dims();
+        let n_kv = dims[0];
+        let seq_len = dims[1];
+        let head_dim = dims[2];
+
+        // unsqueeze(1): [n_kv_heads, 1, seq, head_dim]
+        let x = ctry!(x.unsqueeze(1), "gqa: unsqueeze")?;
+        // expand: [n_kv_heads, n_rep, seq, head_dim]
+        let x = ctry!(x.expand((n_kv, n_rep, seq_len, head_dim)), "gqa: expand")?;
+        // reshape: [n_kv_heads * n_rep, seq, head_dim] = [n_heads, seq, head_dim]
+        ctry!(x.reshape((n_kv * n_rep, seq_len, head_dim)), "gqa: reshape")
+    }
+
+    /// Multi-head attention forward pass (Наряд №188: GQA-aware).
     ///
     /// Input: `[seq_len, dim]` (a single sequence; batch dim assumed 1).
     /// Output: `[seq_len, dim]`.
     ///
     /// Steps:
-    ///   1. Project input to Q, K, V (each `[seq_len, dim]`).
-    ///   2. Apply RoPE to Q and K.
-    ///   3. Reshape to `[seq, heads, head_dim]` and transpose to `[heads, seq, head_dim]`.
-    ///   4. Attention scores = Q @ K^T / sqrt(head_dim) → `[heads, seq, seq]`.
-    ///   5. softmax(scores) → `[heads, seq, seq]`.
-    ///   6. Output = scores @ V → `[heads, seq, head_dim]`.
-    ///   7. Transpose back and reshape to `[seq, dim]`.
-    ///   8. Output projection w_o: `[seq, dim]`.
+    ///   1. Project input to Q `[seq, dim]`, K `[seq, kv_dim]`, V `[seq, kv_dim]`.
+    ///   2. Apply RoPE to Q (with n_heads) and K (with n_kv_heads).
+    ///   3. Reshape Q to `[n_heads, seq, head_dim]`, K/V to `[n_kv_heads, seq, head_dim]`.
+    ///   4. GQA: repeat K, V along head axis to `[n_heads, seq, head_dim]`
+    ///      (no-op when n_kv_heads == n_heads).
+    ///   5. Attention scores = Q @ K^T / sqrt(head_dim) → `[heads, seq, seq]`.
+    ///   6. softmax(scores) → `[heads, seq, seq]`.
+    ///   7. Output = scores @ V → `[heads, seq, head_dim]`.
+    ///   8. Transpose back and reshape to `[seq, dim]`.
+    ///   9. Output projection w_o: `[seq, dim]`.
     fn forward_impl(&self, input: &Tensor) -> Result<Tensor, String> {
         let (seq_len, _in_dim) = ctry!(input.dims2(), "attention: input dims2")?;
         let device = input.device();
 
-        // Step 1: Q, K, V projections — input @ W.
-        // input: [seq, dim], W: [dim, dim] → output: [seq, dim].
+        // Step 1: Q, K, V projections.
+        // Q: [seq, dim], K/V: [seq, kv_dim] (kv_dim < dim when GQA).
         let q = ctry!(input.matmul(&self.w_q), "attention: Q matmul")?;
         let k = ctry!(input.matmul(&self.w_k), "attention: K matmul")?;
         let v = ctry!(input.matmul(&self.w_v), "attention: V matmul")?;
 
-        // Step 2: apply RoPE to Q and K.
-        let q = self.apply_rope(&q, seq_len)?;
-        let k = self.apply_rope(&k, seq_len)?;
+        // Step 2: apply RoPE to Q and K. Q has n_heads, K has n_kv_heads.
+        let q = self.apply_rope(&q, seq_len, self.heads)?;
+        let k = self.apply_rope(&k, seq_len, self.n_kv_heads)?;
 
-        // Step 3: reshape to [heads, seq, head_dim] for parallel head computation.
+        // Step 3: reshape to [heads, seq, head_dim].
         let q = ctry!(
             q.reshape((seq_len, self.heads, self.head_dim))
                 .and_then(|t| t.transpose(0, 1)),
             "attention: Q reshape+transpose"
         )?;
         let k = ctry!(
-            k.reshape((seq_len, self.heads, self.head_dim))
+            k.reshape((seq_len, self.n_kv_heads, self.head_dim))
                 .and_then(|t| t.transpose(0, 1)),
             "attention: K reshape+transpose"
         )?;
         let v = ctry!(
-            v.reshape((seq_len, self.heads, self.head_dim))
+            v.reshape((seq_len, self.n_kv_heads, self.head_dim))
                 .and_then(|t| t.transpose(0, 1)),
             "attention: V reshape+transpose"
         )?;
 
-        // Step 4: attention scores = Q @ K^T / sqrt(head_dim)
+        // Step 4: GQA — repeat K, V to match Q's head count.
+        let k = self.repeat_kv(&k)?;
+        let v = self.repeat_kv(&v)?;
+
+        // Step 5: attention scores = Q @ K^T / sqrt(head_dim)
         let k_t = ctry!(k.transpose(1, 2), "attention: K^T")?;
         let scale = 1.0 / (self.head_dim as f64).sqrt();
-        // Use F32 to match the score tensor's dtype (candle won't auto-broadcast
-        // across dtype boundaries — F32 * F64 raises "dtype mismatch").
         let scale_tensor = ctry!(Tensor::new(scale as f32, device), "attention: scale tensor")?;
         let scores = ctry!(q.matmul(&k_t), "attention: Q@K^T")?;
         let scores = ctry!(
@@ -288,20 +376,20 @@ impl Attention {
             "attention: scale scores"
         )?;
 
-        // Step 5: softmax along last dim (the keys).
+        // Step 6: softmax along last dim (the keys).
         let attn = ctry!(
             candle_nn::ops::softmax(&scores, D::Minus1),
             "attention: softmax"
         )?;
 
-        // Step 6: weighted sum — attn @ V → [heads, seq, head_dim]
+        // Step 7: weighted sum — attn @ V → [heads, seq, head_dim]
         let out = ctry!(attn.matmul(&v), "attention: attn@V")?;
 
-        // Step 7: transpose back and reshape to [seq, dim].
+        // Step 8: transpose back and reshape to [seq, dim].
         let out = ctry!(out.transpose(0, 1), "attention: out transpose")?;
         let out = ctry!(out.reshape((seq_len, self.dim)), "attention: out reshape")?;
 
-        // Step 8: output projection.
+        // Step 9: output projection.
         ctry!(out.matmul(&self.w_o), "attention: out proj")
     }
 }
@@ -332,14 +420,16 @@ impl SequenceLayer for Attention {
 ///
 /// `args` is the parsed `layer_arg` list from the grammar
 /// (наряд №178's `layer_spec = { IDENT ~ "(" ~ layer_arg_list? ~ ")" }`).
-/// For `attention`, the expected args are: `(heads, dim)`.
 ///
-/// `seed` is the model-level seed (from `reflex_seq { seed: N }`) —
-/// used for deterministic weight initialization.
+/// Args:
+///   - `attention(heads, dim)` → standard MHA (Наряд №183 backward compat)
+///   - `attention(heads, dim, kv_heads)` → GQA (Наряд №188)
+///
+/// The 3rd arg is optional — when omitted, `n_kv_heads = n_heads`.
 pub fn build_attention(args: &[Value], seed: u64) -> Result<Box<dyn SequenceLayer>, String> {
-    if args.len() != 2 {
+    if args.len() != 2 && args.len() != 3 {
         return Err(format!(
-            "attention: expected 2 args (heads, dim), got {}",
+            "attention: expected 2 args (heads, dim) or 3 args (heads, dim, kv_heads), got {}",
             args.len()
         ));
     }
@@ -367,7 +457,28 @@ pub fn build_attention(args: &[Value], seed: u64) -> Result<Box<dyn SequenceLaye
             ))
         }
     };
-    let attn = Attention::new(heads, dim, seed)?;
+    // Наряд №188: optional 3rd arg — n_kv_heads for GQA.
+    let n_kv_heads = if args.len() == 3 {
+        match &args[2] {
+            Value::Float(n) => *n as usize,
+            Value::String(s) => s.parse::<usize>().map_err(|_| {
+                format!(
+                    "attention: kv_heads must be a positive integer, got '{}'",
+                    s
+                )
+            })?,
+            other => {
+                return Err(format!(
+                    "attention: kv_heads must be a number, got {}",
+                    other.type_name()
+                ))
+            }
+        }
+    } else {
+        heads // default: standard MHA
+    };
+
+    let attn = Attention::new_with_kv_heads(heads, n_kv_heads, dim, seed)?;
     Ok(Box::new(attn))
 }
 

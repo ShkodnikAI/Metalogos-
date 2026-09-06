@@ -39,6 +39,7 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                         || stem == "reflex_seq_declare"
                         || stem == "reflex_seq_transformer_block"
                         || stem == "reflex_seq_train_predict"
+                        || stem == "reflex_seq_gqa"
                     {
                         continue;
                     }

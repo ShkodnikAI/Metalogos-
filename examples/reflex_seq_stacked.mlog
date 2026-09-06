@@ -1,0 +1,21 @@
+// Наряд №190 Contract 5: reflex_seq with stacked transformer_blocks.
+//
+// Declares a reflex_seq model with TWO transformer_blocks in the
+// layers list — exercises the chaining mechanism that was technically
+// present since Наряд №178 but never tested with >1 block until now.
+//
+// Expected output (candle on): empty (declaration only, no flow output).
+// Expected output (candle off): error mentioning the candle feature.
+
+reflex_seq StackedTransformer {
+  input: embedding(8)
+  seq_len: 4
+  layers: [
+    transformer_block(2, 8, 16),
+    transformer_block(2, 8, 16)
+  ]
+  labels: ["a", "b"]
+  seed: 42
+}
+
+flow Main { input: String = "x" -> output }

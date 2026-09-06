@@ -62,27 +62,32 @@ pub struct TrainableAttention {
 impl TrainableAttention {
     /// Construct standard MHA (backward compat, Наряд №185).
     ///
-    /// Equivalent to `new_with_kv_heads(heads, heads, dim, seed, var_map)`.
+    /// Equivalent to `new_with_kv_heads(heads, heads, dim, seed, var_map, "attn")`.
+    /// Uses the default prefix "attn" — fine for single-layer models.
+    /// For **stacks** of attention/transformer_block layers, use the
+    /// `with_prefix` variant (Наряд №190) to avoid VarMap name collisions.
     pub fn new(
         heads: usize,
         dim: usize,
         seed: u64,
         var_map: &candle_nn::VarMap,
     ) -> Result<Self, String> {
-        Self::new_with_kv_heads(heads, heads, dim, seed, var_map)
+        Self::new_with_kv_heads(heads, heads, dim, seed, var_map, "attn")
     }
 
-    /// Construct with GQA (Наряд №188 — mirrors Attention::new_with_kv_heads).
+    /// Construct with GQA and a custom VarMap prefix (Наряд №188 + №190).
     ///
-    /// When `n_kv_heads < n_heads`, K and V weights are smaller
-    /// (`[dim, kv_dim]` instead of `[dim, dim]`) and repeated along
-    /// the head axis during forward.
+    /// The `prefix` parameter makes each layer in a stack register its
+    /// weights under unique names (e.g. "block0_attn_w_q", "block1_attn_w_q").
+    /// Without this, a stack of N transformer_blocks would all write to
+    /// "attn_w_q" and overwrite each other — bug found by Наряд №190.
     pub fn new_with_kv_heads(
         heads: usize,
         n_kv_heads: usize,
         dim: usize,
         seed: u64,
         var_map: &candle_nn::VarMap,
+        prefix: &str,
     ) -> Result<Self, String> {
         if heads == 0 {
             return Err("trainable_attention: heads must be > 0".to_string());
@@ -124,25 +129,28 @@ impl TrainableAttention {
         let slice_v = &weights[dim * dim + dim * kv_dim..dim * dim + 2 * dim * kv_dim];
         let slice_o = &weights[dim * dim + 2 * dim * kv_dim..];
 
-        // make_var takes a shape parameter so Q/O use (dim,dim) and K/V use (dim,kv_dim).
-        let make_var = |slice: &[f32], name: &str, shape: (usize, usize)| -> Result<Var, String> {
-            let tensor = Tensor::from_slice(slice, shape, &device)
-                .and_then(|t| t.to_dtype(DType::F32))
-                .map_err(|e| format!("trainable_attn {}: tensor: {}", name, e))?;
-            let var = Var::from_tensor(&tensor)
-                .map_err(|e| format!("trainable_attn {}: from_tensor: {}", name, e))?;
-            let mut guard = var_map
-                .data()
-                .lock()
-                .map_err(|e| format!("trainable_attn {}: lock: {}", name, e))?;
-            guard.insert(name.to_string(), var.clone());
-            Ok(var)
-        };
+        // Наряд №190: include prefix in VarMap names so stacked layers don't
+        // collide. Format: "{prefix}_w_q", "{prefix}_w_k", etc.
+        let make_var =
+            |slice: &[f32], suffix: &str, shape: (usize, usize)| -> Result<Var, String> {
+                let name = format!("{}_{}", prefix, suffix);
+                let tensor = Tensor::from_slice(slice, shape, &device)
+                    .and_then(|t| t.to_dtype(DType::F32))
+                    .map_err(|e| format!("trainable_attn {}: tensor: {}", name, e))?;
+                let var = Var::from_tensor(&tensor)
+                    .map_err(|e| format!("trainable_attn {}: from_tensor: {}", name, e))?;
+                let mut guard = var_map
+                    .data()
+                    .lock()
+                    .map_err(|e| format!("trainable_attn {}: lock: {}", name, e))?;
+                guard.insert(name, var.clone());
+                Ok(var)
+            };
 
-        let w_q = make_var(slice_q, "attn_w_q", (dim, dim))?;
-        let w_k = make_var(slice_k, "attn_w_k", (dim, kv_dim))?;
-        let w_v = make_var(slice_v, "attn_w_v", (dim, kv_dim))?;
-        let w_o = make_var(slice_o, "attn_w_o", (dim, dim))?;
+        let w_q = make_var(slice_q, "w_q", (dim, dim))?;
+        let w_k = make_var(slice_k, "w_k", (dim, kv_dim))?;
+        let w_v = make_var(slice_v, "w_v", (dim, kv_dim))?;
+        let w_o = make_var(slice_o, "w_o", (dim, dim))?;
 
         Ok(Self {
             heads,
@@ -372,10 +380,14 @@ impl SequenceLayer for TrainableAttention {
 /// Build function — accepts same args as `build_attention` (Наряд №188:
 /// heads, dim, [kv_heads]). Takes the `VarMap` (not VarBuilder) so it can
 /// register the Vars manually with deterministic init values.
+///
+/// Наряд №190: `prefix` parameter makes each layer in a stack register
+/// its weights under unique VarMap names (avoids collision).
 pub fn build_trainable_attention(
     args: &[Value],
     seed: u64,
     var_map: &candle_nn::VarMap,
+    prefix: &str,
 ) -> Result<Box<dyn SequenceLayer>, String> {
     if args.len() != 2 && args.len() != 3 {
         return Err(format!(
@@ -424,6 +436,7 @@ pub fn build_trainable_attention(
     } else {
         heads
     };
-    let attn = TrainableAttention::new_with_kv_heads(heads, n_kv_heads, dim, seed, var_map)?;
+    let attn =
+        TrainableAttention::new_with_kv_heads(heads, n_kv_heads, dim, seed, var_map, prefix)?;
     Ok(Box::new(attn))
 }

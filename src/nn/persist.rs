@@ -265,9 +265,12 @@ pub fn load_model_from_db(
     let model_kind: &mut crate::nn::ModelKind = registry
         .get_mut(id)
         .ok_or_else(|| format!("reflex_load: model handle {:?} not in registry", id))?;
+    // Наряд №185: dispatch on ModelKind. When candle is off, ModelKind
+    // has only the Dense variant, so the match is infallible (clippy
+    // would flag a single-arm match — use if-let instead).
+    #[cfg(feature = "candle")]
     let model: &mut ReflexModel = match model_kind {
         crate::nn::ModelKind::Dense(m) => m,
-        #[cfg(feature = "candle")]
         crate::nn::ModelKind::Sequence(_) => {
             return Err(
                 "reflex_load: sequence models (reflex_seq) do not yet support persistence. \
@@ -275,6 +278,11 @@ pub fn load_model_from_db(
                     .to_string(),
             );
         }
+    };
+    #[cfg(not(feature = "candle"))]
+    let model: &mut ReflexModel = {
+        let crate::nn::ModelKind::Dense(m) = model_kind;
+        m
     };
 
     if saved_input_size as usize != model.input_size {

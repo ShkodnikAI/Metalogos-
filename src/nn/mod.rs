@@ -306,6 +306,31 @@ impl ReflexRegistry {
         self.models.get_mut(id.0)
     }
 
+    /// Get a Dense model by handle — convenience accessor for the
+    /// existing Dense path (Наряды №178–182). Returns None if the
+    /// handle points to a Sequence model.
+    ///
+    /// Наряд №185: added so existing tests/callers that expect
+    /// `&ReflexModel` (not `&ModelKind`) continue to work without
+    /// touching their code — same principle as "не трогать существующую
+    /// ветку" applied to the public API surface.
+    pub fn get_dense(&self, id: ReflexId) -> Option<&ReflexModel> {
+        match self.models.get(id.0)? {
+            ModelKind::Dense(m) => Some(m),
+            #[cfg(feature = "candle")]
+            ModelKind::Sequence(_) => None,
+        }
+    }
+
+    /// Get a mutable Dense model by handle.
+    pub fn get_dense_mut(&mut self, id: ReflexId) -> Option<&mut ReflexModel> {
+        match self.models.get_mut(id.0)? {
+            ModelKind::Dense(m) => Some(m),
+            #[cfg(feature = "candle")]
+            ModelKind::Sequence(_) => None,
+        }
+    }
+
     /// Number of registered models.
     pub fn len(&self) -> usize {
         self.models.len()

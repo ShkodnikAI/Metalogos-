@@ -132,6 +132,14 @@ impl ReflexSeqModel {
     ///
     /// Weights are initialized deterministically from `seed` via the
     /// project's xorshift64 PRNG (same algorithm as Dense / Attention).
+    ///
+    /// Note: 8 args exceeds clippy's default `too_many_arguments` (7).
+    /// The args are all required and logically distinct (name, dims,
+    /// labels, seed, layers, autograd plumbing). Refactoring into a
+    /// builder would add ceremony without clarity — `#[allow]` is the
+    /// pragmatic choice, matching the project's "no premature abstraction"
+    /// pattern (same as Наряд №178's `Dense::new` which also takes 5+ args).
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: String,
         input_dim: usize,

@@ -96,7 +96,7 @@ fn make_separable_data(n_per_class: usize) -> (Vec<Tensor>, Vec<usize>) {
             let base = if pos < 2 { 0.6 } else { 0.2 };
             for _d in 0..dim {
                 // Add small noise to the base, clipped to [0, 1]
-                let v = (base + (next_f(&mut state) - 0.5) * 0.2).max(0.0).min(1.0);
+                let v = (base + (next_f(&mut state) - 0.5) * 0.2).clamp(0.0, 1.0);
                 values.push(v);
             }
         }

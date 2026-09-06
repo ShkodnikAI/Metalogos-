@@ -43,6 +43,7 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                         || stem == "reflex_seq_stacked"
                         || stem == "reflex_seq_gqa_stack"
                         || stem == "reflex_gen_declare"
+                        || stem == "reflex_gen_from_text"
                     {
                         continue;
                     }

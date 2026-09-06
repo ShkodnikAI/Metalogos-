@@ -123,6 +123,84 @@ pub(crate) fn builtin_reflex_generate_stub(_args: &[Value]) -> Result<Value, Str
     )
 }
 
+// ── Наряд №194: Tokenization builtins (ADR-0120 follow-up) ──────────
+
+/// `reflex_tokenize(text) -> List<Float>`
+///
+/// Character-level tokenization: each Unicode character → its code point as Float.
+/// Not BPE — simplest deterministic scheme, no vocabulary training needed.
+/// For `reflex_gen` models: ensure `vocab_size` covers all code points in your text.
+pub fn builtin_reflex_tokenize(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err(format!(
+            "reflex_tokenize: expected 1 argument (text), got {}",
+            args.len()
+        ));
+    }
+    let text = match &args[0] {
+        Value::String(s) => s,
+        other => {
+            return Err(format!(
+                "reflex_tokenize: argument must be String, got {}",
+                other.type_name()
+            ))
+        }
+    };
+    // Each Unicode char → code point as f64
+    let tokens: Vec<Value> = text
+        .chars()
+        .map(|c| Value::Float(c as u32 as f64))
+        .collect();
+    Ok(Value::List(tokens))
+}
+
+/// `reflex_detokenize(tokens) -> String`
+///
+/// Converts token IDs back to a String. Inverse of `reflex_tokenize`.
+/// `detokenize(tokenize(s)) == s` for any valid Unicode string.
+pub fn builtin_reflex_detokenize(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err(format!(
+            "reflex_detokenize: expected 1 argument (List<Float>), got {}",
+            args.len()
+        ));
+    }
+    let tokens = match &args[0] {
+        Value::List(items) => items,
+        other => {
+            return Err(format!(
+                "reflex_detokenize: argument must be List, got {}",
+                other.type_name()
+            ))
+        }
+    };
+    // Each Float → u32 → char → collect
+    let mut result = String::new();
+    for (i, token) in tokens.iter().enumerate() {
+        let code = match token {
+            Value::Float(n) => *n as u32,
+            other => {
+                return Err(format!(
+                    "reflex_detokenize: token {} must be Float, got {}",
+                    i,
+                    other.type_name()
+                ))
+            }
+        };
+        // char::from_u32 returns None for invalid code points (surrogates, etc.)
+        match char::from_u32(code) {
+            Some(c) => result.push(c),
+            None => {
+                return Err(format!(
+                "reflex_detokenize: token {} has invalid Unicode code point {} (not a valid char)",
+                i, code
+            ))
+            }
+        }
+    }
+    Ok(Value::String(result))
+}
+
 // ── Shared dispatch bodies (reused by TW today, VM tomorrow) ────────
 
 /// `reflex_train(model, data, epochs, metric_name, threshold) -> Struct`

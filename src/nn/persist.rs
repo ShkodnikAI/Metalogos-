@@ -278,6 +278,13 @@ pub fn load_model_from_db(
                     .to_string(),
             );
         }
+        crate::nn::ModelKind::Gen(_) => {
+            return Err(
+                "reflex_load: gen models (reflex_gen) do not yet support persistence. \
+                 Only Dense models (reflex) can be loaded."
+                    .to_string(),
+            );
+        }
     };
     #[cfg(not(feature = "candle"))]
     let model: &mut ReflexModel = {

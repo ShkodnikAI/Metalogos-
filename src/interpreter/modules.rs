@@ -302,7 +302,8 @@ impl Interpreter {
                 Declaration::TypeAlias(_) => {}
                 // Наряд №178: reflex declarations handled in execution.rs
                 // Наряд №183: reflex_seq declarations also handled in execution.rs
-                Declaration::Reflex(_) | Declaration::ReflexSeq(_) => {}
+                // Наряд №193: reflex_gen declarations also handled in execution.rs
+                Declaration::Reflex(_) | Declaration::ReflexSeq(_) | Declaration::ReflexGen(_) => {}
                 Declaration::Test(t) => {
                     self.test_blocks.push(t);
                 }

@@ -353,6 +353,267 @@ impl TrainableAttention {
             .reshape((seq_len, n_h * head_dim))
             .map_err(|e| format!("trainable_rope reshape back: {}", e))
     }
+
+    /// Apply RoPE to a single position — used by `forward_step` (Наряд №193).
+    ///
+    /// Same algorithm as `apply_rope`, but generates angles for exactly one
+    /// position at index `position` (instead of positions `0..seq_len`).
+    ///
+    /// ## Why a separate method
+    ///
+    /// `apply_rope` generates the angle table for the whole sequence
+    /// `[seq_len, half]` and broadcasts it over heads. For incremental
+    /// generation with a KV-cache, only one position is processed at a
+    /// time — calling `apply_rope` with `seq_len=1` would compute angles
+    /// for position 0, not the actual current `position` index.
+    ///
+    /// This method computes `angle[i] = position * inv_freq[i]` directly,
+    /// producing the rotation for the requested position. The result equals
+    /// `apply_rope(x_full_seq, seq_len).narrow(0, position, 1)` — verified
+    /// by the contract `kv_cache_matches_no_cache` (Наряд №193 Contract 2).
+    ///
+    /// `x`: `[1, n_h * head_dim]` (single position with batch dim of 1).
+    /// Returns `[1, n_h * head_dim]`.
+    fn apply_rope_single(
+        &self,
+        x: &Tensor,
+        position: usize,
+        n_h: usize,
+        device: &Device,
+    ) -> Result<Tensor, String> {
+        let dtype = x.dtype();
+        let head_dim = self.head_dim;
+        if !head_dim.is_multiple_of(2) {
+            return Err(format!(
+                "trainable_attn: head_dim ({}) must be even for RoPE",
+                head_dim
+            ));
+        }
+
+        let half = head_dim / 2;
+        let inv_freq: Vec<f32> = (0..half)
+            .map(|i| {
+                let exponent = 2.0 * (i as f64) / (head_dim as f64);
+                (1.0 / self.rope_theta.powf(exponent)) as f32
+            })
+            .collect();
+
+        // Angle table for ONE position at index `position`:
+        //   angles[i] = position * inv_freq[i]  for i in 0..half
+        // Shape: [half]
+        let pos_f = position as f32;
+        let angles: Vec<f32> = inv_freq.iter().map(|&freq| pos_f * freq).collect();
+
+        let angles = Tensor::from_slice(&angles, (half,), device)
+            .map_err(|e| format!("trainable_rope_single angles: {}", e))?;
+        let angles = angles
+            .to_dtype(dtype)
+            .map_err(|e| format!("trainable_rope_single angles dtype: {}", e))?;
+        let cos = angles
+            .cos()
+            .map_err(|e| format!("trainable_rope_single cos: {}", e))?;
+        let sin = angles
+            .sin()
+            .map_err(|e| format!("trainable_rope_single sin: {}", e))?;
+
+        // x: [1, n_h * head_dim] → reshape [1, n_h, head_dim]
+        let x_reshaped = x
+            .reshape((1, n_h, head_dim))
+            .map_err(|e| format!("trainable_rope_single reshape: {}", e))?;
+
+        let x_first = x_reshaped
+            .narrow(2, 0, half)
+            .map_err(|e| format!("trainable_rope_single narrow first: {}", e))?;
+        let x_second = x_reshaped
+            .narrow(2, half, half)
+            .map_err(|e| format!("trainable_rope_single narrow second: {}", e))?;
+
+        // cos/sin: [half] → broadcast to [1, 1, half] for per-head apply.
+        let cos = cos
+            .unsqueeze(0)
+            .and_then(|t| t.unsqueeze(0))
+            .map_err(|e| format!("trainable_rope_single cos unsqueeze: {}", e))?;
+        let sin = sin
+            .unsqueeze(0)
+            .and_then(|t| t.unsqueeze(0))
+            .map_err(|e| format!("trainable_rope_single sin unsqueeze: {}", e))?;
+
+        let x_first_c = x_first
+            .broadcast_mul(&cos)
+            .map_err(|e| format!("trainable_rope_single x_first*cos: {}", e))?;
+        let x_first_s = x_first
+            .broadcast_mul(&sin)
+            .map_err(|e| format!("trainable_rope_single x_first*sin: {}", e))?;
+        let x_second_c = x_second
+            .broadcast_mul(&cos)
+            .map_err(|e| format!("trainable_rope_single x_second*cos: {}", e))?;
+        let x_second_s = x_second
+            .broadcast_mul(&sin)
+            .map_err(|e| format!("trainable_rope_single x_second*sin: {}", e))?;
+
+        let x_first_new = (x_first_c - &x_second_s)
+            .map_err(|e| format!("trainable_rope_single first_new: {}", e))?;
+        let x_second_new = (x_first_s + &x_second_c)
+            .map_err(|e| format!("trainable_rope_single second_new: {}", e))?;
+
+        let rotated = Tensor::cat(&[&x_first_new, &x_second_new], 2)
+            .map_err(|e| format!("trainable_rope_single concat: {}", e))?;
+        rotated
+            .reshape((1, n_h * head_dim))
+            .map_err(|e| format!("trainable_rope_single reshape back: {}", e))
+    }
+
+    /// Incremental forward pass for KV-cache autoregressive generation
+    /// (Наряд №193 / ADR-0120).
+    ///
+    /// Processes a single position, reusing cached K/V from previous steps.
+    /// The cache stores K and V in shape `[n_kv_heads, cached_len, head_dim]`
+    /// (post-RoPE for K, raw for V). At each call, the new position's K/V
+    /// is computed and appended to the cache.
+    ///
+    /// ## Args
+    ///
+    /// - `x`: `[1, dim]` — single position embedding (already through any
+    ///   preceding RmsNorm/etc.).
+    /// - `position`: absolute position index (used for RoPE angle). For
+    ///   prompt processing, this is 0, 1, ..., prompt_len-1; for generation
+    ///   steps, prompt_len, prompt_len+1, ...
+    /// - `k_cache`: per-layer K cache slot. `None` on the first call (no
+    ///   previous positions), updated to `[n_kv_heads, cached_len+1, head_dim]`
+    ///   after the call.
+    /// - `v_cache`: per-layer V cache slot. Same shape semantics as `k_cache`.
+    ///
+    /// ## Returns
+    ///
+    /// `[1, dim]` — the attention output for this position (before the
+    /// residual add / FFN — that's the caller's responsibility).
+    ///
+    /// ## Algorithm
+    ///
+    /// 1. Q = x @ w_q → `[1, dim]`
+    /// 2. K_new = x @ w_k → `[1, kv_dim]` (kv_dim = n_kv_heads * head_dim)
+    /// 3. V_new = x @ w_v → `[1, kv_dim]`
+    /// 4. Apply RoPE to Q (with `n_heads`) and K_new (with `n_kv_heads`)
+    ///    at the requested `position` — single-position variant.
+    /// 5. Reshape K_new, V_new to `[n_kv_heads, 1, head_dim]`.
+    /// 6. Append K_new to k_cache (along dim 1) → `[n_kv_heads, cached_len+1, head_dim]`.
+    /// 7. Append V_new to v_cache (same shape).
+    /// 8. Reshape Q to `[n_heads, 1, head_dim]`.
+    /// 9. GQA: repeat cached K, V to `[n_heads, cached_len+1, head_dim]`.
+    /// 10. scores = Q @ K^T / sqrt(head_dim) → `[n_heads, 1, cached_len+1]`.
+    /// 11. softmax along last dim.
+    /// 12. out = attn @ V → `[n_heads, 1, head_dim]`.
+    /// 13. Transpose + reshape → `[1, dim]`.
+    /// 14. Output projection: out @ w_o → `[1, dim]`.
+    ///
+    /// ## Numerical equivalence to `forward()`
+    ///
+    /// The output of `forward_step(x_at_p, p, k_cache_starting_empty, v_cache_starting_empty)`
+    /// processed for positions 0..L is equivalent to running `forward(x_full)`
+    /// on the full sequence `[L, dim]` and taking the last row's attention
+    /// output — assuming the cache is built incrementally (which it is here).
+    ///
+    /// This is the contract `kv_cache_matches_no_cache` (Наряд №193 Contract 2)
+    /// verifies: `generate_greedy` (cache) and `generate_no_cache` (recompute)
+    /// produce the same token sequence.
+    pub fn forward_step(
+        &self,
+        x: &Tensor,
+        position: usize,
+        k_cache: &mut Option<Tensor>,
+        v_cache: &mut Option<Tensor>,
+    ) -> Result<Tensor, String> {
+        let (_seq_len, _in_dim) = x
+            .dims2()
+            .map_err(|e| format!("trainable_attn forward_step dims: {}", e))?;
+        // _seq_len must be 1 for forward_step; the caller is responsible.
+        let device = x.device();
+
+        // Step 1-3: Q, K, V projections.
+        let q = x
+            .matmul(self.w_q.as_tensor())
+            .map_err(|e| format!("trainable_attn_step Q matmul: {}", e))?;
+        let k_new = x
+            .matmul(self.w_k.as_tensor())
+            .map_err(|e| format!("trainable_attn_step K matmul: {}", e))?;
+        let v_new = x
+            .matmul(self.w_v.as_tensor())
+            .map_err(|e| format!("trainable_attn_step V matmul: {}", e))?;
+
+        // Step 4: RoPE at `position` — single-position variant.
+        let q = self.apply_rope_single(&q, position, self.heads, device)?;
+        let k_new = self.apply_rope_single(&k_new, position, self.n_kv_heads, device)?;
+
+        // Step 5: reshape K_new, V_new to [n_kv_heads, 1, head_dim].
+        // k_new: [1, kv_dim] → [1, n_kv_heads, head_dim] → transpose(0,1) → [n_kv_heads, 1, head_dim]
+        let k_new = k_new
+            .reshape((1, self.n_kv_heads, self.head_dim))
+            .and_then(|t| t.transpose(0, 1))
+            .map_err(|e| format!("trainable_attn_step K reshape: {}", e))?;
+        let v_new = v_new
+            .reshape((1, self.n_kv_heads, self.head_dim))
+            .and_then(|t| t.transpose(0, 1))
+            .map_err(|e| format!("trainable_attn_step V reshape: {}", e))?;
+
+        // Step 6-7: append K_new, V_new to caches (or initialize).
+        let k_full = match k_cache {
+            None => k_new.clone(),
+            Some(cached) => Tensor::cat(&[cached, &k_new], 1)
+                .map_err(|e| format!("trainable_attn_step K cat: {}", e))?,
+        };
+        let v_full = match v_cache {
+            None => v_new.clone(),
+            Some(cached) => Tensor::cat(&[cached, &v_new], 1)
+                .map_err(|e| format!("trainable_attn_step V cat: {}", e))?,
+        };
+        *k_cache = Some(k_full.clone());
+        *v_cache = Some(v_full.clone());
+
+        // Step 8: reshape Q to [n_heads, 1, head_dim].
+        let q = q
+            .reshape((1, self.heads, self.head_dim))
+            .and_then(|t| t.transpose(0, 1))
+            .map_err(|e| format!("trainable_attn_step Q reshape: {}", e))?;
+
+        // Step 9: GQA — repeat K, V to match Q's head count.
+        let k_full = self.repeat_kv(&k_full)?;
+        let v_full = self.repeat_kv(&v_full)?;
+
+        // Step 10: scores = Q @ K^T / sqrt(head_dim) → [n_heads, 1, cached_len+1].
+        let k_t = k_full
+            .transpose(1, 2)
+            .map_err(|e| format!("trainable_attn_step K^T: {}", e))?;
+        let scale = 1.0 / (self.head_dim as f64).sqrt();
+        let scale_tensor = Tensor::new(scale as f32, device)
+            .map_err(|e| format!("trainable_attn_step scale: {}", e))?;
+        let scores = q
+            .matmul(&k_t)
+            .map_err(|e| format!("trainable_attn_step Q@K^T: {}", e))?;
+        let scores = scores
+            .broadcast_mul(&scale_tensor)
+            .map_err(|e| format!("trainable_attn_step scale: {}", e))?;
+
+        // Step 11: softmax along last dim (the keys).
+        let attn = candle_nn::ops::softmax(&scores, candle_core::D::Minus1)
+            .map_err(|e| format!("trainable_attn_step softmax: {}", e))?;
+
+        // Step 12: out = attn @ V → [n_heads, 1, head_dim].
+        let out = attn
+            .matmul(&v_full)
+            .map_err(|e| format!("trainable_attn_step attn@V: {}", e))?;
+
+        // Step 13: transpose + reshape → [1, dim].
+        let out = out
+            .transpose(0, 1)
+            .map_err(|e| format!("trainable_attn_step out transpose: {}", e))?;
+        let out = out
+            .reshape((1, self.dim))
+            .map_err(|e| format!("trainable_attn_step out reshape: {}", e))?;
+
+        // Step 14: output projection.
+        out.matmul(self.w_o.as_tensor())
+            .map_err(|e| format!("trainable_attn_step out proj: {}", e))
+    }
 }
 
 impl SequenceLayer for TrainableAttention {

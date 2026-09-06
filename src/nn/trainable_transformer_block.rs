@@ -106,6 +106,35 @@ impl TrainableTransformerBlock {
             .broadcast_add(&ffn_out)
             .map_err(|e| format!("trainable_tb residual2: {}", e))
     }
+
+    /// KV-cache forward for a SINGLE position (Наряд №193).
+    ///
+    /// Delegates to `TrainableAttention::forward_step` for the attention
+    /// layer, and uses regular `forward` for norms/FFN (which are
+    /// position-independent — they process each position independently).
+    pub fn forward_step(
+        &self,
+        x: &Tensor,
+        position: usize,
+        k_cache: &mut Option<Tensor>,
+        v_cache: &mut Option<Tensor>,
+    ) -> Result<Tensor, String> {
+        // Pre-norm + residual: y = x + attn(norm1(x))
+        let h1 = self.norm1.forward(x)?;
+        let attn_out = self
+            .attention
+            .forward_step(&h1, position, k_cache, v_cache)?;
+        let x_after_attn = x
+            .broadcast_add(&attn_out)
+            .map_err(|e| format!("tb_step residual1: {}", e))?;
+
+        // Pre-norm + residual: y = x + ffn(norm2(x))
+        let h2 = self.norm2.forward(&x_after_attn)?;
+        let ffn_out = self.ffn.forward(&h2)?;
+        x_after_attn
+            .broadcast_add(&ffn_out)
+            .map_err(|e| format!("tb_step residual2: {}", e))
+    }
 }
 
 impl SequenceLayer for TrainableTransformerBlock {

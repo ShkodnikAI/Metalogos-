@@ -118,13 +118,34 @@ pub struct SequenceLayerSpec {
 /// The sequence-layer registry — extensible without grammar changes
 /// (ADR-0114 addendum principle, applied to the new category).
 ///
-/// Наряд №183 ships only `attention`. Future naryads add more entries
-/// here (rmsnorm, swiglu, full transformer block, GQA if/when authorized).
-pub static SEQUENCE_LAYER_REGISTRY: &[SequenceLayerSpec] = &[SequenceLayerSpec {
-    name: "attention",
-    param_names: &["heads", "dim"],
-    build: crate::nn::attention::build_attention,
-}];
+/// Наряд №183 shipped `attention`. Наряд №184 adds `rms_norm`,
+/// `swiglu`, and `transformer_block`. Future naryads may add GQA if/when
+/// authorized.
+pub static SEQUENCE_LAYER_REGISTRY: &[SequenceLayerSpec] = &[
+    SequenceLayerSpec {
+        name: "attention",
+        param_names: &["heads", "dim"],
+        build: crate::nn::attention::build_attention,
+    },
+    // Наряд №184 (Block 1): RmsNorm.
+    SequenceLayerSpec {
+        name: "rms_norm",
+        param_names: &["dim", "eps?"],
+        build: crate::nn::rmsnorm::build_rmsnorm,
+    },
+    // Наряд №184 (Block 2): SwiGLU feedforward.
+    SequenceLayerSpec {
+        name: "swiglu",
+        param_names: &["dim", "ff_dim"],
+        build: crate::nn::swiglu::build_swiglu,
+    },
+    // Наряд №184 (Block 3): full transformer block.
+    SequenceLayerSpec {
+        name: "transformer_block",
+        param_names: &["heads", "dim", "ff_dim"],
+        build: crate::nn::transformer_block::build_transformer_block,
+    },
+];
 
 /// Look up a sequence-layer spec by name. Returns None if not found.
 pub fn find_sequence_layer_spec(name: &str) -> Option<&'static SequenceLayerSpec> {

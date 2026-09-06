@@ -102,7 +102,10 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                     // which the VM doesn't yet handle (compiler.rs treats
                     // ReflexSeq as "Phase 6+: no bytecode instruction needed").
                     // Also require candle feature for runtime validation.
-                    if name == "reflex_seq_declare.mlog" || name == "reflex_seq_mixed_error.mlog" {
+                    if name == "reflex_seq_declare.mlog"
+                        || name == "reflex_seq_mixed_error.mlog"
+                        || name == "reflex_seq_transformer_block.mlog"
+                    {
                         continue;
                     }
 

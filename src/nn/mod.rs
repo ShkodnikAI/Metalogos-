@@ -20,11 +20,20 @@ pub mod metric;
 pub mod optim;
 /// Наряд №180: persistence (ADR-0116) — save/load trained weights to SQLite.
 pub mod persist;
+/// Наряд №184 (Block 1): RmsNorm as SequenceLayer.
+#[cfg(feature = "candle")]
+pub mod rmsnorm;
 /// Наряд №183 (ADR-0119): sequence-processing layer trait + registry.
 /// Feature-gated behind `candle` — separate scope from initial Reflex rollout.
 #[cfg(feature = "candle")]
 pub mod sequence_layer;
 pub mod serde_weights;
+/// Наряд №184 (Block 2): SwiGLU feedforward as SequenceLayer.
+#[cfg(feature = "candle")]
+pub mod swiglu;
+/// Наряд №184 (Block 3): full transformer_block (attention + norms + ffn).
+#[cfg(feature = "candle")]
+pub mod transformer_block;
 
 pub use activation::{Activation, ActivationKind};
 pub use dense::Dense;

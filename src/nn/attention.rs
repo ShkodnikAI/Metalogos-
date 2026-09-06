@@ -387,7 +387,13 @@ pub fn build_attention(args: &[Value], seed: u64) -> Result<Box<dyn SequenceLaye
 ///
 /// Same seed → same sequence → same weights → same forward-pass result
 /// (Наряд №183 Contract 5: determinism).
-fn generate_uniform_f32(seed: u64, n: usize, lo: f64, up: f64) -> Vec<f32> {
+///
+/// Public so other SequenceLayer modules (SwiGLU, TransformerBlock in
+/// Наряд №184) can reuse the exact same PRNG — keeping a single source
+/// of truth for the project's weight-init algorithm within the `nn`
+/// module. Still local to `nn` (not exported to `builtins`) per the
+/// separation principle documented in Наряд №183.
+pub fn generate_uniform_f32(seed: u64, n: usize, lo: f64, up: f64) -> Vec<f32> {
     let mut state = seed_to_state(seed);
     let range = up - lo;
     (0..n)

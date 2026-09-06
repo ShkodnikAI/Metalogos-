@@ -114,6 +114,15 @@ pub(crate) fn builtin_reflex_list_stub(_args: &[Value]) -> Result<Value, String>
     )
 }
 
+/// Stub — VM not yet supported (Наряд №193 — text generation).
+pub(crate) fn builtin_reflex_generate_stub(_args: &[Value]) -> Result<Value, String> {
+    Err(
+        "reflex_generate: VM backend does not yet support Reflex (ADR-0114) \
+         — use `mlog run` (interpreter backend)"
+            .to_string(),
+    )
+}
+
 // ── Shared dispatch bodies (reused by TW today, VM tomorrow) ────────
 
 /// `reflex_train(model, data, epochs, metric_name, threshold) -> Struct`
@@ -401,6 +410,12 @@ pub fn reflex_train_dispatch(
                 fields,
             })
         }
+        #[cfg(feature = "candle")]
+        crate::nn::ModelKind::Gen(_) => Err(
+            "reflex_train: gen models (reflex_gen) do not support reflex_train. \
+                 Use direct Rust API or a future naryad for gen training via builtins."
+                .to_string(),
+        ),
     }
 }
 
@@ -534,6 +549,12 @@ pub fn reflex_predict_dispatch(registry: &ReflexRegistry, args: &[Value]) -> Res
 
             Ok(Value::Fluid(variants))
         }
+        #[cfg(feature = "candle")]
+        crate::nn::ModelKind::Gen(_) => Err(
+            "reflex_predict: gen models (reflex_gen) do not support reflex_predict. \
+                 Use reflex_generate for text generation."
+                .to_string(),
+        ),
     }
 }
 
@@ -625,6 +646,13 @@ pub fn reflex_save_dispatch(
             "reflex_save: sequence models (reflex_seq) do not yet support persistence. \
              Only Dense models (reflex) can be saved. \
              Sequence model persistence is a future-naryad concern."
+                .to_string(),
+        ),
+        #[cfg(feature = "candle")]
+        crate::nn::ModelKind::Gen(_) => Err(
+            "reflex_save: gen models (reflex_gen) do not yet support persistence. \
+             Only Dense models (reflex) can be saved. \
+             Gen model persistence is a future-naryad concern."
                 .to_string(),
         ),
     }
@@ -774,6 +802,14 @@ pub fn reflex_metrics_dispatch(registry: &ReflexRegistry, args: &[Value]) -> Res
             m.input_dim,
             &m.labels,
         ),
+        #[cfg(feature = "candle")]
+        crate::nn::ModelKind::Gen(m) => (
+            m.name.clone(),
+            false, // Gen models don't have last_metric (training returns loss, not accuracy)
+            None,
+            m.input_dim,
+            &[], // Gen models don't have labels
+        ),
     };
 
     let mut fields: HashMap<String, Value> = HashMap::new();
@@ -824,4 +860,108 @@ pub fn reflex_list_dispatch(
         .map(|(name, _)| Value::String(name.clone()))
         .collect();
     Ok(Value::List(names))
+}
+
+// ── Наряд №193: reflex_generate — text generation ──────────────────
+
+/// `reflex_generate(model, prompt_tokens, max_tokens, temperature) -> List<Float>`
+///
+/// Autoregressive generation with KV-cache (ADR-0120).
+/// - `model`: Reflex model handle (must be a `reflex_gen` model)
+/// - `prompt_tokens`: List of Float (token IDs, pre-tokenized)
+/// - `max_tokens`: Float (number of tokens to generate)
+/// - `temperature`: Float (0.0 = greedy, >0 = sampling)
+///
+/// Returns: List of Float (generated token IDs)
+pub fn reflex_generate_dispatch(
+    registry: &ReflexRegistry,
+    args: &[Value],
+) -> Result<Value, String> {
+    if args.len() != 4 {
+        return Err(format!(
+            "reflex_generate: expected 4 arguments (model, prompt, max_tokens, temperature), got {}",
+            args.len()
+        ));
+    }
+
+    let model_id: ReflexId = match &args[0] {
+        Value::Reflex(id) => *id,
+        other => {
+            return Err(format!(
+                "reflex_generate: first argument must be a Reflex model handle, got {}",
+                other.type_name()
+            ))
+        }
+    };
+
+    // Extract prompt tokens
+    #[allow(unused_variables)]
+    let prompt: Vec<u32> = match &args[1] {
+        Value::List(items) => items
+            .iter()
+            .map(|v| match v {
+                Value::Float(n) => Ok(*n as u32),
+                other => Err(format!(
+                    "reflex_generate: prompt token must be Float, got {}",
+                    other.type_name()
+                )),
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        other => {
+            return Err(format!(
+                "reflex_generate: second argument must be a List of Float (token IDs), got {}",
+                other.type_name()
+            ))
+        }
+    };
+
+    #[allow(unused_variables)]
+    let max_tokens = match &args[2] {
+        Value::Float(n) => *n as usize,
+        other => {
+            return Err(format!(
+                "reflex_generate: third argument (max_tokens) must be Float, got {}",
+                other.type_name()
+            ))
+        }
+    };
+
+    #[allow(unused_variables)]
+    let temperature = match &args[3] {
+        Value::Float(n) => *n,
+        other => {
+            return Err(format!(
+                "reflex_generate: fourth argument (temperature) must be Float, got {}",
+                other.type_name()
+            ))
+        }
+    };
+
+    #[allow(unused_variables)]
+    let model_kind: &crate::nn::ModelKind = registry.get(model_id).ok_or_else(|| {
+        format!(
+            "reflex_generate: model handle {:?} not in registry",
+            model_id
+        )
+    })?;
+
+    match model_kind {
+        #[cfg(feature = "candle")]
+        crate::nn::ModelKind::Gen(model) => {
+            let tokens = if temperature <= 0.0 {
+                model.generate_greedy(&prompt, max_tokens)?
+            } else {
+                model.generate_with_temperature(&prompt, max_tokens, temperature)?
+            };
+            // Convert to List<Float>
+            let result: Vec<Value> = tokens.iter().map(|&t| Value::Float(t as f64)).collect();
+            Ok(Value::List(result))
+        }
+        #[cfg(feature = "candle")]
+        crate::nn::ModelKind::Dense(_) | crate::nn::ModelKind::Sequence(_) => {
+            Err("reflex_generate: model is not a reflex_gen model (use reflex_gen declaration, not reflex/reflex_seq)".to_string())
+        }
+        #[cfg(not(feature = "candle"))]
+        _ => Err("reflex_generate: candle feature not enabled".to_string()),
+    }
 }

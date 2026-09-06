@@ -14,6 +14,10 @@ pub mod activation;
 #[cfg(feature = "candle")]
 pub mod attention;
 pub mod dense;
+/// Наряд №193: ReflexGenModel — text generation model with KV-cache.
+/// Feature-gated behind `candle`.
+#[cfg(feature = "candle")]
+pub mod gen_model;
 pub mod layer;
 pub mod loss;
 pub mod metric;
@@ -81,6 +85,7 @@ pub struct ReflexId(pub usize);
 pub enum ModelKind {
     Dense(ReflexModel),
     Sequence(crate::nn::seq_model::ReflexSeqModel),
+    Gen(crate::nn::gen_model::ReflexGenModel),
 }
 
 /// Non-candle fallback — only Dense models can exist when candle is off.
@@ -296,6 +301,15 @@ impl ReflexRegistry {
         id
     }
 
+    /// Register a Gen model, return its handle.
+    /// Наряд №193: new path — separate from `register`/`register_seq`.
+    #[cfg(feature = "candle")]
+    pub fn register_gen(&mut self, model: crate::nn::gen_model::ReflexGenModel) -> ReflexId {
+        let id = ReflexId(self.models.len());
+        self.models.push(ModelKind::Gen(model));
+        id
+    }
+
     /// Get a model by handle (any kind).
     pub fn get(&self, id: ReflexId) -> Option<&ModelKind> {
         self.models.get(id.0)
@@ -319,6 +333,8 @@ impl ReflexRegistry {
             ModelKind::Dense(m) => Some(m),
             #[cfg(feature = "candle")]
             ModelKind::Sequence(_) => None,
+            #[cfg(feature = "candle")]
+            ModelKind::Gen(_) => None,
         }
     }
 
@@ -328,6 +344,8 @@ impl ReflexRegistry {
             ModelKind::Dense(m) => Some(m),
             #[cfg(feature = "candle")]
             ModelKind::Sequence(_) => None,
+            #[cfg(feature = "candle")]
+            ModelKind::Gen(_) => None,
         }
     }
 
@@ -362,6 +380,13 @@ impl std::fmt::Debug for ReflexRegistry {
                         m.name,
                         m.seq_layers.len(),
                         m.last_metric
+                    ),
+                    #[cfg(feature = "candle")]
+                    ModelKind::Gen(m) => format!(
+                        "{}(gen, {} layers, vocab={})",
+                        m.name,
+                        m.seq_layers.len(),
+                        m.vocab_size
                     ),
                 })
                 .collect::<Vec<_>>()

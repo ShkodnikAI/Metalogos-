@@ -520,6 +520,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // reflex_list returns names of all declared reflex/reflex_seq models.
     spec!("reflex_metrics", 1, "reflex"; builtin_reflex_metrics_stub),
     spec!("reflex_list", 0, "reflex"; builtin_reflex_list_stub),
+    // ── Наряд №193: text generation (ADR-0120) ──
+    spec!("reflex_generate", 4, "reflex"; builtin_reflex_generate_stub),
 ];
 
 /// Total number of registered builtins.

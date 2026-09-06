@@ -140,6 +140,8 @@ pub enum Declaration {
     /// `reflex` classification path; layers must resolve to
     /// `SEQUENCE_LAYER_REGISTRY`, mixing with Dense is a compile error.)
     ReflexSeq(ReflexSeqDecl),
+    /// Наряд №193 (ADR-0120): text generation model.
+    ReflexGen(ReflexGenDecl),
 }
 
 impl Declaration {
@@ -169,6 +171,7 @@ impl Declaration {
             Declaration::TypeAlias(d) => Some(&d.alias),
             Declaration::Reflex(d) => Some(&d.name),
             Declaration::ReflexSeq(d) => Some(&d.name),
+            Declaration::ReflexGen(d) => Some(&d.name),
             // No name: singleton/config/action declarations
             Declaration::MlogServer(_)
             | Declaration::Db(_)
@@ -217,6 +220,7 @@ impl Declaration {
             Declaration::TypeAlias(_) => "type_alias",
             Declaration::Reflex(_) => "reflex",
             Declaration::ReflexSeq(_) => "reflex_seq",
+            Declaration::ReflexGen(_) => "reflex_gen",
         }
     }
 
@@ -338,6 +342,16 @@ impl Declaration {
                     d.seed
                 )
             }
+            Declaration::ReflexGen(d) => {
+                format!(
+                    "reflex_gen {} {{ input: {}, vocab_size: {}, layers: {}, seed: {} }}",
+                    d.name,
+                    d.input_dim,
+                    d.vocab_size,
+                    d.layers.len(),
+                    d.seed
+                )
+            }
             Declaration::TypeAlias(d) => {
                 format!("type {} = {}", d.alias, d.target)
             }
@@ -398,6 +412,7 @@ impl Declaration {
             Declaration::TypeAlias(d) => &d.span,
             Declaration::Reflex(d) => &d.span,
             Declaration::ReflexSeq(d) => &d.span,
+            Declaration::ReflexGen(d) => &d.span,
         }
     }
 }
@@ -949,6 +964,30 @@ pub struct ReflexSeqDecl {
     /// plain `reflex`). Empty list is a parse-time error, not silently
     /// accepted.
     pub labels: Vec<String>,
+    pub seed: u64,
+}
+
+// ── reflex_gen declaration (Наряд №193, ADR-0120) ────────────────
+
+/// `reflex_gen Name { input: embedding(dim) vocab_size: V layers: [...] seed: N }`
+///
+/// Text generation model — open-ended autoregressive decoding, NOT
+/// closed-set classification. Projects to `vocab_size` logits per
+/// position, uses KV-cache for O(N) generation.
+///
+/// Per ADR-0120: tokenization is out of scope. `reflex_generate`
+/// operates on pre-tokenized integer sequences (Vec<u32> token IDs).
+#[derive(Debug, Clone)]
+pub struct ReflexGenDecl {
+    pub span: Span,
+    pub name: String,
+    pub input_dim: usize,
+    /// Vocabulary size — number of token IDs the model can output.
+    /// Final layer projects to this many logits (not labels.len()).
+    pub vocab_size: usize,
+    /// Layer specs — resolve against SEQUENCE_LAYER_REGISTRY (same
+    /// as reflex_seq). Typically transformer_block layers.
+    pub layers: Vec<ReflexLayerSpec>,
     pub seed: u64,
 }
 

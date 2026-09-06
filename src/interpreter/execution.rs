@@ -375,6 +375,40 @@ impl Interpreter {
                         self.reflex_names.insert(r.name.clone(), id);
                     }
                 }
+                // Наряд №193 (ADR-0120): reflex_gen — text generation
+                // declaration. The model file `src/nn/gen_model.rs` ships
+                // in this naryad; runtime registration (construct +
+                // register_gen + `reflex_generate` builtin dispatch) is a
+                // follow-up naryad, mirroring how Наряд №183 shipped
+                // reflex_seq parsing and Наряд №185 later wired the runtime.
+                //
+                // When `candle` is off: clean feature-missing error (same
+                // shape as ReflexSeq above).
+                // When `candle` is on: clean "runtime not yet wired" error.
+                // The model itself is fully constructable from Rust (see
+                // `tests/naryad_193_*.rs` follow-ups) — only the language-
+                // level builtin dispatch is deferred.
+                Declaration::ReflexGen(r) => {
+                    #[cfg(not(feature = "candle"))]
+                    {
+                        return Err(format!(
+                            "reflex_gen '{}': the 'candle' feature is not enabled in this build. \
+                             Rebuild with: cargo build --features candle",
+                            r.name
+                        ));
+                    }
+                    #[cfg(feature = "candle")]
+                    {
+                        // Наряд №193: construct + register the gen model.
+                        let model = construct_reflex_gen_model(&r)?;
+                        let reg = self
+                            .reflex_registry
+                            .get_mut()
+                            .map_err(|e| format!("reflex registry poisoned: {}", e))?;
+                        let id = reg.register_gen(model);
+                        self.reflex_names.insert(r.name.clone(), id);
+                    }
+                }
                 Declaration::Test(t) => {
                     self.test_blocks.push(t);
                 }
@@ -467,6 +501,14 @@ impl Interpreter {
                 .get_mut()
                 .map_err(|e| format!("reflex registry poisoned: {}", e))?;
             return crate::builtins::reflex_list_dispatch(reg, &self.reflex_names, &args);
+        }
+        // Наряд №193: reflex_generate — text generation (ADR-0120).
+        if name == "reflex_generate" {
+            let reg = self
+                .reflex_registry
+                .get_mut()
+                .map_err(|e| format!("reflex registry poisoned: {}", e))?;
+            return crate::builtins::reflex_generate_dispatch(reg, &args);
         }
 
         // Check recall (memory) first — it's a built-in with memory access
@@ -1313,6 +1355,19 @@ impl Interpreter {
                             ));
                         }
                     }
+                    // Наряд №193: reflex_generate(ModelName, ...) — same bare-Ident resolution.
+                    if name == "reflex_generate" && i == 0 {
+                        if let Expr::Ident { name: n, .. } = arg {
+                            if let Some(id) = self.reflex_names.get(n) {
+                                eval_args.push(Value::Reflex(*id));
+                                continue;
+                            }
+                            return Err(format!(
+                                "reflex_generate: model '{}' not declared (no matching `reflex_gen {} {{ ... }}` block)",
+                                n, n
+                            ));
+                        }
+                    }
                     eval_args.push(self.eval_expr_with_env(arg, env)?);
                 }
 
@@ -1341,6 +1396,10 @@ impl Interpreter {
                 }
                 if name == "reflex_list" {
                     return self.invoke_reflex_list(eval_args);
+                }
+                // Наряд №193: reflex_generate — text generation (ADR-0120).
+                if name == "reflex_generate" {
+                    return self.invoke_reflex_generate(eval_args);
                 }
 
                 // Check recall (memory) first
@@ -2487,6 +2546,99 @@ fn construct_reflex_seq_model(
         decl.input_dim,
         decl.seq_len,
         decl.labels.clone(),
+        decl.seed,
+        seq_layers,
+        var_map,
+        &vb,
+    )?;
+
+    Ok(model)
+}
+
+/// Наряд №193: construct + register a ReflexGenModel.
+///
+/// Builds trainable transformer_block layers (same as reflex_seq) +
+/// token embedding + vocabulary head.
+#[cfg(feature = "candle")]
+fn construct_reflex_gen_model(
+    decl: &crate::ast::ReflexGenDecl,
+) -> Result<crate::nn::gen_model::ReflexGenModel, String> {
+    use crate::nn::gen_model::ReflexGenModel;
+    use candle_nn::{VarBuilder, VarMap};
+
+    let var_map = VarMap::new();
+    let device = candle_core::Device::Cpu;
+    let vb = VarBuilder::from_varmap(&var_map, candle_core::DType::F32, &device);
+
+    let mut seq_layers: Vec<Box<dyn crate::nn::sequence_layer::SequenceLayer>> = Vec::new();
+
+    for (i, layer_spec) in decl.layers.iter().enumerate() {
+        let args: Vec<crate::interpreter::Value> = layer_spec
+            .args
+            .iter()
+            .map(|s| {
+                if let Ok(f) = s.parse::<f64>() {
+                    crate::interpreter::Value::Float(f)
+                } else {
+                    crate::interpreter::Value::String(s.clone())
+                }
+            })
+            .collect();
+
+        let prefix = format!("block{}", i);
+        let layer: Box<dyn crate::nn::sequence_layer::SequenceLayer> =
+            match layer_spec.name.as_str() {
+                "transformer_block" => {
+                    crate::nn::trainable_transformer_block::build_trainable_transformer_block(
+                        &args,
+                        decl.seed.wrapping_add(i as u64),
+                        &var_map,
+                        &prefix,
+                    )
+                    .map_err(|e| {
+                        format!(
+                            "reflex_gen '{}': layer {} build failed: {}",
+                            decl.name, i, e
+                        )
+                    })?
+                }
+                "attention" => crate::nn::trainable_attention::build_trainable_attention(
+                    &args,
+                    decl.seed.wrapping_add(i as u64),
+                    &var_map,
+                    &format!("layer{}", i),
+                )
+                .map_err(|e| {
+                    format!(
+                        "reflex_gen '{}': layer {} build failed: {}",
+                        decl.name, i, e
+                    )
+                })?,
+                other => {
+                    return Err(format!(
+                        "reflex_gen '{}': layer {} '{}' has no trainable variant. \
+                     Currently 'attention' and 'transformer_block' support training.",
+                        decl.name, i, other
+                    ));
+                }
+            };
+
+        if layer.input_dim() != decl.input_dim {
+            return Err(format!(
+                "reflex_gen '{}': layer {} expects input_dim={} but model has dim={}",
+                decl.name,
+                i,
+                layer.input_dim(),
+                decl.input_dim
+            ));
+        }
+        seq_layers.push(layer);
+    }
+
+    let model = ReflexGenModel::new(
+        decl.name.clone(),
+        decl.input_dim,
+        decl.vocab_size,
         decl.seed,
         seq_layers,
         var_map,

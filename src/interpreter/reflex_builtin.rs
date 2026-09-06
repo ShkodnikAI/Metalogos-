@@ -98,4 +98,17 @@ impl Interpreter {
             .map_err(|e| format!("reflex_list: registry lock poisoned: {}", e))?;
         crate::builtins::reflex_list_dispatch(&reg, &self.reflex_names, &args)
     }
+
+    /// `reflex_generate(model, prompt, max_tokens, temperature) -> List<Float>`
+    /// (Наряд №193, ADR-0120)
+    ///
+    /// `&self` wrapper around `crate::builtins::reflex::reflex_generate_dispatch`.
+    /// Read-only (doesn't mutate weights — generation, not training).
+    pub(super) fn invoke_reflex_generate(&self, args: Vec<Value>) -> Result<Value, String> {
+        let reg = self
+            .reflex_registry
+            .lock()
+            .map_err(|e| format!("reflex_generate: registry lock poisoned: {}", e))?;
+        crate::builtins::reflex_generate_dispatch(&reg, &args)
+    }
 }

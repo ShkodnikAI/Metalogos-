@@ -522,6 +522,14 @@ impl Interpreter {
                                 .to_string(),
                         );
                     }
+                    #[cfg(feature = "candle")]
+                    crate::nn::ModelKind::Gen(_) => {
+                        return Err(
+                            "distill: gen models (reflex_gen) do not support distill_to. \
+                             distill_to works only with Dense models (reflex)."
+                                .to_string(),
+                        );
+                    }
                 };
                 let _ = input_size; // currently unused beyond this point
 
@@ -600,6 +608,14 @@ impl Interpreter {
                     return Err("distill: sequence models (reflex_seq) do not yet support distill training. \
                          Distill currently works only with Dense models (reflex).".to_string());
                 }
+                #[cfg(feature = "candle")]
+                crate::nn::ModelKind::Gen(_) => {
+                    return Err(
+                        "distill: gen models (reflex_gen) do not support distill training. \
+                         Distill works only with Dense models (reflex)."
+                            .to_string(),
+                    );
+                }
             }
         }
 
@@ -654,6 +670,12 @@ impl Interpreter {
             crate::nn::ModelKind::Sequence(_) => Err(
                 "distill: sequence models (reflex_seq) do not yet support distill training. \
                  Distill currently works only with Dense models (reflex)."
+                    .to_string(),
+            ),
+            #[cfg(feature = "candle")]
+            crate::nn::ModelKind::Gen(_) => Err(
+                "distill: gen models (reflex_gen) do not support distill training. \
+                 Distill works only with Dense models (reflex)."
                     .to_string(),
             ),
         }

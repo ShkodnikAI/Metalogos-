@@ -62,20 +62,20 @@ fn save_load_roundtrip_preserves_predictions() {
     name_to_id.insert("roundtrip_model".to_string(), id_a);
 
     {
-        let model = registry_a.get_mut(id_a).expect("model");
+        let model = registry_a.get_dense_mut(id_a).expect("model");
         model.train(&inputs, &targets, 200, 0.1).expect("train");
     }
 
     // Capture predictions BEFORE save (on a known test input).
     let test_input = vec![0.15, 0.25];
     let predictions_before: Vec<f64> = {
-        let model = registry_a.get(id_a).expect("model");
+        let model = registry_a.get_dense(id_a).expect("model");
         model.forward(&test_input)
     };
 
     // Save model A.
     {
-        let model = registry_a.get(id_a).expect("model");
+        let model = registry_a.get_dense(id_a).expect("model");
         persist::save_model_to_db(model, "roundtrip_model", &db_path).expect("save");
     }
 
@@ -90,7 +90,7 @@ fn save_load_roundtrip_preserves_predictions() {
     // Sanity check: fresh-init predictions differ from trained predictions
     // (otherwise the test wouldn't be meaningful).
     let predictions_fresh: Vec<f64> = {
-        let model = registry_b.get(id_b).expect("model");
+        let model = registry_b.get_dense(id_b).expect("model");
         model.forward(&test_input)
     };
     assert_ne!(
@@ -104,7 +104,7 @@ fn save_load_roundtrip_preserves_predictions() {
     // Phase 3: predictions on the new model should now be bitwise-identical
     // to the original trained model's predictions.
     let predictions_after: Vec<f64> = {
-        let model = registry_b.get(id_b).expect("model");
+        let model = registry_b.get_dense(id_b).expect("model");
         model.forward(&test_input)
     };
 
@@ -144,7 +144,7 @@ fn save_load_roundtrip_multiple_inputs() {
     let mut registry_a = ReflexRegistry::new();
     let id_a = registry_a.register(make_model_2class(99));
     {
-        let model = registry_a.get_mut(id_a).expect("model");
+        let model = registry_a.get_dense_mut(id_a).expect("model");
         model.train(&inputs, &targets, 100, 0.1).expect("train");
     }
 
@@ -158,11 +158,11 @@ fn save_load_roundtrip_multiple_inputs() {
 
     let before: Vec<Vec<f64>> = test_inputs
         .iter()
-        .map(|inp| registry_a.get(id_a).expect("model").forward(inp))
+        .map(|inp| registry_a.get_dense(id_a).expect("model").forward(inp))
         .collect();
 
     {
-        let model = registry_a.get(id_a).expect("model");
+        let model = registry_a.get_dense(id_a).expect("model");
         persist::save_model_to_db(model, "roundtrip_model", &db_path).expect("save");
     }
 
@@ -171,7 +171,7 @@ fn save_load_roundtrip_multiple_inputs() {
     persist::load_model_from_db(&mut registry_b, id_b, "roundtrip_model", &db_path).expect("load");
 
     for (i, inp) in test_inputs.iter().enumerate() {
-        let after = registry_b.get(id_b).expect("model").forward(inp);
+        let after = registry_b.get_dense(id_b).expect("model").forward(inp);
         for (j, (a, b)) in before[i].iter().zip(after.iter()).enumerate() {
             assert_eq!(
                 a.to_bits(),

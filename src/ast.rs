@@ -915,7 +915,7 @@ pub struct ReflexLayerSpec {
 
 // ── reflex_seq declaration (Наряд №183, ADR-0119) ──────────────────
 
-/// `reflex_seq Name { input: embedding(dim) seq_len: L layers: [attention(...)] seed: N }`
+/// `reflex_seq Name { input: embedding(dim) seq_len: L layers: [attention(...)] labels: [...] seed: N }`
 ///
 /// Separate from `ReflexDecl` (Наряд №178) per ADR-0119: a model is
 /// EITHER classification (`reflex`, Dense-only, Наряды №177–182) OR
@@ -928,9 +928,11 @@ pub struct ReflexLayerSpec {
 /// initial implementation requires the length to be declared upfront,
 /// matching how `input_dim` is declared upfront in `ReflexDecl`.)
 ///
-/// Note: `reflex_seq` does NOT carry `labels` — sequence models in
-/// this stage are forward-only (no classification head); training
-/// integration is the next naryad's scope per the spec.
+/// Наряд №185: `labels` is REQUIRED for `reflex_seq`. A `reflex_seq`
+/// model classifies the WHOLE sequence into one label from a closed
+/// set (mean pooling + Dense classification head). Free-form token
+/// generation is explicitly out of scope per ADR-0117 — symmetric
+/// to the same constraint that already applies to plain `reflex`.
 #[derive(Debug, Clone)]
 pub struct ReflexSeqDecl {
     pub span: Span,
@@ -942,6 +944,11 @@ pub struct ReflexSeqDecl {
     /// at construction time (compile error if a name appears here that
     /// only exists in `LAYER_REGISTRY` — the mixed-category case).
     pub layers: Vec<ReflexLayerSpec>,
+    /// Closed label set for the classification head. Required per
+    /// Наряд №185 / ADR-0117 §3 (closed-set constraint symmetric with
+    /// plain `reflex`). Empty list is a parse-time error, not silently
+    /// accepted.
+    pub labels: Vec<String>,
     pub seed: u64,
 }
 

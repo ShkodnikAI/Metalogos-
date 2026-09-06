@@ -1,0 +1,20 @@
+// Наряд №185 Contract 4: reflex_seq WITHOUT labels → explicit error.
+//
+// Per ADR-0117 §3 (symmetric to plain reflex): reflex_seq requires a
+// closed-set `labels` field. Free-form generation (no labels, predict
+// next token) is explicitly out of scope.
+//
+// This example is a contract for the candle-on build path: the parser
+// produces an error message mentioning "labels" and "ADR-0117 §3".
+//
+// When `candle` is off, the same error fires first (parser runs before
+// the candle-feature check in execution.rs).
+
+reflex_seq NoLabelsModel {
+  input: embedding(8)
+  seq_len: 4
+  layers: [attention(2, 8)]
+  seed: 42
+}
+
+flow Main { input: String = "x" -> output }

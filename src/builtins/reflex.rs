@@ -47,7 +47,7 @@
 //! in `interpreter::execution::invoke()`.
 
 use crate::interpreter::Value;
-use crate::nn::{find_metric, ReflexId, ReflexModel, ReflexRegistry};
+use crate::nn::{find_metric, ReflexId, ReflexRegistry};
 use std::collections::HashMap;
 
 // ── Stub handlers (registered in BUILTIN_REGISTRY) ──────────────────
@@ -198,103 +198,192 @@ pub fn reflex_train_dispatch(
     };
 
     // Get the model (mutable — train mutates weights)
-    let model: &mut ReflexModel = registry.get_mut(model_id).ok_or_else(|| {
+    // Наряд №185: dispatch on ModelKind. Dense path is UNCHANGED from
+    // Наряд №179 — same `model.train(...)` call, same validation. The
+    // Sequence path is the new code (Block 2 dispatch + Block 3 autograd).
+    let model_kind: &mut crate::nn::ModelKind = registry.get_mut(model_id).ok_or_else(|| {
         format!(
             "reflex_train: model handle {:?} not found in registry",
             model_id
         )
     })?;
 
-    // Split data into inputs and target_classes
-    let mut inputs: Vec<Vec<f64>> = Vec::with_capacity(data.len());
-    let mut targets: Vec<usize> = Vec::with_capacity(data.len());
-    for (i, row) in data.iter().enumerate() {
-        let features: &[Value] = match row {
-            Value::List(f) => f,
-            other => {
-                return Err(format!(
-                    "reflex_train: row {} must be a List, got {}",
-                    i,
-                    other.type_name()
-                ));
+    match model_kind {
+        crate::nn::ModelKind::Dense(model) => {
+            // ── Dense path: existing code from Наряд №179, UNCHANGED ──
+            // Split data into inputs and target_classes
+            let mut inputs: Vec<Vec<f64>> = Vec::with_capacity(data.len());
+            let mut targets: Vec<usize> = Vec::with_capacity(data.len());
+            for (i, row) in data.iter().enumerate() {
+                let features: &[Value] = match row {
+                    Value::List(f) => f,
+                    other => {
+                        return Err(format!(
+                            "reflex_train: row {} must be a List, got {}",
+                            i,
+                            other.type_name()
+                        ));
+                    }
+                };
+                if features.len() < 2 {
+                    return Err(format!(
+                        "reflex_train: row {} has {} elements, need at least 2 (1 feature + class_idx)",
+                        i,
+                        features.len()
+                    ));
+                }
+                let class_idx_f = match features.last() {
+                    Some(Value::Float(n)) => *n,
+                    Some(other) => {
+                        return Err(format!(
+                            "reflex_train: row {} last element (class_idx) must be Float, got {}",
+                            i,
+                            other.type_name()
+                        ));
+                    }
+                    None => {
+                        return Err(format!(
+                            "reflex_train: row {} is empty — need at least 1 feature + class_idx",
+                            i
+                        ));
+                    }
+                };
+                let class_idx = class_idx_f as usize;
+                let feature_vec: Vec<f64> = features[..features.len() - 1]
+                    .iter()
+                    .map(|v| match v {
+                        Value::Float(n) => Ok(*n),
+                        other => Err(format!(
+                            "reflex_train: row {} feature must be Float, got {}",
+                            i,
+                            other.type_name()
+                        )),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if class_idx >= model.labels.len() {
+                    return Err(format!(
+                        "reflex_train: row {} class_idx {} out of range (model has {} labels: {:?})",
+                        i,
+                        class_idx,
+                        model.labels.len(),
+                        model.labels
+                    ));
+                }
+                if feature_vec.len() != model.input_size {
+                    return Err(format!(
+                        "reflex_train: row {} has {} features, model expects {}",
+                        i,
+                        feature_vec.len(),
+                        model.input_size
+                    ));
+                }
+                inputs.push(feature_vec);
+                targets.push(class_idx);
             }
-        };
-        if features.len() < 2 {
-            return Err(format!(
-                "reflex_train: row {} has {} elements, need at least 2 (1 feature + class_idx)",
-                i,
-                features.len()
-            ));
-        }
-        let class_idx_f = match features.last() {
-            Some(Value::Float(n)) => *n,
-            Some(other) => {
-                return Err(format!(
-                    "reflex_train: row {} last element (class_idx) must be Float, got {}",
-                    i,
-                    other.type_name()
-                ));
-            }
-            None => {
-                return Err(format!(
-                    "reflex_train: row {} is empty — need at least 1 feature + class_idx",
-                    i
-                ));
-            }
-        };
-        let class_idx = class_idx_f as usize;
-        let feature_vec: Vec<f64> = features[..features.len() - 1]
-            .iter()
-            .map(|v| match v {
-                Value::Float(n) => Ok(*n),
-                other => Err(format!(
-                    "reflex_train: row {} feature must be Float, got {}",
-                    i,
-                    other.type_name()
-                )),
+
+            let learning_rate = 0.1;
+            let (loss, accuracy) = model.train(&inputs, &targets, epochs, learning_rate)?;
+
+            let mut fields: HashMap<String, Value> = HashMap::new();
+            fields.insert("loss".to_string(), Value::Float(loss));
+            fields.insert("accuracy".to_string(), Value::Float(accuracy));
+            fields.insert("metric".to_string(), Value::String(metric_name));
+            fields.insert(
+                "threshold_met".to_string(),
+                Value::Bool(accuracy >= threshold),
+            );
+
+            Ok(Value::Struct {
+                type_name: "ReflexTrainResult".to_string(),
+                fields,
             })
-            .collect::<Result<Vec<_>, _>>()?;
-        // Validate class_idx against model labels
-        if class_idx >= model.labels.len() {
-            return Err(format!(
-                "reflex_train: row {} class_idx {} out of range (model has {} labels: {:?})",
-                i,
-                class_idx,
-                model.labels.len(),
-                model.labels
-            ));
         }
-        // Validate feature count matches model input_size
-        if feature_vec.len() != model.input_size {
-            return Err(format!(
-                "reflex_train: row {} has {} features, model expects {}",
-                i,
-                feature_vec.len(),
-                model.input_size
-            ));
+        #[cfg(feature = "candle")]
+        crate::nn::ModelKind::Sequence(model) => {
+            // ── Sequence path: Наряд №185 Block 2/3 ──
+            // Data format is different: each row is [seq_len * dim floats..., class_idx].
+            // The feature portion is flattened [seq_len, dim] row-major; we reshape
+            // to a 2D Tensor for forward.
+            use candle_core::{Device, Tensor};
+            let seq_len = model.seq_len;
+            let input_dim = model.input_dim;
+            let expected_features = seq_len * input_dim;
+
+            let mut input_tensors: Vec<Tensor> = Vec::with_capacity(data.len());
+            let mut targets: Vec<usize> = Vec::with_capacity(data.len());
+
+            for (i, row) in data.iter().enumerate() {
+                let features: &[Value] = match row {
+                    Value::List(f) => f,
+                    other => {
+                        return Err(format!(
+                            "reflex_train(seq): row {} must be a List, got {}",
+                            i,
+                            other.type_name()
+                        ));
+                    }
+                };
+                if features.len() != expected_features + 1 {
+                    return Err(format!(
+                        "reflex_train(seq): row {} has {} elements, need exactly {} (seq_len*dim + class_idx)",
+                        i, features.len(), expected_features + 1
+                    ));
+                }
+                let class_idx_f = match features.last() {
+                    Some(Value::Float(n)) => *n,
+                    Some(other) => {
+                        return Err(format!(
+                            "reflex_train(seq): row {} class_idx must be Float, got {}",
+                            i,
+                            other.type_name()
+                        ));
+                    }
+                    None => unreachable!(),
+                };
+                let class_idx = class_idx_f as usize;
+                if class_idx >= model.labels.len() {
+                    return Err(format!(
+                        "reflex_train(seq): row {} class_idx {} out of range (model has {} labels: {:?})",
+                        i, class_idx, model.labels.len(), model.labels
+                    ));
+                }
+                let feature_vec: Vec<f32> = features[..features.len() - 1]
+                    .iter()
+                    .map(|v| match v {
+                        Value::Float(n) => Ok(*n as f32),
+                        other => Err(format!(
+                            "reflex_train(seq): row {} feature must be Float, got {}",
+                            i,
+                            other.type_name()
+                        )),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let tensor = Tensor::from_vec(feature_vec, (seq_len, input_dim), &Device::Cpu)
+                    .map_err(|e| format!("reflex_train(seq): row {} tensor build: {}", i, e))?
+                    .to_dtype(candle_core::DType::F32)
+                    .map_err(|e| format!("reflex_train(seq): row {} dtype: {}", i, e))?;
+                input_tensors.push(tensor);
+                targets.push(class_idx);
+            }
+
+            let learning_rate = 0.1;
+            let (loss, accuracy) = model.train(&input_tensors, &targets, epochs, learning_rate)?;
+
+            let mut fields: HashMap<String, Value> = HashMap::new();
+            fields.insert("loss".to_string(), Value::Float(loss));
+            fields.insert("accuracy".to_string(), Value::Float(accuracy));
+            fields.insert("metric".to_string(), Value::String(metric_name));
+            fields.insert(
+                "threshold_met".to_string(),
+                Value::Bool(accuracy >= threshold),
+            );
+
+            Ok(Value::Struct {
+                type_name: "ReflexTrainResult".to_string(),
+                fields,
+            })
         }
-        inputs.push(feature_vec);
-        targets.push(class_idx);
     }
-
-    // Train (the math is in ReflexModel::train — untouched by this naryad)
-    let learning_rate = 0.1; // matches naryad_179_convergence contract
-    let (loss, accuracy) = model.train(&inputs, &targets, epochs, learning_rate)?;
-
-    // Build result Struct
-    let mut fields: HashMap<String, Value> = HashMap::new();
-    fields.insert("loss".to_string(), Value::Float(loss));
-    fields.insert("accuracy".to_string(), Value::Float(accuracy));
-    fields.insert("metric".to_string(), Value::String(metric_name));
-    fields.insert(
-        "threshold_met".to_string(),
-        Value::Bool(accuracy >= threshold),
-    );
-
-    Ok(Value::Struct {
-        type_name: "ReflexTrainResult".to_string(),
-        fields,
-    })
 }
 
 /// `reflex_predict(model, input) -> Fluid`
@@ -335,50 +424,99 @@ pub fn reflex_predict_dispatch(registry: &ReflexRegistry, args: &[Value]) -> Res
         }
     };
 
-    let model: &ReflexModel = registry.get(model_id).ok_or_else(|| {
+    let model_kind: &crate::nn::ModelKind = registry.get(model_id).ok_or_else(|| {
         format!(
             "reflex_predict: model handle {:?} not found in registry",
             model_id
         )
     })?;
 
-    // Convert input List<Value> to Vec<f64>
-    let input: Vec<f64> = input_list
-        .iter()
-        .map(|v| match v {
-            Value::Float(n) => Ok(*n),
-            other => Err(format!(
-                "reflex_predict: input feature must be Float, got {}",
-                other.type_name()
-            )),
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    match model_kind {
+        crate::nn::ModelKind::Dense(model) => {
+            // ── Dense path: existing code from Наряд №179, UNCHANGED ──
+            // Convert input List<Value> to Vec<f64>
+            let input: Vec<f64> = input_list
+                .iter()
+                .map(|v| match v {
+                    Value::Float(n) => Ok(*n),
+                    other => Err(format!(
+                        "reflex_predict: input feature must be Float, got {}",
+                        other.type_name()
+                    )),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
 
-    if input.len() != model.input_size {
-        return Err(format!(
-            "reflex_predict: input has {} features, model expects {}",
-            input.len(),
-            model.input_size
-        ));
+            if input.len() != model.input_size {
+                return Err(format!(
+                    "reflex_predict: input has {} features, model expects {}",
+                    input.len(),
+                    model.input_size
+                ));
+            }
+
+            // Forward pass — returns softmax probabilities
+            let probs = model.forward(&input);
+
+            // Build Fluid with one variant per label
+            use crate::interpreter::FluidValueVariant;
+            let variants: Vec<FluidValueVariant> = model
+                .labels
+                .iter()
+                .zip(probs.iter())
+                .map(|(label, &prob)| FluidValueVariant {
+                    type_name: "Label".to_string(),
+                    value: Value::String(label.clone()),
+                    confidence: prob,
+                })
+                .collect();
+
+            Ok(Value::Fluid(variants))
+        }
+        #[cfg(feature = "candle")]
+        crate::nn::ModelKind::Sequence(model) => {
+            // ── Sequence path: Наряд №185 Block 2 ──
+            // Input format: flattened [seq_len * dim] row-major.
+            use candle_core::{Device, Tensor};
+            let expected_len = model.seq_len * model.input_dim;
+            let feature_vec: Vec<f32> = input_list
+                .iter()
+                .map(|v| match v {
+                    Value::Float(n) => Ok(*n as f32),
+                    other => Err(format!(
+                        "reflex_predict(seq): input feature must be Float, got {}",
+                        other.type_name()
+                    )),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if feature_vec.len() != expected_len {
+                return Err(format!(
+                    "reflex_predict(seq): input has {} features, model expects {} (seq_len {} * dim {})",
+                    feature_vec.len(), expected_len, model.seq_len, model.input_dim
+                ));
+            }
+            let tensor =
+                Tensor::from_vec(feature_vec, (model.seq_len, model.input_dim), &Device::Cpu)
+                    .map_err(|e| format!("reflex_predict(seq): tensor build: {}", e))?
+                    .to_dtype(candle_core::DType::F32)
+                    .map_err(|e| format!("reflex_predict(seq): dtype: {}", e))?;
+
+            let probs = model.predict_probs(&tensor)?;
+
+            use crate::interpreter::FluidValueVariant;
+            let variants: Vec<FluidValueVariant> = model
+                .labels
+                .iter()
+                .zip(probs.iter())
+                .map(|(label, &prob)| FluidValueVariant {
+                    type_name: "Label".to_string(),
+                    value: Value::String(label.clone()),
+                    confidence: prob as f64,
+                })
+                .collect();
+
+            Ok(Value::Fluid(variants))
+        }
     }
-
-    // Forward pass — returns softmax probabilities
-    let probs = model.forward(&input);
-
-    // Build Fluid with one variant per label
-    use crate::interpreter::FluidValueVariant;
-    let variants: Vec<FluidValueVariant> = model
-        .labels
-        .iter()
-        .zip(probs.iter())
-        .map(|(label, &prob)| FluidValueVariant {
-            type_name: "Label".to_string(),
-            value: Value::String(label.clone()),
-            confidence: prob,
-        })
-        .collect();
-
-    Ok(Value::Fluid(variants))
 }
 
 // ── Наряд №180: persistence (ADR-0116) ──────────────────────────────
@@ -448,13 +586,30 @@ pub fn reflex_save_dispatch(
             .to_string()
     })?;
 
-    let model: &ReflexModel = registry
+    let model_kind: &crate::nn::ModelKind = registry
         .get(model_id)
         .ok_or_else(|| format!("reflex_save: model handle {:?} not in registry", model_id))?;
 
-    crate::nn::persist::save_model_to_db(model, &model_name, std::path::Path::new(persist_path))?;
-
-    Ok(Value::Unit)
+    // Наряд №185: dispatch on model kind. Currently only Dense models
+    // support persistence (Наряд №180). Sequence models would need a
+    // separate serialization format — future naryad.
+    match model_kind {
+        crate::nn::ModelKind::Dense(model) => {
+            crate::nn::persist::save_model_to_db(
+                model,
+                &model_name,
+                std::path::Path::new(persist_path),
+            )?;
+            Ok(Value::Unit)
+        }
+        #[cfg(feature = "candle")]
+        crate::nn::ModelKind::Sequence(_) => Err(
+            "reflex_save: sequence models (reflex_seq) do not yet support persistence. \
+             Only Dense models (reflex) can be saved. \
+             Sequence model persistence is a future-naryad concern."
+                .to_string(),
+        ),
+    }
 }
 
 /// `reflex_load(name) -> Value::Reflex`

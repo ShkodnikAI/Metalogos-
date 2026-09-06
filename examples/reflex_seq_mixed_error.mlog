@@ -17,6 +17,7 @@ reflex_seq MixedModel {
   input: embedding(8)
   seq_len: 4
   layers: [dense(8, "relu"), attention(2, 8)]
+  labels: ["a", "b"]
   seed: 42
 }
 

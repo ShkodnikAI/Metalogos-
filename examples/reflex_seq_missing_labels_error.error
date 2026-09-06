@@ -1,0 +1,1 @@
+reflex_seq: 'labels' field is required (closed-set classification per ADR-0117 §3)

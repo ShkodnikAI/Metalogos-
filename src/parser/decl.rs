@@ -2069,10 +2069,12 @@ pub(super) fn parse_reflex_seq_decl(pair: Pair<Rule>) -> Result<Declaration, Par
     let mut input_dim = 0;
     let mut seq_len = 0;
     let mut layers: Vec<crate::ast::ReflexLayerSpec> = Vec::new();
+    let mut labels: Vec<String> = Vec::new();
     let mut seed: u64 = 0;
     let mut has_seed = false;
     let mut has_input = false;
     let mut has_seq_len = false;
+    let mut has_labels = false;
 
     for child in &children {
         match child.as_rule() {
@@ -2126,6 +2128,18 @@ pub(super) fn parse_reflex_seq_decl(pair: Pair<Rule>) -> Result<Declaration, Par
                     }
                 }
             }
+            Rule::reflex_labels => {
+                let label_children = children_of(child);
+                for lc in label_children {
+                    if lc.as_rule() == Rule::STRING_LITERAL {
+                        let s = lc.as_str();
+                        // Remove surrounding quotes (same pattern as parse_reflex_decl)
+                        let s = &s[1..s.len() - 1];
+                        labels.push(s.to_string());
+                    }
+                }
+                has_labels = true;
+            }
             Rule::reflex_seed => {
                 let seed_children = children_of(child);
                 for sc in seed_children {
@@ -2160,12 +2174,26 @@ pub(super) fn parse_reflex_seq_decl(pair: Pair<Rule>) -> Result<Declaration, Par
         ));
     }
 
+    // Наряд №185 / ADR-0117 §3: labels is REQUIRED for reflex_seq.
+    // Symmetric to the same closed-set constraint that applies to plain
+    // `reflex` when used as a distillation target. Free-form generation
+    // (no labels, predict next token) is explicitly out of scope.
+    if !has_labels || labels.is_empty() {
+        return Err(pair_error(
+            &pair,
+            "reflex_seq: 'labels' field is required (closed-set classification per ADR-0117 §3). \
+             Example: labels: [\"positive\", \"negative\"]. \
+             Free-form generation is out of scope — use plain text patterns for that.",
+        ));
+    }
+
     Ok(Declaration::ReflexSeq(crate::ast::ReflexSeqDecl {
         span: Span::from_pest(pair.as_span()),
         name,
         input_dim,
         seq_len,
         layers,
+        labels,
         seed,
     }))
 }

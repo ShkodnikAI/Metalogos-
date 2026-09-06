@@ -42,7 +42,7 @@ fn version_mismatch_is_explicit_error() {
 
     // Save the model.
     {
-        let model = registry.get(id).expect("model");
+        let model = registry.get_dense(id).expect("model");
         persist::save_model_to_db(model, "version_test", &db_path).expect("save");
     }
 
@@ -107,7 +107,7 @@ fn corrupted_magic_bytes_is_explicit_error() {
     let mut registry = ReflexRegistry::new();
     let id = registry.register(make_model(7));
     {
-        let model = registry.get(id).expect("model");
+        let model = registry.get_dense(id).expect("model");
         persist::save_model_to_db(model, "version_test", &db_path).expect("save");
     }
 

@@ -41,7 +41,7 @@ fn shape_mismatch_hidden_units_is_explicit_error() {
     let mut registry_a = ReflexRegistry::new();
     let id_a = registry_a.register(make_model(42, 8));
     {
-        let model = registry_a.get(id_a).expect("model");
+        let model = registry_a.get_dense(id_a).expect("model");
         persist::save_model_to_db(model, "shape_test", &db_path).expect("save");
     }
 
@@ -83,7 +83,7 @@ fn shape_mismatch_layer_count_is_explicit_error() {
     let mut registry_a = ReflexRegistry::new();
     let id_a = registry_a.register(make_model(42, 8)); // 2 layers
     {
-        let model = registry_a.get(id_a).expect("model");
+        let model = registry_a.get_dense(id_a).expect("model");
         persist::save_model_to_db(model, "shape_test", &db_path).expect("save");
     }
 
@@ -118,7 +118,7 @@ fn shape_match_loads_silently_when_correct() {
     let mut registry_a = ReflexRegistry::new();
     let id_a = registry_a.register(make_model(42, 8));
     {
-        let model = registry_a.get(id_a).expect("model");
+        let model = registry_a.get_dense(id_a).expect("model");
         persist::save_model_to_db(model, "shape_test", &db_path).expect("save");
     }
 
@@ -146,7 +146,7 @@ fn input_size_mismatch_is_explicit_error() {
     let mut registry_a = ReflexRegistry::new();
     let id_a = registry_a.register(make_model(42, 8)); // input_size=2
     {
-        let model = registry_a.get(id_a).expect("model");
+        let model = registry_a.get_dense(id_a).expect("model");
         persist::save_model_to_db(model, "shape_test", &db_path).expect("save");
     }
 
@@ -186,7 +186,7 @@ fn labels_mismatch_is_explicit_error() {
     let mut registry_a = ReflexRegistry::new();
     let id_a = registry_a.register(make_model(42, 8)); // labels=["a","b"]
     {
-        let model = registry_a.get(id_a).expect("model");
+        let model = registry_a.get_dense(id_a).expect("model");
         persist::save_model_to_db(model, "shape_test", &db_path).expect("save");
     }
 

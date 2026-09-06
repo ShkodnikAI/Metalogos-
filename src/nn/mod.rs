@@ -23,6 +23,10 @@ pub mod persist;
 /// Наряд №184 (Block 1): RmsNorm as SequenceLayer.
 #[cfg(feature = "candle")]
 pub mod rmsnorm;
+/// Наряд №185: ReflexSeqModel — sequence-classification model with
+/// candle autograd training. Feature-gated behind `candle`.
+#[cfg(feature = "candle")]
+pub mod seq_model;
 /// Наряд №183 (ADR-0119): sequence-processing layer trait + registry.
 /// Feature-gated behind `candle` — separate scope from initial Reflex rollout.
 #[cfg(feature = "candle")]
@@ -31,6 +35,15 @@ pub mod serde_weights;
 /// Наряд №184 (Block 2): SwiGLU feedforward as SequenceLayer.
 #[cfg(feature = "candle")]
 pub mod swiglu;
+/// Наряд №185: TrainableAttention — Var-based attention for autograd.
+/// Parallel to №183's Attention (which is forward-only, untouched).
+#[cfg(feature = "candle")]
+pub mod trainable_attention;
+/// Наряд №185 follow-up: TrainableTransformerBlock — Var-based
+/// transformer block for autograd. Composes TrainableAttention +
+/// forward-only RmsNorm/SwiGLU (partial training — see module docs).
+#[cfg(feature = "candle")]
+pub mod trainable_transformer_block;
 /// Наряд №184 (Block 3): full transformer_block (attention + norms + ffn).
 #[cfg(feature = "candle")]
 pub mod transformer_block;
@@ -51,6 +64,30 @@ pub use sequence_layer::{
 /// `reflex_predict` (Наряд №179) and `reflex_train` (Наряд №179).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ReflexId(pub usize);
+
+/// Model kind — dispatches `reflex_train`/`reflex_predict` to the right path.
+///
+/// Наряд №185 (ADR-0119 consequence #3): "reflex_predict/reflex_train
+/// need a dispatch branch on which category a given ReflexId holds —
+/// this is new code in the builtins, not a change to the existing
+/// branch's logic."
+///
+/// The Dense variant is the existing path (Наряды №177–182); the
+/// Sequence variant is the new path (Наряд №185) — symmetric but
+/// entirely separate code. Existing tests for the Dense path are
+/// UNCHANGED (same trait objects, same forward signature, same train
+/// method) — they don't even know this enum exists.
+#[cfg(feature = "candle")]
+pub enum ModelKind {
+    Dense(ReflexModel),
+    Sequence(crate::nn::seq_model::ReflexSeqModel),
+}
+
+/// Non-candle fallback — only Dense models can exist when candle is off.
+#[cfg(not(feature = "candle"))]
+pub enum ModelKind {
+    Dense(ReflexModel),
+}
 
 /// A registered Reflex model.
 /// Debug implementation prints only `name` and `last_metric` — never weights.
@@ -221,8 +258,13 @@ impl ReflexModel {
 
 /// Registry of all Reflex models — the runtime store for opaque handles.
 /// Index into `models` vec = `ReflexId`.
+///
+/// Наряд №185: now stores `ModelKind` (Dense or Sequence), not just
+/// `ReflexModel`. Existing dense-path callers (Наряды №179/181) don't
+/// see the change — they go through `reflex_train_dispatch` /
+/// `reflex_predict_dispatch`, which match on the variant.
 pub struct ReflexRegistry {
-    models: Vec<ReflexModel>,
+    models: Vec<ModelKind>,
 }
 
 impl Default for ReflexRegistry {
@@ -236,21 +278,57 @@ impl ReflexRegistry {
         Self { models: Vec::new() }
     }
 
-    /// Register a model, return its handle.
+    /// Register a Dense model, return its handle.
+    /// Existing path — unchanged from Наряд №178.
     pub fn register(&mut self, model: ReflexModel) -> ReflexId {
         let id = ReflexId(self.models.len());
-        self.models.push(model);
+        self.models.push(ModelKind::Dense(model));
         id
     }
 
-    /// Get a model by handle.
-    pub fn get(&self, id: ReflexId) -> Option<&ReflexModel> {
+    /// Register a Sequence model, return its handle.
+    /// Наряд №185: new path — separate from `register`, doesn't touch
+    /// the dense path.
+    #[cfg(feature = "candle")]
+    pub fn register_seq(&mut self, model: crate::nn::seq_model::ReflexSeqModel) -> ReflexId {
+        let id = ReflexId(self.models.len());
+        self.models.push(ModelKind::Sequence(model));
+        id
+    }
+
+    /// Get a model by handle (any kind).
+    pub fn get(&self, id: ReflexId) -> Option<&ModelKind> {
         self.models.get(id.0)
     }
 
-    /// Get a mutable model by handle.
-    pub fn get_mut(&mut self, id: ReflexId) -> Option<&mut ReflexModel> {
+    /// Get a mutable model by handle (any kind).
+    pub fn get_mut(&mut self, id: ReflexId) -> Option<&mut ModelKind> {
         self.models.get_mut(id.0)
+    }
+
+    /// Get a Dense model by handle — convenience accessor for the
+    /// existing Dense path (Наряды №178–182). Returns None if the
+    /// handle points to a Sequence model.
+    ///
+    /// Наряд №185: added so existing tests/callers that expect
+    /// `&ReflexModel` (not `&ModelKind`) continue to work without
+    /// touching their code — same principle as "не трогать существующую
+    /// ветку" applied to the public API surface.
+    pub fn get_dense(&self, id: ReflexId) -> Option<&ReflexModel> {
+        match self.models.get(id.0)? {
+            ModelKind::Dense(m) => Some(m),
+            #[cfg(feature = "candle")]
+            ModelKind::Sequence(_) => None,
+        }
+    }
+
+    /// Get a mutable Dense model by handle.
+    pub fn get_dense_mut(&mut self, id: ReflexId) -> Option<&mut ReflexModel> {
+        match self.models.get_mut(id.0)? {
+            ModelKind::Dense(m) => Some(m),
+            #[cfg(feature = "candle")]
+            ModelKind::Sequence(_) => None,
+        }
     }
 
     /// Number of registered models.
@@ -271,12 +349,21 @@ impl std::fmt::Debug for ReflexRegistry {
             self.models.len(),
             self.models
                 .iter()
-                .map(|m| format!(
-                    "{}({} layers, metric={:?})",
-                    m.name,
-                    m.layers.len(),
-                    m.last_metric
-                ))
+                .map(|m| match m {
+                    ModelKind::Dense(m) => format!(
+                        "{}(dense, {} layers, metric={:?})",
+                        m.name,
+                        m.layers.len(),
+                        m.last_metric
+                    ),
+                    #[cfg(feature = "candle")]
+                    ModelKind::Sequence(m) => format!(
+                        "{}(seq, {} layers, metric={:?})",
+                        m.name,
+                        m.seq_layers.len(),
+                        m.last_metric
+                    ),
+                })
                 .collect::<Vec<_>>()
                 .join(", ")
         )

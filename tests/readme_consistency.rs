@@ -739,6 +739,14 @@ fn reference_md_builtin_coverage_does_not_regression() {
     // count stays at 145 — both new builtins are covered. Baseline
     // unchanged.
     //
+    // Наряд №189 (Coverage note sync): reran scripts/gen_reference_check.py
+    // to get exact numbers. Confirmed: 228/373 documented, 145 missing
+    // (61.1% coverage). Updated the stale Coverage note in REFERENCE.md:243
+    // (was v0.17, ~47%, 166/357, 191 missing — predating naryads №167+
+    // documentation batches and the reflex_* additions). Baseline stays
+    // at 145 — no change to the missing count, just the prose note
+    // now matches reality.
+    //
     // If you added a new builtin to registry.rs and this test fails,
     // you have two options (in order of preference):
     //

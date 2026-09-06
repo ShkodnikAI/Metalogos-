@@ -240,8 +240,8 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Встроенные функции (Builtins)
 
-> **Coverage note (v0.17):** This section documents **~47%** of the 357 registered builtins (166 of 357).
-> The remaining 191 functions (pdf, cron, graph, time, bot, encoding, std helpers, etc.)
+> **Coverage note (v0.18):** This section documents **~61%** of the 373 registered builtins (228 of 373).
+> The remaining 145 functions (pdf, cron, graph, time, bot, encoding, std helpers, etc.)
 > are not yet documented here. REFERENCE.md is **not exhaustive** — see
 > `src/builtins/registry.rs` for the authoritative list.
 >

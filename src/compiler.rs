@@ -265,10 +265,35 @@ impl Compiler {
                 | Declaration::ContextBudget(_)
                 | Declaration::TypeAlias(_)
                 | Declaration::Tool(_)
-                | Declaration::LlmConfig(_)
-                | Declaration::ReflexSeq(_)
-                | Declaration::ReflexGen(_) => {
+                | Declaration::LlmConfig(_) => {
                     // Phase 6+: handled elsewhere
+                }
+                // Наряд №203 Block 1: diagnostic trace for VM-target
+                // compilation. reflex_seq/reflex_gen declarations are
+                // silently dropped at bytecode compilation time —
+                // ADR-0121 stages 3-4 will add VM support. This is a
+                // transitional state, not a bug. The trace helps
+                // debugging without making a loud error (which would
+                // contradict ADR-0121's incremental approach).
+                Declaration::ReflexSeq(r) => {
+                    #[cfg(debug_assertions)]
+                    {
+                        eprintln!(
+                            "[compiler] note: reflex_seq declaration '{}' — VM support pending (ADR-0121 stages 3-4). \
+                             Tree-walking interpreter fully supports this.",
+                            r.name
+                        );
+                    }
+                }
+                Declaration::ReflexGen(r) => {
+                    #[cfg(debug_assertions)]
+                    {
+                        eprintln!(
+                            "[compiler] note: reflex_gen declaration '{}' — VM support pending (ADR-0121 stages 3-4). \
+                             Tree-walking interpreter fully supports this.",
+                            r.name
+                        );
+                    }
                 }
                 // Наряд №199 (ADR-0121): collect `reflex` declarations
                 // (Dense classification only) for the VM. reflex_seq and
@@ -524,7 +549,12 @@ impl Compiler {
                 | Declaration::Reflex(_)
                 | Declaration::ReflexSeq(_)
                 | Declaration::ReflexGen(_) => {
-                    // Phase 6+: no bytecode instruction needed
+                    // Наряд №203 Block 1: no bytecode instruction emitted
+                    // for reflex declarations in pass2. Dense classification
+                    // (Declaration::Reflex) is handled via program.reflex_decls
+                    // (populated in pass1, consumed by Vm::load_program).
+                    // ReflexSeq/ReflexGen are VM-unsupported pending ADR-0121
+                    // stages 3-4 — diagnostic trace emitted in pass1 above.
                 }
             }
         }

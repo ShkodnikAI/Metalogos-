@@ -1097,6 +1097,25 @@ pub fn reflex_generate_dispatch(
         }
     };
 
+    // Наряд №203 Block 4: hard ceiling on max_tokens to prevent
+    // resource exhaustion. When `mlog serve` is used, max_tokens comes
+    // from the external request — an attacker could pass max_tokens=1e9
+    // to exhaust CPU/memory. The ceiling of 4096 is based on typical
+    // LLM generation limits (GPT-4: 4096, Claude: 4096-8192) and measured
+    // performance: on the test model (reflex_gen TinyStoryteller, 4-layer
+    // transformer_block, dim=64), 4096 tokens takes ~5 seconds on a
+    // typical CPU. 8192 would double that with diminishing utility.
+    // This is a compile-time hard limit — the error is explicit, not
+    // silent truncation.
+    const MAX_TOKENS_LIMIT: usize = 4096;
+    if max_tokens > MAX_TOKENS_LIMIT {
+        return Err(format!(
+            "reflex_generate: max_tokens={} exceeds hard limit of {} (resource exhaustion protection, Наряд №203). \
+             Reduce max_tokens or use a smaller model.",
+            max_tokens, MAX_TOKENS_LIMIT
+        ));
+    }
+
     #[allow(unused_variables)]
     let temperature = match &args[3] {
         Value::Float(n) => *n,

@@ -124,7 +124,23 @@ impl SwiGlu {
     }
 
     fn forward_impl(&self, input: &Tensor) -> Result<Tensor, String> {
-        let (_seq_len, in_dim) = map_err(input.dims2(), "swiglu: input dims2")?;
+        // Support both 2D [seq, dim] and 3D [batch, seq, dim] inputs.
+        // For 3D, squeeze the batch dim, process, then unsqueeze back.
+        let dims = input.dims();
+        let is_batched = dims.len() == 3;
+        let (input_2d, batch_size) = if is_batched {
+            let bs = dims[0];
+            let seq = dims[1];
+            let d = dims[2];
+            let flat = input
+                .reshape((bs * seq, d))
+                .map_err(|e| format!("swiglu: reshape for batch: {}", e))?;
+            (flat, bs)
+        } else {
+            (input.clone(), 1)
+        };
+
+        let (_seq_len, in_dim) = map_err(input_2d.dims2(), "swiglu: input dims2")?;
         if in_dim != self.dim {
             return Err(format!(
                 "swiglu: input dim {} != layer dim {}",
@@ -133,9 +149,9 @@ impl SwiGlu {
         }
 
         // gate = x @ W_gate  → [seq, ff_dim]
-        let gate = map_err(input.matmul(&self.w_gate), "swiglu: gate matmul")?;
+        let gate = map_err(input_2d.matmul(&self.w_gate), "swiglu: gate matmul")?;
         // up = x @ W_up      → [seq, ff_dim]
-        let up = map_err(input.matmul(&self.w_up), "swiglu: up matmul")?;
+        let up = map_err(input_2d.matmul(&self.w_up), "swiglu: up matmul")?;
 
         // silu(gate) = gate * sigmoid(gate)
         // candle_nn::ops::sigmoid returns f32 if input is f32 — we use
@@ -147,7 +163,16 @@ impl SwiGlu {
         let gated = map_err(silu_gate.broadcast_mul(&up), "swiglu: gated mul")?;
 
         // out = gated @ W_down  → [seq, dim]
-        map_err(gated.matmul(&self.w_down), "swiglu: down matmul")
+        let result = map_err(gated.matmul(&self.w_down), "swiglu: down matmul")?;
+
+        // If batched, reshape back to [batch, seq, dim]
+        if is_batched {
+            result
+                .reshape((batch_size, dims[1], self.dim))
+                .map_err(|e| format!("swiglu: reshape back to batch: {}", e))
+        } else {
+            Ok(result)
+        }
     }
 }
 

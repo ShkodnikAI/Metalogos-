@@ -85,7 +85,23 @@ impl RmsNorm {
     }
 
     fn forward_impl(&self, input: &Tensor) -> Result<Tensor, String> {
-        let (_seq_len, in_dim) = map_err(input.dims2(), "rms_norm: input dims2")?;
+        // Support both 2D [seq, dim] and 3D [batch, seq, dim] inputs.
+        // For 3D, squeeze the batch dim, process, then unsqueeze back.
+        let dims = input.dims();
+        let is_batched = dims.len() == 3;
+        let (input_2d, batch_size) = if is_batched {
+            let bs = dims[0];
+            let seq = dims[1];
+            let d = dims[2];
+            let flat = input
+                .reshape((bs * seq, d))
+                .map_err(|e| format!("rms_norm: reshape for batch: {}", e))?;
+            (flat, bs)
+        } else {
+            (input.clone(), 1)
+        };
+
+        let (_seq_len, in_dim) = map_err(input_2d.dims2(), "rms_norm: input dims2")?;
         if in_dim != self.dim {
             return Err(format!(
                 "rms_norm: input dim {} != layer dim {}",
@@ -94,26 +110,38 @@ impl RmsNorm {
         }
 
         // Compute mean(x^2) along last axis: x^2 → mean → [seq, 1]
-        let x_f64 = map_err(input.to_dtype(DType::F64), "rms_norm: cast to f64")?;
+        let x_f64 = map_err(input_2d.to_dtype(DType::F64), "rms_norm: cast to f64")?;
         let sq = map_err(x_f64.sqr(), "rms_norm: sqr")?;
         let mean_sq = map_err(sq.mean_keepdim(1), "rms_norm: mean_keepdim")?;
 
         // rsqrt(mean + eps) → [seq, 1]. candle 0.11 has no `rsqrt` method;
         // use `1.0 / sqrt(...)` (computed in f64 for numerical stability
         // near zero — f32 would lose precision when mean is tiny).
-        let eps_t = map_err(Tensor::new(self.eps, input.device()), "rms_norm: eps")?;
+        let eps_t = map_err(Tensor::new(self.eps, input_2d.device()), "rms_norm: eps")?;
         let denom = map_err(mean_sq.broadcast_add(&eps_t), "rms_norm: mean+eps")?;
         let sqrt_denom = map_err(denom.sqrt(), "rms_norm: sqrt")?;
-        let one = map_err(Tensor::new(1.0f64, input.device()), "rms_norm: 1.0")?;
+        let one = map_err(Tensor::new(1.0f64, input_2d.device()), "rms_norm: 1.0")?;
         let inv = map_err(one.broadcast_div(&sqrt_denom), "rms_norm: 1/sqrt")?;
 
         // x * inv → broadcast over dim → [seq, dim]
         let inv = map_err(inv.to_dtype(DType::F32), "rms_norm: inv to f32")?;
-        let normalized = map_err(input.broadcast_mul(&inv), "rms_norm: normalize")?;
+        let normalized = map_err(input_2d.broadcast_mul(&inv), "rms_norm: normalize")?;
 
         // * weight (broadcast [dim] → [seq, dim] via unsqueeze)
         let weight_b = map_err(self.weight.unsqueeze(0), "rms_norm: weight unsqueeze")?;
-        map_err(normalized.broadcast_mul(&weight_b), "rms_norm: scale")
+        let result = map_err(normalized.broadcast_mul(&weight_b), "rms_norm: scale")?;
+
+        // If batched, reshape back to [batch, seq, dim]
+        if is_batched {
+            let bs = batch_size;
+            let seq = dims[1];
+            let d = dims[2];
+            result
+                .reshape((bs, seq, d))
+                .map_err(|e| format!("rms_norm: reshape back to batch: {}", e))
+        } else {
+            Ok(result)
+        }
     }
 }
 

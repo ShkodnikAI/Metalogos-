@@ -13,17 +13,13 @@
 //! - rms_norm_eps=1e-6, rope_theta=1e6, max_position_embeddings=40960
 //! - attention_bias=false, hidden_act=silu, tie_word_embeddings=true
 //!
-//! ## Known debt (наряд №230 — loud record, see ADR-0122 map)
+//! ## PRNG (наряд №230 — hotfix)
 //!
-//! 1. The local `generate_uniform_f32` copy below is a xorshift64 core but does
-//!    NOT have the same contract as `src/nn/attention.rs::generate_uniform_f32`
-//!    (no `seed_to_state` XOR ritual, f32 vs f64 mapping path → different value
-//!    streams). Unification with the `src/nn` SSOT PRNG is scheduled in №230.
-//! 2. Seed-stream overlap: per-parameter seeds are `seed + offset` with shared
-//!    offsets across layers (k of layer i = q of layer i+1, etc.). Stream hygiene
-//!    (per-parameter derivation) is also №230.
-//! 3. Golden SHA-256 records are NOT yet pinned as consts — the golden test only
-//!    verifies internal determinism. Pinning after the PRNG swap: №230.
+//! Weight init uses `crate::nn::attention::generate_uniform_f32` (the project
+//! SSOT for weight-init PRNG; was a divergent local copy in №211 — fixed).
+//! Per-parameter seed derivation via `param_seed` (splitmix64 finalizer over
+//! `(master_seed, layer, param)`) eliminates stream overlap between tensors
+//! — `k` of layer `i` no longer collides with `q` of layer `i+1`.
 //!
 //! ## R2 scope
 //!
@@ -32,9 +28,46 @@
 //! - LM head is NOT included (Qwen3 used as encoder, not generator).
 //! - Weight loading (safetensors/BF16) and tokenizer are R3 (naryad 212).
 
+use crate::nn::attention::generate_uniform_f32;
 use candle_core::bail;
 use candle_core::{DType, Device, Result as CandleResult, Tensor};
 use candle_nn::{VarBuilder, VarMap};
+
+// ── Per-parameter seed derivation (naryad №230) ────────────────────
+//
+// Stream hygiene: every weight tensor gets its own derived seed from
+// (master_seed, layer_idx, param_id) via a splitmix64 finalizer. This
+// eliminates the per-layer `seed + offset` scheme from №211, which caused
+// stream overlap between tensors (e.g. k of layer i ≡ q of layer i+1).
+//
+// Only the seed is derived here — value generation is the SSOT PRNG in
+// `src/nn/attention.rs`; no new value generator is introduced.
+
+/// Per-parameter seed derivation — splitmix64 finalizer over
+/// `(master_seed, layer, param)`. Deterministic; eliminates seed-stream
+/// overlap between tensors (naryad №230).
+fn param_seed(master: u64, layer: u64, param: u64) -> u64 {
+    let mut z = master
+        ^ 0x9E3779B97F4A7C15
+        ^ layer.wrapping_mul(0xBF58476D1CE4E5B9)
+        ^ param.wrapping_mul(0x94D049BB133111EB);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+    z ^ (z >> 31)
+}
+
+/// Fixed parameter numbering — single source of truth for per-tensor
+/// param IDs used by `param_seed`. Do NOT renumber: the derivation is
+/// part of the golden contract; renumbering silently invalidates the
+/// pinned hashes.
+const PARAM_EMBEDDING: u64 = 0;
+const PARAM_Q: u64 = 1;
+const PARAM_K: u64 = 2;
+const PARAM_V: u64 = 3;
+const PARAM_O: u64 = 4;
+const PARAM_GATE: u64 = 5;
+const PARAM_UP: u64 = 6;
+const PARAM_DOWN: u64 = 7;
 
 /// Configuration for the text encoder — mirrors Qwen3-4B config.json fields.
 /// All fields are plain Rust types (no candle dependency) so the config can
@@ -112,12 +145,34 @@ impl Qwen3Block {
         let eps = config.rms_norm_eps;
         let rope_theta = config.rope_theta;
 
-        // Deterministic init using xorshift64 PRNG (same contract as src/nn/attention.rs)
-        let layer_seed = seed.wrapping_add(layer_idx as u64);
-        let q_init = generate_uniform_f32(layer_seed, q_dim * hidden, -0.02, 0.02);
-        let k_init = generate_uniform_f32(layer_seed.wrapping_add(1), kv_dim * hidden, -0.02, 0.02);
-        let v_init = generate_uniform_f32(layer_seed.wrapping_add(2), kv_dim * hidden, -0.02, 0.02);
-        let o_init = generate_uniform_f32(layer_seed.wrapping_add(3), hidden * q_dim, -0.02, 0.02);
+        // Deterministic init — per-parameter derived seeds via splitmix64
+        // finalizer (naryad №230 Block 1.4). Value generation goes through
+        // `crate::nn::attention::generate_uniform_f32` (SSOT).
+        let layer = layer_idx as u64;
+        let q_init = generate_uniform_f32(
+            param_seed(seed, layer, PARAM_Q),
+            q_dim * hidden,
+            -0.02,
+            0.02,
+        );
+        let k_init = generate_uniform_f32(
+            param_seed(seed, layer, PARAM_K),
+            kv_dim * hidden,
+            -0.02,
+            0.02,
+        );
+        let v_init = generate_uniform_f32(
+            param_seed(seed, layer, PARAM_V),
+            kv_dim * hidden,
+            -0.02,
+            0.02,
+        );
+        let o_init = generate_uniform_f32(
+            param_seed(seed, layer, PARAM_O),
+            hidden * q_dim,
+            -0.02,
+            0.02,
+        );
 
         // Attention projections — stored as [in, out] for matmul: x [batch, seq, in] × w [in, out]
         let q_proj = Tensor::from_vec(q_init, (q_dim, hidden), vb.device())?; // [q_dim, hidden]
@@ -133,21 +188,21 @@ impl Qwen3Block {
         let attn_norm_weight = Tensor::ones((hidden,), DType::F32, vb.device())?;
         let mlp_norm_weight = Tensor::ones((hidden,), DType::F32, vb.device())?;
 
-        // SwiGLU
+        // SwiGLU — per-parameter derived seeds (naryad №230 Block 1.4).
         let gate_init = generate_uniform_f32(
-            layer_seed.wrapping_add(4),
+            param_seed(seed, layer, PARAM_GATE),
             config.intermediate * hidden,
             -0.02,
             0.02,
         );
         let up_init = generate_uniform_f32(
-            layer_seed.wrapping_add(5),
+            param_seed(seed, layer, PARAM_UP),
             config.intermediate * hidden,
             -0.02,
             0.02,
         );
         let down_init = generate_uniform_f32(
-            layer_seed.wrapping_add(6),
+            param_seed(seed, layer, PARAM_DOWN),
             hidden * config.intermediate,
             -0.02,
             0.02,
@@ -299,15 +354,20 @@ pub struct TextEncoder {
 impl TextEncoder {
     /// Create a text encoder with deterministic seeded initialization.
     ///
-    /// Uses a local xorshift64 copy (NOT the `src/nn` SSOT PRNG — contract
-    /// diverges, see the module-level known-debt note; unification in №230).
+    /// Uses `crate::nn::attention::generate_uniform_f32` (the project SSOT
+    /// PRNG — naryad №230 unified the divergent local copy with `src/nn`).
     pub fn new(config: &TextEncoderConfig, seed: u64) -> Result<Self, String> {
         let device = Device::Cpu;
         let var_map = VarMap::new();
         let vb = VarBuilder::from_varmap(&var_map, DType::F32, &device);
 
-        // Token embedding
-        let emb_init = generate_uniform_f32(seed, config.vocab_size * config.hidden, -0.02, 0.02);
+        // Token embedding — per-parameter derived seed (naryad №230 Block 1.4).
+        let emb_init = generate_uniform_f32(
+            param_seed(seed, 0, PARAM_EMBEDDING),
+            config.vocab_size * config.hidden,
+            -0.02,
+            0.02,
+        );
         let token_embedding =
             Tensor::from_vec(emb_init, (config.vocab_size, config.hidden), &device)
                 .map_err(|e| format!("TextEncoder::new: token embedding init failed: {}", e))?;
@@ -500,28 +560,4 @@ fn repeat_kv(x: &Tensor, rep: usize) -> CandleResult<Tensor> {
     let x = x.unsqueeze(2)?;
     let x = x.broadcast_as((batch, kv_heads, rep, seq, head_dim))?;
     x.reshape((batch, q_heads, seq, head_dim))
-}
-
-/// Deterministic PRNG — xorshift64 core.
-///
-/// KNOWN DIVERGENCE from `src/nn/attention.rs::generate_uniform_f32` (the SSOT):
-/// no `seed_to_state` XOR ritual and an f32 (not f64) mapping path — the value
-/// streams differ from the `src/nn` PRNG given the same seed. Local copy is
-/// scheduled for removal in №230 (PRNG SSOT unification); until then this is
-/// the only value source for the text encoder and it is deterministic.
-/// Returns n values in [lo, up) with deterministic ordering.
-fn generate_uniform_f32(seed: u64, n: usize, lo: f32, up: f32) -> Vec<f32> {
-    let mut state = seed;
-    let range = up - lo;
-    let mut result = Vec::with_capacity(n);
-    for _ in 0..n {
-        // xorshift64
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        // Map to [0, 1)
-        let val = (state >> 11) as f32 / (1u64 << 53) as f32;
-        result.push(lo + val * range);
-    }
-    result
 }

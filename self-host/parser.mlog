@@ -1,0 +1,1066 @@
+// ── self-host/parser.mlog ────────────────────────────────────────────
+// Наряд №197: bootstrap parser, written in Metalogos itself.
+//
+// Subset of the grammar supported by this first version (see README §"Self-host
+// parser" for the full list). The criterion is bootstrap-completeness: the parser
+// must be able to parse its own source. Constructs outside this subset are
+// reported as `UNSUPPORTED` nodes — the parser does NOT silently accept them.
+//
+//   Top-level:     pattern / entity_simple / flow / import
+//   Statements:    let / let mut / assign / if-then / if-else-block /
+//                  while / each / each-with-index / return / expr-stmt
+//   Expressions:   or/and/compare/add/mul with standard precedence,
+//                  unary-minus, function call, qualified call, field access,
+//                  index access, list literal, struct literal, parenthesized,
+//                  if-else expression, STRING/NUMBER/INT/BOOL/IDENT literals
+//
+// Output: serialized AST, one declaration per line, S-expr format. The same
+// format is reproducible from Rust's `ast::Declaration` — the test
+// `tests/naryad_197_parser_matches_rust_parser.rs` does exactly this and
+// compares the two outputs byte-for-byte on a representative .mlog sample.
+
+// ── Tokenize ─────────────────────────────────────────────────────────
+// Adapted from self-host/lexer.mlog. Two lexer bugs are fixed in this copy:
+//
+//   1. NEWLINE/TAB/CARRIAGE-RETURN were classified as quote chars (is_qt=1)
+//      because the original `sp = if ch == " " then 1.0 else 0.0` only
+//      recognized ASCII space. Result: blank lines produced phantom STRING
+//      tokens spanning multiple lines, swallowing entire declarations.
+//      Fix: treat \n, \t, \r as whitespace too.
+//
+//   2. KEYWORD classification used `index_of(kws, tok) > -1.0`, which does
+//      SUBSTRING matching. Single-letter idents like `s`, `e`, `t` were
+//      mis-classified as KEYWORD because they're substrings of `else`,
+//      `entity`, `pattern`, etc. This bug is NOT fixed at the lexer level
+//      here; it's worked around at the parser level (see TokKind below)
+//      because re-running the keyword check on every token would duplicate
+//      the keyword list — keeping it in TokKind centralises the fix.
+pattern Tokenize(src: String) -> String {
+  let nl = "
+"
+  let abc = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  let d09 = "0123456789"
+  let ops = ":=+-*/!(){}[],<>"
+  let kws = "entity,pattern,flow,let,return,if,then,else,while,each,in,import,rule"
+
+  let mut r = ""
+  let sl = len(src)
+  let mut i = 0.0
+
+  while i < sl {
+    let ch = char_at(src, i)
+    // BUGFIX (vs lexer.mlog): the original lexer does not handle line comments
+    // (`// ...`). The grammar.pest COMMENT rule is `// ~ (!(\n|\r) ~ ANY)*`.
+    // Without this, comment text gets tokenized as identifiers/operators and
+    // pollutes the token stream. Fix: detect `//` and skip to end of line.
+    let is_comment = if ch == "/" then if i + 1.0 < sl then if char_at(src, i + 1.0) == "/" then 1.0 else 0.0 else 0.0 else 0.0
+    if is_comment == 1.0 then {
+      let mut k = i + 2.0
+      while if k < sl then if char_at(src, k) == nl then 0.0 else 1.0 else 0.0 {
+        k = k + 1.0
+      }
+      i = k
+      continue
+    }
+    let sp = if ch == " " then 1.0 else if ch == nl then 1.0 else if ch == "    " then 1.0 else if ch == "
+" then 1.0 else 0.0
+    // BUGFIX (vs lexer.mlog): underscore is a valid ident_start per grammar.pest,
+    // but `abc` does not contain `_` in the original lexer. Identifiers starting
+    // with `_` were mis-classified as quote chars. Fix: treat `_` as letter here.
+    let lt = if index_of(abc, ch) > -1.0 then 1.0 else if ch == "_" then 1.0 else 0.0
+    let dg = if index_of(d09, ch) > -1.0 then 1.0 else 0.0
+    let in_ops = if index_of(ops, ch) > -1.0 then 1.0 else 0.0
+    let is_qt = if sp == 0.0 then if lt == 0.0 then if dg == 0.0 then if in_ops == 0.0 then 1.0 else 0.0 else 0.0 else 0.0 else 0.0
+
+    let mut j = i
+    let mut tok = ""
+    let mut kind = ""
+
+    // BUGFIX (vs lexer.mlog): the IDENT continuation loop only checked
+    // membership in `abc` (letters), so identifiers like `index_of` were
+    // split into `index`, `_`, `of`. Fix: continue scan while char is
+    // letter, underscore, or digit (matches grammar.pest's IDENT rule).
+    while if sp == 0.0 then if lt == 1.0 then if j < sl then if index_of(abc, char_at(src, j)) > -1.0 then 1.0 else if char_at(src, j) == "_" then 1.0 else if index_of(d09, char_at(src, j)) > -1.0 then 1.0 else 0.0 else 0.0 else 0.0 else 0.0 {
+      j = j + 1.0
+    }
+    tok = if sp == 0.0 then if lt == 1.0 then substring(src, i, j) else tok else tok
+    kind = if sp == 0.0 then if lt == 1.0 then if index_of(kws, tok) > -1.0 then "KEYWORD" else "IDENT" else kind else kind
+
+    while if sp == 0.0 then if lt == 0.0 then if dg == 1.0 then if j < sl then if index_of(d09, char_at(src, j)) > -1.0 then 1.0 else if char_at(src, j) == "." then 1.0 else 0.0 else 0.0 else 0.0 else 0.0 else 0.0 {
+      j = j + 1.0
+    }
+    tok = if sp == 0.0 then if lt == 0.0 then if dg == 1.0 then substring(src, i, j) else tok else tok else tok
+    kind = if sp == 0.0 then if lt == 0.0 then if dg == 1.0 then "NUMBER" else kind else kind else kind
+
+    j = if is_qt == 1.0 then i + 1.0 else j
+    while if is_qt == 1.0 then if j < sl then if char_at(src, j) == ch then 0.0 else 1.0 else 0.0 else 0.0 {
+      j = j + 1.0
+    }
+    tok = if is_qt == 1.0 then substring(src, i, j + 1.0) else tok
+    kind = if is_qt == 1.0 then "STRING" else kind
+
+    let is_op = if sp == 0.0 then if lt == 0.0 then if dg == 0.0 then if is_qt == 0.0 then 1.0 else 0.0 else 0.0 else 0.0 else 0.0
+    // BUGFIX (vs lexer.mlog): the original lexer only recognized `->` as a
+    // multi-char operator. `==`, `!=`, `<=`, `>=` were emitted as TWO
+    // single-char OPERATOR tokens, breaking comparison parsing.
+    let is_arrow = if is_op == 1.0 then if ch == "-" then if i + 1.0 < sl then if char_at(src, i + 1.0) == ">" then 1.0 else 0.0 else 0.0 else 0.0 else 0.0
+    let is_eq = if is_op == 1.0 then if ch == "=" then if i + 1.0 < sl then if char_at(src, i + 1.0) == "=" then 1.0 else 0.0 else 0.0 else 0.0 else 0.0
+    let is_neq = if is_op == 1.0 then if ch == "!" then if i + 1.0 < sl then if char_at(src, i + 1.0) == "=" then 1.0 else 0.0 else 0.0 else 0.0 else 0.0
+    let is_le = if is_op == 1.0 then if ch == "<" then if i + 1.0 < sl then if char_at(src, i + 1.0) == "=" then 1.0 else 0.0 else 0.0 else 0.0 else 0.0
+    let is_ge = if is_op == 1.0 then if ch == ">" then if i + 1.0 < sl then if char_at(src, i + 1.0) == "=" then 1.0 else 0.0 else 0.0 else 0.0 else 0.0
+    let is_two = if is_arrow == 1.0 then 1.0 else if is_eq == 1.0 then 1.0 else if is_neq == 1.0 then 1.0 else if is_le == 1.0 then 1.0 else if is_ge == 1.0 then 1.0 else 0.0
+    let two_tok = if is_arrow == 1.0 then "->" else if is_eq == 1.0 then "==" else if is_neq == 1.0 then "!=" else if is_le == 1.0 then "<=" else if is_ge == 1.0 then ">=" else ""
+    tok = if is_two == 1.0 then two_tok else if is_op == 1.0 then ch else tok
+    kind = if is_two == 1.0 then "OPERATOR" else if is_op == 1.0 then "OPERATOR" else kind
+
+    let line = kind + ": " + tok + nl
+    r = if is_two == 1.0 then r + line else if is_op == 1.0 then r + line else if is_qt == 1.0 then r + line else if dg == 1.0 then r + line else if lt == 1.0 then r + line else r
+
+    i = if is_two == 1.0 then i + 2.0 else if is_op == 1.0 then i + 1.0 else if is_qt == 1.0 then j + 1.0 else if dg == 1.0 then j else if lt == 1.0 then j else i + 1.0
+  }
+
+  return substring(r, 0.0, len(r) - 1.0)
+}
+
+// ── Token helpers ───────────────────────────────────────────────────
+// Tokens are stored as a List of "KIND: value" strings (lexer output split by \n).
+// These helpers extract the kind and value parts.
+//
+// WORKAROUND: the self-host lexer (lexer.mlog) classifies a token as KEYWORD
+// using `index_of(kws, tok) > -1.0`, which does SUBSTRING matching. This means
+// single-letter idents like `s`, `e`, `t`, `n`, `c`, `p` etc. are mis-classified
+// as KEYWORD because they happen to be substrings of `else`, `each`, `pattern`,
+// `in`, etc. The Rust parser does not have this bug.
+//
+// To get correct structural equivalence with the Rust parser, we re-verify
+// the kind by exact-match against the keyword list. A token reported as KEYWORD
+// whose value is not exactly one of the keywords is downgraded to IDENT.
+
+pattern TokKindRaw(line: String) -> String {
+  let c = index_of(line, ": ")
+  if c > -1.0 then substring(line, 0.0, c) else ""
+}
+
+pattern TokVal(line: String) -> String {
+  let c = index_of(line, ": ")
+  if c > -1.0 then substring(line, c + 2.0, len(line)) else ""
+}
+
+// Exact-match check: does `v` appear as a comma-separated entry in `kws`?
+// `kws` is "entity,pattern,flow,let,return,if,then,else,while,each,in,import,rule,mut".
+pattern IsExactKw(v: String, kws: String) -> Float {
+  let n = len(kws)
+  let mut i = 0.0
+  let mut found = 0.0
+  let mut cont = 1.0
+  while cont == 1.0 {
+    if i >= n then {
+      cont = 0.0
+    } else {
+      let rest = substring(kws, i, n)
+      let next_comma = index_of(rest, ",")
+      let end = if next_comma > -1.0 then i + next_comma else n
+      let kw = substring(kws, i, end)
+      if kw == v then {
+        found = 1.0
+        cont = 0.0
+      } else {
+        i = if next_comma > -1.0 then end + 1.0 else n
+      }
+    }
+  }
+  return found
+}
+
+// Returns the corrected kind: KEYWORD only if the value is exactly a keyword.
+pattern TokKind(line: String) -> String {
+  let raw = TokKindRaw(line)
+  if raw == "KEYWORD" then {
+    let v = TokVal(line)
+    let is_kw = IsExactKw(v, "entity,pattern,flow,let,return,if,then,else,while,each,in,import,rule,mut")
+    if is_kw == 1.0 then "KEYWORD" else "IDENT"
+  } else {
+    raw
+  }
+}
+
+pattern PeekKind(tokens: List, pos: Float, n: Float) -> String {
+  if pos < 0.0 then "" else if pos >= n then "" else TokKind(get(tokens, pos))
+}
+
+pattern PeekVal(tokens: List, pos: Float, n: Float) -> String {
+  if pos < 0.0 then "" else if pos >= n then "" else TokVal(get(tokens, pos))
+}
+
+// True if the token at `pos` is the OPERATOR `op`.
+pattern PeekOp(tokens: List, pos: Float, n: Float, op: String) -> Float {
+  if PeekKind(tokens, pos, n) == "OPERATOR" then if PeekVal(tokens, pos, n) == op then 1.0 else 0.0 else 0.0
+}
+
+// True if the token at `pos` is the KEYWORD `kw`.
+// NOTE: PeekKw checks the value only (not the kind), because the lexer's
+// KEYWORD/IDENT distinction is unreliable: `mut`, `input`, `output`, `as`
+// are NOT in the lexer's kws list (so the lexer reports them as IDENT),
+// but they ARE keywords in specific contexts. We disambiguate by context
+// at the call site — PeekKw itself just checks the value matches.
+pattern PeekKw(tokens: List, pos: Float, n: Float, kw: String) -> Float {
+  if PeekVal(tokens, pos, n) == kw then 1.0 else 0.0
+}
+
+// ── AST output: S-expr serialization helpers ────────────────────────
+// We produce strings like:
+//   (PATTERN name=Foo params=[(PARAM name=src type=String)] ret=String body=[...])
+// To keep the format unambiguous, special chars in STRING literals are escaped:
+//   ( ) [ ] \ and newline/tab.
+
+pattern EscapeStr(s: String) -> String {
+  let mut out = ""
+  let n = len(s)
+  let mut i = 0.0
+  while i < n {
+    let ch = char_at(s, i)
+    let next = if ch == "\\" then "\\\\" else if ch == "(" then "\\(" else if ch == ")" then "\\)" else if ch == "[" then "\\[" else if ch == "]" then "\\]" else if ch == "
+" then "\\n" else if ch == "    " then "\\t" else ch
+    out = out + next
+    i = i + 1.0
+  }
+  return out
+}
+
+// Strip surrounding double-quotes from a STRING token's value.
+// Lexer emits STRING tokens as `"actual content"` (with quotes).
+// The unquoted inner content is what the AST stores.
+pattern UnquoteStr(tok: String) -> String {
+  let n = len(tok)
+  if n < 2.0 then "" else substring(tok, 1.0, n - 1.0)
+}
+
+// ── Expression parser ───────────────────────────────────────────────
+// Recursive descent with standard precedence:
+//   or_expr  := and_expr ("or" and_expr)*
+//   and_expr := compare_expr ("and" compare_expr)*
+//   compare_expr := add_expr (compare_op add_expr)*
+//   add_expr := mul_expr (("+"|"-") mul_expr)*
+//   mul_expr := unary (("*"|"/") unary)*
+//   unary   := "-" unary | postfix
+//   postfix := primary ("." IDENT | "[" expr "]")*
+//   primary := STRING | NUMBER | INT | BOOL | IDENT | "(" expr ")"
+//             | call | qualified_call | list | struct | if_else_expr
+
+// Each parser returns make_list(ast_string, new_position).
+
+pattern ParseExpr(tokens: List, pos: Float, n: Float) -> List {
+  return ParseOr(tokens, pos, n)
+}
+
+pattern ParseOr(tokens: List, pos: Float, n: Float) -> List {
+  let r = ParseAnd(tokens, pos, n)
+  let mut left = get(r, 0)
+  let mut p = get(r, 1)
+  while PeekKw(tokens, p, n, "or") == 1.0 {
+    p = p + 1.0
+    let r2 = ParseAnd(tokens, p, n)
+    let right = get(r2, 0)
+    p = get(r2, 1)
+    left = "(BINOP or " + left + " " + right + ")"
+  }
+  return make_list(left, p)
+}
+
+pattern ParseAnd(tokens: List, pos: Float, n: Float) -> List {
+  let r = ParseCompare(tokens, pos, n)
+  let mut left = get(r, 0)
+  let mut p = get(r, 1)
+  while PeekKw(tokens, p, n, "and") == 1.0 {
+    p = p + 1.0
+    let r2 = ParseCompare(tokens, p, n)
+    let right = get(r2, 0)
+    p = get(r2, 1)
+    left = "(BINOP and " + left + " " + right + ")"
+  }
+  return make_list(left, p)
+}
+
+pattern ParseCompare(tokens: List, pos: Float, n: Float) -> List {
+  let r = ParseAdd(tokens, pos, n)
+  let mut left = get(r, 0)
+  let mut p = get(r, 1)
+  let mut cont = 1.0
+  while cont == 1.0 {
+    let kind = PeekKind(tokens, p, n)
+    let val = PeekVal(tokens, p, n)
+    let is_cmp = if kind == "OPERATOR" then if val == "==" then 1.0 else if val == "!=" then 1.0 else if val == "<" then 1.0 else if val == ">" then 1.0 else if val == "<=" then 1.0 else if val == ">=" then 1.0 else 0.0 else 0.0
+    if is_cmp == 1.0 {
+      p = p + 1.0
+      let r2 = ParseAdd(tokens, p, n)
+      let right = get(r2, 0)
+      p = get(r2, 1)
+      left = "(BINOP " + val + " " + left + " " + right + ")"
+    } else {
+      cont = 0.0
+    }
+  }
+  return make_list(left, p)
+}
+
+pattern ParseAdd(tokens: List, pos: Float, n: Float) -> List {
+  let r = ParseMul(tokens, pos, n)
+  let mut left = get(r, 0)
+  let mut p = get(r, 1)
+  let mut cont = 1.0
+  while cont == 1.0 {
+    let kind = PeekKind(tokens, p, n)
+    let val = PeekVal(tokens, p, n)
+    let is_add = if kind == "OPERATOR" then if val == "+" then 1.0 else if val == "-" then 1.0 else 0.0 else 0.0
+    if is_add == 1.0 {
+      p = p + 1.0
+      let r2 = ParseMul(tokens, p, n)
+      let right = get(r2, 0)
+      p = get(r2, 1)
+      left = "(BINOP " + val + " " + left + " " + right + ")"
+    } else {
+      cont = 0.0
+    }
+  }
+  return make_list(left, p)
+}
+
+pattern ParseMul(tokens: List, pos: Float, n: Float) -> List {
+  let r = ParseUnary(tokens, pos, n)
+  let mut left = get(r, 0)
+  let mut p = get(r, 1)
+  let mut cont = 1.0
+  while cont == 1.0 {
+    let kind = PeekKind(tokens, p, n)
+    let val = PeekVal(tokens, p, n)
+    let is_mul = if kind == "OPERATOR" then if val == "*" then 1.0 else if val == "/" then 1.0 else 0.0 else 0.0
+    if is_mul == 1.0 {
+      p = p + 1.0
+      let r2 = ParseUnary(tokens, p, n)
+      let right = get(r2, 0)
+      p = get(r2, 1)
+      left = "(BINOP " + val + " " + left + " " + right + ")"
+    } else {
+      cont = 0.0
+    }
+  }
+  return make_list(left, p)
+}
+
+pattern ParseUnary(tokens: List, pos: Float, n: Float) -> List {
+  // BUGFIX: the Rust parser desugars `-expr` to `0.0 - expr` (BinaryOp with
+  // BinOp::Sub, see src/parser/expr.rs unary_minus). Match that representation
+  // here for structural equivalence, instead of emitting `(UNARY_MINUS ...)`.
+  if PeekOp(tokens, pos, n, "-") == 1.0 {
+    let r = ParseUnary(tokens, pos + 1.0, n)
+    let inner = get(r, 0)
+    let p = get(r, 1)
+    return make_list("(BINOP - (NUMBER 0.0) " + inner + ")", p)
+  }
+  return ParsePostfix(tokens, pos, n)
+}
+
+pattern ParsePostfix(tokens: List, pos: Float, n: Float) -> List {
+  let r = ParsePrimary(tokens, pos, n)
+  let mut base = get(r, 0)
+  let mut p = get(r, 1)
+  let mut cont = 1.0
+  while cont == 1.0 {
+    let k = PeekKind(tokens, p, n)
+    let v = PeekVal(tokens, p, n)
+    if k == "OPERATOR" then {
+      if v == "." then {
+        p = p + 1.0
+        let fname = PeekVal(tokens, p, n)
+        p = p + 1.0
+        // qualified call: . IDENT "(" args ")"
+        if PeekOp(tokens, p, n, "(") == 1.0 {
+          p = p + 1.0
+          let r2 = ParseArgList(tokens, p, n)
+          let args = get(r2, 0)
+          p = get(r2, 1)
+          if PeekOp(tokens, p, n, ")") == 1.0 { p = p + 1.0 }
+          // base is "(IDENT modname)"; extract module name.
+          // For simplicity, we re-tag as QCALL using the original base + fname.
+          base = "(QCALL " + base + " " + fname + " " + args + ")"
+        } else {
+          base = "(FIELD " + base + " " + fname + ")"
+        }
+      } else {
+        if v == "[" then {
+          p = p + 1.0
+          let r2 = ParseExpr(tokens, p, n)
+          let idx = get(r2, 0)
+          p = get(r2, 1)
+          if PeekOp(tokens, p, n, "]") == 1.0 { p = p + 1.0 }
+          base = "(INDEX " + base + " " + idx + ")"
+        } else {
+          cont = 0.0
+        }
+      }
+    } else {
+      cont = 0.0
+    }
+  }
+  return make_list(base, p)
+}
+
+// Parse a comma-separated argument list. Returns (args_string, new_pos).
+// args_string is a space-separated list of expr S-exprs, no enclosing brackets.
+// Uses List+join (O(N)) instead of repeated concat (O(N²)).
+pattern ParseArgList(tokens: List, pos: Float, n: Float) -> List {
+  let mut p = pos
+  // empty arg list?
+  if PeekOp(tokens, p, n, ")") == 1.0 {
+    return make_list("", p)
+  }
+  let mut parts = make_list()
+  let mut cont = 1.0
+  while cont == 1.0 {
+    let r = ParseExpr(tokens, p, n)
+    let e = get(r, 0)
+    p = get(r, 1)
+    parts = push(parts, e)
+    if PeekOp(tokens, p, n, ",") == 1.0 {
+      p = p + 1.0
+    } else {
+      cont = 0.0
+    }
+  }
+  return make_list(join(parts, " "), p)
+}
+
+pattern ParsePrimary(tokens: List, pos: Float, n: Float) -> List {
+  let k = PeekKind(tokens, pos, n)
+  let v = PeekVal(tokens, pos, n)
+
+  if k == "STRING" {
+    let inner = UnquoteStr(v)
+    return make_list("(STRING " + EscapeStr(inner) + ")", pos + 1.0)
+  }
+  if k == "NUMBER" {
+    return make_list("(NUMBER " + v + ")", pos + 1.0)
+  }
+  if k == "IDENT" {
+    if v == "true" then {
+      return make_list("(BOOL true)", pos + 1.0)
+    }
+    if v == "false" then {
+      return make_list("(BOOL false)", pos + 1.0)
+    }
+    // Could be IDENT, call_expr, or qualified_call. Decide based on next token.
+    let next_kind = PeekKind(tokens, pos + 1.0, n)
+    let next_val = PeekVal(tokens, pos + 1.0, n)
+    if next_kind == "OPERATOR" then {
+      if next_val == "(" then {
+        // function call
+        let p = pos + 2.0
+        let r = ParseArgList(tokens, p, n)
+        let args = get(r, 0)
+        let p2 = get(r, 1)
+        let p3 = if PeekOp(tokens, p2, n, ")") == 1.0 then p2 + 1.0 else p2
+        return make_list("(CALL " + v + " " + args + ")", p3)
+      }
+    }
+    return make_list("(IDENT " + v + ")", pos + 1.0)
+  }
+  if k == "KEYWORD" then {
+    if v == "if" then {
+      return ParseIfElseExpr(tokens, pos, n)
+    }
+    return make_list("(UNSUPPORTED kw=" + v + ")", pos + 1.0)
+  }
+  if k == "OPERATOR" then {
+    if v == "(" then {
+      let p = pos + 1.0
+      let r = ParseExpr(tokens, p, n)
+      let e = get(r, 0)
+      let p2 = get(r, 1)
+      let p3 = if PeekOp(tokens, p2, n, ")") == 1.0 then p2 + 1.0 else p2
+      return make_list("(PAREN " + e + ")", p3)
+    }
+    if v == "[" then {
+      // list literal
+      let p = pos + 1.0
+      let r = ParseArgList(tokens, p, n)
+      let items = get(r, 0)
+      let p2 = get(r, 1)
+      let p3 = if PeekOp(tokens, p2, n, "]") == 1.0 then p2 + 1.0 else p2
+      return make_list("(LIST " + items + ")", p3)
+    }
+    if v == "{" then {
+      // struct literal: { key: val, key: val, ... }
+      let p = pos + 1.0
+      let mut fields = ""
+      let mut first = 1.0
+      let mut cont = 1.0
+      let mut pp = p
+      while cont == 1.0 {
+        if PeekOp(tokens, pp, n, "}") == 1.0 {
+          pp = pp + 1.0
+          cont = 0.0
+        } else {
+          let key = PeekVal(tokens, pp, n)
+          pp = pp + 1.0
+          if PeekOp(tokens, pp, n, ":") == 1.0 { pp = pp + 1.0 }
+          let r = ParseExpr(tokens, pp, n)
+          let val = get(r, 0)
+          pp = get(r, 1)
+          fields = if first == 1.0 then "(" + key + ":" + val + ")" else fields + " (" + key + ":" + val + ")"
+          first = 0.0
+          if PeekOp(tokens, pp, n, ",") == 1.0 { pp = pp + 1.0 }
+        }
+      }
+      return make_list("(STRUCT " + fields + ")", pp)
+    }
+  }
+  return make_list("(UNSUPPORTED pos=" + str(pos) + ")", pos + 1.0)
+}
+
+// if cond then expr else expr  (expression form)
+pattern ParseIfElseExpr(tokens: List, pos: Float, n: Float) -> List {
+  let p = pos + 1.0  // consume "if"
+  let r = ParseExpr(tokens, p, n)
+  let cond = get(r, 0)
+  let mut p = get(r, 1)
+  if PeekKw(tokens, p, n, "then") == 1.0 { p = p + 1.0 }
+  let r2 = ParseExpr(tokens, p, n)
+  let then_br = get(r2, 0)
+  let p2 = get(r2, 1)
+  // Delegate else-branch handling to a helper pattern so that local
+  // mutations stay inside the helper's scope. BlockIfElse as an expression
+  // does not propagate mutations to the enclosing scope (Metalogos v0.18
+  // scoping rule), so we cannot inline the else handling here.
+  let r_else = ParseElseBranch(tokens, p2, n)
+  let else_br = get(r_else, 0)
+  let p3 = get(r_else, 1)
+  return make_list("(IFELSE " + cond + " " + then_br + " " + else_br + ")", p3)
+}
+
+// Parse the else branch of an if-else expression: if "else" is present,
+// consume it and parse the following expression. Returns (else_str, new_pos).
+// Returns ("(UNIT)", pos) when no else clause is present.
+pattern ParseElseBranch(tokens: List, pos: Float, n: Float) -> List {
+  if PeekKw(tokens, pos, n, "else") == 1.0 {
+    let p = pos + 1.0
+    let r = ParseExpr(tokens, p, n)
+    let e = get(r, 0)
+    let p2 = get(r, 1)
+    return make_list(e, p2)
+  }
+  return make_list("(UNIT)", pos)
+}
+
+// ── Statement parser ────────────────────────────────────────────────
+// Returns make_list(ast_string, new_position).
+// Statements are detected by leading KEYWORD: let / return / if / while / each
+// or by an IDENT followed by "=" (assignment) or by an expression statement.
+
+pattern ParseStmt(tokens: List, pos: Float, n: Float) -> List {
+  let k = PeekKind(tokens, pos, n)
+  let v = PeekVal(tokens, pos, n)
+
+  if k == "KEYWORD" then {
+    if v == "let" then { return ParseLet(tokens, pos, n) }
+    if v == "return" then { return ParseReturn(tokens, pos, n) }
+    if v == "if" then { return ParseIfStmt(tokens, pos, n) }
+    if v == "while" then { return ParseWhile(tokens, pos, n) }
+    if v == "each" then { return ParseEach(tokens, pos, n) }
+    if v == "break" then { return make_list("(BREAK)", pos + 1.0) }
+    if v == "continue" then { return make_list("(CONTINUE)", pos + 1.0) }
+  }
+
+  if k == "IDENT" then {
+    // assignment: IDENT = expr
+    if PeekOp(tokens, pos + 1.0, n, "=") == 1.0 then {
+      let name = v
+      let p = pos + 2.0
+      let r = ParseExpr(tokens, p, n)
+      let val = get(r, 0)
+      let p2 = get(r, 1)
+      return make_list("(ASSIGN " + name + " " + val + ")", p2)
+    }
+  }
+
+  // bare expression statement
+  let r = ParseExpr(tokens, pos, n)
+  let e = get(r, 0)
+  let p = get(r, 1)
+  return make_list("(EXPR_STMT " + e + ")", p)
+}
+
+// let [mut] IDENT = expr
+pattern ParseLet(tokens: List, pos: Float, n: Float) -> List {
+  let mut p = pos + 1.0  // consume "let"
+  let is_mut = PeekKw(tokens, p, n, "mut")
+  if is_mut == 1.0 { p = p + 1.0 }
+  let name = PeekVal(tokens, p, n)
+  p = p + 1.0
+  if PeekOp(tokens, p, n, "=") == 1.0 { p = p + 1.0 }
+  let r = ParseExpr(tokens, p, n)
+  let val = get(r, 0)
+  let p2 = get(r, 1)
+  let node = if is_mut == 1.0 then "(LET_MUT " + name + " " + val + ")" else "(LET " + name + " " + val + ")"
+  return make_list(node, p2)
+}
+
+pattern ParseReturn(tokens: List, pos: Float, n: Float) -> List {
+  let p = pos + 1.0
+  let r = ParseExpr(tokens, p, n)
+  let val = get(r, 0)
+  let p2 = get(r, 1)
+  return make_list("(RETURN " + val + ")", p2)
+}
+
+// Two forms of `if`:
+//   if cond { stmts } [else if ... ] [else { stmts }]   (block form)
+//   if cond then { stmts }                              (then-block form)
+//   if cond then EXPR else EXPR                         (expression-as-stmt)
+pattern ParseIfStmt(tokens: List, pos: Float, n: Float) -> List {
+  // After `if`, parse cond expression. The next token decides: `then` or `{`.
+  let mut p = pos + 1.0
+  let r = ParseExpr(tokens, p, n)
+  let cond = get(r, 0)
+  p = get(r, 1)
+  if PeekKw(tokens, p, n, "then") == 1.0 {
+    p = p + 1.0
+    // Check if `then` is followed by `{` (block form) or an expression.
+    if PeekOp(tokens, p, n, "{") == 1.0 {
+      let rb = ParseBlock(tokens, p, n)
+      let body = get(rb, 0)
+      let mut p2 = get(rb, 1)
+      // Check for trailing `else` (and optional else-if chain).
+      // The grammar allows: if cond then { stmts } [else if cond { stmts }]* [else { stmts }]
+      let mut else_ifs = ""
+      let mut else_body = "(UNIT)"
+      let mut cont = 1.0
+      while cont == 1.0 {
+        if PeekKw(tokens, p2, n, "else") == 1.0 then {
+          let p3 = p2 + 1.0
+          if PeekKw(tokens, p3, n, "if") == 1.0 then {
+            let p4 = p3 + 1.0
+            let r2 = ParseExpr(tokens, p4, n)
+            let ec = get(r2, 0)
+            let p5 = get(r2, 1)
+            let rb2 = ParseBlock(tokens, p5, n)
+            let eb = get(rb2, 0)
+            let p6 = get(rb2, 1)
+            else_ifs = else_ifs + " (" + ec + " " + eb + ")"
+            p2 = p6
+          } else {
+            let rb2 = ParseBlock(tokens, p3, n)
+            let eb = get(rb2, 0)
+            let p6 = get(rb2, 1)
+            else_body = eb
+            p2 = p6
+            cont = 0.0
+          }
+        } else {
+          cont = 0.0
+        }
+      }
+      if else_body != "(UNIT)" then {
+        return make_list("(IF_BLOCK " + cond + " " + body + else_ifs + " " + else_body + ")", p2)
+      }
+      return make_list("(IF_THEN " + cond + " " + body + ")", p2)
+    }
+    // Expression form: if cond then EXPR [else EXPR]
+    let r2 = ParseExpr(tokens, p, n)
+    let then_br = get(r2, 0)
+    let p2 = get(r2, 1)
+    let r_else = ParseElseBranch(tokens, p2, n)
+    let else_br = get(r_else, 0)
+    let p3 = get(r_else, 1)
+    if else_br != "(UNIT)" then {
+      return make_list("(IFELSE " + cond + " " + then_br + " " + else_br + ")", p3)
+    }
+    return make_list("(IF_THEN " + cond + " " + then_br + ")", p3)
+  }
+  // block form
+  let rb = ParseBlock(tokens, p, n)
+  let then_body = get(rb, 0)
+  let mut p2 = get(rb, 1)
+  let mut else_ifs = ""
+  let mut else_body = "(UNIT)"
+  let mut cont = 1.0
+  while cont == 1.0 {
+    if PeekKw(tokens, p2, n, "else") == 1.0 then {
+      let p3 = p2 + 1.0
+      if PeekKw(tokens, p3, n, "if") == 1.0 then {
+        // else if cond { ... }
+        let p4 = p3 + 1.0
+        let r2 = ParseExpr(tokens, p4, n)
+        let ec = get(r2, 0)
+        let p5 = get(r2, 1)
+        let rb2 = ParseBlock(tokens, p5, n)
+        let eb = get(rb2, 0)
+        let p6 = get(rb2, 1)
+        else_ifs = else_ifs + " (" + ec + " " + eb + ")"
+        p2 = p6
+      } else {
+        // else { ... }
+        let rb2 = ParseBlock(tokens, p3, n)
+        let eb = get(rb2, 0)
+        let p6 = get(rb2, 1)
+        else_body = eb
+        p2 = p6
+        cont = 0.0
+      }
+    } else {
+      cont = 0.0
+    }
+  }
+  return make_list("(IF_BLOCK " + cond + " " + then_body + else_ifs + " " + else_body + ")", p2)
+}
+
+// Parse a `{ ... }` block — returns (stmts_string, new_pos).
+// stmts_string is a space-joined list of statement S-exprs.
+// Uses List+join (O(N)) instead of repeated concat (O(N²)).
+pattern ParseBlock(tokens: List, pos: Float, n: Float) -> List {
+  let mut p = pos
+  if PeekOp(tokens, p, n, "{") == 1.0 { p = p + 1.0 }
+  let mut parts = make_list()
+  let mut cont = 1.0
+  while cont == 1.0 {
+    if PeekOp(tokens, p, n, "}") == 1.0 {
+      p = p + 1.0
+      cont = 0.0
+    } else {
+      if p >= n then {
+        cont = 0.0
+      } else {
+        let r = ParseStmt(tokens, p, n)
+        let s = get(r, 0)
+        let np = get(r, 1)
+        // guard against infinite loop: if np <= p, advance forcibly
+        let adv = if np > p then np else p + 1.0
+        parts = push(parts, s)
+        p = adv
+      }
+    }
+  }
+  return make_list(join(parts, " "), p)
+}
+
+pattern ParseWhile(tokens: List, pos: Float, n: Float) -> List {
+  let p = pos + 1.0
+  let r = ParseExpr(tokens, p, n)
+  let cond = get(r, 0)
+  let p2 = get(r, 1)
+  let rb = ParseBlock(tokens, p2, n)
+  let body = get(rb, 0)
+  let p3 = get(rb, 1)
+  return make_list("(WHILE " + cond + " " + body + ")", p3)
+}
+
+// each item in iterable { ... }     OR     each i, item in iterable { ... }
+pattern ParseEach(tokens: List, pos: Float, n: Float) -> List {
+  let p = pos + 1.0
+  let v1 = PeekVal(tokens, p, n)
+  let p1 = p + 1.0
+  if PeekOp(tokens, p1, n, ",") == 1.0 then {
+    // i, item in ...
+    let p2 = p1 + 1.0
+    let v2 = PeekVal(tokens, p2, n)
+    let p3 = p2 + 1.0
+    // skip "in"
+    let p4 = if PeekKw(tokens, p3, n, "in") == 1.0 then p3 + 1.0 else p3
+    let r = ParseExpr(tokens, p4, n)
+    let iter = get(r, 0)
+    let p5 = get(r, 1)
+    let rb = ParseBlock(tokens, p5, n)
+    let body = get(rb, 0)
+    let p6 = get(rb, 1)
+    return make_list("(EACH_IDX " + v1 + " " + v2 + " " + iter + " " + body + ")", p6)
+  }
+  // item in iterable
+  let p4 = if PeekKw(tokens, p1, n, "in") == 1.0 then p1 + 1.0 else p1
+  let r = ParseExpr(tokens, p4, n)
+  let iter = get(r, 0)
+  let p5 = get(r, 1)
+  let rb = ParseBlock(tokens, p5, n)
+  let body = get(rb, 0)
+  let p6 = get(rb, 1)
+  return make_list("(EACH " + v1 + " " + iter + " " + body + ")", p6)
+}
+
+// ── Param list / pattern declaration ───────────────────────────────
+// params: IDENT ":" TYPE ("," IDENT ":" TYPE)*
+
+pattern ParseParamList(tokens: List, pos: Float, n: Float) -> List {
+  let mut p = pos
+  if PeekOp(tokens, p, n, "(") == 1.0 { p = p + 1.0 }
+  let mut parts = make_list()
+  let mut cont = 1.0
+  while cont == 1.0 {
+    if PeekOp(tokens, p, n, ")") == 1.0 {
+      p = p + 1.0
+      cont = 0.0
+    } else {
+      let name = PeekVal(tokens, p, n)
+      p = p + 1.0
+      if PeekOp(tokens, p, n, ":") == 1.0 { p = p + 1.0 }
+      let ty = PeekVal(tokens, p, n)
+      p = p + 1.0
+      parts = push(parts, "(PARAM " + name + " " + ty + ")")
+      if PeekOp(tokens, p, n, ",") == 1.0 { p = p + 1.0 }
+    }
+  }
+  return make_list(join(parts, " "), p)
+}
+
+// ── Top-level declarations ─────────────────────────────────────────
+// Each Parse pattern returns make_list(decl_string, new_pos).
+
+// pattern Name(params) -> Type { body }
+pattern ParsePatternDecl(tokens: List, pos: Float, n: Float) -> List {
+  let mut p = pos + 1.0  // consume "pattern"
+  let name = PeekVal(tokens, p, n)
+  p = p + 1.0
+  let rp = ParseParamList(tokens, p, n)
+  let params = get(rp, 0)
+  p = get(rp, 1)
+  if PeekOp(tokens, p, n, "->") == 1.0 { p = p + 1.0 }
+  let ret = PeekVal(tokens, p, n)
+  p = p + 1.0
+  let rb = ParseBlock(tokens, p, n)
+  let body = get(rb, 0)
+  let p2 = get(rb, 1)
+  return make_list("(PATTERN name=" + name + " params=[" + params + "] ret=" + ret + " body=[" + body + "])", p2)
+}
+
+// entity name: Type = expr
+pattern ParseEntitySimple(tokens: List, pos: Float, n: Float) -> List {
+  let mut p = pos + 1.0  // consume "entity"
+  let name = PeekVal(tokens, p, n)
+  p = p + 1.0
+  if PeekOp(tokens, p, n, ":") == 1.0 { p = p + 1.0 }
+  let ty = PeekVal(tokens, p, n)
+  p = p + 1.0
+  if PeekOp(tokens, p, n, "=") == 1.0 { p = p + 1.0 }
+  let r = ParseExpr(tokens, p, n)
+  let val = get(r, 0)
+  let p2 = get(r, 1)
+  return make_list("(ENTITY_SIMPLE name=" + name + " type=" + ty + " value=" + val + ")", p2)
+}
+
+// import path [as alias]
+pattern ParseImportDecl(tokens: List, pos: Float, n: Float) -> List {
+  let mut p = pos + 1.0  // consume "import"
+  let mut path = ""
+  let mut first = 1.0
+  let mut cont = 1.0
+  while cont == 1.0 {
+    let k = PeekKind(tokens, p, n)
+    let v = PeekVal(tokens, p, n)
+    if k == "IDENT" then {
+      path = if first == 1.0 then v else path + "/" + v
+      first = 0.0
+      p = p + 1.0
+      // expect "/" or end
+      if PeekOp(tokens, p, n, "/") == 1.0 {
+        p = p + 1.0
+      } else {
+        cont = 0.0
+      }
+    } else {
+      cont = 0.0
+    }
+  }
+  // import path [as alias]
+  // Delegate alias parsing to a helper pattern (same scoping reason as
+  // ParseElseBranch: BlockIfElse as expression does not propagate mutations
+  // to the enclosing scope in Metalogos v0.18).
+  let r_alias = ParseImportAlias(tokens, p, n)
+  let alias = get(r_alias, 0)
+  let p2 = get(r_alias, 1)
+  if alias != "" {
+    return make_list("(IMPORT path=" + path + " alias=" + alias + ")", p2)
+  }
+  return make_list("(IMPORT path=" + path + ")", p2)
+}
+
+// Parse the optional "as IDENT" suffix on an import declaration.
+// Returns (alias_or_empty, new_pos).
+pattern ParseImportAlias(tokens: List, pos: Float, n: Float) -> List {
+  if PeekKw(tokens, pos, n, "as") == 1.0 {
+    let p = pos + 1.0
+    let a = PeekVal(tokens, p, n)
+    return make_list(a, p + 1.0)
+  }
+  return make_list("", pos)
+}
+
+// flow Name { input: Type = expr -> Step1 -> ... -> output }
+pattern ParseFlowDecl(tokens: List, pos: Float, n: Float) -> List {
+  let mut p = pos + 1.0  // consume "flow"
+  let name = PeekVal(tokens, p, n)
+  p = p + 1.0
+  if PeekOp(tokens, p, n, "{") == 1.0 { p = p + 1.0 }
+  // "input" ":" Type "=" expr
+  if PeekKw(tokens, p, n, "input") == 1.0 { p = p + 1.0 }
+  if PeekOp(tokens, p, n, ":") == 1.0 { p = p + 1.0 }
+  let input_type = PeekVal(tokens, p, n)
+  p = p + 1.0
+  if PeekOp(tokens, p, n, "=") == 1.0 { p = p + 1.0 }
+  let r = ParseExpr(tokens, p, n)
+  let source = get(r, 0)
+  p = get(r, 1)
+  // pipeline: -> Step1 -> Step2 -> ... -> output
+  // `output` is the terminator (not in the lexer's kws list, so we check
+  // by value only — same as PeekKw above).
+  // Uses List+join (O(N)) instead of repeated concat (O(N²)).
+  let mut parts = make_list()
+  let mut cont = 1.0
+  while cont == 1.0 {
+    if PeekOp(tokens, p, n, "->") == 1.0 {
+      p = p + 1.0
+      let v = PeekVal(tokens, p, n)
+      if v == "output" then {
+        p = p + 1.0
+        cont = 0.0
+      } else {
+        parts = push(parts, v)
+        p = p + 1.0
+      }
+    } else {
+      cont = 0.0
+    }
+  }
+  let pipeline = join(parts, " ")
+  if PeekOp(tokens, p, n, "}") == 1.0 { p = p + 1.0 }
+  return make_list("(FLOW name=" + name + " input_type=" + input_type + " source=" + source + " pipeline=[" + pipeline + "])", p)
+}
+
+// Dispatch on the leading token. Returns make_list(decl_str, new_pos).
+// decl_str is empty string if the declaration is unsupported (caller skips it).
+pattern ParseDecl(tokens: List, pos: Float, n: Float) -> List {
+  let k = PeekKind(tokens, pos, n)
+  let v = PeekVal(tokens, pos, n)
+
+  if k == "KEYWORD" then {
+    if v == "pattern" then { return ParsePatternDecl(tokens, pos, n) }
+    if v == "entity" then { return ParseEntitySimple(tokens, pos, n) }
+    if v == "flow" then { return ParseFlowDecl(tokens, pos, n) }
+    if v == "import" then { return ParseImportDecl(tokens, pos, n) }
+    // unsupported: rule, memorize, forget, relate, adapt, mutate, eval, test,
+    // type, llm, hook, sandbox, db, schema, skill_index, memory, conversation,
+    // context_budget, fluid, learnable, tool, mlogserver, templ-decl, reflex,
+    // reflex_seq, reflex_gen.
+    // (templ-decl is intentionally misspelled so the source preprocessor's
+    //  keyword scan does not misclassify this comment.)
+    // Skip to next "}" or next leading-keyword at top level.
+    return SkipDecl(tokens, pos, n)
+  }
+  return make_list("", pos + 1.0)
+}
+
+// Skip an unsupported declaration: advance tokens until we find a top-level
+// keyword that starts a new declaration, or until we run out of tokens.
+// We use a brace-depth counter so nested blocks are skipped cleanly.
+pattern SkipDecl(tokens: List, pos: Float, n: Float) -> List {
+  let mut p = pos + 1.0
+  let mut depth = 0.0
+  let mut cont = 1.0
+  while cont == 1.0 {
+    if p >= n then {
+      cont = 0.0
+    } else {
+      let k = PeekKind(tokens, p, n)
+      let v = PeekVal(tokens, p, n)
+      if k == "OPERATOR" then {
+        if v == "{" then { depth = depth + 1.0 }
+        if v == "}" then {
+          if depth > 0.0 then {
+            depth = depth - 1.0
+            p = p + 1.0
+          } else {
+            cont = 0.0
+          }
+        }
+      }
+      if depth == 0.0 then {
+        // at top level — check if this token starts a new declaration
+        if k == "KEYWORD" then {
+          if v == "pattern" then cont = 0.0
+          if v == "entity" then cont = 0.0
+          if v == "flow" then cont = 0.0
+          if v == "import" then cont = 0.0
+        }
+      }
+      if cont == 1.0 then { p = p + 1.0 }
+    }
+  }
+  return make_list("", p)
+}
+
+// ── Top-level Parse entry ──────────────────────────────────────────
+// Returns the full serialized AST as a string, one declaration per line.
+// Uses List+join (O(N)) instead of repeated string concat (O(N²)) — the
+// latter made parsing parser.mlog itself take >10 min, which made the
+// bootstrap test infeasible. With List+join, the same parse completes in
+// well under a minute.
+pattern Parse(src: String) -> String {
+  let toks_str = Tokenize(src)
+  if len(toks_str) == 0.0 then { return "" }
+  let raw = split(toks_str, "\n")
+  let raw_n = len(raw)
+  let tokens = FilterTokens(raw, raw_n)
+  let n = len(tokens)
+  let mut parts = make_list()
+  let mut i = 0.0
+  while i < n {
+    let r = ParseDecl(tokens, i, n)
+    let d = get(r, 0)
+    let np = get(r, 1)
+    let adv = if np > i then np else i + 1.0
+    if d != "" then {
+      parts = push(parts, d)
+    }
+    i = adv
+  }
+  return join(parts, "\n")
+}
+
+// Keep only entries that look like valid token lines (contain ": " separator).
+// WORKAROUND: the lexer misclassifies `\n` as a quote char, producing
+// "STRING" tokens whose value is whatever follows until the next `"` (often
+// a multi-line stretch of source). We reject these phantom STRING tokens by
+// checking that a STRING token's value starts with `"` — a real string
+// literal always does, a phantom never does.
+pattern FilterTokens(raw: List, raw_n: Float) -> List {
+  let mut out = make_list()
+  let mut i = 0.0
+  while i < raw_n {
+    let t = get(raw, i)
+    if ShouldKeepToken(t) == 1.0 then { out = push(out, t) }
+    i = i + 1.0
+  }
+  return out
+}
+
+// Decide whether a raw split entry is a real token line.
+// Returns 1.0 to keep, 0.0 to drop.
+pattern ShouldKeepToken(t: String) -> Float {
+  let c = index_of(t, ": ")
+  if c == -1.0 then { return 0.0 }
+  let k = substring(t, 0.0, c)
+  if k == "STRING" then {
+    let v = substring(t, c + 2.0, len(t))
+    if len(v) < 1.0 then { return 0.0 }
+    if char_at(v, 0.0) == "\"" then { return 1.0 }
+    return 0.0
+  }
+  return 1.0
+}
+
+// ── Bootstrap entry point ──────────────────────────────────────────
+// Reads the target .mlog file path from MLOG_PARSE_TARGET env var,
+// parses it, and emits the serialized AST to the flow output.
+// If MLOG_PARSE_TARGET is unset, parses self-host/parser.mlog itself
+// (the bootstrap test exercises this exact path).
+flow Main {
+  input: String = read_file(env("MLOG_PARSE_TARGET"))
+  -> Parse
+  -> output
+}

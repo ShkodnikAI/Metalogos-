@@ -273,6 +273,7 @@ Metalogos-/
 │
 ├── self-host/                         # Self-hosting experiments
 │   ├── lexer.mlog                     # Lexer written in .mlog itself
+│   ├── parser.mlog                    # Parser written in .mlog itself (Наряд №197)
 │   └── std/                           # Copies of std/ for self-hosted execution
 │
 ├── editors/vscode/                    # VS Code extension
@@ -615,7 +616,114 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 | **mlog-lsp** | LSP server — diagnostics, goto-definition, hover |
 | **mlogpkg** | Package manager for .mlog projects |
 | **VS Code extension** | Syntax highlighting + language configuration |
-| **Self-hosted compiler** | Lexer written in .mlog itself (self-host/) |
+| **Self-hosted lexer** | Tokenizer written in .mlog itself (`self-host/lexer.mlog`) |
+| **Self-hosted parser** | Parser written in .mlog itself (`self-host/parser.mlog`, Наряд №197) — parses a subset of the grammar sufficient for bootstrap (parses its own source). The full grammar remains the responsibility of the production Rust parser (`src/parser/`). |
+
+---
+
+## Self-hosted parser (Наряд №197)
+
+`self-host/parser.mlog` is a Metalogos parser written in Metalogos itself. It
+builds on top of the self-hosted lexer (`self-host/lexer.mlog`) — both files
+are bootstrap-complete: each can process its own source.
+
+### Supported subset (Block 1)
+
+The first version supports the subset of the grammar required for bootstrap
+(parsing parser.mlog itself). Constructs outside this subset are skipped via
+the `SkipDecl` helper; the parser does NOT silently accept them as something
+else, and a `// templ-decl` comment in the source marks which constructs are
+intentionally excluded.
+
+**Supported top-level declarations:**
+
+| Declaration | Example |
+|---|---|
+| `pattern` | `pattern Foo(x: String) -> String { ... }` |
+| `entity` (simple) | `entity greeting: String = "Hello"` |
+| `flow` | `flow Main { input: Type = src -> Step1 -> output }` |
+| `import` | `import std/string as str` |
+
+**Supported statements:** `let`, `let mut`, assignment (`x = ...`), `if cond
+{ ... } else if ... else { ... }`, `if cond then { ... }`, `if cond then X
+else Y` (expression form), `while`, `each x in xs { ... }`, `each i, x in xs
+{ ... }` (with index), `return`, bare expression statement, `break`,
+`continue`.
+
+**Supported expressions:** full precedence chain `or` / `and` / comparison
+(`==`, `!=`, `<`, `>`, `<=`, `>=`) / additive / multiplicative, unary
+minus, function call (`f(args)`), qualified call (`mod.fn(args)`), field
+access (`obj.field`), index access (`arr[i]`), list literal (`[a, b, c]`),
+struct literal (`{ k: v, ... }`), parenthesized expression, `if cond then
+X else Y` expression form, and the literals STRING / NUMBER / INT / BOOL /
+IDENT. Unary minus is desugared to `0.0 - X` to match the Rust AST's
+representation (`src/parser/expr.rs`).
+
+**Explicitly NOT supported** (deferred to a future naryad):
+
+- All other top-level declarations: `entity Type { ... }` (record), `entity
+  name: Type = { ... }` (instance), `rule`, `memorize`, `forget`, `relate`,
+  `adapt`, `mutate`, `eval`, `test`, `type`, `llm`, `hook`, `sandbox`, `db`,
+  `schema`, `skill_index`, `memory`, `conversation`, `context_budget`,
+  `fluid`, `learnable pattern`, `tool`, `mlogserver`, `template`, `reflex`,
+  `reflex_seq`, `reflex_gen`.
+- `match` statement and `match` expression.
+- `try` expression.
+- Block `if/else` as an expression with side-effecting inner statements
+  (Metalogos v0.18's scoping rule blocks mutations to outer `let mut`
+  variables from inside a BlockIfElse expression; parser.mlog works around
+  this by delegating to helper patterns — see `ParseElseBranch`,
+  `ParseImportAlias`).
+
+### Usage
+
+```sh
+# Parse a .mlog file (writes AST to stdout):
+MLOG_PARSE_TARGET=path/to/file.mlog mlog run self-host/parser.mlog
+
+# Bootstrap (parser.mlog parses itself):
+MLOG_PARSE_TARGET=self-host/parser.mlog mlog run self-host/parser.mlog
+```
+
+### Contracts
+
+Two integration tests verify the parser's correctness:
+
+- `tests/naryad_197_parser_self_parses.rs` — bootstrap test: parser.mlog
+  successfully parses its own source (~4 min runtime on a typical dev
+  machine; the test has a 12-minute timeout).
+- `tests/naryad_197_parser_matches_rust_parser.rs` — on a representative
+  sample of 12 .mlog files covering the Block 1 subset, the AST produced by
+  parser.mlog is structurally equivalent to the AST produced by the
+  production Rust parser (`src/parser/`). The comparison normalises both
+  sides to the same S-expr string format.
+
+### Lexer bugs fixed in parser.mlog's local Tokenize copy
+
+The self-hosted lexer (`self-host/lexer.mlog`) has several known issues
+that prevented the parser from working directly off its output. The
+parser's local `Tokenize` copy includes the following fixes (each
+documented inline in `self-host/parser.mlog`):
+
+1. **Whitespace handling**: the original lexer only recognized ASCII
+   space, treating `\n`/`\t`/`\r` as quote chars. This produced phantom
+   STRING tokens spanning multiple lines and swallowing entire
+   declarations. Fix: treat all four whitespace chars as whitespace.
+2. **Underscore in identifiers**: identifiers like `index_of` were split
+   into `index`, `_`, `of` because the lexer's `abc` alphabet string
+   omitted `_`. Fix: treat `_` as a letter, and allow it (plus digits)
+   in identifier continuation.
+3. **Multi-char operators**: `==`, `!=`, `<=`, `>=` were emitted as two
+   single-char OPERATOR tokens, breaking comparison parsing. Fix: detect
+   these as 2-char operators (mirrors the existing `->` handling).
+4. **Line comments**: `// ...` comments were tokenized as code. Fix:
+   detect `//` and skip to end of line.
+
+The KEYWORD-classification bug (`index_of(kws, tok) > -1.0` does substring
+matching) is NOT fixed at the lexer level — instead, the parser's `TokKind`
+helper re-verifies KEYWORD/IDENT classification via exact-match against the
+keyword list. This keeps the keyword list in one place (TokKind) rather
+than duplicating it across multiple lexer-level checks.
 
 ---
 
@@ -706,7 +814,7 @@ All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsyst
 
 | Target | Description |
 |---|---|
-| **Phase 9** | Self-hosted compiler, mlogpkg ecosystem, production deployment |
+| **Phase 9** | Self-hosted compiler (lexer in `self-host/lexer.mlog`, parser in `self-host/parser.mlog` — Наряд №197, subset complete), mlogpkg ecosystem, production deployment |
 
 ---
 

@@ -137,3 +137,15 @@ reports and must not be changed:
 | 0111 | Inline span tracking in AST nodes | Accepted |
 | 0112 | Метрика качества `adapt` — текущий mock, не реализованная функция | Accepted |
 | 0113 | Pattern-name collision warnings on `run` / `serve` | Accepted |
+| 0114 | `Value::Reflex` as an opaque handle, not a tensor type | Accepted |
+| 0115 | What "accuracy" means for `Reflex` | Accepted |
+| 0116 | Weight persistence for `Reflex` — SQLite BLOB, not a new file format | Accepted |
+| 0117 | Semantics of distillation — mode switching, backward compatibility | Accepted |
+| 0118 | `candle` as the tensor/autograd dependency for architecture blocks | Accepted |
+| 0119 | Extending the layer abstraction for sequence-processing blocks | Accepted |
+| 0120 | Opening text generation — amends `ADR-0117` §3 by explicit owner decision | Accepted |
+| 0121 | Closing the VM-parity gap for `Reflex` — VM-owned state | Accepted |
+| 0122 | Vision pillar scope — inference-first over open weights, images before video | Accepted |
+| 0123 | Vision wedge — Z-Image-Turbo primary, FLUX.2 [klein] fallback | Accepted |
+| 0124 | `Value::Vision` as opaque handle + `VisionRegistry` | Accepted |
+| 0125 | Provenance and supply-chain gates for generated media | Accepted |

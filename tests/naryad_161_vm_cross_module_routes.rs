@@ -3,10 +3,12 @@
 // Bug: `mlog serve` with VM backend fails at startup when routes
 // call patterns defined in imported modules.
 //
-// Helper files at project root (resolvable by Compiler::new() via cwd):
+// Helper files in examples/debug/ (resolvable by Compiler::with_std_root):
 //   p161_route_helper.mlog  — defines HandleHelper
 //   p161_deep_b.mlog        — imports p161_deep_c, defines DeepB
 //   p161_deep_c.mlog        — defines DeepC (A→B→C chain)
+// Наряд №203 Block 3: moved from repo root to examples/debug/ (precedent:
+// bug_route_pattern.mlog).
 
 use metalogos::ast::*;
 use metalogos::compiler::Compiler;
@@ -37,7 +39,7 @@ mlogserver {
             _ => None,
         })
         .expect("should have mlogserver block");
-    let mut compiler = Compiler::new();
+    let mut compiler = Compiler::with_std_root(std::path::PathBuf::from("examples/debug"));
     let _program = compiler
         .compile(declarations)
         .expect("compile should resolve p161_route_helper");
@@ -69,7 +71,7 @@ mlogserver {
             _ => None,
         })
         .expect("should have mlogserver block");
-    let mut compiler = Compiler::new();
+    let mut compiler = Compiler::with_std_root(std::path::PathBuf::from("examples/debug"));
     let _program = compiler
         .compile(declarations)
         .expect("compile should resolve p161_route_helper as helper");
@@ -97,7 +99,7 @@ mlogserver {
             _ => None,
         })
         .expect("should have mlogserver block");
-    let mut compiler = Compiler::new();
+    let mut compiler = Compiler::with_std_root(std::path::PathBuf::from("examples/debug"));
     let _program = compiler
         .compile(declarations)
         .expect("compile without import should succeed");
@@ -141,7 +143,7 @@ mlogserver {
             _ => None,
         })
         .expect("should have mlogserver block");
-    let mut compiler = Compiler::new();
+    let mut compiler = Compiler::with_std_root(std::path::PathBuf::from("examples/debug"));
     let _program = compiler
         .compile(declarations)
         .expect("compile should resolve A→B→C chain");

@@ -1,0 +1,26 @@
+// Наряд №195 Contract 5: BPE tokenization via `mlog run`.
+//
+// Trains a BPE vocab on a corpus, encodes text, decodes back.
+// Demonstrates the full BPE pipeline from .mlog.
+//
+// Expected output (any build, no candle needed — BPE is pure):
+//   "roundtrip=ok"
+
+pattern BpeDemo(_x: String) -> String {
+  // Train BPE on a small corpus
+  let vocab = reflex_bpe_train("abababababababababababababababab", 10.0)
+
+  // Encode text
+  let tokens = reflex_bpe_encode("abab", vocab)
+
+  // Decode back
+  let text = reflex_bpe_decode(tokens, vocab)
+
+  // Verify roundtrip
+  if text == "abab" then {
+    return "roundtrip=ok"
+  }
+  return "roundtrip=fail:got=" + text
+}
+
+flow Main { input: String = "x" -> BpeDemo -> output }

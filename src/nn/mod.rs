@@ -13,6 +13,8 @@ pub mod activation;
 /// Feature-gated behind `candle` (off by default).
 #[cfg(feature = "candle")]
 pub mod attention;
+/// Наряд №195: BPE tokenizer.
+pub mod bpe;
 pub mod dense;
 /// Наряд №193: ReflexGenModel — text generation model with KV-cache.
 /// Feature-gated behind `candle`.

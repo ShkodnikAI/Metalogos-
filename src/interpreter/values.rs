@@ -85,6 +85,9 @@ pub enum Value {
     /// Contains an index into ReflexRegistry — weights never enter Value.
     /// Debug prints only name and last_metric, not weights.
     Reflex(crate::nn::ReflexId),
+    /// Opaque BPE vocabulary handle (Наряд №195).
+    /// Contains an index into BPE_REGISTRY — vocab data never enters Value.
+    BpeVocab(crate::nn::bpe::BpeVocabId),
 }
 
 impl std::fmt::Display for Value {
@@ -153,6 +156,7 @@ impl std::fmt::Display for Value {
                 snap.edges.len()
             ),
             Value::Reflex(id) => write!(f, "[Reflex#{}]", id.0),
+            Value::BpeVocab(id) => write!(f, "[BpeVocab#{}]", id.0),
         }
     }
 }
@@ -176,6 +180,7 @@ impl Value {
             Value::HttpResponse { .. } => "HttpResponse",
             Value::Subgraph(_) => "Subgraph",
             Value::Reflex(_) => "Reflex",
+            Value::BpeVocab(_) => "BpeVocab",
         }
     }
 
@@ -249,6 +254,7 @@ pub fn is_nonprintable(v: &Value) -> bool {
             | Value::Hash(_)
             | Value::Subgraph(_)
             | Value::Reflex(_)
+            | Value::BpeVocab(_)
     )
 }
 

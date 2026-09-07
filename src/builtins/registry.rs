@@ -1,7 +1,9 @@
 use super::reflex::{
-    builtin_reflex_detokenize, builtin_reflex_generate_stub, builtin_reflex_list_stub,
-    builtin_reflex_load_stub, builtin_reflex_metrics_stub, builtin_reflex_predict_stub,
-    builtin_reflex_save_stub, builtin_reflex_tokenize, builtin_reflex_train_stub,
+    builtin_reflex_bpe_decode, builtin_reflex_bpe_encode, builtin_reflex_bpe_load,
+    builtin_reflex_bpe_save, builtin_reflex_bpe_train, builtin_reflex_detokenize,
+    builtin_reflex_generate_stub, builtin_reflex_list_stub, builtin_reflex_load_stub,
+    builtin_reflex_metrics_stub, builtin_reflex_predict_stub, builtin_reflex_save_stub,
+    builtin_reflex_tokenize, builtin_reflex_train_stub,
 };
 use super::*;
 
@@ -531,6 +533,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // These are pure functions (no registry access) — real handlers, not stubs.
     spec!("reflex_tokenize", 1, "reflex"; builtin_reflex_tokenize),
     spec!("reflex_detokenize", 1, "reflex"; builtin_reflex_detokenize),
+    // ── Наряд №195: BPE tokenization ──
+    spec!("reflex_bpe_train", 2, "reflex"; builtin_reflex_bpe_train),
+    spec!("reflex_bpe_encode", 2, "reflex"; builtin_reflex_bpe_encode),
+    spec!("reflex_bpe_decode", 2, "reflex"; builtin_reflex_bpe_decode),
+    spec!("reflex_bpe_save", 1, "reflex"; builtin_reflex_bpe_save),
+    spec!("reflex_bpe_load", 1, "reflex"; builtin_reflex_bpe_load),
 ];
 
 /// Total number of registered builtins.

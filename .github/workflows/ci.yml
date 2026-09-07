@@ -94,7 +94,11 @@ jobs:
       - name: Vision skeleton integration tests
         run: cargo test --workspace --features vision --no-fail-fast --test naryad_210_vision_skeleton
       - name: Vision R2 text encoder golden contract
-        run: cargo test --workspace --features vision --no-fail-fast --test naryad_211_text_encoder_golden
+        # --nocapture: выводит eprintln хэшей/якорей в лог шага — обязательная
+        # инфраструктура процедуры пере-пиннинга (naryad №230). Повторится в R3
+        # при смене dtype-политики/инициализации; без --nocapture хэши не видны
+        # в логе и пере-пиннинг требует отдельной локальной работы.
+        run: cargo test --workspace --features vision --no-fail-fast --test naryad_211_text_encoder_golden -- --nocapture
       - name: Clippy on vision-gated code
         run: cargo clippy --workspace --features vision --all-targets -- -D warnings
 

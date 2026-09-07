@@ -51,3 +51,17 @@ reapplication, not a new design.
 - Determinism contract: fixed seed ⇒ same image, regardless of backend, becomes an
   explicit crosscheck requirement (ADR-0121's determinism consequence, extended to
   image generation).
+
+## Update (R2, наряд №211, 2026-09-07; fix-forward 2026-09-08)
+
+- The `vision` feature now **implies `candle`**: `vision = ["dep:candle-core",
+  "dep:candle-nn"]`. The R2 text encoder requires tensor operations. ADR-0118
+  is not violated — both features remain off-by-default, `default`/`full` are
+  unchanged, and the CI guard continues to enforce `vision ∉ default/full`.
+- The R1 skeleton tests (naryad_210) do not depend on candle and keep passing
+  unchanged under the new feature dependency.
+- `src/vision/text_encoder.rs` (Qwen3-architecture text encoder on Reflex
+  primitives) is feature-gated behind `vision`. Known debts recorded loudly in
+  the module docs and the ADR-0122 map: golden SHA-256 records not yet pinned,
+  local PRNG copy divergent from the `src/nn` SSOT contract, seed-stream
+  overlap — all scheduled for the R2 hotfix (наряд №230) before R3 starts.

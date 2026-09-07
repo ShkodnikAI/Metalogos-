@@ -24,14 +24,14 @@ Z-Image / Z-Image-Turbo (Alibaba) использует **Qwen3-4B** как те�
 |---|---|
 | `num_hidden_layers` | 36 |
 | `hidden_size` | 2560 |
-| `num_attention_heads` | 40 |
+| `num_attention_heads` | 32 |
 | `num_key_value_heads` | 8 |
-| `head_dim` | 64 |
-| `intermediate_size` | 6912 |
+| `head_dim` | 128 |
+| `intermediate_size` | 9728 |
 | `vocab_size` | 151936 |
 | `rms_norm_eps` | 1e-6 |
 | `rope_theta` | 1000000 |
-| `max_position_embeddings` | 32768 |
+| `max_position_embeddings` | 40960 |
 | `attention_bias` | false |
 | `hidden_act` | silu (SwiGLU) |
 | `tie_word_embeddings` | true |
@@ -75,7 +75,7 @@ Z-Image потребляет от Qwen3-4B:
 
 Qwen3-4B — это в точности зоопарк `src/nn/`:
 - GQA: `Attention::new_with_kv_heads(heads, n_kv_heads, dim, seed, var_map, prefix)`
-  (src/nn/attention.rs:129) — 40 Q-heads / 8 KV-heads, head_dim=64
+  (src/nn/attention.rs:129) — 32 Q-heads / 8 KV-heads, head_dim=128
 - RmsNorm: `RmsNorm::with_weights(dim, weights, eps)` (src/nn/rmsnorm.rs:61)
 - SwiGLU: `SwiGlu::new(dim, ff_dim, seed)` (src/nn/swiglu.rs:83)
 - Детерминированная инициализация: `generate_uniform_f32(seed, n, lo, up)`
@@ -91,3 +91,29 @@ Qwen3-4B — это в точности зоопарк `src/nn/`:
 
 Вывод: R2 собирает `Qwen3Block` из candle-примитивов внутри
 `src/vision/text_encoder.rs`, НЕ модифицируя `src/nn/*`.
+
+## 6. Correction (fix-forward, 2026-09-08)
+
+Первоначальная версия этого документа (доставлена PR #223) содержала
+**сфабрикованные значения config.json**: `num_attention_heads = 40`,
+`head_dim = 64`, `intermediate_size = 6912`, `max_position_embeddings = 32768`
+при заявлении «config.json скачан». Фактическая проверка координатором наряда
+(прямой fetch `https://huggingface.co/Qwen/Qwen3-4B/raw/main/config.json`,
+2026-09-08) дала: **32** attention heads (40 — это Qwen3-14B), **head_dim 128**,
+**intermediate 9728**, **max_position 40960**. Таблица выше и
+`QWEN3_4B_CONFIG` в `src/vision/text_encoder.rs` исправлены на реальные
+значения; константный тест `qwen3_4b_config_matches_pinned_values` якорится
+к ним.
+
+Дополнительно зафиксированы дефекты исполнения №211, погашаемые нарядом №230:
+1. Golden SHA-256 записи не запинены (Block 2.4 не выполнен) — тест проверяет
+   только внутренний детерминизм, а не бит-в-бит соответствие фиксированным
+   записям.
+2. Локальная копия `generate_uniform_f32` расходится с SSOT-контрактом
+   `src/nn/attention.rs` (нет `seed_to_state`-ритуала, другой путь отображения
+   f32 vs f64 → другие потоки значений при том же seed).
+3. Перекрытие seed-потоков: `layer_seed + offset` шарит офсеты между слоями
+   (k слоя i ≡ q слоя i+1 и т.д.) — веса коррелированы между слоями.
+
+Порядок в №230: сначала PRNG SSOT + stream-гигиена (меняет все значения),
+затем пиннинг golden-записей (один раз, по финальным значениям).

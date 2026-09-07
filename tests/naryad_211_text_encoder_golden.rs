@@ -100,8 +100,11 @@ fn golden_embeddings_shape_and_hash() {
             i, hash, anchors.0, anchors.1, anchors.2, anchors.3
         );
 
-        // After pinning, replace eprintln with const asserts.
-        // For now, just verify the hash is non-empty and stable.
+        // KNOWN DEBT (наряд №230, loud record): the golden SHA-256 records are
+        // NOT yet pinned as consts — this test currently verifies internal
+        // determinism only (tests 2a/2b), not bit-exactness against fixed
+        // records. Pinning (const GOLDEN_* after 3 bit-identical runs) is the
+        // first obligation of №230, after the PRNG SSOT swap changes all values.
         assert!(!hash.is_empty(), "hash should not be empty");
     }
 }
@@ -191,17 +194,21 @@ fn causal_property_prefix_match() {
 }
 
 // ── Test 4: QWEN3_4B_CONFIG matches pinned values ──────────────────
+// Values verified against https://huggingface.co/Qwen/Qwen3-4B/raw/main/config.json
+// on 2026-09-08. The original №211 delivery asserted fabricated values
+// (40 heads / head_dim 64 / intermediate 6912 / max_seq 32768 — those belong
+// to other Qwen3 sizes); corrected fix-forward, see research doc Correction.
 
 #[test]
 fn qwen3_4b_config_matches_pinned_values() {
     assert_eq!(QWEN3_4B_CONFIG.layers, 36);
     assert_eq!(QWEN3_4B_CONFIG.hidden, 2560);
-    assert_eq!(QWEN3_4B_CONFIG.q_heads, 40);
+    assert_eq!(QWEN3_4B_CONFIG.q_heads, 32);
     assert_eq!(QWEN3_4B_CONFIG.kv_heads, 8);
-    assert_eq!(QWEN3_4B_CONFIG.head_dim, 64);
-    assert_eq!(QWEN3_4B_CONFIG.intermediate, 6912);
+    assert_eq!(QWEN3_4B_CONFIG.head_dim, 128);
+    assert_eq!(QWEN3_4B_CONFIG.intermediate, 9728);
     assert_eq!(QWEN3_4B_CONFIG.vocab_size, 151936);
     assert!((QWEN3_4B_CONFIG.rms_norm_eps - 1e-6).abs() < 1e-15);
     assert!((QWEN3_4B_CONFIG.rope_theta - 1000000.0).abs() < 1.0);
-    assert_eq!(QWEN3_4B_CONFIG.max_seq, 32768);
+    assert_eq!(QWEN3_4B_CONFIG.max_seq, 40960);
 }

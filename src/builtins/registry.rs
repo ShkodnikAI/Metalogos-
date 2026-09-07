@@ -1,3 +1,8 @@
+use super::reflex::{
+    builtin_reflex_detokenize, builtin_reflex_generate_stub, builtin_reflex_list_stub,
+    builtin_reflex_load_stub, builtin_reflex_metrics_stub, builtin_reflex_predict_stub,
+    builtin_reflex_save_stub, builtin_reflex_tokenize, builtin_reflex_train_stub,
+};
 use super::*;
 
 /// Master registry of ALL builtin functions.
@@ -522,6 +527,10 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("reflex_list", 0, "reflex"; builtin_reflex_list_stub),
     // ── Наряд №193: text generation (ADR-0120) ──
     spec!("reflex_generate", 4, "reflex"; builtin_reflex_generate_stub),
+    // ── Наряд №194: tokenization (ADR-0120 follow-up) ──
+    // These are pure functions (no registry access) — real handlers, not stubs.
+    spec!("reflex_tokenize", 1, "reflex"; builtin_reflex_tokenize),
+    spec!("reflex_detokenize", 1, "reflex"; builtin_reflex_detokenize),
 ];
 
 /// Total number of registered builtins.

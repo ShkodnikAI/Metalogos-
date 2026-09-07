@@ -1,0 +1,29 @@
+// Наряд №194 Contract 3: reflex_gen from text — tokenization + generation.
+//
+// Real `mlog run`: tokenize text → generate → detokenize back to text.
+// Uses character-level tokenization (Наряд №194, ADR-0120 follow-up).
+//
+// Expected output (candle on): "gen=<N>,<N>,...,<N>"
+// Expected output (candle off): error mentioning the candle feature.
+
+reflex_gen TextGen {
+  input: embedding(8)
+  vocab_size: 256
+  layers: [transformer_block(2, 8, 16)]
+  seed: 42
+}
+
+pattern FromText(_x: String) -> String {
+  // Tokenize the prompt text
+  let prompt_tokens = reflex_tokenize("ab")
+
+  // Generate 3 tokens (greedy, temperature=0)
+  let generated = reflex_generate(TextGen, prompt_tokens, 3.0, 0.0)
+
+  // Detokenize back to text
+  let text = reflex_detokenize(generated)
+
+  return "gen=" + text
+}
+
+flow Main { input: String = "x" -> FromText -> output }

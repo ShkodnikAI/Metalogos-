@@ -173,7 +173,10 @@ use regex::*;
 // the interpreter can call them; the stubs are pub(crate) so the spec!
 // macro in registry.rs can reference them.
 pub mod reflex;
-pub use reflex::{builtin_reflex_detokenize, builtin_reflex_tokenize};
+pub use reflex::{
+    builtin_reflex_bpe_decode, builtin_reflex_bpe_encode, builtin_reflex_bpe_save,
+    builtin_reflex_bpe_train, builtin_reflex_detokenize, builtin_reflex_tokenize,
+};
 pub use reflex::{
     reflex_generate_dispatch, reflex_list_dispatch, reflex_load_dispatch, reflex_metrics_dispatch,
     reflex_predict_dispatch, reflex_save_dispatch, reflex_train_dispatch,

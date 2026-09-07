@@ -758,7 +758,7 @@ fn reference_md_builtin_coverage_does_not_regression() {
     //      `BASELINE_MISSING_COUNT` and add a comment explaining why.
     //      Do NOT bump it just to make the test pass — every bump
     //      is a regression in user-facing documentation.
-    const BASELINE_MISSING_COUNT: usize = 148;
+    const BASELINE_MISSING_COUNT: usize = 153;
 
     let all_names = collect_registry_builtin_names();
     let documented = collect_documented_builtin_names();

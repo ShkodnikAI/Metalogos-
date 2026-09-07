@@ -4,6 +4,25 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — Server test infrastructure (Наряд №207)
+
+- **`run_test_server_with_backend_in_dir(source, backend, base_dir)`** — new
+  test server function that accepts an explicit `base_dir` parameter. This
+  controls BOTH import resolution paths:
+  - TW: `Interpreter::set_base_dir(base_dir)` (module loading)
+  - VM: `Compiler::with_std_root(base_dir)` (import resolution)
+- Backward-compatible wrapper `run_test_server_with_backend(source, backend)`
+  preserved — delegates via `current_dir()`, matching `Compiler::new()` semantics.
+  ~40 existing callers unchanged.
+- 7 tests unblocked from `#[ignore]`:
+  - n161 Block 3: 4 tests (TW pattern call + parity). 1 TW test active,
+    3 VM tests re-ignored with n208 anchor (VM route body divergence —
+    pattern calls in route bodies return 500 on VM).
+  - dept_parity: 3 tests. 1 TW test active, 2 VM tests re-ignored with
+    n208 anchor (query_param/respond divergence in route bodies).
+- Total `#[ignore]` count: 126 → 121 (5 unblocked, 2 re-ignored with
+  updated n207/n208 anchors instead of n206).
+
 ### Added — Vision pillar skeleton (Наряд №210, ADR-0124)
 
 - **Feature gate `vision`** (off-by-default, not in `default`/`full`).

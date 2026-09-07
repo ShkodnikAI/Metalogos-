@@ -33,6 +33,7 @@ pub mod semantic;
 #[cfg(feature = "server")]
 pub mod server;
 pub mod util;
+pub mod vision;
 pub mod vm;
 
 /// Parse and execute a .mlog program. Returns the flow output (if any),

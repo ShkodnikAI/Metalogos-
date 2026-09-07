@@ -88,6 +88,11 @@ pub struct Vm {
     /// handler to resolve bare-Ident model references like
     /// `reflex_train(TestClassifier, ...)` → `Value::Reflex(id)`.
     reflex_names: HashMap<String, crate::nn::ReflexId>,
+    /// Наряд №204 (ADR-0121 stage 2): memory persist path from
+    /// `memory { persist: "path.db" }` declaration. Enables reflex_save/
+    /// reflex_load on the VM (same field the interpreter has at
+    /// `interpreter.memory_persist_path`).
+    memory_persist_path: Option<String>,
 }
 
 /// Collapse threshold for Fluid values (matches interpreter).
@@ -130,6 +135,7 @@ impl Vm {
             pattern_stats: std::sync::Mutex::new(HashMap::new()),
             reflex_registry: crate::nn::ReflexRegistry::new(),
             reflex_names: HashMap::new(),
+            memory_persist_path: None,
         }
     }
 
@@ -162,13 +168,36 @@ impl Vm {
         // `build_reflex_model` function is used (moved to
         // `src/builtins/reflex.rs`) — the neural-network logic is NOT
         // reimplemented, only the VM-side plumbing that routes to it.
-        // Stage 1: Dense classification only (reflex_seq/reflex_gen remain
-        // excluded from the VM until stages 3-4 of ADR-0121).
         for decl in &program.reflex_decls {
             let model = crate::builtins::build_reflex_model(decl)?;
             let id = self.reflex_registry.register(model);
             self.reflex_names.insert(decl.name.clone(), id);
         }
+
+        // Наряд №204 (ADR-0121 stages 3-4): register reflex_seq and
+        // reflex_gen models. Candle-feature-gated — these require the
+        // candle ML framework for autograd. The interpreter registers
+        // them at runtime via `construct_reflex_seq_model` /
+        // `construct_reflex_gen_model`. The VM calls the SAME shared
+        // construction functions — the neural-network logic is NOT
+        // reimplemented.
+        #[cfg(feature = "candle")]
+        {
+            for decl in &program.reflex_seq_decls {
+                let model = crate::builtins::build_reflex_seq_model(decl)?;
+                let id = self.reflex_registry.register_seq(model);
+                self.reflex_names.insert(decl.name.clone(), id);
+            }
+            for decl in &program.reflex_gen_decls {
+                let model = crate::builtins::build_reflex_gen_model(decl)?;
+                let id = self.reflex_registry.register_gen(model);
+                self.reflex_names.insert(decl.name.clone(), id);
+            }
+        }
+
+        // Наряд №204 (ADR-0121 stage 2): memory persist path for
+        // reflex_save/reflex_load.
+        self.memory_persist_path = program.memory_persist_path.clone();
 
         // Open database connection if URL is specified
         self.db_conn = program.db_url.as_ref().and_then(|url| {
@@ -2162,14 +2191,14 @@ impl Vm {
         Err(format!("VM: undefined builtin: {}", name))
     }
 
-    /// Наряд №199 (ADR-0121): intercept `reflex_train` and `reflex_predict`
-    /// before the generic builtin fallback (which calls the stub that
-    /// produces "VM backend does not yet support Reflex"). The intercept
-    /// routes to the same shared dispatch functions the interpreter uses
-    /// (`reflex_train_dispatch` / `reflex_predict_dispatch` in
-    /// `src/builtins/reflex.rs`), passing the VM's own `reflex_registry`.
-    /// The neural-network logic is NOT reimplemented — only the argument
-    /// marshalling and registry access differ from the interpreter path.
+    /// Наряд №199 + №204 (ADR-0121): intercept all reflex_* builtins before
+    /// the generic builtin fallback (which calls the stub that produces
+    /// "VM backend does not yet support Reflex"). The intercept routes to
+    /// the same shared dispatch functions the interpreter uses (in
+    /// `src/builtins/reflex.rs`), passing the VM's own `reflex_registry` and
+    /// `reflex_names`. The neural-network logic is NOT reimplemented — only
+    /// the argument marshalling and registry access differ from the
+    /// interpreter path.
     fn call_reflex_builtin(&mut self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
         if name == "reflex_train" {
             return Some(crate::builtins::reflex_train_dispatch(
@@ -2179,6 +2208,41 @@ impl Vm {
         }
         if name == "reflex_predict" {
             return Some(crate::builtins::reflex_predict_dispatch(
+                &self.reflex_registry,
+                args,
+            ));
+        }
+        if name == "reflex_save" {
+            return Some(crate::builtins::reflex_save_dispatch(
+                &self.reflex_registry,
+                &self.reflex_names,
+                self.memory_persist_path.as_deref(),
+                args,
+            ));
+        }
+        if name == "reflex_load" {
+            return Some(crate::builtins::reflex_load_dispatch(
+                &mut self.reflex_registry,
+                &self.reflex_names,
+                self.memory_persist_path.as_deref(),
+                args,
+            ));
+        }
+        if name == "reflex_metrics" {
+            return Some(crate::builtins::reflex_metrics_dispatch(
+                &self.reflex_registry,
+                args,
+            ));
+        }
+        if name == "reflex_list" {
+            return Some(crate::builtins::reflex_list_dispatch(
+                &self.reflex_registry,
+                &self.reflex_names,
+                args,
+            ));
+        }
+        if name == "reflex_generate" {
+            return Some(crate::builtins::reflex_generate_dispatch(
                 &self.reflex_registry,
                 args,
             ));
@@ -2376,6 +2440,9 @@ impl Vm {
                     rules: Vec::new(),
                     skill_indices: Vec::new(),
                     reflex_decls: Vec::new(),
+                    reflex_seq_decls: Vec::new(),
+                    reflex_gen_decls: Vec::new(),
+                    memory_persist_path: None,
                     db_url: None,
                     schema_ddl: Vec::new(),
                     main_code: Vec::new(),

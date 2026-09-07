@@ -38,6 +38,9 @@ fn test_make_list_instruction() {
         rules: vec![],
         skill_indices: vec![],
         reflex_decls: vec![],
+        reflex_seq_decls: vec![],
+        reflex_gen_decls: vec![],
+        memory_persist_path: None,
         db_url: None,
         schema_ddl: vec![],
         main_code: vec![
@@ -64,6 +67,9 @@ fn test_list_len_instruction() {
         rules: vec![],
         skill_indices: vec![],
         reflex_decls: vec![],
+        reflex_seq_decls: vec![],
+        reflex_gen_decls: vec![],
+        memory_persist_path: None,
         db_url: None,
         schema_ddl: vec![],
         main_code: vec![
@@ -89,6 +95,9 @@ fn test_pop_instruction() {
         rules: vec![],
         skill_indices: vec![],
         reflex_decls: vec![],
+        reflex_seq_decls: vec![],
+        reflex_gen_decls: vec![],
+        memory_persist_path: None,
         db_url: None,
         schema_ddl: vec![],
         main_code: vec![

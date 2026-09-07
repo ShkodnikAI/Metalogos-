@@ -296,8 +296,22 @@ pub struct Program {
     /// `reflex_registry`. Empty vec when no reflex declarations are present.
     #[serde(default)]
     pub reflex_decls: Vec<CompiledReflexDecl>,
+    /// Наряд №204 (ADR-0121 stages 3-4): compiled `reflex_seq` declarations.
+    /// Candle-feature-gated — only populated when `--features candle`.
+    #[serde(default)]
+    pub reflex_seq_decls: Vec<CompiledReflexSeqDecl>,
+    /// Наряд №204 (ADR-0121 stage 4): compiled `reflex_gen` declarations.
+    /// Candle-feature-gated — only populated when `--features candle`.
+    #[serde(default)]
+    pub reflex_gen_decls: Vec<CompiledReflexGenDecl>,
     /// Database URL (if declared). Enables db_insert, query_scalar, etc.
     pub db_url: Option<String>,
+    /// Наряд №204 (ADR-0121 stage 2): memory persist path from
+    /// `memory { persist: "path.db" }` declaration. Enables reflex_save/
+    /// reflex_load on the VM (same field the interpreter has at
+    /// `interpreter.memory_persist_path`).
+    #[serde(default)]
+    pub memory_persist_path: Option<String>,
     /// Schema DDL statements to execute on DB init (CREATE TABLE IF NOT EXISTS).
     pub schema_ddl: Vec<String>,
     /// Top-level instruction sequence (declarations + flow execution).
@@ -401,6 +415,31 @@ pub struct CompiledReflexDecl {
 pub struct CompiledReflexLayerSpec {
     pub name: String,
     pub args: Vec<String>,
+}
+
+/// Наряд №204 (ADR-0121 stage 3): compiled `reflex_seq Name { ... }` declaration.
+/// Candle-feature-gated — the VM registers these only when `--features candle`.
+/// Mirrors `ast::ReflexSeqDecl` minus the span (not needed at runtime).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompiledReflexSeqDecl {
+    pub name: String,
+    pub input_dim: usize,
+    pub seq_len: usize,
+    pub layers: Vec<CompiledReflexLayerSpec>,
+    pub labels: Vec<String>,
+    pub seed: u64,
+}
+
+/// Наряд №204 (ADR-0121 stage 4): compiled `reflex_gen Name { ... }` declaration.
+/// Candle-feature-gated — the VM registers these only when `--features candle`.
+/// Mirrors `ast::ReflexGenDecl` minus the span (not needed at runtime).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompiledReflexGenDecl {
+    pub name: String,
+    pub input_dim: usize,
+    pub vocab_size: usize,
+    pub layers: Vec<CompiledReflexLayerSpec>,
+    pub seed: u64,
 }
 
 /// A call frame for function invocation.

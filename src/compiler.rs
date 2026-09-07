@@ -33,6 +33,15 @@ pub struct Compiler {
     /// Populated in pass1 from `Declaration::Reflex(_)`. The VM processes
     /// these in `load_program` to register models in its own ReflexRegistry.
     reflex_decls: Vec<crate::bytecode::CompiledReflexDecl>,
+    /// Наряд №204 (ADR-0121 stages 3-4): compiled `reflex_seq` declarations.
+    /// Candle-feature-gated — only used when the VM is built with `--features candle`.
+    reflex_seq_decls: Vec<crate::bytecode::CompiledReflexSeqDecl>,
+    /// Наряд №204 (ADR-0121 stage 4): compiled `reflex_gen` declarations.
+    /// Candle-feature-gated.
+    reflex_gen_decls: Vec<crate::bytecode::CompiledReflexGenDecl>,
+    /// Наряд №204 (ADR-0121 stage 2): memory persist path from `memory { persist: ... }`.
+    /// Passed to the VM so reflex_save/reflex_load work without the interpreter.
+    memory_persist_path: Option<String>,
     /// Database URL extracted from db declaration (for VM).
     db_url: Option<String>,
     /// Schema DDL statements from schema declarations.
@@ -75,6 +84,9 @@ impl Compiler {
             rules: Vec::new(),
             skill_indices: Vec::new(),
             reflex_decls: Vec::new(),
+            reflex_seq_decls: Vec::new(),
+            reflex_gen_decls: Vec::new(),
+            memory_persist_path: None,
             db_url: None,
             schema_ddl: Vec::new(),
             std_root,
@@ -129,7 +141,10 @@ impl Compiler {
             rules: std::mem::take(&mut self.rules),
             skill_indices: std::mem::take(&mut self.skill_indices),
             reflex_decls: std::mem::take(&mut self.reflex_decls),
+            reflex_seq_decls: std::mem::take(&mut self.reflex_seq_decls),
+            reflex_gen_decls: std::mem::take(&mut self.reflex_gen_decls),
             db_url: self.db_url.take(),
+            memory_persist_path: self.memory_persist_path.take(),
             schema_ddl: std::mem::take(&mut self.schema_ddl),
             main_code,
             collections_loaded: self.collections_loaded,
@@ -260,7 +275,6 @@ impl Compiler {
                 }
                 Declaration::MlogServer(_)
                 | Declaration::Template(_)
-                | Declaration::Memory(_)
                 | Declaration::Conversation(_)
                 | Declaration::ContextBudget(_)
                 | Declaration::TypeAlias(_)
@@ -268,32 +282,53 @@ impl Compiler {
                 | Declaration::LlmConfig(_) => {
                     // Phase 6+: handled elsewhere
                 }
-                // Наряд №203 Block 1: diagnostic trace for VM-target
-                // compilation. reflex_seq/reflex_gen declarations are
-                // silently dropped at bytecode compilation time —
-                // ADR-0121 stages 3-4 will add VM support. This is a
-                // transitional state, not a bug. The trace helps
-                // debugging without making a loud error (which would
-                // contradict ADR-0121's incremental approach).
-                Declaration::ReflexSeq(r) => {
-                    #[cfg(debug_assertions)]
-                    {
-                        eprintln!(
-                            "[compiler] note: reflex_seq declaration '{}' — VM support pending (ADR-0121 stages 3-4). \
-                             Tree-walking interpreter fully supports this.",
-                            r.name
-                        );
+                // Наряд №204 (ADR-0121 stage 2): extract memory persist path
+                // from `memory { persist: "path.db" }` declaration. The VM
+                // needs this for reflex_save/reflex_load.
+                Declaration::Memory(m) => {
+                    if let Some(ref persist) = m.persist {
+                        self.memory_persist_path = Some(persist.clone());
                     }
                 }
+                // Наряд №204 (ADR-0121 stage 3): collect `reflex_seq`
+                // declarations for the VM. Candle-feature-gated — the VM
+                // only registers these when `--features candle`.
+                Declaration::ReflexSeq(r) => {
+                    self.reflex_seq_decls
+                        .push(crate::bytecode::CompiledReflexSeqDecl {
+                            name: r.name.clone(),
+                            input_dim: r.input_dim,
+                            seq_len: r.seq_len,
+                            layers: r
+                                .layers
+                                .iter()
+                                .map(|l| crate::bytecode::CompiledReflexLayerSpec {
+                                    name: l.name.clone(),
+                                    args: l.args.clone(),
+                                })
+                                .collect(),
+                            labels: r.labels.clone(),
+                            seed: r.seed,
+                        });
+                }
+                // Наряд №204 (ADR-0121 stage 4): collect `reflex_gen`
+                // declarations for the VM. Candle-feature-gated.
                 Declaration::ReflexGen(r) => {
-                    #[cfg(debug_assertions)]
-                    {
-                        eprintln!(
-                            "[compiler] note: reflex_gen declaration '{}' — VM support pending (ADR-0121 stages 3-4). \
-                             Tree-walking interpreter fully supports this.",
-                            r.name
-                        );
-                    }
+                    self.reflex_gen_decls
+                        .push(crate::bytecode::CompiledReflexGenDecl {
+                            name: r.name.clone(),
+                            input_dim: r.input_dim,
+                            vocab_size: r.vocab_size,
+                            layers: r
+                                .layers
+                                .iter()
+                                .map(|l| crate::bytecode::CompiledReflexLayerSpec {
+                                    name: l.name.clone(),
+                                    args: l.args.clone(),
+                                })
+                                .collect(),
+                            seed: r.seed,
+                        });
                 }
                 // Наряд №199 (ADR-0121): collect `reflex` declarations
                 // (Dense classification only) for the VM. reflex_seq and

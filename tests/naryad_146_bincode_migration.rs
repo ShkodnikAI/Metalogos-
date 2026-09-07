@@ -16,6 +16,9 @@ fn minimal_program() -> Program {
         rules: vec![],
         skill_indices: vec![],
         reflex_decls: vec![],
+        reflex_seq_decls: vec![],
+        reflex_gen_decls: vec![],
+        memory_persist_path: None,
         db_url: None,
         schema_ddl: vec![],
         main_code: vec![

@@ -35,6 +35,18 @@ jobs:
       - name: TW vs VM parity
         run: cargo test --workspace --test crosscheck_backends --no-fail-fast
 
+  candle-tests:
+    name: candle-tests (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Reflex pillar tests (feature-gated)
+        run: cargo test --workspace --features candle --no-fail-fast
+      - name: Clippy on gated code
+        run: cargo clippy --workspace --features candle --all-targets -- -D warnings
+
   registry-arity-check:
     name: registry-arity-check (blocking)
     runs-on: ubuntu-latest

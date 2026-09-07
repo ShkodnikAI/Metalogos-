@@ -227,6 +227,27 @@ fn collect_error_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
             }
             if let Some(ext) = path.extension() {
                 if ext == "mlog" {
+                    // Наряд №200: reflex_seq_*.mlog / reflex_gen_*.mlog require
+                    // the `candle` feature (off by default). Their .error files
+                    // describe the candle-OFF error message ("the 'candle' feature
+                    // is not enabled"). Under candle-ON, the error message differs
+                    // (e.g. "layer 'dense' is a classification-layer" instead).
+                    // Skip these pairs when candle is enabled so the golden error
+                    // test doesn't false-positive on the message divergence.
+                    // When candle is OFF, the .error file matches exactly.
+                    let stem = path
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    if cfg!(feature = "candle")
+                        && (stem == "reflex_seq_mixed_error"
+                            || stem == "reflex_seq_missing_labels_error"
+                            || stem == "reflex_unknown_layer"
+                            || stem == "reflex_no_seed"
+                            || stem == "reflex_distill_bad_labels")
+                    {
+                        continue;
+                    }
                     let error_file = path.with_extension("error");
                     if error_file.exists() {
                         pairs.push((path, error_file));

@@ -66,17 +66,19 @@ numbering lived in private plan documents. It now lives here, in the repo.
 | №208 | maintenance | **Скоп скорректирован по итогам №207:** корневая причина — VM не диспетчеризует user-паттерны из тел маршрутов (HTTP 500, доказано n161 Block 3, verbatim "status 500 != 200") + дивергенции query_param/json_body/respond. Цель: VM route-body = TW (naryad_160 — 24 теста, n161 Block 3 VM — 3, dept_parity VM — 2, vm_golden — 2; итого 31 un-ignore) | reserved (долг №206) |
 | №209 | R0 | research (wedge) + ADR-0122..0125 | merged, PR #214 |
 | №210 | R1 | каркас: feature `vision`, `src/vision/`, Value::Vision + VisionRegistry, SSOT loud-stubs, vision-tests CI job | merged, PR #218 |
-| №211 | R2 | текст-энкодер на Reflex-блоках, golden-контракт эмбеддингов | reserved — следующий |
+| №211 | R2 | текст-энкодер на Reflex-блоках (Qwen3-архитектура): TextEncoderConfig + TextEncoder::new(seed) + forward → [seq, hidden], RoPE/QK-norm/GQA/causal; `vision` влечёт `candle`. **Доставлено с дефектами** (выявлены верификацией, исправлены fix-forward): golden-пиннинг не выполнен (хэши не запинены), config-пиннинг Qwen3-4B сфабрикован (40/8-64-6912-32768 вместо реальных 32/8-128-9728-40960), локальная PRNG-копия расходится с SSOT-контрактом `src/nn`, перекрытие seed-потоков | merged, PR #223 (+ fix-forward); остаток долга → №230 |
 | №212 | R3 | end-to-end клин (flow-sampler + VAE), первое изображение из .mlog; **Go/No-Go gate** | reserved |
 | №213 | R4 | `vision { }`-декларации, парсер, semantic, taint(prompts), dispatch | reserved |
 | №214 | R5 | security-гейты (ADR-0125), manifest, LSB-watermark, checksum-пиннинг | reserved |
 | №215 | R6 | vision_edit, LoRA-адаптеры, vision_save/load (SQLite BLOB) | reserved |
 | №216 | R7 (опц.) | LoRA-дообучение через candle autograd | reserved |
 | №217–219 | V1–V3 | видео-фаза (после отдельного research-цикла, ADR-0126 reserved) | reserved |
+| №230 | maintenance (Vision R2 hotfix) | golden-пиннинг: PRNG SSOT (замена локальной копии на `crate::nn::attention::generate_uniform_f32`) + stream-гигиена (per-parameter derivation без перекрытий) → затем пиннинг const GOLDEN_* после 3 бит-в-бит прогонов (порядок обязателен: PRNG меняет все значения); panic-free инварианты; пере-якорение константного теста. R3 (№212) стартует только после №230 | reserved — следующий |
 
 **Free ranges:** буфер №206–208 исчерпан (№206 merged, №207/№208 — долг №206);
 №220–229 — резерв Voice-пиллара (`Metalogos_Voice_Pillar_Plan.md`);
-№230+ — свободны (мейнтенанс/хотфиксы до резервирования нового пиллара).
+№230 — Vision R2 hotfix (golden pinning + PRNG SSOT), №231+ — свободны
+(мейнтенанс/хотфиксы до резервирования нового пиллара).
 
 **Rule:** перед стартом любого наряда исполнитель сверяется с этой картой и с
 update-нотацией ADR-0121. Новый пиллар обязан зарезервировать диапазон номеров

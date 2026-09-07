@@ -136,8 +136,9 @@ pdf-ocr = ["tesseract"]
 
 # Наряд №210 (ADR-0122): Vision pillar skeleton. Off by default —
 # инференс-стек подключается в R2/R3 по факту Go/No-Go (ADR-0123).
+# Наряд №211 (R2): vision влечёт candle — текст-энкодер требует тензоров.
 # Enable with: cargo build --features vision
-vision = []
+vision = ["dep:candle-core", "dep:candle-nn"]
 
 [dev-dependencies]
 tempfile = "3"

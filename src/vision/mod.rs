@@ -103,6 +103,11 @@ impl VisionRegistry {
 /// the `Interpreter` struct (mirrors `reflex_registry: Mutex<ReflexRegistry>`).
 pub type SharedVisionRegistry = Mutex<VisionRegistry>;
 
+// Наряд №211 (R2): текст-энкодер (Qwen3-архитектура на Reflex-примитивах).
+// Feature-gated behind `vision` (которая влечёт `candle`).
+#[cfg(feature = "vision")]
+pub mod text_encoder;
+
 #[cfg(test)]
 mod tests {
     use super::*;

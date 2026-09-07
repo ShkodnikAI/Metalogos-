@@ -37,8 +37,12 @@ quantization path for consumer VRAM; (5) edit capabilities for phase R6.
 
 Recorded explicitly so the decision is not mistaken for completed verification:
 
-1. Z-Image text-encoder identity (which LLM, parameters, weight-loading rules) — the
-   R2 estimate "encoder = wiring existing blocks" depends on this.
+1. **RESOLVED (Наряд №211, 2026-09-07):** Z-Image text-encoder identity confirmed as
+   Qwen3-4B (pure text decoder-only LLM, 36 layers, GQA 40/8, head_dim=64, SwiGLU,
+   RmsNorm eps=1e-6, RoPE theta=1e6). See `docs/research/naryad-211-text-encoder-facts.md`
+   for 3 independent sources and pinned config.json values. The R2 estimate "encoder =
+   wiring existing blocks" is confirmed: Qwen3-4B is exactly the src/nn/ zoo (GQA +
+   RmsNorm + SwiGLU) plus RoPE and QK-norm (implemented in src/vision/).
 2. Availability of edit weights in the Z-Image family; if absent, R6's edit scenario
    routes to FLUX.2-klein.
 3. Final license-text check on the HF model cards (no additional conditions).

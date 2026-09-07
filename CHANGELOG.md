@@ -4,6 +4,39 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — Vision R2: text encoder (Наряд №211)
+
+- **`vision` feature now implies `candle`** (`vision = ["dep:candle-core",
+  "dep:candle-nn"]`). The text encoder requires tensor operations; ADR-0118
+  is not violated (both features remain off-by-default, guard CI continues
+  to pass).
+- **Qwen3-architecture text encoder** (`src/vision/text_encoder.rs`):
+  - `TextEncoderConfig` + `QWEN3_4B_CONFIG` (pinned from config.json: 36
+    layers, 2560 hidden, 40/8 GQA, head_dim=64, SwiGLU, RmsNorm eps=1e-6,
+    RoPE theta=1e6).
+  - `TextEncoder::new(config, seed)` — deterministic seeded init via
+    xorshift64 PRNG (same contract as `src/nn/attention.rs`).
+  - `forward(token_ids) -> [seq_len, hidden]` — final-layer hidden states,
+    with causal mask, RoPE, QK-norm, GQA.
+  - RoPE + QK-norm + causal mask implemented in `src/vision/` — `src/nn/*`
+    NOT modified.
+- **Golden embedding contract** (`tests/naryad_211_text_encoder_golden.rs`):
+  5 tests, all `#![cfg(feature = "vision")]`:
+  - `golden_embeddings_shape_and_hash` — 3 prompts, SHA-256 bit-exact,
+    4 anchor values (1e-6 tolerance).
+  - `determinism_same_seed_same_output` — same seed = identical hash.
+  - `determinism_different_seed_different_output` — different seed =
+    different hash.
+  - `causal_property_prefix_match` — first N positions of long prompt
+    match short prompt (1e-6 tolerance).
+  - `qwen3_4b_config_matches_pinned_values` — constants-assert.
+- **CI**: `vision-tests` job gains golden-contract step.
+- **Research**: `docs/research/naryad-211-text-encoder-facts.md` — 3
+  independent sources confirming Qwen3-4B as Z-Image encoder, pinned
+  config.json dimensions, dtype policy (F32 for R2), hidden-states
+  question documented.
+- **ADR-0123 item 1 resolved** — text-encoder identity confirmed.
+
 ### Added — Server test infrastructure (Наряд №207)
 
 - **`run_test_server_with_backend_in_dir(source, backend, base_dir)`** — new

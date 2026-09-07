@@ -61,9 +61,12 @@ numbering lived in private plan documents. It now lives here, in the repo.
 
 | Наряд | Фаза | Содержание | Статус |
 |---|---|---|---|
+| №206 | maintenance | test-triage: 44 advisory-провала устранены, `test-integration` → blocking (PR #219). Реальные фиксы: Eq/Ne rollback-операторы инвертированы с №148 (hooks.rs), `!=` отсутствовал в `parse_compare_op` (grammar had NEQ, Rust-arm нет), import_path trim, CARGO_MANIFEST_DIR для std_root. Долг: 47 `#[ignore]` с причинами — погашается №207/№208 | merged, PR #219 |
+| №207 | maintenance | `run_test_server(_with_backend)`: параметр `base_dir` вместо захардкоженного CWD; un-ignore naryad_161 Block 3 (4) + vm_serve_realistic_dept_parity (3) | reserved (долг №206) |
+| №208 | maintenance | VM serve route-body parity: query_param/json_body/respond в VM-бэкенде = TW (naryad_160, 24 теста); VM template support → un-ignore vm_golden (2) | reserved (долг №206) |
 | №209 | R0 | research (wedge) + ADR-0122..0125 | merged, PR #214 |
-| №210 | R1 | каркас: feature `vision`, `src/vision/`, Value::Vision + VisionRegistry, SSOT loud-stubs, vision-tests CI job | reserved |
-| №211 | R2 | текст-энкодер на Reflex-блоках, golden-контракт эмбеддингов | reserved |
+| №210 | R1 | каркас: feature `vision`, `src/vision/`, Value::Vision + VisionRegistry, SSOT loud-stubs, vision-tests CI job | merged, PR #218 |
+| №211 | R2 | текст-энкодер на Reflex-блоках, golden-контракт эмбеддингов | reserved — следующий |
 | №212 | R3 | end-to-end клин (flow-sampler + VAE), первое изображение из .mlog; **Go/No-Go gate** | reserved |
 | №213 | R4 | `vision { }`-декларации, парсер, semantic, taint(prompts), dispatch | reserved |
 | №214 | R5 | security-гейты (ADR-0125), manifest, LSB-watermark, checksum-пиннинг | reserved |
@@ -71,9 +74,9 @@ numbering lived in private plan documents. It now lives here, in the repo.
 | №216 | R7 (опц.) | LoRA-дообучение через candle autograd | reserved |
 | №217–219 | V1–V3 | видео-фаза (после отдельного research-цикла, ADR-0126 reserved) | reserved |
 
-**Free ranges:** №206–208 — свободный буфер (мейнтенанс/хотфиксы, не закреплён
-ни за каким пилларом); №220–229 — резерв Voice-пиллара (`Metalogos_Voice_Pillar_Plan.md`);
-№230+ — свободны.
+**Free ranges:** буфер №206–208 исчерпан (№206 merged, №207/№208 — долг №206);
+№220–229 — резерв Voice-пиллара (`Metalogos_Voice_Pillar_Plan.md`);
+№230+ — свободны (мейнтенанс/хотфиксы до резервирования нового пиллара).
 
 **Rule:** перед стартом любого наряда исполнитель сверяется с этой картой и с
 update-нотацией ADR-0121. Новый пиллар обязан зарезервировать диапазон номеров

@@ -70,15 +70,18 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                     if name == "reflex_math.mlog" {
                         continue;
                     }
-                    // Наряд №179b: reflex_train_predict uses reflex_train/
-                    // reflex_predict builtins whose handlers need access to
-                    // the ReflexRegistry (lives on the Interpreter struct,
-                    // not the VM). VM Reflex support is tracked in a future
-                    // naryad (ADR-0114). The TW-only path is exercised by
-                    // the golden test suite.
-                    if name == "reflex_train_predict.mlog" {
-                        continue;
-                    }
+                    // Наряд №199 (ADR-0121): reflex_train_predict.mlog is now
+                    // supported on the VM! The exclusion has been removed and
+                    // the test runs on both backends. The VM intercepts
+                    // reflex_train/reflex_predict in call_builtin (before the
+                    // generic builtin fallback), routes to the VM's own
+                    // reflex_registry via the shared dispatch functions in
+                    // src/builtins/reflex.rs. Determinism is verified by
+                    // tests/naryad_199_vm_matches_tw_determinism.rs.
+                    //
+                    // The following reflex_* exclusions remain until stages
+                    // 2-5 of ADR-0121 (reflex_save/load, reflex_metrics/list,
+                    // reflex_generate, reflex_seq, reflex_gen, distillation).
                     // Наряд №180: reflex_persist.mlog uses reflex_save/
                     // reflex_load (same VM limitation as reflex_train/predict).
                     // Also writes to a real SQLite file under

@@ -320,8 +320,25 @@ impl Interpreter {
                 // when the interpreter processes them. The model is built
                 // from the declaration and stored in RuntimeContext.
                 Declaration::Reflex(r) => {
-                    // Build the ReflexModel from the declaration.
-                    let model = build_reflex_model(&r)?;
+                    // Наряд №199: build_reflex_model moved to
+                    // src/builtins/reflex.rs (shared with VM). Convert
+                    // ast::ReflexDecl → CompiledReflexDecl (trivial field
+                    // copies) and call the shared function.
+                    let compiled = crate::bytecode::CompiledReflexDecl {
+                        name: r.name.clone(),
+                        input_dim: r.input_dim,
+                        layers: r
+                            .layers
+                            .iter()
+                            .map(|l| crate::bytecode::CompiledReflexLayerSpec {
+                                name: l.name.clone(),
+                                args: l.args.clone(),
+                            })
+                            .collect(),
+                        labels: r.labels.clone(),
+                        seed: r.seed,
+                    };
+                    let model = crate::builtins::build_reflex_model(&compiled)?;
                     // Наряд №179b: reflex_registry is Mutex<ReflexRegistry>.
                     // We have &mut self here so get_mut() avoids the lock.
                     // Poisoning only happens if a thread panicked while
@@ -2264,82 +2281,12 @@ mod tests {
 }
 
 // ── Наряд №178: Reflex model builder ──────────────────────────────
-
-/// Build a ReflexModel from a ReflexDecl AST node.
-/// Validates layer names against LAYER_REGISTRY, constructs Dense layers
-/// with deterministic weight init (seed from declaration).
-fn build_reflex_model(decl: &crate::ast::ReflexDecl) -> Result<crate::nn::ReflexModel, String> {
-    use crate::nn::{activation::ActivationKind, dense::Dense, layer, ReflexModel};
-
-    let mut layers: Vec<Box<dyn crate::nn::Layer>> = Vec::new();
-    let mut current_input_size = decl.input_dim;
-
-    for layer_spec in &decl.layers {
-        // Validate layer name against LAYER_REGISTRY
-        let _spec = layer::find_layer_spec(&layer_spec.name).ok_or_else(|| {
-            format!(
-                "reflex '{}': unknown layer type '{}'. Available: {:?}",
-                decl.name,
-                layer_spec.name,
-                layer::layer_names()
-            )
-        })?;
-
-        // Parse args as Values
-        let args: Vec<crate::interpreter::Value> = layer_spec
-            .args
-            .iter()
-            .map(|s| {
-                // Try parsing as float, else keep as string
-                if let Ok(f) = s.parse::<f64>() {
-                    crate::interpreter::Value::Float(f)
-                } else {
-                    crate::interpreter::Value::String(s.clone())
-                }
-            })
-            .collect();
-
-        // For Dense: first arg = units, second arg = activation
-        // Build with current_input_size (chain layers)
-        let units = match args.first() {
-            Some(crate::interpreter::Value::Float(f)) => *f as usize,
-            _ => {
-                return Err(format!(
-                    "reflex '{}': layer '{}' requires 'units' as first arg",
-                    decl.name, layer_spec.name
-                ))
-            }
-        };
-
-        let activation_str = match args.get(1) {
-            Some(crate::interpreter::Value::String(s)) => s.as_str(),
-            _ => "none",
-        };
-        let activation = ActivationKind::parse_kind(activation_str)?;
-
-        // Derive per-layer seed from the model seed + layer index
-        let layer_seed = decl.seed.wrapping_add(layers.len() as u64);
-
-        let layer: Box<dyn crate::nn::Layer> = Box::new(Dense::new(
-            current_input_size,
-            units,
-            activation,
-            layer_seed,
-        ));
-
-        current_input_size = units;
-        layers.push(layer);
-    }
-
-    Ok(ReflexModel {
-        name: decl.name.clone(),
-        layers,
-        seed: decl.seed,
-        last_metric: None,
-        input_size: decl.input_dim,
-        labels: decl.labels.clone(),
-    })
-}
+//
+// Наряд №199: build_reflex_model has been MOVED to src/builtins/reflex.rs
+// (now pub, takes &CompiledReflexDecl instead of &ast::ReflexDecl). Both
+// the interpreter and the VM call the same shared function — the neural-
+// network logic is not duplicated. The conversion from ast::ReflexDecl
+// to CompiledReflexDecl happens at the call site above (Declaration::Reflex).
 
 /// Наряд №183 (ADR-0119): build + validate a `reflex_seq` declaration.
 ///

@@ -174,12 +174,12 @@ use regex::*;
 // macro in registry.rs can reference them.
 pub mod reflex;
 pub use reflex::{
-    builtin_reflex_bpe_decode, builtin_reflex_bpe_encode, builtin_reflex_bpe_save,
-    builtin_reflex_bpe_train, builtin_reflex_detokenize, builtin_reflex_tokenize,
+    build_reflex_model, reflex_generate_dispatch, reflex_list_dispatch, reflex_load_dispatch,
+    reflex_metrics_dispatch, reflex_predict_dispatch, reflex_save_dispatch, reflex_train_dispatch,
 };
 pub use reflex::{
-    reflex_generate_dispatch, reflex_list_dispatch, reflex_load_dispatch, reflex_metrics_dispatch,
-    reflex_predict_dispatch, reflex_save_dispatch, reflex_train_dispatch,
+    builtin_reflex_bpe_decode, builtin_reflex_bpe_encode, builtin_reflex_bpe_save,
+    builtin_reflex_bpe_train, builtin_reflex_detokenize, builtin_reflex_tokenize,
 };
 
 impl Default for Builtins {

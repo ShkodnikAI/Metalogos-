@@ -37,6 +37,7 @@ fn test_make_list_instruction() {
         learnables: vec![],
         rules: vec![],
         skill_indices: vec![],
+        reflex_decls: vec![],
         db_url: None,
         schema_ddl: vec![],
         main_code: vec![
@@ -62,6 +63,7 @@ fn test_list_len_instruction() {
         learnables: vec![],
         rules: vec![],
         skill_indices: vec![],
+        reflex_decls: vec![],
         db_url: None,
         schema_ddl: vec![],
         main_code: vec![
@@ -86,6 +88,7 @@ fn test_pop_instruction() {
         learnables: vec![],
         rules: vec![],
         skill_indices: vec![],
+        reflex_decls: vec![],
         db_url: None,
         schema_ddl: vec![],
         main_code: vec![

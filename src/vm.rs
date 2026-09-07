@@ -75,6 +75,19 @@ pub struct Vm {
     event_next_id: std::sync::atomic::AtomicU64,
     /// Наряд №72: Per-pattern runtime statistics (ADR-0051 parity with interpreter).
     pattern_stats: std::sync::Mutex<HashMap<String, PatternStats>>,
+    /// Наряд №199 (ADR-0121): VM-owned ReflexRegistry — mirrors the
+    /// interpreter's `reflex_registry` field. The VM owns its own registry
+    /// (not a borrow) because it's a separate execution backend that may
+    /// run without the interpreter ever being instantiated. No Mutex — the
+    /// VM is single-threaded per request (unlike `conversations`/`event_log`
+    /// which are Mutex'd because they're touched from `&self` server-context
+    /// entrypoints; `call_builtin` is `&mut self`).
+    reflex_registry: crate::nn::ReflexRegistry,
+    /// Наряд №199: maps model name → ReflexId. Populated by `load_program`
+    /// when processing `program.reflex_decls`. Used by the `LoadGlobalByName`
+    /// handler to resolve bare-Ident model references like
+    /// `reflex_train(TestClassifier, ...)` → `Value::Reflex(id)`.
+    reflex_names: HashMap<String, crate::nn::ReflexId>,
 }
 
 /// Collapse threshold for Fluid values (matches interpreter).
@@ -115,6 +128,8 @@ impl Vm {
             event_log: std::sync::Mutex::new(Vec::new()),
             event_next_id: std::sync::atomic::AtomicU64::new(0),
             pattern_stats: std::sync::Mutex::new(HashMap::new()),
+            reflex_registry: crate::nn::ReflexRegistry::new(),
+            reflex_names: HashMap::new(),
         }
     }
 
@@ -140,6 +155,20 @@ impl Vm {
         rules.sort_by_key(|b| std::cmp::Reverse(b.priority));
         self.rules = rules;
         self.skill_indices = program.skill_indices.clone();
+
+        // Наряд №199 (ADR-0121): register reflex models from compiled
+        // declarations. Mirrors the interpreter's `Declaration::Reflex(r)`
+        // handling in `src/interpreter/execution.rs`. The same shared
+        // `build_reflex_model` function is used (moved to
+        // `src/builtins/reflex.rs`) — the neural-network logic is NOT
+        // reimplemented, only the VM-side plumbing that routes to it.
+        // Stage 1: Dense classification only (reflex_seq/reflex_gen remain
+        // excluded from the VM until stages 3-4 of ADR-0121).
+        for decl in &program.reflex_decls {
+            let model = crate::builtins::build_reflex_model(decl)?;
+            let id = self.reflex_registry.register(model);
+            self.reflex_names.insert(decl.name.clone(), id);
+        }
 
         // Open database connection if URL is specified
         self.db_conn = program.db_url.as_ref().and_then(|url| {
@@ -205,6 +234,16 @@ impl Vm {
                         .iter()
                         .position(|n| n == name)
                         .and_then(|slot| self.globals.get(slot).cloned())
+                        // Наряд №199 (ADR-0121): if not a global, check if
+                        // it's a registered reflex model name. Bare-Ident
+                        // references like `reflex_train(TestClassifier, ...)`
+                        // compile to `LoadGlobalByName("TestClassifier")` because
+                        // the compiler doesn't know about reflex models (they're
+                        // registered at runtime). The VM resolves the name to
+                        // `Value::Reflex(id)` here, mirroring the interpreter's
+                        // `eval_expr_with_env` special-case for reflex_train/
+                        // reflex_predict first-arg (execution.rs:1311-1370).
+                        .or_else(|| self.reflex_names.get(name).map(|id| Value::Reflex(*id)))
                         .unwrap_or(Value::Unit);
                     stack.push(val);
                     ip += 1;
@@ -993,6 +1032,9 @@ impl Vm {
                         .iter()
                         .position(|n| n == name)
                         .and_then(|slot| self.globals.get(slot).cloned())
+                        // Наряд №199: same reflex_names resolution as
+                        // execute_main_code's LoadGlobalByName handler.
+                        .or_else(|| self.reflex_names.get(name).map(|id| Value::Reflex(*id)))
                         .unwrap_or(Value::Unit);
                     stack.push(val);
                     ip += 1;
@@ -2106,10 +2148,42 @@ impl Vm {
             return Ok(Value::List(list));
         }
 
+        // Наряд №199 (ADR-0121): intercept reflex_train/reflex_predict
+        // BEFORE the generic builtin fallback (which would call the stub).
+        // Routes to the VM's own reflex_registry via the shared dispatch
+        // functions in src/builtins/reflex.rs.
+        if let Some(result) = self.call_reflex_builtin(name, args) {
+            return result;
+        }
+
         if let Some(builtin_fn) = self.builtins.get(name) {
             return builtin_fn(args);
         }
         Err(format!("VM: undefined builtin: {}", name))
+    }
+
+    /// Наряд №199 (ADR-0121): intercept `reflex_train` and `reflex_predict`
+    /// before the generic builtin fallback (which calls the stub that
+    /// produces "VM backend does not yet support Reflex"). The intercept
+    /// routes to the same shared dispatch functions the interpreter uses
+    /// (`reflex_train_dispatch` / `reflex_predict_dispatch` in
+    /// `src/builtins/reflex.rs`), passing the VM's own `reflex_registry`.
+    /// The neural-network logic is NOT reimplemented — only the argument
+    /// marshalling and registry access differ from the interpreter path.
+    fn call_reflex_builtin(&mut self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
+        if name == "reflex_train" {
+            return Some(crate::builtins::reflex_train_dispatch(
+                &mut self.reflex_registry,
+                args,
+            ));
+        }
+        if name == "reflex_predict" {
+            return Some(crate::builtins::reflex_predict_dispatch(
+                &self.reflex_registry,
+                args,
+            ));
+        }
+        None
     }
 
     /// Call an LLM-backed learnable pattern.
@@ -2301,6 +2375,7 @@ impl Vm {
                     learnables: Vec::new(),
                     rules: Vec::new(),
                     skill_indices: Vec::new(),
+                    reflex_decls: Vec::new(),
                     db_url: None,
                     schema_ddl: Vec::new(),
                     main_code: Vec::new(),

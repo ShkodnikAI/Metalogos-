@@ -459,6 +459,22 @@ impl Compiler {
                         prompt: lp.prompt.clone(),
                         few_shot: Vec::new(),
                         context_mode,
+                        // Наряд №205 (ADR-0121 stage 6): pass distillation
+                        // fields through to the VM.
+                        distill_to: lp.distill_to.clone(),
+                        distill_after: lp.distill_after,
+                        fallback_if: lp.fallback_if.map(|(op, v)| {
+                            // Convert ast::CompareOp → bytecode::ConditionOp
+                            use crate::bytecode::ConditionOp;
+                            match op {
+                                crate::ast::CompareOp::Gt => (ConditionOp::Gt, v),
+                                crate::ast::CompareOp::Lt => (ConditionOp::Lt, v),
+                                crate::ast::CompareOp::Ge => (ConditionOp::Ge, v),
+                                crate::ast::CompareOp::Le => (ConditionOp::Le, v),
+                                crate::ast::CompareOp::Eq => (ConditionOp::Eq, v),
+                                crate::ast::CompareOp::Ne => (ConditionOp::Ne, v),
+                            }
+                        }),
                     }));
                 }
                 Declaration::Rule(_) => {

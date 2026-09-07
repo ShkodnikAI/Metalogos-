@@ -79,25 +79,9 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                     // src/builtins/reflex.rs. Determinism is verified by
                     // tests/naryad_199_vm_matches_tw_determinism.rs.
                     //
-                    // The following reflex_* exclusions remain until stages
-                    // 2-5 of ADR-0121 (reflex_save/load, reflex_metrics/list,
-                    // reflex_generate, reflex_seq, reflex_gen, distillation).
-                    // Наряд №204 (ADR-0121 stage 2): reflex_persist.mlog now
-                    // supported on the VM! reflex_save/reflex_load are
-                    // intercepted in call_builtin, routed to the VM's own
-                    // reflex_registry via the shared dispatch functions.
-                    // The exclusion has been removed.
-                    //
-                    // Наряд №181: distillation examples use distill_to/
-                    // distill_after/fallback_if in learnable_pattern, which
-                    // require learnable-pattern runtime hooks on the VM
-                    // (ADR-0117). Stage 6 of ADR-0121 — not yet implemented.
-                    if name == "reflex_distill_teaching.mlog"
-                        || name == "reflex_distill_switch.mlog"
-                        || name == "reflex_distill_fallback.mlog"
-                    {
-                        continue;
-                    }
+                    // All reflex_* exclusions have been removed (Наряды №199-205).
+                    // The VM now supports all reflex_* builtins with byte-for-byte
+                    // TW parity.
                     // Наряд №204 (ADR-0121 stage 2): reflex_introspect.mlog
                     // now supported on the VM! reflex_metrics/reflex_list are
                     // intercepted in call_builtin. The exclusion has been

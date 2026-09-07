@@ -129,14 +129,32 @@ fn cmd_run(file: PathBuf) {
         }
     };
 
-    match metalogos::run_program(&source) {
-        Ok(output) => {
+    // Наряд №197: run the interpreter in a thread with a large stack so that
+    // deeply-recursive Metalogos patterns (e.g. self-host/parser.mlog parsing
+    // itself) do not overflow the default 8MB main-thread stack. The interpreter's
+    // pattern-call mechanism is recursive on the Rust side: each Metalogos
+    // pattern invocation pushes frames for eval_statements → invoke_pattern_with_hooks
+    // → eval_statements → ... For parser.mlog's nested if-else expressions,
+    // this can recurse 100+ levels deep. 256MB is a safe upper bound that
+    // still fits within typical container memory limits.
+    let source_for_thread = source.clone();
+    let handle = std::thread::Builder::new()
+        .stack_size(256 * 1024 * 1024)
+        .spawn(move || metalogos::run_program(&source_for_thread))
+        .expect("failed to spawn interpreter thread");
+
+    match handle.join() {
+        Ok(Ok(output)) => {
             if let Some(result) = output {
                 println!("{}", result);
             }
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+        Err(_) => {
+            eprintln!("error: interpreter thread panicked");
             std::process::exit(1);
         }
     }

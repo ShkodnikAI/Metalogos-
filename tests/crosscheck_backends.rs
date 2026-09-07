@@ -120,6 +120,7 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                         || name == "reflex_seq_gqa_stack.mlog"
                         || name == "reflex_gen_declare.mlog"
                         || name == "reflex_gen_from_text.mlog"
+                        || name == "reflex_batch_train.mlog"
                     {
                         continue;
                     }

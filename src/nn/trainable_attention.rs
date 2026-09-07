@@ -166,21 +166,37 @@ impl TrainableAttention {
     }
 
     fn forward_impl(&self, input: &Tensor) -> Result<Tensor, String> {
-        let (seq_len, _in_dim) = input
+        // Support both 2D [seq, dim] and 3D [batch, seq, dim] inputs.
+        // For 3D, squeeze the batch dim, process, then unsqueeze back.
+        let dims = input.dims();
+        let is_batched = dims.len() == 3;
+        let (input_2d, batch_size) = if is_batched {
+            let bs = dims[0];
+            let seq = dims[1];
+            let d = dims[2];
+            let flat = input
+                .reshape((bs * seq, d))
+                .map_err(|e| format!("trainable_attn: reshape for batch: {}", e))?;
+            (flat, bs)
+        } else {
+            (input.clone(), 1)
+        };
+
+        let (seq_len, _in_dim) = input_2d
             .dims2()
             .map_err(|e| format!("trainable_attn dims: {}", e))?;
-        let device = input.device();
+        let device = input_2d.device();
 
         // Q, K, V projections — Var as_tensor() returns the underlying
         // Tensor (which is in the autograd graph because it came from
         // a Var). Q: [seq, dim], K/V: [seq, kv_dim].
-        let q = input
+        let q = input_2d
             .matmul(self.w_q.as_tensor())
             .map_err(|e| format!("trainable_attn Q matmul: {}", e))?;
-        let k = input
+        let k = input_2d
             .matmul(self.w_k.as_tensor())
             .map_err(|e| format!("trainable_attn K matmul: {}", e))?;
-        let v = input
+        let v = input_2d
             .matmul(self.w_v.as_tensor())
             .map_err(|e| format!("trainable_attn V matmul: {}", e))?;
 
@@ -237,8 +253,17 @@ impl TrainableAttention {
             .map_err(|e| format!("trainable_attn out reshape: {}", e))?;
 
         // Output projection
-        out.matmul(self.w_o.as_tensor())
-            .map_err(|e| format!("trainable_attn out proj: {}", e))
+        let out = out
+            .matmul(self.w_o.as_tensor())
+            .map_err(|e| format!("trainable_attn out proj: {}", e))?;
+
+        // If batched, reshape back to [batch, seq, dim]
+        if is_batched {
+            out.reshape((batch_size, seq_len, self.dim))
+                .map_err(|e| format!("trainable_attn: reshape back to batch: {}", e))
+        } else {
+            Ok(out)
+        }
     }
 
     /// GQA: repeat KV heads along head axis (Наряд №188).

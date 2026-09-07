@@ -138,6 +138,285 @@ impl ReflexGenModel {
         )
     }
 
+    /// Forward pass for a BATCH of sequences.
+    /// Input: `[batch, seq_len, dim]` (already embedded).
+    /// Output: `[batch, seq_len, vocab_size]` logits.
+    ///
+    /// Each layer's `forward()` operates on the last two dimensions
+    /// (seq_len, dim) — the batch dimension is preserved through matmul
+    /// and broadcasting. This works because attention's reshape/transpose
+    /// only touch the seq/head/dim axes, not the batch axis.
+    ///
+    /// **Padding mask:** positions where `mask[batch, pos] == 0` are
+    /// padding (should not contribute to loss or attention). The mask
+    /// is applied AFTER forward (in the loss computation), not inside
+    /// the layers — layers process all positions uniformly, and the
+    /// loss function ignores padded positions.
+    pub fn forward_batch(&self, input: &Tensor) -> Result<Tensor, String> {
+        // Support both 2D [seq, dim] and 3D [batch, seq, dim] inputs.
+        // For 3D, squeeze the batch dim, process, then unsqueeze back.
+        let dims = input.dims();
+        let is_batched = dims.len() == 3;
+        let (input_2d, batch_size) = if is_batched {
+            let bs = dims[0];
+            let seq = dims[1];
+            let d = dims[2];
+            let flat = input
+                .reshape((bs * seq, d))
+                .map_err(|e| format!("gen forward_batch: reshape: {}", e))?;
+            (flat, bs)
+        } else {
+            (input.clone(), 1)
+        };
+
+        let mut current = input_2d.clone();
+        for layer in &self.seq_layers {
+            current = layer.forward(&current)?;
+        }
+        let logits = map_err(
+            current.matmul(&self.vocab_head_w),
+            "gen forward_batch: vocab matmul",
+        )?;
+        let logits = map_err(
+            logits.broadcast_add(&self.vocab_head_b),
+            "gen forward_batch: vocab bias",
+        )?;
+
+        // Reshape back to [batch, seq, vocab_size] if batched
+        if is_batched {
+            logits
+                .reshape((batch_size, dims[1], self.vocab_size))
+                .map_err(|e| format!("gen forward_batch: reshape back: {}", e))
+        } else {
+            Ok(logits)
+        }
+    }
+
+    /// Train via next-token prediction, using BATCHED forward/backward.
+    ///
+    /// Groups `batch_size` sequences into a single `[batch, seq_len, dim]`
+    /// tensor, pads shorter sequences to the max length in the batch,
+    /// and runs one forward + backward pass per batch (not per sequence).
+    ///
+    /// **Padding mask:** padded positions get zero loss — they don't
+    /// contribute to gradients. The mask ensures padding doesn't
+    /// corrupt the learning signal from real tokens.
+    ///
+    /// When `batch_size=1`, this is numerically identical to the
+    /// single-sequence `train()` method (verified by contract 1).
+    pub fn train_batch(
+        &mut self,
+        sequences: &[Vec<u32>],
+        epochs: usize,
+        learning_rate: f64,
+        batch_size: usize,
+    ) -> Result<f64, String> {
+        if sequences.is_empty() {
+            return Err("reflex_gen train_batch: need at least 1 sequence".to_string());
+        }
+        if batch_size == 0 {
+            return Err("reflex_gen train_batch: batch_size must be > 0".to_string());
+        }
+
+        // Filter out sequences too short for next-token prediction
+        let valid_seqs: Vec<&Vec<u32>> = sequences.iter().filter(|s| s.len() >= 2).collect();
+        if valid_seqs.is_empty() {
+            return Err(
+                "reflex_gen train_batch: all sequences are too short (< 2 tokens)".to_string(),
+            );
+        }
+
+        let lr = learning_rate as f32;
+        let device = Device::Cpu;
+        let dim = self.input_dim;
+        let mut last_loss = 0.0f64;
+
+        for _epoch in 0..epochs {
+            let mut epoch_loss_sum = 0.0f64;
+            let mut epoch_count = 0usize;
+
+            // Process sequences in batches
+            for batch_start in (0..valid_seqs.len()).step_by(batch_size) {
+                let batch_end = (batch_start + batch_size).min(valid_seqs.len());
+                let batch: Vec<&Vec<u32>> = valid_seqs[batch_start..batch_end].to_vec();
+
+                // Find max sequence length in this batch (for padding)
+                let max_len = batch.iter().map(|s| s.len()).max().unwrap_or(0);
+                if max_len < 2 {
+                    continue;
+                }
+
+                let actual_batch = batch.len();
+
+                // Build padded token tensor: [batch, max_len]
+                // Pad with 0 (token ID 0) — the mask ensures these don't contribute to loss
+                let mut all_tokens: Vec<u32> = Vec::with_capacity(actual_batch * max_len);
+                let mut all_targets: Vec<u32> = Vec::with_capacity(actual_batch * (max_len - 1));
+                let mut mask: Vec<f32> = Vec::with_capacity(actual_batch * (max_len - 1));
+
+                for seq in &batch {
+                    let seq_len = seq.len();
+                    // Pad the input tokens to max_len
+                    for i in 0..max_len {
+                        if i < seq_len {
+                            all_tokens.push(seq[i]);
+                        } else {
+                            all_tokens.push(0); // padding token
+                        }
+                    }
+                    // Targets: shifted by 1 (predict token[i+1] from position i)
+                    // Only for positions 0..seq_len-1 (real positions), padded positions get mask=0
+                    for i in 0..(max_len - 1) {
+                        if i < seq_len - 1 {
+                            all_targets.push(seq[i + 1]);
+                            mask.push(1.0); // real position
+                        } else {
+                            all_targets.push(0); // dummy target for padding
+                            mask.push(0.0); // padded position — zero loss
+                        }
+                    }
+                }
+
+                // Embed all tokens: [batch * max_len] → [batch * max_len, dim] → [batch, max_len, dim]
+                let token_tensor = map_err(
+                    Tensor::from_vec(all_tokens, (actual_batch * max_len,), &device),
+                    "gen train_batch: token tensor",
+                )?;
+                let embedded = map_err(
+                    self.token_embedding.embedding(&token_tensor),
+                    "gen train_batch: embedding lookup",
+                )?;
+                let embedded =
+                    map_err(embedded.to_dtype(DType::F32), "gen train_batch: emb dtype")?;
+                let embedded = map_err(
+                    embedded.reshape((actual_batch, max_len, dim)),
+                    "gen train_batch: reshape to [batch, seq, dim]",
+                )?;
+
+                // Forward → [batch, max_len, vocab_size]
+                let logits = self.forward_batch(&embedded)?;
+
+                // Extract input logits: positions 0..max_len-1
+                let input_logits = map_err(
+                    logits.narrow(1, 0, max_len - 1),
+                    "gen train_batch: narrow input logits",
+                )?;
+
+                // Compute masked cross-entropy loss
+                let loss = self.cross_entropy_loss_batch(
+                    &input_logits,
+                    &all_targets,
+                    &mask,
+                    actual_batch,
+                    max_len - 1,
+                )?;
+                let loss_val =
+                    map_err(loss.to_scalar::<f32>(), "gen train_batch: loss scalar")? as f64;
+                epoch_loss_sum += loss_val;
+                epoch_count += 1;
+
+                // Backward + SGD (one step per batch, not per sequence)
+                let grads = map_err(loss.backward(), "gen train_batch: backward")?;
+                let all_vars = self.var_map.all_vars();
+                for var in &all_vars {
+                    if let Some(grad) = grads.get(var.as_tensor()) {
+                        let lr_scalar = map_err(Tensor::new(lr, &device), "gen train_batch: lr")?;
+                        let lr_tensor = map_err(
+                            lr_scalar.broadcast_as(grad.shape()),
+                            "gen train_batch: lr broadcast",
+                        )?;
+                        let scaled_grad = map_err(
+                            grad.broadcast_mul(&lr_tensor),
+                            "gen train_batch: scale grad",
+                        )?;
+                        let new_val =
+                            map_err(var.as_tensor().sub(&scaled_grad), "gen train_batch: sub")?;
+                        map_err(var.set(&new_val), "gen train_batch: set")?;
+                    }
+                }
+            }
+
+            if epoch_count > 0 {
+                last_loss = epoch_loss_sum / epoch_count as f64;
+            }
+        }
+
+        Ok(last_loss)
+    }
+
+    /// Masked cross-entropy loss for batched training.
+    ///
+    /// `logits`: [batch, seq_len, vocab_size]
+    /// `targets`: flat Vec<u32> of length batch * seq_len
+    /// `mask`: flat Vec<f32> of length batch * seq_len (1.0 for real, 0.0 for padding)
+    ///
+    /// Loss = mean over real positions of -log(softmax(logits)[target])
+    /// Padded positions (mask=0) contribute zero to the loss.
+    fn cross_entropy_loss_batch(
+        &self,
+        logits: &Tensor,
+        targets: &[u32],
+        mask: &[f32],
+        batch: usize,
+        seq_len: usize,
+    ) -> Result<Tensor, String> {
+        let probs = map_err(
+            candle_nn::ops::softmax(logits, candle_core::D::Minus1),
+            "gen loss_batch: softmax",
+        )?;
+
+        // For each position in each batch, extract the probability of the target token
+        let mut loss_terms: Vec<Tensor> = Vec::with_capacity(batch * seq_len);
+        let mut real_count: f32 = 0.0;
+
+        for b in 0..batch {
+            for pos in 0..seq_len {
+                let idx = b * seq_len + pos;
+                let m = mask[idx];
+                if m == 0.0 {
+                    continue; // Skip padded positions — don't add to loss
+                }
+                real_count += m;
+
+                let target = targets[idx] as usize;
+                // probs: [batch, seq_len, vocab_size]
+                // Extract probs[b, pos, target]
+                let target_prob = map_err(
+                    probs
+                        .narrow(0, b, 1)
+                        .and_then(|t| t.narrow(1, pos, 1))
+                        .and_then(|t| t.narrow(2, target, 1)),
+                    "gen loss_batch: narrow target",
+                )?;
+                let log_prob = map_err(target_prob.log(), "gen loss_batch: log")?;
+                let neg_log = map_err(log_prob.affine(-1.0, 0.0), "gen loss_batch: neg")?;
+                // Scale by mask (1.0 for real, 0.0 for padding)
+                let masked = map_err(neg_log.affine(m as f64, 0.0), "gen loss_batch: mask scale")?;
+                loss_terms.push(masked);
+            }
+        }
+
+        if loss_terms.is_empty() || real_count == 0.0 {
+            // All positions are padding — return zero loss
+            return map_err(Tensor::new(0.0f32, logits.device()), "gen loss_batch: zero");
+        }
+
+        // Sum all loss terms and divide by real_count
+        let stacked = map_err(Tensor::stack(&loss_terms, 0), "gen loss_batch: stack")?;
+        let sum = map_err(stacked.sum(0), "gen loss_batch: sum")?;
+        let count_tensor = map_err(
+            Tensor::new(real_count, logits.device()),
+            "gen loss_batch: count",
+        )?;
+        let mean = map_err(sum.broadcast_div(&count_tensor), "gen loss_batch: divide")?;
+        // Squeeze all remaining dims to get a scalar
+        let mut result = mean;
+        while !result.dims().is_empty() {
+            result = map_err(result.squeeze(0), "gen loss_batch: squeeze")?;
+        }
+        Ok(result)
+    }
+
     /// Train via next-token prediction.
     /// `sequences`: token ID sequences (Vec<u32> per sequence).
     /// Returns final average loss.

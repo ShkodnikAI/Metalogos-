@@ -62,8 +62,8 @@ numbering lived in private plan documents. It now lives here, in the repo.
 | Наряд | Фаза | Содержание | Статус |
 |---|---|---|---|
 | №206 | maintenance | test-triage: 44 advisory-провала устранены, `test-integration` → blocking (PR #219). Реальные фиксы: Eq/Ne rollback-операторы инвертированы с №148 (hooks.rs), `!=` отсутствовал в `parse_compare_op` (grammar had NEQ, Rust-arm нет), import_path trim, CARGO_MANIFEST_DIR для std_root. Долг: 47 `#[ignore]` с причинами — погашается №207/№208 | merged, PR #219 |
-| №207 | maintenance | `run_test_server(_with_backend)`: параметр `base_dir` вместо захардкоженного CWD; un-ignore naryad_161 Block 3 (4) + vm_serve_realistic_dept_parity (3) | reserved (долг №206) |
-| №208 | maintenance | VM serve route-body parity: query_param/json_body/respond в VM-бэкенде = TW (naryad_160, 24 теста); VM template support → un-ignore vm_golden (2) | reserved (долг №206) |
+| №207 | maintenance | `run_test_server_with_backend_in_dir(source, backend, base_dir)` — один параметр на оба пути резолва (TW: `set_base_dir`, VM: `with_std_root`); обёртка `run_test_server_with_backend` сохранена. Итог по тестам: активны 2 TW-теста (n161 `block3_tw_serves_imported_pattern`, dept `tw_serves_all_dept_branches_correctly`); 5 VM-зависимых тестов игноры с n207/n208-якорями. **Ключевое открытие: VM не умеет вызывать user-паттерны из тел маршрутов (HTTP 500)** — см. коррекцию №208 | merged, PR #221 (+ fix-forward) |
+| №208 | maintenance | **Скоп скорректирован по итогам №207:** корневая причина — VM не диспетчеризует user-паттерны из тел маршрутов (HTTP 500, доказано n161 Block 3, verbatim "status 500 != 200") + дивергенции query_param/json_body/respond. Цель: VM route-body = TW (naryad_160 — 24 теста, n161 Block 3 VM — 3, dept_parity VM — 2, vm_golden — 2; итого 31 un-ignore) | reserved (долг №206) |
 | №209 | R0 | research (wedge) + ADR-0122..0125 | merged, PR #214 |
 | №210 | R1 | каркас: feature `vision`, `src/vision/`, Value::Vision + VisionRegistry, SSOT loud-stubs, vision-tests CI job | merged, PR #218 |
 | №211 | R2 | текст-энкодер на Reflex-блоках, golden-контракт эмбеддингов | reserved — следующий |

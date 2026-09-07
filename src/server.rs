@@ -498,7 +498,7 @@ pub async fn run_test_server(
     let state = build_state(config.clone(), interp).await?;
     let app = build_router(state);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await?;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
 
     let handle = tokio::spawn(async move {
@@ -564,7 +564,7 @@ pub async fn run_test_server_with_backend(
 
     let app = build_router(state);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await?;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
 
     let handle = tokio::spawn(async move {

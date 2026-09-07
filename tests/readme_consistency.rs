@@ -346,6 +346,27 @@ fn readme_total_builtins_match_reality() {
             line_num, claimed, real
         );
     }
+
+    // Наряд №206: also verify REFERENCE.md builtin count matches reality.
+    // Previously only README was checked — REFERENCE.md was drifting.
+    let reference_path = repo_root().join("REFERENCE.md");
+    let reference = fs::read_to_string(&reference_path)
+        .unwrap_or_else(|e| panic!("cannot read {:?}: {}", reference_path, e));
+    let ref_re = Regex::new(r"(\d+)\s+(?:registered builtins|of the\s+\d+)").unwrap();
+    for (i, line) in reference.lines().enumerate() {
+        let line_num = i + 1;
+        for cap in ref_re.captures_iter(line) {
+            if let Some(m) = cap.get(1) {
+                if let Ok(n) = m.as_str().parse::<usize>() {
+                    assert_eq!(
+                        n, real,
+                        "REFERENCE.md line {} claims {} builtins, but real spec! count is {}",
+                        line_num, n, real
+                    );
+                }
+            }
+        }
+    }
 }
 
 // ── Test: Builtin module (category) count (Наряд №149) ─────────────
@@ -758,7 +779,12 @@ fn reference_md_builtin_coverage_does_not_regression() {
     //      `BASELINE_MISSING_COUNT` and add a comment explaining why.
     //      Do NOT bump it just to make the test pass — every bump
     //      is a regression in user-facing documentation.
-    const BASELINE_MISSING_COUNT: usize = 153;
+    const BASELINE_MISSING_COUNT: usize = 159;
+
+    // Наряд №206: bumped from 153 to 159 (+6) for the 6 vision_* builtins
+    // added in Наряд №210. These are loud-stub builtins — intentionally
+    // undocumented until R3 (naryad 212) when real implementation lands.
+    // They are feature-gated behind `vision` (off by default).
 
     let all_names = collect_registry_builtin_names();
     let documented = collect_documented_builtin_names();

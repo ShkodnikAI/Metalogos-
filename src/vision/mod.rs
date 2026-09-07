@@ -43,9 +43,10 @@ impl std::fmt::Display for VisionId {
 /// type is currently `()` (empty) — R2/R3 will replace it with actual
 /// image tensors or generation state.
 ///
-/// In the interpreter, the registry is stored as
+/// In the interpreter, the registry will be stored as
 /// `Mutex<VisionRegistry>` on the `Interpreter` struct (same pattern as
-/// `reflex_registry` at `src/interpreter/mod.rs:218`).
+/// `reflex_registry` at `src/interpreter/mod.rs:218`). This wiring lands
+/// in R3 (naryad 212) when real vision state exists — not in R1.
 #[derive(Debug, Default)]
 pub struct VisionRegistry {
     /// Map from VisionId → artifact. Currently `()` — R2/R3 will add real types.

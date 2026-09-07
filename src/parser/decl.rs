@@ -501,7 +501,11 @@ pub(super) fn parse_import_decl(pair: Pair<Rule>) -> Declaration {
     let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);
     // import_decl = { IMPORT_KW ~ import_path ~ (AS_KW ~ IDENT)? }
-    let path = find_child_str(&children, Rule::import_path).unwrap_or_default();
+    // Наряд №206: import_path is a non-atomic rule — pair.as_str() may
+    // include trailing whitespace/newlines. Trim to get the clean path.
+    let path = find_child_str(&children, Rule::import_path)
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
     let alias = find_child_str(&children, Rule::IDENT);
     Declaration::Import(ImportDecl { span, path, alias })
 }
@@ -667,6 +671,7 @@ pub(super) fn parse_compare_op(pair: &Pair<Rule>) -> Result<CompareOp, ParseErro
         ">=" => Ok(CompareOp::Ge),
         "<=" => Ok(CompareOp::Le),
         "==" => Ok(CompareOp::Eq),
+        "!=" => Ok(CompareOp::Ne),
         _ => Err(pair_error(
             pair,
             "GRAMMAR INVARIANT: unknown compare operator",

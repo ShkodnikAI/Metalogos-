@@ -39,7 +39,9 @@ mlogserver {
             _ => None,
         })
         .expect("should have mlogserver block");
-    let mut compiler = Compiler::with_std_root(std::path::PathBuf::from("examples/debug"));
+    let mut compiler = Compiler::with_std_root(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/debug"),
+    );
     let _program = compiler
         .compile(declarations)
         .expect("compile should resolve p161_route_helper");
@@ -71,7 +73,9 @@ mlogserver {
             _ => None,
         })
         .expect("should have mlogserver block");
-    let mut compiler = Compiler::with_std_root(std::path::PathBuf::from("examples/debug"));
+    let mut compiler = Compiler::with_std_root(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/debug"),
+    );
     let _program = compiler
         .compile(declarations)
         .expect("compile should resolve p161_route_helper as helper");
@@ -99,7 +103,9 @@ mlogserver {
             _ => None,
         })
         .expect("should have mlogserver block");
-    let mut compiler = Compiler::with_std_root(std::path::PathBuf::from("examples/debug"));
+    let mut compiler = Compiler::with_std_root(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/debug"),
+    );
     let _program = compiler
         .compile(declarations)
         .expect("compile without import should succeed");
@@ -143,7 +149,9 @@ mlogserver {
             _ => None,
         })
         .expect("should have mlogserver block");
-    let mut compiler = Compiler::with_std_root(std::path::PathBuf::from("examples/debug"));
+    let mut compiler = Compiler::with_std_root(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/debug"),
+    );
     let _program = compiler
         .compile(declarations)
         .expect("compile should resolve A→B→C chain");
@@ -156,6 +164,16 @@ mlogserver {
 // ═══════════════════════════════════════════════════════════════════
 // БЛОК 3 — Контракт через реальный HTTP: TW и VM дают одинаковый ответ
 // ═══════════════════════════════════════════════════════════════════
+//
+// Наряд №206: Block 3 tests use `run_test_server_with_backend` which
+// hardcodes `Compiler::new()` (CWD as std_root) and `set_base_dir(".")`.
+// After Наряд №203 moved helper files from repo root to examples/debug/,
+// these runtime tests can no longer resolve imports — the test server
+// doesn't accept a custom base_dir. Fixing this requires changing
+// `run_test_server_with_backend` to accept a base_dir parameter, which
+// is out of scope for this triage naryad. Ignored with reason per n103.
+// Compile-only tests (Block 1) DO pass — they use Compiler::with_std_root
+// directly.
 
 const SOURCE_WITH_IMPORT: &str = r#"
 import p161_route_helper
@@ -189,6 +207,7 @@ async fn http_get(port: u16, path: &str) -> (u16, String) {
     (status, body)
 }
 
+#[ignore = "n206: run_test_server_with_backend hardcodes CWD as base_dir; needs base_dir param (post-n203 move)"]
 #[tokio::test]
 async fn block3_tw_serves_imported_pattern() {
     let (port, _handle) = start_server(SOURCE_WITH_IMPORT, ServeBackend::Interpreter).await;
@@ -200,6 +219,7 @@ async fn block3_tw_serves_imported_pattern() {
     );
 }
 
+#[ignore = "n206: run_test_server_with_backend hardcodes CWD as base_dir; needs base_dir param (post-n203 move)"]
 #[tokio::test]
 async fn block3_vm_serves_imported_pattern() {
     let (port, _handle) = start_server(SOURCE_WITH_IMPORT, ServeBackend::Vm).await;
@@ -211,6 +231,7 @@ async fn block3_vm_serves_imported_pattern() {
     );
 }
 
+#[ignore = "n206: run_test_server_with_backend hardcodes CWD as base_dir; needs base_dir param (post-n203 move)"]
 #[tokio::test]
 async fn block3_tw_vm_parity_imported_pattern() {
     let (tw_port, tw_handle) = start_server(SOURCE_WITH_IMPORT, ServeBackend::Interpreter).await;
@@ -227,6 +248,7 @@ async fn block3_tw_vm_parity_imported_pattern() {
     );
 }
 
+#[ignore = "n206: run_test_server_with_backend hardcodes CWD as base_dir; needs base_dir param (post-n203 move)"]
 #[tokio::test]
 async fn block3_vm_transitive_import_chain() {
     let source = r#"

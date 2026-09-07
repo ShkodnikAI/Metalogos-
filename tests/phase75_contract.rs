@@ -337,16 +337,15 @@ template Page(title: String) -> Html {
         .run(metalogos::parser::parse(source).unwrap())
         .unwrap();
 
-    // Call render() with template name + key/value pairs (3 args minimum)
+    // Call render() with template name + param value (2 args for 1-param template).
+    // Наряд №206: the original test passed 3 args (template_name, key, value)
+    // but render() takes (template_name, value1, value2, ...) matching the
+    // template's params positionally — not key/value pairs.
     let result = interp.eval_expr(&Expr::FnCall {
         name: "render".to_string(),
         args: vec![
             Expr::StringLit {
                 value: "Page".to_string(),
-                span: metalogos::ast::Span::unknown(),
-            },
-            Expr::StringLit {
-                value: "title".to_string(),
                 span: metalogos::ast::Span::unknown(),
             },
             Expr::StringLit {

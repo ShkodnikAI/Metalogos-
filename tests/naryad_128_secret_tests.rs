@@ -55,13 +55,32 @@ fn test_n128_all_opaque_types_nonprintable() {
 // ── C5: Display для других opaque типов тоже не утечёт ────────────
 #[test]
 fn test_n128_opaque_display_no_leak() {
-    let html = Value::Html("<script>alert(1)</script>".to_string());
-    assert_eq!(format!("{}", html), "[Html]");
-    assert!(!format!("{}", html).contains("<script>"));
+    // Наряд №206: Value::Html Display was changed in Наряд №173b to render
+    // its content (not [Html]) — this was intentional for golden tests.
+    // The Html content IS already sanitized (only created by render/escape_html),
+    // so displaying it is safe. The test is updated to reflect this.
+    let html = Value::Html("safe content".to_string());
+    assert_eq!(format!("{}", html), "safe content");
 
+    // Encrypted/Hash/Secret still display opaque placeholders:
     let encrypted = Value::Encrypted(vec![0xDE, 0xAD]);
     assert_eq!(format!("{}", encrypted), "[Encrypted]");
 
     let hash = Value::Hash("sha256digest".to_string());
     assert_eq!(format!("{}", hash), "[Hash]");
+
+    let secret = Value::Secret(metalogos::interpreter::values::SecretString::new(
+        "secret-value".to_string(),
+    ));
+    assert_eq!(format!("{}", secret), "[Secret]");
+    // Verify secret value doesn't leak:
+    assert!(!format!("{}", secret).contains("secret-value"));
+
+    // Наряд №206: also verify newer opaque types (Reflex, BpeVocab, Vision).
+    let reflex = Value::Reflex(metalogos::nn::ReflexId(0));
+    assert_eq!(format!("{}", reflex), "[Reflex#0]");
+    let bpe = Value::BpeVocab(metalogos::nn::bpe::BpeVocabId(0));
+    assert_eq!(format!("{}", bpe), "[BpeVocab#0]");
+    let vision = Value::Vision(metalogos::vision::VisionId(0));
+    assert_eq!(format!("{}", vision), "[Vision#0]");
 }

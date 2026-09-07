@@ -61,14 +61,20 @@ impl Interpreter {
         let accuracy: f64 = 0.95;
 
         // Check against threshold
+        // "kept = true" means the mutation is KEPT (not rolled back).
+        // rollback_if: accuracy OP threshold → roll back if condition is TRUE.
+        // So kept = NOT (accuracy OP threshold).
         let kept = match (&m.rollback_op, &m.rollback_threshold) {
             (Some(op), Some(threshold)) => match op {
-                CompareOp::Lt => accuracy >= *threshold,
-                CompareOp::Le => accuracy > *threshold,
-                CompareOp::Gt => accuracy <= *threshold,
-                CompareOp::Ge => accuracy < *threshold,
-                CompareOp::Eq => (accuracy - threshold).abs() < 1e-9,
-                CompareOp::Ne => (accuracy - threshold).abs() >= 1e-9,
+                CompareOp::Lt => accuracy >= *threshold, // rollback if <, keep if >=
+                CompareOp::Le => accuracy > *threshold,  // rollback if <=, keep if >
+                CompareOp::Gt => accuracy <= *threshold, // rollback if >, keep if <=
+                CompareOp::Ge => accuracy < *threshold,  // rollback if >=, keep if <
+                // Наряд №206: Eq/Ne were inverted (bug since n148).
+                // rollback_if: accuracy == 0.95 → roll back if equal, keep if different.
+                CompareOp::Eq => (accuracy - threshold).abs() >= 1e-9,
+                // rollback_if: accuracy != 0.95 → roll back if different, keep if equal.
+                CompareOp::Ne => (accuracy - threshold).abs() < 1e-9,
             },
             _ => true, // No rollback condition → always keep
         };

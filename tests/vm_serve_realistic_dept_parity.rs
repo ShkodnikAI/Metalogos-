@@ -16,7 +16,11 @@ async fn start_server(
     u16,
     tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
 ) {
-    metalogos::server::run_test_server_with_backend(DISPATCHER_SOURCE, backend)
+    // НАРЯД №207 (fix-forward): dept-модули лежат в examples/ рядом с
+    // dispatcher'ом (include_str!). base_dir указывает туда и для TW
+    // (module loading), и для VM (std_root import resolution).
+    let base_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples");
+    metalogos::server::run_test_server_with_backend_in_dir(DISPATCHER_SOURCE, backend, base_dir)
         .await
         .expect("test server should start")
 }
@@ -57,19 +61,25 @@ async fn assert_all_depts_parity(backend: ServeBackend, backend_name: &str) {
     assert_eq!(body, "unknown dept", "{}: fallback-ветка", backend_name);
 }
 
-#[ignore = "n206: run_test_server hardcodes CWD as base_dir; dept modules not resolvable (same as n161 Block 3)"]
+// НАРЯД №207 (fix-forward): TW-путь разблокирован — импорты резолвятся от base_dir.
 #[tokio::test]
 async fn tw_serves_all_dept_branches_correctly() {
     assert_all_depts_parity(ServeBackend::Interpreter, "TW").await;
 }
 
-#[ignore = "n206: run_test_server hardcodes CWD as base_dir; dept modules not resolvable (same as n161 Block 3)"]
+// НАРЯД №207: VM route body divergence — тело маршрута вызывает user-паттерн
+// RouteByDept (→ HandleDeptA/B/C) и query_param; VM отвечает 500 на вызовы
+// user-паттернов из тел маршрутов (доказано в naryad_161 Block 3, verbatim:
+// "status 500 != 200"). Tracked as n208.
+#[ignore = "n207: VM route body divergence — user-pattern calls + query_param in route bodies return 500 on VM; tracked as n208"]
 #[tokio::test]
 async fn vm_serves_all_dept_branches_correctly() {
     assert_all_depts_parity(ServeBackend::Vm, "VM").await;
 }
 
-#[ignore = "n206: run_test_server hardcodes CWD as base_dir; dept modules not resolvable (same as n161 Block 3)"]
+// НАРЯД №207: parity-тест включает VM-сторону → упирается в ту же дивергенцию
+// (user-паттерны из тел маршрутов на VM дают 500). Tracked as n208.
+#[ignore = "n207: VM route body divergence — VM side returns 500 on user-pattern calls in route bodies; tracked as n208"]
 #[tokio::test]
 async fn tw_vm_full_parity_across_all_branches() {
     let (tw_port, _tw_handle) = start_server(ServeBackend::Interpreter).await;

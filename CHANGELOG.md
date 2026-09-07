@@ -14,14 +14,21 @@ All notable changes to the Metalogos project.
 - Backward-compatible wrapper `run_test_server_with_backend(source, backend)`
   preserved — delegates via `current_dir()`, matching `Compiler::new()` semantics.
   ~40 existing callers unchanged.
-- 7 tests unblocked from `#[ignore]`:
-  - n161 Block 3: 4 tests (TW pattern call + parity). 1 TW test active,
-    3 VM tests re-ignored with n208 anchor (VM route body divergence —
-    pattern calls in route bodies return 500 on VM).
-  - dept_parity: 3 tests. 1 TW test active, 2 VM tests re-ignored with
-    n208 anchor (query_param/respond divergence in route bodies).
-- Total `#[ignore]` count: 126 → 121 (5 unblocked, 2 re-ignored with
-  updated n207/n208 anchors instead of n206).
+- Test unblocking (n161 Block 3 in PR #221; dept_parity in fix-forward commit):
+  - n161 Block 3: 4 tests rewired to `examples/debug` base_dir. 1 TW test
+    active (`block3_tw_serves_imported_pattern`), 3 VM tests re-ignored
+    with n207/n208 anchor — VM route body divergence: pattern calls in
+    route bodies return 500 on VM (key finding of №207).
+  - dept_parity: 3 tests rewired to `examples` base_dir. 1 TW test active
+    (`tw_serves_all_dept_branches_correctly`), 2 VM tests re-ignored with
+    n207/n208 anchor (same root cause: RouteByDept user-pattern calls +
+    query_param in route bodies).
+- Total `#[ignore]` count: 126 → 124 (2 tests now active; 5 re-anchored
+  to n207/n208).
+- Scope note for №208 (recorded in ADR-0122): root cause is VM lacking
+  user-pattern dispatch in route bodies (HTTP 500) — broader than the
+  previously recorded query_param/json_body/respond gaps. 31 tests
+  un-ignore when fixed.
 
 ### Added — Vision pillar skeleton (Наряд №210, ADR-0124)
 

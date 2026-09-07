@@ -509,12 +509,14 @@ pub async fn run_test_server(
     Ok((port, handle))
 }
 
-/// НАРЯД #160/#161: Test server with explicit backend parameter.
-/// Unlike `run_test_server` (always Interpreter), this supports both
-/// `ServeBackend::Interpreter` and `ServeBackend::Vm`.
-pub async fn run_test_server_with_backend(
+/// НАРЯД #207: Test server with explicit backend AND base_dir.
+/// `base_dir` управляет ОБОИМИ путями резолва импортов:
+///  - TW: `Interpreter::set_base_dir` (module loading, src/interpreter/modules.rs)
+///  - VM: `Compiler::with_std_root` (import resolution, src/compiler.rs resolve_import)
+pub async fn run_test_server_with_backend_in_dir(
     source: &str,
     backend: ServeBackend,
+    base_dir: std::path::PathBuf,
 ) -> Result<
     (
         u16,
@@ -536,7 +538,8 @@ pub async fn run_test_server_with_backend(
     for decl in declarations.clone() {
         if !matches!(decl, Declaration::Flow(_)) {
             let mut tmp = Interpreter::new();
-            tmp.set_base_dir(std::path::PathBuf::from("."));
+            // НАРЯД #207: use caller-supplied base_dir (not hardcoded ".")
+            tmp.set_base_dir(base_dir.clone());
             let _ = tmp.run(vec![decl]);
             interp = merge_interpreter(tmp, interp);
         }
@@ -551,7 +554,8 @@ pub async fn run_test_server_with_backend(
 
     // НАРЯД #160: Compile routes for VM backend (same as run_server does)
     if state.backend == ServeBackend::Vm {
-        let mut compiler = Compiler::new();
+        // НАРЯД #207: use caller-supplied base_dir as std_root (not Compiler::new())
+        let mut compiler = Compiler::with_std_root(base_dir.clone());
         let program = compiler
             .compile(declarations)
             .map_err(|e| format!("VM compile error: {}", e))?;
@@ -573,6 +577,23 @@ pub async fn run_test_server_with_backend(
     });
 
     Ok((port, handle))
+}
+
+/// НАРЯД #207: Backward-compatible wrapper — прежнее поведение (CWD как base_dir).
+/// `current_dir()` совпадает с семантикой `Compiler::new()` (src/compiler.rs:70),
+/// поэтому ~40 существующих вызовов не меняют поведения.
+pub async fn run_test_server_with_backend(
+    source: &str,
+    backend: ServeBackend,
+) -> Result<
+    (
+        u16,
+        tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+    ),
+    Box<dyn std::error::Error + Send + Sync>,
+> {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    run_test_server_with_backend_in_dir(source, backend, cwd).await
 }
 
 // ── Internal: Build State ──────────────────────────────────────────

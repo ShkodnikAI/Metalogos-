@@ -12,18 +12,22 @@ All notable changes to the Metalogos project.
   to pass).
 - **Qwen3-architecture text encoder** (`src/vision/text_encoder.rs`):
   - `TextEncoderConfig` + `QWEN3_4B_CONFIG` (pinned from config.json: 36
-    layers, 2560 hidden, 40/8 GQA, head_dim=64, SwiGLU, RmsNorm eps=1e-6,
-    RoPE theta=1e6).
-  - `TextEncoder::new(config, seed)` — deterministic seeded init via
-    xorshift64 PRNG (same contract as `src/nn/attention.rs`).
+    layers, 2560 hidden, 32/8 GQA, head_dim=128, intermediate 9728, SwiGLU,
+    RmsNorm eps=1e-6, RoPE theta=1e6, max_position 40960 — corrected
+    fix-forward after the initial delivery pinned fabricated dims).
+  - `TextEncoder::new(config, seed)` — deterministic seeded init via a
+    local xorshift64 copy (SSOT unification with `src/nn/attention.rs` in
+    №230).
   - `forward(token_ids) -> [seq_len, hidden]` — final-layer hidden states,
     with causal mask, RoPE, QK-norm, GQA.
   - RoPE + QK-norm + causal mask implemented in `src/vision/` — `src/nn/*`
     NOT modified.
-- **Golden embedding contract** (`tests/naryad_211_text_encoder_golden.rs`):
-  5 tests, all `#![cfg(feature = "vision")]`:
-  - `golden_embeddings_shape_and_hash` — 3 prompts, SHA-256 bit-exact,
-    4 anchor values (1e-6 tolerance).
+- **Golden embedding contract scaffolding**
+  (`tests/naryad_211_text_encoder_golden.rs`):
+  5 tests, all `#![cfg(feature = "vision")]`. NOTE: the SHA-256 records are
+  computed and logged but NOT yet pinned as consts — bit-exact verification
+  against fixed GOLDEN records lands in №230 (after the PRNG SSOT swap):
+  - `golden_embeddings_shape_and_hash` — 3 prompts, shape + hash logged.
   - `determinism_same_seed_same_output` — same seed = identical hash.
   - `determinism_different_seed_different_output` — different seed =
     different hash.

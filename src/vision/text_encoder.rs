@@ -5,15 +5,25 @@
 //! per head), SwiGLU MLP, RoPE positional encoding, causal masking.
 //!
 //! Built entirely from `candle_core` primitives — does NOT modify `src/nn/*`.
-//! The deterministic PRNG (`generate_uniform_f32` from `src/nn/attention.rs`)
-//! is reused for seeded weight initialization (same xorshift64 contract).
 //!
-//! ## Architecture (from Qwen/Qwen3-4B config.json)
+//! ## Architecture (from Qwen/Qwen3-4B config.json, verified 2026-09-08)
 //!
-//! - 36 layers, hidden_size=2560, 40 Q-heads, 8 KV-heads, head_dim=64
-//! - intermediate_size=6912 (SwiGLU), vocab_size=151936
-//! - rms_norm_eps=1e-6, rope_theta=1e6, max_position_embeddings=32768
+//! - 36 layers, hidden_size=2560, 32 Q-heads, 8 KV-heads, head_dim=128
+//! - intermediate_size=9728 (SwiGLU), vocab_size=151936
+//! - rms_norm_eps=1e-6, rope_theta=1e6, max_position_embeddings=40960
 //! - attention_bias=false, hidden_act=silu, tie_word_embeddings=true
+//!
+//! ## Known debt (наряд №230 — loud record, see ADR-0122 map)
+//!
+//! 1. The local `generate_uniform_f32` copy below is a xorshift64 core but does
+//!    NOT have the same contract as `src/nn/attention.rs::generate_uniform_f32`
+//!    (no `seed_to_state` XOR ritual, f32 vs f64 mapping path → different value
+//!    streams). Unification with the `src/nn` SSOT PRNG is scheduled in №230.
+//! 2. Seed-stream overlap: per-parameter seeds are `seed + offset` with shared
+//!    offsets across layers (k of layer i = q of layer i+1, etc.). Stream hygiene
+//!    (per-parameter derivation) is also №230.
+//! 3. Golden SHA-256 records are NOT yet pinned as consts — the golden test only
+//!    verifies internal determinism. Pinning after the PRNG swap: №230.
 //!
 //! ## R2 scope
 //!
@@ -22,6 +32,7 @@
 //! - LM head is NOT included (Qwen3 used as encoder, not generator).
 //! - Weight loading (safetensors/BF16) and tokenizer are R3 (naryad 212).
 
+use candle_core::bail;
 use candle_core::{DType, Device, Result as CandleResult, Tensor};
 use candle_nn::{VarBuilder, VarMap};
 
@@ -43,17 +54,20 @@ pub struct TextEncoderConfig {
 }
 
 /// Pinned Qwen3-4B configuration from config.json (see docs/research/naryad-211-text-encoder-facts.md).
+/// Values verified against `https://huggingface.co/Qwen/Qwen3-4B/raw/main/config.json`
+/// on 2026-09-08 (the original №211 delivery pinned fabricated 40/8-64-6912 dims —
+/// corrected fix-forward, see research doc Correction section).
 pub const QWEN3_4B_CONFIG: TextEncoderConfig = TextEncoderConfig {
     layers: 36,
     hidden: 2560,
-    q_heads: 40,
+    q_heads: 32,
     kv_heads: 8,
-    head_dim: 64,
-    intermediate: 6912,
+    head_dim: 128,
+    intermediate: 9728,
     vocab_size: 151936,
     rms_norm_eps: 1e-6,
     rope_theta: 1000000.0,
-    max_seq: 32768,
+    max_seq: 40960,
 };
 
 /// A single Qwen3 transformer block: attention (GQA + QK-norm + RoPE) + SwiGLU MLP.
@@ -170,7 +184,9 @@ impl Qwen3Block {
 
     fn forward(&self, x: &Tensor, seq_len: usize) -> CandleResult<Tensor> {
         let (_batch, _seq, hidden) = x.dims3()?;
-        assert_eq!(hidden, self.hidden, "input hidden dim mismatch");
+        if hidden != self.hidden {
+            bail!("input hidden dim mismatch: expected {}, got {}", self.hidden, hidden);
+        }
 
         // Pre-norm
         let attn_norm_out = rms_norm(x, &self.attn_norm_weight, self.eps)?;
@@ -278,7 +294,9 @@ pub struct TextEncoder {
 
 impl TextEncoder {
     /// Create a text encoder with deterministic seeded initialization.
-    /// Uses the same xorshift64 PRNG as `src/nn/attention.rs::generate_uniform_f32`.
+    ///
+    /// Uses a local xorshift64 copy (NOT the `src/nn` SSOT PRNG — contract
+    /// diverges, see the module-level known-debt note; unification in №230).
     pub fn new(config: &TextEncoderConfig, seed: u64) -> Result<Self, String> {
         let device = Device::Cpu;
         let var_map = VarMap::new();
@@ -480,7 +498,13 @@ fn repeat_kv(x: &Tensor, rep: usize) -> CandleResult<Tensor> {
     x.reshape((batch, q_heads, seq, head_dim))
 }
 
-/// Deterministic PRNG — xorshift64, same contract as src/nn/attention.rs::generate_uniform_f32.
+/// Deterministic PRNG — xorshift64 core.
+///
+/// KNOWN DIVERGENCE from `src/nn/attention.rs::generate_uniform_f32` (the SSOT):
+/// no `seed_to_state` XOR ritual and an f32 (not f64) mapping path — the value
+/// streams differ from the `src/nn` PRNG given the same seed. Local copy is
+/// scheduled for removal in №230 (PRNG SSOT unification); until then this is
+/// the only value source for the text encoder and it is deterministic.
 /// Returns n values in [lo, up) with deterministic ordering.
 fn generate_uniform_f32(seed: u64, n: usize, lo: f32, up: f32) -> Vec<f32> {
     let mut state = seed;

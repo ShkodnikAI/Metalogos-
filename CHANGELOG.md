@@ -4,37 +4,75 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Fixed — Vision R2 hotfix (Наряд №230): PRNG SSOT + stream-гигиена + golden-пиннинг
+
+- **PRNG SSOT**: the divergent local `generate_uniform_f32` copy in
+  `src/vision/text_encoder.rs` (xorshift64 core without `seed_to_state`
+  XOR ritual, f32 vs f64 mapping path → divergent value streams from
+  `src/nn` SSOT) is removed. The text encoder now imports
+  `crate::nn::attention::generate_uniform_f32` — the project's SSOT for
+  weight-init PRNG (documented in `src/nn/attention.rs`).
+- **Stream hygiene**: `param_seed(master, layer, param)` — splitmix64
+  finalizer over `(master_seed, layer, param)` — derives per-parameter
+  seeds, eliminating the №211 stream-overlap bug (k of layer i ≡ q of
+  layer i+1; embedding ≡ q of layer 0). Fixed `PARAM_*` constants
+  (`PARAM_EMBEDDING=0` through `PARAM_DOWN=7`) — do NOT renumber:
+  derivation is part of the golden contract.
+- **Feature implication corrected**: `vision` feature in `Cargo.toml`
+  changed from `["dep:candle-core", "dep:candle-nn"]` (parallel —
+  enabled the deps but NOT the `candle` feature flag, so
+  `#[cfg(feature = "candle")]` modules in `src/nn/` were not compiled
+  under `--features vision`) to `vision = ["candle"]`. This makes
+  vision actually imply candle (as the comments throughout the codebase
+  already claimed), so `crate::nn::attention` is now accessible from
+  vision-only builds. Local copy was the workaround; the implication
+  is the fix.
+- **Golden contract pinned**: `tests/naryad_211_text_encoder_golden.rs`
+  gains `GOLDEN_HASH_P1/P2/P3` (SHA-256 of F32 bytes) and
+  `GOLDEN_ANCHOR_BITS_P1/P2/P3` (4 corner `f32::to_bits()` per prompt,
+  integer-exact — immune to float-printing drift). Test 1 asserts
+  against these. Pinned after 3 bit-identical local runs (2026-09-08).
+  Known-debt comments removed — replaced by "PRNG: SSOT via crate::nn;
+  golden records pinned".
+- **Derivation test**: new test `param_seed_derivation_is_pairwise_distinct`
+  — verifies 32 seeds (4 layers × 8 params) are pairwise distinct +
+  `param_seed(20711, 0, 1) != 20711` (non-identity).
+- **CI**: vision-tests job's "Vision R2 text encoder golden contract"
+  step gains `--nocapture` so eprintln hash/anchor output is visible
+  in CI logs — mandatory infrastructure for the re-pinning procedure
+  that will recur in R3 (dtype/init changes).
+
 ### Added — Vision R2: text encoder (Наряд №211)
 
-- **`vision` feature now implies `candle`** (`vision = ["dep:candle-core",
-  "dep:candle-nn"]`). The text encoder requires tensor operations; ADR-0118
-  is not violated (both features remain off-by-default, guard CI continues
-  to pass).
+- **`vision` feature now implies `candle`** — see hotfix (naryad №230)
+  above; the original №211 delivery documented the implication but
+  implemented it as parallel `dep:candle-*` enablement without the
+  `candle` feature flag.
 - **Qwen3-architecture text encoder** (`src/vision/text_encoder.rs`):
   - `TextEncoderConfig` + `QWEN3_4B_CONFIG` (pinned from config.json: 36
     layers, 2560 hidden, 32/8 GQA, head_dim=128, intermediate 9728, SwiGLU,
     RmsNorm eps=1e-6, RoPE theta=1e6, max_position 40960 — corrected
     fix-forward after the initial delivery pinned fabricated dims).
-  - `TextEncoder::new(config, seed)` — deterministic seeded init via a
-    local xorshift64 copy (SSOT unification with `src/nn/attention.rs` in
-    №230).
+  - `TextEncoder::new(config, seed)` — deterministic seeded init via
+    `crate::nn::attention::generate_uniform_f32` (SSOT, naryad №230).
   - `forward(token_ids) -> [seq_len, hidden]` — final-layer hidden states,
     with causal mask, RoPE, QK-norm, GQA.
   - RoPE + QK-norm + causal mask implemented in `src/vision/` — `src/nn/*`
     NOT modified.
-- **Golden embedding contract scaffolding**
-  (`tests/naryad_211_text_encoder_golden.rs`):
-  5 tests, all `#![cfg(feature = "vision")]`. NOTE: the SHA-256 records are
-  computed and logged but NOT yet pinned as consts — bit-exact verification
-  against fixed GOLDEN records lands in №230 (after the PRNG SSOT swap):
-  - `golden_embeddings_shape_and_hash` — 3 prompts, shape + hash logged.
+- **Golden embedding contract** (`tests/naryad_211_text_encoder_golden.rs`):
+  6 tests, all `#![cfg(feature = "vision")]`. SHA-256 records + anchor
+  bits are pinned as consts (naryad №230):
+  - `golden_embeddings_shape_and_hash` — 3 prompts, shape + hash + anchor
+    bits asserted bit-exact.
   - `determinism_same_seed_same_output` — same seed = identical hash.
   - `determinism_different_seed_different_output` — different seed =
     different hash.
   - `causal_property_prefix_match` — first N positions of long prompt
     match short prompt (1e-6 tolerance).
   - `qwen3_4b_config_matches_pinned_values` — constants-assert.
-- **CI**: `vision-tests` job gains golden-contract step.
+  - `param_seed_derivation_is_pairwise_distinct` — naryad №230 Block 1.6.
+- **CI**: `vision-tests` job gains golden-contract step (with
+  `--nocapture` since naryad №230).
 - **Research**: `docs/research/naryad-211-text-encoder-facts.md` — 3
   independent sources confirming Qwen3-4B as Z-Image encoder, pinned
   config.json dimensions, dtype policy (F32 for R2), hidden-states

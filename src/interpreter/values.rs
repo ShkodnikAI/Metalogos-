@@ -88,6 +88,9 @@ pub enum Value {
     /// Opaque BPE vocabulary handle (Наряд №195).
     /// Contains an index into BPE_REGISTRY — vocab data never enters Value.
     BpeVocab(crate::nn::bpe::BpeVocabId),
+    /// Opaque Vision artifact handle (Наряд №210, ADR-0124).
+    /// Contains an index into VisionRegistry — vision artifacts never enter Value.
+    Vision(crate::vision::VisionId),
 }
 
 impl std::fmt::Display for Value {
@@ -157,6 +160,8 @@ impl std::fmt::Display for Value {
             ),
             Value::Reflex(id) => write!(f, "[Reflex#{}]", id.0),
             Value::BpeVocab(id) => write!(f, "[BpeVocab#{}]", id.0),
+            // Наряд №210: Vision handle display — лекала Reflex.
+            Value::Vision(id) => write!(f, "[Vision#{}]", id.0),
         }
     }
 }
@@ -181,6 +186,8 @@ impl Value {
             Value::Subgraph(_) => "Subgraph",
             Value::Reflex(_) => "Reflex",
             Value::BpeVocab(_) => "BpeVocab",
+            // Наряд №210: Vision handle type name.
+            Value::Vision(_) => "vision",
         }
     }
 
@@ -255,6 +262,8 @@ pub fn is_nonprintable(v: &Value) -> bool {
             | Value::Subgraph(_)
             | Value::Reflex(_)
             | Value::BpeVocab(_)
+            // Наряд №210: Vision handle is opaque — must not be printed directly.
+            | Value::Vision(_)
     )
 }
 

@@ -428,6 +428,8 @@ fn value_to_string(v: &Value) -> String {
         }
         Value::Reflex(id) => format!("[Reflex#{}]", id.0),
         Value::BpeVocab(id) => format!("[BpeVocab#{}]", id.0),
+        // Наряд №210: Vision handle in template rendering — лекала Reflex.
+        Value::Vision(id) => format!("[Vision#{}]", id.0),
     }
 }
 

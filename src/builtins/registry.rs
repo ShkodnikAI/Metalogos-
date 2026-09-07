@@ -5,6 +5,11 @@ use super::reflex::{
     builtin_reflex_metrics_stub, builtin_reflex_predict_stub, builtin_reflex_save_stub,
     builtin_reflex_tokenize, builtin_reflex_train_stub,
 };
+// Наряд №210: Vision pillar stub handlers (ADR-0124).
+use super::vision::{
+    builtin_vision_edit_stub, builtin_vision_export_stub, builtin_vision_generate_stub,
+    builtin_vision_list_stub, builtin_vision_load_stub, builtin_vision_save_stub,
+};
 use super::*;
 
 /// Master registry of ALL builtin functions.
@@ -539,6 +544,13 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("reflex_bpe_decode", 2, "reflex"; builtin_reflex_bpe_decode),
     spec!("reflex_bpe_save", 1, "reflex"; builtin_reflex_bpe_save),
     spec!("reflex_bpe_load", 1, "reflex"; builtin_reflex_bpe_load),
+    // ── Vision pillar (Наряд №210, ADR-0124) — stubs until R3 ──
+    spec!("vision_generate", 3, "vision"; builtin_vision_generate_stub),
+    spec!("vision_edit", 2, "vision"; builtin_vision_edit_stub),
+    spec!("vision_export", 2, "vision"; builtin_vision_export_stub),
+    spec!("vision_list", 0, "vision"; builtin_vision_list_stub),
+    spec!("vision_save", 2, "vision"; builtin_vision_save_stub),
+    spec!("vision_load", 1, "vision"; builtin_vision_load_stub),
 ];
 
 /// Total number of registered builtins.

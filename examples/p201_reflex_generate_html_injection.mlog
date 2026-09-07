@@ -1,0 +1,13 @@
+// Наряд №201: golden error contract — reflex_generate output to respond()
+// without sanitization triggers HTML_INJECTION (Category A, blocking).
+reflex_gen StoryModel {
+  input: embedding(16)
+  vocab_size: 100
+  layers: [transformer_block(4, 16, 64)]
+  seed: 42
+}
+
+pattern Gen(x: String) -> String {
+  respond("200 OK", reflex_generate(StoryModel, x, 10.0, 0.5))
+  return ""
+}

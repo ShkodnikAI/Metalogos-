@@ -127,8 +127,8 @@ fn test_build_with_init_project() {
     );
     assert!(stdout.contains("Build OK"), "should say build ok");
     assert!(
-        dir.join("mlog.lock").exists(),
-        "mlog.lock should be created"
+        dir.join("mlogpkg.lock").exists(),
+        "mlogpkg.lock should be created"
     );
 }
 

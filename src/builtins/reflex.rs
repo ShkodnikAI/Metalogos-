@@ -46,6 +46,7 @@
 //! bytecode index stability and arity checks — the real dispatch is
 //! in `interpreter::execution::invoke()`.
 
+use crate::bytecode::CompiledReflexDecl;
 use crate::interpreter::Value;
 use crate::nn::{find_metric, ReflexId, ReflexRegistry};
 use std::collections::HashMap;
@@ -199,6 +200,98 @@ pub fn builtin_reflex_detokenize(args: &[Value]) -> Result<Value, String> {
         }
     }
     Ok(Value::String(result))
+}
+
+// ── Наряд №199 (ADR-0121): shared model construction ──────────────────
+//
+// Moved from `src/interpreter/execution.rs::build_reflex_model` (private)
+// to this shared location so both the interpreter and the VM can call it.
+// The neural-network logic is NOT reimplemented — only the plumbing is
+// shared. The function takes `&CompiledReflexDecl` (from `src/bytecode.rs`)
+// rather than `&ast::ReflexDecl` because the VM works with compiled
+// bytecode types, not AST types. The interpreter converts `ast::ReflexDecl`
+// → `CompiledReflexDecl` before calling this function (the conversion is
+// trivial — field copies).
+
+/// Build a `ReflexModel` from a compiled `reflex` declaration.
+///
+/// Validates each layer name against `LAYER_REGISTRY`, parses args
+/// (units + activation), derives a per-layer seed via
+/// `decl.seed.wrapping_add(layer_index)`, constructs `Dense::new(...)`,
+/// chains layers (each layer's input_size = previous layer's units).
+///
+/// Used by:
+/// - Interpreter: `src/interpreter/execution.rs` → `Declaration::Reflex(r)`
+/// - VM: `src/vm.rs` → `Vm::load_program` (processes `program.reflex_decls`)
+pub fn build_reflex_model(decl: &CompiledReflexDecl) -> Result<crate::nn::ReflexModel, String> {
+    use crate::nn::{activation::ActivationKind, dense::Dense, layer, ReflexModel};
+
+    let mut layers: Vec<Box<dyn crate::nn::Layer>> = Vec::new();
+    let mut current_input_size = decl.input_dim;
+
+    for layer_spec in &decl.layers {
+        // Validate layer name against LAYER_REGISTRY.
+        let _spec = layer::find_layer_spec(&layer_spec.name).ok_or_else(|| {
+            format!(
+                "reflex '{}': unknown layer type '{}'. Available: {:?}",
+                decl.name,
+                layer_spec.name,
+                layer::layer_names()
+            )
+        })?;
+
+        // Parse args as Values (try float, else string — same as interpreter).
+        let args: Vec<Value> = layer_spec
+            .args
+            .iter()
+            .map(|s| {
+                if let Ok(f) = s.parse::<f64>() {
+                    Value::Float(f)
+                } else {
+                    Value::String(s.clone())
+                }
+            })
+            .collect();
+
+        // For Dense: first arg = units, second arg = activation.
+        let units = match args.first() {
+            Some(Value::Float(f)) => *f as usize,
+            _ => {
+                return Err(format!(
+                    "reflex '{}': layer '{}' requires 'units' as first arg",
+                    decl.name, layer_spec.name
+                ))
+            }
+        };
+
+        let activation_str = match args.get(1) {
+            Some(Value::String(s)) => s.as_str(),
+            _ => "none",
+        };
+        let activation = ActivationKind::parse_kind(activation_str)?;
+
+        // Derive per-layer seed from the model seed + layer index.
+        let layer_seed = decl.seed.wrapping_add(layers.len() as u64);
+
+        let layer: Box<dyn crate::nn::Layer> = Box::new(Dense::new(
+            current_input_size,
+            units,
+            activation,
+            layer_seed,
+        ));
+
+        current_input_size = units;
+        layers.push(layer);
+    }
+
+    Ok(ReflexModel {
+        name: decl.name.clone(),
+        layers,
+        seed: decl.seed,
+        last_metric: None,
+        input_size: decl.input_dim,
+        labels: decl.labels.clone(),
+    })
 }
 
 // ── Shared dispatch bodies (reused by TW today, VM tomorrow) ────────

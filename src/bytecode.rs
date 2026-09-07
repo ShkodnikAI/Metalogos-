@@ -291,6 +291,11 @@ pub struct Program {
     pub rules: Vec<CompiledRule>,
     /// Compiled skill indices (for resolve_skill_index).
     pub skill_indices: Vec<CompiledSkillIndex>,
+    /// Наряд №199 (ADR-0121): compiled `reflex` declarations (Dense only).
+    /// Processed by `Vm::load_program` to register models in the VM's own
+    /// `reflex_registry`. Empty vec when no reflex declarations are present.
+    #[serde(default)]
+    pub reflex_decls: Vec<CompiledReflexDecl>,
     /// Database URL (if declared). Enables db_insert, query_scalar, etc.
     pub db_url: Option<String>,
     /// Schema DDL statements to execute on DB init (CREATE TABLE IF NOT EXISTS).
@@ -367,6 +372,35 @@ pub struct CompiledRoute {
     pub requires: Vec<String>,
     /// Compiled bytecode for the route body.
     pub code: Vec<Instruction>,
+}
+
+/// Наряд №199 (ADR-0121): a compiled `reflex Name { ... }` declaration.
+///
+/// Stored in `Program::reflex_decls` and processed by `Vm::load_program` to
+/// register each model into the VM's own `reflex_registry` — mirroring the
+/// interpreter's `Declaration::Reflex(r)` handling at
+/// `src/interpreter/execution.rs`. The VM must own its own ReflexRegistry
+/// (not borrow the interpreter's) because the VM is a separate execution
+/// backend that may run without the interpreter ever being instantiated.
+///
+/// Only the Dense classification path (`reflex Name { ... }`) is included
+/// in stage 1 of ADR-0121. `reflex_seq` and `reflex_gen` remain excluded
+/// from the VM until stages 3-4.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompiledReflexDecl {
+    pub name: String,
+    pub input_dim: usize,
+    pub layers: Vec<CompiledReflexLayerSpec>,
+    pub labels: Vec<String>,
+    pub seed: u64,
+}
+
+/// A single layer specification in a compiled reflex declaration.
+/// e.g. `dense(8, relu)` → { name: "dense", args: ["8", "relu"] }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompiledReflexLayerSpec {
+    pub name: String,
+    pub args: Vec<String>,
 }
 
 /// A call frame for function invocation.

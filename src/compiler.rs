@@ -29,6 +29,10 @@ pub struct Compiler {
     rules: Vec<CompiledRule>,
     /// Skill index declarations to pass to VM.
     skill_indices: Vec<crate::bytecode::CompiledSkillIndex>,
+    /// Наряд №199 (ADR-0121): compiled `reflex` declarations to pass to VM.
+    /// Populated in pass1 from `Declaration::Reflex(_)`. The VM processes
+    /// these in `load_program` to register models in its own ReflexRegistry.
+    reflex_decls: Vec<crate::bytecode::CompiledReflexDecl>,
     /// Database URL extracted from db declaration (for VM).
     db_url: Option<String>,
     /// Schema DDL statements from schema declarations.
@@ -70,6 +74,7 @@ impl Compiler {
             struct_fields: HashMap::new(),
             rules: Vec::new(),
             skill_indices: Vec::new(),
+            reflex_decls: Vec::new(),
             db_url: None,
             schema_ddl: Vec::new(),
             std_root,
@@ -123,6 +128,7 @@ impl Compiler {
             learnables: Vec::new(),
             rules: std::mem::take(&mut self.rules),
             skill_indices: std::mem::take(&mut self.skill_indices),
+            reflex_decls: std::mem::take(&mut self.reflex_decls),
             db_url: self.db_url.take(),
             schema_ddl: std::mem::take(&mut self.schema_ddl),
             main_code,
@@ -260,10 +266,28 @@ impl Compiler {
                 | Declaration::TypeAlias(_)
                 | Declaration::Tool(_)
                 | Declaration::LlmConfig(_)
-                | Declaration::Reflex(_)
                 | Declaration::ReflexSeq(_)
                 | Declaration::ReflexGen(_) => {
                     // Phase 6+: handled elsewhere
+                }
+                // Наряд №199 (ADR-0121): collect `reflex` declarations
+                // (Dense classification only) for the VM. reflex_seq and
+                // reflex_gen remain excluded until stages 3-4.
+                Declaration::Reflex(r) => {
+                    self.reflex_decls.push(crate::bytecode::CompiledReflexDecl {
+                        name: r.name.clone(),
+                        input_dim: r.input_dim,
+                        layers: r
+                            .layers
+                            .iter()
+                            .map(|l| crate::bytecode::CompiledReflexLayerSpec {
+                                name: l.name.clone(),
+                                args: l.args.clone(),
+                            })
+                            .collect(),
+                        labels: r.labels.clone(),
+                        seed: r.seed,
+                    });
                 }
                 _ => {}
             }

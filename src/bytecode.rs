@@ -182,6 +182,21 @@ pub enum ConditionOp {
     Ne,
 }
 
+impl ConditionOp {
+    /// Наряд №205: evaluate this operator on two f64 values.
+    /// Used by VM distillation's fallback_if check.
+    pub fn compare(self, lhs: f64, rhs: f64) -> bool {
+        match self {
+            ConditionOp::Gt => lhs > rhs,
+            ConditionOp::Lt => lhs < rhs,
+            ConditionOp::Ge => lhs >= rhs,
+            ConditionOp::Le => lhs <= rhs,
+            ConditionOp::Eq => lhs == rhs,
+            ConditionOp::Ne => lhs != rhs,
+        }
+    }
+}
+
 /// A compiled pattern function: name, parameter count, types, and instruction body.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledFn {
@@ -218,6 +233,18 @@ pub struct CompiledLearnableInfo {
     pub few_shot: Vec<(String, String)>,
     /// Context mode for the learnable pattern.
     pub context_mode: CompiledContextMode,
+    /// Наряд №205 (ADR-0121 stage 6): distillation target.
+    /// When Some, this learnable pattern distills its LLM traffic into
+    /// the named reflex model after `distill_after` examples accumulate.
+    #[serde(default)]
+    pub distill_to: Option<String>,
+    /// Наряд №205: minimum examples before training triggers.
+    #[serde(default)]
+    pub distill_after: usize,
+    /// Наряд №205: confidence threshold for fallback to LLM.
+    /// Form: (operator, threshold_value). E.g. `confidence < 0.85` → (Lt, 0.85).
+    #[serde(default)]
+    pub fallback_if: Option<(ConditionOp, f64)>,
 }
 
 /// A compiled skill_index for tiered skill matching.

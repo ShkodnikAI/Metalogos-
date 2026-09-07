@@ -93,6 +93,10 @@ pub struct Vm {
     /// reflex_load on the VM (same field the interpreter has at
     /// `interpreter.memory_persist_path`).
     memory_persist_path: Option<String>,
+    /// Наряд №205 (ADR-0121 stage 6): per-pattern distillation runtime state.
+    /// Mirrors `Interpreter::distill_states` but without Mutex (VM is
+    /// single-threaded per request — `call_llm` is `&mut self`).
+    distill_states: HashMap<String, crate::interpreter::types::DistillRuntimeState>,
 }
 
 /// Collapse threshold for Fluid values (matches interpreter).
@@ -136,6 +140,7 @@ impl Vm {
             reflex_registry: crate::nn::ReflexRegistry::new(),
             reflex_names: HashMap::new(),
             memory_persist_path: None,
+            distill_states: HashMap::new(),
         }
     }
 
@@ -2250,16 +2255,261 @@ impl Vm {
         None
     }
 
+    // ── Наряд №205 (ADR-0121 stage 6): distillation state machine ──────
+    //
+    // Ported from `src/interpreter/learnable.rs` lines 406-730.
+    // The VM is single-threaded per request (&mut self), so no Mutex locks
+    // are needed — direct field access. The `simple_embedding` function
+    // is ported verbatim for byte-for-byte determinism (ADR-0121 requires
+    // same seed → same output across both backends).
+
+    fn try_distilled_call(
+        &mut self,
+        pattern_name: &str,
+        info: &CompiledLearnableInfo,
+        input: &str,
+    ) -> Result<Option<Value>, String> {
+        use crate::interpreter::types::{DistillMode, DistillRuntimeState};
+
+        let distill_to = info
+            .distill_to
+            .as_ref()
+            .ok_or_else(|| "distill: distill_to not configured".to_string())?;
+        let distill_after = info.distill_after;
+        let fallback_if = info.fallback_if;
+
+        let state = self
+            .distill_states
+            .entry(pattern_name.to_string())
+            .or_insert_with(|| DistillRuntimeState {
+                mode: DistillMode::Teaching,
+                examples: Vec::new(),
+                last_train_attempt: 0,
+            });
+
+        match state.mode {
+            DistillMode::Teaching => {
+                let count = state.examples.len();
+                let last_attempt = state.last_train_attempt;
+                let training_threshold = std::cmp::max(distill_after, 10);
+                let should_attempt =
+                    count >= training_threshold && (last_attempt == 0 || count - last_attempt >= 5);
+
+                if should_attempt {
+                    let examples = state.examples.clone();
+                    let trained_at_count = count;
+                    match self.try_train_distilled_model(distill_to, &examples) {
+                        Ok(true) => {
+                            if let Some(s) = self.distill_states.get_mut(pattern_name) {
+                                s.mode = DistillMode::Distilled;
+                            }
+                            // Recursive call to enter DISTILLED path.
+                            return self.try_distilled_call(pattern_name, info, input);
+                        }
+                        Ok(false) => {
+                            if let Some(s) = self.distill_states.get_mut(pattern_name) {
+                                s.last_train_attempt = trained_at_count;
+                            }
+                            return Ok(None);
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+                Ok(None)
+            }
+            DistillMode::Distilled => {
+                let model_id = self.reflex_names.get(distill_to).copied().ok_or_else(|| {
+                    format!(
+                        "distill: reflex '{}' not declared for pattern '{}'",
+                        distill_to, pattern_name
+                    )
+                })?;
+
+                let model_kind = self.reflex_registry.get(model_id).ok_or_else(|| {
+                    format!("distill: model handle {:?} not in registry", model_id)
+                })?;
+
+                let (input_size, probs, labels): (usize, Vec<f64>, Vec<String>) = match model_kind {
+                    crate::nn::ModelKind::Dense(model) => {
+                        let embedding = self.simple_embedding(input, model.input_size);
+                        let probs = model.forward(&embedding);
+                        (model.input_size, probs, model.labels.clone())
+                    }
+                    #[cfg(feature = "candle")]
+                    crate::nn::ModelKind::Sequence(_) => {
+                        return Err(
+                            "distill: sequence models do not yet support distill_to".to_string()
+                        );
+                    }
+                    #[cfg(feature = "candle")]
+                    crate::nn::ModelKind::Gen(_) => {
+                        return Err("distill: gen models do not support distill_to".to_string());
+                    }
+                };
+                let _ = input_size;
+
+                let (best_idx, best_prob) = probs
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                    .map(|(i, &p)| (i, p))
+                    .unwrap_or((0, 0.0));
+
+                let best_label = labels
+                    .get(best_idx)
+                    .cloned()
+                    .unwrap_or_else(|| format!("label_{}", best_idx));
+
+                // Check fallback threshold.
+                if let Some((op, threshold)) = fallback_if {
+                    if op.compare(best_prob, threshold) {
+                        return Ok(None);
+                    }
+                }
+
+                Ok(Some(Value::String(best_label)))
+            }
+        }
+    }
+
+    fn try_train_distilled_model(
+        &mut self,
+        reflex_name: &str,
+        examples: &[(String, String)],
+    ) -> Result<bool, String> {
+        let model_id = self
+            .reflex_names
+            .get(reflex_name)
+            .copied()
+            .ok_or_else(|| format!("distill: reflex '{}' not declared", reflex_name))?;
+
+        let (input_size, labels) = {
+            let model_kind = self
+                .reflex_registry
+                .get(model_id)
+                .ok_or_else(|| format!("distill: model handle {:?} not in registry", model_id))?;
+            match model_kind {
+                crate::nn::ModelKind::Dense(m) => (m.input_size, m.labels.clone()),
+                #[cfg(feature = "candle")]
+                crate::nn::ModelKind::Sequence(_) => {
+                    return Err("distill: sequence models do not support distill training".into())
+                }
+                #[cfg(feature = "candle")]
+                crate::nn::ModelKind::Gen(_) => {
+                    return Err("distill: gen models do not support distill training".into())
+                }
+            }
+        };
+
+        let mut inputs: Vec<Vec<f64>> = Vec::with_capacity(examples.len());
+        let mut targets: Vec<usize> = Vec::with_capacity(examples.len());
+        for (input_str, output_str) in examples {
+            let target_idx = match labels.iter().position(|l| l == output_str) {
+                Some(idx) => idx,
+                None => continue,
+            };
+            let embedding = self.simple_embedding(input_str, input_size);
+            inputs.push(embedding);
+            targets.push(target_idx);
+        }
+
+        if inputs.is_empty() {
+            return Ok(false);
+        }
+
+        let model_kind = self
+            .reflex_registry
+            .get_mut(model_id)
+            .ok_or_else(|| format!("distill: model handle {:?} not in registry", model_id))?;
+        match model_kind {
+            crate::nn::ModelKind::Dense(model) => {
+                model.train(&inputs, &targets, 30, 0.1)?;
+                Ok(true)
+            }
+            #[cfg(feature = "candle")]
+            crate::nn::ModelKind::Sequence(_) => {
+                Err("distill: sequence models do not support distill training".into())
+            }
+            #[cfg(feature = "candle")]
+            crate::nn::ModelKind::Gen(_) => {
+                Err("distill: gen models do not support distill training".into())
+            }
+        }
+    }
+
+    fn record_distill_example(&mut self, pattern_name: &str, input: &str, output: &str) {
+        use crate::interpreter::types::{DistillMode, DistillRuntimeState};
+        let state = self
+            .distill_states
+            .entry(pattern_name.to_string())
+            .or_insert_with(|| DistillRuntimeState {
+                mode: DistillMode::Teaching,
+                examples: Vec::new(),
+                last_train_attempt: 0,
+            });
+        state.examples.push((input.to_string(), output.to_string()));
+    }
+
+    /// Simple deterministic embedding for distillation input strings.
+    /// Ported verbatim from `src/interpreter/learnable.rs::simple_embedding`
+    /// for byte-for-byte determinism (ADR-0121).
+    fn simple_embedding(&self, input: &str, dim: usize) -> Vec<f64> {
+        let mut embedding = vec![0.0; dim];
+        let bytes = input.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            let bucket = i % dim;
+            embedding[bucket] += (b as f64) * 0.01;
+            if b != 0 {
+                embedding[(bucket + 1) % dim] =
+                    (embedding[(bucket + 1) % dim] * 0.99) + (b as f64) * 0.001;
+            }
+        }
+        let max_val = embedding.iter().cloned().fold(0.0f64, f64::max).max(1.0);
+        for v in &mut embedding {
+            *v /= max_val;
+        }
+        embedding
+    }
+
     /// Call an LLM-backed learnable pattern.
-    fn call_llm(&self, idx: usize, args: &[Value]) -> Result<Value, String> {
-        let (info, few_shot) = self
-            .learnables
-            .get(idx)
-            .ok_or_else(|| format!("VM: learnable index {} not found", idx))?;
+    fn call_llm(&mut self, idx: usize, args: &[Value]) -> Result<Value, String> {
+        let (info_clone, few_shot_clone) = {
+            let (info, few_shot) = self
+                .learnables
+                .get(idx)
+                .ok_or_else(|| format!("VM: learnable index {} not found", idx))?;
+            (info.clone(), few_shot.clone())
+        };
+        let info = &info_clone;
+        let few_shot = &few_shot_clone;
 
         // Build input string
         let input_parts: Vec<String> = args.iter().map(|a| format!("{}", a)).collect();
         let input = input_parts.join(", ");
+
+        // Наряд №205 (ADR-0121 stage 6): distillation routing.
+        // If this learnable pattern has a distill_to configured, check
+        // whether we can serve from the distilled model (DISTILLED mode)
+        // or need to accumulate more examples (TEACHING mode).
+        if info.distill_to.is_some() {
+            match self.try_distilled_call(&info.name, info, &input) {
+                Ok(Some(value)) => {
+                    // DISTILLED path succeeded with a confident prediction.
+                    return Ok(value);
+                }
+                Ok(None) => {
+                    // TEACHING mode OR fallback_if triggered — fall through
+                    // to LLM call, then record the example.
+                }
+                Err(e) => {
+                    // Safe degradation (ADR-0117 §3): log + fall through.
+                    eprintln!(
+                        "[vm/distill] error in pattern '{}': {} — falling back to LLM",
+                        info.name, e
+                    );
+                }
+            }
+        }
 
         // Check few-shot cache first
         for (example_input, example_output) in few_shot {
@@ -2311,6 +2561,11 @@ impl Vm {
         // Call LLM backend
         let backend = llm::create_llm_backend();
         let response = backend.call(&effective_prompt, &input)?;
+
+        // Наряд №205: record (input, output) example for distillation training.
+        if info.distill_to.is_some() {
+            self.record_distill_example(&info.name, &input, &response);
+        }
 
         // Try to parse JSON response into Value::Struct
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response) {

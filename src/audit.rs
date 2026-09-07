@@ -182,6 +182,12 @@ fn get_expr_taint(expr: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
             if fn_name == "env" || fn_name == "secret" {
                 return Some(TaintKind::Secret);
             }
+            // Наряд №201: reflex_generate is an LLM-output-equivalent source
+            // (model output is untrusted per ADR-0117). Same treatment as
+            // call_llm — produces LlmOutput taint even with no tainted args.
+            if fn_name == "reflex_generate" {
+                return Some(TaintKind::LlmOutput);
+            }
             // Propagate taint from first tainted argument
             for arg in args {
                 if let Some(taint) = get_expr_taint(arg, tracker) {
@@ -198,11 +204,24 @@ fn get_expr_taint(expr: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
         Expr::FieldAccess { object: obj, .. } => get_expr_taint(obj, tracker),
         Expr::IndexAccess { index, .. } => get_expr_taint(index, tracker),
         // Literals are always clean
-        Expr::StringLit { .. }
-        | Expr::FloatLit { .. }
+        Expr::FloatLit { .. }
         | Expr::BoolLit { .. }
-        | Expr::List { .. }
+        | Expr::StringLit { .. }
         | Expr::StructLit { .. } => None,
+        // Наряд №201: list literals propagate taint from their elements.
+        // E.g. [[env("K"), 0.0]] — the list carries Secret taint because
+        // it contains a tainted element. This is needed for reflex_train
+        // data/labels taint checking where data is a List<List<Float>>.
+        Expr::List { items, .. } => {
+            for item in items {
+                if let Some(taint) = get_expr_taint(item, tracker) {
+                    if taint != TaintKind::Sanitized {
+                        return Some(taint);
+                    }
+                }
+            }
+            None
+        }
         Expr::IfElse {
             then_branch,
             else_branch,
@@ -219,7 +238,9 @@ fn get_expr_taint(expr: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
 fn binding_taint(value: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
     if let Expr::FnCall { name: fn_name, .. } = value {
         match fn_name.as_str() {
-            "call_llm" | "call_claude" => return Some(TaintKind::LlmOutput),
+            // Наряд №201: вывод модели наследует недоверенность LLM-учителя (ADR-0117);
+            // learnable pattern — тот же класс: вывод call_llm за пределами pattern body.
+            "call_llm" | "call_claude" | "reflex_generate" => return Some(TaintKind::LlmOutput),
             "env" | "secret" => return Some(TaintKind::Secret),
             "render" | "escape_html" => return Some(TaintKind::Sanitized),
             "form_data" | "json_body" | "query_param" => return Some(TaintKind::UserInput),
@@ -243,8 +264,11 @@ fn expr_is_llm_tainted(expr: &Expr, tracker: &TaintTracker) -> bool {
 }
 
 /// Returns true if the function name is a known LLM output source.
+/// Наряд №201: reflex_generate produces untrusted output (model trained
+/// on data that may include LLM-tainted content per ADR-0117), so its
+/// output is treated as LlmOutput for HTML_INJECTION purposes.
 fn is_llm_source(name: &str) -> bool {
-    matches!(name, "call_llm" | "call_claude")
+    matches!(name, "call_llm" | "call_claude" | "reflex_generate")
 }
 
 /// Check whether an expression carries user-input taint.
@@ -800,9 +824,27 @@ fn check_html_injection(
     source: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
+    // Наряд №201: collect learnable pattern names so calls to them are
+    // treated as LlmOutput sources (their body contains call_llm, so
+    // their output is untrusted text per ADR-0117). Mechanism choice:
+    // mark any declared learnable pattern as a taint source — this is
+    // conservative (a learnable pattern that doesn't actually call
+    // call_llm is still flagged), but it matches the existing
+    // intraprocedural audit level and avoids the complexity of walking
+    // pattern bodies. If a learnable pattern is provably safe (no
+    // call_llm in body), the user can refactor it as a regular pattern.
+    let learnable_names: std::collections::HashSet<String> = declarations
+        .iter()
+        .filter_map(|d| match d {
+            Declaration::LearnablePattern(lp) => Some(lp.name.clone()),
+            _ => None,
+        })
+        .collect();
+
     fn check_respond_for_html(
         expr: &Expr,
         tracker: &TaintTracker,
+        learnable_names: &std::collections::HashSet<String>,
         source: &str,
         findings: &mut Vec<AuditFinding>,
     ) {
@@ -817,7 +859,11 @@ fn check_html_injection(
                     // Наряд №123: catch both variable references
                     // (tracker) and direct nested LLM calls
                     // (e.g. respond(call_llm(...))).
-                    if expr_is_llm_tainted(arg, tracker) {
+                    // Наряд №201: also catch calls to learnable patterns
+                    // (their output is untrusted per ADR-0117).
+                    if expr_is_llm_tainted(arg, tracker)
+                        || expr_is_learnable_tainted(arg, learnable_names)
+                    {
                         let line = find_line(source, "respond");
                         findings.push(AuditFinding {
                             severity: Severity::Warning,
@@ -831,20 +877,44 @@ fn check_html_injection(
         }
     }
 
+    /// Check if an expression is a direct call to a learnable pattern.
+    fn expr_is_learnable_tainted(
+        expr: &Expr,
+        learnable_names: &std::collections::HashSet<String>,
+    ) -> bool {
+        match expr {
+            Expr::FnCall { name, .. } => learnable_names.contains(name),
+            _ => false,
+        }
+    }
+
     /// Analyze a list of statements for LLM→respond taint flow.
-    fn analyze_scope(stmts: &[Statement], source: &str, findings: &mut Vec<AuditFinding>) {
+    fn analyze_scope(
+        stmts: &[Statement],
+        learnable_names: &std::collections::HashSet<String>,
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+    ) {
         let mut tracker = TaintTracker::new();
 
         fn process_stmt(
             stmt: &Statement,
             tracker: &mut TaintTracker,
+            learnable_names: &std::collections::HashSet<String>,
             source: &str,
             findings: &mut Vec<AuditFinding>,
         ) {
             match stmt {
                 Statement::LetBinding { name, value, .. } => {
                     // Check if this let-binding calls respond() with tainted args
-                    check_respond_for_html(value, tracker, source, findings);
+                    check_respond_for_html(value, tracker, learnable_names, source, findings);
+                    // Наряд №201: calls to learnable patterns produce LlmOutput taint.
+                    if let Expr::FnCall { name: fn_name, .. } = value {
+                        if learnable_names.contains(fn_name) {
+                            tracker.taint(name, TaintKind::LlmOutput);
+                            return;
+                        }
+                    }
                     // Propagate taint from expression (handles both direct
                     // function calls and variable references)
                     if let Some(taint) = binding_taint(value, tracker) {
@@ -855,6 +925,12 @@ fn check_html_injection(
                     }
                 }
                 Statement::Assign { name, value, .. } => {
+                    if let Expr::FnCall { name: fn_name, .. } = value {
+                        if learnable_names.contains(fn_name) {
+                            tracker.taint(name, TaintKind::LlmOutput);
+                            return;
+                        }
+                    }
                     if let Some(taint) = binding_taint(value, tracker) {
                         tracker.taint(name, taint);
                     } else {
@@ -862,19 +938,19 @@ fn check_html_injection(
                     }
                 }
                 Statement::ExprStmt { expr, .. } => {
-                    check_respond_for_html(expr, tracker, source, findings);
+                    check_respond_for_html(expr, tracker, learnable_names, source, findings);
                 }
                 Statement::Return { value: expr, .. } => {
-                    check_respond_for_html(expr, tracker, source, findings);
+                    check_respond_for_html(expr, tracker, learnable_names, source, findings);
                 }
                 Statement::Each { body, .. } => {
                     for s in body {
-                        process_stmt(s, tracker, source, findings);
+                        process_stmt(s, tracker, learnable_names, source, findings);
                     }
                 }
                 Statement::While { body, .. } => {
                     for s in body {
-                        process_stmt(s, tracker, source, findings);
+                        process_stmt(s, tracker, learnable_names, source, findings);
                     }
                 }
                 Statement::IfElseBlock {
@@ -884,22 +960,22 @@ fn check_html_injection(
                     ..
                 } => {
                     for s in then_body {
-                        process_stmt(s, tracker, source, findings);
+                        process_stmt(s, tracker, learnable_names, source, findings);
                     }
                     for (_, body) in else_ifs {
                         for s in body {
-                            process_stmt(s, tracker, source, findings);
+                            process_stmt(s, tracker, learnable_names, source, findings);
                         }
                     }
                     if let Some(body) = else_body {
                         for s in body {
-                            process_stmt(s, tracker, source, findings);
+                            process_stmt(s, tracker, learnable_names, source, findings);
                         }
                     }
                 }
                 Statement::IfThen { body, .. } => {
                     for s in body {
-                        process_stmt(s, tracker, source, findings);
+                        process_stmt(s, tracker, learnable_names, source, findings);
                     }
                 }
                 _ => {}
@@ -907,7 +983,7 @@ fn check_html_injection(
         }
 
         for stmt in stmts {
-            process_stmt(stmt, &mut tracker, source, findings);
+            process_stmt(stmt, &mut tracker, learnable_names, source, findings);
         }
     }
 
@@ -915,16 +991,16 @@ fn check_html_injection(
         match decl {
             Declaration::MlogServer(srv) => {
                 for route in &srv.routes {
-                    analyze_scope(&route.body, source, findings);
+                    analyze_scope(&route.body, &learnable_names, source, findings);
                 }
             }
-            Declaration::Pattern(p) => analyze_scope(&p.body, source, findings),
+            Declaration::Pattern(p) => analyze_scope(&p.body, &learnable_names, source, findings),
             Declaration::Tool(t) => {
                 for m in &t.methods {
-                    analyze_scope(&m.body, source, findings);
+                    analyze_scope(&m.body, &learnable_names, source, findings);
                 }
             }
-            Declaration::Hook(h) => analyze_scope(&h.body, source, findings),
+            Declaration::Hook(h) => analyze_scope(&h.body, &learnable_names, source, findings),
             Declaration::Test(_) => {}
             _ => {}
         }
@@ -1081,6 +1157,40 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                         }
                     }
                     // arg 3 (headers) intentionally NOT checked — Bearer auth is legitimate.
+                }
+
+                // Наряд №201: reflex_train positional logic.
+                //   arg 1 (data) / arg 2 (labels) — то, что попадает в веса.
+                //   arg 0 (name) — имя модели, не данные: не флагается.
+                // Веса уходят на диск через reflex_save (ADR-0116) — в обход
+                // файловых стоков. Taint физически не может сидеть на
+                // Value::Reflex (opaque handle) — поэтому перехват цепочки
+                // env→train→save делается именно здесь, на args reflex_train.
+                if fn_name == "reflex_train" {
+                    for pos in [1usize, 2usize] {
+                        if let Some(arg) = args.get(pos) {
+                            let t = get_expr_taint(arg, tracker);
+                            if t == Some(TaintKind::Secret) {
+                                let line = find_line(source, fn_name);
+                                findings.push(AuditFinding {
+                                    severity: Severity::Error,
+                                    check_id: "SECRET_LEAK",
+                                    line,
+                                    message: "secret may be leaked \u{2014} env() value used as reflex_train data/labels (weights persist via reflex_save)"
+                                        .to_string(),
+                                });
+                            } else if t == Some(TaintKind::UserInput) {
+                                let line = find_line(source, fn_name);
+                                findings.push(AuditFinding {
+                                    severity: Severity::Error,
+                                    check_id: "UNTRUSTED_TRAINING_DATA",
+                                    line,
+                                    message: "untrusted user input used as reflex_train data/labels (model poisoning / PII baked into weights)"
+                                        .to_string(),
+                                });
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1529,10 +1639,11 @@ fn check_taint_passthrough_pattern(
 /// the code IS insecure if the check fires. Promoted from `mlog audit` to
 /// `mlog check`/`mlog run`/`mlog serve`/`mlog compile` by Наряд №98.
 ///
-/// Category A (Наряд №98, expanded Наряд #157):
+/// Category A (Наряд №98, expanded Наряд #157, #201):
 ///   - SQL_DYNAMIC: query()/db_execute() with non-literal SQL (SQL injection vector)
-///   - SECRET_LEAK: env() result passed to sink (respond/write_file/http_post)
+///   - SECRET_LEAK: env() result passed to sink (respond/write_file/http_post/reflex_train)
 ///   - HTML_INJECTION: LLM output to respond() without sanitization (XSS)
+///   - UNTRUSTED_TRAINING_DATA: json_body()/query_param() to reflex_train data/labels (Наряд #201)
 ///   - TAINT_PERSISTENCE: memorize(LLM) + respond(recall()) (Наряд #157)
 ///   - TAINT_PASSTHROUGH: respond(Wrap(call_llm(...))) trivial passthrough (Наряд #157)
 ///

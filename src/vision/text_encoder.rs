@@ -185,7 +185,11 @@ impl Qwen3Block {
     fn forward(&self, x: &Tensor, seq_len: usize) -> CandleResult<Tensor> {
         let (_batch, _seq, hidden) = x.dims3()?;
         if hidden != self.hidden {
-            bail!("input hidden dim mismatch: expected {}, got {}", self.hidden, hidden);
+            bail!(
+                "input hidden dim mismatch: expected {}, got {}",
+                self.hidden,
+                hidden
+            );
         }
 
         // Pre-norm

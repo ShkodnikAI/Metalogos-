@@ -173,6 +173,8 @@ use regex::*;
 // the interpreter can call them; the stubs are pub(crate) so the spec!
 // macro in registry.rs can reference them.
 pub mod reflex;
+#[cfg(feature = "candle")]
+pub use reflex::{build_reflex_gen_model, build_reflex_seq_model};
 pub use reflex::{
     build_reflex_model, reflex_generate_dispatch, reflex_list_dispatch, reflex_load_dispatch,
     reflex_metrics_dispatch, reflex_predict_dispatch, reflex_save_dispatch, reflex_train_dispatch,

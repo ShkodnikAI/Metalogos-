@@ -377,13 +377,25 @@ impl Interpreter {
                     {
                         // Наряд №185: actually construct + register the model.
                         // `build_reflex_seq_model` validates the declaration
-                        // (layer names resolve, dim chain is consistent);
-                        // `construct_reflex_seq_model` builds the trainable
-                        // layers + classifier and registers in `reflex_registry`
-                        // under the model's name so `reflex_train(ModelName, ...)`
-                        // and `reflex_predict(ModelName, ...)` resolve to it.
-                        build_reflex_seq_model(&r)?;
-                        let model = construct_reflex_seq_model(&r)?;
+                        // Наряд №204: build_reflex_seq_model moved to
+                        // src/builtins/reflex.rs (shared with VM). Convert
+                        // ast::ReflexSeqDecl → CompiledReflexSeqDecl.
+                        let compiled = crate::bytecode::CompiledReflexSeqDecl {
+                            name: r.name.clone(),
+                            input_dim: r.input_dim,
+                            seq_len: r.seq_len,
+                            layers: r
+                                .layers
+                                .iter()
+                                .map(|l| crate::bytecode::CompiledReflexLayerSpec {
+                                    name: l.name.clone(),
+                                    args: l.args.clone(),
+                                })
+                                .collect(),
+                            labels: r.labels.clone(),
+                            seed: r.seed,
+                        };
+                        let model = crate::builtins::build_reflex_seq_model(&compiled)?;
                         let reg = self
                             .reflex_registry
                             .get_mut()
@@ -416,8 +428,23 @@ impl Interpreter {
                     }
                     #[cfg(feature = "candle")]
                     {
-                        // Наряд №193: construct + register the gen model.
-                        let model = construct_reflex_gen_model(&r)?;
+                        // Наряд №204: build_reflex_gen_model moved to
+                        // src/builtins/reflex.rs (shared with VM).
+                        let compiled = crate::bytecode::CompiledReflexGenDecl {
+                            name: r.name.clone(),
+                            input_dim: r.input_dim,
+                            vocab_size: r.vocab_size,
+                            layers: r
+                                .layers
+                                .iter()
+                                .map(|l| crate::bytecode::CompiledReflexLayerSpec {
+                                    name: l.name.clone(),
+                                    args: l.args.clone(),
+                                })
+                                .collect(),
+                            seed: r.seed,
+                        };
+                        let model = crate::builtins::build_reflex_gen_model(&compiled)?;
                         let reg = self
                             .reflex_registry
                             .get_mut()
@@ -2287,310 +2314,9 @@ mod tests {
 // the interpreter and the VM call the same shared function — the neural-
 // network logic is not duplicated. The conversion from ast::ReflexDecl
 // to CompiledReflexDecl happens at the call site above (Declaration::Reflex).
-
-/// Наряд №183 (ADR-0119): build + validate a `reflex_seq` declaration.
-///
-/// This is a *validation-only* helper in this naryad — it constructs the
-/// `SequenceLayer`s from the declaration (which exercises
-/// `SEQUENCE_LAYER_REGISTRY` resolution and triggers any per-layer shape
-/// errors) but does NOT register a runtime model yet. Training/predict
-/// integration is the next naryad's scope per the spec.
-///
-/// Available only when `candle` feature is enabled (the declaration
-/// parsing itself works without candle, but layer construction requires
-/// the SequenceLayer trait + registry, which are feature-gated).
-#[cfg(feature = "candle")]
-fn build_reflex_seq_model(decl: &crate::ast::ReflexSeqDecl) -> Result<(), String> {
-    use crate::nn::layer::find_layer_spec;
-    use crate::nn::sequence_layer::find_sequence_layer_spec;
-
-    // Validate each layer: it must resolve against SEQUENCE_LAYER_REGISTRY.
-    // A name that only exists in LAYER_REGISTRY (e.g. "dense") is a
-    // mixed-category error (ADR-0119) — explicit compile error, not
-    // silent fallback.
-    for (i, layer_spec) in decl.layers.iter().enumerate() {
-        if find_sequence_layer_spec(&layer_spec.name).is_none() {
-            // Check if it's a classification-only layer (Dense) — that's
-            // the "mixed category" case the spec calls out explicitly.
-            if find_layer_spec(&layer_spec.name).is_some() {
-                return Err(format!(
-                    "reflex_seq '{}': layer {} '{}' is a classification-layer \
-                     (LAYER_REGISTRY), not a sequence-layer (SEQUENCE_LAYER_REGISTRY). \
-                     Mixing categories in one declaration is a compile error (ADR-0119) — \
-                     use `reflex` (not `reflex_seq`) for classification, or replace \
-                     '{}' with a sequence-layer type like 'attention'.",
-                    decl.name, i, layer_spec.name, layer_spec.name
-                ));
-            }
-            return Err(format!(
-                "reflex_seq '{}': unknown layer type '{}' at index {}. \
-                 Available sequence layers: {:?}",
-                decl.name,
-                layer_spec.name,
-                i,
-                crate::nn::sequence_layer::sequence_layer_names()
-            ));
-        }
-    }
-
-    // Construct each layer to validate args + dim divisibility.
-    // We discard the result — actual registration is the next naryad.
-    let mut current_input_size = decl.input_dim;
-    for (i, layer_spec) in decl.layers.iter().enumerate() {
-        let spec = find_sequence_layer_spec(&layer_spec.name).ok_or_else(|| {
-            format!(
-                "reflex_seq '{}': layer {} '{}' not in SEQUENCE_LAYER_REGISTRY \
-                 (this should have been caught earlier — bug)",
-                decl.name, i, layer_spec.name
-            )
-        })?;
-
-        // Build args as Value (matches LayerSpec::build's signature).
-        let args: Vec<crate::interpreter::Value> = layer_spec
-            .args
-            .iter()
-            .map(|s| {
-                if let Ok(f) = s.parse::<f64>() {
-                    crate::interpreter::Value::Float(f)
-                } else {
-                    crate::interpreter::Value::String(s.clone())
-                }
-            })
-            .collect();
-
-        // Build with current_input_size as the expected input dim —
-        // the layer itself validates this.
-        let layer = (spec.build)(&args, decl.seed.wrapping_add(i as u64)).map_err(|e| {
-            format!(
-                "reflex_seq '{}': layer {} build failed: {}",
-                decl.name, i, e
-            )
-        })?;
-
-        // Validate dim chain — input dim must match the layer's expected input.
-        if layer.input_dim() != current_input_size {
-            return Err(format!(
-                "reflex_seq '{}': layer {} expects input_dim={} but previous layer output {}",
-                decl.name,
-                i,
-                layer.input_dim(),
-                current_input_size
-            ));
-        }
-        current_input_size = layer.output_dim();
-    }
-
-    Ok(())
-}
-
-/// Наряд №185: actually construct + register a ReflexSeqModel.
-///
-/// Unlike `build_reflex_seq_model` (validation-only, returns Ok(())),
-/// this function constructs a `ReflexSeqModel` with `Var`-based
-/// trainable layers and returns it ready for registration.
-///
-/// Currently supports only `attention` — the only SequenceLayer with
-/// a trainable variant (TrainableAttention). When future naryads add
-/// more trainable layers (e.g. TrainableRmsNorm, TrainableSwiGLU),
-/// dispatch can be added here or via a new TRAINABLE_SEQUENCE_LAYER_REGISTRY.
-#[cfg(feature = "candle")]
-fn construct_reflex_seq_model(
-    decl: &crate::ast::ReflexSeqDecl,
-) -> Result<crate::nn::seq_model::ReflexSeqModel, String> {
-    use crate::nn::seq_model::ReflexSeqModel;
-    use crate::nn::trainable_attention::build_trainable_attention;
-    use candle_core::Device;
-    use candle_nn::{VarBuilder, VarMap};
-
-    let var_map = VarMap::new();
-    let device = Device::Cpu;
-    let vb = VarBuilder::from_varmap(&var_map, candle_core::DType::F32, &device);
-
-    let mut seq_layers: Vec<Box<dyn crate::nn::sequence_layer::SequenceLayer>> = Vec::new();
-    let mut current_input_size = decl.input_dim;
-
-    for (i, layer_spec) in decl.layers.iter().enumerate() {
-        let args: Vec<crate::interpreter::Value> = layer_spec
-            .args
-            .iter()
-            .map(|s| {
-                if let Ok(f) = s.parse::<f64>() {
-                    crate::interpreter::Value::Float(f)
-                } else {
-                    crate::interpreter::Value::String(s.clone())
-                }
-            })
-            .collect();
-
-        // Dispatch by layer name. TrainableAttention takes &VarMap (not
-        // VarBuilder) so it can register Vars with deterministic init.
-        // Наряд №185 follow-up: transformer_block also supported (wraps
-        // TrainableAttention + forward-only RmsNorm/SwiGLU).
-        // Наряд №190: pass unique prefix per layer (layer index) so stacked
-        // blocks don't overwrite each other in VarMap — bug fixed.
-        let layer: Box<dyn crate::nn::sequence_layer::SequenceLayer> = match layer_spec
-            .name
-            .as_str()
-        {
-            "attention" => {
-                let prefix = format!("layer{}", i);
-                build_trainable_attention(
-                    &args,
-                    decl.seed.wrapping_add(i as u64),
-                    &var_map,
-                    &prefix,
-                )
-                .map_err(|e| {
-                    format!(
-                        "reflex_seq '{}': layer {} build failed: {}",
-                        decl.name, i, e
-                    )
-                })?
-            }
-            "transformer_block" => {
-                let prefix = format!("block{}", i);
-                crate::nn::trainable_transformer_block::build_trainable_transformer_block(
-                    &args,
-                    decl.seed.wrapping_add(i as u64),
-                    &var_map,
-                    &prefix,
-                )
-                .map_err(|e| {
-                    format!(
-                        "reflex_seq '{}': layer {} build failed: {}",
-                        decl.name, i, e
-                    )
-                })?
-            }
-            other => {
-                return Err(format!(
-                        "reflex_seq '{}': layer {} '{}' has no trainable variant. \
-                         Currently 'attention' and 'transformer_block' support training (Наряд №185). \
-                         Other SequenceLayer types (rms_norm, swiglu standalone) will be added in future naryads.",
-                        decl.name, i, other
-                    ));
-            }
-        };
-
-        if layer.input_dim() != current_input_size {
-            return Err(format!(
-                "reflex_seq '{}': layer {} expects input_dim={} but previous layer output {}",
-                decl.name,
-                i,
-                layer.input_dim(),
-                current_input_size
-            ));
-        }
-        current_input_size = layer.output_dim();
-        seq_layers.push(layer);
-    }
-
-    // Build the model — attention weights are already in var_map (registered
-    // above). Classifier weights are added by ReflexSeqModel::new via vb
-    // (which references the same var_map).
-    let model = ReflexSeqModel::new(
-        decl.name.clone(),
-        decl.input_dim,
-        decl.seq_len,
-        decl.labels.clone(),
-        decl.seed,
-        seq_layers,
-        var_map,
-        &vb,
-    )?;
-
-    Ok(model)
-}
-
-/// Наряд №193: construct + register a ReflexGenModel.
-///
-/// Builds trainable transformer_block layers (same as reflex_seq) +
-/// token embedding + vocabulary head.
-#[cfg(feature = "candle")]
-fn construct_reflex_gen_model(
-    decl: &crate::ast::ReflexGenDecl,
-) -> Result<crate::nn::gen_model::ReflexGenModel, String> {
-    use crate::nn::gen_model::ReflexGenModel;
-    use candle_nn::{VarBuilder, VarMap};
-
-    let var_map = VarMap::new();
-    let device = candle_core::Device::Cpu;
-    let vb = VarBuilder::from_varmap(&var_map, candle_core::DType::F32, &device);
-
-    let mut seq_layers: Vec<Box<dyn crate::nn::sequence_layer::SequenceLayer>> = Vec::new();
-
-    for (i, layer_spec) in decl.layers.iter().enumerate() {
-        let args: Vec<crate::interpreter::Value> = layer_spec
-            .args
-            .iter()
-            .map(|s| {
-                if let Ok(f) = s.parse::<f64>() {
-                    crate::interpreter::Value::Float(f)
-                } else {
-                    crate::interpreter::Value::String(s.clone())
-                }
-            })
-            .collect();
-
-        let prefix = format!("block{}", i);
-        let layer: Box<dyn crate::nn::sequence_layer::SequenceLayer> =
-            match layer_spec.name.as_str() {
-                "transformer_block" => {
-                    crate::nn::trainable_transformer_block::build_trainable_transformer_block(
-                        &args,
-                        decl.seed.wrapping_add(i as u64),
-                        &var_map,
-                        &prefix,
-                    )
-                    .map_err(|e| {
-                        format!(
-                            "reflex_gen '{}': layer {} build failed: {}",
-                            decl.name, i, e
-                        )
-                    })?
-                }
-                "attention" => crate::nn::trainable_attention::build_trainable_attention(
-                    &args,
-                    decl.seed.wrapping_add(i as u64),
-                    &var_map,
-                    &format!("layer{}", i),
-                )
-                .map_err(|e| {
-                    format!(
-                        "reflex_gen '{}': layer {} build failed: {}",
-                        decl.name, i, e
-                    )
-                })?,
-                other => {
-                    return Err(format!(
-                        "reflex_gen '{}': layer {} '{}' has no trainable variant. \
-                     Currently 'attention' and 'transformer_block' support training.",
-                        decl.name, i, other
-                    ));
-                }
-            };
-
-        if layer.input_dim() != decl.input_dim {
-            return Err(format!(
-                "reflex_gen '{}': layer {} expects input_dim={} but model has dim={}",
-                decl.name,
-                i,
-                layer.input_dim(),
-                decl.input_dim
-            ));
-        }
-        seq_layers.push(layer);
-    }
-
-    let model = ReflexGenModel::new(
-        decl.name.clone(),
-        decl.input_dim,
-        decl.vocab_size,
-        decl.seed,
-        seq_layers,
-        var_map,
-        &vb,
-    )?;
-
-    Ok(model)
-}
+//
+// Наряд №204: build_reflex_seq_model and build_reflex_gen_model have also
+// been MOVED to src/builtins/reflex.rs. The old private functions
+// (build_reflex_seq_model validation, construct_reflex_seq_model,
+// construct_reflex_gen_model) are removed — the shared versions in
+// src/builtins/reflex.rs handle both validation and construction.

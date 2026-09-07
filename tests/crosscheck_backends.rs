@@ -82,37 +82,34 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                     // The following reflex_* exclusions remain until stages
                     // 2-5 of ADR-0121 (reflex_save/load, reflex_metrics/list,
                     // reflex_generate, reflex_seq, reflex_gen, distillation).
-                    // Наряд №180: reflex_persist.mlog uses reflex_save/
-                    // reflex_load (same VM limitation as reflex_train/predict).
-                    // Also writes to a real SQLite file under
-                    // target/test_artifacts/ which the VM cannot reach.
-                    if name == "reflex_persist.mlog" {
-                        continue;
-                    }
+                    // Наряд №204 (ADR-0121 stage 2): reflex_persist.mlog now
+                    // supported on the VM! reflex_save/reflex_load are
+                    // intercepted in call_builtin, routed to the VM's own
+                    // reflex_registry via the shared dispatch functions.
+                    // The exclusion has been removed.
+                    //
                     // Наряд №181: distillation examples use distill_to/
                     // distill_after/fallback_if in learnable_pattern, which
-                    // require Reflex registry access (Interpreter-only,
-                    // ADR-0114). Also use reflex_train/predict at runtime.
-                    // VM Reflex support is tracked in a future naryad —
-                    // same reason as reflex_train_predict.mlog.
+                    // require learnable-pattern runtime hooks on the VM
+                    // (ADR-0117). Stage 6 of ADR-0121 — not yet implemented.
                     if name == "reflex_distill_teaching.mlog"
                         || name == "reflex_distill_switch.mlog"
                         || name == "reflex_distill_fallback.mlog"
                     {
                         continue;
                     }
-                    // Наряд №187: reflex_introspect.mlog uses reflex_train +
-                    // reflex_metrics + reflex_list (all need ReflexRegistry,
-                    // same VM limitation as reflex_train_predict.mlog).
-                    if name == "reflex_introspect.mlog" {
-                        continue;
-                    }
-                    // Наряд №183: reflex_seq examples use reflex_seq_decl
-                    // which the VM doesn't yet handle (compiler.rs treats
-                    // ReflexSeq as "Phase 6+: no bytecode instruction needed").
-                    // Also require candle feature for runtime validation.
-                    // Наряд №184/№185: more reflex_seq examples added to the
-                    // exclusion list (same reason).
+                    // Наряд №204 (ADR-0121 stage 2): reflex_introspect.mlog
+                    // now supported on the VM! reflex_metrics/reflex_list are
+                    // intercepted in call_builtin. The exclusion has been
+                    // removed.
+                    //
+                    // Наряд №204 (ADR-0121 stages 3-4): reflex_seq and
+                    // reflex_gen examples are candle-feature-gated. The
+                    // crosscheck job runs without candle, so these examples
+                    // would fail with "the 'candle' feature is not enabled"
+                    // on both backends — the error messages may differ, so
+                    // skip them in the no-candle crosscheck. The candle-tests
+                    // job (Наряд №200) verifies these examples under candle.
                     if name == "reflex_seq_declare.mlog"
                         || name == "reflex_seq_mixed_error.mlog"
                         || name == "reflex_seq_missing_labels_error.mlog"

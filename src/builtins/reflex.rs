@@ -47,6 +47,8 @@
 //! in `interpreter::execution::invoke()`.
 
 use crate::bytecode::CompiledReflexDecl;
+#[cfg(feature = "candle")]
+use crate::bytecode::{CompiledReflexGenDecl, CompiledReflexSeqDecl};
 use crate::interpreter::Value;
 use crate::nn::{find_metric, ReflexId, ReflexRegistry};
 use std::collections::HashMap;
@@ -292,6 +294,205 @@ pub fn build_reflex_model(decl: &CompiledReflexDecl) -> Result<crate::nn::Reflex
         input_size: decl.input_dim,
         labels: decl.labels.clone(),
     })
+}
+
+// ── Наряд №204 (ADR-0121 stages 3-4): shared seq/gen model construction ─
+//
+// Moved from `src/interpreter/execution.rs` (private fns) to this shared
+// location so both the interpreter and the VM can call them. Same pattern
+// as `build_reflex_model` above — the neural-network logic is NOT
+// reimplemented, only the plumbing is shared.
+
+/// Build a `ReflexSeqModel` from a compiled `reflex_seq` declaration.
+///
+/// Candle-feature-gated. Constructs trainable SequenceLayers (attention,
+/// transformer_block) with deterministic VarMap init. Mirrors the
+/// interpreter's `construct_reflex_seq_model` exactly.
+#[cfg(feature = "candle")]
+pub fn build_reflex_seq_model(
+    decl: &CompiledReflexSeqDecl,
+) -> Result<crate::nn::seq_model::ReflexSeqModel, String> {
+    use crate::nn::seq_model::ReflexSeqModel;
+    use crate::nn::trainable_attention::build_trainable_attention;
+    use candle_core::Device;
+    use candle_nn::{VarBuilder, VarMap};
+
+    let var_map = VarMap::new();
+    let device = Device::Cpu;
+    let vb = VarBuilder::from_varmap(&var_map, candle_core::DType::F32, &device);
+
+    let mut seq_layers: Vec<Box<dyn crate::nn::sequence_layer::SequenceLayer>> = Vec::new();
+    let mut current_input_size = decl.input_dim;
+
+    for (i, layer_spec) in decl.layers.iter().enumerate() {
+        let args: Vec<Value> = layer_spec
+            .args
+            .iter()
+            .map(|s| {
+                if let Ok(f) = s.parse::<f64>() {
+                    Value::Float(f)
+                } else {
+                    Value::String(s.clone())
+                }
+            })
+            .collect();
+
+        let layer: Box<dyn crate::nn::sequence_layer::SequenceLayer> =
+            match layer_spec.name.as_str() {
+                "attention" => {
+                    let prefix = format!("layer{}", i);
+                    build_trainable_attention(
+                        &args,
+                        decl.seed.wrapping_add(i as u64),
+                        &var_map,
+                        &prefix,
+                    )
+                    .map_err(|e| {
+                        format!(
+                            "reflex_seq '{}': layer {} build failed: {}",
+                            decl.name, i, e
+                        )
+                    })?
+                }
+                "transformer_block" => {
+                    let prefix = format!("block{}", i);
+                    crate::nn::trainable_transformer_block::build_trainable_transformer_block(
+                        &args,
+                        decl.seed.wrapping_add(i as u64),
+                        &var_map,
+                        &prefix,
+                    )
+                    .map_err(|e| {
+                        format!(
+                            "reflex_seq '{}': layer {} build failed: {}",
+                            decl.name, i, e
+                        )
+                    })?
+                }
+                other => {
+                    return Err(format!(
+                        "reflex_seq '{}': layer {} '{}' has no trainable variant.",
+                        decl.name, i, other
+                    ));
+                }
+            };
+
+        if layer.input_dim() != current_input_size {
+            return Err(format!(
+                "reflex_seq '{}': layer {} expects input_dim={} but previous layer output {}",
+                decl.name,
+                i,
+                layer.input_dim(),
+                current_input_size
+            ));
+        }
+        current_input_size = layer.output_dim();
+        seq_layers.push(layer);
+    }
+
+    let model = ReflexSeqModel::new(
+        decl.name.clone(),
+        decl.input_dim,
+        decl.seq_len,
+        decl.labels.clone(),
+        decl.seed,
+        seq_layers,
+        var_map,
+        &vb,
+    )?;
+
+    Ok(model)
+}
+
+/// Build a `ReflexGenModel` from a compiled `reflex_gen` declaration.
+///
+/// Candle-feature-gated. Mirrors the interpreter's `construct_reflex_gen_model`.
+#[cfg(feature = "candle")]
+pub fn build_reflex_gen_model(
+    decl: &CompiledReflexGenDecl,
+) -> Result<crate::nn::gen_model::ReflexGenModel, String> {
+    use crate::nn::gen_model::ReflexGenModel;
+    use candle_nn::{VarBuilder, VarMap};
+
+    let var_map = VarMap::new();
+    let device = candle_core::Device::Cpu;
+    let vb = VarBuilder::from_varmap(&var_map, candle_core::DType::F32, &device);
+
+    let mut seq_layers: Vec<Box<dyn crate::nn::sequence_layer::SequenceLayer>> = Vec::new();
+
+    for (i, layer_spec) in decl.layers.iter().enumerate() {
+        let args: Vec<Value> = layer_spec
+            .args
+            .iter()
+            .map(|s| {
+                if let Ok(f) = s.parse::<f64>() {
+                    Value::Float(f)
+                } else {
+                    Value::String(s.clone())
+                }
+            })
+            .collect();
+
+        let prefix = format!("block{}", i);
+        let layer: Box<dyn crate::nn::sequence_layer::SequenceLayer> =
+            match layer_spec.name.as_str() {
+                "transformer_block" => {
+                    crate::nn::trainable_transformer_block::build_trainable_transformer_block(
+                        &args,
+                        decl.seed.wrapping_add(i as u64),
+                        &var_map,
+                        &prefix,
+                    )
+                    .map_err(|e| {
+                        format!(
+                            "reflex_gen '{}': layer {} build failed: {}",
+                            decl.name, i, e
+                        )
+                    })?
+                }
+                "attention" => crate::nn::trainable_attention::build_trainable_attention(
+                    &args,
+                    decl.seed.wrapping_add(i as u64),
+                    &var_map,
+                    &format!("layer{}", i),
+                )
+                .map_err(|e| {
+                    format!(
+                        "reflex_gen '{}': layer {} build failed: {}",
+                        decl.name, i, e
+                    )
+                })?,
+                other => {
+                    return Err(format!(
+                        "reflex_gen '{}': layer {} '{}' has no trainable variant.",
+                        decl.name, i, other
+                    ));
+                }
+            };
+
+        if layer.input_dim() != decl.input_dim {
+            return Err(format!(
+                "reflex_gen '{}': layer {} expects input_dim={} but model has dim={}",
+                decl.name,
+                i,
+                layer.input_dim(),
+                decl.input_dim
+            ));
+        }
+        seq_layers.push(layer);
+    }
+
+    let model = ReflexGenModel::new(
+        decl.name.clone(),
+        decl.input_dim,
+        decl.vocab_size,
+        decl.seed,
+        seq_layers,
+        var_map,
+        &vb,
+    )?;
+
+    Ok(model)
 }
 
 // ── Shared dispatch bodies (reused by TW today, VM tomorrow) ────────

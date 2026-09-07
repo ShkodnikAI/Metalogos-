@@ -35,6 +35,45 @@ jobs:
       - name: TW vs VM parity
         run: cargo test --workspace --test crosscheck_backends --no-fail-fast
 
+  candle-tests:
+    name: candle-tests (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: candle-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: Library tests (feature-gated, includes src/nn/ unit tests)
+        run: cargo test --workspace --lib --features candle --no-fail-fast
+      - name: Reflex pillar integration tests (candle-gated)
+        run: |
+          cargo test --workspace --features candle --no-fail-fast \
+            --test naryad_183_attention_forward \
+            --test naryad_184_rmsnorm_forward \
+            --test naryad_184_swiglu_forward \
+            --test naryad_184_transformer_block_forward \
+            --test naryad_185_seq_convergence \
+            --test naryad_188_gqa_forward \
+            --test naryad_190_single_block_regression \
+            --test naryad_190_stack_forward \
+            --test naryad_190_stack_training \
+            --test naryad_190_stack_weights \
+            --test naryad_192_gqa_stack_forward \
+            --test naryad_192_gqa_stack_training \
+            --test naryad_193_gen_sanity_check \
+            --test naryad_194_vocab_overflow \
+            --test naryad_196_batch_matches_single \
+            --test naryad_196_batching_speedup \
+            --test naryad_196_padding_mask_correctness \
+            --test naryad_199_vm_reflex_train_predict \
+            --test naryad_199_vm_matches_tw_determinism \
+            --test crosscheck_backends \
+            --test golden \
+            --test registry_arity_check
+      - name: Clippy on gated code
+        run: cargo clippy --workspace --features candle --all-targets -- -D warnings
+
   registry-arity-check:
     name: registry-arity-check (blocking)
     runs-on: ubuntu-latest

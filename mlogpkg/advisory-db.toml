@@ -1,0 +1,28 @@
+# mlogpkg advisory database — local, manually maintained
+#
+# Наряд №198, Block 2: This is a LOCAL, MANUALLY-MAINTAINED advisory database.
+# It is NOT an integration with an external CVE database (RUSTSEC, NVD, GitHub
+# Advisory DB, etc.). Vulnerabilities are added here as they are discovered
+# and reported to the Metalogos team.
+#
+# Limitations:
+#   - Only packages known to the Metalogos ecosystem are listed.
+#   - Updates require a new release of mlogpkg (no live feed).
+#   - Version matching is exact (no semver ranges in v1).
+#
+# To override this DB with a project-specific one, set the
+# MLOGPKG_ADVISORY_DB env var to point at a custom .toml file, or
+# create ~/.mlog/advisory-db.toml.
+
+# This is intentionally empty for the initial commit. Real advisories will
+# be added as the Metalogos package ecosystem grows and vulnerabilities are
+# discovered. The format is:
+#
+#   [[advisory]]
+#   id = "MLOG-001"
+#   package = "package-name"
+#   version = "1.2.0"
+#   severity = "high"            # low | medium | high | critical
+#   title = "Short description"
+#   description = "Longer description of the vulnerability"
+#   url = "https://example.com/advisory"

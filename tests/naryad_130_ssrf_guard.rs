@@ -10,10 +10,16 @@
 // No real HTTP requests are made — safe for offline CI.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+// Наряд №206: all tests in this file mutate METALOGOS_HTTP_ALLOW_PRIVATE
+// (a process-global env var). Without #[serial], parallel test execution
+// causes races where one test's set_var is overwritten by another's
+// remove_var. Serial ensures they run sequentially.
+use serial_test::serial;
 
 // ── C1: Loopback IPv4 — blocked ──────────────────────────────────────────
 
 #[test]
+#[serial]
 fn test_ssrf_blocks_loopback_ipv4() {
     // Ensure opt-out is NOT set
     std::env::remove_var("METALOGOS_HTTP_ALLOW_PRIVATE");
@@ -36,6 +42,7 @@ fn test_ssrf_blocks_loopback_ipv4() {
 // ── C2: Cloud metadata endpoint — blocked ──────────────────────────────
 
 #[test]
+#[serial]
 fn test_ssrf_blocks_cloud_metadata() {
     std::env::remove_var("METALOGOS_HTTP_ALLOW_PRIVATE");
 
@@ -55,6 +62,7 @@ fn test_ssrf_blocks_cloud_metadata() {
 // ── C3: is_blocked_address — verify IP classification + public IP passes ──
 
 #[test]
+#[serial]
 fn test_is_blocked_address_classification() {
     let blocked = metalogos::builtins::is_blocked_address;
 
@@ -129,6 +137,7 @@ fn test_is_blocked_address_classification() {
 /// C3 extension: public IP literal URL passes the full check_url_ssrf.
 /// Uses 8.8.8.8 (IP literal, no DNS lookup needed — safe in offline CI).
 #[test]
+#[serial]
 fn test_ssrf_public_ip_literal_passes() {
     std::env::remove_var("METALOGOS_HTTP_ALLOW_PRIVATE");
 
@@ -152,6 +161,7 @@ fn test_ssrf_public_ip_literal_passes() {
 // ── C4: METALOGOS_HTTP_ALLOW_PRIVATE=1 → private address allowed ────────
 
 #[test]
+#[serial]
 fn test_ssrf_allow_private_opt_out() {
     std::env::set_var("METALOGOS_HTTP_ALLOW_PRIVATE", "1");
 
@@ -172,6 +182,7 @@ fn test_ssrf_allow_private_opt_out() {
 
 /// C4 extension: opt-out also works for cloud metadata
 #[test]
+#[serial]
 fn test_ssrf_allow_private_cloud_metadata() {
     std::env::set_var("METALOGOS_HTTP_ALLOW_PRIVATE", "1");
 
@@ -187,6 +198,7 @@ fn test_ssrf_allow_private_cloud_metadata() {
 
 /// Invalid URL → SSRF guard returns error (not panic)
 #[test]
+#[serial]
 fn test_ssrf_invalid_url() {
     std::env::remove_var("METALOGOS_HTTP_ALLOW_PRIVATE");
 
@@ -205,6 +217,7 @@ fn test_ssrf_invalid_url() {
 
 /// URL with no host → SSRF guard returns error
 #[test]
+#[serial]
 fn test_ssrf_url_no_host() {
     std::env::remove_var("METALOGOS_HTTP_ALLOW_PRIVATE");
 

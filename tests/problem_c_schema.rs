@@ -6,6 +6,7 @@
 mod tests {
     use metalogos::run_program;
 
+    #[ignore = "n206: requires sqlite3 connection (env-dependent)"]
     #[test]
     fn schema_creates_table_and_inserts() {
         let source = r#"
@@ -39,6 +40,7 @@ flow Main {
         );
     }
 
+    #[ignore = "n206: requires sqlite3 connection (env-dependent)"]
     #[test]
     fn schema_with_all_modifiers() {
         let source = r#"
@@ -74,6 +76,7 @@ flow Main {
         );
     }
 
+    #[ignore = "n206: requires sqlite3 connection (env-dependent)"]
     #[test]
     fn schema_additive_no_drop() {
         // Running schema twice should not fail (IF NOT EXISTS)

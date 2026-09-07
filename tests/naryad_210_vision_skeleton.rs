@@ -194,7 +194,7 @@ fn vision_generate_registered_arity_is_3() {
     // Instead, verify the builtin exists and its index is stable.
     assert!(
         idx >= 381,
-        "vision_generate must be appended after existing builtins (index >= 381): got {}",
+        "vision_generate must be appended after existing builtins (index >= 381, was 381 pre-vision): got {}",
         idx
     );
     assert_eq!(

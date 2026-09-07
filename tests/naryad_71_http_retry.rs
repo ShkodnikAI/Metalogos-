@@ -71,6 +71,7 @@ mod tests {
 
     // ── Scenario 1: Success after retries (503, 503, 200) ──
 
+    #[ignore = "n206: requires python3 + test server on port 18771 (env-dependent)"]
     #[test]
     #[serial_test::serial]
     fn test_retry_succeeds_after_503s() {
@@ -100,6 +101,7 @@ mod tests {
         }
     }
 
+    #[ignore = "n206: requires python3 + test server on port 18771 (env-dependent)"]
     #[test]
     #[serial_test::serial]
     fn test_retry_http_post_succeeds_after_503s() {
@@ -131,6 +133,7 @@ mod tests {
 
     // ── Scenario 2: No retry on fatal 400 ──
 
+    #[ignore = "n206: requires python3 + test server on port 18771 (env-dependent)"]
     #[test]
     #[serial_test::serial]
     fn test_no_retry_on_fatal_400() {
@@ -161,6 +164,7 @@ mod tests {
 
     // ── Scenario 3: Backward compatibility — no retry without config ──
 
+    #[ignore = "n206: requires python3 + test server on port 18771 (env-dependent)"]
     #[test]
     #[serial_test::serial]
     fn test_backward_compat_no_retry_config() {
@@ -186,6 +190,7 @@ mod tests {
         }
     }
 
+    #[ignore = "n206: requires python3 + test server on port 18771 (env-dependent)"]
     #[test]
     #[serial_test::serial]
     fn test_backward_compat_post_no_retry_on_503() {
@@ -212,6 +217,7 @@ mod tests {
 
     // ── Retry config parsing edge cases ──
 
+    #[ignore = "n206: requires python3 + test server on port 18771 (env-dependent)"]
     #[test]
     #[serial_test::serial]
     fn test_retry_config_with_zero_retries() {
@@ -236,6 +242,7 @@ mod tests {
         }
     }
 
+    #[ignore = "n206: requires python3 + test server on port 18771 (env-dependent)"]
     #[test]
     #[serial_test::serial]
     fn test_retry_struct_not_confused_with_headers() {

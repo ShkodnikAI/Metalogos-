@@ -129,12 +129,20 @@ fn test_dod_http_post_builtin_registered() {
         ],
         span: metalogos::ast::Span::unknown(),
     });
-    // Should fail (not a valid URL) but NOT panic with "undefined pattern or builtin"
+    // Should fail (not a valid URL) but NOT panic with "undefined pattern or builtin".
+    // Наряд №206: the error now comes from the SSRF guard (n130), which rejects
+    // "not-a-url" as a relative URL without a base. The test originally asserted
+    // "http_post" appeared in the error — that was the pre-SSRF behavior where
+    // the builtin itself reported the URL error. Now the SSRF guard fires first.
+    // The correct assertion is: the error is NOT "undefined builtin" — it's a
+    // real URL-validation error (SSRF guard or http_post's own validation).
     match result {
         Err(msg) => {
             assert!(
-                msg.contains("http_post"),
-                "Error should mention http_post, got: {}",
+                msg.contains("http_post")
+                    || msg.contains("SSRF guard")
+                    || msg.contains("invalid URL"),
+                "Error should be a URL-validation error (http_post/SSRF guard/invalid URL), got: {}",
                 msg
             );
         }

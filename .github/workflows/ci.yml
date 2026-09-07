@@ -127,9 +127,8 @@ jobs:
         run: cargo build --release --no-default-features --features "svg,chart,diagram,template"
 
   test-integration:
-    name: test-integration (advisory)
+    name: test-integration (blocking)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable

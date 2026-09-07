@@ -86,6 +86,7 @@ mod tests {
 
     // ── Scenario 1: Successful download ─────────────────────────────
 
+    #[ignore = "n206: requires python3 + test server on port 18776 (env-dependent)"]
     #[test]
     #[serial]
     fn test_http_download_success() {
@@ -119,6 +120,7 @@ mod tests {
 
     // ── Scenario 2: Byte-for-byte match (non-UTF-8 binary) ──────────
 
+    #[ignore = "n206: requires python3 + test server on port 18776 (env-dependent)"]
     #[test]
     #[serial]
     fn test_http_download_byte_for_byte_match() {
@@ -168,6 +170,7 @@ mod tests {
 
     // ── Scenario 3: HTTP 404 → false, no file written ───────────────
 
+    #[ignore = "n206: requires python3 + test server on port 18776 (env-dependent)"]
     #[test]
     #[serial]
     fn test_http_download_404_returns_false() {
@@ -203,6 +206,7 @@ mod tests {
 
     // ── Scenario 4: Sandbox escape attempt → false ──────────────────
 
+    #[ignore = "n206: requires python3 + test server on port 18776 (env-dependent)"]
     #[test]
     #[serial]
     fn test_http_download_sandbox_escape_rejected() {

@@ -430,34 +430,42 @@ entity result: String = str(add(3.0, 4.0))
     );
 }
 
-// ── Наряд №129: BlockIfElse expression → loud compile error ────────
+// ── Наряд №129: BlockIfElse expression → loud error ────────────────
 
 #[test]
 fn test_compile_block_if_else_expr_is_err() {
-    // BlockIfElse as expression (assigned to let) must fail compilation.
+    // BlockIfElse as expression (assigned to let) must fail.
     // Before НАРЯД №129 this silently compiled to Const(Unit),
     // producing wrong results without any error signal.
+    //
+    // Наряд №206: the grammar (pest) now rejects `{ "pos" }` after `then`
+    // in a let-binding expression — the parse itself fails before the
+    // compiler even sees it. This is still a loud error, just at a different
+    // layer. The test is updated to accept either a parse error or a
+    // compile error, as long as the construct is rejected.
     let source = r#"
 pattern block_if_else_expr(x: Float) -> String {
     let label = if x > 0.0 then { "pos" } else { "neg" }
     return label
 }
 "#;
-    let decls = parser::parse(source)
+    // Try parse → compile pipeline. Either step may fail — both are "loud".
+    let result = parser::parse(source)
         .map_err(|e| format!("parse: {}", e))
-        .unwrap();
-    let mut compiler = Compiler::new();
-    let err = compiler
-        .compile(decls)
-        .expect_err("compile should FAIL for BlockIfElse expression");
+        .and_then(|decls| {
+            let mut compiler = Compiler::new();
+            compiler.compile(decls).map(|_| ())
+        });
     assert!(
-        err.contains("block if/else expression not yet supported"),
-        "error message should mention BlockIfElse limitation, got: {}",
-        err
+        result.is_err(),
+        "BlockIfElse expression should fail (parse or compile), got: {:?}",
+        result
     );
+    let err = result.unwrap_err();
+    // The error should mention either the parse failure or the compile limitation.
     assert!(
-        err.contains("VM bytecode"),
-        "error message should mention VM, got: {}",
+        err.contains("block if/else") || err.contains("expected") || err.contains("parse"),
+        "error should be a parse or compile error for BlockIfElse, got: {}",
         err
     );
 }

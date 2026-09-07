@@ -6,6 +6,11 @@
 // - exec audit log: verified by checking the audit log file after exec
 // - html_render missing binary: verified by calling without METALOGOS_BROWSER_BIN
 // - html_render invalid dimensions: verified by passing 0 width/height
+//
+// Наряд №206: all tests mutate process-global env vars (METALOGOS_ALLOW_EXEC,
+// METALOGOS_BROWSER_BIN, etc.) — #[serial] prevents race conditions.
+
+use serial_test::serial;
 
 fn eval_expr(src: &str) -> String {
     let full = format!(
@@ -38,6 +43,7 @@ fn eval_program(src: &str) -> Result<String, String> {
 // ── exec() hardening (Блок 1) ─────────────────────────────────────────
 
 #[test]
+#[serial]
 fn n88_exec_still_works_for_simple_commands() {
     // Basic contract: exec() signature and behavior unchanged
     // Наряд №97: exec() now requires METALOGOS_ALLOW_EXEC=1
@@ -52,6 +58,7 @@ fn n88_exec_still_works_for_simple_commands() {
 }
 
 #[test]
+#[serial]
 fn n88_exec_timeout_short_command_succeeds() {
     // A command that finishes quickly should succeed even with the default timeout
     std::env::set_var("METALOGOS_ALLOW_EXEC", "1");
@@ -65,6 +72,7 @@ fn n88_exec_timeout_short_command_succeeds() {
 }
 
 #[test]
+#[serial]
 fn n88_exec_timeout_exceeded() {
     // Set a very short timeout (1s) and run a command that sleeps for 5s.
     // The exec should time out and return an error.
@@ -82,6 +90,7 @@ fn n88_exec_timeout_exceeded() {
 }
 
 #[test]
+#[serial]
 fn n88_exec_audit_log_created() {
     // Run exec and verify the audit log file is created.
     std::env::set_var("METALOGOS_ALLOW_EXEC", "1");
@@ -124,6 +133,7 @@ fn n88_exec_audit_log_created() {
 // ── html_render (Блок 2) ──────────────────────────────────────────────
 
 #[test]
+#[serial]
 fn n88_html_render_missing_browser_bin() {
     // Without METALOGOS_BROWSER_BIN set, html_render should error clearly
     std::env::remove_var("METALOGOS_BROWSER_BIN");
@@ -142,6 +152,7 @@ fn n88_html_render_missing_browser_bin() {
 }
 
 #[test]
+#[serial]
 fn n88_html_render_zero_dimensions_error() {
     // Zero width or height should produce an error
     std::env::remove_var("METALOGOS_BROWSER_BIN");
@@ -162,6 +173,7 @@ fn n88_html_render_zero_dimensions_error() {
 }
 
 #[test]
+#[serial]
 fn n88_html_render_nonexistent_browser_bin() {
     // If METALOGOS_BROWSER_BIN points to a nonexistent file, error should be clear
     std::env::set_var("METALOGOS_BROWSER_BIN", "/nonexistent/chromium_binary_n88");
@@ -177,6 +189,7 @@ fn n88_html_render_nonexistent_browser_bin() {
 }
 
 #[test]
+#[serial]
 fn n88_html_render_audit_log_on_missing_binary() {
     // When METALOGOS_BROWSER_BIN is not set or invalid, html_render
     // returns an error BEFORE attempting to spawn a subprocess.
@@ -216,6 +229,7 @@ fn n88_html_render_audit_log_on_missing_binary() {
 // ── Наряд №97: exec() unconditional deny + exec_argv ──────────────────
 
 #[test]
+#[serial]
 fn n97_exec_denied_by_default() {
     // Without METALOGOS_ALLOW_EXEC=1, exec() must be denied in ALL contexts
     std::env::remove_var("METALOGOS_ALLOW_EXEC");
@@ -233,6 +247,7 @@ fn n97_exec_denied_by_default() {
 }
 
 #[test]
+#[serial]
 fn n97_exec_argv_denied_by_default() {
     // Without METALOGOS_ALLOW_EXEC=1, exec_argv() must also be denied
     std::env::remove_var("METALOGOS_ALLOW_EXEC");
@@ -245,6 +260,7 @@ fn n97_exec_argv_denied_by_default() {
 }
 
 #[test]
+#[serial]
 fn n97_exec_argv_works_with_allow() {
     // With METALOGOS_ALLOW_EXEC=1, exec_argv works and no shell injection
     std::env::set_var("METALOGOS_ALLOW_EXEC", "1");
@@ -258,6 +274,7 @@ fn n97_exec_argv_works_with_allow() {
 }
 
 #[test]
+#[serial]
 fn n97_exec_argv_no_shell_injection() {
     // Shell metacharacters in exec_argv args are NOT interpreted
     // This would be command injection with exec(), but safe with exec_argv
@@ -274,6 +291,7 @@ fn n97_exec_argv_no_shell_injection() {
 }
 
 #[test]
+#[serial]
 fn n97_exec_argv_no_args() {
     // exec_argv with just binary path (no args list) should work
     std::env::set_var("METALOGOS_ALLOW_EXEC", "1");

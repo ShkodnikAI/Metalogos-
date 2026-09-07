@@ -2367,7 +2367,7 @@ dependencies = [
 
 [[package]]
 name = "metalogos"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -2465,7 +2465,7 @@ dependencies = [
 
 [[package]]
 name = "mlog-lsp"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "dashmap 6.2.1",
  "metalogos",
@@ -2477,7 +2477,7 @@ dependencies = [
 
 [[package]]
 name = "mlogpkg"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "clap",
  "metalogos",

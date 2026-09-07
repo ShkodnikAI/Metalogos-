@@ -4,6 +4,167 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-09-07
+
+**The eighth semantic pillar — Reflex — is now complete: neural networks
+as a first-class language construct. The VM backend gains Reflex parity
+(stage 1 of ADR-0121). Security audit covers Reflex taint flows. mlogpkg
+gains full dependency resolution + lockfile + local audit. The
+self-hosted parser bootstraps. ~1000 commits since v0.18.0.**
+
+### Added — Reflex pillar (complete: train/predict, sequence, generation, distillation)
+
+- **reflex_gen — text generation with KV-cache** (Наряд №193, ADR-0120):
+  `reflex_gen Name { input: embedding(dim) vocab_size: V layers: [transformer_block(...)] seed: N }`.
+  Autoregressive generation with O(N) KV-cache (`forward_step` per layer).
+  `reflex_generate(model, prompt, max_tokens, temperature)` — greedy and
+  temperature-sampled decoding. 4-layer transformer generates coherent
+  patterns on toy datasets.
+- **reflex_tokenize / reflex_detokenize** (Наряд №194): character-level
+  tokenization — simplest deterministic scheme, no vocabulary training.
+  Each Unicode char → code point as Float.
+- **BPE tokenization** (Наряд №195): `reflex_bpe_train`, `reflex_bpe_encode`,
+  `reflex_bpe_decode`, `reflex_bpe_save`, `reflex_bpe_load`. Opaque
+  `Value::BpeVocab` handle, `BPE_REGISTRY` global Mutex, deterministic
+  training with lexicographic tie-break, binary serialize/deserialize.
+- **Batched training** (Наряд №196): `[batch, seq_len, dim]` tensor with
+  padding mask. Padding tokens excluded from loss and attention.
+  `batch_size=1` matches single-sequence path byte-for-byte. Measured
+  2-3x speedup on batch sizes 4-8.
+- **Grouped-Query Attention (GQA)** (Наряд №188): `n_kv_heads` parameter
+  on `attention` and `transformer_block`. K/V weights `[dim, kv_dim]`
+  (not `[dim, dim]`). `repeat_kv()` for GQA. Backward compatible when
+  `n_kv_heads == n_heads`.
+- **Stacked transformer_blocks** (Наряд №190): multiple blocks in a
+  `reflex_seq`/`reflex_gen` layers list. VarMap prefixing prevents
+  weight collision (`block0_attn_w_q`, `block1_attn_w_q`, ...).
+- **RmsNorm + SwiGLU + transformer_block** (Наряд №184): modular
+  SequenceLayer types. `SEQUENCE_LAYER_REGISTRY` for name→constructor
+  dispatch. `reflex_seq` uses sequence-only layers, `reflex` uses
+  dense-only — mixing is a compile-time error (ADR-0119).
+- **Attention layer** (Наряд №183): trainable attention with causal mask,
+  RoPE positional encoding, `TrainableAttention` for autograd.
+- **reflex_seq — sequence classification** (Наряд №185): mean pooling +
+  Dense classifier head. `reflex_train`/`reflex_predict` dispatch through
+  `ModelKind` enum (Dense | Sequence | Gen).
+- **Reflex distillation** (Наряд №181, ADR-0117): `distill_to`,
+  `distill_after`, `fallback_if` fields on `learnable pattern`. LLM
+  traffic distilled into a local reflex model after N examples.
+  TEACHING→DISTILLED→FALLBACK cycle.
+- **Reflex persistence** (Наряд №180, ADR-0116): `reflex_save` /
+  `reflex_load` — serialize model weights to SQLite. Version-tagged,
+  shape-mismatch detection.
+- **Reflex introspection** (Наряд №187): `reflex_metrics(model)` →
+  Struct { param_count, last_metric, layers, input_size, labels }.
+  `reflex_list()` → List of registered model names.
+- **candle ML framework** (Наряд №175/183, ADR-0118): optional feature
+  `--features candle`. CPU-only, no GPU. `VarBuilder`/`VarMap`/`Var`
+  autograd. Language works without candle (default build) — Dense
+  classification is pure Rust.
+- **Reflex declaration** (Наряд №178, ADR-0114): `reflex Name { input:
+  embedding(dim) layers: [...] labels: [...] seed: N }`. Opaque
+  `Value::Reflex(ReflexId)` handle — weights never enter `Value`.
+  `ReflexRegistry` owns models. Deterministic weight init via
+  xorshift64 PRNG (ADR-0115).
+- **Reflex training/prediction** (Наряды №177/179/179b): `reflex_train(model,
+  data, epochs, metric, threshold)` → Struct { loss, accuracy, metric,
+  threshold_met }. `reflex_predict(model, input)` → Fluid (label with
+  confidence). 80/20 holdout split, cross-entropy loss, SGD.
+
+### Added — VM Reflex parity (ADR-0121, stage 1 of 6)
+
+- **VM-owned ReflexRegistry** (Наряд №199): `Vm` struct gains
+  `reflex_registry: ReflexRegistry` + `reflex_names: HashMap<String,
+  ReflexId>`. `reflex_train`/`reflex_predict` intercepted in
+  `call_builtin` before the stub fallback. Same shared dispatch
+  functions as the interpreter — neural-network logic not duplicated.
+  Determinism verified: same seed → same output byte-for-byte across
+  both backends. `crosscheck_backends` no longer excludes
+  `reflex_train_predict.mlog`.
+
+### Added — Security (Reflex + learnable taint model)
+
+- **UNTRUSTED_TRAINING_DATA check** (Наряд №201, OWASP A09):
+  `json_body()`/`query_param()`/`form_data()` → `reflex_train` data/labels
+  → Error (model poisoning / PII baked into weights). New Category-A
+  check_id, blocking.
+- **SECRET_LEAK extended to reflex_train** (Наряд №201): `env()` →
+  `reflex_train` data/labels → SECRET_LEAK Error. Weights persist via
+  `reflex_save` (ADR-0116), bypassing file-level sinks. Interception
+  on `reflex_train` args (not `reflex_save` — taint cannot sit on
+  `Value::Reflex` opaque handle per ADR-0114).
+- **HTML_INJECTION extended to reflex_generate + learnable patterns**
+  (Наряд №201): `reflex_generate` output treated as `LlmOutput` taint
+  (model trained on data that may include LLM-tainted content per
+  ADR-0117). Learnable patterns (declared with `learnable pattern`)
+  are also taint sources — their output is the result of an LLM call.
+  `respond(Classify(x))` → HTML_INJECTION Warning.
+- **List literal taint propagation** (Наряд №201): `get_expr_taint`
+  now propagates taint through `Expr::List` — needed for
+  `[[env("K"), 0.0]]` in `reflex_train` data.
+- **max_tokens ceiling** (Наряд №203 Block 4): `reflex_generate`
+  `max_tokens` capped at 4096 — explicit error, not silent truncation.
+  Prevents resource exhaustion when `mlog serve` receives external
+  request with `max_tokens=1e9`.
+- **bind 127.0.0.1** (Наряд №164): server binds to localhost by default.
+- **secret() builtin** (Наряд №172): `secret("KEY")` returns
+  `Value::Secret` directly (hard-failure if env var missing, unlike
+  `env()` which returns empty string).
+- **SSOT audit** (Наряд №170): `BUILTIN_REGISTRY` is the single source
+  of truth — compiler, VM, and semantic analysis all derive from it.
+
+### Added — Tooling
+
+- **candle-tests blocking CI job** (Наряд №200): new blocking job in
+  `.github/workflows/ci.yml`. Runs `cargo test --workspace --features
+  candle` (lib + 20 candle-gated integration tests) and
+  `cargo clippy --features candle`. Existing `test-lib` job verifies
+  ADR-0118 (language works without candle).
+- **mlogpkg dependency resolution + lockfile + audit** (Наряд №198):
+  Full transitive dependency graph resolution with version conflict
+  detection and cycle detection. `mlogpkg.lock` (deterministic TOML,
+  alphabetical). `mlogpkg audit` — checks dependencies against local
+  advisory database (manually maintained, NOT external CVE integration).
+  `mlogpkg add` pre-flight resolves before writing `mlog.toml`.
+- **Self-hosted parser** (Наряд №197): `self-host/parser.mlog` —
+  Metalogos parser written in Metalogos itself. Bootstraps (parses its
+  own source). 4 lexer bugs fixed in local Tokenize copy. Structural
+  equivalence with Rust parser verified on 12 .mlog files.
+- **module-size-guard** CI job: per-module LOC limits (5000 hard,
+  4000 warning).
+- **vscode-extension** CI job: compiles TypeScript, verifies
+  `out/extension.js` exists.
+- **AGENT.md**: methodology document — code is source of truth, PR
+  mandatory (ADR-0110), proofs by real CI runs.
+
+### Fixed
+
+- **VarMap collision in stacked blocks** (Наряд №190): TrainableAttention
+  registered Vars under fixed names → stacked blocks overwrote each other.
+  Fixed by adding `prefix` parameter.
+- **GQA K tensor reshape** (Наряд №192): `apply_rope` had hardcoded
+  `reshape((seq_len, self.dim))` — failed for GQA K tensor (smaller
+  dim). Fixed to `reshape((seq_len, n_h * head_dim))`.
+- **cross_entropy_loss scalar** (Наряд №193b): returned `[1,1]` tensor
+  instead of scalar → `to_scalar` failed. Fixed with
+  `.squeeze(0).squeeze(0)`.
+- **KV-cache mismatch** (Наряд №193b): prompt processed via full
+  `forward()`, but caches were empty → cache vs no-cache mismatch.
+  Fixed: `forward_step` now used for ALL prompt positions.
+- **golden error test divergence under candle** (Наряд №200):
+  `collect_error_pairs` in `tests/golden.rs` skipped reflex_*.error
+  pairs when `cfg!(feature = "candle")` is active. The .error files
+  describe the candle-OFF message; under candle-ON the message differs.
+- **stray .mlog files** (Наряд №203 Block 3): p161_deep_b/c,
+  p161_route_helper moved from repo root to `examples/debug/`.
+
+### Security
+
+- All Reflex taint flows (Наряд №201) described above.
+- `docs/threat-model.md` updated with 3 new risk rows:
+  weights exfiltration, untrusted training data, model output as
+  untrusted HTML.
+
 ## [0.18.0] - 2026-08-29
 
 **Security hardening, SVG/graphics subsystem (44 builtins), VM backend parity,

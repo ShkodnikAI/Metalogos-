@@ -7,9 +7,9 @@
 **AI-native programming language with security by design. Written in Rust.**
 
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/v0.18.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
+[![Version](https://img.shields.io/badge/v0.19.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
-[![CI](https://img.shields.io/badge/CI-8%20blocking%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
+[![CI](https://img.shields.io/badge/CI-12%20blocking%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 [![Open Collective](https://img.shields.io/opencollective/all/metalogos?label=Backers&logo=open-collective&color=7fadf2)](https://opencollective.com/metalogos)
 
 </div>

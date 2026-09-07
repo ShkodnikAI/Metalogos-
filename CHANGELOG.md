@@ -4,6 +4,28 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — Vision pillar skeleton (Наряд №210, ADR-0124)
+
+- **Feature gate `vision`** (off-by-default, not in `default`/`full`).
+  Enable with `cargo build --features vision`. The inference stack
+  (model loading, generation) lands in R2/R3 (naryads 211/212).
+- **`Value::Vision(VisionId)`** — opaque handle (same pattern as
+  `Value::Reflex`). Display: `[Vision#N]`. type_name: `"vision"`.
+  Vision artifacts never enter `Value` — only an index.
+- **`VisionRegistry`** — owns vision artifacts behind `Mutex`
+  (mirrors `ReflexRegistry`). API: insert/get/remove/len/is_empty/list_ids.
+- **6 SSOT loud-stub builtins**: `vision_generate(3)`, `vision_edit(2)`,
+  `vision_export(2)`, `vision_list(0)`, `vision_save(2)`, `vision_load(1)`.
+  Each returns a loud error with naryad + ADR reference — not a
+  placeholder value. `vision_list()` returns honest empty list.
+  Registered append-only in `BUILTIN_REGISTRY` (383 → 389 spec! lines).
+- **`vision-tests` blocking CI job**: builds with `--features vision`,
+  runs tests + clippy. Guard step verifies `vision` is NOT in
+  `default`/`full`.
+- **7 contract tests** in `tests/naryad_210_vision_skeleton.rs`:
+  vision_list empty, loud errors (TW + VM parity byte-for-byte),
+  handle display, type_name, registry index stability.
+
 ## [0.19.0] - 2026-09-07
 
 **The eighth semantic pillar — Reflex — is now complete: neural networks

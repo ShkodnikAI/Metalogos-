@@ -74,6 +74,28 @@ jobs:
       - name: Clippy on gated code
         run: cargo clippy --workspace --features candle --all-targets -- -D warnings
 
+  vision-tests:
+    name: vision-tests (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: vision-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: Guard — vision must NOT be in default/full features
+        run: |
+          if grep -E '^(default|full) = ' Cargo.toml | grep -q 'vision'; then
+            echo "::error::vision feature must stay off-by-default (ADR-0122, naryad 210)"; exit 1; fi
+      - name: Build with vision feature
+        run: cargo build --workspace --features vision
+      - name: Library tests (includes naryad_210 skeleton tests)
+        run: cargo test --workspace --lib --features vision --no-fail-fast
+      - name: Vision skeleton integration tests
+        run: cargo test --workspace --features vision --no-fail-fast --test naryad_210_vision_skeleton
+      - name: Clippy on vision-gated code
+        run: cargo clippy --workspace --features vision --all-targets -- -D warnings
+
   registry-arity-check:
     name: registry-arity-check (blocking)
     runs-on: ubuntu-latest

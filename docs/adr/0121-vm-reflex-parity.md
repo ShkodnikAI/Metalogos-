@@ -69,6 +69,17 @@ Each stage's exclusions in `crosscheck_backends` are removed **only**
 when that stage's examples genuinely pass on both backends — not
 removed in bulk at the end pending stage 6 alone.
 
+**Update (2026-09-07, on merging №205):** the original stage→naryad
+reservation above drifted: slots №200–203 were consumed by blocking
+non-VM work (№200 candle-CI job, №201 learnable taint, №202 release
+0.19.0, №203 consolidated P3), so the VM-parity stages landed as
+**№204 (stages 2–5, PR #215)** and **№205 (stage 6, PR #216)**.
+All six stages are merged; the 15+ `crosscheck_backends` exclusions
+for Reflex are removed (residual skips are the pre-existing, non-Reflex
+`match`/JIT gaps `ADR-0121`'s Consequences deliberately leave open).
+The table above is preserved as the historical reservation record —
+correction is recorded here, not by rewriting it.
+
 ## Consequences
 
 - `ADR-0105`'s general reasoning (no confirmed case, FOSVED runs on

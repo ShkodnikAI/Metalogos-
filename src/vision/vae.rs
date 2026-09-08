@@ -558,6 +558,9 @@ pub struct VaeDecoder {
     mid_attn: Option<VaeAttention>,
     up_blocks: Vec<Vec<ResnetBlock2D>>,
     up_samplers: Vec<Option<Upsample2D>>,
+    // n235: conv_norm_out = GroupNorm(base) → SiLU → conv_out — source: vae.py L271-273, L304-311
+    conv_norm_out_weight: Tensor,
+    conv_norm_out_bias: Tensor,
     conv_out: Conv2d,
     config: VaeConfig,
 }
@@ -597,17 +600,15 @@ impl VaeDecoder {
         )?);
 
         // up_blocks: reversed iteration to match diffusers layout.
+        // n235: layers_per_block+1 resnets per ALL blocks (was: only last block).
+        // Source: diffusers vae.py L254: num_layers = self.layers_per_block + 1.
         let mut up_blocks: Vec<Vec<ResnetBlock2D>> = Vec::new();
         let mut up_samplers: Vec<Option<Upsample2D>> = Vec::new();
         let mut in_ch = 4 * base;
         let rev_blocks: Vec<usize> = config.block_out_channels.iter().rev().copied().collect();
         for (i, &out_ch) in rev_blocks.iter().enumerate() {
             let mut resnets = Vec::new();
-            let num_resnets = if i == rev_blocks.len() - 1 {
-                config.layers_per_block + 1
-            } else {
-                config.layers_per_block
-            };
+            let num_resnets = config.layers_per_block + 1;
             for j in 0..num_resnets {
                 let r = ResnetBlock2D::new_seeded(
                     in_ch,
@@ -636,6 +637,12 @@ impl VaeDecoder {
             }
         }
 
+        // n235: conv_norm_out = GroupNorm(base) — source: vae.py L271-273
+        let conv_norm_out_weight =
+            Tensor::ones((base,), DType::F32, &device).map_err(|e| e.to_string())?;
+        let conv_norm_out_bias =
+            Tensor::zeros((base,), DType::F32, &device).map_err(|e| e.to_string())?;
+
         let conv_out = conv2d_seeded(
             base,
             config.out_channels,
@@ -651,6 +658,8 @@ impl VaeDecoder {
             mid_attn: None, // tiny config uses mid_block_add_attention=false
             up_blocks,
             up_samplers,
+            conv_norm_out_weight,
+            conv_norm_out_bias,
             conv_out,
             config: config.clone(),
         })
@@ -728,11 +737,9 @@ impl VaeDecoder {
         let rev_blocks: Vec<usize> = config.block_out_channels.iter().rev().copied().collect();
         for (i, &out_ch) in rev_blocks.iter().enumerate() {
             let mut resnets = Vec::new();
-            let num_resnets = if i == rev_blocks.len() - 1 {
-                config.layers_per_block + 1
-            } else {
-                config.layers_per_block
-            };
+            // n235: layers_per_block+1 for ALL blocks (was: only last).
+            // Source: vae.py L254: num_layers = self.layers_per_block + 1.
+            let num_resnets = config.layers_per_block + 1;
             for j in 0..num_resnets {
                 let r = ResnetBlock2D::from_weights(
                     tensors,
@@ -807,11 +814,32 @@ impl VaeDecoder {
             },
         );
 
+        // n235: conv_norm_out = GroupNorm(base) — source: vae.py L271-273
+        let cno_w = tensors.get("decoder.conv_norm_out.weight").ok_or_else(|| {
+            "VaeDecoder::from_weights: missing decoder.conv_norm_out.weight".to_string()
+        })?;
+        let cno_b = tensors.get("decoder.conv_norm_out.bias").ok_or_else(|| {
+            "VaeDecoder::from_weights: missing decoder.conv_norm_out.bias".to_string()
+        })?;
+        let conv_norm_out_weight = cno_w
+            .to_dtype(DType::F32)
+            .map_err(|e| format!("conv_norm_out dtype: {}", e))?
+            .to_device(&device)
+            .map_err(|e| format!("conv_norm_out device: {}", e))?;
+        let conv_norm_out_bias = cno_b
+            .to_dtype(DType::F32)
+            .map_err(|e| format!("conv_norm_out bias dtype: {}", e))?
+            .to_device(&device)
+            .map_err(|e| format!("conv_norm_out bias device: {}", e))?;
+
         // n234 Block 2: key-level loader tensor-coverage guard.
         // Build expected decoder key set from the VAE decoder schema.
         let mut expected_keys: Vec<String> = vec![
             "decoder.conv_in.weight".into(),
             "decoder.conv_in.bias".into(),
+            // n235: conv_norm_out added
+            "decoder.conv_norm_out.weight".into(),
+            "decoder.conv_norm_out.bias".into(),
             "decoder.conv_out.weight".into(),
             "decoder.conv_out.bias".into(),
         ];
@@ -841,16 +869,12 @@ impl VaeDecoder {
             expected_keys.push(format!("{}.to_out.0.weight", p));
             expected_keys.push(format!("{}.to_out.0.bias", p));
         }
-        // mid_block shortcut conv (if channels differ between resnet input/output)
-        // For Z-Image-Turbo VAE, resnet input = output = 4*base, so no shortcut.
-        // up_blocks (4 blocks, reversed channel order)
+        // up_blocks: n235 — layers_per_block+1 resnets per ALL blocks.
+        // Shortcuts present on resnets.0 when in_ch ≠ out_ch (up_blocks.2 and .3 in real config).
         let rev_blocks: Vec<usize> = config.block_out_channels.iter().rev().copied().collect();
+        let mut in_ch = 4 * base;
         for (i, &out_ch) in rev_blocks.iter().enumerate() {
-            let num_resnets = if i == rev_blocks.len() - 1 {
-                config.layers_per_block + 1
-            } else {
-                config.layers_per_block
-            };
+            let num_resnets = config.layers_per_block + 1;
             for j in 0..num_resnets {
                 let p = format!("decoder.up_blocks.{}.resnets.{}", i, j);
                 expected_keys.push(format!("{}.norm1.weight", p));
@@ -861,7 +885,13 @@ impl VaeDecoder {
                 expected_keys.push(format!("{}.norm2.bias", p));
                 expected_keys.push(format!("{}.conv2.weight", p));
                 expected_keys.push(format!("{}.conv2.bias", p));
+                // n235: shortcut keys when in_ch ≠ out_ch
+                if in_ch != out_ch {
+                    expected_keys.push(format!("{}.conv_shortcut.weight", p));
+                    expected_keys.push(format!("{}.conv_shortcut.bias", p));
+                }
             }
+            in_ch = out_ch;
             if i < rev_blocks.len() - 1 {
                 let p = format!("decoder.up_blocks.{}.upsamplers.0.conv", i);
                 expected_keys.push(format!("{}.weight", p));
@@ -878,6 +908,8 @@ impl VaeDecoder {
             mid_attn,
             up_blocks,
             up_samplers,
+            conv_norm_out_weight,
+            conv_norm_out_bias,
             conv_out,
             config,
         })
@@ -932,6 +964,18 @@ impl VaeDecoder {
             }
         }
 
+        // n235: conv_norm_out → SiLU → conv_out — source: vae.py L304-311
+        // Was: conv_out immediately after up_blocks (missing norm + activation).
+        let h = group_norm(
+            &h,
+            self.config.norm_num_groups,
+            self.config.block_out_channels[0],
+            &self.conv_norm_out_weight,
+            &self.conv_norm_out_bias,
+            1e-6,
+        )
+        .map_err(|e| format!("VAE decode: conv_norm_out: {}", e))?;
+        let h = silu(&h).map_err(|e| format!("VAE decode: conv_norm_out silu: {}", e))?;
         let h = self
             .conv_out
             .forward(&h)

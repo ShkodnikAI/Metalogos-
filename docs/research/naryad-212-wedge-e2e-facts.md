@@ -170,16 +170,27 @@ The encoder inverse is `latents = scaling_factor * sample + shift_factor` (NOT u
 
 ### 3.2 VAE decoder tensor layout
 
-Decoded by inspection (standard diffusers KL VAE):
+Verified against the real VAE safetensors header (fetched 2026-09-09). **Total decoder tensors: 138** (not the old "by inspection" count, which omitted `conv_norm_out` and under-counted up-block resnets).
 
-- `decoder.conv_in.weight/bias`         — [4, 16, 3, 3]  (latent 16ch → 4*base=512 ch)
-- `decoder.mid_block.attentions.0.*`    — 10 tensors (BF16, 512 channels); see layout table below
-- `decoder.mid_block.resnets.0/1.*`     — 2 ResnetBlock2D (norm1, conv1, norm2, conv2, conv_shortcut optional)
-- `decoder.up_blocks.{0,1,2,3}.resnets.{0,1}.*` — ResnetBlock2D (2 per block; up_block 3 has 3 resnets)
-- `decoder.up_blocks.{0,1,2}.upsamplers.0.conv.*` — 3 Upsample2D (between blocks 0→1, 1→2, 2→3)
-- `decoder.conv_out.weight/bias`        — [3, 128, 3, 3]  (out_channels=3, base=128, the deepest channel)
+| group | tensors | purpose |
+|-------|---------|---------|
+| `decoder.conv_in.weight/bias` | 2 | latent 16ch → 4*base=512ch, 3×3 conv |
+| `decoder.conv_norm_out.weight/bias` | 2 | GroupNorm(block_out_channels[0]=128) — applied in the decode() tail, before SiLU+conv_out |
+| `decoder.conv_out.weight/bias` | 2 | base=128ch → 3ch, 3×3 conv |
+| `decoder.mid_block.*` | 26 | 2 resnets × 8 + 10 attention (when `mid_block_add_attention=true`) |
+| `decoder.up_blocks.*` | 106 | 4 blocks × 3 resnets × 8 + `conv_shortcut` (weight+bias) on `up_blocks.{2,3}.resnets.0` + upsamplers (weight+bias) on `up_blocks.{0,1,2}` |
 
-base = block_out_channels[0] = 128 (after conv_in: 4×base = 512).
+`base = block_out_channels[0] = 128` (after conv_in: 4×base = 512).
+
+**Per-block resnet count:** `layers_per_block + 1 = 3` resnets per ALL `up_blocks` (NOT only the last block). Source: diffusers `vae.py` L254 — `num_layers = self.layers_per_block + 1` is applied uniformly in the `up_blocks` construction loop (no special-case for the last block — verified 2026-09-09).
+
+**decode() forward tail:** `conv_norm_out → SiLU → conv_out` — source: diffusers `vae.py` L304-311 (`hidden_states = self.conv_norm_out(hidden_states); hidden_states = nonlinearity(hidden_states); hidden_states = self.conv_out(hidden_states)`).
+
+**Shortcuts:** `conv_shortcut` (1×1 conv with weight + bias) is added on `up_blocks.{2,3}.resnets.0` where input/output channel counts differ (512→256 for block 2, 256→128 for block 3). Each adds 2 tensors.
+
+**Upsamplers:** `up_blocks.{0,1,2}.upsamplers.0.conv.weight/bias` — 3 Upsample2D (between blocks 0→1, 1→2, 2→3). Block 3 has no upsampler (it is the final one). Each adds 2 tensors.
+
+> **Note (n235):** Old §3.2 schema was "by inspection" and not verified against the safetensors header — root cause of defect D1 (n235). The old schema claimed only the last `up_block` has 3 resnets (real: all 4 blocks have `lpb+1=3`), and omitted `conv_norm_out` (GroupNorm→SiLU→conv_out tail) entirely. Corrected by direct read of the real header (fetched 2026-09-09).
 
 #### decoder.mid_block.attentions.0 tensor layout (real VAE safetensors header, fetched 2026-09-08)
 

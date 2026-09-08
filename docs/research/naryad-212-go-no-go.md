@@ -59,10 +59,11 @@ These criteria cannot be evaluated without running the env-gated tests with real
 3. Setting `MLOG_VISION_WEIGHTS_DIR` and running `cargo test --features vision --test naryad_212_wedge_e2e -- --nocapture`.
 4. Filling in the verbatim DoD entries (PNG path, PNG SHA-256, timings).
 
-**R3 architecture status** (n234: all 12 discrepancies resolved, mid-attn placement fixed):
+**R3 architecture status** (n234: all 12 discrepancies resolved, mid-attn placement fixed; n235: VAE decoder structure truth-up):
 - VAE mid-block attention: loaded and computed in decode path when mid_block_add_attention=true.
   Placement: resnets[0] → attention → resnets[1] per UNetMidBlock2D.forward (n234 fix).
   Tiny config (mid_block_add_attention=false) does not use it.
+- VAE decoder structure: 3 resnets per block (lpb+1), conv_norm_out → SiLU → conv_out, shortcuts on channel changes — all per real header (n235).
 - Axial RoPE: fully wired — rope.apply(q, k) called in all attention paths after qk-norm.
   Clamp replaced with loud Err on out-of-range pos_ids.
 - cap pos_ids: per-token (i+1, 0, 0) per create_coordinate_grid source.

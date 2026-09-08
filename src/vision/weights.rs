@@ -533,7 +533,7 @@ mod tests {
     /// + shortcuts 2 on blocks 2/3 + upsamplers 2 on blocks 0/1/2)).
     #[test]
     fn vae_expected_key_count_matches_real_header() {
-        let block_out_channels = vec![128, 256, 512, 512];
+        let block_out_channels = [128, 256, 512, 512];
         let layers_per_block = 2;
         let mid_block_add_attention = true;
 

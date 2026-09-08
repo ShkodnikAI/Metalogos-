@@ -393,7 +393,7 @@ None observed — all `config.json` values match the naryad spec's §1 exactly. 
 | Block 1 (weights.rs, tokenizer.rs) | No (no weights) | Yes (loaded by from_weights) |
 | Block 2 (TextEncoder::from_weights) | No (R2 golden covers architecture) | Yes (real Qwen3 forward) |
 | Block 3 (VAE decoder) | Yes (VaeDecoder::new_tiny + tiny golden) | Yes (real VAE decode fixed-latent → PNG) |
-| Block 4 (DiT + sampler) | Yes (ZImageTransformer::new_tiny + tiny golden; sampler pinned sigmas) | Yes (called by e2e test) |
+| Block 4 (DiT + sampler) | Yes (tiny golden pinned №231) | Yes (called by e2e test) |
 | Block 5 (e2e) | No (needs real weights) | Yes (clinical_e2e_first_image) |
 
 Env-gated tests SKIP loudly when `MLOG_VISION_WEIGHTS_DIR` is unset — they are NOT `#[ignore]`. This is the §3 form of permitted unfinishedness.

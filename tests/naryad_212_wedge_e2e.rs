@@ -24,7 +24,6 @@
 #![allow(unused_variables)]
 #![allow(clippy::identity_op)]
 #![allow(clippy::erasing_op)]
-#![allow(clippy::assertions_on_constants)]
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -156,16 +155,121 @@ fn vae_tiny_decode_determinism() {
     assert_eq!(h1, h2, "same seed → bit-exact identical output");
 }
 
-// ── Block 4.3: DiT tiny + sampler (placeholder — see dit.rs) ───────
+// ── Block 4.3: DiT tiny golden (pinned, naryad №231) ──────────────
+
+use metalogos::nn::attention::generate_uniform_f32;
+use metalogos::vision::dit::{tiny_dit_config, ZImageTransformer};
+use metalogos::vision::text_encoder::param_seed;
+
+/// Test seed for DiT tiny golden. 99 = test "slot" for latent/cap derivation
+/// (does not collide with PARAM_DIT_* 200..240).
+const SEED_DIT: u64 = 21201;
+
+// Pinned after 3 bit-identical local runs on 2026-09-08 (procedure mirrors naryad №230).
+const GOLDEN_DIT_TINY_HASH: &str =
+    "e686167b2e82ee7be9fe3408ed9e619953e774d49e224310f2d0541af3c10257";
+const GOLDEN_DIT_TINY_ANCHOR_BITS: [u32; 4] = [3152845634, 3156277201, 1015407194, 1008888057];
 
 #[test]
-fn dit_tiny_forward_shape() {
-    // The DiT tiny golden test is implemented in dit.rs's own tests module —
-    // this test is a placeholder that asserts the module compiles and the
-    // API is callable.
-    // See `dit::tests` for the actual golden tests.
-    // This test exists to ensure the test file structure is intact.
-    assert!(true, "DiT tests live in dit::tests module");
+fn dit_tiny_forward_golden() {
+    let cfg = tiny_dit_config();
+    let dit = ZImageTransformer::new_tiny(&cfg, SEED_DIT).expect("new_tiny");
+
+    // Deterministic inputs via SSOT (no new generator — §3.4).
+    // latent [1, 4, 8, 8] — 99 is a test slot, not a PARAM_DIT_* constant.
+    let latent_vals = generate_uniform_f32(param_seed(SEED_DIT, 99, 0), 4 * 8 * 8, -1.0, 1.0);
+    let latent = Tensor::from_vec(latent_vals, (1, 4, 8, 8), &Device::Cpu).expect("latent");
+
+    // cap [4, 32] — [cap_seq, cap_feat_dim] per DiT forward contract.
+    let cap_vals = generate_uniform_f32(param_seed(SEED_DIT, 99, 1), 4 * 32, -1.0, 1.0);
+    let cap = Tensor::from_vec(cap_vals, (4, 32), &Device::Cpu).expect("cap");
+
+    let t = 0.375;
+    let out = dit.forward(&latent, &cap, t).expect("forward");
+
+    // Shape: [1, in_channels, H, W] = [1, 4, 8, 8] (velocity prediction = latent shape).
+    let dims = out.dims();
+    assert_eq!(dims, [1, 4, 8, 8], "DiT tiny forward shape: {:?}", dims);
+
+    // Finiteness: 0 NaN/Inf.
+    let out_f32 = out.to_dtype(DType::F32).unwrap().contiguous().unwrap();
+    let vals = out_f32.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+    let non_finite = vals.iter().filter(|v| !v.is_finite()).count();
+    assert_eq!(non_finite, 0, "non-finite values: {}", non_finite);
+
+    // Hash + anchor bits (pinning procedure mirrors naryad №230).
+    let hash = tensor_sha256(&out);
+    let anchors = [vals[0], vals[1], vals[vals.len() - 2], vals[vals.len() - 1]];
+    eprintln!(
+        "dit_tiny_forward_golden: hash={} anchors=({:.6}, {:.6}, {:.6}, {:.6}) bits=[{}, {}, {}, {}]",
+        hash, anchors[0], anchors[1], anchors[2], anchors[3],
+        anchors[0].to_bits(), anchors[1].to_bits(), anchors[2].to_bits(), anchors[3].to_bits()
+    );
+
+    // Pinning check — bit-exact against pinned records (procedure mirrors naryad №230).
+    assert_eq!(
+        hash, GOLDEN_DIT_TINY_HASH,
+        "DiT tiny golden hash drifted. Expected {}, got {}.\n\
+         If intentional, re-pin after 3 bit-identical runs.",
+        GOLDEN_DIT_TINY_HASH, hash
+    );
+    let actual_bits = [
+        anchors[0].to_bits(),
+        anchors[1].to_bits(),
+        anchors[2].to_bits(),
+        anchors[3].to_bits(),
+    ];
+    assert_eq!(
+        actual_bits, GOLDEN_DIT_TINY_ANCHOR_BITS,
+        "DiT tiny golden anchor bits drifted. Expected {:?}, got {:?}",
+        GOLDEN_DIT_TINY_ANCHOR_BITS, actual_bits
+    );
+}
+
+#[test]
+fn dit_tiny_seed_determinism() {
+    let cfg = tiny_dit_config();
+
+    // Same seed → bit-exact identical.
+    let dit1 = ZImageTransformer::new_tiny(&cfg, SEED_DIT).expect("dit1");
+    let dit2 = ZImageTransformer::new_tiny(&cfg, SEED_DIT).expect("dit2");
+
+    let latent_vals = generate_uniform_f32(param_seed(SEED_DIT, 99, 0), 4 * 8 * 8, -1.0, 1.0);
+    let latent = Tensor::from_vec(latent_vals, (1, 4, 8, 8), &Device::Cpu).expect("latent");
+    let cap_vals = generate_uniform_f32(param_seed(SEED_DIT, 99, 1), 4 * 32, -1.0, 1.0);
+    let cap = Tensor::from_vec(cap_vals, (4, 32), &Device::Cpu).expect("cap");
+
+    let h1 = tensor_sha256(&dit1.forward(&latent, &cap, 0.375).expect("fwd1"));
+    let h2 = tensor_sha256(&dit2.forward(&latent, &cap, 0.375).expect("fwd2"));
+    assert_eq!(h1, h2, "same seed → bit-exact identical output");
+
+    // Different model seed → different output.
+    let dit3 = ZImageTransformer::new_tiny(&cfg, SEED_DIT + 1).expect("dit3");
+    let h3 = tensor_sha256(&dit3.forward(&latent, &cap, 0.375).expect("fwd3"));
+    assert_ne!(h1, h3, "different model seed → different output");
+
+    // Different INPUT seed (latent/cap derivation) → different output.
+    let latent2_vals = generate_uniform_f32(param_seed(SEED_DIT + 2, 99, 0), 4 * 8 * 8, -1.0, 1.0);
+    let latent2 = Tensor::from_vec(latent2_vals, (1, 4, 8, 8), &Device::Cpu).expect("latent2");
+    let cap2_vals = generate_uniform_f32(param_seed(SEED_DIT + 2, 99, 1), 4 * 32, -1.0, 1.0);
+    let cap2 = Tensor::from_vec(cap2_vals, (4, 32), &Device::Cpu).expect("cap2");
+    let h4 = tensor_sha256(&dit1.forward(&latent2, &cap2, 0.375).expect("fwd4"));
+    assert_ne!(
+        h1, h4,
+        "different input seed → different output (inputs affect output)"
+    );
+}
+
+#[test]
+fn dit_tiny_config_contract() {
+    let cfg = tiny_dit_config();
+    assert_eq!(cfg.dim, 64, "tiny_dit_config dim");
+    assert_eq!(cfg.n_layers, 2, "tiny_dit_config n_layers");
+    assert_eq!(cfg.in_channels, 4, "tiny_dit_config in_channels");
+    assert_eq!(cfg.patch_size, 2, "tiny_dit_config patch_size");
+    assert_eq!(cfg.cap_feat_dim, 32, "tiny_dit_config cap_feat_dim");
+    assert_eq!(cfg.n_refiner_layers, 1, "tiny_dit_config n_refiner_layers");
+    assert_eq!(cfg.intermediate, 256, "tiny_dit_config intermediate");
 }
 
 #[test]

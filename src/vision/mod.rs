@@ -112,7 +112,13 @@ pub mod text_encoder;
 // Both feature-gated behind `vision`. tokenizers crate is the canonical HF
 // BPE implementation — see ADR-0124 update for rationale.
 #[cfg(feature = "vision")]
+pub mod dit;
+#[cfg(feature = "vision")]
+pub mod sampler;
+#[cfg(feature = "vision")]
 pub mod tokenizer;
+#[cfg(feature = "vision")]
+pub mod vae;
 #[cfg(feature = "vision")]
 pub mod weights;
 

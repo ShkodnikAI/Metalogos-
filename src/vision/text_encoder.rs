@@ -46,7 +46,7 @@ use candle_nn::{VarBuilder, VarMap};
 /// Per-parameter seed derivation — splitmix64 finalizer over
 /// `(master_seed, layer, param)`. Deterministic; eliminates seed-stream
 /// overlap between tensors (naryad №230).
-fn param_seed(master: u64, layer: u64, param: u64) -> u64 {
+pub(crate) fn param_seed(master: u64, layer: u64, param: u64) -> u64 {
     let mut z = master
         ^ 0x9E3779B97F4A7C15
         ^ layer.wrapping_mul(0xBF58476D1CE4E5B9)
@@ -237,6 +237,102 @@ impl Qwen3Block {
         })
     }
 
+    /// Construct a block from real Qwen3 weights (naryad №212 Block 2.1).
+    ///
+    /// Loads tensors from a `HashMap<String, Tensor>` keyed by the HF Qwen3
+    /// tensor naming convention:
+    ///   - `model.layers.{idx}.self_attn.{q,k,v,o}_proj.weight` — [out, in]
+    ///   - `model.layers.{idx}.self_attn.{q,k}_norm.weight`    — [head_dim]
+    ///   - `model.layers.{idx}.{input,post_attention}_layernorm.weight` — [hidden]
+    ///   - `model.layers.{idx}.mlp.{gate,up,down}_proj.weight` — [out, in]
+    ///
+    /// All tensors are cast to F32 (per dtype policy — Block 0 §8 of the
+    /// research doc). Shape checks against `config` are loud errors.
+    pub fn from_weights(
+        config: &TextEncoderConfig,
+        tensors: &std::collections::HashMap<String, Tensor>,
+        layer_idx: usize,
+        device: &Device,
+    ) -> Result<Self, String> {
+        let hidden = config.hidden;
+        let head_dim = config.head_dim;
+        let q_dim = config.q_heads * head_dim;
+        let kv_dim = config.kv_heads * head_dim;
+        let eps = config.rms_norm_eps;
+        let rope_theta = config.rope_theta;
+
+        // Helper: get a tensor by name, cast to F32, check shape.
+        let get = |name: &str, expected_shape: &[usize]| -> Result<Tensor, String> {
+            let t = tensors.get(name).ok_or_else(|| {
+                format!(
+                    "Qwen3Block::from_weights(layer {}): tensor '{}' not found in weights map",
+                    layer_idx, name
+                )
+            })?;
+            let t = t.to_device(device).map_err(|e| {
+                format!(
+                    "Qwen3Block::from_weights(layer {}): device transfer of '{}' failed: {}",
+                    layer_idx, name, e
+                )
+            })?;
+            let t = t.to_dtype(DType::F32).map_err(|e| {
+                format!(
+                    "Qwen3Block::from_weights(layer {}): F32 cast of '{}' failed: {}",
+                    layer_idx, name, e
+                )
+            })?;
+            let actual_shape = t.dims();
+            if actual_shape != expected_shape {
+                return Err(format!(
+                    "Qwen3Block::from_weights(layer {}): tensor '{}' shape mismatch — \
+                     expected {:?}, got {:?}",
+                    layer_idx, name, expected_shape, actual_shape
+                ));
+            }
+            Ok(t)
+        };
+
+        let p = format!("model.layers.{}", layer_idx);
+        let q_proj = get(&format!("{}.self_attn.q_proj.weight", p), &[q_dim, hidden])?;
+        let k_proj = get(&format!("{}.self_attn.k_proj.weight", p), &[kv_dim, hidden])?;
+        let v_proj = get(&format!("{}.self_attn.v_proj.weight", p), &[kv_dim, hidden])?;
+        let o_proj = get(&format!("{}.self_attn.o_proj.weight", p), &[hidden, q_dim])?;
+        let q_norm_weight =
+            get(&format!("{}.self_attn.q_norm.weight", p), &[head_dim])?;
+        let k_norm_weight =
+            get(&format!("{}.self_attn.k_norm.weight", p), &[head_dim])?;
+        let attn_norm_weight =
+            get(&format!("{}.input_layernorm.weight", p), &[hidden])?;
+        let mlp_norm_weight =
+            get(&format!("{}.post_attention_layernorm.weight", p), &[hidden])?;
+        let gate_proj =
+            get(&format!("{}.mlp.gate_proj.weight", p), &[config.intermediate, hidden])?;
+        let up_proj =
+            get(&format!("{}.mlp.up_proj.weight", p), &[config.intermediate, hidden])?;
+        let down_proj =
+            get(&format!("{}.mlp.down_proj.weight", p), &[hidden, config.intermediate])?;
+
+        Ok(Qwen3Block {
+            q_proj,
+            k_proj,
+            v_proj,
+            o_proj,
+            q_norm_weight,
+            k_norm_weight,
+            attn_norm_weight,
+            mlp_norm_weight,
+            gate_proj,
+            up_proj,
+            down_proj,
+            q_heads: config.q_heads,
+            kv_heads: config.kv_heads,
+            head_dim,
+            hidden,
+            eps,
+            rope_theta,
+        })
+    }
+
     fn forward(&self, x: &Tensor, seq_len: usize) -> CandleResult<Tensor> {
         let (_batch, _seq, hidden) = x.dims3()?;
         if hidden != self.hidden {
@@ -383,6 +479,90 @@ impl TextEncoder {
         // Final norm
         let final_norm_weight = Tensor::ones((config.hidden,), DType::F32, &device)
             .map_err(|e| format!("TextEncoder::new: final norm init failed: {}", e))?;
+
+        Ok(TextEncoder {
+            token_embedding,
+            blocks,
+            final_norm_weight,
+            config: config.clone(),
+            device,
+        })
+    }
+
+    /// Create a text encoder from real Qwen3-4B weights (naryad №212 Block 2.1).
+    ///
+    /// Loads tensors from a `HashMap<String, Tensor>` (typically returned by
+    /// `crate::vision::weights::load_safetensors_sharded`). Expected tensor
+    /// names follow the HF Qwen3 convention:
+    ///   - `model.embed_tokens.weight` — [vocab_size, hidden]
+    ///   - `model.layers.{idx}.*` — per-layer block tensors (see `Qwen3Block::from_weights`)
+    ///   - `model.norm.weight` — [hidden] final RmsNorm
+    ///
+    /// `tie_word_embeddings=true` is honored: no LM head is required or
+    /// loaded (Qwen3 is used as encoder only — LM head is irrelevant).
+    ///
+    /// All tensors are cast to F32 (per dtype policy — Block 0 §8). Shape
+    /// checks against `config` are loud errors.
+    pub fn from_weights(
+        config: &TextEncoderConfig,
+        tensors: &std::collections::HashMap<String, Tensor>,
+    ) -> Result<Self, String> {
+        let device = Device::Cpu;
+
+        // Token embedding: [vocab_size, hidden]
+        let token_embedding = {
+            let t = tensors.get("model.embed_tokens.weight").ok_or_else(|| {
+                "TextEncoder::from_weights: tensor 'model.embed_tokens.weight' not found"
+                    .to_string()
+            })?;
+            let t = t.to_device(&device).map_err(|e| {
+                format!("TextEncoder::from_weights: device transfer of embed_tokens failed: {}", e)
+            })?;
+            let t = t.to_dtype(DType::F32).map_err(|e| {
+                format!("TextEncoder::from_weights: F32 cast of embed_tokens failed: {}", e)
+            })?;
+            let actual = t.dims();
+            let expected = [config.vocab_size, config.hidden];
+            if actual != expected {
+                return Err(format!(
+                    "TextEncoder::from_weights: embed_tokens shape mismatch — \
+                     expected {:?}, got {:?}",
+                    expected, actual
+                ));
+            }
+            t
+        };
+
+        // Layers
+        let mut blocks = Vec::with_capacity(config.layers);
+        for i in 0..config.layers {
+            let block = Qwen3Block::from_weights(config, tensors, i, &device)
+                .map_err(|e| format!("TextEncoder::from_weights: layer {} load failed: {}", i, e))?;
+            blocks.push(block);
+        }
+
+        // Final norm: [hidden]
+        let final_norm_weight = {
+            let t = tensors.get("model.norm.weight").ok_or_else(|| {
+                "TextEncoder::from_weights: tensor 'model.norm.weight' not found".to_string()
+            })?;
+            let t = t.to_device(&device).map_err(|e| {
+                format!("TextEncoder::from_weights: device transfer of final norm failed: {}", e)
+            })?;
+            let t = t.to_dtype(DType::F32).map_err(|e| {
+                format!("TextEncoder::from_weights: F32 cast of final norm failed: {}", e)
+            })?;
+            let actual = t.dims();
+            let expected = [config.hidden];
+            if actual != expected {
+                return Err(format!(
+                    "TextEncoder::from_weights: final norm shape mismatch — \
+                     expected {:?}, got {:?}",
+                    expected, actual
+                ));
+            }
+            t
+        };
 
         Ok(TextEncoder {
             token_embedding,

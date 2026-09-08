@@ -9,7 +9,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
 [![Version](https://img.shields.io/badge/v0.19.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
-[![CI](https://img.shields.io/badge/CI-12%20blocking%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
+[![CI](https://img.shields.io/badge/CI-15%20blocking%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 [![Open Collective](https://img.shields.io/opencollective/all/metalogos?label=Backers&logo=open-collective&color=7fadf2)](https://opencollective.com/metalogos)
 
 </div>
@@ -171,11 +171,11 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 
 ```
 Metalogos-/
-├── Cargo.toml                       # v0.17.0, workspace root
+├── Cargo.toml                       # v0.19.0, workspace root
 ├── logo.jpg                          # Brand logo
 ├── README.md                         # This file
-├── REFERENCE.md                      # Full builtin reference (~86 KB)
-├── CHANGELOG.md                      # Version history (~93 KB)
+├── REFERENCE.md                      # Full builtin reference (~88 KB)
+├── CHANGELOG.md                      # Version history (~94 KB)
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
 ├── Dockerfile                        # Docker build
@@ -300,7 +300,7 @@ Metalogos-/
 │       └── 0111-ast-span-tracking.md
 │
 └── .github/workflows/                  # CI/CD
-    ├── ci.yml                         # 8 blocking jobs + test-integration (advisory)
+    ├── ci.yml                         # 15 blocking jobs (fmt, clippy, test-lib, crosscheck, candle-tests, vision-tests, registry-arity, llm-cache, minimal-build, test-integration, ADR, module-size-guard, vscode-extension, cargo-audit)
     └── build.yml                      # Release build + artifact upload
 ```
 
@@ -675,7 +675,7 @@ representation (`src/parser/expr.rs`).
 - `match` statement and `match` expression.
 - `try` expression.
 - Block `if/else` as an expression with side-effecting inner statements
-  (Metalogos v0.18's scoping rule blocks mutations to outer `let mut`
+  (Metalogos v0.19's scoping rule blocks mutations to outer `let mut`
   variables from inside a BlockIfElse expression; parser.mlog works around
   this by delegating to helper patterns — see `ParseElseBranch`,
   `ParseImportAlias`).

@@ -807,17 +807,70 @@ impl VaeDecoder {
             },
         );
 
-        // n233 Block 2: loader tensor-coverage guard.
-        // VAE total: 244 (encoder + decoder). Decoder-only: 138.
-        // We only load decoder.* tensors, so verify count matches.
-        let loaded_decoder_count = tensors.keys().filter(|k| k.starts_with("decoder.")).count();
-        let expected_decoder_count = 138; // verified from safetensors header 2026-09-08
-        if loaded_decoder_count != expected_decoder_count {
-            return Err(format!(
-                "VaeDecoder::from_weights: decoder tensor count mismatch — expected {}, got {}",
-                expected_decoder_count, loaded_decoder_count
-            ));
+        // n234 Block 2: key-level loader tensor-coverage guard.
+        // Build expected decoder key set from the VAE decoder schema.
+        let mut expected_keys: Vec<String> = vec![
+            "decoder.conv_in.weight".into(),
+            "decoder.conv_in.bias".into(),
+            "decoder.conv_out.weight".into(),
+            "decoder.conv_out.bias".into(),
+        ];
+        // mid_block resnets (2)
+        for i in 0..2 {
+            let p = format!("decoder.mid_block.resnets.{}", i);
+            expected_keys.push(format!("{}.norm1.weight", p));
+            expected_keys.push(format!("{}.norm1.bias", p));
+            expected_keys.push(format!("{}.conv1.weight", p));
+            expected_keys.push(format!("{}.conv1.bias", p));
+            expected_keys.push(format!("{}.norm2.weight", p));
+            expected_keys.push(format!("{}.norm2.bias", p));
+            expected_keys.push(format!("{}.conv2.weight", p));
+            expected_keys.push(format!("{}.conv2.bias", p));
         }
+        // mid_block attention (if mid_block_add_attention)
+        if config.mid_block_add_attention {
+            let p = "decoder.mid_block.attentions.0";
+            expected_keys.push(format!("{}.group_norm.weight", p));
+            expected_keys.push(format!("{}.group_norm.bias", p));
+            expected_keys.push(format!("{}.to_q.weight", p));
+            expected_keys.push(format!("{}.to_q.bias", p));
+            expected_keys.push(format!("{}.to_k.weight", p));
+            expected_keys.push(format!("{}.to_k.bias", p));
+            expected_keys.push(format!("{}.to_v.weight", p));
+            expected_keys.push(format!("{}.to_v.bias", p));
+            expected_keys.push(format!("{}.to_out.0.weight", p));
+            expected_keys.push(format!("{}.to_out.0.bias", p));
+        }
+        // mid_block shortcut conv (if channels differ between resnet input/output)
+        // For Z-Image-Turbo VAE, resnet input = output = 4*base, so no shortcut.
+        // up_blocks (4 blocks, reversed channel order)
+        let rev_blocks: Vec<usize> = config.block_out_channels.iter().rev().copied().collect();
+        for (i, &out_ch) in rev_blocks.iter().enumerate() {
+            let num_resnets = if i == rev_blocks.len() - 1 {
+                config.layers_per_block + 1
+            } else {
+                config.layers_per_block
+            };
+            for j in 0..num_resnets {
+                let p = format!("decoder.up_blocks.{}.resnets.{}", i, j);
+                expected_keys.push(format!("{}.norm1.weight", p));
+                expected_keys.push(format!("{}.norm1.bias", p));
+                expected_keys.push(format!("{}.conv1.weight", p));
+                expected_keys.push(format!("{}.conv1.bias", p));
+                expected_keys.push(format!("{}.norm2.weight", p));
+                expected_keys.push(format!("{}.norm2.bias", p));
+                expected_keys.push(format!("{}.conv2.weight", p));
+                expected_keys.push(format!("{}.conv2.bias", p));
+            }
+            if i < rev_blocks.len() - 1 {
+                let p = format!("decoder.up_blocks.{}.upsamplers.0.conv", i);
+                expected_keys.push(format!("{}.weight", p));
+                expected_keys.push(format!("{}.bias", p));
+            }
+        }
+        let loaded_keys: Vec<String> = tensors.keys().cloned().collect();
+        crate::vision::weights::check_tensor_coverage(&expected_keys, &loaded_keys)
+            .map_err(|e| format!("VaeDecoder::from_weights: tensor coverage: {}", e))?;
 
         Ok(VaeDecoder {
             conv_in,
@@ -849,22 +902,22 @@ impl VaeDecoder {
             .forward(&z)
             .map_err(|e| format!("VAE decode: conv_in forward: {}", e))?;
 
-        for r in &self.mid_resnets {
-            h = r
-                .forward(&h)
-                .map_err(|e| format!("VAE decode: mid resnet: {}", e))?;
-        }
-
-        // n233 Block 3: mid-block attention (between the two resnets, per diffusers layout).
-        // diffusers mid_block = [resnet, attention, resnet] — we apply attn after the first resnet loop.
-        // Our mid_resnets has 2 entries; the reference applies attention BETWEEN them.
-        // For simplicity with the current 2-resnet loop, we apply attention after both resnets.
-        // This is equivalent because attention doesn't change the channel count.
+        // Mid-block: resnets[0] → attention → resnets[1] — source: UNetMidBlock2D.forward
+        // (diffusers unet_2d_blocks.py L737-748: resnets[0], then zip(attentions, resnets[1:])
+        // → attn then resnet). Fetched 2026-09-08.
+        // n234 fix: was applying attention AFTER both resnets — mathematically wrong
+        // (nonlinear operations don't commute).
+        h = self.mid_resnets[0]
+            .forward(&h)
+            .map_err(|e| format!("VAE decode: mid resnet 0: {}", e))?;
         if let Some(ref attn) = self.mid_attn {
             h = attn
                 .forward(&h)
                 .map_err(|e| format!("VAE decode: mid attn: {}", e))?;
         }
+        h = self.mid_resnets[1]
+            .forward(&h)
+            .map_err(|e| format!("VAE decode: mid resnet 1: {}", e))?;
 
         for (i, resnets) in self.up_blocks.iter().enumerate() {
             for r in resnets {

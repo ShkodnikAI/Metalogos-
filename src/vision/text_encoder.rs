@@ -583,17 +583,29 @@ impl TextEncoder {
             t
         };
 
-        // n233 Block 2: loader tensor-coverage guard.
-        // TextEncoder total: 398 (verified from index.json 2026-09-08).
-        // 2 top-level (embed_tokens, norm) + 36 layers × 11 per layer = 2 + 396 = 398.
-        let loaded_count = tensors.len();
-        let expected_count = 2 + config.layers * 11;
-        if loaded_count != expected_count {
-            return Err(format!(
-                "TextEncoder::from_weights: tensor count mismatch — expected {}, got {}",
-                expected_count, loaded_count
-            ));
+        // n234 Block 2: key-level loader tensor-coverage guard.
+        // Build expected key set: embed_tokens + norm + per-layer 11 tensors.
+        let mut expected_keys: Vec<String> = vec![
+            "model.embed_tokens.weight".into(),
+            "model.norm.weight".into(),
+        ];
+        for i in 0..config.layers {
+            let p = format!("model.layers.{}", i);
+            expected_keys.push(format!("{}.input_layernorm.weight", p));
+            expected_keys.push(format!("{}.self_attn.q_proj.weight", p));
+            expected_keys.push(format!("{}.self_attn.k_proj.weight", p));
+            expected_keys.push(format!("{}.self_attn.v_proj.weight", p));
+            expected_keys.push(format!("{}.self_attn.o_proj.weight", p));
+            expected_keys.push(format!("{}.self_attn.q_norm.weight", p));
+            expected_keys.push(format!("{}.self_attn.k_norm.weight", p));
+            expected_keys.push(format!("{}.post_attention_layernorm.weight", p));
+            expected_keys.push(format!("{}.mlp.gate_proj.weight", p));
+            expected_keys.push(format!("{}.mlp.up_proj.weight", p));
+            expected_keys.push(format!("{}.mlp.down_proj.weight", p));
         }
+        let loaded_keys: Vec<String> = tensors.keys().cloned().collect();
+        crate::vision::weights::check_tensor_coverage(&expected_keys, &loaded_keys)
+            .map_err(|e| format!("TextEncoder::from_weights: tensor coverage: {}", e))?;
 
         Ok(TextEncoder {
             token_embedding,

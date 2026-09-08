@@ -862,24 +862,35 @@ impl ZImageTransformer {
 
         let rope = AxialRoPE::new(&config, &device)?;
 
-        // n233 Block 2: loader tensor-coverage guard.
-        // Verify all loaded tensors are consumed and none are missing.
-        // Expected count: 521 for Z-Image-Turbo (verified from index.json 2026-09-08).
-        let loaded_count = tensors.len();
-        // The expected count is: embedders(7) + t_embedder(4) + final_layer(4) +
-        // per-block (13 for non-modulation, 15 for modulation) × blocks.
-        // For Z-Image-Turbo: 30 layers (15 each) + 2 noise_refiner (15) + 2 context_refiner (13) = 521.
-        // We check the exact count + key presence.
-        let expected_count = 7 + 4 + 4
-            + config.n_layers * 15
-            + config.n_refiner_layers * 15  // noise_refiner (modulation=true)
-            + config.n_refiner_layers * 13; // context_refiner (modulation=false)
-        if loaded_count != expected_count {
-            return Err(format!(
-                "ZImageTransformer::from_weights: tensor count mismatch — expected {}, got {}",
-                expected_count, loaded_count
-            ));
+        // n234 Block 2: key-level loader tensor-coverage guard.
+        // Build the full expected key set from the block schema.
+        let mut expected_keys: Vec<String> = vec![
+            "all_x_embedder.2-1.weight".into(),
+            "all_x_embedder.2-1.bias".into(),
+            "x_pad_token".into(),
+            "cap_embedder.0.weight".into(),
+            "cap_embedder.1.weight".into(),
+            "cap_embedder.1.bias".into(),
+            "cap_pad_token".into(),
+            "t_embedder.mlp.0.weight".into(),
+            "t_embedder.mlp.0.bias".into(),
+            "t_embedder.mlp.2.weight".into(),
+            "t_embedder.mlp.2.bias".into(),
+            "all_final_layer.2-1.adaLN_modulation.1.weight".into(),
+            "all_final_layer.2-1.adaLN_modulation.1.bias".into(),
+            "all_final_layer.2-1.linear.weight".into(),
+            "all_final_layer.2-1.linear.bias".into(),
+        ];
+        for i in 0..config.n_layers {
+            add_dit_block_keys(&mut expected_keys, &format!("layers.{}", i), true);
         }
+        for i in 0..config.n_refiner_layers {
+            add_dit_block_keys(&mut expected_keys, &format!("noise_refiner.{}", i), true);
+            add_dit_block_keys(&mut expected_keys, &format!("context_refiner.{}", i), false);
+        }
+        let loaded_keys: Vec<String> = tensors.keys().cloned().collect();
+        crate::vision::weights::check_tensor_coverage(&expected_keys, &loaded_keys)
+            .map_err(|e| format!("ZImageTransformer::from_weights: tensor coverage: {}", e))?;
 
         Ok(ZImageTransformer {
             x_embedder,
@@ -1067,6 +1078,29 @@ impl ZImageTransformer {
 }
 
 // ── Block construction ──
+
+/// n234 Block 2: Helper to generate all tensor key names for a single DiT block.
+/// modulation=true → includes adaLN_modulation keys (15 total).
+/// modulation=false → no adaLN (13 total, context_refiner style).
+fn add_dit_block_keys(keys: &mut Vec<String>, prefix: &str, modulation: bool) {
+    keys.push(format!("{}.attention_norm1.weight", prefix));
+    keys.push(format!("{}.attention_norm2.weight", prefix));
+    keys.push(format!("{}.ffn_norm1.weight", prefix));
+    keys.push(format!("{}.ffn_norm2.weight", prefix));
+    keys.push(format!("{}.attention.to_q.weight", prefix));
+    keys.push(format!("{}.attention.to_k.weight", prefix));
+    keys.push(format!("{}.attention.to_v.weight", prefix));
+    keys.push(format!("{}.attention.to_out.0.weight", prefix));
+    keys.push(format!("{}.attention.norm_q.weight", prefix));
+    keys.push(format!("{}.attention.norm_k.weight", prefix));
+    keys.push(format!("{}.feed_forward.w1.weight", prefix));
+    keys.push(format!("{}.feed_forward.w2.weight", prefix));
+    keys.push(format!("{}.feed_forward.w3.weight", prefix));
+    if modulation {
+        keys.push(format!("{}.adaLN_modulation.0.weight", prefix));
+        keys.push(format!("{}.adaLN_modulation.0.bias", prefix));
+    }
+}
 
 fn build_block_seeded(
     config: &ZImageConfig,

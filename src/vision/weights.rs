@@ -318,12 +318,15 @@ pub fn load_safetensors_single(
 /// n232 Block 1: Check that the loaded tensor keys exactly match the expected set.
 /// Returns Ok(()) if they match, Err with a descriptive message if there are
 /// missing or extra keys.
-pub fn check_tensor_coverage(expected: &[&str], loaded: &[&str]) -> Result<(), String> {
-    let expected_set: std::collections::HashSet<&str> = expected.iter().copied().collect();
-    let loaded_set: std::collections::HashSet<&str> = loaded.iter().copied().collect();
+/// n234: changed to accept &[String] to support dynamic tensor names (e.g.
+/// "layers.0.attention.to_q.weight" generated from block index + schema).
+pub fn check_tensor_coverage(expected: &[String], loaded: &[String]) -> Result<(), String> {
+    let expected_set: std::collections::HashSet<&str> =
+        expected.iter().map(|s| s.as_str()).collect();
+    let loaded_set: std::collections::HashSet<&str> = loaded.iter().map(|s| s.as_str()).collect();
 
-    let missing: Vec<&&str> = expected_set.difference(&loaded_set).collect();
-    let extra: Vec<&&str> = loaded_set.difference(&expected_set).collect();
+    let missing: Vec<&str> = expected_set.difference(&loaded_set).copied().collect();
+    let extra: Vec<&str> = loaded_set.difference(&expected_set).copied().collect();
 
     if !missing.is_empty() || !extra.is_empty() {
         let mut msg = String::new();
@@ -414,10 +417,17 @@ mod tests {
 
     /// n232 Block 1: loader guard — verifies all expected tensors are loaded and
     /// no unexpected tensors remain. Detects forgotten tensor branches.
+    /// n234: updated to use Vec<String> (dynamic tensor names).
     #[test]
     fn loader_guard_detects_missing_and_extra_tensors() {
-        let expected = ["a.weight", "b.weight", "c.weight"];
-        let loaded = ["a.weight", "b.weight"]; // missing c.weight
+        let expected: Vec<String> = ["a.weight", "b.weight", "c.weight"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let loaded: Vec<String> = ["a.weight", "b.weight"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let result = check_tensor_coverage(&expected, &loaded);
         assert!(result.is_err(), "missing tensor must be detected");
         assert!(
@@ -425,18 +435,94 @@ mod tests {
             "error must name the missing tensor"
         );
 
-        let loaded_full = ["a.weight", "b.weight", "c.weight"];
+        let loaded_full: Vec<String> = ["a.weight", "b.weight", "c.weight"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert!(
             check_tensor_coverage(&expected, &loaded_full).is_ok(),
             "exact match must pass"
         );
 
-        let loaded_extra = ["a.weight", "b.weight", "c.weight", "d.weight"];
+        let loaded_extra: Vec<String> = ["a.weight", "b.weight", "c.weight", "d.weight"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let result = check_tensor_coverage(&expected, &loaded_extra);
         assert!(result.is_err(), "extra tensor must be detected");
         assert!(
             result.unwrap_err().contains("d.weight"),
             "error must name the extra tensor"
+        );
+    }
+
+    /// n234 Block 2: tiny-map unit test — a map built by the tiny config schema
+    /// passes the guard; removing one key or adding an extra key makes it red.
+    #[test]
+    fn loader_guard_tiny_map_coverage() {
+        // Simulate a tiny DiT block tensor name set (2 blocks × 15 tensors each,
+        // plus embedders + final layer).
+        let mut expected: Vec<String> = vec![
+            "all_x_embedder.2-1.weight".into(),
+            "all_x_embedder.2-1.bias".into(),
+            "x_pad_token".into(),
+            "cap_embedder.0.weight".into(),
+            "cap_embedder.1.weight".into(),
+            "cap_embedder.1.bias".into(),
+            "cap_pad_token".into(),
+            "t_embedder.mlp.0.weight".into(),
+            "t_embedder.mlp.0.bias".into(),
+            "t_embedder.mlp.2.weight".into(),
+            "t_embedder.mlp.2.bias".into(),
+            "all_final_layer.2-1.adaLN_modulation.1.weight".into(),
+            "all_final_layer.2-1.adaLN_modulation.1.bias".into(),
+            "all_final_layer.2-1.linear.weight".into(),
+            "all_final_layer.2-1.linear.bias".into(),
+        ];
+        // Add 2 noise_refiner blocks (modulation=true → 15 tensors each).
+        for prefix in &["noise_refiner.0", "noise_refiner.1"] {
+            expected.push(format!("{}.adaLN_modulation.0.weight", prefix));
+            expected.push(format!("{}.adaLN_modulation.0.bias", prefix));
+            expected.push(format!("{}.attention_norm1.weight", prefix));
+            expected.push(format!("{}.attention_norm2.weight", prefix));
+            expected.push(format!("{}.ffn_norm1.weight", prefix));
+            expected.push(format!("{}.ffn_norm2.weight", prefix));
+            expected.push(format!("{}.attention.to_q.weight", prefix));
+            expected.push(format!("{}.attention.to_k.weight", prefix));
+            expected.push(format!("{}.attention.to_v.weight", prefix));
+            expected.push(format!("{}.attention.to_out.0.weight", prefix));
+            expected.push(format!("{}.attention.norm_q.weight", prefix));
+            expected.push(format!("{}.attention.norm_k.weight", prefix));
+            expected.push(format!("{}.feed_forward.w1.weight", prefix));
+            expected.push(format!("{}.feed_forward.w2.weight", prefix));
+            expected.push(format!("{}.feed_forward.w3.weight", prefix));
+        }
+        // Full match → passes.
+        let loaded = expected.clone();
+        assert!(
+            check_tensor_coverage(&expected, &loaded).is_ok(),
+            "exact match must pass"
+        );
+
+        // Remove one key → missing detected with key name.
+        let mut missing_loaded = expected.clone();
+        let removed = missing_loaded.remove(20);
+        let result = check_tensor_coverage(&expected, &missing_loaded);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains(&removed),
+            "error must name the missing key: {}",
+            removed
+        );
+
+        // Add extra key → extra detected with key name.
+        let mut extra_loaded = expected.clone();
+        extra_loaded.push("extra.tensor.weight".into());
+        let result = check_tensor_coverage(&expected, &extra_loaded);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains("extra.tensor.weight"),
+            "error must name the extra key"
         );
     }
 }

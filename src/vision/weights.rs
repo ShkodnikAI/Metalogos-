@@ -315,6 +315,37 @@ pub fn load_safetensors_single(
     })
 }
 
+/// n232 Block 1: Check that the loaded tensor keys exactly match the expected set.
+/// Returns Ok(()) if they match, Err with a descriptive message if there are
+/// missing or extra keys.
+pub fn check_tensor_coverage(expected: &[&str], loaded: &[&str]) -> Result<(), String> {
+    let expected_set: std::collections::HashSet<&str> = expected.iter().copied().collect();
+    let loaded_set: std::collections::HashSet<&str> = loaded.iter().copied().collect();
+
+    let missing: Vec<&&str> = expected_set.difference(&loaded_set).collect();
+    let extra: Vec<&&str> = loaded_set.difference(&expected_set).collect();
+
+    if !missing.is_empty() || !extra.is_empty() {
+        let mut msg = String::new();
+        if !missing.is_empty() {
+            msg.push_str(&format!(
+                "Missing {} expected tensor(s): {:?}\n",
+                missing.len(),
+                &missing[..missing.len().min(10)]
+            ));
+        }
+        if !extra.is_empty() {
+            msg.push_str(&format!(
+                "Extra {} unexpected tensor(s): {:?}\n",
+                extra.len(),
+                &extra[..extra.len().min(10)]
+            ));
+        }
+        return Err(msg);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,5 +410,33 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.contains("index file not found"), "err: {}", err);
+    }
+
+    /// n232 Block 1: loader guard — verifies all expected tensors are loaded and
+    /// no unexpected tensors remain. Detects forgotten tensor branches.
+    #[test]
+    fn loader_guard_detects_missing_and_extra_tensors() {
+        let expected = ["a.weight", "b.weight", "c.weight"];
+        let loaded = ["a.weight", "b.weight"]; // missing c.weight
+        let result = check_tensor_coverage(&expected, &loaded);
+        assert!(result.is_err(), "missing tensor must be detected");
+        assert!(
+            result.unwrap_err().contains("c.weight"),
+            "error must name the missing tensor"
+        );
+
+        let loaded_full = ["a.weight", "b.weight", "c.weight"];
+        assert!(
+            check_tensor_coverage(&expected, &loaded_full).is_ok(),
+            "exact match must pass"
+        );
+
+        let loaded_extra = ["a.weight", "b.weight", "c.weight", "d.weight"];
+        let result = check_tensor_coverage(&expected, &loaded_extra);
+        assert!(result.is_err(), "extra tensor must be detected");
+        assert!(
+            result.unwrap_err().contains("d.weight"),
+            "error must name the extra tensor"
+        );
     }
 }

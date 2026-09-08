@@ -83,8 +83,10 @@ fn tensor_sha256(t: &Tensor) -> String {
 const VAE_TINY_SEED: u64 = 21230;
 
 // Pinned after 3 bit-identical local runs on 2026-09-08 (procedure mirrors naryad №230).
-const VAE_GOLDEN_HASH: &str = "3e8c058d7107a19e18ae8287112a8990964e8b30614a498dd61ad18e5f7493ce";
-const VAE_GOLDEN_ANCHOR_BITS: [u32; 4] = [1056954379, 1056973216, 1056904001, 1056959683];
+// n232: re-pinned after VAE ritual direction fix (latent/scaling+shift, not (latent-shift)/scaling).
+// Old hash (n212): 3e8c058d7107a19e18ae8287112a8990964e8b30614a498dd61ad18e5f7493ce
+const VAE_GOLDEN_HASH: &str = "7f1ac2181af30178945647ceeb748f652c50068b1227ab22647e9c2d3c0992c8";
+const VAE_GOLDEN_ANCHOR_BITS: [u32; 4] = [1056952556, 1056974176, 1056900913, 1056960006];
 
 #[test]
 fn vae_tiny_decode_golden() {
@@ -123,7 +125,7 @@ fn vae_tiny_decode_golden() {
         anchors[3].to_bits(),
     );
 
-    // Pinning check — bit-exact against pinned records (procedure mirrors naryad №230).
+    // Pinning check — bit-exact against pinned records (n232 re-pinned).
     assert_eq!(
         hash, VAE_GOLDEN_HASH,
         "VAE tiny golden hash drifted. Expected {}, got {}.\n\
@@ -166,9 +168,12 @@ use metalogos::vision::text_encoder::param_seed;
 const SEED_DIT: u64 = 21201;
 
 // Pinned after 3 bit-identical local runs on 2026-09-08 (procedure mirrors naryad №230).
+// Pinned after 3 bit-identical local runs on 2026-09-08 (procedure mirrors naryad №230).
+// n232: re-pinned after DiT rebuild to diffusers reference architecture.
+// Old hash (n231, pre-rebuild): e686167b2e82ee7be9fe3408ed9e619953e774d49e224310f2d0541af3c10257
 const GOLDEN_DIT_TINY_HASH: &str =
-    "e686167b2e82ee7be9fe3408ed9e619953e774d49e224310f2d0541af3c10257";
-const GOLDEN_DIT_TINY_ANCHOR_BITS: [u32; 4] = [3152845634, 3156277201, 1015407194, 1008888057];
+    "211cf4f581ec705f2c5a37ac6f84a0760e6ce83d4af1870129ecaace9061a3ee";
+const GOLDEN_DIT_TINY_ANCHOR_BITS: [u32; 4] = [3160081466, 3168228796, 1026823847, 3189042413];
 
 #[test]
 fn dit_tiny_forward_golden() {
@@ -206,7 +211,7 @@ fn dit_tiny_forward_golden() {
         anchors[0].to_bits(), anchors[1].to_bits(), anchors[2].to_bits(), anchors[3].to_bits()
     );
 
-    // Pinning check — bit-exact against pinned records (procedure mirrors naryad №230).
+    // Pinning check — bit-exact against pinned records (n232 re-pinned).
     assert_eq!(
         hash, GOLDEN_DIT_TINY_HASH,
         "DiT tiny golden hash drifted. Expected {}, got {}.\n\
@@ -269,7 +274,12 @@ fn dit_tiny_config_contract() {
     assert_eq!(cfg.patch_size, 2, "tiny_dit_config patch_size");
     assert_eq!(cfg.cap_feat_dim, 32, "tiny_dit_config cap_feat_dim");
     assert_eq!(cfg.n_refiner_layers, 1, "tiny_dit_config n_refiner_layers");
-    assert_eq!(cfg.intermediate, 256, "tiny_dit_config intermediate");
+    // n232: intermediate = int(dim/3*8) = int(64/3*8) = 170 (was 256=4*dim in №212).
+    assert_eq!(
+        cfg.intermediate(),
+        170,
+        "tiny_dit_config intermediate (int(dim/3*8))"
+    );
 }
 
 #[test]
@@ -292,6 +302,28 @@ fn sampler_sigmas_pinned() {
 
     // Print for pinning (procedural — mirrors №230 Block 2).
     eprintln!("sampler_sigmas_pinned: sigmas={:?}", sigmas);
+
+    // n232: pinned sigma vector — exact match required.
+    const PINNED_SIGMAS: [f64; 9] = [
+        1.0,
+        0.9549418604651164,
+        0.9004796163069546,
+        0.8339253996447603,
+        0.7507492507492509,
+        0.6438356164383562,
+        0.5013315579227696,
+        0.3019169329073482,
+        0.002994011976047907,
+    ];
+    for (i, (&actual, &pinned)) in sigmas.iter().zip(PINNED_SIGMAS.iter()).enumerate() {
+        assert!(
+            (actual - pinned).abs() < 1e-15,
+            "sigma[{}] mismatch: got {}, expected {}",
+            i,
+            actual,
+            pinned
+        );
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════

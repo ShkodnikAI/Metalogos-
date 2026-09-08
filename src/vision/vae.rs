@@ -565,6 +565,93 @@ pub struct VaeDecoder {
     config: VaeConfig,
 }
 
+/// n236: VAE expected decoder key generator — single source of truth.
+/// Builds the full expected tensor key set from the VAE config.
+/// Real Z-Image-Turbo: 138 keys (verified from safetensors header, fetched 2026-09-09).
+/// Breakdown: conv_in 2 + conv_norm_out 2 + conv_out 2 + mid 26 (2×8 resnets + 10 attn)
+/// + up 106 (4 blocks × 3 resnets × 8 + 2 shortcuts on blocks 2/3 resnet 0 + 6 upsampler keys).
+pub(crate) fn vae_expected_decoder_keys(config: &VaeConfig) -> Vec<String> {
+    let base = config.block_out_channels[0];
+    let mut keys = vec![
+        "decoder.conv_in.weight".into(),
+        "decoder.conv_in.bias".into(),
+        "decoder.conv_norm_out.weight".into(),
+        "decoder.conv_norm_out.bias".into(),
+        "decoder.conv_out.weight".into(),
+        "decoder.conv_out.bias".into(),
+    ];
+    // mid_block: 2 resnets × 8 tensors
+    for i in 0..2 {
+        let p = format!("decoder.mid_block.resnets.{}", i);
+        for s in &[
+            "norm1.weight",
+            "norm1.bias",
+            "conv1.weight",
+            "conv1.bias",
+            "norm2.weight",
+            "norm2.bias",
+            "conv2.weight",
+            "conv2.bias",
+        ] {
+            keys.push(format!("{}.{}", p, s));
+        }
+    }
+    // mid_block attention (if config has it): 10 tensors
+    if config.mid_block_add_attention {
+        let p = "decoder.mid_block.attentions.0";
+        for s in &[
+            "group_norm.weight",
+            "group_norm.bias",
+            "to_q.weight",
+            "to_q.bias",
+            "to_k.weight",
+            "to_k.bias",
+            "to_v.weight",
+            "to_v.bias",
+            "to_out.0.weight",
+            "to_out.0.bias",
+        ] {
+            keys.push(format!("{}.{}", p, s));
+        }
+    }
+    // up_blocks: layers_per_block+1 resnets per ALL blocks (source: vae.py L254).
+    // Shortcuts only on resnet.0 when in_ch ≠ out_ch (n236 fix: in_ch updated INSIDE the loop).
+    let rev: Vec<usize> = config.block_out_channels.iter().rev().copied().collect();
+    let mut in_ch = 4 * base;
+    for (i, &out_ch) in rev.iter().enumerate() {
+        let num_resnets = config.layers_per_block + 1;
+        for j in 0..num_resnets {
+            let p = format!("decoder.up_blocks.{}.resnets.{}", i, j);
+            for s in &[
+                "norm1.weight",
+                "norm1.bias",
+                "conv1.weight",
+                "conv1.bias",
+                "norm2.weight",
+                "norm2.bias",
+                "conv2.weight",
+                "conv2.bias",
+            ] {
+                keys.push(format!("{}.{}", p, s));
+            }
+            // n236 fix: shortcut ONLY when in_ch ≠ out_ch for THIS resnet.
+            // in_ch is updated per-resnet, so only resnet.0 of a channel-changing block gets it.
+            if in_ch != out_ch {
+                keys.push(format!("{}.conv_shortcut.weight", p));
+                keys.push(format!("{}.conv_shortcut.bias", p));
+            }
+            // n236: update in_ch INSIDE the loop (was outside → caused 146 instead of 138).
+            in_ch = out_ch;
+        }
+        if i < rev.len() - 1 {
+            let p = format!("decoder.up_blocks.{}.upsamplers.0.conv", i);
+            keys.push(format!("{}.weight", p));
+            keys.push(format!("{}.bias", p));
+        }
+    }
+    keys
+}
+
 impl VaeDecoder {
     /// Seeded tiny-init for CI goldens (naryad №212 Block 3.2).
     pub fn new_tiny(config: &VaeConfig, seed: u64) -> Result<Self, String> {
@@ -832,72 +919,8 @@ impl VaeDecoder {
             .to_device(&device)
             .map_err(|e| format!("conv_norm_out bias device: {}", e))?;
 
-        // n234 Block 2: key-level loader tensor-coverage guard.
-        // Build expected decoder key set from the VAE decoder schema.
-        let mut expected_keys: Vec<String> = vec![
-            "decoder.conv_in.weight".into(),
-            "decoder.conv_in.bias".into(),
-            // n235: conv_norm_out added
-            "decoder.conv_norm_out.weight".into(),
-            "decoder.conv_norm_out.bias".into(),
-            "decoder.conv_out.weight".into(),
-            "decoder.conv_out.bias".into(),
-        ];
-        // mid_block resnets (2)
-        for i in 0..2 {
-            let p = format!("decoder.mid_block.resnets.{}", i);
-            expected_keys.push(format!("{}.norm1.weight", p));
-            expected_keys.push(format!("{}.norm1.bias", p));
-            expected_keys.push(format!("{}.conv1.weight", p));
-            expected_keys.push(format!("{}.conv1.bias", p));
-            expected_keys.push(format!("{}.norm2.weight", p));
-            expected_keys.push(format!("{}.norm2.bias", p));
-            expected_keys.push(format!("{}.conv2.weight", p));
-            expected_keys.push(format!("{}.conv2.bias", p));
-        }
-        // mid_block attention (if mid_block_add_attention)
-        if config.mid_block_add_attention {
-            let p = "decoder.mid_block.attentions.0";
-            expected_keys.push(format!("{}.group_norm.weight", p));
-            expected_keys.push(format!("{}.group_norm.bias", p));
-            expected_keys.push(format!("{}.to_q.weight", p));
-            expected_keys.push(format!("{}.to_q.bias", p));
-            expected_keys.push(format!("{}.to_k.weight", p));
-            expected_keys.push(format!("{}.to_k.bias", p));
-            expected_keys.push(format!("{}.to_v.weight", p));
-            expected_keys.push(format!("{}.to_v.bias", p));
-            expected_keys.push(format!("{}.to_out.0.weight", p));
-            expected_keys.push(format!("{}.to_out.0.bias", p));
-        }
-        // up_blocks: n235 — layers_per_block+1 resnets per ALL blocks.
-        // Shortcuts present on resnets.0 when in_ch ≠ out_ch (up_blocks.2 and .3 in real config).
-        let rev_blocks: Vec<usize> = config.block_out_channels.iter().rev().copied().collect();
-        let mut in_ch = 4 * base;
-        for (i, &out_ch) in rev_blocks.iter().enumerate() {
-            let num_resnets = config.layers_per_block + 1;
-            for j in 0..num_resnets {
-                let p = format!("decoder.up_blocks.{}.resnets.{}", i, j);
-                expected_keys.push(format!("{}.norm1.weight", p));
-                expected_keys.push(format!("{}.norm1.bias", p));
-                expected_keys.push(format!("{}.conv1.weight", p));
-                expected_keys.push(format!("{}.conv1.bias", p));
-                expected_keys.push(format!("{}.norm2.weight", p));
-                expected_keys.push(format!("{}.norm2.bias", p));
-                expected_keys.push(format!("{}.conv2.weight", p));
-                expected_keys.push(format!("{}.conv2.bias", p));
-                // n235: shortcut keys when in_ch ≠ out_ch
-                if in_ch != out_ch {
-                    expected_keys.push(format!("{}.conv_shortcut.weight", p));
-                    expected_keys.push(format!("{}.conv_shortcut.bias", p));
-                }
-            }
-            in_ch = out_ch;
-            if i < rev_blocks.len() - 1 {
-                let p = format!("decoder.up_blocks.{}.upsamplers.0.conv", i);
-                expected_keys.push(format!("{}.weight", p));
-                expected_keys.push(format!("{}.bias", p));
-            }
-        }
+        // n236: key-level loader guard — calls extracted generator (single source of truth).
+        let expected_keys = vae_expected_decoder_keys(&config);
         let loaded_keys: Vec<String> = tensors.keys().cloned().collect();
         crate::vision::weights::check_tensor_coverage(&expected_keys, &loaded_keys)
             .map_err(|e| format!("VaeDecoder::from_weights: tensor coverage: {}", e))?;

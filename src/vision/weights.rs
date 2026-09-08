@@ -525,93 +525,46 @@ mod tests {
             "error must name the extra key"
         );
     }
-    /// n235 Block 1.6: VAE expected-key generator count test.
+    /// n236: VAE expected-key generator count test — calls the REAL production function.
     /// Verifies that the real-configuration VAE decoder schema produces exactly
     /// 138 tensor keys, matching the real safetensors header (fetched 2026-09-09).
-    /// Breakdown: conv_in 2 + conv_norm_out 2 + conv_out 2 + mid_block 26
-    /// (2 resnets × 8 + 10 attn) + up_blocks 106 (4 blocks × (3 resnets × 8
-    /// + shortcuts 2 on blocks 2/3 + upsamplers 2 on blocks 0/1/2)).
+    /// n236 fix: was a test-copy of the algorithm (which had the correct in_ch
+    /// placement); now calls `vae_expected_decoder_keys` directly — the test and
+    /// the loader use the SAME function (single source of truth).
     #[test]
     fn vae_expected_key_count_matches_real_header() {
-        let block_out_channels = [128, 256, 512, 512];
-        let layers_per_block = 2;
-        let mid_block_add_attention = true;
+        use crate::vision::vae::{vae_expected_decoder_keys, zimage_turbo_vae_config};
 
-        let mut keys: Vec<String> = vec![
-            "decoder.conv_in.weight".into(),
-            "decoder.conv_in.bias".into(),
-            "decoder.conv_norm_out.weight".into(),
-            "decoder.conv_norm_out.bias".into(),
-            "decoder.conv_out.weight".into(),
-            "decoder.conv_out.bias".into(),
-        ];
-        for i in 0..2 {
-            let p = format!("decoder.mid_block.resnets.{}", i);
-            for suffix in &[
-                "norm1.weight",
-                "norm1.bias",
-                "conv1.weight",
-                "conv1.bias",
-                "norm2.weight",
-                "norm2.bias",
-                "conv2.weight",
-                "conv2.bias",
-            ] {
-                keys.push(format!("{}.{}", p, suffix));
-            }
-        }
-        if mid_block_add_attention {
-            let p = "decoder.mid_block.attentions.0";
-            for suffix in &[
-                "group_norm.weight",
-                "group_norm.bias",
-                "to_q.weight",
-                "to_q.bias",
-                "to_k.weight",
-                "to_k.bias",
-                "to_v.weight",
-                "to_v.bias",
-                "to_out.0.weight",
-                "to_out.0.bias",
-            ] {
-                keys.push(format!("{}.{}", p, suffix));
-            }
-        }
-        let rev: Vec<usize> = block_out_channels.iter().rev().copied().collect();
-        let mut in_ch = 4 * block_out_channels[0];
-        for (i, &out_ch) in rev.iter().enumerate() {
-            let num_resnets = layers_per_block + 1;
-            for j in 0..num_resnets {
-                let p = format!("decoder.up_blocks.{}.resnets.{}", i, j);
-                for suffix in &[
-                    "norm1.weight",
-                    "norm1.bias",
-                    "conv1.weight",
-                    "conv1.bias",
-                    "norm2.weight",
-                    "norm2.bias",
-                    "conv2.weight",
-                    "conv2.bias",
-                ] {
-                    keys.push(format!("{}.{}", p, suffix));
-                }
-                if in_ch != out_ch {
-                    keys.push(format!("{}.conv_shortcut.weight", p));
-                    keys.push(format!("{}.conv_shortcut.bias", p));
-                }
-                in_ch = out_ch;
-            }
-            if i < rev.len() - 1 {
-                let p = format!("decoder.up_blocks.{}.upsamplers.0.conv", i);
-                keys.push(format!("{}.weight", p));
-                keys.push(format!("{}.bias", p));
-            }
-        }
+        let config = zimage_turbo_vae_config();
+        let keys = vae_expected_decoder_keys(&config);
+
+        // Real Z-Image-Turbo VAE decoder: 138 tensors (safetensors header, fetched 2026-09-09).
+        // Breakdown: 2 (conv_in) + 2 (conv_norm_out) + 2 (conv_out) + 26 (mid: 2×8 + 10 attn)
+        // + 106 (up: 4 blocks × 3 resnets × 8 + 2 shortcuts on blocks 2/3 resnet 0 + 6 upsamplers).
         assert_eq!(
             keys.len(),
             138,
-            "VAE decoder expected key count must be 138 (real header, fetched 2026-09-09).              Breakdown: 2+2+2+26+106. Got: {}",
+            "VAE decoder expected key count must be 138 (real header, fetched 2026-09-09). \
+             Breakdown: 2+2+2+26+106. Got: {}",
             keys.len()
+        );
+
+        // n236: verify shortcut placement — only on resnet.0 of channel-changing blocks.
+        assert!(
+            keys.contains(&"decoder.up_blocks.2.resnets.0.conv_shortcut.weight".to_string()),
+            "up_blocks.2.resnets.0 must have conv_shortcut (512→256)"
+        );
+        assert!(
+            !keys.contains(&"decoder.up_blocks.2.resnets.1.conv_shortcut.weight".to_string()),
+            "up_blocks.2.resnets.1 must NOT have conv_shortcut (256→256, in_ch==out_ch after resnet.0)"
+        );
+        assert!(
+            !keys.contains(&"decoder.up_blocks.3.upsamplers.0.conv.weight".to_string()),
+            "up_blocks.3 must NOT have upsamplers (last block)"
+        );
+        assert!(
+            !keys.contains(&"decoder.up_blocks.0.resnets.0.conv_shortcut.weight".to_string()),
+            "up_blocks.0.resnets.0 must NOT have conv_shortcut (512→512, no channel change)"
         );
     }
 }

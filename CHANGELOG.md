@@ -4,8 +4,25 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-### Added — Vision R3: end-to-end Z-Image-Turbo wedge (Наряд №212, completed №231)
+### Added — Vision R3: end-to-end Z-Image-Turbo wedge (Наряд №212, completed №231, rebuilt to reference №232)
 
+- **DiT rebuilt to diffusers reference (№232)**: 12 discrepancies fixed against
+  `transformer_z_image.py` (fetched 2026-09-08):
+  - t-embedder: sinusoidal(256) → Linear(256→1024) → SiLU → Linear(1024→min(dim,256))
+  - Block adaLN: Linear(min(dim,256)→4*dim), 4 chunks (scale_msa, gate_msa, scale_mlp,
+    gate_mlp), gate=tanh(gate), scale=1+scale, NO shift
+  - Block norms: 4 RMSNorms (attention_norm1 on input*scale_msa, attention_norm2 on
+    attn output before residual, ffn_norm1 on input*scale_mlp, ffn_norm2 on FFN output
+    before residual)
+  - Final layer: LayerNorm(dim, affine=False, eps=1e-6) → ×(1+scale) → Linear. No gate,
+    no shift, no residual. SiLU applied to adaln_input BEFORE Linear (Sequential(SiLU, Linear))
+  - cap_embedder: RMSNorm(cap_feat_dim) → Linear(cap_feat_dim→dim). No SiLU.
+  - Refiners BEFORE main: noise_refiner (modulation=True) on x-tokens, context_refiner
+    (modulation=False) on cap-tokens, THEN main layers
+  - Unified sequence: [x, cap] (x first, basic mode)
+  - FeedForward: hidden_dim = int(dim/3*8) = 10240 (real) / 170 (tiny)
+  - VAE decode ritual: latent / scaling + shift (NOT (latent-shift)/scaling) — pipeline_z_image.py L589
+  - Loader guard: `check_tensor_coverage(expected, loaded)` — detects missing/extra tensors
 - **DiT tiny golden pinned (№231)**: SHA-256 + anchor bits, pinning ×3, seed
   determinism. Hash `e686167b2e82ee7be9fe3408ed9e619953e774d49e224310f2d0541af3c10257`.
   Fixed n212 forward-path bugs (linear_seeded arg order, broadcasting, refiner

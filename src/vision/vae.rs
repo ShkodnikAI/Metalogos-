@@ -6,7 +6,9 @@
 //! ## Architecture (flux-dev style)
 //!
 //! Input: latent `[1, 16, H/8, W/8]` (latent_channels=16, e.g. 128×128 for 1024×1024 image).
-//! Ritual: `z = (latent - shift_factor) / scaling_factor` (flux-dev: shift=0.1159, scaling=0.3611).
+//! Ritual: `z = latent / scaling_factor + shift_factor` (flux-dev: shift=0.1159, scaling=0.3611).
+//! n232 fix: direction corrected per pipeline_z_image.py L589:
+//!   `latents = (latents / scaling_factor) + shift_factor` — NOT `(latent - shift) / scaling`.
 //! Output: `[3, H, W]` in [0,1] via `(sample / 2 + 0.5).clamp(0, 1)`.
 //!
 //! Decoder structure (config: block_out_channels=[128,256,512,512], layers_per_block=2,
@@ -661,14 +663,16 @@ impl VaeDecoder {
     /// Decode a latent `[1, latent_channels, H/8, W/8]` to an image `[3, H, W]` in [0,1].
     pub fn decode(&self, latent: &Tensor) -> Result<Tensor, String> {
         let device = latent.device();
+        // n232 fix: VAE decode ritual = latent / scaling + shift (pipeline_z_image.py L589).
+        // Was: (latent - shift) / scaling — WRONG direction.
         let shift = self.config.shift_factor as f32;
         let scale = self.config.scaling_factor as f32;
-        let shift_t = scalar_full(shift, latent.dims(), device)
-            .map_err(|e| format!("VAE decode: shift tensor: {}", e))?;
-        let z = (latent - shift_t).map_err(|e| format!("VAE decode: subtract shift: {}", e))?;
-        let scale_t = scalar_full(scale, z.dims(), device)
+        let scale_t = scalar_full(scale, latent.dims(), device)
             .map_err(|e| format!("VAE decode: scale tensor: {}", e))?;
-        let z = (z / scale_t).map_err(|e| format!("VAE decode: divide scale: {}", e))?;
+        let z = (latent / scale_t).map_err(|e| format!("VAE decode: divide scaling: {}", e))?;
+        let shift_t = scalar_full(shift, z.dims(), device)
+            .map_err(|e| format!("VAE decode: shift tensor: {}", e))?;
+        let z = (z + shift_t).map_err(|e| format!("VAE decode: add shift: {}", e))?;
 
         let mut h = self
             .conv_in

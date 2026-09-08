@@ -59,11 +59,13 @@ These criteria cannot be evaluated without running the env-gated tests with real
 3. Setting `MLOG_VISION_WEIGHTS_DIR` and running `cargo test --features vision --test naryad_212_wedge_e2e -- --nocapture`.
 4. Filling in the verbatim DoD entries (PNG path, PNG SHA-256, timings).
 
-**Known R3 simplifications** (documented in code, would need address before Go decision):
-- DiT mid-attention block weights loading is stubbed (`mid_attn = None`) — real VAE has attention but loading is complex; tiny CI uses `mid_block_add_attention=false`.
-- DiT axial RoPE: structure present, but the exact 3-axis rotation (32/48/48 split) needs deeper verification against diffusers source. R3 uses the basic RoPE pattern from R2 text encoder.
-- DiT `attn_norm1_placeholder()` returns ones for the final layer norm weight — real model has a learned weight (`all_final_layer.2-1.linear.weight` preceding adaLN). This is a simplification.
-- These would be addressed in a fix-forward PR (R3.1) if Go/No-Go requires bit-exactness against diffusers.
+**Known R3 simplifications** (n232 resolved 12 discrepancies; remaining):
+- VAE mid-block attention: `mid_attn = None` in tiny config (tiny uses `mid_block_add_attention=false`).
+  Real VAE has attention weights — from_weights path loads them (TODO: mid_attn loading in VaeDecoder::from_weights).
+- Axial RoPE: structurally correct (3-axis, complex rotation, pos_ids per source) but the pos_ids
+  for cap-tokens use a simplified (1,0,0) constant per token. Real pipeline computes pos_ids from
+  a coordinate grid (L565, L599). Minor — affects only the cap-token position encoding.
+- These are R3.2 fix-forward candidates if real-weights run shows quality issues.
 
 ## Recommendation to coordinator
 

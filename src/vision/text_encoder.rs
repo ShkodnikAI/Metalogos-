@@ -46,7 +46,11 @@ use candle_nn::{VarBuilder, VarMap};
 /// Per-parameter seed derivation — splitmix64 finalizer over
 /// `(master_seed, layer, param)`. Deterministic; eliminates seed-stream
 /// overlap between tensors (naryad №230).
-pub(crate) fn param_seed(master: u64, layer: u64, param: u64) -> u64 {
+///
+/// Public since naryad №231: integration tests need to derive deterministic
+/// latent/cap inputs via the same SSOT derivation (no new generator allowed
+/// per §3.4). Visibility bump only — math untouched.
+pub fn param_seed(master: u64, layer: u64, param: u64) -> u64 {
     let mut z = master
         ^ 0x9E3779B97F4A7C15
         ^ layer.wrapping_mul(0xBF58476D1CE4E5B9)

@@ -154,7 +154,28 @@ fn linear_seeded(
 }
 
 fn linear_forward(x: &Tensor, weight: &Tensor, bias: Option<&Tensor>) -> CandleResult<Tensor> {
-    let out = x.matmul(&weight.t()?)?;
+    // n231 fix: candle matmul doesn't broadcast 3D @ 2D — reshape to 2D, matmul, reshape back.
+    let x_ndims = x.dims().len();
+    let (x_2d, batch_shape) = if x_ndims > 2 {
+        let dims = x.dims();
+        let last = dims[dims.len() - 1];
+        let rest: usize = dims[..dims.len() - 1].iter().product();
+        let x_2d = x.reshape((rest, last))?;
+        (x_2d, Some(dims.to_vec()))
+    } else {
+        (x.clone(), None)
+    };
+
+    let out = x_2d.matmul(&weight.t()?)?;
+    let out = if let Some(ref orig_dims) = batch_shape {
+        let out_dims = out.dims();
+        let mut new_dims = orig_dims[..orig_dims.len() - 1].to_vec();
+        new_dims.push(out_dims[out_dims.len() - 1]);
+        out.reshape(new_dims.as_slice())?
+    } else {
+        out
+    };
+
     if let Some(b) = bias {
         let b_dim = b.dim(0)?;
         let ndims = out.dims().len();
@@ -249,33 +270,41 @@ impl DiTBlock {
         };
 
         // Pre-norm attention
+        // n231 fix: candle doesn't auto-broadcast 3D * 2D — explicit .broadcast_as().
         let normed = rms_norm_last_dim(x, &self.attn_norm1, self.eps)?;
         let normed = if let (Some(s), Some(sh)) = (scale1.as_ref(), shift1.as_ref()) {
             let one_t = Tensor::full(1.0f32, s.dims(), s.device())?;
             let scale_plus_one = (s + one_t)?;
-            (&(&normed * &scale_plus_one)? + sh)?
+            let scale_b = scale_plus_one.broadcast_as(normed.dims())?;
+            let shift_b = sh.broadcast_as(normed.dims())?;
+            (&(&normed * &scale_b)? + &shift_b)?
         } else {
             normed
         };
         let attn_out = self.attention_forward(&normed)?;
         let x = if let Some(g) = gate1.as_ref() {
-            (x + (g * attn_out)?)?
+            let g_b = g.broadcast_as(attn_out.dims())?;
+            (x + (&g_b * &attn_out)?)?
         } else {
             (x + attn_out)?
         };
 
         // Pre-norm FFN
+        // n231 fix: same broadcast pattern as attention path above.
         let normed = rms_norm_last_dim(&x, &self.attn_norm2, self.eps)?;
         let normed = if let (Some(s), Some(sh)) = (scale2.as_ref(), shift2.as_ref()) {
             let one_t = Tensor::full(1.0f32, s.dims(), s.device())?;
             let scale_plus_one = (s + one_t)?;
-            (&(&normed * &scale_plus_one)? + sh)?
+            let scale_b = scale_plus_one.broadcast_as(normed.dims())?;
+            let shift_b = sh.broadcast_as(normed.dims())?;
+            (&(&normed * &scale_b)? + &shift_b)?
         } else {
             normed
         };
         let ffn_out = self.ffn_forward(&normed)?;
         let x = if let Some(g) = gate2.as_ref() {
-            (x + (g * ffn_out)?)?
+            let g_b = g.broadcast_as(ffn_out.dims())?;
+            (x + (&g_b * &ffn_out)?)?
         } else {
             (x + ffn_out)?
         };
@@ -459,28 +488,33 @@ impl ZImageTransformer {
             )?;
             layers.push(l);
         }
-        // Refiner (no adaLN)
+        // Refiner (no adaLN) — n231 fix: noise_refiner uses adaLN (same as main layers),
+        // matching from_weights path. Was `false` → forward panicked on expect("adaLN required").
         let mut refiner = Vec::with_capacity(config.n_refiner_layers);
         for i in 0..config.n_refiner_layers {
             let r = build_dit_block_seeded(
                 config,
                 param_seed(seed, i as u64, PARAM_DIT_REFINER),
                 &device,
-                false,
+                true,
             )?;
             refiner.push(r);
         }
 
+        // n231 fix: arg order corrected — linear_seeded(in, out) → weight [out, in].
+        // final_linear maps dim → pp (unpatchify prediction). Was (pp, dim) → wrong weight.
         let (final_linear, final_linear_bias) = linear_seeded(
-            pp,
             config.dim,
+            pp,
             param_seed(seed, 0, PARAM_DIT_FINAL),
             &device,
             true,
         )?;
+        // n231 fix: final_adaLN maps dim → 6*dim (modulation outputs).
+        // Was (6*dim, dim) → weight [dim, 6*dim], forward matmul failed.
         let (final_adaLN, final_adaLN_bias) = linear_seeded(
-            6 * config.dim,
             config.dim,
+            6 * config.dim,
             param_seed(seed, 1, PARAM_DIT_FINAL),
             &device,
             true,
@@ -686,6 +720,9 @@ impl ZImageTransformer {
         }
 
         // Final layer: adaLN + linear → unpatchify.
+        // n231 fix: gate applied BEFORE linear (on dim-sized tensor), no residual
+        // (DiT final layer = AdaLN + Linear, no skip connection). Was applying gate
+        // after linear (dim ≠ pp) and adding residual (dim ≠ pp).
         let mod_ = linear_forward(&t_cond, &self.final_adaLN, self.final_adaLN_bias.as_ref())
             .map_err(|e| format!("DiT: final_adaLN: {}", e))?;
         let chunks = mod_
@@ -701,13 +738,21 @@ impl ZImageTransformer {
             .map_err(|e| format!("DiT: final norm: {}", e))?;
         let normed = rms_norm_last_dim(&noise, &attn_norm1_w, self.config.norm_eps)
             .map_err(|e| format!("DiT: final rms: {}", e))?;
+        let scale_b = scale
+            .broadcast_as(normed.dims())
+            .map_err(|e| format!("DiT: final scale_b: {}", e))?;
+        let shift_b = shift
+            .broadcast_as(normed.dims())
+            .map_err(|e| format!("DiT: final shift_b: {}", e))?;
+        let gate_b = gate
+            .broadcast_as(normed.dims())
+            .map_err(|e| format!("DiT: final gate_b: {}", e))?;
         let normed_scaled =
-            (&normed * &scale).map_err(|e| format!("DiT: final normed*scale: {}", e))?;
-        let normed = (&normed_scaled + shift).map_err(|e| format!("DiT: final shift: {}", e))?;
-        let proj = linear_forward(&normed, &self.final_linear, self.final_linear_bias.as_ref())
+            (&normed * &scale_b).map_err(|e| format!("DiT: final normed*scale: {}", e))?;
+        let normed = (&normed_scaled + &shift_b).map_err(|e| format!("DiT: final shift: {}", e))?;
+        let gated = (&normed * &gate_b).map_err(|e| format!("DiT: final gate*normed: {}", e))?;
+        let out = linear_forward(&gated, &self.final_linear, self.final_linear_bias.as_ref())
             .map_err(|e| format!("DiT: final proj: {}", e))?;
-        let gate_proj = (gate * proj).map_err(|e| format!("DiT: final gate*proj: {}", e))?;
-        let out = (noise + gate_proj).map_err(|e| format!("DiT: final out: {}", e))?;
 
         // Unpatchify: [1, nph*npw, pp] → [1, in_channels, H, W]
         let out = unpatchify(&out, nph, npw, ph, pw, self.config.in_channels, device)
@@ -820,7 +865,9 @@ fn build_dit_block_seeded(
     let inter = config.intermediate;
 
     let adaLN = if with_adaln {
-        let (w, b) = linear_seeded(6 * dim, dim, seed, device, true)?;
+        // n231 fix: adaLN maps dim → 6*dim (6 modulation outputs per block).
+        // Was (6*dim, dim) → weight [dim, 6*dim], forward matmul failed.
+        let (w, b) = linear_seeded(dim, 6 * dim, seed, device, true)?;
         Some(AdaLNModulation { weight: w, bias: b })
     } else {
         None

@@ -4,7 +4,13 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-### Added — Vision R3: end-to-end Z-Image-Turbo wedge (Наряд №212)
+### Added — Vision R3: end-to-end Z-Image-Turbo wedge (Наряд №212, completed №231)
+
+- **DiT tiny golden pinned (№231)**: SHA-256 + anchor bits, pinning ×3, seed
+  determinism. Hash `e686167b2e82ee7be9fe3408ed9e619953e774d49e224310f2d0541af3c10257`.
+  Fixed n212 forward-path bugs (linear_seeded arg order, broadcasting, refiner
+  adaLN, final layer gate/residual) discovered when replacing the
+  `assert!(true)` placeholder.
 
 - **Weights infrastructure** (`src/vision/weights.rs`):
   - `WeightsManifest` — record of expected files + SHA-256 (loaded from

@@ -14,7 +14,7 @@
 |-----------|------|--------|
 | VAE decoder (tiny) | `vae_tiny_decode_golden` | ✅ pinned hash + 4 anchor bits, 3 bit-identical runs |
 | VAE decoder (tiny) | `vae_tiny_decode_determinism` | ✅ same seed → bit-exact identical |
-| DiT (tiny) | `dit_tiny_forward_shape` | ✅ compiles + API callable (placeholder — full pinning needs deeper work) |
+| DiT (tiny) | `dit_tiny_forward_golden` | ✅ pinned (№231, hash=e686167b2e82ee7be9fe3408ed9e619953e774d49e224310f2d0541af3c10257) |
 | Sampler | `sampler_sigmas_pinned` | ✅ 9 sigmas pinned: [1.0, 0.955, 0.900, 0.834, 0.751, 0.644, 0.501, 0.302, 0.003] |
 | Sampler | `sigmas_monotonic_decreasing` | ✅ |
 | Sampler | `sigmas_first_close_to_one` | ✅ |

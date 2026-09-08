@@ -567,4 +567,55 @@ mod tests {
             "up_blocks.0.resnets.0 must NOT have conv_shortcut (512→512, no channel change)"
         );
     }
+
+    /// n236: DiT expected-key generator count test — calls the REAL production function.
+    /// Real Z-Image-Turbo: 521 keys (verified from index.json, fetched 2026-09-09).
+    /// Breakdown: 15 static + 30×15 (layers) + 2×15 (noise_refiner) + 2×13 (context_refiner).
+    #[test]
+    fn dit_expected_key_count_matches_real_header() {
+        use crate::vision::dit::{zimage_expected_keys, zimage_turbo_config};
+
+        let config = zimage_turbo_config();
+        let keys = zimage_expected_keys(&config);
+
+        assert_eq!(
+            keys.len(),
+            521,
+            "DiT expected key count must be 521 (real index.json, fetched 2026-09-09).              Breakdown: 15+30×15+2×15+2×13. Got: {}",
+            keys.len()
+        );
+        assert!(
+            keys.contains(&"layers.0.adaLN_modulation.0.weight".to_string()),
+            "layers.0 must have adaLN_modulation (modulation=true)"
+        );
+        assert!(
+            !keys.contains(&"context_refiner.0.adaLN_modulation.0.weight".to_string()),
+            "context_refiner.0 must NOT have adaLN_modulation (modulation=false)"
+        );
+    }
+
+    /// n236: TE expected-key generator count test — calls the REAL production function.
+    /// Real Qwen3-4B: 398 keys (verified from index.json, fetched 2026-09-09).
+    /// Breakdown: 2 + 36×11 = 398.
+    #[test]
+    fn te_expected_key_count_matches_real_header() {
+        use crate::vision::text_encoder::te_expected_keys;
+
+        let keys = te_expected_keys(36); // QWEN3_4B_CONFIG.layers = 36
+
+        assert_eq!(
+            keys.len(),
+            398,
+            "TE expected key count must be 398 (real index.json, fetched 2026-09-09).              Breakdown: 2+36×11. Got: {}",
+            keys.len()
+        );
+        assert!(
+            keys.contains(&"model.embed_tokens.weight".to_string()),
+            "must contain model.embed_tokens.weight"
+        );
+        assert!(
+            keys.contains(&"model.layers.35.mlp.down_proj.weight".to_string()),
+            "must contain last layer (35) mlp.down_proj.weight"
+        );
+    }
 }

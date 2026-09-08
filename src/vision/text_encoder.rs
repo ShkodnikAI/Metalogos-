@@ -453,6 +453,31 @@ pub struct TextEncoder {
     device: Device,
 }
 
+/// n236: TextEncoder expected-key generator — single source of truth.
+/// Real Qwen3-4B: 398 keys (verified from index.json, fetched 2026-09-09).
+/// Breakdown: 2 static (embed_tokens + norm) + 36 layers × 11 per layer = 2 + 396 = 398.
+pub(crate) fn te_expected_keys(num_layers: usize) -> Vec<String> {
+    let mut keys = vec![
+        "model.embed_tokens.weight".into(),
+        "model.norm.weight".into(),
+    ];
+    for i in 0..num_layers {
+        let p = format!("model.layers.{}", i);
+        keys.push(format!("{}.input_layernorm.weight", p));
+        keys.push(format!("{}.self_attn.q_proj.weight", p));
+        keys.push(format!("{}.self_attn.k_proj.weight", p));
+        keys.push(format!("{}.self_attn.v_proj.weight", p));
+        keys.push(format!("{}.self_attn.o_proj.weight", p));
+        keys.push(format!("{}.self_attn.q_norm.weight", p));
+        keys.push(format!("{}.self_attn.k_norm.weight", p));
+        keys.push(format!("{}.post_attention_layernorm.weight", p));
+        keys.push(format!("{}.mlp.gate_proj.weight", p));
+        keys.push(format!("{}.mlp.up_proj.weight", p));
+        keys.push(format!("{}.mlp.down_proj.weight", p));
+    }
+    keys
+}
+
 impl TextEncoder {
     /// Create a text encoder with deterministic seeded initialization.
     ///
@@ -583,26 +608,8 @@ impl TextEncoder {
             t
         };
 
-        // n234 Block 2: key-level loader tensor-coverage guard.
-        // Build expected key set: embed_tokens + norm + per-layer 11 tensors.
-        let mut expected_keys: Vec<String> = vec![
-            "model.embed_tokens.weight".into(),
-            "model.norm.weight".into(),
-        ];
-        for i in 0..config.layers {
-            let p = format!("model.layers.{}", i);
-            expected_keys.push(format!("{}.input_layernorm.weight", p));
-            expected_keys.push(format!("{}.self_attn.q_proj.weight", p));
-            expected_keys.push(format!("{}.self_attn.k_proj.weight", p));
-            expected_keys.push(format!("{}.self_attn.v_proj.weight", p));
-            expected_keys.push(format!("{}.self_attn.o_proj.weight", p));
-            expected_keys.push(format!("{}.self_attn.q_norm.weight", p));
-            expected_keys.push(format!("{}.self_attn.k_norm.weight", p));
-            expected_keys.push(format!("{}.post_attention_layernorm.weight", p));
-            expected_keys.push(format!("{}.mlp.gate_proj.weight", p));
-            expected_keys.push(format!("{}.mlp.up_proj.weight", p));
-            expected_keys.push(format!("{}.mlp.down_proj.weight", p));
-        }
+        // n236: key-level loader guard — calls extracted generator (single source of truth).
+        let expected_keys = te_expected_keys(config.layers);
         let loaded_keys: Vec<String> = tensors.keys().cloned().collect();
         crate::vision::weights::check_tensor_coverage(&expected_keys, &loaded_keys)
             .map_err(|e| format!("TextEncoder::from_weights: tensor coverage: {}", e))?;

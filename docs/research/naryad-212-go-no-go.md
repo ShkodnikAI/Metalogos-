@@ -68,6 +68,7 @@ These criteria cannot be evaluated without running the env-gated tests with real
   Clamp replaced with loud Err on out-of-range pos_ids.
 - cap pos_ids: per-token (i+1, 0, 0) per create_coordinate_grid source.
 - Loader guard: key-level check_tensor_coverage in all from_weights (n234 truth-up).
+- Loader guard: all three expected-key generators (VAE/DiT/TE) extracted to standalone functions and called by both from_weights and unit tests — single source of truth. D2' (generator produced 146≠138 due to in_ch placement outside resnet loop; test-copy masked it) caught by coordinator verification before real-weights run. Guard would have failed loudly (Missing 8) on real weights — now fixed to 138.
 - Status: architecture = reference by 12/12 points. Real-run awaits coordinator deployment.
 
 ## Recommendation to coordinator

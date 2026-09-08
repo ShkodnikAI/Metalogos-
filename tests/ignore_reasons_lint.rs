@@ -204,18 +204,27 @@ fn scan_file_rejects_comma_separated_form() {
     assert_eq!(v.len(), 1, "comma-separated #[ignore, ...] must be flagged");
 }
 
-/// Helper: create a unique temp dir for this test run. We avoid pulling
-/// in the `tempfile` crate as a dev-dependency — `std::env::temp_dir()`
-/// plus the test thread name is enough for these short-lived scans.
+/// Helper: create a unique temp dir for each test invocation.
+///
+/// Uses `process::id()` + nanosecond timestamp + an atomic counter to
+/// guarantee uniqueness across parallel test threads within the same
+/// process (n231 fix: the previous version used only pid + nanos, which
+/// could collide when two tests called `tempfile_dir()` in the same
+/// nanosecond — causing one test to overwrite the other's `sample.rs`
+/// before the scan ran, producing a flaky 0-violation result).
 fn tempfile_dir() -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let seq = COUNTER.fetch_add(1, Ordering::SeqCst);
     let mut p = std::env::temp_dir();
     p.push(format!(
-        "ignore_lint_{}_{}",
+        "ignore_lint_{}_{}_{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_nanos()
+            .as_nanos(),
+        seq,
     ));
     fs::create_dir_all(&p).unwrap();
     p

@@ -108,6 +108,14 @@ pub type SharedVisionRegistry = Mutex<VisionRegistry>;
 #[cfg(feature = "vision")]
 pub mod text_encoder;
 
+// Наряд №212 (R3): weights infrastructure + tokenizer wrapper.
+// Both feature-gated behind `vision`. tokenizers crate is the canonical HF
+// BPE implementation — see ADR-0124 update for rationale.
+#[cfg(feature = "vision")]
+pub mod tokenizer;
+#[cfg(feature = "vision")]
+pub mod weights;
+
 #[cfg(test)]
 mod tests {
     use super::*;

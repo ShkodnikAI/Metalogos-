@@ -108,6 +108,13 @@ chrono-tz = "0.10"
 candle-core = { version = "0.11", optional = true }
 candle-nn = { version = "0.11", optional = true }
 
+# Наряд №212 (R3): HF fast tokenizer + image save.
+# Both gated under `vision` (NOT in default/full). tokenizers is the canonical
+# HF BPE implementation — hand-rolling it is high-risk (see ADR-0124 update).
+# image is for PNG encode of the VAE decoder output.
+tokenizers = { version = "0.22", optional = true }
+image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
+
 # Optional OCR support (requires system tesseract-ocr + training data)
 # Enable with: cargo build --features pdf-ocr
 [dependencies.tesseract]
@@ -143,8 +150,10 @@ pdf-ocr = ["tesseract"]
 # `src/nn/` не компилировались; локальная `generate_uniform_f32` в
 # `src/vision/text_encoder.rs` была обходным путём. Теперь implication
 # работает как задокументировано, SSOT-PRNG доступен из vision-сборки).
+# Наряд №212 (R3): vision влечёт tokenizers (HF BPE, нельзя вручную) +
+# image (PNG encode VAE output).
 # Enable with: cargo build --features vision
-vision = ["candle"]
+vision = ["candle", "dep:tokenizers", "dep:image"]
 
 [dev-dependencies]
 tempfile = "3"

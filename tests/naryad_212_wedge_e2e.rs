@@ -52,7 +52,7 @@ fn print_skip(reason: &str) {
     eprintln!(
         "SKIP (loud): {}\n  Set MLOG_VISION_WEIGHTS_DIR to a directory laid out per \
          docs/research/naryad-212-weights-manifest.md to enable this test.\n  \
-         (This is the §3 form of permitted unfinishedness — not #[ignore].)",
+         (Loud skip per §3 — permitted unfinishedness, not a bare ignore attribute.)",
         reason
     );
 }

@@ -4,8 +4,20 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-### Added — Vision R3: end-to-end Z-Image-Turbo wedge (Наряд №212, completed №231, rebuilt to reference №232)
+### Added — Vision R3: end-to-end Z-Image-Turbo wedge (Наряд №212, completed №231, rebuilt to reference №232, fix-forward №233)
 
+- **RoPE wire-in (№233)**: `AxialRoPE::apply(q, k)` now called in all attention
+  paths (noise_refiner, context_refiner, layers) after qk-norm — was a TODO
+  stub. Clamp on out-of-range pos_ids replaced with loud `bail!`. Cap pos_ids
+  corrected to per-token `(i+1, 0, 0)` per `create_coordinate_grid` source.
+- **Loader tensor-coverage guard wired (№233)**: `check_tensor_coverage` called
+  in `ZImageTransformer::from_weights` (expected 521), `VaeDecoder::from_weights`
+  (expected 138 decoder), `TextEncoder::from_weights` (expected 398). Detects
+  missing/extra tensors at load time.
+- **VAE mid-block attention (№233)**: `VaeAttention` struct with GroupNorm →
+  spatial self-attention (q/k/v/out_proj) → residual. Loaded from
+  `decoder.mid_block.attentions.0.*` in `from_weights`; computed in `decode`
+  when `mid_block_add_attention=true`. Tiny config (false) unaffected.
 - **DiT rebuilt to diffusers reference (№232)**: 12 discrepancies fixed against
   `transformer_z_image.py` (fetched 2026-09-08):
   - t-embedder: sinusoidal(256) → Linear(256→1024) → SiLU → Linear(1024→min(dim,256))

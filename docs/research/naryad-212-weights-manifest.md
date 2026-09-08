@@ -98,3 +98,15 @@ mv $MLOG_VISION_WEIGHTS_DIR/text_encoder/* $MLOG_VISION_WEIGHTS_DIR/text_encoder
 ```
 
 Auto-download is **R5 territory** (ADR-0125) — not in this naryad.
+
+## Tensor counts (fetched 2026-09-08 from HF index.json files)
+
+| Component | Tensor count | Source |
+|-----------|--------------|--------|
+| DiT (transformer) | 521 | transformer/diffusion_pytorch_model.safetensors.index.json |
+| VAE (decoder + encoder) | 244 | vae/diffusion_pytorch_model.safetensors (header parse) |
+| VAE decoder-only | 138 | (subset of VAE, prefix `decoder.`) |
+| TextEncoder (Qwen3-4B) | 398 | text_encoder/model.safetensors.index.json |
+
+These counts are the expected constants for the loader tensor-coverage guard
+(`check_tensor_coverage` in `src/vision/weights.rs`).

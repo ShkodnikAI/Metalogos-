@@ -583,6 +583,18 @@ impl TextEncoder {
             t
         };
 
+        // n233 Block 2: loader tensor-coverage guard.
+        // TextEncoder total: 398 (verified from index.json 2026-09-08).
+        // 2 top-level (embed_tokens, norm) + 36 layers × 11 per layer = 2 + 396 = 398.
+        let loaded_count = tensors.len();
+        let expected_count = 2 + config.layers * 11;
+        if loaded_count != expected_count {
+            return Err(format!(
+                "TextEncoder::from_weights: tensor count mismatch — expected {}, got {}",
+                expected_count, loaded_count
+            ));
+        }
+
         Ok(TextEncoder {
             token_embedding,
             blocks,

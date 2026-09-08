@@ -137,8 +137,14 @@ pdf-ocr = ["tesseract"]
 # Наряд №210 (ADR-0122): Vision pillar skeleton. Off by default —
 # инференс-стек подключается в R2/R3 по факту Go/No-Go (ADR-0123).
 # Наряд №211 (R2): vision влечёт candle — текст-энкодер требует тензоров.
+# Наряд №230: реализует implication через `vision = ["candle"]` (раньше
+# `vision` подключал dep:candle-* параллельно с `candle`, но без включения
+# самого `candle` feature-флага → `#[cfg(feature = "candle")]` модули
+# `src/nn/` не компилировались; локальная `generate_uniform_f32` в
+# `src/vision/text_encoder.rs` была обходным путём. Теперь implication
+# работает как задокументировано, SSOT-PRNG доступен из vision-сборки).
 # Enable with: cargo build --features vision
-vision = ["dep:candle-core", "dep:candle-nn"]
+vision = ["candle"]
 
 [dev-dependencies]
 tempfile = "3"

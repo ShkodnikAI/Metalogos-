@@ -73,7 +73,7 @@ numbering lived in private plan documents. It now lives here, in the repo.
 | №215 | R6 | vision_edit, LoRA-адаптеры, vision_save/load (SQLite BLOB) | reserved |
 | №216 | R7 (опц.) | LoRA-дообучение через candle autograd | reserved |
 | №217–219 | V1–V3 | видео-фаза (после отдельного research-цикла, ADR-0126 reserved) | reserved |
-| №230 | maintenance (Vision R2 hotfix) | golden-пиннинг: PRNG SSOT (замена локальной копии на `crate::nn::attention::generate_uniform_f32`) + stream-гигиена (per-parameter derivation без перекрытий) → затем пиннинг const GOLDEN_* после 3 бит-в-бит прогонов (порядок обязателен: PRNG меняет все значения); panic-free инварианты; пере-якорение константного теста. R3 (№212) стартует только после №230 | reserved — следующий |
+| №230 | maintenance (Vision R2 hotfix) | golden-пиннинг: PRNG SSOT (замена локальной копии на `crate::nn::attention::generate_uniform_f32`) + stream-гигиена (per-parameter derivation без перекрытий) → затем пиннинг const GOLDEN_* после 3 бит-в-бит прогонов (порядок обязателен: PRNG меняет все значения); panic-free инварианты; пере-якорение константного теста. R3 (№212) стартует только после №230 | merged, PR #225 |
 
 **Free ranges:** буфер №206–208 исчерпан (№206 merged, №207/№208 — долг №206);
 №220–229 — резерв Voice-пиллара (`Metalogos_Voice_Pillar_Plan.md`);

@@ -849,22 +849,22 @@ impl VaeDecoder {
             .forward(&z)
             .map_err(|e| format!("VAE decode: conv_in forward: {}", e))?;
 
-        for r in &self.mid_resnets {
-            h = r
-                .forward(&h)
-                .map_err(|e| format!("VAE decode: mid resnet: {}", e))?;
-        }
-
-        // n233 Block 3: mid-block attention (between the two resnets, per diffusers layout).
-        // diffusers mid_block = [resnet, attention, resnet] — we apply attn after the first resnet loop.
-        // Our mid_resnets has 2 entries; the reference applies attention BETWEEN them.
-        // For simplicity with the current 2-resnet loop, we apply attention after both resnets.
-        // This is equivalent because attention doesn't change the channel count.
+        // Mid-block: resnets[0] → attention → resnets[1] — source: UNetMidBlock2D.forward
+        // (diffusers unet_2d_blocks.py L737-748: resnets[0], then zip(attentions, resnets[1:])
+        // → attn then resnet). Fetched 2026-09-08.
+        // n234 fix: was applying attention AFTER both resnets — mathematically wrong
+        // (nonlinear operations don't commute).
+        h = self.mid_resnets[0]
+            .forward(&h)
+            .map_err(|e| format!("VAE decode: mid resnet 0: {}", e))?;
         if let Some(ref attn) = self.mid_attn {
             h = attn
                 .forward(&h)
                 .map_err(|e| format!("VAE decode: mid attn: {}", e))?;
         }
+        h = self.mid_resnets[1]
+            .forward(&h)
+            .map_err(|e| format!("VAE decode: mid resnet 1: {}", e))?;
 
         for (i, resnets) in self.up_blocks.iter().enumerate() {
             for r in resnets {

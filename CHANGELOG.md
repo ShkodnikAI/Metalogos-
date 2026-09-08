@@ -4,8 +4,17 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-### Added — Vision R3: end-to-end Z-Image-Turbo wedge (Наряд №212, completed №231, rebuilt to reference №232, fix-forward №233)
+### Added — Vision R3: end-to-end Z-Image-Turbo wedge (Наряд №212, completed №231, rebuilt to reference №232, fix-forward №233, micro-fix №234)
 
+- **VAE mid-attn placement fixed (№234)**: attention now applied between
+  resnets[0] and resnets[1] per `UNetMidBlock2D.forward` (diffusers
+  unet_2d_blocks.py L737-748). Was after both resnets — mathematically wrong.
+- **Guard truth-up (№234)**: `check_tensor_coverage` upgraded from count-based
+  to key-level (Vec<String>) in all three `from_weights` (DiT, VAE, TE).
+  Errors now name the specific missing/extra tensor keys. New unit test
+  `loader_guard_tiny_map_coverage` verifies tiny DiT key set.
+- **Doc-sync (№234)**: README badge 12→15 blocking jobs; version v0.17→v0.19;
+  REFERENCE size ~86→~88 KB; stale v0.18→v0.19 reference.
 - **RoPE wire-in (№233)**: `AxialRoPE::apply(q, k)` now called in all attention
   paths (noise_refiner, context_refiner, layers) after qk-norm — was a TODO
   stub. Clamp on out-of-range pos_ids replaced with loud `bail!`. Cap pos_ids

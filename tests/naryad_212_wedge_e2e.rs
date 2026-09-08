@@ -82,11 +82,12 @@ fn tensor_sha256(t: &Tensor) -> String {
 
 const VAE_TINY_SEED: u64 = 21230;
 
-// Pinned after 3 bit-identical local runs on 2026-09-08 (procedure mirrors naryad №230).
-// n232: re-pinned after VAE ritual direction fix (latent/scaling+shift, not (latent-shift)/scaling).
-// Old hash (n212): 3e8c058d7107a19e18ae8287112a8990964e8b30614a498dd61ad18e5f7493ce
-const VAE_GOLDEN_HASH: &str = "7f1ac2181af30178945647ceeb748f652c50068b1227ab22647e9c2d3c0992c8";
-const VAE_GOLDEN_ANCHOR_BITS: [u32; 4] = [1056952556, 1056974176, 1056900913, 1056960006];
+// Pinned after 3 bit-identical local runs on 2026-09-09.
+// n235: re-pinned after VAE structure fix (lpb+1 resnets all blocks, conv_norm_out+silu, shortcuts).
+// n232: 7f1ac218... (pre-structure-fix, n234 mid-attn placement)
+// n212: 3e8c058d... (original)
+const VAE_GOLDEN_HASH: &str = "85ef6a879d587d99ce07563bfdb274b7cb3061e9106b37a362d80348ea890702";
+const VAE_GOLDEN_ANCHOR_BITS: [u32; 4] = [1056994044, 1057002328, 1056597251, 1057092467];
 
 #[test]
 fn vae_tiny_decode_golden() {
@@ -125,7 +126,7 @@ fn vae_tiny_decode_golden() {
         anchors[3].to_bits(),
     );
 
-    // Pinning check — bit-exact against pinned records (n232 re-pinned).
+    // Pinning check — bit-exact against pinned records (n235 re-pinned).
     assert_eq!(
         hash, VAE_GOLDEN_HASH,
         "VAE tiny golden hash drifted. Expected {}, got {}.\n\

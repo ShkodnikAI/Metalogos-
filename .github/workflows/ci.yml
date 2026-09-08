@@ -99,6 +99,11 @@ jobs:
         # при смене dtype-политики/инициализации; без --nocapture хэши не видны
         # в логе и пере-пиннинг требует отдельной локальной работы.
         run: cargo test --workspace --features vision --no-fail-fast --test naryad_211_text_encoder_golden -- --nocapture
+      - name: Vision R3 wedge e2e (CI tiny goldens + env-gated loud SKIP)
+        # --nocapture: shows VAE tiny golden hash/anchors + sampler sigmas in CI log.
+        # env-gated tests SKIP loudly when MLOG_VISION_WEIGHTS_DIR unset (no real
+        # weights in CI — see docs/research/naryad-212-weights-manifest.md).
+        run: cargo test --workspace --features vision --no-fail-fast --test naryad_212_wedge_e2e -- --nocapture
       - name: Clippy on vision-gated code
         run: cargo clippy --workspace --features vision --all-targets -- -D warnings
 

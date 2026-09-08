@@ -65,3 +65,51 @@ reapplication, not a new design.
   the module docs and the ADR-0122 map: golden SHA-256 records not yet pinned,
   local PRNG copy divergent from the `src/nn` SSOT contract, seed-stream
   overlap — all scheduled for the R2 hotfix (наряд №230) before R3 starts.
+
+## Update (R3, наряд №212, 2026-09-08)
+
+- New `vision`-gated dependencies added (NOT in `default`/`full`):
+  - `tokenizers` = 0.22 (optional, dep:tokenizers) — HF canonical BPE
+    implementation. **Rationale:** Qwen2Tokenizer uses byte-level BPE with
+    151,643-token base vocab + 119 special tokens + GPT-2-style regex
+    pre-tokenizer. Hand-rolling this is high-risk for silent mis-tokenization
+    (wrong regex → wrong token IDs for non-ASCII; wrong merges order → wrong
+    IDs globally). The `tokenizers` crate is HF's verified reference and is
+    deterministic (no RNG). Accepting this dep is the lowest-risk path;
+    alternative was a hand-rolled BPE that would have required extensive
+    test-fixture coverage to match HF byte-for-byte.
+  - `image` = 0.25 (optional, dep:image, default-features=false,
+    features=["png"]) — PNG encode of VAE decoder output. Minimal feature
+    set (png only — no JPEG/GIF/BMP), keeps dep surface small.
+- `vision` feature extended: `vision = ["candle", "dep:tokenizers", "dep:image"]`.
+  Both new deps remain off-by-default (CI guard `vision ∉ default/full`
+  continues to pass).
+- New `vision`-gated modules in R3:
+  - `src/vision/weights.rs` — `WeightsManifest` + sharded/single safetensors
+    loaders with mandatory SHA-256 verification when manifest present.
+  - `src/vision/tokenizer.rs` — thin wrapper around `tokenizers::Tokenizer`.
+  - `src/vision/vae.rs` — `VaeDecoder` (flux-dev-style AutoencoderKL decoder).
+  - `src/vision/dit.rs` — `ZImageTransformer` (30 DiT layers + 2 refiner +
+    adaLN + axial RoPE + cap_embedder + t_embedder + patchify/unpatchify).
+  - `src/vision/sampler.rs` — `FlowMatchEuler` scheduler + sampling loop.
+- `TextEncoder::from_weights` added as a parallel construction path (R2's
+  `new(config, seed)` and its golden SHA-256 records remain UNTOUCHED — R2
+  contract invariant respected per §3.3 of naryad №212).
+- **Weights policy** (per §3.1 of naryad №212):
+  - Weights NEVER enter the repo or git history (no LFS, no fixtures).
+  - SHA-256 manifest is the only weights-related artifact committed (template
+    at `docs/research/naryad-212-weights-manifest.md`; executor fills SHAs
+    after manual download).
+  - SHA-256 verification is MANDATORY when a manifest is present; silent
+    fallback to "trust the file" is FORBIDDEN.
+  - Auto-download is R5 (ADR-0125) territory — R3 weights.rs performs ZERO
+    network operations.
+- **Two-tier test architecture** (per §0 of naryad №212):
+  - CI-visible: tiny-fixture goldens (VaeDecoder, sampler) — bit-exact,
+    no weights, no network. VAE tiny golden pinned after 3 bit-identical runs.
+  - env-gated: real-weights tests run only when `MLOG_VISION_WEIGHTS_DIR` is
+    set. Otherwise they SKIP loudly (NOT `#[ignore]`) — the §3 form of
+    permitted unfinishedness.
+- ADR-0116 (persistence pattern) is NOT yet extended to vision artifacts —
+  that's R5/R6 territory (manifest, watermark, SQLite BLOB for vision_save/
+  load). R3 delivers the inference path only.

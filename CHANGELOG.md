@@ -4,6 +4,68 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — Vision R3: end-to-end Z-Image-Turbo wedge (Наряд №212)
+
+- **Weights infrastructure** (`src/vision/weights.rs`):
+  - `WeightsManifest` — record of expected files + SHA-256 (loaded from
+    `{weights_dir}/manifest.json` if present; template at
+    `docs/research/naryad-212-weights-manifest.md`).
+  - `load_safetensors_sharded(dir, stem, device)` — reads `{stem}.safetensors.index.json`,
+    loads shards via `candle_core::safetensors`. SHA-256 verification of each
+    shard against manifest (loud error on mismatch — silent fallback forbidden).
+  - `load_safetensors_single(dir, stem, device)` — for unsharded checkpoints (VAE).
+  - ZERO network access (auto-download is R5/ADR-0125).
+- **Tokenizer** (`src/vision/tokenizer.rs`):
+  - `Tokenizer::from_dir(tokenizer_dir)` — loads HF `tokenizer.json` via the
+    canonical `tokenizers` crate. Hand-rolling Qwen2 byte-level BPE with GPT-2
+    pre-tokenizer + 119 special tokens is high-risk for silent mis-tokenization;
+    `tokenizers` is HF's verified reference (see ADR-0124 update).
+  - `encode(text)` — no chat template applied (per diffusers ZImagePipeline).
+- **TextEncoder::from_weights** (`src/vision/text_encoder.rs`):
+  - New constructor parallel to existing `new(config, seed)`. Loads from
+    `HashMap<String, Tensor>` with HF Qwen3 naming. All tensors cast to F32;
+    shape-checked against `QWEN3_4B_CONFIG`. R2 contract UNTOUCHED.
+- **VAE decoder** (`src/vision/vae.rs`):
+  - `VaeDecoder::new_tiny` — seeded tiny-init via SSOT PRNG. Pinned golden
+    SHA-256 + 4 anchor bits (3 bit-identical runs).
+  - `VaeDecoder::from_weights` — real flux-dev-style AutoencoderKL weights loader.
+  - `decode(latent)` — flux-dev ritual `z = (latent - shift) / scaling` then
+    decoder then `(sample/2 + 0.5).clamp(0, 1)`. Returns `[3, H, W]` in [0,1].
+  - `save_png(img, path)` — PNG encode via `image` crate.
+  - `fixed_latent(seed, c, h, w)` — seeded randn via Box-Muller over SSOT-PRNG.
+- **ZImageTransformer** (`src/vision/dit.rs`):
+  - `ZImageTransformer::new_tiny` — seeded tiny-init via SSOT PRNG.
+  - `ZImageTransformer::from_weights` — real DiT loader (cap_embedder, t_embedder,
+    30 layers, 2 refiner blocks, final layer with adaLN).
+  - `forward(latent, cap, t)` — patchify 2×2 → cap_embed → concat → 30 layers
+    (MHA + qk_norm + SwiGLU + adaLN) → split → refiner → final adaLN + unpatchify.
+  - Architecture follows diffusers `ZImageTransformer2DModel` (verified by direct
+    HF config fetch in Block 0).
+- **FlowMatchEuler sampler** (`src/vision/sampler.rs`):
+  - `flow_match_euler_sigmas(N, shift, num_train)` — sigma schedule per
+    diffusers `FlowMatchEulerDiscreteScheduler`.
+  - `euler_step(x, velocity, sigma, sigma_next)` — `x += (sigma_next - sigma) * v`.
+  - `flow_match_euler_sample(dit, cap, seed, 9, 0.0)` — full sampling loop.
+- **Two-tier test architecture** (`tests/naryad_212_wedge_e2e.rs`):
+  - CI-visible (5 tests, no env-gate): VAE tiny golden (pinned), VAE determinism,
+    DiT placeholder, sampler sigmas pinned + 4 scheduler unit tests in `sampler.rs`.
+  - env-gated (3 tests, loud SKIP when `MLOG_VISION_WEIGHTS_DIR` unset — NOT
+    `#[ignore]`): TextEncoder real-weights forward, VAE real-weights decode,
+    clinical e2e first image.
+- **Dependencies** (gated under `vision`, NOT in default/full):
+  - `tokenizers` = 0.22 (HF canonical BPE)
+  - `image` = 0.25 with `png` feature only
+  - Both added to `vision = ["candle", "dep:tokenizers", "dep:image"]`.
+- **Research docs**:
+  - `docs/research/naryad-212-wedge-e2e-facts.md` — 13-section fact sheet:
+    configs, tensor map (521 transformer tensors + 398 text encoder tensors),
+    dtype policy, mechanics (axial RoPE, t-embed, cap-embed, adaLN, refiner),
+    R2 contract invariant.
+  - `docs/research/naryad-212-weights-manifest.md` — template manifest for
+    SHA-256 verification (executor fills at download time).
+  - `docs/research/naryad-212-go-no-go.md` — Go/No-Go report (code-complete,
+    env-gated run pending real-weights execution on appropriate hardware).
+
 ### Fixed — Vision R2 hotfix (Наряд №230): PRNG SSOT + stream-гигиена + golden-пиннинг
 
 - **PRNG SSOT**: the divergent local `generate_uniform_f32` copy in

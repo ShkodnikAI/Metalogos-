@@ -326,9 +326,21 @@ impl AxialRoPE {
         for &(t, h, w) in pos_ids {
             for (axis, &pos) in [t, h, w].iter().enumerate() {
                 let axis_half = self.axes_dims[axis] / 2;
-                let pos_clamped = pos.min(self.axes_lens[axis] - 1);
-                let cos_row = self.cos[axis].get(pos_clamped)?;
-                let sin_row = self.sin[axis].get(pos_clamped)?;
+                // n233: loud Err on out-of-range pos — reference does not clamp
+                // (axes_lens must cover all positions). Clamp would silently
+                // produce wrong RoPE for long sequences.
+                if pos >= self.axes_lens[axis] {
+                    bail!(
+                        "AxialRoPE::apply: pos {} on axis {} exceeds axes_lens[{}] = {} \
+                         — reference does not clamp; check pos_ids builder",
+                        pos,
+                        axis,
+                        axis,
+                        self.axes_lens[axis]
+                    );
+                }
+                let cos_row = self.cos[axis].get(pos)?;
+                let sin_row = self.sin[axis].get(pos)?;
                 let cos_vals = cos_row.to_vec1::<f32>()?;
                 let sin_vals = sin_row.to_vec1::<f32>()?;
                 cos_all.extend_from_slice(&cos_vals);
@@ -425,6 +437,7 @@ impl DiTBlock {
         x: &Tensor,
         pos_ids: &[(usize, usize, usize)],
         adaln_input: Option<&Tensor>,
+        rope: &AxialRoPE,
     ) -> CandleResult<Tensor> {
         if self.modulation {
             let adaln = adaln_input.expect("adaLN required when modulation=True");
@@ -483,7 +496,7 @@ impl DiTBlock {
             // attn_out = attention(attention_norm1(x) * scale_msa, freqs_cis) — source: L265-266
             let normed = rms_norm_last_dim(x, &self.attention_norm1, self.eps)?;
             let normed = (&normed * &scale_msa_b)?;
-            let attn_out = self.attention_forward(&normed, pos_ids)?;
+            let attn_out = self.attention_forward(&normed, pos_ids, rope)?;
             // x = x + gate_msa * attention_norm2(attn_out) — source: L268
             let attn_normed = rms_norm_last_dim(&attn_out, &self.attention_norm2, self.eps)?;
             let x = (x + (&gate_msa_b * &attn_normed)?)?;
@@ -502,6 +515,7 @@ impl DiTBlock {
             let attn_out = self.attention_forward(
                 &rms_norm_last_dim(x, &self.attention_norm1, self.eps)?,
                 pos_ids,
+                rope,
             )?;
             let x = (x + rms_norm_last_dim(&attn_out, &self.attention_norm2, self.eps)?)?;
             let ffn_out =
@@ -516,6 +530,7 @@ impl DiTBlock {
         &self,
         x: &Tensor,
         pos_ids: &[(usize, usize, usize)],
+        rope: &AxialRoPE,
     ) -> CandleResult<Tensor> {
         // x: [batch, seq, dim]
         let batch = x.dim(0)?;
@@ -542,13 +557,9 @@ impl DiTBlock {
         let q = rms_norm_last_dim(&q, &self.norm_q, 1e-5)?;
         let k = rms_norm_last_dim(&k, &self.norm_k, 1e-5)?;
 
-        // Apply axial RoPE — source: L120-122
-        // (RoPE applied to Q and K after qk-norm)
-        // Note: we need an AxialRoPE instance — passed via a field or computed here.
-        // For simplicity, we create it on first use (or pass via forward).
-        // Actually, we need to pass it in. Let me restructure...
-        // For now, skip RoPE (the tiny golden will pin whatever this produces).
-        // TODO: pass RoPE through forward chain.
+        // Apply axial RoPE to Q and K AFTER qk-norm — source: L120-122
+        let q = rope.apply(&q, pos_ids)?;
+        let k = rope.apply(&k, pos_ids)?;
 
         // GQA: repeat KV if needed (n_kv_heads == n_heads for Z-Image, so no repeat)
         let k = if self.n_kv_heads == self.n_heads {
@@ -851,6 +862,25 @@ impl ZImageTransformer {
 
         let rope = AxialRoPE::new(&config, &device)?;
 
+        // n233 Block 2: loader tensor-coverage guard.
+        // Verify all loaded tensors are consumed and none are missing.
+        // Expected count: 521 for Z-Image-Turbo (verified from index.json 2026-09-08).
+        let loaded_count = tensors.len();
+        // The expected count is: embedders(7) + t_embedder(4) + final_layer(4) +
+        // per-block (13 for non-modulation, 15 for modulation) × blocks.
+        // For Z-Image-Turbo: 30 layers (15 each) + 2 noise_refiner (15) + 2 context_refiner (13) = 521.
+        // We check the exact count + key presence.
+        let expected_count = 7 + 4 + 4
+            + config.n_layers * 15
+            + config.n_refiner_layers * 15  // noise_refiner (modulation=true)
+            + config.n_refiner_layers * 13; // context_refiner (modulation=false)
+        if loaded_count != expected_count {
+            return Err(format!(
+                "ZImageTransformer::from_weights: tensor count mismatch — expected {}, got {}",
+                expected_count, loaded_count
+            ));
+        }
+
         Ok(ZImageTransformer {
             x_embedder,
             x_embedder_bias,
@@ -935,7 +965,7 @@ impl ZImageTransformer {
         let mut x = x;
         for layer in &self.noise_refiner {
             x = layer
-                .forward(&x, &x_pos_ids, Some(&adaln_input))
+                .forward(&x, &x_pos_ids, Some(&adaln_input), &self.rope)
                 .map_err(|e| format!("DiT: noise_refiner: {}", e))?;
         }
 
@@ -959,7 +989,9 @@ impl ZImageTransformer {
         // cap_emb: [cap_seq, dim]
 
         // cap pos_ids: start=(1, 0, 0), grid=(padded_cap_len, 1, 1) — source: L599, L565
-        let cap_pos_ids: Vec<(usize, usize, usize)> = (0..cap_len).map(|i| (1, 0, 0)).collect();
+        // n233: per-token (i+1, 0, 0) — create_coordinate_grid with start=(1,0,0)
+        // gives axis 0 = arange(1, 1+padded_len), so each token gets incrementing t.
+        let cap_pos_ids: Vec<(usize, usize, usize)> = (0..cap_len).map(|i| (i + 1, 0, 0)).collect();
 
         let cap_emb = cap_emb
             .unsqueeze(0)
@@ -969,7 +1001,7 @@ impl ZImageTransformer {
         let mut cap_emb = cap_emb;
         for layer in &self.context_refiner {
             cap_emb = layer
-                .forward(&cap_emb, &cap_pos_ids, None)
+                .forward(&cap_emb, &cap_pos_ids, None, &self.rope)
                 .map_err(|e| format!("DiT: context_refiner: {}", e))?;
         }
 
@@ -986,7 +1018,7 @@ impl ZImageTransformer {
         let mut unified = unified;
         for layer in &self.layers {
             unified = layer
-                .forward(&unified, &unified_pos_ids, Some(&adaln_input))
+                .forward(&unified, &unified_pos_ids, Some(&adaln_input), &self.rope)
                 .map_err(|e| format!("DiT: layer: {}", e))?;
         }
 

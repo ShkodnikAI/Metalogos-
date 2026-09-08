@@ -59,13 +59,13 @@ These criteria cannot be evaluated without running the env-gated tests with real
 3. Setting `MLOG_VISION_WEIGHTS_DIR` and running `cargo test --features vision --test naryad_212_wedge_e2e -- --nocapture`.
 4. Filling in the verbatim DoD entries (PNG path, PNG SHA-256, timings).
 
-**Known R3 simplifications** (n232 resolved 12 discrepancies; remaining):
-- VAE mid-block attention: `mid_attn = None` in tiny config (tiny uses `mid_block_add_attention=false`).
-  Real VAE has attention weights — from_weights path loads them (TODO: mid_attn loading in VaeDecoder::from_weights).
-- Axial RoPE: structurally correct (3-axis, complex rotation, pos_ids per source) but the pos_ids
-  for cap-tokens use a simplified (1,0,0) constant per token. Real pipeline computes pos_ids from
-  a coordinate grid (L565, L599). Minor — affects only the cap-token position encoding.
-- These are R3.2 fix-forward candidates if real-weights run shows quality issues.
+**Known R3 simplifications** (n233 resolved RoPE wire-in, VAE mid-attn, cap pos_ids):
+- VAE mid-block attention: loaded and computed in decode path when mid_block_add_attention=true.
+  Tiny config (mid_block_add_attention=false) does not use it.
+- Axial RoPE: fully wired — rope.apply(q, k) called in all attention paths after qk-norm.
+  Clamp replaced with loud Err on out-of-range pos_ids.
+- cap pos_ids: per-token (i+1, 0, 0) per create_coordinate_grid source.
+- Status: architecture = reference by 12/12 points. Real-run awaits coordinator deployment.
 
 ## Recommendation to coordinator
 

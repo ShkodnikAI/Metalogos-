@@ -167,13 +167,13 @@ use metalogos::vision::text_encoder::param_seed;
 /// (does not collide with PARAM_DIT_* 200..240).
 const SEED_DIT: u64 = 21201;
 
-// Pinned after 3 bit-identical local runs on 2026-09-08 (procedure mirrors naryad №230).
-// Pinned after 3 bit-identical local runs on 2026-09-08 (procedure mirrors naryad №230).
-// n232: re-pinned after DiT rebuild to diffusers reference architecture.
-// Old hash (n231, pre-rebuild): e686167b2e82ee7be9fe3408ed9e619953e774d49e224310f2d0541af3c10257
+// Pinned after 3 bit-identical local runs on 2026-09-08.
+// n233: re-pinned after RoPE wire-in (AxialRoPE::apply now called in attention path).
+// n232: 211cf4f5... (pre-RoPE architecture)
+// n231: e686167b... (pre-rebuild architecture)
 const GOLDEN_DIT_TINY_HASH: &str =
-    "211cf4f581ec705f2c5a37ac6f84a0760e6ce83d4af1870129ecaace9061a3ee";
-const GOLDEN_DIT_TINY_ANCHOR_BITS: [u32; 4] = [3160081466, 3168228796, 1026823847, 3189042413];
+    "860c85b311905f6c23b90a4e9e3192928027a24bf3e4a00a08096336abad4b3c";
+const GOLDEN_DIT_TINY_ANCHOR_BITS: [u32; 4] = [3164026950, 3162841220, 1013795100, 3189363858];
 
 #[test]
 fn dit_tiny_forward_golden() {
@@ -211,7 +211,7 @@ fn dit_tiny_forward_golden() {
         anchors[0].to_bits(), anchors[1].to_bits(), anchors[2].to_bits(), anchors[3].to_bits()
     );
 
-    // Pinning check — bit-exact against pinned records (n232 re-pinned).
+    // Pinning check — bit-exact against pinned records (n233 re-pinned after RoPE wire-in).
     assert_eq!(
         hash, GOLDEN_DIT_TINY_HASH,
         "DiT tiny golden hash drifted. Expected {}, got {}.\n\

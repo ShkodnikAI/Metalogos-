@@ -173,13 +173,36 @@ The encoder inverse is `latents = scaling_factor * sample + shift_factor` (NOT u
 Decoded by inspection (standard diffusers KL VAE):
 
 - `decoder.conv_in.weight/bias`         — [4, 16, 3, 3]  (latent 16ch → 4*base=512 ch)
-- `decoder.mid_block.attentions.0.*`    — group_norm, proj_in (512→512), q/k/v/out_proj, proj_out
+- `decoder.mid_block.attentions.0.*`    — 10 tensors (BF16, 512 channels); see layout table below
 - `decoder.mid_block.resnets.0/1.*`     — 2 ResnetBlock2D (norm1, conv1, norm2, conv2, conv_shortcut optional)
 - `decoder.up_blocks.{0,1,2,3}.resnets.{0,1}.*` — ResnetBlock2D (2 per block; up_block 3 has 3 resnets)
 - `decoder.up_blocks.{0,1,2}.upsamplers.0.conv.*` — 3 Upsample2D (between blocks 0→1, 1→2, 2→3)
 - `decoder.conv_out.weight/bias`        — [3, 128, 3, 3]  (out_channels=3, base=128, the deepest channel)
 
 base = block_out_channels[0] = 128 (after conv_in: 4×base = 512).
+
+#### decoder.mid_block.attentions.0 tensor layout (real VAE safetensors header, fetched 2026-09-08)
+
+BF16, 512 channels. 10 tensors. Note: `encoder.mid_block.attentions.0` has the same
+layout; R3 only needs the decoder copy.
+
+| tensor | shape | role |
+|--------|-------|------|
+| `decoder.mid_block.attentions.0.group_norm.weight` | [512] | GroupNorm gain |
+| `decoder.mid_block.attentions.0.group_norm.bias` | [512] | GroupNorm bias |
+| `decoder.mid_block.attentions.0.to_q.weight` | [512, 512] | Q projection weight |
+| `decoder.mid_block.attentions.0.to_q.bias` | [512] | Q projection bias |
+| `decoder.mid_block.attentions.0.to_k.weight` | [512, 512] | K projection weight |
+| `decoder.mid_block.attentions.0.to_k.bias` | [512] | K projection bias |
+| `decoder.mid_block.attentions.0.to_v.weight` | [512, 512] | V projection weight |
+| `decoder.mid_block.attentions.0.to_v.bias` | [512] | V projection bias |
+| `decoder.mid_block.attentions.0.to_out.0.weight` | [512, 512] | Output projection weight |
+| `decoder.mid_block.attentions.0.to_out.0.bias` | [512] | Output projection bias |
+
+10 tensors total for `decoder.mid_block.attentions.0` (no `proj_in` / `proj_out` —
+diffusers KL VAE mid-block attention uses `to_q` / `to_k` / `to_v` / `to_out.0`,
+not the transformer-style `proj_in` / `proj_out` implied by the earlier №212
+shorthand; corrected in №233).
 
 For R3 we implement **decoder only** (encoder is unused — latents come from sampler).
 
@@ -419,11 +442,11 @@ Env-gated tests SKIP loudly when `MLOG_VISION_WEIGHTS_DIR` is unset — they are
 | 5 | `cap_embedder`: `Linear(2560→3840) → SiLU → Linear(3840→3840)` (2 Linears + SiLU) (§9.3 L326) | `transformer_z_image.py`: `Sequential(RMSNorm(cap_feat_dim, eps), Linear(cap_feat_dim→dim, bias=True))` — no SiLU, 1 Linear only | `cap_embedder.0` = `RMSNorm(2560)` (gain only, shape `[2560]`); `cap_embedder.1` = `Linear(2560→3840)` (shape `[3840, 2560]` + bias `[3840]`) |
 | 6 | №212 §9.5 (L360) claimed 'after the 30 main blocks, the sequence is split — context_refiner runs on cap, noise_refiner runs on noise' (refiners AFTER main) | `transformer_z_image.py:985` (noise_refiner loop, BEFORE main), `:1001` (context_refiner loop, BEFORE main), `:1048` (main layers loop, LAST) | Refiners now run BEFORE main: `noise_refiner` (2 blocks, WITH adaLN) on x-tokens, `context_refiner` (2 blocks, no adaLN) on cap-tokens, THEN 30 main layers |
 | 7 | №212 §9.3 (L332) claimed unified sequence is `[cap_seq + noise_seq]` (cap first) | `transformer_z_image.py` (`ZImageTransformer2DModel.forward`): unified sequence is `[x, cap]` — x FIRST (basic mode) | Sequence concatenation flipped to `[x, cap]` |
-| 8 | Rust code (informed by №212 §9.1) used 1D R2 RoPE pattern (single axis, real-real rotation pairs) | `transformer_z_image.py:107-122`: axial 3-axes (`axes_dims=[32, 48, 48]`, `axes_lens=[1536, 512, 512]`) with complex rotation (real+imag interleaved) | RoPE now axial 3-axes with complex rotation; `freqs_cis` applied via complex multiplication, not real-real rotation |
+| 8 | Rust code (informed by №212 §9.1) used 1D R2 RoPE pattern (single axis, real-real rotation pairs) | `transformer_z_image.py:107-122`: axial 3-axes (`axes_dims=[32, 48, 48]`, `axes_lens=[1536, 512, 512]`) with complex rotation (real+imag interleaved) | applied in №233 (PR #231) — rope.apply(q,k) wired into attention_forward after qk-norm; clamp replaced with loud Err |
 | 9 | FeedForward `hidden_dim = 4*dim = 15360` (§2.1 Note on intermediate_size, §12 L387) | `transformer_z_image.py:213`: `hidden_dim = int(dim/3*8) = int(3840/3*8) = 10240` | FFN `hidden_dim` corrected to 10240; tensor shapes `w1=[10240, 3840]`, `w2=[3840, 10240]`, `w3=[10240, 3840]` match safetensors |
 | 10 | №212 §3.1 (L158) claimed `latents = (latents - shift_factor) / scaling_factor` (subtract first, then divide) | `pipeline_z_image.py:589`: `latents = latents / scaling_factor + shift_factor` (divide first, then add — reversed order) | VAE decode now: `z = latent / scaling + shift` (NOT `(latent - shift) / scaling`) |
-| 11 | Rust VAE decoder had `mid_attn=None` (skipped mid-block attention) | `vae/config.json`: `mid_block_add_attention: true`; diffusers `AutoencoderKL` decoder: mid-block attention weights present (`group_norm`, `proj_in`, `q/k/v/out_proj`, `proj_out`) | VAE decoder now includes mid-block attention block — matches §3.2 tensor list |
-| 12 | Rust attention applied 1D RoPE pattern BEFORE qk-norm | `transformer_z_image.py:107-122`: MHA 30/30 head_dim 128, `qk_norm=RMSNorm(eps=1e-5)`, `freqs_cis` applied AFTER qk-norm via `apply_rotary_emb` (complex rotation) | Attention now: `qk_norm` FIRST, then `apply_rotary_emb` with axial complex `freqs_cis` |
+| 11 | Rust VAE decoder had `mid_attn=None` (skipped mid-block attention) | `vae/config.json`: `mid_block_add_attention: true`; diffusers `AutoencoderKL` decoder: mid-block attention weights present (`group_norm`, `proj_in`, `q/k/v/out_proj`, `proj_out`) | applied in №233 (PR #231) — VaeAttention struct + from_weights loading + compute in decode |
+| 12 | Rust attention applied 1D RoPE pattern BEFORE qk-norm | `transformer_z_image.py:107-122`: MHA 30/30 head_dim 128, `qk_norm=RMSNorm(eps=1e-5)`, `freqs_cis` applied AFTER qk-norm via `apply_rotary_emb` (complex rotation) | applied in №233 (PR #231) — qk-norm THEN rope.apply, order verified per L107-122 |
 
 ### 14.2 Pinned source facts
 
@@ -439,6 +462,7 @@ All references below are from `diffusers` main branch (`huggingface/diffusers`),
 |------|-------|----------------------------------------|
 | cap pos_ids `start` | `(1, 0, 0)` | `transformer_z_image.py:599` |
 | cap pos_ids `grid_size` | `(padded_cap_len, 1, 1)` | `transformer_z_image.py:599` |
+| cap pos_ids per-token | `(1+i, 0, 0)` (i = token index, 0..padded_cap_len) | `transformer_z_image.py:598-600` (`create_coordinate_grid` with `start=(1,0,0)`, `grid_size=(padded_cap_len,1,1)`) + L535-539 (`create_coordinate_grid` implementation: `arange(x0, x0+span)`) |
 | x pos_ids `start` | `(cap_len+1, 0, 0)` | `transformer_z_image.py:608` |
 | x pos_ids `grid_size` | `(F_t, H_t, W_t)` | `transformer_z_image.py:608` |
 | t scaling before t_embedder | `t * self.t_scale` (t_scale=1000.0) | `transformer_z_image.py:945` |

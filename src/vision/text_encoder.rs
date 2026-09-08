@@ -297,20 +297,22 @@ impl Qwen3Block {
         let k_proj = get(&format!("{}.self_attn.k_proj.weight", p), &[kv_dim, hidden])?;
         let v_proj = get(&format!("{}.self_attn.v_proj.weight", p), &[kv_dim, hidden])?;
         let o_proj = get(&format!("{}.self_attn.o_proj.weight", p), &[hidden, q_dim])?;
-        let q_norm_weight =
-            get(&format!("{}.self_attn.q_norm.weight", p), &[head_dim])?;
-        let k_norm_weight =
-            get(&format!("{}.self_attn.k_norm.weight", p), &[head_dim])?;
-        let attn_norm_weight =
-            get(&format!("{}.input_layernorm.weight", p), &[hidden])?;
-        let mlp_norm_weight =
-            get(&format!("{}.post_attention_layernorm.weight", p), &[hidden])?;
-        let gate_proj =
-            get(&format!("{}.mlp.gate_proj.weight", p), &[config.intermediate, hidden])?;
-        let up_proj =
-            get(&format!("{}.mlp.up_proj.weight", p), &[config.intermediate, hidden])?;
-        let down_proj =
-            get(&format!("{}.mlp.down_proj.weight", p), &[hidden, config.intermediate])?;
+        let q_norm_weight = get(&format!("{}.self_attn.q_norm.weight", p), &[head_dim])?;
+        let k_norm_weight = get(&format!("{}.self_attn.k_norm.weight", p), &[head_dim])?;
+        let attn_norm_weight = get(&format!("{}.input_layernorm.weight", p), &[hidden])?;
+        let mlp_norm_weight = get(&format!("{}.post_attention_layernorm.weight", p), &[hidden])?;
+        let gate_proj = get(
+            &format!("{}.mlp.gate_proj.weight", p),
+            &[config.intermediate, hidden],
+        )?;
+        let up_proj = get(
+            &format!("{}.mlp.up_proj.weight", p),
+            &[config.intermediate, hidden],
+        )?;
+        let down_proj = get(
+            &format!("{}.mlp.down_proj.weight", p),
+            &[hidden, config.intermediate],
+        )?;
 
         Ok(Qwen3Block {
             q_proj,
@@ -516,10 +518,16 @@ impl TextEncoder {
                     .to_string()
             })?;
             let t = t.to_device(&device).map_err(|e| {
-                format!("TextEncoder::from_weights: device transfer of embed_tokens failed: {}", e)
+                format!(
+                    "TextEncoder::from_weights: device transfer of embed_tokens failed: {}",
+                    e
+                )
             })?;
             let t = t.to_dtype(DType::F32).map_err(|e| {
-                format!("TextEncoder::from_weights: F32 cast of embed_tokens failed: {}", e)
+                format!(
+                    "TextEncoder::from_weights: F32 cast of embed_tokens failed: {}",
+                    e
+                )
             })?;
             let actual = t.dims();
             let expected = [config.vocab_size, config.hidden];
@@ -536,8 +544,9 @@ impl TextEncoder {
         // Layers
         let mut blocks = Vec::with_capacity(config.layers);
         for i in 0..config.layers {
-            let block = Qwen3Block::from_weights(config, tensors, i, &device)
-                .map_err(|e| format!("TextEncoder::from_weights: layer {} load failed: {}", i, e))?;
+            let block = Qwen3Block::from_weights(config, tensors, i, &device).map_err(|e| {
+                format!("TextEncoder::from_weights: layer {} load failed: {}", i, e)
+            })?;
             blocks.push(block);
         }
 
@@ -547,10 +556,16 @@ impl TextEncoder {
                 "TextEncoder::from_weights: tensor 'model.norm.weight' not found".to_string()
             })?;
             let t = t.to_device(&device).map_err(|e| {
-                format!("TextEncoder::from_weights: device transfer of final norm failed: {}", e)
+                format!(
+                    "TextEncoder::from_weights: device transfer of final norm failed: {}",
+                    e
+                )
             })?;
             let t = t.to_dtype(DType::F32).map_err(|e| {
-                format!("TextEncoder::from_weights: F32 cast of final norm failed: {}", e)
+                format!(
+                    "TextEncoder::from_weights: F32 cast of final norm failed: {}",
+                    e
+                )
             })?;
             let actual = t.dims();
             let expected = [config.hidden];

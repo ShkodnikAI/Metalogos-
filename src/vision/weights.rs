@@ -117,13 +117,8 @@ impl WeightsManifest {
 
 /// Compute the SHA-256 of a file's bytes.
 fn file_sha256(path: &Path) -> Result<String, String> {
-    let bytes = fs::read(path).map_err(|e| {
-        format!(
-            "file_sha256: cannot read {}: {}",
-            path.display(),
-            e
-        )
-    })?;
+    let bytes = fs::read(path)
+        .map_err(|e| format!("file_sha256: cannot read {}: {}", path.display(), e))?;
     let mut hasher = Sha256::new();
     hasher.update(&bytes);
     let result = hasher.finalize();
@@ -331,7 +326,10 @@ mod tests {
     fn manifest_missing_returns_none() {
         let tmp = tempfile::tempdir().expect("tmpdir");
         let result = WeightsManifest::load_from_dir(tmp.path());
-        assert!(result.is_ok(), "missing manifest should be Ok(None), not Err");
+        assert!(
+            result.is_ok(),
+            "missing manifest should be Ok(None), not Err"
+        );
         assert!(result.unwrap().is_none());
     }
 

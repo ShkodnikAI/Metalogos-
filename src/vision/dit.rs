@@ -35,6 +35,18 @@
 //! deterministic output for a tiny config — full bit-exactness against
 //! the real diffusers Z-Image-Turbo is a Go/No-Go criterion (Block 5).
 
+// Allow non-snake_case identifiers — `adaLN`, `cap_embedder`, etc. follow
+// the diffusers/HF naming convention (matches the tensor names in
+// safetensors). Renaming would diverge from the research doc's tensor map.
+// Style nits suppressed to keep diffusers-source-comparable form.
+#![allow(non_snake_case)]
+#![allow(clippy::all)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::needless_borrow)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+
 use std::collections::HashMap;
 
 use candle_core::bail;
@@ -53,17 +65,17 @@ pub struct ZImageConfig {
     pub n_heads: usize,
     pub n_kv_heads: usize,
     pub head_dim: usize,
-    pub axes_dims: Vec<usize>,    // [32, 48, 48] (sum = head_dim = 128)
-    pub axes_lens: Vec<usize>,    // [1536, 512, 512]
+    pub axes_dims: Vec<usize>, // [32, 48, 48] (sum = head_dim = 128)
+    pub axes_lens: Vec<usize>, // [1536, 512, 512]
     pub rope_theta: f64,
     pub in_channels: usize,
-    pub patch_size: usize,        // 2
-    pub cap_feat_dim: usize,      // 2560 (= Qwen3 hidden)
+    pub patch_size: usize,   // 2
+    pub cap_feat_dim: usize, // 2560 (= Qwen3 hidden)
     pub qk_norm: bool,
     pub norm_eps: f64,
     pub t_scale: f64,
     pub n_refiner_layers: usize,
-    pub intermediate: usize,      // 4 * dim (typical) — read from real weights at load
+    pub intermediate: usize, // 4 * dim (typical) — read from real weights at load
 }
 
 pub fn zimage_turbo_config() -> ZImageConfig {
@@ -127,8 +139,7 @@ fn linear_seeded(
     device: &Device,
     use_bias: bool,
 ) -> Result<(Tensor, Option<Tensor>), String> {
-    let weight_init =
-        generate_uniform_f32(seed, out_ch * in_ch, -0.02, 0.02);
+    let weight_init = generate_uniform_f32(seed, out_ch * in_ch, -0.02, 0.02);
     let weight = Tensor::from_vec(weight_init, (out_ch, in_ch), device)
         .map_err(|e| format!("linear_seeded: weight: {}", e))?;
     let bias = if use_bias {
@@ -150,7 +161,7 @@ fn linear_forward(x: &Tensor, weight: &Tensor, bias: Option<&Tensor>) -> CandleR
         let mut b_shape: Vec<usize> = vec![1; ndims];
         b_shape[ndims - 1] = b_dim;
         let b_broadcast = b.reshape(b_shape.as_slice())?.broadcast_as(out.dims())?;
-        (out + b_broadcast)
+        out + b_broadcast
     } else {
         Ok(out)
     }
@@ -168,7 +179,9 @@ fn rms_norm_last_dim(x: &Tensor, weight: &Tensor, eps: f64) -> CandleResult<Tens
     let ndims = normed.dims().len();
     let mut w_shape: Vec<usize> = vec![1; ndims];
     w_shape[ndims - 1] = weight.dims()[0];
-    let w = weight.reshape(w_shape.as_slice())?.broadcast_as(normed.dims())?;
+    let w = weight
+        .reshape(w_shape.as_slice())?
+        .broadcast_as(normed.dims())?;
     Ok((&normed * &w)?)
 }
 
@@ -214,7 +227,11 @@ impl DiTBlock {
     fn forward(&self, x: &Tensor, cond: Option<&Tensor>) -> CandleResult<Tensor> {
         // cond: [batch, dim] (t-embedding after silu) — used for adaLN.
         let (shift1, scale1, gate1, shift2, scale2, gate2) = if let Some(c) = cond {
-            let mod_ = self.adaLN.as_ref().expect("adaLN required when cond provided").forward(c)?;
+            let mod_ = self
+                .adaLN
+                .as_ref()
+                .expect("adaLN required when cond provided")
+                .forward(c)?;
             let dims = mod_.dims();
             let dim = self.dim;
             let chunks: Vec<Tensor> = mod_.chunk(6, dims.len() - 1)?;
@@ -274,9 +291,15 @@ impl DiTBlock {
         let v = linear_forward(x, &self.v_proj, None)?;
 
         // Reshape to [batch, seq, heads, head_dim] → [batch, heads, seq, head_dim]
-        let q = q.reshape((batch, seq, self.n_heads, self.head_dim))?.transpose(1, 2)?;
-        let k = k.reshape((batch, seq, self.n_kv_heads, self.head_dim))?.transpose(1, 2)?;
-        let v = v.reshape((batch, seq, self.n_kv_heads, self.head_dim))?.transpose(1, 2)?;
+        let q = q
+            .reshape((batch, seq, self.n_heads, self.head_dim))?
+            .transpose(1, 2)?;
+        let k = k
+            .reshape((batch, seq, self.n_kv_heads, self.head_dim))?
+            .transpose(1, 2)?;
+        let v = v
+            .reshape((batch, seq, self.n_kv_heads, self.head_dim))?
+            .transpose(1, 2)?;
 
         // QK-norm (RmsNorm per head_dim)
         let q = rms_norm_last_dim(&q, &self.norm_q, self.eps)?;
@@ -315,7 +338,9 @@ impl DiTBlock {
         let scores = (scores * scale_t)?;
         let attn = candle_nn::ops::softmax_last_dim(&scores)?;
         let out = attn.matmul(&v)?; // [batch, heads, seq, head_dim]
-        let out = out.transpose(1, 2)?.reshape((batch, seq, self.n_heads * self.head_dim))?;
+        let out = out
+            .transpose(1, 2)?
+            .reshape((batch, seq, self.n_heads * self.head_dim))?;
         let out = linear_forward(&out, &self.o_proj, None)?;
         Ok(out)
     }
@@ -334,21 +359,21 @@ impl DiTBlock {
 // ── ZImageTransformer ──
 
 pub struct ZImageTransformer {
-    patch_embed: Tensor,     // [dim, in_channels * patch * patch]
-    x_pad_token: Tensor,      // [dim]
-    cap_embedder0: Tensor,    // [dim, cap_feat_dim]
-    cap_embedder1: Tensor,    // [dim, dim]
+    patch_embed: Tensor,   // [dim, in_channels * patch * patch]
+    x_pad_token: Tensor,   // [dim]
+    cap_embedder0: Tensor, // [dim, cap_feat_dim]
+    cap_embedder1: Tensor, // [dim, dim]
     cap_embedder1_bias: Option<Tensor>,
-    cap_pad_token: Tensor,    // [dim]
-    t_embedder0: Tensor,      // [dim, dim]
+    cap_pad_token: Tensor, // [dim]
+    t_embedder0: Tensor,   // [dim, dim]
     t_embedder0_bias: Option<Tensor>,
-    t_embedder2: Tensor,      // [dim, dim]
+    t_embedder2: Tensor, // [dim, dim]
     t_embedder2_bias: Option<Tensor>,
     layers: Vec<DiTBlock>,
-    refiner: Vec<DiTBlock>,   // 2 refiner blocks (no adaLN — context_refiner style)
-    final_linear: Tensor,    // [in*patch*patch, dim] = [64, 3840]
+    refiner: Vec<DiTBlock>, // 2 refiner blocks (no adaLN — context_refiner style)
+    final_linear: Tensor,   // [in*patch*patch, dim] = [64, 3840]
     final_linear_bias: Option<Tensor>,
-    final_adaLN: Tensor,     // [6*dim, dim]
+    final_adaLN: Tensor, // [6*dim, dim]
     final_adaLN_bias: Option<Tensor>,
     config: ZImageConfig,
 }
@@ -426,13 +451,23 @@ impl ZImageTransformer {
         // Layers (with adaLN)
         let mut layers = Vec::with_capacity(config.n_layers);
         for i in 0..config.n_layers {
-            let l = build_dit_block_seeded(config, param_seed(seed, i as u64, PARAM_DIT_LAYER), &device, true)?;
+            let l = build_dit_block_seeded(
+                config,
+                param_seed(seed, i as u64, PARAM_DIT_LAYER),
+                &device,
+                true,
+            )?;
             layers.push(l);
         }
         // Refiner (no adaLN)
         let mut refiner = Vec::with_capacity(config.n_refiner_layers);
         for i in 0..config.n_refiner_layers {
-            let r = build_dit_block_seeded(config, param_seed(seed, i as u64, PARAM_DIT_REFINER), &device, false)?;
+            let r = build_dit_block_seeded(
+                config,
+                param_seed(seed, i as u64, PARAM_DIT_REFINER),
+                &device,
+                false,
+            )?;
             refiner.push(r);
         }
 
@@ -483,10 +518,15 @@ impl ZImageTransformer {
 
         let get = |name: &str, shape: &[usize]| -> Result<Tensor, String> {
             let t = tensors.get(name).ok_or_else(|| {
-                format!("ZImageTransformer::from_weights: tensor '{}' not found", name)
+                format!(
+                    "ZImageTransformer::from_weights: tensor '{}' not found",
+                    name
+                )
             })?;
             let t = t.to_device(&device).map_err(|e| format!("device: {}", e))?;
-            let t = t.to_dtype(DType::F32).map_err(|e| format!("dtype: {}", e))?;
+            let t = t
+                .to_dtype(DType::F32)
+                .map_err(|e| format!("dtype: {}", e))?;
             if t.dims() != shape {
                 return Err(format!(
                     "ZImageTransformer: '{}' shape mismatch — expected {:?}, got {:?}",
@@ -513,21 +553,39 @@ impl ZImageTransformer {
 
         let mut layers = Vec::with_capacity(config.n_layers);
         for i in 0..config.n_layers {
-            let l = build_dit_block_from_weights(tensors, &format!("layers.{}", i), &config, &device, true)?;
+            let l = build_dit_block_from_weights(
+                tensors,
+                &format!("layers.{}", i),
+                &config,
+                &device,
+                true,
+            )?;
             layers.push(l);
         }
         let mut refiner = Vec::with_capacity(config.n_refiner_layers);
         for i in 0..config.n_refiner_layers {
             // noise_refiner uses adaLN (same layout as layers); context_refiner does not.
             // For R3 we use noise_refiner (applied to noise tokens).
-            let r = build_dit_block_from_weights(tensors, &format!("noise_refiner.{}", i), &config, &device, true)?;
+            let r = build_dit_block_from_weights(
+                tensors,
+                &format!("noise_refiner.{}", i),
+                &config,
+                &device,
+                true,
+            )?;
             refiner.push(r);
         }
 
         let final_linear = get("all_final_layer.2-1.linear.weight", &[pp, config.dim])?;
         let final_linear_bias = get("all_final_layer.2-1.linear.bias", &[pp])?;
-        let final_adaLN = get("all_final_layer.2-1.adaLN_modulation.1.weight", &[6 * config.dim, config.dim])?;
-        let final_adaLN_bias = get("all_final_layer.2-1.adaLN_modulation.1.bias", &[6 * config.dim])?;
+        let final_adaLN = get(
+            "all_final_layer.2-1.adaLN_modulation.1.weight",
+            &[6 * config.dim, config.dim],
+        )?;
+        let final_adaLN_bias = get(
+            "all_final_layer.2-1.adaLN_modulation.1.bias",
+            &[6 * config.dim],
+        )?;
 
         Ok(ZImageTransformer {
             patch_embed,
@@ -569,13 +627,17 @@ impl ZImageTransformer {
         let cap_emb = linear_forward(&cap, &self.cap_embedder0, None)
             .map_err(|e| format!("DiT: cap_embedder0: {}", e))?;
         let cap_emb = candle_nn::ops::silu(&cap_emb).map_err(|e| format!("DiT: silu: {}", e))?;
-        let cap_emb = linear_forward(&cap_emb, &self.cap_embedder1, self.cap_embedder1_bias.as_ref())
-            .map_err(|e| format!("DiT: cap_embedder1: {}", e))?;
+        let cap_emb = linear_forward(
+            &cap_emb,
+            &self.cap_embedder1,
+            self.cap_embedder1_bias.as_ref(),
+        )
+        .map_err(|e| format!("DiT: cap_embedder1: {}", e))?;
 
         // Concatenate cap | noise along sequence.
         // patch_tokens: [nph*npw, dim], cap_emb: [cap_seq, dim] → [1, cap_seq + nph*npw, dim]
-        let seq_tensor = Tensor::cat(&[&cap_emb, &patch_tokens], 0)
-            .map_err(|e| format!("DiT: cat: {}", e))?;
+        let seq_tensor =
+            Tensor::cat(&[&cap_emb, &patch_tokens], 0).map_err(|e| format!("DiT: cat: {}", e))?;
         let seq_tensor = seq_tensor
             .unsqueeze(0)
             .map_err(|e| format!("DiT: unsqueeze: {}", e))?;
@@ -589,23 +651,26 @@ impl ZImageTransformer {
         let t_emb_hidden =
             linear_forward(&t_emb, &self.t_embedder0, self.t_embedder0_bias.as_ref())
                 .map_err(|e| format!("DiT: t_embedder0: {}", e))?;
-        let t_emb_hidden = candle_nn::ops::silu(&t_emb_hidden)
-            .map_err(|e| format!("DiT: t silu: {}", e))?;
-        let t_cond =
-            linear_forward(&t_emb_hidden, &self.t_embedder2, self.t_embedder2_bias.as_ref())
-                .map_err(|e| format!("DiT: t_embedder2: {}", e))?;
+        let t_emb_hidden =
+            candle_nn::ops::silu(&t_emb_hidden).map_err(|e| format!("DiT: t silu: {}", e))?;
+        let t_cond = linear_forward(
+            &t_emb_hidden,
+            &self.t_embedder2,
+            self.t_embedder2_bias.as_ref(),
+        )
+        .map_err(|e| format!("DiT: t_embedder2: {}", e))?;
         // t_cond: [1, dim] — used as condition for adaLN.
 
         // Main layers.
         let mut x = seq_tensor;
         for layer in &self.layers {
-            x = layer.forward(&x, Some(&t_cond)).map_err(|e| format!("DiT: layer: {}", e))?;
+            x = layer
+                .forward(&x, Some(&t_cond))
+                .map_err(|e| format!("DiT: layer: {}", e))?;
         }
 
         // Split cap | noise: take only the noise part (last nph*npw tokens).
-        let seq_len = x
-            .dim(1)
-            .map_err(|e| format!("DiT: x.dim(1): {}", e))?;
+        let seq_len = x.dim(1).map_err(|e| format!("DiT: x.dim(1): {}", e))?;
         let noise_seq_len = nph * npw;
         let cap_seq_len = seq_len - noise_seq_len;
         let noise = x
@@ -615,18 +680,20 @@ impl ZImageTransformer {
         // Refiner (noise).
         let mut noise = noise;
         for r in &self.refiner {
-            noise = r.forward(&noise, Some(&t_cond)).map_err(|e| format!("DiT: refiner: {}", e))?;
+            noise = r
+                .forward(&noise, Some(&t_cond))
+                .map_err(|e| format!("DiT: refiner: {}", e))?;
         }
 
         // Final layer: adaLN + linear → unpatchify.
         let mod_ = linear_forward(&t_cond, &self.final_adaLN, self.final_adaLN_bias.as_ref())
             .map_err(|e| format!("DiT: final_adaLN: {}", e))?;
-        let chunks = mod_.chunk(6, mod_.dims().len() - 1)
+        let chunks = mod_
+            .chunk(6, mod_.dims().len() - 1)
             .map_err(|e| format!("DiT: final chunk: {}", e))?;
         let one_t = Tensor::full(1.0f32, chunks[1].dims(), chunks[1].device())
             .map_err(|e| format!("DiT: final one_t: {}", e))?;
-        let scale = (&chunks[1] + one_t)
-            .map_err(|e| format!("DiT: final scale: {}", e))?;
+        let scale = (&chunks[1] + one_t).map_err(|e| format!("DiT: final scale: {}", e))?;
         let shift = &chunks[0];
         let gate = &chunks[2];
         let attn_norm1_w = self
@@ -634,16 +701,13 @@ impl ZImageTransformer {
             .map_err(|e| format!("DiT: final norm: {}", e))?;
         let normed = rms_norm_last_dim(&noise, &attn_norm1_w, self.config.norm_eps)
             .map_err(|e| format!("DiT: final rms: {}", e))?;
-        let normed_scaled = (&normed * &scale)
-            .map_err(|e| format!("DiT: final normed*scale: {}", e))?;
-        let normed = (&normed_scaled + shift)
-            .map_err(|e| format!("DiT: final shift: {}", e))?;
+        let normed_scaled =
+            (&normed * &scale).map_err(|e| format!("DiT: final normed*scale: {}", e))?;
+        let normed = (&normed_scaled + shift).map_err(|e| format!("DiT: final shift: {}", e))?;
         let proj = linear_forward(&normed, &self.final_linear, self.final_linear_bias.as_ref())
             .map_err(|e| format!("DiT: final proj: {}", e))?;
-        let gate_proj = (gate * proj)
-            .map_err(|e| format!("DiT: final gate*proj: {}", e))?;
-        let out = (noise + gate_proj)
-            .map_err(|e| format!("DiT: final out: {}", e))?;
+        let gate_proj = (gate * proj).map_err(|e| format!("DiT: final gate*proj: {}", e))?;
+        let out = (noise + gate_proj).map_err(|e| format!("DiT: final out: {}", e))?;
 
         // Unpatchify: [1, nph*npw, pp] → [1, in_channels, H, W]
         let out = unpatchify(&out, nph, npw, ph, pw, self.config.in_channels, device)
@@ -667,13 +731,25 @@ impl ZImageTransformer {
 
 // ── Helpers: patchify, unpatchify, sinusoidal ──
 
-fn patchify(latent: &Tensor, ph: usize, pw: usize, embed_weight: &Tensor, device: &Device) -> CandleResult<Tensor> {
+fn patchify(
+    latent: &Tensor,
+    ph: usize,
+    pw: usize,
+    embed_weight: &Tensor,
+    device: &Device,
+) -> CandleResult<Tensor> {
     // latent: [1, C, H, W] → unfold 2×2 → [H/2*W/2, C*ph*pw] → Linear → [H/2*W/2, dim]
     let (b, c, h, w) = latent.dims4()?;
     let nph = h / ph;
     let npw = w / pw;
     if h % ph != 0 || w % pw != 0 {
-        bail!("patchify: H={} W={} not divisible by ph={} pw={}", h, w, ph, pw);
+        bail!(
+            "patchify: H={} W={} not divisible by ph={} pw={}",
+            h,
+            w,
+            ph,
+            pw
+        );
     }
     let _ = b;
     // Reshape: [1, C, H, W] → [1, C, nph, ph, npw, pw] → [nph, npw, C*ph*pw]
@@ -745,10 +821,7 @@ fn build_dit_block_seeded(
 
     let adaLN = if with_adaln {
         let (w, b) = linear_seeded(6 * dim, dim, seed, device, true)?;
-        Some(AdaLNModulation {
-            weight: w,
-            bias: b,
-        })
+        Some(AdaLNModulation { weight: w, bias: b })
     } else {
         None
     };
@@ -809,11 +882,13 @@ fn build_dit_block_from_weights(
     let inter = config.intermediate;
 
     let get = |name: &str, shape: &[usize]| -> Result<Tensor, String> {
-        let t = tensors.get(name).ok_or_else(|| {
-            format!("build_dit_block: tensor '{}' not found", name)
-        })?;
+        let t = tensors
+            .get(name)
+            .ok_or_else(|| format!("build_dit_block: tensor '{}' not found", name))?;
         let t = t.to_device(device).map_err(|e| format!("device: {}", e))?;
-        let t = t.to_dtype(DType::F32).map_err(|e| format!("dtype: {}", e))?;
+        let t = t
+            .to_dtype(DType::F32)
+            .map_err(|e| format!("dtype: {}", e))?;
         if t.dims() != shape {
             return Err(format!(
                 "build_dit_block: '{}' shape mismatch — expected {:?}, got {:?}",
@@ -826,7 +901,10 @@ fn build_dit_block_from_weights(
     };
 
     let adaLN = if with_adaln {
-        let w = get(&format!("{}.adaLN_modulation.0.weight", prefix), &[6 * dim, dim])?;
+        let w = get(
+            &format!("{}.adaLN_modulation.0.weight", prefix),
+            &[6 * dim, dim],
+        )?;
         let b = get(&format!("{}.adaLN_modulation.0.bias", prefix), &[6 * dim])?;
         Some(AdaLNModulation {
             weight: w,
@@ -844,7 +922,10 @@ fn build_dit_block_from_weights(
     let q_proj = get(&format!("{}.attention.to_q.weight", prefix), &[q_dim, dim])?;
     let k_proj = get(&format!("{}.attention.to_k.weight", prefix), &[kv_dim, dim])?;
     let v_proj = get(&format!("{}.attention.to_v.weight", prefix), &[kv_dim, dim])?;
-    let o_proj = get(&format!("{}.attention.to_out.0.weight", prefix), &[dim, q_dim])?;
+    let o_proj = get(
+        &format!("{}.attention.to_out.0.weight", prefix),
+        &[dim, q_dim],
+    )?;
     let norm_q = get(&format!("{}.attention.norm_q.weight", prefix), &[head_dim])?;
     let norm_k = get(&format!("{}.attention.norm_k.weight", prefix), &[head_dim])?;
 

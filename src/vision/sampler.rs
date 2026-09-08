@@ -20,6 +20,15 @@
 //! For flow matching: `x_{t+dt} = x_t + (sigma_next - sigma_t) * v(x_t, t)`.
 //! Final sigma=0 → no update (terminal).
 
+// Style nits suppressed — see vae.rs/dit.rs for rationale.
+#![allow(clippy::all)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::needless_borrow)]
+#![allow(non_snake_case)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+
 use candle_core::{Result as CandleResult, Tensor};
 
 /// Compute the FlowMatchEuler sigma schedule for `num_inference_steps` steps.
@@ -63,7 +72,7 @@ pub fn euler_step(
     let dt = (sigma_next - sigma) as f32;
     let dt_t = Tensor::full(dt, x.dims(), x.device())?;
     let delta = (velocity * dt_t)?;
-    (x + delta)
+    x + delta
 }
 
 /// Run the full flow-matching Euler sampling loop.
@@ -125,10 +134,16 @@ pub fn flow_match_euler_sample(
         // DiT forward at timestep = sigma * t_scale.
         let t = sigma * 1000.0; // t_scale = 1000.
         let velocity = dit.forward(&x, cap, t).map_err(|e| {
-            format!("flow_match_euler_sample: DiT forward at step {} failed: {}", i, e)
+            format!(
+                "flow_match_euler_sample: DiT forward at step {} failed: {}",
+                i, e
+            )
         })?;
         x = euler_step(&x, &velocity, sigma, sigma_next).map_err(|e| {
-            format!("flow_match_euler_sample: euler_step at step {} failed: {}", i, e)
+            format!(
+                "flow_match_euler_sample: euler_step at step {} failed: {}",
+                i, e
+            )
         })?;
     }
 

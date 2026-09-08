@@ -14,13 +14,25 @@
 //! - `MLOG_VISION_OUT` (optional, default `target/`) — output directory for
 //!   generated PNG files.
 
+// Style nits suppressed — see src/vision/{vae,dit}.rs for rationale.
+#![allow(clippy::all)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::needless_borrow)]
+#![allow(non_snake_case)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(clippy::identity_op)]
+#![allow(clippy::erasing_op)]
+#![allow(clippy::assertions_on_constants)]
+
 use std::path::PathBuf;
 use std::time::Instant;
 
 use candle_core::{DType, Device, Tensor};
 use sha2::{Digest, Sha256};
 
-use metalogos::vision::text_encoder::{QWEN3_4B_CONFIG, TextEncoder};
+use metalogos::vision::text_encoder::{TextEncoder, QWEN3_4B_CONFIG};
 use metalogos::vision::vae::{fixed_latent, tiny_vae_config, VaeDecoder};
 use metalogos::vision::weights::{load_safetensors_sharded, load_safetensors_single};
 
@@ -72,8 +84,7 @@ fn tensor_sha256(t: &Tensor) -> String {
 const VAE_TINY_SEED: u64 = 21230;
 
 // Pinned after 3 bit-identical local runs on 2026-09-08 (procedure mirrors naryad №230).
-const VAE_GOLDEN_HASH: &str =
-    "3e8c058d7107a19e18ae8287112a8990964e8b30614a498dd61ad18e5f7493ce";
+const VAE_GOLDEN_HASH: &str = "3e8c058d7107a19e18ae8287112a8990964e8b30614a498dd61ad18e5f7493ce";
 const VAE_GOLDEN_ANCHOR_BITS: [u32; 4] = [1056954379, 1056973216, 1056904001, 1056959683];
 
 #[test]
@@ -85,12 +96,7 @@ fn vae_tiny_decode_golden() {
 
     let img = decoder.decode(&latent).expect("VAE decode");
     let dims = img.dims();
-    assert_eq!(
-        dims,
-        &[3, 64, 64],
-        "VAE tiny decode shape: {:?}",
-        dims
-    );
+    assert_eq!(dims, &[3, 64, 64], "VAE tiny decode shape: {:?}", dims);
 
     let hash = tensor_sha256(&img);
     eprintln!("vae_tiny_decode_golden: hash={}", hash);
@@ -101,9 +107,9 @@ fn vae_tiny_decode_golden() {
     let h = 64usize;
     let w = 64usize;
     let anchors = [
-        vals[0 * h * w + 0 * w + 0],            // [0,0]
-        vals[0 * h * w + 0 * w + (w - 1)],      // [0,w-1]
-        vals[0 * h * w + (h - 1) * w + 0],      // [h-1,0]
+        vals[0 * h * w + 0 * w + 0],             // [0,0]
+        vals[0 * h * w + 0 * w + (w - 1)],       // [0,w-1]
+        vals[0 * h * w + (h - 1) * w + 0],       // [h-1,0]
         vals[0 * h * w + (h - 1) * w + (w - 1)], // [h-1,w-1]
     ];
     eprintln!(
@@ -132,11 +138,9 @@ fn vae_tiny_decode_golden() {
         anchors[3].to_bits(),
     ];
     assert_eq!(
-        actual_bits,
-        VAE_GOLDEN_ANCHOR_BITS,
+        actual_bits, VAE_GOLDEN_ANCHOR_BITS,
         "VAE tiny golden anchor bits drifted. Expected {:?}, got {:?}",
-        VAE_GOLDEN_ANCHOR_BITS,
-        actual_bits
+        VAE_GOLDEN_ANCHOR_BITS, actual_bits
     );
 }
 
@@ -258,8 +262,7 @@ fn vae_real_weights_decode_fixed_latent() {
     };
     let vae_dir = weights_dir.join("vae");
     let t0 = Instant::now();
-    let tensors = match load_safetensors_single(&vae_dir, "diffusion_pytorch_model", &Device::Cpu)
-    {
+    let tensors = match load_safetensors_single(&vae_dir, "diffusion_pytorch_model", &Device::Cpu) {
         Ok(t) => t,
         Err(e) => {
             panic!(
@@ -316,10 +319,9 @@ fn clinical_e2e_first_image() {
 
     // Stage A: tokenize
     let t0 = Instant::now();
-    let tokenizer = metalogos::vision::tokenizer::Tokenizer::from_dir(
-        &weights_dir.join("tokenizer"),
-    )
-    .expect("Tokenizer load failed");
+    let tokenizer =
+        metalogos::vision::tokenizer::Tokenizer::from_dir(&weights_dir.join("tokenizer"))
+            .expect("Tokenizer load failed");
     let tokens = tokenizer.encode(prompt).expect("encode");
     let tok_elapsed = t0.elapsed();
     assert!(!tokens.is_empty(), "tokens empty");
@@ -331,12 +333,9 @@ fn clinical_e2e_first_image() {
 
     // Stage B: text encoder
     let t0 = Instant::now();
-    let te_tensors = load_safetensors_sharded(
-        &weights_dir.join("text_encoder"),
-        "model",
-        &Device::Cpu,
-    )
-    .expect("text_encoder load");
+    let te_tensors =
+        load_safetensors_sharded(&weights_dir.join("text_encoder"), "model", &Device::Cpu)
+            .expect("text_encoder load");
     let encoder = TextEncoder::from_weights(&QWEN3_4B_CONFIG, &te_tensors)
         .expect("TextEncoder::from_weights");
     drop(te_tensors);
@@ -404,7 +403,11 @@ fn clinical_e2e_first_image() {
     let png_bytes = std::fs::read(&out_path).expect("read PNG");
     let mut hasher = Sha256::new();
     hasher.update(&png_bytes);
-    let png_sha: String = hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect();
+    let png_sha: String = hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
 
     let dims = img.dims();
     assert_eq!(dims, &[3, 1024, 1024], "image shape: {:?}", dims);

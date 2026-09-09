@@ -1,4 +1,4 @@
-# ADR-0106: `Option`/`Result` — не вводить, soft-failure остаётся моделью ошибок
+# ADR-0106: `Option`/`Result` — not introduced, soft-failure remains the error model
 
 > **Status:** Rejected  
 > **Date:** 2026-08-21  
@@ -8,51 +8,52 @@
 
 ## Context
 
-Внешний аудит (`Metalogos_Audit_and_Roadmap.md`) предложил ввести
-`Option`/`Result` как «современную, идиоматичную» модель обработки
-ошибок, без учёта того, что уже решено в кодовой базе.
+An external audit (`Metalogos_Audit_and_Roadmap.md`) proposed
+introducing `Option`/`Result` as a "modern, idiomatic" error-handling
+model, without accounting for what was already decided in the
+codebase.
 
-`ADR-0006` (Fluid Types) прямо цитирует принцип языка:
-*«soft-failure instead of exceptions»*. Это не пробел — это
-осознанно выбранная и последовательно проведённая через весь язык
-модель: `to_float("abc")` → `0.0`, `read_file` на несуществующем
-пути → пустая строка, `recall` без совпадения → `Unit`.
+`ADR-0006` (Fluid Types) directly quotes the language's principle:
+*"soft-failure instead of exceptions"*. This is not a gap — it is a
+deliberately chosen model, carried consistently through the entire
+language: `to_float("abc")` → `0.0`, `read_file` on a non-existent
+path → an empty string, `recall` with no match → `Unit`.
 
-Реальный вопрос — не «добавить `Result`», а один из трёх:
+The real question is not "add `Result`", but one of three options:
 
-**Вариант А** — заменить soft-failure на `Result` системно. Цена:
-пересмотр сигнатур всех 349 builtins, всех golden-примеров, отмена
-принципа `ADR-0006`.
+**Option A** — replace soft-failure with `Result` system-wide. Cost:
+revisiting the signatures of all 349 builtins, every golden example,
+and reversing the `ADR-0006` principle.
 
-**Вариант Б** — добавить `Option`/`Result` рядом, soft-failure
-остаётся для существующего кода. Цена: два несовместимых способа
-сообщать об ошибке одновременно — путаница для того, кто пишет
-`.mlog`-код.
+**Option B** — add `Option`/`Result` alongside, soft-failure remains
+for existing code. Cost: two incompatible ways to report an error at
+the same time — confusion for whoever writes `.mlog` code.
 
-**Вариант В** — не вводить новую систему типов, точечно решать
-конкретные случаи, где неразличимость «не найдено» от «ошибка
-выполнения» реально мешает (например, в `recall` или `query_row`).
+**Option C** — do not introduce a new type system, resolve specific
+cases point-by-point where indistinguishability between "not found"
+and "execution error" genuinely gets in the way (for example, in
+`recall` or `query_row`).
 
 ## Decision
 
-**Ни вариант А, ни вариант Б не принимаются.** Нет продемонстрированной
-боли, оправдывающей цену системной замены модели ошибок или
-сосуществования двух моделей одновременно.
+**Neither Option A nor Option B is accepted.** There is no
+demonstrated pain that justifies the cost of a system-wide
+replacement of the error model, or of two models coexisting at once.
 
-**Вариант В остаётся открытым**, но не активируется этим ADR — только
-при нахождении конкретного, воспроизводимого случая, где текущая
-неразличимость реально создаёт проблему. Тогда — отдельный наряд
-на точечное решение, не общая система типов.
+**Option C remains open**, but is not activated by this ADR — only
+when a concrete, reproducible case is found where the current
+indistinguishability genuinely causes a problem. At that point — a
+separate, targeted naryad, not a general type system.
 
 ## Consequences
 
-- Soft-failure остаётся единственной моделью обработки ошибок в языке.
-- `Option`/`Result` не появляются в грамматике/AST/`Value` под этим
-  решением.
-- Пересмотр — только при конкретном кейсе (не абстрактное «современным
-  языкам нужен `Result`»), тем же принципом, что ADR-0105 применил к VM.
+- Soft-failure remains the language's sole error-handling model.
+- `Option`/`Result` do not appear in the grammar/AST/`Value` under
+  this decision.
+- Revisit only on a concrete case (not the abstract "modern languages
+  need `Result`"), the same principle ADR-0105 applied to the VM.
 
 ## Related
 
-- ADR-0006 — Fluid Types, источник цитаты про soft-failure
-- ADR-0105 — тот же принцип «не чинить без доказанного спроса»
+- ADR-0006 — Fluid Types, the source of the soft-failure quote
+- ADR-0105 — the same "don't fix without demonstrated demand" principle

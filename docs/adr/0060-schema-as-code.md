@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-12
 **Status:** Accepted
-**Context:** Наряд METALOGOS_4_PRIMITIVES v2, Problem C
+**Context:** Naryad METALOGOS_4_PRIMITIVES v2, Problem C
 
 ## Problem
 

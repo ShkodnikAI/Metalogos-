@@ -2,7 +2,7 @@
 
 **Status:** Partially Implemented — multi-error reporting (done, see
 `src/semantic.rs::AnalysisResult` with `errors: Vec<SpannedError>` since
-наряда №165); type inference and branch overlap detection deferred — no
+naryad #165); type inference and branch overlap detection deferred — no
 code in tree as of v0.18.0; revisit if/when typed flows return (see
 ADR-0107 Float-only decision).
 
@@ -22,8 +22,8 @@ and pattern parameters. Three limitations were identified:
 3. **No branch overlap detection.** Flow branches with overlapping conditions (e.g., `> 0.8` and
    `< 0.9`) were accepted silently, potentially hiding unreachable branches.
 
-The user requirement: "если паттерн Shout(s: String) -> String, а flow передаёт в него Float,
-semantic analysis должен поймать это до исполнения."
+The user requirement: "if pattern Shout(s: String) -> String, and a flow passes it a Float,
+semantic analysis should catch this before execution."
 
 ## Prior Art
 

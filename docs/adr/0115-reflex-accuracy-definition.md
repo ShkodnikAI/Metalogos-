@@ -45,7 +45,7 @@ a training-set score.
 
 **Split:** deterministic, seeded (same `seed` field already required
 on `reflex` declarations per the pillar's math-foundation contract,
-наряд №177). 80/20 train/holdout by default, not configurable in this
+naryad №177). 80/20 train/holdout by default, not configurable in this
 first metric — a configurable split ratio is a mechanical, later
 addition to the metric's own parameters, not a reason to block this
 ADR.
@@ -55,7 +55,7 @@ computed once, immediately after training, stored on the `Reflex`
 handle's metadata (accessible via `reflex_predict`'s confidence path
 and via a future `reflex_metrics` builtin — not scoped in this ADR).
 
-**Interaction with `rollback_if`:** `naряд №148` already fixed the
+**Interaction with `rollback_if`:** `naryad №148` already fixed the
 comparison-operator bug for `Gt`/`Ge` in the rollback logic — this
 ADR supplies the previously-missing real left-hand-side value that
 bug fix was waiting for. No further change to the comparison logic
@@ -67,7 +67,7 @@ itself is needed.
   performance, closing the gap `ADR-0112` left open.
 - A `Reflex` with too little data to form a meaningful holdout split
   (fewer than a minimum sample count — exact threshold decided in
-  наряд №179's implementation, not this ADR) must fail training with
+  naryad №179's implementation, not this ADR) must fail training with
   an explicit error, not silently report a meaningless accuracy on
   an empty or near-empty split.
 - Future metrics (calibration, F1, regression MSE) are registry

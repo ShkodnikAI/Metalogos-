@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-12
 **Status:** Accepted
-**Context:** Наряд METALOGOS_4_PRIMITIVES v2, Problem B (STOP Trigger #1)
+**Context:** Naryad METALOGOS_4_PRIMITIVES v2, Problem B (STOP Trigger #1)
 
 ## Decision
 

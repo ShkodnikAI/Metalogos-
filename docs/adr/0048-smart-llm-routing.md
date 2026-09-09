@@ -1,4 +1,4 @@
-# ADR-0048-Smart-LLM-Routing — Наряд №4
+# ADR-0048-Smart-LLM-Routing — Naryad №4
 
 ## Status
 Implemented

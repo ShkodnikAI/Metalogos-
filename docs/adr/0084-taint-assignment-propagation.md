@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-01
 **Status:** accepted
-**Context:** Наряд №33 Block 5
+**Context:** Naryad №33 Block 5
 
 ## Problem
 

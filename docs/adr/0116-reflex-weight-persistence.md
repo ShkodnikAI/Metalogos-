@@ -4,7 +4,7 @@
 **Date:** 2026-09-05
 **Naryad:** #180 (blocks on this ADR)
 **Pillar:** `Reflex` (eighth semantic pillar)
-**Relates to:** `ADR-0114` (opaque handle), `наряд №178` (binary
+**Relates to:** `ADR-0114` (opaque handle), `naryad №178` (binary
 serialization format already implemented in `src/nn/serde_weights.rs`)
 
 ## Context
@@ -13,7 +13,7 @@ Trained `Reflex` weights must survive process restarts — a model
 trained once should not require retraining every time `mlog serve`
 restarts. The binary serialization format itself (`REFLEX_MAGIC`,
 `REFLEX_VERSION`, length-prefixed per-layer blobs) already exists,
-built in наряд №178 ahead of this ADR. What remains is **where that
+built in naryad №178 ahead of this ADR. What remains is **where that
 byte blob lives** and **how `.mlog` source accesses it**.
 
 Two storage locations were considered.
@@ -26,7 +26,7 @@ Each model saved as its own file, application manages paths.
 format end-to-end (`.mbc` bytecode, `ADR-0146`-era migration work —
 size limits, version checks, real test coverage for corrupted input).
 A second, independent binary file format duplicates that entire
-concern (path traversal risk identical to naряд №150's `mlog check`
+concern (path traversal risk identical to naryad №150's `mlog check`
 audit finding for `model_load` in the original distillation draft,
 version-skew handling, corruption handling) for no benefit — the
 data is not large enough or accessed differently enough to justify a
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS reflex_models (
 ```
 
 `weights` is exactly the byte vector `serialize_model()`
-(`src/nn/serde_weights.rs`, наряд №178) already produces — no new
+(`src/nn/serde_weights.rs`, naryad №178) already produces — no new
 serialization logic, this ADR decides storage, not format.
 
 **Builtins:**
@@ -68,7 +68,7 @@ reflex_load(name) -> Value::Reflex  -- reads and reconstructs a ReflexModel
 
 `reflex_load` on a version mismatch (`REFLEX_VERSION` in the stored
 blob differs from the running binary's constant) fails with an
-explicit, actionable error — the same principle naряд №146 applied to
+explicit, actionable error — the same principle naryad №146 applied to
 `.mbc`: a stale format is a loud failure, never a silent
 misinterpretation of bytes.
 

@@ -13,8 +13,8 @@ This meant recall could only find memories whose text literally contained the qu
 A query like `"food preferences"` would NOT find `"user likes spicy food"` because no words
 overlap — despite clear semantic relatedness.
 
-The user requirement: "recall 'food preferences' находит 'user likes spicy food', хотя
-слов нет в общих."
+The user requirement: "recall 'food preferences' finds 'user likes spicy food', even
+though the words don't overlap."
 
 Question: how should recall find semantically related memories without exact word overlap,
 and how should this be extensible for future real embedding models?

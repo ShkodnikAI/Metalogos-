@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-01
 **Status:** accepted
-**Context:** Наряд №34 Block 1
+**Context:** Naryad №34 Block 1
 
 ## Problem
 
@@ -106,7 +106,7 @@ can be investigated and resolved.
   `read_file`, `delete_file`). The pattern returns empty.
 
 ### 13. v05_if_else.mlog
-- **TW:** "повышенная — наблюдать"
+- **TW:** "elevated — observe"
 - **VM:** "38"
 - **Cause:** VM evaluates the `if / else if / else` chain incorrectly. With
   `temp = 38.0`, the condition `temp > 37.5` should be true and return the
@@ -115,7 +115,7 @@ can be investigated and resolved.
   of executing the branches.
 
 ### 14. v05_integration.mlog
-- **TW:** "DLROW SOGOLATEM OLLEH (из 3 слов)"
+- **TW:** "DLROW SOGOLATEM OLLEH (from 3 words)"
 - **VM:** "3"
 - **Cause:** VM returns only the word count `3.0` instead of the full
   transformed string. Likely the string builtins chain (`trim`, `upper`,
@@ -147,12 +147,12 @@ can be investigated and resolved.
 ### 18. dept_schema.mlog
 - **Error:** `undefined builtin: db_insert`
 - **Cause:** `db_insert()` is not registered in the VM. The `schema/table` DDL
-  system and database builtins were added in Наряд №30 only for the interpreter.
+  system and database builtins were added in Naryad №30 only for the interpreter.
 
 ### 19. p30_db_params.mlog
 - **Error:** `undefined builtin: query_scalar`
 - **Cause:** `query_scalar()` is not registered in the VM. Same root cause as
-  #18 — DB builtins from Наряд №30 are interpreter-only.
+  #18 — DB builtins from Naryad №30 are interpreter-only.
 
 ### 20. p30_slice.mlog
 - **Error:** `slice() requires List as first argument`
@@ -207,8 +207,8 @@ This confirms the interpreter is the more complete backend.
   ✗ p7_env.mlog: TW="Port=8080 Name=fosved" VM="()"
   ✗ skill_index_tiered.mlog: TW="core_skill_a" VM="()"
   ✗ v05_file_io.mlog: TW="file I/O works!" VM=""
-  ✗ v05_if_else.mlog: TW="повышенная — наблюдать" VM="38"
-  ✗ v05_integration.mlog: TW="DLROW SOGOLATEM OLLEH (из 3 слов)" VM="3"
+  ✗ v05_if_else.mlog: TW="elevated — observe" VM="38"
+  ✗ v05_integration.mlog: TW="DLROW SOGOLATEM OLLEH (from 3 words)" VM="3"
   ✗ v05_kv_memory.mlog: TW="test_value" VM="true"
 
 ── VM errors (6): ──
@@ -220,7 +220,7 @@ This confirms the interpreter is the more complete backend.
   ✗ p5_modules.mlog: compile: qualified calls not yet supported in bytecode
 ```
 
-## Resolved in Наряд №34 (8 cases)
+## Resolved in Naryad №34 (8 cases)
 
 | # | File | What was fixed |
 |---|---|---|
@@ -233,7 +233,7 @@ This confirms the interpreter is the more complete backend.
 | 16 | actor_potential.mlog | `map()` registered in VM |
 | 20 | p30_slice.mlog | `slice()` argument type check fixed |
 
-## Resolved in Наряд №35 (4 cases)
+## Resolved in Naryad №35 (4 cases)
 
 | # | File | What was fixed |
 |---|---|---|
@@ -244,19 +244,19 @@ This confirms the interpreter is the more complete backend.
 
 ## Remaining (9 cases) — documented remainder
 
-All 9 remaining cases have been resolved in Наряд №36.
+All 9 remaining cases have been resolved in Naryad №36.
 
 | # | File | What was fixed | Commit |
 |---|---|---|---|
-| 3 | p12_context_literal | `context: "literal"` already handled via info.context | (pre-Наряд №36) |
-| 10 | p7_env | Flow source expressions use compile_expr for BinOp | (pre-Наряд №36) |
-| 21 | p5_modules | `import ... as` qualified calls + alias resolution | (pre-Наряд №36) |
-| 1 | p11_context_loading_fixed | CompiledContextMode::Recall + recall_top() in VM | Наряд №36 |
-| 2 | p12_context_auto | CompiledContextMode::Auto + format_context_block in VM | Наряд №36 |
-| 4 | p1_entity_store | find() handler searching VM globals for matching entities | Наряд №36 |
-| 11 | skill_index_tiered | CompiledSkillIndex in Program + resolve_skill_index handler | Наряд №36 |
-| 18 | dept_schema | db_insert + schema DDL + db_conn in VM | Наряд №36 |
-| 19 | p30_db_params | query_scalar + db_execute + query handlers in VM | Наряд №36 |
+| 3 | p12_context_literal | `context: "literal"` already handled via info.context | (pre-Naryad №36) |
+| 10 | p7_env | Flow source expressions use compile_expr for BinOp | (pre-Naryad №36) |
+| 21 | p5_modules | `import ... as` qualified calls + alias resolution | (pre-Naryad №36) |
+| 1 | p11_context_loading_fixed | CompiledContextMode::Recall + recall_top() in VM | Naryad №36 |
+| 2 | p12_context_auto | CompiledContextMode::Auto + format_context_block in VM | Naryad №36 |
+| 4 | p1_entity_store | find() handler searching VM globals for matching entities | Naryad №36 |
+| 11 | skill_index_tiered | CompiledSkillIndex in Program + resolve_skill_index handler | Naryad №36 |
+| 18 | dept_schema | db_insert + schema DDL + db_conn in VM | Naryad №36 |
+| 19 | p30_db_params | query_scalar + db_execute + query handlers in VM | Naryad №36 |
 
 ## 58/58 clarification — both-error count
 
@@ -285,12 +285,12 @@ interpreter across all 58 golden examples" is accurate.
 2. Each case must be resolved individually; bulk fixes are not acceptable.
 3. The crosscheck test now asserts `mismatches.is_empty()` — all 58/58 must pass.
 4. `assert!(mismatches.is_empty())` is now **enabled** (was commented out).
-5. Additional finding from Наряд №35: `execute_code()` was missing 14 instruction handlers.
+5. Additional finding from Naryad №35: `execute_code()` was missing 14 instruction handlers.
    `MakeStruct` and `Contains` were added; remaining unhandled instructions
    are top-level only (FlowExec, RegisterPattern, etc.) and correctly stay in `run()`.
-6. Наряд №36 added: `call_builtin` now takes `&mut self` for DB mutation support.
+6. Naryad №36 added: `call_builtin` now takes `&mut self` for DB mutation support.
    `execute_code` also `&mut self`. Name cloning resolves borrow conflicts.
-7. Наряд №36 added: DB connection, schema DDL, and DB builtins to VM.
-8. Наряд №36 added: skill_index declarations compiled and passed to VM.
-9. Наряд №36 added: CompiledContextMode enum for learnable pattern context handling.
+7. Naryad №36 added: DB connection, schema DDL, and DB builtins to VM.
+8. Naryad №36 added: skill_index declarations compiled and passed to VM.
+9. Naryad №36 added: CompiledContextMode enum for learnable pattern context handling.
 

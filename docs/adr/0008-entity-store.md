@@ -16,7 +16,7 @@ simple key-value store — it works for direct references but provides no way to
 2. **Count entities by type** — "how many Message instances exist?"
 3. **Establish identity** — entities have no first-class identity beyond their variable name
 
-The user requirement: "Entity Store — это хранилище с идентичностью, а не просто HashMap."
+The user requirement: "Entity Store is a store with identity, not just a HashMap."
 
 Question: what is the minimal runtime structure that gives entities identity, queryability, and a clear
 distinction from a flat variable map?
@@ -109,11 +109,11 @@ These are all acceptable for MVP and have clear Phase 2 upgrade paths.
 ```mlog
 entity Message { text: String, urgency: Float = 0.0 }
 
-entity m1: Message = { text: "срочно нужна помощь", urgency: 0.0 }
-entity m2: Message = { text: "обычный вопрос", urgency: 0.0 }
-entity m3: Message = { text: "срочно нужна консультация", urgency: 0.0 }
+entity m1: Message = { text: "urgent help needed", urgency: 0.0 }
+entity m2: Message = { text: "ordinary question", urgency: 0.0 }
+entity m3: Message = { text: "urgent consultation needed", urgency: 0.0 }
 
-rule If(m1.text contains "срочно") then m1.urgency = 0.9 with priority=10
+rule If(m1.text contains "urgent") then m1.urgency = 0.9 with priority=10
 
 pattern GetUrgency(msg: Message) -> Float { return msg.urgency }
 

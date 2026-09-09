@@ -14,9 +14,9 @@ M2 introduces three capabilities that make the language feel probabilistic:
 The contract program is `examples/m2_triage.mlog`:
 ```mlog
 entity Message { text: String, urgency: Float = 0.0 }
-entity m: Message = { text: "срочно нужна помощь", urgency: 0.0 }
+entity m: Message = { text: "urgent help needed", urgency: 0.0 }
 
-rule If(m.text contains "срочно") then m.urgency = 0.9 with priority=10
+rule If(m.text contains "urgent") then m.urgency = 0.9 with priority=10
 
 pattern Escalate(msg: Message) -> String { return "ESCALATE" }
 pattern Queue(msg: Message) -> String { return "QUEUE" }
@@ -59,7 +59,7 @@ then weighted inference in the style of Markov Logic Networks (Phase 2).
 ### Rule conditions
 
 Two condition forms are supported:
-- **`contains`**: `m.text contains "срочно"` — string substring check.
+- **`contains`**: `m.text contains "urgent"` — string substring check.
 - **Comparison**: `m.urgency > 0.8` — numeric comparison with `>`, `<`, `>=`, `<=`, `==`.
 
 Both are evaluated against the current variable environment (entities and their

@@ -1,4 +1,4 @@
-# ADR-0056: Lifecycle Control — checkpoint/resume для долгих задач
+# ADR-0056: Lifecycle Control — checkpoint/resume for long-running tasks
 
 **Status:** Implemented
 **Date:** 2026-06-11

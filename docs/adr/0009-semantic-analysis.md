@@ -15,7 +15,7 @@ variables, unknown patterns, wrong entity types) were caught at runtime — duri
 2. Rule targets referencing non-existent entities would produce confusing errors.
 3. Flow steps calling undefined patterns would fail mid-pipeline.
 
-The user requirement: "программа с ошибкой типа → понятное сообщение, а не паника рантайма."
+The user requirement: "a program with a type error → a clear message, not a runtime panic."
 
 Question: when should type/reference errors be caught — at runtime or before execution?
 

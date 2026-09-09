@@ -1,11 +1,11 @@
-# ADR-0087: Full UTF-8 Audit — Наряд №11
+# ADR-0087: Full UTF-8 Audit — Naryad №11
 
 **Status:** Implemented
 **Date:** 2026-06-08
 
 ## Context
 
-Наряд №11 raised the concern that Cyrillic text was broken in Metalogos runtime. The primary evidence was error strings in the binary containing "byte index", suggesting `substring()`, `char_at()`, and other builtins used byte offsets instead of character offsets.
+Naryad №11 raised the concern that Cyrillic text was broken in Metalogos runtime. The primary evidence was error strings in the binary containing "byte index", suggesting `substring()`, `char_at()`, and other builtins used byte offsets instead of character offsets.
 
 A comprehensive audit of all 19 `.rs` files in `src/` was performed to locate every byte-indexed string operation.
 

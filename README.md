@@ -110,7 +110,7 @@ More than a key-value store. Hierarchical memory (Memory Tree L0/L1/L2), typed r
 
 The `adapt` statement allows a program to modify its own patterns at runtime — with sandboxing, few-shot mutation, and automatic rollback. The rollback mechanism is real and tested. Quality metric is currently a fixed mock value (0.95), not a real accuracy computation — rollback logic exists but does not yet respond to actual quality degradation. See ADR-0112.
 
-**Sandbox timeout caveat**: when a `sandbox` block specifies `timeout > 0`, the calling thread stops *waiting* at the deadline (preemptive via `mpsc::recv_timeout`). However, the background HTTP request to the LLM provider may still be in flight — only the wait is cancelled, not the request itself. Full request cancellation requires `reqwest::AbortHandle` (a separate наряд).
+**Sandbox timeout caveat**: when a `sandbox` block specifies `timeout > 0`, the calling thread stops *waiting* at the deadline (preemptive via `mpsc::recv_timeout`). However, the background HTTP request to the LLM provider may still be in flight — only the wait is cancelled, not the request itself. Full request cancellation requires `reqwest::AbortHandle` (a separate naryad).
 
 ### 6. Complete Toolchain in One Binary
 
@@ -243,7 +243,7 @@ Metalogos-/
 │
 ├── mlogpkg/                           # Package manager (workspace crate)
 │   ├── Cargo.toml
-│   ├── advisory-db.toml              # Local advisory DB (Наряд №198 Block 2)
+│   ├── advisory-db.toml              # Local advisory DB (Naryad #198 Block 2)
 │   ├── src/
 │   │   └── main.rs                    # mlogpkg binary
 │   └── tests/
@@ -278,7 +278,7 @@ Metalogos-/
 │
 ├── self-host/                         # Self-hosting experiments
 │   ├── lexer.mlog                     # Lexer written in .mlog itself
-│   ├── parser.mlog                    # Parser written in .mlog itself (Наряд №197)
+│   ├── parser.mlog                    # Parser written in .mlog itself (Naryad #197)
 │   └── std/                           # Copies of std/ for self-hosted execution
 │
 ├── editors/vscode/                    # VS Code extension
@@ -361,7 +361,7 @@ Semantic errors include line numbers for easy debugging:
 
 ```mlog
 entity User { name: String }
-entity User { age: Int }   // строка 2: duplicate entity type: User
+entity User { age: Int }   // line 2: duplicate entity type: User
 ```
 
 Parser fills `Span` from `pest::Span` via `Span::from_pest()`;
@@ -507,9 +507,9 @@ learnable pattern Classify(text: String) -> String {
 
 **Persistence** — `reflex_save`/`reflex_load` serialize trained weights to the SQLite database configured by `memory { persist: "path.db" }` (ADR-0116). Shape mismatches between saved and current declarations are explicit errors, never silent corruption.
 
-**Architecture blocks (ADR-0118, ADR-0119)** — `reflex_seq` declares sequence models for transformer-family layers: `attention` (multi-head with RoPE, Наряд №183), `rms_norm` / `swiglu` / `transformer_block` (Наряд №184). These require the optional `candle` feature (`cargo build --features candle`), not unconditional — when the feature is off, `reflex_seq` declarations produce a clean error naming the missing feature. Sequence models classify the *whole* sequence into one label (mean pooling + Dense head), not token-by-token generation (ADR-0117 §3 boundary, symmetric).
+**Architecture blocks (ADR-0118, ADR-0119)** — `reflex_seq` declares sequence models for transformer-family layers: `attention` (multi-head with RoPE, Naryad #183), `rms_norm` / `swiglu` / `transformer_block` (Naryad #184). These require the optional `candle` feature (`cargo build --features candle`), not unconditional — when the feature is off, `reflex_seq` declarations produce a clean error naming the missing feature. Sequence models classify the *whole* sequence into one label (mean pooling + Dense head), not token-by-token generation (ADR-0117 §3 boundary, symmetric).
 
-**Grouped-Query Attention (GQA, Наряд №188)** — `attention` accepts an optional third parameter for the number of KV heads:
+**Grouped-Query Attention (GQA, Naryad #188)** — `attention` accepts an optional third parameter for the number of KV heads:
 
 ```mlog
 reflex_seq GqaModel {
@@ -521,9 +521,9 @@ reflex_seq GqaModel {
 }
 ```
 
-When the third parameter is omitted (`attention(8, 64)`), behaviour is identical to standard multi-head attention (Наряд №183) — `n_kv_heads` defaults to `n_heads`. When `n_kv_heads < n_heads`, K and V weights are smaller (`[dim, kv_dim]` instead of `[dim, dim]`) and repeated along the head axis during the attention computation (Llama 2/3 architecture). Constraints: `n_kv_heads > 0`, `n_kv_heads ≤ n_heads`, `n_heads % n_kv_heads == 0`.
+When the third parameter is omitted (`attention(8, 64)`), behaviour is identical to standard multi-head attention (Naryad #183) — `n_kv_heads` defaults to `n_heads`. When `n_kv_heads < n_heads`, K and V weights are smaller (`[dim, kv_dim]` instead of `[dim, dim]`) and repeated along the head axis during the attention computation (Llama 2/3 architecture). Constraints: `n_kv_heads > 0`, `n_kv_heads ≤ n_heads`, `n_heads % n_kv_heads == 0`.
 
-**Stacked transformer blocks (Наряд №190)** — multiple `transformer_block` entries can be chained in the `layers` list. Each block gets its own independent, deterministically different weights (via `VarMap` prefixing — not identical copies):
+**Stacked transformer blocks (Naryad #190)** — multiple `transformer_block` entries can be chained in the `layers` list. Each block gets its own independent, deterministically different weights (via `VarMap` prefixing — not identical copies):
 
 ```mlog
 reflex_seq StackedTransformer {
@@ -622,11 +622,11 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 | **mlogpkg** | Package manager for .mlog projects |
 | **VS Code extension** | Syntax highlighting + language configuration |
 | **Self-hosted lexer** | Tokenizer written in .mlog itself (`self-host/lexer.mlog`) |
-| **Self-hosted parser** | Parser written in .mlog itself (`self-host/parser.mlog`, Наряд №197) — parses a subset of the grammar sufficient for bootstrap (parses its own source). The full grammar remains the responsibility of the production Rust parser (`src/parser/`). |
+| **Self-hosted parser** | Parser written in .mlog itself (`self-host/parser.mlog`, Naryad #197) — parses a subset of the grammar sufficient for bootstrap (parses its own source). The full grammar remains the responsibility of the production Rust parser (`src/parser/`). |
 
 ---
 
-## Self-hosted parser (Наряд №197)
+## Self-hosted parser (Naryad #197)
 
 `self-host/parser.mlog` is a Metalogos parser written in Metalogos itself. It
 builds on top of the self-hosted lexer (`self-host/lexer.mlog`) — both files
@@ -732,9 +732,9 @@ than duplicating it across multiple lexer-level checks.
 
 ---
 
-## mlogpkg: dependency resolution + security audit (Наряд №198)
+## mlogpkg: dependency resolution + security audit (Naryad #198)
 
-`mlogpkg` is the package manager for METALOGOS projects. As of Наряд №198 it
+`mlogpkg` is the package manager for METALOGOS projects. As of Naryad #198 it
 gains three new capabilities on top of the original `init`/`add`/`build`/`info`
 commands:
 
@@ -745,7 +745,7 @@ commands:
    dependency (direct + transitive) for reproducible builds. Same
    `mlog.toml` → same `mlogpkg.lock` byte-for-byte.
 3. **`mlogpkg audit` command** — checks dependencies against a local
-   advisory database of known vulnerabilities (Наряд №198 Block 2).
+   advisory database of known vulnerabilities (Naryad #198 Block 2).
 
 ### Commands
 
@@ -830,7 +830,7 @@ a directory containing:
 Override the registry path with the `MLOGPKG_REGISTRY` env var (useful
 for tests).
 
-### Contracts (Наряд №198)
+### Contracts (Naryad #198)
 
 Four integration tests verify the new behavior:
 
@@ -935,7 +935,7 @@ All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsyst
 
 | Target | Description |
 |---|---|
-| **Phase 9** | Self-hosted compiler (lexer in `self-host/lexer.mlog`, parser in `self-host/parser.mlog` — Наряд №197, subset complete), mlogpkg ecosystem (Наряд №198: full dep graph + lockfile + local audit), production deployment |
+| **Phase 9** | Self-hosted compiler (lexer in `self-host/lexer.mlog`, parser in `self-host/parser.mlog` — Naryad #197, subset complete), mlogpkg ecosystem (Naryad #198: full dep graph + lockfile + local audit), production deployment |
 
 ---
 

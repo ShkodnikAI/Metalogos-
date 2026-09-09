@@ -4,6 +4,54 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — Vision R4.2: dispatch — `vision { }` → VM → builtins + taint (Наряд №240)
+
+- **dispatch pipeline (лекало reflex_decls)**: `Program::vision_decls: Vec<CompiledVisionDecl>`
+  (`#[serde(default)]`, fields 1:1 with AST R4.1: name/model/steps/width/height/seed/policy/profile;
+  serde-serializable `CompiledVisionPolicy`/`CompiledVisionProfile` enums; single conversion point
+  `CompiledVisionDecl::from_ast`). Compiler pass1 populates the vec; pass2 emits no bytecode
+  (reflex precedent). `Vm::load_program` registers name → parameters; the interpreter's
+  declaration pass does the same from AST. `vision_registry: SharedVisionRegistry` (Mutex) on the
+  interpreter, plain `VisionRegistry` on the single-threaded VM.
+- **VisionRegistry real artifact type (№240)**: R1's `()` placeholder → `VisionArtifact`
+  (encoded PNG bytes, produced by the real pipeline). `insert/get/remove/list_ids` API preserved
+  in spirit; IDs remain monotonically increasing.
+- **`vision_generate("decl_name", "prompt")` — REAL path (§3.5: ноль молчаливых стабов)**:
+  declaration resolution (unknown name → loud `Err` with the declared-names list), runtime
+  re-check `model ∈ KNOWN_VISION_MODELS` (defense-in-depth for hand-built/deserialized
+  `Program`s), weights from `MLOG_VISION_WEIGHTS_DIR` (missing env/component → loud `Err`
+  naming the env var and the missing component — honest environment refusal, NOT a stub),
+  full clip tokenizer → Qwen3-4B text encoder → Z-Image DiT + `flow_match_euler_sample`
+  (steps and seed from the declaration; sampler sigmas = steps + 1) → VAE decode → PNG encode
+  → artifact in the registry → `Value::Vision(id)`. The R4.2 z-image-turbo pipeline generates
+  a fixed 1024×1024 (sampler derives the latent from the DiT config); other sizes = loud `Err`
+  (size parameterization is R5 manifest territory).
+- **`vision_list()`** — real registry handles, sorted by id (determinism), `[Vision#N]` display
+  form. **`vision_export(handle, path)`** — writes the artifact's real PNG bytes; every export
+  is unsigned → loud stderr WARN + static audit-warning (watermark/manifest/Category-A gate = R5).
+  **`vision_edit`/`vision_save`/`vision_load` remain loud stubs** (R6: edit + LoRA/SQLite).
+- **Arity truth-up (№240, урок №234 — конфликт решён до выписки)**: `BUILTIN_REGISTRY`
+  `vision_generate` arity **3→2** per the R4 contract (plan §3: `vision_generate("poster", "…")`;
+  the R1 stub doc "(model_name, prompt, seed)" predates the declaration language and was never
+  the contract). Total builtin count unchanged (387 — no new builtins).
+- **Taint integration (plan §4, лекало n201)**: `UserInput`-tainted expression in position 2 of
+  `vision_generate` → audit-**warning** `VISION_PROMPT_USER_INPUT` (NOT Category A — a
+  user-typed prompt is a legitimate use case; the prompt will be recorded in the generation
+  manifest, R5). Arg 0 (declaration name) is not data — not flagged. No taint on
+  `Value::Vision` (opaque handle; print-guard already stands).
+- **Dispatch intercepts (лекало reflex)**: interpreter (expression evaluation + flow-step
+  `invoke`) and VM (`call_vision_builtin` before the generic fallback) route to the shared
+  dispatch functions in `src/builtins/vision.rs` — inference logic is NOT reimplemented per
+  backend. Registry stubs remain the last resort for direct registry calls (loud refusal).
+- **Tests**: `tests/naryad_240_vision_dispatch.rs` (13, не-gated): plan-§3 example parse+compile
+  with 1:1 field check; declaration emits no bytecode; dispatch negatives with exact loud
+  messages (unknown declaration, wrong arity, missing `MLOG_VISION_WEIGHTS_DIR`, runtime model
+  re-check); `vision_list` empty/after-insert sorted; taint warning + three negatives (literal
+  prompt, arg-0 taint, sanitized prompt). `tests/naryad_240_vision_mlog_e2e.rs` — env-gated
+  `.mlog` e2e (declaration → generate → export → PNG on disk, SHA-256 in output) WITHOUT
+  `#[ignore]` — loud-SKIP pattern; **closes the №237 Block 3.1 promise «+ одна генерация из
+  .mlog»** (loud-gap note in the runbook §3). CI: new `vision-tests` step for the e2e.
+
 ### Added — Vision R4.1: `vision { }` declarations — grammar, AST, parser, semantic (Наряд №238)
 
 - **grammar.pest**: `vision_decl` registered in the top-level `declaration`

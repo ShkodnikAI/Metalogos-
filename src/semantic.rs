@@ -2989,4 +2989,155 @@ template Page(title: String) -> Secret {
             .iter()
             .any(|e| e.message.contains("only Html is supported")));
     }
+
+    // ── Наряд №238 (Vision R4.1): vision declaration semantic ─────────
+
+    /// Valid plan-§3 example — no errors, no warnings (no false positives).
+    #[test]
+    fn test_vision_valid_program_ok() {
+        let source = r#"
+vision "poster" {
+  model: "z-image-turbo"
+  steps: 8
+  width: 1024
+  height: 1024
+  seed: 42
+  policy: safe
+  profile: fp16
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(result.is_ok(), "errors: {:?}", result.errors);
+        assert!(
+            result.warnings.is_empty(),
+            "unexpected warnings: {:?}",
+            result.warnings
+        );
+    }
+
+    /// Block 3.2 negative: unknown model — semantic error naming the model
+    /// and the known set.
+    #[test]
+    fn test_vision_unknown_model_is_semantic_error() {
+        let source = r#"
+vision "poster" {
+  model: "flux-2"
+  steps: 8
+  width: 1024
+  height: 1024
+  seed: 42
+  policy: safe
+  profile: fp16
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(!result.is_ok());
+        let hit = result
+            .errors
+            .iter()
+            .find(|e| e.message.contains("unknown model 'flux-2'"))
+            .expect("expected unknown-model error");
+        assert!(
+            hit.message.contains("z-image-turbo"),
+            "got: {}",
+            hit.message
+        );
+    }
+
+    /// Block 3.2 negative: duplicate vision declaration name.
+    #[test]
+    fn test_vision_duplicate_name_is_semantic_error() {
+        let source = r#"
+vision "poster" { model: "z-image-turbo" steps: 8 width: 1024 height: 1024 seed: 1 policy: safe profile: fp16 }
+vision "poster" { model: "z-image-turbo" steps: 8 width: 512 height: 512 seed: 2 policy: safe profile: fp8 }
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(!result.is_ok());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("duplicate vision declaration: poster")));
+    }
+
+    /// Block 3.2 negative: width not a multiple of 16.
+    #[test]
+    fn test_vision_width_not_multiple_of_16_is_error() {
+        let source = r#"
+vision "poster" {
+  model: "z-image-turbo"
+  steps: 8
+  width: 1025
+  height: 1024
+  seed: 42
+  policy: safe
+  profile: fp16
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(!result.is_ok());
+        let hit = result
+            .errors
+            .iter()
+            .find(|e| e.message.contains("width = 1025 must be a multiple of 16"))
+            .expect("expected width-contract error");
+        assert!(
+            hit.message.contains("vision 'poster'"),
+            "got: {}",
+            hit.message
+        );
+    }
+
+    /// Block 3.2 negative: steps = 0 — semantic error (steps >= 1).
+    #[test]
+    fn test_vision_steps_zero_is_error() {
+        let source = r#"
+vision "poster" {
+  model: "z-image-turbo"
+  steps: 0
+  width: 1024
+  height: 1024
+  seed: 42
+  policy: safe
+  profile: fp16
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(!result.is_ok());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("steps must be >= 1, got 0")));
+    }
+
+    /// Block 2.2: steps != 8 (but >= 1) is an audit-WARNING, not an error.
+    #[test]
+    fn test_vision_steps_not_8_is_warning_not_error() {
+        let source = r#"
+vision "poster" {
+  model: "z-image-turbo"
+  steps: 12
+  width: 1024
+  height: 1024
+  seed: 42
+  policy: safe
+  profile: fp16
+}
+"#;
+        let decls = crate::parser::parse(source).unwrap();
+        let result = check_program(&decls);
+        assert!(
+            result.is_ok(),
+            "steps=12 must not be an error; got: {:?}",
+            result.errors
+        );
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("steps = 12 != 8")));
+    }
 }

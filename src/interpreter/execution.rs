@@ -597,6 +597,34 @@ impl Interpreter {
                 .map_err(|e| format!("vision registry poisoned: {}", e))?;
             return crate::builtins::vision_export_raw_dispatch(&reg, &args);
         }
+        // Наряд №242 (R6.1): SQLite persistence — the dispatch receives
+        // the registry and the interpreter's db connection (the
+        // Arc<Mutex<Option>> opened by the `db { url: ... }` declaration;
+        // lock discipline as in query()). No-db → loud Err naming the
+        // declaration; load returns a fresh monotonic session handle —
+        // the persisted key is the name.
+        if name == "vision_save" {
+            let reg = self
+                .vision_registry
+                .lock()
+                .map_err(|e| format!("vision registry poisoned: {}", e))?;
+            let db = self
+                .db_conn
+                .lock()
+                .map_err(|e| format!("db lock error: {}", e))?;
+            return crate::builtins::vision_save_dispatch(&reg, db.as_ref(), &args);
+        }
+        if name == "vision_load" {
+            let mut reg = self
+                .vision_registry
+                .lock()
+                .map_err(|e| format!("vision registry poisoned: {}", e))?;
+            let db = self
+                .db_conn
+                .lock()
+                .map_err(|e| format!("db lock error: {}", e))?;
+            return crate::builtins::vision_load_dispatch(&mut reg, db.as_ref(), &args);
+        }
 
         // Check recall (memory) first — it's a built-in with memory access
         if name == "recall" {
@@ -1526,6 +1554,36 @@ impl Interpreter {
                         .lock()
                         .map_err(|e| format!("vision registry poisoned: {}", e))?;
                     return crate::builtins::vision_export_raw_dispatch(&reg, &eval_args);
+                }
+                // Наряд №242 (R6.1): SQLite persistence — same state-
+                // carrying interception, expression path; the dispatch
+                // also receives the interpreter's db connection (opened
+                // by the `db { url: ... }` declaration).
+                if name == "vision_save" {
+                    let reg = self
+                        .vision_registry
+                        .lock()
+                        .map_err(|e| format!("vision registry poisoned: {}", e))?;
+                    let db = self
+                        .db_conn
+                        .lock()
+                        .map_err(|e| format!("db lock error: {}", e))?;
+                    return crate::builtins::vision_save_dispatch(&reg, db.as_ref(), &eval_args);
+                }
+                if name == "vision_load" {
+                    let mut reg = self
+                        .vision_registry
+                        .lock()
+                        .map_err(|e| format!("vision registry poisoned: {}", e))?;
+                    let db = self
+                        .db_conn
+                        .lock()
+                        .map_err(|e| format!("db lock error: {}", e))?;
+                    return crate::builtins::vision_load_dispatch(
+                        &mut reg,
+                        db.as_ref(),
+                        &eval_args,
+                    );
                 }
 
                 // Check recall (memory) first

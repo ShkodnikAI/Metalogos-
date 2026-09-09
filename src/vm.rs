@@ -2288,8 +2288,11 @@ impl Vm {
     /// VM's own `vision_decls` and `vision_registry` (лекало
     /// `call_reflex_builtin`: inference logic is NOT reimplemented — only
     /// the argument marshalling and registry access differ from the
-    /// interpreter path). `vision_edit`/`vision_save`/`vision_load` remain
-    /// loud stubs (R6) and fall through to the registry stubs.
+    /// interpreter path). Наряд №242 (R6.1): `vision_save`/`vision_load`
+    /// are intercepted too — the dispatch additionally receives the VM's
+    /// SQLite connection (`db_conn`, opened from `program.db_url`).
+    /// `vision_edit` remains a loud stub (R6 edit — №243) and falls
+    /// through to the registry stub.
     fn call_vision_builtin(&mut self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
         if name == "vision_generate" {
             return Some(crate::builtins::vision_generate_dispatch(
@@ -2315,6 +2318,24 @@ impl Vm {
         if name == "vision_export_raw" {
             return Some(crate::builtins::vision_export_raw_dispatch(
                 &self.vision_registry,
+                args,
+            ));
+        }
+        // Наряд №242 (R6.1): SQLite persistence — the dispatch receives
+        // the registry and the VM's database connection (no-db → loud Err
+        // naming the `db { url: ... }` declaration; load returns a fresh
+        // monotonic session handle, the persisted key is the name).
+        if name == "vision_save" {
+            return Some(crate::builtins::vision_save_dispatch(
+                &self.vision_registry,
+                self.db_conn.as_ref(),
+                args,
+            ));
+        }
+        if name == "vision_load" {
+            return Some(crate::builtins::vision_load_dispatch(
+                &mut self.vision_registry,
+                self.db_conn.as_ref(),
                 args,
             ));
         }

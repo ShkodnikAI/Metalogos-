@@ -1027,14 +1027,16 @@ learnable pattern Classify(text: String) -> String {
 
 ---
 
-### 4.22. Vision — provenance и безопасная загрузка весов (наряды №210–№241, ADR-0122/0124/0125)
+### 4.22. Vision — provenance, персистенция и безопасная загрузка весов (наряды №210–№242, ADR-0122/0124/0125)
 
 Столп `Vision` генерирует изображения из `.mlog` (декларация `vision "name" { ... }` + `vision_generate`, наряды №238/№240). С R5 (наряд №241, ADR-0125) каждый сгенерированный артефакт **подписан по построению**: LSB-watermark в PNG (магия `MLGV` + хэш модели) и манифест провенанса (model-id, SHA весов-дерева, seed, хэш промпта, policy, timestamp, SHA итогового PNG). Безопасность — тип, а не процедура.
 
-Здесь документированы **реальные** встроенные функции provenance/загрузки. Семейство `vision_generate`/`vision_list`/`vision_export`/`vision_edit`/`vision_save`/`vision_load` перехватывается диспетчером интерпретатора/VM (состояние реестра) и описано в ADR-0122/0124; `vision_edit/save/load` остаются громкими стабами R6.
+Здесь документированы **реальные** встроенные функции provenance/персистенции/загрузки. Семейство `vision_generate`/`vision_list`/`vision_export`/`vision_export_raw`/`vision_save`/`vision_load`/`vision_edit`/`vision_fetch_weights` перехватывается (или диспетчеризуется) интерпретатором/VM (состояние реестра и/или соединение с БД программы) и описано в ADR-0122/0124; `vision_edit` остаётся громким стабом R6 (№243); `vision_save`/`vision_load` — реальные пути SQLite-персистенции с №242 (R6.1).
 
 | Функция | Сигнатура | Возвращает | Описание |
 |---|---|---|---|
+| `vision_save(handle, name)` | `(Vision, String) -> String` | `String` (имя) | **SQLite-персистенция артефакта** (№242, R6.1). Пишет артефакт (PNG как BLOB + манифест провенанса JSON) в БД программы (декларация `db { url: "sqlite:..." }`) — таблица `vision_artifacts`, персистентный ключ = `name` (id реестра — сессионный хэндл и не персистится). Громкие отказы: нет БД (с подсказкой декларации), пустое имя, коллизия имени (тихая перезапись = тихая потеря provenance-цепочки; upsert/delete вне скоупа №242), unknown handle. Дословный roundtrip: `timestamp` и поля манифеста не перегенерируются. |
+| `vision_load(name)` | `(String) -> Vision` | `Vision` (новый хэндл) | **Загрузка артефакта из БД программы** (№242, R6.1): ровно те байты и тот манифест, что были сохранены (персистенция provenance не перегенерирует и не дополняет). Вставляет в реестр сессии с новым монотонным id. Громкие отказы: нет БД, неизвестное имя (с перечнем сохранённого), битый manifest-JSON в БД (тихая деградация в unsigned запрещена). Артефакт с `manifest: None` грузится как есть и по-прежнему отказывается в signed `vision_export` (`VISION_UNSIGNED_EXPORT`) / работает в `vision_export_raw` — backstop №241 жив после персистенции. |
 | `vision_export_raw(handle, path)` | `(Vision, String) -> String` | `String` (путь) | **Явный opt-out от подписи** (ADR-0125). Пишет PNG-байты артефакта как есть: без watermark, без sidecar-манифеста, без требования подписи. Каждый вызов — audit-Warning `VISION_UNSIGNED_EXPORT_RAW` (advisory, `mlog audit`). Подписанный экспорт (PNG + `<path>.manifest.json`) — через `vision_export`; артефакт без манифеста им не экспортируется (runtime backstop `VISION_UNSIGNED_EXPORT`). |
 | `vision_fetch_weights(manifest_url, dest_dir)` | `(String, String) -> String` | `String` (dest_dir) | **SSRF-guarded, allowlist-gated, SHA-pinned загрузка весов** (ADR-0125 `MODEL_WEIGHTS_UNSAFE`). Слои защиты: (1) allowlist `MLOG_VISION_WEIGHTS_ALLOWLIST` — **default-deny**: env не задан/пуст → громкий отказ до сети; (2) SSRF-guard (`check_url_ssrf`): приватные/loopback/link-local/metadata адреса запрещены, DNS-резолвы пиннятся против rebinding; (3) только `manifest.json`-класс URL (голый `.safetensors` = «нет пина» — отказ; pickle-класс `.pkl/.pt/.pth/.ckpt/.bin/...` — отказ по расширению); (4) SHA-256 pinning каждой записи манифеста (переиспользован `WeightsManifest`) — mismatch = громкий отказ, файл НЕ пишется; имена записей — только bare `*.safetensors`. Статический гейт `MODEL_WEIGHTS_UNSAFE` (audit Error, категория A) дополнительно ловит литеральные URL с SSRF-блокированным хостом, голый `.safetensors` и pickle-класс. Скачанное дерево (`manifest.json` + шарды) потребляется `vision_generate` через `MLOG_VISION_WEIGHTS_DIR` — с повторной SHA-верификацией при загрузке (defense-in-depth). |
 
@@ -1047,6 +1049,20 @@ pattern Fetch(dest: String) -> String {
     return vision_fetch_weights("https://huggingface.co/pkg/manifest.json", dest)
 }
 // затем MLOG_VISION_WEIGHTS_DIR=dest → vision_generate("poster", "...")
+```
+
+**Пример** (персистенция артефакта в БД программы, №242):
+
+```mlog
+db { url: "sqlite:gallery.db" }
+vision "poster" { model: "z-image-turbo" steps: 8 width: 1024 height: 1024 seed: 42 policy: safe profile: fp16 }
+
+pattern Keep(id: Vision, name: String) -> String {
+    return vision_save(id, name)
+}
+// vision_load("poster") в НОВОЙ сессии вернёт ровно те байты и тот
+// манифест, что были сохранены (id будет другим — id сессионный,
+// персистентный ключ — имя).
 ```
 
 ---

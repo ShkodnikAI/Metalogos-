@@ -8,8 +8,8 @@ use super::reflex::{
 // Наряд №210: Vision pillar stub handlers (ADR-0124).
 use super::vision::{
     builtin_vision_edit_stub, builtin_vision_export_raw_stub, builtin_vision_export_stub,
-    builtin_vision_generate_stub, builtin_vision_list_stub, builtin_vision_load_stub,
-    builtin_vision_save_stub,
+    builtin_vision_fetch_weights, builtin_vision_generate_stub, builtin_vision_list_stub,
+    builtin_vision_load_stub, builtin_vision_save_stub,
 };
 use super::*;
 
@@ -560,6 +560,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // path intercepted like vision_export (state-carrying). Every call
     // site is audit-flagged VISION_UNSIGNED_EXPORT_RAW (Warning).
     spec!("vision_export_raw", 2, "vision"; builtin_vision_export_raw_stub),
+    // Наряд №241 (R5, Block 3.2 — ADR-0125 MODEL_WEIGHTS_UNSAFE): REAL
+    // stateless handler (no interception needed — no registry state):
+    // SSRF-guarded (check_url_ssrf, лекало №130), allowlist default-deny
+    // (MLOG_VISION_WEIGHTS_ALLOWLIST), manifest.json-class only, SHA-256
+    // pinned via reused WeightsManifest. Registry 388→389.
+    spec!("vision_fetch_weights", 2, "vision"; builtin_vision_fetch_weights),
     spec!("vision_list", 0, "vision"; builtin_vision_list_stub),
     spec!("vision_save", 2, "vision"; builtin_vision_save_stub),
     spec!("vision_load", 1, "vision"; builtin_vision_load_stub),

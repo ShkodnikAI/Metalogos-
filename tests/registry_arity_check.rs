@@ -140,7 +140,8 @@ fn registry_arity_exhaustive() {
         ("vision_generate", 2, 2),
         ("vision_edit", 2, 2),
         ("vision_export", 2, 2),
-        ("vision_export_raw", 2, 2), // Наряд №241 Block 2.1
+        ("vision_export_raw", 2, 2),    // Наряд №241 Block 2.1
+        ("vision_fetch_weights", 2, 2), // Наряд №241 Block 3.2 (real handler)
         ("vision_save", 2, 2),
         ("vision_load", 1, 1),
         // ── System builtins ──

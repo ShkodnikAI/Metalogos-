@@ -47,7 +47,7 @@ fn plan_example_compiles_with_vision_decls_1to1() {
     assert_eq!(v.width, 1024);
     assert_eq!(v.height, 1024);
     assert_eq!(v.seed, 42);
-    assert_eq!(v.policy, CompiledVisionPolicy::Safe);
+    assert_eq!(v.policy, Some(CompiledVisionPolicy::Safe));
     assert_eq!(v.profile, CompiledVisionProfile::Fp16);
 }
 
@@ -182,7 +182,7 @@ fn generate_runtime_model_recheck_loud_error() {
             width: 1024,
             height: 1024,
             seed: 42,
-            policy: CompiledVisionPolicy::Safe,
+            policy: Some(CompiledVisionPolicy::Safe),
             profile: CompiledVisionProfile::Fp16,
         }],
         db_url: None,
@@ -246,9 +246,11 @@ fn vision_list_after_insert_sorted_by_id() {
     let mut registry = VisionRegistry::new();
     let id0 = registry.insert(VisionArtifact {
         png_bytes: vec![1, 2, 3],
+        manifest: None,
     });
     let id1 = registry.insert(VisionArtifact {
         png_bytes: vec![4, 5, 6],
+        manifest: None,
     });
     assert_eq!(id0, VisionId(0));
     assert_eq!(id1, VisionId(1));

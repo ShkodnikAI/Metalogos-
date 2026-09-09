@@ -253,7 +253,10 @@ fn generate_real(
         seed: decl.seed,
         prompt_sha256: crate::vision::provenance::prompt_hash(prompt),
         policy: match decl.policy {
-            crate::ast::VisionPolicy::Safe => "safe".to_string(),
+            Some(crate::bytecode::CompiledVisionPolicy::Safe) => "safe".to_string(),
+            // Наряд №241 (Block 3.1): omitted policy → the honest marker
+            // "unspecified" in the manifest (ADR-0125 policy-relax).
+            None => "unspecified".to_string(),
         },
         timestamp: chrono::Utc::now().to_rfc3339(),
         png_sha256: crate::vision::provenance::sha256_hex(&png_bytes),
@@ -401,6 +404,291 @@ pub fn vision_export_raw_dispatch(
     std::fs::write(&path, &artifact.png_bytes)
         .map_err(|e| format!("vision_export_raw: write to {}: {}", path, e))?;
     Ok(Value::String(path))
+}
+
+/// `vision_fetch_weights(manifest_url, dest_dir) -> String`
+///
+/// **SSRF-guarded, allowlist-gated, SHA-pinned weights fetching**
+/// (Наряд №241, Block 3.2 — ADR-0125 `MODEL_WEIGHTS_UNSAFE`; the
+/// compiler-side SSOT gate shared with the Voice pillar lives in
+/// `src/audit.rs`, this is the real enforcement path).
+///
+/// Contract:
+/// 1. **Allowlist default-deny** (loud): env `MLOG_VISION_WEIGHTS_ALLOWLIST`
+///    = comma-separated hostnames. Unset/empty → loud refusal — downloading
+///    is FORBIDDEN until the operator names the hosts (Block 3.2в).
+/// 2. **SSRF-guard** (лекало №130): `check_url_ssrf` resolves DNS, refuses
+///    private/loopback/link-local/metadata targets, returns pinned
+///    addresses; the kill-switch `METALOGOS_HTTP_ALLOW_PRIVATE` keeps its
+///    exact pre-existing semantics (not weakened).
+/// 3. **manifest.json-class only**: the URL points at the weights manifest
+///    (path ending `manifest.json`) or at the package base (we append
+///    `/manifest.json`). A bare `.safetensors` URL is refused — no manifest,
+///    no pin source. Pickle-RCE-class extensions are refused by extension,
+///    loudly.
+/// 4. **SHA-256 pinning** (reuses `WeightsManifest`, `src/vision/weights.rs`
+///    is NOT modified): the fetched manifest lists `filename`+`sha256`;
+///    every file is downloaded into memory, hashed, compared against the
+///    pin — mismatch is a loud Err naming expected/computed SHA and the
+///    file is NOT written. Entries must be bare `.safetensors` filenames
+///    (no path separators, no traversal).
+///
+/// The downloaded tree (`manifest.json` + shards) is directly consumable
+/// by `vision_generate` via `MLOG_VISION_WEIGHTS_DIR` (weights.rs verifies
+/// SHAs again at load time — defense-in-depth, same pins).
+pub(crate) fn builtin_vision_fetch_weights(args: &[Value]) -> Result<Value, String> {
+    let url = match args.first() {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => {
+            return Err(format!(
+                "vision_fetch_weights: first argument must be the manifest URL (String), got {}",
+                value_type_name(other)
+            ))
+        }
+        None => {
+            return Err(
+                "vision_fetch_weights: expects 2 arguments (manifest_url, dest_dir)".to_string(),
+            )
+        }
+    };
+    let dest_dir = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => {
+            return Err(format!(
+                "vision_fetch_weights: second argument must be the destination directory (String), got {}",
+                value_type_name(other)
+            ))
+        }
+        None => return Err("vision_fetch_weights: expects 2 arguments (manifest_url, dest_dir)".to_string()),
+    };
+    if args.len() != 2 {
+        return Err(format!(
+            "vision_fetch_weights: expects 2 arguments (manifest_url, dest_dir), got {}",
+            args.len()
+        ));
+    }
+
+    // (в) Allowlist — DEFAULT-DENY. Empty/unset env = loud refusal before
+    // any network activity (contract test asserts no side effects).
+    let allowlist_raw = std::env::var("MLOG_VISION_WEIGHTS_ALLOWLIST").map_err(|_| {
+        "MODEL_WEIGHTS_UNSAFE: MLOG_VISION_WEIGHTS_ALLOWLIST is not set — weights \
+         downloading is default-deny (ADR-0125); set it to a comma-separated \
+         list of trusted hostnames to enable vision_fetch_weights"
+            .to_string()
+    })?;
+    let allowlist: Vec<String> = allowlist_raw
+        .split(',')
+        .map(|h| h.trim().to_lowercase())
+        .filter(|h| !h.is_empty())
+        .collect();
+    if allowlist.is_empty() {
+        return Err(
+            "MODEL_WEIGHTS_UNSAFE: MLOG_VISION_WEIGHTS_ALLOWLIST is empty — weights \
+             downloading is default-deny (ADR-0125)"
+                .to_string(),
+        );
+    }
+
+    // URL parsing + host allowlist match (case-insensitive).
+    let parsed = reqwest::Url::parse(&url)
+        .map_err(|e| format!("vision_fetch_weights: invalid URL '{}': {}", url, e))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| format!("vision_fetch_weights: URL '{}' has no host", url))?
+        .to_lowercase();
+    if !allowlist.contains(&host) {
+        return Err(format!(
+            "MODEL_WEIGHTS_UNSAFE: host '{}' is not in MLOG_VISION_WEIGHTS_ALLOWLIST \
+             (allowed: {}) — refusing to download weights (ADR-0125)",
+            host,
+            allowlist.join(", ")
+        ));
+    }
+
+    // (а) SSRF-guard — лекало №130. Refuses private/loopback/link-local/
+    // metadata targets; returns pinned addresses (DNS-rebinding protection).
+    // Kill-switch semantics unchanged.
+    let resolves = crate::builtins::http::check_url_ssrf(&url)?;
+
+    // (б) manifest.json-class only: manifest URL or package base.
+    let path = parsed.path().to_lowercase();
+    if path.ends_with(".safetensors") {
+        return Err(format!(
+            "MODEL_WEIGHTS_UNSAFE: '{}' points at a bare weights file — no manifest, \
+             no pinned SHA-256 source; fetch the manifest.json of the package instead \
+             (ADR-0125)",
+            url
+        ));
+    }
+    const PICKLE_CLASS: &[&str] = &[
+        ".pkl", ".pickle", ".pt", ".pth", ".ckpt", ".bin", ".py", ".so", ".dll", ".exe", ".zip",
+        ".tar", ".gz", ".7z",
+    ];
+    if PICKLE_CLASS.iter().any(|ext| path.ends_with(ext)) {
+        return Err(format!(
+            "MODEL_WEIGHTS_UNSAFE: '{}' is not a manifest.json-class URL — \
+             pickle-RCE-class weight formats are refused by extension (ADR-0125)",
+            url
+        ));
+    }
+    let manifest_url = if path.ends_with("manifest.json") {
+        url.clone()
+    } else {
+        format!("{}/manifest.json", url.trim_end_matches('/'))
+    };
+
+    // (г) Fetch + pin + write. The weights-verification stack
+    // (`WeightsManifest`, `src/vision/weights.rs`) is vision-gated — in a
+    // non-vision build the security layers above (allowlist default-deny,
+    // SSRF guard, URL-class refusals) still fire loudly, and the actual
+    // download is an honest environment refusal (same discipline as
+    // vision_generate's non-gated refusal).
+    #[cfg(feature = "vision")]
+    {
+        // Client with SSRF-pinned resolves (same builder pattern as http.rs).
+        let mut builder =
+            reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(600));
+        for (domain, addr) in resolves {
+            builder = builder.resolve(&domain, addr);
+        }
+        let client = builder
+            .build()
+            .map_err(|e| format!("vision_fetch_weights: client build failed: {}", e))?;
+        fetch_and_pin_weights(&client, &manifest_url, &dest_dir)?;
+        Ok(Value::String(dest_dir))
+    }
+    #[cfg(not(feature = "vision"))]
+    {
+        let _ = (manifest_url, dest_dir, resolves);
+        Err(format!(
+            "vision_fetch_weights: this build was compiled WITHOUT the `vision` feature — \
+             weights verification (pinned SHA-256 via WeightsManifest) requires \
+             `--features vision` (security layers already enforced: allowlist '{}', \
+             SSRF guard, manifest.json-class check — loud refusal, not a placeholder)",
+            host
+        ))
+    }
+}
+
+/// The gated download-and-pin body (Наряд №241 Block 3.2г): fetch the
+/// manifest, parse it via REUSED `WeightsManifest` (src/vision/weights.rs
+/// NOT modified), then per-entry fetch → SHA-256 pin verification →
+/// write. Mismatch = loud Err, file NEVER written.
+#[cfg(feature = "vision")]
+fn fetch_and_pin_weights(
+    client: &reqwest::blocking::Client,
+    manifest_url: &str,
+    dest_dir: &str,
+) -> Result<(), String> {
+    let fetch = |url: &str| -> Result<bytes::Bytes, String> {
+        let resp = client
+            .get(url)
+            .send()
+            .map_err(|e| format!("vision_fetch_weights: GET {} failed: {}", url, e))?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(format!(
+                "vision_fetch_weights: GET {} returned HTTP {}",
+                url, status
+            ));
+        }
+        resp.bytes().map_err(|e| {
+            format!(
+                "vision_fetch_weights: reading body of {} failed: {}",
+                url, e
+            )
+        })
+    };
+
+    let manifest_bytes = fetch(manifest_url)?;
+    let dest = std::path::PathBuf::from(dest_dir);
+    std::fs::create_dir_all(&dest).map_err(|e| {
+        format!(
+            "vision_fetch_weights: cannot create {}: {}",
+            dest.display(),
+            e
+        )
+    })?;
+    let manifest_path = dest.join("manifest.json");
+    std::fs::write(&manifest_path, &manifest_bytes).map_err(|e| {
+        format!(
+            "vision_fetch_weights: cannot write {}: {}",
+            manifest_path.display(),
+            e
+        )
+    })?;
+    let manifest =
+        crate::vision::weights::WeightsManifest::load_from_dir(&dest)?.ok_or_else(|| {
+            "vision_fetch_weights: manifest.json vanished between write and load (filesystem race)"
+                .to_string()
+        })?;
+    if manifest.entries.is_empty() {
+        return Err(format!(
+            "vision_fetch_weights: manifest at {} has no entries — nothing pinned to fetch",
+            manifest_url
+        ));
+    }
+
+    let base = manifest_url
+        .trim_end_matches("manifest.json")
+        .trim_end_matches('/');
+    let mut total_bytes: u64 = 0;
+    for entry in &manifest.entries {
+        // Filename hygiene: bare .safetensors names only — no paths, no
+        // traversal, no pickle-class surprises smuggled via the manifest.
+        let name = entry.filename.as_str();
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err(format!(
+                "MODEL_WEIGHTS_UNSAFE: manifest entry '{}' is not a bare filename — \
+                 path separators/traversal are refused (ADR-0125)",
+                name
+            ));
+        }
+        if !name.ends_with(".safetensors") {
+            return Err(format!(
+                "MODEL_WEIGHTS_UNSAFE: manifest entry '{}' is not a .safetensors file — \
+                 pickle-RCE-class weight formats are refused (ADR-0125)",
+                name
+            ));
+        }
+        let file_url = format!("{}/{}", base, name);
+        let file_bytes = fetch(&file_url)?;
+        crate::vision::provenance::verify_sha_pin(name, &entry.sha256, &file_bytes)?;
+        if let Some(want) = entry.bytes {
+            if file_bytes.len() as u64 != want {
+                return Err(format!(
+                    "MODEL_WEIGHTS_UNSAFE: byte-count mismatch for '{}' — manifest says {}, \
+                     got {} (file NOT written)",
+                    name,
+                    want,
+                    file_bytes.len()
+                ));
+            }
+        }
+        let file_path = dest.join(name);
+        std::fs::write(&file_path, &file_bytes).map_err(|e| {
+            format!(
+                "vision_fetch_weights: cannot write {}: {}",
+                file_path.display(),
+                e
+            )
+        })?;
+        total_bytes += file_bytes.len() as u64;
+        eprintln!(
+            "vision_fetch_weights: {} SHA-256 OK ({}) — {} bytes",
+            name,
+            crate::vision::provenance::sha256_hex(&file_bytes),
+            file_bytes.len()
+        );
+    }
+
+    eprintln!(
+        "vision_fetch_weights: {} file(s), {} bytes total, written to {} (SSRF-guarded, SHA-pinned)",
+        manifest.entries.len(),
+        total_bytes,
+        dest.display()
+    );
+    Ok(())
 }
 
 /// Human-readable type name for loud argument errors.

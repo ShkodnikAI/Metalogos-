@@ -518,9 +518,7 @@ pub fn vision_load_dispatch(
         Some(a) => a,
         None => {
             let listed = match crate::vision::store::list(conn) {
-                Ok(names) if names.is_empty() => {
-                    "nothing saved in this database yet".to_string()
-                }
+                Ok(names) if names.is_empty() => "nothing saved in this database yet".to_string(),
                 Ok(names) => names
                     .iter()
                     .map(|n| format!("\"{}\"", n))

@@ -1579,7 +1579,11 @@ impl Interpreter {
                         .db_conn
                         .lock()
                         .map_err(|e| format!("db lock error: {}", e))?;
-                    return crate::builtins::vision_load_dispatch(&mut reg, db.as_ref(), &eval_args);
+                    return crate::builtins::vision_load_dispatch(
+                        &mut reg,
+                        db.as_ref(),
+                        &eval_args,
+                    );
                 }
 
                 // Check recall (memory) first

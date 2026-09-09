@@ -125,14 +125,10 @@ pub fn save(
 /// - Broken manifest JSON → loud Err (Block 1.3: silently returning
 ///   `None`-manifest here would quietly strip provenance while the bytes
 ///   keep flowing — the forbidden degradation).
-pub fn load(
-    conn: &rusqlite::Connection,
-    name: &str,
-) -> Result<Option<VisionArtifact>, String> {
+pub fn load(conn: &rusqlite::Connection, name: &str) -> Result<Option<VisionArtifact>, String> {
     if name.is_empty() {
         return Err(
-            "vision_load: artifact name is empty — a non-empty name is required"
-                .to_string(),
+            "vision_load: artifact name is empty — a non-empty name is required".to_string(),
         );
     }
     ensure_table(conn)?;
@@ -158,16 +154,14 @@ pub fn load(
     let manifest = match manifest_json {
         // NULL ⇔ None — the unsigned artifact stays unsigned, verbatim.
         None => None,
-        Some(json) => {
-            Some(serde_json::from_str::<VisionManifest>(&json).map_err(|e| {
-                format!(
-                    "vision_load: manifest JSON for '{}' is corrupted ({}) — \
+        Some(json) => Some(serde_json::from_str::<VisionManifest>(&json).map_err(|e| {
+            format!(
+                "vision_load: manifest JSON for '{}' is corrupted ({}) — \
                      refusing to degrade it to an unsigned artifact; provenance \
                      must not be quietly lost (naryad №242 Block 1.3)",
-                    name, e
-                )
-            })?)
-        }
+                name, e
+            )
+        })?),
     };
     Ok(Some(VisionArtifact {
         png_bytes,
@@ -294,8 +288,7 @@ mod tests {
             rusqlite::params!["{ not json", "broken"],
         )
         .expect("corrupt the manifest_json column");
-        let err = load(&conn, "broken")
-            .expect_err("corrupted manifest must be a loud error");
+        let err = load(&conn, "broken").expect_err("corrupted manifest must be a loud error");
         assert!(
             err.contains("corrupted"),
             "err must name the corruption: {}",

@@ -99,56 +99,98 @@ fn vision_generate_loud_error_vm() {
     );
 }
 
-// ── Test 4: all other vision_* builtins give loud errors ────────
+// ── Test 4: vision_edit stub + the real save/load refusals ───────
 //
 // Наряд №240: vision_export left this stub group — it is a REAL path now
 // (typed Vision handle + path, loud wrong-type refusal below).
+// Наряд №242 (R6.1): vision_save/vision_load left the stub group too —
+// real SQLite persistence (src/vision/store.rs); their R1 stub texts
+// ("naryad 210", "naryad 214/215") are gone by mandated doc truth-up.
+// vision_edit remains a loud stub until №243.
 
+/// The R1 stub contract holds for vision_edit ONLY (since №242): loud
+/// refusal naming the naryad that will implement it.
 #[test]
-fn vision_edit_save_load_loud_errors() {
-    let builtins = [
-        ("vision_edit", r#"vision_edit("handle", "prompt")"#),
-        ("vision_save", r#"vision_save("handle", "name")"#),
-        ("vision_load", r#"vision_load("name")"#),
-    ];
-
-    for (name, call) in &builtins {
-        let source = format!(
-            r#"
-            pattern Test(_x: String) -> String {{
-                {}
+fn vision_edit_stub_still_loud() {
+    let source = r#"
+            pattern Test(_x: String) -> String {
+                vision_edit("handle", "prompt")
                 return "unreachable"
-            }}
-            flow Main {{ input: String = "x" -> Test -> output }}
-            "#,
-            call
-        );
-        let result = metalogos::run_program(&source);
-        assert!(
-            result.is_err(),
-            "{} must return an error, not succeed",
-            name
-        );
-        let err = result.unwrap_err();
-        assert!(
-            err.contains(name),
-            "error for {} must contain the builtin name: {}",
-            name,
-            err
-        );
-        assert!(
-            err.contains("naryad 210"),
-            "error for {} must contain 'naryad 210': {}",
-            name,
-            err
-        );
-        assert!(
-            err.contains("loud refusal"),
-            "error for {} must contain 'loud refusal': {}",
-            name,
-            err
-        );
-    }
+            }
+            flow Main { input: String = "x" -> Test -> output }
+            "#;
+    let result = metalogos::run_program(source);
+    let err = result.expect_err("vision_edit must return an error, not succeed");
+    assert!(
+        err.contains("vision_edit"),
+        "error for vision_edit must contain the builtin name: {}",
+        err
+    );
+    assert!(
+        err.contains("naryad 210"),
+        "error for vision_edit must contain 'naryad 210': {}",
+        err
+    );
+    assert!(
+        err.contains("loud refusal"),
+        "error for vision_edit must contain 'loud refusal': {}",
+        err
+    );
+}
+
+/// №242: vision_save is a REAL path — a String where a Vision handle is
+/// expected is a loud typed refusal (same shape as vision_export since
+/// №240; the type check fires before the db check).
+#[test]
+fn vision_save_wrong_handle_type_loud_error() {
+    let source = r#"
+            pattern Test(_x: String) -> String {
+                vision_save("handle", "name")
+                return "unreachable"
+            }
+            flow Main { input: String = "x" -> Test -> output }
+            "#;
+    let err = metalogos::run_program(source).expect_err("wrong handle type must fail loudly");
+    assert!(
+        err.contains("vision_save"),
+        "error must contain 'vision_save': {}",
+        err
+    );
+    assert!(
+        err.contains("must be a Vision handle"),
+        "error must state the typed handle contract: {}",
+        err
+    );
+}
+
+/// №242: vision_load is a REAL path — with a correctly-typed argument but
+/// no `db { url: ... }` declaration, the refusal is the loud no-db error
+/// naming the declaration (Block 2.1), not a stub text.
+#[test]
+fn vision_load_no_db_loud_error() {
+    let source = r#"
+            pattern Test(_x: String) -> String {
+                vision_load("name")
+                return "unreachable"
+            }
+            flow Main { input: String = "x" -> Test -> output }
+            "#;
+    let err = metalogos::run_program(source).expect_err("no-db load must fail loudly");
+    assert!(
+        err.contains("vision_load"),
+        "error must contain 'vision_load': {}",
+        err
+    );
+    assert!(
+        err.contains("no database connection"),
+        "error must name the missing component: {}",
+        err
+    );
+    assert!(
+        err.contains("db { url:"),
+        "error must name HOW to enable persistence (№242 Block 2.1): {}",
+        err
+    );
 }
 
 /// Наряд №240: vision_export is a real path — a String where a Vision

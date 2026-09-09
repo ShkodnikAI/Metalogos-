@@ -313,3 +313,66 @@ fn vision_generate_registered_arity_is_3() {
         idx
     );
 }
+
+// ── Наряд №244 (R6.3): the LoRA builtins are REAL paths ──────────────
+//
+// vision_lora_load / vision_lora_generate left the stub group — real
+// SQLite-BLOB persistence (ADR-0124 §6) + adapter application. The
+// no-db/typed refusals below are the real-path contract tests (№240/№242/
+// №243 precedent). File test count: 11 → 13 (truth-up declared in PR
+// №242 with the actual artifact).
+
+/// №244: vision_lora_load is a REAL path — with correctly-typed arguments
+/// but no `db { url: ... }` declaration, the refusal is the loud no-db
+/// error naming the declaration (ADR-0124 §6: the adapter's ONLY home is
+/// SQLite), not a stub text.
+#[test]
+fn vision_lora_load_no_db_loud_error() {
+    let source = r#"
+            pattern Test(_x: String) -> String {
+                vision_lora_load("name", "lora/adapter.safetensors")
+                return "unreachable"
+            }
+            flow Main { input: String = "x" -> Test -> output }
+            "#;
+    let err = metalogos::run_program(source).expect_err("no-db load must fail loudly");
+    assert!(
+        err.contains("vision_lora_load"),
+        "error must contain 'vision_lora_load': {}",
+        err
+    );
+    assert!(
+        err.contains("no database connection"),
+        "error must name the missing component: {}",
+        err
+    );
+    assert!(
+        err.contains("db { url:"),
+        "error must name HOW to enable persistence: {}",
+        err
+    );
+}
+
+/// №244: vision_lora_generate arity contract — 2 arguments is a loud
+/// refusal with the 3-arity contract (лекало vision_edit's arity refusal).
+#[test]
+fn vision_lora_generate_wrong_arity_loud_error() {
+    let source = r#"
+            pattern Test(_x: String) -> String {
+                vision_lora_generate("poster", "prompt")
+                return "unreachable"
+            }
+            flow Main { input: String = "x" -> Test -> output }
+            "#;
+    let err = metalogos::run_program(source).expect_err("arity 2 must fail loudly");
+    assert!(
+        err.contains("vision_lora_generate"),
+        "error must contain 'vision_lora_generate': {}",
+        err
+    );
+    assert!(
+        err.contains("expects 3 arguments"),
+        "error must state the arity contract: {}",
+        err
+    );
+}

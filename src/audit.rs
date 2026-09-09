@@ -1192,6 +1192,30 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                         }
                     }
                 }
+
+                // Наряд №240 (Vision R4.2): vision_generate positional logic
+                // (plan §4, лекало n201 reflex_train). Arg 0 is the
+                // declaration name (not data); arg 1 is the prompt — if it
+                // carries UserInput taint (form_data/json_body/query_param),
+                // emit an audit-WARNING, NOT a Category-A error: submitting a
+                // user-typed image prompt is a legitimate use case; the
+                // prompt will be recorded in the generation manifest (R5).
+                // No taint is placed on Value::Vision (opaque handle —
+                // plan §4); the print-guard on the handle already stands.
+                if fn_name == "vision_generate" {
+                    if let Some(arg) = args.get(1) {
+                        if get_expr_taint(arg, tracker) == Some(TaintKind::UserInput) {
+                            let line = find_line(source, fn_name);
+                            findings.push(AuditFinding {
+                                severity: Severity::Warning,
+                                check_id: "VISION_PROMPT_USER_INPUT",
+                                line,
+                                message: "user input used as vision_generate prompt — prompt will be recorded in the generation manifest (R5); unsigned export gates are R5"
+                                    .to_string(),
+                            });
+                        }
+                    }
+                }
             }
         }
 

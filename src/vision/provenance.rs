@@ -53,7 +53,14 @@ pub struct VisionManifest {
     /// Weights-tree fingerprint: SHA-256 over the sorted
     /// `filename=sha256` lines of the pinned `manifest.json`; the honest
     /// marker `"unpinned"` when no manifest.json is present (see module
-    /// docs — the absence of pinning is loud, never faked).
+    /// docs — the absence of pinning is loud, never faked). Наряд №244
+    /// (R6.3): on the `vision_lora_generate` path this field carries the
+    /// COMPOSITE fingerprint
+    /// `sha256("{base}\nlora:{name}:{lora_sha256}")` — the base weights
+    /// fingerprint composed with the applied adapter's identity (honest
+    /// over the `"unpinned"` marker too); the watermark stays the BASE
+    /// model (an adapter is a delta, not a model). Formula:
+    /// `crate::builtins::vision::vision_lora_composite_model_sha256`.
     pub model_sha256: String,
     /// Fixed generation seed (reproducibility by construction, ADR-0124).
     pub seed: u64,

@@ -186,9 +186,11 @@ pub use reflex::{
 };
 // Наряд №240 (Vision R4.2): real-path dispatch functions (shared by the
 // interpreter and the VM) + last-resort registry stubs.
+// Наряд №242 (R6.1): vision_save/vision_load dispatches joined the family
+// (state-carrying + the program's db connection).
 pub use vision::{
     vision_export_dispatch, vision_export_raw_dispatch, vision_generate_dispatch,
-    vision_list_dispatch,
+    vision_list_dispatch, vision_load_dispatch, vision_save_dispatch,
 };
 
 impl Default for Builtins {

@@ -567,6 +567,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // pinned via reused WeightsManifest. Registry 388→389.
     spec!("vision_fetch_weights", 2, "vision"; builtin_vision_fetch_weights),
     spec!("vision_list", 0, "vision"; builtin_vision_list_stub),
+    // Наряд №242 (R6.1): vision_save/vision_load — real SQLite persistence
+    // (crate::vision::store), intercepted like the rest of the vision
+    // family (state-carrying PLUS the program's db connection). These
+    // specs remain the last-resort handlers + the arity contract. Registry
+    // count UNCHANGED (389): both builtins existed here since №210 — this
+    // naryad replaces their stub bodies with real dispatch paths.
     spec!("vision_save", 2, "vision"; builtin_vision_save_stub),
     spec!("vision_load", 1, "vision"; builtin_vision_load_stub),
 ];

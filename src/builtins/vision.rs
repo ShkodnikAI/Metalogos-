@@ -15,8 +15,11 @@
 //! **Loud refusal discipline (§3.5):** `vision_generate` performs a real
 //! pipeline; missing `MLOG_VISION_WEIGHTS_DIR` or missing weights components
 //! is an honest environment refusal (loud `Err` naming the env var and the
-//! missing component) — NOT a silent stub. `vision_edit`, `vision_save`,
-//! `vision_load` remain loud stubs (R6: edit + LoRA/SQLite).
+//! missing component) — NOT a silent stub. `vision_edit` remains a loud
+//! stub (R6 edit — №243). `vision_save`/`vision_load` became real
+//! SQLite-persistence dispatches in №242 (R6.1, `src/vision/store.rs`) —
+//! the same state-carrying interception pattern plus the program's
+//! database connection (`db { url: "sqlite:..." }`).
 //!
 //! Every handler either returns `Ok` with a real result or `Err` with a
 //! message naming the failure. It does NOT return placeholder values,
@@ -406,6 +409,135 @@ pub fn vision_export_raw_dispatch(
     Ok(Value::String(path))
 }
 
+/// `vision_save(handle, name) -> String`
+///
+/// **SQLite persistence of vision artifacts** (Наряд №242, R6.1 — the
+/// first third of R6 "Edit + LoRA", plan §7.1). Writes the artifact
+/// (PNG bytes as a BLOB + provenance manifest JSON) into the program's
+/// own database — the connection declared via `db { url: "sqlite:..." }`
+/// — through `crate::vision::store`. The name is the persistent key; the
+/// registry id is a session handle and is NOT persisted (prerequisites
+/// №242: id — сессионный хэндл, персистентный ключ = name).
+///
+/// Loud refusals (§3.5): no database configured (names the `db`-decl),
+/// empty name, name collision (plain INSERT — a silent upsert would
+/// quietly destroy the stored artifact's provenance chain), unknown
+/// handle. PNG bytes never touch the disk here — the DB BLOB is the
+/// whole store (disk is export territory).
+pub fn vision_save_dispatch(
+    registry: &VisionRegistry,
+    db_conn: Option<&rusqlite::Connection>,
+    args: &[Value],
+) -> Result<Value, String> {
+    if args.len() != 2 {
+        return Err(format!(
+            "vision_save: expects 2 arguments (handle, name), got {}",
+            args.len()
+        ));
+    }
+    let id = match &args[0] {
+        Value::Vision(id) => *id,
+        other => {
+            return Err(format!(
+                "vision_save: first argument must be a Vision handle, got {}",
+                value_type_name(other)
+            ))
+        }
+    };
+    let name = match &args[1] {
+        Value::String(s) => s.clone(),
+        other => {
+            return Err(format!(
+                "vision_save: second argument must be the artifact name (String), got {}",
+                value_type_name(other)
+            ))
+        }
+    };
+    let artifact = registry.get(id).ok_or_else(|| {
+        format!(
+            "vision_save: vision handle [Vision#{}] not found in the registry \
+             (was it generated in this session? registry handles do not persist \
+             across runs — persistence goes through vision_save)",
+            id.0
+        )
+    })?;
+    let conn = db_conn.ok_or_else(|| {
+        "vision_save: no database connection — vision persistence requires the \
+         program's SQLite database; declare db { url: \"sqlite:vision.db\" } (or \
+         db { url: \"sqlite::memory:\" }) in the program first"
+            .to_string()
+    })?;
+    crate::vision::store::save(conn, &name, artifact)?;
+    Ok(Value::String(name))
+}
+
+/// `vision_load(name) -> Vision`
+///
+/// **SQLite persistence of vision artifacts** (Наряд №242, R6.1). Reads
+/// the artifact saved under `name` back from the program's database and
+/// inserts it into THIS session's registry, returning a fresh handle.
+///
+/// Verbatim contract (Block 1.3): the bytes and the manifest come out of
+/// the DB exactly as they went in — persistence NEVER regenerates or
+/// supplements provenance (the original generation `timestamp`
+/// survives). A fresh registry id is assigned (`registry.insert` is
+/// monotonic from zero) — ids are session handles, the name is the
+/// persistent key.
+///
+/// Loud refusals: no database configured, unknown name (with the list of
+/// saved names as loud diagnostics), corrupted manifest JSON in the DB
+/// (degrading it to an unsigned artifact would quietly strip provenance
+/// — forbidden, Block 1.3).
+pub fn vision_load_dispatch(
+    registry: &mut VisionRegistry,
+    db_conn: Option<&rusqlite::Connection>,
+    args: &[Value],
+) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err(format!(
+            "vision_load: expects 1 argument (name), got {}",
+            args.len()
+        ));
+    }
+    let name = match &args[0] {
+        Value::String(s) => s.clone(),
+        other => {
+            return Err(format!(
+                "vision_load: argument must be the artifact name (String), got {}",
+                value_type_name(other)
+            ))
+        }
+    };
+    let conn = db_conn.ok_or_else(|| {
+        "vision_load: no database connection — vision persistence requires the \
+         program's SQLite database; declare db { url: \"sqlite:vision.db\" } (or \
+         db { url: \"sqlite::memory:\" }) in the program first"
+            .to_string()
+    })?;
+    let artifact = match crate::vision::store::load(conn, &name)? {
+        Some(a) => a,
+        None => {
+            let listed = match crate::vision::store::list(conn) {
+                Ok(names) if names.is_empty() => {
+                    "nothing saved in this database yet".to_string()
+                }
+                Ok(names) => names
+                    .iter()
+                    .map(|n| format!("\"{}\"", n))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                Err(e) => format!("could not list saved names: {}", e),
+            };
+            return Err(format!(
+                "vision_load: no artifact named '{}' in vision_artifacts (saved: {})",
+                name, listed
+            ));
+        }
+    };
+    let id = registry.insert(artifact);
+    Ok(Value::Vision(id))
+}
+
 /// `vision_fetch_weights(manifest_url, dest_dir) -> String`
 ///
 /// **SSRF-guarded, allowlist-gated, SHA-pinned weights fetching**
@@ -717,26 +849,6 @@ pub(crate) fn builtin_vision_edit_stub(_args: &[Value]) -> Result<Value, String>
     )
 }
 
-/// `vision_save(handle, name) -> String`
-///
-/// **Not implemented** — R6 (SQLite persistence of vision artifacts).
-pub(crate) fn builtin_vision_save_stub(_args: &[Value]) -> Result<Value, String> {
-    Err("vision_save: Vision save is not implemented in this build \
-         (naryad 210 skeleton; real implementation lands in R6, naryad 214/215, \
-         per ADR-0122). This is a loud refusal, not a placeholder result."
-        .to_string())
-}
-
-/// `vision_load(name) -> Vision`
-///
-/// **Not implemented** — R6 (SQLite persistence of vision artifacts).
-pub(crate) fn builtin_vision_load_stub(_args: &[Value]) -> Result<Value, String> {
-    Err("vision_load: Vision load is not implemented in this build \
-         (naryad 210 skeleton; real implementation lands in R6, naryad 214/215, \
-         per ADR-0122). This is a loud refusal, not a placeholder result."
-        .to_string())
-}
-
 // ── Last-resort stubs for the registry (Наряд №240) ──────────────────
 //
 // `vision_generate` / `vision_list` / `vision_export` are intercepted by
@@ -784,6 +896,35 @@ pub(crate) fn builtin_vision_export_raw_stub(_args: &[Value]) -> Result<Value, S
         "vision_export_raw: reached the generic builtin registry — this builtin is \
          intercepted by the interpreter/VM dispatch (Наряд №241) which owns the \
          vision registry; direct registry calls are not supported (loud refusal)"
+            .to_string(),
+    )
+}
+
+/// Last-resort stub — real path is the intercepted `vision_save_dispatch`
+/// (Наряд №242 R6.1: state-carrying like `vision_export` PLUS the
+/// program's SQLite connection, which the stateless `fn(&[Value])`
+/// registry signature cannot carry). Supersedes the R1-era loud stub
+/// that referenced the obsolete "naryad 214/215" numbering (R0-epoch).
+pub(crate) fn builtin_vision_save_stub(_args: &[Value]) -> Result<Value, String> {
+    Err(
+        "vision_save: reached the generic builtin registry — this builtin is \
+         intercepted by the interpreter/VM dispatch (Наряд №242) which owns the \
+         vision registry and the database connection; direct registry calls are \
+         not supported (loud refusal)"
+            .to_string(),
+    )
+}
+
+/// Last-resort stub — real path is the intercepted `vision_load_dispatch`
+/// (Наряд №242 R6.1; same state-carrying pattern as `vision_save`).
+/// Supersedes the R1-era loud stub that referenced the obsolete
+/// "naryad 214/215" numbering (R0-epoch).
+pub(crate) fn builtin_vision_load_stub(_args: &[Value]) -> Result<Value, String> {
+    Err(
+        "vision_load: reached the generic builtin registry — this builtin is \
+         intercepted by the interpreter/VM dispatch (Наряд №242) which owns the \
+         vision registry and the database connection; direct registry calls are \
+         not supported (loud refusal)"
             .to_string(),
     )
 }

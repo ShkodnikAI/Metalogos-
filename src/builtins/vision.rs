@@ -239,7 +239,30 @@ fn generate_real(
     let img = img.to_dtype(DType::F32).map_err(|e| e.to_string())?;
     let png_bytes = crate::vision::vae::encode_png(&img)?;
 
-    let id = registry.insert(VisionArtifact { png_bytes });
+    // ── Наряд №241 (R5, Block 1.3): sign ALWAYS — no unsigned artifact
+    // can ever reach the registry. The PNG gets the LSB watermark; the
+    // artifact carries the provenance manifest (final-PNG SHA is
+    // computed AFTER the watermark, so it describes exactly the bytes
+    // the default export ships). Every signing failure is a loud `Err`
+    // BEFORE insertion — a silent "unmarked but registered" outcome is
+    // forbidden (ADR-0125: security is a type, not a procedure).
+    let png_bytes = crate::vision::provenance::embed_lsb_watermark(&png_bytes, &decl.model)?;
+    let manifest = crate::vision::provenance::VisionManifest {
+        model_id: decl.model.clone(),
+        model_sha256: crate::vision::provenance::weights_tree_sha256(&weights_dir)?,
+        seed: decl.seed,
+        prompt_sha256: crate::vision::provenance::prompt_hash(prompt),
+        policy: match decl.policy {
+            crate::ast::VisionPolicy::Safe => "safe".to_string(),
+        },
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        png_sha256: crate::vision::provenance::sha256_hex(&png_bytes),
+    };
+
+    let id = registry.insert(VisionArtifact {
+        png_bytes,
+        manifest: Some(manifest),
+    });
     Ok(id)
 }
 
@@ -265,10 +288,19 @@ pub fn vision_list_dispatch(registry: &VisionRegistry, args: &[Value]) -> Result
 
 /// `vision_export(handle, path) -> String`
 ///
-/// Real PNG bytes: writes the artifact's PNG buffer to `path`. Every
-/// export is unsigned — a loud warning is emitted to stderr (statically,
-/// each `vision_export` call site is also flagged as an audit-warning by
-/// the taint/check pass; the watermark/manifest/Category-A gate is R5).
+/// **Signed export** (Наряд №241, Block 1.4 — ADR-0125): writes the
+/// artifact's watermarked PNG bytes to `path` AND the provenance manifest
+/// to the sidecar `<path>.manifest.json`. The R4.2 unsigned-WARN is GONE
+/// — every default export is signed by construction, because
+/// `vision_generate` signs always (Block 1.3).
+///
+/// A registry artifact WITHOUT a manifest (hand-built/deserialized —
+/// `VisionArtifact.manifest: None`) cannot be exported here: loud `Err`
+/// naming the `VISION_UNSIGNED_EXPORT` check-id — the runtime backstop of
+/// the Category-A gate (Block 2.2: an unsigned artifact can only exist
+/// outside the real generation path, i.e. hand-built or deserialized;
+/// exporting it must be as loud as compiling it). The explicit opt-out is
+/// `vision_export_raw` (Block 2.1).
 pub fn vision_export_dispatch(registry: &VisionRegistry, args: &[Value]) -> Result<Value, String> {
     if args.len() != 2 {
         return Err(format!(

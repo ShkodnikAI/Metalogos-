@@ -153,6 +153,15 @@ All notable changes to the Metalogos project.
   - `docs/research/naryad-212-go-no-go.md` — Go/No-Go report (code-complete,
     env-gated run pending real-weights execution on appropriate hardware).
 
+### Fixed — fix-forward №237: runbook doc-числа не сверены с константами тестов (№238 Block 0)
+
+- `docs/research/naryad-237-real-weights-runbook.md` §3 и §6: DiT tiny golden
+  `e686167b…` (устаревший n231-хэш) → актуальный `860c85b311905f6c23b90a4e9e3192928027a24bf3e4a00a08096336abad4b3c`
+  (SSOT = константа `GOLDEN_DIT_TINY_HASH` в `tests/naryad_212_wedge_e2e.rs`);
+  `e686167b` оставлен рядом как исторический хэш n231 (pre-rebuild architecture).
+- Там же §3: TE-размер «3 шарда, ~7.5 GB» → «3 шарда, 8 044 982 000 B ≈ 8.05 GB»
+  (3957900840 + 3987450520 + 99630640; сверено верификатором с HF API 2026-09-09).
+
 ### Fixed — Vision R2 hotfix (Наряд №230): PRNG SSOT + stream-гигиена + golden-пиннинг
 
 - **PRNG SSOT**: the divergent local `generate_uniform_f32` copy in

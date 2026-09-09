@@ -4,6 +4,42 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — Vision R4.1: `vision { }` declarations — grammar, AST, parser, semantic (Наряд №238)
+
+- **grammar.pest**: `vision_decl` registered in the top-level `declaration`
+  rule. `vision "name" { … }` — the name is a STRING (plan-pillar §3 example).
+  Seven named fields: `model` (STRING), `steps`/`width`/`height`/`seed` (INT),
+  `policy`/`profile` (enum-valued). Unknown field shapes are captured loudly
+  by `vision_unknown_field` — named errors with position, no silent skipping.
+  `vision_ident_val` (IDENT extended with '-') exists so ADR-0124's `gguf-q4`
+  parses — the ADR enum is the SSOT, the token rule bends to fit it.
+- **ast.rs**: `Declaration::Vision(VisionDecl)` + `VisionPolicy { Safe }` +
+  `VisionProfile { Fp16, Fp8, GgufQ4 }` (ADR-0124 SSOT). `kind_str() => "vision"`,
+  name accessor, type_info, span — mirroring neighboring declarations.
+- **parser**: duplicate field inside the block = loud parse error pointing at
+  the second occurrence; unknown field = loud error naming the field; a known
+  field with a wrong value shape gets its own message; policy/profile values
+  outside the enums = parse-stage errors (ADR-0124: fp16 | fp8 | gguf-q4;
+  R4.1 policy = safe). All seven fields required — no silent defaults.
+- **semantic**: `model` must be in the SSOT list `KNOWN_VISION_MODELS`
+  (`src/vision/mod.rs`, NOT feature-gated, next to `VisionRegistry`;
+  R4.1 = exactly `["z-image-turbo"]`); `steps >= 1` (`steps != 8` →
+  audit-warning, NOT error — 8 is the recommended distilled-NFE);
+  width/height multiples of 16 in 256..=4096 (VAE latent constraint);
+  duplicate vision declaration name in a module = error. All errors carry
+  the declaration span and name the field.
+- **Tests** (parser + semantic): plan-§3 example parses field-by-field;
+  vision + `flow main` parse together; all three ADR-0124 profile values
+  parse; 7 negatives (unknown model / unknown profile / unknown field /
+  duplicate name / width %16 / steps 0 / duplicate field) — each loud with
+  position; valid program = no errors and no warnings; steps != 8 = warning
+  (not error).
+- **Dispatch NOT touched (R4.2)**: builtins/registry arity and VM are
+  zero-diff; vision declarations carry no bytecode and no runtime semantics
+  yet. Minimal no-op match arms were added in compiler.rs / execution.rs /
+  modules.rs — forced by exhaustive matches (compile requirement),
+  documented in the наряд №238 PR description.
+
 ### Added — Vision R3.7: real-weights run preparation (Наряд №237)
 
 - **fetch tool**: `tools/fetch_vision_weights.sh` — manifest-driven weight
@@ -152,6 +188,15 @@ All notable changes to the Metalogos project.
     SHA-256 verification (executor fills at download time).
   - `docs/research/naryad-212-go-no-go.md` — Go/No-Go report (code-complete,
     env-gated run pending real-weights execution on appropriate hardware).
+
+### Fixed — fix-forward №237: runbook doc-числа не сверены с константами тестов (№238 Block 0)
+
+- `docs/research/naryad-237-real-weights-runbook.md` §3 и §6: DiT tiny golden
+  `e686167b…` (устаревший n231-хэш) → актуальный `860c85b311905f6c23b90a4e9e3192928027a24bf3e4a00a08096336abad4b3c`
+  (SSOT = константа `GOLDEN_DIT_TINY_HASH` в `tests/naryad_212_wedge_e2e.rs`);
+  `e686167b` оставлен рядом как исторический хэш n231 (pre-rebuild architecture).
+- Там же §3: TE-размер «3 шарда, ~7.5 GB» → «3 шарда, 8 044 982 000 B ≈ 8.05 GB»
+  (3957900840 + 3987450520 + 99630640; сверено верификатором с HF API 2026-09-09).
 
 ### Fixed — Vision R2 hotfix (Наряд №230): PRNG SSOT + stream-гигиена + golden-пиннинг
 

@@ -142,6 +142,13 @@ pub enum Declaration {
     ReflexSeq(ReflexSeqDecl),
     /// Наряд №193 (ADR-0120): text generation model.
     ReflexGen(ReflexGenDecl),
+    /// `vision "name" { model: "..." steps: N width: N height: N seed: N policy: safe profile: fp16 }`
+    /// (Наряд №238, Vision R4.1; ADR-0122/ADR-0124). Image-generation
+    /// declaration — grammar mirrors `reflex { }`, name is a STRING
+    /// (plan-pillar §3 example). Dispatch is R4.2 (наряд №238 §0: builtins
+    /// untouched in R4.1); semantic validation (model SSOT, numeric
+    /// contracts) lives in `src/semantic.rs`.
+    Vision(VisionDecl),
 }
 
 impl Declaration {
@@ -172,6 +179,7 @@ impl Declaration {
             Declaration::Reflex(d) => Some(&d.name),
             Declaration::ReflexSeq(d) => Some(&d.name),
             Declaration::ReflexGen(d) => Some(&d.name),
+            Declaration::Vision(d) => Some(&d.name),
             // No name: singleton/config/action declarations
             Declaration::MlogServer(_)
             | Declaration::Db(_)
@@ -221,6 +229,7 @@ impl Declaration {
             Declaration::Reflex(_) => "reflex",
             Declaration::ReflexSeq(_) => "reflex_seq",
             Declaration::ReflexGen(_) => "reflex_gen",
+            Declaration::Vision(_) => "vision",
         }
     }
 
@@ -352,6 +361,12 @@ impl Declaration {
                     d.seed
                 )
             }
+            Declaration::Vision(d) => {
+                format!(
+                    "vision \"{}\" {{ model: {}, {}x{}, steps: {}, seed: {} }}",
+                    d.name, d.model, d.width, d.height, d.steps, d.seed
+                )
+            }
             Declaration::TypeAlias(d) => {
                 format!("type {} = {}", d.alias, d.target)
             }
@@ -413,6 +428,7 @@ impl Declaration {
             Declaration::Reflex(d) => &d.span,
             Declaration::ReflexSeq(d) => &d.span,
             Declaration::ReflexGen(d) => &d.span,
+            Declaration::Vision(d) => &d.span,
         }
     }
 }
@@ -989,6 +1005,67 @@ pub struct ReflexGenDecl {
     /// as reflex_seq). Typically transformer_block layers.
     pub layers: Vec<ReflexLayerSpec>,
     pub seed: u64,
+}
+
+/// Usage policy for a `vision { }` declaration (Наряд №238, Vision R4.1).
+///
+/// ADR-0122 §3 (explicit non-scope: NCII) + ADR-0125 (provenance gates):
+/// the policy field makes honest use explicit at the language level.
+/// R4.1 carries exactly one value — `safe`. The full policy semantics
+/// (gates, watermark enforcement) land in R5 (ADR-0125).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VisionPolicy {
+    /// `policy: safe` — the only policy value in R4.1.
+    Safe,
+}
+
+/// VRAM/compute profile for a `vision { }` declaration (Наряд №238).
+///
+/// SSOT = ADR-0124 (L34): `fp16 | fp8 | gguf-q4`. The parser enforces
+/// the enum (unknown value = parse error); `gguf-q4` contains a hyphen,
+/// which is why the grammar uses `vision_ident_val` (IDENT + '-') instead
+/// of bare IDENT.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VisionProfile {
+    /// `profile: fp16` — half-precision weights.
+    Fp16,
+    /// `profile: fp8` — 8-bit quantized weights.
+    Fp8,
+    /// `profile: gguf-q4` — 4-bit GGUF quantization.
+    GgufQ4,
+}
+
+/// `vision "name" { model: "..." steps: N width: N height: N seed: N policy: safe profile: fp16 }`
+/// (Наряд №238, Vision R4.1; ADR-0122/ADR-0124).
+///
+/// Field semantics (validated in `src/semantic.rs`):
+/// - `model` — must name a model from `crate::vision::KNOWN_VISION_MODELS`
+///   (SSOT list; R4.1 = exactly `["z-image-turbo"]`).
+/// - `steps` — inference steps, `>= 1`; `8` is the recommended distilled-NFE
+///   count (values other than 8 produce a semantic warning, not an error).
+/// - `width`/`height` — output size in pixels, multiple of 16, 256..=4096
+///   (VAE latent constraint).
+/// - `seed` — any `u64`; fixed seed = reproducible output by construction
+///   (ADR-0124 determinism contract).
+#[derive(Debug, Clone)]
+pub struct VisionDecl {
+    pub span: Span,
+    /// Declaration name — a STRING per plan-pillar §3 (`vision "poster" { … }`).
+    pub name: String,
+    /// Model id — must be in `KNOWN_VISION_MODELS` (semantic check).
+    pub model: String,
+    /// Inference steps (>= 1; recommended 8 — distilled NFE).
+    pub steps: u32,
+    /// Output width in pixels (multiple of 16, 256..=4096).
+    pub width: u32,
+    /// Output height in pixels (multiple of 16, 256..=4096).
+    pub height: u32,
+    /// Fixed seed — reproducibility by construction (ADR-0124).
+    pub seed: u64,
+    /// Usage policy (R4.1: only `safe`).
+    pub policy: VisionPolicy,
+    /// VRAM/compute profile (ADR-0124: fp16 | fp8 | gguf-q4).
+    pub profile: VisionProfile,
 }
 
 /// Maximum depth for type alias chain resolution to prevent infinite loops.

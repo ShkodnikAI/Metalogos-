@@ -75,11 +75,11 @@ cargo test --features vision --test naryad_212_wedge_e2e -- --nocapture 2>&1 | t
 Без `MLOG_VISION_WEIGHTS_DIR` эти тесты громко SKIP-ят; с заданным каталогом —
 должны выполнить все три:
 
-- `text_encoder_real_weights_forward` — реальный Qwen3-4B forward (3 шарда, ~7.5 GB) → `[seq, 2560]`;
+- `text_encoder_real_weights_forward` — реальный Qwen3-4B forward (3 шарда, 8 044 982 000 B ≈ 8.05 GB) → `[seq, 2560]`;
 - `vae_real_weights_decode_fixed_latent` — реальный VAE decode (167 MB) → PNG 1024×1024 (`n212_vae_fixed_latent.png`);
 - `clinical_e2e_first_image` — полный клин: prompt → tokens → Qwen3 → DiT 8 forward → VAE → PNG 1024×1024 (`first_image.png`, seed 21200, prompt «a red apple on a wooden table, studio light»).
 
-CI-видимые tiny goldens (VAE `85ef6a87…`, DiT `e686167b…`) в этом прогоне
+CI-видимые tiny goldens (VAE `85ef6a87…`, DiT `860c85b311905f6c23b90a4e9e3192928027a24bf3e4a00a08096336abad4b3c`; n231: `e686167b…` — pre-rebuild architecture) в этом прогоне
 неизменны — их зелень уже в CI; если они вдруг красные — СТОП, фиксация среды,
 никаких пинов не трогать (§3.2).
 
@@ -122,7 +122,7 @@ REAL RUN>`), с loud-примечанием, на каком шаге остан
   `git grep -c '#\[ignore' HEAD -- src tests` = **129** на базе `1f26f41`/`396b1df`
   (125 tests + 4 src); инвариант = «N вписать фактическим числом, дельта к базе = 0».
 - Веса не в git: `git ls-tree -r HEAD --name-only | grep -ciE 'safetensors|\.ckpt$|\.pth$|\.gguf$'` = 0.
-- Golden'ы не пере-пинятся: VAE `85ef6a879d58…`, DiT `e686167b2e82…` — константы тестов.
+- Golden'ы не пере-пинятся: VAE `85ef6a879d58…`, DiT `860c85b311905f6c23b90a4e9e3192928027a24bf3e4a00a08096336abad4b3c` (n231: `e686167b2e82…` — pre-rebuild architecture) — константы тестов.
 
 ## 7. Отчёт
 

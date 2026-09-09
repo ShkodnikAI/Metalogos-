@@ -599,7 +599,11 @@ impl Compiler {
                 | Declaration::LlmConfig(_)
                 | Declaration::Reflex(_)
                 | Declaration::ReflexSeq(_)
-                | Declaration::ReflexGen(_) => {
+                | Declaration::ReflexGen(_)
+                // Наряд №238 (Vision R4.1): vision declarations carry no
+                // bytecode — dispatch is R4.2. Minimal arm forced by the
+                // exhaustive match (parse + semantic only in R4.1).
+                | Declaration::Vision(_) => {
                     // Наряд №203 Block 1: no bytecode instruction emitted
                     // for reflex declarations in pass2. Dense classification
                     // (Declaration::Reflex) is handled via program.reflex_decls

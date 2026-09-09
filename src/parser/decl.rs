@@ -2310,3 +2310,246 @@ pub(super) fn parse_reflex_gen_decl(pair: Pair<Rule>) -> Result<Declaration, Par
         seed,
     }))
 }
+
+// ── Наряд №238 (Vision R4.1): vision declaration parser ────────────
+// vision "poster" { model: "z-image-turbo" steps: 8 width: 1024
+//                   height: 1024 seed: 42 policy: safe profile: fp16 }
+//
+// Mirrors parse_reflex_decl (Наряд №178) with three vision-specific
+// strictness rules from the naryad:
+// - duplicate field inside the block = loud parse error with position,
+//   no silent overwrite (Block 1.1);
+// - unknown field = loud error naming the field (captured by the
+//   `vision_unknown_field` grammar rule; a known field with a wrong
+//   value shape also lands here and gets its own message) (Block 1.3);
+// - policy/profile values outside their enums = parse-stage error
+//   (ADR-0124 SSOT: profile = fp16 | fp8 | gguf-q4; R4.1 policy = safe).
+//   Semantic validation does NOT re-validate the enums (Block 1.3).
+//
+// All seven fields are REQUIRED (loud error when missing) — R4.1 has
+// no defaulting contract, and silent defaults would contradict the
+// no-silent-correction invariant (Block 2.4).
+
+/// Parse a `u32` field value with a loud out-of-range error (no silent
+/// `unwrap_or(0)` — that would corrupt the value, violating Block 2.4).
+fn parse_vision_u32_field(pair: &Pair<Rule>, field: &str, raw: &str) -> Result<u32, ParseError> {
+    raw.parse::<u32>().map_err(|_| {
+        pair_error(
+            pair,
+            &format!(
+                "vision: value {} is out of range for '{}' (expected u32)",
+                raw, field
+            ),
+        )
+    })
+}
+
+/// Same as [`parse_vision_u32_field`] for `u64` (the `seed` field).
+fn parse_vision_u64_field(pair: &Pair<Rule>, field: &str, raw: &str) -> Result<u64, ParseError> {
+    raw.parse::<u64>().map_err(|_| {
+        pair_error(
+            pair,
+            &format!(
+                "vision: value {} is out of range for '{}' (expected u64)",
+                raw, field
+            ),
+        )
+    })
+}
+
+pub(super) fn parse_vision_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let children = children_of(&pair);
+    // children[0] is VISION_KW (atomic leaf). The name is the first
+    // STRING_LITERAL child — a STRING per plan-pillar §3
+    // (`vision "poster" { … }`), unlike `reflex` (IDENT name).
+    let name = find_child_str(&children, Rule::STRING_LITERAL)
+        .ok_or_else(|| pair_error(&pair, "vision_decl: missing STRING (declaration name)"))?
+        .trim_matches('"')
+        .to_string();
+
+    let mut model: Option<String> = None;
+    let mut steps: Option<u32> = None;
+    let mut width: Option<u32> = None;
+    let mut height: Option<u32> = None;
+    let mut seed: Option<u64> = None;
+    let mut policy: Option<crate::ast::VisionPolicy> = None;
+    let mut profile: Option<crate::ast::VisionProfile> = None;
+
+    for child in &children {
+        match child.as_rule() {
+            Rule::vision_model => {
+                if model.is_some() {
+                    return Err(pair_error(
+                        child,
+                        "vision: duplicate field 'model' — each field may appear only once",
+                    ));
+                }
+                let raw =
+                    find_child_str(&children_of(child), Rule::STRING_LITERAL).ok_or_else(|| {
+                        pair_error(child, "vision: field 'model' requires a string value")
+                    })?;
+                model = Some(raw.trim_matches('"').to_string());
+            }
+            Rule::vision_steps => {
+                if steps.is_some() {
+                    return Err(pair_error(
+                        child,
+                        "vision: duplicate field 'steps' — each field may appear only once",
+                    ));
+                }
+                let raw = find_child_str(&children_of(child), Rule::INT).ok_or_else(|| {
+                    pair_error(child, "vision: field 'steps' requires an integer value")
+                })?;
+                steps = Some(parse_vision_u32_field(child, "steps", &raw)?);
+            }
+            Rule::vision_width => {
+                if width.is_some() {
+                    return Err(pair_error(
+                        child,
+                        "vision: duplicate field 'width' — each field may appear only once",
+                    ));
+                }
+                let raw = find_child_str(&children_of(child), Rule::INT).ok_or_else(|| {
+                    pair_error(child, "vision: field 'width' requires an integer value")
+                })?;
+                width = Some(parse_vision_u32_field(child, "width", &raw)?);
+            }
+            Rule::vision_height => {
+                if height.is_some() {
+                    return Err(pair_error(
+                        child,
+                        "vision: duplicate field 'height' — each field may appear only once",
+                    ));
+                }
+                let raw = find_child_str(&children_of(child), Rule::INT).ok_or_else(|| {
+                    pair_error(child, "vision: field 'height' requires an integer value")
+                })?;
+                height = Some(parse_vision_u32_field(child, "height", &raw)?);
+            }
+            Rule::vision_seed => {
+                if seed.is_some() {
+                    return Err(pair_error(
+                        child,
+                        "vision: duplicate field 'seed' — each field may appear only once",
+                    ));
+                }
+                let raw = find_child_str(&children_of(child), Rule::INT).ok_or_else(|| {
+                    pair_error(child, "vision: field 'seed' requires an integer value")
+                })?;
+                seed = Some(parse_vision_u64_field(child, "seed", &raw)?);
+            }
+            Rule::vision_policy => {
+                if policy.is_some() {
+                    return Err(pair_error(
+                        child,
+                        "vision: duplicate field 'policy' — each field may appear only once",
+                    ));
+                }
+                let raw = find_child_str(&children_of(child), Rule::vision_ident_val).ok_or_else(
+                    || pair_error(child, "vision: field 'policy' requires an identifier value"),
+                )?;
+                policy = Some(match raw.as_str() {
+                    "safe" => crate::ast::VisionPolicy::Safe,
+                    other => {
+                        return Err(pair_error(
+                            child,
+                            &format!(
+                                "vision: unknown policy '{}' (R4.1 accepts only: safe)",
+                                other
+                            ),
+                        ))
+                    }
+                });
+            }
+            Rule::vision_profile => {
+                if profile.is_some() {
+                    return Err(pair_error(
+                        child,
+                        "vision: duplicate field 'profile' — each field may appear only once",
+                    ));
+                }
+                let raw = find_child_str(&children_of(child), Rule::vision_ident_val).ok_or_else(
+                    || {
+                        pair_error(
+                            child,
+                            "vision: field 'profile' requires an identifier value",
+                        )
+                    },
+                )?;
+                profile = Some(match raw.as_str() {
+                    "fp16" => crate::ast::VisionProfile::Fp16,
+                    "fp8" => crate::ast::VisionProfile::Fp8,
+                    "gguf-q4" => crate::ast::VisionProfile::GgufQ4,
+                    other => {
+                        return Err(pair_error(
+                            child,
+                            &format!(
+                            "vision: unknown profile '{}' (ADR-0124 accepts: fp16 | fp8 | gguf-q4)",
+                            other
+                        ),
+                        ))
+                    }
+                });
+            }
+            Rule::vision_unknown_field => {
+                // The grammar captures any `ident: value` shape that did not
+                // match a known field. Two cases, both loud with position:
+                // - known field name with a wrong value shape
+                // - truly unknown field
+                let field_pair = children_of(child)
+                    .into_iter()
+                    .find(|c| c.as_rule() == Rule::IDENT)
+                    .ok_or_else(|| pair_error(child, "vision: malformed field"))?;
+                let field_name = field_pair.as_str();
+                const KNOWN_FIELDS: &[&str] = &[
+                    "model", "steps", "width", "height", "seed", "policy", "profile",
+                ];
+                if KNOWN_FIELDS.contains(&field_name) {
+                    return Err(pair_error(
+                        &field_pair,
+                        &format!(
+                            "vision: field '{}' has a value of the wrong shape for its type",
+                            field_name
+                        ),
+                    ));
+                }
+                return Err(pair_error(
+                    &field_pair,
+                    &format!(
+                        "vision: unknown field '{}' (known fields: model, steps, width, height, seed, policy, profile)",
+                        field_name
+                    ),
+                ));
+            }
+            _ => {}
+        }
+    }
+
+    // Required fields — loud errors, no silent defaults (R4.1 has no
+    // defaulting contract; reflex precedent: required input/seed).
+    let model = model.ok_or_else(|| pair_error(&pair, "vision: 'model' field is required"))?;
+    let steps = steps.ok_or_else(|| pair_error(&pair, "vision: 'steps' field is required"))?;
+    let width = width.ok_or_else(|| pair_error(&pair, "vision: 'width' field is required"))?;
+    let height = height.ok_or_else(|| pair_error(&pair, "vision: 'height' field is required"))?;
+    let seed = seed.ok_or_else(|| {
+        pair_error(
+            &pair,
+            "vision: 'seed' field is required — deterministic generation",
+        )
+    })?;
+    let policy = policy.ok_or_else(|| pair_error(&pair, "vision: 'policy' field is required"))?;
+    let profile =
+        profile.ok_or_else(|| pair_error(&pair, "vision: 'profile' field is required"))?;
+
+    Ok(Declaration::Vision(crate::ast::VisionDecl {
+        span: Span::from_pest(pair.as_span()),
+        name,
+        model,
+        steps,
+        width,
+        height,
+        seed,
+        policy,
+        profile,
+    }))
+}

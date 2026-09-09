@@ -103,6 +103,18 @@ impl VisionRegistry {
 /// the `Interpreter` struct (mirrors `reflex_registry: Mutex<ReflexRegistry>`).
 pub type SharedVisionRegistry = Mutex<VisionRegistry>;
 
+/// SSOT list of vision models known to the language (Наряд №238, R4.1).
+///
+/// A `vision { }` declaration's `model` field must name a model from this
+/// list — enforced by semantic validation (`src/semantic.rs`). NOT
+/// feature-gated, mirroring `VisionId`/`VisionRegistry` above: the
+/// declaration grammar parses in all builds.
+///
+/// R4.1: exactly the R3 wedge model. Extend only when a new wedge lands
+/// (ADR-0123 discipline — the wedge choice is an ADR decision, not a
+/// code-level edit).
+pub const KNOWN_VISION_MODELS: &[&str] = &["z-image-turbo"];
+
 // Наряд №211 (R2): текст-энкодер (Qwen3-архитектура на Reflex-примитивах).
 // Feature-gated behind `vision` (которая влечёт `candle`).
 #[cfg(feature = "vision")]

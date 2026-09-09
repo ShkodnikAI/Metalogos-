@@ -5,7 +5,7 @@ COMMENT      = _{ "//" ~ (!("\n" | "\r") ~ ANY)* }
 
 program     =  { SOI ~ (declaration ~ WHITESPACE*)* ~ EOI }
 
-declaration = _{ test_decl | type_alias_decl | context_budget_decl | llm_decl | mlogserver_decl | template_decl | db_decl | schema_decl | skill_index_decl | memory_decl | import_decl | hook_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl | conversation_decl | tool_decl | reflex_decl | reflex_seq_decl | reflex_gen_decl }
+declaration = _{ test_decl | type_alias_decl | context_budget_decl | llm_decl | mlogserver_decl | template_decl | db_decl | schema_decl | skill_index_decl | memory_decl | import_decl | hook_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl | conversation_decl | tool_decl | reflex_decl | reflex_seq_decl | reflex_gen_decl | vision_decl }
 
 // ── Type Alias (Наряд №119) ──────────────────────────────────────
 // type Token = Secret
@@ -477,3 +477,43 @@ reflex_gen_body = _{ reflex_gen_field* }
 reflex_gen_field = _{ reflex_input | reflex_vocab_size | reflex_layers | reflex_seed }
 reflex_vocab_size = { "vocab_size" ~ COLON ~ INT }
 REFLEX_GEN_KW   = @{ "reflex_gen" }
+
+// ── Наряд №238 (Vision R4.1): vision — image-generation declaration ─
+//
+// ADR-0124 §4: the `vision { }` declaration grammar mirrors `reflex { }`
+// (and the future `voice { }`). The name is a STRING (plan-pillar §3
+// example — `vision "poster" { … }`), unlike `reflex` (IDENT name).
+//
+// policy/profile values are enum-valued (ADR-0124 is the SSOT:
+// profile = fp16 | fp8 | gguf-q4; R4.1 policy = safe only).
+// `vision_ident_val` extends IDENT with '-' because `gguf-q4` contains a
+// hyphen that `ident_start` does not allow — the ADR enum is the SSOT,
+// the token rule bends to fit it, not vice versa.
+//
+// Unknown field shapes are captured loudly by `vision_unknown_field`
+// (last alternative) — the parser turns them into named errors with
+// position (наряд №238 Block 1.1 — no silent skipping).
+//
+//   vision "poster" {
+//     model: "z-image-turbo"
+//     steps: 8
+//     width: 1024
+//     height: 1024
+//     seed: 42
+//     policy: safe
+//     profile: fp16
+//   }
+//
+vision_decl     = { VISION_KW ~ STRING_LITERAL ~ LBRACE ~ vision_body ~ RBRACE }
+vision_body     = _{ vision_field* }
+vision_field    = _{ vision_model | vision_steps | vision_width | vision_height | vision_seed | vision_policy | vision_profile | vision_unknown_field }
+vision_model    = { "model" ~ COLON ~ STRING_LITERAL }
+vision_steps    = { "steps" ~ COLON ~ INT }
+vision_width    = { "width" ~ COLON ~ INT }
+vision_height   = { "height" ~ COLON ~ INT }
+vision_seed     = { "seed" ~ COLON ~ INT }
+vision_policy   = { "policy" ~ COLON ~ vision_ident_val }
+vision_profile  = { "profile" ~ COLON ~ vision_ident_val }
+vision_unknown_field = { IDENT ~ COLON ~ (STRING_LITERAL | INT | vision_ident_val) }
+vision_ident_val = @{ ident_start ~ (ident_start | ASCII_DIGIT | APOSTROPHE | "-")* }
+VISION_KW       = @{ "vision" }

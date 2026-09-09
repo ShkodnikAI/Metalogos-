@@ -2201,3 +2201,158 @@ fn naryad_121_no_line_prefix_for_unknown_span() {
     // No errors expected for a single valid entity type
     assert!(result.errors.is_empty());
 }
+
+// ── Наряд №238 (Vision R4.1): vision declaration ─────────────────────
+
+/// Plan-pillar §3 example (per наряд №238 spec: profile fp16, policy safe,
+/// model z-image-turbo, steps 8 — the recommended distilled-NFE). Parses
+/// field-by-field into the expected VisionDecl.
+#[test]
+fn test_parse_vision_decl_plan_example() {
+    let src = r#"
+vision "poster" {
+  model: "z-image-turbo"
+  steps: 8
+  width: 1024
+  height: 1024
+  seed: 42
+  policy: safe
+  profile: fp16
+}
+"#;
+    let decls = parse(src).unwrap();
+    assert_eq!(decls.len(), 1);
+    if let Declaration::Vision(v) = &decls[0] {
+        assert_eq!(v.name, "poster");
+        assert_eq!(v.model, "z-image-turbo");
+        assert_eq!(v.steps, 8);
+        assert_eq!(v.width, 1024);
+        assert_eq!(v.height, 1024);
+        assert_eq!(v.seed, 42);
+        assert_eq!(v.policy, crate::ast::VisionPolicy::Safe);
+        assert_eq!(v.profile, crate::ast::VisionProfile::Fp16);
+    } else {
+        panic!("expected Vision, got {:?}", decls[0]);
+    }
+}
+
+/// Full plan-§3 shape: the vision declaration and the flow main from the
+/// example parse together (the flow part already parsed before №238 —
+/// must keep parsing).
+#[test]
+fn test_parse_vision_decl_plus_flow_main() {
+    let src = r#"
+vision "poster" {
+  model: "z-image-turbo"
+  steps: 8
+  width: 1024
+  height: 1024
+  seed: 42
+  policy: safe
+  profile: fp16
+}
+
+flow main { input: String = "a red apple" -> RenderPoster -> output }
+"#;
+    let decls = parse(src).unwrap();
+    assert_eq!(decls.len(), 2);
+    assert!(matches!(decls[0], Declaration::Vision(_)));
+    if let Declaration::Flow(f) = &decls[1] {
+        assert_eq!(f.name, "main");
+        assert_eq!(f.pipeline.len(), 1);
+        assert_eq!(f.pipeline[0], "RenderPoster");
+    } else {
+        panic!("expected Flow, got {:?}", decls[1]);
+    }
+}
+
+/// All ADR-0124 profile values parse — `gguf-q4` is why `vision_ident_val`
+/// extends IDENT with '-' (ADR-0124 is the SSOT, not the IDENT rule).
+#[test]
+fn test_parse_vision_profiles_all_adr0124_values() {
+    for (raw, expected) in [
+        ("fp16", crate::ast::VisionProfile::Fp16),
+        ("fp8", crate::ast::VisionProfile::Fp8),
+        ("gguf-q4", crate::ast::VisionProfile::GgufQ4),
+    ] {
+        let src = format!(
+            "vision \"p\" {{ model: \"z-image-turbo\" steps: 8 width: 1024 height: 1024 seed: 1 policy: safe profile: {} }}",
+            raw
+        );
+        let decls = parse(&src).unwrap();
+        if let Declaration::Vision(v) = &decls[0] {
+            assert_eq!(v.profile, expected, "profile value: {}", raw);
+        } else {
+            panic!("expected Vision for profile {}", raw);
+        }
+    }
+}
+
+// ── Наряд №238 Block 3.2: negative tests (parser-level) ──────────────
+
+/// Unknown field — loud error naming the field, with position.
+#[test]
+fn test_parse_vision_unknown_field_is_loud() {
+    let src = r#"
+vision "poster" {
+  model: "z-image-turbo"
+  steps: 8
+  width: 1024
+  height: 1024
+  seed: 42
+  policy: safe
+  profile: fp16
+  flavour: vanilla
+}
+"#;
+    let err = parse(src).unwrap_err().to_string();
+    assert!(err.contains("unknown field 'flavour'"), "got: {}", err);
+    // Position: the unknown field is on line 10 (col 3).
+    assert!(
+        err.contains("at line 10"),
+        "expected position, got: {}",
+        err
+    );
+}
+
+/// Unknown profile value — parse-stage error per ADR-0124 enum
+/// (`consumer` is exactly the prosaic inaccuracy the наряд forbids
+/// transferring into code/tests — as a VALUE it must be rejected).
+#[test]
+fn test_parse_vision_unknown_profile_is_loud() {
+    let src = "vision \"poster\" { model: \"z-image-turbo\" steps: 8 width: 1024 height: 1024 seed: 42 policy: safe profile: consumer }";
+    let err = parse(src).unwrap_err().to_string();
+    assert!(err.contains("unknown profile 'consumer'"), "got: {}", err);
+    assert!(
+        err.contains("ADR-0124"),
+        "expected ADR reference, got: {}",
+        err
+    );
+}
+
+/// Duplicate field inside the block — loud error with the position of the
+/// SECOND occurrence (no silent overwrite).
+#[test]
+fn test_parse_vision_duplicate_field_is_loud() {
+    let src = r#"
+vision "poster" {
+  model: "z-image-turbo"
+  steps: 8
+  width: 1024
+  width: 2048
+  height: 1024
+  seed: 42
+  policy: safe
+  profile: fp16
+}
+"#;
+    let err = parse(src).unwrap_err().to_string();
+    assert!(err.contains("duplicate field 'width'"), "got: {}", err);
+    // The duplicate is on line 6 — the error must point at it, not at the
+    // first occurrence or the declaration start.
+    assert!(
+        err.contains("at line 6"),
+        "expected duplicate position, got: {}",
+        err
+    );
+}

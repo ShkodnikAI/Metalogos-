@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-01
 **Status:** accepted
-**Context:** Наряд №34 Block 6
+**Context:** Naryad №34 Block 6
 
 ## Benchmark program
 

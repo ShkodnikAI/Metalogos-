@@ -1,25 +1,25 @@
-# ADR-0049: Session Memory (временная память разговора)
+# ADR-0049: Session Memory (temporary conversation memory)
 
-**Статус**: Accepted
-**Дата**: 2025-06-09
-**Наряд**: №5 (повторный Наряд #1)
+**Status**: Accepted
+**Date**: 2025-06-09
+**Naryad**: #5 (repeat of Naryad #1)
 
-## Контекст
+## Context
 
-METALOGOS имеет глобальную KV-память (`mem_set`/`mem_get`/`mem_delete`), которая
-персистентна через SQLite при `memory { persist: "..." }`. Это подходит для
-глобальных конфигураций и долгосрочных данных.
+METALOGOS has global KV memory (`mem_set`/`mem_get`/`mem_delete`), which is
+persistent via SQLite when `memory { persist: "..." }` is set. This is
+suitable for global configuration and long-lived data.
 
-Но при построении чат-ботов и веб-приложений нужна **временная** память,
-привязанная к конкретной сессии (chat_id, user_id). Эта память должна:
+But building chatbots and web applications needs **temporary** memory,
+scoped to a specific session (chat_id, user_id). This memory must:
 
-- Быть изолированной между сессиями (chat_id A не видит данные chat_id B)
-- Сбрасываться при рестарте сервера (by design — сессионные данные)
-- Не персистироваться (в отличие от глобальной `mem_*`)
+- Be isolated between sessions (chat_id A does not see chat_id B's data)
+- Reset on server restart (by design — session data)
+- Not persist (unlike global `mem_*`)
 
-## Решение
+## Decision
 
-Три новых builtin-функции с session-scoped хранилищем:
+Three new builtin functions with session-scoped storage:
 
 ```
 session_set(session_id: String, key: String, value: String) -> String
@@ -27,68 +27,68 @@ session_get(session_id: String, key: String) -> String
 session_clear(session_id: String) -> Unit
 ```
 
-### Хранилище
+### Storage
 
 ```rust
 static SESSION_STORE: OnceLock<Mutex<HashMap<String, HashMap<String, String>>>>
 ```
 
-- Внешний ключ = `session_id` (например `"chat-42"`, `"user-alice"`)
-- Внутренний HashMap = ключ-значение внутри сессии
-- **In-memory only** — нет SQLite, нет файла, нет персистенции
-- Сброс при рестарте = просто исчезновение (HashMap очищается)
+- Outer key = `session_id` (e.g. `"chat-42"`, `"user-alice"`)
+- Inner HashMap = key-value pairs within the session
+- **In-memory only** — no SQLite, no file, no persistence
+- Reset on restart = simply disappears (the HashMap is cleared)
 
-### Отличие от mem_set/mem_get
+### Difference from mem_set/mem_get
 
-| Аспект | `mem_set`/`mem_get` | `session_set`/`session_get` |
+| Aspect | `mem_set`/`mem_get` | `session_set`/`session_get` |
 |--------|----------------------|----------------------------|
-| Scope | Глобальный | Per-session (session_id) |
-| Персистенция | SQLite write-through | In-memory only |
-| Рестарт | Данные сохраняются | Данные теряются |
-| Изоляция | Нет — общая для всех | Да — разделена по session_id |
+| Scope | Global | Per-session (session_id) |
+| Persistence | SQLite write-through | In-memory only |
+| Restart | Data survives | Data is lost |
+| Isolation | None — shared across all | Yes — partitioned by session_id |
 
-### Использование в .mlog
+### Usage in .mlog
 
 ```
-// Сохранить контекст разговора
+// Save conversation context
 session_set(chat_id, "last_topic", "billing")
 session_set(chat_id, "message_count", "5")
 
-// Прочитать позже в другом запросе
+// Read later, in a different request
 let topic = session_get(chat_id, "last_topic")
 
-// Очистить при завершении сессии
+// Clear when the session ends
 session_clear(chat_id)
 ```
 
-## Контракт-тесты
+## Contract tests
 
-10 тестов в `tests/session_memory_contract.rs`:
+10 tests in `tests/session_memory_contract.rs`:
 
-1. **set→get roundtrip** — записал, прочитал, совпадает
-2. **set returns value** — session_set возвращает сохранённое значение
-3. **missing key** — session_get несуществующего ключа → пустая строка
-4. **missing session** — session_get несуществующей сессии → пустая строка
-5. **session isolation** — данные сессии A не видны из сессии B
-6. **session_clear** — после clear все ключи сессии пустые
-7. **restart empties** — reset_session_store() → все данные исчезли
-8. **multiple keys** — несколько ключей в одной сессии сосуществуют
-9. **overwrite** — перезапись ключа заменяет старое значение
-10. **no persistence** — нет SQLite, чисто in-memory
+1. **set→get roundtrip** — write, read, matches
+2. **set returns value** — session_set returns the saved value
+3. **missing key** — session_get of a non-existent key → empty string
+4. **missing session** — session_get of a non-existent session → empty string
+5. **session isolation** — session A's data is not visible from session B
+6. **session_clear** — after clear, all of the session's keys are empty
+7. **restart empties** — reset_session_store() → all data gone
+8. **multiple keys** — several keys coexist within one session
+9. **overwrite** — rewriting a key replaces the old value
+10. **no persistence** — no SQLite, purely in-memory
 
-## Файлы
+## Files
 
-| Файл | Изменение |
-|------|-----------|
+| File | Change |
+|------|--------|
 | `src/builtins.rs` | +3 builtin functions, SESSION_STORE static, helpers |
 | `tests/session_memory_contract.rs` | NEW — 10 contract tests |
-| `examples/p8_session_memory.mlog` | NEW — контракт по Наряд #1 (TestSession pattern + isolation) |
-| `docs/adr/0049-session-memory.md` | NEW — этот документ |
+| `examples/p8_session_memory.mlog` | NEW — contract per Naryad #1 (TestSession pattern + isolation) |
+| `docs/adr/0049-session-memory.md` | NEW — this document |
 
-## Последствия
+## Consequences
 
-- **Нет изменений в grammar/AST/parser** — это обычные function calls
-- **Нет изменений в interpreter** — builtin dispatch уже обрабатывает все FnCall
-- **Потокобезопасность**: `std::sync::Mutex` (same model как KV_STORE)
-- **Обратная совместимость**: существующие `mem_set`/`mem_get` без изменений
-- **Глобальное состояние**: `OnceLock<Mutex<...>>` — shared across all interpreters (by design для server mode)
+- **No changes to grammar/AST/parser** — these are ordinary function calls
+- **No changes to the interpreter** — builtin dispatch already handles every FnCall
+- **Thread safety**: `std::sync::Mutex` (same model as KV_STORE)
+- **Backward compatible**: existing `mem_set`/`mem_get` unchanged
+- **Global state**: `OnceLock<Mutex<...>>` — shared across all interpreters (by design for server mode)

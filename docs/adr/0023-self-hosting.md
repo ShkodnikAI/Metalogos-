@@ -2,9 +2,9 @@
 
 **Status**: Accepted (implementation pending — see Re-measurement below)  
 **Date**: 2026-06-01  
-**Milestone**: Phase 4.4 — Polar Star (Полярная звезда)  
+**Milestone**: Phase 4.4 — Polar Star (North Star)  
 
-## Re-measurement (Наряд №73, 2026-08-13)
+## Re-measurement (Naryad №73, 2026-08-13)
 
 Investigation found that the 5 builtins described in this ADR
 (stdin, split_tokens, if_eq, newline, is_string_token) were never

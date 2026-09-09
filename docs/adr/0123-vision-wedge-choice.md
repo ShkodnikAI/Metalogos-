@@ -13,7 +13,7 @@ The wedge (first end-to-end target model) determines what R2 (text encoder) and 
 (1) checkpoint license — Apache-first, learned from the F5-TTS/Emilia case where code
 is MIT but weights are CC-BY-NC because training data is; (2) quality/compute on
 consumer GPUs; (3) reuse of already-implemented nn-blocks (`src/nn/`: attention/GQA/
-RmsNorm/SwiGLU/transformer_block, KV-cache from наряд №193) — modern generators use
+RmsNorm/SwiGLU/transformer_block, KV-cache from naryad №193) — modern generators use
 LLM-class text encoders, which is exactly the Reflex block zoo; (4) a reproducible
 quantization path for consumer VRAM; (5) edit capabilities for phase R6.
 
@@ -25,7 +25,7 @@ quantization path for consumer VRAM; (5) edit capabilities for phase R6.
   the second reuse of the Reflex nn stack (after sequence blocks, before speech).
 - **Fallback and edit-first alternative: FLUX.2 [klein]** (Apache-2.0, 4B, verified
   publication, official FP8 path, native edit/multi-reference in the checkpoint).
-- **Go/No-Go after R3 (наряд №212):** full path "text encoder → 8-step flow → VAE →
+- **Go/No-Go after R3 (naryad №212):** full path "text encoder → 8-step flow → VAE →
   PNG" must produce a correct image on one consumer machine within budgets fixed in
   the R3 report. On failure — pivot to klein, per the ADR-0106/0107 "recognize and
   turn" precedent, not silent phase-stretching.
@@ -37,7 +37,7 @@ quantization path for consumer VRAM; (5) edit capabilities for phase R6.
 
 Recorded explicitly so the decision is not mistaken for completed verification:
 
-1. **RESOLVED (Наряд №211, 2026-09-07; dims corrected fix-forward 2026-09-08):** Z-Image
+1. **RESOLVED (Naryad №211, 2026-09-07; dims corrected fix-forward 2026-09-08):** Z-Image
    text-encoder identity confirmed as Qwen3-4B (pure text decoder-only LLM, 36 layers,
    GQA 32/8, head_dim=128, intermediate 9728, SwiGLU, RmsNorm eps=1e-6, RoPE theta=1e6).
    See `docs/research/naryad-211-text-encoder-facts.md`
@@ -55,6 +55,6 @@ Recorded explicitly so the decision is not mistaken for completed verification:
 
 - Checkpoints are never committed to the repo or git history: the registry pins
   SHA-256 + source URL; first-run download goes through the SSRF-guarded HTTP client
-  (наряд №130) with mandatory checksum verification (ADR-0125's supply-chain gate).
+  (naryad №130) with mandatory checksum verification (ADR-0125's supply-chain gate).
 - R2/R3 estimates assume the fact-check list above resolves favorably; an adverse
   result on item 1 or 2 re-routes phases, not the wedge decision itself.

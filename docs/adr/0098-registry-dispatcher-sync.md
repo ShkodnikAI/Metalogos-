@@ -14,7 +14,7 @@ When a function is added to the dispatcher but not the registry (or vice
 versa), `mlog check` either reports false positives (rejecting valid code)
 or misses real errors (accepting calls to non-existent functions).
 
-This divergence has occurred four times (Наряды №33, №36, №50, №55)
+This divergence has occurred four times (Naryads №33, №36, №50, №55)
 because there is no automated check that keeps the two lists in sync.
 
 ## Decision

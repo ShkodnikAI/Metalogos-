@@ -5,7 +5,7 @@ Accepted
 
 ## Context
 ADR-0096 identified that `block_in_place()` on single-core tokio
-serialized all requests. Block 1 of Наряд №51 increased worker count
+serialized all requests. Block 1 of Naryad №51 increased worker count
 to minimum 4, but testing revealed a deeper issue: `block_in_place`
 panics when `reqwest::blocking` (used by `http_post`/`http_get`)
 internally creates and drops a tokio `Runtime` for DNS resolution.

@@ -2,7 +2,7 @@
 
 **Status:** accepted
 **Date:** 2026-08-01
-**Context:** Наряд №36, Block 1
+**Context:** Naryad №36, Block 1
 
 ## Problem
 
@@ -52,7 +52,7 @@ Control: `Halt`, `JumpIfLow`
 Variables: `StoreGlobal`
 
 **Note:** `Contains` and `MakeStruct` were added to `execute_code()` in
-Наряд №35. They were previously top-level-only.
+Naryad №35. They were previously top-level-only.
 
 ## Consequences
 

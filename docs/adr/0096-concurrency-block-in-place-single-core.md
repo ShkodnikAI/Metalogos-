@@ -2,7 +2,7 @@
 
 **Status:** Accepted (implemented)
 **Date:** 2026-08-07
-**Наряд:** #50 (diagnosis), #52 (implementation, cherry-picked from #51)
+**Naryad:** #50 (diagnosis), #52 (implementation, cherry-picked from #51)
 
 ## Context
 
@@ -42,13 +42,13 @@ regardless of worker count.
 
 ## Decision
 
-### Worker count (Наряд #50)
+### Worker count (Naryad #50)
 
 Use `tokio::runtime::Builder::new_multi_thread()` with
 `worker_threads(max(4, available_parallelism()))`. `METALOGOS_WORKERS` env var
 overrides. Invalid value logs warning instead of panic.
 
-### spawn_blocking replacement (Наряд #51, merged via #52)
+### spawn_blocking replacement (Naryad #51, merged via #52)
 
 Replace **all** `block_in_place` calls in route execution with
 `tokio::task::spawn_blocking`:

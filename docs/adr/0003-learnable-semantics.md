@@ -13,7 +13,7 @@ programming language where patterns can invoke external intelligence.
 
 The contract program is `examples/m3_classify.mlog`:
 ```mlog
-entity text: String = "ваш сервис ужасен"
+entity text: String = "your service is terrible"
 
 learnable pattern Classify(msg: String) -> String {
   prompt: "complaint"

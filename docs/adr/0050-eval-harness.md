@@ -14,9 +14,9 @@ Add a new top-level `eval` construct that defines a test harness for a learnable
 ```mlog
 eval Classify {
     dataset: [
-        ("ужасный сервис", "complaint"),
-        ("спасибо", "greeting"),
-        ("когда?", "question")
+        ("terrible service", "complaint"),
+        ("thank you", "greeting"),
+        ("when?", "question")
     ]
     metric: accuracy
     threshold: 0.8
@@ -42,7 +42,7 @@ eval Classify {
 
 7. **Adapt suggestions**: When accuracy is below threshold, the eval report includes auto-generated `adapt` commands for each failing example:
    ```
-   adapt Classify add_example("спасибо", "greeting")
+   adapt Classify add_example("thank you", "greeting")
    ```
    These can be copy-pasted directly into the .mlog source to improve the pattern's few-shot examples.
 
@@ -73,12 +73,12 @@ Eval: Classify
   question               0            0           1
 
   Failing examples (suggest adapt):
-    - "спасибо" -> expected "greeting", got "wrong"
-    - "когда?" -> expected "question", got "wrong"
+    - "thank you" -> expected "greeting", got "wrong"
+    - "when?" -> expected "question", got "wrong"
 
   Suggested adapt commands:
-    adapt Classify add_example("спасибо", "greeting")
-    adapt Classify add_example("когда?", "question")
+    adapt Classify add_example("thank you", "greeting")
+    adapt Classify add_example("when?", "question")
 ```
 
 ### Implementation

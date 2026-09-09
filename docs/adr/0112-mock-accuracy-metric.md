@@ -1,55 +1,56 @@
-# ADR-0112: Метрика качества `adapt` — текущий mock, не реализованная функция
+# ADR-0112: `adapt` quality metric — current mock, not an implemented function
 
 > **Status:** Accepted
 > **Date:** 2026-08-28
-> **Naryads:** №124 (documentation)
+> **Naryads:** #124 (documentation)
 > **Precedent:** ADR-0105 (honest-gap-documentation), ADR-0110
 >  §1 (semantic question requires prior art, not mechanical addition)
 
 ## Context
 
-`adapt` statement (few-shot mutation с sandboxing и rollback) использует
-`accuracy` для принятия решения: сохранить мутацию или откатить.
-В текущей реализации это значение — жёстко зашитая заглушка:
+The `adapt` statement (few-shot mutation with sandboxing and
+rollback) uses `accuracy` to decide whether to keep a mutation or
+roll it back. In the current implementation, this value is a
+hardcoded stub:
 
 ```rust
-// src/vm.rs:2433-2434 и src/interpreter/hooks.rs:60-61
+// src/vm.rs:2433-2434 and src/interpreter/hooks.rs:60-61
 let accuracy: f64 = 0.95;  // Mock accuracy (always 0.95 for MockLlm)
 ```
 
-Rollback-механизм (логика сравнения `accuracy` с порогом,
-восстановление предыдущей версии паттерна) — реален и покрыт тестами.
-Но он **не реагирует на реальное качество** мутации, потому что
-входное значение всегда одинаковое.
+The rollback mechanism (the logic comparing `accuracy` against a
+threshold, restoring the pattern's prior version) is real and covered
+by tests. But it **does not respond to a mutation's actual quality**,
+because the input value is always the same.
 
-README (до этого наряда) заявлял: *«quality metrics, and automatic
-rollback on degradation»* — без оговорок, создавая впечатление
-работающей метрики.
+README (before this naryad) claimed: *"quality metrics, and automatic
+rollback on degradation"* — without qualification, creating the
+impression of a working metric.
 
 ## Decision
 
-**Не реализовывать настоящую метрику качества в этом наряде.**
+**Do not implement a real quality metric in this naryad.**
 
-Вопрос *что означает «точность» для LLM-паттерна без явного
-тестового набора* — семантический (ADR-0110 §1), не механический.
-Требует отдельного исследования: prior art (DSPy, eval-фреймворки
-для LLM), определение эталона сравнения, набора данных для оценки.
+The question of *what "accuracy" means for an LLM pattern without an
+explicit test set* is semantic (ADR-0110 §1), not mechanical. It
+requires separate research: prior art (DSPy, eval frameworks for
+LLMs), a definition of the comparison baseline, and a dataset for
+evaluation.
 
-**Пересмотр — только при реальном случае использования `mutate`,
-где mock-значение 0.95 создаёт конкретную проблему**, не
-абстрактно.
+**Revisit only on a real `mutate` use case where the mock value of
+0.95 creates a concrete problem**, not abstractly.
 
 ## Consequences
 
-- README честно описывает текущее состояние: rollback-логика
-  существует и работает, но метрика качества — mock.
-- Mock-значение `0.95` остаётся в коде — оно корректно для
-  тестирования механизма rollback без реального LLM.
-- При появлении реального спроса на `adapt` с настоящей оценкой
-  качества — отдельный наряд с ADR, определяющим подход.
+- README honestly describes the current state: the rollback logic
+  exists and works, but the quality metric is a mock.
+- The mock value `0.95` stays in the code — it is correct for
+  testing the rollback mechanism without a real LLM.
+- When real demand for `adapt` with genuine quality assessment
+  appears — a separate naryad with an ADR defining the approach.
 
 ## Related
 
-- ADR-0105 — прецедент честной документации пробела
-- ADR-0110 §1 — протокол: семантические вопросы требуют prior art
-- Наряд №124 — этот наряд (документация)
+- ADR-0105 — precedent for honest gap documentation
+- ADR-0110 §1 — protocol: semantic questions require prior art
+- Naryad #124 — this naryad (documentation)

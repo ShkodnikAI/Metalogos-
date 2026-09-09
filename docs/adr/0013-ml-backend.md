@@ -13,8 +13,8 @@ Before this ADR, learnable patterns in Metalogos could only be called via LLM
 There was no mechanism for **fine-tuning** a pattern on actual training data —
 the "Stage 3" capability from the metalogos-language-semantics skill:
 
-> **Stage 3 (phase 2):** дообучение/локальная модель через PyO3+PyTorch,
-> экспорт в ONNX для рантайма.
+> **Stage 3 (phase 2):** fine-tuning/local model via PyO3+PyTorch,
+> export to ONNX for the runtime.
 
 The user requirement: `learn Classify with { data: corpus, epochs: 5 }` should
 trigger fine-tuning on a test dataset. Tests must not depend on GPU/PyTorch.

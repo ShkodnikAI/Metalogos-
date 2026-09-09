@@ -14,7 +14,7 @@ The Metalogos language has two confidence-related concepts:
    equal to their priority at store time (`src/interpreter/execution.rs:76`).
 
 The existing example `p1_confidence_propagation.mlog` (renamed to
-`p1_fluid_collapse.mlog` in Наряд №42) demonstrated that confidence does
+`p1_fluid_collapse.mlog` in Naryad №42) demonstrated that confidence does
 **not** propagate through pattern calls: a Fluid value collapsed to a concrete
 Float, passed through `Double`, then `confidence()` returned `1.0`.
 
@@ -23,7 +23,7 @@ propagation" documented the *absence* of propagation.
 
 ## Decision
 
-### What exists (as of Наряд №42)
+### What exists (as of Naryad №42)
 
 1. **Fluid collapse** (`maybe_collapse` in `src/interpreter/execution.rs:1472`):
    - At point of use (pattern binding), Fluid values collapse lazily.
@@ -57,7 +57,7 @@ concrete value.
 
 ## Open Question: Future Propagation
 
-If confidence propagation is added in a future наряд, prior art and
+If confidence propagation is added in a future naryad, prior art and
 recommended starting approaches include:
 
 | Approach | Source | Notes |

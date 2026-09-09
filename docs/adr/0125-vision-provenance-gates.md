@@ -4,8 +4,8 @@
 **Date:** 2026-09-07
 **Naryad:** #209 (R0)
 **Depends on:** ADR-0122 (scope), ADR-0124 (value/registry)
-**Precedents:** SECRET_LEAK (naряд №172), SSRF-guard (naряд №130), sandbox canonicalize
-(наряд №131), positional taint logic (naряд №157), Category-A discipline (SQL_DYNAMIC)
+**Precedents:** SECRET_LEAK (naryad №172), SSRF-guard (naryad №130), sandbox canonicalize
+(naryad №131), positional taint logic (naryad №157), Category-A discipline (SQL_DYNAMIC)
 
 ## Context
 
@@ -31,7 +31,7 @@ by mechanism) and the prepared ground for the Voice pillar's equivalent gates.
 
 `UserInput → prompt` is **allowed** (legitimate web-service case: prompt from
 `form_data`/`json_body`) but is recorded into the manifest; the position-based wiring
-follows naряд №157's logic. `Value::Vision` itself carries no taint (opaque handle,
+follows naryad №157's logic. `Value::Vision` itself carries no taint (opaque handle,
 ADR-0114 semantics).
 
 ### Provenance MVP (honest boundary)
@@ -46,7 +46,7 @@ ADR-0114 semantics).
 
 - The agent (the language's primary user) **cannot accidentally** ship unsigned media
   or pull poisoned weights: security is a type, not a procedure.
-- Wiring lands in `src/audit.rs` during R5 (naряд №214) with contract tests per gate;
+- Wiring lands in `src/audit.rs` during R5 (naryad №214) with contract tests per gate;
   the gate names above are the SSOT for those tests and for the Voice pillar's
   `AUDIO_UNSIGNED_EXPORT`/`VOICE_CLONE_NO_CONSENT` extensions.
 - The MVP watermark is detectable-by-us but not adversarially robust — the threat

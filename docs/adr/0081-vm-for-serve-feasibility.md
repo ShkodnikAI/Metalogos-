@@ -2,13 +2,13 @@
 
 **Status:** assessed (not switching yet)
 **Date:** 2026-08-02
-**Context:** Наряд №38 Block 4
+**Context:** Naryad №38 Block 4
 
 ## Objective
 
 Assess whether `mlog serve` (currently running on the tree-walking interpreter)
 can be switched to the bytecode VM backend. This is an assessment only;
-the actual switch will be a separate Наряд with its own ADR.
+the actual switch will be a separate Naryad with its own ADR.
 
 ## Baseline performance
 
@@ -100,7 +100,7 @@ FOSVED follows this form.
 
 2. **Integration test compilation.** Currently 2 integration test files
    (`phase19_22_constraints.rs`, `phase18_compiler_statements.rs`) create
-   `Program` structs directly. They now compile after Наряд №38 fixes.
+   `Program` structs directly. They now compile after Naryad №38 fixes.
 
 ### Nice-to-have (not blocking)
 
@@ -117,11 +117,11 @@ FOSVED follows this form.
 | Task | Estimate | Risk |
 |------|----------|------|
 | `And`/`Or` in VM (jump-based) | ~200-300 LOC, 1-2 days | Low — well-understood pattern |
-| Integration test fixes | Done in this Наряд | None |
+| Integration test fixes | Done in this Naryad | None |
 | End-to-end serve test with VM | 0.5 day | Medium — env-dependent |
 | Performance regression testing | 0.5 day | Low |
 
-## Post-fix re-evaluation (Наряд №39 Block 4)
+## Post-fix re-evaluation (Naryad №39 Block 4)
 
 After implementing `And`/`Or` in VM bytecode (jump-based, short-circuit),
 re-tested all 23 FOSVED `.mlog` files:
@@ -154,6 +154,6 @@ processed in serve order.
 The expected benefit is ~2.4× faster request handling with a one-time
 compile penalty at startup.
 
-**Recommendation:** Наряд №40 should switch `mlog serve` to VM with a
+**Recommendation:** Naryad №40 should switch `mlog serve` to VM with a
 feature flag for rollback, run FOSVED under both backends in production
 for 24-48 hours, then remove the flag.

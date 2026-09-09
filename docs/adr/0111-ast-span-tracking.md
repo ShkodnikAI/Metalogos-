@@ -45,9 +45,9 @@ use `Span::unknown()` (all zeros). Semantic errors with unknown span
 
 ### 5. Error message format
 
-Semantic errors now include `"строка N: "` prefix:
+Semantic errors now include `"line N: "` prefix:
 ```
-строка 5: duplicate entity type: User
+line 5: duplicate entity type: User
 ```
 If the span is unknown, the prefix is not added (backward compatible).
 

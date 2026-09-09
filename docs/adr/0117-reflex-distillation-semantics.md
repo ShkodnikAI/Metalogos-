@@ -10,7 +10,7 @@ metric, persistence — all prerequisites this ADR assembles)
 
 ## Context
 
-Наряды №177–180 gave the language a real, working `Reflex`: declare,
+Naryads №177–180 gave the language a real, working `Reflex`: declare,
 train, predict, persist. What remains is the point of contact with
 `learnable pattern` — the construct that makes distillation *useful*
 rather than merely possible: a pattern starts by calling an LLM on
@@ -34,11 +34,11 @@ approximated by the LLM call's own self-reported confidence.
 ### 2. Backward compatibility guarantee
 
 **Decision:** a `learnable pattern` **without** `distill_to` behaves
-identically before and after this наряд — same grammar, same
+identically before and after this naryad — same grammar, same
 execution path, same output. This is not a "should mostly work"
-guarantee; наряд №181's contracts must include an explicit
+guarantee; naryad №181's contracts must include an explicit
 regression test proving byte-identical output for an undistilled
-pattern, matching the same discipline наряд №169 applied when
+pattern, matching the same discipline naryad №169 applied when
 splitting `diagrams.rs` (mechanical changes verified not to alter
 existing behavior).
 
@@ -49,11 +49,11 @@ a closed label set or a numeric value — never free text. This is not
 a temporary limitation to be lifted later; it is a structural
 property of what `Reflex` *is* (`ADR-0114`: a small classifier/
 regressor head over an embedding, not a language model). Generating
-open-ended text would require the architecture-block work наряд №176
+open-ended text would require the architecture-block work naryad №176
 scoped separately (attention, transformer blocks, `candle`) — a
 distinct, larger decision the project owner has not yet made. This
 ADR does not gesture at that as an eventual target; conflating the
-two would misrepresent what this наряд delivers.
+two would misrepresent what this naryad delivers.
 
 **Enforcement:** `distill_to` is only valid on a `learnable pattern`
 whose declared return type is `String` used as a closed label (the
@@ -65,23 +65,23 @@ referenced `reflex`'s `labels` list to be non-empty for
 distillation gets a clear compile-time error naming why, not silent
 LLM-only fallback forever.
 
-## Grammar note (not this ADR's core decision, but binding for наряд №181)
+## Grammar note (not this ADR's core decision, but binding for naryad №181)
 
 `learnable_body`'s existing grammar (`src/grammar.pest`) is a fixed-
 order sequence of optional fields — the same rigidity `ADR-0114`'s
 addendum already criticized for other declarations (`server { middleware:
-[...] port: 8080 }` fails to parse if fields are reordered). Наряд
+[...] port: 8080 }` fails to parse if fields are reordered). Naryad
 №181 must not add `distill_to`/`distill_after`/`fallback_if` as three
 more entries in that same rigid sequence, compounding a known,
 already-flagged defect. At minimum, the three new fields should parse
-in any order relative to each other, even if the наряд does not fix
+in any order relative to each other, even if the naryad does not fix
 the pre-existing fields' ordering as a separate concern.
 
 ## Consequences
 
 - `ADR-0112`'s deferred question is now fully closed: `accuracy` is
   real (`ADR-0115`), and the mechanism that consumes it (`rollback_if`
-  via `reflex_train`'s returned `threshold_met`, наряд №179b) already
+  via `reflex_train`'s returned `threshold_met`, naryad №179b) already
   works.
 - A pattern author opts into distillation by adding three lines;
   removing them returns to LLM-only behavior with zero other changes
@@ -89,5 +89,5 @@ the pre-existing fields' ordering as a separate concern.
   semantics.
 - Free-text generation remains explicitly, permanently out of this
   pillar's initial scope — any future work in that direction is
-  `наряд №176`'s domain (architecture blocks) and requires its own,
+  `naryad №176`'s domain (architecture blocks) and requires its own,
   separate owner decision, not an incremental extension of this ADR.

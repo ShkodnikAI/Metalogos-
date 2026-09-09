@@ -75,7 +75,7 @@ This is a **heuristic**, not a probabilistically correct inference procedure. It
 
 These are intentionally deferred to Phase 2 as research topics. The `min` rule is the
 simplest defensible starting point, consistent with the Metalogos build-ladder principle
-of "простейшая защитимая семантика" (simplest defensible semantics).
+of the "simplest defensible semantics" principle.
 
 ## Examples
 

@@ -1,31 +1,31 @@
-# ADR 0025 — Циклы: `each` (data-first) + `while` (fallback)
+# ADR 0025 — Loops: `each` (data-first) + `while` (fallback)
 
-## Статус
+## Status
 
-Принято. Phase 5.2.
+Accepted. Phase 5.2.
 
-## Контекст
+## Context
 
-Phase 5.1 добавила `let`-привязки и `if/else`-выражения в тело паттернов.
-Для итерации по коллекциям и условного повторения нужны циклические конструкции.
+Phase 5.1 added `let` bindings and `if/else` expressions to pattern bodies.
+Iterating over collections and conditional repetition need looping constructs.
 
-## Варианты
+## Options
 
-| Вариант | Плюсы | Минусы |
+| Option | Pros | Cons |
 |--------|--------|--------|
-| `for i in 0..n {}` | Знакомый синтаксис (Rust, C++) | Индексный, не data-first |
-| `each item in list {}` | Data-first, нет индекса | Нет доступа к индексу |
-| `while cond {}` | Знакомый, гибкий | Риск бесконечного цикла |
-| `loop {}` + `break` | Простая семантика | Нет условия выхода = всегда unsafe |
-| `map/filter/reduce` | Функциональный стиль | Избыточен для императивного языка |
+| `for i in 0..n {}` | Familiar syntax (Rust, C++) | Index-based, not data-first |
+| `each item in list {}` | Data-first, no index | No access to the index |
+| `while cond {}` | Familiar, flexible | Risk of an infinite loop |
+| `loop {}` + `break` | Simple semantics | No exit condition = always unsafe |
+| `map/filter/reduce` | Functional style | Excessive for an imperative language |
 
-## Решение
+## Decision
 
-### `each` — первичная конструкция итерации (data-first)
+### `each` — the primary iteration construct (data-first)
 
-`each item in iterable { body }` итерирует по списку, привязывая `item` к каждому
-элементу. Внутри блока допускается мутация ранее объявленных `let`-переменных
-через присваивание `x = expr`.
+`each item in iterable { body }` iterates over a list, binding `item` to each
+element. Inside the block, mutation of previously declared `let` variables via
+assignment `x = expr` is allowed.
 
 ```mlog
 each item in items {
@@ -35,12 +35,12 @@ each item in items {
 ```
 
 **Prior art:** Rust `for item in iter {}`, Elixir `Enum.each/2`, Python `for item in list`.
-Выбор `each` вместо `for`: (1) избегает конфликта с зарезервированным словом,
-(2) data-first семантика подчёркивает, что мы итерируем по данным, а не по диапазону.
+Choosing `each` over `for`: (1) avoids a conflict with the reserved word,
+(2) data-first semantics emphasizes that we are iterating over data, not a range.
 
-### `while` — fallback для условного повторения
+### `while` — fallback for conditional repetition
 
-`while cond { body }` повторяет блок, пока условие истинно.
+`while cond { body }` repeats the block while the condition holds.
 
 ```mlog
 while i > 0.0 {
@@ -51,42 +51,44 @@ while i > 0.0 {
 
 ### Safety limit
 
-`while` циклы имеют жёсткий лимит 100 000 итераций. Превышение вызывает soft-failure
-(ошибку выполнения, не краш). Это предотвращает бесконечные циклы в программах.
+`while` loops have a hard limit of 100,000 iterations. Exceeding it triggers a
+soft-failure (a runtime error, not a crash). This prevents infinite loops in
+programs.
 
-**Prior art:** Lua `loop` по умолчанию безопасен, Python — нет лимита (краш),
-Rust — нет лимита (panic на overflow). Наш выбор: мягкий лимит + soft-failure.
+**Prior art:** Lua's `loop` is safe by default, Python has no limit (crash),
+Rust has no limit (panic on overflow). Our choice: a soft limit + soft-failure.
 
-### List тип
+### The List type
 
-`[expr, expr, ...]` — литерал списка. `Value::List(Vec<Value>)`. Списки иммутабельны
-(значения, не контейнеры). `push` возвращает новый список.
+`[expr, expr, ...]` — a list literal. `Value::List(Vec<Value>)`. Lists are
+immutable (values, not containers). `push` returns a new list.
 
-### Встроенные функции для списков
+### Built-in functions for lists
 
-| Функция | Сигнатура | Описание |
+| Function | Signature | Description |
 |---------|-----------|----------|
-| `to_string(x)` | `Any -> String` | Форматирование значения в строку. Float без `.0` для целых |
-| `len(list)` | `List -> Float` | Длина списка (дополнительно работает и для String) |
-| `get(list, i)` | `(List, Float) -> Any` | Получение элемента по индексу |
-| `push(list, item)` | `(List, Any) -> List` | Новый список с добавленным элементом |
+| `to_string(x)` | `Any -> String` | Formats a value as a string. Float without `.0` for integers |
+| `len(list)` | `List -> Float` | Length of the list (also works for String) |
+| `get(list, i)` | `(List, Float) -> Any` | Retrieves an element by index |
+| `push(list, item)` | `(List, Any) -> List` | A new list with the element appended |
 
-### Мутация `let`-переменных
+### Mutating `let` variables
 
-`x = expr` внутри блоков `each`/`while` мутирует ранее объявленную через `let`
-переменную. Попытка присвоить необъявленную переменную — soft-failure.
-Нет блоковой области видимости: все привязки видны на уровне паттерна.
+`x = expr` inside `each`/`while` blocks mutates a variable previously declared
+via `let`. Attempting to assign to an undeclared variable is a soft-failure.
+There is no block scoping: all bindings are visible at the pattern level.
 
-## Отложено
+## Deferred
 
-VM и JIT бэкенды. Циклы реализованы только в tree-walking интерпретаторе.
-Архитектура интерпретатора не препятствует добавлению компиляции циклов
-в bytecode; это задача будущих фаз.
+The VM and JIT backends. Loops are implemented only in the tree-walking
+interpreter. The interpreter's architecture does not prevent adding loop
+compilation to bytecode later; that is a task for future phases.
 
-## Последствия
+## Consequences
 
-- `each` и `while` — ключевые слова, исключены из IDENT
-- `in` НЕ исключено из IDENT (чтобы `input`, `info`, `inner` и т.д. оставались валидными)
-- `step_ident` в grammar.pest расширен исключением `each` и `while`
-- 4 новых типа Statement: `Each`, `While`, `Assign`, плюс `Expr::List`
-- 4 новых встроенных функции: `to_string`, `len` (расширен), `get`, `push`
+- `each` and `while` are keywords, excluded from IDENT
+- `in` is NOT excluded from IDENT (so that `input`, `info`, `inner`, etc.
+  remain valid)
+- `step_ident` in grammar.pest is extended to exclude `each` and `while`
+- 4 new Statement types: `Each`, `While`, `Assign`, plus `Expr::List`
+- 4 new built-in functions: `to_string`, `len` (extended), `get`, `push`

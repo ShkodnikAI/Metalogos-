@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-01
 **Status:** accepted
-**Context:** Наряд №33 Block 4
+**Context:** Naryad №33 Block 4
 
 ## Problem
 
@@ -63,7 +63,7 @@ Root causes:
 | p7_env | "Port= Name=" | "" | `env()` result handling in VM |
 | skill_index_tiered | "core_skill_a" | "" | `__*` internal builtins |
 | v05_file_io | "file I/O works!" | "" | `read_file` not in VM |
-| v05_if_else | "повышенная" | "38" | String comparison in VM |
+| v05_if_else | "elevated" | "38" | String comparison in VM |
 | v05_integration | Full string | "3" | String ops differ |
 | v05_kv_memory | "test_value" | "true" | kv_store semantics |
 

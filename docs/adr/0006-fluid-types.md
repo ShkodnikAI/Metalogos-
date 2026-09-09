@@ -14,14 +14,14 @@ confidence is insufficient?
 
 The `metalogos-language-semantics` skill provides the design guidance:
 
-> Fluid = размеченное объединение вариантов + вектор уверенностей. Коллапс **ленивый,
-> в точке использования**: операция/правило/ветвь, требующая конкретного типа,
-> форсирует выбор варианта с максимальной уверенностью (или ошибку soft-failure,
-> если ниже порога).
+> Fluid = a tagged union of variants + a vector of confidences. Collapse is **lazy,
+> at the point of use**: an operation/rule/branch that requires a concrete type
+> forces the choice of the highest-confidence variant (or a soft-failure error
+> if it is below the threshold).
 
 Prior art includes: gradual typing (Siek–Taha), refinement/liquid types, tagged
 unions (sum types), and probabilistic types. The semantics skill explicitly warns
-against building "настоящую вероятностную типизацию" on day one — this is an MVP.
+against building "real probabilistic typing" on day one — this is an MVP.
 
 The contract program is `examples/p1_fluid_types.mlog`:
 ```mlog
@@ -126,8 +126,8 @@ would be useful for debugging but is not needed for the contract test.
 
 1. **Confidence propagation** — when a pattern receives a Fluid input and
    produces output, the output's confidence is not computed from the input's
-   confidence. The semantics skill says: "выход несёт min (или произведение)
-   уверенностей входов" — this is explicitly called out as a heuristic, not
+   confidence. The semantics skill says: "the output carries the min (or product) of the
+   input confidences" — this is explicitly called out as a heuristic, not
    yet implemented. Output confidence is a Phase 1 follow-up.
 
 2. **Automatic type coercion in variants** — if a Fluid has `String["42"]`
@@ -137,7 +137,7 @@ would be useful for debugging but is not needed for the contract test.
 
 3. **Probabilistic type inference** — no Bayesian or Dempster-Shafer reasoning
    is attempted. The confidence scores are treated as opaque annotations.
-   Per the semantics skill: "Не делай настоящую вероятностную типизацию."
+   Per the semantics skill: "Do not build real probabilistic typing."
 
 4. **Fluid-to-Fluid operations** — binary operations between two Fluid values
    are not supported. If both operands are Fluid, the binary operation will

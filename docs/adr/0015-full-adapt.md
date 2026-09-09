@@ -17,9 +17,9 @@ There was no way to:
 
 The metalogos-language-semantics skill specifies the full adapt contract:
 
-> `mutate` меняют **только** few-shot набор `learnable`-паттерна (in-context).
-> Каждая мутация: (1) применяется в **sandbox** (allow/forbid/timeout);
-> (2) прогоняет тест-сьют; (3) **откатывается**, если метрика упала ниже порога.
+> `mutate` changes **only** the few-shot set of a `learnable` pattern (in-context).
+> Each mutation: (1) is applied in a **sandbox** (allow/forbid/timeout);
+> (2) runs the test suite; (3) **rolls back** if the metric drops below the threshold.
 
 ## Prior Art
 
@@ -103,8 +103,8 @@ The `[MUTATE]` status message is prepended to the program output.
 
 From the metalogos-language-semantics skill:
 
-> **Инвариант безопасности:** правила, помеченные как safety-critical, мутации
-> трогать не могут. Это проверяется до применения мутации, а не после.
+> **Safety invariant:** rules marked as safety-critical cannot be touched by
+> mutations. This is checked before the mutation is applied, not after.
 
 Currently all rules are mutable. Safety-critical marking is deferred to when
 the rule system supports metadata annotations (Phase 3).

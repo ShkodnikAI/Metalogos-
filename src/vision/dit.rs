@@ -862,32 +862,8 @@ impl ZImageTransformer {
 
         let rope = AxialRoPE::new(&config, &device)?;
 
-        // n234 Block 2: key-level loader tensor-coverage guard.
-        // Build the full expected key set from the block schema.
-        let mut expected_keys: Vec<String> = vec![
-            "all_x_embedder.2-1.weight".into(),
-            "all_x_embedder.2-1.bias".into(),
-            "x_pad_token".into(),
-            "cap_embedder.0.weight".into(),
-            "cap_embedder.1.weight".into(),
-            "cap_embedder.1.bias".into(),
-            "cap_pad_token".into(),
-            "t_embedder.mlp.0.weight".into(),
-            "t_embedder.mlp.0.bias".into(),
-            "t_embedder.mlp.2.weight".into(),
-            "t_embedder.mlp.2.bias".into(),
-            "all_final_layer.2-1.adaLN_modulation.1.weight".into(),
-            "all_final_layer.2-1.adaLN_modulation.1.bias".into(),
-            "all_final_layer.2-1.linear.weight".into(),
-            "all_final_layer.2-1.linear.bias".into(),
-        ];
-        for i in 0..config.n_layers {
-            add_dit_block_keys(&mut expected_keys, &format!("layers.{}", i), true);
-        }
-        for i in 0..config.n_refiner_layers {
-            add_dit_block_keys(&mut expected_keys, &format!("noise_refiner.{}", i), true);
-            add_dit_block_keys(&mut expected_keys, &format!("context_refiner.{}", i), false);
-        }
+        // n236: key-level loader guard — calls extracted generator (single source of truth).
+        let expected_keys = zimage_expected_keys(&config);
         let loaded_keys: Vec<String> = tensors.keys().cloned().collect();
         crate::vision::weights::check_tensor_coverage(&expected_keys, &loaded_keys)
             .map_err(|e| format!("ZImageTransformer::from_weights: tensor coverage: {}", e))?;
@@ -1078,6 +1054,38 @@ impl ZImageTransformer {
 }
 
 // ── Block construction ──
+
+/// n236: DiT expected-key generator — single source of truth.
+/// Real Z-Image-Turbo: 521 keys (verified from index.json, fetched 2026-09-09).
+/// Breakdown: 15 static (embedders+t_embedder+final) + 30×15 (layers) + 2×15 (noise_refiner)
+/// + 2×13 (context_refiner) = 15+450+30+26 = 521.
+pub(crate) fn zimage_expected_keys(config: &ZImageConfig) -> Vec<String> {
+    let mut keys = vec![
+        "all_x_embedder.2-1.weight".into(),
+        "all_x_embedder.2-1.bias".into(),
+        "x_pad_token".into(),
+        "cap_embedder.0.weight".into(),
+        "cap_embedder.1.weight".into(),
+        "cap_embedder.1.bias".into(),
+        "cap_pad_token".into(),
+        "t_embedder.mlp.0.weight".into(),
+        "t_embedder.mlp.0.bias".into(),
+        "t_embedder.mlp.2.weight".into(),
+        "t_embedder.mlp.2.bias".into(),
+        "all_final_layer.2-1.adaLN_modulation.1.weight".into(),
+        "all_final_layer.2-1.adaLN_modulation.1.bias".into(),
+        "all_final_layer.2-1.linear.weight".into(),
+        "all_final_layer.2-1.linear.bias".into(),
+    ];
+    for i in 0..config.n_layers {
+        add_dit_block_keys(&mut keys, &format!("layers.{}", i), true);
+    }
+    for i in 0..config.n_refiner_layers {
+        add_dit_block_keys(&mut keys, &format!("noise_refiner.{}", i), true);
+        add_dit_block_keys(&mut keys, &format!("context_refiner.{}", i), false);
+    }
+    keys
+}
 
 /// n234 Block 2: Helper to generate all tensor key names for a single DiT block.
 /// modulation=true → includes adaLN_modulation keys (15 total).

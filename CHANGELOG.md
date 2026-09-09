@@ -4,11 +4,16 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-### Added — Vision R3: end-to-end Z-Image-Turbo wedge (Наряд №212, completed №231, rebuilt to reference №232, fix-forward №233, micro-fix №234, VAE structure truth-up №235)
+### Added — Vision R3: end-to-end Z-Image-Turbo wedge (Наряд №212, completed №231, rebuilt to reference №232, fix-forward №233, micro-fix №234, VAE structure truth-up №235, expected-key generators extracted №236)
 
 - **VAE structure truth-up (№235)**: decoder structure per real safetensors header —
   layers_per_block+1 resnets per ALL blocks (was: only last), conv_norm_out (GroupNorm→SiLU→conv_out)
   added to decode path, shortcuts on channel changes. VAE tiny golden re-pinned.
+- **Expected-key generators extracted (№236)**: VAE/DiT/TE expected-key generators
+  extracted to standalone functions (vae_expected_decoder_keys, zimage_expected_keys,
+  te_expected_keys). from_weights calls these functions; unit tests call the SAME
+  functions (not algorithm copies). Fixed VAE generator bug: in_ch updated inside
+  resnet loop (was outside → 146 instead of 138). VAE/DiT/TE goldens unchanged.
 - **VAE mid-attn placement fixed (№234)**: attention now applied between
   resnets[0] and resnets[1] per `UNetMidBlock2D.forward` (diffusers
   unet_2d_blocks.py L737-748). Was after both resnets — mathematically wrong.

@@ -1,4 +1,4 @@
-# ADR-0108: Generics — не вводить, подтверждает решение ADR-0011
+# ADR-0108: Generics — not introduced, reaffirms the decision of ADR-0011
 
 > **Status:** Rejected (reaffirmed)  
 > **Date:** 2026-08-21  
@@ -8,41 +8,42 @@
 
 ## Context
 
-Внешний аудит предложил ввести generics как приоритетный шаг к
-«полноценной» системе типов, не зная о существующем решении.
+An external audit proposed introducing generics as a priority step
+toward a "full" type system, unaware of the existing decision.
 
-`ADR-0011` (Status: Implemented) уже решило этот вопрос для текущей
-фазы, с явным сравнением prior art (Hindley-Milner vs constraint-based
-vs explicit annotations) и обоснованием:
+`ADR-0011` (Status: Implemented) already settled this question for
+the current phase, with an explicit comparison of prior art
+(Hindley-Milner vs constraint-based vs explicit annotations) and
+the rationale:
 
-> «Metalogos has explicit type annotations on patterns and entities,
+> "Metalogos has explicit type annotations on patterns and entities,
 > making forward-propagation through the flow pipeline sufficient for
-> Phase 2.»
+> Phase 2."
 
-Это не пробел — принятое решение со статусом «Implemented».
+This is not a gap — it is an accepted decision with status "Implemented".
 
 ## Decision
 
-**Подтверждается, не пересматривается.** Generics не вводятся.
+**Reaffirmed, not revisited.** Generics are not introduced.
 
-Единственное найденное основание для будущего пересмотра — конкретный,
-воспроизводимый случай, где явная типизация реально мешает (пример-
-кандидат: `std/collections.mlog` жёстко типизирован под `String`,
-`first(items: List) -> String` — если понадобится тот же паттерн для
-чисел или структур, это будет реальный триггер). Абстрактное
-«современным языкам нужны generics» — не таким основанием.
+The only basis found for a future revisit is a concrete, reproducible
+case where explicit typing genuinely gets in the way (candidate
+example: `std/collections.mlog` is hard-typed to `String`,
+`first(items: List) -> String` — if the same pattern is needed for
+numbers or structs, that would be a real trigger). The abstract
+"modern languages need generics" is not such a basis.
 
 ## Consequences
 
-- Грамматика и AST остаются без параметров типа.
-- Явные типы на паттернах/сущностях + forward-propagation остаются
-  единственным механизмом проверки типов.
-- Пересмотр — только при демонстрации конкретного случая, не из
-  общих соображений полноты (тот же принцип, что ADR-0105 применил
-  к VM).
+- The grammar and AST remain without type parameters.
+- Explicit types on patterns/entities plus forward-propagation
+  remain the sole type-checking mechanism.
+- Revisit only when a concrete case is demonstrated, not out of
+  general completeness considerations (the same principle ADR-0105
+  applied to the VM).
 
 ## Related
 
-- ADR-0011 — исходное решение и полное обоснование (не переписывается,
-  этот ADR только подтверждает его актуальность после внешнего аудита)
-- ADR-0105 — тот же принцип «не чинить без доказанного спроса»
+- ADR-0011 — the original decision and full rationale (not rewritten,
+  this ADR only reaffirms its currency after the external audit)
+- ADR-0105 — the same "don't fix without demonstrated demand" principle

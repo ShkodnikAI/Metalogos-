@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-01
 **Status:** accepted
-**Context:** Наряд №32 Block 3.2
+**Context:** Naryad №32 Block 3.2
 
 ## Problem
 

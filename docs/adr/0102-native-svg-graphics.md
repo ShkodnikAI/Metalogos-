@@ -1,6 +1,6 @@
 # ADR-0102: Native SVG Graphics & Diagrams
 
-**Status:** Accepted (MVP scope — Наряд №74)
+**Status:** Accepted (MVP scope — Naryad №74)
 **Date:** 2026-08-14
 **Narad:** #74
 
@@ -11,7 +11,7 @@ Metalogos had **no native graphical primitives** — `svg_rect`, `svg_circle`,
 for reports were produced either by external Python sidecars (LLM-driven,
 non-deterministic, geometrically unreliable) or not at all.
 
-Owner decision (Наряд №74): rendering belongs to `mlog`, not a proxy. Reasons:
+Owner decision (Naryad №74): rendering belongs to `mlog`, not a proxy. Reasons:
 
 1. **Determinism.** Diagrams built via parameterized functions produce
    byte-identical output for identical inputs. LLM-generated SVG text does

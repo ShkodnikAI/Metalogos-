@@ -1,4 +1,4 @@
-# ADR-0107: Отдельный тип `Int` — не вводить без функциональной необходимости
+# ADR-0107: A separate `Int` type — not introduced without functional necessity
 
 > **Status:** Rejected  
 > **Date:** 2026-08-21  
@@ -7,39 +7,39 @@
 
 ## Context
 
-Внешний аудит отметил отсутствие целочисленного типа как «примитивную»
-черту системы типов. Подтверждено: `Value` имеет один числовой
-вариант, `Float`; `to_int()` усекает дробную часть, но возвращает
-всё тот же `Float`. `REFERENCE.md` фиксирует это явно как решение,
-не недосмотр.
+An external audit flagged the absence of an integer type as a "primitive"
+trait of the type system. Confirmed: `Value` has a single numeric
+variant, `Float`; `to_int()` truncates the fractional part but still
+returns a `Float`. `REFERENCE.md` states this explicitly as a decision,
+not an oversight.
 
-`Value::Float` — единственный числовой тип во всех 349 builtins,
-во всех арифметических операциях интерпретатора и VM, во всех
-golden-примерах. Введение `Int` — не добавление варианта enum'а,
-а пересмотр каждой точки, где число создаётся или используется:
-литералы, возвращаемые типы builtins (`len()` → `Int` или `Float`?),
-сериализация в JSON, сравнение в `rule`/`match`.
+`Value::Float` is the sole numeric type across all 349 builtins,
+every arithmetic operation in both the interpreter and the VM, and
+every golden example. Introducing `Int` is not adding an enum
+variant — it is revisiting every point where a number is created or
+used: literals, builtin return types (does `len()` return `Int` or
+`Float`?), JSON serialization, comparison in `rule`/`match`.
 
 ## Decision
 
-**Не вводить.** Реальный вред от отсутствия `Int` сегодня —
-стилистический (`42.0` в выводе вместо `42`), не функциональный:
-язык не оперирует числами, требующими точности за пределами `f64`
-(криптография — отдельный слой, не через `Value`).
+**Do not introduce it.** The real cost of not having `Int` today is
+stylistic (`42.0` in output instead of `42`), not functional: the
+language does not operate on numbers requiring precision beyond `f64`
+(cryptography is a separate layer, not routed through `Value`).
 
-Пересмотр — только при конкретной функциональной необходимости
-(не «современным языкам нужен `Int`»). Если решится вводить — не
-как добавление варианта, а отдельным ADR с явным выбором модели
-приведения `Int`↔`Float` (три готовых prior-art модели: Lua/JS-style
-единый тип, Python/Ruby-style автоприведение, Rust/OCaml-style без
-автоприведения).
+Revisit only on a concrete functional need (not "modern languages
+need `Int`"). If it is decided to introduce it — not as adding a
+variant, but as a separate ADR with an explicit choice of the
+`Int`↔`Float` coercion model (three ready prior-art models:
+Lua/JS-style single type, Python/Ruby-style auto-coercion,
+Rust/OCaml-style with no auto-coercion).
 
 ## Consequences
 
-- `Value` остаётся с единственным числовым вариантом `Float`.
-- Пересмотр — при демонстрации реального функционального случая, не
-  из общих соображений полноты.
+- `Value` remains with a single numeric variant, `Float`.
+- Revisit when a real functional case is demonstrated, not out of
+  general completeness considerations.
 
 ## Related
 
-- ADR-0105 — тот же принцип «не чинить без доказанного спроса»
+- ADR-0105 — the same "don't fix without demonstrated demand" principle

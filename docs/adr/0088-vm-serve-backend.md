@@ -2,12 +2,12 @@
 
 ## Status
 
-Implemented (Наряд №40, extended by №41). Default remains `interpreter`.
+Implemented (Naryad №40, extended by №41). Default remains `interpreter`.
 Switch is reversible via `METALOGOS_SERVE_BACKEND=vm`.
 
 ## Context
 
-After five нарядs (№36–№39), the VM reached full equivalence with the
+After five naryads (№36–№39), the VM reached full equivalence with the
 interpreter on 58/58 golden examples, with all three crosscheck asserts green.
 Compilation: `app.mlog` (2,496 lines) → 216 KB bytecode. Synthetic benchmark:
 VM ~3× faster than interpreter.
@@ -47,7 +47,7 @@ is equivalent on examples" and "works in production" is significant.
    server context. Global state (kv_set/kv_get) is shared via Mutex-backed
    builtins (same as interpreter).
 
-### What was verified (Наряд №40)
+### What was verified (Naryad №40)
 
 | Check | Result |
 |-------|--------|
@@ -62,7 +62,7 @@ is equivalent on examples" and "works in production" is significant.
 | Query param isolation between requests | ✅ |
 | kv_set visible across requests | ✅ |
 
-### What was fixed in Наряд №41
+### What was fixed in Naryad №41
 
 #### Block 1: Match statement — compile error instead of silent stub (P0)
 

@@ -41,16 +41,16 @@ Classify all 92 failures into 8 categories with actionable remediation:
 ## Consequences
 - Block 3 triage complete — full failure map documented
 - Quick wins identified: BUILTIN_REGISTRY entries, cfg gates, let mut fixes
-- Remaining work split across Blocks 4-6 of Наряд №31
+- Remaining work split across Blocks 4-6 of Naryad №31
 
 ## References
 - ADR-0069: slice() builtin for lists
 - ADR-0070: Parser returns Result instead of abort()
-- CHANGELOG.md: [0.12.0] Известные ограничения
+- CHANGELOG.md: [0.12.0] Known limitations
 
-## Re-measurement (Наряд №49→50, 2026-08-06)
+## Re-measurement (Naryad №49→50, 2026-08-06)
 
-Previous: 219 passed / 92 failed / 0 ignored / 311 total (Наряд №33).
+Previous: 219 passed / 92 failed / 0 ignored / 311 total (Naryad №33).
 Current: **257 passed / 3 failed / 67 ignored / 327 total**.
 
 ### Honest accounting of what changed
@@ -74,7 +74,7 @@ The remaining **~67 failures were converted to `#[ignore]`**, not fixed:
 - tool_abstraction repeat(): argument parsing broken
 - (vm_golden p7_env fixed by naryad-49 p7 exclusion filter)
 
-### LLM cache investigation (Наряд №50 Block 0)
+### LLM cache investigation (Naryad №50 Block 0)
 Root cause analysis: `MOCK_LLM_CALL_COUNT` is a process-global `AtomicU64` shared
 across all tests. Rust runs tests in parallel by default. The 4 llm_cache tests lack
 `#[serial_test::serial]`, so other tests in `src/llm.rs` (~40 tests) increment the

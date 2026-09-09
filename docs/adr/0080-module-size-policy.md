@@ -2,11 +2,11 @@
 
 **Status:** accepted
 **Date:** 2026-08-02
-**Context:** Наряд №38 Block 1
+**Context:** Naryad №38 Block 1
 
 ## Problem
 
-Наряд №37 introduced an 800-line hard limit on all files in `src/`.
+Naryad №37 introduced an 800-line hard limit on all files in `src/`.
 The rule was effective at breaking up monoliths:
 
 | File | Before | After |
@@ -44,7 +44,7 @@ Rationale:
 - Test modules are excluded because they benefit from grouping related
   test cases in one place, and test density varies naturally.
 
-### Actions taken in this Наряд
+### Actions taken in this Naryad
 
 1. **`interpreter/mod.rs`**: extracted `execution.rs` (1,645 lines) containing
    `run()`, `eval_expr()`, `eval_statements()`, `eval_binop()`, and related
@@ -68,7 +68,7 @@ No production file exceeds 2,000 lines.
 
 ## Builtin form preserved during split (Block 3 audit)
 
-At Наряд №38 Block 3 acceptance, a concern was raised that the split modules
+At Naryad №38 Block 3 acceptance, a concern was raised that the split modules
 (`collections.rs`, `http.rs`, `json.rs`, `crypto.rs`, `math.rs`, `io.rs`,
 `llm.rs`, `core.rs`) might contain zero `fn` declarations — i.e. builtins
 might have been re-registered as closures instead of named functions.

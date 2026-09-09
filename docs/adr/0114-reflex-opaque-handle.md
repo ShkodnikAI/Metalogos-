@@ -61,7 +61,7 @@ body, not two.
 `Display` for `Value::Reflex` prints `[Reflex <name>]`. `Debug` is a
 **manual implementation** printing only the model's declared name and
 its last-measured metric (accuracy/loss), never weight contents —
-matching the existing precedent set for `SecretString` (`наряд №19`
+matching the existing precedent set for `SecretString` (`naryad №19`
 era: derived `Debug` on a type holding sensitive/bulky payload leaks
 it into error text before any explicit sink check runs).
 
@@ -87,7 +87,7 @@ it into error text before any explicit sink check runs).
 Confirmed with the project owner: model architectures and quality
 metrics available to `Reflex` must be extensible without touching
 `grammar.pest`, mirroring the `BUILTIN_REGISTRY`/`BuiltinSpec` pattern
-(`src/builtins/mod.rs`, наряд №170) — single source of truth, no
+(`src/builtins/mod.rs`, naryad №170) — single source of truth, no
 grammar changes required to add a new kind.
 
 **Grammar stays generic:**
@@ -117,8 +117,8 @@ Adding `attention`/MoE-routing/a new metric later is a registry entry
 plus its `build`/`compute` function — same shape of change as adding
 a builtin today, not a grammar/parser change.
 
-This does not enlarge the scope of naряды №178–181 (still `dense`
+This does not enlarge the scope of naryads №178–181 (still `dense`
 layers and `accuracy`/`loss` only, per the staged plan) — it changes
 **how** that scope is expressed, so stage 6+ (architecture blocks,
-наряд №176) adds registry entries rather than reopening the grammar.
+naryad №176) adds registry entries rather than reopening the grammar.
 

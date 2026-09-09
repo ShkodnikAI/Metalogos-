@@ -16,11 +16,11 @@ Two confirmed gaps in the bytecode VM (verified on current `main`):
 2. **`BlockIfElse` expression is not compiled to VM.** The compiler
    returns a clear error: *«block if/else expression not yet supported
    in VM bytecode (use tree-walking interpreter)»*. This was fixed in
-   Наряд №129 — previously it silently compiled to `Const(Value::Unit)`,
+   Naryad №129 — previously it silently compiled to `Const(Value::Unit)`,
    producing wrong results without any error signal (the worst class of
    defect).
 
-> **Note (Наряд №129):** `Statement::IfElseBlock` (block if/else used as a
+> **Note (Naryad №129):** `Statement::IfElseBlock` (block if/else used as a
 > statement, not expression) **is** fully supported by the VM. Only
 > `Expr::BlockIfElse` (used as a value in `let`, `return`, etc.) is
 > unsupported.
@@ -32,9 +32,9 @@ and `BlockIfElse` would be at least two naryads of that calibre, with no
 guarantee that further deferred constructs are not still hidden in the
 compiler.
 
-> **Note (Наряд №173b):** A *separate*, newer construct — `match_expr`
+> **Note (Naryad №173b):** A *separate*, newer construct — `match_expr`
 > (`match` used as a value in `let x = match { ... }`) — was added in
-> Наряд №173b, TW-only. This does not close the gap above (`match` as
+> Naryad №173b, TW-only. This does not close the gap above (`match` as
 > a statement remains VM-unsupported); it adds a second, narrower
 > TW-only construct on top of it. `p_match_switch.mlog`'s crosscheck
 > exclusion remains — verified unchanged as of this note.
@@ -65,7 +65,7 @@ is an explicit opt-in and is not the default path.
   this ADR — not left silently unpaired.
 - `crosscheck_backends` remains a blocking test for programs both backends
   can execute; it is not a claim of full-language parity.
-- No golden examples used `Expr::BlockIfElse` as a value, so Наряд №129
+- No golden examples used `Expr::BlockIfElse` as a value, so Naryad №129
   required no additional crosscheck exclusions.
 
 ## Related

@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-12
 **Status:** Accepted
-**Context:** Наряд METALOGOS_4_PRIMITIVES v2, Problem A
+**Context:** Naryad METALOGOS_4_PRIMITIVES v2, Problem A
 
 ## Problem
 
@@ -16,10 +16,10 @@ New `skill_index` declaration with explicit tiers, trigger-based matching, and t
 skill_index osp {
   tier 1 always ["deconstruct", "awareness-frame"]
   tier 2 when_matches [
-    { skill: "cross-asset-divergence", triggers: ["рынок", "актив", "валют"] }
+    { skill: "cross-asset-divergence", triggers: ["market", "asset", "currencies"] }
   ]
   tier 3 when_matches [
-    { skill: "red-team", triggers: ["контр-анализ"] }
+    { skill: "red-team", triggers: ["counter-analysis"] }
   ]
   budget: 25000 tokens
   truncation: whole_skill_only

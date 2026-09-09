@@ -14,13 +14,13 @@ Numbers are assigned sequentially. The current maximum is in `0094-*`.
 
 ## Reserved numbers (do not reassign)
 
-The following ADR numbers are referenced in source code, tests, or past Наряд
+The following ADR numbers are referenced in source code, tests, or past Naryad
 reports and must not be changed:
 
 - **ADR-0073** (`jit-experimental`) — referenced in `README.md`, `CHANGELOG.md`,
   `tests/crosscheck_backends.rs`
 - **ADR-0075** (`tw-vm-divergence`) — referenced in `CHANGELOG.md`,
-  `tests/crosscheck_backends.rs`, past Наряд reports
+  `tests/crosscheck_backends.rs`, past Naryad reports
 - **ADR-0076** (`vm-dispatch-paths`) — referenced in `tests/vm_golden.rs`
 
 ## Index
@@ -51,7 +51,7 @@ reports and must not be changed:
 | 0022 | JIT Compilation via Cranelift — Phase 4.3 | Accepted |
 | 0023 | Self-Hosting: First Lexer Component (Phase 4.4) | Accepted (implementation pending |
 | 0024 | let bindings + if/else expressions | Accepted |
-| 0025 | Циклы: `each` (data-first) + `while` (fallback) | Принято |
+| 0025 | Cycles: `each` (data-first) + `while` (fallback) | Accepted |
 | 0026 | String Operations as Builtins | Accepted |
 | 0027 | Module System with Namespaces | Accepted |
 | 0028 | HTTP Server with Axum | Accepted |
@@ -74,14 +74,14 @@ reports and must not be changed:
 | 0045 | Hooks — before_pattern / after_pattern | Implemented |
 | 0046 | Context Auto-Loading in Learnable Patterns | Implemented (extended with `auto`/`none`/literal variants) |
 | 0047 | LLM Response Caching for Learnable Patterns | Implemented |
-| 0048 | Smart-LLM-Routing — Наряд №4 | Implemented |
-| 0049 | Session Memory (временная память разговора) | Accepted |
+| 0048 | Smart-LLM-Routing — Naryad №4 | Implemented |
+| 0049 | Session Memory (temporary conversation memory) | Accepted |
 | 0050 | Eval Harness — Automatic Evaluation of Learnable Patterns | Implemented |
 | 0051 | inspect() — Pattern Metadata Builtin | Implemented |
 | 0052 | Event Stream — Unified Log of All Operations | Implemented |
 | 0053 | Conversation State — Managed Dialog Context | Implemented |
 | 0054 | Tool Abstraction — External Services as Language Constructs | Implemented |
-| 0056 | Lifecycle Control — checkpoint/resume для долгих задач | Implemented |
+| 0056 | Lifecycle Control — checkpoint/resume for long-running tasks | Implemented |
 | 0057 | Static Security Audit (`mlog audit`) | Accepted |
 | 0058 | Tiered Skill Index — Structured Skill Loading | Accepted |
 | 0059 | Struct via Entity Reuse — No New Keyword | Accepted |
@@ -103,7 +103,7 @@ reports and must not be changed:
 | 0075 | TW vs VM divergence list (21 cases) | accepted |
 | 0076 | VM Dispatch Path Coverage | accepted |
 | 0077 | Cost-Aware Model Routing for Learnable Patterns | Implemented |
-| 0078 | Metalogos Runtime Fixes (Наряд №12) | Accepted |
+| 0078 | Metalogos Runtime Fixes (Naryad №12) | Accepted |
 | 0079 | Positional taint check for http_post body | Accepted |
 | 0080 | Module size policy | accepted |
 | 0081 | VM-for-serve feasibility assessment | assessed (not switching yet) |
@@ -112,8 +112,8 @@ reports and must not be changed:
 | 0084 | Taint tracking — assignment propagation | accepted |
 | 0085 | Type-Safe HTML Templates | Accepted |
 | 0086 | Performance baseline benchmarks | accepted |
-| 0087 | Full UTF-8 Audit — Наряд №11 | Implemented |
-| 0088 | VM Backend for `mlog serve` | Implemented (Наряд №40, extended by №41) |
+| 0087 | Full UTF-8 Audit — Naryad №11 | Implemented |
+| 0088 | VM Backend for `mlog serve` | Implemented (Naryad №40, extended by №41) |
 | 0089 | Confidence Semantics — Actual State | accepted |
 | 0090 | Rule Priority Semantics — First-Wins | accepted |
 | 0093 | Memory Typology & FTS5 Hybrid Search | Accepted |
@@ -122,20 +122,20 @@ reports and must not be changed:
 | 0096 | Replace `block_in_place` with `spawn_blocking` in route handlers | Accepted (implemented) |
 | 0097 | Replace block_in_place with spawn_blocking | Accepted |
 | 0098 | Registry–Dispatcher Sync | accepted |
-| 0099 | Regular Expression Builtins (Наряд №54) | PROPOSED |
+| 0099 | Regular Expression Builtins (Naryad №54) | PROPOSED |
 | 0100 | LSP Position Resolution via Text Search (Variant B) | Accepted |
 | 0101 | Deferred Route Response (post-respond continuation) | Accepted (contract phase |
 | 0102 | Native SVG Graphics & Diagrams | Accepted (MVP scope |
-| 0103 | Idiomatic `#[ignore]` Reasons (Наряд №73 Block 3) | Accepted |
+| 0103 | Idiomatic `#[ignore]` Reasons (Naryad №73 Block 3) | Accepted |
 | 0104 | Cargo feature gating — measured binary impact | Accepted |
 | 0105 | Bytecode VM — experimental scope (not full-language equivalent) | Accepted |
-| 0106 | `Option`/`Result` — не вводить, soft-failure остаётся моделью ошибок | Rejected |
-| 0107 | Отдельный тип `Int` — не вводить без функциональной необходимости | Rejected |
-| 0108 | Generics — не вводить, подтверждает решение ADR-0011 | Rejected (reaffirmed) |
+| 0106 | `Option`/`Result` — not introduced, soft-failure remains the error model | Rejected |
+| 0107 | A separate `Int` type — not introduced without functional necessity | Rejected |
+| 0108 | Generics — not introduced, reaffirms the decision of ADR-0011 | Rejected (reaffirmed) |
 | 0109 | `imap` 3.0.0-alpha.15 — intentional pre-release dependency | Accepted |
-| 0110 | Протокол обогащения языка | Accepted |
+| 0110 | Language Enrichment Protocol | Accepted |
 | 0111 | Inline span tracking in AST nodes | Accepted |
-| 0112 | Метрика качества `adapt` — текущий mock, не реализованная функция | Accepted |
+| 0112 | `adapt` quality metric — current mock, not an implemented function | Accepted |
 | 0113 | Pattern-name collision warnings on `run` / `serve` | Accepted |
 | 0114 | `Value::Reflex` as an opaque handle, not a tensor type | Accepted |
 | 0115 | What "accuracy" means for `Reflex` | Accepted |

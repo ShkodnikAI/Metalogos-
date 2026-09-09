@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-09-06
 **Naryad:** #193 (blocks on this ADR)
-**Pillar:** `Reflex` (new capability, not a new pillar — same столп)
+**Pillar:** `Reflex` (new capability, not a new pillar — same pillar)
 **Amends:** `ADR-0117` §3 ("why free-form generation is out of scope,
 not future work"). That section is **superseded**, not deleted —
 kept in the document as the historical record of the boundary and
@@ -14,7 +14,7 @@ its own, separate owner decision"). That condition has now been met.
 
 `ADR-0117` drew a structural line: `Reflex`/`reflex_seq` classify a
 closed label set or a whole sequence into one label — never generate
-open-ended text. Наряды №183–192 built (and integration-verified)
+open-ended text. Naryads №183–192 built (and integration-verified)
 real attention, GQA, RoPE, `RmsNorm`/`SwiGLU`, multi-block stacking
 with correct gradient flow through the whole stack, and real
 `candle`-autograd training. The owner has now explicitly authorized
@@ -31,7 +31,7 @@ Three real, load-bearing gaps — not incremental additions to existing
 code:
 
 1. **Vocabulary output, not a closed label list.** `reflex_seq`'s
-   classification head projects to `labels.len()` outputs (naряд
+   classification head projects to `labels.len()` outputs (naryad
    №185: 3-10 classes typically). Generation projects to a real
    vocabulary (thousands to tens of thousands of token IDs) at every
    position. This is a different final-layer shape, not a bigger
@@ -40,9 +40,9 @@ code:
    runs the forward pass once per input. Generation runs it once per
    *output token*, reusing cached key/value tensors from prior steps
    — without a cache, generating N tokens costs O(N²) instead of
-   O(N). `candle-transformers`' real Llama reference (наряд №176's
+   O(N). `candle-transformers`' real Llama reference (naryad №176's
    documented template) already implements this pattern — it is the
-   template for this наряд too, not a new invention.
+   template for this naryad too, not a new invention.
 3. **Sampling, not argmax.** Classification takes the single highest-
    confidence label. Generation needs temperature/top-k/top-p
    sampling to avoid deterministic, repetitive output — a real
@@ -52,8 +52,8 @@ code:
 
 A **new declaration form**, `reflex_gen`, not a silent extension of
 `reflex_seq`. `reflex_seq`'s existing behavior (mean-pooling to one
-label, naряды №185–192's entire test suite) is **not touched** —
-same discipline as наряд №182/188/190 applied to `Layer`/`Attention`.
+label, naryads №185–192's entire test suite) is **not touched** —
+same discipline as naryad №182/188/190 applied to `Layer`/`Attention`.
 
 ```mlog
 reflex_gen TinyStoryteller {
@@ -66,14 +66,14 @@ reflex_gen TinyStoryteller {
 
 `reflex_generate(model, prompt_tokens, max_tokens, temperature)` —
 new builtin, KV-cache-backed autoregressive loop, following the exact
-structure of `candle-transformers`' Llama generation loop (наряд
+structure of `candle-transformers`' Llama generation loop (naryad
 №176's reference), not a from-scratch design.
 
 **Tokenization is explicitly out of scope for this ADR.** `reflex_gen`
 operates on already-tokenized integer sequences (`Vec<u32>` token
 IDs) — mapping raw text to/from tokens (BPE or similar) is a separate,
 follow-up decision, not bundled into opening generation itself. This
-mirrors naряд №120's own discipline of not silently growing scope
+mirrors naryad №120's own discipline of not silently growing scope
 inside one decision.
 
 ## Consequences
@@ -83,7 +83,7 @@ inside one decision.
   one.
 - The pillar now has two genuinely distinct capabilities sharing the
   same underlying architecture blocks (attention/GQA/transformer
-  stack, наряды №183–192): closed-set classification and open-ended
+  stack, naryads №183–192): closed-set classification and open-ended
   generation. Both are `Reflex`, not two pillars.
 - Tokenization remains a named, deferred gap — `reflex_generate`
   without a paired tokenizer decision only accepts pre-tokenized
@@ -93,7 +93,7 @@ inside one decision.
   is **not** addressed by this ADR — genuinely different tensor
   shapes (2D/3D, not 1D sequences), a different training paradigm
   (diffusion, not autoregression), and an additional subsystem
-  (VAE latent compression) that nothing in наряды №177–192 provides.
+  (VAE latent compression) that nothing in naryads №177–192 provides.
   `candle-transformers` does ship `stable_diffusion`/`wuerstchen`
   reference implementations (verified before writing this ADR), so
   the same "follow a real reference" principle would apply if that

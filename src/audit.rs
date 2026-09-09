@@ -1216,6 +1216,30 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                         }
                     }
                 }
+
+                // Наряд №243 (Vision R6.2): the SAME positional check
+                // extends to `vision_edit` calls — arg 0 is the Vision
+                // handle (not data; лекало №240 Block 3: arg 0 is not
+                // flagged), arg 1 is the edit prompt. Same check-id and
+                // category as vision_generate (no new check-id in №243):
+                // the prompt is recorded in the edited artifact's
+                // provenance manifest (prompt_sha256), so UserInput taint
+                // must stay loud (advisory Warning — a user-typed edit
+                // instruction is a legitimate use case).
+                if fn_name == "vision_edit" {
+                    if let Some(arg) = args.get(1) {
+                        if get_expr_taint(arg, tracker) == Some(TaintKind::UserInput) {
+                            let line = find_line(source, fn_name);
+                            findings.push(AuditFinding {
+                                severity: Severity::Warning,
+                                check_id: "VISION_PROMPT_USER_INPUT",
+                                line,
+                                message: "user input used as vision_edit prompt — prompt will be recorded in the edited artifact's provenance manifest (R6.2); the source must be a signed artifact"
+                                    .to_string(),
+                            });
+                        }
+                    }
+                }
             }
         }
 

@@ -15,8 +15,9 @@
 //! **Loud refusal discipline (§3.5):** `vision_generate` performs a real
 //! pipeline; missing `MLOG_VISION_WEIGHTS_DIR` or missing weights components
 //! is an honest environment refusal (loud `Err` naming the env var and the
-//! missing component) — NOT a silent stub. `vision_edit` remains a loud
-//! stub (R6 edit — №243). `vision_save`/`vision_load` became real
+//! missing component) — NOT a silent stub. `vision_edit` joined the real
+//! paths in №243 (R6.2, in-context editing — signed-source contract,
+//! provenance inheritance). `vision_save`/`vision_load` became real
 //! SQLite-persistence dispatches in №242 (R6.1, `src/vision/store.rs`) —
 //! the same state-carrying interception pattern plus the program's
 //! database connection (`db { url: "sqlite:..." }`).
@@ -536,6 +537,334 @@ pub fn vision_load_dispatch(
     Ok(Value::Vision(id))
 }
 
+/// `vision_edit(handle, prompt) -> Vision`
+///
+/// **In-context image editing** (Наряд №243, R6.2 — the second third of
+/// R6 "Edit + LoRA", plan §7.1). Takes a SIGNED source artifact handle and
+/// an edit prompt; runs the in-context edit compute path (VAE encode of
+/// the source → reference-latent conditioning → flow-match Euler edit loop
+/// on `forward_edit`) and inserts a NEW signed artifact into the registry.
+///
+/// Contract:
+/// 1. Arity 2, typed arguments (unknown/wrong handle → loud `Err` — the
+///    лекало export/save).
+/// 2. **The source MUST be signed** (Block 2.2): an artifact with
+///    `manifest: None` is refused loudly — the edit output must honestly
+///    inherit `model_id`/`policy`/`seed` from the source manifest, and
+///    producing an unsigned artifact through a real compute path is
+///    forbidden (№241 Block 1.3). Unsigned artifacts keep working in
+///    `vision_export_raw` — that is NOT changed.
+/// 3. Env/feature gates like `vision_generate` (loud refusals naming the
+///    env var / feature and how to enable).
+/// 4. Source dimensions: R4.1 bounds (256..=4096, ×16) + VAE factor
+///    divisibility — all loud (a silent resize would distort the
+///    provenance chain, Block 1.4).
+/// 5. Sign ALWAYS (Block 2.3): watermark + 7-field manifest; `model_id`,
+///    `policy`, `seed` inherited from the source manifest; `model_sha256`
+///    = the CURRENT run's `weights_tree_sha256`; `prompt_sha256` = the
+///    EDIT prompt's hash; `timestamp`/`png_sha256` fresh.
+pub fn vision_edit_dispatch(
+    registry: &mut VisionRegistry,
+    args: &[Value],
+) -> Result<Value, String> {
+    if args.len() != 2 {
+        return Err(format!(
+            "vision_edit: expects 2 arguments (handle, prompt), got {}",
+            args.len()
+        ));
+    }
+    let id = match &args[0] {
+        Value::Vision(id) => *id,
+        other => {
+            return Err(format!(
+                "vision_edit: first argument must be a Vision handle, got {}",
+                value_type_name(other)
+            ))
+        }
+    };
+    let prompt = match &args[1] {
+        Value::String(s) => s.clone(),
+        other => {
+            return Err(format!(
+                "vision_edit: second argument must be a prompt (String), got {}",
+                value_type_name(other)
+            ))
+        }
+    };
+    if prompt.is_empty() {
+        return Err("vision_edit: prompt must not be empty".to_string());
+    }
+
+    // Source artifact: lookup + signed-source contract (Block 2.2). The
+    // bytes and the manifest are cloned out so the registry borrow ends
+    // before the compute path takes `&mut registry` for the insertion.
+    let (source_png, source_manifest) = {
+        let source = registry.get(id).ok_or_else(|| {
+            format!(
+                "vision_edit: vision handle [Vision#{}] not found in the registry \
+                 (was it generated in this session? artifacts do not persist across runs)",
+                id.0
+            )
+        })?;
+        let manifest = source.manifest.clone().ok_or_else(|| {
+            format!(
+                "vision_edit: source [Vision#{}] carries no provenance manifest — refusing \
+                 an unsigned source (the edit output must honestly inherit model_id/policy/\
+                 seed from the source's manifest, and producing an unsigned artifact through \
+                 a real compute path is forbidden — ADR-0125 Block 1.3, №243 Block 2.2). \
+                 Generate the source with vision_generate, or load a saved signed artifact \
+                 with vision_load",
+                id.0
+            )
+        })?;
+        (source.png_bytes.clone(), manifest)
+    };
+
+    // Runtime re-check of the source's model id (defense-in-depth against
+    // hand-built/deserialized manifests — лекало vision_generate :117).
+    if !crate::vision::KNOWN_VISION_MODELS.contains(&source_manifest.model_id.as_str()) {
+        return Err(format!(
+            "vision_edit: source manifest names unknown model '{}' (known models: {})",
+            source_manifest.model_id,
+            crate::vision::KNOWN_VISION_MODELS.join(", ")
+        ));
+    }
+
+    // Weights environment (loud environment refusal — NOT a stub; лекало
+    // vision_generate :125–146).
+    let weights_dir = match std::env::var_os("MLOG_VISION_WEIGHTS_DIR") {
+        Some(dir) => PathBuf::from(dir),
+        None => {
+            return Err(
+                "vision_edit: MLOG_VISION_WEIGHTS_DIR is not set — real editing \
+                 requires the Z-Image-Turbo weights directory (see \
+                 docs/research/naryad-237-real-weights-runbook.md)"
+                    .to_string(),
+            )
+        }
+    };
+    for (sub, human) in WEIGHTS_COMPONENTS {
+        let path = weights_dir.join(sub);
+        if !path.is_dir() {
+            return Err(format!(
+                "vision_edit: MLOG_VISION_WEIGHTS_DIR component missing: '{}' ({}) not found at {}",
+                sub,
+                human,
+                path.display()
+            ));
+        }
+    }
+
+    #[cfg(feature = "vision")]
+    {
+        let vision_id = edit_real(
+            &source_manifest,
+            &source_png,
+            &prompt,
+            registry,
+            &weights_dir,
+        )?;
+        Ok(Value::Vision(vision_id))
+    }
+    #[cfg(not(feature = "vision"))]
+    {
+        let _ = &source_png; // consumed by the gated real path only (borrow, not move)
+        Err(format!(
+            "vision_edit: this build was compiled WITHOUT the `vision` feature — \
+             real editing requires `--features vision` (source resolved cleanly; \
+             model '{}', seed {} — loud refusal, not a placeholder)",
+            source_manifest.model_id, source_manifest.seed
+        ))
+    }
+}
+
+// ── Edit-source dimension contract (Наряд №243, Block 1.4) ──────────
+
+/// R4.1 dimension bounds for the edit source — loud refusals, a silent
+/// resize is FORBIDDEN (it would distort the provenance chain: the output
+/// must be the source's own resolution). Enforced by the dispatch: the
+/// real-model contract mirrors the R4.1 semantic validation of declared
+/// `vision { }` width/height (×16 in 256..=4096).
+pub fn vision_edit_check_dims_r41(h: usize, w: usize) -> Result<(), String> {
+    if !(256..=4096).contains(&h) || !(256..=4096).contains(&w) {
+        return Err(format!(
+            "vision_edit: source dimensions {}x{} are outside the R4.1 bounds \
+             256..=4096 — resizing is refused loudly (a silent resize would \
+             distort the provenance chain, №243 Block 1.4); resize the source \
+             OUTSIDE the pipeline and produce a new signed artifact",
+            h, w
+        ));
+    }
+    if h.is_multiple_of(16) && w.is_multiple_of(16) {
+        Ok(())
+    } else {
+        Err(format!(
+            "vision_edit: source dimensions {}x{} are not multiples of 16 \
+             (R4.1 contract for declared vision dimensions)",
+            h, w
+        ))
+    }
+}
+
+/// VAE factor divisibility for the edit source (loud refusal — a
+/// non-divisible source would silently floor through the stride-2 convs,
+/// which IS a silent resize). Enforced by the compute path for ANY config
+/// (tiny included — the factor comes from the actual loaded VAE config).
+pub fn vision_edit_check_dims_vae_factor(h: usize, w: usize, factor: usize) -> Result<(), String> {
+    if h.is_multiple_of(factor) && w.is_multiple_of(factor) {
+        Ok(())
+    } else {
+        Err(format!(
+            "vision_edit: source dimensions {}x{} are not divisible by the VAE \
+             downsample factor {} — the encoder would silently floor the size \
+             (a forbidden silent resize, №243 Block 1.4)",
+            h, w, factor
+        ))
+    }
+}
+
+/// Sign ALWAYS + insert for the edit path (Наряд №243, Block 2.3).
+///
+/// Shared by the real dispatch (weights from `MLOG_VISION_WEIGHTS_DIR`) and
+/// the tiny-контракт tests (tiny components, no weights — the wedge лекало;
+/// `weights_dir: None` records the honest `"unpinned"` marker, the same one
+/// `weights_tree_sha256` records for a tree without `manifest.json`).
+///
+/// Inheritance contract: `model_id`, `policy`, `seed` come from the SOURCE
+/// manifest (determinism: same source + same prompt + same weights → same
+/// seed → same output); `model_sha256` is the CURRENT run's
+/// weights-tree fingerprint; `prompt_sha256` is the EDIT prompt's hash;
+/// `timestamp` and `png_sha256` are fresh (the SHA describes exactly the
+/// watermarked bytes the artifact carries).
+#[cfg(feature = "vision")]
+pub fn vision_edit_sign_and_insert(
+    registry: &mut VisionRegistry,
+    source_manifest: &crate::vision::provenance::VisionManifest,
+    output_png_bytes: &[u8],
+    edit_prompt: &str,
+    weights_dir: Option<&std::path::Path>,
+) -> Result<crate::vision::VisionId, String> {
+    // Sign ALWAYS (№241 Block 1.3): the watermark goes in FIRST; every
+    // signing failure is a loud Err BEFORE insertion.
+    let png_bytes = crate::vision::provenance::embed_lsb_watermark(
+        output_png_bytes,
+        &source_manifest.model_id,
+    )?;
+    let model_sha256 = match weights_dir {
+        Some(dir) => crate::vision::provenance::weights_tree_sha256(dir)?,
+        // Honest marker for a compute path with no weights tree (the
+        // tiny-контракт harness) — the absence of pinning stays loud.
+        None => "unpinned".to_string(),
+    };
+    let manifest = crate::vision::provenance::VisionManifest {
+        model_id: source_manifest.model_id.clone(),
+        model_sha256,
+        seed: source_manifest.seed,
+        prompt_sha256: crate::vision::provenance::prompt_hash(edit_prompt),
+        policy: source_manifest.policy.clone(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        png_sha256: crate::vision::provenance::sha256_hex(&png_bytes),
+    };
+    let id = registry.insert(VisionArtifact {
+        png_bytes,
+        manifest: Some(manifest),
+    });
+    Ok(id)
+}
+
+/// Real edit clip (Наряд №243, R6.2). Feature-gated like `generate_real`:
+/// the vision inference stack lives behind `--features vision` (ADR-0122).
+///
+/// Pipeline: source PNG → decode → dims contract → VAE ENCODER (the
+/// non-decoder prefixes of the SAME pinned VAE file) → reference latent →
+/// tokenizer → Qwen3-4B on the EDIT prompt → Z-Image DiT →
+/// `flow_match_euler_edit` (EDIT_STEPS forward calls, seed inherited) →
+/// VAE decode → PNG encode → sign ALWAYS → registry.
+#[cfg(feature = "vision")]
+fn edit_real(
+    source_manifest: &crate::vision::provenance::VisionManifest,
+    source_png: &[u8],
+    prompt: &str,
+    registry: &mut VisionRegistry,
+    weights_dir: &std::path::Path,
+) -> Result<crate::vision::VisionId, String> {
+    use candle_core::{DType, Device};
+
+    // Stage A: source PNG → image tensor + R4.1 dims contract (loud).
+    let img01 = crate::vision::vae::decode_png(source_png)?;
+    let dims = img01.dims();
+    let (h, w) = (dims[1], dims[2]);
+    vision_edit_check_dims_r41(h, w)?;
+
+    // Stage B: VAE encoder + decoder from the SAME pinned file (one load).
+    let vae_tensors = crate::vision::weights::load_safetensors_single(
+        &weights_dir.join("vae"),
+        "diffusion_pytorch_model",
+        &Device::Cpu,
+    )?;
+    let vae_encoder = crate::vision::vae::VaeEncoder::from_weights(&vae_tensors)?;
+    let decoder = crate::vision::vae::VaeDecoder::from_weights(&vae_tensors)?;
+    drop(vae_tensors);
+    let factor = crate::vision::vae::vae_downsample_factor(vae_encoder.config());
+    vision_edit_check_dims_vae_factor(h, w, factor)?;
+
+    // Stage C: text encoding of the EDIT prompt (the prompt that lands in
+    // the output manifest's prompt_sha256).
+    let tokenizer = crate::vision::tokenizer::Tokenizer::from_dir(&weights_dir.join("tokenizer"))?;
+    let tokens = tokenizer.encode(prompt)?;
+    let te_tensors = crate::vision::weights::load_safetensors_sharded(
+        &weights_dir.join("text_encoder"),
+        "model",
+        &Device::Cpu,
+    )?;
+    let text_encoder = crate::vision::text_encoder::TextEncoder::from_weights(
+        &crate::vision::text_encoder::QWEN3_4B_CONFIG,
+        &te_tensors,
+    )?;
+    drop(te_tensors);
+    let cap = text_encoder.forward(&tokens)?;
+
+    // Stage D: DiT (Z-Image).
+    let dit_tensors = crate::vision::weights::load_safetensors_sharded(
+        &weights_dir.join("transformer"),
+        "diffusion_pytorch_model",
+        &Device::Cpu,
+    )?;
+    let dit = crate::vision::dit::ZImageTransformer::from_weights(&dit_tensors)?;
+    drop(dit_tensors);
+
+    // Stage E: reference latent. decode_png yields [0,1]; the encoder
+    // contract is [-1,1] → affine map x*2-1 (no resize anywhere).
+    let img_enc = img01
+        .affine(2.0, -1.0)
+        .map_err(|e| format!("vision_edit: [-1,1] map: {}", e))?;
+    let ref_latent = vae_encoder.encode(&img_enc)?;
+
+    // Stage F: the in-context edit loop (EDIT_STEPS; seed inherited from
+    // the source manifest — Block 2.3 determinism).
+    let latent = crate::vision::sampler::flow_match_euler_edit(
+        &dit,
+        &cap,
+        &ref_latent,
+        source_manifest.seed,
+        crate::vision::sampler::EDIT_STEPS,
+    )?;
+
+    // Stage G: decode the edited latent → PNG bytes.
+    let img_out = decoder.decode(&latent)?;
+    let img_out = img_out.to_dtype(DType::F32).map_err(|e| e.to_string())?;
+    let png_bytes = crate::vision::vae::encode_png(&img_out)?;
+
+    // Stage H: sign ALWAYS + insert (inheritance inside).
+    vision_edit_sign_and_insert(
+        registry,
+        source_manifest,
+        &png_bytes,
+        prompt,
+        Some(weights_dir),
+    )
+}
+
 /// `vision_fetch_weights(manifest_url, dest_dir) -> String`
 ///
 /// **SSRF-guarded, allowlist-gated, SHA-pinned weights fetching**
@@ -835,18 +1164,6 @@ fn value_type_name(v: &Value) -> &'static str {
     }
 }
 
-/// `vision_edit(handle, prompt) -> Vision`
-///
-/// **Not implemented** — R6 (naryad 214/215 territory: image editing).
-pub(crate) fn builtin_vision_edit_stub(_args: &[Value]) -> Result<Value, String> {
-    Err(
-        "vision_edit: Vision editing is not implemented in this build \
-         (naryad 210 skeleton; real implementation lands in R6, naryad 214/215, \
-         per ADR-0122). This is a loud refusal, not a placeholder result."
-            .to_string(),
-    )
-}
-
 // ── Last-resort stubs for the registry (Наряд №240) ──────────────────
 //
 // `vision_generate` / `vision_list` / `vision_export` are intercepted by
@@ -923,6 +1240,20 @@ pub(crate) fn builtin_vision_load_stub(_args: &[Value]) -> Result<Value, String>
          intercepted by the interpreter/VM dispatch (Наряд №242) which owns the \
          vision registry and the database connection; direct registry calls are \
          not supported (loud refusal)"
+            .to_string(),
+    )
+}
+
+/// Last-resort stub — real path is the intercepted `vision_edit_dispatch`
+/// (Наряд №243 R6.2: state-carrying like `vision_save`/`vision_load`).
+/// Supersedes the R1-era loud stub that referenced the obsolete
+/// "naryad 214/215" numbering (R0-epoch) — the last «214/215» leaves the
+/// repo by mandated doc truth-up (Block 2.5).
+pub(crate) fn builtin_vision_edit_stub(_args: &[Value]) -> Result<Value, String> {
+    Err(
+        "vision_edit: reached the generic builtin registry — this builtin is \
+         intercepted by the interpreter/VM dispatch (Наряд №243, R6.2) which owns \
+         the vision registry; direct registry calls are not supported (loud refusal)"
             .to_string(),
     )
 }

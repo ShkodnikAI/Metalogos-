@@ -188,7 +188,10 @@ pub use reflex::{
 // interpreter and the VM) + last-resort registry stubs.
 // Наряд №242 (R6.1): vision_save/vision_load dispatches joined the family
 // (state-carrying + the program's db connection).
+// Наряд №243 (R6.2): vision_edit dispatch joined the family
+// (state-carrying; signed-source contract).
 pub use vision::{
+    vision_edit_check_dims_r41, vision_edit_check_dims_vae_factor, vision_edit_dispatch,
     vision_export_dispatch, vision_export_raw_dispatch, vision_generate_dispatch,
     vision_list_dispatch, vision_load_dispatch, vision_save_dispatch,
 };

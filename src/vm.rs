@@ -2291,8 +2291,10 @@ impl Vm {
     /// interpreter path). Наряд №242 (R6.1): `vision_save`/`vision_load`
     /// are intercepted too — the dispatch additionally receives the VM's
     /// SQLite connection (`db_conn`, opened from `program.db_url`).
-    /// `vision_edit` remains a loud stub (R6 edit — №243) and falls
-    /// through to the registry stub.
+    /// Наряд №243 (R6.2): `vision_edit` is intercepted as well
+    /// (state-carrying like save/load — the registry, no db involved);
+    /// the source must be signed (Block 2.2), the output signs ALWAYS
+    /// (Block 2.3).
     fn call_vision_builtin(&mut self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
         if name == "vision_generate" {
             return Some(crate::builtins::vision_generate_dispatch(
@@ -2336,6 +2338,14 @@ impl Vm {
             return Some(crate::builtins::vision_load_dispatch(
                 &mut self.vision_registry,
                 self.db_conn.as_ref(),
+                args,
+            ));
+        }
+        // Наряд №243 (R6.2): in-context editing — state-carrying like
+        // save/load (the VM's own registry; no db in the edit contract).
+        if name == "vision_edit" {
+            return Some(crate::builtins::vision_edit_dispatch(
+                &mut self.vision_registry,
                 args,
             ));
         }

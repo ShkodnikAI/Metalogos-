@@ -4,6 +4,41 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — Vision R3.7: real-weights run preparation (Наряд №237)
+
+- **fetch tool**: `tools/fetch_vision_weights.sh` — manifest-driven weight
+  fetcher (SSOT = №212 manifest tables): `curl -L -C -` per-file resume,
+  reference sha = manifest value → else HF LFS oid, sha-verified loud SKIP on
+  re-run, POST-DOWNLOAD REFUSAL on mismatch (file not consumed), loud
+  non-zero exit on network failure, `--dry-run` offline plan, `--only
+  <subdir>` component-scoped fetch. Verified without heavy weights:
+  `bash -n`; dry-run plan (16 files); `--only tokenizer` real fetch (4 files,
+  15881072 B) + SKIP re-run + truncated-file resume-repair +
+  same-size-corruption loud refusal.
+- **manifest №212**: section "How to verify against the source (Как сверять с
+  источником)" — HF LFS oid = SHA-256 of the file, mismatch = loud refusal;
+  layout sizes truth-up from HF models API (real total 32 848 304 654 B ≈
+  32.85 GB — the "~24.6 GB" go-no-go estimate was an underestimate);
+  tokenizer table filled with real sha256/bytes (download run + SKIP re-run,
+  identical values). Heavy weights remain _TODO_ — Branch (б) of Block 2.2
+  (no ≥40 GB machine in the delivery environment, 9.2 GB free); loud gap in
+  the PR description.
+- **runbook**: `docs/research/naryad-237-real-weights-runbook.md` — pre-run
+  checklist (≥40 GB disk; ≥64 GB RAM per F32 dtype policy ~62 GB peak; BF16
+  honestly flagged R4+ territory), exact env-gated commands (the three №212
+  tests), result-fixation table (PNG path/SHA/size, stage timings, 2-run
+  bit-exact determinism), Go/No-Go criteria verbatim from go-no-go,
+  REAL-RUN-only rule for "REQUIRES REAL RUN" slots.
+- **Ignore-count invariant truth-up (Block 2.3)**: the "96/0" figure in older
+  naryad templates is not reproducible. Formula fixed from №237 on:
+  `git grep -c '#\[ignore' HEAD -- src tests` = N (write the actual N; = 129
+  at base 1f26f41/396b1df — 125 tests + 4 src), delta to base = 0.
+- **No src changes by design**: scope-freeze — code is GO-ready after №236;
+  `git diff --stat <base>..HEAD -- src/` is empty for this naryad. The
+  real-weights run is PARKED (owner decision 2026-09-09) until hardware
+  appears; the run itself = one session per the runbook, reported separately
+  (§3.5 of the naryad spec).
+
 ### Added — Vision R3: end-to-end Z-Image-Turbo wedge (Наряд №212, completed №231, rebuilt to reference №232, fix-forward №233, micro-fix №234, VAE structure truth-up №235, expected-key generators extracted №236)
 
 - **VAE structure truth-up (№235)**: decoder structure per real safetensors header —

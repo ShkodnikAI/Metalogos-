@@ -331,6 +331,12 @@ pub struct Program {
     /// Candle-feature-gated — only populated when `--features candle`.
     #[serde(default)]
     pub reflex_gen_decls: Vec<CompiledReflexGenDecl>,
+    /// Наряд №240 (Vision R4.2): compiled `vision` declarations.
+    /// Processed by `Vm::load_program` and the interpreter's declaration
+    /// pass to register name → parameters for `vision_generate` dispatch.
+    /// Empty vec when no vision declarations are present.
+    #[serde(default)]
+    pub vision_decls: Vec<CompiledVisionDecl>,
     /// Database URL (if declared). Enables db_insert, query_scalar, etc.
     pub db_url: Option<String>,
     /// Наряд №204 (ADR-0121 stage 2): memory persist path from
@@ -467,6 +473,70 @@ pub struct CompiledReflexGenDecl {
     pub vocab_size: usize,
     pub layers: Vec<CompiledReflexLayerSpec>,
     pub seed: u64,
+}
+
+/// Наряд №240 (Vision R4.2): usage policy of a `vision { }` declaration.
+/// Mirrors `ast::VisionPolicy` (R4.1: only `Safe`) minus the span, in a
+/// serde-serializable form for `Program` round-trips.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CompiledVisionPolicy {
+    Safe,
+}
+
+/// Наряд №240 (Vision R4.2): VRAM/compute profile of a `vision { }` declaration.
+/// Mirrors `ast::VisionProfile` (ADR-0124: `fp16 | fp8 | gguf-q4`) minus the
+/// span. The profile is recorded on the declaration (R5 manifest territory);
+/// the R4.2 inference path is fp32 — no silent reinterpretation of the field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CompiledVisionProfile {
+    Fp16,
+    Fp8,
+    GgufQ4,
+}
+
+/// Наряд №240 (Vision R4.2): compiled `vision "Name" { ... }` declaration.
+/// Mirrors `ast::VisionDecl` (R4.1) minus the span — fields 1:1:
+/// name, model, steps, width, height, seed, policy, profile.
+/// Processed by `Vm::load_program` / the interpreter's declaration pass to
+/// register name → parameters for the `vision_generate` dispatch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompiledVisionDecl {
+    pub name: String,
+    /// Model id — runtime re-checked against `KNOWN_VISION_MODELS`
+    /// (defense-in-depth; semantic checks at compile time).
+    pub model: String,
+    /// Number of Euler updates (sampler sigmas = steps + 1; decl steps=8
+    /// is the ADR-0124 recommended distilled-NFE setting).
+    pub steps: u32,
+    pub width: u32,
+    pub height: u32,
+    pub seed: u64,
+    pub policy: CompiledVisionPolicy,
+    pub profile: CompiledVisionProfile,
+}
+
+impl CompiledVisionDecl {
+    /// Single conversion point from the AST (used by the compiler's pass1
+    /// and the interpreter's declaration pass — no field-by-field
+    /// duplication between the two backends).
+    pub fn from_ast(v: &crate::ast::VisionDecl) -> Self {
+        Self {
+            name: v.name.clone(),
+            model: v.model.clone(),
+            steps: v.steps,
+            width: v.width,
+            height: v.height,
+            seed: v.seed,
+            policy: match v.policy {
+                crate::ast::VisionPolicy::Safe => CompiledVisionPolicy::Safe,
+            },
+            profile: match v.profile {
+                crate::ast::VisionProfile::Fp16 => CompiledVisionProfile::Fp16,
+                crate::ast::VisionProfile::Fp8 => CompiledVisionProfile::Fp8,
+                crate::ast::VisionProfile::GgufQ4 => CompiledVisionProfile::GgufQ4,
+            },
+        }
+    }
 }
 
 /// A call frame for function invocation.

@@ -303,8 +303,9 @@ impl Interpreter {
                 // Наряд №178: reflex declarations handled in execution.rs
                 // Наряд №183: reflex_seq declarations also handled in execution.rs
                 // Наряд №193: reflex_gen declarations also handled in execution.rs
-                // Наряд №238 (Vision R4.1): vision declarations — nothing to
-                // collect at module level; dispatch is R4.2.
+                // Наряд №240 (Vision R4.2): vision declarations are registered
+                // in execution.rs (declaration pass) — nothing to collect at
+                // module level.
                 Declaration::Reflex(_) | Declaration::ReflexSeq(_) | Declaration::ReflexGen(_) => {}
                 Declaration::Vision(_) => {}
                 Declaration::Test(t) => {

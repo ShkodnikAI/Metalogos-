@@ -85,6 +85,10 @@ cargo test --features vision --test naryad_212_wedge_e2e -- --nocapture 2>&1 | t
 > — стабы, .mlog-генерация — территория R4.2 (dispatch). Эквивалент генерации
 > до R4.2 — env-gated тест `clinical_e2e_first_image` (полный клин:
 > prompt → tokens → Qwen3 → DiT → VAE → PNG).
+>
+> Реализовано в №240 (PR #238): env-gated .mlog-тест
+> `mlog_vision_generate_export_e2e` (`tests/naryad_240_vision_mlog_e2e.rs`); команда:
+> `cargo test --workspace --features vision --no-fail-fast --test naryad_240_vision_mlog_e2e -- --nocapture`.
 
 CI-видимые tiny goldens (VAE `85ef6a87…`, DiT `860c85b311905f6c23b90a4e9e3192928027a24bf3e4a00a08096336abad4b3c`; n231: `e686167b…` — pre-rebuild architecture) в этом прогоне
 неизменны — их зелень уже в CI; если они вдруг красные — СТОП, фиксация среды,

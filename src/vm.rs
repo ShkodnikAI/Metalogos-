@@ -88,6 +88,14 @@ pub struct Vm {
     /// handler to resolve bare-Ident model references like
     /// `reflex_train(TestClassifier, ...)` → `Value::Reflex(id)`.
     reflex_names: HashMap<String, crate::nn::ReflexId>,
+    /// Наряд №240 (Vision R4.2): vision artifact registry — stores generated
+    /// PNG buffers. `Value::Vision(VisionId)` indexes into this. No Mutex —
+    /// same single-threaded-per-request rationale as `reflex_registry` above.
+    vision_registry: crate::vision::VisionRegistry,
+    /// Наряд №240 (Vision R4.2): maps declaration name → compiled parameters.
+    /// Populated by `load_program` when processing `program.vision_decls`.
+    /// Used by the `vision_generate` intercept to resolve the declaration.
+    vision_decls: HashMap<String, crate::bytecode::CompiledVisionDecl>,
     /// Наряд №204 (ADR-0121 stage 2): memory persist path from
     /// `memory { persist: "path.db" }` declaration. Enables reflex_save/
     /// reflex_load on the VM (same field the interpreter has at
@@ -139,6 +147,8 @@ impl Vm {
             pattern_stats: std::sync::Mutex::new(HashMap::new()),
             reflex_registry: crate::nn::ReflexRegistry::new(),
             reflex_names: HashMap::new(),
+            vision_registry: crate::vision::VisionRegistry::new(),
+            vision_decls: HashMap::new(),
             memory_persist_path: None,
             distill_states: HashMap::new(),
         }
@@ -203,6 +213,15 @@ impl Vm {
         // Наряд №204 (ADR-0121 stage 2): memory persist path for
         // reflex_save/reflex_load.
         self.memory_persist_path = program.memory_persist_path.clone();
+
+        // Наряд №240 (Vision R4.2): register vision declarations
+        // (name → parameters). Generation state lives in the VM's own
+        // `vision_registry`; the actual inference is routed through the
+        // shared dispatch functions in `src/builtins/vision.rs` (лекало
+        // reflex: neural-network logic is NOT reimplemented on the VM side).
+        for decl in &program.vision_decls {
+            self.vision_decls.insert(decl.name.clone(), decl.clone());
+        }
 
         // Open database connection if URL is specified
         self.db_conn = program.db_url.as_ref().and_then(|url| {
@@ -2190,6 +2209,14 @@ impl Vm {
             return result;
         }
 
+        // Наряд №240 (Vision R4.2): intercept vision_generate/vision_list/
+        // vision_export before the generic fallback — routes to the VM's own
+        // vision_registry/vision_decls via the shared dispatch functions in
+        // src/builtins/vision.rs (лекало call_reflex_builtin).
+        if let Some(result) = self.call_vision_builtin(name, args) {
+            return result;
+        }
+
         if let Some(builtin_fn) = self.builtins.get(name) {
             return builtin_fn(args);
         }
@@ -2249,6 +2276,37 @@ impl Vm {
         if name == "reflex_generate" {
             return Some(crate::builtins::reflex_generate_dispatch(
                 &self.reflex_registry,
+                args,
+            ));
+        }
+        None
+    }
+
+    /// Наряд №240 (Vision R4.2): intercept vision_generate/vision_list/
+    /// vision_export before the generic builtin fallback. Routes to the
+    /// shared dispatch functions in `src/builtins/vision.rs`, passing the
+    /// VM's own `vision_decls` and `vision_registry` (лекало
+    /// `call_reflex_builtin`: inference logic is NOT reimplemented — only
+    /// the argument marshalling and registry access differ from the
+    /// interpreter path). `vision_edit`/`vision_save`/`vision_load` remain
+    /// loud stubs (R6) and fall through to the registry stubs.
+    fn call_vision_builtin(&mut self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
+        if name == "vision_generate" {
+            return Some(crate::builtins::vision_generate_dispatch(
+                &self.vision_decls,
+                &mut self.vision_registry,
+                args,
+            ));
+        }
+        if name == "vision_list" {
+            return Some(crate::builtins::vision_list_dispatch(
+                &self.vision_registry,
+                args,
+            ));
+        }
+        if name == "vision_export" {
+            return Some(crate::builtins::vision_export_dispatch(
+                &self.vision_registry,
                 args,
             ));
         }
@@ -2697,6 +2755,7 @@ impl Vm {
                     reflex_decls: Vec::new(),
                     reflex_seq_decls: Vec::new(),
                     reflex_gen_decls: Vec::new(),
+                    vision_decls: Vec::new(),
                     memory_persist_path: None,
                     db_url: None,
                     schema_ddl: Vec::new(),

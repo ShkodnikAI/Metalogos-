@@ -1019,24 +1019,41 @@ impl VaeDecoder {
 }
 
 /// Save a `[3, H, W]` F32 image tensor (in [0,1]) as a PNG file.
+///
+/// Наряд №240 (R4.2): thin wrapper over `encode_png` — the encoding logic
+/// is shared with the `vision_generate` dispatch (PNG bytes go into the
+/// `VisionRegistry`), only the file write differs.
 pub fn save_png(img: &Tensor, path: &Path) -> Result<(), String> {
+    let bytes = encode_png(img)?;
+    std::fs::write(path, &bytes)
+        .map_err(|e| format!("save_png: write to {}: {}", path.display(), e))
+}
+
+/// Encode a `[3, H, W]` F32 image tensor (in [0,1]) as PNG bytes.
+///
+/// Наряд №240 (R4.2): encoding half of the former `save_png`, factored out
+/// so the `vision_generate` dispatch can put real PNG bytes into the
+/// `VisionRegistry` without touching the filesystem. Bit-identical output
+/// to `save_png` (same encoder, same pixel math).
+pub fn encode_png(img: &Tensor) -> Result<Vec<u8>, String> {
     use image::{ImageBuffer, Rgb};
+    use std::io::Write as _;
     let img = img
         .to_dtype(DType::F32)
-        .map_err(|e| format!("save_png: dtype: {}", e))?;
+        .map_err(|e| format!("encode_png: dtype: {}", e))?;
     let img = img
         .contiguous()
-        .map_err(|e| format!("save_png: contiguous: {}", e))?;
+        .map_err(|e| format!("encode_png: contiguous: {}", e))?;
     let dims = img.dims();
     if dims.len() != 3 || dims[0] != 3 {
-        return Err(format!("save_png: expected [3, H, W], got {:?}", dims));
+        return Err(format!("encode_png: expected [3, H, W], got {:?}", dims));
     }
     let (h, w) = (dims[1], dims[2]);
     let vals = img
         .flatten_all()
-        .map_err(|e| format!("save_png: flatten: {}", e))?
+        .map_err(|e| format!("encode_png: flatten: {}", e))?
         .to_vec1::<f32>()
-        .map_err(|e| format!("save_png: to_vec1: {}", e))?;
+        .map_err(|e| format!("encode_png: to_vec1: {}", e))?;
 
     let mut img_buf: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::new(w as u32, h as u32);
     let plane_size = h * w;
@@ -1048,7 +1065,9 @@ pub fn save_png(img: &Tensor, path: &Path) -> Result<(), String> {
             img_buf.put_pixel(x as u32, y as u32, Rgb([r, g, b]));
         }
     }
+    let mut cursor = std::io::Cursor::new(Vec::new());
     img_buf
-        .save(path)
-        .map_err(|e| format!("save_png: save to {}: {}", path.display(), e))
+        .write_to(&mut cursor, image::ImageFormat::Png)
+        .map_err(|e| format!("encode_png: PNG encode: {}", e))?;
+    Ok(cursor.into_inner())
 }

@@ -218,6 +218,14 @@ pub struct Interpreter {
     pub reflex_registry: std::sync::Mutex<crate::nn::ReflexRegistry>,
     /// Наряд №178: name → ReflexId map for lookup.
     pub reflex_names: HashMap<String, crate::nn::ReflexId>,
+    /// Наряд №240 (Vision R4.2): vision artifact registry — stores generated
+    /// PNG buffers. `Value::Vision(VisionId)` indexes into this. Wrapped in
+    /// Mutex for the same `&self` evaluation contexts as `reflex_registry`.
+    pub vision_registry: crate::vision::SharedVisionRegistry,
+    /// Наряд №240 (Vision R4.2): name → compiled parameters for
+    /// `vision_generate` dispatch. Populated by the declaration pass
+    /// (`Declaration::Vision` arm in execution.rs).
+    pub vision_decls: HashMap<String, crate::bytecode::CompiledVisionDecl>,
     /// Наряд №4: LLM routing config (providers, circuit breaker, failover).
     /// If None → backward compatible (env vars, single provider).
     llm_config: Option<crate::ast::LlmConfigDecl>,
@@ -288,6 +296,8 @@ impl Interpreter {
             skill_indices: HashMap::new(),
             reflex_registry: std::sync::Mutex::new(crate::nn::ReflexRegistry::new()),
             reflex_names: HashMap::new(),
+            vision_registry: std::sync::Mutex::new(crate::vision::VisionRegistry::new()),
+            vision_decls: HashMap::new(),
             llm_config: None,
             smart_router: std::sync::Arc::new(std::sync::Mutex::new(None)),
             propagated_confidence: std::sync::Mutex::new(1.0),

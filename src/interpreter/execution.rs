@@ -456,10 +456,15 @@ impl Interpreter {
                 Declaration::Test(t) => {
                     self.test_blocks.push(t);
                 }
-                // Наряд №238 (Vision R4.1): vision declarations have no
-                // runtime semantics yet — builtin dispatch is R4.2. Minimal
-                // arm forced by the exhaustive match (parse + semantic only).
-                Declaration::Vision(_) => {}
+                // Наряд №240 (Vision R4.2): register vision declarations for
+                // the `vision_generate` dispatch (лекало reflex: the
+                // interpreter registers from AST; the VM registers from
+                // `program.vision_decls` in `Vm::load_program`). No bytecode
+                // semantics — declaration carries parameters only.
+                Declaration::Vision(v) => {
+                    let compiled = crate::bytecode::CompiledVisionDecl::from_ast(&v);
+                    self.vision_decls.insert(v.name.clone(), compiled);
+                }
             }
         }
 
@@ -557,6 +562,31 @@ impl Interpreter {
                 .get_mut()
                 .map_err(|e| format!("reflex registry poisoned: {}", e))?;
             return crate::builtins::reflex_generate_dispatch(reg, &args);
+        }
+
+        // Наряд №240 (Vision R4.2): vision_generate / vision_list /
+        // vision_export as flow steps — same shared dispatch functions as
+        // the expression path above (лекало reflex_generate).
+        if name == "vision_generate" {
+            let mut reg = self
+                .vision_registry
+                .lock()
+                .map_err(|e| format!("vision registry poisoned: {}", e))?;
+            return crate::builtins::vision_generate_dispatch(&self.vision_decls, &mut reg, &args);
+        }
+        if name == "vision_list" {
+            let reg = self
+                .vision_registry
+                .lock()
+                .map_err(|e| format!("vision registry poisoned: {}", e))?;
+            return crate::builtins::vision_list_dispatch(&reg, &args);
+        }
+        if name == "vision_export" {
+            let reg = self
+                .vision_registry
+                .lock()
+                .map_err(|e| format!("vision registry poisoned: {}", e))?;
+            return crate::builtins::vision_export_dispatch(&reg, &args);
         }
 
         // Check recall (memory) first — it's a built-in with memory access
@@ -1448,6 +1478,37 @@ impl Interpreter {
                 // Наряд №193: reflex_generate — text generation (ADR-0120).
                 if name == "reflex_generate" {
                     return self.invoke_reflex_generate(eval_args);
+                }
+
+                // Наряд №240 (Vision R4.2): vision_generate / vision_list /
+                // vision_export — need interpreter state (vision_decls,
+                // vision_registry Mutex). Dispatch functions in
+                // src/builtins/vision.rs are shared with the VM (лекало
+                // reflex_train/reflex_predict).
+                if name == "vision_generate" {
+                    let mut reg = self
+                        .vision_registry
+                        .lock()
+                        .map_err(|e| format!("vision registry poisoned: {}", e))?;
+                    return crate::builtins::vision_generate_dispatch(
+                        &self.vision_decls,
+                        &mut reg,
+                        &eval_args,
+                    );
+                }
+                if name == "vision_list" {
+                    let reg = self
+                        .vision_registry
+                        .lock()
+                        .map_err(|e| format!("vision registry poisoned: {}", e))?;
+                    return crate::builtins::vision_list_dispatch(&reg, &eval_args);
+                }
+                if name == "vision_export" {
+                    let reg = self
+                        .vision_registry
+                        .lock()
+                        .map_err(|e| format!("vision registry poisoned: {}", e))?;
+                    return crate::builtins::vision_export_dispatch(&reg, &eval_args);
                 }
 
                 // Check recall (memory) first

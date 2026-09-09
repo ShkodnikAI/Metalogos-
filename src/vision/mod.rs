@@ -36,21 +36,30 @@ impl std::fmt::Display for VisionId {
     }
 }
 
-/// Registry of vision artifacts — the runtime store for opaque handles.
+/// Registry of vision artifacts — the runtime store for opaque handles
+/// (Наряд №240, R4.2).
 ///
+/// Stores the encoded PNG bytes of the generated image (the same bytes
+/// `vision::vae::save_png` writes, produced via `encode_png`). Weights and
+/// raw tensors never enter `Value` or the registry — only the encoded
+/// artifact buffer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VisionArtifact {
+    /// Encoded PNG bytes (complete file image, writable as-is).
+    pub png_bytes: Vec<u8>,
+}
+
 /// Mirrors `ReflexRegistry` (`src/nn/mod.rs`): owns artifacts behind a
-/// `Mutex`, provides insert/get/remove/len/is_empty API. The artifact
-/// type is currently `()` (empty) — R2/R3 will replace it with actual
-/// image tensors or generation state.
+/// `Mutex`, provides insert/get/remove/len/is_empty API.
 ///
-/// In the interpreter, the registry will be stored as
-/// `Mutex<VisionRegistry>` on the `Interpreter` struct (same pattern as
-/// `reflex_registry` at `src/interpreter/mod.rs:218`). This wiring lands
-/// in R3 (naryad 212) when real vision state exists — not in R1.
+/// Наряд №240 (R4.2): the artifact type is now the real `VisionArtifact`
+/// (PNG buffer) — R1's `()` placeholder is gone. Insertion happens only
+/// from the real `vision_generate` path (full clip: tokenizer → text
+/// encoder → DiT+sampler → VAE → PNG encode).
 #[derive(Debug, Default)]
 pub struct VisionRegistry {
-    /// Map from VisionId → artifact. Currently `()` — R2/R3 will add real types.
-    artifacts: HashMap<u64, ()>,
+    /// Map from VisionId → artifact.
+    artifacts: HashMap<u64, VisionArtifact>,
     next_id: u64,
 }
 
@@ -64,15 +73,15 @@ impl VisionRegistry {
     }
 
     /// Insert a new artifact, return its handle. ID is monotonically increasing.
-    pub fn insert(&mut self) -> VisionId {
+    pub fn insert(&mut self, artifact: VisionArtifact) -> VisionId {
         let id = VisionId(self.next_id);
         self.next_id += 1;
-        self.artifacts.insert(id.0, ());
+        self.artifacts.insert(id.0, artifact);
         id
     }
 
-    /// Get an artifact by handle. Returns `Some(())` if it exists.
-    pub fn get(&self, id: VisionId) -> Option<&()> {
+    /// Get an artifact by handle. Returns `Some(&VisionArtifact)` if it exists.
+    pub fn get(&self, id: VisionId) -> Option<&VisionArtifact> {
         self.artifacts.get(&id.0)
     }
 
@@ -146,12 +155,18 @@ mod tests {
         assert_eq!(format!("{}", id2), "[Vision#42]");
     }
 
+    fn test_artifact() -> VisionArtifact {
+        VisionArtifact {
+            png_bytes: vec![1, 2, 3],
+        }
+    }
+
     #[test]
     fn registry_insert_returns_monotonic_ids() {
         let mut reg = VisionRegistry::new();
-        let id0 = reg.insert();
-        let id1 = reg.insert();
-        let id2 = reg.insert();
+        let id0 = reg.insert(test_artifact());
+        let id1 = reg.insert(test_artifact());
+        let id2 = reg.insert(test_artifact());
         assert_eq!(id0.0, 0);
         assert_eq!(id1.0, 1);
         assert_eq!(id2.0, 2);
@@ -160,7 +175,7 @@ mod tests {
     #[test]
     fn registry_get_after_insert() {
         let mut reg = VisionRegistry::new();
-        let id = reg.insert();
+        let id = reg.insert(test_artifact());
         assert!(reg.get(id).is_some());
         assert!(reg.get(VisionId(999)).is_none());
     }
@@ -168,7 +183,7 @@ mod tests {
     #[test]
     fn registry_remove() {
         let mut reg = VisionRegistry::new();
-        let id = reg.insert();
+        let id = reg.insert(test_artifact());
         assert_eq!(reg.len(), 1);
         reg.remove(id);
         assert_eq!(reg.len(), 0);
@@ -179,19 +194,19 @@ mod tests {
     fn registry_len_and_is_empty() {
         let mut reg = VisionRegistry::new();
         assert!(reg.is_empty());
-        reg.insert();
+        reg.insert(test_artifact());
         assert!(!reg.is_empty());
         assert_eq!(reg.len(), 1);
-        reg.insert();
+        reg.insert(test_artifact());
         assert_eq!(reg.len(), 2);
     }
 
     #[test]
     fn registry_list_ids_sorted() {
         let mut reg = VisionRegistry::new();
-        reg.insert();
-        reg.insert();
-        reg.insert();
+        reg.insert(test_artifact());
+        reg.insert(test_artifact());
+        reg.insert(test_artifact());
         let ids = reg.list_ids();
         assert_eq!(ids.len(), 3);
         assert_eq!(ids[0].0, 0);

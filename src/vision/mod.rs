@@ -27,6 +27,13 @@ use std::sync::Mutex;
 // decode/encode paths inside are `image`-gated.
 pub mod provenance;
 
+// Наряд №242 (R6.1): SQLite persistence of vision artifacts
+// (`vision_save`/`vision_load`). NOT feature-gated: the store operates
+// on the non-gated `VisionArtifact` + `rusqlite` (a base dependency) —
+// persistence needs no inference stack, so its contract is testable in
+// the default build.
+pub mod store;
+
 /// Opaque handle to a vision artifact in `VisionRegistry`.
 ///
 /// Contains only an index — the actual artifact data lives in the registry.

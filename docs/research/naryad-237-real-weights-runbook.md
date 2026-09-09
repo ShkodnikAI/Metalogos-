@@ -79,6 +79,13 @@ cargo test --features vision --test naryad_212_wedge_e2e -- --nocapture 2>&1 | t
 - `vae_real_weights_decode_fixed_latent` — реальный VAE decode (167 MB) → PNG 1024×1024 (`n212_vae_fixed_latent.png`);
 - `clinical_e2e_first_image` — полный клин: prompt → tokens → Qwen3 → DiT 8 forward → VAE → PNG 1024×1024 (`first_image.png`, seed 21200, prompt «a red apple on a wooden table, studio light»).
 
+> **LOUD-примечание (отклонение, зафиксировано верификатором 2026-09-09).**
+> Нарядная формулировка №237 Block 3.1 «+ одна генерация из .mlog» в R3.7/R4.1
+> невыполнима: vision-builtins (`vision_generate` и др., `src/builtins/registry.rs:548–553`)
+> — стабы, .mlog-генерация — территория R4.2 (dispatch). Эквивалент генерации
+> до R4.2 — env-gated тест `clinical_e2e_first_image` (полный клин:
+> prompt → tokens → Qwen3 → DiT → VAE → PNG).
+
 CI-видимые tiny goldens (VAE `85ef6a87…`, DiT `860c85b311905f6c23b90a4e9e3192928027a24bf3e4a00a08096336abad4b3c`; n231: `e686167b…` — pre-rebuild architecture) в этом прогоне
 неизменны — их зелень уже в CI; если они вдруг красные — СТОП, фиксация среды,
 никаких пинов не трогать (§3.2).

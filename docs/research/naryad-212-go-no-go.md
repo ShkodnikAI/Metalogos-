@@ -24,6 +24,8 @@
 | Weights infra | `weights.rs` unit tests (4) | ✅ manifest load, SHA mismatch, missing index, missing tokenizer |
 | Tokenizer | `tokenizer.rs` unit test (1) | ✅ missing tokenizer.json errors loudly |
 
+> hash=e686167b в таблице выше — снимок эпохи №212; после rebuild-цепочки фактический пин — 860c85b3 (SSOT = `GOLDEN_DIT_TINY_HASH` в тесте).
+
 ## What's NOT verified (env-gated, requires real weights)
 
 These tests exist and compile but require `MLOG_VISION_WEIGHTS_DIR` to point at a downloaded Z-Image-Turbo weights directory (~24.6 GB total). They were not run in this delivery environment.
@@ -98,3 +100,4 @@ These entries are intentionally left blank rather than fabricated — per §3.8 
 
 - №236 (PR #234): generators single-source, D2' closed, 15/15
 - №237 (PR #235): real-weights run prep — fetch tool (`tools/fetch_vision_weights.sh`, sha256 discipline) + manifest HF-oid section + runbook `naryad-237-real-weights-runbook.md`; real-weights run **PARKED** (owner decision 2026-09-09 — no ≥40 GB machine in delivery env, 9.2 GB free). Size truth-up: 16 files = 32 848 304 654 B ≈ **32.85 GB** verified via HF models API — the "~24.6 GB" estimate above was an underestimate of the same source. Tokenizer 4-row SHAs filled with real (double-run-verified) values; heavy weights remain _TODO_ until the run.
+- №238 (PR #236): R4.1 vision{}-декларации (grammar+AST+parser+semantic, 12 тестов), Block 0 = fix-forward №237 (runbook golden `860c85b3`, TE 8.05 GB); пере-скоуп изданного docs-only наряда объявлен в PR, 4 хвоста — в №239.

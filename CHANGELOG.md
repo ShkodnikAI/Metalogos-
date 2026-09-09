@@ -4,6 +4,48 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — Vision R6.1: SQLite-персистенция артефактов (Наряд №242)
+
+- **`vision_save(handle, name) -> String` / `vision_load(name) -> Vision`
+  (Block 2)**: громкие R1-стабы (`src/builtins/vision.rs:723/733`) стали
+  реальными путями персистенции. Перехваты в interpreter (eval + invoke) и
+  VM — state-carrying паттерн №240/№241 плюс соединение с БД программы
+  (`db_conn`: у VM — поле из `program.db_url`, у Interpreter —
+  `Arc<Mutex<Option>>` из декларации `db { url: "sqlite:..." }`). id
+  реестра — сессионный хэндл (монотонный с нуля, НЕ персистится);
+  персистентный ключ — `name`. No-db → громкий Err с подсказкой
+  декларации; unknown handle → громкий Err с `[Vision#N]`; unknown name →
+  громкий Err со списком сохранённого (loud-диагностика).
+- **Новый модуль `src/vision/store.rs` (Block 1)**: таблица
+  `vision_artifacts` (name TEXT PRIMARY KEY, png_bytes BLOB NOT NULL,
+  manifest_json TEXT, saved_at TEXT NOT NULL RFC 3339 UTC; создание —
+  лекало `init_kv_persist`, WAL не трогается — им управляет db-слой). API
+  `save`/`load`/`list` — для тестов и loud-диагностики, встроенного
+  builtin-списка поверх БД нет. **Дословный manifest-roundtrip**:
+  `Some(m)` → sidecar-JSON → `Some(m')`, `m' == m` по полям (включая
+  `timestamp` — персистенция provenance не перегенерирует); `None` →
+  `NULL` → `None`; **битый manifest-JSON = громкий Err** (тихая деградация
+  в unsigned — запрещённая потеря provenance). **Коллизия имени = громкий
+  Err** (plain INSERT, upsert/delete-семантика не входит в №242 — тихая
+  перезапись разрушила бы provenance-цепочку); пустое имя = громкий Err;
+  PNG-байты ходят только BLOB-ом в БД программы (записей на диск вне
+  export-пути нет).
+- **Roundtrip-контракт (Block 3, плановая приёмка R6 «roundtrip-тест»)**:
+  рег A с подписанным артефактом → save → новый пустой рег B → load →
+  signed `vision_export` — PNG и sidecar `<path>.manifest.json`
+  байт-в-байт равны исходным. **Backstop №241 жив после персистенции**:
+  загруженный артефакт с `manifest: None` отказывается в signed
+  `vision_export` (`VISION_UNSIGNED_EXPORT`) и работает в
+  `vision_export_raw` без sidecar. Тесты: 8 unit (store) + 8
+  интеграционных (naryad_242_vision_save_load); без сети, без весов, без
+  `#[serial]` (env не трогается), `sqlite::memory:` на тест.
+- **Реестр 389 не меняется**: стабы `vision_save`/`vision_load`
+  существовали в реестре с №210 — наряд заменил их тела/перехваты, не
+  добавляя builtins. Last-resort стабы обновлены громко (лекало
+  `vision_export_raw_stub`, №242-нумерация вместо устаревшей
+  «214/215» R0-эпохи). `vision_edit` остаётся громким стабом R6 (его час —
+  №243).
+
 ### Added — Vision R5: Security — гейты категории A + Provenance MVP (Наряд №241, ADR-0125)
 
 - **Provenance MVP (Block 1)**: `vision_generate` подписывает ВСЕГДА — в PNG

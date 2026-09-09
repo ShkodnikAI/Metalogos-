@@ -637,6 +637,33 @@ impl Interpreter {
                 .map_err(|e| format!("vision registry poisoned: {}", e))?;
             return crate::builtins::vision_edit_dispatch(&mut reg, &args);
         }
+        // Наряд №244 (R6.3): LoRA adapters — state-carrying like save/load:
+        // the load dispatch needs the program's db connection (the
+        // adapter's only home is SQLite — ADR-0124 §6); the generate
+        // dispatch additionally owns the vision declarations + registry.
+        if name == "vision_lora_load" {
+            let db = self
+                .db_conn
+                .lock()
+                .map_err(|e| format!("db lock error: {}", e))?;
+            return crate::builtins::vision_lora_load_dispatch(db.as_ref(), &args);
+        }
+        if name == "vision_lora_generate" {
+            let mut reg = self
+                .vision_registry
+                .lock()
+                .map_err(|e| format!("vision registry poisoned: {}", e))?;
+            let db = self
+                .db_conn
+                .lock()
+                .map_err(|e| format!("db lock error: {}", e))?;
+            return crate::builtins::vision_lora_generate_dispatch(
+                &self.vision_decls,
+                &mut reg,
+                db.as_ref(),
+                &args,
+            );
+        }
 
         // Check recall (memory) first — it's a built-in with memory access
         if name == "recall" {
@@ -1606,6 +1633,33 @@ impl Interpreter {
                         .lock()
                         .map_err(|e| format!("vision registry poisoned: {}", e))?;
                     return crate::builtins::vision_edit_dispatch(&mut reg, &eval_args);
+                }
+                // Наряд №244 (R6.3): LoRA adapters — same state-carrying
+                // interception, expression path; the adapter's only home is
+                // SQLite (ADR-0124 §6), the dispatch owns decls + registry
+                // + the program's db connection.
+                if name == "vision_lora_load" {
+                    let db = self
+                        .db_conn
+                        .lock()
+                        .map_err(|e| format!("db lock error: {}", e))?;
+                    return crate::builtins::vision_lora_load_dispatch(db.as_ref(), &eval_args);
+                }
+                if name == "vision_lora_generate" {
+                    let mut reg = self
+                        .vision_registry
+                        .lock()
+                        .map_err(|e| format!("vision registry poisoned: {}", e))?;
+                    let db = self
+                        .db_conn
+                        .lock()
+                        .map_err(|e| format!("db lock error: {}", e))?;
+                    return crate::builtins::vision_lora_generate_dispatch(
+                        &self.vision_decls,
+                        &mut reg,
+                        db.as_ref(),
+                        &eval_args,
+                    );
                 }
 
                 // Check recall (memory) first

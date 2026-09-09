@@ -2349,6 +2349,24 @@ impl Vm {
                 args,
             ));
         }
+        // Наряд №244 (R6.3): LoRA adapters — state-carrying like save/load:
+        // the load dispatch receives the VM's db connection (the adapter's
+        // only home is SQLite — ADR-0124 §6); the generate dispatch
+        // additionally owns the VM's vision declarations + registry.
+        if name == "vision_lora_load" {
+            return Some(crate::builtins::vision_lora_load_dispatch(
+                self.db_conn.as_ref(),
+                args,
+            ));
+        }
+        if name == "vision_lora_generate" {
+            return Some(crate::builtins::vision_lora_generate_dispatch(
+                &self.vision_decls,
+                &mut self.vision_registry,
+                self.db_conn.as_ref(),
+                args,
+            ));
+        }
         None
     }
 

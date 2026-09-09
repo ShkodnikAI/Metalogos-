@@ -189,6 +189,154 @@ pub fn list(conn: &rusqlite::Connection) -> Result<Vec<String>, String> {
     Ok(names)
 }
 
+// ── LoRA adapter BLOB store (Наряд №244, R6.3 — ADR-0124 §6) ─────────
+
+/// Schema of the LoRA-adapter store (Наряд №244 Block 2.1). The adapter's
+/// ONLY home is SQLite (ADR-0124 §6: "LoRA adapters persist as SQLite
+/// BLOBs — the ADR-0116 pattern, not a new file format"); there is no
+/// session state, no disk file, no registry field — the adapter is read
+/// from the DB exactly when a generation resolves it.
+const VISION_LORA_ADAPTERS_TABLE_SQL: &str = "CREATE TABLE IF NOT EXISTS vision_lora_adapters (\
+name TEXT PRIMARY KEY, bytes BLOB NOT NULL, meta_json TEXT NOT NULL, saved_at TEXT NOT NULL);";
+
+/// Fixed-shape adapter metadata (Наряд №244 Block 2.1): `sha256` of the
+/// stored bytes (integrity re-check at resolve time), the parsed adapter's
+/// `rank`/`alpha`/`scale` and the target count. Serialized as JSON into
+/// `meta_json` by `vision_lora_load`; a corrupted JSON at read time is a
+/// loud Err (лекало №242's manifest-JSON discipline).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LoraMeta {
+    pub sha256: String,
+    pub rank: usize,
+    pub alpha: Option<f64>,
+    pub scale: f64,
+    pub targets: usize,
+}
+
+fn ensure_lora_table(conn: &rusqlite::Connection) -> Result<(), String> {
+    conn.execute_batch(VISION_LORA_ADAPTERS_TABLE_SQL)
+        .map_err(|e| {
+            format!(
+                "vision store: cannot create vision_lora_adapters table: {}",
+                e
+            )
+        })
+}
+
+/// Persist LoRA adapter bytes under `name` (Наряд №244 Block 2.1).
+///
+/// - Empty `name` → loud Err; name collision → loud Err (plain INSERT, no
+///   upsert — лекало №242 `save`: a silent overwrite would quietly destroy
+///   the stored adapter; upsert/delete semantics are NOT part of №244).
+/// - `meta_json` is stored VERBATIM (the dispatch serializes the fixed
+///   `LoraMeta` shape; the store does not reinterpret it).
+pub fn lora_save(
+    conn: &rusqlite::Connection,
+    name: &str,
+    bytes: &[u8],
+    meta_json: &str,
+) -> Result<(), String> {
+    if name.is_empty() {
+        return Err(
+            "vision_lora_load: adapter name is empty — a non-empty name is required \
+             (an unnamed adapter cannot be addressed by vision_lora_generate)"
+                .to_string(),
+        );
+    }
+    ensure_lora_table(conn)?;
+    let saved_at = chrono::Utc::now().to_rfc3339();
+    let res = conn.execute(
+        "INSERT INTO vision_lora_adapters (name, bytes, meta_json, saved_at) \
+         VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![name, bytes, meta_json, saved_at],
+    );
+    if let Err(e) = res {
+        if let rusqlite::Error::SqliteFailure(ffi, _) = &e {
+            if ffi.code == rusqlite::ErrorCode::ConstraintViolation {
+                return Err(format!(
+                    "vision_lora_load: adapter name '{}' already exists in \
+                     vision_lora_adapters — refusing to overwrite (a silent upsert \
+                     would destroy the stored adapter; upsert/delete semantics are \
+                     not part of naryad №244 and must be added loudly, not silently)",
+                    name
+                ));
+            }
+        }
+        return Err(format!(
+            "vision_lora_load: sqlite insert for '{}' failed: {}",
+            name, e
+        ));
+    }
+    Ok(())
+}
+
+/// Read LoRA adapter bytes + verbatim meta JSON by `name` (Наряд №244
+/// Block 2.1). `Ok(None)` — no adapter under this name (the dispatch turns
+/// this into a loud user-facing error with the `lora_list`).
+///
+/// A meta_json that is not valid JSON AT ALL is a loud Err right here
+/// (лекало №242's corrupted-manifest discipline: bytes without honest
+/// metadata must not keep flowing).
+pub fn lora_get(
+    conn: &rusqlite::Connection,
+    name: &str,
+) -> Result<Option<(Vec<u8>, String)>, String> {
+    if name.is_empty() {
+        return Err(
+            "vision_lora_generate: adapter name is empty — a non-empty name is required"
+                .to_string(),
+        );
+    }
+    ensure_lora_table(conn)?;
+    let row = conn.query_row(
+        "SELECT bytes, meta_json FROM vision_lora_adapters WHERE name = ?1",
+        rusqlite::params![name],
+        |row| {
+            let bytes: Vec<u8> = row.get("bytes")?;
+            let meta_json: String = row.get("meta_json")?;
+            Ok((bytes, meta_json))
+        },
+    );
+    let (bytes, meta_json) = match row {
+        Ok(pair) => pair,
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+        Err(e) => {
+            return Err(format!(
+                "vision_lora_generate: sqlite query for adapter '{}' failed: {}",
+                name, e
+            ))
+        }
+    };
+    if serde_json::from_str::<serde_json::Value>(&meta_json).is_err() {
+        return Err(format!(
+            "vision_lora_generate: adapter metadata JSON for '{}' is corrupted — \
+             refusing to use the bytes without honest metadata (quiet degradation \
+             is forbidden, naryad №244 Block 2.1 / №242 лекало)",
+            name
+        ));
+    }
+    Ok(Some((bytes, meta_json)))
+}
+
+/// List stored adapter names, sorted (Наряд №244 Block 2.3 — loud
+/// diagnostics for the unknown-`lora_name` refusal; deliberately NO
+/// `vision_lora_list` builtin: the store is cross-session, a session
+/// builtin would blur the registry/DB boundary — лекало №242 `list`).
+pub fn lora_list(conn: &rusqlite::Connection) -> Result<Vec<String>, String> {
+    ensure_lora_table(conn)?;
+    let mut stmt = conn
+        .prepare("SELECT name FROM vision_lora_adapters ORDER BY name")
+        .map_err(|e| format!("vision store: sqlite lora list failed: {}", e))?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| format!("vision store: sqlite lora list failed: {}", e))?;
+    let mut names = Vec::new();
+    for r in rows {
+        names.push(r.map_err(|e| format!("vision store: sqlite lora list failed: {}", e))?);
+    }
+    Ok(names)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

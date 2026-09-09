@@ -190,10 +190,16 @@ pub use reflex::{
 // (state-carrying + the program's db connection).
 // Наряд №243 (R6.2): vision_edit dispatch joined the family
 // (state-carrying; signed-source contract).
+// Наряд №244 (R6.3): LoRA dispatches joined the family (SQLite BLOB store,
+// composite provenance). The gated sign/insert contract function
+// (`vision_generate_sign_and_insert`) is NOT re-exported here — like its
+// №243 лекало, tests import it via the module path.
 pub use vision::{
     vision_edit_check_dims_r41, vision_edit_check_dims_vae_factor, vision_edit_dispatch,
     vision_export_dispatch, vision_export_raw_dispatch, vision_generate_dispatch,
-    vision_list_dispatch, vision_load_dispatch, vision_save_dispatch,
+    vision_list_dispatch, vision_load_dispatch, vision_lora_check_adapter_path,
+    vision_lora_composite_model_sha256, vision_lora_generate_dispatch, vision_lora_load_dispatch,
+    vision_save_dispatch,
 };
 
 impl Default for Builtins {

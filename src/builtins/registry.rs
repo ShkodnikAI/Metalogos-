@@ -9,7 +9,8 @@ use super::reflex::{
 use super::vision::{
     builtin_vision_edit_stub, builtin_vision_export_raw_stub, builtin_vision_export_stub,
     builtin_vision_fetch_weights, builtin_vision_generate_stub, builtin_vision_list_stub,
-    builtin_vision_load_stub, builtin_vision_save_stub,
+    builtin_vision_load_stub, builtin_vision_lora_generate_stub, builtin_vision_lora_load_stub,
+    builtin_vision_save_stub,
 };
 use super::*;
 
@@ -575,6 +576,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // naryad replaces their stub bodies with real dispatch paths.
     spec!("vision_save", 2, "vision"; builtin_vision_save_stub),
     spec!("vision_load", 1, "vision"; builtin_vision_load_stub),
+    // Наряд №244 (R6.3): LoRA adapters — SQLite BLOB persistence
+    // (ADR-0124 §6) + application to the DiT attention projections.
+    // Intercepted like the rest of the vision family (state-carrying: the
+    // program's db connection, plus decls + registry for generate). These
+    // specs remain the last-resort handlers + the arity contract. Registry
+    // 389→391: the vision family reaches its ADR-0124 §3 ceiling of
+    // ~10 (8→10) — the NEXT vision builtin requires an ADR-0124 edit
+    // (loudly noted in CHANGELOG).
+    spec!("vision_lora_load", 2, "vision"; builtin_vision_lora_load_stub),
+    spec!("vision_lora_generate", 3, "vision"; builtin_vision_lora_generate_stub),
 ];
 
 /// Total number of registered builtins.

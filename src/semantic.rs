@@ -168,6 +168,8 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     let mut pattern_names: HashSet<String> = HashSet::new();
     let mut learnable_names: HashSet<String> = HashSet::new();
     let mut flow_names: HashSet<String> = HashSet::new();
+    // Наряд №238 (Vision R4.1): vision declaration names (duplicate check).
+    let mut vision_names: HashSet<String> = HashSet::new();
     let builtin_names = crate::builtins::builtin_name_set();
     let mut role_names: HashSet<String> = HashSet::new();
     let mut pattern_param_counts: HashSet<(String, usize)> = HashSet::new();
@@ -249,6 +251,16 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                     result.errors.push(with_line_prefix(
                         decl,
                         format!("duplicate flow: {}", f.name),
+                    ));
+                }
+            }
+            // Наряд №238 (Vision R4.1): duplicate vision declaration names
+            // are a semantic error (same лекал as reflex/pattern/flow).
+            Declaration::Vision(v) => {
+                if !vision_names.insert(v.name.clone()) {
+                    result.errors.push(with_line_prefix(
+                        decl,
+                        format!("duplicate vision declaration: {}", v.name),
                     ));
                 }
             }
@@ -499,6 +511,60 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
             }
             // Test declarations: no semantic checks needed (statements inside are checked by patterns)
             Declaration::Test(_) => {}
+            // Наряд №238 (Vision R4.1): vision declaration validation
+            // (Block 2). Parser already validated the field set and the
+            // policy/profile enums — semantic does NOT re-validate enums
+            // (наряд Block 1.3), it checks the model SSOT list and the
+            // numeric contracts. All errors carry the declaration span and
+            // name the field (Block 2.4 — no silent corrections).
+            Declaration::Vision(v) => {
+                // Block 2.1: model must be in the SSOT list
+                // (`crate::vision::KNOWN_VISION_MODELS`, R4.1 = exactly
+                // ["z-image-turbo"]).
+                if !crate::vision::KNOWN_VISION_MODELS.contains(&v.model.as_str()) {
+                    result.errors.push(with_line_prefix(
+                        decl,
+                        format!(
+                            "vision '{}': unknown model '{}' (known models: {})",
+                            v.name,
+                            v.model,
+                            crate::vision::KNOWN_VISION_MODELS.join(", ")
+                        ),
+                    ));
+                }
+                // Block 2.2: steps >= 1. The value 8 is the recommended
+                // distilled-NFE count for the z-image-turbo wedge (ADR-0122);
+                // steps != 8 is an audit-warning, NOT an error.
+                if v.steps < 1 {
+                    result.errors.push(with_line_prefix(
+                        decl,
+                        format!("vision '{}': steps must be >= 1, got {}", v.name, v.steps),
+                    ));
+                } else if v.steps != 8 {
+                    result.warnings.push(with_line_prefix(
+                        decl,
+                        format!(
+                            "vision '{}': steps = {} != 8 (recommended distilled-NFE for z-image-turbo)",
+                            v.name, v.steps
+                        ),
+                    ));
+                }
+                // Block 2.2: width/height — multiples of 16, range
+                // 256..=4096 (VAE latent constraint).
+                for (field, value) in [("width", v.width), ("height", v.height)] {
+                    if value % 16 != 0 || !(256..=4096).contains(&value) {
+                        result.errors.push(with_line_prefix(
+                            decl,
+                            format!(
+                                "vision '{}': {} = {} must be a multiple of 16 in range 256..=4096 (VAE latent constraint)",
+                                v.name, field, value
+                            ),
+                        ));
+                    }
+                }
+                // Block 2.2: seed — any u64 is valid (parser guarantees the
+                // range); no further check.
+            }
             _ => {}
         }
     }

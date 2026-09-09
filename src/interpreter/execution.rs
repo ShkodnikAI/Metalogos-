@@ -456,6 +456,10 @@ impl Interpreter {
                 Declaration::Test(t) => {
                     self.test_blocks.push(t);
                 }
+                // Наряд №238 (Vision R4.1): vision declarations have no
+                // runtime semantics yet — builtin dispatch is R4.2. Minimal
+                // arm forced by the exhaustive match (parse + semantic only).
+                Declaration::Vision(_) => {}
             }
         }
 

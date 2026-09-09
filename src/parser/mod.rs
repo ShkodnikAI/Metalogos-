@@ -109,6 +109,8 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 // Наряд №183: reflex_seq — sequence-model declaration (ADR-0119)
                 Rule::reflex_seq_decl => declarations.push(parse_reflex_seq_decl(inner_pair)?),
                 Rule::reflex_gen_decl => declarations.push(parse_reflex_gen_decl(inner_pair)?),
+                // Наряд №238 (Vision R4.1): vision — image-generation declaration
+                Rule::vision_decl => declarations.push(decl::parse_vision_decl(inner_pair)?),
                 Rule::learnable_pattern_decl => {
                     declarations.push(parse_learnable_pattern_decl(inner_pair)?)
                 }

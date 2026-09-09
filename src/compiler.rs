@@ -39,6 +39,9 @@ pub struct Compiler {
     /// Наряд №204 (ADR-0121 stage 4): compiled `reflex_gen` declarations.
     /// Candle-feature-gated.
     reflex_gen_decls: Vec<crate::bytecode::CompiledReflexGenDecl>,
+    /// Наряд №240 (Vision R4.2): collected `vision` declarations for the VM
+    /// and the interpreter's declaration pass.
+    vision_decls: Vec<crate::bytecode::CompiledVisionDecl>,
     /// Наряд №204 (ADR-0121 stage 2): memory persist path from `memory { persist: ... }`.
     /// Passed to the VM so reflex_save/reflex_load work without the interpreter.
     memory_persist_path: Option<String>,
@@ -86,6 +89,7 @@ impl Compiler {
             reflex_decls: Vec::new(),
             reflex_seq_decls: Vec::new(),
             reflex_gen_decls: Vec::new(),
+            vision_decls: Vec::new(),
             memory_persist_path: None,
             db_url: None,
             schema_ddl: Vec::new(),
@@ -143,6 +147,7 @@ impl Compiler {
             reflex_decls: std::mem::take(&mut self.reflex_decls),
             reflex_seq_decls: std::mem::take(&mut self.reflex_seq_decls),
             reflex_gen_decls: std::mem::take(&mut self.reflex_gen_decls),
+            vision_decls: std::mem::take(&mut self.vision_decls),
             db_url: self.db_url.take(),
             memory_persist_path: self.memory_persist_path.take(),
             schema_ddl: std::mem::take(&mut self.schema_ddl),
@@ -348,6 +353,15 @@ impl Compiler {
                         labels: r.labels.clone(),
                         seed: r.seed,
                     });
+                }
+                // Наряд №240 (Vision R4.2): collect `vision` declarations for
+                // the dispatch (fields 1:1 with AST R4.1, single conversion
+                // point `CompiledVisionDecl::from_ast`). No bytecode is
+                // emitted in pass2 (лекало reflex) — registration happens in
+                // `Vm::load_program` / the interpreter's declaration pass.
+                Declaration::Vision(v) => {
+                    self.vision_decls
+                        .push(crate::bytecode::CompiledVisionDecl::from_ast(v));
                 }
                 _ => {}
             }
@@ -600,9 +614,12 @@ impl Compiler {
                 | Declaration::Reflex(_)
                 | Declaration::ReflexSeq(_)
                 | Declaration::ReflexGen(_)
-                // Наряд №238 (Vision R4.1): vision declarations carry no
-                // bytecode — dispatch is R4.2. Minimal arm forced by the
-                // exhaustive match (parse + semantic only in R4.1).
+                // Наряд №238 (Vision R4.1), updated №240 (R4.2): vision
+                // declarations carry no bytecode — dispatch goes via
+                // `program.vision_decls` (populated in pass1, consumed by
+                // `Vm::load_program` and the interpreter's declaration pass,
+                // лекало reflex_decls). Minimal arm forced by the
+                // exhaustive match.
                 | Declaration::Vision(_) => {
                     // Наряд №203 Block 1: no bytecode instruction emitted
                     // for reflex declarations in pass2. Dense classification

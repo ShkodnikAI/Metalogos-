@@ -18,6 +18,7 @@ fn minimal_program() -> Program {
         reflex_decls: vec![],
         reflex_seq_decls: vec![],
         reflex_gen_decls: vec![],
+        vision_decls: vec![],
         memory_persist_path: None,
         db_url: None,
         schema_ddl: vec![],

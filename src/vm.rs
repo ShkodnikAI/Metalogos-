@@ -88,6 +88,14 @@ pub struct Vm {
     /// handler to resolve bare-Ident model references like
     /// `reflex_train(TestClassifier, ...)` → `Value::Reflex(id)`.
     reflex_names: HashMap<String, crate::nn::ReflexId>,
+    /// Наряд №240 (Vision R4.2): vision artifact registry — stores generated
+    /// PNG buffers. `Value::Vision(VisionId)` indexes into this. No Mutex —
+    /// same single-threaded-per-request rationale as `reflex_registry` above.
+    vision_registry: crate::vision::VisionRegistry,
+    /// Наряд №240 (Vision R4.2): maps declaration name → compiled parameters.
+    /// Populated by `load_program` when processing `program.vision_decls`.
+    /// Used by the `vision_generate` intercept to resolve the declaration.
+    vision_decls: HashMap<String, crate::bytecode::CompiledVisionDecl>,
     /// Наряд №204 (ADR-0121 stage 2): memory persist path from
     /// `memory { persist: "path.db" }` declaration. Enables reflex_save/
     /// reflex_load on the VM (same field the interpreter has at
@@ -139,6 +147,8 @@ impl Vm {
             pattern_stats: std::sync::Mutex::new(HashMap::new()),
             reflex_registry: crate::nn::ReflexRegistry::new(),
             reflex_names: HashMap::new(),
+            vision_registry: crate::vision::VisionRegistry::new(),
+            vision_decls: HashMap::new(),
             memory_persist_path: None,
             distill_states: HashMap::new(),
         }
@@ -203,6 +213,15 @@ impl Vm {
         // Наряд №204 (ADR-0121 stage 2): memory persist path for
         // reflex_save/reflex_load.
         self.memory_persist_path = program.memory_persist_path.clone();
+
+        // Наряд №240 (Vision R4.2): register vision declarations
+        // (name → parameters). Generation state lives in the VM's own
+        // `vision_registry`; the actual inference is routed through the
+        // shared dispatch functions in `src/builtins/vision.rs` (лекало
+        // reflex: neural-network logic is NOT reimplemented on the VM side).
+        for decl in &program.vision_decls {
+            self.vision_decls.insert(decl.name.clone(), decl.clone());
+        }
 
         // Open database connection if URL is specified
         self.db_conn = program.db_url.as_ref().and_then(|url| {
@@ -2697,6 +2716,7 @@ impl Vm {
                     reflex_decls: Vec::new(),
                     reflex_seq_decls: Vec::new(),
                     reflex_gen_decls: Vec::new(),
+                    vision_decls: Vec::new(),
                     memory_persist_path: None,
                     db_url: None,
                     schema_ddl: Vec::new(),

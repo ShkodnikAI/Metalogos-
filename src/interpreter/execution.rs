@@ -456,10 +456,15 @@ impl Interpreter {
                 Declaration::Test(t) => {
                     self.test_blocks.push(t);
                 }
-                // Наряд №238 (Vision R4.1): vision declarations have no
-                // runtime semantics yet — builtin dispatch is R4.2. Minimal
-                // arm forced by the exhaustive match (parse + semantic only).
-                Declaration::Vision(_) => {}
+                // Наряд №240 (Vision R4.2): register vision declarations for
+                // the `vision_generate` dispatch (лекало reflex: the
+                // interpreter registers from AST; the VM registers from
+                // `program.vision_decls` in `Vm::load_program`). No bytecode
+                // semantics — declaration carries parameters only.
+                Declaration::Vision(v) => {
+                    let compiled = crate::bytecode::CompiledVisionDecl::from_ast(&v);
+                    self.vision_decls.insert(v.name.clone(), compiled);
+                }
             }
         }
 

@@ -4,6 +4,12 @@
 // All tests run in the BASE build (no --features vision needed) —
 // the skeleton (VisionId, VisionRegistry, Value::Vision, stubs) does
 // not depend on the vision feature gate.
+//
+// Наряд №240 (R4.2) truth-up: vision_generate/list/export are REAL paths
+// now (dispatch, loud environment refusals). The R1 "not implemented"
+// refusal no longer exists for them — the loudness contracts below are
+// updated to the R4 contract (arity 2, typed handles); edit/save/load
+// remain loud stubs and keep the original naryad-210 assertions.
 
 use metalogos::interpreter::Value;
 use metalogos::vision::VisionId;
@@ -45,19 +51,21 @@ fn vision_generate_loud_error_tw() {
     let result = metalogos::run_program(source);
     assert!(result.is_err(), "vision_generate must error");
     let err = result.unwrap_err();
+    // Наряд №240: the 3-arg R1 call shape is now an arity refusal — the
+    // R4 contract is vision_generate(decl_name, prompt) (plan §3).
     assert!(
         err.contains("vision_generate"),
         "error must contain 'vision_generate': {}",
         err
     );
     assert!(
-        err.contains("naryad 210"),
-        "error must contain 'naryad 210': {}",
+        err.contains("expects 2 arguments"),
+        "error must state the R4 arity contract: {}",
         err
     );
     assert!(
-        err.contains("ADR-012"),
-        "error must contain 'ADR-012': {}",
+        err.contains("plan \u{00a7}3"),
+        "error must name the contract source: {}",
         err
     );
 }
@@ -92,12 +100,14 @@ fn vision_generate_loud_error_vm() {
 }
 
 // ── Test 4: all other vision_* builtins give loud errors ────────
+//
+// Наряд №240: vision_export left this stub group — it is a REAL path now
+// (typed Vision handle + path, loud wrong-type refusal below).
 
 #[test]
-fn vision_edit_export_save_load_loud_errors() {
+fn vision_edit_save_load_loud_errors() {
     let builtins = [
         ("vision_edit", r#"vision_edit("handle", "prompt")"#),
-        ("vision_export", r#"vision_export("handle", "path")"#),
         ("vision_save", r#"vision_save("handle", "name")"#),
         ("vision_load", r#"vision_load("name")"#),
     ];
@@ -139,6 +149,30 @@ fn vision_edit_export_save_load_loud_errors() {
             err
         );
     }
+}
+
+/// Наряд №240: vision_export is a real path — a String where a Vision
+/// handle is expected is a loud typed refusal (not a stub, not a panic).
+#[test]
+fn vision_export_wrong_handle_type_loud_error() {
+    let source = r#"
+        pattern Test(_x: String) -> String {
+            vision_export("handle", "path")
+            return "unreachable"
+        }
+        flow Main { input: String = "x" -> Test -> output }
+    "#;
+    let err = metalogos::run_program(source).expect_err("wrong handle type must fail loudly");
+    assert!(
+        err.contains("vision_export"),
+        "error must contain 'vision_export': {}",
+        err
+    );
+    assert!(
+        err.contains("Vision handle"),
+        "error must name the expected type: {}",
+        err
+    );
 }
 
 // ── Test 5: Vision handle Display ────────────────────────────────

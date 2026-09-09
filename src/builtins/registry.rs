@@ -7,8 +7,9 @@ use super::reflex::{
 };
 // Наряд №210: Vision pillar stub handlers (ADR-0124).
 use super::vision::{
-    builtin_vision_edit_stub, builtin_vision_export_stub, builtin_vision_generate_stub,
-    builtin_vision_list_stub, builtin_vision_load_stub, builtin_vision_save_stub,
+    builtin_vision_edit_stub, builtin_vision_export_raw_stub, builtin_vision_export_stub,
+    builtin_vision_generate_stub, builtin_vision_list_stub, builtin_vision_load_stub,
+    builtin_vision_save_stub,
 };
 use super::*;
 
@@ -555,6 +556,10 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("vision_generate", 2, "vision"; builtin_vision_generate_stub),
     spec!("vision_edit", 2, "vision"; builtin_vision_edit_stub),
     spec!("vision_export", 2, "vision"; builtin_vision_export_stub),
+    // Наряд №241 (R5, Block 2.1 — ADR-0125): explicit raw opt-out. Real
+    // path intercepted like vision_export (state-carrying). Every call
+    // site is audit-flagged VISION_UNSIGNED_EXPORT_RAW (Warning).
+    spec!("vision_export_raw", 2, "vision"; builtin_vision_export_raw_stub),
     spec!("vision_list", 0, "vision"; builtin_vision_list_stub),
     spec!("vision_save", 2, "vision"; builtin_vision_save_stub),
     spec!("vision_load", 1, "vision"; builtin_vision_load_stub),

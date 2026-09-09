@@ -2310,6 +2310,14 @@ impl Vm {
                 args,
             ));
         }
+        // Наряд №241 (R5, Block 2.1): raw opt-out — same interception
+        // pattern, VM-side (ADR-0125 explicit form).
+        if name == "vision_export_raw" {
+            return Some(crate::builtins::vision_export_raw_dispatch(
+                &self.vision_registry,
+                args,
+            ));
+        }
         None
     }
 

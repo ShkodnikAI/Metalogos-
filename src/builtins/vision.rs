@@ -333,13 +333,73 @@ pub fn vision_export_dispatch(registry: &VisionRegistry, args: &[Value]) -> Resu
             id.0
         )
     })?;
+    let manifest = artifact.manifest.as_ref().ok_or_else(|| {
+        format!(
+            "VISION_UNSIGNED_EXPORT: [Vision#{}] carries no provenance manifest — signed \
+             export is impossible (hand-built or deserialized artifact; ADR-0125). \
+             The explicit opt-out is vision_export_raw",
+            id.0
+        )
+    })?;
     std::fs::write(&path, &artifact.png_bytes)
         .map_err(|e| format!("vision_export: write to {}: {}", path, e))?;
-    eprintln!(
-        "WARN: unsigned vision export — [Vision#{}] written to {} without watermark or \
-         manifest (watermark/manifest/Category-A gate lands in R5)",
-        id.0, path
-    );
+    let sidecar = format!("{}.manifest.json", path);
+    let sidecar_json = crate::vision::provenance::manifest_sidecar_json(manifest)?;
+    std::fs::write(&sidecar, sidecar_json)
+        .map_err(|e| format!("vision_export: write sidecar {}: {}", sidecar, e))?;
+    Ok(Value::String(path))
+}
+
+/// `vision_export_raw(handle, path) -> String`
+///
+/// **Explicit opt-out** (Наряд №241, Block 2.1 — ADR-0125: "Opt-out is a
+/// separate explicit form `export_raw` with a loud audit warning").
+/// Writes the artifact's PNG bytes AS-IS: no watermark embedding, no
+/// manifest sidecar, no signature requirement. The loud layer is the
+/// audit: every `vision_export_raw` call site is flagged as a
+/// `VISION_UNSIGNED_EXPORT_RAW` audit-WARNING (Block 2.3; the check-id is
+/// fixed here — ADR-0125 does not name the raw-warning itself).
+///
+/// Unlike `vision_export`, raw export works on ANY registry artifact —
+/// including hand-built ones without a manifest: the point of the opt-out
+/// is that the operator CHOSE unsigned, loudly, in source.
+pub fn vision_export_raw_dispatch(
+    registry: &VisionRegistry,
+    args: &[Value],
+) -> Result<Value, String> {
+    if args.len() != 2 {
+        return Err(format!(
+            "vision_export_raw: expects 2 arguments (handle, path), got {}",
+            args.len()
+        ));
+    }
+    let id = match &args[0] {
+        Value::Vision(id) => *id,
+        other => {
+            return Err(format!(
+                "vision_export_raw: first argument must be a Vision handle, got {}",
+                value_type_name(other)
+            ))
+        }
+    };
+    let path = match &args[1] {
+        Value::String(s) => s.clone(),
+        other => {
+            return Err(format!(
+                "vision_export_raw: second argument must be a path (String), got {}",
+                value_type_name(other)
+            ))
+        }
+    };
+    let artifact = registry.get(id).ok_or_else(|| {
+        format!(
+            "vision_export_raw: vision handle [Vision#{}] not found in the registry \
+             (was it generated in this session? artifacts do not persist across runs)",
+            id.0
+        )
+    })?;
+    std::fs::write(&path, &artifact.png_bytes)
+        .map_err(|e| format!("vision_export_raw: write to {}: {}", path, e))?;
     Ok(Value::String(path))
 }
 
@@ -424,6 +484,17 @@ pub(crate) fn builtin_vision_export_stub(_args: &[Value]) -> Result<Value, Strin
     Err(
         "vision_export: reached the generic builtin registry — this builtin is \
          intercepted by the interpreter/VM dispatch (Наряд №240) which owns the \
+         vision registry; direct registry calls are not supported (loud refusal)"
+            .to_string(),
+    )
+}
+
+/// Last-resort stub — real path is the intercepted `vision_export_raw_dispatch`
+/// (Наряд №241 Block 2.1; same state-carrying pattern as `vision_export`).
+pub(crate) fn builtin_vision_export_raw_stub(_args: &[Value]) -> Result<Value, String> {
+    Err(
+        "vision_export_raw: reached the generic builtin registry — this builtin is \
+         intercepted by the interpreter/VM dispatch (Наряд №241) which owns the \
          vision registry; direct registry calls are not supported (loud refusal)"
             .to_string(),
     )

@@ -1244,6 +1244,189 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
     }
 }
 
+// ── Check: VISION_UNSIGNED_EXPORT / VISION_UNSIGNED_EXPORT_RAW ───────
+//
+// Наряд №241 (R5, Block 2.2/2.3 — ADR-0125 Category-A gates).
+//
+// VISION_UNSIGNED_EXPORT (Severity::Error, Category A): a `vision_export`
+//   call site in a file with NO `vision { }` declaration — the provenance
+//   manifest source is impossible there, so the artifact cannot be signed
+//   by construction. Лекало SECRET_LEAK: structural invariant, never a
+//   legitimate false positive. Runtime backstop with the same check-id:
+//   exporting a manifest-less artifact via vision_export_dispatch is a
+//   loud Err (src/builtins/vision.rs).
+// VISION_UNSIGNED_EXPORT_RAW (Severity::Warning, advisory — `mlog audit`):
+//   every `vision_export_raw` call site — the explicit opt-out is chosen,
+//   the audit makes it loud. ADR-0125 does not name the raw-warning; the
+//   check-id is fixed here and in the dispatch docs (gромко в PR №241).
+//
+// Scope set mirrors check_secret_leak (MlogServer routes, Pattern, Tool,
+// Hook bodies) — the same statically walkable scopes.
+
+fn check_vision_export_gates(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    check_vision_export_gates_impl(declarations, source, findings, false)
+}
+
+/// Compile-path entry (audit_category_a): ONLY the Category-A Error.
+/// The raw-export Warning must stay advisory — semantic.rs promotes every
+/// audit_category_a Warning to a compile error (№98 promotion), which
+/// would contradict ADR-0125's explicit "warning" for the opt-out.
+fn check_vision_export_gates_errors_only(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    check_vision_export_gates_impl(declarations, source, findings, true)
+}
+
+fn check_vision_export_gates_impl(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+    errors_only: bool,
+) {
+    let has_vision_decl = declarations
+        .iter()
+        .any(|d| matches!(d, Declaration::Vision(_)));
+
+    fn check_expr(
+        expr: &Expr,
+        has_vision_decl: bool,
+        errors_only: bool,
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        if let Expr::FnCall {
+            name: fn_name,
+            ..
+        } = expr
+        {
+            if fn_name == "vision_export" && !has_vision_decl {
+                let line = find_line(source, "vision_export");
+                findings.push(AuditFinding {
+                    severity: Severity::Error,
+                    check_id: "VISION_UNSIGNED_EXPORT",
+                    line,
+                    message: "vision_export call site in a file with no `vision { }` declaration \
+                              — the provenance manifest source is impossible here, the artifact \
+                              cannot be signed by construction (ADR-0125). Declare `vision { }` \
+                              in this file, or use vision_export_raw explicitly"
+                        .to_string(),
+                });
+            }
+            if fn_name == "vision_export_raw" && !errors_only {
+                let line = find_line(source, "vision_export_raw");
+                findings.push(AuditFinding {
+                    severity: Severity::Warning,
+                    check_id: "VISION_UNSIGNED_EXPORT_RAW",
+                    line,
+                    message: "raw (unsigned) vision export — no watermark, no manifest sidecar \
+                              (ADR-0125 explicit opt-out; chosen in source)"
+                        .to_string(),
+                });
+            }
+        }
+    }
+
+    fn walk_stmt(
+        stmt: &Statement,
+        has_vision_decl: bool,
+        errors_only: bool,
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        match stmt {
+            Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                walk_expr_deep(value, has_vision_decl, errors_only, source, findings);
+            }
+            Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
+                walk_expr_deep(expr, has_vision_decl, errors_only, source, findings);
+            }
+            Statement::Each { body, .. }
+            | Statement::While { body, .. }
+            | Statement::IfThen { body, .. } => {
+                for s in body {
+                    walk_stmt(s, has_vision_decl, errors_only, source, findings);
+                }
+            }
+            Statement::IfElseBlock {
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                for s in then_body {
+                    walk_stmt(s, has_vision_decl, errors_only, source, findings);
+                }
+                for (_, body) in else_ifs {
+                    for s in body {
+                        walk_stmt(s, has_vision_decl, errors_only, source, findings);
+                    }
+                }
+                if let Some(body) = else_body {
+                    for s in body {
+                        walk_stmt(s, has_vision_decl, errors_only, source, findings);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn walk_expr_deep(
+        expr: &Expr,
+        has_vision_decl: bool,
+        errors_only: bool,
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        check_expr(expr, has_vision_decl, errors_only, source, findings);
+        if let Expr::FnCall { args, .. } = expr {
+            for arg in args {
+                walk_expr_deep(arg, has_vision_decl, errors_only, source, findings);
+            }
+        }
+    }
+
+    fn analyze_scope(
+        stmts: &[Statement],
+        has_vision_decl: bool,
+        errors_only: bool,
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        for s in stmts {
+            walk_stmt(s, has_vision_decl, errors_only, source, findings);
+        }
+    }
+
+    for decl in declarations {
+        match decl {
+            Declaration::MlogServer(srv) => {
+                for route in &srv.routes {
+                    analyze_scope(&route.body, has_vision_decl, errors_only, source, findings);
+                }
+            }
+            Declaration::Pattern(p) => {
+                analyze_scope(&p.body, has_vision_decl, errors_only, source, findings)
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    analyze_scope(&m.body, has_vision_decl, errors_only, source, findings);
+                }
+            }
+            Declaration::Hook(h) => {
+                analyze_scope(&h.body, has_vision_decl, errors_only, source, findings)
+            }
+            _ => {}
+        }
+    }
+}
+
 // ── Check: OPEN_REDIRECT — respond() with user-controlled URL ────────
 
 fn check_open_redirect(
@@ -1684,6 +1867,12 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     check_html_injection(declarations, source, &mut findings);
     check_taint_persistence(declarations, source, &mut findings);
     check_taint_passthrough_pattern(declarations, source, &mut findings);
+    // Наряд №241 (R5, ADR-0125): vision export gate — ONLY the Error
+    // (VISION_UNSIGNED_EXPORT) on the compile path. The raw-export
+    // Warning stays advisory (audit_program below): this caller promotes
+    // every Warning to a compile error (semantic.rs №98 promotion), which
+    // would contradict ADR-0125's "warning" for the opt-out.
+    check_vision_export_gates_errors_only(declarations, source, &mut findings);
     findings
 }
 
@@ -1705,6 +1894,10 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     check_open_redirect(&declarations, source, &mut findings);
     check_taint_persistence(&declarations, source, &mut findings);
     check_taint_passthrough_pattern(&declarations, source, &mut findings);
+    // Наряд №241 (R5, ADR-0125): full vision gates — Error
+    // VISION_UNSIGNED_EXPORT + Warning VISION_UNSIGNED_EXPORT_RAW
+    // (advisory layer).
+    check_vision_export_gates(&declarations, source, &mut findings);
 
     // Sort findings by line number for deterministic output
     findings.sort_by_key(|f| (f.line, f.check_id));

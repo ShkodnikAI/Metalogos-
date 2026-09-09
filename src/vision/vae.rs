@@ -99,6 +99,16 @@ const PARAM_VAE_MID_RESNET: u64 = 110;
 const PARAM_VAE_UP_RESNET: u64 = 120;
 const PARAM_VAE_UP_UPSAMPLE: u64 = 121;
 
+// ── Encoder seed slots (Наряд №243 R6.2) ──
+// Mirrors the decoder slots above: distinct slot numbers so encoder and
+// decoder seeded inits never share parameter streams (PRNG hygiene, №230).
+const PARAM_VAE_ENC_CONV_IN: u64 = 130;
+const PARAM_VAE_ENC_DOWN_RESNET: u64 = 131;
+const PARAM_VAE_ENC_DOWNSAMPLE: u64 = 132;
+const PARAM_VAE_ENC_MID_RESNET: u64 = 133;
+const PARAM_VAE_ENC_CONV_OUT: u64 = 134;
+const PARAM_VAE_ENC_QUANT_CONV: u64 = 135;
+
 /// Generate a seeded randn-like latent (n samples from a normal via Box-Muller).
 ///
 /// Uses the SSOT `generate_uniform_f32` as the U(0,1) source; Box-Muller transforms
@@ -204,6 +214,37 @@ fn conv2d_seeded(
         Conv2dConfig {
             padding,
             stride: 1,
+            dilation: 1,
+            groups: 1,
+            cudnn_fwd_algo: None,
+        },
+    ))
+}
+
+/// Strided seeded Conv2d (Наряд №243 R6.2) — same init contour as
+/// `conv2d_seeded`, with an explicit `stride` for the encoder's
+/// downsamplers (diffusers `Downsample2D`: kernel 3, stride 2, padding 1).
+fn conv2d_seeded_strided(
+    in_ch: usize,
+    out_ch: usize,
+    padding: usize,
+    kernel: usize,
+    stride: usize,
+    seed: u64,
+    device: &Device,
+) -> Result<Conv2d, String> {
+    let weight_init = generate_uniform_f32(seed, out_ch * in_ch * kernel * kernel, -0.02, 0.02);
+    let bias_init = generate_uniform_f32(seed.wrapping_add(1), out_ch, -0.02, 0.02);
+    let weight = Tensor::from_vec(weight_init, (out_ch, in_ch, kernel, kernel), device)
+        .map_err(|e| format!("conv2d_seeded_strided: weight init failed: {}", e))?;
+    let bias = Tensor::from_vec(bias_init, (out_ch,), device)
+        .map_err(|e| format!("conv2d_seeded_strided: bias init failed: {}", e))?;
+    Ok(Conv2d::new(
+        weight,
+        Some(bias),
+        Conv2dConfig {
+            padding,
+            stride,
             dilation: 1,
             groups: 1,
             cudnn_fwd_algo: None,
@@ -920,8 +961,23 @@ impl VaeDecoder {
             .map_err(|e| format!("conv_norm_out bias device: {}", e))?;
 
         // n236: key-level loader guard — calls extracted generator (single source of truth).
+        // Наряд №243 (R6.2) truth-up: the pinned VAE safetensors file carries
+        // BOTH sides of the AutoencoderKL — decoder.* (138 tensors) AND the
+        // encoder.* / quant_conv.* / post_quant_conv.* prefixes (the manifest
+        // row :158 lists them in one file). The decoder consumes ONLY the
+        // `decoder.`-prefixed subset, so the coverage check must be run
+        // against that subset — otherwise the honest 106 non-decoder tensors
+        // of the SAME pinned file would fail the load as "extra". Loud
+        // prerequisite of the edit path: the edit pipeline loads this file
+        // ONCE and feeds BOTH the VaeEncoder (non-decoder prefixes) and this
+        // decoder (decoder. prefix). Tiny goldens are unaffected (they use
+        // `new_tiny`, not `from_weights`).
         let expected_keys = vae_expected_decoder_keys(&config);
-        let loaded_keys: Vec<String> = tensors.keys().cloned().collect();
+        let loaded_keys: Vec<String> = tensors
+            .keys()
+            .filter(|k| k.starts_with("decoder."))
+            .cloned()
+            .collect();
         crate::vision::weights::check_tensor_coverage(&expected_keys, &loaded_keys)
             .map_err(|e| format!("VaeDecoder::from_weights: tensor coverage: {}", e))?;
 
@@ -1016,6 +1072,702 @@ impl VaeDecoder {
         out.squeeze(0)
             .map_err(|e| format!("VAE decode: squeeze: {}", e))
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// VaeEncoder (Наряд №243, R6.2) — the encode half of the flux-dev-style
+// AutoencoderKL, mirroring `VaeDecoder` above.
+//
+// ## Where the weights come from
+//
+// The pinned `vae/diffusion_pytorch_model.safetensors` file carries BOTH
+// sides of the AutoencoderKL (manifest №212, row `vae/…`): 138
+// `decoder.`-prefixed tensors AND the non-decoder tensors
+// (`encoder.*`, `quant_conv.*`, `post_quant_conv.*`). The encoder loads
+// ONLY the non-decoder prefixes from that same map — the manifest is NOT
+// extended (16 files / 32 848 304 654 B invariant), `tools/
+// fetch_vision_weights.sh` is not touched, the VAE SHA stays `_TODO`
+// (PARKED gap №237). The exact non-decoder key list must be verified
+// against the real file header during the PARKED real-weights run
+// (loud step in the runbook edit-e2e section) — until then the expected
+// key set below mirrors the diffusers AutoencoderKL encoder layout
+// (source: diffusers models/autoencoders/vae.py `Encoder` +
+// unets/unet_2d_blocks.py `DownEncoderBlock2D`/`Downsample2D`).
+//
+// ## Architecture (mirrors diffusers `Encoder`)
+//
+// Input: image `[3, H, W]` F32 in **[-1, 1]** (the VAE convention; the
+// caller maps [0,1] PNG pixels → [-1,1] via `x*2-1`).
+// - conv_in: 3 → base (3×3, pad 1)
+// - down_blocks[i] for i in 0..len(block_out_channels):
+//     `layers_per_block` resnets each (NOTE: NOT layers_per_block+1 —
+//     that is the DECODER's up-block count; diffusers vae.py Encoder
+//     uses `layers_per_block` verbatim), first resnet of block 0 takes
+//     in_channels=3, first resnet of block i>0 takes
+//     block_out_channels[i-1]; conv_shortcut when in≠out;
+//     downsampler (3×3 conv, stride 2, pad 1) after every block except
+//     the last.
+// - mid_block: resnets[0] → attention (if enabled) → resnets[1] — the
+//   same UNetMidBlock2D shape the decoder uses.
+// - conv_norm_out: GroupNorm(last) → SiLU → conv_out: last → 2*latent
+//   (double_z — mean and logvar halves) → quant_conv (1×1).
+// Output: posterior MODE = mean half `[1, latent_channels, H/f, W/f]`,
+// then the pipeline ritual inverse of the decoder's
+// `z_vae = z_model / scaling + shift` (n232, pipeline_z_image.py L589):
+//   `z_model = (mean - shift_factor) * scaling_factor`
+// The posterior is consumed at its MODE (mean) — deterministic by
+// construction; sampling the posterior would require an extra random
+// stream and would break "same source + same prompt + same weights →
+// same seed → same output" (Block 2.3). Loud honest boundary: this is
+// the standard deterministic encode used by in-context edit pipelines.
+//
+// ## Two-tier tests
+//
+// - CI tiny: `VaeEncoder::new_tiny(&tiny_vae_config(), seed)` — seeded
+//   init via the SSOT PRNG, exercised by the №243 tiny contracts.
+// - env-gated real weights: `VaeEncoder::from_weights(tensors)` — the
+//   non-decoder prefixes of the pinned VAE file.
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── Downsample2D (encoder-only; diffusers DownEncoderBlock2D downsampler)
+// ──
+
+struct Downsample2D {
+    conv: Conv2d,
+}
+
+impl Downsample2D {
+    fn forward(&self, x: &Tensor) -> CandleResult<Tensor> {
+        // 3×3 conv, stride 2, padding 1 — halves H and W for even inputs
+        // (odd inputs floor; the edit glue rejects non-divisible dims
+        // BEFORE reaching the encoder, so this is defense-in-depth).
+        self.conv.forward(x)
+    }
+}
+
+/// VAE downsample factor: `2^(len(block_out_channels) - 1)` — one halving
+/// per downsampler (every block except the last has one).
+pub fn vae_downsample_factor(config: &VaeConfig) -> usize {
+    1usize << (config.block_out_channels.len().saturating_sub(1))
+}
+
+/// n243: VAE expected ENCODER key generator — the encoder-side mirror of
+/// `vae_expected_decoder_keys`. Keys live in the same pinned safetensors
+/// file as the decoder's (no manifest change).
+///
+/// **Loud layout note (verified against the manifest arithmetic):** the
+/// manifest row :158 records 244 tensors in the file, 138 of them
+/// `decoder.`-prefixed → 106 non-decoder. The diffusers-style encoder
+/// layout below produces EXACTLY 106 `encoder.*` keys for the pinned
+/// config (2 conv_in + 18/20/20/16 down_blocks + 26 mid + 2 conv_norm_out
+/// + 2 conv_out) — which means the file most likely carries NO
+/// `quant_conv`/`post_quant_conv` tensors (138+106=244). The loader
+/// therefore treats `quant_conv` as OPTIONAL (consumed when present,
+/// loudly named when absent); `post_quant_conv.*`, when present, lands in
+/// the loud-leftovers note. The actual header is verified during the
+/// PARKED real-weights run (runbook edit-e2e checklist).
+///
+/// Channel progression: `conv_in` maps RGB → base, so the FIRST resnet of
+/// block 0 takes base → base (in == out, no shortcut) — diffusers
+/// `Encoder`: `input_channel = output_channel` where output starts at
+/// `block_out_channels[0]`. Blocks 1..3 open with prev → out (shortcut
+/// when in ≠ out).
+pub(crate) fn vae_expected_encoder_keys(config: &VaeConfig) -> Vec<String> {
+    let mut keys = vec![
+        "encoder.conv_in.weight".to_string(),
+        "encoder.conv_in.bias".to_string(),
+        "encoder.conv_norm_out.weight".to_string(),
+        "encoder.conv_norm_out.bias".to_string(),
+        "encoder.conv_out.weight".to_string(),
+        "encoder.conv_out.bias".to_string(),
+    ];
+    // down_blocks: layers_per_block resnets per block (Encoder — NOT +1),
+    // shortcuts when in≠out, downsampler on every block except the last.
+    let n_blocks = config.block_out_channels.len();
+    for i in 0..n_blocks {
+        let out_ch = config.block_out_channels[i];
+        // conv_in already mapped RGB → base: block 0 opens at base.
+        let block_in = if i == 0 {
+            config.block_out_channels[0]
+        } else {
+            config.block_out_channels[i - 1]
+        };
+        for j in 0..config.layers_per_block {
+            let in_ch = if j == 0 { block_in } else { out_ch };
+            let p = format!("encoder.down_blocks.{}.resnets.{}", i, j);
+            for s in &[
+                "norm1.weight",
+                "norm1.bias",
+                "conv1.weight",
+                "conv1.bias",
+                "norm2.weight",
+                "norm2.bias",
+                "conv2.weight",
+                "conv2.bias",
+            ] {
+                keys.push(format!("{}.{}", p, s));
+            }
+            if in_ch != out_ch {
+                keys.push(format!("{}.conv_shortcut.weight", p));
+                keys.push(format!("{}.conv_shortcut.bias", p));
+            }
+        }
+        if i < n_blocks - 1 {
+            keys.push(format!(
+                "encoder.down_blocks.{}.downsamplers.0.conv.weight",
+                i
+            ));
+            keys.push(format!(
+                "encoder.down_blocks.{}.downsamplers.0.conv.bias",
+                i
+            ));
+        }
+    }
+    // mid_block: 2 resnets × 8 tensors (+ attention when enabled).
+    for i in 0..2 {
+        let p = format!("encoder.mid_block.resnets.{}", i);
+        for s in &[
+            "norm1.weight",
+            "norm1.bias",
+            "conv1.weight",
+            "conv1.bias",
+            "norm2.weight",
+            "norm2.bias",
+            "conv2.weight",
+            "conv2.bias",
+        ] {
+            keys.push(format!("{}.{}", p, s));
+        }
+    }
+    if config.mid_block_add_attention {
+        let p = "encoder.mid_block.attentions.0";
+        for s in &[
+            "group_norm.weight",
+            "group_norm.bias",
+            "to_q.weight",
+            "to_q.bias",
+            "to_k.weight",
+            "to_k.bias",
+            "to_v.weight",
+            "to_v.bias",
+            "to_out.0.weight",
+            "to_out.0.bias",
+        ] {
+            keys.push(format!("{}.{}", p, s));
+        }
+    }
+    keys
+}
+
+pub struct VaeEncoder {
+    conv_in: Conv2d,
+    down_blocks: Vec<Vec<ResnetBlock2D>>,
+    downsamplers: Vec<Option<Downsample2D>>,
+    mid_resnets: Vec<ResnetBlock2D>,
+    mid_attn: Option<VaeAttention>,
+    conv_norm_out_weight: Tensor,
+    conv_norm_out_bias: Tensor,
+    conv_out: Conv2d,
+    // diffusers AutoencoderKL applies a 1×1 quant_conv to the encoder
+    // output before the mean/logvar split — but the pinned Z-Image file
+    // most likely does NOT carry it (244 = 138 decoder + 106 encoder;
+    // see the key-generator note). Optional by design: consumed when
+    // present, its absence is loud, never silent.
+    quant_conv: Option<Conv2d>,
+    config: VaeConfig,
+}
+
+impl VaeEncoder {
+    /// Seeded tiny-init for the №243 tiny contracts (mirror of
+    /// `VaeDecoder::new_tiny`; distinct PRNG slots — see the
+    /// `PARAM_VAE_ENC_*` constants).
+    pub fn new_tiny(config: &VaeConfig, seed: u64) -> Result<Self, String> {
+        let device = Device::Cpu;
+        let base = config.block_out_channels[0];
+        let last = *config
+            .block_out_channels
+            .last()
+            .ok_or_else(|| "VaeEncoder::new_tiny: empty block_out_channels".to_string())?;
+
+        let conv_in = conv2d_seeded(
+            3,
+            base,
+            1,
+            3,
+            param_seed(seed, 0, PARAM_VAE_ENC_CONV_IN),
+            &device,
+        )?;
+
+        // down_blocks: layers_per_block resnets each + downsamplers between
+        // blocks (channel progression mirrors the diffusers Encoder: conv_in
+        // already mapped RGB → base, so block 0 opens at base).
+        let n_blocks = config.block_out_channels.len();
+        let mut down_blocks: Vec<Vec<ResnetBlock2D>> = Vec::new();
+        let mut downsamplers: Vec<Option<Downsample2D>> = Vec::new();
+        for i in 0..n_blocks {
+            let out_ch = config.block_out_channels[i];
+            let block_in = if i == 0 {
+                config.block_out_channels[0]
+            } else {
+                config.block_out_channels[i - 1]
+            };
+            let mut resnets = Vec::new();
+            for j in 0..config.layers_per_block {
+                let in_ch = if j == 0 { block_in } else { out_ch };
+                resnets.push(ResnetBlock2D::new_seeded(
+                    in_ch,
+                    out_ch,
+                    config.norm_num_groups,
+                    1e-6,
+                    param_seed(
+                        seed,
+                        (i as u64 + 1) * 100 + j as u64,
+                        PARAM_VAE_ENC_DOWN_RESNET,
+                    ),
+                    &device,
+                )?);
+            }
+            down_blocks.push(resnets);
+            if i < n_blocks - 1 {
+                let conv = conv2d_seeded_strided(
+                    out_ch,
+                    out_ch,
+                    1,
+                    3,
+                    2,
+                    param_seed(seed, i as u64, PARAM_VAE_ENC_DOWNSAMPLE),
+                    &device,
+                )?;
+                downsamplers.push(Some(Downsample2D { conv }));
+            } else {
+                downsamplers.push(None);
+            }
+        }
+
+        // mid_block: 2 resnets; attention is None for the tiny config
+        // (mid_block_add_attention=false — same as the decoder's new_tiny).
+        let mid_resnets = vec![
+            ResnetBlock2D::new_seeded(
+                4 * base,
+                4 * base,
+                config.norm_num_groups,
+                1e-6,
+                param_seed(seed, 1, PARAM_VAE_ENC_MID_RESNET),
+                &device,
+            )?,
+            ResnetBlock2D::new_seeded(
+                4 * base,
+                4 * base,
+                config.norm_num_groups,
+                1e-6,
+                param_seed(seed, 2, PARAM_VAE_ENC_MID_RESNET),
+                &device,
+            )?,
+        ];
+
+        let conv_norm_out_weight =
+            Tensor::ones((last,), DType::F32, &device).map_err(|e| e.to_string())?;
+        let conv_norm_out_bias =
+            Tensor::zeros((last,), DType::F32, &device).map_err(|e| e.to_string())?;
+
+        let conv_out = conv2d_seeded(
+            last,
+            2 * config.latent_channels, // double_z: mean + logvar halves
+            1,
+            3,
+            param_seed(seed, 998, PARAM_VAE_ENC_CONV_OUT),
+            &device,
+        )?;
+        let quant_conv = conv2d_seeded(
+            2 * config.latent_channels,
+            2 * config.latent_channels,
+            0,
+            1,
+            param_seed(seed, 999, PARAM_VAE_ENC_QUANT_CONV),
+            &device,
+        )?;
+
+        Ok(VaeEncoder {
+            conv_in,
+            down_blocks,
+            downsamplers,
+            mid_resnets,
+            mid_attn: None,
+            conv_norm_out_weight,
+            conv_norm_out_bias,
+            conv_out,
+            quant_conv: Some(quant_conv),
+            config: config.clone(),
+        })
+    }
+
+    /// Build from the real safetensors map (Наряд №243 R6.2): consumes the
+    /// NON-decoder prefixes of the pinned VAE file (the same map that
+    /// feeds `VaeDecoder::from_weights`). A missing expected key is a loud
+    /// Err listing every missing tensor; unexpected non-decoder leftovers
+    /// (`post_quant_conv.*` — decode-path tensors this MVP does not
+    /// consume) are reported loudly as an informational note, NOT an
+    /// error, and NOT silently swallowed.
+    pub fn from_weights(tensors: &HashMap<String, Tensor>) -> Result<Self, String> {
+        let config = zimage_turbo_vae_config();
+        let device = Device::Cpu;
+        let base = config.block_out_channels[0];
+        let last = *config
+            .block_out_channels
+            .last()
+            .ok_or_else(|| "VaeEncoder::from_weights: empty block_out_channels".to_string())?;
+
+        let get = |name: &str, shape: &[usize]| -> Result<Tensor, String> {
+            let t = tensors
+                .get(name)
+                .ok_or_else(|| format!("VaeEncoder::from_weights: tensor '{}' not found", name))?;
+            let t = t
+                .to_device(&device)
+                .map_err(|e| format!("'{}' device: {}", name, e))?;
+            let t = t
+                .to_dtype(DType::F32)
+                .map_err(|e| format!("'{}' dtype: {}", name, e))?;
+            if t.dims() != shape {
+                return Err(format!(
+                    "VaeEncoder::from_weights: '{}' shape mismatch — expected {:?}, got {:?}",
+                    name,
+                    shape,
+                    t.dims()
+                ));
+            }
+            Ok(t)
+        };
+
+        let ci_w = get("encoder.conv_in.weight", &[base, 3, 3, 3])?;
+        let ci_b = get("encoder.conv_in.bias", &[base])?;
+        let conv_in = Conv2d::new(
+            ci_w,
+            Some(ci_b),
+            Conv2dConfig {
+                padding: 1,
+                ..Default::default()
+            },
+        );
+
+        let n_blocks = config.block_out_channels.len();
+        let mut down_blocks: Vec<Vec<ResnetBlock2D>> = Vec::new();
+        let mut downsamplers: Vec<Option<Downsample2D>> = Vec::new();
+        for i in 0..n_blocks {
+            let out_ch = config.block_out_channels[i];
+            // conv_in already mapped RGB → base: block 0 opens at base.
+            let block_in = if i == 0 {
+                config.block_out_channels[0]
+            } else {
+                config.block_out_channels[i - 1]
+            };
+            let mut resnets = Vec::new();
+            for j in 0..config.layers_per_block {
+                let in_ch = if j == 0 { block_in } else { out_ch };
+                resnets.push(ResnetBlock2D::from_weights(
+                    tensors,
+                    &format!("encoder.down_blocks.{}.resnets.{}", i, j),
+                    in_ch,
+                    out_ch,
+                    config.norm_num_groups,
+                    1e-6,
+                    &device,
+                )?);
+            }
+            down_blocks.push(resnets);
+            if i < n_blocks - 1 {
+                let ds_w = get(
+                    &format!("encoder.down_blocks.{}.downsamplers.0.conv.weight", i),
+                    &[out_ch, out_ch, 3, 3],
+                )?;
+                let ds_b = get(
+                    &format!("encoder.down_blocks.{}.downsamplers.0.conv.bias", i),
+                    &[out_ch],
+                )?;
+                let conv = Conv2d::new(
+                    ds_w,
+                    Some(ds_b),
+                    Conv2dConfig {
+                        padding: 1,
+                        stride: 2,
+                        ..Default::default()
+                    },
+                );
+                downsamplers.push(Some(Downsample2D { conv }));
+            } else {
+                downsamplers.push(None);
+            }
+        }
+
+        let mid_resnets = vec![
+            ResnetBlock2D::from_weights(
+                tensors,
+                "encoder.mid_block.resnets.0",
+                4 * base,
+                4 * base,
+                config.norm_num_groups,
+                1e-6,
+                &device,
+            )?,
+            ResnetBlock2D::from_weights(
+                tensors,
+                "encoder.mid_block.resnets.1",
+                4 * base,
+                4 * base,
+                config.norm_num_groups,
+                1e-6,
+                &device,
+            )?,
+        ];
+        let mid_attn = if config.mid_block_add_attention {
+            Some(VaeAttention::from_weights(
+                tensors,
+                "encoder.mid_block.attentions.0",
+                4 * base,
+                config.norm_num_groups,
+                1e-6,
+                &device,
+            )?)
+        } else {
+            None
+        };
+
+        let cno_w = get("encoder.conv_norm_out.weight", &[last])?;
+        let cno_b = get("encoder.conv_norm_out.bias", &[last])?;
+        let co_w = get(
+            "encoder.conv_out.weight",
+            &[2 * config.latent_channels, last, 3, 3],
+        )?;
+        let co_b = get("encoder.conv_out.bias", &[2 * config.latent_channels])?;
+        let conv_out = Conv2d::new(
+            co_w,
+            Some(co_b),
+            Conv2dConfig {
+                padding: 1,
+                ..Default::default()
+            },
+        );
+        // quant_conv: OPTIONAL (see the key-generator note — the pinned
+        // file most likely does not carry it: 138 + 106 = 244). Present →
+        // loaded with the pinned shape; absent → None with a loud note.
+        // Silence would hide an architecture divergence — forbidden.
+        let quant_conv = match (
+            tensors.get("quant_conv.weight"),
+            tensors.get("quant_conv.bias"),
+        ) {
+            (Some(_), Some(_)) => {
+                let qc_w = get(
+                    "quant_conv.weight",
+                    &[2 * config.latent_channels, 2 * config.latent_channels, 1, 1],
+                )?;
+                let qc_b = get("quant_conv.bias", &[2 * config.latent_channels])?;
+                Some(Conv2d::new(qc_w, Some(qc_b), Conv2dConfig::default()))
+            }
+            (None, None) => {
+                eprintln!(
+                    "[VaeEncoder::from_weights] loud note: no quant_conv tensors in the \
+                     file — the posterior split consumes conv_out directly (consistent \
+                     with 138 decoder + 106 encoder = 244; verify against the header \
+                     per the runbook edit-e2e checklist)"
+                );
+                None
+            }
+            _ => {
+                return Err(
+                    "VaeEncoder::from_weights: quant_conv is half-present (weight without \
+                     bias or vice versa) — a loud refusal, not a guess"
+                        .to_string(),
+                )
+            }
+        };
+
+        // Key-level guard: every expected encoder tensor must be present.
+        // Missing = loud Err with the FULL missing list (№243 Block 1.1).
+        // Non-decoder leftovers that this loader does not consume
+        // (post_quant_conv.*) are named loudly — honest visibility without
+        // failing the load (they belong to the decode path).
+        let expected_keys = vae_expected_encoder_keys(&config);
+        let loaded_non_decoder: Vec<String> = tensors
+            .keys()
+            .filter(|k| !k.starts_with("decoder."))
+            .cloned()
+            .collect();
+        let loaded_set: std::collections::HashSet<&str> =
+            loaded_non_decoder.iter().map(|s| s.as_str()).collect();
+        let missing: Vec<&String> = expected_keys
+            .iter()
+            .filter(|k| !loaded_set.contains(k.as_str()))
+            .collect();
+        if !missing.is_empty() {
+            let list = missing
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(format!(
+                "VaeEncoder::from_weights: {} expected encoder tensor(s) missing from the \
+                 pinned VAE file: [{}] — verify the file against the weights manifest \
+                 (fetched 2026-09-08) and the runbook edit-e2e checklist",
+                missing.len(),
+                &list[..list.len().min(1200)]
+            ));
+        }
+        let expected_set: std::collections::HashSet<&str> =
+            expected_keys.iter().map(|s| s.as_str()).collect();
+        let leftovers: Vec<&String> = loaded_non_decoder
+            .iter()
+            .filter(|k| !expected_set.contains(k.as_str()))
+            .collect();
+        if !leftovers.is_empty() {
+            eprintln!(
+                "[VaeEncoder::from_weights] loud note: {} non-decoder tensor(s) present in \
+                 the file but not consumed by this encoder (decode-path tensors, e.g. \
+                 post_quant_conv.*): {:?}",
+                leftovers.len(),
+                &leftovers[..leftovers.len().min(8)]
+            );
+        }
+
+        Ok(VaeEncoder {
+            conv_in,
+            down_blocks,
+            downsamplers,
+            mid_resnets,
+            mid_attn,
+            conv_norm_out_weight: cno_w,
+            conv_norm_out_bias: cno_b,
+            conv_out,
+            quant_conv,
+            config,
+        })
+    }
+
+    /// Encode an image `[3, H, W]` F32 in **[-1, 1]** to a model latent
+    /// `[1, latent_channels, H/f, W/f]` (posterior MODE, then the ritual
+    /// inverse of the decoder's `z_vae = z_model / scaling + shift`):
+    /// `z_model = (mean - shift_factor) * scaling_factor`.
+    ///
+    /// The caller is responsible for the divisibility contract
+    /// (H/W must be multiples of `vae_downsample_factor(&config)`) — the
+    /// edit glue checks this loudly BEFORE calling encode; a silent floor
+    /// here would be a silent resize (forbidden, №243 Block 1.4).
+    pub fn encode(&self, img: &Tensor) -> Result<Tensor, String> {
+        let device = img.device();
+        let img = img
+            .to_dtype(DType::F32)
+            .map_err(|e| format!("VAE encode: dtype: {}", e))?;
+        let dims = img.dims();
+        if dims.len() != 3 || dims[0] != 3 {
+            return Err(format!(
+                "VAE encode: expected [3, H, W] image in [-1,1], got {:?}",
+                dims
+            ));
+        }
+        let x = img
+            .unsqueeze(0)
+            .map_err(|e| format!("VAE encode: unsqueeze: {}", e))?; // [1,3,H,W]
+
+        let mut h = self
+            .conv_in
+            .forward(&x)
+            .map_err(|e| format!("VAE encode: conv_in forward: {}", e))?;
+
+        for (i, resnets) in self.down_blocks.iter().enumerate() {
+            for (j, r) in resnets.iter().enumerate() {
+                h = r
+                    .forward(&h)
+                    .map_err(|e| format!("VAE encode: down_block {} resnet {}: {}", i, j, e))?;
+            }
+            if let Some(Some(ref ds)) = self.downsamplers.get(i) {
+                h = ds
+                    .forward(&h)
+                    .map_err(|e| format!("VAE encode: down_block {} downsample: {}", i, e))?;
+            }
+        }
+
+        // Mid-block: resnets[0] → attention → resnets[1] (same order as the
+        // decoder's mid-block, diffusers UNetMidBlock2D.forward).
+        h = self.mid_resnets[0]
+            .forward(&h)
+            .map_err(|e| format!("VAE encode: mid resnet 0: {}", e))?;
+        if let Some(ref attn) = self.mid_attn {
+            h = attn
+                .forward(&h)
+                .map_err(|e| format!("VAE encode: mid attn: {}", e))?;
+        }
+        h = self.mid_resnets[1]
+            .forward(&h)
+            .map_err(|e| format!("VAE encode: mid resnet 1: {}", e))?;
+
+        let h = group_norm(
+            &h,
+            self.config.norm_num_groups,
+            *self.config.block_out_channels.last().expect("non-empty"),
+            &self.conv_norm_out_weight,
+            &self.conv_norm_out_bias,
+            1e-6,
+        )
+        .map_err(|e| format!("VAE encode: conv_norm_out: {}", e))?;
+        let h = silu(&h).map_err(|e| format!("VAE encode: conv_norm_out silu: {}", e))?;
+        let h = self
+            .conv_out
+            .forward(&h)
+            .map_err(|e| format!("VAE encode: conv_out: {}", e))?;
+
+        // Split the double_z output into mean / logvar halves (channel dim)
+        // and take the posterior MODE (mean) — deterministic encode.
+        let h = match &self.quant_conv {
+            Some(qc) => qc
+                .forward(&h)
+                .map_err(|e| format!("VAE encode: quant_conv: {}", e))?,
+            None => h, // loud absence note at load time (from_weights)
+        };
+        let c = self.config.latent_channels;
+        let mean = h
+            .narrow(1, 0, c)
+            .map_err(|e| format!("VAE encode: mean split: {}", e))?;
+
+        // Ritual inverse of the decoder's n232 direction:
+        // decode: z_vae = z_model / scaling + shift  →  z_model = (z_vae - shift) * scaling
+        let shift = self.config.shift_factor as f32;
+        let scale = self.config.scaling_factor as f32;
+        let shift_t = scalar_full(shift, mean.dims(), device)
+            .map_err(|e| format!("VAE encode: shift tensor: {}", e))?;
+        let z = (&mean - &shift_t).map_err(|e| format!("VAE encode: sub shift: {}", e))?;
+        let scale_t = scalar_full(scale, z.dims(), device)
+            .map_err(|e| format!("VAE encode: scale tensor: {}", e))?;
+        let z = (&z * &scale_t).map_err(|e| format!("VAE encode: mul scaling: {}", e))?;
+        Ok(z)
+    }
+
+    /// The config this encoder was built for (the downsample factor and
+    /// latent-channel contract derive from it).
+    pub fn config(&self) -> &VaeConfig {
+        &self.config
+    }
+}
+
+/// Decode PNG bytes into a `[3, H, W]` F32 image tensor in [0,1]
+/// (Наряд №243 R6.2) — the decode half of `encode_png`, used by the edit
+/// path to turn the source artifact's PNG bytes back into the image the
+/// VAE encoder consumes. RGB, 8-bit per channel (the same format
+/// `encode_png` produces — the source artifacts were born here).
+pub fn decode_png(png_bytes: &[u8]) -> Result<Tensor, String> {
+    use image::ImageBuffer;
+    let img = image::load_from_memory(png_bytes)
+        .map_err(|e| format!("decode_png: PNG decode failed: {}", e))?;
+    let rgb: ImageBuffer<image::Rgb<u8>, Vec<u8>> = img.to_rgb8();
+    let (w, h) = (rgb.width() as usize, rgb.height() as usize);
+    let mut vals = Vec::with_capacity(3 * h * w);
+    for plane in 0..3 {
+        for y in 0..h {
+            for x in 0..w {
+                let p = rgb.get_pixel(x as u32, y as u32).0;
+                vals.push(p[plane] as f32 / 255.0);
+            }
+        }
+    }
+    Tensor::from_vec(vals, (3usize, h, w), &Device::Cpu)
+        .map_err(|e| format!("decode_png: tensor: {}", e))
 }
 
 /// Save a `[3, H, W]` F32 image tensor (in [0,1]) as a PNG file.

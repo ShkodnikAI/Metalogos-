@@ -93,3 +93,8 @@ If the env-gated run produces a coherent image at acceptable latency, **Go for R
 ```
 
 These entries are intentionally left blank rather than fabricated — per §3.8 of the naryad spec, faking the "first frame" is an explicit failure mode of the naryad. The loud-skip pattern of the env-gated tests is the §3-sanctioned form of permitted unfinishedness.
+
+## Verification log (doc-sync from later naryads)
+
+- №236 (PR #234): generators single-source, D2' closed, 15/15
+- №237 (PR #235): real-weights run prep — fetch tool (`tools/fetch_vision_weights.sh`, sha256 discipline) + manifest HF-oid section + runbook `naryad-237-real-weights-runbook.md`; real-weights run **PARKED** (owner decision 2026-09-09 — no ≥40 GB machine in delivery env, 9.2 GB free). Size truth-up: 16 files = 32 848 304 654 B ≈ **32.85 GB** verified via HF models API — the "~24.6 GB" estimate above was an underestimate of the same source. Tokenizer 4-row SHAs filled with real (double-run-verified) values; heavy weights remain _TODO_ until the run.

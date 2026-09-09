@@ -564,6 +564,31 @@ impl Interpreter {
             return crate::builtins::reflex_generate_dispatch(reg, &args);
         }
 
+        // Наряд №240 (Vision R4.2): vision_generate / vision_list /
+        // vision_export as flow steps — same shared dispatch functions as
+        // the expression path above (лекало reflex_generate).
+        if name == "vision_generate" {
+            let mut reg = self
+                .vision_registry
+                .lock()
+                .map_err(|e| format!("vision registry poisoned: {}", e))?;
+            return crate::builtins::vision_generate_dispatch(&self.vision_decls, &mut reg, &args);
+        }
+        if name == "vision_list" {
+            let reg = self
+                .vision_registry
+                .lock()
+                .map_err(|e| format!("vision registry poisoned: {}", e))?;
+            return crate::builtins::vision_list_dispatch(&reg, &args);
+        }
+        if name == "vision_export" {
+            let reg = self
+                .vision_registry
+                .lock()
+                .map_err(|e| format!("vision registry poisoned: {}", e))?;
+            return crate::builtins::vision_export_dispatch(&reg, &args);
+        }
+
         // Check recall (memory) first — it's a built-in with memory access
         if name == "recall" {
             return self.invoke_recall(args);
@@ -1453,6 +1478,37 @@ impl Interpreter {
                 // Наряд №193: reflex_generate — text generation (ADR-0120).
                 if name == "reflex_generate" {
                     return self.invoke_reflex_generate(eval_args);
+                }
+
+                // Наряд №240 (Vision R4.2): vision_generate / vision_list /
+                // vision_export — need interpreter state (vision_decls,
+                // vision_registry Mutex). Dispatch functions in
+                // src/builtins/vision.rs are shared with the VM (лекало
+                // reflex_train/reflex_predict).
+                if name == "vision_generate" {
+                    let mut reg = self
+                        .vision_registry
+                        .lock()
+                        .map_err(|e| format!("vision registry poisoned: {}", e))?;
+                    return crate::builtins::vision_generate_dispatch(
+                        &self.vision_decls,
+                        &mut reg,
+                        &eval_args,
+                    );
+                }
+                if name == "vision_list" {
+                    let reg = self
+                        .vision_registry
+                        .lock()
+                        .map_err(|e| format!("vision registry poisoned: {}", e))?;
+                    return crate::builtins::vision_list_dispatch(&reg, &eval_args);
+                }
+                if name == "vision_export" {
+                    let reg = self
+                        .vision_registry
+                        .lock()
+                        .map_err(|e| format!("vision registry poisoned: {}", e))?;
+                    return crate::builtins::vision_export_dispatch(&reg, &eval_args);
                 }
 
                 // Check recall (memory) first

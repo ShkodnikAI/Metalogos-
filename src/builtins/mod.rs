@@ -184,6 +184,9 @@ pub use reflex::{
     builtin_reflex_bpe_decode, builtin_reflex_bpe_encode, builtin_reflex_bpe_save,
     builtin_reflex_bpe_train, builtin_reflex_detokenize, builtin_reflex_tokenize,
 };
+// Наряд №240 (Vision R4.2): real-path dispatch functions (shared by the
+// interpreter and the VM) + last-resort registry stubs.
+pub use vision::{vision_export_dispatch, vision_generate_dispatch, vision_list_dispatch};
 
 impl Default for Builtins {
     fn default() -> Self {

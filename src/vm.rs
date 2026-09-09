@@ -2209,6 +2209,14 @@ impl Vm {
             return result;
         }
 
+        // Наряд №240 (Vision R4.2): intercept vision_generate/vision_list/
+        // vision_export before the generic fallback — routes to the VM's own
+        // vision_registry/vision_decls via the shared dispatch functions in
+        // src/builtins/vision.rs (лекало call_reflex_builtin).
+        if let Some(result) = self.call_vision_builtin(name, args) {
+            return result;
+        }
+
         if let Some(builtin_fn) = self.builtins.get(name) {
             return builtin_fn(args);
         }
@@ -2268,6 +2276,37 @@ impl Vm {
         if name == "reflex_generate" {
             return Some(crate::builtins::reflex_generate_dispatch(
                 &self.reflex_registry,
+                args,
+            ));
+        }
+        None
+    }
+
+    /// Наряд №240 (Vision R4.2): intercept vision_generate/vision_list/
+    /// vision_export before the generic builtin fallback. Routes to the
+    /// shared dispatch functions in `src/builtins/vision.rs`, passing the
+    /// VM's own `vision_decls` and `vision_registry` (лекало
+    /// `call_reflex_builtin`: inference logic is NOT reimplemented — only
+    /// the argument marshalling and registry access differ from the
+    /// interpreter path). `vision_edit`/`vision_save`/`vision_load` remain
+    /// loud stubs (R6) and fall through to the registry stubs.
+    fn call_vision_builtin(&mut self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
+        if name == "vision_generate" {
+            return Some(crate::builtins::vision_generate_dispatch(
+                &self.vision_decls,
+                &mut self.vision_registry,
+                args,
+            ));
+        }
+        if name == "vision_list" {
+            return Some(crate::builtins::vision_list_dispatch(
+                &self.vision_registry,
+                args,
+            ));
+        }
+        if name == "vision_export" {
+            return Some(crate::builtins::vision_export_dispatch(
+                &self.vision_registry,
                 args,
             ));
         }

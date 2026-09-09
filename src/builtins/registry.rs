@@ -544,8 +544,15 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("reflex_bpe_decode", 2, "reflex"; builtin_reflex_bpe_decode),
     spec!("reflex_bpe_save", 1, "reflex"; builtin_reflex_bpe_save),
     spec!("reflex_bpe_load", 1, "reflex"; builtin_reflex_bpe_load),
-    // ── Vision pillar (Наряд №210, ADR-0124) — stubs until R3 ──
-    spec!("vision_generate", 3, "vision"; builtin_vision_generate_stub),
+    // ── Vision pillar (Наряд №210, ADR-0124) ──
+    // Наряд №240 (R4.2): vision_generate arity 3→2 (R4 contract, plan §3:
+    // `vision_generate("decl_name", "prompt")` — model/steps/size/seed come
+    // from the `vision { }` declaration; the R1 stub doc "(model_name,
+    // prompt, seed)" predates the declaration language and was never the
+    // contract). generate/list/export are intercepted before the generic
+    // fallback (лекало reflex_train); these specs remain the last-resort
+    // handlers + the arity/type contract for LSP and checks.
+    spec!("vision_generate", 2, "vision"; builtin_vision_generate_stub),
     spec!("vision_edit", 2, "vision"; builtin_vision_edit_stub),
     spec!("vision_export", 2, "vision"; builtin_vision_export_stub),
     spec!("vision_list", 0, "vision"; builtin_vision_list_stub),

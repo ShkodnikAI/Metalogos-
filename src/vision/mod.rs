@@ -156,7 +156,9 @@ mod tests {
     }
 
     fn test_artifact() -> VisionArtifact {
-        VisionArtifact { png_bytes: vec![1, 2, 3] }
+        VisionArtifact {
+            png_bytes: vec![1, 2, 3],
+        }
     }
 
     #[test]

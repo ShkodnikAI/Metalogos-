@@ -1051,6 +1051,238 @@ impl ZImageTransformer {
     pub fn config(&self) -> &ZImageConfig {
         &self.config
     }
+
+    /// In-context edit forward (Наряд №243, R6.2) — ADDITIVE to `forward`
+    /// (the generate path above is not touched; the tiny goldens pin it).
+    ///
+    /// ## Mechanics of the in-context concatenation (documented loudly,
+    /// Block 1.2 — schema, shapes, dtype)
+    ///
+    /// ```text
+    /// latent_noise [1, C, H, W]  F32  — the evolving noise branch (starts as
+    ///                                  seeded noise shaped like the source)
+    /// latent_ref   [1, C, H, W]  F32  — the VAE-encoded SOURCE latent, fixed
+    ///                                  for the whole loop (same shape as
+    ///                                  latent_noise — loud check below)
+    /// cap          [cap_seq, cap_feat_dim] — text-encoder hidden states
+    /// t            f64 — flow-matching timestep (same convention as forward)
+    /// ```
+    ///
+    /// Token flow (all F32, batch=1):
+    /// 1. Both latents are patchified and embedded through the SAME
+    ///    `x_embedder` → image tokens `X_noise [1, N, dim]` and
+    ///    `X_ref [1, N, dim]`, N = (H/p)·(W/p).
+    /// 2. Reference tokens ARE image tokens: they share `x_embedder` and the
+    ///    `noise_refiner` with the noise branch (the concatenated image
+    ///    sequence `[X_noise ‖ X_ref] [1, 2N, dim]` goes through
+    ///    `noise_refiner` as one sequence).
+    /// 3. RoPE position ids (t, h, w) — the t-axis carries the segment tag:
+    ///    cap tokens `(i+1, 0, 0)` (unchanged from `forward`), noise branch
+    ///    `(cap_len+1, h_i, w_i)` (identical to `forward`'s image ids), and
+    ///    the reference branch gets its own t-slot `(cap_len+2, h_i, w_i)`
+    ///    with the SAME h/w grid. The cap_len+2 bound is checked loudly
+    ///    against `axes_lens[0]`.
+    /// 4. Main layers see `cat([X_img(2N), cap_emb], seq)` — the self-
+    ///    attention spans noise + reference + caption tokens: THE in-context
+    ///    conditioning mechanism (Flux-Kontext-style in-context editing,
+    ///    adapted to Z-Image's 3-axis RoPE).
+    /// 5. The final layer output is narrowed back to the FIRST N tokens —
+    ///    the noise branch — and unpatchified. The reference branch's
+    ///    output tokens are DISCARDED (the reference latent stays clean for
+    ///    every step of the edit loop).
+    ///
+    /// Returns the velocity for the noise branch `[1, C, H, W]`.
+    pub fn forward_edit(
+        &self,
+        latent_noise: &Tensor,
+        latent_ref: &Tensor,
+        cap: &Tensor,
+        t: f64,
+    ) -> Result<Tensor, String> {
+        let device = latent_noise.device();
+        let (b, c, h, w) = latent_noise
+            .dims4()
+            .map_err(|e| format!("DiT edit: noise dims4: {}", e))?;
+        let (b_ref, c_ref, h_ref, w_ref) = latent_ref
+            .dims4()
+            .map_err(|e| format!("DiT edit: ref dims4: {}", e))?;
+        if (b, c, h, w) != (b_ref, c_ref, h_ref, w_ref) {
+            return Err(format!(
+                "DiT edit: noise latent {:?} and reference latent {:?} must have the \
+                 same shape (in-context conditioning concatenates token sequences; \
+                 a silent reshape would be a silent resize)",
+                latent_noise.dims(),
+                latent_ref.dims()
+            ));
+        }
+
+        let ph = self.config.patch_size;
+        let pw = self.config.patch_size;
+        let nph = h / ph;
+        let npw = w / pw;
+        let n = nph * npw;
+
+        // t-embedding — identical to `forward` (same embedders, same ritual).
+        let t_scaled = t * self.config.t_scale;
+        let t_freq = sinusoidal_embedding(t_scaled, FREQ_EMBED_SIZE, MAX_PERIOD, device)
+            .map_err(|e| format!("DiT edit: sinusoidal: {}", e))?;
+        let t_hidden = linear_forward(
+            &t_freq,
+            &self.t_embedder_mlp0,
+            self.t_embedder_mlp0_bias.as_ref(),
+        )
+        .map_err(|e| format!("DiT edit: t_mlp0: {}", e))?;
+        let t_hidden = silu(&t_hidden).map_err(|e| format!("DiT edit: t silu: {}", e))?;
+        let adaln_input = linear_forward(
+            &t_hidden,
+            &self.t_embedder_mlp2,
+            self.t_embedder_mlp2_bias.as_ref(),
+        )
+        .map_err(|e| format!("DiT edit: t_mlp2: {}", e))?;
+        let adaln_input = adaln_input
+            .unsqueeze(0)
+            .map_err(|e| format!("DiT edit: adaln.unsqueeze: {}", e))?;
+
+        // Patchify + embed BOTH branches through the same x_embedder.
+        let noise_patches = patchify(latent_noise, ph, pw)
+            .map_err(|e| format!("DiT edit: patchify noise: {}", e))?;
+        let ref_patches =
+            patchify(latent_ref, ph, pw).map_err(|e| format!("DiT edit: patchify ref: {}", e))?;
+        let x_noise = linear_forward(
+            &noise_patches,
+            &self.x_embedder,
+            self.x_embedder_bias.as_ref(),
+        )
+        .map_err(|e| format!("DiT edit: x_embed noise: {}", e))?;
+        let x_ref = linear_forward(
+            &ref_patches,
+            &self.x_embedder,
+            self.x_embedder_bias.as_ref(),
+        )
+        .map_err(|e| format!("DiT edit: x_embed ref: {}", e))?;
+        let x_img = Tensor::cat(&[&x_noise, &x_ref], 0)
+            .map_err(|e| format!("DiT edit: img token cat: {}", e))?; // [2N, dim]
+        let x_img = x_img
+            .unsqueeze(0)
+            .map_err(|e| format!("DiT edit: x_img.unsqueeze: {}", e))?; // [1, 2N, dim]
+
+        // Position ids: cap (i+1,0,0); noise (cap_len+1, h_i, w_i);
+        // ref (cap_len+2, h_i, w_i) — its own t-slot, same h/w grid.
+        let cap_len = cap
+            .dim(0)
+            .map_err(|e| format!("DiT edit: cap.dim(0): {}", e))?;
+        let t_axis_max = self.config.axes_lens[0];
+        if cap_len + 2 >= t_axis_max {
+            return Err(format!(
+                "DiT edit: cap_len {} + 2 exceeds the RoPE t-axis length {} — \
+                 the in-context concatenation needs two image t-slots after \
+                 the caption tokens",
+                cap_len, t_axis_max
+            ));
+        }
+        let x_t_start = cap_len + 1;
+        let ref_t = cap_len + 2;
+        let noise_pos_ids: Vec<(usize, usize, usize)> = (0..nph)
+            .flat_map(|h_i| (0..npw).map(move |w_i| (x_t_start, h_i, w_i)))
+            .collect();
+        let ref_pos_ids: Vec<(usize, usize, usize)> = (0..nph)
+            .flat_map(|h_i| (0..npw).map(move |w_i| (ref_t, h_i, w_i)))
+            .collect();
+        let img_pos_ids: Vec<(usize, usize, usize)> = noise_pos_ids
+            .iter()
+            .chain(ref_pos_ids.iter())
+            .copied()
+            .collect();
+
+        // noise_refiner on the concatenated image sequence (both branches).
+        let mut x_img = x_img;
+        for layer in &self.noise_refiner {
+            x_img = layer
+                .forward(&x_img, &img_pos_ids, Some(&adaln_input), &self.rope)
+                .map_err(|e| format!("DiT edit: noise_refiner: {}", e))?;
+        }
+
+        // cap embedder: RMSNorm → Linear → context_refiner (same as forward).
+        let cap_normed = rms_norm_last_dim(
+            &cap.unsqueeze(0)
+                .map_err(|e| format!("DiT edit: cap.unsqueeze: {}", e))?,
+            &self.cap_embedder_norm,
+            self.config.norm_eps,
+        )
+        .map_err(|e| format!("DiT edit: cap rms: {}", e))?;
+        let cap_normed = cap_normed
+            .squeeze(0)
+            .map_err(|e| format!("DiT edit: cap.squeeze: {}", e))?;
+        let cap_emb = linear_forward(
+            &cap_normed,
+            &self.cap_embedder_linear,
+            self.cap_embedder_bias.as_ref(),
+        )
+        .map_err(|e| format!("DiT edit: cap_embed: {}", e))?;
+        let cap_pos_ids: Vec<(usize, usize, usize)> = (0..cap_len).map(|i| (i + 1, 0, 0)).collect();
+        let cap_emb = cap_emb
+            .unsqueeze(0)
+            .map_err(|e| format!("DiT edit: cap_emb.unsqueeze: {}", e))?;
+        let mut cap_emb = cap_emb;
+        for layer in &self.context_refiner {
+            cap_emb = layer
+                .forward(&cap_emb, &cap_pos_ids, None, &self.rope)
+                .map_err(|e| format!("DiT edit: context_refiner: {}", e))?;
+        }
+
+        // Unified sequence [X_img(2N) ‖ cap] — the in-context self-attention.
+        let unified = Tensor::cat(&[&x_img, &cap_emb], 1)
+            .map_err(|e| format!("DiT edit: unified cat: {}", e))?;
+        let unified_pos_ids: Vec<(usize, usize, usize)> = img_pos_ids
+            .iter()
+            .chain(cap_pos_ids.iter())
+            .copied()
+            .collect();
+
+        let mut unified = unified;
+        for layer in &self.layers {
+            unified = layer
+                .forward(&unified, &unified_pos_ids, Some(&adaln_input), &self.rope)
+                .map_err(|e| format!("DiT edit: layer: {}", e))?;
+        }
+
+        // Final layer — identical to `forward`.
+        let silu_adaln = silu(&adaln_input).map_err(|e| format!("DiT edit: final silu: {}", e))?;
+        let scale_raw = linear_forward(
+            &silu_adaln,
+            &self.final_adaLN,
+            self.final_adaLN_bias.as_ref(),
+        )
+        .map_err(|e| format!("DiT edit: final adaLN: {}", e))?;
+        let one_t = Tensor::full(1.0f32, scale_raw.dims(), device)
+            .map_err(|e| format!("DiT edit: final one_t: {}", e))?;
+        let scale = (&scale_raw + &one_t).map_err(|e| format!("DiT edit: final scale: {}", e))?;
+        let scale_b = scale
+            .reshape({
+                let mut s = vec![1; unified.dims().len()];
+                s[unified.dims().len() - 1] = self.config.dim;
+                s
+            })
+            .map_err(|e| format!("DiT edit: scale_b reshape: {}", e))?
+            .broadcast_as(unified.dims())
+            .map_err(|e| format!("DiT edit: scale_b broadcast: {}", e))?;
+        let normed = layernorm_no_affine(&unified, 1e-6)
+            .map_err(|e| format!("DiT edit: final layernorm: {}", e))?;
+        let normed = (&normed * &scale_b).map_err(|e| format!("DiT edit: normed*scale: {}", e))?;
+        let out = linear_forward(&normed, &self.final_linear, self.final_linear_bias.as_ref())
+            .map_err(|e| format!("DiT edit: final linear: {}", e))?;
+
+        // Extract the NOISE branch (first N tokens) and unpatchify. The
+        // reference branch's output tokens are discarded — the reference
+        // latent stays clean (euler_step applies to the noise branch only).
+        let x_out = out
+            .narrow(1, 0, n)
+            .map_err(|e| format!("DiT edit: narrow noise branch: {}", e))?;
+        let x_out = unpatchify(&x_out, nph, npw, ph, pw, self.config.in_channels, device)
+            .map_err(|e| format!("DiT edit: unpatchify: {}", e))?;
+
+        Ok(x_out)
+    }
 }
 
 // ── Block construction ──

@@ -4,6 +4,70 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — Vision R6.2: `vision_edit` — in-context editing (Наряд №243)
+
+- **`vision_edit(handle, prompt) -> Vision` (Block 2)**: громкий R1-стаб
+  стал реальным путём in-context редактирования (вторая треть R6
+  «Edit + LoRA», план §7.1; R6 разрезан громко: №242 = save/load —
+  закрыт, №243 = edit, №244 = LoRA). Контракт: арность 2, типизированный
+  хэндл (`[Vision#N]`, лекало export/save); **источник ОБЯЗАН быть
+  подписан** — артефакт с `manifest: None` = громкий Err (именно ДО
+  env-чека: контрактный отказ не зависит от среды; отредактировать
+  unsigned честно нельзя — нечего наследовать, а производить unsigned
+  через реальный compute-путь запрещает №241 Block 1.3). Unsigned-артефакты
+  остаются рабочими в `vision_export_raw` — это НЕ менялось.
+- **In-context edit compute-путь (Block 1)**: `VaeEncoder` в
+  `src/vision/vae.rs` (зеркально `VaeDecoder`) — грузит не-decoder
+  префиксы ТОГО ЖЕ pinned `vae/diffusion_pytorch_model.safetensors`
+  (манифест весов НЕ расширяется, 16 файлов / 32 848 304 654 B —
+  инвариант). Арифметика манифеста 244 = 138 decoder + 106 encoder →
+  `quant_conv` опционален: потребление/отсутствие = громкая нотка,
+  фактический non-decoder список сверяется по заголовку файла при
+  PARKED-прогоне (runbook §3.1), расхождение с генератором
+  `vae_expected_encoder_keys` = громкий Err с перечнем недостающего.
+  `encode(img F32 [-1..1]) → [1, C, H/f, W/f]` в posterior MODE
+  (детерминизм), ритуал = алгебраическая инверсия декодер-направления
+  №232 (`z_model = (mean − shift) · scaling`); `decode_png` — декод-половина
+  `encode_png`. Цикл: `flow_match_euler_edit` (`sampler.rs`) +
+  `forward_edit` (`dit.rs`, аддитивно — generate не тронут): референс-латент
+  конкатенируется токенами с шумовым на КАЖДОМ шаге (тот же `x_embedder` +
+  `noise_refiner`; RoPE t-слот референса = cap_len+2 при шумовом cap_len+1
+  — громкий чек против `axes_lens`), `euler_step` только по шумовой ветви,
+  референс чистый; **`EDIT_STEPS = 8`** — дистиллированный NFE turbo
+  (громкая константа с пиннинг-тестом); CFG отсутствует (turbo).
+  **Wedge-голдены №212 bit-exact БЕЗ правок** (85ef6a87/860c85b3) —
+  добавление edit-пути не меняет generate ни битом (Block 1.3).
+- **Наследование provenance (Block 2.3, sign ALWAYS)**: отредактированный
+  артефакт подписан всегда — LSB-watermark (model_id источника) + 7 полей:
+  `model_id`/`policy`/`seed` наследуются из манифеста источника
+  (детерминизм: те же источник+промпт+веса → тот же seed), `model_sha256` =
+  `weights_tree_sha256` текущего прогона, `prompt_sha256` = хэш
+  EDIT-промпта, `timestamp`/`png_sha256` свежие (SHA после watermark —
+  описывает ровно те байты, что отгружаются).
+- **Dims-контракт (Block 1.4)**: R4.1-границы источника (256..=4096, ×16)
+  и кратность VAE-фактору — громкие Err; тихий ресайз запрещён (искажение
+  provenance-цепочки): выход сохраняет разрешение источника.
+- **Taint (Block 3)**: позиционный чек arg-1 расширен на `vision_edit` —
+  тот же check-id `VISION_PROMPT_USER_INPUT` (Warning, arg-0 handle не
+  флагается); новых check-id/категорий нет, гейты №241 не тронуты.
+- **Перехваты + truth-up (Block 2.5/2.6)**: interpreter (eval + invoke) и
+  VM — state-carrying лекало №240–№242; last-resort стаб — лекало
+  save/load-стабов №242; док-номер «214/215» заменён на «R6.2, №243» —
+  последний «214/215» покинул репо. `tests/naryad_210_vision_skeleton.rs`:
+  стаб-тест заменён на real-path отказы (типизированный хэндл + арность)
+  — 10 → 11 тестов.
+- **Тесты (Block 4, без сети/весов, без `#[ignore`])**: 14 tiny-контрактов
+  `tests/naryad_243_vision_edit.rs` (лекало wedge №212: зависимость выхода
+  от источника и от edit-промпта, watermark + наследование 7 полей,
+  unsigned-отказ, R4.1/фактор-dims, no-env отказ, EDIT_STEPS pin,
+  shape-контракт forward_edit, детерминизм цикла) + env-gated
+  `mlog_vision_edit_export_e2e` (loud-SKIP; generate → edit → export:
+  dims-сохранение, inheritance sidecar, watermark) — цель edit-e2e в
+  runbook §3.1. Реестр 389 не меняется; KNOWN_VISION_MODELS/enum
+  ADR-0124/weights.rs/grammar.pest/goldens-константы/LoRA/гейты №241 не
+  тронуты; отдельный env-gated CI-шаг НЕ добавлен (долг владельца, 4-й
+  раунд напоминания).
+
 ### Added — Vision R6.1: SQLite-персистенция артефактов (Наряд №242)
 
 - **`vision_save(handle, name) -> String` / `vision_load(name) -> Vision`

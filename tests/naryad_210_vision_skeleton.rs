@@ -10,6 +10,13 @@
 // refusal no longer exists for them — the loudness contracts below are
 // updated to the R4 contract (arity 2, typed handles); edit/save/load
 // remain loud stubs and keep the original naryad-210 assertions.
+//
+// Наряд №243 (R6.2) truth-up: vision_edit left the stub group too — real
+// in-context editing (VAE-энкодер + conditioning, signed-source contract).
+// The R1 stub assertions ("naryad 210", "loud refusal") are replaced by
+// the real-path refusals per the №240/№242 precedent (typed handle, arity
+// — both loud; №243 Block 2.6). File test count: 10 → 11 (−1 stub test,
+// +2 real-path refusal tests).
 
 use metalogos::interpreter::Value;
 use metalogos::vision::VisionId;
@@ -99,19 +106,22 @@ fn vision_generate_loud_error_vm() {
     );
 }
 
-// ── Test 4: vision_edit stub + the real save/load refusals ───────
+// ── Test 4: the real-path refusals (edit/save/load) ──────────
 //
 // Наряд №240: vision_export left this stub group — it is a REAL path now
 // (typed Vision handle + path, loud wrong-type refusal below).
 // Наряд №242 (R6.1): vision_save/vision_load left the stub group too —
 // real SQLite persistence (src/vision/store.rs); their R1 stub texts
 // ("naryad 210", "naryad 214/215") are gone by mandated doc truth-up.
-// vision_edit remains a loud stub until №243.
+// Наряд №243 (R6.2): vision_edit left the stub group too — real in-context
+// editing; the R1 stub contract test is REPLACED by the real-path refusal
+// tests (typed handle + arity — №240/№242 precedent).
 
-/// The R1 stub contract holds for vision_edit ONLY (since №242): loud
-/// refusal naming the naryad that will implement it.
+/// №243: vision_edit is a REAL path — a String where a Vision handle is
+/// expected is a loud typed refusal (same shape as vision_export/save;
+/// the type check fires before anything else).
 #[test]
-fn vision_edit_stub_still_loud() {
+fn vision_edit_wrong_handle_type_loud_error() {
     let source = r#"
             pattern Test(_x: String) -> String {
                 vision_edit("handle", "prompt")
@@ -119,21 +129,39 @@ fn vision_edit_stub_still_loud() {
             }
             flow Main { input: String = "x" -> Test -> output }
             "#;
-    let result = metalogos::run_program(source);
-    let err = result.expect_err("vision_edit must return an error, not succeed");
+    let err = metalogos::run_program(source).expect_err("wrong handle type must fail loudly");
     assert!(
         err.contains("vision_edit"),
-        "error for vision_edit must contain the builtin name: {}",
+        "error must contain 'vision_edit': {}",
         err
     );
     assert!(
-        err.contains("naryad 210"),
-        "error for vision_edit must contain 'naryad 210': {}",
+        err.contains("must be a Vision handle"),
+        "error must state the typed handle contract: {}",
+        err
+    );
+}
+
+/// №243: vision_edit arity contract — 1 argument is a loud refusal with
+/// the arity contract (лекало vision_generate's arity refusal).
+#[test]
+fn vision_edit_wrong_arity_loud_error() {
+    let source = r#"
+            pattern Test(_x: String) -> String {
+                vision_edit("handle")
+                return "unreachable"
+            }
+            flow Main { input: String = "x" -> Test -> output }
+            "#;
+    let err = metalogos::run_program(source).expect_err("arity 1 must fail loudly");
+    assert!(
+        err.contains("vision_edit"),
+        "error must contain 'vision_edit': {}",
         err
     );
     assert!(
-        err.contains("loud refusal"),
-        "error for vision_edit must contain 'loud refusal': {}",
+        err.contains("expects 2 arguments"),
+        "error must state the arity contract: {}",
         err
     );
 }

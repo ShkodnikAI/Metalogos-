@@ -150,6 +150,100 @@ pub fn flow_match_euler_sample(
     Ok(x)
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// In-context edit loop (Наряд №243, R6.2)
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Loud constant: number of forward DiT calls (NFE) for the edit loop.
+///
+/// **Rationale (loud, per №243 Block 1.2):** Z-Image-Turbo is a distilled
+/// model — its published inference NFE is 8 (the generate clip uses
+/// `num_inference_steps=9` sigmas → 8 Euler forward steps). The edit loop
+/// keeps the SAME distilled budget: `EDIT_STEPS = 8` forward calls through
+/// `ZImageTransformer::forward_edit`. Any other value is a loud deviation
+/// that must be argued BEFORE the merge (§3.5 — a quiet substitution of
+/// steps would be a silent provenance distortion).
+pub const EDIT_STEPS: usize = 8;
+
+/// Run the in-context EDIT sampling loop.
+///
+/// Mirrors `flow_match_euler_sample` (the лекало) with two differences:
+/// 1. The initial latent is seeded noise shaped like the SOURCE latent
+///    (the output must keep the source resolution — no resize), not a
+///    config-derived shape.
+/// 2. Every step runs `forward_edit`: the reference latent tokens are
+///    concatenated with the noise tokens (in-context self-attention) and
+///    `euler_step` is applied to the NOISE branch only — the reference
+///    stays clean for the whole loop.
+///
+/// `dit`: the Z-Image transformer. `cap`: text-encoder hidden states
+/// `[cap_seq, cap_feat_dim]`. `ref_latent`: VAE-encoded source
+/// `[1, C, H/f, W/f]` (model-latent space — the same space the sampler
+/// works in). `seed`: inherited from the source artifact's manifest
+/// (№243 Block 2.3 — same source + same prompt + same weights → same seed
+/// → deterministic output). `num_forward_steps`: forward DiT calls —
+/// pass [`EDIT_STEPS`] (8, the distilled NFE; the sigma schedule gets
+/// `steps + 1` entries, matching the generate clip's 9-sigma → 8-forward
+/// arithmetic).
+///
+/// CFG is absent entirely: Turbo is distilled (guidance_scale would be
+/// ignored — the honest form of the generate path's `let _ = guidance_scale`).
+pub fn flow_match_euler_edit(
+    dit: &crate::vision::dit::ZImageTransformer,
+    cap: &Tensor,
+    ref_latent: &Tensor,
+    seed: u64,
+    num_forward_steps: usize,
+) -> Result<Tensor, String> {
+    use candle_core::Tensor;
+
+    let (b, c, h, w) = ref_latent
+        .dims4()
+        .map_err(|e| format!("flow_match_euler_edit: ref dims4: {}", e))?;
+    if b != 1 {
+        return Err(format!(
+            "flow_match_euler_edit: reference latent must be batch 1, got batch {}",
+            b
+        ));
+    }
+
+    // Initial noise branch: seeded randn shaped like the source latent
+    // (Box-Muller over the SSOT PRNG — the same `fixed_latent` generate
+    // starts from; the seed is inherited from the source manifest).
+    let mut x = crate::vision::vae::fixed_latent(seed, c, h, w);
+
+    // Sigma schedule: steps + 1 entries → `steps` Euler updates, exactly
+    // the generate clip's arithmetic (9 sigmas → 8 forwards).
+    let sigmas = flow_match_euler_sigmas(num_forward_steps + 1, 3.0, 1000);
+    for i in 0..num_forward_steps {
+        let sigma = sigmas[i];
+        let sigma_next = if i + 1 < sigmas.len() {
+            sigmas[i + 1]
+        } else {
+            0.0
+        };
+        // DiT forward at timestep = sigma * 1000 — the SAME t convention
+        // the generate loop passes into `forward` (consistency over
+        // re-derivation; the golden pins that convention).
+        let t = sigma * 1000.0;
+        let velocity = dit.forward_edit(&x, ref_latent, cap, t).map_err(|e| {
+            format!(
+                "flow_match_euler_edit: DiT forward_edit at step {} failed: {}",
+                i, e
+            )
+        })?;
+        // Euler update on the noise branch ONLY.
+        x = euler_step(&x, &velocity, sigma, sigma_next).map_err(|e| {
+            format!(
+                "flow_match_euler_edit: euler_step at step {} failed: {}",
+                i, e
+            )
+        })?;
+    }
+
+    Ok(x)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -625,6 +625,18 @@ impl Interpreter {
                 .map_err(|e| format!("db lock error: {}", e))?;
             return crate::builtins::vision_load_dispatch(&mut reg, db.as_ref(), &args);
         }
+        // Наряд №243 (R6.2): in-context editing — state-carrying like
+        // save/load (the dispatch owns the registry; no db involved —
+        // persistence does not participate in the edit contract). The
+        // source must be signed (Block 2.2); the edit loop signs ALWAYS
+        // (Block 2.3).
+        if name == "vision_edit" {
+            let mut reg = self
+                .vision_registry
+                .lock()
+                .map_err(|e| format!("vision registry poisoned: {}", e))?;
+            return crate::builtins::vision_edit_dispatch(&mut reg, &args);
+        }
 
         // Check recall (memory) first — it's a built-in with memory access
         if name == "recall" {
@@ -1584,6 +1596,16 @@ impl Interpreter {
                         db.as_ref(),
                         &eval_args,
                     );
+                }
+                // Наряд №243 (R6.2): in-context editing — same state-
+                // carrying interception, expression path; source must be
+                // signed (Block 2.2), output signed ALWAYS (Block 2.3).
+                if name == "vision_edit" {
+                    let mut reg = self
+                        .vision_registry
+                        .lock()
+                        .map_err(|e| format!("vision registry poisoned: {}", e))?;
+                    return crate::builtins::vision_edit_dispatch(&mut reg, &eval_args);
                 }
 
                 // Check recall (memory) first

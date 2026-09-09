@@ -94,6 +94,43 @@ CI-видимые tiny goldens (VAE `85ef6a87…`, DiT `860c85b311905f6c23b90a4e
 неизменны — их зелень уже в CI; если они вдруг красные — СТОП, фиксация среды,
 никаких пинов не трогать (§3.2).
 
+## 3.1. Прогон edit-e2e (Наряд №243, R6.2 — тот же сеанс)
+
+Edit-клин (in-context editing) идёт в ЭТОЙ ЖЕ сессии после шага 3 — прогон
+остаётся одной командой без импровизации (Block 4.2 №243):
+
+```bash
+cargo test --features vision --test naryad_240_vision_mlog_e2e -- --nocapture 2>&1 | tee n243_edit_run1.log
+sha256sum $MLOG_VISION_OUT/naryad_243_mlog_first_edit.png   # зафиксировать
+```
+
+Тест `mlog_vision_edit_export_e2e`: generate (seed 42, промпт «a red apple…»)
+→ `vision_edit(v, "make the apple green, keep everything else unchanged")` →
+export (`naryad_243_mlog_first_edit.png` + sidecar). Что фиксируется:
+
+- **Dims-контракт:** выход 1024×1024 = источник (ресайз запрещён — Block 1.4);
+  несовместимый источник = громкий Err, в e2e размеры кратны фактору 8.
+- **Inheritance:** sidecar отредактированного артефакта — `model_id`
+  z-image-turbo, `policy` safe, `seed` 42 (наследуются из источника),
+  `prompt_sha256` = SHA-256 edit-промпта, `png_sha256` = итоговый
+  watermarked PNG, `timestamp` свежий (Block 2.3).
+- **Watermark:** LSB-детекция магии MLGV + model-hash32.
+- **VAE-энкодер по заголовку файла (ОБЯЗАТЕЛЬНЫЙ шаг сверки, Block 1.1):**
+  в логе прогона — громкая нотка `VaeEncoder::from_weights`; арифметика
+  манифеста (244 = 138 decoder + 106 encoder) предсказывает ОТСУТСТВИЕ
+  `quant_conv` в файле → ожидаемая нотка «no quant_conv tensors …
+  138 + 106 = 244». Если фактически есть `quant_conv.*` — нотка сменится
+  на потребление пина; если список non-decoder ключей расходится с
+  генератором (`vae_expected_encoder_keys`) — тест падает ГРОМКО с
+  перечнем недостающего: файл-факт внести в манифест-док, правку генератора
+  — отдельным громким fix-forward (импровизация на живом прогоне запрещена).
+- **Детерминизм edit-пути:** повторный прогон той же команды → SHA
+  `naryad_243_mlog_first_edit.png` бит-в-бит (наследованный seed 42,
+  детерминированный encode в mode — Block 2.3).
+
+Edit-золотой НЕ пинится в этом прогоне (пин = отдельное громкое решение;
+приёмка прогона — по критериям §0 go-no-go: узнаваемость + латентность).
+
 ## 4. Фиксация результата (заполнение слотов «REQUIRES REAL RUN»)
 
 Слоты — в `docs/research/naryad-212-go-no-go.md`, секция «Verbatim DoD entries».

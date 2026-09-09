@@ -2229,7 +2229,7 @@ vision "poster" {
         assert_eq!(v.width, 1024);
         assert_eq!(v.height, 1024);
         assert_eq!(v.seed, 42);
-        assert_eq!(v.policy, crate::ast::VisionPolicy::Safe);
+        assert_eq!(v.policy, Some(crate::ast::VisionPolicy::Safe));
         assert_eq!(v.profile, crate::ast::VisionProfile::Fp16);
     } else {
         panic!("expected Vision, got {:?}", decls[0]);
@@ -2286,6 +2286,44 @@ fn test_parse_vision_profiles_all_adr0124_values() {
             panic!("expected Vision for profile {}", raw);
         }
     }
+}
+
+/// Наряд №241 (Block 3.1, ADR-0125 SSOT): `policy:` is OPTIONAL — a
+/// declaration without it parses cleanly, `policy == None` (audit emits
+/// VISION_POLICY_MISSING; manifest records "policy": "unspecified").
+/// The six other fields stay required (no silent defaults).
+#[test]
+fn test_parse_vision_missing_policy_parses_as_none() {
+    let src = r#"
+vision "poster" {
+  model: "z-image-turbo"
+  steps: 8
+  width: 1024
+  height: 1024
+  seed: 42
+  profile: fp16
+}
+"#;
+    let decls = parse(src).unwrap();
+    assert_eq!(decls.len(), 1);
+    if let Declaration::Vision(v) = &decls[0] {
+        assert_eq!(v.name, "poster");
+        assert_eq!(
+            v.policy, None,
+            "missing policy must parse as None, not default"
+        );
+    } else {
+        panic!("expected Vision, got {:?}", decls[0]);
+    }
+}
+
+/// Наряд №241 Block 3.1: a PRESENT policy value is still enum-checked
+/// loudly — relaxing the field's REQUIRED-ness does not relax its enum.
+#[test]
+fn test_parse_vision_unknown_policy_value_still_loud() {
+    let src = "vision \"poster\" { model: \"z-image-turbo\" steps: 8 width: 1024 height: 1024 seed: 42 policy: permissive profile: fp16 }";
+    let err = parse(src).unwrap_err().to_string();
+    assert!(err.contains("unknown policy 'permissive'"), "got: {}", err);
 }
 
 // ── Наряд №238 Block 3.2: negative tests (parser-level) ──────────────

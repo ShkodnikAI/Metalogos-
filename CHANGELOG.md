@@ -4,6 +4,80 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — Vision R5: Security — гейты категории A + Provenance MVP (Наряд №241, ADR-0125)
+
+- **Provenance MVP (Block 1)**: `vision_generate` подписывает ВСЕГДА — в PNG
+  встраивается LSB-watermark (payload = магия `"MLGV"` + model-hash32 = первые 4
+  байта SHA-256(model_id), 64 бита в LSB RGB-каналов; force-set = идемпотентно;
+  детекция — по декодированным пикселям; ошибка подписи = громкий `Err` ДО
+  попадания артефакта в registry), артефакт несёт `VisionManifest`
+  (model-id + model-SHA-256 — фингерпринт весов-дерева по пинному
+  `manifest.json`, честный маркер `"unpinned"` при его отсутствии; seed;
+  prompt-hash; policy/`"unspecified"`; timestamp RFC 3339; SHA-256 итогового
+  PNG — после watermark). `vision_export` = подписанный экспорт: PNG + sidecar
+  `<path>.manifest.json`; unsigned-WARN из №240 снят (экспорт подписан по
+  построению). Новый модуль `src/vision/provenance.rs` — manifest+hash слой не
+  feature-gated, watermark — под `vision` (нужен PNG-кодек). Honest boundary
+  (ADR-0125): MVP-watermark детектируем нами, но НЕ adversarially-устойчив
+  (robust-watermarking/C2PA — research-бэклог, не обещание).
+- **`vision_export_raw` (Block 2.1, реестр 387→388)**: явный opt-out по
+  ADR-0125 — сырые байты без watermark/manifest, sidecar не пишется. Перехват
+  в interpreter (eval + invoke) и VM — тот же state-carrying паттерн, что
+  `vision_export`.
+- **Гейт `VISION_UNSIGNED_EXPORT` (Block 2.2 — Category A, audit Error)**:
+  вызов `vision_export` в файле без единой `vision { }`-декларации — источник
+  манифеста невозможен, артефакт не может быть подписан по построению (лекало
+  SECRET_LEAK; работает через `audit_category_a` → compile-ошибка). Runtime
+  backstop: экспорт артефакта без манифеста (hand-built registry) — громкий
+  `Err` с тем же check-id. **`VISION_UNSIGNED_EXPORT_RAW` (Block 2.3 — audit
+  Warning, advisory)**: каждый вызов `vision_export_raw`; имя чек-ида
+  фиксируется этим релизом (ADR его не задаёт). Ворнинг сознательно НЕ в
+  compile-пути: semantic №98 повышает все Warning из `audit_category_a` до
+  ошибок — это противоречило бы advisory-семантике ADR-0125.
+- **Гейт `VISION_POLICY_MISSING` (Block 3.1 — audit Warning) + parser relax
+  ТОЛЬКО для policy (ГРОМКО: контракт R4.1 меняется по ADR-0125 SSOT,
+  принятому ДО R4.1)**: `policy:` больше не required — missing парсится как
+  `None` (ошибки «поле required» для policy больше нет), audit ворнит
+  `VISION_POLICY_MISSING`, манифест фиксирует `"policy": "unspecified"`;
+  присутствующее значение по-прежнему enum-checked громко (только `safe`).
+  Остальные 6 полей остаются required; прочие R4.1-негативы (дубликаты,
+  unknown, enum, остальные required) не тронуты. Примечание: негатив-тест
+  «missing policy → parse error» из R4.1 в кодовой базе не существовал
+  (6 парсер-тестов №238 его не содержали) — новый контракт закрыт новыми
+  тестами (`test_parse_vision_missing_policy_parses_as_none`,
+  `test_parse_vision_unknown_policy_value_still_loud`).
+- **Гейт `MODEL_WEIGHTS_UNSAFE` (Block 3.2 — Category A, audit Error) +
+  `vision_fetch_weights(manifest_url, dest_dir)` (реестр 388→389, реальный
+  обработчик)**: SSRF-guard через `check_url_ssrf` (лекало №130, пиннинг
+  резолвов против DNS-rebinding, kill-switch не ослаблен); allowlist через
+  env `MLOG_VISION_WEIGHTS_ALLOWLIST` — **default-deny**: пустой/не задан →
+  громкий отказ, скачивание запрещено; только `manifest.json`-класс URL
+  (голый `.safetensors` = «без пина» — отказ; pickle-RCE-класс по
+  расширению — отказ); SHA-256 pinning каждой записи манифеста (переиспользован
+  `WeightsManifest`, `src/vision/weights.rs` не переписан) — mismatch = громкий
+  отказ, файл НЕ пишется; имена записей — только bare `.safetensors` (без
+  путей/traversal). Статический гейт ловит статически видимые нарушения:
+  литеральный URL SSRF-блокed-класса, литеральный `.safetensors`/pickle-класс,
+  литеральный манифест-класс — валиден статически (фактический allowlist —
+  runtime env, статически нечитаем; оба слоя сохранены, имена точные —
+  механика раскрыта в PR №239). Гейт написан переиспользуемо в `audit.rs` —
+  общий SSOT для Voice-гейтов (ADR-0125).
+- **4 контракта-теста категории A (Block 4) закрыты**: 3 новых в
+  `tests/naryad_241_vision_gates.rs` (точные check-id + severity; негативы —
+  allowlist default-deny, host вне allowlist, пустой allowlist, SHA mismatch
+  на синтетических байтах, raw-ворнинг advisory, позитив-контролы) + taint-тест
+  №240 `user_input_prompt_emits_audit_warning`. Watermark roundtrip + manifest
+  presence — unit-тесты `provenance.rs` (vision-tests job). Сети в тестах нет,
+  веса не нужны.
+- **Тест-инфраструктура**: `tests/registry_arity_check.rs` дополнен полной
+  vision-секцией (generate/edit/export/export_raw/fetch_weights/save/load —
+  ранее vision-строки в exhaustive-списке отсутствовали); тест №210
+  `vision_export_wrong_handle_type_loud_error` получил `vision { }`-декларацию
+  в исходник (Category-A гейт иначе отказывает программу на compile-этапе;
+  субъект теста — runtime-отказ — остался достижимым; адаптация громкая).
+- README numbers synced с артефактов: builtins 387→389; в составе Category A
+  перечислены новые гейты.
+
 ### Added — Vision R4.2: dispatch — `vision { }` → VM → builtins + taint (Наряд №240)
 
 - **dispatch pipeline (лекало reflex_decls)**: `Program::vision_decls: Vec<CompiledVisionDecl>`

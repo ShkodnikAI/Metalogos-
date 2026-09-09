@@ -153,9 +153,15 @@ fn vision_edit_save_load_loud_errors() {
 
 /// Наряд №240: vision_export is a real path — a String where a Vision
 /// handle is expected is a loud typed refusal (not a stub, not a panic).
+///
+/// Наряд №241 (R5): the source carries a `vision { }` declaration — the
+/// VISION_UNSIGNED_EXPORT Category-A gate (ADR-0125) otherwise refuses
+/// the program at compile time, and this test's subject is the RUNTIME
+/// wrong-handle-type refusal, which must stay reachable and loud.
 #[test]
 fn vision_export_wrong_handle_type_loud_error() {
     let source = r#"
+        vision "poster" { model: "z-image-turbo" steps: 8 width: 1024 height: 1024 seed: 42 policy: safe profile: fp16 }
         pattern Test(_x: String) -> String {
             vision_export("handle", "path")
             return "unreachable"

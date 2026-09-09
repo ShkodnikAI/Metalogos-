@@ -511,7 +511,9 @@ pub struct CompiledVisionDecl {
     pub width: u32,
     pub height: u32,
     pub seed: u64,
-    pub policy: CompiledVisionPolicy,
+    /// Наряд №241 (Block 3.1, ADR-0125 SSOT): `None` = the declaration
+    /// omitted `policy:` (audit Warning VISION_POLICY_MISSING).
+    pub policy: Option<CompiledVisionPolicy>,
     pub profile: CompiledVisionProfile,
 }
 
@@ -527,9 +529,9 @@ impl CompiledVisionDecl {
             width: v.width,
             height: v.height,
             seed: v.seed,
-            policy: match v.policy {
+            policy: v.policy.map(|p| match p {
                 crate::ast::VisionPolicy::Safe => CompiledVisionPolicy::Safe,
-            },
+            }),
             profile: match v.profile {
                 crate::ast::VisionProfile::Fp16 => CompiledVisionProfile::Fp16,
                 crate::ast::VisionProfile::Fp8 => CompiledVisionProfile::Fp8,

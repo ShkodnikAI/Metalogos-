@@ -2326,9 +2326,13 @@ pub(super) fn parse_reflex_gen_decl(pair: Pair<Rule>) -> Result<Declaration, Par
 //   (ADR-0124 SSOT: profile = fp16 | fp8 | gguf-q4; R4.1 policy = safe).
 //   Semantic validation does NOT re-validate the enums (Block 1.3).
 //
-// All seven fields are REQUIRED (loud error when missing) — R4.1 has
-// no defaulting contract, and silent defaults would contradict the
-// no-silent-correction invariant (Block 2.4).
+// Six fields are REQUIRED (loud error when missing) — no defaulting
+// contract (reflex precedent: required input/seed). EXCEPTION — `policy`
+// (Наряд №241 Block 3.1): ADR-0125 (SSOT, Accepted 2026-09-07, ДО R4.1)
+// specifies "`vision { }` block without `policy:` — warning"; a missing
+// policy parses as `None` (audit Warning VISION_POLICY_MISSING + manifest
+// "policy": "unspecified"), while a PRESENT policy is still enum-checked
+// loudly (R5 accepts only `safe`).
 
 /// Parse a `u32` field value with a loud out-of-range error (no silent
 /// `unwrap_or(0)` — that would corrupt the value, violating Block 2.4).
@@ -2525,8 +2529,10 @@ pub(super) fn parse_vision_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
         }
     }
 
-    // Required fields — loud errors, no silent defaults (R4.1 has no
-    // defaulting contract; reflex precedent: required input/seed).
+    // Required fields — loud errors, no silent defaults (reflex
+    // precedent: required input/seed). `policy` is the deliberate
+    // exception (Наряд №241 Block 3.1, ADR-0125 SSOT): missing = None →
+    // audit Warning VISION_POLICY_MISSING; present = enum-checked above.
     let model = model.ok_or_else(|| pair_error(&pair, "vision: 'model' field is required"))?;
     let steps = steps.ok_or_else(|| pair_error(&pair, "vision: 'steps' field is required"))?;
     let width = width.ok_or_else(|| pair_error(&pair, "vision: 'width' field is required"))?;
@@ -2537,7 +2543,6 @@ pub(super) fn parse_vision_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
             "vision: 'seed' field is required — deterministic generation",
         )
     })?;
-    let policy = policy.ok_or_else(|| pair_error(&pair, "vision: 'policy' field is required"))?;
     let profile =
         profile.ok_or_else(|| pair_error(&pair, "vision: 'profile' field is required"))?;
 

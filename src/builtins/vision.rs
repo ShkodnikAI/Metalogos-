@@ -239,7 +239,33 @@ fn generate_real(
     let img = img.to_dtype(DType::F32).map_err(|e| e.to_string())?;
     let png_bytes = crate::vision::vae::encode_png(&img)?;
 
-    let id = registry.insert(VisionArtifact { png_bytes });
+    // ── Наряд №241 (R5, Block 1.3): sign ALWAYS — no unsigned artifact
+    // can ever reach the registry. The PNG gets the LSB watermark; the
+    // artifact carries the provenance manifest (final-PNG SHA is
+    // computed AFTER the watermark, so it describes exactly the bytes
+    // the default export ships). Every signing failure is a loud `Err`
+    // BEFORE insertion — a silent "unmarked but registered" outcome is
+    // forbidden (ADR-0125: security is a type, not a procedure).
+    let png_bytes = crate::vision::provenance::embed_lsb_watermark(&png_bytes, &decl.model)?;
+    let manifest = crate::vision::provenance::VisionManifest {
+        model_id: decl.model.clone(),
+        model_sha256: crate::vision::provenance::weights_tree_sha256(&weights_dir)?,
+        seed: decl.seed,
+        prompt_sha256: crate::vision::provenance::prompt_hash(prompt),
+        policy: match decl.policy {
+            Some(crate::bytecode::CompiledVisionPolicy::Safe) => "safe".to_string(),
+            // Наряд №241 (Block 3.1): omitted policy → the honest marker
+            // "unspecified" in the manifest (ADR-0125 policy-relax).
+            None => "unspecified".to_string(),
+        },
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        png_sha256: crate::vision::provenance::sha256_hex(&png_bytes),
+    };
+
+    let id = registry.insert(VisionArtifact {
+        png_bytes,
+        manifest: Some(manifest),
+    });
     Ok(id)
 }
 
@@ -265,10 +291,19 @@ pub fn vision_list_dispatch(registry: &VisionRegistry, args: &[Value]) -> Result
 
 /// `vision_export(handle, path) -> String`
 ///
-/// Real PNG bytes: writes the artifact's PNG buffer to `path`. Every
-/// export is unsigned — a loud warning is emitted to stderr (statically,
-/// each `vision_export` call site is also flagged as an audit-warning by
-/// the taint/check pass; the watermark/manifest/Category-A gate is R5).
+/// **Signed export** (Наряд №241, Block 1.4 — ADR-0125): writes the
+/// artifact's watermarked PNG bytes to `path` AND the provenance manifest
+/// to the sidecar `<path>.manifest.json`. The R4.2 unsigned-WARN is GONE
+/// — every default export is signed by construction, because
+/// `vision_generate` signs always (Block 1.3).
+///
+/// A registry artifact WITHOUT a manifest (hand-built/deserialized —
+/// `VisionArtifact.manifest: None`) cannot be exported here: loud `Err`
+/// naming the `VISION_UNSIGNED_EXPORT` check-id — the runtime backstop of
+/// the Category-A gate (Block 2.2: an unsigned artifact can only exist
+/// outside the real generation path, i.e. hand-built or deserialized;
+/// exporting it must be as loud as compiling it). The explicit opt-out is
+/// `vision_export_raw` (Block 2.1).
 pub fn vision_export_dispatch(registry: &VisionRegistry, args: &[Value]) -> Result<Value, String> {
     if args.len() != 2 {
         return Err(format!(
@@ -301,14 +336,359 @@ pub fn vision_export_dispatch(registry: &VisionRegistry, args: &[Value]) -> Resu
             id.0
         )
     })?;
+    let manifest = artifact.manifest.as_ref().ok_or_else(|| {
+        format!(
+            "VISION_UNSIGNED_EXPORT: [Vision#{}] carries no provenance manifest — signed \
+             export is impossible (hand-built or deserialized artifact; ADR-0125). \
+             The explicit opt-out is vision_export_raw",
+            id.0
+        )
+    })?;
     std::fs::write(&path, &artifact.png_bytes)
         .map_err(|e| format!("vision_export: write to {}: {}", path, e))?;
-    eprintln!(
-        "WARN: unsigned vision export — [Vision#{}] written to {} without watermark or \
-         manifest (watermark/manifest/Category-A gate lands in R5)",
-        id.0, path
-    );
+    let sidecar = format!("{}.manifest.json", path);
+    let sidecar_json = crate::vision::provenance::manifest_sidecar_json(manifest)?;
+    std::fs::write(&sidecar, sidecar_json)
+        .map_err(|e| format!("vision_export: write sidecar {}: {}", sidecar, e))?;
     Ok(Value::String(path))
+}
+
+/// `vision_export_raw(handle, path) -> String`
+///
+/// **Explicit opt-out** (Наряд №241, Block 2.1 — ADR-0125: "Opt-out is a
+/// separate explicit form `export_raw` with a loud audit warning").
+/// Writes the artifact's PNG bytes AS-IS: no watermark embedding, no
+/// manifest sidecar, no signature requirement. The loud layer is the
+/// audit: every `vision_export_raw` call site is flagged as a
+/// `VISION_UNSIGNED_EXPORT_RAW` audit-WARNING (Block 2.3; the check-id is
+/// fixed here — ADR-0125 does not name the raw-warning itself).
+///
+/// Unlike `vision_export`, raw export works on ANY registry artifact —
+/// including hand-built ones without a manifest: the point of the opt-out
+/// is that the operator CHOSE unsigned, loudly, in source.
+pub fn vision_export_raw_dispatch(
+    registry: &VisionRegistry,
+    args: &[Value],
+) -> Result<Value, String> {
+    if args.len() != 2 {
+        return Err(format!(
+            "vision_export_raw: expects 2 arguments (handle, path), got {}",
+            args.len()
+        ));
+    }
+    let id = match &args[0] {
+        Value::Vision(id) => *id,
+        other => {
+            return Err(format!(
+                "vision_export_raw: first argument must be a Vision handle, got {}",
+                value_type_name(other)
+            ))
+        }
+    };
+    let path = match &args[1] {
+        Value::String(s) => s.clone(),
+        other => {
+            return Err(format!(
+                "vision_export_raw: second argument must be a path (String), got {}",
+                value_type_name(other)
+            ))
+        }
+    };
+    let artifact = registry.get(id).ok_or_else(|| {
+        format!(
+            "vision_export_raw: vision handle [Vision#{}] not found in the registry \
+             (was it generated in this session? artifacts do not persist across runs)",
+            id.0
+        )
+    })?;
+    std::fs::write(&path, &artifact.png_bytes)
+        .map_err(|e| format!("vision_export_raw: write to {}: {}", path, e))?;
+    Ok(Value::String(path))
+}
+
+/// `vision_fetch_weights(manifest_url, dest_dir) -> String`
+///
+/// **SSRF-guarded, allowlist-gated, SHA-pinned weights fetching**
+/// (Наряд №241, Block 3.2 — ADR-0125 `MODEL_WEIGHTS_UNSAFE`; the
+/// compiler-side SSOT gate shared with the Voice pillar lives in
+/// `src/audit.rs`, this is the real enforcement path).
+///
+/// Contract:
+/// 1. **Allowlist default-deny** (loud): env `MLOG_VISION_WEIGHTS_ALLOWLIST`
+///    = comma-separated hostnames. Unset/empty → loud refusal — downloading
+///    is FORBIDDEN until the operator names the hosts (Block 3.2в).
+/// 2. **SSRF-guard** (лекало №130): `check_url_ssrf` resolves DNS, refuses
+///    private/loopback/link-local/metadata targets, returns pinned
+///    addresses; the kill-switch `METALOGOS_HTTP_ALLOW_PRIVATE` keeps its
+///    exact pre-existing semantics (not weakened).
+/// 3. **manifest.json-class only**: the URL points at the weights manifest
+///    (path ending `manifest.json`) or at the package base (we append
+///    `/manifest.json`). A bare `.safetensors` URL is refused — no manifest,
+///    no pin source. Pickle-RCE-class extensions are refused by extension,
+///    loudly.
+/// 4. **SHA-256 pinning** (reuses `WeightsManifest`, `src/vision/weights.rs`
+///    is NOT modified): the fetched manifest lists `filename`+`sha256`;
+///    every file is downloaded into memory, hashed, compared against the
+///    pin — mismatch is a loud Err naming expected/computed SHA and the
+///    file is NOT written. Entries must be bare `.safetensors` filenames
+///    (no path separators, no traversal).
+///
+/// The downloaded tree (`manifest.json` + shards) is directly consumable
+/// by `vision_generate` via `MLOG_VISION_WEIGHTS_DIR` (weights.rs verifies
+/// SHAs again at load time — defense-in-depth, same pins).
+pub(crate) fn builtin_vision_fetch_weights(args: &[Value]) -> Result<Value, String> {
+    let url = match args.first() {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => {
+            return Err(format!(
+                "vision_fetch_weights: first argument must be the manifest URL (String), got {}",
+                value_type_name(other)
+            ))
+        }
+        None => {
+            return Err(
+                "vision_fetch_weights: expects 2 arguments (manifest_url, dest_dir)".to_string(),
+            )
+        }
+    };
+    let dest_dir = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => {
+            return Err(format!(
+                "vision_fetch_weights: second argument must be the destination directory (String), got {}",
+                value_type_name(other)
+            ))
+        }
+        None => return Err("vision_fetch_weights: expects 2 arguments (manifest_url, dest_dir)".to_string()),
+    };
+    if args.len() != 2 {
+        return Err(format!(
+            "vision_fetch_weights: expects 2 arguments (manifest_url, dest_dir), got {}",
+            args.len()
+        ));
+    }
+
+    // (в) Allowlist — DEFAULT-DENY. Empty/unset env = loud refusal before
+    // any network activity (contract test asserts no side effects).
+    let allowlist_raw = std::env::var("MLOG_VISION_WEIGHTS_ALLOWLIST").map_err(|_| {
+        "MODEL_WEIGHTS_UNSAFE: MLOG_VISION_WEIGHTS_ALLOWLIST is not set — weights \
+         downloading is default-deny (ADR-0125); set it to a comma-separated \
+         list of trusted hostnames to enable vision_fetch_weights"
+            .to_string()
+    })?;
+    let allowlist: Vec<String> = allowlist_raw
+        .split(',')
+        .map(|h| h.trim().to_lowercase())
+        .filter(|h| !h.is_empty())
+        .collect();
+    if allowlist.is_empty() {
+        return Err(
+            "MODEL_WEIGHTS_UNSAFE: MLOG_VISION_WEIGHTS_ALLOWLIST is empty — weights \
+             downloading is default-deny (ADR-0125)"
+                .to_string(),
+        );
+    }
+
+    // URL parsing + host allowlist match (case-insensitive).
+    let parsed = reqwest::Url::parse(&url)
+        .map_err(|e| format!("vision_fetch_weights: invalid URL '{}': {}", url, e))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| format!("vision_fetch_weights: URL '{}' has no host", url))?
+        .to_lowercase();
+    if !allowlist.contains(&host) {
+        return Err(format!(
+            "MODEL_WEIGHTS_UNSAFE: host '{}' is not in MLOG_VISION_WEIGHTS_ALLOWLIST \
+             (allowed: {}) — refusing to download weights (ADR-0125)",
+            host,
+            allowlist.join(", ")
+        ));
+    }
+
+    // (а) SSRF-guard — лекало №130. Refuses private/loopback/link-local/
+    // metadata targets; returns pinned addresses (DNS-rebinding protection).
+    // Kill-switch semantics unchanged.
+    let resolves = crate::builtins::http::check_url_ssrf(&url)?;
+
+    // (б) manifest.json-class only: manifest URL or package base.
+    let path = parsed.path().to_lowercase();
+    if path.ends_with(".safetensors") {
+        return Err(format!(
+            "MODEL_WEIGHTS_UNSAFE: '{}' points at a bare weights file — no manifest, \
+             no pinned SHA-256 source; fetch the manifest.json of the package instead \
+             (ADR-0125)",
+            url
+        ));
+    }
+    const PICKLE_CLASS: &[&str] = &[
+        ".pkl", ".pickle", ".pt", ".pth", ".ckpt", ".bin", ".py", ".so", ".dll", ".exe", ".zip",
+        ".tar", ".gz", ".7z",
+    ];
+    if PICKLE_CLASS.iter().any(|ext| path.ends_with(ext)) {
+        return Err(format!(
+            "MODEL_WEIGHTS_UNSAFE: '{}' is not a manifest.json-class URL — \
+             pickle-RCE-class weight formats are refused by extension (ADR-0125)",
+            url
+        ));
+    }
+    let manifest_url = if path.ends_with("manifest.json") {
+        url.clone()
+    } else {
+        format!("{}/manifest.json", url.trim_end_matches('/'))
+    };
+
+    // (г) Fetch + pin + write. The weights-verification stack
+    // (`WeightsManifest`, `src/vision/weights.rs`) is vision-gated — in a
+    // non-vision build the security layers above (allowlist default-deny,
+    // SSRF guard, URL-class refusals) still fire loudly, and the actual
+    // download is an honest environment refusal (same discipline as
+    // vision_generate's non-gated refusal).
+    #[cfg(feature = "vision")]
+    {
+        // Client with SSRF-pinned resolves (same builder pattern as http.rs).
+        let mut builder =
+            reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(600));
+        for (domain, addr) in resolves {
+            builder = builder.resolve(&domain, addr);
+        }
+        let client = builder
+            .build()
+            .map_err(|e| format!("vision_fetch_weights: client build failed: {}", e))?;
+        fetch_and_pin_weights(&client, &manifest_url, &dest_dir)?;
+        Ok(Value::String(dest_dir))
+    }
+    #[cfg(not(feature = "vision"))]
+    {
+        let _ = (manifest_url, dest_dir, resolves);
+        Err(format!(
+            "vision_fetch_weights: this build was compiled WITHOUT the `vision` feature — \
+             weights verification (pinned SHA-256 via WeightsManifest) requires \
+             `--features vision` (security layers already enforced: allowlist '{}', \
+             SSRF guard, manifest.json-class check — loud refusal, not a placeholder)",
+            host
+        ))
+    }
+}
+
+/// The gated download-and-pin body (Наряд №241 Block 3.2г): fetch the
+/// manifest, parse it via REUSED `WeightsManifest` (src/vision/weights.rs
+/// NOT modified), then per-entry fetch → SHA-256 pin verification →
+/// write. Mismatch = loud Err, file NEVER written.
+#[cfg(feature = "vision")]
+fn fetch_and_pin_weights(
+    client: &reqwest::blocking::Client,
+    manifest_url: &str,
+    dest_dir: &str,
+) -> Result<(), String> {
+    let fetch = |url: &str| -> Result<bytes::Bytes, String> {
+        let resp = client
+            .get(url)
+            .send()
+            .map_err(|e| format!("vision_fetch_weights: GET {} failed: {}", url, e))?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(format!(
+                "vision_fetch_weights: GET {} returned HTTP {}",
+                url, status
+            ));
+        }
+        resp.bytes().map_err(|e| {
+            format!(
+                "vision_fetch_weights: reading body of {} failed: {}",
+                url, e
+            )
+        })
+    };
+
+    let manifest_bytes = fetch(manifest_url)?;
+    let dest = std::path::PathBuf::from(dest_dir);
+    std::fs::create_dir_all(&dest).map_err(|e| {
+        format!(
+            "vision_fetch_weights: cannot create {}: {}",
+            dest.display(),
+            e
+        )
+    })?;
+    let manifest_path = dest.join("manifest.json");
+    std::fs::write(&manifest_path, &manifest_bytes).map_err(|e| {
+        format!(
+            "vision_fetch_weights: cannot write {}: {}",
+            manifest_path.display(),
+            e
+        )
+    })?;
+    let manifest =
+        crate::vision::weights::WeightsManifest::load_from_dir(&dest)?.ok_or_else(|| {
+            "vision_fetch_weights: manifest.json vanished between write and load (filesystem race)"
+                .to_string()
+        })?;
+    if manifest.entries.is_empty() {
+        return Err(format!(
+            "vision_fetch_weights: manifest at {} has no entries — nothing pinned to fetch",
+            manifest_url
+        ));
+    }
+
+    let base = manifest_url
+        .trim_end_matches("manifest.json")
+        .trim_end_matches('/');
+    let mut total_bytes: u64 = 0;
+    for entry in &manifest.entries {
+        // Filename hygiene: bare .safetensors names only — no paths, no
+        // traversal, no pickle-class surprises smuggled via the manifest.
+        let name = entry.filename.as_str();
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err(format!(
+                "MODEL_WEIGHTS_UNSAFE: manifest entry '{}' is not a bare filename — \
+                 path separators/traversal are refused (ADR-0125)",
+                name
+            ));
+        }
+        if !name.ends_with(".safetensors") {
+            return Err(format!(
+                "MODEL_WEIGHTS_UNSAFE: manifest entry '{}' is not a .safetensors file — \
+                 pickle-RCE-class weight formats are refused (ADR-0125)",
+                name
+            ));
+        }
+        let file_url = format!("{}/{}", base, name);
+        let file_bytes = fetch(&file_url)?;
+        crate::vision::provenance::verify_sha_pin(name, &entry.sha256, &file_bytes)?;
+        if let Some(want) = entry.bytes {
+            if file_bytes.len() as u64 != want {
+                return Err(format!(
+                    "MODEL_WEIGHTS_UNSAFE: byte-count mismatch for '{}' — manifest says {}, \
+                     got {} (file NOT written)",
+                    name,
+                    want,
+                    file_bytes.len()
+                ));
+            }
+        }
+        let file_path = dest.join(name);
+        std::fs::write(&file_path, &file_bytes).map_err(|e| {
+            format!(
+                "vision_fetch_weights: cannot write {}: {}",
+                file_path.display(),
+                e
+            )
+        })?;
+        total_bytes += file_bytes.len() as u64;
+        eprintln!(
+            "vision_fetch_weights: {} SHA-256 OK ({}) — {} bytes",
+            name,
+            crate::vision::provenance::sha256_hex(&file_bytes),
+            file_bytes.len()
+        );
+    }
+
+    eprintln!(
+        "vision_fetch_weights: {} file(s), {} bytes total, written to {} (SSRF-guarded, SHA-pinned)",
+        manifest.entries.len(),
+        total_bytes,
+        dest.display()
+    );
+    Ok(())
 }
 
 /// Human-readable type name for loud argument errors.
@@ -392,6 +772,17 @@ pub(crate) fn builtin_vision_export_stub(_args: &[Value]) -> Result<Value, Strin
     Err(
         "vision_export: reached the generic builtin registry — this builtin is \
          intercepted by the interpreter/VM dispatch (Наряд №240) which owns the \
+         vision registry; direct registry calls are not supported (loud refusal)"
+            .to_string(),
+    )
+}
+
+/// Last-resort stub — real path is the intercepted `vision_export_raw_dispatch`
+/// (Наряд №241 Block 2.1; same state-carrying pattern as `vision_export`).
+pub(crate) fn builtin_vision_export_raw_stub(_args: &[Value]) -> Result<Value, String> {
+    Err(
+        "vision_export_raw: reached the generic builtin registry — this builtin is \
+         intercepted by the interpreter/VM dispatch (Наряд №241) which owns the \
          vision registry; direct registry calls are not supported (loud refusal)"
             .to_string(),
     )

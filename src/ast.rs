@@ -1011,8 +1011,15 @@ pub struct ReflexGenDecl {
 ///
 /// ADR-0122 §3 (explicit non-scope: NCII) + ADR-0125 (provenance gates):
 /// the policy field makes honest use explicit at the language level.
-/// R4.1 carries exactly one value — `safe`. The full policy semantics
-/// (gates, watermark enforcement) land in R5 (ADR-0125).
+/// R4.1 carries exactly one value — `safe`.
+///
+/// Наряд №241 (R5, Block 3.1): the field is OPTIONAL on the parser —
+/// ADR-0125 (Accepted 2026-09-07, ДО R4.1) is the SSOT and says
+/// "`vision { }` block without `policy:` — warning". A missing policy is
+/// not a parse error anymore: it parses as `None`, the audit emits the
+/// `VISION_POLICY_MISSING` Warning, and the provenance manifest records
+/// the honest marker `"policy": "unspecified"`. All other six fields
+/// remain required (loud parse errors, no silent defaults).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VisionPolicy {
     /// `policy: safe` — the only policy value in R4.1.
@@ -1063,7 +1070,10 @@ pub struct VisionDecl {
     /// Fixed seed — reproducibility by construction (ADR-0124).
     pub seed: u64,
     /// Usage policy (R4.1: only `safe`).
-    pub policy: VisionPolicy,
+    /// Наряд №241 (Block 3.1, ADR-0125 SSOT): `None` = the field was
+    /// omitted — audit Warning `VISION_POLICY_MISSING`, manifest records
+    /// `"policy": "unspecified"`.
+    pub policy: Option<VisionPolicy>,
     /// VRAM/compute profile (ADR-0124: fp16 | fp8 | gguf-q4).
     pub profile: VisionProfile,
 }

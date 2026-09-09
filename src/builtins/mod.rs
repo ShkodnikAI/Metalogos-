@@ -186,7 +186,10 @@ pub use reflex::{
 };
 // Наряд №240 (Vision R4.2): real-path dispatch functions (shared by the
 // interpreter and the VM) + last-resort registry stubs.
-pub use vision::{vision_export_dispatch, vision_generate_dispatch, vision_list_dispatch};
+pub use vision::{
+    vision_export_dispatch, vision_export_raw_dispatch, vision_generate_dispatch,
+    vision_list_dispatch,
+};
 
 impl Default for Builtins {
     fn default() -> Self {

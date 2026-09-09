@@ -134,6 +134,16 @@ fn registry_arity_exhaustive() {
         ("edit_message_text", 3, 4),
         ("whisper_transcribe", 1, 1),
         ("tts_send", 4, 5),
+        // ── Vision pillar (№210/№240/№241 — ADR-0124/0125) ──
+        // The vision rows were absent before №241 — added with the
+        // vision_export_raw spec so the exhaustive list covers the pillar.
+        ("vision_generate", 2, 2),
+        ("vision_edit", 2, 2),
+        ("vision_export", 2, 2),
+        ("vision_export_raw", 2, 2),    // Наряд №241 Block 2.1
+        ("vision_fetch_weights", 2, 2), // Наряд №241 Block 3.2 (real handler)
+        ("vision_save", 2, 2),
+        ("vision_load", 1, 1),
         // ── System builtins ──
         ("env", 1, 1),
         // ── DB builtins ──

@@ -588,6 +588,15 @@ impl Interpreter {
                 .map_err(|e| format!("vision registry poisoned: {}", e))?;
             return crate::builtins::vision_export_dispatch(&reg, &args);
         }
+        // Наряд №241 (R5, Block 2.1): raw opt-out — same state-carrying
+        // interception pattern (ADR-0125 explicit form).
+        if name == "vision_export_raw" {
+            let reg = self
+                .vision_registry
+                .lock()
+                .map_err(|e| format!("vision registry poisoned: {}", e))?;
+            return crate::builtins::vision_export_raw_dispatch(&reg, &args);
+        }
 
         // Check recall (memory) first — it's a built-in with memory access
         if name == "recall" {
@@ -1509,6 +1518,14 @@ impl Interpreter {
                         .lock()
                         .map_err(|e| format!("vision registry poisoned: {}", e))?;
                     return crate::builtins::vision_export_dispatch(&reg, &eval_args);
+                }
+                // Наряд №241 (R5, Block 2.1): raw opt-out interception.
+                if name == "vision_export_raw" {
+                    let reg = self
+                        .vision_registry
+                        .lock()
+                        .map_err(|e| format!("vision registry poisoned: {}", e))?;
+                    return crate::builtins::vision_export_raw_dispatch(&reg, &eval_args);
                 }
 
                 // Check recall (memory) first

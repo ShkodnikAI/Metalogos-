@@ -21,6 +21,12 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+// Наряд №241 (R5): provenance — manifest + LSB watermark (ADR-0125).
+// NOT feature-gated: the manifest layer compiles in all builds (the
+// non-gated `VisionArtifact` carries it); only the watermark's PNG
+// decode/encode paths inside are `image`-gated.
+pub mod provenance;
+
 /// Opaque handle to a vision artifact in `VisionRegistry`.
 ///
 /// Contains only an index — the actual artifact data lives in the registry.
@@ -43,10 +49,25 @@ impl std::fmt::Display for VisionId {
 /// `vision::vae::save_png` writes, produced via `encode_png`). Weights and
 /// raw tensors never enter `Value` or the registry — only the encoded
 /// artifact buffer.
+///
+/// Наряд №241 (R5, ADR-0125): every artifact produced by the real
+/// `vision_generate` path is SIGNED — the PNG carries the LSB watermark
+/// and the artifact carries its provenance manifest. `manifest: None`
+/// exists only for hand-built/deserialized artifacts (tests, third-party
+/// construction) — exporting such an artifact through the signed
+/// `vision_export` is refused loudly (the runtime backstop of the
+/// `VISION_UNSIGNED_EXPORT` gate, Block 2.2).
 #[derive(Debug, Clone, PartialEq)]
 pub struct VisionArtifact {
     /// Encoded PNG bytes (complete file image, writable as-is).
+    /// Signed by `vision_generate` (№241 Block 1): LSB watermark inside.
     pub png_bytes: Vec<u8>,
+    /// Provenance manifest (№241 Block 1.2): model-id + weights SHA,
+    /// seed, prompt-hash, policy, timestamp, SHA-256 of the final PNG.
+    /// `None` only for hand-built/deserialized artifacts — such artifacts
+    /// cannot pass the signed `vision_export` (loud runtime backstop,
+    /// Block 2.2).
+    pub manifest: Option<crate::vision::provenance::VisionManifest>,
 }
 
 /// Mirrors `ReflexRegistry` (`src/nn/mod.rs`): owns artifacts behind a
@@ -158,6 +179,7 @@ mod tests {
     fn test_artifact() -> VisionArtifact {
         VisionArtifact {
             png_bytes: vec![1, 2, 3],
+            manifest: None, // hand-built — signed export refuses (Block 2.2)
         }
     }
 

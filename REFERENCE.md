@@ -1312,7 +1312,7 @@ relate entity1 to entity2 as "relationship"
 
 **Note on `accuracy` in `rollback_if` (mock value)**: in the current implementation the `accuracy` compared in `rollback_if` is a fixed mock value (0.95), not a real accuracy computation — the rollback logic exists and is tested, but does not yet respond to actual quality degradation. Revisit point (recorded 2026-09-10 after an external audit): revisit only on a real `mutate` use case where the mock value creates a concrete problem (ADR-0112 addendum).
 
-**Sandbox `timeout` caveat**: `timeout > 0` makes the calling thread stop *waiting* at the deadline (preemptive via `mpsc::recv_timeout`). The background HTTP request to the LLM provider may still be in flight — only the wait is cancelled, not the request itself. Full request cancellation (`reqwest::AbortHandle`) is a separate naryad.
+**Sandbox `timeout` caveat**: `timeout > 0` cancels BOTH the calling thread's wait AND the underlying LLM request at the deadline, on every call path: SmartRouter routes via the HTTP client timeout (real TCP drop; Naryad №156); the legacy backend via `call_with_deadline` (Naryad №248 — RealLlm drops the TCP connection at min(deadline, 120s), the mock sleeps min(delay, deadline)). External on-demand abort is out of scope — revisit when a real use case appears (server client-disconnect or a language construct).
 
 ### 5.16. Conversation (configuration)
 

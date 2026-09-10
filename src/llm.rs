@@ -36,6 +36,25 @@ pub trait LlmBackend: Send + Sync {
     ) -> Result<String, String> {
         self.call(prompt, input)
     }
+
+    /// Наряд №248: deadline-based request cancellation — the backend must
+    /// either finish within `deadline` or fail loudly. Default delegates to
+    /// `call_with_model` so existing backends stay compatible unchanged;
+    /// backends that CAN honor a deadline override this (RealLlm drops the
+    /// TCP connection at min(deadline, 120s); MockLlm sleeps
+    /// min(delay, deadline) and errors loudly when the deadline is tighter
+    /// than its artificial delay). This closes the README/REFERENCE
+    /// "full request cancellation" promise on every call path:
+    /// SmartRouter via client timeout (№156), legacy via this method.
+    fn call_with_deadline(
+        &self,
+        prompt: &str,
+        input: &str,
+        model: Option<&str>,
+        _deadline: Duration,
+    ) -> Result<String, String> {
+        self.call_with_model(prompt, input, model)
+    }
 }
 
 /// Mock LLM backend for testing. Returns the prompt string as-is (deterministic).
@@ -129,6 +148,35 @@ impl LlmBackend for MockLlm {
             *lock_or_err(MOCK_LLM_LAST_MODEL.lock())? = String::new();
         }
         Ok(prompt.to_string())
+    }
+
+    /// Наряд №248: deadline-aware mock. Sleeps min(delay, deadline) so the
+    /// caller never waits past the deadline; when the deadline is tighter
+    /// than (or equal to) the artificial delay the call fails loudly with
+    /// the legacy timeout wording. Existing tests keep calling
+    /// `call`/`call_with_model`, which sleep the FULL delay — their n126
+    /// semantics are preserved 1:1 (verified unchanged in naryad_126).
+    /// NOTE (honesty, §3.5): MockLlm is a test-only backend — there is no
+    /// real request to cancel, the sleep only SIMULATES provider latency;
+    /// real on-the-wire cancellation is RealLlm's contract (TCP drop).
+    fn call_with_deadline(
+        &self,
+        prompt: &str,
+        input: &str,
+        model: Option<&str>,
+        deadline: Duration,
+    ) -> Result<String, String> {
+        let delay = Duration::from_millis(MOCK_LLM_DELAY_MS.load(Ordering::SeqCst));
+        if deadline <= delay {
+            // Deadline is tighter than the simulated latency — loud timeout,
+            // same wording the legacy thread-wrapper produced (learnable.rs).
+            return Err(format!("LLM call timed out after {:?}", deadline));
+        }
+        // delay < deadline here: sleeping the full delay IS min(delay, deadline).
+        if delay > Duration::ZERO {
+            std::thread::sleep(delay);
+        }
+        self.call_with_model(prompt, input, model)
     }
 }
 
@@ -332,6 +380,43 @@ impl LlmBackend for RealLlm {
             }
             _ => self.call(prompt, input),
         }
+    }
+
+    /// Наряд №248: deadline-based request cancellation (legacy path).
+    /// Builds a one-shot client with timeout = min(deadline, 120s) plus a
+    /// 10s connect timeout — the n156 pattern (SmartRouter path: effective
+    /// timeout = min(override, config); llm.rs call_provider). reqwest
+    /// performs real HTTP-level cancellation (drops the TCP connection)
+    /// when the deadline fires — the request does NOT stay in flight.
+    /// No retry loop here: the 1s/2s/4s backoff of `call` would inflate
+    /// the total wait beyond the caller's deadline; a single attempt is
+    /// the honest deadline contract (same as the n156 path).
+    fn call_with_deadline(
+        &self,
+        prompt: &str,
+        input: &str,
+        model: Option<&str>,
+        deadline: Duration,
+    ) -> Result<String, String> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(deadline.min(Duration::from_secs(120)))
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|e| format!("HTTP client build error: {}", e))?;
+
+        // Honor a per-call model override the same way call_with_model does.
+        let target = match model {
+            Some(m) if m != self.model => {
+                let mut backend = self.clone();
+                backend.model = m.to_string();
+                backend
+            }
+            _ => self.clone(),
+        };
+
+        target
+            .call_provider(&client, prompt, input)
+            .map_err(|e| format!("LLM call timed out after {:?}: {}", deadline, e))
     }
 }
 

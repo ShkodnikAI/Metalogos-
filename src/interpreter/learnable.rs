@@ -737,12 +737,15 @@ impl Interpreter {
     /// is the key improvement over the Наряд №126 thread hack.
     ///
     /// **Legacy path** (MockLlm / RealLlm without SmartRouter): the
-    /// `LlmBackend` trait has no timeout concept. If `timeout_override` is
-    /// Some, we wrap the call in a thread with `recv_timeout`. This is the
-    /// same mechanism as Наряд №126, but now clearly documented as a
-    /// legacy-only fallback. For MockLlm (test-only), the "background"
-    /// is just a `thread::sleep`. For RealLlm, reqwest's own 120s timeout
-    /// will eventually fire if the thread outlives our wait.
+    /// `LlmBackend` trait now carries `call_with_deadline` (Наряд №248) —
+    /// if `timeout_override` is Some, the backend itself cancels the
+    /// request at the deadline: RealLlm drops the TCP connection via the
+    /// reqwest client timeout (min(deadline, 120s)); MockLlm sleeps
+    /// min(delay, deadline) and fails loudly when the deadline is
+    /// tighter. The former №126 abandoned-thread wrapper (`thread::spawn`
+    /// with `recv_timeout`, which left the HTTP request in flight after the
+    /// caller stopped waiting) is REMOVED — there is no background thread
+    /// anymore, so the wrapper's Disconnected arm is gone too.
     fn call_llm(
         &self,
         prompt: &str,
@@ -760,24 +763,12 @@ impl Interpreter {
         // Legacy path (no SmartRouter installed)
         match timeout_override {
             Some(timeout) => {
-                use std::sync::mpsc;
-                let (tx, rx) = mpsc::channel();
-                let prompt = prompt.to_string();
-                let input = input.to_string();
-                let model = model.map(String::from);
-                std::thread::spawn(move || {
-                    let backend = llm::create_llm_backend();
-                    let _ = tx.send(backend.call_with_model(&prompt, &input, model.as_deref()));
-                });
-                match rx.recv_timeout(timeout) {
-                    Ok(result) => result,
-                    Err(mpsc::RecvTimeoutError::Timeout) => {
-                        Err(format!("LLM call timed out after {:?}", timeout))
-                    }
-                    Err(mpsc::RecvTimeoutError::Disconnected) => {
-                        Err("LLM call thread terminated unexpectedly".to_string())
-                    }
-                }
+                // Наряд №248: deadline-based cancellation on the legacy
+                // path too. The backend either answers within `timeout`
+                // or fails loudly — the request is cancelled, not left
+                // in flight (closed the README/REFERENCE promise).
+                let backend = llm::create_llm_backend();
+                backend.call_with_deadline(prompt, input, model, timeout)
             }
             None => {
                 let backend = llm::create_llm_backend();

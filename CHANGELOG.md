@@ -4,6 +4,10 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Fixed — llm: full request cancellation by deadline on all paths (Naryad #248)
+
+- llm: full request cancellation by deadline on all paths — legacy backend thread-wrapper replaced with `call_with_deadline` (README/REFERENCE promise closed; external audit 2026-09-10). The `LlmBackend` trait gains `call_with_deadline` (default → `call_with_model`, existing impls compatible): RealLlm builds a one-shot client with timeout = min(deadline, 120s) — a real TCP drop at the deadline (no retry loop, single attempt per deadline); MockLlm sleeps min(delay, deadline) and fails loudly when the deadline is tighter. The legacy `Some(timeout)` path in `learnable.rs` now calls the backend directly — the abandoned-thread wrapper (`thread::spawn` + `recv_timeout`, which left the HTTP request in flight) is removed together with its Disconnected arm. SmartRouter path (№156) unchanged. The README/REFERENCE caveat was rewritten to match the actual behavior; the `AbortHandle` promise is withdrawn as fulfilled (external on-demand abort remains out of scope — revisit on a real use case). Proven by a local accept-and-hang server test that observes the server-side TCP close at the deadline; naryad_126 semantics preserved 1:1 with no test edits; no new `#[ignore]`.
+
 ### Fixed — test: serialize session-memory contract tests — global store race (№239 family, 2nd round, Naryad #251)
 
 - test: serialize session-memory contract tests — global store race (№239 family, 2nd round). All 10 `tests/session_memory_contract.rs` tests hold one poison-tolerant static mutex for the whole test body (template: `naryad_244_vision_lora.rs` `env_lock`); evidence: 2 CI failures 2026-09-10, `left: 0, right: 1` at `:204` (`contract_session_no_persistence`); test-only — `src/**`, deps, CI settings untouched; 30/30 consecutive green runs.

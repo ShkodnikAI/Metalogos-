@@ -4,288 +4,310 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
-### Added — Vision R6.3: LoRA-адаптеры — SQLite BLOB + применение к DiT (Наряд №244)
+### Added — Vision R6.3: LoRA adapters — SQLite BLOB + application to DiT (Naryad #244)
 
-- **`vision_lora_load(name, path) -> String` (Block 2.2)**: читает
-  safetensors-адаптер ОДИН раз из файла и персистит его в БД программы
-  (`db { url: "sqlite:..." }`) — таблица `vision_lora_adapters` (name
+- **`vision_lora_load(name, path) -> String` (Block 2.2)**: reads a
+  safetensors adapter ONCE from a file and persists it in the program's
+  DB (`db { url: "sqlite:..." }`) — the `vision_lora_adapters` table (name
   TEXT PK / bytes BLOB NOT NULL / meta_json TEXT NOT NULL / saved_at
-  RFC 3339). **ADR-0124 §6: адаптер живёт ТОЛЬКО в SQLite BLOB — не
-  новый файловый формат, не сессионное состояние** (`VisionRegistry` не
-  тронут). Порядок громких проверок предписан: арность/типы → no-db
-  (подсказка `db { url: ... }`) → `MLOG_VISION_WEIGHTS_DIR` →
-  путь-безопасность (относительный, без `..`, расширение
-  `.safetensors`, файл существует — чтение разрешено ТОЛЬКО внутри
-  weights_dir, новой поверхности файлового чтения нет; контракт-функция
-  `vision_lora_check_adapter_path`, лекало `vision_edit_check_dims_r41`)
-  → feature-гейт (без `vision` = громкий отказ: валидация требует
-  candle, вставка непроверенных байтов = тихий мусор — запрещена) →
-  чтение + разбор + валидация → `lora_save`. Коллизия имени = громкий
-  Err (no upsert, лекало №242); возвращает персистентный ключ `name`.
+  RFC 3339). **ADR-0124 section 6: the adapter lives ONLY in an SQLite
+  BLOB — not a new file format, not session state** (`VisionRegistry` is
+  untouched). The order of loud checks is prescribed: arity/types → no-db
+  (a hint pointing at `db { url: ... }`) → `MLOG_VISION_WEIGHTS_DIR` →
+  path safety (relative, no `..`, the `.safetensors` extension,
+  the file exists — reading is allowed ONLY inside
+  weights_dir, no new file-reading surface; the contract function is
+  `vision_lora_check_adapter_path`, modeled on `vision_edit_check_dims_r41`)
+  → the feature gate (without `vision` = a loud refusal: validation requires
+  candle, inserting unverified bytes would be silent garbage — forbidden)
+  → reading + parsing + validation → `lora_save`. A name collision = a loud
+  Err (no upsert, modeled on #242); returns the persistent key `name`.
 - **`vision_lora_generate(decl_name, prompt, lora_name) -> Vision`
-  (Block 2.3)**: полный пайплайн `vision_generate` с применённым
-  адаптером. Предписанный порядок: арность/типы → пустой промпт →
-  резолв decl (с перечнем объявленных) → re-check model ∈
-  `KNOWN_VISION_MODELS` → no-db / неизвестный `lora_name` = Err (с
-  `lora_list`) → [gated] чтение байтов из БД + **integrity**:
-  `sha256(bytes) ≠ meta.sha256` = громкий Err ДО любого compute → разбор
-  Block 1.1 → env-гейты + компоненты → фикс 1024×1024 → пайплайн.
-  `meta_json` — фиксированная структура `LoraMeta` (sha256/rank/alpha/
-  scale/targets); битый JSON = громкий Err (лекало №242).
-- **`src/vision/lora.rs` (Block 1.1)**: разбор safetensors-байтов
-  (`candle_core::safetensors::load_buffer`, reader-лекало Stage B/C).
-  Принимаются ОБЕ канонические формы имён — diffusers-PEFT
-  (`<target>.lora_A.weight` / `.lora_B.weight`) и ComfyUI
-  (`<target>.lora_down.weight` / `.lora_up.weight` + опциональный
-  `<target>.alpha`); смешение форм в пределах одной цели = громкий Err.
-  `rank` = средняя размерность; `scale = alpha/rank`; alpha отсутствует →
-  `scale = 1.0` с громкой eprintln-ноткой (стиль quant_conv №243);
-  не-F32 вход апкастится в F32 ГРОМКО. Валидация: цель после снятия
-  суффикса обязана быть attention-проекцией базы
-  (`layers.N`/`noise_refiner.N`/`context_refiner.N` ×
-  `to_q/to_k/to_v/to_out.0` по `zimage_expected_keys`); цель-не-внимание
-  (нормы/FFN/embedders/final), неизвестный префикс, B без A (и
-  наоборот), осиротевшие ключи, несходящиеся размерности — ВСЁ громкие
-  Err с ПОЛНЫМ перечнем проблем. Тихое отбрасывание ключей запрещено.
-- **Слияние в DiT (Block 1.2)**: `ZImageTransformer::from_weights_with_lora`
-  (dit.rs, аддитивно) — база строится нетронутым `from_weights`, затем
-  `merge_lora_in_place` по каждой цели: `W' = W + scale·(up@down)` в F32
-  с возвратом к dtype базы; детерминированный (сортированный) порядок
-  целей; отсутствующая база / выход за n_layers = громкий Err. **Bit-exact
-  обязанность (Block 1.3)**: `from_weights`/`forward`/`forward_edit`/
-  `new_tiny` — нулевой дифф; слияние вызывается ТОЛЬКО в lora-пути;
-  контрольный инвариант: нулевой up ИЛИ down → выход байт-в-байт
-  равен базовому (проверено на уровнях веса и выхода). **Wedge-голдены
-  №212 зелёные БЕЗ правок** (85ef6a87/860c85b3).
-- **Композит-provenance (Block 2.4)**: при применённом адаптере
-  `model_sha256 = sha256("{base}\nlora:{name}:{lora_sha256}")`, где
-  `base = weights_tree_sha256(weights_dir)` (может быть «unpinned» —
-  композит честен и над маркером), `lora_sha256` = SHA байтов адаптера
-  из БД; `model_id` = база из decl; watermark = базовая модель (адаптер —
-  дельта, не модель). Формула зафиксирована в коде сайта вычисления
-  (`vision_lora_composite_model_sha256`, pub — механически пиннится
-  тестом, прецедент `verify_sha_pin`) и зеркалится в REFERENCE §4.22 и
-  doc-comment `VisionManifest::model_sha256` (структура/код provenance
-  НЕ тронуты — 7 полей не расширяются).
-- **Перехваты ×3 + стабы + taint (Blocks 2.5/2.6/3)**: `vision_lora_load`
-  (db_conn) и `vision_lora_generate` (decls + registry + db_conn) в
-  interpreter (eval + invoke) и VM; last-resort стабы `builtin_vision_lora_load_stub`/
-  `builtin_vision_lora_generate_stub` — лекало export_raw_stub
-  (док-номер «R6.3, №244»); `spec!`-строки после `vision_load`, арности
-  2 и 3. Taint: позиционный чек arg-1 расширен на
-  `vision_lora_generate` — тот же check-id `VISION_PROMPT_USER_INPUT`
-  (Warning; arg-0 decl-name и arg-2 lora-name не флагаются; новых
-  check-id/категорий нет, гейты №241 не тронуты).
-- **Реестр 389 → 391; ПОТОЛОК СЕМЕЙСТВА ДОСТИГНУТ**: vision-builtin'ов
-  теперь 10 (generate 2 / edit 2 / export 2 / export_raw 2 /
+  (Block 2.3)**: the full `vision_generate` pipeline with the
+  adapter applied. Prescribed order: arity/types → an empty prompt →
+  resolving the decl (with a list of the declared ones) → re-checking model ∈
+  `KNOWN_VISION_MODELS` → no-db / unknown `lora_name` = Err (with
+  `lora_list`) → [gated] reading bytes from the DB plus **integrity**:
+  `sha256(bytes) ≠ meta.sha256` = a loud Err BEFORE any compute → the
+  Block 1.1 parse → env gates + components → the fixed 1024×1024 → the pipeline.
+  `meta_json` is the fixed `LoraMeta` structure (sha256/rank/alpha/
+  scale/targets); malformed JSON = a loud Err (modeled on #242).
+- **`src/vision/lora.rs` (Block 1.1)**: parsing safetensors bytes
+  (`candle_core::safetensors::load_buffer`, a reader modeled on Stage B/C).
+  BOTH canonical naming forms are accepted — diffusers-PEFT
+  (`<target>.lora_A.weight` / `.lora_B.weight`) and ComfyUI
+  (`<target>.lora_down.weight` / `.lora_up.weight` plus an optional
+  `<target>.alpha`); mixing forms within one target = a loud Err.
+  `rank` is the average dimension; `scale = alpha/rank`; a missing alpha
+  gives `scale = 1.0` with a loud eprintln note (in the style of #243's
+  quant_conv); a non-F32 input is upcast to F32 LOUDLY. Validation: the
+  target, after stripping its suffix, must be an
+  attention projection of the base
+  (`layers.N`/`noise_refiner.N`/`context_refiner.N` x
+  `to_q/to_k/to_v/to_out.0` per `zimage_expected_keys`); a non-attention
+  target (norms/FFN/embedders/final), an unknown prefix, a B with no A (and
+  vice versa), orphaned keys, mismatched dimensions — ALL of these are loud
+  Errs with a FULL list of the problems. Silently dropping keys is forbidden.
+- **Merging into the DiT (Block 1.2)**: `ZImageTransformer::from_weights_with_lora`
+  (dit.rs, additive) — the base is built by the untouched `from_weights`, then
+  `merge_lora_in_place` runs per target: `W' = W + scale·(up@down)` in F32
+  with a cast back to the base dtype; a deterministic (sorted) order of
+  targets; a missing base or an index beyond n_layers = a loud Err. **A bit-exact
+  obligation (Block 1.3)**: `from_weights`/`forward`/`forward_edit`/
+  `new_tiny` — zero diff; the merge is called ONLY on the lora path;
+  a control invariant: a zero up OR down means the output is byte-for-byte
+  equal to the base (verified at both the weight and output level). **The wedge
+  goldens of #212 stay green with NO edits** (85ef6a87/860c85b3).
+- **Composite provenance (Block 2.4)**: when an adapter is applied,
+  `model_sha256 = sha256("{base}\nlora:{name}:{lora_sha256}")`, where
+  `base = weights_tree_sha256(weights_dir)` (may be "unpinned" — the
+  composite is honest above the marker too), `lora_sha256` is the SHA of the
+  adapter's bytes from the DB; `model_id` is the base from the decl; the
+  watermark is the base model (the adapter is a delta, not the model). The
+  formula is fixed in the code at its computation site
+  (`vision_lora_composite_model_sha256`, pub — mechanically pinned by a
+  test, precedent `verify_sha_pin`) and is mirrored in REFERENCE section 4.22
+  and the doc comment on `VisionManifest::model_sha256` (the provenance
+  structure/code is untouched — the 7 fields are not extended).
+- **Intercepts x3 plus stubs plus taint (Blocks 2.5/2.6/3)**: `vision_lora_load`
+  (db_conn) and `vision_lora_generate` (decls plus registry plus db_conn) in the
+  interpreter (eval + invoke) and the VM; last-resort stubs
+  `builtin_vision_lora_load_stub`/`builtin_vision_lora_generate_stub` —
+  modeled on export_raw_stub (doc reference "R6.3, #244");
+  `spec!` lines after `vision_load`, arities
+  2 and 3. Taint: the positional check on arg 1 is extended to
+  `vision_lora_generate` — the same check-id `VISION_PROMPT_USER_INPUT`
+  (Warning; arg 0's decl name and arg 2's lora name are not flagged; no
+  new check-ids/categories, and #241's gates are untouched).
+- **Registry 389 → 391; THE FAMILY CEILING IS REACHED**: there are
+  now 10 vision builtins (generate 2 / edit 2 / export 2 / export_raw 2 /
   fetch_weights 2 / list 0 / save 2 / load 1 / lora_load 2 /
-  lora_generate 3) — верх предопределённой границы ADR-0124 §3
-  («Expected family size: ~8–10 — a hard counter against builtins
-  bloat»). **Следующий vision-builtin требует правки ADR-0124** — громко.
-- **Тесты (Block 4.1, без сети/весов, без `#[ignore`)**: 21 tiny-контракт
-  `tests/naryad_244_vision_lora.rs` (парс обеих форм, негативы парса с
-  перечнем, слияние меняет выход tiny-DiT, identity нулевого
-  адаптера байт-в-байт, детерминизм двух полных tiny-прогонов
-  (merge → sample → tiny-VAE → PNG) бит-в-бит, store
-  roundtrip/коллизия/битый meta (прямой UPDATE), integrity sha,
-  dispatch-негативы lora_load/lora_generate, подпись: 7 полей +
-  композит-структура + watermark + policy из decl; минимальный
-  safetensors-блоб строится candle-райтером — API доступен, отклонения
-  нет). Юнит-контракты слияния (прямой matmul на весах, identity веса,
-  out-of-range/missing base) — в `src/vision/dit.rs`
-  (`mod lora_tests`). Расширение `tests/naryad_240_vision_dispatch.rs`
-  (+3 taint: arg-1 флагается, arg-0/arg-2 нет, литерал не флагается) и
-  `tests/naryad_210_vision_skeleton.rs` (+2 real-path: no-db lora_load,
-  арность-3 lora_generate; 11 → 13 тестов). Runbook §3.2 lora-e2e
-  (PARKED-прогон, адаптер кладёт владелец в `weights_dir/lora/…`).
-- **wedge-голдены №212, weights.rs, манифест весов (16 файлов /
-  32 848 304 654 B), `tools/fetch_vision_weights.sh`, grammar.pest,
-  `KNOWN_VISION_MODELS`, контракт store №242 (`vision_artifacts`),
-  `VisionRegistry`, ADR-0124 — не тронуты.**
+  lora_generate 3) — the top of ADR-0124 section 3's predefined bound
+  ("Expected family size: ~8-10 — a hard counter against builtins
+  bloat"). **The next vision builtin requires amending ADR-0124** — loudly.
+- **Tests (Block 4.1, no network/weights, no `#[ignore]`)**: 21 tiny
+  contracts in `tests/naryad_244_vision_lora.rs` (parsing both forms,
+  parse negatives with a full list, merging changes the tiny DiT's
+  output, a zero adapter's byte-for-byte identity, determinism of two
+  full tiny runs (merge → sample → tiny VAE → PNG) bit-for-bit, a store
+  round trip/collision/malformed meta (a direct UPDATE), integrity SHA,
+  dispatch negatives for lora_load/lora_generate, the signature: 7 fields
+  plus the composite structure plus the watermark plus the policy from
+  the decl; a minimal safetensors blob is built with candle's own writer —
+  the API is available, no deviation). Merge unit contracts (a direct
+  matmul on the weights, identity weights, out-of-range/missing base) are
+  in `src/vision/dit.rs` (`mod lora_tests`). `tests/naryad_240_vision_dispatch.rs`
+  is extended (+3 taint tests: arg 1 is flagged, arg 0/arg 2 are not, a
+  literal is not flagged), as is
+  `tests/naryad_210_vision_skeleton.rs` (+2 real-path tests: a no-db
+  lora_load, an arity-3 lora_generate; 11 → 13 tests). The runbook gets
+  section 3.2, a lora e2e (a PARKED run, the owner places the adapter in
+  `weights_dir/lora/…`).
+- **The wedge goldens of #212, weights.rs, the weights manifest (16 files /
+  32,848,304,654 B), `tools/fetch_vision_weights.sh`, grammar.pest,
+  `KNOWN_VISION_MODELS`, #242's store contract (`vision_artifacts`),
+  `VisionRegistry`, ADR-0124 — untouched.**
 
-### Added — Vision R6.2: `vision_edit` — in-context editing (Наряд №243)
 
-- **`vision_edit(handle, prompt) -> Vision` (Block 2)**: громкий R1-стаб
-  стал реальным путём in-context редактирования (вторая треть R6
-  «Edit + LoRA», план §7.1; R6 разрезан громко: №242 = save/load —
-  закрыт, №243 = edit, №244 = LoRA). Контракт: арность 2, типизированный
-  хэндл (`[Vision#N]`, лекало export/save); **источник ОБЯЗАН быть
-  подписан** — артефакт с `manifest: None` = громкий Err (именно ДО
-  env-чека: контрактный отказ не зависит от среды; отредактировать
-  unsigned честно нельзя — нечего наследовать, а производить unsigned
-  через реальный compute-путь запрещает №241 Block 1.3). Unsigned-артефакты
-  остаются рабочими в `vision_export_raw` — это НЕ менялось.
-- **In-context edit compute-путь (Block 1)**: `VaeEncoder` в
-  `src/vision/vae.rs` (зеркально `VaeDecoder`) — грузит не-decoder
-  префиксы ТОГО ЖЕ pinned `vae/diffusion_pytorch_model.safetensors`
-  (манифест весов НЕ расширяется, 16 файлов / 32 848 304 654 B —
-  инвариант). Арифметика манифеста 244 = 138 decoder + 106 encoder →
-  `quant_conv` опционален: потребление/отсутствие = громкая нотка,
-  фактический non-decoder список сверяется по заголовку файла при
-  PARKED-прогоне (runbook §3.1), расхождение с генератором
-  `vae_expected_encoder_keys` = громкий Err с перечнем недостающего.
-  `encode(img F32 [-1..1]) → [1, C, H/f, W/f]` в posterior MODE
-  (детерминизм), ритуал = алгебраическая инверсия декодер-направления
-  №232 (`z_model = (mean − shift) · scaling`); `decode_png` — декод-половина
-  `encode_png`. Цикл: `flow_match_euler_edit` (`sampler.rs`) +
-  `forward_edit` (`dit.rs`, аддитивно — generate не тронут): референс-латент
-  конкатенируется токенами с шумовым на КАЖДОМ шаге (тот же `x_embedder` +
-  `noise_refiner`; RoPE t-слот референса = cap_len+2 при шумовом cap_len+1
-  — громкий чек против `axes_lens`), `euler_step` только по шумовой ветви,
-  референс чистый; **`EDIT_STEPS = 8`** — дистиллированный NFE turbo
-  (громкая константа с пиннинг-тестом); CFG отсутствует (turbo).
-  **Wedge-голдены №212 bit-exact БЕЗ правок** (85ef6a87/860c85b3) —
-  добавление edit-пути не меняет generate ни битом (Block 1.3).
-- **Наследование provenance (Block 2.3, sign ALWAYS)**: отредактированный
-  артефакт подписан всегда — LSB-watermark (model_id источника) + 7 полей:
-  `model_id`/`policy`/`seed` наследуются из манифеста источника
-  (детерминизм: те же источник+промпт+веса → тот же seed), `model_sha256` =
-  `weights_tree_sha256` текущего прогона, `prompt_sha256` = хэш
-  EDIT-промпта, `timestamp`/`png_sha256` свежие (SHA после watermark —
-  описывает ровно те байты, что отгружаются).
-- **Dims-контракт (Block 1.4)**: R4.1-границы источника (256..=4096, ×16)
-  и кратность VAE-фактору — громкие Err; тихий ресайз запрещён (искажение
-  provenance-цепочки): выход сохраняет разрешение источника.
-- **Taint (Block 3)**: позиционный чек arg-1 расширен на `vision_edit` —
-  тот же check-id `VISION_PROMPT_USER_INPUT` (Warning, arg-0 handle не
-  флагается); новых check-id/категорий нет, гейты №241 не тронуты.
-- **Перехваты + truth-up (Block 2.5/2.6)**: interpreter (eval + invoke) и
-  VM — state-carrying лекало №240–№242; last-resort стаб — лекало
-  save/load-стабов №242; док-номер «214/215» заменён на «R6.2, №243» —
-  последний «214/215» покинул репо. `tests/naryad_210_vision_skeleton.rs`:
-  стаб-тест заменён на real-path отказы (типизированный хэндл + арность)
-  — 10 → 11 тестов.
-- **Тесты (Block 4, без сети/весов, без `#[ignore`])**: 14 tiny-контрактов
-  `tests/naryad_243_vision_edit.rs` (лекало wedge №212: зависимость выхода
-  от источника и от edit-промпта, watermark + наследование 7 полей,
-  unsigned-отказ, R4.1/фактор-dims, no-env отказ, EDIT_STEPS pin,
-  shape-контракт forward_edit, детерминизм цикла) + env-gated
-  `mlog_vision_edit_export_e2e` (loud-SKIP; generate → edit → export:
-  dims-сохранение, inheritance sidecar, watermark) — цель edit-e2e в
-  runbook §3.1. Реестр 389 не меняется; KNOWN_VISION_MODELS/enum
-  ADR-0124/weights.rs/grammar.pest/goldens-константы/LoRA/гейты №241 не
-  тронуты; отдельный env-gated CI-шаг НЕ добавлен (долг владельца, 4-й
-  раунд напоминания).
+### Added — Vision R6.2: `vision_edit` — in-context editing (Naryad #243)
 
-### Added — Vision R6.1: SQLite-персистенция артефактов (Наряд №242)
+- **`vision_edit(handle, prompt) -> Vision` (Block 2)**: the loud R1 stub
+  became a real in-context editing path (the second third of R6
+  "Edit + LoRA," plan section 7.1; R6 was loudly split: #242 = save/load —
+  closed, #243 = edit, #244 = LoRA). Contract: arity 2, a typed
+  handle (`[Vision#N]`, modeled on export/save); **the source MUST be
+  signed** — an artifact with `manifest: None` is a loud Err (specifically
+  BEFORE the env check: the contract refusal does not depend on the
+  environment; editing an unsigned artifact cannot honestly be done —
+  there is nothing to inherit, and producing an unsigned one through the
+  real compute path is forbidden by #241 Block 1.3). Unsigned artifacts
+  remain usable via `vision_export_raw` — this was NOT changed.
+- **The in-context edit compute path (Block 1)**: `VaeEncoder` in
+  `src/vision/vae.rs` (mirroring `VaeDecoder`) — loads the non-decoder
+  prefixes of the SAME pinned `vae/diffusion_pytorch_model.safetensors`
+  (the weights manifest is NOT extended, 16 files / 32,848,304,654 B —
+  an invariant). The manifest's arithmetic of 244 = 138 decoder + 106 encoder means
+  `quant_conv` is optional: its presence or absence is a loud note,
+  and the actual non-decoder list is checked against the file's header at
+  the PARKED run (runbook section 3.1), a mismatch against the generator
+  `vae_expected_encoder_keys` being a loud Err listing what's missing.
+  `encode(img F32 [-1..1]) → [1, C, H/f, W/f]` runs in posterior MODE
+  (for determinism), the ritual being the algebraic inverse of #232's
+  decoder direction (`z_model = (mean − shift) · scaling`); `decode_png` is
+  the decoding half of `encode_png`. The cycle: `flow_match_euler_edit`
+  (`sampler.rs`) plus `forward_edit` (`dit.rs`, additive — generate is
+  untouched): the reference latent is concatenated as tokens with the noisy
+  one at EVERY step (the same `x_embedder` plus `noise_refiner`; the
+  reference's RoPE t-slot is cap_len+2 while the noise's is cap_len+1 —
+  a loud check against `axes_lens`), `euler_step` applies only to the noise
+  branch, the reference stays clean; **`EDIT_STEPS = 8`** — the distilled
+  turbo NFE (a loud constant with a pinning test); there is no CFG (turbo).
+  **The wedge goldens of #212 stay bit-exact with NO edits** (85ef6a87/860c85b3) —
+  adding the edit path does not change generate by a single bit (Block 1.3).
+- **Provenance inheritance (Block 2.3, always sign)**: an edited
+  artifact is always signed — an LSB watermark (the source's model_id) plus 7 fields:
+  `model_id`/`policy`/`seed` are inherited from the source's manifest
+  (determinism: the same source plus prompt plus weights gives the same seed), `model_sha256` is
+  the current run's `weights_tree_sha256`, `prompt_sha256` is the hash of the
+  EDIT prompt, `timestamp`/`png_sha256` are fresh (the SHA is computed after the
+  watermark — it describes exactly the bytes that are shipped).
+- **The dims contract (Block 1.4)**: the R4.1 bounds on the source (256..=4096, x16)
+  and being a multiple of the VAE factor are loud Errs; silent resizing is forbidden (it would
+  corrupt the provenance chain): the output keeps the source's resolution.
+- **Taint (Block 3)**: the positional check on arg 1 is extended to `vision_edit` —
+  the same check-id `VISION_PROMPT_USER_INPUT` (Warning, arg 0's handle is not
+  flagged); there are no new check-ids/categories, and #241's gates are untouched.
+- **Intercepts plus truth-up (Block 2.5/2.6)**: the interpreter (eval + invoke) and
+  the VM — the state-carrying pattern from #240-#242; the last-resort stub is
+  modeled on #242's save/load stubs; the doc reference "214/215" is replaced by
+  "R6.2, #243" — the last "214/215" left the repo.
+  `tests/naryad_210_vision_skeleton.rs`: the stub test is replaced by
+  real-path refusals (a typed handle plus arity) — 10 → 11 tests.
+- **Tests (Block 4, no network/weights, no `#[ignore]`)**: 14 tiny contracts
+  in `tests/naryad_243_vision_edit.rs` (modeled on the #212 wedge: the output's
+  dependence on the source and on the edit prompt, the watermark plus the
+  inheritance of 7 fields, an unsigned refusal, the R4.1/factor dims contract,
+  a no-env refusal, the EDIT_STEPS pin, forward_edit's shape contract,
+  determinism of the cycle) plus an env-gated
+  `mlog_vision_edit_export_e2e` (a loud SKIP; generate → edit → export:
+  preserving dims, the sidecar's inheritance, the watermark) — the edit e2e
+  target lives in runbook section 3.1. The registry stays at 389; `KNOWN_VISION_MODELS`/the
+  ADR-0124 enum/weights.rs/grammar.pest/the golden constants/LoRA/#241's gates are
+  untouched; a dedicated env-gated CI step was NOT added (owner debt, a
+  4th round of the reminder).
+
+
+### Added — Vision R6.1: SQLite persistence of artifacts (Naryad #242)
 
 - **`vision_save(handle, name) -> String` / `vision_load(name) -> Vision`
-  (Block 2)**: громкие R1-стабы (`src/builtins/vision.rs:723/733`) стали
-  реальными путями персистенции. Перехваты в interpreter (eval + invoke) и
-  VM — state-carrying паттерн №240/№241 плюс соединение с БД программы
-  (`db_conn`: у VM — поле из `program.db_url`, у Interpreter —
-  `Arc<Mutex<Option>>` из декларации `db { url: "sqlite:..." }`). id
-  реестра — сессионный хэндл (монотонный с нуля, НЕ персистится);
-  персистентный ключ — `name`. No-db → громкий Err с подсказкой
-  декларации; unknown handle → громкий Err с `[Vision#N]`; unknown name →
-  громкий Err со списком сохранённого (loud-диагностика).
-- **Новый модуль `src/vision/store.rs` (Block 1)**: таблица
-  `vision_artifacts` (name TEXT PRIMARY KEY, png_bytes BLOB NOT NULL,
-  manifest_json TEXT, saved_at TEXT NOT NULL RFC 3339 UTC; создание —
-  лекало `init_kv_persist`, WAL не трогается — им управляет db-слой). API
-  `save`/`load`/`list` — для тестов и loud-диагностики, встроенного
-  builtin-списка поверх БД нет. **Дословный manifest-roundtrip**:
-  `Some(m)` → sidecar-JSON → `Some(m')`, `m' == m` по полям (включая
-  `timestamp` — персистенция provenance не перегенерирует); `None` →
-  `NULL` → `None`; **битый manifest-JSON = громкий Err** (тихая деградация
-  в unsigned — запрещённая потеря provenance). **Коллизия имени = громкий
-  Err** (plain INSERT, upsert/delete-семантика не входит в №242 — тихая
-  перезапись разрушила бы provenance-цепочку); пустое имя = громкий Err;
-  PNG-байты ходят только BLOB-ом в БД программы (записей на диск вне
-  export-пути нет).
-- **Roundtrip-контракт (Block 3, плановая приёмка R6 «roundtrip-тест»)**:
-  рег A с подписанным артефактом → save → новый пустой рег B → load →
-  signed `vision_export` — PNG и sidecar `<path>.manifest.json`
-  байт-в-байт равны исходным. **Backstop №241 жив после персистенции**:
-  загруженный артефакт с `manifest: None` отказывается в signed
-  `vision_export` (`VISION_UNSIGNED_EXPORT`) и работает в
-  `vision_export_raw` без sidecar. Тесты: 8 unit (store) + 8
-  интеграционных (naryad_242_vision_save_load); без сети, без весов, без
-  `#[serial]` (env не трогается), `sqlite::memory:` на тест.
-- **Реестр 389 не меняется**: стабы `vision_save`/`vision_load`
-  существовали в реестре с №210 — наряд заменил их тела/перехваты, не
-  добавляя builtins. Last-resort стабы обновлены громко (лекало
-  `vision_export_raw_stub`, №242-нумерация вместо устаревшей
-  «214/215» R0-эпохи). `vision_edit` остаётся громким стабом R6 (его час —
-  №243).
+  (Block 2)**: the loud R1 stubs (`src/builtins/vision.rs:723/733`) became
+  real persistence paths. Intercepted in the interpreter (eval + invoke) and
+  the VM — the state-carrying pattern from #240/#241 plus a connection to the
+  program's DB (`db_conn`: on the VM, a field from `program.db_url`; on the
+  interpreter, an `Arc<Mutex<Option>>` from the `db { url: "sqlite:..." }`
+  declaration). The registry id is a session-scoped handle (monotonic from
+  zero, NOT persisted); the persistent key is `name`. No-db gives a loud Err
+  with a hint at the declaration; an unknown handle gives a loud Err with
+  `[Vision#N]`; an unknown name gives a loud Err with a list of what's saved
+  (loud diagnostics).
+- **A new module, `src/vision/store.rs` (Block 1)**: the
+  `vision_artifacts` table (name TEXT PRIMARY KEY, png_bytes BLOB NOT NULL,
+  manifest_json TEXT, saved_at TEXT NOT NULL RFC 3339 UTC; creation is
+  modeled on `init_kv_persist`, WAL is left untouched — it's managed by the
+  db layer). The `save`/`load`/`list` API is for tests and loud diagnostics;
+  there is no built-in listing layer on top of the DB. **A verbatim
+  manifest round trip**: `Some(m)` → sidecar JSON → `Some(m')`, `m' == m`
+  field by field (including `timestamp` — provenance persistence does not
+  regenerate it); `None` → `NULL` → `None`; **malformed manifest JSON is a
+  loud Err** (silent degradation to unsigned would be a forbidden loss of
+  provenance). **A name collision is a loud Err** (a plain INSERT — upsert/delete
+  semantics are out of scope for #242, since a silent overwrite would break
+  the provenance chain); an empty name is a loud Err; the PNG bytes only ever
+  travel as a BLOB in the program's DB (no on-disk writes outside the export
+  path).
+- **The round-trip contract (Block 3, R6's planned "round-trip test"
+  acceptance)**: registry A with a signed artifact → save → a new, empty
+  registry B → load → a signed `vision_export` — the PNG and the sidecar
+  `<path>.manifest.json` are byte-for-byte equal to the originals. **The #241
+  backstop stays alive after persistence**: a loaded artifact with
+  `manifest: None` is still refused by a signed `vision_export`
+  (`VISION_UNSIGNED_EXPORT`) and works with `vision_export_raw` without a
+  sidecar. Tests: 8 unit tests (store) plus 8 integration tests
+  (naryad_242_vision_save_load); no network, no weights, no
+  `#[serial]` (the env is untouched), `sqlite::memory:` per test.
+- **The registry stays at 389**: the `vision_save`/`vision_load` stubs
+  have existed in the registry since #210 — the naryad replaced their
+  bodies/intercepts, without adding builtins. The last-resort stubs were
+  updated loudly (modeled on `vision_export_raw_stub`, using the #242
+  numbering instead of the outdated "214/215" R0-era one). `vision_edit`
+  remains a loud R6 stub (its turn is #243).
 
-### Added — Vision R5: Security — гейты категории A + Provenance MVP (Наряд №241, ADR-0125)
+### Added — Vision R5: Security — Category A gates + a Provenance MVP (Naryad #241, ADR-0125)
 
-- **Provenance MVP (Block 1)**: `vision_generate` подписывает ВСЕГДА — в PNG
-  встраивается LSB-watermark (payload = магия `"MLGV"` + model-hash32 = первые 4
-  байта SHA-256(model_id), 64 бита в LSB RGB-каналов; force-set = идемпотентно;
-  детекция — по декодированным пикселям; ошибка подписи = громкий `Err` ДО
-  попадания артефакта в registry), артефакт несёт `VisionManifest`
-  (model-id + model-SHA-256 — фингерпринт весов-дерева по пинному
-  `manifest.json`, честный маркер `"unpinned"` при его отсутствии; seed;
-  prompt-hash; policy/`"unspecified"`; timestamp RFC 3339; SHA-256 итогового
-  PNG — после watermark). `vision_export` = подписанный экспорт: PNG + sidecar
-  `<path>.manifest.json`; unsigned-WARN из №240 снят (экспорт подписан по
-  построению). Новый модуль `src/vision/provenance.rs` — manifest+hash слой не
-  feature-gated, watermark — под `vision` (нужен PNG-кодек). Honest boundary
-  (ADR-0125): MVP-watermark детектируем нами, но НЕ adversarially-устойчив
-  (robust-watermarking/C2PA — research-бэклог, не обещание).
-- **`vision_export_raw` (Block 2.1, реестр 387→388)**: явный opt-out по
-  ADR-0125 — сырые байты без watermark/manifest, sidecar не пишется. Перехват
-  в interpreter (eval + invoke) и VM — тот же state-carrying паттерн, что
-  `vision_export`.
-- **Гейт `VISION_UNSIGNED_EXPORT` (Block 2.2 — Category A, audit Error)**:
-  вызов `vision_export` в файле без единой `vision { }`-декларации — источник
-  манифеста невозможен, артефакт не может быть подписан по построению (лекало
-  SECRET_LEAK; работает через `audit_category_a` → compile-ошибка). Runtime
-  backstop: экспорт артефакта без манифеста (hand-built registry) — громкий
-  `Err` с тем же check-id. **`VISION_UNSIGNED_EXPORT_RAW` (Block 2.3 — audit
-  Warning, advisory)**: каждый вызов `vision_export_raw`; имя чек-ида
-  фиксируется этим релизом (ADR его не задаёт). Ворнинг сознательно НЕ в
-  compile-пути: semantic №98 повышает все Warning из `audit_category_a` до
-  ошибок — это противоречило бы advisory-семантике ADR-0125.
-- **Гейт `VISION_POLICY_MISSING` (Block 3.1 — audit Warning) + parser relax
-  ТОЛЬКО для policy (ГРОМКО: контракт R4.1 меняется по ADR-0125 SSOT,
-  принятому ДО R4.1)**: `policy:` больше не required — missing парсится как
-  `None` (ошибки «поле required» для policy больше нет), audit ворнит
-  `VISION_POLICY_MISSING`, манифест фиксирует `"policy": "unspecified"`;
-  присутствующее значение по-прежнему enum-checked громко (только `safe`).
-  Остальные 6 полей остаются required; прочие R4.1-негативы (дубликаты,
-  unknown, enum, остальные required) не тронуты. Примечание: негатив-тест
-  «missing policy → parse error» из R4.1 в кодовой базе не существовал
-  (6 парсер-тестов №238 его не содержали) — новый контракт закрыт новыми
-  тестами (`test_parse_vision_missing_policy_parses_as_none`,
+- **A Provenance MVP (Block 1)**: `vision_generate` ALWAYS signs — an
+  LSB watermark is embedded in the PNG (the payload is the `"MLGV"` magic
+  bytes plus a model-hash32 = the first 4 bytes of SHA-256(model_id), 64
+  bits in the RGB channels' LSBs; force-set is idempotent; detection reads the
+  decoded pixels; a signing failure is a loud `Err` BEFORE the artifact
+  reaches the registry), and the artifact carries a `VisionManifest`
+  (the model id plus the model's SHA-256 — a fingerprint of the weights
+  tree from a pinned `manifest.json`, with an honest `"unpinned"` marker
+  when it's absent; the seed; the prompt hash; the policy/`"unspecified"`;
+  an RFC 3339 timestamp; the final PNG's SHA-256 — computed after the
+  watermark). `vision_export` is now a signed export: PNG plus a sidecar
+  `<path>.manifest.json`; #240's unsigned WARN is lifted (export is signed
+  by construction). A new module, `src/vision/provenance.rs` — the
+  manifest+hash layer is not feature-gated, the watermark is gated behind
+  `vision` (it needs a PNG codec). An honest boundary (ADR-0125): the MVP
+  watermark is detectable by us, but is NOT adversarially robust
+  (robust watermarking/C2PA are a research backlog, not a promise).
+- **`vision_export_raw` (Block 2.1, registry 387→388)**: an explicit
+  opt-out per ADR-0125 — raw bytes with no watermark/manifest, no sidecar
+  written. Intercepted in the interpreter (eval + invoke) and the VM — the
+  same state-carrying pattern as `vision_export`.
+- **The `VISION_UNSIGNED_EXPORT` gate (Block 2.2 — Category A, an audit
+  Error)**: calling `vision_export` in a file with not a single `vision { }`
+  declaration — a manifest source is impossible, the artifact cannot be
+  signed by construction (modeled on SECRET_LEAK; runs via
+  `audit_category_a` → a compile error). A runtime backstop: exporting an
+  artifact with no manifest (a hand-built registry) is a loud `Err` with the
+  same check-id. **`VISION_UNSIGNED_EXPORT_RAW` (Block 2.3 — an audit
+  Warning, advisory)**: fires on every `vision_export_raw` call; the check-id's
+  name is fixed by this release (the ADR does not set it). The warning is
+  deliberately NOT in the compile path: semantic naryad #98 promotes every
+  Warning from `audit_category_a` to an error — that would contradict
+  ADR-0125's advisory semantics.
+- **The `VISION_POLICY_MISSING` gate (Block 3.1 — an audit Warning) plus
+  a parser relaxation ONLY for policy (LOUDLY: the R4.1 contract changes
+  per ADR-0125's SSOT, adopted BEFORE R4.1)**: `policy:` is no longer
+  required — a missing one parses as `None` (the "field required" error for
+  policy is gone), audit warns with `VISION_POLICY_MISSING`, and the
+  manifest records `"policy": "unspecified"`; a present value is still
+  loudly enum-checked (only `safe`). The other 6 fields remain required;
+  the other R4.1 negatives (duplicates, unknowns, the enum, the remaining
+  required fields) are untouched. Note: the negative test "missing policy
+  → parse error" from R4.1 did not exist in the codebase (#238's 6 parser
+  tests did not include it) — the new contract is closed by new tests
+  (`test_parse_vision_missing_policy_parses_as_none`,
   `test_parse_vision_unknown_policy_value_still_loud`).
-- **Гейт `MODEL_WEIGHTS_UNSAFE` (Block 3.2 — Category A, audit Error) +
-  `vision_fetch_weights(manifest_url, dest_dir)` (реестр 388→389, реальный
-  обработчик)**: SSRF-guard через `check_url_ssrf` (лекало №130, пиннинг
-  резолвов против DNS-rebinding, kill-switch не ослаблен); allowlist через
-  env `MLOG_VISION_WEIGHTS_ALLOWLIST` — **default-deny**: пустой/не задан →
-  громкий отказ, скачивание запрещено; только `manifest.json`-класс URL
-  (голый `.safetensors` = «без пина» — отказ; pickle-RCE-класс по
-  расширению — отказ); SHA-256 pinning каждой записи манифеста (переиспользован
-  `WeightsManifest`, `src/vision/weights.rs` не переписан) — mismatch = громкий
-  отказ, файл НЕ пишется; имена записей — только bare `.safetensors` (без
-  путей/traversal). Статический гейт ловит статически видимые нарушения:
-  литеральный URL SSRF-блокed-класса, литеральный `.safetensors`/pickle-класс,
-  литеральный манифест-класс — валиден статически (фактический allowlist —
-  runtime env, статически нечитаем; оба слоя сохранены, имена точные —
-  механика раскрыта в PR №239). Гейт написан переиспользуемо в `audit.rs` —
-  общий SSOT для Voice-гейтов (ADR-0125).
-- **4 контракта-теста категории A (Block 4) закрыты**: 3 новых в
-  `tests/naryad_241_vision_gates.rs` (точные check-id + severity; негативы —
-  allowlist default-deny, host вне allowlist, пустой allowlist, SHA mismatch
-  на синтетических байтах, raw-ворнинг advisory, позитив-контролы) + taint-тест
-  №240 `user_input_prompt_emits_audit_warning`. Watermark roundtrip + manifest
-  presence — unit-тесты `provenance.rs` (vision-tests job). Сети в тестах нет,
-  веса не нужны.
-- **Тест-инфраструктура**: `tests/registry_arity_check.rs` дополнен полной
-  vision-секцией (generate/edit/export/export_raw/fetch_weights/save/load —
-  ранее vision-строки в exhaustive-списке отсутствовали); тест №210
-  `vision_export_wrong_handle_type_loud_error` получил `vision { }`-декларацию
-  в исходник (Category-A гейт иначе отказывает программу на compile-этапе;
-  субъект теста — runtime-отказ — остался достижимым; адаптация громкая).
-- README numbers synced с артефактов: builtins 387→389; в составе Category A
-  перечислены новые гейты.
+- **The `MODEL_WEIGHTS_UNSAFE` gate (Block 3.2 — Category A, an audit
+  Error) plus `vision_fetch_weights(manifest_url, dest_dir)` (registry
+  388→389, a real handler)**: an SSRF guard via `check_url_ssrf` (modeled
+  on #130, pinning resolutions against DNS rebinding, the kill switch is not
+  weakened); an allowlist via the env var `MLOG_VISION_WEIGHTS_ALLOWLIST` —
+  **default-deny**: empty/unset means a loud refusal, downloading is
+  forbidden; only `manifest.json`-class URLs (a bare `.safetensors` has
+  "no pin" — refused; the pickle-RCE class is refused by extension); SHA-256
+  pinning of every manifest entry (reusing `WeightsManifest`, `src/vision/weights.rs`
+  is not rewritten) — a mismatch is a loud refusal, the file is NOT written;
+  entry names are bare `.safetensors` only (no paths/traversal). The static
+  gate catches statically visible violations: a literal URL of the
+  SSRF-blocked class, a literal `.safetensors`/pickle-class, a literal
+  manifest-class URL is statically valid (the actual allowlist is a runtime
+  env, unreadable statically — both layers are kept, and the exact names
+  are documented in PR #239). The gate is written reusably in `audit.rs` —
+  a shared SSOT for the future Voice gates (ADR-0125).
+- **4 Category A contract tests closed (Block 4)**: 3 new tests in
+  `tests/naryad_241_vision_gates.rs` (exact check-ids plus severities;
+  negatives — allowlist default-deny, a host outside the allowlist, an
+  empty allowlist, a SHA mismatch on synthetic bytes, the raw warning being
+  advisory, positive controls) plus #240's taint test
+  `user_input_prompt_emits_audit_warning`. Watermark round trip plus
+  manifest presence are unit tests in `provenance.rs` (the vision-tests
+  job). No network in the tests, no weights needed.
+- **Test infrastructure**: `tests/registry_arity_check.rs` gains a full
+  vision section (generate/edit/export/export_raw/fetch_weights/save/load —
+  the vision lines were previously absent from the exhaustive list); test
+  #210's `vision_export_wrong_handle_type_loud_error` now has a
+  `vision { }` declaration in its source (the Category A gate would
+  otherwise reject the program at compile time; the test's actual subject —
+  a runtime refusal — remains reachable; the adaptation is loud).
+- README numbers synced with the artifacts: builtins 387→389; the new
+  gates are listed under Category A.
 
-### Added — Vision R4.2: dispatch — `vision { }` → VM → builtins + taint (Наряд №240)
+### Added — Vision R4.2: dispatch — `vision { }` -> VM -> builtins + taint (Naryad #240)
 
-- **dispatch pipeline (лекало reflex_decls)**: `Program::vision_decls: Vec<CompiledVisionDecl>`
+- **dispatch pipeline (modeled on reflex_decls)**: `Program::vision_decls: Vec<CompiledVisionDecl>`
   (`#[serde(default)]`, fields 1:1 with AST R4.1: name/model/steps/width/height/seed/policy/profile;
   serde-serializable `CompiledVisionPolicy`/`CompiledVisionProfile` enums; single conversion point
   `CompiledVisionDecl::from_ast`). Compiler pass1 populates the vec; pass2 emits no bytecode
@@ -295,7 +317,7 @@ All notable changes to the Metalogos project.
 - **VisionRegistry real artifact type (№240)**: R1's `()` placeholder → `VisionArtifact`
   (encoded PNG bytes, produced by the real pipeline). `insert/get/remove/list_ids` API preserved
   in spirit; IDs remain monotonically increasing.
-- **`vision_generate("decl_name", "prompt")` — REAL path (§3.5: ноль молчаливых стабов)**:
+- **`vision_generate("decl_name", "prompt")` — REAL path (§3.5: zero silent stubs)**:
   declaration resolution (unknown name → loud `Err` with the declared-names list), runtime
   re-check `model ∈ KNOWN_VISION_MODELS` (defense-in-depth for hand-built/deserialized
   `Program`s), weights from `MLOG_VISION_WEIGHTS_DIR` (missing env/component → loud `Err`
@@ -309,29 +331,28 @@ All notable changes to the Metalogos project.
   form. **`vision_export(handle, path)`** — writes the artifact's real PNG bytes; every export
   is unsigned → loud stderr WARN + static audit-warning (watermark/manifest/Category-A gate = R5).
   **`vision_edit`/`vision_save`/`vision_load` remain loud stubs** (R6: edit + LoRA/SQLite).
-- **Arity truth-up (№240, урок №234 — конфликт решён до выписки)**: `BUILTIN_REGISTRY`
+- **Arity truth-up (№240, lesson from #234 — the conflict was resolved before writing this up)**: `BUILTIN_REGISTRY`
   `vision_generate` arity **3→2** per the R4 contract (plan §3: `vision_generate("poster", "…")`;
   the R1 stub doc "(model_name, prompt, seed)" predates the declaration language and was never
   the contract). Total builtin count unchanged (387 — no new builtins).
-- **Taint integration (plan §4, лекало n201)**: `UserInput`-tainted expression in position 2 of
+- **Taint integration (plan §4, modeled on n201)**: `UserInput`-tainted expression in position 2 of
   `vision_generate` → audit-**warning** `VISION_PROMPT_USER_INPUT` (NOT Category A — a
   user-typed prompt is a legitimate use case; the prompt will be recorded in the generation
   manifest, R5). Arg 0 (declaration name) is not data — not flagged. No taint on
   `Value::Vision` (opaque handle; print-guard already stands).
-- **Dispatch intercepts (лекало reflex)**: interpreter (expression evaluation + flow-step
+- **Dispatch intercepts (modeled on reflex)**: interpreter (expression evaluation + flow-step
   `invoke`) and VM (`call_vision_builtin` before the generic fallback) route to the shared
   dispatch functions in `src/builtins/vision.rs` — inference logic is NOT reimplemented per
   backend. Registry stubs remain the last resort for direct registry calls (loud refusal).
-- **Tests**: `tests/naryad_240_vision_dispatch.rs` (13, не-gated): plan-§3 example parse+compile
+- **Tests**: `tests/naryad_240_vision_dispatch.rs` (13, non-gated): plan-§3 example parse+compile
   with 1:1 field check; declaration emits no bytecode; dispatch negatives with exact loud
   messages (unknown declaration, wrong arity, missing `MLOG_VISION_WEIGHTS_DIR`, runtime model
   re-check); `vision_list` empty/after-insert sorted; taint warning + three negatives (literal
   prompt, arg-0 taint, sanitized prompt). `tests/naryad_240_vision_mlog_e2e.rs` — env-gated
   `.mlog` e2e (declaration → generate → export → PNG on disk, SHA-256 in output) WITHOUT
-  `#[ignore]` — loud-SKIP pattern; **closes the №237 Block 3.1 promise «+ одна генерация из
-  .mlog»** (loud-gap note in the runbook §3). CI: new `vision-tests` step for the e2e.
+  `#[ignore]` — loud-SKIP pattern; **closes the №237 Block 3.1 promise "+ one generation from .mlog"** (loud-gap note in the runbook §3). CI: new `vision-tests` step for the e2e.
 
-### Added — Vision R4.1: `vision { }` declarations — grammar, AST, parser, semantic (Наряд №238)
+### Added — Vision R4.1: `vision { }` declarations — grammar, AST, parser, semantic (Naryad #238)
 
 - **grammar.pest**: `vision_decl` registered in the top-level `declaration`
   rule. `vision "name" { … }` — the name is a STRING (plan-pillar §3 example).
@@ -365,9 +386,9 @@ All notable changes to the Metalogos project.
   zero-diff; vision declarations carry no bytecode and no runtime semantics
   yet. Minimal no-op match arms were added in compiler.rs / execution.rs /
   modules.rs — forced by exhaustive matches (compile requirement),
-  documented in the наряд №238 PR description.
+  documented in naryad #238's PR description.
 
-### Added — Vision R3.7: real-weights run preparation (Наряд №237)
+### Added — Vision R3.7: real-weights run preparation (Naryad #237)
 
 - **fetch tool**: `tools/fetch_vision_weights.sh` — manifest-driven weight
   fetcher (SSOT = №212 manifest tables): `curl -L -C -` per-file resume,
@@ -378,12 +399,11 @@ All notable changes to the Metalogos project.
   `bash -n`; dry-run plan (16 files); `--only tokenizer` real fetch (4 files,
   15881072 B) + SKIP re-run + truncated-file resume-repair +
   same-size-corruption loud refusal.
-- **manifest №212**: section "How to verify against the source (Как сверять с
-  источником)" — HF LFS oid = SHA-256 of the file, mismatch = loud refusal;
+- **manifest №212**: section "How to verify against the source" — HF LFS oid = SHA-256 of the file, mismatch = loud refusal;
   layout sizes truth-up from HF models API (real total 32 848 304 654 B ≈
   32.85 GB — the "~24.6 GB" go-no-go estimate was an underestimate);
   tokenizer table filled with real sha256/bytes (download run + SKIP re-run,
-  identical values). Heavy weights remain _TODO_ — Branch (б) of Block 2.2
+  identical values). Heavy weights remain _TODO_ — Branch (b) of Block 2.2
   (no ≥40 GB machine in the delivery environment, 9.2 GB free); loud gap in
   the PR description.
 - **runbook**: `docs/research/naryad-237-real-weights-runbook.md` — pre-run
@@ -402,7 +422,7 @@ All notable changes to the Metalogos project.
   appears; the run itself = one session per the runbook, reported separately
   (§3.5 of the naryad spec).
 
-### Added — Vision R3: end-to-end Z-Image-Turbo wedge (Наряд №212, completed №231, rebuilt to reference №232, fix-forward №233, micro-fix №234, VAE structure truth-up №235, expected-key generators extracted №236)
+### Added — Vision R3: end-to-end Z-Image-Turbo wedge (Naryad #212, completed #231, rebuilt to reference #232, fix-forward #233, micro-fix #234, VAE structure truth-up #235, expected-key generators extracted #236)
 
 - **VAE structure truth-up (№235)**: decoder structure per real safetensors header —
   layers_per_block+1 resnets per ALL blocks (was: only last), conv_norm_out (GroupNorm→SiLU→conv_out)
@@ -516,54 +536,55 @@ All notable changes to the Metalogos project.
   - `docs/research/naryad-212-go-no-go.md` — Go/No-Go report (code-complete,
     env-gated run pending real-weights execution on appropriate hardware).
 
-### Fixed — fix-forward №237: runbook doc-числа не сверены с константами тестов (№238 Block 0)
+### Fixed — fix-forward #237: runbook doc figures not reconciled with test constants (#238 Block 0)
 
-- `docs/research/naryad-237-real-weights-runbook.md` §3 и §6: DiT tiny golden
-  `e686167b…` (устаревший n231-хэш) → актуальный `860c85b311905f6c23b90a4e9e3192928027a24bf3e4a00a08096336abad4b3c`
-  (SSOT = константа `GOLDEN_DIT_TINY_HASH` в `tests/naryad_212_wedge_e2e.rs`);
-  `e686167b` оставлен рядом как исторический хэш n231 (pre-rebuild architecture).
-- Там же §3: TE-размер «3 шарда, ~7.5 GB» → «3 шарда, 8 044 982 000 B ≈ 8.05 GB»
-  (3957900840 + 3987450520 + 99630640; сверено верификатором с HF API 2026-09-09).
+- `docs/research/naryad-237-real-weights-runbook.md` sections 3 and 6: the DiT tiny golden
+  `e686167b…` (a stale n231 hash) → the current `860c85b311905f6c23b90a4e9e3192928027a24bf3e4a00a08096336abad4b3c`
+  (SSOT = the `GOLDEN_DIT_TINY_HASH` constant in `tests/naryad_212_wedge_e2e.rs`);
+  `e686167b` is kept alongside it as n231's historical hash (the pre-rebuild architecture).
+- Also in section 3: the TE size "3 shards, ~7.5 GB" → "3 shards, 8,044,982,000 B ≈ 8.05 GB"
+  (3,957,900,840 + 3,987,450,520 + 99,630,640; reconciled by the verifier against the HF API on 2026-09-09).
 
-### Fixed — Vision R2 hotfix (Наряд №230): PRNG SSOT + stream-гигиена + golden-пиннинг
+### Fixed — Vision R2 hotfix (Naryad #230): PRNG SSOT + stream hygiene + golden pinning
 
 - **PRNG SSOT**: the divergent local `generate_uniform_f32` copy in
-  `src/vision/text_encoder.rs` (xorshift64 core without `seed_to_state`
-  XOR ritual, f32 vs f64 mapping path → divergent value streams from
-  `src/nn` SSOT) is removed. The text encoder now imports
+  `src/vision/text_encoder.rs` (an xorshift64 core without the `seed_to_state`
+  XOR ritual, an f32-vs-f64 mapping path that produced divergent value streams from
+  the `src/nn` SSOT) is removed. The text encoder now imports
   `crate::nn::attention::generate_uniform_f32` — the project's SSOT for
   weight-init PRNG (documented in `src/nn/attention.rs`).
-- **Stream hygiene**: `param_seed(master, layer, param)` — splitmix64
+- **Stream hygiene**: `param_seed(master, layer, param)` — a splitmix64
   finalizer over `(master_seed, layer, param)` — derives per-parameter
-  seeds, eliminating the №211 stream-overlap bug (k of layer i ≡ q of
-  layer i+1; embedding ≡ q of layer 0). Fixed `PARAM_*` constants
-  (`PARAM_EMBEDDING=0` through `PARAM_DOWN=7`) — do NOT renumber:
-  derivation is part of the golden contract.
-- **Feature implication corrected**: `vision` feature in `Cargo.toml`
+  seeds, eliminating naryad #211's stream-overlap bug (layer i's k was
+  identical to layer i+1's q; the embedding was identical to layer 0's q).
+  The `PARAM_*` constants are fixed (`PARAM_EMBEDDING=0` through `PARAM_DOWN=7`) —
+  do NOT renumber them: the derivation is part of the golden contract.
+- **Feature implication corrected**: the `vision` feature in `Cargo.toml`
   changed from `["dep:candle-core", "dep:candle-nn"]` (parallel —
-  enabled the deps but NOT the `candle` feature flag, so
+  it enabled the dependencies but NOT the `candle` feature flag, so
   `#[cfg(feature = "candle")]` modules in `src/nn/` were not compiled
   under `--features vision`) to `vision = ["candle"]`. This makes
   vision actually imply candle (as the comments throughout the codebase
   already claimed), so `crate::nn::attention` is now accessible from
-  vision-only builds. Local copy was the workaround; the implication
+  vision-only builds. The local copy was the workaround; the implication
   is the fix.
-- **Golden contract pinned**: `tests/naryad_211_text_encoder_golden.rs`
-  gains `GOLDEN_HASH_P1/P2/P3` (SHA-256 of F32 bytes) and
-  `GOLDEN_ANCHOR_BITS_P1/P2/P3` (4 corner `f32::to_bits()` per prompt,
+- **The golden contract is pinned**: `tests/naryad_211_text_encoder_golden.rs`
+  gains `GOLDEN_HASH_P1/P2/P3` (SHA-256 of the F32 bytes) and
+  `GOLDEN_ANCHOR_BITS_P1/P2/P3` (4 corner `f32::to_bits()` values per prompt,
   integer-exact — immune to float-printing drift). Test 1 asserts
   against these. Pinned after 3 bit-identical local runs (2026-09-08).
-  Known-debt comments removed — replaced by "PRNG: SSOT via crate::nn;
+  The known-debt comments were removed — replaced by "PRNG: SSOT via crate::nn;
   golden records pinned".
-- **Derivation test**: new test `param_seed_derivation_is_pairwise_distinct`
-  — verifies 32 seeds (4 layers × 8 params) are pairwise distinct +
+- **A derivation test**: a new test, `param_seed_derivation_is_pairwise_distinct`
+  — verifies that 32 seeds (4 layers x 8 params) are pairwise distinct plus
   `param_seed(20711, 0, 1) != 20711` (non-identity).
-- **CI**: vision-tests job's "Vision R2 text encoder golden contract"
-  step gains `--nocapture` so eprintln hash/anchor output is visible
+- **CI**: the vision-tests job's "Vision R2 text encoder golden contract"
+  step gains `--nocapture` so the eprintln hash/anchor output is visible
   in CI logs — mandatory infrastructure for the re-pinning procedure
   that will recur in R3 (dtype/init changes).
 
-### Added — Vision R2: text encoder (Наряд №211)
+
+### Added — Vision R2: text encoder (Naryad #211)
 
 - **`vision` feature now implies `candle`** — see hotfix (naryad №230)
   above; the original №211 delivery documented the implication but
@@ -600,7 +621,7 @@ All notable changes to the Metalogos project.
   question documented.
 - **ADR-0123 item 1 resolved** — text-encoder identity confirmed.
 
-### Added — Server test infrastructure (Наряд №207)
+### Added — Server test infrastructure (Naryad #207)
 
 - **`run_test_server_with_backend_in_dir(source, backend, base_dir)`** — new
   test server function that accepts an explicit `base_dir` parameter. This
@@ -626,7 +647,7 @@ All notable changes to the Metalogos project.
   previously recorded query_param/json_body/respond gaps. 31 tests
   un-ignore when fixed.
 
-### Added — Vision pillar skeleton (Наряд №210, ADR-0124)
+### Added — Vision pillar skeleton (Naryad #210, ADR-0124)
 
 - **Feature gate `vision`** (off-by-default, not in `default`/`full`).
   Enable with `cargo build --features vision`. The inference stack
@@ -658,66 +679,66 @@ self-hosted parser bootstraps. ~1000 commits since v0.18.0.**
 
 ### Added — Reflex pillar (complete: train/predict, sequence, generation, distillation)
 
-- **reflex_gen — text generation with KV-cache** (Наряд №193, ADR-0120):
+- **reflex_gen — text generation with KV-cache** (Naryad №193, ADR-0120):
   `reflex_gen Name { input: embedding(dim) vocab_size: V layers: [transformer_block(...)] seed: N }`.
   Autoregressive generation with O(N) KV-cache (`forward_step` per layer).
   `reflex_generate(model, prompt, max_tokens, temperature)` — greedy and
   temperature-sampled decoding. 4-layer transformer generates coherent
   patterns on toy datasets.
-- **reflex_tokenize / reflex_detokenize** (Наряд №194): character-level
+- **reflex_tokenize / reflex_detokenize** (Naryad №194): character-level
   tokenization — simplest deterministic scheme, no vocabulary training.
   Each Unicode char → code point as Float.
-- **BPE tokenization** (Наряд №195): `reflex_bpe_train`, `reflex_bpe_encode`,
+- **BPE tokenization** (Naryad №195): `reflex_bpe_train`, `reflex_bpe_encode`,
   `reflex_bpe_decode`, `reflex_bpe_save`, `reflex_bpe_load`. Opaque
   `Value::BpeVocab` handle, `BPE_REGISTRY` global Mutex, deterministic
   training with lexicographic tie-break, binary serialize/deserialize.
-- **Batched training** (Наряд №196): `[batch, seq_len, dim]` tensor with
+- **Batched training** (Naryad №196): `[batch, seq_len, dim]` tensor with
   padding mask. Padding tokens excluded from loss and attention.
   `batch_size=1` matches single-sequence path byte-for-byte. Measured
   2-3x speedup on batch sizes 4-8.
-- **Grouped-Query Attention (GQA)** (Наряд №188): `n_kv_heads` parameter
+- **Grouped-Query Attention (GQA)** (Naryad №188): `n_kv_heads` parameter
   on `attention` and `transformer_block`. K/V weights `[dim, kv_dim]`
   (not `[dim, dim]`). `repeat_kv()` for GQA. Backward compatible when
   `n_kv_heads == n_heads`.
-- **Stacked transformer_blocks** (Наряд №190): multiple blocks in a
+- **Stacked transformer_blocks** (Naryad №190): multiple blocks in a
   `reflex_seq`/`reflex_gen` layers list. VarMap prefixing prevents
   weight collision (`block0_attn_w_q`, `block1_attn_w_q`, ...).
-- **RmsNorm + SwiGLU + transformer_block** (Наряд №184): modular
+- **RmsNorm + SwiGLU + transformer_block** (Naryad №184): modular
   SequenceLayer types. `SEQUENCE_LAYER_REGISTRY` for name→constructor
   dispatch. `reflex_seq` uses sequence-only layers, `reflex` uses
   dense-only — mixing is a compile-time error (ADR-0119).
-- **Attention layer** (Наряд №183): trainable attention with causal mask,
+- **Attention layer** (Naryad №183): trainable attention with causal mask,
   RoPE positional encoding, `TrainableAttention` for autograd.
-- **reflex_seq — sequence classification** (Наряд №185): mean pooling +
+- **reflex_seq — sequence classification** (Naryad №185): mean pooling +
   Dense classifier head. `reflex_train`/`reflex_predict` dispatch through
   `ModelKind` enum (Dense | Sequence | Gen).
-- **Reflex distillation** (Наряд №181, ADR-0117): `distill_to`,
+- **Reflex distillation** (Naryad №181, ADR-0117): `distill_to`,
   `distill_after`, `fallback_if` fields on `learnable pattern`. LLM
   traffic distilled into a local reflex model after N examples.
   TEACHING→DISTILLED→FALLBACK cycle.
-- **Reflex persistence** (Наряд №180, ADR-0116): `reflex_save` /
+- **Reflex persistence** (Naryad №180, ADR-0116): `reflex_save` /
   `reflex_load` — serialize model weights to SQLite. Version-tagged,
   shape-mismatch detection.
-- **Reflex introspection** (Наряд №187): `reflex_metrics(model)` →
+- **Reflex introspection** (Naryad №187): `reflex_metrics(model)` →
   Struct { param_count, last_metric, layers, input_size, labels }.
   `reflex_list()` → List of registered model names.
-- **candle ML framework** (Наряд №175/183, ADR-0118): optional feature
+- **candle ML framework** (Naryad №175/183, ADR-0118): optional feature
   `--features candle`. CPU-only, no GPU. `VarBuilder`/`VarMap`/`Var`
   autograd. Language works without candle (default build) — Dense
   classification is pure Rust.
-- **Reflex declaration** (Наряд №178, ADR-0114): `reflex Name { input:
+- **Reflex declaration** (Naryad №178, ADR-0114): `reflex Name { input:
   embedding(dim) layers: [...] labels: [...] seed: N }`. Opaque
   `Value::Reflex(ReflexId)` handle — weights never enter `Value`.
   `ReflexRegistry` owns models. Deterministic weight init via
   xorshift64 PRNG (ADR-0115).
-- **Reflex training/prediction** (Наряды №177/179/179b): `reflex_train(model,
+- **Reflex training/prediction** (Naryads №177/179/179b): `reflex_train(model,
   data, epochs, metric, threshold)` → Struct { loss, accuracy, metric,
   threshold_met }. `reflex_predict(model, input)` → Fluid (label with
   confidence). 80/20 holdout split, cross-entropy loss, SGD.
 
 ### Added — VM Reflex parity (ADR-0121, stage 1 of 6)
 
-- **VM-owned ReflexRegistry** (Наряд №199): `Vm` struct gains
+- **VM-owned ReflexRegistry** (Naryad №199): `Vm` struct gains
   `reflex_registry: ReflexRegistry` + `reflex_names: HashMap<String,
   ReflexId>`. `reflex_train`/`reflex_predict` intercepted in
   `call_builtin` before the stub fallback. Same shared dispatch
@@ -728,49 +749,49 @@ self-hosted parser bootstraps. ~1000 commits since v0.18.0.**
 
 ### Added — Security (Reflex + learnable taint model)
 
-- **UNTRUSTED_TRAINING_DATA check** (Наряд №201, OWASP A09):
+- **UNTRUSTED_TRAINING_DATA check** (Naryad №201, OWASP A09):
   `json_body()`/`query_param()`/`form_data()` → `reflex_train` data/labels
   → Error (model poisoning / PII baked into weights). New Category-A
   check_id, blocking.
-- **SECRET_LEAK extended to reflex_train** (Наряд №201): `env()` →
+- **SECRET_LEAK extended to reflex_train** (Naryad №201): `env()` →
   `reflex_train` data/labels → SECRET_LEAK Error. Weights persist via
   `reflex_save` (ADR-0116), bypassing file-level sinks. Interception
   on `reflex_train` args (not `reflex_save` — taint cannot sit on
   `Value::Reflex` opaque handle per ADR-0114).
 - **HTML_INJECTION extended to reflex_generate + learnable patterns**
-  (Наряд №201): `reflex_generate` output treated as `LlmOutput` taint
+  (Naryad №201): `reflex_generate` output treated as `LlmOutput` taint
   (model trained on data that may include LLM-tainted content per
   ADR-0117). Learnable patterns (declared with `learnable pattern`)
   are also taint sources — their output is the result of an LLM call.
   `respond(Classify(x))` → HTML_INJECTION Warning.
-- **List literal taint propagation** (Наряд №201): `get_expr_taint`
+- **List literal taint propagation** (Naryad №201): `get_expr_taint`
   now propagates taint through `Expr::List` — needed for
   `[[env("K"), 0.0]]` in `reflex_train` data.
-- **max_tokens ceiling** (Наряд №203 Block 4): `reflex_generate`
+- **max_tokens ceiling** (Naryad №203 Block 4): `reflex_generate`
   `max_tokens` capped at 4096 — explicit error, not silent truncation.
   Prevents resource exhaustion when `mlog serve` receives external
   request with `max_tokens=1e9`.
-- **bind 127.0.0.1** (Наряд №164): server binds to localhost by default.
-- **secret() builtin** (Наряд №172): `secret("KEY")` returns
+- **bind 127.0.0.1** (Naryad №164): server binds to localhost by default.
+- **secret() builtin** (Naryad №172): `secret("KEY")` returns
   `Value::Secret` directly (hard-failure if env var missing, unlike
   `env()` which returns empty string).
-- **SSOT audit** (Наряд №170): `BUILTIN_REGISTRY` is the single source
+- **SSOT audit** (Naryad №170): `BUILTIN_REGISTRY` is the single source
   of truth — compiler, VM, and semantic analysis all derive from it.
 
 ### Added — Tooling
 
-- **candle-tests blocking CI job** (Наряд №200): new blocking job in
+- **candle-tests blocking CI job** (Naryad №200): new blocking job in
   `.github/workflows/ci.yml`. Runs `cargo test --workspace --features
   candle` (lib + 20 candle-gated integration tests) and
   `cargo clippy --features candle`. Existing `test-lib` job verifies
   ADR-0118 (language works without candle).
-- **mlogpkg dependency resolution + lockfile + audit** (Наряд №198):
+- **mlogpkg dependency resolution + lockfile + audit** (Naryad №198):
   Full transitive dependency graph resolution with version conflict
   detection and cycle detection. `mlogpkg.lock` (deterministic TOML,
   alphabetical). `mlogpkg audit` — checks dependencies against local
   advisory database (manually maintained, NOT external CVE integration).
   `mlogpkg add` pre-flight resolves before writing `mlog.toml`.
-- **Self-hosted parser** (Наряд №197): `self-host/parser.mlog` —
+- **Self-hosted parser** (Naryad №197): `self-host/parser.mlog` —
   Metalogos parser written in Metalogos itself. Bootstraps (parses its
   own source). 4 lexer bugs fixed in local Tokenize copy. Structural
   equivalence with Rust parser verified on 12 .mlog files.
@@ -783,28 +804,28 @@ self-hosted parser bootstraps. ~1000 commits since v0.18.0.**
 
 ### Fixed
 
-- **VarMap collision in stacked blocks** (Наряд №190): TrainableAttention
+- **VarMap collision in stacked blocks** (Naryad №190): TrainableAttention
   registered Vars under fixed names → stacked blocks overwrote each other.
   Fixed by adding `prefix` parameter.
-- **GQA K tensor reshape** (Наряд №192): `apply_rope` had hardcoded
+- **GQA K tensor reshape** (Naryad №192): `apply_rope` had hardcoded
   `reshape((seq_len, self.dim))` — failed for GQA K tensor (smaller
   dim). Fixed to `reshape((seq_len, n_h * head_dim))`.
-- **cross_entropy_loss scalar** (Наряд №193b): returned `[1,1]` tensor
+- **cross_entropy_loss scalar** (Naryad №193b): returned `[1,1]` tensor
   instead of scalar → `to_scalar` failed. Fixed with
   `.squeeze(0).squeeze(0)`.
-- **KV-cache mismatch** (Наряд №193b): prompt processed via full
+- **KV-cache mismatch** (Naryad №193b): prompt processed via full
   `forward()`, but caches were empty → cache vs no-cache mismatch.
   Fixed: `forward_step` now used for ALL prompt positions.
-- **golden error test divergence under candle** (Наряд №200):
+- **golden error test divergence under candle** (Naryad №200):
   `collect_error_pairs` in `tests/golden.rs` skipped reflex_*.error
   pairs when `cfg!(feature = "candle")` is active. The .error files
   describe the candle-OFF message; under candle-ON the message differs.
-- **stray .mlog files** (Наряд №203 Block 3): p161_deep_b/c,
+- **stray .mlog files** (Naryad №203 Block 3): p161_deep_b/c,
   p161_route_helper moved from repo root to `examples/debug/`.
 
 ### Security
 
-- All Reflex taint flows (Наряд №201) described above.
+- All Reflex taint flows (Naryad №201) described above.
 - `docs/threat-model.md` updated with 3 new risk rows:
   weights exfiltration, untrusted training data, model output as
   untrusted HTML.

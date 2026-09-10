@@ -5,7 +5,10 @@
 //! `vision_lora_load`, then persisted as a SQLite BLOB — the ADR-0124 §6
 //! pattern, "not a new file format"); at generation time the adapter is
 //! resolved from the database and merged into the DiT attention
-//! projections (`blocks.N.attention.{to_q,to_k,to_v,to_out.0}.weight`).
+//! projections (`layers.N` / `noise_refiner.N` / `context_refiner.N` +
+//! `.attention.{to_q,to_k,to_v,to_out.0}.weight` — the
+//! `zimage_expected_keys` shape, pinned by the
+//! `attention_targets_match_zimage_expected_keys_shape` unit test).
 //!
 //! ## Contract (naryad №244, Block 1.1)
 //!

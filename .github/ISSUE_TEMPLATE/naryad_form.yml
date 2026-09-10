@@ -1,0 +1,68 @@
+name: "Наряд"
+description: "Рабочий наряд по контракту AGENT.md §8 — один наряд, одна ветка, один PR"
+labels: ["naryad"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Правила наряда** (AGENT.md): §1 — код источник истины, факт-база проверена grep/прогоном, не документацией; §8 — ветка → PR → зелёные блокирующие джобы на мерж-коммите; один коммит на логический шаг; отчёт называет допущения явно.
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Приоритет
+      options:
+        - "P0"
+        - "P1"
+        - "P2"
+        - "P3"
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Категория
+      options:
+        - security
+        - bug
+        - hardening
+        - hygiene
+        - docs
+    validations:
+      required: true
+  - type: textarea
+    id: facts
+    attributes:
+      label: Факт-база (проверено)
+      description: "file:line, воспроизводимый сценарий. Только проверенные факты, не со слов документации."
+    validations:
+      required: true
+  - type: textarea
+    id: task
+    attributes:
+      label: Задача
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: "§3 — файлы, которые изменятся"
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: "Критерий «сделано»"
+      description: "Тесты + зелёные блокирующие джобы на мерж-коммите"
+    validations:
+      required: true
+  - type: input
+    id: depends
+    attributes:
+      label: Зависимости
+      description: "Номера issues/нарядов, после которых выполнять. Пусто — независим."
+  - type: checkboxes
+    id: owner_decision
+    attributes:
+      label: Решение владельца
+      options:
+        - label: "Наряд содержит точку решения владельца (курс проекта решает владелец — AGENT.md §3)"

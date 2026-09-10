@@ -10,7 +10,7 @@ until the data-flow shape is fixed.
 
 | check_id | Threat | Source → Sink | OWASP | Mitigation |
 |---|---|---|---|---|
-| `SQL_DYNAMIC` | SQL injection | Non-literal SQL string → `query()` | A03 Injection | Reject `query()` unless the SQL argument is a string literal. Only parameterized queries compile. |
+| `SQL_DYNAMIC` | SQL injection | Non-literal SQL string → `query()` / `db_execute()` | A03 Injection | Reject `query()` and `db_execute()` unless the SQL argument is a string literal — `db_execute` has no safe non-literal path (same rule as `query`: parameterized calls require a literal SQL template with `?`/`$N` placeholders). Only parameterized queries compile. |
 | `SECRET_LEAK` | Plaintext secret leakage | `env()` / `secret()` → `respond()`, `write_file()`, `http_post()` body, `reflex_train()` data/labels | A02 Cryptographic Failures | Static taint-tracking: both `env()` and `secret()` results are flagged as secret-derived (Category A). Audit rejects if the tainted value reaches a network, response, or model-training sink. **Наряд №201**: `reflex_train` data/labels (args 1, 2) are now checked — secrets baked into model weights persist via `reflex_save` (ADR-0116), bypassing file-level sinks. Runtime opacity (`Value::Secret`) is enforced in two ways: (1) `secret("KEY")` returns `Value::Secret` directly (hard-failure if env var missing); (2) `env("KEY")` returns `Value::String`, and `Value::Secret` appears only when the value is bound to a `Secret`-typed entity (`entity k: Secret = env("KEY")`). |
 | `HTML_INJECTION` | XSS via LLM output | `call_llm()` / `call_claude()` / `reflex_generate()` / learnable pattern → `respond()` without sanitization | A03 Injection | Requires `render()` or `escape_html()` between LLM source and `respond()`. **Наряд №201**: `reflex_generate` output is untrusted (model trained on data that may include LLM-tainted content per ADR-0117). Learnable patterns (declared with `learnable pattern`) are also flagged — their output is the result of an LLM call, so it is untrusted text. Single-level inline nesting (e.g. `respond(upper(call_llm(...)))`) is detected; deeper nesting is a known boundary. |
 | `UNTRUSTED_TRAINING_DATA` | Model poisoning / PII in weights | `json_body()` / `query_param()` / `form_data()` → `reflex_train()` data/labels | A09 Security Logging and Monitoring Failures | **Наряд №201**: Untrusted user input must not be used as training data for Reflex models. User-provided data can poison the model (adversarial examples) or bake PII into weights that persist via `reflex_save` (ADR-0116). The check flags `reflex_train` args 1 (data) and 2 (labels) if they carry `UserInput` taint. Intraprocedural level — same as all Category-A checks. |
@@ -29,6 +29,42 @@ miss complex indirection. They produce warnings, not errors.
 | `SANDBOX_COVERAGE` | Unsandboxed self-modification | `adapt` / `mutate` without enclosing `sandbox` block | A05 | Sandbox is opt-in. External review or infra-level isolation may handle the risk. |
 | `RATE_LIMIT` | Missing rate limiting | No `rate_limit` middleware in `mlogserver` block | A05 | External infra (reverse proxy, CDN) may enforce rate limits. |
 | `CSRF` | Missing CSRF protection | No `csrf` middleware in `mlogserver` block | A01 | Token-authenticated APIs do not need CSRF (cookies not used for auth). Cookie-based sessions do. |
+
+## Vision / generative media (0.19+)
+
+Vision (ADR-0122) is the feature-gated generative pillar: `vision` (which implies
+`candle`) is **not** in `default`/`full` in `Cargo.toml`. Its security surface is
+enforced by five audit checks in `src/audit.rs`. The two Category-A checks become
+compile errors through the `audit_category_a` wiring (semantic №98 promotion). The
+compile path deliberately runs an errors-only variant of the export-gate check
+(`check_vision_export_gates_errors_only`): semantic №98 promotes every
+`audit_category_a` Warning to a compile error, which would contradict ADR-0125's
+explicit Warning severities — the three Vision warnings below stay advisory
+(`mlog audit`), never compile errors.
+
+| check_id | Severity | Threat | Vector (source → sink) | OWASP | Mitigation |
+|---|---|---|---|---|---|
+| `VISION_UNSIGNED_EXPORT` | Error (Category A) | Silent export of unsigned media — the provenance chain is broken by construction | `vision_export` call site in a file with **no** `vision { }` declaration — the provenance-manifest source is impossible there, so the artifact cannot be signed. Runtime backstop with the same check-id: exporting a manifest-less artifact via `vision_export_dispatch` is a loud `Err` (`src/builtins/vision.rs`) | A08 Data Integrity | Compile error by construction. Declare `vision { }` in the file, or use `vision_export_raw` explicitly (which stays a loud warning). |
+| `VISION_UNSIGNED_EXPORT_RAW` | Warning (advisory) | Deliberate unsigned export — no watermark, no manifest sidecar | Every `vision_export_raw` call site — the explicit opt-out chosen in source is made loud | A08 Data Integrity | Advisory warning on every raw-export call site (ADR-0125's explicit opt-out; deliberately NOT promoted to a compile error). |
+| `MODEL_WEIGHTS_UNSAFE` | Error (Category A) | Poisoned / unsafe model weights (supply-chain attack surface) | Literal URL at a `vision_fetch_weights(url, ...)` call site, three statically visible classes: (1) host in the SSRF-blocked class (loopback / private / link-local / metadata IPs, `localhost`); (2) bare `.safetensors` file — no manifest, no pinned SHA-256 source; (3) pickle-RCE-class extension (`.pkl`, `.pickle`, `.pt`, `.pth`, `.ckpt`, `.bin`, `.py`, `.so`, `.dll`, `.exe`, `.zip`, `.tar`, `.gz`, `.7z`) | A08 Data Integrity / A10 SSRF | Compile error by construction. Runtime layers in `vision_fetch_weights`: allowlist default-deny via `MLOG_VISION_WEIGHTS_ALLOWLIST` + SSRF guard with DNS resolve-pinning + per-entry SHA-256 pinning (reuses `WeightsManifest`). |
+| `VISION_POLICY_MISSING` | Warning (advisory) | Honest use not explicit — a `vision { }` block declared without `policy:` | Every `vision { }` declaration whose `policy:` field is omitted; the manifest records `"policy": "unspecified"` | A05 Security Misconfiguration | Advisory warning — the audit IS the static policy validation (ADR-0125). The parser relax is policy-only; the other six declaration fields stay required. |
+| `VISION_PROMPT_USER_INPUT` | Warning (advisory) | User-tainted input used as a generation/edit prompt | `form_data()` / `json_body()` / `query_param()` taint → argument 1 (the prompt) of `vision_generate`, `vision_edit`, `vision_lora_generate`. Argument 0 (declaration name / Vision handle / adapter name) is **not** flagged. `Value::Vision` itself carries no taint (opaque handle) | A03 Injection | Advisory warning: submitting a user-typed prompt is a legitimate use case; the prompt is recorded in the artifact's provenance manifest (`prompt_sha256`). |
+
+### Honest boundary (ADR-0125 "Provenance MVP")
+
+- **What ships:** every default export writes an LSB watermark (the bytes `MLGV`
+  plus a 32-bit model hash, embedded in the RGB least-significant bits) and a
+  `.manifest.json` sidecar (model id + weights SHA-256 or the literal `unpinned`,
+  seed, prompt hash, policy or `unspecified`, timestamp, SHA-256 of the final PNG).
+- **What this is NOT:** the LSB watermark + sidecar are provenance for our own
+  pipeline — **not a cryptographic signature of the file and not proof for a third
+  party**. The MVP watermark is detectable by us, not adversarially robust (it does
+  not survive resize/JPEG in general).
+- **Research backlog, not promised** (ADR-0125 phase 2): robust watermarking
+  surviving resize/JPEG; C2PA-compatible manifests.
+- **Taint boundaries for Vision are the same as everywhere in this model:**
+  intra-procedural and positional — the prompt is argument 1; interprocedural
+  flows are not tracked (see Known Boundaries above). No stronger claim is made.
 
 ## Known Boundaries
 

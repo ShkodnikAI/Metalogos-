@@ -6,6 +6,7 @@ The following versions of Metalogos are currently supported with security update
 
 | Version | Supported          |
 | ------- | ------------------ |
+| 0.19.x  | :white_check_mark: |
 | 0.18.x  | :white_check_mark: |
 | < 0.18  | :x:                |
 
@@ -95,8 +96,12 @@ Metalogos is designed with security as a first-class concern:
 - **Memory safety by default** — Built on Rust's ownership model
 - **Type safety** — Prevents entire classes of bugs at compile time
 - **Sandboxed execution** — `sandbox` declarations restrict filesystem access to an allowlist, block `exec()` calls, and cap loop iterations (10 000 per loop) at runtime
-- **Formal verification support** — Integration with proof assistants (planned)
+- **Formal verification support** — Integration with proof assistants (planned; formulation last reviewed 2026-09-10 — unchanged, still planned: no verification has been performed, and the wording is kept because it is true, not because it is pretty)
 - **Static security analysis** — Core security invariants (SQL injection, secret leaks, HTML injection) are enforced at compile time; additional advisory checks (hardcoded secrets, sandbox coverage, rate limiting, CSRF, open redirects) are available via `mlog audit`
+
+### Generative pillars (Reflex, Vision)
+
+The generative pillars extend the security surface. Reflex (local neural models, ADR-0114) is part of the default build; its sequence layer and the Vision pillar (images, ADR-0122) are feature-gated — `vision` (which implies `candle`) and `candle` are **not** part of `default`/`full` in `Cargo.toml [features]`. Supply-chain gates apply before any weights are used: `MODEL_WEIGHTS_UNSAFE` (a Category-A compile error) statically refuses SSRF-class hosts, bare un-pinned `.safetensors` URLs, and pickle-RCE-class weight formats at `vision_fetch_weights`, backed at runtime by a default-deny allowlist (`MLOG_VISION_WEIGHTS_ALLOWLIST`), SSRF resolve-pinning, and SHA-256 pinning; provenance is enforced by `VISION_UNSIGNED_EXPORT` (LSB watermark + `.manifest.json` sidecar on every default export). Honest status: **Vision weights run PARKED — no production PNG yet** (go-no-go №212 + runbook №237: the real-weights run has not been executed, so no production image claim is made).
 
 ## Acknowledgments
 
@@ -104,4 +109,4 @@ We thank the security researchers and community members who help keep Metalogos 
 
 ---
 
-*Last updated: 2026-08-20*
+*Last updated: 2026-09-10*

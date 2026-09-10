@@ -540,6 +540,10 @@ reflex_seq StackedTransformer {
 
 Each layer receives `seed.wrapping_add(layer_index)` for deterministic weight initialization, and registers its parameters under unique `VarMap` names (`block0_attn_w_q`, `block1_attn_w_q`, etc.) so that `backward()` populates gradients for all blocks — gradients flow through the entire stack, not just the last layer.
 
+### Vision — Generative Media (ADR-0122, ADR-0125)
+
+**Weights run parked — no production PNG yet.** The Vision pillar (images, ADR-0122) is feature-gated (`--features vision`, which implies `candle`) and ships compiler-level provenance and supply-chain gates (ADR-0125); the real-weights run (runbook №237) has not been executed, so no production image has been generated.
+
 ---
 
 ## Quick Start

@@ -171,6 +171,32 @@ impl Vm {
         self.global_names = program.globals.clone();
         self.collections_loaded = program.collections_loaded;
 
+        // Наряд №250 (ADR-0122 #208): pre-register ALL patterns declared in
+        // main_code so route bodies can dispatch user calls. Root (repro:
+        // naryad_161 `block3_vm_serves_imported_pattern`, verbatim
+        // "status 500 != 200"): the server VM path builds a fresh Vm per
+        // request and runs load_program + execute_route_code WITHOUT
+        // executing main_code — but self.patterns was only ever filled by
+        // RegisterPattern instructions DURING execute_main_code, so every
+        // CallPattern(idx) from a route body hit "VM: pattern index N not
+        // found" → HTTP 500 (the #206 debt ADR-0122 #208 "reserved").
+        // Scanning main_code's RegisterPattern instructions preserves the
+        // compiler's index order 1:1 (pass1 assigns idx by declaration order,
+        // pass2 emits RegisterPattern in the same order), so the positional
+        // CallPattern indices resolve to the right patterns. This also
+        // honors the documented load_program contract ("Initializes globals,
+        // patterns, learnables, rules, skill_indices") and works identically
+        // for deserialized .mbc programs (their main_code carries the same
+        // instructions). The clear() keeps repeated load_program calls
+        // idempotent; the run() path re-registers via the RegisterPattern
+        // handler, which is index-stable (replace-in-place) — no duplicates.
+        self.patterns.clear();
+        for instr in &program.main_code {
+            if let Instruction::RegisterPattern(fn_def) = instr {
+                self.patterns.push(fn_def.clone());
+            }
+        }
+
         // Sort rules by priority descending (matches interpreter semantics)
         let mut rules = program.rules.clone();
         rules.sort_by_key(|b| std::cmp::Reverse(b.priority));
@@ -329,7 +355,20 @@ impl Vm {
 
                 // ── Registration ──────────────────────────────
                 Instruction::RegisterPattern(fn_def) => {
-                    self.patterns.push(fn_def.clone());
+                    // Наряд №250: index-stable (re)registration. load_program
+                    // pre-registers patterns from main_code (route/serve path
+                    // and the documented contract); when execute_main_code
+                    // then re-runs the SAME RegisterPattern instructions
+                    // (run path), replacing the existing entry in place keeps
+                    // every positional CallPattern(idx) index valid — no
+                    // duplicates, and the final layout is identical to a
+                    // fresh single registration (same instruction sequence
+                    // over the pre-registered table; rposition makes the
+                    // k-th occurrence replace the k-th slot).
+                    match self.patterns.iter().rposition(|p| p.name == fn_def.name) {
+                        Some(i) => self.patterns[i] = fn_def.clone(),
+                        None => self.patterns.push(fn_def.clone()),
+                    }
                     ip += 1;
                 }
                 Instruction::RegisterLearnable(info) => {

@@ -670,6 +670,16 @@ fn build_router(state: ServerState) -> Router {
         }
     }
 
+    // Наряд №250 (ADR-0122 #208 family — n206 VM-serve verification debt):
+    // wire the DESIGNED 404 body into the router. The manual dispatch path
+    // already returns ("404 Not Found") (the `else` branch below in this
+    // file), but the axum router never received a fallback, so unknown paths
+    // returned axum's default EMPTY-body 404 on BOTH backends (repro:
+    // naryad_160 block2_vm_404_unknown_route — status 404, body ""). The
+    // fallback is backend-agnostic (shared router: Interpreter AND VM), so
+    // TW/VM parity is preserved (block4_tw_vs_vm_404 stays green).
+    app = app.fallback(|| async { (StatusCode::NOT_FOUND, "404 Not Found").into_response() });
+
     app.with_state(state)
 }
 

@@ -597,8 +597,32 @@ impl Compiler {
                 Declaration::Import(_) => {
                     // Already resolved in import preprocessing
                 }
+                Declaration::Template(t) => {
+                    // Наряд №250 (ADR-0122 #208): register templates at
+                    // COMPILE time. The VM serve path (Vm::new + load_program
+                    // + execute_route_code) has no declaration walk, so the
+                    // interpreter's runtime registration (execution.rs on
+                    // Declaration::Template) never runs there and
+                    // `render("Name", ...)` failed with "unknown template"
+                    // (repro: vm_golden p115_render_basic — the n206 ignore
+                    // note "template registration not being wired in the VM
+                    // path"). GLOBAL_TEMPLATES is the №115 TW/VM-parity
+                    // channel in builtins::http; register_template is
+                    // overwrite-idempotent (it stores the same data the
+                    // interpreter registers at declaration-execution time),
+                    // and `mlog serve` compiles in-process, so compile-time
+                    // registration covers every VM request without touching
+                    // bytecode.rs (the Program schema stays frozen; a
+                    // templates field would break old-.mbc deserialize).
+                    // Pre-existing gap, unchanged here: `run`/`serve` FROM a
+                    // deserialized .mbc cannot register templates for EITHER
+                    // backend (Program carries no template data) — revisit
+                    // with a bytecode schema change if a real use case asks.
+                    let param_names: Vec<String> =
+                        t.params.iter().map(|p| p.name.clone()).collect();
+                    crate::builtins::http::register_template(&t.name, &t.body, param_names);
+                }
                 Declaration::MlogServer(_)
-                | Declaration::Template(_)
                 | Declaration::Db(_)
                 | Declaration::Schema(_)
                 | Declaration::SkillIndex(_)
@@ -813,7 +837,15 @@ impl Compiler {
             }
             // Additional expression forms in Metalogos- AST
             Expr::BoolLit { value: b, .. } => {
-                code.push(Instruction::Const(Value::Float(if *b { 1.0 } else { 0.0 })));
+                // Наряд №250: compile bool literals as Value::Bool. The old
+                // Float(1.0/0.0) encoding lost the type: make_list(true, "a", 3)
+                // produced [1.0, "a", 3.0] on the VM and sort() diverged from
+                // TW ([1,3,a] vs [3,a,true] — repro p118_collection_utils).
+                // is_truthy / eval_cmp / shared builtins all handle Bool; the
+                // .mbc format is unchanged (Value::Bool already serializable);
+                // old .mbc files keep their float encoding and behave as
+                // before. TW is unaffected (it never used this path).
+                code.push(Instruction::Const(Value::Bool(*b)));
             }
             Expr::QualifiedCall {
                 module,
@@ -1303,6 +1335,21 @@ impl Compiler {
                 }
                 _ => {}
             }
+        }
+        // Наряд №250 (ADR-0122 #208): TW-parity for the BODY VALUE. The
+        // tree-walking interpreter evaluates a statement block to the value
+        // of its LAST statement — route bodies rely on this: `respond(...)`
+        // as the final statement IS the route's response (server.rs
+        // execute_route_body). The ExprStmt compilation discards the value
+        // with a trailing Pop, so the VM's fall-through return
+        // (execute_code: Ok(stack.pop())) returned an arbitrary leftover
+        // LOCAL instead (repro: the realistic dispatcher route returned the
+        // raw query_param value "hi" instead of the HttpResponse). Drop the
+        // FINAL Pop so the last statement's value stays on the stack — the
+        // fall-through return then yields exactly what TW yields. Interior
+        // statements keep their Pop; explicit `return` bodies are untouched.
+        if matches!(code.last(), Some(Instruction::Pop)) {
+            code.pop();
         }
         Ok(code)
     }

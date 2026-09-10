@@ -71,7 +71,6 @@ async fn tw_serves_all_dept_branches_correctly() {
 // RouteByDept (→ HandleDeptA/B/C) и query_param; VM отвечает 500 на вызовы
 // user-паттернов из тел маршрутов (доказано в naryad_161 Block 3, verbatim:
 // "status 500 != 200"). Tracked as n208.
-#[ignore = "n207: VM route body divergence — user-pattern calls + query_param in route bodies return 500 on VM; tracked as n208"]
 #[tokio::test]
 async fn vm_serves_all_dept_branches_correctly() {
     assert_all_depts_parity(ServeBackend::Vm, "VM").await;
@@ -79,7 +78,6 @@ async fn vm_serves_all_dept_branches_correctly() {
 
 // НАРЯД №207: parity-тест включает VM-сторону → упирается в ту же дивергенцию
 // (user-паттерны из тел маршрутов на VM дают 500). Tracked as n208.
-#[ignore = "n207: VM route body divergence — VM side returns 500 on user-pattern calls in route bodies; tracked as n208"]
 #[tokio::test]
 async fn tw_vm_full_parity_across_all_branches() {
     let (tw_port, _tw_handle) = start_server(ServeBackend::Interpreter).await;

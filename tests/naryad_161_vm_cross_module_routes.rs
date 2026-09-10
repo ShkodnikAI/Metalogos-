@@ -215,7 +215,6 @@ async fn block3_tw_serves_imported_pattern() {
     );
 }
 
-#[ignore = "n207: VM route body divergence — VM cannot call user-defined patterns (HandleHelper) from route bodies; tracked as n208. Verbatim: status 500 != 200"]
 #[tokio::test]
 async fn block3_vm_serves_imported_pattern() {
     let (port, _handle) = start_server(SOURCE_WITH_IMPORT, ServeBackend::Vm).await;
@@ -227,7 +226,6 @@ async fn block3_vm_serves_imported_pattern() {
     );
 }
 
-#[ignore = "n207: VM route body divergence — VM side fails with 500 on pattern calls in route bodies; tracked as n208"]
 #[tokio::test]
 async fn block3_tw_vm_parity_imported_pattern() {
     let (tw_port, tw_handle) = start_server(SOURCE_WITH_IMPORT, ServeBackend::Interpreter).await;
@@ -244,7 +242,6 @@ async fn block3_tw_vm_parity_imported_pattern() {
     );
 }
 
-#[ignore = "n207: VM route body divergence — VM cannot call user-defined patterns (DeepB) from route bodies; tracked as n208. Verbatim: status 500 != 200"]
 #[tokio::test]
 async fn block3_vm_transitive_import_chain() {
     let source = r#"

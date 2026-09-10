@@ -111,7 +111,6 @@ async fn http_post_json(port: u16, path: &str, json: &serde_json::Value) -> (u16
 // БЛОК 1 — Перепроверить `match` в маршрутах
 // ═══════════════════════════════════════════════════════════════════
 
-#[ignore = "n206: VM serve full verification — same VM route body divergence"]
 #[test]
 fn block1_no_match_in_test_route_bodies() {
     for (name, source) in [
@@ -127,7 +126,6 @@ fn block1_no_match_in_test_route_bodies() {
     }
 }
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
 #[tokio::test]
 async fn block1_match_still_rejected_by_vm_compiler() {
     let source = r#"
@@ -155,7 +153,6 @@ mlogserver {
     );
 }
 
-#[ignore = "n206: VM serve full verification — same VM route body divergence"]
 #[test]
 fn block1_scan_all_examples_for_match_in_routes() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
@@ -224,7 +221,6 @@ fn extract_route_bodies(source: &str) -> Vec<(String, String)> {
 // БЛОК 2 — Настоящий HTTP-стек
 // ═══════════════════════════════════════════════════════════════════
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
 #[tokio::test]
 async fn block2_vm_get_with_query_param() {
     let (port, _handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
@@ -233,7 +229,6 @@ async fn block2_vm_get_with_query_param() {
     assert_eq!(body, "hello Alice", "VM GET /hello?name=Alice body");
 }
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
 #[tokio::test]
 async fn block2_vm_get_empty_query_param() {
     let (port, _handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
@@ -242,7 +237,6 @@ async fn block2_vm_get_empty_query_param() {
     assert_eq!(body, "hello ");
 }
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
 #[tokio::test]
 async fn block2_vm_post_with_json_body() {
     let (port, _handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
@@ -252,7 +246,6 @@ async fn block2_vm_post_with_json_body() {
     assert_eq!(body, "echo: test payload");
 }
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
 #[tokio::test]
 async fn block2_vm_get_concat() {
     let (port, _handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
@@ -261,7 +254,6 @@ async fn block2_vm_get_concat() {
     assert_eq!(body, "foo-bar");
 }
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
 #[tokio::test]
 async fn block2_vm_get_custom_status() {
     let (port, _handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
@@ -270,7 +262,6 @@ async fn block2_vm_get_custom_status() {
     assert_eq!(body, "created");
 }
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
 #[tokio::test]
 async fn block2_vm_post_upper() {
     let (port, _handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
@@ -280,7 +271,6 @@ async fn block2_vm_post_upper() {
     assert_eq!(body, "HELLO ALICE");
 }
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
 #[tokio::test]
 async fn block2_vm_404_unknown_route() {
     let (port, _handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
@@ -289,7 +279,6 @@ async fn block2_vm_404_unknown_route() {
     assert_eq!(body, "404 Not Found");
 }
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
 #[tokio::test]
 async fn block2_vm_405_wrong_method() {
     let (port, _handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Vm).await;
@@ -299,7 +288,6 @@ async fn block2_vm_405_wrong_method() {
     assert_eq!(resp.status().as_u16(), 405);
 }
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
 #[tokio::test]
 async fn block2_tw_get_with_query_param() {
     let (port, _handle) = start_server(SOURCE_REALISTIC_ROUTES, ServeBackend::Interpreter).await;
@@ -312,7 +300,6 @@ async fn block2_tw_get_with_query_param() {
 // БЛОК 3 — Параллельная нагрузка
 // ═══════════════════════════════════════════════════════════════════
 
-#[ignore = "n206: VM serve full verification — same VM route body divergence"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn block3_vm_parallel_query_param_isolation() {
     let (port, _handle) = start_server(SOURCE_ISOLATION, ServeBackend::Vm).await;
@@ -351,7 +338,6 @@ async fn block3_vm_parallel_query_param_isolation() {
     }
 }
 
-#[ignore = "n206: VM serve full verification — same VM route body divergence"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn block3_vm_parallel_mixed_routes() {
     let (port, _handle) = start_server(SOURCE_ISOLATION, ServeBackend::Vm).await;
@@ -381,7 +367,6 @@ async fn block3_vm_parallel_mixed_routes() {
     }
 }
 
-#[ignore = "n206: VM serve full verification — same VM route body divergence"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn block3_vm_parallel_kv_isolation() {
     let (port, _handle) = start_server(SOURCE_KV_ROUTES, ServeBackend::Vm).await;
@@ -419,7 +404,6 @@ async fn block3_vm_parallel_kv_isolation() {
 // БЛОК 4 — TW vs VM бок о бок
 // ═══════════════════════════════════════════════════════════════════
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
 #[tokio::test]
 async fn block4_tw_vs_vm_get_query_param() {
     let (tw_port, tw_handle) =
@@ -441,7 +425,6 @@ async fn block4_tw_vs_vm_get_query_param() {
     );
 }
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
 #[tokio::test]
 async fn block4_tw_vs_vm_post_json_body() {
     let json = serde_json::json!({"message": "hello world"});
@@ -464,7 +447,6 @@ async fn block4_tw_vs_vm_post_json_body() {
     );
 }
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
 #[tokio::test]
 async fn block4_tw_vs_vm_get_concat() {
     let (tw_port, tw_handle) =
@@ -482,7 +464,6 @@ async fn block4_tw_vs_vm_get_concat() {
     );
 }
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
 #[tokio::test]
 async fn block4_tw_vs_vm_custom_status() {
     let (tw_port, tw_handle) =
@@ -504,7 +485,6 @@ async fn block4_tw_vs_vm_custom_status() {
     );
 }
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
 #[tokio::test]
 async fn block4_tw_vs_vm_post_upper() {
     let json = serde_json::json!({"name": "metalogos"});
@@ -527,7 +507,6 @@ async fn block4_tw_vs_vm_post_upper() {
     );
 }
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
 #[tokio::test]
 async fn block4_tw_vs_vm_empty_query_param() {
     let (tw_port, tw_handle) =
@@ -548,7 +527,6 @@ async fn block4_tw_vs_vm_empty_query_param() {
     );
 }
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
 #[tokio::test]
 async fn block4_tw_vs_vm_404() {
     let (tw_port, tw_handle) =
@@ -562,7 +540,6 @@ async fn block4_tw_vs_vm_404() {
     assert_eq!(tw_body, vm_body, "Block 4: 404 body mismatch");
 }
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
 #[tokio::test]
 async fn block4_tw_vs_vm_405() {
     let client = reqwest::Client::new();
@@ -584,7 +561,7 @@ async fn block4_tw_vs_vm_405() {
     );
 }
 
-#[ignore = "n206: VM serve full verification — VM query_param/json_body/respond divergence from TW; needs VM route body fix (separate naryad)"]
+#[ignore = "n250 root re-analysis (NOT the n206 route-body divergence — that root is fixed): KV_STORE is a process-global static (src/builtins/memory.rs:18) BY DESIGN — TW and VM server instances in one test process share it, so this test's isolation premise contradicts the design for BOTH backends; instance isolation would require a memory.rs redesign outside the naryad-250 §3 perimeter. Loud analysis in the PR description and the ADR-0122 #250 row"]
 #[tokio::test]
 async fn block4_tw_vm_kv_shared_store() {
     let (tw_port, tw_handle) = start_server(SOURCE_KV_ROUTES, ServeBackend::Interpreter).await;

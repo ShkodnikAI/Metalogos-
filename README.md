@@ -110,7 +110,7 @@ More than a key-value store. Hierarchical memory (Memory Tree L0/L1/L2), typed r
 
 The `adapt` statement allows a program to modify its own patterns at runtime — with sandboxing, few-shot mutation, and automatic rollback. The rollback mechanism is real and tested. Quality metric is currently a fixed mock value (0.95), not a real accuracy computation — rollback logic exists but does not yet respond to actual quality degradation. See ADR-0112.
 
-**Sandbox timeout caveat**: when a `sandbox` block specifies `timeout > 0`, the calling thread stops *waiting* at the deadline (preemptive via `mpsc::recv_timeout`). However, the background HTTP request to the LLM provider may still be in flight — only the wait is cancelled, not the request itself. Full request cancellation requires `reqwest::AbortHandle` (a separate naryad).
+**Sandbox timeout caveat**: when a `sandbox` block specifies `timeout > 0`, both the calling thread's wait AND the underlying LLM request are cancelled at the deadline — on every call path. SmartRouter routes cancel via the HTTP client timeout (real TCP drop; Naryad №156); the legacy backend path cancels via `call_with_deadline` (Naryad №248): RealLlm drops the TCP connection at min(deadline, 120s), the mock sleeps min(delay, deadline). External on-demand abort (a language construct, or cancellation on client disconnect in server mode) is not supported — revisit when a real use case appears.
 
 ### 6. Complete Toolchain in One Binary
 

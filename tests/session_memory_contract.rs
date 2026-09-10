@@ -4,8 +4,23 @@
 // In-memory HashMap<String, HashMap<String, String>> — NOT persistent.
 // Resets on restart (by design).
 // Unlike mem_set/mem_get (global), session_* is scoped to session_id.
+//
+// ── Test serialization (naryad #251) ────────────────────────────────
+// All 10 tests share the process-global in-memory session store
+// (src/builtins/memory.rs): a parallel sibling's reset_session_store() can
+// wipe keys mid-assert — 2 CI failures 2026-09-10, `left: 0, right: 1` at
+// :204 (same flake family as naryads #239/#251). Each test body therefore
+// holds one poison-tolerant static mutex for its whole lifetime
+// (template: tests/naryad_244_vision_lora.rs env_lock).
 
 use metalogos::interpreter::Interpreter;
+
+/// Poison-tolerant static mutex serializing all tests in this binary:
+/// they share the process-global in-memory session store (see the header).
+fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// Helper: parse and run a .mlog program, return the final output.
 fn run_mlog(source: &str) -> Result<Option<String>, String> {
@@ -18,6 +33,7 @@ fn run_mlog(source: &str) -> Result<Option<String>, String> {
 
 #[test]
 fn contract_session_set_get_roundtrip() {
+    let _g = test_lock();
     // session_set -> session_get -> same value
     let source = r#"
         pattern Test(sid: String) -> String {
@@ -34,6 +50,7 @@ fn contract_session_set_get_roundtrip() {
 
 #[test]
 fn contract_session_set_returns_value() {
+    let _g = test_lock();
     // session_set returns the stored value
     let source = r#"
         pattern Test(sid: String) -> String {
@@ -49,6 +66,7 @@ fn contract_session_set_returns_value() {
 
 #[test]
 fn contract_session_get_missing_key() {
+    let _g = test_lock();
     // session_get with non-existent key returns empty string
     let source = r#"
         pattern Test(sid: String) -> String {
@@ -64,6 +82,7 @@ fn contract_session_get_missing_key() {
 
 #[test]
 fn contract_session_get_missing_session() {
+    let _g = test_lock();
     // session_get with non-existent session returns empty string
     let source = r#"
         pattern Test(sid: String) -> String {
@@ -79,6 +98,7 @@ fn contract_session_get_missing_session() {
 
 #[test]
 fn contract_session_isolation() {
+    let _g = test_lock();
     // Two different sessions are isolated: write in one, read from other -> empty
     let source = r#"
         pattern Test(sid: String) -> String {
@@ -94,6 +114,7 @@ fn contract_session_isolation() {
 
 #[test]
 fn contract_session_clear() {
+    let _g = test_lock();
     // session_clear removes all keys for a session
     let source = r#"
         pattern Test(sid: String) -> String {
@@ -114,6 +135,7 @@ fn contract_session_clear() {
 
 #[test]
 fn contract_session_restart_empties() {
+    let _g = test_lock();
     // Simulate restart: reset_session_store() -> all session data is gone
     metalogos::builtins::reset_session_store();
 
@@ -150,6 +172,7 @@ fn contract_session_restart_empties() {
 
 #[test]
 fn contract_session_multiple_keys() {
+    let _g = test_lock();
     // Multiple keys in the same session coexist
     let source = r#"
         pattern Test(sid: String) -> String {
@@ -170,6 +193,7 @@ fn contract_session_multiple_keys() {
 
 #[test]
 fn contract_session_overwrite() {
+    let _g = test_lock();
     // Overwriting a key replaces the old value
     let source = r#"
         pattern Test(sid: String) -> String {
@@ -187,6 +211,7 @@ fn contract_session_overwrite() {
 
 #[test]
 fn contract_session_no_persistence() {
+    let _g = test_lock();
     // Session store is purely in-memory — no SQLite interaction
     // Verify by using the reset function: after reset, data is gone
     metalogos::builtins::reset_session_store();

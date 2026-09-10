@@ -4,6 +4,8 @@
 **Author:** Agent executing naryad №212
 **Decision authority:** Coordinator (per §0 of naryad spec — "Решение Go/No-Go принимает координатор, не исполнитель")
 
+**Owner gate (2026-09-09, Vision plan §6 — синхронизировано нарядом №246):** условный GO по коду при PARKED real-weights прогоне (runbook №237). Допущение — это допущение, а не верификация: производственные заявления о генерации изображений и старт нового столпа (Voice) блокированы до заполнения строки реального прогона ниже (путь PNG, SHA-256, время, железо).
+
 ## Status
 
 **Code-complete, env-gated run PENDING.** All CI-visible tests pass (5/5). Env-gated real-weights tests are coded and skip loudly when `MLOG_VISION_WEIGHTS_DIR` is unset; they have NOT been executed with real weights in this delivery environment.

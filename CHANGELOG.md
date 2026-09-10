@@ -4,6 +4,10 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Changed — security SSOT sync (Naryad #246, docs-only)
+
+- docs: security SSOT sync — threat-model (Vision gates + `db_execute` in the SQL row + honest provenance boundary), SECURITY.md (0.19.x supported, generative-pillars paragraph), ADR-0122 truth-up (#213/#214 delivered, owner gate 2026-09-09), go-no-go gate line, README honest line.
+
 ### Added — Vision R6.3: LoRA adapters — SQLite BLOB + application to DiT (Naryad #244)
 
 - **`vision_lora_load(name, path) -> String` (Block 2.2)**: reads a

@@ -378,3 +378,87 @@ fn plan_example_is_single_vision_declaration() {
     assert_eq!(decls.len(), 1);
     assert!(matches!(decls[0], Declaration::Vision(_)));
 }
+
+// ── Наряд №244 (Vision R6.3): taint extends to vision_lora_generate ──
+
+/// UserInput-tainted prompt (arg 1) of `vision_lora_generate` → the SAME
+/// VISION_PROMPT_USER_INPUT audit-WARNING (no new check-id in №244; the
+/// prompt is recorded in the generated artifact's provenance manifest).
+#[test]
+fn lora_generate_user_input_prompt_emits_audit_warning() {
+    let source = r#"
+vision "poster" { model: "z-image-turbo" steps: 8 width: 1024 height: 1024 seed: 42 policy: safe profile: fp16 }
+pattern Upload(form_id: String) -> String {
+  let prompt = form_data("prompt")
+  let v = vision_lora_generate("poster", prompt, "my-lora")
+  return "generated"
+}
+"#;
+    let result = metalogos::audit_program(source).expect("audit");
+    let hits: Vec<_> = result
+        .findings
+        .iter()
+        .filter(|f| f.check_id == "VISION_PROMPT_USER_INPUT")
+        .collect();
+    assert_eq!(
+        hits.len(),
+        1,
+        "exactly one VISION_PROMPT_USER_INPUT finding"
+    );
+    assert_eq!(
+        hits[0].severity,
+        Severity::Warning,
+        "WARNING, not Category-A"
+    );
+    assert_eq!(
+        result.error_count(),
+        0,
+        "no Category-A error from the prompt"
+    );
+}
+
+/// Arg 0 (declaration name) and arg 2 (adapter name) of
+/// `vision_lora_generate` are NOT data — neither is flagged.
+#[test]
+fn lora_generate_arg0_and_arg2_not_flagged() {
+    let source = r#"
+vision "poster" { model: "z-image-turbo" steps: 8 width: 1024 height: 1024 seed: 42 policy: safe profile: fp16 }
+pattern Upload(form_id: String) -> String {
+  let decl_name = form_data("which")
+  let lora_name = form_data("adapter")
+  let v = vision_lora_generate(decl_name, "a red apple", lora_name)
+  return "generated"
+}
+"#;
+    let result = metalogos::audit_program(source).expect("audit");
+    let hits: Vec<_> = result
+        .findings
+        .iter()
+        .filter(|f| f.check_id == "VISION_PROMPT_USER_INPUT")
+        .collect();
+    assert_eq!(
+        hits.len(),
+        0,
+        "arg 0 (decl name) and arg 2 (adapter name) are not data"
+    );
+}
+
+/// A literal prompt of `vision_lora_generate` → no finding (the check is
+/// taint-positional, not a blanket refusal).
+#[test]
+fn lora_generate_literal_prompt_no_warning() {
+    let source = r#"
+vision "poster" { model: "z-image-turbo" steps: 8 width: 1024 height: 1024 seed: 42 policy: safe profile: fp16 }
+pattern Upload(form_id: String) -> String {
+  let v = vision_lora_generate("poster", "a red apple", "my-lora")
+  return "generated"
+}
+"#;
+    let result = metalogos::audit_program(source).expect("audit");
+    let hits: Vec<_> = result
+        .findings
+        .iter()
+        .filter(|f| f.check_id == "VISION_PROMPT_USER_INPUT")
+        .collect();
+    assert_eq!(hits.len(), 0, "literal prompt must not be flagged");
+}

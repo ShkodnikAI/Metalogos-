@@ -181,11 +181,33 @@ pub fn vision_generate_dispatch(
 /// Real inference clip (Наряд №240, R4.2). Feature-gated: the vision
 /// inference stack (tokenizer/text_encoder/dit/sampler/vae) lives behind
 /// `--features vision` (ADR-0122 — vision stays off-by-default).
+///
+/// Наряд №244 (R6.3): thin wrapper over [`generate_real_with`] with
+/// `lora = None` — the no-adapter path is byte-for-byte the former
+/// `generate_real` (Block 2.3 contract).
 #[cfg(feature = "vision")]
 fn generate_real(
     decl: &crate::bytecode::CompiledVisionDecl,
     registry: &mut VisionRegistry,
     prompt: &str,
+) -> Result<crate::vision::VisionId, String> {
+    generate_real_with(decl, registry, prompt, None, None)
+}
+
+/// Real inference clip WITH an optional LoRA adapter (Наряд №244, Block
+/// 2.3). `lora: None` = the former `generate_real` path (byte-for-byte);
+/// `Some(adapter)` builds the DiT via
+/// `ZImageTransformer::from_weights_with_lora` and signs with the
+/// COMPOSITE provenance (`model_sha256 = sha256("{base}\nlora:{name}:{sha}")`,
+/// Block 2.4). Sign ALWAYS — every signing failure is a loud `Err` BEFORE
+/// insertion (№241 Block 1.3).
+#[cfg(feature = "vision")]
+fn generate_real_with(
+    decl: &crate::bytecode::CompiledVisionDecl,
+    registry: &mut VisionRegistry,
+    prompt: &str,
+    lora: Option<&crate::vision::lora::LoraAdapter>,
+    lora_ident: Option<(&str, &str)>,
 ) -> Result<crate::vision::VisionId, String> {
     use candle_core::{DType, Device};
 
@@ -221,7 +243,15 @@ fn generate_real(
         "diffusion_pytorch_model",
         &Device::Cpu,
     )?;
-    let dit = crate::vision::dit::ZImageTransformer::from_weights(&dit_tensors)?;
+    // №244 Block 2.3: with an adapter the DiT is built through
+    // from_weights_with_lora (attention projections merged); without one —
+    // through the untouched from_weights (byte-for-byte former path).
+    let dit = match lora {
+        None => crate::vision::dit::ZImageTransformer::from_weights(&dit_tensors)?,
+        Some(adapter) => {
+            crate::vision::dit::ZImageTransformer::from_weights_with_lora(&dit_tensors, adapter)?
+        }
+    };
     drop(dit_tensors);
     let latent = crate::vision::sampler::flow_match_euler_sample(
         &dit,
@@ -243,17 +273,39 @@ fn generate_real(
     let img = img.to_dtype(DType::F32).map_err(|e| e.to_string())?;
     let png_bytes = crate::vision::vae::encode_png(&img)?;
 
-    // ── Наряд №241 (R5, Block 1.3): sign ALWAYS — no unsigned artifact
-    // can ever reach the registry. The PNG gets the LSB watermark; the
-    // artifact carries the provenance manifest (final-PNG SHA is
-    // computed AFTER the watermark, so it describes exactly the bytes
-    // the default export ships). Every signing failure is a loud `Err`
-    // BEFORE insertion — a silent "unmarked but registered" outcome is
-    // forbidden (ADR-0125: security is a type, not a procedure).
-    let png_bytes = crate::vision::provenance::embed_lsb_watermark(&png_bytes, &decl.model)?;
+    // ── Sign ALWAYS (№241 Block 1.3; №244 Block 2.4 composite
+    // provenance). model_sha256: the plain weights-tree fingerprint on the
+    // no-adapter path (byte-for-byte former behavior); with an adapter —
+    // the composite formula of [`vision_lora_composite_model_sha256`]
+    // (honest even over the "unpinned" marker). The watermark stays the
+    // BASE model (an adapter is a delta, not a model).
+    let base_sha = crate::vision::provenance::weights_tree_sha256(&weights_dir)?;
+    let model_sha256 = match lora_ident {
+        None => base_sha,
+        Some((lora_name, lora_sha256)) => {
+            vision_lora_composite_model_sha256(&base_sha, lora_name, lora_sha256)
+        }
+    };
+    vision_generate_sign_and_insert(registry, decl, prompt, &png_bytes, model_sha256)
+}
+
+/// Sign ALWAYS + insert for the generate path (Наряд №244 Block 2.3 —
+/// the shared signing body extracted from `generate_real` verbatim, the
+/// лекало is `vision_edit_sign_and_insert` №243; a pub pure-ish function
+/// so the provenance contract is mechanically testable WITHOUT weights,
+/// the `verify_sha_pin` precedent).
+#[cfg(feature = "vision")]
+pub fn vision_generate_sign_and_insert(
+    registry: &mut VisionRegistry,
+    decl: &crate::bytecode::CompiledVisionDecl,
+    prompt: &str,
+    output_png_bytes: &[u8],
+    model_sha256: String,
+) -> Result<crate::vision::VisionId, String> {
+    let png_bytes = crate::vision::provenance::embed_lsb_watermark(output_png_bytes, &decl.model)?;
     let manifest = crate::vision::provenance::VisionManifest {
         model_id: decl.model.clone(),
-        model_sha256: crate::vision::provenance::weights_tree_sha256(&weights_dir)?,
+        model_sha256,
         seed: decl.seed,
         prompt_sha256: crate::vision::provenance::prompt_hash(prompt),
         policy: match decl.policy {
@@ -271,6 +323,22 @@ fn generate_real(
         manifest: Some(manifest),
     });
     Ok(id)
+}
+
+/// Composite model fingerprint when a LoRA adapter is applied (Наряд №244
+/// Block 2.4): `sha256("{base}\nlora:{name}:{lora_sha256}")`, where `base`
+/// is `weights_tree_sha256(weights_dir)` (it MAY be the honest "unpinned"
+/// marker — the composite is honest over the marker too). Pub pure function
+/// so the formula is mechanically pinned (the `verify_sha_pin` precedent);
+/// the doc contract is mirrored in REFERENCE §4.22 and CHANGELOG.
+pub fn vision_lora_composite_model_sha256(
+    base: &str,
+    lora_name: &str,
+    lora_sha256: &str,
+) -> String {
+    crate::vision::provenance::sha256_hex(
+        format!("{}\nlora:{}:{}", base, lora_name, lora_sha256).as_bytes(),
+    )
 }
 
 /// `vision_list() -> List<String>`
@@ -865,6 +933,406 @@ fn edit_real(
     )
 }
 
+/// `vision_lora_load(name, path) -> String`
+///
+/// **LoRA adapter → SQLite BLOB** (Наряд №244, R6.3 — the final third of
+/// R6 "Edit + LoRA"; ADR-0124 §6: "LoRA adapters persist as SQLite BLOBs —
+/// the ADR-0116 pattern, not a new file format"). Reads a safetensors
+/// adapter file ONCE (from INSIDE the weights dir only), validates it
+/// loudly (Block 1.1), and persists the bytes + fixed-shape metadata into
+/// the program's database (`vision_lora_adapters` table). The adapter
+/// does NOT stay in any session state — its ONLY home is SQLite; the
+/// persistent key is `name`.
+///
+/// Loud and PRESCRIBED check order (Block 2.2):
+/// (1) arity/types (лекало save) → (2) no-db = Err naming the `db`-decl →
+/// (3) `MLOG_VISION_WEIGHTS_DIR` set → (4) path safety — relative, no
+/// `..`, `.safetensors` extension, file exists; reading is allowed ONLY
+/// inside the weights dir (a NEW file-reading surface is forbidden) →
+/// (5) feature gate: a build without `vision` refuses loudly (validation
+/// requires candle; inserting unvalidated bytes = quiet garbage —
+/// forbidden) → (6) read + parse + validate (loud, full problem list) →
+/// (7) `lora_save` into the DB. Returns `Value::String(name)`.
+pub fn vision_lora_load_dispatch(
+    db_conn: Option<&rusqlite::Connection>,
+    args: &[Value],
+) -> Result<Value, String> {
+    if args.len() != 2 {
+        return Err(format!(
+            "vision_lora_load: expects 2 arguments (name, path), got {}",
+            args.len()
+        ));
+    }
+    let name = match &args[0] {
+        Value::String(s) => s.clone(),
+        other => {
+            return Err(format!(
+                "vision_lora_load: first argument must be the adapter name (String), got {}",
+                value_type_name(other)
+            ))
+        }
+    };
+    let path = match &args[1] {
+        Value::String(s) => s.clone(),
+        other => {
+            return Err(format!(
+                "vision_lora_load: second argument must be the adapter file path (String), got {}",
+                value_type_name(other)
+            ))
+        }
+    };
+    if name.is_empty() {
+        return Err(
+            "vision_lora_load: adapter name is empty — a non-empty name is required \
+             (the name is the persistent key in vision_lora_adapters)"
+                .to_string(),
+        );
+    }
+
+    // (2) No database — loud, naming the declaration (лекало save/load).
+    // The store API is NOT feature-gated (pure SQLite), but the gated body
+    // below is the only consumer — suppress the unused-binding in a
+    // non-vision build.
+    let conn = db_conn.ok_or_else(|| {
+        "vision_lora_load: no database connection — LoRA persistence requires the \
+         program's SQLite database; declare db { url: \"sqlite:vision.db\" } (or \
+         db { url: \"sqlite::memory:\" }) in the program first (ADR-0124 §6: the \
+         adapter's ONLY home is SQLite)"
+            .to_string()
+    })?;
+    #[cfg(not(feature = "vision"))]
+    let _ = &conn;
+
+    // (3) Weights environment (лекало generate :125–140).
+    let weights_dir = match std::env::var_os("MLOG_VISION_WEIGHTS_DIR") {
+        Some(dir) => PathBuf::from(dir),
+        None => {
+            return Err(
+                "vision_lora_load: MLOG_VISION_WEIGHTS_DIR is not set — adapter files \
+                 are read ONLY from inside the weights directory (see \
+                 docs/research/naryad-237-real-weights-runbook.md)"
+                    .to_string(),
+            )
+        }
+    };
+
+    // (4) Path safety — the loud contract function (testable without env).
+    let full_path = vision_lora_check_adapter_path(&weights_dir, &path)?;
+
+    // (5) Feature gate: validation requires candle (Block 1.1) — inserting
+    // unvalidated bytes would be quiet garbage, so a non-vision build
+    // refuses BEFORE any read/insert.
+    #[cfg(feature = "vision")]
+    {
+        // (6) Read + parse + validate (loud, full problem list).
+        let bytes = std::fs::read(&full_path).map_err(|e| {
+            format!(
+                "vision_lora_load: cannot read adapter file {}: {}",
+                full_path.display(),
+                e
+            )
+        })?;
+        let adapter = crate::vision::lora::LoraAdapter::parse(&bytes)?;
+        eprintln!(
+            "vision_lora_load: adapter '{}' validated — {} target(s), rank {}, \
+             alpha {:?}, scale {}",
+            name,
+            adapter.targets.len(),
+            adapter.rank,
+            adapter.alpha,
+            adapter.scale
+        );
+
+        // (7) Persist: bytes as BLOB + fixed-shape meta (sha256 = the
+        // integrity pin resolved at generate time).
+        let meta = crate::vision::store::LoraMeta {
+            sha256: crate::vision::provenance::sha256_hex(&bytes),
+            rank: adapter.rank,
+            alpha: adapter.alpha,
+            scale: adapter.scale,
+            targets: adapter.targets.len(),
+        };
+        let meta_json = serde_json::to_string(&meta)
+            .map_err(|e| format!("vision_lora_load: meta serialization failed: {}", e))?;
+        crate::vision::store::lora_save(conn, &name, &bytes, &meta_json)?;
+        Ok(Value::String(name))
+    }
+    #[cfg(not(feature = "vision"))]
+    {
+        let _ = full_path; // consumed by the gated real path only
+        Err(format!(
+            "vision_lora_load: this build was compiled WITHOUT the `vision` feature — \
+             adapter validation (safetensors parse + attention-projection check) \
+             requires `--features vision`; inserting unvalidated bytes would be \
+             quiet garbage and is forbidden (name '{}', path '{}' resolved cleanly \
+             — loud refusal, not a placeholder)",
+            name, path
+        ))
+    }
+}
+
+/// Path-safety contract of `vision_lora_load` (Наряд №244 Block 2.2 (4)):
+/// the adapter path must be RELATIVE to `MLOG_VISION_WEIGHTS_DIR`, carry
+/// no traversal/absolute/prefix components, end in `.safetensors`, and the
+/// file must exist. Reading is allowed ONLY inside the weights dir — a
+/// NEW file-reading surface is forbidden. Pub contract function (лекало
+/// `vision_edit_check_dims_r41` №243) so the refusals are mechanically
+/// testable WITHOUT the env var.
+pub fn vision_lora_check_adapter_path(
+    weights_dir: &std::path::Path,
+    path: &str,
+) -> Result<PathBuf, String> {
+    if path.is_empty() {
+        return Err(
+            "vision_lora_load: adapter path is empty — a relative path inside the \
+             weights directory is required"
+                .to_string(),
+        );
+    }
+    let rel = std::path::Path::new(path);
+    if rel.is_absolute() {
+        return Err(format!(
+            "vision_lora_load: adapter path '{}' is absolute — reading is allowed \
+             ONLY inside MLOG_VISION_WEIGHTS_DIR (relative paths, no '..')",
+            path
+        ));
+    }
+    for comp in rel.components() {
+        if !matches!(comp, std::path::Component::Normal(_)) {
+            return Err(format!(
+                "vision_lora_load: adapter path '{}' contains a traversal/absolute \
+                 component ('..', root or prefix) — reading is allowed ONLY inside \
+                 the weights directory",
+                path
+            ));
+        }
+    }
+    if !path.ends_with(".safetensors") {
+        return Err(format!(
+            "vision_lora_load: adapter path '{}' does not end in .safetensors — \
+             only safetensors adapters are accepted (a pickle-class or foreign \
+             format is refused)",
+            path
+        ));
+    }
+    let full = weights_dir.join(rel);
+    if !full.is_file() {
+        return Err(format!(
+            "vision_lora_load: adapter file not found at {} — place the adapter \
+             file inside the weights directory (e.g. {}/lora/…) and pass its \
+             RELATIVE path",
+            full.display(),
+            weights_dir.display()
+        ));
+    }
+    Ok(full)
+}
+
+/// `vision_lora_generate(decl_name, prompt, lora_name) -> Vision`
+///
+/// **Generation with a LoRA adapter applied** (Наряд №244, Block 2.3).
+/// Same pipeline as `vision_generate`, but the DiT is built through
+/// `from_weights_with_lora` and the provenance carries the COMPOSITE
+/// fingerprint (`model_sha256 = sha256("{base}\nlora:{name}:{sha}")`,
+/// Block 2.4). The adapter is resolved from the program's database at
+/// call time (its only home is SQLite — ADR-0124 §6) with a loud
+/// integrity check (`sha256(bytes) ≠ meta.sha256` = Err).
+///
+/// Loud and PRESCRIBED order: arity/types → empty prompt → resolve decl →
+/// runtime model re-check → no-db / unknown `lora_name` (with the
+/// `lora_list`) → [gated] bytes + integrity + parse (Block 1.1) → env
+/// gates + components → 1024×1024 → pipeline (sign ALWAYS).
+pub fn vision_lora_generate_dispatch(
+    decls: &HashMap<String, crate::bytecode::CompiledVisionDecl>,
+    registry: &mut VisionRegistry,
+    db_conn: Option<&rusqlite::Connection>,
+    args: &[Value],
+) -> Result<Value, String> {
+    #[cfg(not(feature = "vision"))]
+    let _ = registry; // only the gated real path inserts into the registry
+    if args.len() != 3 {
+        return Err(format!(
+            "vision_lora_generate: expects 3 arguments (decl_name, prompt, lora_name), got {}",
+            args.len()
+        ));
+    }
+    let decl_name = match &args[0] {
+        Value::String(s) => s.clone(),
+        other => {
+            return Err(format!(
+                "vision_lora_generate: first argument must be a declaration name (String), got {}",
+                value_type_name(other)
+            ))
+        }
+    };
+    let prompt = match &args[1] {
+        Value::String(s) => s.clone(),
+        other => {
+            return Err(format!(
+                "vision_lora_generate: second argument must be a prompt (String), got {}",
+                value_type_name(other)
+            ))
+        }
+    };
+    let lora_name = match &args[2] {
+        Value::String(s) => s.clone(),
+        other => {
+            return Err(format!(
+                "vision_lora_generate: third argument must be the adapter name (String), got {}",
+                value_type_name(other)
+            ))
+        }
+    };
+    if prompt.is_empty() {
+        return Err("vision_lora_generate: prompt must not be empty".to_string());
+    }
+
+    // 1. Resolve the declaration (loud, with the list of declared names —
+    // лекало generate_dispatch).
+    let decl = match decls.get(&decl_name) {
+        Some(d) => d,
+        None => {
+            let mut names: Vec<&String> = decls.keys().collect();
+            names.sort();
+            let listed = if names.is_empty() {
+                "no `vision { }` declarations in the program".to_string()
+            } else {
+                names
+                    .into_iter()
+                    .map(|n| format!("\"{}\"", n))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            return Err(format!(
+                "vision_lora_generate: vision declaration '{}' not declared (declared: {})",
+                decl_name, listed
+            ));
+        }
+    };
+
+    // 2. Runtime re-check of the model (defense-in-depth, лекало generate).
+    if !crate::vision::KNOWN_VISION_MODELS.contains(&decl.model.as_str()) {
+        return Err(format!(
+            "vision_lora_generate: declaration '{}' names unknown model '{}' (known models: {})",
+            decl.name,
+            decl.model,
+            crate::vision::KNOWN_VISION_MODELS.join(", ")
+        ));
+    }
+
+    // 3. The adapter's only home is SQLite — no-db = loud (ADR-0124 §6).
+    let conn = db_conn.ok_or_else(|| {
+        "vision_lora_generate: no database connection — LoRA adapters persist ONLY \
+         in the program's SQLite database (ADR-0124 §6); load one first with \
+         vision_lora_load(name, path) after declaring db { url: \"sqlite:vision.db\" }"
+            .to_string()
+    })?;
+    let Some((bytes, meta_json)) = crate::vision::store::lora_get(conn, &lora_name)? else {
+        let listed = match crate::vision::store::lora_list(conn) {
+            Ok(names) if names.is_empty() => "nothing loaded in this database yet".to_string(),
+            Ok(names) => names
+                .iter()
+                .map(|n| format!("\"{}\"", n))
+                .collect::<Vec<_>>()
+                .join(", "),
+            Err(e) => format!("could not list loaded adapters: {}", e),
+        };
+        return Err(format!(
+            "vision_lora_generate: no adapter named '{}' in vision_lora_adapters \
+             (loaded: {})",
+            lora_name, listed
+        ));
+    };
+
+    // The adapter's sha — the integrity pin AND the composite-provenance
+    // ingredient (Block 2.4).
+    let lora_sha256 = crate::vision::provenance::sha256_hex(&bytes);
+
+    // 4. [gated] integrity + parse. The sha check fires BEFORE any candle
+    // math: DB bytes that no longer match their stored pin are refused
+    // loudly (лекало №242's corrupted-JSON discipline — bytes without
+    // honest metadata must not keep flowing).
+    #[cfg(feature = "vision")]
+    let adapter = {
+        let meta: crate::vision::store::LoraMeta =
+            serde_json::from_str(&meta_json).map_err(|e| {
+                format!(
+                    "vision_lora_generate: adapter metadata for '{}' is not the fixed \
+                 LoraMeta shape ({}); refusing to use the bytes",
+                    lora_name, e
+                )
+            })?;
+        if meta.sha256.to_lowercase() != lora_sha256 {
+            return Err(format!(
+                "vision_lora_generate: adapter '{}' integrity failure — sha256 of the \
+                 stored bytes ({}) does not match the pinned meta sha256 ({}) \
+                 (DB BLOB corrupted? refusing loudly, no silent tolerance)",
+                lora_name, lora_sha256, meta.sha256
+            ));
+        }
+        crate::vision::lora::LoraAdapter::parse(&bytes)?
+    };
+
+    // 5. Weights environment (loud environment refusal — NOT a stub;
+    // лекало generate :125–146).
+    let weights_dir = match std::env::var_os("MLOG_VISION_WEIGHTS_DIR") {
+        Some(dir) => PathBuf::from(dir),
+        None => {
+            return Err(
+                "vision_lora_generate: MLOG_VISION_WEIGHTS_DIR is not set — real generation \
+                 requires the Z-Image-Turbo weights directory (see \
+                 docs/research/naryad-237-real-weights-runbook.md)"
+                    .to_string(),
+            )
+        }
+    };
+    for (sub, human) in WEIGHTS_COMPONENTS {
+        let path = weights_dir.join(sub);
+        if !path.is_dir() {
+            return Err(format!(
+                "vision_lora_generate: MLOG_VISION_WEIGHTS_DIR component missing: '{}' ({}) not found at {}",
+                sub,
+                human,
+                path.display()
+            ));
+        }
+    }
+
+    // 6. Fixed 1024×1024 (лекало generate — the R4.2 pipeline generates the
+    // fixed resolution; other sizes are a loud error).
+    if decl.width != 1024 || decl.height != 1024 {
+        return Err(format!(
+            "vision_lora_generate: declaration '{}' asks for {}x{} — the R4.2 z-image-turbo \
+             pipeline generates a fixed 1024x1024 (sampler derives the latent from the \
+             DiT config); other resolutions require size parameterization (R5 manifest)",
+            decl.name, decl.width, decl.height
+        ));
+    }
+
+    #[cfg(feature = "vision")]
+    {
+        let vision_id = generate_real_with(
+            decl,
+            registry,
+            &prompt,
+            Some(&adapter),
+            Some((&lora_name, &lora_sha256)),
+        )?;
+        Ok(Value::Vision(vision_id))
+    }
+    #[cfg(not(feature = "vision"))]
+    {
+        let _ = (weights_dir, lora_sha256, meta_json); // consumed by the gated real path
+        Err(format!(
+            "vision_lora_generate: this build was compiled WITHOUT the `vision` feature — \
+             real generation requires `--features vision` (declaration '{}' and adapter \
+             '{}' resolved cleanly; model '{}', steps {}, seed {} — loud refusal, not \
+             a placeholder)",
+            decl.name, lora_name, decl.model, decl.steps, decl.seed
+        ))
+    }
+}
+
 /// `vision_fetch_weights(manifest_url, dest_dir) -> String`
 ///
 /// **SSRF-guarded, allowlist-gated, SHA-pinned weights fetching**
@@ -1254,6 +1722,34 @@ pub(crate) fn builtin_vision_edit_stub(_args: &[Value]) -> Result<Value, String>
         "vision_edit: reached the generic builtin registry — this builtin is \
          intercepted by the interpreter/VM dispatch (Наряд №243, R6.2) which owns \
          the vision registry; direct registry calls are not supported (loud refusal)"
+            .to_string(),
+    )
+}
+
+/// Last-resort stub — real path is the intercepted `vision_lora_load_dispatch`
+/// (Наряд №244 R6.3: state-carrying like `vision_save`/`vision_load` PLUS
+/// the program's SQLite connection — the adapter's only home is SQLite,
+/// ADR-0124 §6).
+pub(crate) fn builtin_vision_lora_load_stub(_args: &[Value]) -> Result<Value, String> {
+    Err(
+        "vision_lora_load: reached the generic builtin registry — this builtin is \
+         intercepted by the interpreter/VM dispatch (Наряд №244, R6.3) which owns \
+         the program's database connection; direct registry calls are not \
+         supported (loud refusal)"
+            .to_string(),
+    )
+}
+
+/// Last-resort stub — real path is the intercepted
+/// `vision_lora_generate_dispatch` (Наряд №244 R6.3: state-carrying like
+/// `vision_generate` PLUS the program's SQLite connection — the adapter
+/// is resolved from the DB at call time, ADR-0124 §6).
+pub(crate) fn builtin_vision_lora_generate_stub(_args: &[Value]) -> Result<Value, String> {
+    Err(
+        "vision_lora_generate: reached the generic builtin registry — this builtin \
+         is intercepted by the interpreter/VM dispatch (Наряд №244, R6.3) which \
+         owns the vision declarations, the vision registry and the program's \
+         database connection; direct registry calls are not supported (loud refusal)"
             .to_string(),
     )
 }

@@ -131,6 +131,52 @@ export (`naryad_243_mlog_first_edit.png` + sidecar). Что фиксируетс
 Edit-золотой НЕ пинится в этом прогоне (пин = отдельное громкое решение;
 приёмка прогона — по критериям §0 go-no-go: узнаваемость + латентность).
 
+## 3.2. Прогон lora-e2e (Наряд №244, R6.3 — тот же сеанс)
+
+Загрузка LoRA-адаптера и генерация с ним. **Файл адаптера кладёт владелец
+машины** (пиннинг LoRA-файла в репо запрещён §3 №244): положить safetensors
+LoRA-адаптер (внимание-цели Z-Image — `layers.N.attention.to_q/to_k/to_v/
+to_out.0`, diffusers-PEFT `lora_A/lora_B` или ComfyUI `lora_down/lora_up`
++ опциональный `alpha`) под weights_dir, напр.:
+
+```bash
+mkdir -p "$MLOG_VISION_WEIGHTS_DIR/lora"
+cp /path/to/my_adapter.safetensors "$MLOG_VISION_WEIGHTS_DIR/lora/"
+```
+
+Отдельный env-gated тест в CI НЕ добавляется (долг владельца — CI-шаг для
+env-gated `naryad_240_vision_mlog_e2e`, 5-й раунд; прогон ручной, по
+лекалам §3). Контрольный клин (запись `.mlog`-программы: `db`-декларация →
+`vision_lora_load("my-adapter", "lora/my_adapter.safetensors")` →
+`vision_lora_generate("poster", "prompt", "my-adapter")` → export) —
+вручную через `mlog` в той же сессии. Что сверяется по заголовку файла
+(лекало quant_conv №243):
+
+- **Target-ключи по заголовку:** громкий вывод `vision_lora_load`
+  («adapter 'my-adapter' validated — N target(s), rank R, alpha …, scale …»);
+  фактический список целей в файле должен быть подмножеством
+  attention-проекций `zimage_expected_keys` — иные ключи = громкий Err с
+  перечнем (это валидация, а не молчаливое отбрасывание).
+- **Dtype:** не-F32 тензоры адаптера апкастятся ГРОМКО — зафиксировать
+  фактический dtype файла в отчёт (для будущего формат-решения).
+- **Композит в манифесте:** sidecar экспортированного артефакта —
+  `model_sha256 = sha256("{base}\nlora:my-adapter:{lora_sha256}")`,
+  где `base` — отпечаток дерева весов (или «unpinned» — композит честен и
+  над маркером), `lora_sha256` = SHA байтов адаптера; `model_id` = база
+  (z-image-turbo); watermark = базовая модель (адаптер — дельта).
+- **Integrity:** повторный вызов `vision_lora_generate` после ручного
+  UPDATE bytes в `vision_lora_adapters` должен упасть громко
+  («integrity failure») — пин сверяется при КАЖДОМ резолве из БД.
+- **Подпись:** 7 полей манифеста, policy из decl, watermark MLGV + хэш
+  базовой модели.
+- **Детерминизм lora-пути:** два прогона той же .mlog-программы → SHA
+  итогового PNG бит-в-бит (seed из decl, детерминированный
+  сортированный порядок слияния целей).
+
+lora-золотой НЕ пинится в этом прогоне (пин = отдельное громкое решение;
+приёмка — по критериям §0: узнаваемость + латентность + влияние адаптера
+на выход по сравнению с generate без адаптера).
+
 ## 4. Фиксация результата (заполнение слотов «REQUIRES REAL RUN»)
 
 Слоты — в `docs/research/naryad-212-go-no-go.md`, секция «Verbatim DoD entries».

@@ -1240,6 +1240,30 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                         }
                     }
                 }
+
+                // Наряд №244 (Vision R6.3): the SAME positional check
+                // extends to `vision_lora_generate` calls — arg 0 is the
+                // declaration name and arg 2 the adapter name (neither is
+                // data; лекало №240/№243: positional args that are not the
+                // prompt are not flagged), arg 1 is the prompt. Same
+                // check-id and category as vision_generate/vision_edit (no
+                // new check-id in №244): the prompt is recorded in the
+                // generated artifact's provenance manifest (prompt_sha256),
+                // so UserInput taint must stay loud (advisory Warning).
+                if fn_name == "vision_lora_generate" {
+                    if let Some(arg) = args.get(1) {
+                        if get_expr_taint(arg, tracker) == Some(TaintKind::UserInput) {
+                            let line = find_line(source, fn_name);
+                            findings.push(AuditFinding {
+                                severity: Severity::Warning,
+                                check_id: "VISION_PROMPT_USER_INPUT",
+                                line,
+                                message: "user input used as vision_lora_generate prompt — prompt will be recorded in the generated artifact's provenance manifest (R6.3); the LoRA adapter is resolved from the program database"
+                                    .to_string(),
+                            });
+                        }
+                    }
+                }
             }
         }
 

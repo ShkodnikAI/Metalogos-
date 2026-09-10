@@ -162,6 +162,11 @@ pub mod text_encoder;
 // BPE implementation — see ADR-0124 update for rationale.
 #[cfg(feature = "vision")]
 pub mod dit;
+// Наряд №244 (R6.3): LoRA adapter loading/validation + application. The
+// adapter's only home is SQLite (ADR-0124 §6) — this module carries NO
+// session state (VisionRegistry is NOT touched).
+#[cfg(feature = "vision")]
+pub mod lora;
 #[cfg(feature = "vision")]
 pub mod sampler;
 #[cfg(feature = "vision")]

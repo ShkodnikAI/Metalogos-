@@ -1285,6 +1285,230 @@ impl ZImageTransformer {
     }
 }
 
+// ── LoRA application (Наряд №244, Block 1.2 — R6.3) ──────────────────
+
+impl ZImageTransformer {
+    /// Build the transformer from real safetensors tensors WITH a LoRA
+    /// adapter merged into the attention projections (Наряд №244 Block
+    /// 1.2). The base is built through the UNTOUCHED [`Self::from_weights`]
+    /// (the no-adapter path stays byte-for-byte identical — Block 1.3),
+    /// then each target is merged: `W' = W + scale·(up @ down)` in F32
+    /// with a return to the base dtype.
+    pub fn from_weights_with_lora(
+        tensors: &HashMap<String, Tensor>,
+        adapter: &crate::vision::lora::LoraAdapter,
+    ) -> Result<Self, String> {
+        let mut base = Self::from_weights(tensors)?;
+        base.merge_lora_in_place(adapter, tensors)?;
+        Ok(base)
+    }
+
+    /// Apply the adapter's deltas to the CURRENT attention projections
+    /// (additive — `from_weights`, `forward`, `forward_edit`, `new_tiny`
+    /// carry a zero diff, Block 1.2).
+    ///
+    /// - `W` is the transformer's own current weight for the target (for
+    ///   the real path it is exactly the base tensor `from_weights` just
+    ///   loaded; the tiny-контракт harness merges onto the seeded tiny
+    ///   weights without real files).
+    /// - The "return to the base dtype" contract uses the BASE tensor's
+    ///   dtype (`base_tensors[key]` — the file/BLOB dtype; F32 for the
+    ///   real z-image weights and for the tiny harness).
+    /// - A target whose base tensor is absent (out-of-range `n_layers` or
+    ///   a foreign target) is a LOUD `Err` — a silently skipped target
+    ///   would be a partially-applied adapter (§3.1's forbidden no-op).
+    pub fn merge_lora_in_place(
+        &mut self,
+        adapter: &crate::vision::lora::LoraAdapter,
+        base_tensors: &HashMap<String, Tensor>,
+    ) -> Result<(), String> {
+        // Deterministic order — the merge must not depend on HashMap
+        // iteration order (bit-exactness of the base-path contract and of
+        // repeated runs depends on it).
+        let mut keys: Vec<&String> = adapter.targets.keys().collect();
+        keys.sort();
+        for key in keys {
+            let pair = &adapter.targets[key];
+            let base_t = base_tensors.get(key).ok_or_else(|| {
+                format!(
+                    "vision lora: base tensor '{}' not found in the weights — LoRA \
+                     target is out of range (n_layers = {}) or foreign; refusing the \
+                     merge loudly (a silent skip would be a partially-applied adapter)",
+                    key, self.config.n_layers
+                )
+            })?;
+            let base_dtype = base_t.dtype();
+            // W is the transformer's OWN current weight (for the real path
+            // it is exactly the base tensor from_weights just loaded). A
+            // zero delta must leave the weight untouched — writing the
+            // base_tensors value instead would not be an identity merge.
+            let w = self
+                .attention_slot(key)?
+                .to_dtype(DType::F32)
+                .map_err(|e| format!("vision lora: W '{}' to F32: {}", key, e))?;
+            if base_t.dims() != w.dims() {
+                return Err(format!(
+                    "vision lora: base tensor '{}' has shape {:?}, but the transformer's \
+                     own projection is {:?} — refusing to merge a foreign-shape delta",
+                    key,
+                    base_t.dims(),
+                    w.dims()
+                ));
+            }
+            let up = pair
+                .up
+                .to_dtype(DType::F32)
+                .map_err(|e| format!("vision lora: up to F32: {}", e))?;
+            let down = pair
+                .down
+                .to_dtype(DType::F32)
+                .map_err(|e| format!("vision lora: down to F32: {}", e))?;
+            let delta = up
+                .matmul(&down)
+                .map_err(|e| format!("vision lora: up@down: {}", e))?;
+            if delta.dims() != w.dims() {
+                return Err(format!(
+                    "vision lora: delta shape {:?} does not match W '{}' {:?} — refusing \
+                     to merge",
+                    delta.dims(),
+                    key,
+                    w.dims()
+                ));
+            }
+            let scaled = delta
+                .affine(adapter.scale, 0.0)
+                .map_err(|e| format!("vision lora: scale·delta: {}", e))?;
+            let merged = (&w + &scaled)
+                .map_err(|e| format!("vision lora: W + scale·(up@down): {}", e))?
+                .to_dtype(base_dtype)
+                .map_err(|e| format!("vision lora: return to base dtype: {}", e))?;
+            self.replace_attention_tensor(key, merged)?;
+        }
+        Ok(())
+    }
+
+    /// Borrow the projection tensor a base key addresses (no mutation) —
+    /// the same addressing [`Self::replace_attention_tensor`] writes.
+    fn attention_slot(&self, key: &str) -> Result<&Tensor, String> {
+        let (prefix, rest) = split_attention_key(key)?;
+        let (kind, idx) = split_prefix_index(prefix)?;
+        let (proj_field, block): (u8, &DiTBlock) = match kind {
+            "layers" => {
+                let block = self.layers.get(idx).ok_or_else(|| {
+                    format!(
+                        "vision lora: layers index {} out of range (n_layers = {})",
+                        idx, self.config.n_layers
+                    )
+                })?;
+                (proj_field_of(rest)?, block)
+            }
+            "noise_refiner" => {
+                let block = self.noise_refiner.get(idx).ok_or_else(|| {
+                    format!(
+                        "vision lora: noise_refiner index {} out of range (n_refiner_layers = {})",
+                        idx, self.config.n_refiner_layers
+                    )
+                })?;
+                (proj_field_of(rest)?, block)
+            }
+            _ => {
+                let block = self.context_refiner.get(idx).ok_or_else(|| {
+                    format!(
+                        "vision lora: context_refiner index {} out of range (n_refiner_layers = {})",
+                        idx, self.config.n_refiner_layers
+                    )
+                })?;
+                (proj_field_of(rest)?, block)
+            }
+        };
+        Ok(match proj_field {
+            0 => &block.to_q,
+            1 => &block.to_k,
+            2 => &block.to_v,
+            _ => &block.to_out,
+        })
+    }
+
+    /// Write the merged tensor into the projection a base key addresses.
+    /// The key shape was already validated by the adapter parse (Block
+    /// 1.1); an out-of-range block index here is a loud `Err`.
+    fn replace_attention_tensor(&mut self, key: &str, t: Tensor) -> Result<(), String> {
+        let (prefix, rest) = split_attention_key(key)?;
+        let (kind, idx) = split_prefix_index(prefix)?;
+        let proj_field = proj_field_of(rest)?;
+        let block: &mut DiTBlock = match kind {
+            "layers" => self.layers.get_mut(idx).ok_or_else(|| {
+                format!(
+                    "vision lora: layers index {} out of range (n_layers = {})",
+                    idx, self.config.n_layers
+                )
+            })?,
+            "noise_refiner" => self.noise_refiner.get_mut(idx).ok_or_else(|| {
+                format!(
+                    "vision lora: noise_refiner index {} out of range (n_refiner_layers = {})",
+                    idx, self.config.n_refiner_layers
+                )
+            })?,
+            _ => self.context_refiner.get_mut(idx).ok_or_else(|| {
+                format!(
+                    "vision lora: context_refiner index {} out of range (n_refiner_layers = {})",
+                    idx, self.config.n_refiner_layers
+                )
+            })?,
+        };
+        match proj_field {
+            0 => block.to_q = t,
+            1 => block.to_k = t,
+            2 => block.to_v = t,
+            _ => block.to_out = t,
+        }
+        Ok(())
+    }
+}
+
+/// `{prefix}.attention.{projection}.weight` → `(prefix, projection part)`.
+fn split_attention_key(key: &str) -> Result<(&str, &str), String> {
+    key.split_once(".attention.").ok_or_else(|| {
+        format!(
+            "vision lora: '{}' is not an attention-projection key (no '.attention.' \
+             separator) — the adapter validation should have refused it",
+            key
+        )
+    })
+}
+
+/// `layers.N` / `noise_refiner.N` / `context_refiner.N` → `(kind, index)`.
+fn split_prefix_index(prefix: &str) -> Result<(&str, usize), String> {
+    let (kind, idx) = prefix.rsplit_once('.').ok_or_else(|| {
+        format!(
+            "vision lora: prefix '{}' has no block index (expected layers.N / \
+             noise_refiner.N / context_refiner.N)",
+            prefix
+        )
+    })?;
+    let idx: usize = idx.parse().map_err(|_| {
+        format!(
+            "vision lora: block index '{}' is not a number (prefix '{}')",
+            idx, prefix
+        )
+    })?;
+    Ok((kind, idx))
+}
+
+/// Projection part of the key → slot id (0=q, 1=k, 2=v, 3=out).
+fn proj_field_of(rest: &str) -> Result<u8, String> {
+    match rest {
+        "to_q.weight" => Ok(0),
+        "to_k.weight" => Ok(1),
+        "to_v.weight" => Ok(2),
+        "to_out.0.weight" => Ok(3),
+        _ => Err(format!(
+            "vision lora: '{}' is not a projection weight (to_q/to_k/to_v/to_out.0)",
+            rest
+        )),
+    }
+}
+
 // ── Block construction ──
 
 /// n236: DiT expected-key generator — single source of truth.
@@ -1544,4 +1768,206 @@ fn sinusoidal_embedding(
     vals.extend_from_slice(&cos_vals);
     vals.extend_from_slice(&sin_vals);
     Tensor::from_vec(vals, (dim,), device)
+}
+
+// ── LoRA merge unit contracts (Наряд №244 Block 1.2/1.3) ─────────────
+
+#[cfg(test)]
+mod lora_tests {
+    use super::*;
+    use crate::vision::lora::LoraAdapter;
+
+    /// The merge math is exact: after `merge_lora_in_place`, the target
+    /// weight equals `W + scale·(up@down)` — verified against a DIRECT
+    /// (manual-loop) matmul on the same weights, not a candle re-run.
+    #[test]
+    fn lora_merge_math_direct_matmul() {
+        let mut dit = ZImageTransformer::new_tiny(&tiny_dit_config(), 42).expect("tiny dit");
+        let key = "layers.0.attention.to_q.weight";
+        let orig = dit
+            .attention_slot(key)
+            .expect("slot")
+            .to_dtype(DType::F32)
+            .expect("f32");
+        let orig = orig.to_vec2::<f32>().expect("vec2");
+        let (out_dim, in_dim) = (orig.len(), orig[0].len());
+        let r = 4usize;
+
+        // Base tensors: the harness supplies the CURRENT weights (the real
+        // path supplies exactly the tensors from_weights loaded).
+        let base = Tensor::from_vec(
+            orig.iter()
+                .flat_map(|row| row.iter().copied())
+                .collect::<Vec<f32>>(),
+            (out_dim, in_dim),
+            &Device::Cpu,
+        )
+        .expect("base");
+        let mut base_tensors: HashMap<String, Tensor> = HashMap::new();
+        base_tensors.insert(key.to_string(), base);
+
+        // up [out, r], down [r, in] — deterministic PRNG (SSOT).
+        use crate::nn::attention::generate_uniform_f32;
+        let up_v = generate_uniform_f32(101, out_dim * r, -0.5, 0.5);
+        let down_v = generate_uniform_f32(102, r * in_dim, -0.5, 0.5);
+        let up = Tensor::from_vec(up_v.clone(), (out_dim, r), &Device::Cpu).expect("up");
+        let down = Tensor::from_vec(down_v.clone(), (r, in_dim), &Device::Cpu).expect("down");
+
+        let mut tensors: HashMap<String, Tensor> = HashMap::new();
+        tensors.insert(format!("{}.lora_A.weight", key), down);
+        tensors.insert(format!("{}.lora_B.weight", key), up);
+        tensors.insert(
+            format!("{}.alpha", key),
+            Tensor::new(2.0f32, &Device::Cpu).expect("alpha"),
+        );
+        let adapter = LoraAdapter::from_tensors(tensors).expect("adapter");
+        assert_eq!(adapter.rank, 4, "rank = the pair dimension");
+        assert!(
+            (adapter.scale - 0.5).abs() < 1e-9,
+            "scale = alpha/rank = 2/4"
+        );
+        assert_eq!(adapter.targets.len(), 1, "exactly one target");
+
+        dit.merge_lora_in_place(&adapter, &base_tensors)
+            .expect("merge");
+
+        let merged = dit
+            .attention_slot(key)
+            .expect("slot after")
+            .to_dtype(DType::F32)
+            .expect("f32")
+            .to_vec2::<f32>()
+            .expect("vec2");
+
+        // Direct matmul on the same weights: delta = up@down (manual loops),
+        // expect W + scale·delta.
+        let scale = adapter.scale;
+        for i in 0..out_dim {
+            for j in 0..in_dim {
+                let mut acc = 0.0f64;
+                for k in 0..r {
+                    acc += (up_v[i * r + k] as f64) * (down_v[k * in_dim + j] as f64);
+                }
+                let expect = orig[i][j] as f64 + scale * acc;
+                assert!(
+                    (merged[i][j] as f64 - expect).abs() < 1e-3,
+                    "W'[{}][{}] = {} but direct matmul says {}",
+                    i,
+                    j,
+                    merged[i][j],
+                    expect
+                );
+            }
+        }
+    }
+
+    /// Block 1.3 identity: a zero up (and a zero down) merge leaves the
+    /// weight BIT-EXACT — the merged f32 vec equals the original vec.
+    #[test]
+    fn lora_identity_zero_delta_bit_exact_weight() {
+        for zero in ["up", "down"] {
+            let mut dit = ZImageTransformer::new_tiny(&tiny_dit_config(), 42).expect("tiny");
+            let key = "noise_refiner.0.attention.to_out.0.weight";
+            let orig = dit
+                .attention_slot(key)
+                .expect("slot")
+                .to_dtype(DType::F32)
+                .expect("f32")
+                .to_vec2::<f32>()
+                .expect("vec2");
+            let (out_dim, in_dim) = (orig.len(), orig[0].len());
+            let r = 2usize;
+            use crate::nn::attention::generate_uniform_f32;
+            let (up_v, down_v) = match zero {
+                "up" => (
+                    vec![0.0f32; out_dim * r],
+                    generate_uniform_f32(7, r * in_dim, -0.5, 0.5),
+                ),
+                _ => (
+                    generate_uniform_f32(7, out_dim * r, -0.5, 0.5),
+                    vec![0.0f32; r * in_dim],
+                ),
+            };
+            let mut tensors: HashMap<String, Tensor> = HashMap::new();
+            tensors.insert(
+                format!("{}.lora_A.weight", key),
+                Tensor::from_vec(down_v, (r, in_dim), &Device::Cpu).expect("down"),
+            );
+            tensors.insert(
+                format!("{}.lora_B.weight", key),
+                Tensor::from_vec(up_v, (out_dim, r), &Device::Cpu).expect("up"),
+            );
+            let adapter = LoraAdapter::from_tensors(tensors).expect("adapter");
+            let mut base_tensors: HashMap<String, Tensor> = HashMap::new();
+            base_tensors.insert(
+                key.to_string(),
+                Tensor::zeros((out_dim, in_dim), DType::F32, &Device::Cpu).expect("base"),
+            );
+            dit.merge_lora_in_place(&adapter, &base_tensors)
+                .expect("merge");
+            let merged = dit
+                .attention_slot(key)
+                .expect("slot after")
+                .to_dtype(DType::F32)
+                .expect("f32")
+                .to_vec2::<f32>()
+                .expect("vec2");
+            assert_eq!(
+                merged, orig,
+                "zero {} → the weight must stay bit-exact (Block 1.3)",
+                zero
+            );
+        }
+    }
+
+    /// An out-of-range block index (and a missing base tensor) is a LOUD
+    /// Err — a silently skipped target would be a partially-applied adapter.
+    #[test]
+    fn lora_out_of_range_and_missing_base_loud_errors() {
+        let mut dit = ZImageTransformer::new_tiny(&tiny_dit_config(), 42).expect("tiny");
+        let (out_dim, in_dim, r) = (64usize, 64usize, 2usize);
+        use crate::nn::attention::generate_uniform_f32;
+        let mk = |key: &str| {
+            let mut tensors: HashMap<String, Tensor> = HashMap::new();
+            tensors.insert(
+                format!("{}.lora_A.weight", key),
+                Tensor::from_vec(
+                    generate_uniform_f32(11, r * in_dim, -0.5, 0.5),
+                    (r, in_dim),
+                    &Device::Cpu,
+                )
+                .expect("down"),
+            );
+            tensors.insert(
+                format!("{}.lora_B.weight", key),
+                Tensor::from_vec(
+                    generate_uniform_f32(12, out_dim * r, -0.5, 0.5),
+                    (out_dim, r),
+                    &Device::Cpu,
+                )
+                .expect("up"),
+            );
+            LoraAdapter::from_tensors(tensors).expect("adapter")
+        };
+
+        // Out of range: layers.5 with n_layers = 2 — base tensor present,
+        // block absent.
+        let adapter = mk("layers.5.attention.to_q.weight");
+        let mut base_tensors: HashMap<String, Tensor> = HashMap::new();
+        base_tensors.insert(
+            "layers.5.attention.to_q.weight".to_string(),
+            Tensor::zeros((out_dim, in_dim), DType::F32, &Device::Cpu).expect("base"),
+        );
+        let err = dit
+            .merge_lora_in_place(&adapter, &base_tensors)
+            .expect_err("out-of-range target must be loud");
+        assert!(err.contains("out of range"), "err: {}", err);
+
+        // Missing base: the base tensor is absent entirely.
+        let adapter = mk("layers.0.attention.to_k.weight");
+        let err = dit
+            .merge_lora_in_place(&adapter, &HashMap::new())
+            .expect_err("missing base must be loud");
+        assert!(err.contains("not found in the weights"), "err: {}", err);
+    }
 }

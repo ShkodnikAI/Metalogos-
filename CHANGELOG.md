@@ -4,6 +4,105 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — Vision R6.3: LoRA-адаптеры — SQLite BLOB + применение к DiT (Наряд №244)
+
+- **`vision_lora_load(name, path) -> String` (Block 2.2)**: читает
+  safetensors-адаптер ОДИН раз из файла и персистит его в БД программы
+  (`db { url: "sqlite:..." }`) — таблица `vision_lora_adapters` (name
+  TEXT PK / bytes BLOB NOT NULL / meta_json TEXT NOT NULL / saved_at
+  RFC 3339). **ADR-0124 §6: адаптер живёт ТОЛЬКО в SQLite BLOB — не
+  новый файловый формат, не сессионное состояние** (`VisionRegistry` не
+  тронут). Порядок громких проверок предписан: арность/типы → no-db
+  (подсказка `db { url: ... }`) → `MLOG_VISION_WEIGHTS_DIR` →
+  путь-безопасность (относительный, без `..`, расширение
+  `.safetensors`, файл существует — чтение разрешено ТОЛЬКО внутри
+  weights_dir, новой поверхности файлового чтения нет; контракт-функция
+  `vision_lora_check_adapter_path`, лекало `vision_edit_check_dims_r41`)
+  → feature-гейт (без `vision` = громкий отказ: валидация требует
+  candle, вставка непроверенных байтов = тихий мусор — запрещена) →
+  чтение + разбор + валидация → `lora_save`. Коллизия имени = громкий
+  Err (no upsert, лекало №242); возвращает персистентный ключ `name`.
+- **`vision_lora_generate(decl_name, prompt, lora_name) -> Vision`
+  (Block 2.3)**: полный пайплайн `vision_generate` с применённым
+  адаптером. Предписанный порядок: арность/типы → пустой промпт →
+  резолв decl (с перечнем объявленных) → re-check model ∈
+  `KNOWN_VISION_MODELS` → no-db / неизвестный `lora_name` = Err (с
+  `lora_list`) → [gated] чтение байтов из БД + **integrity**:
+  `sha256(bytes) ≠ meta.sha256` = громкий Err ДО любого compute → разбор
+  Block 1.1 → env-гейты + компоненты → фикс 1024×1024 → пайплайн.
+  `meta_json` — фиксированная структура `LoraMeta` (sha256/rank/alpha/
+  scale/targets); битый JSON = громкий Err (лекало №242).
+- **`src/vision/lora.rs` (Block 1.1)**: разбор safetensors-байтов
+  (`candle_core::safetensors::load_buffer`, reader-лекало Stage B/C).
+  Принимаются ОБЕ канонические формы имён — diffusers-PEFT
+  (`<target>.lora_A.weight` / `.lora_B.weight`) и ComfyUI
+  (`<target>.lora_down.weight` / `.lora_up.weight` + опциональный
+  `<target>.alpha`); смешение форм в пределах одной цели = громкий Err.
+  `rank` = средняя размерность; `scale = alpha/rank`; alpha отсутствует →
+  `scale = 1.0` с громкой eprintln-ноткой (стиль quant_conv №243);
+  не-F32 вход апкастится в F32 ГРОМКО. Валидация: цель после снятия
+  суффикса обязана быть attention-проекцией базы
+  (`layers.N`/`noise_refiner.N`/`context_refiner.N` ×
+  `to_q/to_k/to_v/to_out.0` по `zimage_expected_keys`); цель-не-внимание
+  (нормы/FFN/embedders/final), неизвестный префикс, B без A (и
+  наоборот), осиротевшие ключи, несходящиеся размерности — ВСЁ громкие
+  Err с ПОЛНЫМ перечнем проблем. Тихое отбрасывание ключей запрещено.
+- **Слияние в DiT (Block 1.2)**: `ZImageTransformer::from_weights_with_lora`
+  (dit.rs, аддитивно) — база строится нетронутым `from_weights`, затем
+  `merge_lora_in_place` по каждой цели: `W' = W + scale·(up@down)` в F32
+  с возвратом к dtype базы; детерминированный (сортированный) порядок
+  целей; отсутствующая база / выход за n_layers = громкий Err. **Bit-exact
+  обязанность (Block 1.3)**: `from_weights`/`forward`/`forward_edit`/
+  `new_tiny` — нулевой дифф; слияние вызывается ТОЛЬКО в lora-пути;
+  контрольный инвариант: нулевой up ИЛИ down → выход байт-в-байт
+  равен базовому (проверено на уровнях веса и выхода). **Wedge-голдены
+  №212 зелёные БЕЗ правок** (85ef6a87/860c85b3).
+- **Композит-provenance (Block 2.4)**: при применённом адаптере
+  `model_sha256 = sha256("{base}\nlora:{name}:{lora_sha256}")`, где
+  `base = weights_tree_sha256(weights_dir)` (может быть «unpinned» —
+  композит честен и над маркером), `lora_sha256` = SHA байтов адаптера
+  из БД; `model_id` = база из decl; watermark = базовая модель (адаптер —
+  дельта, не модель). Формула зафиксирована в коде сайта вычисления
+  (`vision_lora_composite_model_sha256`, pub — механически пиннится
+  тестом, прецедент `verify_sha_pin`) и зеркалится в REFERENCE §4.22 и
+  doc-comment `VisionManifest::model_sha256` (структура/код provenance
+  НЕ тронуты — 7 полей не расширяются).
+- **Перехваты ×3 + стабы + taint (Blocks 2.5/2.6/3)**: `vision_lora_load`
+  (db_conn) и `vision_lora_generate` (decls + registry + db_conn) в
+  interpreter (eval + invoke) и VM; last-resort стабы `builtin_vision_lora_load_stub`/
+  `builtin_vision_lora_generate_stub` — лекало export_raw_stub
+  (док-номер «R6.3, №244»); `spec!`-строки после `vision_load`, арности
+  2 и 3. Taint: позиционный чек arg-1 расширен на
+  `vision_lora_generate` — тот же check-id `VISION_PROMPT_USER_INPUT`
+  (Warning; arg-0 decl-name и arg-2 lora-name не флагаются; новых
+  check-id/категорий нет, гейты №241 не тронуты).
+- **Реестр 389 → 391; ПОТОЛОК СЕМЕЙСТВА ДОСТИГНУТ**: vision-builtin'ов
+  теперь 10 (generate 2 / edit 2 / export 2 / export_raw 2 /
+  fetch_weights 2 / list 0 / save 2 / load 1 / lora_load 2 /
+  lora_generate 3) — верх предопределённой границы ADR-0124 §3
+  («Expected family size: ~8–10 — a hard counter against builtins
+  bloat»). **Следующий vision-builtin требует правки ADR-0124** — громко.
+- **Тесты (Block 4.1, без сети/весов, без `#[ignore`)**: 21 tiny-контракт
+  `tests/naryad_244_vision_lora.rs` (парс обеих форм, негативы парса с
+  перечнем, слияние меняет выход tiny-DiT, identity нулевого
+  адаптера байт-в-байт, детерминизм двух полных tiny-прогонов
+  (merge → sample → tiny-VAE → PNG) бит-в-бит, store
+  roundtrip/коллизия/битый meta (прямой UPDATE), integrity sha,
+  dispatch-негативы lora_load/lora_generate, подпись: 7 полей +
+  композит-структура + watermark + policy из decl; минимальный
+  safetensors-блоб строится candle-райтером — API доступен, отклонения
+  нет). Юнит-контракты слияния (прямой matmul на весах, identity веса,
+  out-of-range/missing base) — в `src/vision/dit.rs`
+  (`mod lora_tests`). Расширение `tests/naryad_240_vision_dispatch.rs`
+  (+3 taint: arg-1 флагается, arg-0/arg-2 нет, литерал не флагается) и
+  `tests/naryad_210_vision_skeleton.rs` (+2 real-path: no-db lora_load,
+  арность-3 lora_generate; 11 → 13 тестов). Runbook §3.2 lora-e2e
+  (PARKED-прогон, адаптер кладёт владелец в `weights_dir/lora/…`).
+- **wedge-голдены №212, weights.rs, манифест весов (16 файлов /
+  32 848 304 654 B), `tools/fetch_vision_weights.sh`, grammar.pest,
+  `KNOWN_VISION_MODELS`, контракт store №242 (`vision_artifacts`),
+  `VisionRegistry`, ADR-0124 — не тронуты.**
+
 ### Added — Vision R6.2: `vision_edit` — in-context editing (Наряд №243)
 
 - **`vision_edit(handle, prompt) -> Vision` (Block 2)**: громкий R1-стаб

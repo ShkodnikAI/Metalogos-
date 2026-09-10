@@ -4,6 +4,10 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Fixed — test: serialize session-memory contract tests — global store race (№239 family, 2nd round, Naryad #251)
+
+- test: serialize session-memory contract tests — global store race (№239 family, 2nd round). All 10 `tests/session_memory_contract.rs` tests hold one poison-tolerant static mutex for the whole test body (template: `naryad_244_vision_lora.rs` `env_lock`); evidence: 2 CI failures 2026-09-10, `left: 0, right: 1` at `:204` (`contract_session_no_persistence`); test-only — `src/**`, deps, CI settings untouched; 30/30 consecutive green runs.
+
 ### Changed — security SSOT sync (Naryad #246, docs-only)
 
 - docs: security SSOT sync — threat-model (Vision gates + `db_execute` in the SQL row + honest provenance boundary), SECURITY.md (0.19.x supported, generative-pillars paragraph), ADR-0122 truth-up (#213/#214 delivered, owner gate 2026-09-09), go-no-go gate line, README honest line.

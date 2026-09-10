@@ -54,3 +54,20 @@ evaluation.
 - ADR-0105 — precedent for honest gap documentation
 - ADR-0110 §1 — protocol: semantic questions require prior art
 - Naryad #124 — this naryad (documentation)
+
+## Revisit point (2026-09-10)
+
+The external audit of 2026-09-10 recorded the mock accuracy as an open
+finding ("not fixed"). Coordinator verification confirmed the fact itself
+and the status of the recorded decision. The decision is **reaffirmed**:
+no real quality metric is implemented, and the revisit condition stays
+verbatim — "Revisit only on a real `mutate` use case where the mock value
+of 0.95 creates a concrete problem", not abstractly.
+
+Current code addresses of the mock: `src/interpreter/hooks.rs:60-61` and
+`src/vm.rs:2946-2947` (the historical citation `src/vm.rs:2433-2434` in the
+Context section above has drifted — the lines moved with the growth of
+vm.rs; the fact did not change).
+
+Positioning: README (§5) and REFERENCE (§5.15) mark both the mock value and
+the revisit point (naryad #247, Block 2).

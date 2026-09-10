@@ -2,6 +2,7 @@
 
 use crate::interpreter::Value;
 use chrono::{Datelike, TimeZone, Timelike};
+use std::io::Write;
 use std::net::ToSocketAddrs;
 
 use super::core::*;
@@ -752,7 +753,14 @@ pub(crate) fn builtin_http_download(args: &[Value]) -> Result<Value, String> {
         let _ = std::fs::create_dir_all(parent);
     }
 
-    match std::fs::write(&safe_path, &bytes) {
+    // Наряд №252: symlink-safe open (same mechanism as write_file) —
+    // closes the planted-final-component TOCTOU at the third ForWrite
+    // site. Soft-failure contract unchanged (Ok(false) on failure).
+    let mut file = match super::io::open_sandbox_write(&safe_path, false) {
+        Ok(f) => f,
+        Err(_) => return Ok(Value::Bool(false)),
+    };
+    match file.write_all(&bytes) {
         Ok(_) => Ok(Value::Bool(true)),
         Err(_) => Ok(Value::Bool(false)),
     }

@@ -180,6 +180,19 @@ pub(crate) enum SandboxMode {
 ///      canonicalize only the parent directory (the file may not exist).
 ///   3. Prefix check: the canonicalized path must start with the
 ///      canonicalized base directory.
+///
+/// Наряд №252: the returned path is now SAFE TO USE, not merely
+/// checked. Previously the canonical path was validated but the
+/// ORIGINAL string was returned — so the actual file operation
+/// re-traversed any symlinks planted between the check and the use
+/// (TOCTOU). Now:
+///   - `ForRead` returns the canonicalized file path (reads resolve
+///     through in-sandbox symlinks exactly as before, but can no
+///     longer race past the check).
+///   - `ForWrite` returns `<canonical parent>/<final component>`.
+///     The parent is prefix-verified; the final component is the
+///     caller's responsibility — pair with [`open_sandbox_write`],
+///     which closes the final-component symlink race (O_NOFOLLOW).
 pub(crate) fn sandbox_path(path: &str) -> Result<std::path::PathBuf, String> {
     sandbox_path_ex(path, SandboxMode::ForRead)
 }
@@ -238,7 +251,101 @@ pub(crate) fn sandbox_path_ex(path: &str, mode: SandboxMode) -> Result<std::path
         ));
     }
 
-    Ok(std::path::PathBuf::from(path))
+    // Наряд №252: return a path that is safe to USE, not the original
+    // string (TOCTOU fix — see doc comment above).
+    match mode {
+        SandboxMode::ForRead => Ok(canonical_target),
+        SandboxMode::ForWrite => {
+            let name = p
+                .file_name()
+                .ok_or_else(|| format!("file I/O sandbox: path has no file name: '{}'", path))?;
+            Ok(canonical_target.join(name))
+        }
+    }
+}
+
+/// Наряд №252: symlink-safe open for sandbox write targets.
+///
+/// `target` must come from `sandbox_path_ex(_, SandboxMode::ForWrite)`
+/// (canonical parent + final component).
+///
+/// Two-phase open closes the final-component TOCTOU:
+///   1. `create_new(true)` — if the file is created fresh, no symlink
+///      can sit at the final component (creation is atomic).
+///   2. On `AlreadyExists`: canonicalize the full path (resolves any
+///      symlink), re-verify the prefix against the sandbox base, then
+///      reopen the CANONICAL path with `O_NOFOLLOW` (unix) — so a
+///      symlink swapped in after the check cannot be followed.
+///
+/// Honest boundary: intermediate directory components swapped between
+/// canonicalize and open are still out of scope (would need per-component
+/// O_NOFOLLOW or Linux openat2 RESOLVE_BENEATH — revisit if a real
+/// use case appears; planted-final-component file escape is the
+/// reproduced class from №252).
+///
+/// Non-unix: step 2 opens the canonical path without O_NOFOLLOW
+/// (symlink creation there requires elevated privileges; documented
+/// boundary).
+pub(crate) fn open_sandbox_write(
+    target: &std::path::Path,
+    append: bool,
+) -> Result<std::fs::File, String> {
+    let attempt = if append {
+        std::fs::OpenOptions::new()
+            .append(true)
+            .create_new(true)
+            .open(target)
+    } else {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(target)
+    };
+
+    match attempt {
+        Ok(file) => Ok(file),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            let base = std::env::current_dir()
+                .map_err(|e| format!("file I/O sandbox: {}", e))?
+                .canonicalize()
+                .map_err(|e| format!("file I/O sandbox: {}", e))?;
+            let canonical = target.canonicalize().map_err(|_| {
+                format!(
+                    "file I/O sandbox: cannot resolve path: '{}'",
+                    target.display()
+                )
+            })?;
+            if !canonical.starts_with(&base) {
+                return Err(format!(
+                    "file I/O sandbox: resolved path escapes sandbox: '{}'",
+                    target.display()
+                ));
+            }
+            let mut opts = std::fs::OpenOptions::new();
+            if append {
+                opts.append(true);
+            } else {
+                opts.write(true);
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                opts.custom_flags(libc::O_NOFOLLOW);
+            }
+            opts.open(&canonical).map_err(|e| {
+                format!(
+                    "file I/O sandbox: cannot open '{}': {}",
+                    target.display(),
+                    e
+                )
+            })
+        }
+        Err(e) => Err(format!(
+            "file I/O sandbox: cannot create '{}': {}",
+            target.display(),
+            e
+        )),
+    }
 }
 
 /// `read_file(path)` — read file contents as String.
@@ -265,17 +372,19 @@ pub(crate) fn builtin_write_file(args: &[Value]) -> Result<Value, String> {
         None => return Ok(Value::String(String::new())), // soft-failure
     };
     // Наряд №131: ForWrite — file may not exist yet.
-    let safe_path = match sandbox_path_ex(&path, SandboxMode::ForWrite) {
-        Ok(p) => p,
-        Err(_) => return Ok(Value::String(String::new())), // soft-failure on sandbox violation
-    };
+    // Наряд №252: sandbox violations are LOUD here (they are programmer
+    // errors, not environmental failures — №254 adds the stable code).
+    // Ordinary OS-level write errors keep the soft-failure contract.
+    let safe_path = sandbox_path_ex(&path, SandboxMode::ForWrite)?;
     // Create parent directories if needed
     if let Some(parent) = safe_path.parent() {
         let _ = std::fs::create_dir_all(parent); // best-effort
     }
-    match std::fs::write(&safe_path, &content) {
+    // sandbox escape / unresolvable target — loud
+    let mut file = open_sandbox_write(&safe_path, false)?;
+    match file.write_all(content.as_bytes()) {
         Ok(_) => Ok(Value::String("ok".to_string())),
-        Err(_) => Ok(Value::String(String::new())), // soft-failure
+        Err(_) => Ok(Value::String(String::new())), // soft-failure (OS-level)
     }
 }
 
@@ -289,24 +398,18 @@ pub(crate) fn builtin_append_file(args: &[Value]) -> Result<Value, String> {
         None => return Ok(Value::String(String::new())), // soft-failure
     };
     // Наряд №131: ForWrite — file may not exist yet.
-    let safe_path = match sandbox_path_ex(&path, SandboxMode::ForWrite) {
-        Ok(p) => p,
-        Err(_) => return Ok(Value::String(String::new())), // soft-failure on sandbox violation
-    };
+    // Наряд №252: sandbox violations are LOUD (see builtin_write_file);
+    // OS-level errors keep the soft-failure contract.
+    let safe_path = sandbox_path_ex(&path, SandboxMode::ForWrite)?;
     // Create parent directories if needed
     if let Some(parent) = safe_path.parent() {
         let _ = std::fs::create_dir_all(parent); // best-effort
     }
-    match std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&safe_path)
-    {
-        Ok(mut file) => match file.write_all(content.as_bytes()) {
-            Ok(_) => Ok(Value::String("ok".to_string())),
-            Err(_) => Ok(Value::String(String::new())), // soft-failure
-        },
-        Err(_) => Ok(Value::String(String::new())), // soft-failure
+    // sandbox escape / unresolvable target — loud
+    let mut file = open_sandbox_write(&safe_path, true)?;
+    match file.write_all(content.as_bytes()) {
+        Ok(_) => Ok(Value::String("ok".to_string())),
+        Err(_) => Ok(Value::String(String::new())), // soft-failure (OS-level)
     }
 }
 
@@ -806,7 +909,7 @@ mod tests_n131 {
     use std::path::PathBuf;
 
     /// Create a temp dir, change CWD to it, run f, restore CWD, cleanup.
-    fn with_temp_sandbox(name: &str, f: impl FnOnce()) {
+    pub(super) fn with_temp_sandbox(name: &str, f: impl FnOnce()) {
         let dir = std::env::temp_dir().join(name);
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("setup");
@@ -818,7 +921,7 @@ mod tests_n131 {
     }
 
     /// Create a temp dir, return its path (caller manages lifetime).
-    fn make_temp_dir(name: &str) -> PathBuf {
+    pub(super) fn make_temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(name);
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("setup");
@@ -1014,5 +1117,197 @@ mod tests_n131 {
         );
 
         let _ = fs::remove_dir_all(&sandbox);
+    }
+}
+
+// ── Наряд №252: write-path TOCTOU / planted final-component symlink ──
+#[cfg(test)]
+mod tests_n252 {
+    use super::tests_n131::{make_temp_dir, with_temp_sandbox};
+    use super::*;
+    use serial_test::serial;
+    use std::fs;
+
+    // Unix-only: planted symlinks are the repro'd attack class (№252).
+    // The full write_file call chain is exercised — not just
+    // sandbox_path_ex — because the bug lived between the check and
+    // the use (fs::write followed the planted symlink).
+
+    #[test]
+    #[cfg(unix)]
+    #[serial]
+    fn n252_write_through_planted_symlink_denied() {
+        let sandbox = make_temp_dir("metalogos_n252_w_link");
+        let outside = make_temp_dir("metalogos_n252_w_out");
+        fs::write(outside.join("secret"), "TOP SECRET").unwrap();
+
+        // Plant: a.txt (inside sandbox) → outside secret file
+        std::os::unix::fs::symlink(outside.join("secret"), sandbox.join("a.txt")).unwrap();
+
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&sandbox).unwrap();
+        let result = builtin_write_file(&[
+            Value::String("a.txt".to_string()),
+            Value::String("EVIL".to_string()),
+        ]);
+        std::env::set_current_dir(&prev).unwrap();
+
+        // Loud error, NOT soft "" — and the outside file is untouched.
+        assert!(
+            result.is_err(),
+            "planted-symlink write must be denied: {:?}",
+            result
+        );
+        assert!(
+            result.unwrap_err().contains("escapes sandbox"),
+            "expected 'escapes sandbox'"
+        );
+        assert_eq!(
+            fs::read_to_string(outside.join("secret")).unwrap(),
+            "TOP SECRET",
+            "outside file must be untouched"
+        );
+
+        let _ = fs::remove_dir_all(&sandbox);
+        let _ = fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    #[serial]
+    fn n252_append_through_planted_symlink_denied() {
+        let sandbox = make_temp_dir("metalogos_n252_a_link");
+        let outside = make_temp_dir("metalogos_n252_a_out");
+        fs::write(outside.join("secret"), "TOP SECRET").unwrap();
+
+        std::os::unix::fs::symlink(outside.join("secret"), sandbox.join("log.txt")).unwrap();
+
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&sandbox).unwrap();
+        let result = builtin_append_file(&[
+            Value::String("log.txt".to_string()),
+            Value::String("EVIL".to_string()),
+        ]);
+        std::env::set_current_dir(&prev).unwrap();
+
+        assert!(
+            result.is_err(),
+            "planted-symlink append must be denied: {:?}",
+            result
+        );
+        assert_eq!(
+            fs::read_to_string(outside.join("secret")).unwrap(),
+            "TOP SECRET",
+            "outside file must be untouched"
+        );
+
+        let _ = fs::remove_dir_all(&sandbox);
+        let _ = fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    #[serial]
+    fn n252_write_broken_symlink_loud() {
+        let sandbox = make_temp_dir("metalogos_n252_dangling");
+        std::os::unix::fs::symlink("/nonexistent/n252_target", sandbox.join("dangling.txt"))
+            .unwrap();
+
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&sandbox).unwrap();
+        let result = builtin_write_file(&[
+            Value::String("dangling.txt".to_string()),
+            Value::String("x".to_string()),
+        ]);
+        std::env::set_current_dir(&prev).unwrap();
+
+        assert!(
+            result.is_err(),
+            "broken symlink write must be loud: {:?}",
+            result
+        );
+        assert!(
+            result.unwrap_err().contains("cannot resolve"),
+            "expected 'cannot resolve'"
+        );
+
+        let _ = fs::remove_dir_all(&sandbox);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    #[serial]
+    fn n252_write_dir_instead_of_file_loud() {
+        with_temp_sandbox("metalogos_n252_dir", || {
+            fs::create_dir("adir").unwrap();
+            let result = builtin_write_file(&[
+                Value::String("adir".to_string()),
+                Value::String("x".to_string()),
+            ]);
+            assert!(
+                result.is_err(),
+                "directory write must be loud: {:?}",
+                result
+            );
+        });
+    }
+
+    #[test]
+    #[cfg(unix)]
+    #[serial]
+    fn n252_read_via_in_sandbox_symlink_ok() {
+        with_temp_sandbox("metalogos_n252_r_link", || {
+            fs::write("real.txt", "inner").unwrap();
+            std::os::unix::fs::symlink("real.txt", "alias.txt").unwrap();
+            // In-sandbox symlink: reads still resolve (canonical return,
+            // prefix holds) — the sandbox is not a symlink ban.
+            match builtin_read_file(&[Value::String("alias.txt".to_string())]) {
+                Ok(Value::String(s)) => assert_eq!(s, "inner"),
+                other => panic!("expected inner content, got {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn n252_write_new_and_overwrite_regular_file_ok() {
+        with_temp_sandbox("metalogos_n252_plain", || {
+            // New file: create_new path
+            match builtin_write_file(&[
+                Value::String("new.txt".to_string()),
+                Value::String("one".to_string()),
+            ]) {
+                Ok(Value::String(s)) => assert_eq!(s, "ok"),
+                other => panic!("new-file write failed: {:?}", other),
+            }
+            // Existing regular file: AlreadyExists → canonical + O_NOFOLLOW path
+            match builtin_write_file(&[
+                Value::String("new.txt".to_string()),
+                Value::String("two".to_string()),
+            ]) {
+                Ok(Value::String(s)) => assert_eq!(s, "ok"),
+                other => panic!("overwrite write failed: {:?}", other),
+            }
+            assert_eq!(fs::read_to_string("new.txt").unwrap(), "two");
+            // Append into the same contract
+            match builtin_append_file(&[
+                Value::String("new.txt".to_string()),
+                Value::String("+".to_string()),
+            ]) {
+                Ok(Value::String(s)) => assert_eq!(s, "ok"),
+                other => panic!("append failed: {:?}", other),
+            }
+            assert_eq!(fs::read_to_string("new.txt").unwrap(), "two+");
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn n252_forwrite_returns_canonical_parent_join_name() {
+        with_temp_sandbox("metalogos_n252_canon", || {
+            let got = sandbox_path_ex("new.txt", SandboxMode::ForWrite).unwrap();
+            let base = std::env::current_dir().unwrap().canonicalize().unwrap();
+            assert_eq!(got, base.join("new.txt"), "must be canonical parent + name");
+        });
     }
 }

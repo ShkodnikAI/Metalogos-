@@ -5,7 +5,10 @@
 //! `vision_lora_load`, then persisted as a SQLite BLOB — the ADR-0124 §6
 //! pattern, "not a new file format"); at generation time the adapter is
 //! resolved from the database and merged into the DiT attention
-//! projections (`blocks.N.attention.{to_q,to_k,to_v,to_out.0}.weight`).
+//! projections (`layers.N` / `noise_refiner.N` / `context_refiner.N` +
+//! `.attention.{to_q,to_k,to_v,to_out.0}.weight` — the
+//! `zimage_expected_keys` shape, pinned by the
+//! `attention_targets_match_zimage_expected_keys_shape` unit test).
 //!
 //! ## Contract (naryad №244, Block 1.1)
 //!
@@ -153,6 +156,70 @@ impl LoraAdapter {
                     ));
                 }
             }
+        }
+
+        // ── Ambiguous-form detection (Наряд №245 Block 1.1): a target that
+        // appears in BOTH canonical name forms (diffusers-PEFT and ComfyUI)
+        // is refused LOUDLY — the union merge below would otherwise silently
+        // let one form's slot overwrite the other (the exact quiet key drop
+        // the contract above and §3.1 forbid); a cross-form pair — low from
+        // one form + high from the other — is equally ambiguous. No partial
+        // application: every ambiguous target is dropped from ALL forms, so
+        // the whole adapter is refused (the half-pair лекало below).
+        let mut ambiguous: Vec<String> = Vec::new();
+        {
+            let mut pair_targets: std::collections::BTreeSet<&str> =
+                std::collections::BTreeSet::new();
+            for t in a_parts
+                .keys()
+                .chain(b_parts.keys())
+                .chain(down_parts.keys())
+                .chain(up_parts.keys())
+            {
+                pair_targets.insert(t.as_str());
+            }
+            for target in pair_targets {
+                let peft: Vec<&str> = [
+                    (a_parts.contains_key(target), ".lora_A.weight"),
+                    (b_parts.contains_key(target), ".lora_B.weight"),
+                ]
+                .iter()
+                .filter_map(|&(hit, suffix)| if hit { Some(suffix) } else { None })
+                .collect();
+                let comfy: Vec<&str> = [
+                    (down_parts.contains_key(target), ".lora_down.weight"),
+                    (up_parts.contains_key(target), ".lora_up.weight"),
+                ]
+                .iter()
+                .filter_map(|&(hit, suffix)| if hit { Some(suffix) } else { None })
+                .collect();
+                if !peft.is_empty() && !comfy.is_empty() {
+                    let peft_keys = peft
+                        .iter()
+                        .map(|s| format!("'{}{}'", target, s))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let comfy_keys = comfy
+                        .iter()
+                        .map(|s| format!("'{}{}'", target, s))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    problems.push(format!(
+                        "target '{}': ambiguous form — parts from BOTH canonical name \
+                         forms (diffusers-PEFT: {}; ComfyUI: {}) — mixing the two forms \
+                         within one target is a loud error (refusing the whole adapter, \
+                         no silent form preference)",
+                        target, peft_keys, comfy_keys,
+                    ));
+                    ambiguous.push(target.to_string());
+                }
+            }
+        }
+        for t in &ambiguous {
+            a_parts.remove(t);
+            b_parts.remove(t);
+            down_parts.remove(t);
+            up_parts.remove(t);
         }
 
         // ── Pair the parts per target; validate shapes ─────────────────

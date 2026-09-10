@@ -340,6 +340,160 @@ fn parse_dims_mismatch_loud_error() {
     );
 }
 
+// ── (№245) Mixed-form targets — loud ambiguous-form refusals ─────────
+
+/// (Наряд №245 Block 1.2a) A target present in BOTH canonical forms —
+/// even with CONSISTENT values — is a loud `ambiguous form` error that
+/// names the target, BOTH forms and the exact keys; the adapter is
+/// refused entirely. (The pre-№245 union merge silently let the ComfyUI
+/// form overwrite the PEFT form — the exact quiet key drop the contract
+/// and §3.1 forbid.)
+#[test]
+fn parse_mixed_form_complete_loud_ambiguous_error() {
+    let key = "layers.0.attention.to_q.weight";
+    let mut tensors: HashMap<String, Tensor> = HashMap::new();
+    // diffusers-PEFT form: lora_A [4, 64] + lora_B [64, 4].
+    tensors.insert(
+        format!("{}.lora_A.weight", key),
+        Tensor::from_vec(
+            generate_uniform_f32(21, 4 * 64, -0.5, 0.5),
+            (4, 64),
+            &Device::Cpu,
+        )
+        .expect("a"),
+    );
+    tensors.insert(
+        format!("{}.lora_B.weight", key),
+        Tensor::from_vec(
+            generate_uniform_f32(22, 64 * 4, -0.5, 0.5),
+            (64, 4),
+            &Device::Cpu,
+        )
+        .expect("b"),
+    );
+    // ComfyUI form for the SAME target, consistent shapes (rank 4).
+    tensors.insert(
+        format!("{}.lora_down.weight", key),
+        Tensor::from_vec(
+            generate_uniform_f32(23, 4 * 64, -0.5, 0.5),
+            (4, 64),
+            &Device::Cpu,
+        )
+        .expect("down"),
+    );
+    tensors.insert(
+        format!("{}.lora_up.weight", key),
+        Tensor::from_vec(
+            generate_uniform_f32(24, 64 * 4, -0.5, 0.5),
+            (64, 4),
+            &Device::Cpu,
+        )
+        .expect("up"),
+    );
+    let err =
+        LoraAdapter::parse(&blob_bytes_only(tensors)).expect_err("mixed form must fail, not parse");
+    assert!(err.contains("ambiguous form"), "names the defect: {}", err);
+    assert!(err.contains(key), "names the target: {}", err);
+    assert!(
+        err.contains("diffusers-PEFT") && err.contains("ComfyUI"),
+        "names BOTH forms: {}",
+        err
+    );
+    assert!(
+        err.contains(&format!("{}.lora_A.weight", key))
+            && err.contains(&format!("{}.lora_down.weight", key)),
+        "names the exact keys: {}",
+        err
+    );
+    assert!(err.contains("1 problem"), "the full list header: {}", err);
+}
+
+/// (Наряд №245 Block 1.2b) A PARTIAL mixed form — PEFT lora_A + ComfyUI
+/// lora_down for the low half, lora_B only from PEFT — is ambiguous too:
+/// refused loudly, NOT resolved by quietly preferring one form's low half
+/// (the pre-№245 code silently assembled a (down, B) pair across forms).
+#[test]
+fn parse_mixed_form_partial_loud_ambiguous_error() {
+    let key = "layers.1.attention.to_k.weight";
+    let mut tensors: HashMap<String, Tensor> = HashMap::new();
+    tensors.insert(
+        format!("{}.lora_A.weight", key),
+        Tensor::from_vec(
+            generate_uniform_f32(25, 4 * 64, -0.5, 0.5),
+            (4, 64),
+            &Device::Cpu,
+        )
+        .expect("a"),
+    );
+    tensors.insert(
+        format!("{}.lora_B.weight", key),
+        Tensor::from_vec(
+            generate_uniform_f32(26, 64 * 4, -0.5, 0.5),
+            (64, 4),
+            &Device::Cpu,
+        )
+        .expect("b"),
+    );
+    tensors.insert(
+        format!("{}.lora_down.weight", key),
+        Tensor::from_vec(
+            generate_uniform_f32(27, 4 * 64, -0.5, 0.5),
+            (4, 64),
+            &Device::Cpu,
+        )
+        .expect("down"),
+    );
+    let err =
+        LoraAdapter::parse(&blob_bytes_only(tensors)).expect_err("partial mixed form must fail");
+    assert!(err.contains("ambiguous form"), "names the defect: {}", err);
+    assert!(err.contains(key), "names the target: {}", err);
+    assert!(
+        err.contains(&format!("{}.lora_B.weight", key))
+            && err.contains(&format!("{}.lora_down.weight", key)),
+        "names the exact keys: {}",
+        err
+    );
+    assert!(err.contains("1 problem"), "the full list header: {}", err);
+}
+
+/// (Наряд №245 Block 1.2) The CROSS-form pair — low from ONE form (PEFT
+/// lora_A) + high from the OTHER (ComfyUI lora_up), nothing else — is
+/// ambiguous as well: a pair assembled across forms is a silent form
+/// preference, not a canonical form. (The pre-№245 code parsed it OK.)
+#[test]
+fn parse_mixed_form_cross_pair_loud_ambiguous_error() {
+    let key = "layers.0.attention.to_out.0.weight";
+    let mut tensors: HashMap<String, Tensor> = HashMap::new();
+    tensors.insert(
+        format!("{}.lora_A.weight", key),
+        Tensor::from_vec(
+            generate_uniform_f32(28, 4 * 64, -0.5, 0.5),
+            (4, 64),
+            &Device::Cpu,
+        )
+        .expect("a"),
+    );
+    tensors.insert(
+        format!("{}.lora_up.weight", key),
+        Tensor::from_vec(
+            generate_uniform_f32(29, 64 * 4, -0.5, 0.5),
+            (64, 4),
+            &Device::Cpu,
+        )
+        .expect("up"),
+    );
+    let err = LoraAdapter::parse(&blob_bytes_only(tensors)).expect_err("cross-form pair must fail");
+    assert!(err.contains("ambiguous form"), "names the defect: {}", err);
+    assert!(err.contains(key), "names the target: {}", err);
+    assert!(
+        err.contains(&format!("{}.lora_A.weight", key))
+            && err.contains(&format!("{}.lora_up.weight", key)),
+        "names the exact keys: {}",
+        err
+    );
+    assert!(err.contains("1 problem"), "the full list header: {}", err);
+}
+
 // ── Tiny-DiT harness (wedge лекало) ──────────────────────────────────
 
 const TINY_SEED: u64 = 24401;

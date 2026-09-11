@@ -186,9 +186,14 @@ fn test_compile_while_loop() {
     let source = r#"
 pattern countdown(n: Float) -> String {
     let mut result = ""
-    while n > 0.0 {
-        result = str(n)
-        n = n - 1.0
+    // Наряд №264: the parameter `n` is immutable — the pre-№264 source
+    // reassigned the parameter and compiled only because the static check
+    // was missing (the TW interpreter rejected it at runtime). Mutate a
+    // local copy instead.
+    let mut i = n
+    while i > 0.0 {
+        result = str(i)
+        i = i - 1.0
     }
     return result
 }
@@ -479,7 +484,10 @@ fn test_compile_block_if_else_stmt_still_ok() {
     // The fix in НАРЯД №129 only affects Expr::BlockIfElse.
     let source = r#"
 pattern block_if_else_stmt(x: Float) -> String {
-    let result = ""
+    // Наряд №264: assigning without `let mut` is a compile error now —
+    // the pre-№264 source here compiled only because the static check was
+    // missing (the TW interpreter rejected the same pattern at runtime).
+    let mut result = ""
     if x > 0.0 then { result = "pos" } else { result = "neg" }
     return result
 }

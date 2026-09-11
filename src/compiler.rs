@@ -418,7 +418,11 @@ impl Compiler {
                         .enumerate()
                         .map(|(i, param)| (param.name.clone(), i))
                         .collect();
-                    let fn_code = self.compile_pattern_body_with_locals(&p.body, &mut locals)?;
+                    // Наряд №264: params are NOT mutable (TW: mutable_vars
+                    // starts empty per pattern invocation).
+                    let mut mutable: HashSet<String> = HashSet::new();
+                    let fn_code =
+                        self.compile_pattern_body_with_locals(&p.body, &mut locals, &mut mutable)?;
                     let is_pure = Self::analyze_purity(&fn_code, &p.params);
                     let compiled = CompiledFn {
                         name: p.name.clone(),
@@ -914,10 +918,17 @@ impl Compiler {
     /// Compile a pattern body with parameter names as locals.
     /// Supports: LetBinding, Assign, Return, While, Each, EachWithIndex,
     /// IfThen, IfElseBlock, Break, Continue, ExprStmt, Match.
+    ///
+    /// Наряд №264: `mutable` tracks which locals were bound with `let mut`
+    /// (flat, never popped — TW's exact model, execution.rs:946). An
+    /// assignment to any other name is a COMPILE ERROR: the compiler knows
+    /// mut-ness at compile time, so a program the semantics already
+    /// rejected must not serialize into a silently-executing .mbc.
     fn compile_pattern_body_with_locals(
         &self,
         body: &[Statement],
         locals: &mut HashMap<String, usize>,
+        mutable: &mut HashSet<String>,
     ) -> Result<Vec<Instruction>, String> {
         let mut code = Vec::new();
         let mut next_slot = locals.len();
@@ -927,10 +938,18 @@ impl Compiler {
 
         for stmt in body {
             match stmt {
-                Statement::LetBinding { name, value, .. } => {
+                Statement::LetBinding {
+                    name,
+                    value,
+                    mutable: is_mut,
+                    ..
+                } => {
                     // Function-level scoping: if name already exists in locals,
                     // reuse the existing slot (matches interpreter behavior).
                     // Per p30_scope_let, `let` inside if/else overwrites outer variable.
+                    if *is_mut {
+                        mutable.insert(name.clone());
+                    }
                     if let Some(&existing_slot) = locals.get(name) {
                         self.compile_expr_with_locals(value, &mut code, locals)?;
                         code.push(Instruction::StoreLocal(existing_slot));
@@ -943,15 +962,31 @@ impl Compiler {
                     }
                 }
                 Statement::Assign { name, value, .. } => {
-                    // Reassignment: look up existing slot, compile value, store.
-                    if let Some(&slot) = locals.get(name) {
-                        self.compile_expr_with_locals(value, &mut code, locals)?;
-                        code.push(Instruction::StoreLocal(slot));
-                    } else if let Some(&slot) = self.global_slots.get(name) {
-                        self.compile_expr_with_locals(value, &mut code, locals)?;
-                        code.push(Instruction::StoreGlobal(slot));
+                    // Наряд №264: assignment to a non-`let mut` name is a
+                    // compile error (previously compiled SILENTLY into
+                    // StoreLocal/StoreGlobal — the VM violated the №14
+                    // immutability contract that TW enforces at runtime).
+                    // Order mirrors TW: mutability is checked before the
+                    // name is resolved, so globals and never-declared names
+                    // get the same immutability message (TW mutable_vars is
+                    // function-local — globals are never in it).
+                    if !mutable.contains(name) {
+                        return Err(crate::semantic::immutability_error_text(name));
                     }
-                    // If not found, silently skip (interpreter would error).
+                    let slot = match locals.get(name) {
+                        Some(&slot) => slot,
+                        None => return Err(crate::semantic::immutability_error_text(name)),
+                    };
+                    // Reassignment to a `let mut` local: StoreAssignLocal
+                    // carries the mutability fact so the VM can backstop
+                    // bytecode produced past this check (VM loud, never
+                    // silent — see bytecode.rs StoreAssignLocal).
+                    self.compile_expr_with_locals(value, &mut code, locals)?;
+                    code.push(Instruction::StoreAssignLocal {
+                        slot,
+                        name: name.clone(),
+                        mutable: true,
+                    });
                 }
                 Statement::Return { value: expr, .. } => {
                     self.compile_expr_with_locals(expr, &mut code, locals)?;
@@ -998,6 +1033,7 @@ impl Compiler {
                                     locals,
                                     &mut next_slot,
                                     &mut loop_stack,
+                                    mutable,
                                 )?;
                             }
                         }
@@ -1090,6 +1126,7 @@ impl Compiler {
                                     locals,
                                     &mut next_slot,
                                     &mut loop_stack,
+                                    mutable,
                                 )?;
                             }
                         }
@@ -1186,6 +1223,7 @@ impl Compiler {
                                     locals,
                                     &mut next_slot,
                                     &mut loop_stack,
+                                    mutable,
                                 )?;
                             }
                         }
@@ -1236,6 +1274,7 @@ impl Compiler {
                             locals,
                             &mut next_slot,
                             &mut loop_stack,
+                            mutable,
                         )?;
                     }
                     next_slot = saved_next_slot;
@@ -1266,6 +1305,7 @@ impl Compiler {
                             locals,
                             &mut next_slot,
                             &mut loop_stack,
+                            mutable,
                         )?;
                     }
                     next_slot = saved_next_slot;
@@ -1291,6 +1331,7 @@ impl Compiler {
                                 locals,
                                 &mut next_slot,
                                 &mut loop_stack,
+                                mutable,
                             )?;
                         }
                         next_slot = saved_ns;
@@ -1313,6 +1354,7 @@ impl Compiler {
                                 locals,
                                 &mut next_slot,
                                 &mut loop_stack,
+                                mutable,
                             )?;
                         }
                         next_slot = saved_ns;
@@ -1356,6 +1398,8 @@ impl Compiler {
 
     /// Helper: compile a single statement with full loop context and slot tracking.
     /// Used by While/Each bodies to avoid duplicating the full match logic.
+    /// Наряд №264: `mutable` is the flat set of `let mut` names — same
+    /// immutability contract as compile_pattern_body_with_locals.
     fn compile_stmt_with_locals(
         &self,
         stmt: &Statement,
@@ -1363,10 +1407,19 @@ impl Compiler {
         locals: &mut HashMap<String, usize>,
         next_slot: &mut usize,
         loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
+        mutable: &mut HashSet<String>,
     ) -> Result<(), String> {
         match stmt {
-            Statement::LetBinding { name, value, .. } => {
+            Statement::LetBinding {
+                name,
+                value,
+                mutable: is_mut,
+                ..
+            } => {
                 // Function-level scoping: reuse existing slot if name exists.
+                if *is_mut {
+                    mutable.insert(name.clone());
+                }
                 if let Some(&existing_slot) = locals.get(name) {
                     self.compile_expr_with_locals(value, code, locals)?;
                     code.push(Instruction::StoreLocal(existing_slot));
@@ -1379,13 +1432,24 @@ impl Compiler {
                 }
             }
             Statement::Assign { name, value, .. } => {
-                if let Some(&slot) = locals.get(name) {
-                    self.compile_expr_with_locals(value, code, locals)?;
-                    code.push(Instruction::StoreLocal(slot));
-                } else if let Some(&slot) = self.global_slots.get(name) {
-                    self.compile_expr_with_locals(value, code, locals)?;
-                    code.push(Instruction::StoreGlobal(slot));
+                // Наряд №264: same immutability contract as the top-level
+                // Assign arm — non-`let mut` targets are a compile error
+                // (TW errors at runtime; the VM must not receive a silent
+                // store for them), and only `let mut` locals are stored via
+                // the checked StoreAssignLocal opcode.
+                if !mutable.contains(name) {
+                    return Err(crate::semantic::immutability_error_text(name));
                 }
+                let slot = match locals.get(name) {
+                    Some(&slot) => slot,
+                    None => return Err(crate::semantic::immutability_error_text(name)),
+                };
+                self.compile_expr_with_locals(value, code, locals)?;
+                code.push(Instruction::StoreAssignLocal {
+                    slot,
+                    name: name.clone(),
+                    mutable: true,
+                });
             }
             Statement::Return { value: expr, .. } => {
                 self.compile_expr_with_locals(expr, code, locals)?;
@@ -1416,7 +1480,9 @@ impl Compiler {
                             code.push(Instruction::Jump(loop_start));
                         }
                         _ => {
-                            self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack)?;
+                            self.compile_stmt_with_locals(
+                                s, code, locals, next_slot, loop_stack, mutable,
+                            )?;
                         }
                     }
                 }
@@ -1440,7 +1506,7 @@ impl Compiler {
                 let jmp_idx = code.len() - 1;
                 let saved = *next_slot;
                 for s in then_body {
-                    self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack)?;
+                    self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack, mutable)?;
                 }
                 *next_slot = saved;
                 code[jmp_idx] = Instruction::JumpIfNot(code.len());
@@ -1458,7 +1524,7 @@ impl Compiler {
                 let jmp_idx = code.len() - 1;
                 let saved = *next_slot;
                 for s in then_body {
-                    self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack)?;
+                    self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack, mutable)?;
                 }
                 *next_slot = saved;
                 code.push(Instruction::Jump(0));
@@ -1471,7 +1537,9 @@ impl Compiler {
                     let ei_jmp = code.len() - 1;
                     let saved2 = *next_slot;
                     for s in ei_body {
-                        self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack)?;
+                        self.compile_stmt_with_locals(
+                            s, code, locals, next_slot, loop_stack, mutable,
+                        )?;
                     }
                     *next_slot = saved2;
                     code.push(Instruction::Jump(0));
@@ -1482,7 +1550,9 @@ impl Compiler {
                 if let Some(eb) = else_body {
                     let saved3 = *next_slot;
                     for s in eb {
-                        self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack)?;
+                        self.compile_stmt_with_locals(
+                            s, code, locals, next_slot, loop_stack, mutable,
+                        )?;
                     }
                     *next_slot = saved3;
                 }
@@ -1682,7 +1752,12 @@ impl Compiler {
         let mut compiled = Vec::new();
         for route in routes {
             let mut locals = HashMap::new();
-            let code = self.compile_pattern_body_with_locals(&route.body, &mut locals)?;
+            // Наряд №264: route bodies get the same immutability compile
+            // check as pattern bodies (TW executes them through
+            // eval_statements — the let-mut contract applies identically).
+            let mut mutable: HashSet<String> = HashSet::new();
+            let code =
+                self.compile_pattern_body_with_locals(&route.body, &mut locals, &mut mutable)?;
             compiled.push(CompiledRoute {
                 path: route.path.clone(),
                 method: route.method.clone(),

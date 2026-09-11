@@ -17,7 +17,18 @@ pattern Outer(s: String) -> String {
 
 // ── Contract 3: Pattern with memory from route ─────────────
 pattern Remember(fact: String) -> String {
-  memorize fact with priority=0.8
+  // Наряд №264 truth-up: this pattern previously contained
+  //   memorize fact with priority=0.8
+  // Inside a pattern body that line parses (and has ALWAYS parsed) as
+  // token soup — the grammar knows `memorize ... with priority=` only at
+  // top level: "memorize"/"fact"/"with" degrade to bare ident statements
+  // and `priority=0.8` becomes an Assign statement. The tree-walking
+  // interpreter failed at runtime with «undefined variable: memorize» the
+  // moment Remember was invoked — Contract 3 ("pattern with memory from
+  // route") never worked end-to-end; it only ever compiled. №264's static
+  // immutability check surfaced the garbage at `mlog check` time. The
+  // parser gap is filed as naryad №266; until then memory writes are
+  // available only at top level (p7_persist_memory.mlog / m4_memory.mlog).
   return "ok"
 }
 

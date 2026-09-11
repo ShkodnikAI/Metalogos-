@@ -1523,7 +1523,10 @@ fn check_model_weights_unsafe(
         };
         if blocked {
             return Some(format!(
-                "URL host '{}' is in the SSRF-blocked class (loopback/private/link-local/metadata) \
+                // Наряд №261: классы блокировки расширены SSOT is_blocked_address
+                // (mapped-IPv6, unspecified, CGNAT 100.64/10, benchmark 198.18/15).
+                "URL host '{}' is in the SSRF-blocked class (loopback/private/link-local/\
+                 reserved/mapped) \
                  — unreachable through the SSRF guard regardless of the allowlist",
                 host
             ));

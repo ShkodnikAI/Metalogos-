@@ -405,6 +405,9 @@ let claude_response = call_claude(env("ANTHROPIC_KEY"), "claude-sonnet-4-2025051
 | `http_get(url)` | `String -> String` | String | A GET request. 30s timeout. Errors on status >= 400 |
 | `http_get(url, headers)` | `String, String\|Struct -> String` | String | GET with headers (a Bearer token or a Struct) |
 | `http_post_multipart(url, fields, files)` | `String, Struct, Struct -> String` | String | A multipart POST. `fields` are text fields (a Struct), `files` are file fields (a Struct, whose values are file paths). File paths must be inside the read sandbox (relative paths); absolute paths, `..` and sandbox escapes are a loud `[SANDBOX_VIOLATION]` error. 120s timeout |
+| `http_download(url, dest_path)` | `String, String -> Bool` | Bool | Downloads `url` into `dest_path` (the path must be inside the write sandbox). Returns `true` on success, `false` on any failure (network error, HTTP 4xx/5xx, sandbox violation, write error — the soft-failure contract). The URL is SSRF-gated like the other egress builtins: a blocked address is a LOUD `SSRF guard` error, not a silent `false` (naryad №261). 30s timeout |
+
+All HTTP egress builtins (`http_get`, `http_post`, `http_post_multipart`, `http_download`) do **not** follow 3xx redirects — the 3xx response is returned as-is: its body for `http_get`/`http_post`/`http_post_multipart` (a 3xx is not an error) and as the written file content for `http_download`. Follow a redirect explicitly: issue a second call to the URL from the `Location` header — every call is SSRF-gated and resolve-pinned. Requests to private/loopback/blocked-range addresses (loopback, private, link-local, cloud metadata, IPv4-mapped IPv6, unspecified `0.0.0.0`/`::`, CGNAT `100.64.0.0/10`, benchmark `198.18.0.0/15`) are refused with a loud `SSRF guard` error unless `METALOGOS_HTTP_ALLOW_PRIVATE=1` is set (naryads №130/№150/№261).
 
 **Examples:**
 ```mlog

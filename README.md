@@ -54,6 +54,40 @@ No frameworks. No boilerplate. No `import ai_sdk`. The language *is* the AI infr
 
 ---
 
+## Why Metalogos
+
+**In 30 seconds** — call an LLM like a function and get validated JSON back, then watch the compiler refuse to leak a secret:
+
+```mlog
+pattern Extract(x: String) -> String {
+  let person = call_llm_schema("Extract the user as JSON", x,
+    "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}")
+  return json_get(person, "name")          // Struct field, not text scraping
+}
+
+pattern LeakApiKey() -> String {
+  let key = env("FAKE_API_KEY")
+  respond("200", "key is " + key)          // ← rejected: SECRET_LEAK
+  return key
+}
+```
+
+```text
+$ mlog check api_leak.mlog
+1 error:
+  1: строка 1: [SECRET_LEAK] secret may be leaked — env() value passed to respond()
+```
+
+(Both outputs are real — this exact probe is what `mlog check` prints, exit code 1. See [REFERENCE.md §4.5](REFERENCE.md) for `call_llm_schema`, and [ADR-0133](docs/adr/0133-llm-schema-validator.md) for the validation contract.)
+
+**Security by design** — not a library, a property of the language: static taint tracking turns secret leaks, SQL injection and raw LLM output into compile errors (Category A); file I/O is sandboxed; `exec()`/`env()` in serve routes are denied by default with stable diagnostic codes and an opt-in allowlist model; subprocesses land in the audit log. The full contract — including the honest list of what static analysis does NOT catch — is in [Security by Design](#2-security-by-design--zero-configuration) below.
+
+**AI-native** — eight semantic primitives (Entity, Pattern, Flow, Memory, Rule, Learn, Adapt, Reflex) make AI operations first-class: learnable patterns teach from examples, Memory combines BM25 + vector search with rank fusion, `adapt` modifies the program's own patterns under a sandbox, Reflex distills LLM teachers into local models.
+
+**MCP-native** — Metalogos speaks the integration standard of 2026-era AI agents in both directions, with the same security gates: the MCP client design is pinned in [ADR-0132](docs/adr/0132-mcp-client.md) (stdio transport, hand-rolled JSON-RPC, exec-gated server spawn, untrusted `UserInput` taint on tool output — the design is under owner review as of this release, the client implementation lands in naryad №268), and the reverse bridge (expose Metalogos `tool` constructs as MCP servers) follows it — [ADR-0054](docs/adr/0054-tool-abstraction.md) §Future Directions.
+
+---
+
 ## Competitive Advantages
 
 ### 1. AI as Language, Not Library
@@ -105,7 +139,7 @@ These are file-level heuristics, not data-flow guarantees — they may false-pos
 
 ### 3. Dual Execution Backend
 
-Tree-walking interpreter (full language) + bytecode VM (46 instructions; experimental for full-language use — `match` (statement and `let`-binding expression) and block `if/else` **expression** not supported yet, see [ADR-0105](docs/adr/0105-vm-experimental-scope.md)). Programs both backends can run are checked by `crosscheck_backends` for TW↔VM output parity.
+Tree-walking interpreter (full language) + bytecode VM (47 instructions; experimental for full-language use — `match` (statement and `let`-binding expression) and block `if/else` **expression** not supported yet, see [ADR-0105](docs/adr/0105-vm-experimental-scope.md)). Programs both backends can run are checked by `crosscheck_backends` for TW↔VM output parity.
 
 ### 4. Typed Semantic Memory with Hybrid Search
 
@@ -179,8 +213,8 @@ Metalogos-/
 ├── Cargo.toml                       # v0.19.0, workspace root
 ├── logo.jpg                          # Brand logo
 ├── README.md                         # This file
-├── REFERENCE.md                      # Full builtin reference (~84 KB)
-├── CHANGELOG.md                      # Version history (~162 KB)
+├── REFERENCE.md                      # Full builtin reference (~152 KB) — 100% of the registry (§6 index)
+├── CHANGELOG.md                      # Version history (~167 KB)
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
 ├── Dockerfile                        # Docker build
@@ -355,7 +389,7 @@ respond(reply)   // [HTML_INJECTION] — use render() or escape_html()
 - **Bytecode VM** — 46 instructions, stack-based, used for `mlog compile` + `mlog run file.mbc`
 - **JIT** — experimental scaffold, not part of the build (see ADR-0073)
 
-### 373 Built-in Functions
+### 392 Built-in Functions
 
 String ops, math, collections, type conversion, LLM/AI, HTTP, JSON, file I/O, KV store, session memory, encryption, authentication, HTTP server, templates, databases, Telegram/Discord bots, time/date/calendar, geolocation, weather, reminders, cron, goals, todos, memory tree, preferences, approval workflows, fuzzy matching, hashline editing, context compaction, budget awareness, replay logging, policy enforcement, PDF processing (classify, extract, OCR), typed semantic memory (FTS5 BM25 + cosine RRF), SMTP/IMAP email, CalDAV/CardDAV calendar and contacts, native SVG graphics, and more. See [REFERENCE.md](REFERENCE.md) for the full list.
 

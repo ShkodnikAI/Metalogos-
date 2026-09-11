@@ -155,6 +155,15 @@ pub(crate) fn builtin_print(args: &[Value]) -> Result<Value, String> {
 
 pub(crate) fn builtin_env(args: &[Value]) -> Result<Value, String> {
     let key = expect_string_arg("env", args, 0)?;
+    // Наряд №259: в serve-роут-контексте чтение переменных процесса
+    // по умолчанию ЗАПРЕЩЕНО (громко, ENV_NOT_PERMITTED) — до №259 один
+    // вызов env("...") в теле роута отдавал секреты процесса (LLM API-ключи,
+    // ключи БД, токены деплоя) недоверенному коду. SSOT-гейт — env_gate;
+    // контекст определяется той же thread-local механикой, что и у
+    // exec_gate (№253-А): ServeRouteExecGuard в spawn_blocking роут-путей.
+    // Вне serve (mlog run / check / repl / верхний уровень serve) поведение
+    // НЕ меняется: локальный скрипт читает своё окружение — это контракт.
+    env_gate(current_exec_context(), &key)?;
     match std::env::var(&key) {
         Ok(val) => Ok(Value::String(val)),
         Err(_) => Ok(Value::String(String::new())), // soft-failure: empty string if not found
@@ -620,6 +629,80 @@ pub fn exec_gate(context: ExecContext) -> Result<(), String> {
             }
         }
     }
+}
+
+// ═══ Наряд №259: env-гейт serve-контекста ══════════════════════════════
+//
+// Политика:
+// - Процесс-контекст (mlog run / check / repl / верхний уровень serve):
+//   БЕЗ гейта — локальный скрипт читает своё окружение, это контракт
+//   (№259: поведение вне serve не меняется).
+// - Тело роута serve: по умолчанию ЗАПРЕЩЕНО (громко, ENV_NOT_PERMITTED).
+//   Эскейп-хэтчи с ЗАМЕНАЮЩЕЙ семантикой (не AND, как в №253-А) —
+//   альтернативы, любое из условий открывает чтение:
+//     * `METALOGOS_SERVE_ALLOW_ENV=1` — разрешить ЛЮБОЕ чтение env в serve;
+//     * `METALOGOS_ENV_ALLOWLIST="NAME1,NAME2"` — перечисленные имена
+//       читаются без гейта (пустой/не задан = deny всех).
+//
+// Механизм: переиспользован SSOT контекста из №253-А — тот же thread-local
+// (`SERVE_ROUTE_CONTEXT`) и тот же `ServeRouteExecGuard`, ставящийся первой
+// строкой spawn_blocking-замыкания обоих роут-путей (TW и VM) в
+// src/server.rs. Второй флаг-хак / отдельный guard НЕ вводятся (запрет
+// наряда №259: «не плодить второй флаг-хак»).
+
+/// SSOT-гейт `env()` (Наряд №259).
+///
+/// Контекст определяет политику:
+/// - [`ExecContext::Process`] → без гейта (контракт: локальный скрипт
+///   читает своё окружение; allowlist/флаги вне serve не требуются);
+/// - [`ExecContext::ServeRoute`] → отказ с `ENV_NOT_PERMITTED`, если не
+///   задан `METALOGOS_SERVE_ALLOW_ENV=1` (разрешить всё) ИЛИ имя не
+///   входит в `METALOGOS_ENV_ALLOWLIST="NAME1,NAME2"` (точечное
+///   разрешение; пустой/не заданный список = deny всех).
+///
+/// Ошибки несут стабильный диагностический код `ENV_NOT_PERMITTED`
+/// (конвенция ADR-0131: UPPER_SNAKE_CASE, код — контракт, текст может
+/// меняться) и называют точные имена переменных-флагов.
+pub fn env_gate(context: ExecContext, key: &str) -> Result<(), String> {
+    match context {
+        // №259: вне serve поведение не меняется — гейта нет.
+        ExecContext::Process => Ok(()),
+        ExecContext::ServeRoute => {
+            // Эскейп-хэтч 1: разрешить всё в serve.
+            if std::env::var("METALOGOS_SERVE_ALLOW_ENV").unwrap_or_default() == "1" {
+                return Ok(());
+            }
+            // Эскейп-хэтч 2: точечный allowlist имён.
+            if env_allowlist_contains(key) {
+                return Ok(());
+            }
+            Err(format!(
+                "[ENV_NOT_PERMITTED] env(\"{}\") is denied in serve route handlers. \
+                 In route bodies set METALOGOS_SERVE_ALLOW_ENV=1 to allow all env \
+                 reads, or add the variable name to \
+                 METALOGOS_ENV_ALLOWLIST=\"NAME1,NAME2\" to allow specific \
+                 variables (Naryad #259).",
+                key
+            ))
+        }
+    }
+}
+
+/// Точный поиск имени в `METALOGOS_ENV_ALLOWLIST` (Наряд №259).
+///
+/// Формат: имена через запятую; пробелы по краям элемента срезаются
+/// (`"A, B"` = `["A", "B"]`); пустые элементы игнорируются (`"A,,B"`,
+/// `""`, пробел). Переменная не задана или список пуст → deny (`false`).
+/// Сравнение точное (case-sensitive) — имена переменных процесса
+/// регистрозависимы на целевых платформах.
+fn env_allowlist_contains(key: &str) -> bool {
+    let raw = match std::env::var("METALOGOS_ENV_ALLOWLIST") {
+        Ok(v) => v,
+        Err(_) => return false, // не задан = deny всех
+    };
+    raw.split(',')
+        .map(str::trim)
+        .any(|name| !name.is_empty() && name == key)
 }
 
 /// `exec(cmd)` — execute a shell command and return stdout.

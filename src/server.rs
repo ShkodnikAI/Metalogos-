@@ -916,11 +916,9 @@ async fn check_csrf(state: &ServerState, headers: &HeaderMap) -> Result<(), Resp
                 state.csrf_tokens.remove(&cookie);
                 let mut log = state.audit_log.write().await;
                 log.push("[CSRF] Rejected: token expired (>15 min)".to_string());
-                return Err((
-                    StatusCode::FORBIDDEN,
-                    "403 Forbidden: CSRF token expired",
-                )
-                    .into_response());
+                return Err(
+                    (StatusCode::FORBIDDEN, "403 Forbidden: CSRF token expired").into_response()
+                );
             }
 
             // Наряд №262: session binding — the dead half of the (session_id, Instant)
@@ -938,10 +936,10 @@ async fn check_csrf(state: &ServerState, headers: &HeaderMap) -> Result<(), Resp
                 None
             };
             let session_ok = match (bound_session.is_empty(), request_session.as_deref()) {
-                (true, None) => true,                    // sessionless token, sessionless request
-                (true, Some(_)) => false,                // sessionless token replayed with a session
+                (true, None) => true,     // sessionless token, sessionless request
+                (true, Some(_)) => false, // sessionless token replayed with a session
                 (false, Some(s)) => s == bound_session, // must present its own session
-                (false, None) => false,                 // bound token cannot prove ownership
+                (false, None) => false,   // bound token cannot prove ownership
             };
             if !session_ok {
                 let mut log = state.audit_log.write().await;
@@ -2047,8 +2045,7 @@ mod tests {
         assert_eq!(result.unwrap_err().status(), StatusCode::FORBIDDEN);
         let log = state.audit_log.read().await;
         assert!(
-            log.iter()
-                .any(|e| e.contains("not issued by this server")),
+            log.iter().any(|e| e.contains("not issued by this server")),
             "audit must name the missing issuance: {:?}",
             *log
         );
@@ -2059,19 +2056,17 @@ mod tests {
         // Issued for sess-A + the same session presented → passes.
         let state = make_test_state().await;
         let token = generate_csrf_token();
-        state
-            .csrf_tokens
-            .insert(token.clone(), ("sess-A".to_string(), std::time::Instant::now()));
+        state.csrf_tokens.insert(
+            token.clone(),
+            ("sess-A".to_string(), std::time::Instant::now()),
+        );
 
         let signed_a = sign_cookie("sess-A", &state.hmac_key);
         let mut headers = HeaderMap::new();
         headers.insert(
             "cookie",
-            HeaderValue::from_str(&format!(
-                "_mlog_csrf={}; _mlog_session={}",
-                token, signed_a
-            ))
-            .unwrap(),
+            HeaderValue::from_str(&format!("_mlog_csrf={}; _mlog_session={}", token, signed_a))
+                .unwrap(),
         );
         headers.insert("x-csrf-token", HeaderValue::from_str(&token).unwrap());
 
@@ -2084,19 +2079,17 @@ mod tests {
         // Issued for sess-A, presented with sess-B → 403 + audit entry.
         let state = make_test_state().await;
         let token = generate_csrf_token();
-        state
-            .csrf_tokens
-            .insert(token.clone(), ("sess-A".to_string(), std::time::Instant::now()));
+        state.csrf_tokens.insert(
+            token.clone(),
+            ("sess-A".to_string(), std::time::Instant::now()),
+        );
 
         let signed_b = sign_cookie("sess-B", &state.hmac_key);
         let mut headers = HeaderMap::new();
         headers.insert(
             "cookie",
-            HeaderValue::from_str(&format!(
-                "_mlog_csrf={}; _mlog_session={}",
-                token, signed_b
-            ))
-            .unwrap(),
+            HeaderValue::from_str(&format!("_mlog_csrf={}; _mlog_session={}", token, signed_b))
+                .unwrap(),
         );
         headers.insert("x-csrf-token", HeaderValue::from_str(&token).unwrap());
 
@@ -2108,8 +2101,7 @@ mod tests {
         assert_eq!(result.unwrap_err().status(), StatusCode::FORBIDDEN);
         let log = state.audit_log.read().await;
         assert!(
-            log.iter()
-                .any(|e| e.contains("session binding mismatch")),
+            log.iter().any(|e| e.contains("session binding mismatch")),
             "audit must record the binding mismatch: {:?}",
             *log
         );
@@ -2120,9 +2112,10 @@ mod tests {
         // A session-bound token cannot prove ownership without its session.
         let state = make_test_state().await;
         let token = generate_csrf_token();
-        state
-            .csrf_tokens
-            .insert(token.clone(), ("sess-A".to_string(), std::time::Instant::now()));
+        state.csrf_tokens.insert(
+            token.clone(),
+            ("sess-A".to_string(), std::time::Instant::now()),
+        );
 
         let mut headers = HeaderMap::new();
         headers.insert(
@@ -2151,11 +2144,8 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(
             "cookie",
-            HeaderValue::from_str(&format!(
-                "_mlog_csrf={}; _mlog_session={}",
-                token, signed_a
-            ))
-            .unwrap(),
+            HeaderValue::from_str(&format!("_mlog_csrf={}; _mlog_session={}", token, signed_a))
+                .unwrap(),
         );
         headers.insert("x-csrf-token", HeaderValue::from_str(&token).unwrap());
 

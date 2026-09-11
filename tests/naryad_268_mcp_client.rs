@@ -407,20 +407,16 @@ mod serve_gate {
     // Служебное исключение (громко, по лекалу naryad_253): serve-тесты обязаны
     // держать env-мьютекс через .await — env-переменные процесса читаются
     // серверными потоками во время запроса, и снятие замка между set_var и
-    // HTTP-запросом открыло бы гонку с параллельным тестом. Замок один, его
-    // берут только тесты этого модуля, дедлока нет. Именно поэтому
-    // clippy::await_holding_lock подавлен на модуль.
+    // HTTP-запросом открыло бы гонку с параллельным тестом.
+    // ВАЖНО (урок CI-прогона): замок — ОБЩИЙ файловый ENV_LOCK, а не отдельный:
+    // env-переменные процесса глобальны, два независимых мьютекса в одном
+    // файле = гонка между serve-тестами и c7/c8/c9 (реальный сбой test-integration).
+    // clippy::await_holding_lock подавлен на модуль (дедлока нет: замок один,
+    // не-async тесты берут его на короткое тело без вложенных ожиданий).
     #![allow(clippy::await_holding_lock)]
 
-    use super::{unset_env, FIXTURE};
+    use super::{lock_env, unset_env, FIXTURE};
     use metalogos::server::ServeBackend;
-    use std::sync::Mutex;
-
-    static SERVE_ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    fn serve_lock() -> std::sync::MutexGuard<'static, ()> {
-        SERVE_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
-    }
 
     const MCP_ROUTE_SOURCE: &str = r#"
 mlogserver {
@@ -456,7 +452,7 @@ mlogserver {
     /// Serve-роут: MCP-вызов denied по умолчанию (TW-бэкенд).
     #[tokio::test]
     async fn c14_serve_route_mcp_denied_by_default_tw() {
-        let _env = serve_lock();
+        let _env = lock_env();
         std::env::remove_var("METALOGOS_ALLOW_EXEC");
         std::env::remove_var("METALOGOS_SERVE_ALLOW_EXEC");
 
@@ -474,7 +470,7 @@ mlogserver {
     /// Serve-роут: то же на VM-бэкенде (гейт контекстный, не бэкендовый).
     #[tokio::test]
     async fn c14_serve_route_mcp_denied_by_default_vm() {
-        let _env = serve_lock();
+        let _env = lock_env();
         std::env::remove_var("METALOGOS_ALLOW_EXEC");
         std::env::remove_var("METALOGOS_SERVE_ALLOW_EXEC");
 
@@ -493,8 +489,14 @@ mlogserver {
     /// и тогда полный протокол до fixture-сервера отрабатывает в роуте.
     #[tokio::test]
     async fn c15_serve_route_mcp_allowed_with_serve_flag() {
-        let _env = serve_lock();
+        let _env = lock_env();
         std::env::remove_var("METALOGOS_ALLOW_EXEC");
+        std::env::remove_var("METALOGOS_SERVE_ALLOW_EXEC");
+        unset_env(&[
+            "MCP_FIXTURE_GARBAGE",
+            "MCP_FIXTURE_CRASH",
+            "METALOGOS_MCP_ALLOWLIST",
+        ]);
         std::env::set_var("METALOGOS_SERVE_ALLOW_EXEC", "1");
 
         let (port, _handle) = start_server(ServeBackend::Interpreter).await;

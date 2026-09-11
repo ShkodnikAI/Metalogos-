@@ -112,7 +112,7 @@ candle-nn = { version = "0.11", optional = true }
 # Both gated under `vision` (NOT in default/full). tokenizers is the canonical
 # HF BPE implementation — hand-rolling it is high-risk (see ADR-0124 update).
 # image is for PNG encode of the VAE decoder output.
-tokenizers = { version = "0.22", optional = true }
+tokenizers = { version = "0.23", optional = true }
 image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
 
 # Optional OCR support (requires system tesseract-ocr + training data)

@@ -193,6 +193,8 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("call_claude", 4, "llm"; builtin_call_claude), // api_key,model,system,user
     #[cfg(feature = "llm")]
     spec!("llm_usage", 0, "llm"; builtin_llm_usage),
+    #[cfg(feature = "llm")]
+    spec!("call_llm_schema", 2, 3, "llm"; builtin_call_llm_schema), // prompt,schema | prompt,input,schema (Наряд №269, ADR-0133)
     // ── Memory builtins ──
     spec!("kv_set", 2, "memory"; builtin_kv_set),
     spec!("kv_get", 1, "memory"; builtin_kv_get),

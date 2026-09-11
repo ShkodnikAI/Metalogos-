@@ -151,6 +151,7 @@ fn registry_arity_exhaustive() {
         ("db_execute", 1, 2), // ADR-0068: optional params list
         // ── LLM builtins ──
         ("call_llm", 1, 2),
+        ("call_llm_schema", 2, 3), // Наряд №269
         ("call_claude", 4, 4),
         // ── Memory builtins ──
         ("kv_set", 2, 2),

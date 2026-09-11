@@ -150,6 +150,14 @@ pub(crate) mod json;
 use json::*;
 pub(crate) mod llm;
 use llm::*;
+// Наряд №269: structured LLM output — pure validator/loop exported for tests
+// and embedders (ADR-0133); the module itself stays pub(crate).
+pub(crate) mod llm_schema;
+use llm_schema::*;
+pub use llm_schema::{
+    call_llm_schema_core, check_schema_supported, mock_instance_from_schema,
+    schema_retries_from_env, validate_json_against_schema,
+};
 pub(crate) mod http;
 use http::*;
 pub use http::{check_url_ssrf, is_blocked_address};

@@ -195,6 +195,33 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
         Ok(Statement::Break)
     } else if let Some(_co_pair) = children.iter().find(|c| c.as_rule() == Rule::continue_stmt) {
         Ok(Statement::Continue)
+    } else if let Some(mem_pair) = children.iter().find(|c| c.as_rule() == Rule::memorize_decl) {
+        // Наряд №266: memory ops as statements inside pattern/route/hook/tool/test
+        // bodies. The SAME decl parsers used at top level do the work (single
+        // grammar source), the result is wrapped as a Statement variant.
+        match parse_memorize_decl(mem_pair.clone())? {
+            Declaration::Memorize(m) => Ok(Statement::Memorize(m)),
+            _ => Err(pair_error(
+                &pair,
+                "GRAMMAR INVARIANT: memorize_decl parsed as non-Memorize declaration",
+            )),
+        }
+    } else if let Some(rel_pair) = children.iter().find(|c| c.as_rule() == Rule::relate_decl) {
+        match parse_relate_decl(rel_pair.clone())? {
+            Declaration::Relate(r) => Ok(Statement::Relate(r)),
+            _ => Err(pair_error(
+                &pair,
+                "GRAMMAR INVARIANT: relate_decl parsed as non-Relate declaration",
+            )),
+        }
+    } else if let Some(fg_pair) = children.iter().find(|c| c.as_rule() == Rule::forget_decl) {
+        match parse_forget_decl(fg_pair.clone())? {
+            Declaration::Forget(f) => Ok(Statement::Forget(f)),
+            _ => Err(pair_error(
+                &pair,
+                "GRAMMAR INVARIANT: forget_decl parsed as non-Forget declaration",
+            )),
+        }
     } else if let Some(it_pair) = children.iter().find(|c| c.as_rule() == Rule::if_then_stmt) {
         // if_then_stmt with optional else: "if expr then { ... } [else if expr then { ... }]* [else { ... }]"
         let it_children: Vec<Pair<Rule>> = it_pair.clone().into_inner().collect();

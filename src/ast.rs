@@ -1334,6 +1334,17 @@ pub enum Statement {
     Break,
     /// Continue: skip to the next iteration of the innermost each/while loop (Наряд №17)
     Continue,
+    /// Наряд №266: `memorize <expr> [with priority=F]` as a STATEMENT inside
+    /// pattern/route/hook/tool/test bodies. Same payload and semantics as the
+    /// top-level `Declaration::Memorize` (session memory write).
+    Memorize(MemorizeDecl),
+    /// Наряд №266: `forget <expr> after N.days` as a statement — same payload
+    /// and semantics as the top-level `Declaration::Forget` (memory expiry).
+    Forget(ForgetDecl),
+    /// Наряд №266: `relate <expr> to <expr> as "<relation>"` as a statement —
+    /// same payload and semantics as the top-level `Declaration::Relate`
+    /// (knowledge-graph edge).
+    Relate(RelateDecl),
 }
 
 /// A single match arm: pattern + body.

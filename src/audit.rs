@@ -450,6 +450,15 @@ fn check_secrets(declarations: &[Declaration], source: &str, findings: &mut Vec<
                     }
                 }
                 Statement::IfThen { body, .. } => walk_string_stmts(body, acc),
+                // Наряд №266: statement-form memory ops inside bodies — string
+                // scanning parity with the top-level Declaration::Memorize/
+                // Forget/Relate handling (same walker).
+                Statement::Memorize(m) => walk_string_exprs(&m.value, acc),
+                Statement::Forget(f) => walk_string_exprs(&f.query, acc),
+                Statement::Relate(r) => {
+                    walk_string_exprs(&r.from, acc);
+                    walk_string_exprs(&r.to, acc);
+                }
                 _ => {}
             }
         }

@@ -1375,6 +1375,24 @@ impl Compiler {
                          (use tree-walking interpreter)"
                         .into());
                 }
+                // Наряд №266: memory ops as statements — the VM already has the
+                // opcodes (Memorize/Forget/Relate execute the same stores the
+                // top-level declarations compile to in pass2); emit them with
+                // locals-aware expressions so pattern params/locals resolve.
+                Statement::Memorize(m) => {
+                    self.compile_expr_with_locals(&m.value, &mut code, locals)?;
+                    code.push(Instruction::Memorize(m.priority));
+                }
+                Statement::Forget(f) => {
+                    self.compile_expr_with_locals(&f.query, &mut code, locals)?;
+                    code.push(Instruction::Forget(f.days));
+                }
+                Statement::Relate(r) => {
+                    self.compile_expr_with_locals(&r.from, &mut code, locals)?;
+                    self.compile_expr_with_locals(&r.to, &mut code, locals)?;
+                    code.push(Instruction::Const(Value::String(r.relation.clone())));
+                    code.push(Instruction::Relate);
+                }
                 _ => {}
             }
         }
@@ -1565,6 +1583,22 @@ impl Compiler {
             Statement::ExprStmt { expr, .. } => {
                 self.compile_expr_with_locals(expr, code, locals)?;
                 code.push(Instruction::Pop);
+            }
+            // Наряд №266: memory ops as statements (loop/if bodies route here
+            // via compile_stmt_with_locals) — same opcodes as top-level pass2.
+            Statement::Memorize(m) => {
+                self.compile_expr_with_locals(&m.value, code, locals)?;
+                code.push(Instruction::Memorize(m.priority));
+            }
+            Statement::Forget(f) => {
+                self.compile_expr_with_locals(&f.query, code, locals)?;
+                code.push(Instruction::Forget(f.days));
+            }
+            Statement::Relate(r) => {
+                self.compile_expr_with_locals(&r.from, code, locals)?;
+                self.compile_expr_with_locals(&r.to, code, locals)?;
+                code.push(Instruction::Const(Value::String(r.relation.clone())));
+                code.push(Instruction::Relate);
             }
             _ => {}
         }

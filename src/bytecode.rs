@@ -147,6 +147,33 @@ pub enum Instruction {
     // ── Meta ──────────────────────────────────────────────────
     /// End of program.
     Halt,
+
+    // ── Immutability (Наряд №264) ─────────────────────────────
+    /// Assignment statement (NOT a `let` binding — plain StoreLocal covers
+    /// bindings): pop the top value and store it into the local variable
+    /// slot. Carries the compiler's immutability fact as instruction
+    /// metadata:
+    ///   - `slot`  — local slot (base_bp + slot at runtime);
+    ///   - `name`  — source-level variable name (for the TW-parity error
+    ///     text; locals are anonymous slots otherwise);
+    ///   - `mutable` — whether the target was bound with `let mut`. The
+    ///     compiler only ever emits `mutable: true` (it rejects non-mut
+    ///     assignments at compile time since №264), so `false` on the wire
+    ///     means bytecode produced past the check — the VM must fail
+    ///     LOUDLY, never silently overwrite (the TW interpreter rejects
+    ///     the same program at runtime).
+    ///
+    /// Backward compatibility: appended at the END of the enum, so
+    /// bincode's positional variant indices of all existing instructions
+    /// are unchanged — old .mbc files deserialize and run identically. An
+    /// OLD binary reading NEW bytecode fails loudly at deserialize time
+    /// (unknown variant index), never silently. The `Program` struct is
+    /// untouched (schema frozen per the №250 precedent).
+    StoreAssignLocal {
+        slot: usize,
+        name: String,
+        mutable: bool,
+    },
 }
 
 /// A flow expression that can be compiled inline.

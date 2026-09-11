@@ -352,6 +352,31 @@ impl Vm {
                     stack[idx] = val;
                     ip += 1;
                 }
+                Instruction::StoreAssignLocal {
+                    slot,
+                    name,
+                    mutable,
+                } => {
+                    // Наряд №264: VM backstop — an assignment encoded by the
+                    // compiler carries its immutability fact; `mutable: false`
+                    // means bytecode produced past the compile-time check.
+                    // Such a store must fail LOUDLY — the same source is
+                    // rejected by the TW interpreter at runtime, so the VM
+                    // silently overwriting the slot (the pre-№264 behavior)
+                    // broke backend parity. Plain `let` bindings keep using
+                    // StoreLocal — they are definitions, not assignments.
+                    if !*mutable {
+                        return Err(crate::semantic::immutability_error_text(name));
+                    }
+                    let bp = call_stack.last().map(|f| f.base_bp).unwrap_or(0);
+                    let idx = bp + slot;
+                    let val = stack.pop().unwrap_or(Value::Unit);
+                    if idx >= stack.len() {
+                        stack.resize(idx + 1, Value::Unit);
+                    }
+                    stack[idx] = val;
+                    ip += 1;
+                }
 
                 // ── Registration ──────────────────────────────
                 Instruction::RegisterPattern(fn_def) => {
@@ -955,6 +980,27 @@ impl Vm {
                     ip += 1;
                 }
                 Instruction::StoreLocal(slot) => {
+                    let bp = call_stack.last().map(|f| f.base_bp).unwrap_or(0);
+                    let idx = bp + slot;
+                    let val = stack.pop().unwrap_or(Value::Unit);
+                    // Ensure stack has space at idx
+                    if idx >= stack.len() {
+                        stack.resize(idx + 1, Value::Unit);
+                    }
+                    stack[idx] = val;
+                    ip += 1;
+                }
+                Instruction::StoreAssignLocal {
+                    slot,
+                    name,
+                    mutable,
+                } => {
+                    // Наряд №264: VM backstop (mirrors execute_main_code) —
+                    // `mutable: false` on the wire must fail loudly with the
+                    // TW-parity text, never silently overwrite the slot.
+                    if !*mutable {
+                        return Err(crate::semantic::immutability_error_text(name));
+                    }
                     let bp = call_stack.last().map(|f| f.base_bp).unwrap_or(0);
                     let idx = bp + slot;
                     let val = stack.pop().unwrap_or(Value::Unit);

@@ -105,7 +105,7 @@ let items = [1.0, 2.0, 3.0]
 let result = if x > 10.0 then "big" else "small"   // let with an if-expression
 ```
 
-**Mutable variables (`let mut`):** Since Naryad #14, variables are immutable by default. To reassign, use `let mut`:
+**Mutable variables (`let mut`):** Since Naryad #14, variables are immutable by default. To reassign, use `let mut`. Since Naryad #264 the contract is enforced statically: `mlog check` reports assignment to a non-`mut` variable as an error, the compiler refuses to emit bytecode for it, and the VM fails loudly on assignment bytecode produced past the check (no backend assigns silently):
 
 ```mlog
 let mut counter = 0.0
@@ -128,7 +128,7 @@ if x == 1.0 {
 
 If a local redefinition that does not affect the outer `x` is needed, use a different name or a pattern with `let tmp_x = ...`. Contract: `examples/p30_scope_let.mlog` + `.expected`. This behavior may change in future versions (a move to lexical scoping with block isolation is planned).
 
-**Mutable variables (`let mut`, Naryad #14):** Variables are immutable by default. For assignment, use `let mut` (contract: `examples/p30_assign_mut.mlog` + `.expected`, `examples/p30_assign_immutable.mlog` + `.error`):
+**Mutable variables (`let mut`, Naryad #14):** Variables are immutable by default. For assignment, use `let mut` (contract: `examples/p30_assign_mut.mlog` + `.expected`, `examples/p30_assign_immutable.mlog` + `.error`; enforced by `mlog check` and the compiler since Naryad #264):
 ```mlog
 let mut counter = 0.0
 counter = counter + 1.0   // OK

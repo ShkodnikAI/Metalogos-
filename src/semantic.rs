@@ -461,6 +461,14 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                         &mut result.errors,
                     );
                 }
+                // Наряд №264: static immutability enforcement — assignment to
+                // a variable not bound with `let mut` is an error here, so
+                // `mlog check` catches before any backend runs it. Previously
+                // the tree-walking interpreter rejected such assignments at
+                // RUNTIME (contract since №14, examples/p30_assign_immutable)
+                // while `mlog check` passed and the VM compiled the
+                // assignment silently — three backends, three answers.
+                check_pattern_mutability(&p.body, &mut result.errors);
             }
             // Phase 6.1: Validate mlogserver block
             Declaration::MlogServer(srv) => {
@@ -507,6 +515,14 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
                     result.warnings.push(
                         with_line_prefix(decl, "mlogserver: has mutating routes but no 'csrf' middleware — recommend adding it".to_string())
                     );
+                }
+                // Наряд №264: route bodies get the same immutability walk as
+                // pattern bodies — TW executes route bodies through
+                // eval_statements (server.rs), so the `let mut` contract
+                // applies there identically; the static pass now catches the
+                // violation at `mlog check` time for both serve backends.
+                for route in &srv.routes {
+                    check_pattern_mutability(&route.body, &mut result.errors);
                 }
             }
             // Test declarations: no semantic checks needed (statements inside are checked by patterns)
@@ -2819,6 +2835,128 @@ fn check_stmt_exprs(
                 }
             }
         }
+        Statement::Break | Statement::Continue => {}
+    }
+}
+
+// ── Наряд №264: static immutability enforcement ─────────────────────
+//
+// Contract (№14, REFERENCE.md §3.2, examples/p30_assign_*): a variable is
+// immutable unless bound with `let mut`; assignment to an immutable
+// variable is an error "cannot assign to immutable variable: x (use
+// 'let mut x' to make it mutable)". Until this pass the contract lived
+// ONLY in the tree-walking interpreter's runtime (execution.rs
+// eval_statements_cf) — `mlog check` passed violating programs and the
+// VM compiled them silently.
+//
+// The walk mirrors TW's EXACT mutability model so `mlog check` never
+// diverges from `mlog run`:
+//   - a flat `HashSet<String>` of mutable names is threaded through ALL
+//     nested blocks and never popped (execution.rs:946 passes the same
+//     `mutable_vars` down into if/while/each/match bodies — a `let mut`
+//     inside a block stays in effect for the rest of the function);
+//   - pattern params are NOT mutable (they never enter mutable_vars);
+//   - `each` / `each i, item` loop variables are NOT mutable (they are
+//     env.insert-ed per iteration, never added to mutable_vars);
+//   - the mutability check happens BEFORE the variable is resolved, so an
+//     assignment to a never-declared name reports the same immutability
+//     message (TW behavior, execution.rs:989-992) — not a separate
+//     "undefined variable" diagnostic.
+
+/// The error text is the TW лекало verbatim (execution.rs:991) —
+/// examples/p30_assign_immutable.error is matched against the TW channel
+/// and must keep matching whichever backend surfaces the contract.
+pub(crate) fn immutability_error_text(name: &str) -> String {
+    format!(
+        "cannot assign to immutable variable: {} (use 'let mut {}' to make it mutable)",
+        name, name
+    )
+}
+
+/// Entry point: check one statement list (pattern body / route body) with
+/// an initially-empty mutable set (params are immutable; route bodies have
+/// no params at all).
+fn check_pattern_mutability(body: &[Statement], errors: &mut Vec<SpannedError>) {
+    let mut mutable: HashSet<String> = HashSet::new();
+    check_stmts_mutability(body, &mut mutable, errors);
+}
+
+fn check_stmts_mutability(
+    stmts: &[Statement],
+    mutable: &mut HashSet<String>,
+    errors: &mut Vec<SpannedError>,
+) {
+    for stmt in stmts {
+        check_stmt_mutability(stmt, mutable, errors);
+    }
+}
+
+fn check_stmt_mutability(
+    stmt: &Statement,
+    mutable: &mut HashSet<String>,
+    errors: &mut Vec<SpannedError>,
+) {
+    match stmt {
+        Statement::LetBinding {
+            name,
+            mutable: is_mut,
+            ..
+        } => {
+            // `let` (mutable or not) rebinds the name in the flat env;
+            // only `let mut` makes it assignable. TW: execution.rs:977-988.
+            if *is_mut {
+                mutable.insert(name.clone());
+            }
+        }
+        Statement::Assign { name, span, .. } => {
+            if !mutable.contains(name) {
+                errors.push(SpannedError::at(
+                    immutability_error_text(name),
+                    span.clone(),
+                ));
+            }
+            // The assigned value expression is walked by check_stmt_exprs.
+        }
+        // Recurse into every nested block with the SAME set — flat
+        // function-level model, mirrors eval_statements_cf exactly.
+        Statement::Each { body, .. } => check_stmts_mutability(body, mutable, errors),
+        Statement::EachWithIndex { body, .. } => check_stmts_mutability(body, mutable, errors),
+        Statement::While { body, .. } => check_stmts_mutability(body, mutable, errors),
+        Statement::IfThen { body, .. } => check_stmts_mutability(body, mutable, errors),
+        Statement::IfElseBlock {
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            check_stmts_mutability(then_body, mutable, errors);
+            for (_, body) in else_ifs {
+                check_stmts_mutability(body, mutable, errors);
+            }
+            if let Some(else_body) = else_body {
+                check_stmts_mutability(else_body, mutable, errors);
+            }
+        }
+        Statement::Match {
+            arms, else_body, ..
+        } => {
+            for arm in arms {
+                match arm {
+                    MatchArm::Exact(_, body)
+                    | MatchArm::StartsWith(_, body)
+                    | MatchArm::Contains(_, body) => {
+                        check_stmts_mutability(body, mutable, errors);
+                    }
+                    MatchArm::Compare(_, _, body) => {
+                        check_stmts_mutability(body, mutable, errors);
+                    }
+                }
+            }
+            if let Some(else_body) = else_body {
+                check_stmts_mutability(else_body, mutable, errors);
+            }
+        }
+        Statement::Return { .. } | Statement::ExprStmt { .. } => {}
         Statement::Break | Statement::Continue => {}
     }
 }

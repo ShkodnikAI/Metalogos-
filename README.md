@@ -178,8 +178,8 @@ Metalogos-/
 ├── Cargo.toml                       # v0.19.0, workspace root
 ├── logo.jpg                          # Brand logo
 ├── README.md                         # This file
-├── REFERENCE.md                      # Full builtin reference (~82 KB)
-├── CHANGELOG.md                      # Version history (~148 KB)
+├── REFERENCE.md                      # Full builtin reference (~83 KB)
+├── CHANGELOG.md                      # Version history (~150 KB)
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
 ├── Dockerfile                        # Docker build

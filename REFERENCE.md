@@ -1173,6 +1173,8 @@ The `server` keyword is a synonym for `mlogserver`.
 Keys: `port` (Int, default 8080), `host` (String, optional, default `"0.0.0.0"`), `middleware`, `route`.
 Available middleware: `session`, `csrf`, `security_headers`.
 
+The `csrf` middleware enforces the double-submit pattern STRICTLY (naryad #262): a mutating request (POST/PUT/DELETE) must carry the `_mlog_csrf` cookie AND the matching `X-CSRF-Token` header, and the token must have been ISSUED by this server process (GET responses set the cookie; the token store is process-local, so a restart invalidates outstanding tokens — the request gets 403 «CSRF token validation failed» and a page reload re-issues a fresh token). The token is bound to the session it was issued for: a session-bound token presented with a foreign or missing session is rejected with 403 «CSRF session binding mismatch» (an audit entry is written); a token issued without a session is valid only for sessionless requests. The token TTL is 15 minutes (expired → 403, re-issued on the next GET).
+
 ### 5.7. Template (an HTML template)
 
 ```mlog

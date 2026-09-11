@@ -345,8 +345,19 @@ jobs:
         with:
           tool: cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
+      # Self-host тесты (naryad_197*, self_host_lexer) спавнят бинарь по
+      # жёсткому пути target/debug/mlog (§3 наряда №265 запрещает менять
+      # tests/**) — llvm-cov строит в СВОЙ target-dir, поэтому бинарь
+      # собирается отдельно в дефолтный (не инструментирован: он чёрный
+      # ящик для парити-тестов).
+      - name: Build mlog bin (default target dir, for self-host tests)
+        run: cargo build --workspace --bins
+      # pipefail обязателен: иначе красный llvm-cov маскируется exit-кодом tee
+      # (первый прогон PR #298: тест упал — джоба «зелёная», тишина = ложь).
       - name: Coverage baseline summary
-        run: cargo llvm-cov --workspace --all-targets --summary-only | tee coverage-summary.txt
+        run: |
+          set -o pipefail
+          cargo llvm-cov --workspace --all-targets --summary-only | tee coverage-summary.txt
       - name: Upload coverage summary artifact
         uses: actions/upload-artifact@v7
         with:

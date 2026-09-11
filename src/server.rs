@@ -25,6 +25,7 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use chrono::{Datelike, Timelike};
 
 use crate::ast::*;
+use crate::builtins::io::ServeRouteExecGuard;
 use crate::bytecode::{CompiledRoute, Program};
 use crate::compiler::Compiler;
 use crate::interpreter::{Interpreter, Value};
@@ -1236,6 +1237,10 @@ pub(crate) async fn execute_route_body(
     let body_stmts_owned: Vec<Statement> = body_stmts.to_vec();
     let outcome = tokio::task::spawn_blocking(
         move || -> Result<(Option<Response>, Vec<String>, String), String> {
+            // Наряд №253 (Вариант А): тело роута исполняется в serve-роут-контексте —
+            // exec()/exec_argv() здесь требуют METALOGOS_SERVE_ALLOW_EXEC=1
+            // (процесс-флаг METALOGOS_ALLOW_EXEC на тела роутов не распространяется).
+            let _serve_exec_guard = ServeRouteExecGuard::new();
             let mut env = HashMap::new();
             for stmt in &body_stmts_owned {
                 match stmt {
@@ -1455,6 +1460,9 @@ async fn execute_route_body_vm(
     let query_params = query_params.clone();
 
     let (audit_entries, result) = tokio::task::spawn_blocking(move || {
+        // Наряд №253 (Вариант А): VM-путь тела роута — тот же serve-роут-контекст,
+        // exec()/exec_argv() требуют METALOGOS_SERVE_ALLOW_EXEC=1 (паритет с TW-путём).
+        let _serve_exec_guard = ServeRouteExecGuard::new();
         let mut vm = Vm::new();
         vm.load_program(&program)
             .map_err(|e| format!("VM route init: {}", e))?;

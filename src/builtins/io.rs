@@ -197,6 +197,41 @@ pub(crate) fn sandbox_path(path: &str) -> Result<std::path::PathBuf, String> {
     sandbox_path_ex(path, SandboxMode::ForRead)
 }
 
+/// Наряд №254: классификация отказа `sandbox_path(ForRead)` — это «пути нет»
+/// (мягкий исход, контракт сохранён), а не нарушение политики песочницы
+/// (громкая ошибка `[SANDBOX_VIOLATION]`).
+///
+/// Различие принципиально: `read_file("опечатка.txt")` и
+/// `read_file("../secrets")` до №254 были неотличимы — обе возвращали пустую
+/// строку, маскируя дефект программы. Классификация:
+///
+/// - текстовые нарушения (абсолютный путь, `..`) — ВСЕГДА нарушение,
+///   независимо от существования пути;
+/// - `symlink_metadata` пути падает (файла нет; недоступный родитель) —
+///   мягкий исход: «нечитаем — soft-failure как сегодня»;
+/// - путь СУЩЕСТВУЕТ (включая битый symlink — metadata звена не следует
+///   по ссылке), но canonicalize/префикс упали — нарушение (отказ №131
+///   становится громким, не молчалкой).
+pub(crate) fn sandbox_path_missing(path: &str) -> bool {
+    let p = std::path::Path::new(path);
+    if p.is_absolute()
+        || p.components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return false; // текстовые нарушения — громко
+    }
+    match std::env::current_dir() {
+        Ok(base) => std::fs::symlink_metadata(base.join(p)).is_err(),
+        Err(_) => false, // не можем stat — не рискуем: трактуем как нарушение
+    }
+}
+
+/// Наряд №254: громкий формат отказа песочницы со стабильным кодом
+/// `SANDBOX_VIOLATION` (конвенция ADR-0131: код — контракт, текст может меняться).
+pub(crate) fn sandbox_violation(msg: impl std::fmt::Display) -> String {
+    format!("[SANDBOX_VIOLATION] {}", msg)
+}
+
 /// Like `sandbox_path` but allows specifying whether the operation is
 /// a read (file must exist) or a write (file may be new).
 pub(crate) fn sandbox_path_ex(path: &str, mode: SandboxMode) -> Result<std::path::PathBuf, String> {
@@ -310,16 +345,16 @@ pub(crate) fn open_sandbox_write(
                 .canonicalize()
                 .map_err(|e| format!("file I/O sandbox: {}", e))?;
             let canonical = target.canonicalize().map_err(|_| {
-                format!(
+                sandbox_violation(format!(
                     "file I/O sandbox: cannot resolve path: '{}'",
                     target.display()
-                )
+                ))
             })?;
             if !canonical.starts_with(&base) {
-                return Err(format!(
+                return Err(sandbox_violation(format!(
                     "file I/O sandbox: resolved path escapes sandbox: '{}'",
                     target.display()
-                ));
+                )));
             }
             let mut opts = std::fs::OpenOptions::new();
             if append {
@@ -349,16 +384,30 @@ pub(crate) fn open_sandbox_write(
 }
 
 /// `read_file(path)` — read file contents as String.
-/// Soft-failure: returns empty string on error (file not found, permission denied, etc.).
+/// Soft-failure: returns empty string when the file is missing or unreadable
+/// (Наряд №254: the contract is preserved). Sandbox violations — absolute
+/// paths, `..`, symlink escapes, broken symlinks — are a LOUD error with the
+/// stable code `[SANDBOX_VIOLATION]` (ADR-0131): they are programmer errors,
+/// not environmental failures, and swallowing them hid real defects.
 pub(crate) fn builtin_read_file(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("read_file", args, 0)?;
     let safe_path = match sandbox_path(&path) {
         Ok(p) => p,
-        Err(_) => return Ok(Value::String(String::new())), // soft-failure on sandbox violation
+        Err(e) => {
+            // Наряд №254: разделение исходов. Файла нет / нечитаем —
+            // мягкий отказ (контракт сохранён: пустая строка). Нарушение
+            // песочницы (абсолютный путь, `..`, symlink-побег, битый
+            // symlink) — громкая ошибка с кодом SANDBOX_VIOLATION:
+            // это дефект программы, молча проглатывать его значит прятать баг.
+            if sandbox_path_missing(&path) {
+                return Ok(Value::String(String::new())); // soft-failure: файла нет
+            }
+            return Err(sandbox_violation(e));
+        }
     };
     match std::fs::read_to_string(&safe_path) {
         Ok(content) => Ok(Value::String(content)),
-        Err(_) => Ok(Value::String(String::new())), // soft-failure
+        Err(_) => Ok(Value::String(String::new())), // soft-failure (нечитаем)
     }
 }
 
@@ -373,9 +422,10 @@ pub(crate) fn builtin_write_file(args: &[Value]) -> Result<Value, String> {
     };
     // Наряд №131: ForWrite — file may not exist yet.
     // Наряд №252: sandbox violations are LOUD here (they are programmer
-    // errors, not environmental failures — №254 adds the stable code).
+    // errors, not environmental failures).
+    // Наряд №254: громкие отказы несут стабильный код SANDBOX_VIOLATION.
     // Ordinary OS-level write errors keep the soft-failure contract.
-    let safe_path = sandbox_path_ex(&path, SandboxMode::ForWrite)?;
+    let safe_path = sandbox_path_ex(&path, SandboxMode::ForWrite).map_err(sandbox_violation)?;
     // Create parent directories if needed
     if let Some(parent) = safe_path.parent() {
         let _ = std::fs::create_dir_all(parent); // best-effort
@@ -398,9 +448,9 @@ pub(crate) fn builtin_append_file(args: &[Value]) -> Result<Value, String> {
         None => return Ok(Value::String(String::new())), // soft-failure
     };
     // Наряд №131: ForWrite — file may not exist yet.
-    // Наряд №252: sandbox violations are LOUD (see builtin_write_file);
-    // OS-level errors keep the soft-failure contract.
-    let safe_path = sandbox_path_ex(&path, SandboxMode::ForWrite)?;
+    // Наряд №252: sandbox violations are LOUD (see builtin_write_file).
+    // Наряд №254: громкие отказы несут стабильный код SANDBOX_VIOLATION.
+    let safe_path = sandbox_path_ex(&path, SandboxMode::ForWrite).map_err(sandbox_violation)?;
     // Create parent directories if needed
     if let Some(parent) = safe_path.parent() {
         let _ = std::fs::create_dir_all(parent); // best-effort
@@ -414,12 +464,20 @@ pub(crate) fn builtin_append_file(args: &[Value]) -> Result<Value, String> {
 }
 
 /// `delete_file(path)` — delete a file.
-/// Soft-failure: returns empty string on error.
+/// Soft-failure: returns empty string when the file is missing/unreadable
+/// (Наряд №254: preserved). Sandbox violations are a loud `[SANDBOX_VIOLATION]`.
 pub(crate) fn builtin_delete_file(args: &[Value]) -> Result<Value, String> {
     let path = expect_string_arg("delete_file", args, 0)?;
     let safe_path = match sandbox_path(&path) {
         Ok(p) => p,
-        Err(_) => return Ok(Value::String(String::new())), // soft-failure
+        Err(e) => {
+            // Наряд №254: тот же разбор, что и в read_file — файла нет:
+            // мягкий отказ; нарушение песочницы: громко с кодом.
+            if sandbox_path_missing(&path) {
+                return Ok(Value::String(String::new())); // soft-failure: файла нет
+            }
+            return Err(sandbox_violation(e));
+        }
     };
     match std::fs::remove_file(&safe_path) {
         Ok(_) => Ok(Value::String("ok".to_string())),
@@ -1409,6 +1467,168 @@ mod tests_n252 {
             let got = sandbox_path_ex("new.txt", SandboxMode::ForWrite).unwrap();
             let base = std::env::current_dir().unwrap().canonicalize().unwrap();
             assert_eq!(got, base.join("new.txt"), "must be canonical parent + name");
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests_n254 {
+    use super::*;
+    use serial_test::serial;
+    use std::fs;
+
+    /// Хелпер: Value::String -> String (Value не реализует PartialEq).
+    fn s(v: Value) -> String {
+        match v {
+            Value::String(sv) => sv,
+            other => panic!(
+                "expected Value::String, got different variant ({:?})",
+                std::mem::discriminant(&other)
+            ),
+        }
+    }
+
+    // ── Наряд №254: read_file/delete_file разделяют «нет файла» (soft)
+    //    и «нарушение песочницы» (loud [SANDBOX_VIOLATION]); write_file/
+    //    append_file несут код на громких отказах (громкость — с №252). ──
+
+    #[test]
+    #[serial]
+    fn n254_read_missing_file_is_soft() {
+        super::tests_n131::with_temp_sandbox("metalogos_n254_soft", || {
+            let out = builtin_read_file(&[Value::String("нет_такого.txt".to_string())]).unwrap();
+            assert_eq!(s(out), "", "нет файла = мягкая пустая строка");
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn n254_read_traversal_is_loud() {
+        super::tests_n131::with_temp_sandbox("metalogos_n254_trav", || {
+            let err = builtin_read_file(&[Value::String("../x".to_string())]).unwrap_err();
+            assert!(
+                err.contains("[SANDBOX_VIOLATION]"),
+                "код обязателен, got: {}",
+                err
+            );
+            assert!(err.contains("path traversal"), "got: {}", err);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn n254_read_absolute_is_loud() {
+        super::tests_n131::with_temp_sandbox("metalogos_n254_abs", || {
+            let err = builtin_read_file(&[Value::String("/etc/passwd".to_string())]).unwrap_err();
+            assert!(err.contains("[SANDBOX_VIOLATION]"), "got: {}", err);
+            assert!(err.contains("absolute paths not allowed"), "got: {}", err);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn n254_read_symlink_escape_is_loud() {
+        let sandbox = super::tests_n131::make_temp_dir("metalogos_n254_esc_sandbox");
+        let outside = super::tests_n131::make_temp_dir("metalogos_n254_esc_outside");
+        let secret = outside.join("secret.txt");
+        fs::write(&secret, "TOP SECRET").unwrap();
+        let link = sandbox.join("escape");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&secret, &link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&secret, &link).unwrap();
+
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&sandbox).unwrap();
+        let result = builtin_read_file(&[Value::String("escape".to_string())]);
+        std::env::set_current_dir(&prev).unwrap();
+
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("[SANDBOX_VIOLATION]") && err.contains("escapes sandbox"),
+            "got: {}",
+            err
+        );
+        let _ = fs::remove_dir_all(&sandbox);
+        let _ = fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    #[serial]
+    fn n254_read_dangling_symlink_is_loud() {
+        // Битый symlink: звено существует (symlink_metadata Ok), canonicalize
+        // падает → нарушение №131 теперь ГРОМКОЕ, не молчалка.
+        let sandbox = super::tests_n131::make_temp_dir("metalogos_n254_dangling");
+        let link = sandbox.join("dangling");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(sandbox.join("nowhere.txt"), &link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(sandbox.join("nowhere.txt"), &link).unwrap();
+
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&sandbox).unwrap();
+        let result = builtin_read_file(&[Value::String("dangling".to_string())]);
+        std::env::set_current_dir(&prev).unwrap();
+
+        let err = result.unwrap_err();
+        assert!(err.contains("[SANDBOX_VIOLATION]"), "got: {}", err);
+        let _ = fs::remove_dir_all(&sandbox);
+    }
+
+    #[test]
+    #[serial]
+    fn n254_delete_missing_soft_traversal_loud() {
+        super::tests_n131::with_temp_sandbox("metalogos_n254_del", || {
+            let out = builtin_delete_file(&[Value::String("нет_такого.txt".to_string())]).unwrap();
+            assert_eq!(s(out), "", "нет файла = мягко");
+            let err = builtin_delete_file(&[Value::String("../x".to_string())]).unwrap_err();
+            assert!(err.contains("[SANDBOX_VIOLATION]"), "got: {}", err);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn n254_write_append_traversal_loud() {
+        super::tests_n131::with_temp_sandbox("metalogos_n254_wr", || {
+            let err = builtin_write_file(&[
+                Value::String("../x".to_string()),
+                Value::String("v".to_string()),
+            ])
+            .unwrap_err();
+            assert!(err.contains("[SANDBOX_VIOLATION]"), "got: {}", err);
+            let err = builtin_append_file(&[
+                Value::String("../x".to_string()),
+                Value::String("v".to_string()),
+            ])
+            .unwrap_err();
+            assert!(err.contains("[SANDBOX_VIOLATION]"), "got: {}", err);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn n254_positive_path_unbroken() {
+        super::tests_n131::with_temp_sandbox("metalogos_n254_ok", || {
+            let out = builtin_write_file(&[
+                Value::String("f.txt".to_string()),
+                Value::String("hi".to_string()),
+            ])
+            .unwrap();
+            assert_eq!(s(out), "ok");
+            let out = builtin_read_file(&[Value::String("f.txt".to_string())]).unwrap();
+            assert_eq!(s(out), "hi");
+            let out = builtin_append_file(&[
+                Value::String("f.txt".to_string()),
+                Value::String("!".to_string()),
+            ])
+            .unwrap();
+            assert_eq!(s(out), "ok");
+            let out = builtin_read_file(&[Value::String("f.txt".to_string())]).unwrap();
+            assert_eq!(s(out), "hi!");
+            let out = builtin_delete_file(&[Value::String("f.txt".to_string())]).unwrap();
+            assert_eq!(s(out), "ok");
+            let out = builtin_read_file(&[Value::String("f.txt".to_string())]).unwrap();
+            assert_eq!(s(out), "");
         });
     }
 }

@@ -1,6 +1,6 @@
 # ADR-0132: MCP-клиент — ручной JSON-RPC поверх stdio, stateless, вывод с taint `UserInput`
 
-**Status:** Proposed (черновик — awaiting owner approval; утверждение = стоп-гейт 1 диспатча №267–279, разблокирует №268)
+**Status:** Accepted (утверждён владельцем 2026-09-12; taint-род вывода MCP — reuse `UserInput`, D3 подтверждён. Утверждение снимает стоп-гейт 1 диспатча №267–279 и разблокирует №268)
 **Date:** 2026-09-11
 **Naryad:** №267 (research, issue #303) — реализация в №268 (issue #304)
 **Research base:** `docs/research/naryad-267-mcp-recon.md` (все факты сняты 2026-09-11: crates.io API, GitHub API, спецификация `modelcontextprotocol/modelcontextprotocol@2026-07-28`, grep по `src/` v0.19.0)
@@ -38,7 +38,7 @@ Metalogos отрезан от главного интеграционного с
 ### D3. Security-дизайн — reuse, не новая политика
 
 - **exec-гейт:** `mcp_call`/`mcp_list_tools` вызывают SSOT `exec_gate(context)` (№253-А) перед spawn: `Process` → `METALOGOS_ALLOW_EXEC=1`, `ServeRoute` → `METALOGOS_SERVE_ALLOW_EXEC=1` (замена, не AND). Код отказа — существующий `EXEC_NOT_PERMITTED`. Каждая spawn-запись — в `METALOGOS_AUDIT_LOG_PATH` с полем `mcp`.
-- **Taint-род вывода — `UserInput` (reuse).** Вывод `mcp_call` получает `TaintKind::UserInput` — существующие проверки Category-A/B работают без единого изменения: `UNTRUSTED_TRAINING_DATA` блокирует `reflex_train` на MCP-данных, пайплайны в `respond()`/`write_file()`/`http_post()` покрыты. **Отклонённая альтернатива — новый `ToolOutput`:** честнее по имени, но требует новой ветки «род × sink» в каждой существующей проверке — риск пропуска ветки без единой политики, которая различала бы роды. Заводить `ToolOutput` только одновременно с первой такой политикой (Future). *Явно вынесено владельцу: выбор рода — часть утверждения этого ADR.*
+- **Taint-род вывода — `UserInput` (reuse).** Вывод `mcp_call` получает `TaintKind::UserInput` — существующие проверки Category-A/B работают без единого изменения: `UNTRUSTED_TRAINING_DATA` блокирует `reflex_train` на MCP-данных, пайплайны в `respond()`/`write_file()`/`http_post()` покрыты. **Отклонённая альтернатива — новый `ToolOutput`:** честнее по имени, но требует новой ветки «род × sink» в каждой существующей проверке — риск пропуска ветки без единой политики, которая различала бы роды. Заводить `ToolOutput` только одновременно с первой такой политикой (Future). *Явно вынесено владельцу: выбор рода — часть утверждения этого ADR.* Решение владельца (2026-09-12): **reuse `UserInput`** — подтверждено, альтернатива `ToolOutput` остаётся Future-пунктом.
 - **`METALOGOS_MCP_ALLOWLIST`:** comma-separated (trim/пустые игнорируются — конвенция №259), точное совпадение argv[0]. Unset — не сужает (действует только exec-гейт); пустая строка — deny all MCP; непустая — только перечисленные, отказ `MCP_NOT_ALLOWLISTED` (код по конвенции ADR-0131). Третий allowlist Metalogos после `METALOGOS_ENV_ALLOWLIST` (№259) и `MLOG_VISION_WEIGHTS_ALLOWLIST` (ADR-0125).
 - **Доверие полей:** server info и tool-метаданные (включая descriptions) — без taint; descriptions — текст третьей стороны для LLM-контекста, поверхность промпт-инъекции фиксируется честно как вне зоны taint-системы (программа включает их в контекст явно). Аргументы вызова — доверенные (статически проверенный код .mlog). Вывод — недоверенный (см. выше).
 
@@ -55,4 +55,4 @@ Metalogos отрезан от главного интеграционного с
 
 ## Go/No-Go
 
-**GO** для №268 при утверждении настоящего ADR владельцем (включая D3 taint-род). Оценка 3–5 дней подтверждена разведкой; блокеров нет.
+**GO** для №268 — ADR утверждён владельцем 2026-09-12 (включая D3 taint-род: reuse `UserInput`). Оценка 3–5 дней подтверждена разведкой; блокеров нет.

@@ -10,7 +10,7 @@
 // - Bot integration (Telegram webhooks)
 
 use axum::{
-    extract::{DefaultBodyLimit, State},
+    extract::{connect_info::ConnectInfo, DefaultBodyLimit, State},
     http::{header, HeaderMap, HeaderValue, Method, StatusCode, Uri},
     response::{Html as AxumHtml, IntoResponse, Response},
     routing::{any, delete, get, post, put},
@@ -18,6 +18,7 @@ use axum::{
 };
 use dashmap::DashMap;
 use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -193,8 +194,17 @@ pub struct ServerState {
     pub middleware: Vec<String>,
     /// SQLite connection for session persistence (Phase 7.4).
     pub db: Arc<tokio::sync::Mutex<rusqlite::Connection>>,
-    /// Rate-limit tracker: IP → Vec<Instant> (Phase 7.4).
+    /// Rate-limit tracker: key → Vec<Instant> (Phase 7.4).
+    /// Наряд №263: the key is the connection peer address by default (see
+    /// `extract_client_ip`); bounded by MAX_RATE_KEYS — a new key at the cap
+    /// counts as a full bucket (429), never silent unbounded growth.
     pub rate_limits: Arc<DashMap<String, Vec<std::time::Instant>>>,
+    /// Наряд №263: requests per client per minute (mlogserver `rate_limit: N`,
+    /// default 100 — DEFAULT_RATE_LIMIT_PER_MINUTE).
+    pub rate_limit_per_minute: usize,
+    /// Наряд №263: parsed METALOGOS_TRUSTED_PROXIES. Empty = XFF/X-Real-IP are
+    /// never honored (the peer address is the rate-limit key).
+    pub trusted_proxies: Arc<TrustedProxies>,
     /// Which backend to use for route execution (Наряд №40).
     pub backend: ServeBackend,
     /// Compiled VM program (Наряд №40: compiled once at startup, reused per request).
@@ -208,6 +218,159 @@ pub struct SessionEntry {
     pub data: HashMap<String, String>,
     pub roles: Vec<String>,
     pub expires: std::time::Instant,
+}
+
+// ── Наряд №263: rate-limit keying, trusted proxies, bounded maps ──
+
+/// Default requests-per-client-per-minute when the mlogserver declaration does
+/// not set `rate_limit: N` (Наряд №263: the pre-№263 hard-wired 100, unchanged).
+pub(crate) const DEFAULT_RATE_LIMIT_PER_MINUTE: usize = 100;
+
+/// Наряд №263 — hard caps for the hot-path state maps (pre-№263 all three grew
+/// without bounds under a flood of unique keys: a cheap HTTP garbage stream of
+/// fresh XFF values / peers / tokens → unbounded process memory).
+/// Constant choices (deliberate, documented in REFERENCE §5.6):
+/// - MAX_SESSIONS = 10 000: `sessions` is a read-side cache in front of SQLite;
+///   each entry is a small role list + data map, 10k entries stay in the low
+///   MiB range, while a typical legitimate deployment holds far fewer.
+/// - MAX_CSRF_TOKENS = 10 000: tokens carry a 15-minute TTL (№29 §2.2) and one
+///   is issued per GET under the csrf middleware — 10k covers 10k concurrent
+///   browser sessions per sweep interval, far above honest traffic.
+/// - MAX_RATE_KEYS = 65 536: one bucket per distinct key (peer or XFF entry);
+///   2^16 bounds the IPv6-realistic worst case without evicting honest clients.
+pub(crate) const MAX_SESSIONS: usize = 10_000;
+pub(crate) const MAX_CSRF_TOKENS: usize = 10_000;
+pub(crate) const MAX_RATE_KEYS: usize = 65_536;
+
+/// Rate-limit window in seconds (the sliding window used by `check_rate_limit`;
+/// the background sweep evicts keys whose every timestamp fell out of it).
+pub(crate) const RATE_WINDOW_SECS: u64 = 60;
+
+/// One entry of `METALOGOS_TRUSTED_PROXIES`: an exact IP or a CIDR `/NN` prefix
+/// (both address families; no new crates — manual mask math, лекало
+/// `is_blocked_address` №261 which hand-rolls ranges for the same reason).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TrustedProxyEntry {
+    Exact(IpAddr),
+    Cidr(IpAddr, u8),
+}
+
+/// Parsed `METALOGOS_TRUSTED_PROXIES` (Наряд №263).
+///
+/// CHOSEN SEMANTICS (documented loudly in REFERENCE §5.6 and CHANGELOG):
+/// 1. Empty list (env unset) — `X-Forwarded-For` / `X-Real-IP` are NEVER
+///    honored; the direct connection peer is the rate-limit key. This closes
+///    the pre-№263 bypass: any client could send a fresh XFF per request and
+///    make the rate limit a no-op.
+/// 2. Non-empty list — headers are honored ONLY when the direct peer matches
+///    an entry; then the key is the FIRST (leftmost) `X-Forwarded-For` value
+///    (else `X-Real-IP`, else the peer). OPERATOR CONTRACT: a trusted proxy
+///    must OVERWRITE XFF with the client address it sees; with an append-style
+///    proxy the leftmost entry is client-controlled (documented residual).
+#[derive(Debug, Clone, Default)]
+pub struct TrustedProxies {
+    entries: Vec<TrustedProxyEntry>,
+}
+
+impl TrustedProxies {
+    /// Parse a comma-separated spec of exact IPs and CIDR `/NN` prefixes.
+    /// Invalid entries are skipped with a loud warning (fail-open to fewer
+    /// trusted proxies is safer than fail-closed to no server at startup).
+    pub(crate) fn from_env_spec(spec: Option<&str>) -> Self {
+        let mut entries = Vec::new();
+        let Some(spec) = spec.map(str::trim).filter(|s| !s.is_empty()) else {
+            return Self { entries };
+        };
+        for part in spec.split(',') {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+            match parse_trusted_proxy_entry(part) {
+                Some(e) => entries.push(e),
+                None => eprintln!(
+                    "[WARN] METALOGOS_TRUSTED_PROXIES: skipping invalid entry {:?} (expected an IP or IP/prefix)",
+                    part
+                ),
+            }
+        }
+        Self { entries }
+    }
+
+    /// True when at least one valid entry is configured (headers may be honored).
+    pub(crate) fn is_configured(&self) -> bool {
+        !self.entries.is_empty()
+    }
+
+    /// Does `ip` match an entry? IPv4-mapped IPv6 peers are unwrapped first
+    /// (лекало `is_blocked_address` №261: `::ffff:10.0.0.1` must match 10.x).
+    pub(crate) fn contains(&self, ip: IpAddr) -> bool {
+        let ip = unwrap_mapped(ip);
+        self.entries.iter().any(|e| ip_matches_entry(ip, e))
+    }
+}
+
+fn parse_trusted_proxy_entry(part: &str) -> Option<TrustedProxyEntry> {
+    if let Some((addr_str, prefix_str)) = part.split_once('/') {
+        let addr: IpAddr = addr_str.trim().parse().ok()?;
+        let prefix: u8 = prefix_str.trim().parse().ok()?;
+        let max = match addr {
+            IpAddr::V4(_) => 32,
+            IpAddr::V6(_) => 128,
+        };
+        if prefix > max {
+            return None;
+        }
+        Some(TrustedProxyEntry::Cidr(addr, prefix))
+    } else {
+        Some(TrustedProxyEntry::Exact(part.parse().ok()?))
+    }
+}
+
+/// Unwrap an IPv4-mapped IPv6 address to its V4 form (№261 лекало).
+fn unwrap_mapped(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map(IpAddr::V4).unwrap_or(ip),
+        v4 => v4,
+    }
+}
+
+fn ip_matches_entry(ip: IpAddr, entry: &TrustedProxyEntry) -> bool {
+    match entry {
+        TrustedProxyEntry::Exact(e) => unwrap_mapped(*e) == ip,
+        TrustedProxyEntry::Cidr(net, prefix) => ip_in_cidr(ip, unwrap_mapped(*net), *prefix),
+    }
+}
+
+/// CIDR membership by manual masking (std ships no helpers; №263 carries the
+/// same no-new-deps decision as №261's octet-range checks).
+/// Mixed families never match — unwrap_mapped runs before this.
+fn ip_in_cidr(ip: IpAddr, net: IpAddr, prefix: u8) -> bool {
+    match (ip, net) {
+        (IpAddr::V4(a), IpAddr::V4(n)) => {
+            if prefix > 32 {
+                return false;
+            }
+            let mask = if prefix == 0 {
+                0
+            } else {
+                u32::MAX << (32 - prefix)
+            };
+            u32::from(a) & mask == u32::from(n) & mask
+        }
+        (IpAddr::V6(a), IpAddr::V6(n)) => {
+            if prefix > 128 {
+                return false;
+            }
+            let mask = if prefix == 0 {
+                0
+            } else {
+                u128::MAX.checked_shl(128 - prefix as u32).unwrap_or(0)
+            };
+            u128::from(a) & mask == u128::from(n) & mask
+        }
+        _ => false,
+    }
 }
 
 /// Which backend to use for route execution (Наряд №40).
@@ -292,6 +455,23 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
         );
     }
     let mut state = build_state(config.clone(), interp).await?;
+
+    // ── Наряд №263: loud startup surface for the new security knobs ──
+    eprintln!(
+        "[server] rate limit: {} req/min per client (mlogserver rate_limit field, default {})",
+        state.rate_limit_per_minute, DEFAULT_RATE_LIMIT_PER_MINUTE
+    );
+    if state.trusted_proxies.is_configured() {
+        eprintln!(
+            "[server] METALOGOS_TRUSTED_PROXIES set — X-Forwarded-For/X-Real-IP honored ONLY for direct peers in the list; \
+             leftmost XFF entry wins. OPERATOR CONTRACT: the proxy must OVERWRITE XFF (REFERENCE §5.6, naryad #263)"
+        );
+    } else {
+        eprintln!(
+            "[server] METALOGOS_TRUSTED_PROXIES unset — the connection peer address is the rate-limit key; \
+             XFF/X-Real-IP headers are ignored (naryad #263)"
+        );
+    }
 
     // ── Наряд №40: Read METALOGOS_SERVE_BACKEND once at startup ──
     let backend = match std::env::var("METALOGOS_SERVE_BACKEND") {
@@ -461,19 +641,28 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
 
     // Наряд №29 §2.2 — Background CSRF token cleanup task (every 60s).
     // Evicts tokens older than 15 minutes from the in-memory store.
+    // Наряд №263 — the same pass now also sweeps the two maps that had NO
+    // cleanup at all: `rate_limits` (timestamps outside the 60-second window;
+    // keys whose every timestamp fell out are removed) and `sessions`
+    // (entries past their own `SessionEntry.expires` TTL — the contract
+    // check_roles already enforces per-request; SQLite rows keep their own
+    // cleanup path in clean_expired_sessions_db, untouched).
     let csrf_state = state.clone();
     tokio::spawn(async move {
-        let ttl = std::time::Duration::from_secs(900); // 15 minutes
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-            let now = std::time::Instant::now();
-            let before = csrf_state.csrf_tokens.len();
-            csrf_state
-                .csrf_tokens
-                .retain(|_token, (_sid, created_at)| now.duration_since(*created_at) < ttl);
-            let removed = before - csrf_state.csrf_tokens.len();
-            if removed > 0 {
-                eprintln!("[csrf-cleanup] evicted {} expired token(s)", removed);
+            let (csrf, rate_keys, sessions) = sweep_expired_state(&csrf_state);
+            if csrf > 0 {
+                eprintln!("[csrf-cleanup] evicted {} expired token(s)", csrf);
+            }
+            if rate_keys > 0 {
+                eprintln!("[rate-cleanup] evicted {} stale key bucket(s)", rate_keys);
+            }
+            if sessions > 0 {
+                eprintln!(
+                    "[session-cleanup] evicted {} expired session cache entr(ies)",
+                    sessions
+                );
             }
         }
     });
@@ -482,7 +671,13 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
     println!("mlog serve: scheduler active (5s interval — reminders + cron)");
     println!("mlog serve: CSRF token cleanup active (60s interval, 15-min TTL)");
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", host, port)).await?;
-    axum::serve(listener, app).await?;
+    // Наряд №263: ConnectInfo is forwarded so the rate-limit key defaults to the
+    // REAL connection peer address instead of client-controlled headers.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
@@ -528,7 +723,12 @@ pub async fn run_test_server(
     let port = listener.local_addr()?.port();
 
     let handle = tokio::spawn(async move {
-        axum::serve(listener, app).await?;
+        // Наряд №263: ConnectInfo forwarded (same contract as run_server).
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await?;
         Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     });
 
@@ -598,7 +798,12 @@ pub async fn run_test_server_with_backend_in_dir(
     let port = listener.local_addr()?.port();
 
     let handle = tokio::spawn(async move {
-        axum::serve(listener, app).await?;
+        // Наряд №263: ConnectInfo forwarded (same contract as run_server).
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await?;
         Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     });
 
@@ -653,6 +858,16 @@ pub(crate) async fn build_state(
         middleware: config.middleware.clone(),
         db: Arc::new(tokio::sync::Mutex::new(conn)),
         rate_limits: Arc::new(DashMap::new()),
+        // Наряд №263: mlogserver `rate_limit: N`, default 100 (unchanged).
+        rate_limit_per_minute: config
+            .rate_limit
+            .map(|n| n as usize)
+            .unwrap_or(DEFAULT_RATE_LIMIT_PER_MINUTE),
+        // Наряд №263: parsed once at startup (same read-once discipline as
+        // METALOGOS_SERVE_BACKEND) so request handling never re-reads env.
+        trusted_proxies: Arc::new(TrustedProxies::from_env_spec(
+            std::env::var("METALOGOS_TRUSTED_PROXIES").ok().as_deref(),
+        )),
         backend: ServeBackend::Interpreter, // set after build_state returns
         vm_program: None,
         vm_routes: Vec::new(),
@@ -737,13 +952,17 @@ fn build_router(state: ServerState) -> Router {
 
 async fn route_handler(
     State(state): State<ServerState>,
+    // Наряд №263: the real connection peer (via into_make_service_with_connect_info
+    // at every serve point) — the default rate-limit key, immune to header spoofing.
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     uri: Uri,
     method: Method,
     headers: HeaderMap,
     body: bytes::Bytes,
 ) -> Response {
-    // 0. Extract client IP for rate limiting
-    let client_ip = extract_client_ip(&headers);
+    // 0. Extract client IP for rate limiting (Наряд №263: peer-first semantics —
+    //    XFF/X-Real-IP honored ONLY for direct peers in METALOGOS_TRUSTED_PROXIES).
+    let client_ip = extract_client_ip(&headers, Some(peer.ip()), &state.trusted_proxies);
 
     // 0b. Bug 2.1 fix: parse query string from URI
     let query: std::collections::HashMap<String, String> = uri
@@ -766,9 +985,9 @@ async fn route_handler(
         })
         .unwrap_or_default();
 
-    // 1. Rate limiting (Phase 7.4)
+    // 1. Rate limiting (Phase 7.4; limit configurable since Наряд №263)
     if state.middleware.contains(&"rate_limit".to_string()) {
-        if let Err(resp) = check_rate_limit(&state, &client_ip, 100).await {
+        if let Err(resp) = check_rate_limit(&state, &client_ip, state.rate_limit_per_minute).await {
             return resp;
         }
     }
@@ -831,13 +1050,14 @@ async fn route_handler(
         // Наряд №29 §2.2: store (session_id, created_at) for TTL enforcement.
         // Наряд №262: the session_id half is now ENFORCED at validation — the token is
         // bound to the HMAC-verified session of the issuing request ("" = sessionless).
+        // Наряд №263: issuance is BOUNDED — at the store cap the token is refused
+        // LOUDLY with 503 instead of silent unbounded growth.
         if method == Method::GET && state.middleware.contains(&"csrf".to_string()) {
             let token = generate_csrf_token();
             let session_id_for_csrf = raw_session_id.clone().unwrap_or_default();
-            state.csrf_tokens.insert(
-                token.clone(),
-                (session_id_for_csrf, std::time::Instant::now()),
-            );
+            if let Err(resp) = issue_csrf_token_capped(&state, &token, &session_id_for_csrf).await {
+                return resp;
+            }
             // Наряд №125: NO HttpOnly — JS must read this cookie for double-submit.
             let cookie_value = format!("_mlog_csrf={}; SameSite=Strict; Path=/", token);
             if let Ok(val) = HeaderValue::from_str(&cookie_value) {
@@ -993,19 +1213,154 @@ fn extract_session_cookie(headers: &HeaderMap) -> Option<String> {
         .and_then(|s| extract_cookie(s, "_mlog_session"))
 }
 
-/// Extract client IP from headers (x-forwarded-for or x-real-ip).
-fn extract_client_ip(headers: &HeaderMap) -> String {
+/// Resolve the client identity used as the rate-limit key (Наряд №263).
+///
+/// CHOSEN SEMANTICS (documented loudly in REFERENCE §5.6 and CHANGELOG):
+/// 1. DEFAULT — the direct connection peer (`peer_ip`, from ConnectInfo) is the
+///    key. `X-Forwarded-For` / `X-Real-IP` are IGNORED: pre-№263 the headers
+///    were trusted unconditionally (`extract_client_ip` read XFF first, the
+///    peer was never even wired in), so one client could put a fresh XFF value
+///    on every request and always get a fresh bucket — the rate limit limited
+///    only honest clients.
+/// 2. `METALOGOS_TRUSTED_PROXIES` set AND the direct peer matches an entry —
+///    the key is the FIRST (leftmost) `X-Forwarded-For` value (the identity the
+///    nearest client presents), else `X-Real-IP`, else the peer itself.
+///    OPERATOR CONTRACT: a trusted proxy must OVERWRITE XFF with the client
+///    address it sees; behind an append-style proxy the leftmost entry is
+///    client-controlled (documented residual — revisit: rightmost-untrusted
+///    walk for multi-hop chains if a real deployment needs it).
+/// 3. Peer NOT in the list — the peer address, headers never consulted.
+///
+/// `peer_ip: None` (only direct unit-test callers) → "unknown".
+fn extract_client_ip(
+    headers: &HeaderMap,
+    peer_ip: Option<IpAddr>,
+    trusted: &TrustedProxies,
+) -> String {
+    let peer_key = peer_ip
+        .map(|i| i.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let headers_may_be_honored = peer_ip.map(|i| trusted.contains(i)).unwrap_or(false);
+    if !headers_may_be_honored {
+        return peer_key;
+    }
+    // Trusted peer: leftmost XFF entry, else X-Real-IP, else the peer.
+    // Empty header values are treated as absent (a proxy sending "" must not
+    // blank out the key).
     headers
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.split(',').next().unwrap_or("unknown").trim().to_string())
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
         .or_else(|| {
             headers
                 .get("x-real-ip")
                 .and_then(|v| v.to_str().ok())
-                .map(|s| s.to_string())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
         })
-        .unwrap_or_else(|| "unknown".to_string())
+        .unwrap_or(peer_key)
+}
+
+/// Наряд №263: the sanctioned writer of `state.sessions` — enforces MAX_SESSIONS.
+///
+/// Context (audit tail №263): the map is a read-side cache in front of SQLite
+/// and had no cap and no cleanup; today no code path inserts into it (roles
+/// come from DB lookups), so the helper is the LOUD, capped path any future
+/// writer must use — and the anchor the cap test pins. Refusal text carries
+/// 503 semantics (server busy), not a silent drop.
+pub fn insert_session_capped(
+    state: &ServerState,
+    id: String,
+    entry: SessionEntry,
+) -> Result<(), String> {
+    if !state.sessions.contains_key(&id) && state.sessions.len() >= MAX_SESSIONS {
+        eprintln!(
+            "[sessions] store at cap ({}) — refusing new session (naryad #263)",
+            MAX_SESSIONS
+        );
+        return Err(
+            "503 Service Unavailable: server busy — session store full, retry shortly".to_string(),
+        );
+    }
+    state.sessions.insert(id, entry);
+    Ok(())
+}
+
+/// Наряд №263: the sanctioned issuer of CSRF tokens — enforces MAX_CSRF_TOKENS.
+/// At the cap the issuance is refused LOUDLY (503 to the client + audit entry +
+/// stderr metric) instead of the pre-№263 silent unbounded growth.
+#[allow(clippy::result_large_err)] // Response as Err is intentional for axum handlers
+async fn issue_csrf_token_capped(
+    state: &ServerState,
+    token: &str,
+    session_id: &str,
+) -> Result<(), Response> {
+    if state.csrf_tokens.len() >= MAX_CSRF_TOKENS {
+        {
+            let mut log = state.audit_log.write().await;
+            log.push(format!(
+                "[CSRF] Rejected issuance: token store full ({} tokens) (naryad #263)",
+                MAX_CSRF_TOKENS
+            ));
+        }
+        eprintln!(
+            "[csrf] token store at cap ({}) — refusing issuance (naryad #263)",
+            MAX_CSRF_TOKENS
+        );
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "503 Service Unavailable: server busy — CSRF token store full, retry shortly",
+        )
+            .into_response());
+    }
+    state.csrf_tokens.insert(
+        token.to_string(),
+        (session_id.to_string(), std::time::Instant::now()),
+    );
+    Ok(())
+}
+
+/// Наряд №263: one pass of the background sweep over ALL THREE hot-path maps.
+/// Extends the №29 §2.2 csrf-only sweep (same 60-second cadence, one task).
+/// Returns (csrf_evicted, rate_keys_evicted, sessions_evicted) for logging.
+fn sweep_expired_state(state: &ServerState) -> (usize, usize, usize) {
+    let now = std::time::Instant::now();
+
+    // 1. csrf_tokens: TTL 15 minutes (№29 §2.2, unchanged).
+    let csrf_ttl = std::time::Duration::from_secs(900);
+    let before = state.csrf_tokens.len();
+    state
+        .csrf_tokens
+        .retain(|_token, (_sid, created_at)| now.duration_since(*created_at) < csrf_ttl);
+    let csrf_evicted = before - state.csrf_tokens.len();
+
+    // 2. rate_limits: drop timestamps outside the 60-second sliding window;
+    //    a key whose every timestamp fell out is removed entirely (pre-№263
+    //    these outsider keys lived forever).
+    let window = std::time::Duration::from_secs(RATE_WINDOW_SECS);
+    let mut rate_evicted = 0usize;
+    state.rate_limits.retain(|_key, stamps| {
+        stamps.retain(|t| now.duration_since(*t) < window);
+        if stamps.is_empty() {
+            rate_evicted += 1;
+            false
+        } else {
+            true
+        }
+    });
+
+    // 3. sessions: TTL carried by SessionEntry.expires (the contract check_roles
+    //    already enforces per-request: `entry.expires < now` = expired). No new
+    //    constant — the entry's own TTL is the truth (revisit if a global
+    //    session TTL policy ever lands).
+    let before_sessions = state.sessions.len();
+    state.sessions.retain(|_id, entry| entry.expires > now);
+    let sessions_evicted = before_sessions - state.sessions.len();
+
+    (csrf_evicted, rate_evicted, sessions_evicted)
 }
 
 // ── Rate Limiting (Phase 7.4) ─────────────────────────────────────
@@ -1019,6 +1374,30 @@ pub async fn check_rate_limit(
 ) -> Result<(), Response> {
     let now = std::time::Instant::now();
     let window_start = now - std::time::Duration::from_secs(60);
+
+    // Наряд №263: bounded key store — a NEW key when the map is at cap counts
+    // as a "full bucket" → 429 (loud audit entry + stderr metric). The
+    // alternative (evict an arbitrary old key) would hand an attacker a
+    // rotation primitive; silent growth was the pre-№263 memory-leak finding.
+    // Existing keys keep working at the cap — the sweep reclaims stale ones.
+    if !state.rate_limits.contains_key(ip) && state.rate_limits.len() >= MAX_RATE_KEYS {
+        {
+            let mut log = state.audit_log.write().await;
+            log.push(format!(
+                "[RATE_LIMIT] Rejected: key store full ({} keys) — new key treated as full bucket (naryad #263)",
+                MAX_RATE_KEYS
+            ));
+        }
+        eprintln!(
+            "[rate-limit] key store at cap ({}) — refusing new key (naryad #263)",
+            MAX_RATE_KEYS
+        );
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "429 Too Many Requests: rate limit exceeded",
+        )
+            .into_response());
+    }
 
     let mut entries = state.rate_limits.entry(ip.to_string()).or_default();
     // Remove entries outside the 60-second window
@@ -2354,19 +2733,247 @@ mod tests {
 
     #[test]
     fn test_74_extract_client_ip_from_headers() {
+        // Наряд №263 contract (rewritten): headers are honored ONLY when the
+        // direct peer is in the trusted-proxies list; otherwise the peer wins.
         let mut headers = HeaderMap::new();
         headers.insert(
             "x-forwarded-for",
             HeaderValue::from_static("10.0.0.1, 172.16.0.1"),
         );
-        assert_eq!(extract_client_ip(&headers), "10.0.0.1");
+        let no_trusted = TrustedProxies::default();
+        let trusted_loopback = TrustedProxies::from_env_spec(Some("127.0.0.1"));
+        let peer_loopback: Option<IpAddr> = Some("127.0.0.1".parse().unwrap());
+        let peer_other: Option<IpAddr> = Some("192.168.1.5".parse().unwrap());
 
+        // (1) No trusted proxies: XFF is IGNORED, the peer is the key...
+        assert_eq!(
+            extract_client_ip(&headers, peer_other, &no_trusted),
+            "192.168.1.5"
+        );
+        //    ...and without a peer (direct unit calls) → "unknown", as before.
+        assert_eq!(extract_client_ip(&headers, None, &no_trusted), "unknown");
+
+        // (2) Trusted peer: leftmost XFF entry wins.
+        assert_eq!(
+            extract_client_ip(&headers, peer_loopback, &trusted_loopback),
+            "10.0.0.1"
+        );
+
+        // (3) Trusted peer without XFF: X-Real-IP, else the peer.
         let mut headers2 = HeaderMap::new();
         headers2.insert("x-real-ip", HeaderValue::from_static("192.168.1.100"));
-        assert_eq!(extract_client_ip(&headers2), "192.168.1.100");
+        assert_eq!(
+            extract_client_ip(&headers2, peer_loopback, &trusted_loopback),
+            "192.168.1.100"
+        );
+        assert_eq!(
+            extract_client_ip(&HeaderMap::new(), peer_loopback, &trusted_loopback),
+            "127.0.0.1"
+        );
 
-        let headers3 = HeaderMap::new();
-        assert_eq!(extract_client_ip(&headers3), "unknown");
+        // (4) Peer NOT in the list: headers never honored even when the env is set.
+        assert_eq!(
+            extract_client_ip(&headers, peer_other, &trusted_loopback),
+            "192.168.1.5"
+        );
+    }
+
+    // ── Наряд №263: trusted-proxies parsing (no new crates, manual CIDR) ──
+
+    #[test]
+    fn test_n263_trusted_proxies_parse_table() {
+        let unset = TrustedProxies::from_env_spec(None);
+        assert!(!unset.is_configured());
+        let empty = TrustedProxies::from_env_spec(Some(""));
+        assert!(!empty.is_configured());
+
+        // Exact IP + CIDR, mixed families, spaces tolerated.
+        let list = TrustedProxies::from_env_spec(Some(" 10.0.0.1 , 10.0.0.0/8 , fc00::/7 , ::1 "));
+        assert!(list.is_configured());
+        assert!(list.contains("10.0.0.1".parse().unwrap()));
+        assert!(list.contains("10.255.255.255".parse().unwrap()));
+        assert!(!list.contains("11.0.0.1".parse().unwrap()));
+        assert!(list.contains("fc00::1".parse().unwrap()));
+        assert!(list.contains("fdff::1".parse().unwrap())); // fc00::/7 covers fc00–fdff
+        assert!(!list.contains("fe00::1".parse().unwrap()));
+        assert!(list.contains("::1".parse().unwrap()));
+        assert!(!list.contains("::2".parse().unwrap()));
+
+        // IPv4-mapped IPv6 peer unwraps to its V4 form (№261 лекало).
+        assert!(list.contains("::ffff:10.1.2.3".parse().unwrap()));
+        assert!(!list.contains("::ffff:11.1.2.3".parse().unwrap()));
+
+        // /0 matches everything in-family (documented edge); /33, /129 invalid.
+        let v4all = TrustedProxies::from_env_spec(Some("0.0.0.0/0"));
+        assert!(v4all.contains("8.8.8.8".parse().unwrap()));
+        assert!(!v4all.contains("::1".parse().unwrap())); // mixed family never matches
+        let bad = TrustedProxies::from_env_spec(Some("10.0.0.0/33, banana, 10.0.0.0/129"));
+        assert!(!bad.is_configured()); // every entry invalid → skipped loudly
+    }
+
+    // ── Наряд №263: bounded state maps — loud refusals, not silent growth ──
+
+    #[tokio::test]
+    async fn test_n263_rate_key_cap_new_key_blocked_existing_key_works() {
+        let state = make_test_state().await;
+        let now = std::time::Instant::now();
+        // Fill the key store to the cap.
+        for i in 0..MAX_RATE_KEYS {
+            state.rate_limits.insert(format!("k{}", i), vec![now]);
+        }
+        assert_eq!(state.rate_limits.len(), MAX_RATE_KEYS);
+
+        // A NEW key at the cap = "full bucket" → 429, loud audit entry.
+        let result = check_rate_limit(&state, "fresh-peer", 100).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status(), StatusCode::TOO_MANY_REQUESTS);
+        let log = state.audit_log.read().await;
+        assert!(
+            log.iter().any(|e| e.contains("key store full")),
+            "the cap refusal must be loud in the audit log"
+        );
+        drop(log);
+
+        // An EXISTING key keeps working at the cap (the sweep reclaims stale ones).
+        let result = check_rate_limit(&state, "k0", 100).await;
+        assert!(result.is_ok());
+        // Memory is bounded: the map never exceeded the cap.
+        assert!(state.rate_limits.len() <= MAX_RATE_KEYS);
+    }
+
+    #[tokio::test]
+    async fn test_n263_session_cap_refuses_loudly_with_503_text() {
+        let state = make_test_state().await;
+        let entry = |ttl_secs: u64| SessionEntry {
+            data: HashMap::new(),
+            roles: vec!["user".to_string()],
+            expires: std::time::Instant::now() + std::time::Duration::from_secs(ttl_secs),
+        };
+        for i in 0..MAX_SESSIONS {
+            insert_session_capped(&state, format!("s{}", i), entry(3600)).unwrap();
+        }
+        // At the cap a NEW session is refused with the loud 503 text.
+        let err = insert_session_capped(&state, "overflow".to_string(), entry(3600)).unwrap_err();
+        assert!(
+            err.contains("503"),
+            "refusal must carry 503 semantics: {}",
+            err
+        );
+        assert!(err.contains("session store full"));
+        // Replacing an EXISTING id stays allowed (updates are not new entries).
+        insert_session_capped(&state, "s0".to_string(), entry(3600)).unwrap();
+        assert_eq!(state.sessions.len(), MAX_SESSIONS);
+    }
+
+    #[tokio::test]
+    async fn test_n263_csrf_token_cap_refuses_issuance_with_503() {
+        let state = make_test_state().await;
+        for i in 0..MAX_CSRF_TOKENS {
+            state.csrf_tokens.insert(
+                format!("t{}", i),
+                ("".to_string(), std::time::Instant::now()),
+            );
+        }
+        let result = issue_csrf_token_capped(&state, "fresh-token", "").await;
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        let log = state.audit_log.read().await;
+        assert!(log.iter().any(|e| e.contains("token store full")));
+        drop(log);
+        // The fresh token was NOT inserted (memory bounded).
+        assert_eq!(state.csrf_tokens.len(), MAX_CSRF_TOKENS);
+        assert!(!state.csrf_tokens.contains_key("fresh-token"));
+    }
+
+    // ── Наряд №263: the sweep now covers rate_limits and sessions too ──
+
+    #[tokio::test]
+    async fn test_n263_sweep_removes_stale_rate_keys_and_expired_sessions() {
+        let state = make_test_state().await;
+        let now = std::time::Instant::now();
+        let old = now
+            .checked_sub(std::time::Duration::from_secs(RATE_WINDOW_SECS + 30))
+            .unwrap();
+
+        // rate_limits: a fully-stale key (evicted) vs a live key (kept),
+        // plus a half-stale key (stale timestamps trimmed, key stays).
+        state.rate_limits.insert("stale-key".to_string(), vec![old]);
+        state.rate_limits.insert("live-key".to_string(), vec![now]);
+        state
+            .rate_limits
+            .insert("mixed-key".to_string(), vec![old, now]);
+
+        // sessions: expired (evicted) vs live (kept).
+        let session_entry = |expired: bool| SessionEntry {
+            data: HashMap::new(),
+            roles: vec![],
+            expires: if expired {
+                now.checked_sub(std::time::Duration::from_secs(60)).unwrap()
+            } else {
+                now + std::time::Duration::from_secs(3600)
+            },
+        };
+        insert_session_capped(&state, "expired-session".to_string(), session_entry(true)).unwrap();
+        insert_session_capped(&state, "live-session".to_string(), session_entry(false)).unwrap();
+
+        // csrf_tokens: expired (evicted) vs live (kept) — the original №29 behavior.
+        let backdated = now
+            .checked_sub(std::time::Duration::from_secs(901))
+            .unwrap();
+        state
+            .csrf_tokens
+            .insert("expired-token".to_string(), ("".into(), backdated));
+        state
+            .csrf_tokens
+            .insert("live-token".to_string(), ("".into(), now));
+
+        let (csrf, rate_keys, sessions) = sweep_expired_state(&state);
+        assert_eq!((csrf, rate_keys, sessions), (1, 1, 1));
+        assert!(!state.rate_limits.contains_key("stale-key"));
+        assert!(state.rate_limits.contains_key("live-key"));
+        assert!(state.rate_limits.contains_key("mixed-key"));
+        assert_eq!(state.rate_limits.get("mixed-key").unwrap().len(), 1);
+        assert!(!state.sessions.contains_key("expired-session"));
+        assert!(state.sessions.contains_key("live-session"));
+        assert!(!state.csrf_tokens.contains_key("expired-token"));
+        assert!(state.csrf_tokens.contains_key("live-token"));
+    }
+
+    // ── Наряд №263: the rate_limit declaration field drives the limit ──
+
+    #[tokio::test]
+    async fn test_n263_rate_limit_field_parses_and_wires() {
+        let state = build_test_server_state(
+            r#"
+mlogserver {
+    port: 0
+    middleware: [rate_limit]
+    rate_limit: 7
+    route "/ok" method=GET { respond("200", "ok") }
+}
+"#,
+        )
+        .await;
+        assert_eq!(state.rate_limit_per_minute, 7);
+
+        // Absent field → the documented default 100 (pre-№263 hard-wired value).
+        let default_state = build_test_server_state(
+            r#"
+mlogserver {
+    port: 0
+    middleware: [rate_limit]
+    route "/ok" method=GET { respond("200", "ok") }
+}
+"#,
+        )
+        .await;
+        assert_eq!(
+            default_state.rate_limit_per_minute,
+            DEFAULT_RATE_LIMIT_PER_MINUTE
+        );
     }
 
     #[test]
@@ -2402,6 +3009,8 @@ mod tests {
             ],
             db: Arc::new(tokio::sync::Mutex::new(conn)),
             rate_limits: Arc::new(DashMap::new()),
+            rate_limit_per_minute: DEFAULT_RATE_LIMIT_PER_MINUTE,
+            trusted_proxies: Arc::new(TrustedProxies::default()),
             backend: ServeBackend::Interpreter,
             vm_program: None,
             vm_routes: Vec::new(),

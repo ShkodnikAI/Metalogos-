@@ -46,6 +46,14 @@ pub(super) fn parse_mlogserver_decl(pair: Pair<Rule>) -> Result<Declaration, Par
         }
     }
 
+    // Наряд №263: explicit `rate_limit: N` (requests per client per minute).
+    // Absent → None → the server applies the documented default (100).
+    let rate_limit: Option<u32> = body_children
+        .iter()
+        .find(|c| c.as_rule() == Rule::mlogserver_rate_limit)
+        .and_then(|c| find_child_str(&children_of(c), Rule::INT))
+        .and_then(|s| s.parse().ok());
+
     let routes: Vec<RouteDecl> = body_children
         .iter()
         .filter(|c| c.as_rule() == Rule::route_decl)
@@ -57,6 +65,7 @@ pub(super) fn parse_mlogserver_decl(pair: Pair<Rule>) -> Result<Declaration, Par
         port,
         host,
         middleware,
+        rate_limit,
         routes,
     }))
 }

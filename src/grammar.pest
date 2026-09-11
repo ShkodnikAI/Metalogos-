@@ -58,10 +58,13 @@ HOOK_KW       = @{ "hook" }
 // server { port: 8080  middleware: [session, csrf, security_headers]  route "/path" method=GET requires=[role] { body } }
 // "server" is an alias for "mlogserver" (Наряд №7 final integration)
 mlogserver_decl    = { "mlogserver" ~ LBRACE ~ mlogserver_body ~ RBRACE | "server" ~ LBRACE ~ mlogserver_body ~ RBRACE }
-mlogserver_body    = { mlogserver_port? ~ mlogserver_host? ~ mlogserver_middleware? ~ route_decl* ~ WHITESPACE* }
+mlogserver_body    = { mlogserver_port? ~ mlogserver_host? ~ mlogserver_middleware? ~ mlogserver_rate_limit? ~ route_decl* ~ WHITESPACE* }
 mlogserver_port    = { "port" ~ COLON ~ INT }
 mlogserver_host    = { "host" ~ COLON ~ STRING_LITERAL }
 mlogserver_middleware = { "middleware" ~ COLON ~ LBRACKET ~ ident_list? ~ RBRACKET }
+// Наряд №263: explicit per-client rate limit (requests/minute), default 100.
+// Same strict-order style as port/host/middleware (no comma separators — WHITESPACE is implicit).
+mlogserver_rate_limit = { "rate_limit" ~ COLON ~ INT }
 route_decl         = { "route" ~ STRING_LITERAL ~ "method" ~ ASSIGN ~ IDENT ~ route_requires? ~ LBRACE ~ statement* ~ RBRACE }
 route_requires     = { "requires" ~ ASSIGN ~ LBRACKET ~ ident_list? ~ RBRACKET }
 

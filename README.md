@@ -156,7 +156,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 
 | Component | Technology | Lines |
 |---|---|---|
-| Parser | Pest 2.7 PEG grammar (~519 lines, 301 rules) | 2 176 |
+| Parser | Pest 2.7 PEG grammar (~522 lines, 302 rules) | 2 176 |
 | AST | 33 Declaration variants, 14 Expr, 12 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION, VISION_UNSIGNED_EXPORT, MODEL_WEIGHTS_UNSAFE), SVG XSS lint | 473 |
 | Compiler | Bytecode, 391 builtins indexed | 1 516 |
@@ -179,7 +179,7 @@ Metalogos-/
 ├── logo.jpg                          # Brand logo
 ├── README.md                         # This file
 ├── REFERENCE.md                      # Full builtin reference (~83 KB)
-├── CHANGELOG.md                      # Version history (~150 KB)
+├── CHANGELOG.md                      # Version history (~152 KB)
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
 ├── Dockerfile                        # Docker build

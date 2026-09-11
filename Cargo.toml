@@ -155,6 +155,15 @@ pdf-ocr = ["tesseract"]
 # Enable with: cargo build --features vision
 vision = ["candle", "dep:tokenizers", "dep:image"]
 
+# CI-hygiene: максимальный фича-набор, переносимый между GitHub-hosted
+# раннерами (platform-check джобы macos/windows в ci.yml). `pdf-ocr`
+# исключён осознанно: по своему контракту (см. выше) он требует системные
+# C-библиотеки tesseract-ocr + leptonica, которых нет на macos/windows
+# раннерах — `--all-features` ломал сборку с момента добавления pdf-ocr
+# (наряд №265). ПРАВИЛО: новая фича обязана попасть в `portable` либо
+# документировать платформенное исключение рядом с собой в этом блоке.
+portable = ["full", "candle", "vision"]
+
 [dev-dependencies]
 tempfile = "3"
 serial_test = "4"

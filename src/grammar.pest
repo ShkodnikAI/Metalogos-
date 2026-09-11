@@ -251,7 +251,15 @@ param        = { IDENT ~ ":" ~ type_name }
 pattern_body = { statement* }
 
 // ── Statements (v0.5.1: unified if-then-else support) ───────────────
-statement    = { match_stmt | if_then_stmt | if_block_stmt | each_stmt | while_stmt | let_binding | break_stmt | continue_stmt | return_stmt | assign_or_expr }
+// Наряд №266: memorize/relate/forget are allowed as STATEMENTS inside
+// pattern/route/hook/tool/test bodies. The exact same rules as the top-level
+// declaration alternation are referenced here (single grammar source), so
+// `memorize fact with priority=0.8` inside a body parses as ONE memory
+// statement instead of degrading into token soup (bare idents + Assign).
+// PEG ordered choice: these arms sit BEFORE assign_or_expr, and each starts
+// with its keyword — `memorize = 5` / `forget(x)` still backtrack to
+// assign_or_expr exactly as before.
+statement    = { match_stmt | if_then_stmt | if_block_stmt | each_stmt | while_stmt | let_binding | break_stmt | continue_stmt | return_stmt | memorize_decl | relate_decl | forget_decl | assign_or_expr }
 // Combined assignment-or-expression: disambiguates IDENT followed by "=" (assignment)
 // vs IDENT followed by other tokens (expression statement like function calls).
 // PEG ordered choice: try assignment first (= present), fall through to expression.

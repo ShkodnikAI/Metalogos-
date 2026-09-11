@@ -79,39 +79,17 @@ impl Interpreter {
                         Value::String(s) => s,
                         other => format!("{}", other),
                     };
-                    let now = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .map(|d| d.as_secs() as i64)
-                        .unwrap_or(0);
-                    let embedding = self.embedding_manager.embed(&value_str).unwrap_or_default();
-                    let _ = lock_or_err(self.memory.lock())?.memorize(MemoryEntry {
-                        id: None,
-                        value: value_str.clone(),
-                        priority: m.priority,
-                        timestamp: now,
-                        decay_rate: 0.01,
-                        confidence: m.priority,
-                        embedding,
-                        mem_type: String::new(),
-                    });
-                    // ADR-0052: emit memory_store event
-                    let preview = crate::util::safe_byte_truncate(&value_str, 30);
-                    let mut data = HashMap::new();
-                    data.insert("key_preview".to_string(), preview.to_string());
-                    data.insert("priority".to_string(), m.priority.to_string());
-                    self.emit_event("memory_store", "system", data, None);
+                    // Наряд №266: execution moved into exec_memorize — the shared
+                    // helper also serves the statement form inside pattern/route
+                    // bodies (same store, same event stream).
+                    self.exec_memorize(value_str, m.priority)?;
                 }
                 Declaration::Forget(f) => {
                     let query_str = match self.eval_expr(&f.query)? {
                         Value::String(s) => s,
                         other => format!("{}", other),
                     };
-                    let now = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .map(|d| d.as_secs() as i64)
-                        .unwrap_or(0);
-                    let cutoff = now - (f.days * 86400);
-                    lock_or_err(self.memory.lock())?.forget(&query_str, cutoff);
+                    self.exec_forget(query_str, f.days)?;
                 }
                 Declaration::Pattern(p) => {
                     self.patterns.insert(
@@ -221,8 +199,8 @@ impl Interpreter {
                         Value::String(s) => s,
                         other => format!("{}", other),
                     };
-                    let _ =
-                        lock_or_err(self.kg.lock())?.relate(&from_str, &to_str, &r.relation, 1.0);
+                    // Наряд №266: shared helper (also serves the statement form).
+                    self.exec_relate(from_str, to_str, &r.relation)?;
                 }
                 Declaration::Sandbox(s) => {
                     self.sandboxes.insert(s.name.clone(), s);
@@ -936,6 +914,56 @@ impl Interpreter {
         }
     }
 
+    /// Наряд №266: shared execution of the memory operations. Used BOTH by the
+    /// top-level declarations (Declaration::Memorize/Forget/Relate in `run`)
+    /// AND by their statement forms inside pattern/route/hook/tool/test bodies
+    /// (Statement::Memorize/Forget/Relate in eval_statements_cf). Same store,
+    /// same event stream, same semantics — only the expression environment
+    /// differs (top level evaluates against globals; the statement form
+    /// evaluates against the caller's local env, so pattern params are
+    /// visible: `memorize "user said " + fact`).
+    fn exec_memorize(&self, value_str: String, priority: f64) -> Result<(), String> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let embedding = self.embedding_manager.embed(&value_str).unwrap_or_default();
+        let _ = lock_or_err(self.memory.lock())?.memorize(MemoryEntry {
+            id: None,
+            value: value_str.clone(),
+            priority,
+            timestamp: now,
+            decay_rate: 0.01,
+            confidence: priority,
+            embedding,
+            mem_type: String::new(),
+        });
+        // ADR-0052: emit memory_store event
+        let preview = crate::util::safe_byte_truncate(&value_str, 30);
+        let mut data = HashMap::new();
+        data.insert("key_preview".to_string(), preview.to_string());
+        data.insert("priority".to_string(), priority.to_string());
+        self.emit_event("memory_store", "system", data, None);
+        Ok(())
+    }
+
+    /// Наряд №266: shared forget (top-level declaration + statement form).
+    fn exec_forget(&self, query_str: String, days: i64) -> Result<(), String> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let cutoff = now - (days * 86400);
+        lock_or_err(self.memory.lock())?.forget(&query_str, cutoff);
+        Ok(())
+    }
+
+    /// Наряд №266: shared relate (top-level declaration + statement form).
+    fn exec_relate(&self, from_str: String, to_str: String, relation: &str) -> Result<(), String> {
+        let _ = lock_or_err(self.kg.lock())?.relate(&from_str, &to_str, relation, 1.0);
+        Ok(())
+    }
+
     /// Internal statement evaluator that returns ControlFlow signals.
     /// This allows break/continue to propagate through nested if/match blocks
     /// up to the nearest each/while loop without being swallowed.
@@ -1202,6 +1230,35 @@ impl Interpreter {
                 Statement::Break => return Ok(ControlFlow::Break),
                 // Наряд №17: continue statement
                 Statement::Continue => return Ok(ControlFlow::ContinueLoop),
+                // Наряд №266: memory ops as statements — identical semantics to
+                // the top-level declarations (shared exec_* helpers), but the
+                // value/query expressions are evaluated in the CURRENT statement
+                // environment (pattern params and locals are visible).
+                Statement::Memorize(m) => {
+                    let value_str = match self.eval_expr_with_env(&m.value, env)? {
+                        Value::String(s) => s,
+                        other => format!("{}", other),
+                    };
+                    self.exec_memorize(value_str, m.priority)?;
+                }
+                Statement::Forget(f) => {
+                    let query_str = match self.eval_expr_with_env(&f.query, env)? {
+                        Value::String(s) => s,
+                        other => format!("{}", other),
+                    };
+                    self.exec_forget(query_str, f.days)?;
+                }
+                Statement::Relate(r) => {
+                    let from_str = match self.eval_expr_with_env(&r.from, env)? {
+                        Value::String(s) => s,
+                        other => format!("{}", other),
+                    };
+                    let to_str = match self.eval_expr_with_env(&r.to, env)? {
+                        Value::String(s) => s,
+                        other => format!("{}", other),
+                    };
+                    self.exec_relate(from_str, to_str, &r.relation)?;
+                }
                 Statement::ExprStmt { expr, .. } => {
                     let val = self.eval_expr_with_env(expr, env)?;
                     // Наряда-26 P0-2: respond() as early return.

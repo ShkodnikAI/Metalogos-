@@ -1224,6 +1224,70 @@ impl Vm {
                     stack.push(Value::String(result));
                     ip += 1;
                 }
+                // ── Наряд №266: memory ops in pattern/route bodies ──────────
+                // The statement form compiles to the SAME opcodes the top-level
+                // declarations use (Memorize/Forget/Relate), but pattern bodies
+                // execute through execute_code — which previously SILENTLY
+                // SKIPPED these opcodes (`_ => ip += 1`), the exact class of
+                // dishonest silence this наряд excludes. Handlers mirror
+                // execute_main_code verbatim (same stores, same audit parity).
+                Instruction::Memorize(priority) => {
+                    let val = stack.pop().unwrap_or(Value::Unit);
+                    let value_str = match val {
+                        Value::String(s) => s,
+                        other => format!("{}", other),
+                    };
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0);
+                    self.memory.push(VmMemoryEntry {
+                        value: value_str,
+                        priority: *priority,
+                        timestamp: now,
+                        decay_rate: 0.01,
+                        mem_type: String::new(), // default: untyped
+                    });
+                    ip += 1;
+                }
+                Instruction::Forget(days) => {
+                    let query = stack.pop().unwrap_or(Value::Unit);
+                    let query_str = match query {
+                        Value::String(s) => s,
+                        other => format!("{}", other),
+                    };
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0);
+                    let cutoff = now - (days * 86400);
+                    self.memory.retain(|entry| {
+                        !(entry.value.contains(&query_str) && entry.timestamp < cutoff)
+                    });
+                    ip += 1;
+                }
+                Instruction::Relate => {
+                    let relation = match stack.pop().unwrap_or(Value::Unit) {
+                        Value::String(s) => s,
+                        other => format!("{}", other),
+                    };
+                    let to = match stack.pop().unwrap_or(Value::Unit) {
+                        Value::String(s) => s,
+                        other => format!("{}", other),
+                    };
+                    let from = match stack.pop().unwrap_or(Value::Unit) {
+                        Value::String(s) => s,
+                        other => format!("{}", other),
+                    };
+                    self.relations.push(VmRelation {
+                        from: from.clone(),
+                        to: to.clone(),
+                        relation: relation.clone(),
+                    });
+                    // Наряд №41 Block 2: audit parity with interpreter
+                    self.push_audit(format!("[AUDIT] relate {} -[{}]-> {}", from, relation, to));
+                    ip += 1;
+                }
                 // ── Collection / List instructions (Наряд №34) ──
                 Instruction::MakeList(count) => {
                     let mut items = Vec::new();

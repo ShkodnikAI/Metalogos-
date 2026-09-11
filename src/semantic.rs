@@ -2370,6 +2370,14 @@ fn walk_stmt_for_svg_security(stmt: &Statement, result: &mut AnalysisResult, ctx
             }
         }
         Statement::Break | Statement::Continue => {}
+        // Наряд №266: memory statements carry user-controlled expressions —
+        // scan them like any other expression carrier.
+        Statement::Memorize(m) => walk_expr_for_svg_security(&m.value, result, ctx),
+        Statement::Forget(f) => walk_expr_for_svg_security(&f.query, result, ctx),
+        Statement::Relate(r) => {
+            walk_expr_for_svg_security(&r.from, result, ctx);
+            walk_expr_for_svg_security(&r.to, result, ctx);
+        }
     }
 }
 
@@ -2836,6 +2844,42 @@ fn check_stmt_exprs(
             }
         }
         Statement::Break | Statement::Continue => {}
+        // Наряд №266: memory statements' expressions go through the same
+        // call/arity/undefined-function checks as every other statement.
+        Statement::Memorize(m) => {
+            check_expr_calls(
+                &m.value,
+                builtin_names,
+                pattern_param_counts,
+                learnable_names,
+                errors,
+            );
+        }
+        Statement::Forget(f) => {
+            check_expr_calls(
+                &f.query,
+                builtin_names,
+                pattern_param_counts,
+                learnable_names,
+                errors,
+            );
+        }
+        Statement::Relate(r) => {
+            check_expr_calls(
+                &r.from,
+                builtin_names,
+                pattern_param_counts,
+                learnable_names,
+                errors,
+            );
+            check_expr_calls(
+                &r.to,
+                builtin_names,
+                pattern_param_counts,
+                learnable_names,
+                errors,
+            );
+        }
     }
 }
 
@@ -2957,6 +3001,9 @@ fn check_stmt_mutability(
             }
         }
         Statement::Return { .. } | Statement::ExprStmt { .. } => {}
+        // Наряд №266: memory statements never assign to variables — no
+        // mutability implications.
+        Statement::Memorize(_) | Statement::Forget(_) | Statement::Relate(_) => {}
         Statement::Break | Statement::Continue => {}
     }
 }

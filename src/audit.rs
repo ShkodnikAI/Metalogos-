@@ -245,7 +245,13 @@ fn binding_taint(value: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
             }
             "env" | "secret" => return Some(TaintKind::Secret),
             "render" | "escape_html" => return Some(TaintKind::Sanitized),
-            "form_data" | "json_body" | "query_param" => return Some(TaintKind::UserInput),
+            // Наряд №268 (ADR-0132 D3, решение владельца 2026-09-12): вывод
+            // MCP-инструмента — недоверенные данные. Reuse `UserInput`
+            // (ToolOutput — Future, заводится только с первой политикой,
+            // различающей роды). mcp_list_tools НЕ tainted: метаданные, не вывод.
+            "form_data" | "json_body" | "query_param" | "mcp_call" => {
+                return Some(TaintKind::UserInput)
+            }
             _ => {}
         }
     }

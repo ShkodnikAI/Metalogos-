@@ -74,6 +74,9 @@ fn registry_arity_exhaustive() {
         ("exec", 1, 1),
         ("exec_argv", 1, 2), // binary required, args list optional
         ("git_push", 1, 1),
+        // Наряд №268 (ADR-0132): MCP stdio-клиент
+        ("mcp_call", 4, 4),
+        ("mcp_list_tools", 2, 2),
         // ── List builtins ──
         ("get", 2, 2),
         ("push", 2, 2),

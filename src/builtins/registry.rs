@@ -119,7 +119,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("list_dir", 1, "io"; builtin_list_dir),
     spec!("exec", 1, "io"; builtin_exec),
     spec!("exec_argv", 1, 2, "io"; builtin_exec_argv), // binary required, args list optional
-    spec!("git_push", 1, "io"; builtin_git_push),      // ── List builtins ──
+    spec!("git_push", 1, "io"; builtin_git_push),
+    // Наряд №268 (ADR-0132): MCP stdio-клиент — stateless, exec-гейт +
+    // METALOGOS_MCP_ALLOWLIST + taint UserInput на выводе mcp_call.
+    spec!("mcp_call", 4, "io"; builtin_mcp_call),
+    spec!("mcp_list_tools", 2, "io"; builtin_mcp_list_tools),
+    // ── List builtins ──
     spec!("get", 2, "list"; builtin_get),
     spec!("push", 2, "list"; builtin_push),
     spec!("slice", 3, "list"; builtin_slice),

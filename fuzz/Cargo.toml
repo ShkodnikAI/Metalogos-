@@ -21,3 +21,19 @@ path = "fuzz_targets/fuzz_target_1.rs"
 test = false
 doc = false
 bench = false
+
+# Наряд №256: фаззинг реального пути загрузки .mbc (Program::deserialize).
+[[bin]]
+name = "fuzz_target_bytecode"
+path = "fuzz_targets/fuzz_target_bytecode.rs"
+test = false
+doc = false
+bench = false
+
+# Наряд №256: фаззинг url_decode_fallback (панико-свобода + ASCII-раунд-трип).
+[[bin]]
+name = "fuzz_target_url_decode"
+path = "fuzz_targets/fuzz_target_url_decode.rs"
+test = false
+doc = false
+bench = false

@@ -14,6 +14,12 @@
 // spawn_blocking-замыкания обоих роут-путей (TW и VM) — проверяются ОБА бэкенда.
 
 #![cfg(feature = "server")]
+// Служебное исключение (громко, по правилам репо): serve-тесты обязаны держать
+// ENV_LOCK через .await — env-переменные процесса читаются серверными потоками
+// во время запроса, и снятие замка между set_var и HTTP-запросом открыло бы
+// гонку с параллельным тестом. Замок один, его берут только тесты этого файла,
+// дедлока нет. Именно поэтому clippy::await_holding_lock подавлен на файл.
+#![allow(clippy::await_holding_lock)]
 
 use metalogos::builtins::{exec_gate, ExecContext};
 use metalogos::server::ServeBackend;

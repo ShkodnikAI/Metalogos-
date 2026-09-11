@@ -581,7 +581,7 @@ Temporary in-memory storage scoped to a session_id. Not persistent — it resets
 
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
-| `env(key)` | `String -> String` (→ `Secret` in an entity context) | String/Secret | Reads an environment variable. An empty string if not found |
+| `env(key)` | `String -> String` (→ `Secret` in an entity context) | String/Secret | Reads an environment variable. An empty string if not found (the soft-failure contract). **Serve gate (naryad №259)**: inside serve route bodies `env()` is denied by default with a loud `ENV_NOT_PERMITTED` error — route code often receives untrusted input and must not read the process's secrets. Escape hatches (alternatives, not AND): `METALOGOS_SERVE_ALLOW_ENV=1` allows all env reads in route bodies, or `METALOGOS_ENV_ALLOWLIST="NAME1,NAME2"` allows exactly the listed names. Outside serve (`mlog run`, `mlog check`, repl, serve top level) the read is ungated, as before. The denial is identical for existing and non-existing names (the gate runs before the read). See also the exec gates (`EXEC_NOT_PERMITTED`, naryad №253) in the threat model |
 | `generate_key()` | `-> Secret` | Secret | Generates a 256-bit random key (64 hex characters) |
 | `encrypt(data, key)` | `String, Secret -> Encrypted` | Encrypted | Encrypts with AES-256-GCM using a random 96-bit nonce. The key is 64 hex characters |
 | `decrypt(encrypted, key)` | `Encrypted, Secret -> String` | String | Decrypts AES-256-GCM. Errors on a wrong key |

@@ -476,6 +476,9 @@ pub struct MlogServerDecl {
     pub port: u16,
     pub host: Option<String>,
     pub middleware: Vec<String>,
+    /// Наряд №263: `rate_limit: N` — requests per client per minute before 429.
+    /// `None` → the documented default 100 (DEFAULT_RATE_LIMIT_PER_MINUTE in server.rs).
+    pub rate_limit: Option<u32>,
     pub routes: Vec<RouteDecl>,
 }
 

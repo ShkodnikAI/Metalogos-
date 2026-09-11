@@ -1314,11 +1314,29 @@ adapt Classify add_example("input", "output")
 
 // Memorize / Forget (semantic memory)
 memorize "important fact" with priority = 0.9
-forget "outdated fact" after 30.0 days
+forget "outdated fact" after 30.days
 
 // Relate (a knowledge graph)
 relate entity1 to entity2 as "relationship"
 ```
+
+**Where `memorize` / `forget` / `relate` are allowed (naryad #266)**: in TWO
+positions with identical semantics — at top level (as declarations) and as
+STATEMENTS inside `pattern`, `route`, `hook`, `tool` and `test` bodies:
+
+```mlog
+pattern Remember(fact: String) -> String {
+  memorize fact with priority=0.8   // statement form: sees pattern params/locals
+  return "ok"
+}
+```
+
+Inside a body the value/query expressions are evaluated in the body's
+environment, so pattern parameters and locals are visible. Both backends
+(tree-walking interpreter and VM) execute the statement form identically
+(`mlog check` accepts it; before naryad #266 such lines silently degraded
+into garbage statements — "token soup" — and failed only at runtime).
+Top-level placement remains a declaration evaluated against global entities.
 
 **Note on `accuracy` in `rollback_if` (mock value)**: in the current implementation the `accuracy` compared in `rollback_if` is a fixed mock value (0.95), not a real accuracy computation — the rollback logic exists and is tested, but does not yet respond to actual quality degradation. Revisit point (recorded 2026-09-10 after an external audit): revisit only on a real `mutate` use case where the mock value creates a concrete problem (ADR-0112 addendum).
 

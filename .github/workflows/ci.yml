@@ -313,8 +313,12 @@ jobs:
 
   # Наряд №265: advisory-матрица переносимости + бейзлайн покрытия.
   # НЕ блокирующие: ubuntu-набор остаётся единственным blocking-набором;
-  # краснота advisory-джобы — воспроизводимый документированный факт для
-  # PR/наряда, промоция в blocking — отдельное решение владельца.
+  # краснота advisory-джобы не блокирует мерж. Платформенные advisory-джобы проверяют компилируемость воркспейса вне
+  # ubuntu. `--all-features` здесь запрещён: фича `pdf-ocr` по своему
+  # контракту требует системные C-библиотеки tesseract-ocr + leptonica,
+  # которых нет на GitHub-hosted раннерах, поэтому с её добавления (наряд
+  # №265) эти джобы были красными на каждом прогоне. Используется
+  # `portable` из Cargo.toml — всё, кроме платформозависимого pdf-ocr.
   windows-check:
     name: windows-check (non-blocking)
     runs-on: windows-latest
@@ -323,7 +327,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: cargo check (windows)
-        run: cargo check --workspace --all-features --all-targets
+        run: cargo check --workspace --features portable --all-targets
   macos-check:
     name: macos-check (non-blocking)
     runs-on: macos-latest
@@ -332,7 +336,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: cargo check (macos)
-        run: cargo check --workspace --all-features --all-targets
+        run: cargo check --workspace --features portable --all-targets
   coverage:
     name: coverage (non-blocking)
     runs-on: ubuntu-latest

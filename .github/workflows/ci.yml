@@ -310,3 +310,56 @@ jobs:
       - name: Fuzz url_decode_fallback (120s budget)
         working-directory: fuzz
         run: cargo fuzz run --target x86_64-unknown-linux-gnu -j 2 fuzz_target_url_decode -- -max_total_time=120
+
+  # Наряд №265: advisory-матрица переносимости + бейзлайн покрытия.
+  # НЕ блокирующие: ubuntu-набор остаётся единственным blocking-набором;
+  # краснота advisory-джобы — воспроизводимый документированный факт для
+  # PR/наряда, промоция в blocking — отдельное решение владельца.
+  windows-check:
+    name: windows-check (non-blocking)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo check (windows)
+        run: cargo check --workspace --all-features --all-targets
+  macos-check:
+    name: macos-check (non-blocking)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo check (macos)
+        run: cargo check --workspace --all-features --all-targets
+  coverage:
+    name: coverage (non-blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+      # Self-host тесты (naryad_197*, self_host_lexer) спавнят бинарь по
+      # жёсткому пути target/debug/mlog (§3 наряда №265 запрещает менять
+      # tests/**) — llvm-cov строит в СВОЙ target-dir, поэтому бинарь
+      # собирается отдельно в дефолтный (не инструментирован: он чёрный
+      # ящик для парити-тестов).
+      - name: Build mlog bin (default target dir, for self-host tests)
+        run: cargo build --workspace --bins
+      # pipefail обязателен: иначе красный llvm-cov маскируется exit-кодом tee
+      # (первый прогон PR #298: тест упал — джоба «зелёная», тишина = ложь).
+      - name: Coverage baseline summary
+        run: |
+          set -o pipefail
+          cargo llvm-cov --workspace --all-targets --summary-only | tee coverage-summary.txt
+      - name: Upload coverage summary artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-summary
+          path: coverage-summary.txt

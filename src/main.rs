@@ -427,6 +427,18 @@ fn cmd_serve(file: PathBuf) {
     if std::env::var("METALOGOS_HTTP_ALLOW_PRIVATE").unwrap_or_default() == "1" {
         danger_flags.push("METALOGOS_HTTP_ALLOW_PRIVATE=1");
     }
+    // Наряд №259: env-эскейп-хэтчи serve-контекста ослабляют дефолтный
+    // deny — тоже громкие danger-флаги.
+    if std::env::var("METALOGOS_SERVE_ALLOW_ENV").unwrap_or_default() == "1" {
+        danger_flags.push("METALOGOS_SERVE_ALLOW_ENV=1");
+    }
+    if !std::env::var("METALOGOS_ENV_ALLOWLIST")
+        .unwrap_or_default()
+        .trim()
+        .is_empty()
+    {
+        danger_flags.push("METALOGOS_ENV_ALLOWLIST (route env allowlist set)");
+    }
     if !danger_flags.is_empty() {
         eprintln!();
         eprintln!("  WARNING: security protections are DISABLED by:");
@@ -448,6 +460,22 @@ fn cmd_serve(file: PathBuf) {
             "denied (set METALOGOS_SERVE_ALLOW_EXEC=1 to allow exec() in route bodies)"
         }
     );
+
+    // Наряд №259: состояние env-гейта тел роутов — громко, при старте serve
+    // (лекало route exec выше). Тела роутов смотрят на METALOGOS_SERVE_ALLOW_ENV=1
+    // (разрешить всё) ИЛИ на METALOGOS_ENV_ALLOWLIST (точечные имена);
+    // без них env() в роутах отказан с ENV_NOT_PERMITTED.
+    let route_env_all = std::env::var("METALOGOS_SERVE_ALLOW_ENV").unwrap_or_default() == "1";
+    let route_env_allowlist = std::env::var("METALOGOS_ENV_ALLOWLIST").unwrap_or_default();
+    let route_env_state = if route_env_all {
+        "ENABLED — all variables (METALOGOS_SERVE_ALLOW_ENV=1)".to_string()
+    } else if route_env_allowlist.trim().is_empty() {
+        "denied (set METALOGOS_SERVE_ALLOW_ENV=1 to allow all env() reads in route bodies, or METALOGOS_ENV_ALLOWLIST=\"NAME1,NAME2\" for specific variables)"
+            .to_string()
+    } else {
+        format!("allowlist: {}", route_env_allowlist)
+    };
+    eprintln!("[serve] route env: {}", route_env_state);
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(workers)

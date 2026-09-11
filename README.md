@@ -78,9 +78,10 @@ OWASP Top 10 is addressed at the language level through a combination of compile
 - Taint through `memorize`/`recall` persistence (file-level heuristic)
 - Taint through trivial passthrough pattern indirection (single-param, `return param` only)
 
-**Runtime exec gates** (opt-in flags, denied by default with `EXEC_NOT_PERMITTED`):
+**Runtime exec & env gates** (opt-in flags, denied by default with `EXEC_NOT_PERMITTED` / `ENV_NOT_PERMITTED`):
 - `exec()` / `exec_argv()` in process contexts (`mlog run`, `mlog check`, serve top level) require `METALOGOS_ALLOW_EXEC=1`
 - `exec()` / `exec_argv()` in serve route bodies require `METALOGOS_SERVE_ALLOW_EXEC=1` — route handlers do **not** inherit `METALOGOS_ALLOW_EXEC` (replacement semantics, not AND; Naryad №253 Variant A). The serve banner prints the route-exec state at startup.
+- `env()` in serve route bodies is denied by default with `ENV_NOT_PERMITTED` (Naryad №259) — route code must not read the process's secrets. Escape hatches (alternatives, not AND): `METALOGOS_SERVE_ALLOW_ENV=1` allows all env reads in route bodies, or `METALOGOS_ENV_ALLOWLIST="NAME1,NAME2"` allows exactly the listed names. Outside serve `env()` stays ungated. The serve banner prints the route-env state at startup.
 
 #### Known boundaries of static analysis
 
@@ -178,8 +179,8 @@ Metalogos-/
 ├── Cargo.toml                       # v0.19.0, workspace root
 ├── logo.jpg                          # Brand logo
 ├── README.md                         # This file
-├── REFERENCE.md                      # Full builtin reference (~83 KB)
-├── CHANGELOG.md                      # Version history (~152 KB)
+├── REFERENCE.md                      # Full builtin reference (~84 KB)
+├── CHANGELOG.md                      # Version history (~155 KB)
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
 ├── Dockerfile                        # Docker build

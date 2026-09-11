@@ -149,9 +149,10 @@ server {
     let decls = metalogos::parser::parse(src).expect("route/hook probe must parse");
 
     let route_has_memorize = decls.iter().any(|d| match d {
-        Declaration::MlogServer(srv) => srv.routes.iter().any(|r| {
-            r.body.first().map(|s| matches!(s, Statement::Memorize(_))) == Some(true)
-        }),
+        Declaration::MlogServer(srv) => srv
+            .routes
+            .iter()
+            .any(|r| r.body.first().map(|s| matches!(s, Statement::Memorize(_))) == Some(true)),
         _ => false,
     });
     assert!(route_has_memorize, "route body must start with memorize");
@@ -271,8 +272,14 @@ flow Main { input: String = "durable" -> Cycle -> output }
         .compile(declarations)
         .expect("probe must compile");
     let mut vm = metalogos::vm::Vm::new();
-    let vm_out = vm.run(program).expect("VM must run forget+memorize statements");
-    assert_eq!(vm_out.as_deref(), Some("durable"), "VM parity for forget stmt");
+    let vm_out = vm
+        .run(program)
+        .expect("VM must run forget+memorize statements");
+    assert_eq!(
+        vm_out.as_deref(),
+        Some("durable"),
+        "VM parity for forget stmt"
+    );
 }
 
 /// Regression: top-level memorize (the p7/m4 contract) is untouched —

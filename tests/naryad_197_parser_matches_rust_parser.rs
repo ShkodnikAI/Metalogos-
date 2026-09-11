@@ -273,6 +273,16 @@ fn stmt_to_sexpr(s: &Statement) -> String {
         Match { .. } => "(UNSUPPORTED match)".to_string(),
         Break => "(BREAK)".to_string(),
         Continue => "(CONTINUE)".to_string(),
+        // Наряд №266: memory statements (no corpus example uses them inside
+        // bodies yet — the arms exist for exhaustiveness and future parity).
+        Memorize(m) => format!("(MEMORIZE {} {})", expr_to_sexpr(&m.value), m.priority),
+        Forget(f) => format!("(FORGET {} {})", expr_to_sexpr(&f.query), f.days),
+        Relate(r) => format!(
+            "(RELATE {} {} {})",
+            expr_to_sexpr(&r.from),
+            expr_to_sexpr(&r.to),
+            r.relation
+        ),
     }
 }
 

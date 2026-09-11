@@ -96,6 +96,7 @@ Metalogos is designed with security as a first-class concern:
 - **Memory safety by default** — Built on Rust's ownership model
 - **Type safety** — Prevents entire classes of bugs at compile time
 - **Sandboxed execution** — `sandbox` declarations restrict filesystem access to an allowlist, block `exec()` calls, and cap loop iterations (10 000 per loop) at runtime
+- **exec() behind explicit flags (Наряд №253, Variant A)** — `exec()`/`exec_argv()` are denied by default (`EXEC_NOT_PERMITTED`): process contexts (`mlog run`, `mlog check`, serve top level) require `METALOGOS_ALLOW_EXEC=1`; serve route bodies require `METALOGOS_SERVE_ALLOW_EXEC=1` — a route handler never inherits the process flag (replacement semantics, not AND). Every allowed invocation lands in the subprocess audit log. Internal subprocess calls (`exec_restricted` — html_render, pdf) take no flag: fixed binary, arguments from code, never from request bodies.
 - **Formal verification support** — Integration with proof assistants (planned; formulation last reviewed 2026-09-10 — unchanged, still planned: no verification has been performed, and the wording is kept because it is true, not because it is pretty)
 - **Static security analysis** — Core security invariants (SQL injection, secret leaks, HTML injection) are enforced at compile time; additional advisory checks (hardcoded secrets, sandbox coverage, rate limiting, CSRF, open redirects) are available via `mlog audit`
 

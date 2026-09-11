@@ -456,6 +456,114 @@ pub(crate) fn builtin_list_dir(args: &[Value]) -> Result<Value, String> {
     Ok(Value::List(entries))
 }
 
+// ═══ Нaryad №253: exec-гейт serve-контекста (Вариант А владельца) ═══
+//
+// Политика:
+// - Процесс-контекст (mlog run / check / верхний уровень serve — регистрация
+//   роутов): требуется `METALOGOS_ALLOW_EXEC=1` (Наряд №97, без изменений).
+// - Тело роута serve (обработчик HTTP-запроса): требуется ТОЛЬКО
+//   `METALOGOS_SERVE_ALLOW_EXEC=1`. Семантика — «замена», не «AND»:
+//   процесс-флаг на тела роутов НЕ распространяется. Код маршрута — часто
+//   чужая/сгенерированная программа, поэтому наследование флага процесса
+//   (дающее каждому роуту полный `sh -c`) закрыто.
+//
+// Механизм: тела роутов исполняются на выделенном blocking-потоке
+// (spawn_blocking, ADR-0096). `ServeRouteExecGuard` (RAII) ставится первой
+// строкой внутри spawn_blocking-замыкания обоих роут-путей
+// (`execute_route_body`, `execute_route_body_vm`) в src/server.rs и
+// помечает поток thread-local'ом на всё время исполнения тела.
+
+/// Контекст вызова `exec()` / `exec_argv()` (Наряд №253, Вариант А).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ExecContext {
+    /// mlog run / check / верхний уровень serve: гейт `METALOGOS_ALLOW_EXEC=1`.
+    Process,
+    /// Тело роута serve: гейт `METALOGOS_SERVE_ALLOW_EXEC=1` (замена, не AND).
+    ServeRoute,
+}
+
+thread_local! {
+    static SERVE_ROUTE_CONTEXT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// RAII-сторож serve-роут-контекста (Наряд №253).
+///
+/// Пока жив — текущий поток считается serve-роут-контекстом
+/// (`current_exec_context() == ExecContext::ServeRoute`). Ставится внутри
+/// spawn_blocking-замыкания роут-хендлеров; Drop снимает метку при выходе
+/// из замыкания (включая ранние `?`-возвраты и паники раскруткой).
+pub struct ServeRouteExecGuard;
+
+impl ServeRouteExecGuard {
+    pub fn new() -> Self {
+        SERVE_ROUTE_CONTEXT.with(|c| c.set(true));
+        ServeRouteExecGuard
+    }
+}
+
+impl Default for ServeRouteExecGuard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for ServeRouteExecGuard {
+    fn drop(&mut self) {
+        SERVE_ROUTE_CONTEXT.with(|c| c.set(false));
+    }
+}
+
+/// Контекст exec текущего потока (Наряд №253).
+pub fn current_exec_context() -> ExecContext {
+    if SERVE_ROUTE_CONTEXT.with(std::cell::Cell::get) {
+        ExecContext::ServeRoute
+    } else {
+        ExecContext::Process
+    }
+}
+
+/// SSOT-гейт `exec()` / `exec_argv()` (Наряд №253).
+///
+/// До №253 одно и то же условие дублировалось в `builtin_exec` и
+/// `builtin_exec_argv` (политика №97). Теперь оба вызывают эту функцию;
+/// контекст определяет, какой флаг требуется:
+///
+/// - [`ExecContext::Process`] → `METALOGOS_ALLOW_EXEC=1`;
+/// - [`ExecContext::ServeRoute`] → `METALOGOS_SERVE_ALLOW_EXEC=1`
+///   (процесс-флаг игнорируется — «замена», Вариант А).
+///
+/// Ошибки несут стабильный диагностический код `EXEC_NOT_PERMITTED`
+/// (конвенция ADR-0131: UPPER_SNAKE_CASE, код — контракт, текст может
+/// меняться) и называют точный флаг текущего контекста.
+pub fn exec_gate(context: ExecContext) -> Result<(), String> {
+    match context {
+        ExecContext::ServeRoute => {
+            if std::env::var("METALOGOS_SERVE_ALLOW_EXEC").unwrap_or_default() == "1" {
+                Ok(())
+            } else {
+                Err(
+                    "[EXEC_NOT_PERMITTED] exec() is denied in serve route handlers. \
+                     In route bodies set METALOGOS_SERVE_ALLOW_EXEC=1 to allow exec; \
+                     the process-level METALOGOS_ALLOW_EXEC flag does NOT apply to \
+                     route bodies (Naryad #253, Variant A)."
+                        .to_string(),
+                )
+            }
+        }
+        ExecContext::Process => {
+            if std::env::var("METALOGOS_ALLOW_EXEC").unwrap_or_default() == "1" {
+                Ok(())
+            } else {
+                Err("[EXEC_NOT_PERMITTED] exec() is disabled by default. Set \
+                     METALOGOS_ALLOW_EXEC=1 to enable — this applies to mlog run, \
+                     check, and serve top-level alike. For serve route bodies set \
+                     METALOGOS_SERVE_ALLOW_EXEC=1 instead (Naryad #253)."
+                    .to_string())
+            }
+        }
+    }
+}
+
 /// `exec(cmd)` — execute a shell command and return stdout.
 ///
 /// **Signature unchanged** (Наряд №88 Блок 1: hardened, not re-contracted).
@@ -471,16 +579,13 @@ pub(crate) fn builtin_list_dir(args: &[Value]) -> Result<Value, String> {
 /// with all .mlog code that uses `exec()`. New internal callers
 /// (html_render, future builtins) use `exec_restricted` instead.
 pub(crate) fn builtin_exec(args: &[Value]) -> Result<Value, String> {
-    // Security (Наряд №97): unconditional deny by default.
-    // The previous in_server heuristic (METALOGOS_PORT / METALOGOS_DB)
-    // was structurally broken — neither variable is ever set by the
-    // server itself, so the check never triggered. Now exec() requires
-    // METALOGOS_ALLOW_EXEC=1 in ALL contexts — mlog run, check, serve.
-    if std::env::var("METALOGOS_ALLOW_EXEC").unwrap_or_default() != "1" {
-        return Err("exec() is disabled by default. Set METALOGOS_ALLOW_EXEC=1 \
-             to enable — this applies to mlog run, check, and serve alike."
-            .to_string());
-    }
+    // Security (Наряд №97 → №253): unconditional deny by default.
+    // №97: the previous in_server heuristic (METALOGOS_PORT / METALOGOS_DB)
+    // was structurally broken — replaced by the process-flag gate.
+    // №253 (Вариант А): гейт вынесен в SSOT `exec_gate(context)`; в
+    // serve-роут-контексте требуется отдельный METALOGOS_SERVE_ALLOW_EXEC=1
+    // (процесс-флаг на тела роутов не распространяется).
+    exec_gate(current_exec_context())?;
 
     let cmd = expect_string_arg("exec", args, 0)?;
 
@@ -580,18 +685,14 @@ pub(crate) fn builtin_exec(args: &[Value]) -> Result<Value, String> {
 /// may come from user input. Use `exec()` only for fully literal command
 /// strings where no injection is possible.
 ///
-/// Requires `METALOGOS_ALLOW_EXEC=1` — same gate as `exec()`.
+/// Requires `exec_gate` (Наряд №253): `METALOGOS_ALLOW_EXEC=1` в
+/// процесс-контексте, `METALOGOS_SERVE_ALLOW_EXEC=1` в телах роутов.
 ///
 /// **Наряд №97 Блок 2 (P1):** added alongside `exec()` (Путь А — not replacing).
 pub(crate) fn builtin_exec_argv(args: &[Value]) -> Result<Value, String> {
-    // Security: same gate as exec() — unconditional deny without METALOGOS_ALLOW_EXEC=1
-    if std::env::var("METALOGOS_ALLOW_EXEC").unwrap_or_default() != "1" {
-        return Err(
-            "exec_argv() is disabled by default. Set METALOGOS_ALLOW_EXEC=1 \
-             to enable — this applies to mlog run, check, and serve alike."
-                .to_string(),
-        );
-    }
+    // Security (№97 → №253): same gate as exec() — SSOT exec_gate(context),
+    // serve-роут-контекст требует METALOGOS_SERVE_ALLOW_EXEC=1 (Вариант А).
+    exec_gate(current_exec_context())?;
 
     if args.is_empty() {
         return Err("exec_argv() requires at least 1 argument (binary path)".to_string());

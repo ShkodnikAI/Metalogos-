@@ -160,6 +160,9 @@ pub use memory::{reset_session_store, session_key_count, session_store_count};
 pub(crate) mod cron;
 pub use cron::init_reminder_persist;
 use cron::*;
+// Наряд №253: exec-гейт serve-контекста — публичный контракт для тестов
+// и эмбеддеров (сам модуль io остаётся pub(crate)).
+pub use io::{current_exec_context, exec_gate, ExecContext, ServeRouteExecGuard};
 pub mod pdf;
 pub use pdf::*;
 pub(crate) mod regex;

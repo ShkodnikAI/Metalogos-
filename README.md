@@ -78,6 +78,10 @@ OWASP Top 10 is addressed at the language level through a combination of compile
 - Taint through `memorize`/`recall` persistence (file-level heuristic)
 - Taint through trivial passthrough pattern indirection (single-param, `return param` only)
 
+**Runtime exec gates** (opt-in flags, denied by default with `EXEC_NOT_PERMITTED`):
+- `exec()` / `exec_argv()` in process contexts (`mlog run`, `mlog check`, serve top level) require `METALOGOS_ALLOW_EXEC=1`
+- `exec()` / `exec_argv()` in serve route bodies require `METALOGOS_SERVE_ALLOW_EXEC=1` — route handlers do **not** inherit `METALOGOS_ALLOW_EXEC` (replacement semantics, not AND; Naryad №253 Variant A). The serve banner prints the route-exec state at startup.
+
 #### Known boundaries of static analysis
 
 These checks use **intraprocedural taint tracking** — they follow `let`-assignment chains within a single pattern body. The following patterns are **not** detected at compile time:

@@ -421,6 +421,9 @@ fn cmd_serve(file: PathBuf) {
     if std::env::var("METALOGOS_ALLOW_EXEC").unwrap_or_default() == "1" {
         danger_flags.push("METALOGOS_ALLOW_EXEC=1");
     }
+    if std::env::var("METALOGOS_SERVE_ALLOW_EXEC").unwrap_or_default() == "1" {
+        danger_flags.push("METALOGOS_SERVE_ALLOW_EXEC=1");
+    }
     if std::env::var("METALOGOS_HTTP_ALLOW_PRIVATE").unwrap_or_default() == "1" {
         danger_flags.push("METALOGOS_HTTP_ALLOW_PRIVATE=1");
     }
@@ -433,6 +436,18 @@ fn cmd_serve(file: PathBuf) {
         eprintln!("  Use only in trusted development environments.");
         eprintln!();
     }
+
+    // Наряд №253 (Вариант А): состояние exec-гейта тел роутов — громко, при старте serve.
+    // Тела роутов смотрят ТОЛЬКО на METALOGOS_SERVE_ALLOW_EXEC (замена, не AND).
+    let route_exec_enabled = std::env::var("METALOGOS_SERVE_ALLOW_EXEC").unwrap_or_default() == "1";
+    eprintln!(
+        "[serve] route exec: {}",
+        if route_exec_enabled {
+            "ENABLED (METALOGOS_SERVE_ALLOW_EXEC=1)"
+        } else {
+            "denied (set METALOGOS_SERVE_ALLOW_EXEC=1 to allow exec() in route bodies)"
+        }
+    );
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(workers)

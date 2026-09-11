@@ -480,6 +480,8 @@ pub fn builtin_svg_icon(args: &[Value]) -> Result<Value, String> {
 // Editorial annotation: italic text + dashed Bezier curve + anchor dot.
 // Visually distinct from regular diagram connections (those are solid).
 
+/// `svg_callout(x, y, w, h, text, id?)` — callout box with a dashed border
+/// and connector (visually distinct from solid diagram connections).
 pub fn builtin_svg_callout(args: &[Value]) -> Result<Value, String> {
     let text = expect_string_arg("svg_callout", args, 0)?;
     let from_x = expect_float_arg("svg_callout", args, 1)?;

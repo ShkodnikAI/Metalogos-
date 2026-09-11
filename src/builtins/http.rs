@@ -90,6 +90,9 @@ pub(crate) fn builtin_form_data(args: &[Value]) -> Result<Value, String> {
     })
 }
 
+/// `json_body()` / `request_body()` — raw body of the current route request,
+/// parsed as JSON into a `Dict` Struct; `request_body` is the explicit-name
+/// alias. Result carries `UserInput` taint (untrusted request data).
 pub(crate) fn builtin_json_body(args: &[Value]) -> Result<Value, String> {
     let _ = args; // no args needed
                   // In non-server context, return empty json body struct

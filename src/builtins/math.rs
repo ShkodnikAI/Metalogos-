@@ -49,23 +49,27 @@ pub(crate) fn builtin_confidence(args: &[Value]) -> Result<Value, String> {
     }
 }
 
+/// `__abs(x)` — std-library primitive behind the std `abs` wrapper.
 pub(crate) fn builtin_abs(args: &[Value]) -> Result<Value, String> {
     let f = expect_float_arg("__abs", args, 0)?;
     Ok(Value::Float(f.abs()))
 }
 
+/// `__min(a, b)` — std-library primitive behind the std `min` wrapper.
 pub(crate) fn builtin_min(args: &[Value]) -> Result<Value, String> {
     let a = expect_float_arg("__min", args, 0)?;
     let b = expect_float_arg("__min", args, 1)?;
     Ok(Value::Float(a.min(b)))
 }
 
+/// `__max(a, b)` — std-library primitive behind the std `max` wrapper.
 pub(crate) fn builtin_max(args: &[Value]) -> Result<Value, String> {
     let a = expect_float_arg("__max", args, 0)?;
     let b = expect_float_arg("__max", args, 1)?;
     Ok(Value::Float(a.max(b)))
 }
 
+/// `__clamp(x, lo, hi)` — std-library primitive behind the std `clamp` wrapper.
 pub(crate) fn builtin_clamp(args: &[Value]) -> Result<Value, String> {
     let val = expect_float_arg("__clamp", args, 0)?;
     let lo = expect_float_arg("__clamp", args, 1)?;
@@ -73,11 +77,14 @@ pub(crate) fn builtin_clamp(args: &[Value]) -> Result<Value, String> {
     Ok(Value::Float(val.clamp(lo, hi)))
 }
 
+/// `__round(x)` — std-library primitive behind the std `round` wrapper.
 pub(crate) fn builtin_round(args: &[Value]) -> Result<Value, String> {
     let f = expect_float_arg("__round", args, 0)?;
     Ok(Value::Float(f.round()))
 }
 
+/// `__first(list)` — std-library primitive behind the std `first` wrapper:
+/// the first element (soft-failure semantics of the std layer apply).
 pub(crate) fn builtin_first(args: &[Value]) -> Result<Value, String> {
     let list = match args.first() {
         Some(Value::List(items)) => items,
@@ -89,6 +96,8 @@ pub(crate) fn builtin_first(args: &[Value]) -> Result<Value, String> {
     }
 }
 
+/// `__last(list)` — std-library primitive behind the std `last` wrapper:
+/// the last element (soft-failure semantics of the std layer apply).
 pub(crate) fn builtin_last(args: &[Value]) -> Result<Value, String> {
     let list = match args.first() {
         Some(Value::List(items)) => items,

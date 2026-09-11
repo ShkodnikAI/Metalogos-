@@ -73,6 +73,8 @@ use crate::interpreter::Value;
 // and all-lowercase proportional (~0.50), providing a safe estimate
 // that is slightly wider than actual rendering — conservative overlap
 // detection is better than missed overlaps.
+/// `diagram_timeline(data, style?)` — horizontal event timeline as SVG:
+/// dated events placed on one axis; overlaps detected where possible.
 pub fn builtin_diagram_timeline(args: &[Value]) -> Result<Value, String> {
     let data = expect_list_arg("diagram_timeline", args, 0)?;
     let style_value = args.get(1).cloned().unwrap_or(Value::Unit);

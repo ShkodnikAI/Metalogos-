@@ -6,6 +6,9 @@ use crate::builtins::core::expect_list_arg;
 use crate::builtins::string::escape_html_chars;
 use crate::interpreter::Value;
 
+/// `chart_bar(data, style?)` — vertical bar chart as SVG from a List of
+/// numbers or {label, value} Structs; optional style Struct (colors, size);
+/// deterministic output (golden-test invariant).
 pub fn builtin_chart_bar(args: &[Value]) -> Result<Value, String> {
     let data = expect_list_arg("chart_bar", args, 0)?;
     let style_value = args.get(1).cloned().unwrap_or(Value::Unit);
@@ -179,6 +182,8 @@ pub fn builtin_chart_bar(args: &[Value]) -> Result<Value, String> {
 //
 // Determinism: same inputs → identical output (golden-test invariant).
 
+/// `chart_donut(data, style?)` — donut chart as SVG with a right-side legend
+/// (same layout family as chart_radar); deterministic output.
 pub fn builtin_chart_donut(args: &[Value]) -> Result<Value, String> {
     let data = expect_list_arg("chart_donut", args, 0)?;
     let style_value = args.get(1).cloned().unwrap_or(Value::Unit);

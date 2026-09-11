@@ -620,6 +620,8 @@ require(age >= 18.0, "Access denied")      // with a message
 
 Functions for use inside route handlers of `mlogserver`/`server` blocks.
 
+**Request body limit (Naryad #255):** the server accepts request bodies up to **2 MiB** (2 097 152 bytes, `REQUEST_BODY_LIMIT_BYTES` in `src/server.rs`) — a deliberate constant, not the implicit axum default. A larger body is rejected with HTTP 413 Payload Too Large. The same limit applies to every route, TW and VM backends alike.
+
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
 | `respond(status_line)` | `String -> HttpResponse` | HttpResponse | Builds an HTTP response. Format: `"200 OK"`, `"404 Not Found"`, etc. |

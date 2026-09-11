@@ -125,6 +125,13 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
 /// Collects mismatches, then reports them all at once.
 #[test]
 fn crosscheck_tw_vs_vm_all_golden() {
+    // Наряд №268: пример p100_mcp_echo через mcp_call спавнит fixture
+    // MCP-сервер (tests/fixtures/mcp_echo_server.py) — требует exec-гейта
+    // (№253-А). cargo test исполняет каждый tests/*.rs ОТДЕЛЬНЫМ процессом,
+    // поэтому установка переменной здесь не влияет на другие тест-файлы;
+    // внутри этого файла exec-gated пример один.
+    std::env::set_var("METALOGOS_ALLOW_EXEC", "1");
+
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     let examples_dir = Path::new(&manifest_dir).join("examples");
     let base_dir = examples_dir.parent().unwrap_or(Path::new("."));

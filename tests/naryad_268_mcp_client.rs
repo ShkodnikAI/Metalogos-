@@ -404,6 +404,14 @@ fn c13_audit_log_records_mcp_spawn() {
 
 #[cfg(feature = "server")]
 mod serve_gate {
+    // Служебное исключение (громко, по лекалу naryad_253): serve-тесты обязаны
+    // держать env-мьютекс через .await — env-переменные процесса читаются
+    // серверными потоками во время запроса, и снятие замка между set_var и
+    // HTTP-запросом открыло бы гонку с параллельным тестом. Замок один, его
+    // берут только тесты этого модуля, дедлока нет. Именно поэтому
+    // clippy::await_holding_lock подавлен на модуль.
+    #![allow(clippy::await_holding_lock)]
+
     use super::{unset_env, FIXTURE};
     use metalogos::server::ServeBackend;
     use std::sync::Mutex;

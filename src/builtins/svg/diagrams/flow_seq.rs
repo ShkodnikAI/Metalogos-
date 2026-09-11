@@ -504,6 +504,8 @@ pub fn builtin_diagram_flowchart(args: &[Value]) -> Result<Value, String> {
     )))
 }
 
+/// `diagram_sequence(data, style?)` — UML-style sequence diagram as SVG:
+/// participants as lifelines, ordered messages as arrows between them.
 pub fn builtin_diagram_sequence(args: &[Value]) -> Result<Value, String> {
     let data_value = args.first().cloned().unwrap_or(Value::Unit);
     let style_value = args.get(1).cloned().unwrap_or(Value::Unit);

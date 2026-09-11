@@ -294,6 +294,11 @@ pub(crate) fn builtin_hex_decode(args: &[Value]) -> Result<Value, String> {
 // `binding_taint` in `src/audit.rs` treats `"secret"` the same as
 // `"env"` — both taint the result as `TaintKind::Secret`, so
 // `respond(secret("KEY"))` triggers `SECRET_LEAK` at compile time.
+/// `secret(key)` — reads an environment variable as an OPAQUE `Value::Secret`:
+/// hard-failure when the variable is missing, the value never prints,
+/// concatenates, or converts to String, and `respond(secret(...))` is
+/// rejected at compile time (`SECRET_LEAK`, Category A). See ADR-0116-era
+/// threat-model row and `env()` for the readable variant.
 pub(crate) fn builtin_secret(args: &[Value]) -> Result<Value, String> {
     let key = expect_string_arg("secret", args, 0)?;
     match std::env::var(&key) {

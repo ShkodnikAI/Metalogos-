@@ -101,6 +101,9 @@ pub(crate) fn builtin_ends_with(args: &[Value]) -> Result<Value, String> {
 // -- Stdlib backing builtins (Phase 5.4) ------------------------------------
 // These implement the primitives used by std/*.mlog pattern wrappers.
 
+/// `__trim(s)` — std-library primitive behind the std/string `trim` wrapper:
+/// strips leading and trailing whitespace. The `__` prefix marks a primitive
+/// used by `std/*.mlog` pattern wrappers (prefer the wrapper in user code).
 pub(crate) fn builtin_trim(args: &[Value]) -> Result<Value, String> {
     let s = expect_string_arg("__trim", args, 0)?;
     Ok(Value::String(s.trim().to_string()))
@@ -110,16 +113,21 @@ pub(crate) fn builtin_trim(args: &[Value]) -> Result<Value, String> {
 // All seven are Unicode-correct (operate on chars, not bytes),
 // consistent with the existing len/substring/char_at precedent.
 
+/// `trim_start(s)` — strips leading whitespace (Unicode-aware).
 pub(crate) fn builtin_trim_start(args: &[Value]) -> Result<Value, String> {
     let s = expect_string_arg("trim_start", args, 0)?;
     Ok(Value::String(s.trim_start().to_string()))
 }
 
+/// `trim_end(s)` — strips trailing whitespace (Unicode-aware).
 pub(crate) fn builtin_trim_end(args: &[Value]) -> Result<Value, String> {
     let s = expect_string_arg("trim_end", args, 0)?;
     Ok(Value::String(s.trim_end().to_string()))
 }
 
+/// `truncate(s, max_len)` — cuts the string to at most `max_len` characters
+/// (char-wise) appending an ellipsis `…` when truncation happens;
+/// `max_len` 0 yields the empty string.
 pub(crate) fn builtin_truncate(args: &[Value]) -> Result<Value, String> {
     let s = expect_string_arg("truncate", args, 0)?;
     let max_len = expect_float_arg("truncate", args, 1)? as usize;
@@ -137,6 +145,8 @@ pub(crate) fn builtin_truncate(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(format!("{}\u{2026}", truncated)))
 }
 
+/// `slugify(s)` — URL-safe slug: lowercase, non-alphanumerics collapsed to
+/// single hyphens, leading/trailing hyphens trimmed.
 pub(crate) fn builtin_slugify(args: &[Value]) -> Result<Value, String> {
     let s = expect_string_arg("slugify", args, 0)?;
     let mut result = String::with_capacity(s.len());
@@ -158,6 +168,8 @@ pub(crate) fn builtin_slugify(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(trimmed.to_string()))
 }
 
+/// `word_wrap(s, width)` — reflows text to `width` columns without breaking
+/// words; errors on width 0.
 pub(crate) fn builtin_word_wrap(args: &[Value]) -> Result<Value, String> {
     let s = expect_string_arg("word_wrap", args, 0)?;
     let width = expect_float_arg("word_wrap", args, 1)? as usize;
@@ -188,6 +200,7 @@ pub(crate) fn builtin_word_wrap(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(result))
 }
 
+/// `capitalize(s)` — uppercases the first character and lowercases the rest.
 pub(crate) fn builtin_capitalize(args: &[Value]) -> Result<Value, String> {
     let s = expect_string_arg("capitalize", args, 0)?;
     let mut chars = s.chars();
@@ -204,6 +217,8 @@ pub(crate) fn builtin_capitalize(args: &[Value]) -> Result<Value, String> {
     }
 }
 
+/// `title_case(s)` — uppercases the first character of every word
+/// (previous character non-letter acts as the word boundary).
 pub(crate) fn builtin_title_case(args: &[Value]) -> Result<Value, String> {
     let s = expect_string_arg("title_case", args, 0)?;
     let mut result = String::with_capacity(s.len());
@@ -224,6 +239,8 @@ pub(crate) fn builtin_title_case(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(result))
 }
 
+/// `__replace(s, from, to)` — std-library primitive behind the std/string
+/// `replace` wrapper: replaces every occurrence of `from` with `to`.
 pub(crate) fn builtin_replace(args: &[Value]) -> Result<Value, String> {
     let s = expect_string_arg("__replace", args, 0)?;
     let old = expect_string_arg("__replace", args, 1)?;
@@ -236,6 +253,8 @@ pub(crate) fn builtin_replace(args: &[Value]) -> Result<Value, String> {
     }
 }
 
+/// `__split(s, sep)` — std-library primitive behind the std/string `split`
+/// wrapper: splits on the separator into a List of strings.
 pub(crate) fn builtin_split(args: &[Value]) -> Result<Value, String> {
     let s = expect_string_arg("__split", args, 0)?;
     let sep = expect_string_arg("__split", args, 1)?;
@@ -249,6 +268,8 @@ pub(crate) fn builtin_split(args: &[Value]) -> Result<Value, String> {
     Ok(Value::List(items))
 }
 
+/// `__join(list, sep)` — std-library primitive behind the std/string `join`
+/// wrapper: joins a List of strings with the separator.
 pub(crate) fn builtin_join(args: &[Value]) -> Result<Value, String> {
     let list = match args.first() {
         Some(Value::List(items)) => items,

@@ -404,7 +404,7 @@ let claude_response = call_claude(env("ANTHROPIC_KEY"), "claude-sonnet-4-2025051
 | `http_post(url, body, content_type, headers)` | `String, String, String, String\|Struct -> String` | String | POST with headers. If the 4th argument is a String, it sets `Authorization: Bearer <token>`. If a Struct, headers are set from its fields |
 | `http_get(url)` | `String -> String` | String | A GET request. 30s timeout. Errors on status >= 400 |
 | `http_get(url, headers)` | `String, String\|Struct -> String` | String | GET with headers (a Bearer token or a Struct) |
-| `http_post_multipart(url, fields, files)` | `String, Struct, Struct -> String` | String | A multipart POST. `fields` are text fields (a Struct), `files` are file fields (a Struct, whose values are file paths). 120s timeout |
+| `http_post_multipart(url, fields, files)` | `String, Struct, Struct -> String` | String | A multipart POST. `fields` are text fields (a Struct), `files` are file fields (a Struct, whose values are file paths). File paths must be inside the read sandbox (relative paths); absolute paths, `..` and sandbox escapes are a loud `[SANDBOX_VIOLATION]` error. 120s timeout |
 
 **Examples:**
 ```mlog
@@ -418,9 +418,10 @@ let resp = http_post("https://api.example.com/data", body, "application/json", e
 let headers = { "X-Custom": "value", "Authorization": "Bearer token123" }
 let resp = http_post("https://api.example.com/data", body, "application/json", headers)
 
-// Multipart POST (uploading a file)
-let fields = {"model": "whisper-1"}
-let files = {"file": "/tmp/voice.ogg"}
+// Multipart POST (uploading a file created inside the sandbox —
+// file paths must stay within the sandbox, see the table above)
+let fields = {model: "whisper-1"}
+let files = {file: "uploads/voice.ogg"}
 let resp = http_post_multipart("https://api.openai.com/v1/audio/transcriptions", fields, files)
 
 // GET

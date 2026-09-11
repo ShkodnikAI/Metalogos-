@@ -473,10 +473,10 @@ let encoded = json_encode({ key: "value", n: 42.0 })
 
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
-| `read_file(path)` | `String -> String` | String | Reads a file. Soft-failure: an empty string on error |
-| `write_file(path, content)` | `String, String -> String` | String | Writes a file (overwrite). Returns `"ok"` or `""` on error |
-| `append_file(path, content)` | `String, String -> String` | String | Appends to the end of a file. Returns `"ok"` or `""` |
-| `delete_file(path)` | `String -> String` | String | Deletes a file. Returns `"ok"` or `""` |
+| `read_file(path)` | `String -> String` | String | Reads a file. Soft-failure: an empty string when the file is missing or unreadable. Sandbox violations (absolute path, `..`, symlink escape, broken symlink) are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
+| `write_file(path, content)` | `String, String -> String` | String | Writes a file (overwrite). Returns `"ok"` or `""` on an OS-level error; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
+| `append_file(path, content)` | `String, String -> String` | String | Appends to the end of a file. Returns `"ok"` or `""`; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
+| `delete_file(path)` | `String -> String` | String | Deletes a file. Returns `"ok"`, `""` when the file is missing; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
 | `file_exists(path)` | `String -> Bool` | Bool | Checks whether a file exists |
 | `list_dir(path)` | `String -> List` | List | A list of files in a directory. With no argument — the current directory |
 

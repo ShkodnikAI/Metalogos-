@@ -68,6 +68,12 @@ fn run_mlog(source: &str) -> Result<String, String> {
 
 #[test]
 fn all_golden_tests_pass() {
+    // Наряд №268: пример p100_mcp_echo через mcp_call спавнит fixture
+    // MCP-сервер — требует exec-гейта (№253-А). cargo test исполняет каждый
+    // tests/*.rs ОТДЕЛЬНЫМ процессом, поэтому установка переменной здесь не
+    // влияет на другие тест-файлы; внутри этого файла exec-gated пример один.
+    std::env::set_var("METALOGOS_ALLOW_EXEC", "1");
+
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     let examples_dir = Path::new(&manifest_dir).join("examples");
 

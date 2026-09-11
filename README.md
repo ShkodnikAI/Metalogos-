@@ -9,7 +9,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
 [![Version](https://img.shields.io/badge/v0.19.0-blue.svg)](https://github.com/ShkodnikAI/Metalogos-/releases)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)](#license)
-[![CI](https://img.shields.io/badge/CI-14%20blocking%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
+[![CI](https://img.shields.io/badge/CI-15%20blocking%20jobs-brightgreen.svg)](https://github.com/ShkodnikAI/Metalogos-/actions)
 [![Open Collective](https://img.shields.io/opencollective/all/metalogos?label=Backers&logo=open-collective&color=7fadf2)](https://opencollective.com/metalogos)
 
 </div>
@@ -305,7 +305,7 @@ Metalogos-/
 │       └── 0111-ast-span-tracking.md
 │
 └── .github/workflows/                  # CI/CD
-    ├── ci.yml                         # 14 blocking jobs (fmt, clippy, test-lib, crosscheck, candle-tests, vision-tests, registry-arity-check, test-llm-cache-contract, minimal-build, test-integration, adr-check, module-size-guard, vscode-extension, cargo-audit)
+    ├── ci.yml                         # 15 blocking jobs (branch-freshness, fmt, clippy, test-lib, crosscheck, candle-tests, vision-tests, registry-arity-check, test-llm-cache-contract, minimal-build, test-integration, adr-check, module-size-guard, vscode-extension, cargo-audit)
     └── build.yml                      # Release build + artifact upload
 ```
 

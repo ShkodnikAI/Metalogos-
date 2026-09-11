@@ -734,8 +734,13 @@ impl MemoryStore for SqliteStore {
             Ok(c) => c,
             Err(_) => return 0,
         };
-        conn.query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
-            .unwrap_or(0)
+        // rusqlite >= 0.33 dropped the `usize: FromSql` impl (lossy i64 -> usize);
+        // read the COUNT as i64 and cast explicitly.
+        conn.query_row("SELECT COUNT(*) FROM memories", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .map(|n| n as usize)
+        .unwrap_or(0)
     }
 
     /// Hybrid recall using FTS5 BM25 + cosine similarity with RRF merge (ADR-0094/0075).
@@ -1073,8 +1078,11 @@ impl KgStore for SqliteKg {
             Ok(c) => c,
             Err(_) => return 0,
         };
-        conn.query_row("SELECT COUNT(*) FROM kg_edges", [], |row| row.get(0))
-            .unwrap_or(0)
+        conn.query_row("SELECT COUNT(*) FROM kg_edges", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .map(|n| n as usize)
+        .unwrap_or(0)
     }
 
     fn all_edges(&self) -> Vec<(String, String, String, f64)> {

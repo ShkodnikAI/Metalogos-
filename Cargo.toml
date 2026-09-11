@@ -51,7 +51,7 @@ argon2 = "0.6"
 zeroize = "1"
 
 # Phase 7.4: Real sessions & CSRF
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 # Наряд №29 §5.1: Lock-free concurrent HashMap for hot paths
 dashmap = "6.1"

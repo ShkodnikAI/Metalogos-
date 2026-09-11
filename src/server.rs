@@ -104,34 +104,50 @@ fn cron_expr_matches(expr: &str) -> bool {
         && cron_field_matches(parts[4], dow)
 }
 
-/// Simple URL percent-decode fallback (handles %XX without external crate).
+/// Percent-decode a query-string key/value (RFC 3986 semantics with the
+/// form-urlencoded `+` convention — chosen and documented, Naryad #257).
 ///
-/// Наряд №256: `pub` — поверхность фаззинга (fuzz_target_url_decode) и
-/// контраст-тестов. Инварианты цели: не паникует, не читает за границей,
-/// ASCII-раунд-трип восстанавливает исходную строку. Известные
-/// корректностные расхождения с RFC 3986 (мультибайт UTF-8, семантика `+`)
-/// — предмет наряда №257, здесь не чинятся.
+/// Behavior table (each row pinned by `tests/naryad_257_rfc3986.rs`):
+/// - unreserved / plain chars pass through unchanged;
+/// - `%XX` (two hex digits) decodes to that BYTE — bytes are reassembled
+///   and the result is interpreted as UTF-8, so multibyte sequences like
+///   `%D0%B6` correctly yield `"ж"` (before #257 they produced mojibake:
+///   each byte was pushed as a standalone `char`);
+/// - invalid escapes (`%ZZ`, `%G1`) and a truncated `%` at the end pass
+///   through literally — a malformed escape is preserved, not swallowed
+///   (deliberate deviation from strict RFC rejection: query parsing must
+///   never fail on user input);
+/// - `+` decodes to space — the `application/x-www-form-urlencoded`
+///   convention (what browsers send in query strings of HTML forms and
+///   what axum's own form/Query tooling expects); a literal `+` must be
+///   sent as `%2B`;
+/// - byte sequences that are not valid UTF-8 decode lossily (U+FFFD) —
+///   decoding never fails.
+///
+/// Single-pass by design: `%25D0%25B6` decodes to the literal `%D0%B6`
+/// (double encoding requires two decode passes — standard behavior).
 pub fn url_decode_fallback(s: &str) -> String {
-    let mut result = Vec::with_capacity(s.len());
+    let mut bytes: Vec<u8> = Vec::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
         if c == '%' {
             let hex: String = chars.by_ref().take(2).collect();
             if hex.len() == 2 {
                 if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                    result.push(byte as char);
+                    bytes.push(byte);
                     continue;
                 }
             }
-            result.push('%');
-            result.extend(hex.chars());
+            bytes.extend_from_slice(b"%");
+            bytes.extend_from_slice(hex.as_bytes());
         } else if c == '+' {
-            result.push(' ');
+            bytes.push(b' ');
         } else {
-            result.push(c);
+            let mut buf = [0u8; 4];
+            bytes.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
         }
     }
-    result.into_iter().collect()
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 // Compile-time check: ServerState must be Send + Sync for axum::State

@@ -622,13 +622,15 @@ Functions for use inside route handlers of `mlogserver`/`server` blocks.
 
 **Request body limit (Naryad #255):** the server accepts request bodies up to **2 MiB** (2 097 152 bytes, `REQUEST_BODY_LIMIT_BYTES` in `src/server.rs`) — a deliberate constant, not the implicit axum default. A larger body is rejected with HTTP 413 Payload Too Large. The same limit applies to every route, TW and VM backends alike.
 
+**Query parameter decoding (Naryad #257):** `query_param` percent-decodes keys and values with RFC 3986 byte semantics — `%XX` bytes are reassembled and interpreted as UTF-8, so `%D0%B6` yields `"ж"` (fixed in №257; before it produced mojibake). Documented choices: `+` decodes to space (the `application/x-www-form-urlencoded` convention — send a literal `+` as `%2B`); invalid escapes (`%ZZ`) and a truncated `%` pass through literally (query parsing never fails on user input); invalid UTF-8 decodes lossily (U+FFFD); decoding is single-pass (`%25D0%25B6` → `%D0%B6`).
+
 | Function | Signature | Return | Description |
 |---------|-----------|---------|----------|
 | `respond(status_line)` | `String -> HttpResponse` | HttpResponse | Builds an HTTP response. Format: `"200 OK"`, `"404 Not Found"`, etc. |
 | `respond_html(status, html)` | `String, String -> HttpResponse` | HttpResponse | An HTML response with the given status |
 | `form_data()` | `-> Struct {FormData}` | Struct | Parses data from an `application/x-www-form-urlencoded` request body |
 | `json_body()` | `-> Struct {JsonBody}` | Struct | Parses JSON from the request body |
-| `query_param(name)` | `String -> String` | String | Gets a query parameter from the URL. `curl "localhost:8080/search?q=hello" -> query_param("q") == "hello"`. An empty string if the parameter is absent. |
+| `query_param(name)` | `String -> String` | String | Gets a query parameter from the URL. `curl "localhost:8080/search?q=hello" -> query_param("q") == "hello"`. An empty string if the parameter is absent. Percent-decoding: RFC 3986 bytes reassembled as UTF-8 (`%D0%B6` → `"ж"`), `+` → space (form-urlencoded convention), invalid escapes pass through literally, invalid UTF-8 is lossy — see the §4.13 note (Naryad #257) |
 
 **Example:**
 ```mlog

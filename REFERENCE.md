@@ -241,12 +241,11 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.19):** This section documents **~59%** of the 392 registered builtins (231 of 392).
-> The remaining 159 functions (pdf, cron, graph, time, bot, encoding, reflex stubs, vision stubs, std helpers, etc.)
-> are not yet documented here. REFERENCE.md is **not exhaustive** — see
-> `src/builtins/registry.rs` for the authoritative list.
+> **Coverage note (v0.19):** This section documents **100%** of the 394 registered builtins (394 of 394): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
+> and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
-> Registered builtins live in `src/builtins/` (34 domain modules, ~29K lines).
+> Registered builtins live in `src/builtins/` (26 Rust module files, ~23K lines).
 > The registry (`spec!()` macro) is the single source of truth for names, arities,
 > and categories — compiler, VM, and semantic analysis all derive from it.
 
@@ -1472,7 +1471,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 392 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 394 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENT.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -1666,7 +1665,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `trace_end(...)` | variadic | `String -> Dict` | Ends a trace segment. Returns `TraceResult { id, label, duration_ms }` |
 | `trace_start(...)` | variadic | `String -> String` | Starts a trace segment with a label. Returns a trace_id |
 
-### `io` — 10 builtin(s)
+### `io` — 12 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -1677,6 +1676,8 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `file_exists(...)` | 1 | `String -> Bool` | Checks whether a file exists |
 | `git_push(...)` | 1 | — | `git_push(message?) -> String` — git add/commit/push via subprocess. Uses GITHUB_TOKEN and GITHUB_REPO env vars for authentication. Usage: git_push("commit message") -> "ok" \| "nothing to commit" \| error |
 | `list_dir(...)` | 1 | `String -> List` | A list of files in a directory. With no argument — the current directory |
+| `mcp_call(...)` | 4 | — | `mcp_call(command, args_list, tool_name, arguments_json) -> String`. |
+| `mcp_list_tools(...)` | 2 | — | `mcp_list_tools(command, args_list) -> List[Struct{name, description, input_schema}]`. |
 | `print(...)` | 1 | `String -> String` | Prints a string to stdout, returns it |
 | `read_file(...)` | 1 | `String -> String` | Reads a file. Soft-failure: an empty string when the file is missing or unreadable. Sandbox violations (absolute path, `..`, symlink escape, broken symlink) are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |
 | `write_file(...)` | 2 | `String, String -> String` | Writes a file (overwrite). Returns `"ok"` or `""` on an OS-level error; sandbox violations are a loud `[SANDBOX_VIOLATION]` error (Naryad #254) |

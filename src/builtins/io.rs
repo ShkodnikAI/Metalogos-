@@ -44,7 +44,10 @@ const HTML_RENDER_MAX_TIMEOUT_SECS: u64 = 120;
 /// **Soft-failure:** errors writing to the audit log do NOT propagate
 /// to the caller — same category as append_file, consistent with the
 /// language's I/O soft-failure convention.
-fn append_subprocess_audit(operation: &str, detail: &str, exit_status: &str) {
+///
+/// pub(crate) с наряда №268: MCP-билтины (`src/builtins/mcp.rs`) пишут spawn
+/// своего сервера в тот же audit-канал (ADR-0132 D3 — reuse, не дублировать).
+pub(crate) fn append_subprocess_audit(operation: &str, detail: &str, exit_status: &str) {
     let path = std::env::var("METALOGOS_AUDIT_LOG_PATH")
         .unwrap_or_else(|_| "metalogos_subprocess_audit.log".to_string());
 

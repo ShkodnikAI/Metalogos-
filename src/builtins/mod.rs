@@ -161,6 +161,10 @@ pub use llm_schema::{
 pub(crate) mod http;
 use http::*;
 pub use http::{check_url_ssrf, is_blocked_address};
+// Наряд №268: MCP stdio-клиент (ADR-0132, Accepted) — модуль pub(crate),
+// контрактная поверхность — два билтина в реестре.
+pub(crate) mod mcp;
+use mcp::*;
 pub(crate) mod memory;
 pub use memory::init_kv_persist;
 use memory::*;

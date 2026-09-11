@@ -1,0 +1,9 @@
+pattern EchoIt(x: String) -> String {
+  let out = mcp_call("python3", ["tests/fixtures/mcp_echo_server.py"], "echo", "{\"text\":\"mlog calls MCP\"}")
+  return out
+}
+flow Main {
+  input: String = "go"
+  -> EchoIt
+  -> output
+}

@@ -4,7 +4,10 @@
 //
 // All benchmarks run on the same .mlog program for fair comparison.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
+// criterion 0.8 deprecates its own `black_box` re-export; the canonical
+// replacement is the std one (identical semantics).
+use std::hint::black_box;
 
 /// Benchmark program: 10 chained additions through pattern calls.
 /// Exercises: entity, pattern, flow, function call, arithmetic.

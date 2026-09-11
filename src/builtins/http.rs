@@ -250,23 +250,62 @@ fn should_retry_http(status: u16) -> bool {
 }
 
 // ── НАРЯД №130: SSRF guard for http_get / http_post / http_post_multipart ──
+// Наряд №261: классы блокировки расширены (IPv4-mapped IPv6, unspecified,
+// CGNAT 100.64/10, benchmark 198.18/15), redirect-политика — none(), и
+// http_download больше не идёт мимо гейта (все ЧЕТЫРЕ эгресс-билтина
+// гейтятся одинаково).
 
 /// Check whether a resolved IP address is blocked by the SSRF guard.
 /// Blocks: loopback, link-local, private networks, cloud metadata endpoint,
-/// and IPv6 Unique Local Addresses (fc00::/7, НАРЯД №150).
+/// IPv6 Unique Local Addresses (fc00::/7, НАРЯД №150) — and, since НАРЯД
+/// №261: IPv4-mapped IPv6 (unwrapped and re-checked via the V4 branch),
+/// unspecified addresses (0.0.0.0 / ::), CGNAT 100.64.0.0/10 (RFC 6598)
+/// and benchmark 198.18.0.0/15 (RFC 2544).
 pub fn is_blocked_address(ip: &std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(v4) => {
             v4.is_loopback()
                 || v4.is_link_local()
                 || v4.is_private()
+                // Наряд №261: unspecified (0.0.0.0) — «любой адрес»; на хосте
+                // он адресует внутрь самого себя, исходящий запрос к нему
+                // легитимным не является.
+                || v4.is_unspecified()
                 // Cloud metadata endpoints (AWS/GCP/Azure) — explicitly blocked
                 || *v4 == std::net::Ipv4Addr::new(169, 254, 169, 254)
+                // Наряд №261: CGNAT 100.64.0.0/10 (RFC 6598) — shared address
+                // space carrier/NAT-инфраструктуры; до №261 проходил как
+                // «публичный». std-хелпера нет — явный диапазон
+                // 100.64.0.0 — 100.127.255.255.
+                || v4_in_range(v4, [100, 64, 0, 0], [100, 127, 255, 255])
+                // Наряд №261: benchmark 198.18.0.0/15 (RFC 2544) — в интернете
+                // не маршрутизируется, типично внутренние стенды/перехват;
+                // диапазон 198.18.0.0 — 198.19.255.255.
+                || v4_in_range(v4, [198, 18, 0, 0], [198, 19, 255, 255])
         }
         std::net::IpAddr::V6(v6) => {
-            v6.is_loopback() || v6.is_unicast_link_local() || v6.is_unique_local()
+            // Наряд №261: IPv4-mapped IPv6 (::ffff:a.b.c.d) разворачивается
+            // и проверяется V4-веткой — раньше ::ffff:169.254.169.254
+            // (metadata) и ::ffff:10.0.0.5 (private) обходили гейт через
+            // V6-путь, который mapped-адресов не видел.
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_blocked_address(&std::net::IpAddr::V4(v4));
+            }
+            v6.is_loopback()
+                || v6.is_unicast_link_local()
+                || v6.is_unique_local()
+                // Наряд №261: unspecified (::) — V6-аналог 0.0.0.0.
+                || v6.is_unspecified()
         }
     }
+}
+
+/// Наряд №261: инклюзивная проверка диапазона IPv4 по октетам —
+/// лексикографическое сравнение [u8; 4] эквивалентно числовому порядку.
+/// std не даёт хелперов для CGNAT 100.64/10 и benchmark 198.18/15.
+fn v4_in_range(ip: &std::net::Ipv4Addr, lo: [u8; 4], hi: [u8; 4]) -> bool {
+    let o = ip.octets();
+    o >= lo && o <= hi
 }
 
 /// Whether SSRF protection is disabled via env var (Наряд №130 БЛОК 2).
@@ -317,8 +356,8 @@ pub fn check_url_ssrf(url: &str) -> Result<Vec<(String, std::net::SocketAddr)>, 
         if is_blocked_address(&addr.ip()) {
             return Err(format!(
                 "SSRF guard: URL '{}' resolves to {} which is a private/loopback/link-local \
-                 address — outgoing requests to internal networks are blocked. \
-                 Set METALOGOS_HTTP_ALLOW_PRIVATE=1 to disable this protection.",
+                 or otherwise reserved address — outgoing requests to internal networks \
+                 are blocked. Set METALOGOS_HTTP_ALLOW_PRIVATE=1 to disable this protection.",
                 url,
                 addr.ip()
             ));
@@ -413,8 +452,14 @@ pub(crate) fn builtin_http_post(args: &[Value]) -> Result<Value, String> {
         30
     };
 
+    // Наряд №261: redirect-политика none() — reqwest по умолчанию ходит по 30x
+    // (до 10 хопов) и каждый хоп резолвит DNS заново БЕЗ повторного SSRF-пина
+    // (обход пина одним редиректом) плюс утечка Authorization кросс-хосту.
+    // Ответ 3xx возвращается как есть — решение за программой.
     let client = apply_ssrf_resolves(
-        reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(timeout_secs)),
+        reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(timeout_secs))
+            .redirect(reqwest::redirect::Policy::none()),
         &url,
     )?
     .build()
@@ -568,8 +613,13 @@ pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
         }
     };
 
+    // Наряд №261: redirect-политика none() — как у http_post (см. комментарий
+    // там): редирект-хоп резолвился бы заново без повторного SSRF-пина.
+    // Ответ 3xx возвращается как есть — решение за программой.
     let client = apply_ssrf_resolves(
-        reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(timeout_secs)),
+        reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(timeout_secs))
+            .redirect(reqwest::redirect::Policy::none()),
         &url,
     )?
     .build()
@@ -669,6 +719,14 @@ pub(crate) fn builtin_http_get(args: &[Value]) -> Result<Value, String> {
 /// Telegram voice/photo files; for large files, add a `timeout` arg
 /// later if needed).
 ///
+/// SSRF: since НАРЯД №261 the URL goes through `apply_ssrf_resolves`
+/// like http_get/http_post/http_post_multipart (it used to build its own
+/// client and bypass the gate). A gate refusal — private/loopback/blocked
+/// range without `METALOGOS_HTTP_ALLOW_PRIVATE=1` — is a LOUD error
+/// (policy refusal, parity with http_get); network/write failures keep
+/// the soft `Ok(false)` contract. Redirects are NOT followed
+/// (`Policy::none`) — a 3xx body is written to the file as-is.
+///
 /// Headers: optional 3rd arg, same shape as `http_get`:
 ///   - `Value::String` → treated as a Bearer token (`Authorization: Bearer <s>`)
 ///   - `Value::Struct` → each String field becomes a header
@@ -720,10 +778,21 @@ pub(crate) fn builtin_http_download(args: &[Value]) -> Result<Value, String> {
         }
     }
 
-    let client = match reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-    {
+    // Наряд №261: URL гейтится SSRF-guard'ом как у остальных трёх
+    // эгресс-билтинов — раньше download строил свой клиент и шёл напрямую,
+    // мимо apply_ssrf_resolves: 127.0.0.1/10.0.0.0/metadata скачивались
+    // без флага. Отказ гейта — ГРОМКАЯ ошибка (паритет с http_get: это
+    // отказ политики, а не «сеть не удалась»); сетевые/записные неудачи
+    // ниже остаются soft Ok(false) — контракт №76/№252 не тронут.
+    // Redirect-политика none() — как у остальных трёх: 3xx-ответ
+    // записывается в файл как есть, решение за программой.
+    let builder = apply_ssrf_resolves(
+        reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none()),
+        &url,
+    )?;
+    let client = match builder.build() {
         Ok(c) => c,
         Err(_) => return Ok(Value::Bool(false)),
     };
@@ -868,8 +937,13 @@ pub(crate) fn builtin_http_post_multipart(args: &[Value]) -> Result<Value, Strin
         }
     }
 
+    // Наряд №261: redirect-политика none() — как у http_post (см. комментарий
+    // там): редирект-хоп резолвился бы заново без повторного SSRF-пина.
+    // Ответ 3xx возвращается как есть — решение за программой.
     let client = apply_ssrf_resolves(
-        reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(120)),
+        reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .redirect(reqwest::redirect::Policy::none()),
         &url,
     )?
     .build()

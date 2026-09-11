@@ -240,7 +240,9 @@ fn binding_taint(value: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
         match fn_name.as_str() {
             // Наряд №201: вывод модели наследует недоверенность LLM-учителя (ADR-0117);
             // learnable pattern — тот же класс: вывод call_llm за пределами pattern body.
-            "call_llm" | "call_claude" | "reflex_generate" => return Some(TaintKind::LlmOutput),
+            "call_llm" | "call_claude" | "call_llm_schema" | "reflex_generate" => {
+                return Some(TaintKind::LlmOutput)
+            }
             "env" | "secret" => return Some(TaintKind::Secret),
             "render" | "escape_html" => return Some(TaintKind::Sanitized),
             "form_data" | "json_body" | "query_param" => return Some(TaintKind::UserInput),

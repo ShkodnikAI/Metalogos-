@@ -241,7 +241,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.19):** This section documents **~59%** of the 391 registered builtins (230 of 391).
+> **Coverage note (v0.19):** This section documents **~59%** of the 392 registered builtins (231 of 392).
 > The remaining 159 functions (pdf, cron, graph, time, bot, encoding, reflex stubs, vision stubs, std helpers, etc.)
 > are not yet documented here. REFERENCE.md is **not exhaustive** — see
 > `src/builtins/registry.rs` for the authoritative list.
@@ -385,6 +385,7 @@ let ranked = sort_by(paired, "b", 1.0)
 | `call_llm(prompt, input)` | `String, String -> String` | String | Calls the LLM backend. By default returns a mock: `"[MOCK: prompt \| input]"`. A real call happens when `METALOGOS_LLM_MOCK=false` |
 | `call_claude(api_key, model, system_prompt, user_message)` | `String, String, String, String -> String` | String | A direct call to the Anthropic Claude Messages API (v1/messages). Returns `content[0].text` |
 | `llm_usage()` | `-> Struct` | Struct `{LlmUsage}` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
+| `call_llm_schema(prompt, schema_json)` / `call_llm_schema(prompt, input, schema_json)` | `String, String[, String] -> Struct` | Struct `{Dict}` | Calls the LLM backend and requires the answer to be a single JSON value conforming to the schema. Supported schema subset (ADR-0133): `type`, `properties`, `required`, `items`, `enum`; annotation keywords (`title`, `description`, `$schema`, ...) are ignored; any other keyword is a loud `LLM_SCHEMA_UNSUPPORTED_FEATURE`. Answer fields beyond `properties` are rejected (strict-by-default). The result is a `Dict` Struct usable with `json_get`/`has_field`/`dict_*`. Parse/validation failures (including max_tokens truncation) are loud `LLM_SCHEMA_MISMATCH` and retry up to `METALOGOS_LLM_SCHEMA_RETRIES` (default 2, cap 10) with the validator report fed back into the prompt. Mock tier returns a deterministic minimal instance derived from the schema (default mock settings; `METALOGOS_LLM_MOCK=json` documents the intent explicitly) |
 | `confidence(fluid_value)` | `Fluid -> Float` | Float | Returns the maximum confidence of the probabilistic type. Returns `1.0` for concrete values |
 
 **Example:**
@@ -393,6 +394,10 @@ let result = call_llm("Translate to English", "Hello world")
 // By default: "[MOCK: Translate to English | Hello world]"
 
 let claude_response = call_claude(env("ANTHROPIC_KEY"), "claude-sonnet-4-20250514", "You are helpful.", "Hello!")
+
+// Structured output (Наряд №269, ADR-0133): the answer must be JSON per the schema
+let person = call_llm_schema("Extract the user as JSON", input_text, "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"age\":{\"type\":\"integer\"}},\"required\":[\"name\"]}")
+let name = json_get(person, "name")
 ```
 
 ### 4.6. HTTP

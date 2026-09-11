@@ -170,7 +170,10 @@ pub struct ServerState {
     /// In-memory session cache (kept for fast lookups, authoritative source is SQLite).
     pub sessions: Arc<DashMap<String, SessionEntry>>,
     /// CSRF token store for double-submit validation.
-    /// Value: (session_id, created_at) — used for TTL enforcement (15 min, see Наряд №29 §2.2).
+    /// Value: (session_id, created_at) — TTL enforcement (15 min, Наряд №29 §2.2) and
+    /// session binding (Наряд №262: a token is accepted only from the session it was
+    /// issued for; "" binds to sessionless requests). Tokens absent from this store
+    /// were never issued by this process — rejected since №262 (no stateless fallback).
     pub csrf_tokens: Arc<DashMap<String, (String, std::time::Instant)>>,
     /// HMAC signing key for session cookies.
     pub hmac_key: Arc<Vec<u8>>,
@@ -826,6 +829,8 @@ async fn route_handler(
 
         // 5. On GET with CSRF middleware, generate and set CSRF token cookie (Phase 7.4)
         // Наряд №29 §2.2: store (session_id, created_at) for TTL enforcement.
+        // Наряд №262: the session_id half is now ENFORCED at validation — the token is
+        // bound to the HMAC-verified session of the issuing request ("" = sessionless).
         if method == Method::GET && state.middleware.contains(&"csrf".to_string()) {
             let token = generate_csrf_token();
             let session_id_for_csrf = raw_session_id.clone().unwrap_or_default();
@@ -881,25 +886,75 @@ async fn check_csrf(state: &ServerState, headers: &HeaderMap) -> Result<(), Resp
 
     match (cookie_token, header_token) {
         (Some(cookie), Some(header)) if cookie == header => {
-            // Наряд №29 §2.2: enforce 15-minute TTL on server-issued tokens.
-            // If the token is present in our store, verify it has not expired.
-            // If absent (e.g. server restarted, or stateless double-submit client),
-            // accept — this preserves the original Phase 7.4 behavior.
+            // Наряд №262: STRICT server-issued validation. The former stateless
+            // fallback ("token absent from the store → accept", the classic naive
+            // double-submit bypass: plant any cookie + send any matching header)
+            // is REMOVED — the token MUST have been issued by this process
+            // (present in `csrf_tokens`, route_handler step 5). A server restart
+            // honestly invalidates outstanding tokens: 403, page reloads, fresh token.
+            let Some(entry) = state.csrf_tokens.get(&cookie) else {
+                let mut log = state.audit_log.write().await;
+                log.push(
+                    "[CSRF] Rejected: token not issued by this server (stateless fallback removed, naryad #262)"
+                        .to_string(),
+                );
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    "403 Forbidden: CSRF token validation failed",
+                )
+                    .into_response());
+            };
+
+            // Наряд №29 §2.2: enforce 15-minute TTL on server-issued tokens
+            // (unchanged by №262).
             let now = std::time::Instant::now();
             let ttl = std::time::Duration::from_secs(900); // 15 minutes
-            let token_expired = state
-                .csrf_tokens
-                .get(&cookie)
-                .map(|r| now.duration_since(r.value().1) >= ttl)
-                .unwrap_or(false);
-            if token_expired {
+            let (bound_session, created_at) = entry.value().clone();
+            drop(entry); // release the shard lock before the possible remove() below
+
+            if now.duration_since(created_at) >= ttl {
                 state.csrf_tokens.remove(&cookie);
                 let mut log = state.audit_log.write().await;
                 log.push("[CSRF] Rejected: token expired (>15 min)".to_string());
-                Err((StatusCode::FORBIDDEN, "403 Forbidden: CSRF token expired").into_response())
-            } else {
-                Ok(())
+                return Err(
+                    (StatusCode::FORBIDDEN, "403 Forbidden: CSRF token expired").into_response()
+                );
             }
+
+            // Наряд №262: session binding — the dead half of the (session_id, Instant)
+            // tuple is now enforced. The request identity is computed exactly as at
+            // issuance (route_handler step 3): the HMAC-verified raw session id from
+            // the _mlog_session cookie; None when the session middleware is off, the
+            // cookie is absent, or the signature fails. Liveness (expiry/DB) is NOT
+            // re-checked here — that stays with the session middleware step that runs
+            // after this one: binding proves WHO the token belongs to, not whether
+            // the session is alive. A token issued without a session (bound to "")
+            // is only valid for sessionless requests.
+            let request_session = if state.middleware.contains(&"session".to_string()) {
+                extract_session_cookie(headers).and_then(|c| verify_cookie(&c, &state.hmac_key))
+            } else {
+                None
+            };
+            let session_ok = match (bound_session.is_empty(), request_session.as_deref()) {
+                (true, None) => true,     // sessionless token, sessionless request
+                (true, Some(_)) => false, // sessionless token replayed with a session
+                (false, Some(s)) => s == bound_session, // must present its own session
+                (false, None) => false,   // bound token cannot prove ownership
+            };
+            if !session_ok {
+                let mut log = state.audit_log.write().await;
+                log.push(format!(
+                    "[CSRF] Rejected: session binding mismatch (bound {:?}, request {:?})",
+                    bound_session, request_session
+                ));
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    "403 Forbidden: CSRF session binding mismatch",
+                )
+                    .into_response());
+            }
+
+            Ok(())
         }
         _ => {
             // Log to audit
@@ -1962,6 +2017,174 @@ mod tests {
         let result = check_csrf(&state, &headers).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status(), StatusCode::FORBIDDEN);
+    }
+
+    // ── Наряд №262 Tests: CSRF strict — server-issued tokens + session binding ──
+
+    #[tokio::test]
+    async fn test_262_csrf_unissued_pair_rejected() {
+        // A self-made double-submit pair that was NEVER issued by this server:
+        // pre-№262 the stateless fallback accepted it (naive double-submit
+        // bypass — plant a cookie + send any matching header); now it must be
+        // 403 with an audit entry naming the root cause.
+        let state = make_test_state().await;
+        let forged = "deadbeefdeadbeefdeadbeefdeadbeef";
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            HeaderValue::from_str(&format!("_mlog_csrf={}", forged)).unwrap(),
+        );
+        headers.insert("x-csrf-token", HeaderValue::from_str(forged).unwrap());
+
+        let result = check_csrf(&state, &headers).await;
+        assert!(
+            result.is_err(),
+            "a token absent from csrf_tokens must be rejected"
+        );
+        assert_eq!(result.unwrap_err().status(), StatusCode::FORBIDDEN);
+        let log = state.audit_log.read().await;
+        assert!(
+            log.iter().any(|e| e.contains("not issued by this server")),
+            "audit must name the missing issuance: {:?}",
+            *log
+        );
+    }
+
+    #[tokio::test]
+    async fn test_262_csrf_session_binding_match_passes() {
+        // Issued for sess-A + the same session presented → passes.
+        let state = make_test_state().await;
+        let token = generate_csrf_token();
+        state.csrf_tokens.insert(
+            token.clone(),
+            ("sess-A".to_string(), std::time::Instant::now()),
+        );
+
+        let signed_a = sign_cookie("sess-A", &state.hmac_key);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            HeaderValue::from_str(&format!("_mlog_csrf={}; _mlog_session={}", token, signed_a))
+                .unwrap(),
+        );
+        headers.insert("x-csrf-token", HeaderValue::from_str(&token).unwrap());
+
+        let result = check_csrf(&state, &headers).await;
+        assert!(result.is_ok(), "issued token + its own session must pass");
+    }
+
+    #[tokio::test]
+    async fn test_262_csrf_session_binding_mismatch_rejected() {
+        // Issued for sess-A, presented with sess-B → 403 + audit entry.
+        let state = make_test_state().await;
+        let token = generate_csrf_token();
+        state.csrf_tokens.insert(
+            token.clone(),
+            ("sess-A".to_string(), std::time::Instant::now()),
+        );
+
+        let signed_b = sign_cookie("sess-B", &state.hmac_key);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            HeaderValue::from_str(&format!("_mlog_csrf={}; _mlog_session={}", token, signed_b))
+                .unwrap(),
+        );
+        headers.insert("x-csrf-token", HeaderValue::from_str(&token).unwrap());
+
+        let result = check_csrf(&state, &headers).await;
+        assert!(
+            result.is_err(),
+            "a token bound to sess-A must not pass with sess-B"
+        );
+        assert_eq!(result.unwrap_err().status(), StatusCode::FORBIDDEN);
+        let log = state.audit_log.read().await;
+        assert!(
+            log.iter().any(|e| e.contains("session binding mismatch")),
+            "audit must record the binding mismatch: {:?}",
+            *log
+        );
+    }
+
+    #[tokio::test]
+    async fn test_262_csrf_bound_token_rejected_without_session() {
+        // A session-bound token cannot prove ownership without its session.
+        let state = make_test_state().await;
+        let token = generate_csrf_token();
+        state.csrf_tokens.insert(
+            token.clone(),
+            ("sess-A".to_string(), std::time::Instant::now()),
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            HeaderValue::from_str(&format!("_mlog_csrf={}", token)).unwrap(),
+        );
+        headers.insert("x-csrf-token", HeaderValue::from_str(&token).unwrap());
+
+        let result = check_csrf(&state, &headers).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_262_csrf_sessionless_token_rejected_with_session() {
+        // Issuance without a session binds the token to "" — replaying it WITH
+        // a valid session is a binding mismatch ("no-session" token is only
+        // valid without a session; pinned honest boundary of №262).
+        let state = make_test_state().await;
+        let token = generate_csrf_token();
+        state
+            .csrf_tokens
+            .insert(token.clone(), (String::new(), std::time::Instant::now()));
+
+        let signed_a = sign_cookie("sess-A", &state.hmac_key);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            HeaderValue::from_str(&format!("_mlog_csrf={}; _mlog_session={}", token, signed_a))
+                .unwrap(),
+        );
+        headers.insert("x-csrf-token", HeaderValue::from_str(&token).unwrap());
+
+        let result = check_csrf(&state, &headers).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_262_csrf_expired_token_rejected() {
+        // TTL contract (Наряд №29 §2.2) unchanged by №262: 15 minutes.
+        let state = make_test_state().await;
+        let token = generate_csrf_token();
+        let created = std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_secs(901))
+            .expect("monotonic clock older than 901s required for this test");
+        state
+            .csrf_tokens
+            .insert(token.clone(), (String::new(), created));
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            HeaderValue::from_str(&format!("_mlog_csrf={}", token)).unwrap(),
+        );
+        headers.insert("x-csrf-token", HeaderValue::from_str(&token).unwrap());
+
+        let result = check_csrf(&state, &headers).await;
+        assert!(
+            result.is_err(),
+            "an expired token must be rejected even though it was issued"
+        );
+        assert_eq!(result.unwrap_err().status(), StatusCode::FORBIDDEN);
+        let log = state.audit_log.read().await;
+        assert!(
+            log.iter().any(|e| e.contains("token expired")),
+            "audit must record the expiry: {:?}",
+            *log
+        );
     }
 
     #[tokio::test]

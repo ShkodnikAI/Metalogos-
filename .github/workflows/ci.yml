@@ -7,6 +7,30 @@ on:
   workflow_dispatch:
 
 jobs:
+  branch-freshness:
+    name: branch-freshness (blocking)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Check PR base is not stale relative to main
+        run: |
+          git fetch origin main --quiet
+          MERGE_BASE=$(git merge-base HEAD origin/main)
+          BEHIND=$(git rev-list --count "${MERGE_BASE}..origin/main")
+          echo "PR branch diverged from main at ${MERGE_BASE}"
+          echo "main has advanced ${BEHIND} commit(s) since divergence"
+          THRESHOLD=20
+          if [ "${BEHIND}" -gt "${THRESHOLD}" ]; then
+            echo "::error::This branch is ${BEHIND} commits behind main (threshold: ${THRESHOLD})."
+            echo "::error::A direct merge from this point risks reverting work already merged to main"
+            echo "::error::(this exact class of bug hit наряд #161 and наряд #182 — caught manually both times)."
+            echo "::error::Rebase or merge main into this branch before requesting review."
+            exit 1
+          fi
+
   test-lib:
     name: test-lib (blocking)
     runs-on: ubuntu-latest

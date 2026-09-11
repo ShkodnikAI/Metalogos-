@@ -10,7 +10,7 @@
 // - Bot integration (Telegram webhooks)
 
 use axum::{
-    extract::State,
+    extract::{DefaultBodyLimit, State},
     http::{header, HeaderMap, HeaderValue, Method, StatusCode, Uri},
     response::{Html as AxumHtml, IntoResponse, Response},
     routing::{any, delete, get, post, put},
@@ -634,8 +634,32 @@ pub(crate) async fn build_state(
     })
 }
 
+/// Наряд №255: максимальный размер тела запроса (байты) — 2 МиБ.
+///
+/// Осознанная константа вместо неявного дефолта axum 0.8 (~2 МБ):
+/// до №255 источник истины о лимите находился в чужом крейте и молча
+/// менялся бы с апгрейдом. Обоснование величины: 2 МиБ хватает для
+/// JSON-тел роутов (конфиги, документы, payload'ы LLM-запросов);
+/// загрузки большего размера — отдельное решение (streaming/multipart),
+/// а не молчаливый рост лимита. Меняется только здесь; docs/threat-model.md
+/// и REFERENCE.md называют то же число; тест `n255_body_limit` пинит
+/// поведение N±1 (413 на превышение).
+pub(crate) const REQUEST_BODY_LIMIT_BYTES: usize = 2 * 1024 * 1024; // 2 MiB
+
 fn build_router(state: ServerState) -> Router {
     let mut app = Router::new();
+
+    // Наряд №255: осознанный лимит тела запроса, зафиксирован явно.
+    //
+    // До №255 поведение держалось на неявном дефолте axum 0.8 (~2 МБ) —
+    // источник истины о лимите находился в чужом крейте и молча изменился
+    // бы с апгрейдом. 2 МиБ достаточно для JSON-тел роутов (конфиги,
+    // документы, payload'ы LLM-запросов); загрузки большего размера —
+    // отдельное осознанное решение (streaming/multipart), а не молчаливый
+    // рост лимита вместе с зависимостью. Число задокументировано в
+    // docs/threat-model.md и REFERENCE.md — меняется вместе с этой
+    // константой (тест n255 пинит соответствие N±1).
+    app = app.layer(DefaultBodyLimit::max(REQUEST_BODY_LIMIT_BYTES));
 
     // Add security headers layer (always applied)
     app = app.layer(SetResponseHeaderLayer::if_not_present(

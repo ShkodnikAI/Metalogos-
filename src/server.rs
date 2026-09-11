@@ -105,7 +105,13 @@ fn cron_expr_matches(expr: &str) -> bool {
 }
 
 /// Simple URL percent-decode fallback (handles %XX without external crate).
-fn url_decode_fallback(s: &str) -> String {
+///
+/// Наряд №256: `pub` — поверхность фаззинга (fuzz_target_url_decode) и
+/// контраст-тестов. Инварианты цели: не паникует, не читает за границей,
+/// ASCII-раунд-трип восстанавливает исходную строку. Известные
+/// корректностные расхождения с RFC 3986 (мультибайт UTF-8, семантика `+`)
+/// — предмет наряда №257, здесь не чинятся.
+pub fn url_decode_fallback(s: &str) -> String {
     let mut result = Vec::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {

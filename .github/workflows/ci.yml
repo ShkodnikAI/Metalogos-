@@ -301,9 +301,12 @@ jobs:
           workspaces: |
             .
             fuzz
+      # --target gnu обязателен: cargo-fuzz по умолчанию собирает под musl,
+      # а ASan несовместим со статической libc (первый прогон PR #296:
+      # «sanitizer is incompatible with statically linked libc» + E0463)
       - name: Fuzz .mbc deserialize (120s budget)
         working-directory: fuzz
-        run: cargo fuzz run -j 2 fuzz_target_bytecode -- -max_total_time=120
+        run: cargo fuzz run --target x86_64-unknown-linux-gnu -j 2 fuzz_target_bytecode -- -max_total_time=120
       - name: Fuzz url_decode_fallback (120s budget)
         working-directory: fuzz
-        run: cargo fuzz run -j 2 fuzz_target_url_decode -- -max_total_time=120
+        run: cargo fuzz run --target x86_64-unknown-linux-gnu -j 2 fuzz_target_url_decode -- -max_total_time=120

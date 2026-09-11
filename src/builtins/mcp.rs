@@ -79,9 +79,8 @@ impl Drop for McpProcess {
         // Спека stdio-транспорта: shutdown = закрыть поток. Закрытие stdin
         // (уже сделано полем stdin перед этим Drop — порядок полей McpConn)
         // даёт серверу шанс завершиться самому.
-        match self.child.try_wait() {
-            Ok(Some(_)) => return,
-            _ => {}
+        if matches!(self.child.try_wait(), Ok(Some(_))) {
+            return;
         }
         let deadline = Instant::now() + Duration::from_millis(500);
         while Instant::now() < deadline {
@@ -303,7 +302,7 @@ fn mcp_allowlist_gate(command: &str) -> Result<(), String> {
                         .to_string(),
                 );
             }
-            if entries.iter().any(|e| *e == command) {
+            if entries.contains(&command) {
                 Ok(())
             } else {
                 Err(format!(
@@ -325,7 +324,7 @@ fn mcp_tools_list(conn: &mut McpConn, timeout: Duration) -> Result<Value, String
     let req = serde_json::json!({"jsonrpc": "2.0", "id": id, "method": "tools/list", "params": {}});
     conn.send(&req, "tools/list")?;
     let result = conn.recv(id, "tools/list", timeout)?;
-    if result.get("nextCursor").map_or(false, |c| !c.is_null()) {
+    if result.get("nextCursor").is_some_and(|c| !c.is_null()) {
         return Err(
             "[MCP_PROTOCOL_ERROR] phase=tools/list: server paginates tool list (nextCursor) — \
              pagination is not supported in v1 (ADR-0132 D4, Future)"
@@ -416,7 +415,7 @@ fn mcp_tools_call(
     }
     if result
         .get("structuredContent")
-        .map_or(false, |v| !v.is_null())
+        .is_some_and(|v| !v.is_null())
     {
         return Err(
             "[MCP_PROTOCOL_ERROR] phase=tools/call: server returned structuredContent — \

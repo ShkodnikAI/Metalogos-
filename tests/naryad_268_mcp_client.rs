@@ -150,7 +150,11 @@ fn c3_tool_not_found_is_loud() {
     let src = CALL_CONTRACT.replace("\"echo\"", "\"nosuchtool\"");
     let err = run_tw(&src).expect_err("unknown tool must be a loud error");
     assert!(err.contains("MCP_TOOL_NOT_FOUND"), "got: {}", err);
-    assert!(err.contains("-32602"), "server code must propagate: {}", err);
+    assert!(
+        err.contains("-32602"),
+        "server code must propagate: {}",
+        err
+    );
     assert!(err.contains("nosuchtool"), "tool name in error: {}", err);
 }
 
@@ -162,7 +166,11 @@ fn c4_tool_iserror_is_loud() {
     let src = CALL_CONTRACT.replace("\"echo\"", "\"fail\"");
     let err = run_tw(&src).expect_err("isError=true must be a loud error");
     assert!(err.contains("MCP_TOOL_ERROR"), "got: {}", err);
-    assert!(err.contains("FIXTURE_FAIL"), "server detail must ride: {}", err);
+    assert!(
+        err.contains("FIXTURE_FAIL"),
+        "server detail must ride: {}",
+        err
+    );
 }
 
 /// JSON-RPC error (-32603) пробрасывается с кодом сервера.
@@ -173,7 +181,11 @@ fn c5_jsonrpc_error_propagates() {
     let src = CALL_CONTRACT.replace("\"echo\"", "\"boom\"");
     let err = run_tw(&src).expect_err("JSON-RPC error must be loud");
     assert!(err.contains("MCP_PROTOCOL_ERROR"), "got: {}", err);
-    assert!(err.contains("-32603"), "server code must propagate: {}", err);
+    assert!(
+        err.contains("-32603"),
+        "server code must propagate: {}",
+        err
+    );
     assert!(err.contains("phase=tools/call"), "phase named: {}", err);
 }
 
@@ -443,7 +455,11 @@ mlogserver {
         let (port, _handle) = start_server(ServeBackend::Interpreter).await;
         let (status, body) = http_get(port, "/mcp").await;
 
-        assert_eq!(status, 500, "MCP в роуте без флагов должен быть denied: {}", body);
+        assert_eq!(
+            status, 500,
+            "MCP в роуте без флагов должен быть denied: {}",
+            body
+        );
         assert!(body.contains("EXEC_NOT_PERMITTED"), "got: {}", body);
     }
 
@@ -457,7 +473,11 @@ mlogserver {
         let (port, _handle) = start_server(ServeBackend::Vm).await;
         let (status, body) = http_get(port, "/mcp").await;
 
-        assert_eq!(status, 500, "MCP в роуте без флагов должен быть denied (VM): {}", body);
+        assert_eq!(
+            status, 500,
+            "MCP в роуте без флагов должен быть denied (VM): {}",
+            body
+        );
         assert!(body.contains("EXEC_NOT_PERMITTED"), "got: {}", body);
     }
 
@@ -473,7 +493,11 @@ mlogserver {
         let (status, body) = http_get(port, "/mcp").await;
 
         assert_eq!(status, 200, "serve-флаг разрешает MCP в роуте: {}", body);
-        assert!(body.contains("echo"), "fixture tool name expected: {}", body);
+        assert!(
+            body.contains("echo"),
+            "fixture tool name expected: {}",
+            body
+        );
         unset_env(&["METALOGOS_SERVE_ALLOW_EXEC"]);
     }
 

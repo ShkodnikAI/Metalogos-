@@ -351,7 +351,11 @@ fn ip_in_cidr(ip: IpAddr, net: IpAddr, prefix: u8) -> bool {
             if prefix > 32 {
                 return false;
             }
-            let mask = if prefix == 0 { 0 } else { u32::MAX << (32 - prefix) };
+            let mask = if prefix == 0 {
+                0
+            } else {
+                u32::MAX << (32 - prefix)
+            };
             u32::from(a) & mask == u32::from(n) & mask
         }
         (IpAddr::V6(a), IpAddr::V6(n)) => {
@@ -655,7 +659,10 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
                 eprintln!("[rate-cleanup] evicted {} stale key bucket(s)", rate_keys);
             }
             if sessions > 0 {
-                eprintln!("[session-cleanup] evicted {} expired session cache entr(ies)", sessions);
+                eprintln!(
+                    "[session-cleanup] evicted {} expired session cache entr(ies)",
+                    sessions
+                );
             }
         }
     });
@@ -666,7 +673,11 @@ pub async fn run_server(source: &str) -> Result<(), Box<dyn std::error::Error + 
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", host, port)).await?;
     // Наряд №263: ConnectInfo is forwarded so the rate-limit key defaults to the
     // REAL connection peer address instead of client-controlled headers.
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
@@ -713,7 +724,11 @@ pub async fn run_test_server(
 
     let handle = tokio::spawn(async move {
         // Наряд №263: ConnectInfo forwarded (same contract as run_server).
-        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await?;
         Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     });
 
@@ -784,7 +799,11 @@ pub async fn run_test_server_with_backend_in_dir(
 
     let handle = tokio::spawn(async move {
         // Наряд №263: ConnectInfo forwarded (same contract as run_server).
-        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await?;
         Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     });
 
@@ -1036,9 +1055,7 @@ async fn route_handler(
         if method == Method::GET && state.middleware.contains(&"csrf".to_string()) {
             let token = generate_csrf_token();
             let session_id_for_csrf = raw_session_id.clone().unwrap_or_default();
-            if let Err(resp) =
-                issue_csrf_token_capped(&state, &token, &session_id_for_csrf).await
-            {
+            if let Err(resp) = issue_csrf_token_capped(&state, &token, &session_id_for_csrf).await {
                 return resp;
             }
             // Наряд №125: NO HttpOnly — JS must read this cookie for double-submit.
@@ -1213,6 +1230,7 @@ fn extract_session_cookie(headers: &HeaderMap) -> Option<String> {
 ///    client-controlled (documented residual — revisit: rightmost-untrusted
 ///    walk for multi-hop chains if a real deployment needs it).
 /// 3. Peer NOT in the list — the peer address, headers never consulted.
+///
 /// `peer_ip: None` (only direct unit-test callers) → "unknown".
 fn extract_client_ip(
     headers: &HeaderMap,
@@ -1264,8 +1282,7 @@ pub fn insert_session_capped(
             MAX_SESSIONS
         );
         return Err(
-            "503 Service Unavailable: server busy — session store full, retry shortly"
-                .to_string(),
+            "503 Service Unavailable: server busy — session store full, retry shortly".to_string(),
         );
     }
     state.sessions.insert(id, entry);
@@ -2724,13 +2741,15 @@ mod tests {
             HeaderValue::from_static("10.0.0.1, 172.16.0.1"),
         );
         let no_trusted = TrustedProxies::default();
-        let trusted_loopback =
-            TrustedProxies::from_env_spec(Some("127.0.0.1"));
+        let trusted_loopback = TrustedProxies::from_env_spec(Some("127.0.0.1"));
         let peer_loopback: Option<IpAddr> = Some("127.0.0.1".parse().unwrap());
         let peer_other: Option<IpAddr> = Some("192.168.1.5".parse().unwrap());
 
         // (1) No trusted proxies: XFF is IGNORED, the peer is the key...
-        assert_eq!(extract_client_ip(&headers, peer_other, &no_trusted), "192.168.1.5");
+        assert_eq!(
+            extract_client_ip(&headers, peer_other, &no_trusted),
+            "192.168.1.5"
+        );
         //    ...and without a peer (direct unit calls) → "unknown", as before.
         assert_eq!(extract_client_ip(&headers, None, &no_trusted), "unknown");
 
@@ -2834,9 +2853,12 @@ mod tests {
             insert_session_capped(&state, format!("s{}", i), entry(3600)).unwrap();
         }
         // At the cap a NEW session is refused with the loud 503 text.
-        let err =
-            insert_session_capped(&state, "overflow".to_string(), entry(3600)).unwrap_err();
-        assert!(err.contains("503"), "refusal must carry 503 semantics: {}", err);
+        let err = insert_session_capped(&state, "overflow".to_string(), entry(3600)).unwrap_err();
+        assert!(
+            err.contains("503"),
+            "refusal must carry 503 semantics: {}",
+            err
+        );
         assert!(err.contains("session store full"));
         // Replacing an EXISTING id stays allowed (updates are not new entries).
         insert_session_capped(&state, "s0".to_string(), entry(3600)).unwrap();
@@ -2847,13 +2869,17 @@ mod tests {
     async fn test_n263_csrf_token_cap_refuses_issuance_with_503() {
         let state = make_test_state().await;
         for i in 0..MAX_CSRF_TOKENS {
-            state
-                .csrf_tokens
-                .insert(format!("t{}", i), ("".to_string(), std::time::Instant::now()));
+            state.csrf_tokens.insert(
+                format!("t{}", i),
+                ("".to_string(), std::time::Instant::now()),
+            );
         }
         let result = issue_csrf_token_capped(&state, "fresh-token", "").await;
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            result.unwrap_err().status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
         let log = state.audit_log.read().await;
         assert!(log.iter().any(|e| e.contains("token store full")));
         drop(log);
@@ -2868,14 +2894,17 @@ mod tests {
     async fn test_n263_sweep_removes_stale_rate_keys_and_expired_sessions() {
         let state = make_test_state().await;
         let now = std::time::Instant::now();
-        let old =
-            now.checked_sub(std::time::Duration::from_secs(RATE_WINDOW_SECS + 30)).unwrap();
+        let old = now
+            .checked_sub(std::time::Duration::from_secs(RATE_WINDOW_SECS + 30))
+            .unwrap();
 
         // rate_limits: a fully-stale key (evicted) vs a live key (kept),
         // plus a half-stale key (stale timestamps trimmed, key stays).
         state.rate_limits.insert("stale-key".to_string(), vec![old]);
         state.rate_limits.insert("live-key".to_string(), vec![now]);
-        state.rate_limits.insert("mixed-key".to_string(), vec![old, now]);
+        state
+            .rate_limits
+            .insert("mixed-key".to_string(), vec![old, now]);
 
         // sessions: expired (evicted) vs live (kept).
         let session_entry = |expired: bool| SessionEntry {
@@ -2891,9 +2920,15 @@ mod tests {
         insert_session_capped(&state, "live-session".to_string(), session_entry(false)).unwrap();
 
         // csrf_tokens: expired (evicted) vs live (kept) — the original №29 behavior.
-        let backdated = now.checked_sub(std::time::Duration::from_secs(901)).unwrap();
-        state.csrf_tokens.insert("expired-token".to_string(), ("".into(), backdated));
-        state.csrf_tokens.insert("live-token".to_string(), ("".into(), now));
+        let backdated = now
+            .checked_sub(std::time::Duration::from_secs(901))
+            .unwrap();
+        state
+            .csrf_tokens
+            .insert("expired-token".to_string(), ("".into(), backdated));
+        state
+            .csrf_tokens
+            .insert("live-token".to_string(), ("".into(), now));
 
         let (csrf, rate_keys, sessions) = sweep_expired_state(&state);
         assert_eq!((csrf, rate_keys, sessions), (1, 1, 1));
@@ -2935,7 +2970,10 @@ mlogserver {
 "#,
         )
         .await;
-        assert_eq!(default_state.rate_limit_per_minute, DEFAULT_RATE_LIMIT_PER_MINUTE);
+        assert_eq!(
+            default_state.rate_limit_per_minute,
+            DEFAULT_RATE_LIMIT_PER_MINUTE
+        );
     }
 
     #[test]

@@ -160,11 +160,11 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Parser | Pest 2.7 PEG grammar (~522 lines, 302 rules) | 2 176 |
 | AST | 33 Declaration variants, 14 Expr, 12 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION, VISION_UNSIGNED_EXPORT, MODEL_WEIGHTS_UNSAFE), SVG XSS lint | 473 |
-| Compiler | Bytecode, 391 builtins indexed | 1 516 |
+| Compiler | Bytecode, 392 builtins indexed | 1 516 |
 | Bytecode format | 46 VM instructions | — |
 | Tree-walking interpreter | Full feature support, 12 modules | ~4 400 |
 | VM | Stack-based bytecode executor | 2 143 |
-| Built-in functions | 391 functions across 37 modules | ~18 000 |
+| Built-in functions | 392 functions across 37 modules | ~18 000 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 2 433 |
 | LLM backend | Trait + mock + real providers | 1 421 |
 | Memory store | Typed memory with FTS5 BM25 + cosine RRF hybrid recall + KV store | 1 540 |
@@ -180,7 +180,7 @@ Metalogos-/
 ├── logo.jpg                          # Brand logo
 ├── README.md                         # This file
 ├── REFERENCE.md                      # Full builtin reference (~84 KB)
-├── CHANGELOG.md                      # Version history (~159 KB)
+├── CHANGELOG.md                      # Version history (~162 KB)
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
 ├── Dockerfile                        # Docker build
@@ -219,7 +219,7 @@ Metalogos-/
 │   │   ├── db.rs                      # SQLite database access
 │   │   └── learnable.rs               # Learnable pattern support
 │   │
-│   └── builtins/                      # 391 built-in functions (37 modules)
+│   └── builtins/                      # 392 built-in functions (37 modules)
 │       ├── mod.rs                     # Builtin dispatch
 │       ├── registry.rs               # BUILTIN_REGISTRY (SSOT for all builtins)
 │       ├── core.rs                    # print, let, type, inspect, sleep
@@ -938,7 +938,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 391 builtins, 70 test files, 212 golden-file examples, 124 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 392 builtins, 71 test files, 212 golden-file examples, 125 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

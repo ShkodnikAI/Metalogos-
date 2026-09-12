@@ -168,7 +168,14 @@ use mcp::*;
 pub(crate) mod memory;
 pub use memory::init_kv_persist;
 use memory::*;
+// Наряд №272 (ADR-0134): векторный контур — embed / vec_store / vec_search.
+// Feature-gate `vec` off-by-default (паттерн candle/vision, ADR-0104);
+// в `portable` включён (ADR-0134 D3).
+#[cfg(feature = "vec")]
+pub(crate) mod vector;
 pub use memory::{reset_session_store, session_key_count, session_store_count};
+#[cfg(feature = "vec")]
+use vector::*;
 pub(crate) mod cron;
 pub use cron::init_reminder_persist;
 use cron::*;

@@ -214,6 +214,14 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("mem_get", 1, "memory"; builtin_mem_get),
     spec!("mem_delete", 1, "memory"; builtin_mem_delete),
     spec!("memorize", 2, 3, "memory"; builtin_kv_set),
+    // Наряд №272 (ADR-0134): векторный контур поверх sqlite-vec — KNN
+    // (distance_metric=cosine), песочница через sandbox_path_ex, dim-гейт.
+    #[cfg(feature = "vec")]
+    spec!("embed", 1, "memory"; builtin_embed),
+    #[cfg(feature = "vec")]
+    spec!("vec_store", 4, "memory"; builtin_vec_store),
+    #[cfg(feature = "vec")]
+    spec!("vec_search", 4, "memory"; builtin_vec_search),
     // recall/forget/find/inspect: planned high-level memory API; no handler (use kv_*/mem_* instead)
     spec!("recall", 0, "stub"),
     spec!("forget", 0, "stub"),

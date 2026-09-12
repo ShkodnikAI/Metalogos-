@@ -84,7 +84,7 @@ $ mlog check api_leak.mlog
 
 **AI-native** — eight semantic primitives (Entity, Pattern, Flow, Memory, Rule, Learn, Adapt, Reflex) make AI operations first-class: learnable patterns teach from examples, Memory combines BM25 + vector search with rank fusion, `adapt` modifies the program's own patterns under a sandbox, Reflex distills LLM teachers into local models.
 
-**MCP-native** — Metalogos speaks the integration standard of 2026-era AI agents in both directions, with the same security gates: the MCP client design is pinned in [ADR-0132](docs/adr/0132-mcp-client.md) (stdio transport, hand-rolled JSON-RPC, exec-gated server spawn, untrusted `UserInput` taint on tool output — the design is under owner review as of this release, the client implementation lands in naryad №268), and the reverse bridge (expose Metalogos `tool` constructs as MCP servers) follows it — [ADR-0054](docs/adr/0054-tool-abstraction.md) §Future Directions.
+**MCP-native** — Metalogos speaks the integration standard of 2026-era AI agents in both directions, with the same security gates: the MCP client design is pinned in [ADR-0132](docs/adr/0132-mcp-client.md) and implemented as two stateless builtins, `mcp_call` / `mcp_list_tools` (Naryad №268) — stdio transport, hand-rolled JSON-RPC, exec-gated server spawn, untrusted `UserInput` taint on tool output; a live security-gate walkthrough is in [Security by Design](#2-security-by-design--zero-configuration). The reverse bridge (expose Metalogos `tool` constructs as MCP servers) follows [ADR-0054](docs/adr/0054-tool-abstraction.md) §Future Directions.
 
 ---
 
@@ -116,6 +116,50 @@ OWASP Top 10 is addressed at the language level through a combination of compile
 - `exec()` / `exec_argv()` in process contexts (`mlog run`, `mlog check`, serve top level) require `METALOGOS_ALLOW_EXEC=1`
 - `exec()` / `exec_argv()` in serve route bodies require `METALOGOS_SERVE_ALLOW_EXEC=1` — route handlers do **not** inherit `METALOGOS_ALLOW_EXEC` (replacement semantics, not AND; Naryad №253 Variant A). The serve banner prints the route-exec state at startup.
 - `env()` in serve route bodies is denied by default with `ENV_NOT_PERMITTED` (Naryad №259) — route code must not read the process's secrets. Escape hatches (alternatives, not AND): `METALOGOS_SERVE_ALLOW_ENV=1` allows all env reads in route bodies, or `METALOGOS_ENV_ALLOWLIST="NAME1,NAME2"` allows exactly the listed names. Outside serve `env()` stays ungated. The serve banner prints the route-env state at startup.
+
+**MCP tool calls** (Naryad №268, [ADR-0132](docs/adr/0132-mcp-client.md)) — `mcp_call` / `mcp_list_tools` spawn a third-party MCP server over stdio and are denied by default with the same gate stack as `exec()`: exec-gate first (`EXEC_NOT_PERMITTED`), then the MCP allowlist `METALOGOS_MCP_ALLOWLIST` (exact `argv[0]` match — unset does not narrow, an empty value denies all MCP, a non-empty list refuses everything else with `MCP_NOT_ALLOWLISTED`). Every permitted spawn lands in the subprocess audit log; per-phase timeout is 30 s by default (`METALOGOS_MCP_TIMEOUT_SECS`, clamped to 1..=300). Tool **output** is untrusted `UserInput` — poisoning a Reflex model with it is rejected statically (below); tool **metadata** (`mcp_list_tools` names/descriptions/schemas) is untainted by design. Live walkthrough from the repo root, against the fixture server shipped with the test suite:
+
+```mlog
+// demo.mlog
+pattern Echo(_: String) -> String {
+  return mcp_call("python3", ["tests/fixtures/mcp_echo_server.py"], "echo", "{\"text\":\"hi\"}")
+}
+
+flow Main {
+  input: String = "" -> Echo -> output
+}
+```
+
+```
+$ mlog run demo.mlog                    # no flags — denied before any server is spawned
+error: [EXEC_NOT_PERMITTED] exec() is disabled by default. Set METALOGOS_ALLOW_EXEC=1 to enable — this applies to mlog run, check, and serve top-level alike. For serve route bodies set METALOGOS_SERVE_ALLOW_EXEC=1 instead (Naryad #253).
+
+$ METALOGOS_ALLOW_EXEC=1 METALOGOS_MCP_ALLOWLIST="uvx" mlog run demo.mlog
+error: [MCP_NOT_ALLOWLISTED] MCP server `python3` is not in METALOGOS_MCP_ALLOWLIST (allowed: uvx)
+
+$ METALOGOS_ALLOW_EXEC=1 METALOGOS_MCP_ALLOWLIST="python3" mlog run demo.mlog
+echo: hi
+```
+
+Real-world servers run the same way — swap the command and args (e.g. `uvx mcp-server-fetch`) and add the command to `METALOGOS_MCP_ALLOWLIST`; servers speaking only the modern protocol revision are out of v1 scope (ADR-0132 D1).
+
+And the static half — the tool output is untrusted input, so using it as Reflex training data is a compile-time refusal, not a runtime surprise:
+
+```mlog
+// poison.mlog — reflex Classifier { ... } declared above the pattern
+pattern Poison(x: String) -> String {
+  let body = mcp_call("python3", ["tests/fixtures/mcp_echo_server.py"], "echo", "{\"text\":\"hi\"}")
+  let data = [[body, 0.0]]
+  reflex_train(Classifier, data, 10.0, "accuracy", 0.5)
+  return "ok"
+}
+```
+
+```
+$ mlog check poison.mlog
+1 error:
+  1: строка 1: [UNTRUSTED_TRAINING_DATA] untrusted user input used as reflex_train data/labels (model poisoning / PII baked into weights)
+```
 
 #### Known boundaries of static analysis
 
@@ -214,7 +258,7 @@ Metalogos-/
 ├── logo.jpg                          # Brand logo
 ├── README.md                         # This file
 ├── REFERENCE.md                      # Full builtin reference (~156 KB) — 100% of the registry (§6 index)
-├── CHANGELOG.md                      # Version history (~180 KB)
+├── CHANGELOG.md                      # Version history (~183 KB)
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
 ├── Dockerfile                        # Docker build

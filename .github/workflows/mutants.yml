@@ -33,7 +33,11 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-mutants
-      - name: Mutants smoke — src/builtins/json.rs (killer: property_json_roundtrip)
+      - name: "Mutants smoke — src/builtins/json.rs (killer: property_json_roundtrip)"
+        # 2026-09-12: имя выше обязано быть В КАВЫЧКАХ — голый `: ` внутри
+        # plain-скаляра (`(killer: ...)`) ломал YAML-парсер GitHub: workflow
+        # регистрировался невалидным (name = путь файла), каждый push давал
+        # красный 0-job прогон, dispatch отвечал 422. Регрессия из #325.
         run: |
           cargo mutants -f src/builtins/json.rs -- --test property_json_roundtrip
       - name: Compute mut-score (trend number for Testing Evidence)

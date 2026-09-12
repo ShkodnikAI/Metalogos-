@@ -201,8 +201,31 @@ impl Interpreter {
                 return router.call(prompt, text, None, None);
             }
         }
-        let backend = llm::create_llm_backend();
-        backend.call(prompt, text)
+        // Наряд №276: legacy fallback traced here (the SmartRouter path
+        // above traces inside SmartRouter::call — one line per actual call).
+        let t0 = std::time::Instant::now();
+        let result = {
+            let backend = llm::create_llm_backend();
+            backend.call(prompt, text)
+        };
+        let mock_mode = std::env::var("METALOGOS_MOCK_LLM")
+            .map(|v| v == "1" || v.to_lowercase() == "true")
+            .unwrap_or(true);
+        crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
+            provider_name: Some(if mock_mode {
+                "mock"
+            } else {
+                llm::provider_env_name()
+            }),
+            model: None,
+            input_tokens: None,
+            output_tokens: None,
+            latency_ms: t0.elapsed().as_millis() as u64,
+            status: if result.is_ok() { "ok" } else { "error" },
+            cache: "miss",
+            provider_alias: None,
+        });
+        result
     }
 
     /// Get conversation history as a formatted string for LLM multi-turn injection.

@@ -61,6 +61,7 @@ The `mlog` binary supports the following commands:
 | Variable | Description |
 |------------|----------|
 | `METALOGOS_LLM_MOCK` | `true` (default) — mocked LLM responses; `false` — real calls |
+| `METALOGOS_LLM_TRACE` | path to a JSONL file — every LLM call (`call_llm`, `call_claude`, `call_llm_schema`, learnables, conversation summaries, `human_respond`) appends one line with OpenTelemetry GenAI semconv fields (`gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`/`output_tokens` when the provider reported them) plus `status`, `cache` (`exact`\|`miss`), `backend` (`tw`\|`vm`), `provider_alias`, `latency_ms`; unset (default) = tracing off. Trace write errors never fail the call (one warning). No rotation — the operator rotates the file (ADR-0138) |
 | `METALOGOS_FORCE_PIPE` | `1` — force piped-mode REPL (for tests) |
 
 ---

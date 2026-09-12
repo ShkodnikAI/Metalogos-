@@ -214,7 +214,7 @@ Metalogos-/
 ├── logo.jpg                          # Brand logo
 ├── README.md                         # This file
 ├── REFERENCE.md                      # Full builtin reference (~152 KB) — 100% of the registry (§6 index)
-├── CHANGELOG.md                      # Version history (~171 KB)
+├── CHANGELOG.md                      # Version history (~174 KB)
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
 ├── Dockerfile                        # Docker build
@@ -972,7 +972,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 394 builtins, 135 test files, 213 example programs, 125 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 394 builtins, 135 test files, 213 example programs, 126 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

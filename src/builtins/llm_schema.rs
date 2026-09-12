@@ -409,16 +409,43 @@ pub(crate) fn builtin_call_llm_schema(args: &[Value]) -> Result<Value, String> {
             // value (unset default / true / 1 / json) yields the deterministic
             // schema-derived instance — a text mock would be a guaranteed loud
             // failure, which helps nobody (ADR-0133 D4).
+            // Наряд №276: non-router paths are traced HERE (one line per actual
+            // provider invocation — a retried schema call produces one trace per
+            // retry); the SmartRouter path traces inside SmartRouter::call.
             let mock_mode = std::env::var("METALOGOS_LLM_MOCK")
                 .map(|v| v != "false" && v != "0")
                 .unwrap_or(true);
+            let t0 = std::time::Instant::now();
             if mock_mode {
-                return serde_json::to_string(&mock_instance_from_schema(&schema))
+                let res = serde_json::to_string(&mock_instance_from_schema(&schema))
                     .map_err(|e| format!("call_llm_schema(): mock generation failed: {}", e));
+                crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
+                    provider_name: Some("mock"),
+                    model: None,
+                    input_tokens: None,
+                    output_tokens: None,
+                    latency_ms: t0.elapsed().as_millis() as u64,
+                    status: if res.is_ok() { "ok" } else { "error" },
+                    cache: "miss",
+                    provider_alias: None,
+                });
+                return res;
             }
-            crate::llm::create_llm_backend()
+            let res = crate::llm::create_llm_backend()
                 .call(p, i)
-                .map_err(|e| format!("call_llm_schema() backend failed: {}", e))
+                .map_err(|e| format!("call_llm_schema() backend failed: {}", e));
+            let model_env = std::env::var("METALOGOS_LLM_MODEL").ok();
+            crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
+                provider_name: Some(crate::llm::provider_env_name()),
+                model: model_env.as_deref(),
+                input_tokens: None,
+                output_tokens: None,
+                latency_ms: t0.elapsed().as_millis() as u64,
+                status: if res.is_ok() { "ok" } else { "error" },
+                cache: "miss",
+                provider_alias: None,
+            });
+            res
         },
     )
 }

@@ -51,7 +51,7 @@ reports and must not be changed:
 | 0022 | JIT Compilation via Cranelift — Phase 4.3 | Accepted |
 | 0023 | Self-Hosting: First Lexer Component (Phase 4.4) | Accepted (implementation pending |
 | 0024 | let bindings + if/else expressions | Accepted |
-| 0025 | Cycles: `each` (data-first) + `while` (fallback) | Accepted |
+| 0025 | Loops: `each` (data-first) + `while` (fallback) | Accepted |
 | 0026 | String Operations as Builtins | Accepted |
 | 0027 | Module System with Namespaces | Accepted |
 | 0028 | HTTP Server with Axum | Accepted |
@@ -126,7 +126,7 @@ reports and must not be changed:
 | 0100 | LSP Position Resolution via Text Search (Variant B) | Accepted |
 | 0101 | Deferred Route Response (post-respond continuation) | Accepted (contract phase |
 | 0102 | Native SVG Graphics & Diagrams | Accepted (MVP scope |
-| 0103 | Idiomatic `#[ignore]` Reasons (Naryad №73 Block 3) | Accepted |
+| 0103 | Idiomatic `#[ignore]` Reasons (Naryad #73 Block 3) | Accepted |
 | 0104 | Cargo feature gating — measured binary impact | Accepted |
 | 0105 | Bytecode VM — experimental scope (not full-language equivalent) | Accepted |
 | 0106 | `Option`/`Result` — not introduced, soft-failure remains the error model | Rejected |
@@ -140,12 +140,16 @@ reports and must not be changed:
 | 0114 | `Value::Reflex` as an opaque handle, not a tensor type | Accepted |
 | 0115 | What "accuracy" means for `Reflex` | Accepted |
 | 0116 | Weight persistence for `Reflex` — SQLite BLOB, not a new file format | Accepted |
-| 0117 | Semantics of distillation — mode switching, backward compatibility | Accepted |
+| 0117 | Semantics of distillation — mode switching, backward compatibility, and why generation stays out of scope | Accepted |
 | 0118 | `candle` as the tensor/autograd dependency for architecture blocks | Accepted |
 | 0119 | Extending the layer abstraction for sequence-processing blocks | Accepted |
 | 0120 | Opening text generation — amends `ADR-0117` §3 by explicit owner decision | Accepted |
-| 0121 | Closing the VM-parity gap for `Reflex` — VM-owned state | Accepted |
+| 0121 | Closing the VM-parity gap for `Reflex` — VM-owned state, not shared `RuntimeContext` | Accepted |
 | 0122 | Vision pillar scope — inference-first over open weights, images before video | Accepted |
 | 0123 | Vision wedge — Z-Image-Turbo primary, FLUX.2 [klein] fallback | Accepted |
-| 0124 | `Value::Vision` as opaque handle + `VisionRegistry` | Accepted |
+| 0124 | `Value::Vision` as opaque handle + `VisionRegistry` — Reflex patterns, VM-owned state | Accepted |
 | 0125 | Provenance and supply-chain gates for generated media | Accepted |
+| 0131 | Stable diagnostic codes for `mlog check` — extending the existing `audit.rs` convention, not a new one | Accepted |
+| 0132 | MCP-клиент — ручной JSON-RPC поверх stdio, stateless, вывод с taint `UserInput` | Accepted (утверждён владельцем 2026-09-12; taint-род вывода MCP |
+| 0133 | `call_llm_schema` — structured LLM output through a hand-rolled JSON-Schema subset validator | Accepted |
+| 0138 | Per-call LLM traces — file-based JSONL with OpenTelemetry GenAI field names | Accepted |

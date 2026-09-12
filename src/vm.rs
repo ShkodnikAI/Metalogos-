@@ -157,8 +157,17 @@ impl Vm {
     /// Execute a compiled program. Returns the flow output (if any),
     /// with mutate log messages prepended if present.
     pub fn run(&mut self, program: Program) -> Result<Option<String>, String> {
-        self.load_program(&program)?;
-        self.execute_main_code(&program)
+        // Наряд №276: LLM traces emitted from builtins during this run carry
+        // backend="vm"; the previous tag is restored on exit (thread pools
+        // reuse threads — a leaked tag would lie about the next program).
+        let prev_tag = crate::llm::set_llm_backend_tag("vm");
+        let load_result = self.load_program(&program);
+        let out = match load_result {
+            Ok(()) => self.execute_main_code(&program),
+            Err(e) => Err(e),
+        };
+        crate::llm::set_llm_backend_tag(prev_tag);
+        out
     }
 
     /// Load program state without executing main_code.
@@ -2823,8 +2832,30 @@ impl Vm {
         };
 
         // Call LLM backend
+        // Наряд №276: legacy VM learnable calls are traced HERE (the
+        // SmartRouter path, when a router is installed, traces inside
+        // SmartRouter::call — one line per actual call, never both).
+        let t0 = std::time::Instant::now();
         let backend = llm::create_llm_backend();
-        let response = backend.call(&effective_prompt, &input)?;
+        let llm_result = backend.call(&effective_prompt, &input);
+        let mock_mode = std::env::var("METALOGOS_MOCK_LLM")
+            .map(|v| v == "1" || v.to_lowercase() == "true")
+            .unwrap_or(true);
+        crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
+            provider_name: Some(if mock_mode {
+                "mock"
+            } else {
+                llm::provider_env_name()
+            }),
+            model: None,
+            input_tokens: None,
+            output_tokens: None,
+            latency_ms: t0.elapsed().as_millis() as u64,
+            status: if llm_result.is_ok() { "ok" } else { "error" },
+            cache: "miss",
+            provider_alias: None,
+        });
+        let response = llm_result?;
 
         // Наряд №205: record (input, output) example for distillation training.
         if info.distill_to.is_some() {
@@ -3251,9 +3282,14 @@ impl Vm {
         route: &CompiledRoute,
         program: &Program,
     ) -> Result<Value, String> {
+        // Наряд №276: same backend tag contract as run() — server VM routes
+        // trace with backend="vm" (each request runs on its own thread).
+        let prev_tag = crate::llm::set_llm_backend_tag("vm");
         let mut stack: Vec<Value> = Vec::new();
         let mut call_stack: Vec<CallFrame> = Vec::new();
-        self.execute_code(&route.code, &mut stack, &mut call_stack, program)
+        let out = self.execute_code(&route.code, &mut stack, &mut call_stack, program);
+        crate::llm::set_llm_backend_tag(prev_tag);
+        out
     }
 
     /// ADR-0089: If confidence < 1.0, wrap a concrete result as Fluid

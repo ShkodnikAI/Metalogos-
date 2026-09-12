@@ -53,6 +53,12 @@ zeroize = "1"
 # Phase 7.4: Real sessions & CSRF
 rusqlite = { version = "0.40", features = ["bundled"] }
 
+# Наряд №271 (SPIKE — ветка не мержится в main, попадает только документ):
+# sqlite-vec 0.1.9 (asg017, MIT) — KNN-ускоритель для semantic recall поверх rusqlite.
+# Статическая регистрация через sqlite3_auto_extension (feature load_extension НЕ нужна).
+# Факты спайка: docs/research/naryad-271-sqlite-vec-spike.md; черновик ADR-0134.
+sqlite-vec = { version = "0.1.9", optional = true }
+
 # Наряд №29 §5.1: Lock-free concurrent HashMap for hot paths
 dashmap = "6.1"
 
@@ -143,6 +149,10 @@ full = ["svg", "chart", "diagram", "template", "llm", "server"]
 # Enable with: cargo build --features candle
 candle = ["dep:candle-core", "dep:candle-nn"]
 
+# Наряд №271 (SPIKE): sqlite-vec extension — KNN поверх SQLite.
+# Спайк-фича: bench + smoke-тест; в src/ кода нет.
+vec = ["dep:sqlite-vec"]
+
 # Optional OCR (pre-existing)
 pdf-ocr = ["tesseract"]
 
@@ -167,7 +177,10 @@ vision = ["candle", "dep:tokenizers", "dep:image"]
 # раннерах — `--all-features` ломал сборку с момента добавления pdf-ocr
 # (наряд №265). ПРАВИЛО: новая фича обязана попасть в `portable` либо
 # документировать платформенное исключение рядом с собой в этом блоке.
-portable = ["full", "candle", "vision"]
+# SPIKE №271: `vec` временно включён в portable ТОЛЬКО на ветке-спайке —
+# даёт кросс-ОС компиляцию C (cc) на macos/windows-check джобах как
+# доказательство «3 ОС без ручных флагов». В main НЕ попадает.
+portable = ["full", "candle", "vision", "vec"]
 
 [dev-dependencies]
 tempfile = "3"

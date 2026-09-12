@@ -152,4 +152,5 @@ reports and must not be changed:
 | 0131 | Stable diagnostic codes for `mlog check` — extending the existing `audit.rs` convention, not a new one | Accepted |
 | 0132 | MCP-клиент — ручной JSON-RPC поверх stdio, stateless, вывод с taint `UserInput` | Accepted (утверждён владельцем 2026-09-12; taint-род вывода MCP |
 | 0133 | `call_llm_schema` — structured LLM output through a hand-rolled JSON-Schema subset validator | Accepted |
+| 0134 | sqlite-vec как KNN-ускоритель semantic recall — вердикт спайка №271: Go | Accepted (вердикт-гейт, решён исполнителем по спайку 2026-09-12) |
 | 0138 | Per-call LLM traces — file-based JSONL with OpenTelemetry GenAI field names | Accepted |

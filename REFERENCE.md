@@ -245,7 +245,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.19):** This section documents **100%** of the 395 registered builtins (395 of 395): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.19):** This section documents **100%** of the 398 registered builtins (398 of 398): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1091,6 +1091,37 @@ pattern Keep(id: Vision, name: String) -> String {
 
 ---
 
+### 4.23. Vector — embeddings and KNN over SQLite (naryad #272, ADR-0134; feature `vec`)
+
+The vector contour lifts the runtime embedding stack (ADR-0040 `EmbeddingManager`) to language level and adds generic KNN builtins over [sqlite-vec](https://github.com/asg017/sqlite-vec) `vec0` virtual tables (ADR-0134: Go verdict of spike №271 — integration contract, 0.15 MB binary delta, KNN 10K×384 4.41 ms, Linux/macOS/Windows verified). The builtins are **domain-agnostic** (FEATURE_INTAKE §4-D): the memory roadmap's Phase 4 (`group_scenarios` / `recall_from_scenario`) consumes them as a foundation but knows nothing about them here.
+
+Feature gate: `vec = ["dep:sqlite-vec"]` — off by default (ADR-0104 measured impact; included in `portable` per ADR-0134 D3, so every cross-OS CI job compiles it). The extension is linked statically and registered per-connection via `sqlite3_auto_extension` — the rusqlite `load_extension` feature is NOT used (spike №271 fact-check).
+
+**Embedding model facts (honest boundaries).** `embed` reuses the process-global `EmbeddingManager` (SSOT — one instance per process, so vectors of different calls are comparable): default backend is the deterministic **TF-IDF** with `dim = max(vocabulary, 256)`; `METALOGOS_EMBEDDING_PROVIDER=openai` + `METALOGOS_EMBEDDING_API_KEY` selects OpenAI `text-embedding-3-small` (`dim 1536`). Determinism: the same call sequence in a process yields the same vectors; TF-IDF statistics (IDF) depend on how many documents were embedded before the current call, and the dimension grows with the vocabulary — the `dimension` field stored per table plus the loud mismatch errors below are the protection against mixing vectors of different models/dimensions.
+
+| Function | Signature | Returns | Description |
+|---|---|---|---|
+| `embed(text)` | `(String) -> List` | `List[Float]` | Embedding of `text` through the process-global manager (see model facts above). No new dependencies — a pure reuse of the ADR-0040 stack. |
+| `vec_store(db_path, table, id, embedding)` | `(String, String, String, List) -> Struct` | `Struct{stored, table, id, dim, rowid}` | Stores `embedding` (a non-empty `List[Float]`) into the `vec0` table `table` of the SQLite file `db_path` (created on demand; the table with a metadata column `id` is created on first store with the dimension fixed from the first vector). `id` is the caller's string key (need not be unique — it is returned as-is by `vec_search`). Loud refusals: a dimension mismatch against the stored table dimension (the error names both numbers — vectors of different models must not be mixed), an empty embedding, a table name outside `[A-Za-z_][A-Za-z0-9_]*` (SQL identifier whitelist — the name is interpolated into DDL), sandbox violations. |
+| `vec_search(db_path, table, query_embedding, k)` | `(String, String, List, Float) -> List` | `List[Struct{id, distance}]` | KNN query (vec0 `distance_metric=cosine`, nearest first) over the stored table; returns at most `k` hits as `{id, distance}` structs. A table that exists but has no rows returns an empty List; a missing table is a loud `not found` error. Loud refusals: dimension mismatch between the query and the stored table, `k <= 0` or non-integer `k`, `k > 10000` (DoS guard), sandbox violations. |
+
+**Sandbox.** `db_path` goes through the file sandbox (`sandbox_path_ex`, naryads №131/№252): absolute paths, `..` traversal and symlink escapes are refused; `vec_store` opens for write, `vec_search` for read (the file must exist). A vector database is a file like any other — it is not a sandbox bypass.
+
+**Example** (round trip, requires `--features vec`):
+
+```mlog
+pattern Ask() -> String {
+  let q  = embed("кот сидит на ковре возле дома")
+  let hits = vec_search("mem.db", "docs", q, 3)
+  let h = hits[0]
+  return h.id
+}
+// vec_store("mem.db", "docs", "doc-1", embed("кот сидит на ковре")) → Struct{stored:1.0, ...}
+// Ask() → "doc-1" — the nearest id; both backends (TW and VM) execute the chain identically
+```
+
+---
+
 ## 5. Top-level declarations
 
 ### 5.1. Pattern (a function)
@@ -1476,7 +1507,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 395 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 398 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENT.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -1751,11 +1782,12 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `sqrt(...)` | 1 | `Float -> Float` | Square root. Soft-failure: `0.0` for `x < 0` |
 | `tanh(...)` | 1 | `Float -> Float` | Hyperbolic tangent. In (−1, 1). `tanh(1000)=1`, `tanh(-1000)=-1` |
 
-### `memory` — 18 builtin(s)
+### `memory` — 21 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
 | `deref(...)` | 1 | — | `deref(hash)` — retrieve content by SHA-256 hash from ref store. |
+| `embed(...)` | 1 | `(String) -> List` | Embedding of `text` through the process-global manager (see model facts above). No new dependencies — a pure reuse of the ADR-0040 stack. |
 | `kv_delete(...)` | 1 | `String -> Unit` | Deletes a key |
 | `kv_exists(...)` | 1 | `String -> Bool` | Checks whether a key exists |
 | `kv_get(...)` | 1 | `String -> String` | Reads a value (an empty string if the key is absent) |
@@ -1773,6 +1805,8 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `session_clear(...)` | variadic | `String -> String` | Deletes all of the session's data. Returns `"ok"` |
 | `session_get(...)` | 1 | `String, String -> String` | Reads a value from the session (an empty string if absent) |
 | `session_set(...)` | 2 | `String, String, String -> String` | Saves a value in the session |
+| `vec_search(...)` | 4 | `(String, String, List, Float) -> List` | KNN query (vec0 `distance_metric=cosine`, nearest first) over the stored table; returns at most `k` hits as `{id, distance}` structs. A table that exists but has no rows returns an empty List; a missing table is a loud `not found` error. Loud refusals: dimension mismatch between the query and the stored table, `k <= 0` or non-integer `k`, `k > 10000` (DoS guard), sandbox violations. |
+| `vec_store(...)` | 4 | `(String, String, String, List) -> Struct` | Stores `embedding` (a non-empty `List[Float]`) into the `vec0` table `table` of the SQLite file `db_path` (created on demand; the table with a metadata column `id` is created on first store with the dimension fixed from the first vector). `id` is the caller's string key (need not be unique — it is returned as-is by `vec_search`). Loud refusals: a dimension mismatch against the stored table dimension (the error names both numbers — vectors of different models must not be mixed), an empty embedding, a table name outside `[A-Za-z_][A-Za-z0-9_]*` (SQL identifier whitelist — the name is interpolated into DDL), sandbox violations. |
 
 ### `mtree` — 5 builtin(s)
 
@@ -1900,7 +1934,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `squeeze(...)` | 2 | — | `squeeze(s, chars)` -- collapse consecutive identical characters from `chars`. |
 | `starts_with(...)` | 2 | `String, String -> Bool` | Checks whether the string starts with a prefix |
 | `str(...)` | 1 | `Any -> String` | Converts any value to a string |
-| `strip(...)` | 2 | — | `strip(s, chars)` -- remove characters from both ends of string. |
+| `strip(...)` | 2 | — | `strip(s, chars)` -- remove characters from both ends of string. Naryad #277 (proptest no-panic): the ends are counted independently, so when the two strips overlap (string fully made of strip-chars, e.g. `strip("&", "Ⱥ&")`), `start > len - end` and the slice PANICKED. The correct contract (same as `str::trim_matches` with a set): both ends consuming the whole string yields the empty string. |
 | `substring(...)` | 3 | `String, Float, Float -> String` | Extracts a substring by character indices. Soft-failure: an empty string on out-of-bounds |
 | `title_case(...)` | 1 | — | `title_case(s)` — uppercases the first character of every word (previous character non-letter acts as the word boundary). |
 | `to_int(...)` | 1 | `String\ | Bool -> Float` |

@@ -31,7 +31,7 @@ thiserror = "2.0"
 
 # Phase 6: Web platform
 axum = { version = "0.8", features = ["macros"], optional = true }
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["full"], optional = true }
 tower = { version = "0.5", optional = true }
 tower-http = { version = "0.7", features = ["cors", "set-header"], optional = true }
 hyper = { version = "1", features = ["full"], optional = true }
@@ -130,7 +130,12 @@ chart = ["svg"]      # charts use shared + polar etc from svg module
 diagram = ["svg"]    # diagrams.rs imports icon_path_data from primitives
 template = []
 llm = []
-server = ["dep:axum", "dep:tower", "dep:tower-http", "dep:hyper"]
+# Naryad #278 (wasm spike): tokio is ONLY needed by the server stack (verified
+# by use-graph: src/server.rs + the cfg(server) cmd_serve runtime in main.rs) —
+# it is now optional behind `server`. Core (parser/compiler/VM) builds without
+# it; clean-build time and dep-graph deltas are recorded in
+# docs/research/naryad-278-wasm-spike.md.
+server = ["dep:axum", "dep:tower", "dep:tower-http", "dep:hyper", "dep:tokio"]
 full = ["svg", "chart", "diagram", "template", "llm", "server"]
 
 # Наряд №183 (ADR-0118): candle for sequence-layer (attention) extension.

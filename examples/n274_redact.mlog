@@ -1,0 +1,11 @@
+// Наряд №274 (ADR-0136): redact — PII/секреты как taint-санитайзер.
+// Контракт: детерминированные типизированные маски, TW/VM parity.
+pattern Main(_input: String) -> String {
+  let a = redact("key sk-proj-abcdefghij1234567890abcd end", "secrets")
+  let b = redact("AKIAIOSFODNN7EXAMPLE", "secrets")
+  let c = redact("mail john.doe@acme.io, +7 926 123-45-67", "pii")
+  let d = redact("card 4111111111111111", "pii")
+  let e = redact("Bearer abcdefgh12345678 now", "all")
+  return a + "|" + b + "|" + c + "|" + d + "|" + e
+}
+flow Main { input: String = "x" -> Main -> output }

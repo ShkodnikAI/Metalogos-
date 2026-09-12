@@ -99,7 +99,7 @@ fn register_vec_extension() {
     });
 }
 
-fn open_vec_db(n: usize) -> (rusqlite::Connection, Vec<f32>) {
+fn open_vec_db(n: usize) -> rusqlite::Connection {
     register_vec_extension();
     let conn = rusqlite::Connection::open_in_memory().expect("open in-memory db");
     conn.execute_batch(&format!(
@@ -128,8 +128,7 @@ fn open_vec_db(n: usize) -> (rusqlite::Connection, Vec<f32>) {
         t0.elapsed(),
         n as f64 / t0.elapsed().as_secs_f64()
     );
-    let query = make_unit_vec(&mut rng);
-    (conn, query)
+    conn
 }
 
 fn full_scan_decode(blobs: &[Vec<u8>], query: &[f32]) -> Vec<f32> {
@@ -162,7 +161,7 @@ fn sqlite_vec_knn(conn: &rusqlite::Connection, query: &[f32]) -> Vec<f64> {
         .prepare("SELECT rowid, distance FROM vec_items WHERE embedding MATCH ?1 AND k = ?2")
         .expect("prepare knn");
     let rows = stmt
-        .query_map(rusqlite::params![embedding_to_blob(query), K], |r| {
+        .query_map(rusqlite::params![embedding_to_blob(query), K as i64], |r| {
             r.get::<_, f64>(1)
         })
         .expect("knn query");
@@ -179,15 +178,17 @@ fn bench_scale(c: &mut Criterion, n: usize, group_prefix: &str) {
         make_unit_vec(&mut qrng)
     };
 
-    let (conn, vec_query) = open_vec_db(n);
+    // ОБА пути используют ОДИН и тот же вектор запроса (урок диагностики:
+    // разные потоки PRNG для bf и vec0 дают несравнимые топы).
+    let conn = open_vec_db(n);
 
     // Верификация топ-1: vec0 KNN должен совпасть с полным сканом
     // (нормированные вектора => ранжирования идентичны).
     let bf_top = full_scan_cosine_only(&vectors, &query);
-    let knn_top = sqlite_vec_knn(&conn, &vec_query);
+    let knn_top = sqlite_vec_knn(&conn, &query);
     assert_eq!(knn_top.len(), K, "vec0 KNN вернул не k строк");
     let bf_best = bf_top[0];
-    let knn_best = 1.0 - knn_top[0]; // cosine distance -> similarity
+    let knn_best = (1.0 - knn_top[0]) as f32; // cosine distance -> similarity
     assert!(
         (bf_best - knn_best).abs() < 1e-4,
         "top-1 расходится: bf={bf_best}, vec={knn_best}"
@@ -206,7 +207,7 @@ fn bench_scale(c: &mut Criterion, n: usize, group_prefix: &str) {
         b.iter(|| full_scan_cosine_only(black_box(&vectors), black_box(&query)))
     });
     group.bench_function("sqlite_vec_knn", |b| {
-        b.iter(|| sqlite_vec_knn(black_box(&conn), black_box(&vec_query)))
+        b.iter(|| sqlite_vec_knn(black_box(&conn), black_box(&query)))
     });
 
     group.finish();

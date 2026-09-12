@@ -193,3 +193,8 @@ proptest = "1"
 [[bench]]
 name = "core_benchmarks"
 harness = false
+
+# Наряд №271 (SPIKE): KNN-бенчмарк sqlite-vec vs полный скан. В main не мержится.
+[[bench]]
+name = "naryad_271_vec_knn"
+harness = false

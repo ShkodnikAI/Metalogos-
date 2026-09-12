@@ -37,3 +37,11 @@ path = "fuzz_targets/fuzz_target_url_decode.rs"
 test = false
 doc = false
 bench = false
+
+# Наряд №274: фаззинг redact (панико-свобода + детерминизм + идемпотентность масок).
+[[bin]]
+name = "fuzz_target_redact"
+path = "fuzz_targets/fuzz_target_redact.rs"
+test = false
+doc = false
+bench = false

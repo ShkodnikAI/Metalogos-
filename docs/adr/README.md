@@ -154,4 +154,5 @@ reports and must not be changed:
 | 0133 | `call_llm_schema` — structured LLM output through a hand-rolled JSON-Schema subset validator | Accepted |
 | 0134 | sqlite-vec как KNN-ускоритель semantic recall — вердикт спайка №271: Go | Accepted (вердикт-гейт, решён исполнителем по спайку 2026-09-12) |
 | 0135 | Semantic cache (cache_semantic) + LRU-граница кэша ADR-0047 | Accepted |
+| 0136 | `redact(text, mode)` — PII/секреты как taint-санитайзер; «mask before sink» — единственный легальный путь снятия `Secret`-taint | Accepted (стоп-гейт СГ-2 утверждён владельцем 2026-09-12) |
 | 0138 | Per-call LLM traces — file-based JSONL with OpenTelemetry GenAI field names | Accepted |

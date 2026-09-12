@@ -144,6 +144,9 @@ pub(crate) mod collections;
 use collections::*;
 pub(crate) mod string;
 use string::*;
+// Наряд №274 (ADR-0136): core-функция маскирования публична для fuzz-цели
+// (конвенция №256) — metalogos::builtins::redact_string.
+pub use string::redact_string;
 pub(crate) mod crypto;
 use crypto::*;
 pub(crate) mod json;

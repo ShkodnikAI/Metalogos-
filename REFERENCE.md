@@ -245,7 +245,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.19):** This section documents **100%** of the 398 registered builtins (398 of 398): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.19):** This section documents **100%** of the 399 registered builtins (399 of 399): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -276,6 +276,7 @@ All built-in functions are registered in a single registry, `BUILTIN_REGISTRY` (
 | `len(s)` | `String\|List -> Float` | Float | Length of a string (characters) or a list (elements) |
 | `escape_html(s)` | `String -> String` | String | Escapes HTML special characters: `& < > " '` |
 | `escape_json(s)` | `String -> String` | String | Escapes JSON special characters: `" \ \n \t \r` |
+| `redact(text, mode)` | `String, String -> String` | String | Masks PII/secrets with deterministic typed masks (`[REDACTED:sk-…abc4]`). mode: `"pii"` (email `***@***.tld`, phone, Luhn-validated cards with vendor, IBAN), `"secrets"` (sk-/AKIA/ghp_ keys, JWT, PEM, Bearer + entropy net: base64/hex runs ≥24 with digit+hex-letter), `"all"`. Unknown mode — loud error. The ONLY builtin whose `"secrets"/"all"` modes clear the `Secret` taint statically — «mask before sink» (ADR-0136); `LlmOutput` is never cleared by redact (only `render`) |
 
 **Examples:**
 ```mlog
@@ -298,6 +299,10 @@ len([1.0, 2.0, 3.0])  // 3.0
 escape_html("<script>alert('xss')</script>")
   // "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;"
 escape_json("hello\"world\n")  // "hello\\\"world\\n"
+redact("key sk-proj-abcdefghij1234567890abcd", "secrets")
+  // "key [REDACTED:sk-…abcd]"
+redact("mail john.doe@acme.io, +7 926 123-45-67", "pii")
+  // "mail ***@***.io, [REDACTED:phone]"
 ```
 
 ### 4.2. Numbers and math
@@ -1509,7 +1514,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 398 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 399 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENT.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -1900,7 +1905,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `__split(...)` | 2 | — | `__split(s, sep)` — std-library primitive behind the std/string `split` wrapper: splits on the separator into a List of strings. |
 | `__trim(...)` | 1 | — | `__trim(s)` — std-library primitive behind the std/string `trim` wrapper: strips leading and trailing whitespace. The `__` prefix marks a primitive used by `std/*.mlog` pattern wrappers (prefer the wrapper in user code). |
 
-### `string` — 45 builtin(s)
+### `string` — 46 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -1925,6 +1930,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `lower(...)` | 1 | `String -> String` | Converts a string to lowercase |
 | `pad_left(...)` | 3 | — | `pad_left(s, n, fill)` -- left-pad string with fill character to length n. |
 | `pad_right(...)` | 3 | — | `pad_right(s, n, fill)` -- right-pad string with fill character to length n. |
+| `redact(...)` | 2 | `String, String -> String` | Masks PII/secrets with deterministic typed masks (`[REDACTED:sk-…abc4]`). mode: `"pii"` (email `***@***.tld`, phone, Luhn-validated cards with vendor, IBAN), `"secrets"` (sk-/AKIA/ghp_ keys, JWT, PEM, Bearer + entropy net: base64/hex runs ≥24 with digit+hex-letter), `"all"`. Unknown mode — loud error. The ONLY builtin whose `"secrets"/"all"` modes clear the `Secret` taint statically — «mask before sink» (ADR-0136); `LlmOutput` is never cleared by redact (only `render`) |
 | `regex_captures(...)` | 2 | — | `regex_captures(pattern, text)` → List |
 | `regex_match(...)` | 2 | — | `regex_match(pattern, text)` → Bool |
 | `regex_replace(...)` | 3 | — | `regex_replace(pattern, text, replacement)` → String |

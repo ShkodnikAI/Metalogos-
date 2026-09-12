@@ -1,0 +1,73 @@
+# Наряд №277: cargo-mutants smoke — мутационное тестирование одного модуля
+# с плотной логикой (src/builtins/json.rs), как источник mut-score тренда
+# для грантовых заявок (Testing Evidence).
+#
+# НЕ блокирующий и НЕ входящий в PR-прогон: schedule (еженедельно) +
+# ручной dispatch. Schedule-прогоны не создают check-runs на PR, поэтому
+# число блокирующих проверок (15) не меняется — тот же принцип, что у
+# fuzz-smoke (наряд №256).
+#
+# Выбор модуля: json.rs — плотная escaping/парсинг/навигация логика, а
+# killer-тестом служит property_json_roundtrip (наряд №277): roundtrip-
+# свойства ловят подавляющее большинство мутаций сериализации. Варианты
+# из постановки отклонены честно: src/audit.rs (3232 строки) и
+# src/builtins/string.rs (905 строк) дают слишком долгий недельный прогон
+# (часы) без роста ценности smoke-контракта; см. testing-evidence.md.
+
+name: Mutants
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # понедельник 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  mutants-smoke:
+    name: mutants-smoke (non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants
+      - name: Mutants smoke — src/builtins/json.rs (killer: property_json_roundtrip)
+        run: |
+          cargo mutants -f src/builtins/json.rs -- --test property_json_roundtrip
+      - name: Compute mut-score (trend number for Testing Evidence)
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          p = pathlib.Path("mutants.out/outcomes.json")
+          if not p.exists():
+              print("no mutants.out/outcomes.json — job timed out before first mutant")
+              raise SystemExit(0)
+          outcomes = json.loads(p.read_text())
+          counts = {}
+          for o in outcomes:
+              k = (o.get("summary") or {}).get("outcome") or "Unknown"
+              counts[k] = counts.get(k, 0) + 1
+          caught = counts.get("Caught", 0)
+          missed = counts.get("Missed", 0)
+          timeout = counts.get("Timeout", 0)
+          unviable = counts.get("Unviable", 0)
+          denom = caught + missed + timeout
+          score = (caught / denom * 100.0) if denom else 0.0
+          print(f"mut-score: {score:.1f}% ({caught}/{denom} killed)")
+          print(f"breakdown: {counts}")
+          pathlib.Path("mut-score.txt").write_text(
+              f"mut-score {score:.1f}% ({caught}/{denom} killed), timeouts={timeout}, unviable={unviable}\n"
+          )
+          PY
+      - name: Upload mutants.out artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutants-out-json
+          path: |
+            mutants.out/
+            mut-score.txt
+          if-no-files-found: ignore

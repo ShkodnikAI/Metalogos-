@@ -169,6 +169,8 @@ tempfile = "3"
 serial_test = "4"
 criterion = { version = "0.8", features = ["html_reports"] }
 regex = "1"
+# Naryad #277: property-based tests (Testing Evidence for grant applications).
+proptest = "1"
 
 [[bench]]
 name = "core_benchmarks"

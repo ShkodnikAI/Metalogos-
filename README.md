@@ -235,7 +235,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 
 | Component | Technology | Lines |
 |---|---|---|
-| Parser | Pest 2.7 PEG grammar (~522 lines, 302 rules) | 2 176 |
+| Parser | Pest 2.7 PEG grammar (~533 lines, 304 rules) | 2 176 |
 | AST | 33 Declaration variants, 14 Expr, 12 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION, VISION_UNSIGNED_EXPORT, MODEL_WEIGHTS_UNSAFE), SVG XSS lint | 473 |
 | Compiler | Bytecode, 398 builtins indexed | 1 516 |
@@ -258,7 +258,7 @@ Metalogos-/
 ├── logo.jpg                          # Brand logo
 ├── README.md                         # This file
 ├── REFERENCE.md                      # Full builtin reference (~162 KB) — 100% of the registry (§6 index)
-├── CHANGELOG.md                      # Version history (~187 KB)
+├── CHANGELOG.md                      # Version history (~189 KB)
 ├── AI_USAGE.md                       # Disclosure: how generative AI is used in this project's development
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
@@ -1017,7 +1017,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 398 builtins, 136 test files, 213 example programs, 127 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 398 builtins, 137 test files, 213 example programs, 128 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

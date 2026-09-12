@@ -61,7 +61,7 @@ The `mlog` binary supports the following commands:
 | Variable | Description |
 |------------|----------|
 | `METALOGOS_LLM_MOCK` | `true` (default) — mocked LLM responses; `false` — real calls |
-| `METALOGOS_LLM_TRACE` | path to a JSONL file — every LLM call (`call_llm`, `call_claude`, `call_llm_schema`, learnables, conversation summaries, `human_respond`) appends one line with OpenTelemetry GenAI semconv fields (`gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`/`output_tokens` when the provider reported them) plus `status`, `cache` (`exact`\|`miss`), `backend` (`tw`\|`vm`), `provider_alias`, `latency_ms`; unset (default) = tracing off. Trace write errors never fail the call (one warning). No rotation — the operator rotates the file (ADR-0138) |
+| `METALOGOS_LLM_TRACE` | path to a JSONL file — every LLM call (`call_llm`, `call_claude`, `call_llm_schema`, learnables, conversation summaries, `human_respond`) appends one line with OpenTelemetry GenAI semconv fields (`gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`/`output_tokens` when the provider reported them) plus `status`, `cache` (`exact`\|`semantic`\|`miss`), `backend` (`tw`\|`vm`), `provider_alias`, `latency_ms`; unset (default) = tracing off. Trace write errors never fail the call (one warning). No rotation — the operator rotates the file (ADR-0138) |
 | `METALOGOS_TTS_API_KEY` | API key for speech synthesis (`tts_generate`/`tts_send`); falls back to `OPENAI_API_KEY` when unset |
 | `METALOGOS_TTS_BASE_URL` | base URL override for speech synthesis (default `https://api.openai.com/v1`; `/audio/speech` appended) — mock servers / self-host proxies (Naryad #279) |
 | `METALOGOS_STT_BASE_URL` | base URL override for transcription (`whisper_transcribe`; provider default, `/audio/transcriptions` appended) — mock servers / self-host proxies (Naryad #279) |
@@ -387,7 +387,7 @@ let ranked = sort_by(paired, "b", 1.0)
 |---------|-----------|---------|----------|
 | `call_llm(prompt, input)` | `String, String -> String` | String | Calls the LLM backend. By default returns a mock: `"[MOCK: prompt \| input]"`. A real call happens when `METALOGOS_LLM_MOCK=false` |
 | `call_claude(api_key, model, system_prompt, user_message)` | `String, String, String, String -> String` | String | A direct call to the Anthropic Claude Messages API (v1/messages). Returns `content[0].text` |
-| `llm_usage()` | `-> Struct` | Struct `{LlmUsage}` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
+| `llm_usage()` | `-> Struct` | Struct `{LlmUsage}` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `cache_hits_semantic` (№273/ADR-0135), `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
 | `call_llm_schema(prompt, schema_json)` / `call_llm_schema(prompt, input, schema_json)` | `String, String[, String] -> Struct` | Struct `{Dict}` | Calls the LLM backend and requires the answer to be a single JSON value conforming to the schema. Supported schema subset (ADR-0133): `type`, `properties`, `required`, `items`, `enum`; annotation keywords (`title`, `description`, `$schema`, ...) are ignored; any other keyword is a loud `LLM_SCHEMA_UNSUPPORTED_FEATURE`. Answer fields beyond `properties` are rejected (strict-by-default). The result is a `Dict` Struct usable with `json_get`/`has_field`/`dict_*`. Parse/validation failures (including max_tokens truncation) are loud `LLM_SCHEMA_MISMATCH` and retry up to `METALOGOS_LLM_SCHEMA_RETRIES` (default 2, cap 10) with the validator report fed back into the prompt. Mock tier returns a deterministic minimal instance derived from the schema (default mock settings; `METALOGOS_LLM_MOCK=json` documents the intent explicitly) |
 | `confidence(fluid_value)` | `Fluid -> Float` | Float | Returns the maximum confidence of the probabilistic type. Returns `1.0` for concrete values |
 
@@ -1143,6 +1143,8 @@ learnable pattern Classify(text: String) -> Category {
   max_tokens: 100
   cache: true
   cache_ttl: 5.0 minutes
+  cache_semantic: true      // №273/ADR-0135: semantic hits on exact-hash miss (requires persist)
+  cache_threshold: 0.92     // cosine threshold, (0, 1], default 0.92
   max_context_tokens: 4000
 }
 ```
@@ -1761,7 +1763,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `call_claude(...)` | 4 | `String, String, String, String -> String` | A direct call to the Anthropic Claude Messages API (v1/messages). Returns `content[0].text` |
 | `call_llm(...)` | 1..2 | `String, String -> String` | Calls the LLM backend. By default returns a mock: `"[MOCK: prompt \ |
 | `call_llm_schema(...)` | 2..3 | `String, String[, String] -> Struct` | Calls the LLM backend and requires the answer to be a single JSON value conforming to the schema. Supported schema subset (ADR-0133): `type`, `properties`, `required`, `items`, `enum`; annotation keywords (`title`, `description`, `$schema`, ...) are ignored; any other keyword is a loud `LLM_SCHEMA_UNSUPPORTED_FEATURE`. Answer fields beyond `properties` are rejected (strict-by-default). The result is a `Dict` Struct usable with `json_get`/`has_field`/`dict_*`. Parse/validation failures (including max_tokens truncation) are loud `LLM_SCHEMA_MISMATCH` and retry up to `METALOGOS_LLM_SCHEMA_RETRIES` (default 2, cap 10) with the validator report fed back into the prompt. Mock tier returns a deterministic minimal instance derived from the schema (default mock settings; `METALOGOS_LLM_MOCK=json` documents the intent explicitly) |
-| `llm_usage(...)` | variadic | `-> Struct` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
+| `llm_usage(...)` | variadic | `-> Struct` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `cache_hits_semantic` (№273/ADR-0135), `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
 
 ### `math` — 14 builtin(s)
 

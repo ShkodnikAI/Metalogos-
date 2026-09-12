@@ -25,6 +25,8 @@ fn make_model_learnable_decl(name: &str, prompt: &str, model: Option<&str>) -> D
         max_tokens: None,
         cache: false,
         cache_ttl: 3600,
+        cache_semantic: false,
+        cache_threshold: 0.92,
         model: model.map(String::from),
         conversation: None,
         context_strategy: metalogos::ast::ContextStrategy::None,

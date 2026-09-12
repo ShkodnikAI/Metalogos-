@@ -177,6 +177,10 @@ pub(crate) fn builtin_llm_usage(_args: &[Value]) -> Result<Value, String> {
         "total_errors".to_string(),
         Value::Float(report.total_errors),
     );
+    fields.insert(
+        "cache_hits_semantic".to_string(),
+        Value::Float(report.cache_hits_semantic),
+    );
 
     let providers: Vec<Value> = report
         .providers

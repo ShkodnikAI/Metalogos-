@@ -217,7 +217,7 @@ learnable_pattern_decl = { LEARNABLE_KW ~ "pattern" ~ IDENT ~ "(" ~ params? ~ ")
 // in ANY order relative to each other (not in the rigid pre-existing sequence).
 // The pre-existing 8 fields are NOT reordered in this naryad — only the 3 new
 // ones avoid compounding the known ordering rigidity flagged by ADR-0114.
-learnable_body = { prompt_line* ~ context_line? ~ context_strategy_line? ~ conversation_line? ~ model_line? ~ max_tokens_line? ~ cache_line? ~ cache_ttl_line? ~ max_context_tokens_line? ~ distill_field* }
+learnable_body = { prompt_line* ~ context_line? ~ context_strategy_line? ~ conversation_line? ~ model_line? ~ max_tokens_line? ~ cache_line? ~ cache_ttl_line? ~ cache_semantic_line? ~ cache_threshold_line? ~ max_context_tokens_line? ~ distill_field* }
 prompt_line    = { "prompt" ~ COLON ~ expression }
 context_line   = _{ context_recall_line | context_auto_line | context_none_line | context_literal_line }
 context_strategy_line = { "context_strategy" ~ COLON ~ context_strategy_value }
@@ -231,6 +231,9 @@ model_line    = { "model" ~ COLON ~ expression }
 max_tokens_line = { "max_tokens" ~ COLON ~ expression }
 cache_line    = { "cache" ~ COLON ~ BOOL_LITERAL }
 cache_ttl_line = { "cache_ttl" ~ COLON ~ expression ~ DOT_CHAR ~ IDENT }
+// Наряд №273 (ADR-0135): semantic cache over the exact-hash miss path.
+cache_semantic_line = { "cache_semantic" ~ COLON ~ BOOL_LITERAL }
+cache_threshold_line = { "cache_threshold" ~ COLON ~ FLOAT_LITERAL }
 max_context_tokens_line = { "max_context_tokens" ~ COLON ~ INT }
 
 // ── Наряд №181 (ADR-0117): distillation fields for learnable patterns ──

@@ -465,6 +465,11 @@ pub(crate) fn builtin_squeeze(args: &[Value]) -> Result<Value, String> {
 }
 
 /// `strip(s, chars)` -- remove characters from both ends of string.
+/// Naryad #277 (proptest no-panic): the ends are counted independently, so
+/// when the two strips overlap (string fully made of strip-chars, e.g.
+/// `strip("&", "Ⱥ&")`), `start > len - end` and the slice PANICKED. The
+/// correct contract (same as `str::trim_matches` with a set): both ends
+/// consuming the whole string yields the empty string.
 pub(crate) fn builtin_strip(args: &[Value]) -> Result<Value, String> {
     let s = expect_string_arg("strip", args, 0)?;
     let chars = expect_string_arg("strip", args, 1)?;
@@ -475,9 +480,13 @@ pub(crate) fn builtin_strip(args: &[Value]) -> Result<Value, String> {
     let start = s.chars().take_while(|c| char_set.contains(c)).count();
     let end = s.chars().rev().take_while(|c| char_set.contains(c)).count();
     let s_chars: Vec<char> = s.chars().collect();
-    let trimmed: String = s_chars[start..s_chars.len().saturating_sub(end)]
-        .iter()
-        .collect();
+    let total = s_chars.len();
+    let end_idx = total.saturating_sub(end);
+    if start >= end_idx {
+        // Both ends met (or crossed) — everything was stripped.
+        return Ok(Value::String(String::new()));
+    }
+    let trimmed: String = s_chars[start..end_idx].iter().collect();
     Ok(Value::String(trimmed))
 }
 

@@ -214,7 +214,7 @@ Metalogos-/
 ├── logo.jpg                          # Brand logo
 ├── README.md                         # This file
 ├── REFERENCE.md                      # Full builtin reference (~156 KB) — 100% of the registry (§6 index)
-├── CHANGELOG.md                      # Version history (~177 KB)
+├── CHANGELOG.md                      # Version history (~180 KB)
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
 ├── Dockerfile                        # Docker build

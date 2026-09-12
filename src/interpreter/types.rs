@@ -35,6 +35,11 @@ pub struct CompiledLearnable {
     pub cache: bool,
     /// Cache time-to-live in seconds. Default 3600 (1 hour).
     pub cache_ttl: u64,
+    /// Наряд №273 (ADR-0135): semantic cache on the exact-hash miss path.
+    /// Requires persistence — without it, a loud config error at first call.
+    pub cache_semantic: bool,
+    /// Наряд №273 (ADR-0135): cosine threshold (0 < t <= 1, default 0.92).
+    pub cache_threshold: f64,
     /// Optional per-pattern model override (ADR-0048).
     /// When set, passed to the LLM backend instead of the global model.
     pub model: Option<String>,

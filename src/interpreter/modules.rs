@@ -123,6 +123,8 @@ impl Interpreter {
                             max_tokens: lp.max_tokens,
                             cache: lp.cache,
                             cache_ttl: lp.cache_ttl,
+                            cache_semantic: lp.cache_semantic,
+                            cache_threshold: lp.cache_threshold,
                             model: lp.model.clone(),
                             conversation: lp.conversation.clone(),
                             distill,

@@ -1205,6 +1205,15 @@ pub struct LearnablePatternDecl {
     pub cache: bool,
     /// Cache time-to-live in seconds. Default 3600 (1 hour) when cache is enabled.
     pub cache_ttl: u64,
+    /// Наряд №273 (ADR-0135): semantic cache — on an exact-hash miss, embed the
+    /// input and hit the cached response whose stored embedding is cosine-close
+    /// (≥ cache_threshold). Requires persistence (loud config error otherwise):
+    /// in-memory vectors are deliberately not kept. Default false —
+    /// back-compatible with ADR-0047.
+    pub cache_semantic: bool,
+    /// Наряд №273 (ADR-0135): cosine threshold for cache_semantic hits.
+    /// Default 0.92 — deliberately high (false-hit anti-risk); 0 < t <= 1.
+    pub cache_threshold: f64,
     /// Optional per-pattern model override (ADR-0048).
     /// When set, this model name is passed to the LLM backend instead of
     /// the global METALOGOS_LLM_MODEL. Used for cost-aware routing.

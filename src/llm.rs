@@ -764,6 +764,7 @@ pub fn global_llm_usage_report() -> LlmUsageReport {
             total_calls: 0.0,
             total_tokens: 0.0,
             total_errors: 0.0,
+            cache_hits_semantic: 0.0,
             providers: Vec::new(),
         }
     }
@@ -1244,6 +1245,8 @@ impl LlmUsageTracker {
             total_calls: total_calls as f64,
             total_tokens: total_tokens as f64,
             total_errors: total_errors as f64,
+            cache_hits_semantic: CACHE_HITS_SEMANTIC.load(std::sync::atomic::Ordering::Relaxed)
+                as f64,
             providers: provider_reports,
         }
     }
@@ -1255,7 +1258,20 @@ pub struct LlmUsageReport {
     pub total_calls: f64,
     pub total_tokens: f64,
     pub total_errors: f64,
+    /// Наряд №273: semantic cache hits (cosine ≥ threshold, ADR-0135).
+    pub cache_hits_semantic: f64,
     pub providers: Vec<ProviderUsage>,
+}
+
+/// Наряд №273 (ADR-0135): global semantic-cache hit counter — observed
+/// via llm_usage().cache_hits_semantic (exact hits are counted by the
+/// existing total_calls-exempt exact path of ADR-0047; the semantic hit
+/// gets its own counter for honest observability).
+pub static CACHE_HITS_SEMANTIC: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Record one semantic cache hit (learnable cache_semantic contour).
+pub fn record_cache_hit_semantic() {
+    CACHE_HITS_SEMANTIC.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Smart LLM router: wraps multiple providers with failover, circuit breaker, health tracking.

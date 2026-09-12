@@ -162,6 +162,16 @@ pub(crate) fn builtin_embed(args: &[Value]) -> Result<Value, String> {
     ))
 }
 
+/// Процесс-глобальный эмбеддинг-хелпер для не-билтиновых потребителей
+/// (наряд №273: semantic cache в learnable-контуре) — тот же SSOT-менеджер,
+/// что и у билтина `embed` (векторы сравнимы по определению).
+pub(crate) fn embed_text(text: &str) -> Result<Vec<f32>, String> {
+    let manager = EMBEDDING_MANAGER
+        .lock()
+        .map_err(|_| "embedding manager poisoned".to_string())?;
+    manager.embed(text)
+}
+
 // ── vec_store / vec_search ─────────────────────────────────────────
 
 /// Метаданные размерности по таблицам: vec_meta(table, dim). vec0

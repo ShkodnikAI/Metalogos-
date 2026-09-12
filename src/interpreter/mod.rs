@@ -64,6 +64,10 @@ struct LlmCacheEntry {
     created_at: i64,
     /// Time-to-live in seconds.
     ttl: u64,
+    /// Наряд №273: monotonic recency stamp for LRU eviction (in-memory only;
+    /// the SQLite llm_cache table is unchanged — ADR-0047 surface untouched).
+    #[serde(default)]
+    last_used: u64,
 }
 
 /// ADR-0056: Serialized checkpoint data for flow lifecycle control.
@@ -466,6 +470,8 @@ impl Interpreter {
                 max_tokens: None,
                 cache: false,
                 cache_ttl: 3600,
+                cache_semantic: false,
+                cache_threshold: 0.92,
                 model: None,
                 conversation: None,
                 // Наряд №181: serialization back to source — only used by

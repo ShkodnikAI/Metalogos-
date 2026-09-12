@@ -247,6 +247,8 @@ fn make_cached_learnable(name: &str) -> Declaration {
         max_tokens: None,
         cache: true,
         cache_ttl: 3600,
+        cache_semantic: false,
+        cache_threshold: 0.92,
         model: None,
         conversation: None,
         distill_to: None,

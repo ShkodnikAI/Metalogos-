@@ -28,6 +28,8 @@ fn make_cached_learnable_decl(name: &str, prompt: &str, cache: bool, ttl: u64) -
         max_tokens: None,
         cache,
         cache_ttl: ttl,
+        cache_semantic: false,
+        cache_threshold: 0.92,
         model: None,
         conversation: None,
         // Наряд №181: distillation fields default to None (no distill).

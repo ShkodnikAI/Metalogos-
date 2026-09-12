@@ -1420,6 +1420,8 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
     let mut max_tokens: Option<u32> = None;
     let mut cache = false;
     let mut cache_ttl: u64 = 3600; // default 1 hour
+    let mut cache_semantic = false;
+    let mut cache_threshold = 0.92f64; // ADR-0135: deliberately high default
     let mut conversation: Option<String> = None;
     let mut context_strategy: ContextStrategy = ContextStrategy::None;
     let mut max_context_tokens: usize = 2000; // default 2000
@@ -1555,6 +1557,55 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
             if let Some(colon_pos) = c_str.find(':') {
                 let val_str = c_str[colon_pos + 1..].trim();
                 cache = val_str == "true";
+            }
+        }
+
+        // Extract cache_semantic: true/false (Наряд №273, ADR-0135)
+        if let Some(sem_pair) = body_children
+            .iter()
+            .find(|c| c.as_rule() == Rule::cache_semantic_line)
+        {
+            let sem_children = children_of(sem_pair);
+            // cache_semantic_line = { "cache_semantic" ~ ":" ~ BOOL_LITERAL }
+            let val_str = sem_children
+                .iter()
+                .filter(|c| c.as_rule() == Rule::BOOL_LITERAL)
+                .map(|c| pair_str(c))
+                .next()
+                .unwrap_or_default();
+            cache_semantic = val_str == "true";
+        }
+
+        // Extract cache_threshold: 0.92 (Наряд №273, ADR-0135)
+        if let Some(thr_pair) = body_children
+            .iter()
+            .find(|c| c.as_rule() == Rule::cache_threshold_line)
+        {
+            let thr_children = children_of(thr_pair);
+            // cache_threshold_line = { "cache_threshold" ~ ":" ~ FLOAT_LITERAL }
+            let val_str = thr_children
+                .iter()
+                .filter(|c| c.as_rule() == Rule::FLOAT_LITERAL)
+                .map(|c| pair_str(c))
+                .next()
+                .unwrap_or_default();
+            match val_str.parse::<f64>() {
+                Ok(v) if v > 0.0 && v <= 1.0 => cache_threshold = v,
+                Ok(v) => {
+                    return Err(pair_error(
+                        thr_pair,
+                        &format!(
+                            "cache_threshold must be in (0, 1], got {} — a wrong threshold either never hits or always hits",
+                            v
+                        ),
+                    ))
+                }
+                Err(e) => {
+                    return Err(pair_error(
+                        thr_pair,
+                        &format!("cache_threshold: cannot parse '{}' as a float: {}", val_str, e),
+                    ))
+                }
             }
         }
 
@@ -1703,6 +1754,8 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
             max_tokens,
             cache,
             cache_ttl,
+            cache_semantic,
+            cache_threshold,
             conversation,
             distill_to: distill_to_for_decl,
             distill_after,
@@ -1722,6 +1775,8 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
             max_tokens,
             cache,
             cache_ttl,
+            cache_semantic,
+            cache_threshold,
             conversation,
             distill_to: None,
             distill_after: 0,

@@ -68,3 +68,5 @@ learnable pattern Translate(text: String) -> String {
 - **Positive**: Eliminates redundant LLM calls for repeated inputs. Reduces latency (instant cache hit vs network round-trip) and cost (fewer API tokens consumed). SQLite persistence enables cross-restart caching.
 - **Negative**: In-memory cache grows without bound (no eviction policy beyond TTL). For very large caches, memory usage could become significant. A future enhancement could add a max-entries LRU eviction.
 - **Neutral**: The SQLite `llm_cache` table is created lazily on first cache write. If persistence is not enabled, no SQLite overhead occurs.
+
+> **Update (Наряд №273, ADR-0135, 2026-09-12):** the "grows without bound" negative above is closed — the in-memory cache is bounded by LRU (`METALOGOS_LLM_CACHE_MAX`, default 1000, evict-by-recency-of-use), and the semantic-miss limitation gains the opt-in `cache_semantic` contour (per-pattern, threshold-gated, SQLite-persisted vectors only). The exact-hash-first check order of this ADR is preserved.

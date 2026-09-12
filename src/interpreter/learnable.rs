@@ -330,6 +330,51 @@ impl Interpreter {
             }
         }
 
+        // Наряд №273 (ADR-0135): semantic cache probe — only on the exact-hash
+        // miss path (ADR-0047 order preserved: few-shot → exact → semantic → LLM).
+        // Requires persistence: in-memory vectors are deliberately not kept
+        // (memory/correctness) — without persist this is a loud config error.
+        #[cfg(feature = "vec")]
+        let mut semantic_embedding: Option<Vec<f32>> = None;
+        #[cfg(not(feature = "vec"))]
+        #[allow(unused_variables)]
+        let semantic_embedding: Option<Vec<f32>> = None;
+        #[cfg(feature = "vec")]
+        if learnable.cache_semantic {
+            match self.llm_semantic_probe(learnable, &input)? {
+                (Some(hit), _) => {
+                    // Semantic hit — return cached response without calling LLM.
+                    // Наряд №276 symmetry: trace latency measures the lookup.
+                    let t_lookup = std::time::Instant::now();
+                    self.record_pattern_call(pattern_name, true);
+                    crate::llm::record_cache_hit_semantic();
+                    crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
+                        provider_name: None,
+                        model: None,
+                        input_tokens: None,
+                        output_tokens: None,
+                        latency_ms: t_lookup.elapsed().as_millis() as u64,
+                        status: "ok",
+                        cache: "semantic",
+                        provider_alias: None,
+                    });
+                    return hit;
+                }
+                (None, emb) => {
+                    semantic_embedding = emb;
+                }
+            }
+        }
+        // Without the `vec` feature the semantic contour cannot embed at all —
+        // a program asking for cache_semantic gets a loud refusal, not silence.
+        #[cfg(not(feature = "vec"))]
+        if learnable.cache_semantic {
+            return Err(
+                "cache_semantic: true requires the `vec` feature (embeddings + sqlite-vec, ADR-0135) — rebuild with --features vec"
+                    .to_string(),
+            );
+        }
+
         // No few-shot match — call LLM backend
         // Наряд №4: Use SmartRouter if llm config is present, otherwise legacy backend
         let resolved_model = learnable
@@ -368,6 +413,7 @@ impl Interpreter {
                 response: response.clone(),
                 created_at: now,
                 ttl: learnable.cache_ttl,
+                last_used: Self::next_recency(),
             };
             let mut cache = self
                 .llm_cache
@@ -376,6 +422,18 @@ impl Interpreter {
             // Persist before inserting (entry is moved into cache.insert)
             self.llm_cache_persist(&cache_key, &entry);
             cache.insert(cache_key, entry);
+            // Наряд №273: LRU eviction closes the ADR-0047 negative
+            // ("grows without bound") — evict the least recently USED entry
+            // (use = get-hit or insert), not the oldest.
+            Self::evict_lru(&mut cache);
+        }
+
+        // Наряд №273 (ADR-0135): store the response + input embedding for the
+        // semantic contour (independent of the exact `cache` flag).
+        #[cfg(feature = "vec")]
+        if let Some(emb) = semantic_embedding {
+            let cache_key = self.compute_cache_key(&effective_prompt, &input);
+            self.llm_semantic_store(&cache_key, &response, &emb, learnable);
         }
 
         // Try to parse JSON response into Value::Struct
@@ -815,6 +873,215 @@ impl Interpreter {
     }
 
     /// ADR-0047: Compute a cache key from prompt + input using simple SipHash.
+    /// Наряд №273: process-global recency counter for LRU stamps.
+    fn next_recency() -> u64 {
+        use std::sync::atomic::Ordering;
+        static RECENCY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        RECENCY.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Наряд №273: in-memory cache bound (LRU). Env `METALOGOS_LLM_CACHE_MAX`
+    /// overrides; default 1000; invalid/non-positive values fall back to the
+    /// default (a silent env typo must not disable the bound).
+    fn llm_cache_max_entries() -> usize {
+        const DEFAULT_MAX: usize = 1000;
+        match std::env::var("METALOGOS_LLM_CACHE_MAX") {
+            Ok(v) => match v.trim().parse::<usize>() {
+                Ok(n) if n > 0 => n,
+                _ => {
+                    eprintln!(
+                        "[llm_cache] METALOGOS_LLM_CACHE_MAX='{}' is not a positive integer — using default {}",
+                        v, DEFAULT_MAX
+                    );
+                    DEFAULT_MAX
+                }
+            },
+            Err(_) => DEFAULT_MAX,
+        }
+    }
+
+    /// Наряд №273: evict least-recently-used entries until len <= max.
+    fn evict_lru(cache: &mut std::collections::HashMap<u64, LlmCacheEntry>) {
+        let max = Self::llm_cache_max_entries();
+        while cache.len() > max {
+            let victim = cache
+                .iter()
+                .min_by_key(|(_, e)| e.last_used)
+                .map(|(k, _)| *k);
+            match victim {
+                Some(k) => {
+                    cache.remove(&k);
+                }
+                None => break,
+            }
+        }
+    }
+
+    #[cfg(feature = "vec")]
+    /// Наряд №273 (ADR-0135): semantic probe on the exact-hash miss path.
+    /// Returns (hit, embedding-computed-for-this-input). The embedding is
+    /// reused by the caller to store the new entry after a real LLM call.
+    /// No persistence -> loud config error (in-memory vectors are not kept).
+    fn llm_semantic_probe(
+        &self,
+        learnable: &CompiledLearnable,
+        input: &str,
+    ) -> Result<(Option<Result<Value, String>>, Option<Vec<f32>>), String> {
+        let db_path = match self.memory_persist_path.clone() {
+            Some(p) => p,
+            None => {
+                return Err("cache_semantic: true requires persistence - add `memory { persist: ... }`; semantic vectors live in the SQLite table llm_cache_semantic (in-memory vectors are deliberately not kept, ADR-0135)".to_string())
+            }
+        };
+
+        // Same SSOT embedding as the `embed` builtin (№272) — comparable by definition.
+        let query = crate::builtins::vector::embed_text(input)?;
+
+        let conn = rusqlite::Connection::open(&db_path).map_err(|e| {
+            format!(
+                "cache_semantic: cannot open persist db '{}': {}",
+                db_path, e
+            )
+        })?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS llm_cache_semantic (
+                key INTEGER PRIMARY KEY,
+                response TEXT NOT NULL,
+                embedding BLOB NOT NULL,
+                dim INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                ttl INTEGER NOT NULL
+            );",
+        )
+        .map_err(|e| format!("cache_semantic: cannot init llm_cache_semantic: {}", e))?;
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        let mut stmt = conn
+            .prepare("SELECT key, response, embedding, created_at, ttl FROM llm_cache_semantic")
+            .map_err(|e| format!("cache_semantic: scan: {}", e))?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Vec<u8>>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, i64>(4)?,
+                ))
+            })
+            .map_err(|e| format!("cache_semantic: scan: {}", e))?;
+
+        let mut best: Option<(f32, String)> = None;
+        let mut expired: Vec<i64> = Vec::new();
+        for row in rows {
+            let (key, response, blob, created_at, ttl) =
+                row.map_err(|e| format!("cache_semantic: row: {}", e))?;
+            // TTL: same semantics as the exact cache — entry TTL if set,
+            // otherwise the pattern default. Expired rows are removed.
+            let effective_ttl = if ttl > 0 {
+                ttl
+            } else {
+                learnable.cache_ttl as i64
+            };
+            if now - created_at > effective_ttl {
+                expired.push(key);
+                continue;
+            }
+            let emb: Vec<f32> = blob
+                .chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect();
+            // cosine_similarity returns 0.0 on dim mismatch — below any sane
+            // threshold, so cross-model rows can never hit (the dim gate).
+            let sim = crate::embeddings::cosine_similarity(&query, &emb);
+            if sim >= learnable.cache_threshold as f32 {
+                if best.as_ref().map(|(s, _)| sim > *s).unwrap_or(true) {
+                    best = Some((sim, response));
+                }
+            }
+        }
+        for key in expired {
+            let _ = conn.execute("DELETE FROM llm_cache_semantic WHERE key = ?1", [key]);
+        }
+
+        match best {
+            Some((_sim, response)) => {
+                Ok((Some(self.parse_cached_response(&response)), Some(query)))
+            }
+            None => Ok((None, Some(query))),
+        }
+    }
+
+    #[cfg(feature = "vec")]
+    /// Наряд №273 (ADR-0135): store response + input embedding after a real
+    /// LLM call (INSERT OR REPLACE keyed by the exact-cache key — same
+    /// prompt+input rephrased output refreshes the row).
+    fn llm_semantic_store(
+        &self,
+        key: &u64,
+        response: &str,
+        embedding: &[f32],
+        learnable: &CompiledLearnable,
+    ) {
+        let db_path = match self.memory_persist_path.clone() {
+            Some(p) => p,
+            None => return,
+        };
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let mut blob = Vec::with_capacity(embedding.len() * 4);
+        for f in embedding {
+            blob.extend_from_slice(&f.to_le_bytes());
+        }
+        if let Ok(conn) = rusqlite::Connection::open(&db_path) {
+            let _ = conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS llm_cache_semantic (
+                    key INTEGER PRIMARY KEY,
+                    response TEXT NOT NULL,
+                    embedding BLOB NOT NULL,
+                    dim INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    ttl INTEGER NOT NULL
+                );",
+            );
+            let r = conn.execute(
+                "INSERT OR REPLACE INTO llm_cache_semantic (key, response, embedding, dim, created_at, ttl) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![
+                    (*key) as i64,
+                    response,
+                    blob,
+                    embedding.len() as i64,
+                    now,
+                    learnable.cache_ttl as i64
+                ],
+            );
+            let _ = r;
+        }
+    }
+
+    /// Parse a cached response string (shared by exact and semantic paths).
+    fn parse_cached_response(&self, response: &str) -> Result<Value, String> {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(response) {
+            if let Some(obj) = json.as_object() {
+                let mut fields = std::collections::HashMap::new();
+                for (k, v) in obj {
+                    fields.insert(k.clone(), self.json_value_to_value(v));
+                }
+                return Ok(Value::Struct {
+                    type_name: "LlmResponse".to_string(),
+                    fields,
+                });
+            }
+        }
+        Ok(Value::String(response.to_string()))
+    }
+
     fn compute_cache_key(&self, prompt: &str, input: &str) -> u64 {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -828,7 +1095,14 @@ impl Interpreter {
     /// Returns None on miss or expired entry (also removes expired entry).
     fn llm_cache_get(&self, key: &u64, ttl: u64) -> Option<Result<Value, String>> {
         let mut cache = self.llm_cache.lock().ok()?;
-        let entry = cache.get(key)?;
+        // Copy out what we need, then take mutable access for the LRU bump.
+        // (get_mut in one shot: the entry exists, so this cannot miss.)
+        let entry = {
+            let e = cache.get_mut(key)?;
+            // Наряд №273: a hit is a USE — bump the LRU recency stamp.
+            e.last_used = Self::next_recency();
+            e.clone()
+        };
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -846,22 +1120,7 @@ impl Interpreter {
             return None;
         }
 
-        // Try to parse cached JSON response
-        let response = &entry.response;
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(response) {
-            if let Some(obj) = json.as_object() {
-                let mut fields = std::collections::HashMap::new();
-                for (k, v) in obj {
-                    fields.insert(k.clone(), self.json_value_to_value(v));
-                }
-                return Some(Ok(Value::Struct {
-                    type_name: "LlmResponse".to_string(),
-                    fields,
-                }));
-            }
-        }
-
-        Some(Ok(Value::String(response.clone())))
+        Some(self.parse_cached_response(&entry.response))
     }
 
     /// ADR-0047: Persist a cache entry to SQLite if persist is enabled.

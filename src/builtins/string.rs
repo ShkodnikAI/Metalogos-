@@ -912,3 +912,315 @@ pub(crate) fn builtin_toon_decode(args: &[Value]) -> Result<Value, String> {
     }
     Ok(value)
 }
+
+// ── Наряд №274 (ADR-0136): redact(text, mode) — PII/секреты как taint-санитайзер ──
+//
+// `redact` — единственный легальный путь снять Secret-taint ДО sink'а
+// («mask before sink»). Маски детерминированные (одинаковый вход → одинаковая
+// маска) и сохраняют ТИП маски + последние 4 символа, чтобы логи оставались
+// диагностируемыми. Энтропийная сеть (base64/hex-прогоны) — страховка против
+// форматов вне паттерн-набора; её остаточный риск честно зафиксирован в
+// ADR-0136. Регулярные выражения — линейный движок `regex` (наряд №54),
+// ReDoS-риска паттерны не создают.
+
+use std::sync::OnceLock;
+
+use regex::Regex;
+
+pub(crate) fn builtin_redact(args: &[Value]) -> Result<Value, String> {
+    // Accept both String and Secret — masking a secret in place is the
+    // whole point of the builtin (the ADR-0136 "mask before sink" path).
+    let text = match args.first() {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Secret(zs)) => zs.as_str().to_string(),
+        Some(other) => {
+            return Err(format!(
+                "redact() expected String or Secret as first arg, got {}",
+                other.type_name()
+            ))
+        }
+        None => return Err("redact() requires 2 arguments: redact(text, mode)".to_string()),
+    };
+    let mode = expect_string_arg("redact", args, 1)?;
+    redact_string(&text, &mode).map(Value::String)
+}
+
+/// Core masking routine (public for the fuzz target, №274).
+/// mode: "pii" | "secrets" | "all" — anything else is a loud error.
+pub fn redact_string(text: &str, mode: &str) -> Result<String, String> {
+    match mode {
+        "pii" | "secrets" | "all" => {}
+        other => {
+            return Err(format!(
+                "redact() unknown mode \"{}\" — expected \"pii\", \"secrets\" or \"all\"",
+                other
+            ))
+        }
+    }
+    let do_secrets = mode != "pii";
+    let do_pii = mode != "secrets";
+    let mut out = text.to_string();
+    if do_secrets {
+        out = redact_secret_patterns(&out);
+    }
+    if do_pii {
+        out = redact_pii_patterns(&out);
+    }
+    // The entropy net runs LAST (secrets/all only): it catches high-entropy
+    // runs that escaped the explicit pattern set. Order matters — masks
+    // produced above never re-trigger it (see ADR-0136 idempotence tests).
+    if do_secrets {
+        out = redact_entropy_net(&out);
+    }
+    Ok(out)
+}
+
+/// Deterministic mask: `[REDACTED:<type>…<last4>]` — keeps logs diagnosable.
+fn mask_typed(kind: &str, matched: &str) -> String {
+    let tail: String = matched
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("[REDACTED:{}\u{2026}{}]", kind, tail)
+}
+
+/// Static pattern — Regex::new failure is impossible at compile time.
+#[allow(clippy::expect_used)]
+fn re_pem() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?s)-----BEGIN [A-Z0-9 ]{2,40}-----.*?-----END [A-Z0-9 ]{2,40}-----")
+            .expect("static regex")
+    })
+}
+
+/// Static pattern — Regex::new failure is impossible at compile time.
+#[allow(clippy::expect_used)]
+fn re_jwt() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}")
+            .expect("static regex")
+    })
+}
+
+/// Static pattern — Regex::new failure is impossible at compile time.
+#[allow(clippy::expect_used)]
+fn re_bearer() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i:bearer)[ \t]+[A-Za-z0-9._~+/=-]{8,}").expect("static regex"))
+}
+
+/// Static pattern — Regex::new failure is impossible at compile time.
+#[allow(clippy::expect_used)]
+fn re_apikey() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    // OpenAI/Anthropic-style (sk-…), AWS access key id (AKIA…), GitHub tokens (ghp_/gho_/ghu_/ghs_/ghr_).
+    RE.get_or_init(|| {
+        Regex::new(r"(sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,})")
+            .expect("static regex")
+    })
+}
+
+/// Static pattern — Regex::new failure is impossible at compile time.
+#[allow(clippy::expect_used)]
+fn re_hex_run() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"[0-9a-fA-F]{32,}").expect("static regex"))
+}
+
+/// Static pattern — Regex::new failure is impossible at compile time.
+#[allow(clippy::expect_used)]
+fn re_b64_run() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"[A-Za-z0-9+/]{24,}={0,2}").expect("static regex"))
+}
+
+/// Static pattern — Regex::new failure is impossible at compile time.
+#[allow(clippy::expect_used)]
+fn re_email() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
+            .expect("static regex")
+    })
+}
+
+/// Static pattern — Regex::new failure is impossible at compile time.
+#[allow(clippy::expect_used)]
+fn re_phone_intl() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"\+\d{1,3}[ \-(]{0,2}\d{2,4}[ \-)]{0,2}\d{2,4}(?:[ \-]\d{2}){1,2}")
+            .expect("static regex")
+    })
+}
+
+/// Static pattern — Regex::new failure is impossible at compile time.
+#[allow(clippy::expect_used)]
+fn re_phone_ru() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"\b8[ \-(]{0,2}\d{3}[ \-)]{0,2}\d{3}[ \-]\d{2}[ \-]\d{2}\b")
+            .expect("static regex")
+    })
+}
+
+/// Static pattern — Regex::new failure is impossible at compile time.
+#[allow(clippy::expect_used)]
+fn re_card() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"\b(?:\d[ \-]?){12,18}\d\b").expect("static regex"))
+}
+
+/// Static pattern — Regex::new failure is impossible at compile time.
+#[allow(clippy::expect_used)]
+fn re_iban() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    // BBAN tail may be shorter than a full 4-char group (e.g. 22-char DE IBAN).
+    RE.get_or_init(|| {
+        Regex::new(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}[ ]?[A-Z0-9]{0,3}\b")
+            .expect("static regex")
+    })
+}
+
+/// Secret pattern set (modes "secrets" | "all").
+fn redact_secret_patterns(text: &str) -> String {
+    let mut out = re_pem()
+        .replace_all(text, "[REDACTED:pem-block]")
+        .into_owned();
+    out = re_jwt()
+        .replace_all(&out, |caps: &regex::Captures| mask_typed("jwt", &caps[0]))
+        .into_owned();
+    out = re_bearer()
+        .replace_all(&out, |caps: &regex::Captures| {
+            mask_typed("bearer", &caps[0])
+        })
+        .into_owned();
+    out = re_apikey()
+        .replace_all(&out, |caps: &regex::Captures| {
+            let m = &caps[0];
+            let kind = if m.starts_with("AKIA") {
+                "AKIA"
+            } else if m.starts_with("sk-") {
+                "sk-"
+            } else {
+                // ghp_ / gho_ / ghu_ / ghs_ / ghr_ — first 4 chars are the type
+                &m[..4]
+            };
+            mask_typed(kind, m)
+        })
+        .into_owned();
+    out
+}
+
+/// PII pattern set (modes "pii" | "all").
+fn redact_pii_patterns(text: &str) -> String {
+    let mut out = re_email()
+        .replace_all(text, |caps: &regex::Captures| {
+            // Preserve the TLD for diagnosability: ***@***.io
+            let m = &caps[0];
+            let tld = m.rsplit('.').next().unwrap_or("tld");
+            format!("***@***.{}", tld)
+        })
+        .into_owned();
+    out = re_phone_intl()
+        .replace_all(&out, |caps: &regex::Captures| {
+            let digits = caps[0].chars().filter(|c| c.is_ascii_digit()).count();
+            if (7..=15).contains(&digits) {
+                "[REDACTED:phone]".to_string()
+            } else {
+                caps[0].to_string()
+            }
+        })
+        .into_owned();
+    out = re_phone_ru()
+        .replace_all(&out, "[REDACTED:phone]")
+        .into_owned();
+    out = re_iban()
+        .replace_all(&out, |caps: &regex::Captures| {
+            let compact: String = caps[0].chars().filter(|c| !c.is_whitespace()).collect();
+            if (15..=34).contains(&compact.len()) {
+                mask_typed("iban", &compact)
+            } else {
+                caps[0].to_string()
+            }
+        })
+        .into_owned();
+    out = re_card()
+        .replace_all(&out, |caps: &regex::Captures| {
+            let digits: String = caps[0].chars().filter(|c| c.is_ascii_digit()).collect();
+            if digits.len() >= 13 && digits.len() <= 19 && luhn_valid(&digits) {
+                let vendor = card_vendor(&digits);
+                mask_typed(&format!("{}-card", vendor), &digits)
+            } else {
+                caps[0].to_string()
+            }
+        })
+        .into_owned();
+    out
+}
+
+/// Entropy net (modes "secrets" | "all"): base64/hex runs that slipped past
+/// the explicit pattern set. Filter (documented in ADR-0136): a run is
+/// masked only if it contains BOTH a digit AND at least one hex letter
+/// ([a-fA-F]) — long identifiers, pure-digit ids and letter-only words pass.
+fn redact_entropy_net(text: &str) -> String {
+    let hit = |s: &str| {
+        let has_digit = s.chars().any(|c| c.is_ascii_digit());
+        let has_hex = s.chars().any(|c| matches!(c, 'a'..='f' | 'A'..='F'));
+        has_digit && has_hex
+    };
+    let mut out = re_hex_run()
+        .replace_all(text, |caps: &regex::Captures| {
+            if hit(&caps[0]) {
+                mask_typed("entropy", &caps[0])
+            } else {
+                caps[0].to_string()
+            }
+        })
+        .into_owned();
+    out = re_b64_run()
+        .replace_all(&out, |caps: &regex::Captures| {
+            if hit(&caps[0]) {
+                mask_typed("entropy", &caps[0])
+            } else {
+                caps[0].to_string()
+            }
+        })
+        .into_owned();
+    out
+}
+
+/// Luhn checksum (card masking gate, №274): reduces false positives on
+/// long digit runs that are not payment cards.
+fn luhn_valid(digits: &str) -> bool {
+    let sum = digits
+        .chars()
+        .rev()
+        .filter_map(|c| c.to_digit(10))
+        .enumerate()
+        .map(|(i, d)| if i % 2 == 1 { d * 2 } else { d })
+        .map(|d| if d > 9 { d - 9 } else { d })
+        .sum::<u32>();
+    sum % 10 == 0
+}
+
+/// Card vendor by prefix (deterministic, for the mask label).
+fn card_vendor(digits: &str) -> &'static str {
+    let p2: u16 = digits.get(..2).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let first = digits.chars().next().unwrap_or('0');
+    match first {
+        '4' => "visa",
+        '3' if p2 == 34 || p2 == 37 => "amex",
+        '5' if (51..=55).contains(&p2) => "mastercard",
+        '2' if (22..=27).contains(&p2) => "mastercard",
+        '6' if p2 == 62 => "unionpay",
+        '6' if p2 == 60 || p2 == 64 || p2 == 65 => "discover",
+        _ => "card",
+    }
+}

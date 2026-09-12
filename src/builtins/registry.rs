@@ -38,6 +38,10 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("reverse", 1, "string"; builtin_reverse),
     spec!("escape_html", 1, "string"; builtin_escape_html),
     spec!("escape_json", 1, "string"; builtin_escape_json),
+    // Наряд №274 (ADR-0136): redact(text, mode) — PII/секреты как
+    // taint-санитайзер («mask before sink»). Единственный легальный путь
+    // снять Secret-taint; семантика снятия — в src/audit.rs + ADR-0136.
+    spec!("redact", 2, "string"; builtin_redact),
     spec!("escape_js", 1, "string"; builtin_escape_js),
     spec!("fuzzy_match", 2, "string"; builtin_fuzzy_match),
     spec!("strip", 2, "string"; builtin_strip),

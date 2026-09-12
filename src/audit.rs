@@ -174,6 +174,12 @@ fn get_expr_taint(expr: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
             if fn_name == "render" || fn_name == "escape_html" {
                 return Some(TaintKind::Sanitized);
             }
+            // Наряд №274 (ADR-0136): redact — taint-санитайзер для Secret.
+            // Inline-вызовы вида respond(redact(env("K"), "secrets")) должны
+            // проходить аудитом так же, как цепочка через let-связывание.
+            if fn_name == "redact" {
+                return redact_result_taint(args, tracker);
+            }
             // env() and secret() are secret sources even with no tainted args.
             // Наряд №172: secret() has the same taint as env() — both produce
             // TaintKind::Secret. binding_taint above also handles this, but
@@ -236,7 +242,12 @@ fn get_expr_taint(expr: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
 /// Checks direct function call sources first, then falls back to
 /// expression-level taint propagation.
 fn binding_taint(value: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
-    if let Expr::FnCall { name: fn_name, .. } = value {
+    if let Expr::FnCall {
+        name: fn_name,
+        args,
+        ..
+    } = value
+    {
         match fn_name.as_str() {
             // Наряд №201: вывод модели наследует недоверенность LLM-учителя (ADR-0117);
             // learnable pattern — тот же класс: вывод call_llm за пределами pattern body.
@@ -245,6 +256,9 @@ fn binding_taint(value: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
             }
             "env" | "secret" => return Some(TaintKind::Secret),
             "render" | "escape_html" => return Some(TaintKind::Sanitized),
+            // Наряд №274 (ADR-0136): redact — taint-санитайзер для Secret
+            // («mask before sink»). Семантика снятия — redact_result_taint.
+            "redact" => return redact_result_taint(args, tracker),
             // Наряд №268 (ADR-0132 D3, решение владельца 2026-09-12): вывод
             // MCP-инструмента — недоверенные данные. Reuse `UserInput`
             // (ToolOutput — Future, заводится только с первой политикой,
@@ -295,6 +309,34 @@ fn expr_is_user_input_tainted(expr: &Expr, tracker: &TaintTracker) -> bool {
 /// Returns true if the function name is a known user-input source.
 fn is_user_input_source(name: &str) -> bool {
     matches!(name, "query_param" | "form_data" | "json_body")
+}
+
+/// Наряд №274 (ADR-0136, стоп-гейт СГ-2 решён владельцем 2026-09-12):
+/// taint-семантика `redact(text, mode)`.
+///
+/// mode читается СТАТИЧЕСКИ из строкового литерала:
+///   - `"secrets" | "all"` снимают ТОЛЬКО `Secret`-taint → результат
+///     `Sanitized` (легальный путь «mask before sink»);
+///   - `"pii"` `Secret` НЕ снимает — тест-инвариант
+///     `secret → redact("pii") → http_post` ОТКЛОНЯЕТСЯ;
+///   - `LlmOutput` не снимается redact'ом вообще (для вывода модели
+///     санитайзер один — render; маскирование ≠ HTML-escape);
+///   - `UserInput` не снимается (маскирование не меняет происхождение);
+///   - динамический/нелитеральный/неизвестный mode — fail-closed:
+///     taint входа наследуется без снятия.
+fn redact_result_taint(args: &[Expr], tracker: &TaintTracker) -> Option<TaintKind> {
+    let input = args.first().and_then(|a| get_expr_taint(a, tracker));
+    let mode = args.get(1).and_then(|m| match m {
+        Expr::StringLit { value, .. } => Some(value.as_str()),
+        _ => None,
+    });
+    match mode {
+        Some("secrets") | Some("all") => match input {
+            Some(TaintKind::Secret) => Some(TaintKind::Sanitized),
+            other => other,
+        },
+        _ => input,
+    }
 }
 
 // ── Helper: find line number for a keyword in source ────────────────

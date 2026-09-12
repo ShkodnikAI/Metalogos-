@@ -185,8 +185,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("answer_callback_query", 1, 3, "bot"; builtin_answer_callback_query), // id | id,text | id,text,show_alert
     spec!("edit_message_text", 3, 4, "bot"; builtin_edit_message_text), // chat_id,message_id,text | +reply_markup
     // ── Voice / transcription ──
-    spec!("whisper_transcribe", 1, "voice"; builtin_whisper_transcribe),
-    spec!("tts_send", 4, 5, "voice"; builtin_tts_send), // text,voice,bot_token,chat_id | +mode
+    // Naryad #279 fact-check: registry said min=1, implementation has always
+    // required 3 strings (file_id, bot_token, whisper_key) + optional provider.
+    // A 1-arg call passed mlog check and exploded at runtime — fixed to 3..4.
+    spec!("whisper_transcribe", 3, 4, "voice"; builtin_whisper_transcribe), // file_id,bot_token,whisper_key | +provider
+    spec!("tts_send", 4, 5, "voice"; builtin_tts_send), // text,voice,bot_token,chat_id | +mode — delivery convenience (delegates synthesis to tts_synth, Naryad #279)
+    spec!("tts_generate", 2, 4, "voice"; builtin_tts_generate), // Naryad #279: text,voice | +provider | +model — synthesis to sandbox file, no delivery (APPENDED: bytecode indices must not shift)
     // ── System builtins ──
     spec!("env", 1, "system"; builtin_env), // ── DB builtins ──
     spec!("query", 1, 2, "db"; builtin_query),

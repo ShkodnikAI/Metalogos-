@@ -135,8 +135,9 @@ fn registry_arity_exhaustive() {
         ("send_message", 2, 3),
         ("answer_callback_query", 1, 3),
         ("edit_message_text", 3, 4),
-        ("whisper_transcribe", 1, 1),
+        ("whisper_transcribe", 3, 4),
         ("tts_send", 4, 5),
+        ("tts_generate", 2, 4),
         // ── Vision pillar (№210/№240/№241 — ADR-0124/0125) ──
         // The vision rows were absent before №241 — added with the
         // vision_export_raw spec so the exhaustive list covers the pillar.

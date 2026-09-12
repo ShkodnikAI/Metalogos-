@@ -77,7 +77,8 @@ fn naryad_271_sqlite_vec_smoke() {
             .prepare("INSERT INTO vec_items(rowid, embedding) VALUES (?1, ?2)")
             .unwrap();
         for (i, v) in vectors.iter().enumerate() {
-            stmt.execute(rusqlite::params![i as i64 + 1, to_blob(v)]).unwrap();
+            stmt.execute(rusqlite::params![i as i64 + 1, to_blob(v)])
+                .unwrap();
         }
     }
     conn.execute_batch("COMMIT;").unwrap();
@@ -120,5 +121,7 @@ fn naryad_271_sqlite_vec_smoke() {
         rows[0].0,
         1.0 - rows[0].1
     );
-    eprintln!("NARYAD-271 SMOKE PASS: sqlite-vec {version}, dim={DIM}, n={n}, cosine-metric, KNN OK");
+    eprintln!(
+        "NARYAD-271 SMOKE PASS: sqlite-vec {version}, dim={DIM}, n={n}, cosine-metric, KNN OK"
+    );
 }

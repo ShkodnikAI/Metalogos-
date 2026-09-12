@@ -1,4 +1,4 @@
-// ── LLM / Voice builtins: call_llm, call_claude, llm_usage, whisper_transcribe, tts_send ──
+// ── LLM / Voice builtins: call_llm, call_claude, llm_usage, whisper_transcribe, tts_generate, tts_send ──
 
 use crate::interpreter::Value;
 
@@ -205,6 +205,13 @@ pub(crate) fn builtin_llm_usage(_args: &[Value]) -> Result<Value, String> {
 
 /// `whisper_transcribe(file_id, bot_token, whisper_key, provider?)` —
 /// Transcribe a Telegram voice message via Whisper API.
+/// Naryad #279 fact-check: the registry declared min arity 1 while the
+/// implementation has always required THREE string args (file_id,
+/// bot_token, whisper_key) plus an optional provider — a 1-arg call passed
+/// `mlog check` and exploded at runtime. Registry now says 3..4.
+/// STT symmetry with №279 TTS: `METALOGOS_STT_BASE_URL` overrides the
+/// transcription API base (mock servers / self-host proxies); the path
+/// suffix `/audio/transcriptions` is appended, mirroring TTS.
 pub(crate) fn builtin_whisper_transcribe(args: &[Value]) -> Result<Value, String> {
     let file_id = expect_string_arg("whisper_transcribe", args, 0)?;
     let bot_token = expect_string_arg("whisper_transcribe", args, 1)?;
@@ -255,18 +262,28 @@ pub(crate) fn builtin_whisper_transcribe(args: &[Value]) -> Result<Value, String
         .map_err(|e| format!("whisper_transcribe(): read bytes failed: {}", e))?;
 
     // Step 3: Send to Whisper API
+    // Naryad #279: METALOGOS_STT_BASE_URL overrides the provider default
+    // (same convention as METALOGOS_TTS_BASE_URL for synthesis).
+    let stt_base = std::env::var("METALOGOS_STT_BASE_URL").ok();
     let (api_url, auth_header, auth_value) = match provider.as_str() {
-        "groq" => (
-            "https://api.groq.com/openai/v1/audio/transcriptions".to_string(),
-            "Authorization".to_string(),
-            format!("Bearer {}", whisper_key),
-        ),
-        _ => (
-            // openai
-            "https://api.openai.com/v1/audio/transcriptions".to_string(),
-            "Authorization".to_string(),
-            format!("Bearer {}", whisper_key),
-        ),
+        "groq" => {
+            let url = stt_base
+                .clone()
+                .unwrap_or_else(|| "https://api.groq.com/openai/v1".to_string());
+            (
+                format!("{}/audio/transcriptions", url.trim_end_matches('/')),
+                "Authorization".to_string(),
+                format!("Bearer {}", whisper_key),
+            )
+        }
+        _ => {
+            let url = stt_base.unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+            (
+                format!("{}/audio/transcriptions", url.trim_end_matches('/')),
+                "Authorization".to_string(),
+                format!("Bearer {}", whisper_key),
+            )
+        }
     };
 
     // Use multipart form
@@ -315,21 +332,75 @@ pub(crate) fn builtin_whisper_transcribe(args: &[Value]) -> Result<Value, String
     Ok(Value::String(text))
 }
 
-/// `tts_send(text, voice, bot_token, chat_id, mode?)` —
-/// Convert text to speech via OpenAI TTS and send as voice note to Telegram.
-pub(crate) fn builtin_tts_send(args: &[Value]) -> Result<Value, String> {
-    let text = expect_string_arg("tts_send", args, 0)?;
-    let voice = expect_string_arg("tts_send", args, 1)?;
-    let bot_token = expect_string_arg("tts_send", args, 2)?;
-    let chat_id = expect_string_arg("tts_send", args, 3)?;
-    let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_default();
-    if api_key.is_empty() {
-        return Err("tts_send(): OPENAI_API_KEY env var not set".to_string());
+/// `tts_generate(text, voice, provider?, model?) -> String(path)` —
+/// Speech synthesis WITHOUT delivery: writes the audio file into the file
+/// sandbox (write_file semantics: Naryad #252 symlink-safe write) and
+/// returns the sandbox-relative path. Providers v1: `"openai"` with models
+/// `tts-1` (default) / `tts-1-hd` / `gpt-4o-mini-tts` (model is a plain
+/// argument, not a hardcode). Key: `METALOGOS_TTS_API_KEY`, falling back to
+/// `OPENAI_API_KEY` (backward compatible with tts_send). Base URL:
+/// `METALOGOS_TTS_BASE_URL` overrides `https://api.openai.com/v1` — the
+/// `/audio/speech` suffix is appended (mock servers, self-host proxies).
+/// Response format: the provider default (MP3 for OpenAI tts-*), extension
+/// `.mp3`. Delivery (Telegram sendVoice/sendAudio) is tts_send's job.
+pub(crate) fn builtin_tts_generate(args: &[Value]) -> Result<Value, String> {
+    let text = expect_string_arg("tts_generate", args, 0)?;
+    let voice = expect_string_arg("tts_generate", args, 1)?;
+    let provider = match args.get(2) {
+        Some(Value::String(s)) => s.clone(),
+        _ => "openai".to_string(),
+    };
+    let model = match args.get(3) {
+        Some(Value::String(s)) => s.clone(),
+        _ => "tts-1".to_string(),
+    };
+    if provider != "openai" {
+        return Err(format!(
+            "tts_generate(): unknown provider '{}' — supported in v1: 'openai' (ADR-documented scope)",
+            provider
+        ));
     }
+    let audio_bytes = tts_synth(&text, &voice, &model)?;
 
-    // Step 1: Call OpenAI TTS API
-    let tts_body = serde_json::json!({
-        "model": "tts-1",
+    // Write into the file sandbox with the EXACT write_file semantics
+    // (Naryad #252): sandbox-resolve, create parent dirs, symlink-safe open.
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let fname = format!("tts_{}.mp3", ts);
+    let safe_path = super::io::sandbox_path_ex(&fname, super::io::SandboxMode::ForWrite)
+        .map_err(super::io::sandbox_violation)?;
+    if let Some(parent) = safe_path.parent() {
+        let _ = std::fs::create_dir_all(parent); // best-effort, same as write_file
+    }
+    let mut file = super::io::open_sandbox_write(&safe_path, false)?;
+    std::io::Write::write_all(&mut file, &audio_bytes)
+        .map_err(|e| format!("tts_generate(): failed to write audio file: {}", e))?;
+
+    Ok(Value::String(fname))
+}
+
+/// Shared synthesis HTTP exchange for tts_generate/tts_send (Naryad #279).
+/// Returns the raw audio bytes. Base URL override + key resolution live here
+/// so delivery (tts_send) and pure synthesis (tts_generate) cannot drift.
+fn tts_synth(text: &str, voice: &str, model: &str) -> Result<Vec<u8>, String> {
+    let api_key = match std::env::var("METALOGOS_TTS_API_KEY") {
+        Ok(k) if !k.is_empty() => k,
+        _ => std::env::var("OPENAI_API_KEY").unwrap_or_default(),
+    };
+    if api_key.is_empty() {
+        return Err(
+            "tts_generate(): no API key — set METALOGOS_TTS_API_KEY (or OPENAI_API_KEY)"
+                .to_string(),
+        );
+    }
+    let base = std::env::var("METALOGOS_TTS_BASE_URL")
+        .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
+    let url = format!("{}/audio/speech", base.trim_end_matches('/'));
+
+    let body = serde_json::json!({
+        "model": model,
         "input": text,
         "voice": voice,
     });
@@ -337,28 +408,51 @@ pub(crate) fn builtin_tts_send(args: &[Value]) -> Result<Value, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
-        .map_err(|e| format!("tts_send(): client error: {}", e))?;
+        .map_err(|e| format!("tts_generate(): client error: {}", e))?;
 
-    let tts_resp = client
-        .post("https://api.openai.com/v1/audio/speech")
+    let resp = client
+        .post(&url)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
-        .body(tts_body.to_string())
+        .body(body.to_string())
         .send()
-        .map_err(|e| format!("tts_send(): TTS request failed: {}", e))?;
+        .map_err(|e| format!("tts_generate(): TTS request failed: {}", e))?;
 
-    let status = tts_resp.status().as_u16();
+    let status = resp.status().as_u16();
     if status >= 400 {
-        let err_body = tts_resp.text().unwrap_or_default();
+        let err_body = resp.text().unwrap_or_default();
         return Err(format!(
-            "tts_send(): TTS API status {}: {}",
+            "tts_generate(): TTS API status {}: {}",
             status, err_body
         ));
     }
 
-    let audio_bytes = tts_resp
-        .bytes()
-        .map_err(|e| format!("tts_send(): failed to read TTS audio: {}", e))?;
+    resp.bytes()
+        .map(|b| b.to_vec())
+        .map_err(|e| format!("tts_generate(): failed to read TTS audio: {}", e))
+}
+
+/// `tts_send(text, voice, bot_token, chat_id, mode?)` —
+/// Convert text to speech via the OpenAI TTS API and send as voice note to
+/// Telegram. Naryad #279: delivery-only convenience — synthesis is
+/// DELEGATED to the tts_synth helper (same exchange tts_generate uses, so
+/// base-URL/key overrides behave identically); REFERENCE marks this builtin
+/// as "delivery convenience". Kept for backward compatibility.
+pub(crate) fn builtin_tts_send(args: &[Value]) -> Result<Value, String> {
+    let text = expect_string_arg("tts_send", args, 0)?;
+    let voice = expect_string_arg("tts_send", args, 1)?;
+    let bot_token = expect_string_arg("tts_send", args, 2)?;
+    let chat_id = expect_string_arg("tts_send", args, 3)?;
+
+    // Step 1: synthesize (was inline OpenAI TTS call; model stays "tts-1")
+    let audio_bytes = tts_synth(&text, &voice, "tts-1").map_err(|e| {
+        // Keep the historical error prefix for the key-missing case.
+        if e.contains("no API key") {
+            "tts_send(): OPENAI_API_KEY env var not set".to_string()
+        } else {
+            e.replace("tts_generate():", "tts_send():")
+        }
+    })?;
 
     // Step 2: Send as voice note to Telegram via sendVoice
     // sendVoice (not sendAudio) displays as voice message bubble in Telegram.
@@ -377,6 +471,10 @@ pub(crate) fn builtin_tts_send(args: &[Value]) -> Result<Value, String> {
         reqwest::blocking::multipart::Part::bytes(audio_bytes.to_vec()).file_name("speech.ogg");
     form = form.part(field_name, audio_part);
 
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("tts_send(): client error: {}", e))?;
     let tg_resp = client
         .post(format!(
             "https://api.telegram.org/bot{}/{}",

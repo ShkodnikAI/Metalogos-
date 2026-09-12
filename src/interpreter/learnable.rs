@@ -305,12 +305,27 @@ impl Interpreter {
         let effective_prompt = self.build_effective_prompt(learnable, args);
 
         // ADR-0047: Check LLM response cache
+        // Наряд №276: a cache hit is itself an observable LLM event — traced
+        // with cache="exact"; latency here measures the cache lookup, not
+        // generation (no tokens/provider fields: the cached entry does not
+        // store them — honest data).
         if learnable.cache {
+            let t0 = std::time::Instant::now();
             let cache_key = self.compute_cache_key(&effective_prompt, &input);
             if let Some(cached) = self.llm_cache_get(&cache_key, learnable.cache_ttl) {
                 // Cache hit — return cached response without calling LLM
                 // ADR-0051: record stats — cache hit
                 self.record_pattern_call(pattern_name, true);
+                crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
+                    provider_name: None,
+                    model: None,
+                    input_tokens: None,
+                    output_tokens: None,
+                    latency_ms: t0.elapsed().as_millis() as u64,
+                    status: "ok",
+                    cache: "exact",
+                    provider_alias: None,
+                });
                 return cached;
             }
         }
@@ -761,7 +776,11 @@ impl Interpreter {
         }
 
         // Legacy path (no SmartRouter installed)
-        match timeout_override {
+        // Наряд №276: legacy learnable calls are traced HERE — the
+        // SmartRouter path traces inside SmartRouter::call (one line per
+        // actual call, never both).
+        let t0 = std::time::Instant::now();
+        let result = match timeout_override {
             Some(timeout) => {
                 // Наряд №248: deadline-based cancellation on the legacy
                 // path too. The backend either answers within `timeout`
@@ -774,7 +793,25 @@ impl Interpreter {
                 let backend = llm::create_llm_backend();
                 backend.call_with_model(prompt, input, model)
             }
-        }
+        };
+        let mock_mode = std::env::var("METALOGOS_MOCK_LLM")
+            .map(|v| v == "1" || v.to_lowercase() == "true")
+            .unwrap_or(true);
+        crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
+            provider_name: Some(if mock_mode {
+                "mock"
+            } else {
+                llm::provider_env_name()
+            }),
+            model,
+            input_tokens: None,
+            output_tokens: None,
+            latency_ms: t0.elapsed().as_millis() as u64,
+            status: if result.is_ok() { "ok" } else { "error" },
+            cache: "miss",
+            provider_alias: None,
+        });
+        result
     }
 
     /// ADR-0047: Compute a cache key from prompt + input using simple SipHash.

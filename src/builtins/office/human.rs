@@ -107,18 +107,48 @@ pub(crate) fn builtin_human_respond(args: &[Value]) -> Result<Value, String> {
     let response = if let Some(result) = llm_result {
         result.map_err(|e| format!("human_respond() LLM call failed: {}", e))?
     } else {
-        // No SmartRouter — check mock mode, then legacy backend
+        // No SmartRouter — check mock mode, then legacy backend.
+        // Наряд №276: both non-router arms are traced HERE (the SmartRouter
+        // path traces inside SmartRouter::call — one line per actual call).
         let mock_mode = std::env::var("METALOGOS_LLM_MOCK")
             .map(|v| v == "true" || v == "1")
             .unwrap_or(true);
+        let t0 = std::time::Instant::now();
 
         if mock_mode {
-            format!("[{} (mood: {}): {}]", persona, mood, message)
+            let resp = format!("[{} (mood: {}): {}]", persona, mood, message);
+            crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
+                provider_name: Some("mock"),
+                model: None,
+                input_tokens: None,
+                output_tokens: None,
+                latency_ms: t0.elapsed().as_millis() as u64,
+                status: "ok",
+                cache: "miss",
+                provider_alias: None,
+            });
+            resp
         } else {
             let backend = crate::llm::create_llm_backend();
-            backend
-                .call(&full_prompt, "")
-                .map_err(|e| format!("human_respond() LLM call failed: {}", e))?
+            let result = backend.call(&full_prompt, "");
+            let mock_real_mode = std::env::var("METALOGOS_MOCK_LLM")
+                .map(|v| v == "1" || v.to_lowercase() == "true")
+                .unwrap_or(true);
+            crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
+                provider_name: Some(if mock_real_mode {
+                    "mock"
+                } else {
+                    crate::llm::provider_env_name()
+                }),
+                model: None,
+                input_tokens: None,
+                output_tokens: None,
+                latency_ms: t0.elapsed().as_millis() as u64,
+                status: if result.is_ok() { "ok" } else { "error" },
+                cache: "miss",
+                provider_alias: None,
+            });
+            result.map_err(|e| format!("human_respond() LLM call failed: {}", e))?
         }
     };
 

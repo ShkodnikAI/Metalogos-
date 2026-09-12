@@ -4,14 +4,48 @@ use crate::interpreter::Value;
 
 use super::core::expect_string_arg;
 
-/// Send a request to Anthropic Claude Messages API.
-/// Usage: call_claude(api_key, model, system_prompt, user_message) -> String
+/// `call_claude(api_key, model, system_prompt, user_message)` — Send a
+/// request to the Anthropic Claude Messages API.
+/// Наряд №276: the HTTP exchange is traced at this single point — status,
+/// latency, model, and usage (Anthropic reports `usage.input_tokens` /
+/// `usage.output_tokens`; absent fields stay absent — honest data).
+/// Argument-type errors are NOT traced: no request reached any provider.
 pub(crate) fn builtin_call_claude(args: &[Value]) -> Result<Value, String> {
     let api_key = expect_string_arg("call_claude", args, 0)?;
     let model = expect_string_arg("call_claude", args, 1)?;
     let system_prompt = expect_string_arg("call_claude", args, 2)?;
     let user_message = expect_string_arg("call_claude", args, 3)?;
 
+    let t0 = std::time::Instant::now();
+    let result = call_claude_impl(&api_key, &model, &system_prompt, &user_message);
+    let (input_tokens, output_tokens) = match &result {
+        Ok((_, usage)) => (
+            usage.map(|u| u.input_tokens),
+            usage.map(|u| u.output_tokens),
+        ),
+        Err(_) => (None, None),
+    };
+    crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
+        provider_name: Some("anthropic"),
+        model: Some(&model),
+        input_tokens,
+        output_tokens,
+        latency_ms: t0.elapsed().as_millis() as u64,
+        status: if result.is_ok() { "ok" } else { "error" },
+        cache: "miss",
+        provider_alias: None,
+    });
+    result.map(|(text, _)| Value::String(text))
+}
+
+/// HTTP exchange for call_claude: returns `(text, usage)` — usage is Some
+/// only when the response carried Anthropic's usage block.
+fn call_claude_impl(
+    api_key: &str,
+    model: &str,
+    system_prompt: &str,
+    user_message: &str,
+) -> Result<(String, Option<crate::llm::ProviderTokenUsage>), String> {
     let body = serde_json::json!({
         "model": model,
         "max_tokens": 4096,
@@ -26,7 +60,7 @@ pub(crate) fn builtin_call_claude(args: &[Value]) -> Result<Value, String> {
 
     let resp = client
         .post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", &api_key)
+        .header("x-api-key", api_key)
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json")
         .body(body.to_string())
@@ -52,7 +86,10 @@ pub(crate) fn builtin_call_claude(args: &[Value]) -> Result<Value, String> {
         .unwrap_or("Claude API returned an unexpected response format")
         .to_string();
 
-    Ok(Value::String(content))
+    // Наряд №276: usage from the SAME parsed body (honest — absent stays None).
+    let usage = crate::llm::extract_usage_from_anthropic_body(&parsed);
+
+    Ok((content, usage))
 }
 
 /// `call_llm(prompt, input)` — call the LLM backend with a prompt and input.
@@ -81,21 +118,47 @@ pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
         return result.map(Value::String);
     }
 
-    // Fallback: legacy path
+    // Fallback: legacy path (no SmartRouter). Traced here (Наряд №276);
+    // the SmartRouter path traces inside SmartRouter::call — one line per
+    // actual LLM call, never both.
     // Check mock mode
     let mock_mode = std::env::var("METALOGOS_LLM_MOCK")
         .map(|v| v == "true" || v == "1")
         .unwrap_or(true); // Default: mock mode ON
 
+    let t0 = std::time::Instant::now();
     if mock_mode {
-        Ok(Value::String(format!("[MOCK: {} | {}]", prompt, input)))
+        let result = Ok(Value::String(format!("[MOCK: {} | {}]", prompt, input)));
+        crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
+            provider_name: Some("mock"),
+            model: None,
+            input_tokens: None,
+            output_tokens: None,
+            latency_ms: t0.elapsed().as_millis() as u64,
+            status: "ok",
+            cache: "miss",
+            provider_alias: None,
+        });
+        result
     } else {
         // Real LLM call
         let backend = crate::llm::create_llm_backend();
-        backend
+        let result = backend
             .call(&prompt, &input)
             .map(Value::String)
-            .map_err(|e| format!("call_llm() failed: {}", e))
+            .map_err(|e| format!("call_llm() failed: {}", e));
+        let model_env = std::env::var("METALOGOS_LLM_MODEL").ok();
+        crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
+            provider_name: Some(crate::llm::provider_env_name()),
+            model: model_env.as_deref(),
+            input_tokens: None,
+            output_tokens: None,
+            latency_ms: t0.elapsed().as_millis() as u64,
+            status: if result.is_ok() { "ok" } else { "error" },
+            cache: "miss",
+            provider_alias: None,
+        });
+        result
     }
 }
 

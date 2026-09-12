@@ -4,7 +4,7 @@
 // Retry with exponential backoff (3 retries, 1s/2s/4s). Timeout 120s.
 
 use std::env;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -784,6 +784,15 @@ pub fn set_global_smart_router(router: SmartRouter) {
     }
 }
 
+/// Remove the global SmartRouter (tests).
+/// Without this, a router installed by one test leaks into every other
+/// test in the same binary (process-global state).
+pub fn clear_global_smart_router() {
+    if let Ok(mut g) = GLOBAL_SMART_ROUTER.lock() {
+        *g = None;
+    }
+}
+
 /// Call LLM through the global SmartRouter if available, else return None.
 /// The caller should fall back to legacy create_llm_backend() if this returns None.
 /// Наряд #156: `timeout_override` passed through for real HTTP cancellation.
@@ -799,6 +808,174 @@ pub fn call_via_smart_router(
         }
     }
     None
+}
+
+// ── Per-call LLM traces (Наряд №276, ADR-0138) ────────────────────
+// METALOGOS_LLM_TRACE=<path>: every LLM call appends ONE JSONL line with
+// OpenTelemetry GenAI semantic-conventions field names, verified against the
+// live spec (open-telemetry/semantic-conventions-genai,
+// docs/gen-ai/gen-ai-spans.md, base semantic-conventions v1.44.0,
+// checked 2026-09-12):
+//   `gen_ai.provider.name`  — NOTE: the issue text said `gen_ai.system`;
+//       the upstream spec has RENAMED it — the current attribute is
+//       `gen_ai.provider.name` (Required). We follow the live spec: the
+//       whole point is that a future exporter reads the file WITHOUT
+//       renames.
+//   `gen_ai.request.model`, `gen_ai.usage.input_tokens`,
+//   `gen_ai.usage.output_tokens` — unchanged in the live spec.
+// Honest data: a field the provider did not report is OMITTED, never
+// invented (e.g. mock and legacy-backend calls carry no token counts).
+
+// Per-thread backend tag for the `backend` trace field.
+// "tw" (tree-walking interpreter) by default; VM entry points set "vm"
+// for the duration of a program run and restore the previous value.
+// (thread_local! — rustdoc does not render docs on macro invocations, hence
+// the plain comments instead of ///.)
+thread_local! {
+    static BACKEND_TAG: std::cell::Cell<&'static str> = const { std::cell::Cell::new("tw") };
+}
+
+/// Set the backend tag for LLM traces on the current thread ("tw" | "vm").
+/// Returns the previous tag so the caller (VM entry points) can restore it.
+pub fn set_llm_backend_tag(tag: &'static str) -> &'static str {
+    BACKEND_TAG.with(|b| b.replace(tag))
+}
+
+/// One LLM call event for the JSONL trace (Наряд №276).
+/// `None` fields are omitted from the line — honest data, not defaults.
+pub struct LlmTraceEvent<'a> {
+    /// `gen_ai.provider.name` (live-spec name; see module comment).
+    pub provider_name: Option<&'a str>,
+    /// `gen_ai.request.model`.
+    pub model: Option<&'a str>,
+    /// `gen_ai.usage.input_tokens` — only when the provider reported it.
+    pub input_tokens: Option<u64>,
+    /// `gen_ai.usage.output_tokens` — only when the provider reported it.
+    pub output_tokens: Option<u64>,
+    pub latency_ms: u64,
+    /// "ok" | "error".
+    pub status: &'static str,
+    /// "exact" (ADR-0047 cache hit) | "semantic" (№273, future) | "miss".
+    pub cache: &'static str,
+    /// SmartRouter provider alias, when the call went through a router.
+    pub provider_alias: Option<&'a str>,
+}
+
+static TRACE_WARNED: AtomicBool = AtomicBool::new(false);
+
+fn trace_warn_once(msg: &str) {
+    if !TRACE_WARNED.swap(true, Ordering::SeqCst) {
+        eprintln!(
+            "[llm-trace] warning: {} (further trace-write warnings suppressed)",
+            msg
+        );
+    }
+}
+
+/// Append one LLM call event to the METALOGOS_LLM_TRACE file (JSONL).
+/// Overhead when tracing is off: exactly ONE env-check per call (the
+/// documented contract — ADR-0138). Append+flush per line: a crash loses
+/// nothing already written (speed traded for survivability, on purpose).
+/// Write errors NEVER fail the LLM call — one warning, then silence.
+/// No rotation in v1: the file grows; the operator rotates it (documented).
+pub fn trace_llm_call(evt: &LlmTraceEvent) {
+    let Ok(path) = env::var("METALOGOS_LLM_TRACE") else {
+        return;
+    };
+    if path.is_empty() {
+        return;
+    }
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    // v1 operation: every current call site is a chat-style completion.
+    // Span-name convention of the spec ("{gen_ai.operation.name}") maps
+    // to the `name` field as "gen_ai.<operation>" = "gen_ai.chat".
+    let mut line = serde_json::json!({
+        "ts": ts,
+        "name": "gen_ai.chat",
+        "latency_ms": evt.latency_ms,
+        "status": evt.status,
+        "cache": evt.cache,
+        "backend": BACKEND_TAG.with(|b| b.get()),
+    });
+    if let Some(p) = evt.provider_name {
+        line["gen_ai.provider.name"] = serde_json::json!(p);
+    }
+    if let Some(m) = evt.model {
+        line["gen_ai.request.model"] = serde_json::json!(m);
+    }
+    if let Some(t) = evt.input_tokens {
+        line["gen_ai.usage.input_tokens"] = serde_json::json!(t);
+    }
+    if let Some(t) = evt.output_tokens {
+        line["gen_ai.usage.output_tokens"] = serde_json::json!(t);
+    }
+    if let Some(a) = evt.provider_alias {
+        line["provider_alias"] = serde_json::json!(a);
+    }
+    let mut out = line.to_string();
+    out.push('\n');
+    let res = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .and_then(|mut f| {
+            use std::io::Write;
+            f.write_all(out.as_bytes()).and_then(|()| f.flush())
+        });
+    if let Err(e) = res {
+        trace_warn_once(&format!("cannot append LLM trace to {}: {}", path, e));
+    }
+}
+
+/// Provider name from env for legacy (non-router) traces: the value the
+/// live spec expects for `gen_ai.provider.name` ("anthropic" / "openai" /
+/// "ollama" — well-known values; "ollama" is an honest custom value).
+pub fn provider_env_name() -> &'static str {
+    match Provider::from_env() {
+        Provider::OpenAI => "openai",
+        Provider::Ollama => "ollama",
+        Provider::Anthropic => "anthropic",
+    }
+}
+
+/// Token usage extracted from a raw provider response (Наряд №276).
+/// Best-effort by design: parse failures yield None — an unparseable
+/// response must not break the call, and an absent usage must not be
+/// invented (honest data).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ProviderTokenUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+fn extract_provider_usage(provider_type: &str, raw: &str) -> Option<ProviderTokenUsage> {
+    let v: serde_json::Value = serde_json::from_str(raw).ok()?;
+    let u = v.get("usage")?;
+    let (i, o) = match provider_type {
+        "anthropic" => (u.get("input_tokens")?, u.get("output_tokens")?),
+        "ollama" => (u.get("prompt_eval_count")?, u.get("eval_count")?),
+        // OpenAI-compatible: openai, groq, cerebras, nvidia, openrouter, custom
+        _ => (u.get("prompt_tokens")?, u.get("completion_tokens")?),
+    };
+    Some(ProviderTokenUsage {
+        input_tokens: i.as_u64()?,
+        output_tokens: o.as_u64()?,
+    })
+}
+
+/// Usage from an ALREADY-parsed Anthropic response body (call_claude reuses
+/// the one parse it already did for content extraction — №276).
+pub(crate) fn extract_usage_from_anthropic_body(
+    parsed: &serde_json::Value,
+) -> Option<ProviderTokenUsage> {
+    let u = parsed.get("usage")?;
+    Some(ProviderTokenUsage {
+        input_tokens: u.get("input_tokens")?.as_u64()?,
+        output_tokens: u.get("output_tokens")?.as_u64()?,
+    })
 }
 
 // ── Smart Router (Наряд №4: LLM Routing with Failover + Circuit Breaker) ──
@@ -1151,13 +1328,32 @@ impl SmartRouter {
         model_override: Option<&str>,
         timeout_override: Option<Duration>,
     ) -> Result<String, String> {
+        let call_start = Instant::now();
         if self.providers.is_empty() {
-            // No providers configured — fall back to legacy behavior
+            // No providers configured — fall back to legacy behavior.
+            // The legacy backend's identity is not visible here (type-erased
+            // trait object), so the trace honestly carries no provider fields.
             let backend = create_llm_backend();
-            return backend.call(prompt, input);
+            let res = backend.call(prompt, input);
+            trace_llm_call(&LlmTraceEvent {
+                provider_name: None,
+                model: None,
+                input_tokens: None,
+                output_tokens: None,
+                latency_ms: call_start.elapsed().as_millis() as u64,
+                status: if res.is_ok() { "ok" } else { "error" },
+                cache: "miss",
+                provider_alias: None,
+            });
+            return res;
         }
 
         let effective_prompt_len = prompt.len() + input.len();
+        // Resolved once here (was inside call_provider) so the trace can
+        // name the requested model without re-deriving it.
+        let resolved_model = model_override
+            .or(self.default_model.as_deref())
+            .unwrap_or("default");
 
         // Build ordered list of provider indices, sorted by health_score desc
         let mut candidates: Vec<usize> = (0..self.providers.len()).collect();
@@ -1168,6 +1364,8 @@ impl SmartRouter {
         });
 
         let mut last_error = String::new();
+        // Last attempted provider type (for the final error trace).
+        let mut last_attempted: Option<String> = None;
 
         for &idx in &candidates {
             if !self.tracker.is_provider_available(idx) {
@@ -1176,6 +1374,7 @@ impl SmartRouter {
 
             let (ref _alias, ref provider_type, ref api_key, ref url) = self.providers[idx];
             let start = Instant::now();
+            last_attempted = Some(provider_type.clone());
 
             let result = self.call_provider(
                 provider_type,
@@ -1183,7 +1382,7 @@ impl SmartRouter {
                 url.as_deref(),
                 prompt,
                 input,
-                model_override,
+                resolved_model,
                 timeout_override,
             );
 
@@ -1197,7 +1396,19 @@ impl SmartRouter {
             }
 
             match result {
-                Ok(response) => return Ok(response),
+                Ok((response, usage)) => {
+                    trace_llm_call(&LlmTraceEvent {
+                        provider_name: Some(provider_type.as_str()),
+                        model: Some(resolved_model),
+                        input_tokens: usage.map(|u| u.input_tokens),
+                        output_tokens: usage.map(|u| u.output_tokens),
+                        latency_ms: call_start.elapsed().as_millis() as u64,
+                        status: "ok",
+                        cache: "miss",
+                        provider_alias: Some(_alias.as_str()),
+                    });
+                    return Ok(response);
+                }
                 Err(e) => {
                     last_error = e.clone();
                     if !self.failover {
@@ -1208,7 +1419,19 @@ impl SmartRouter {
             }
         }
 
-        // All providers exhausted — soft failure
+        // All providers exhausted — soft failure.
+        // The trace names the LAST attempted provider (the one that
+        // produced the final error) — honest about what was tried last.
+        trace_llm_call(&LlmTraceEvent {
+            provider_name: last_attempted.as_deref(),
+            model: Some(resolved_model),
+            input_tokens: None,
+            output_tokens: None,
+            latency_ms: call_start.elapsed().as_millis() as u64,
+            status: "error",
+            cache: "miss",
+            provider_alias: None,
+        });
         Err(format!(
             "All LLM providers failed. Last error: {}",
             truncate(&last_error, 200)
@@ -1219,6 +1442,8 @@ impl SmartRouter {
     /// Наряд #156: effective timeout = min(timeout_override, self.timeout).
     /// `reqwest::blocking::Client::timeout()` performs real HTTP-level
     /// cancellation (drops TCP connection) when it fires.
+    /// Наряд №276: returns `(text, usage)` — usage extracted from the raw
+    /// response when the provider reported it (honest: None otherwise).
     #[allow(clippy::too_many_arguments)]
     fn call_provider(
         &self,
@@ -1227,9 +1452,9 @@ impl SmartRouter {
         url: Option<&str>,
         prompt: &str,
         input: &str,
-        model_override: Option<&str>,
+        resolved_model: &str,
         timeout_override: Option<Duration>,
-    ) -> Result<String, String> {
+    ) -> Result<(String, Option<ProviderTokenUsage>), String> {
         let effective_timeout = match timeout_override {
             Some(override_dur) => {
                 let config_dur = Duration::from_secs(self.timeout.max(5) as u64);
@@ -1242,10 +1467,6 @@ impl SmartRouter {
             .connect_timeout(Duration::from_secs(10))
             .build()
             .map_err(|e| format!("HTTP client build error: {}", e))?;
-
-        let resolved_model = model_override
-            .or(self.default_model.as_deref())
-            .unwrap_or("default");
 
         let body_text = format!("{}\n\nInput: {}", prompt, input);
         let body = serde_json::json!({
@@ -1285,7 +1506,8 @@ impl SmartRouter {
                         truncate(&text, 500)
                     ));
                 }
-                parse_anthropic_response(&text)
+                let usage = extract_provider_usage(provider_type, &text);
+                parse_anthropic_response(&text).map(|s| (s, usage))
             }
             "ollama" => {
                 let ollama_body = serde_json::json!({
@@ -1310,7 +1532,8 @@ impl SmartRouter {
                         truncate(&text, 500)
                     ));
                 }
-                parse_ollama_response(&text)
+                let usage = extract_provider_usage(provider_type, &text);
+                parse_ollama_response(&text).map(|s| (s, usage))
             }
             _ => {
                 // OpenAI-compatible: openai, groq, cerebras, nvidia, openrouter, custom
@@ -1337,7 +1560,8 @@ impl SmartRouter {
                         truncate(&text, 500)
                     ));
                 }
-                parse_openai_response(&text)
+                let usage = extract_provider_usage(provider_type, &text);
+                parse_openai_response(&text).map(|s| (s, usage))
             }
         }
     }

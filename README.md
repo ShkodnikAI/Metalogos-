@@ -260,7 +260,7 @@ Metalogos-/
 ├── logo.jpg                          # Brand logo
 ├── README.md                         # This file
 ├── REFERENCE.md                      # Full builtin reference (~180 KB) — 100% of the registry (§6 index)
-├── CHANGELOG.md                      # Version history (~232 KB)
+├── CHANGELOG.md                      # Version history (~236 KB)
 ├── AI_USAGE.md                       # Disclosure: how generative AI is used in this project's development
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap

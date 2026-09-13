@@ -10,7 +10,7 @@ ls docs/adr/ | sed 's/-.*//' | sort | uniq -d
 
 Must be empty. If not empty, resolve collisions before proceeding.
 
-Numbers are assigned sequentially. The current maximum is in `0094-*`.
+Numbers are assigned sequentially. The current maximum is in `0139-*` (ADR-0137 added by naryad №275; ADR-0138 by №276; ADR-0139 draft by №282 spike).
 
 ## Reserved numbers (do not reassign)
 
@@ -152,8 +152,9 @@ reports and must not be changed:
 | 0131 | Stable diagnostic codes for `mlog check` — extending the existing `audit.rs` convention, not a new one | Accepted |
 | 0132 | MCP-клиент — ручной JSON-RPC поверх stdio, stateless, вывод с taint `UserInput` | Accepted (утверждён владельцем 2026-09-12; taint-род вывода MCP |
 | 0133 | `call_llm_schema` — structured LLM output through a hand-rolled JSON-Schema subset validator | Accepted |
-| 0134 | sqlite-vec как KNN-ускоритель semantic recall — вердикт спайка №271: Go | Accepted (вердикт-гейт, решён исполнителем по спайку 2026-09-12) |
+| 0134 | sqlite-vec как KNN-ускоритель semantic recall — вердикт спайка №271: Go | Accepted (вердикт-гейт диспатча #316: решён исполнителем по спайку 2026-09-12, как утверждено механикой гейтов) |
 | 0135 | Semantic cache (cache_semantic) + LRU-граница кэша ADR-0047 | Accepted |
-| 0136 | `redact(text, mode)` — PII/секреты как taint-санитайзер; «mask before sink» — единственный легальный путь снятия `Secret`-taint | Accepted (стоп-гейт СГ-2 утверждён владельцем 2026-09-12) |
+| 0136 | redact(text, mode) — PII/секреты как taint-санитайзер | Accepted (стоп-гейт СГ-2 утверждён владельцем 2026-09-12) |
+| 0137 | LLM streaming — `llm_stream_open/next/close` over `reqwest::blocking` | Accepted |
 | 0138 | Per-call LLM traces — file-based JSONL with OpenTelemetry GenAI field names | Accepted |
-| 0139 | SMFS — экспорт памяти как виртуальной read-only ФС (`sm:`) — вердикт спайка №282: Go | Proposed (черновик спайка, вердикт-гейт решён исполнителем 2026-09-13) |
+| 0139 | SMFS — экспорт памяти как виртуальной read-only ФС (`sm:`) | Proposed (черновик спайка №282; вердикт спайка |

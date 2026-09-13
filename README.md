@@ -269,6 +269,7 @@ Metalogos-/
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
 ├── Dockerfile                        # Docker build
 ├── index.html                        # Landing page / docs site
+├── llms.txt                          # LLMs.txt v2 index for agent tools & RAG pipelines (issue #300)
 │
 ├── src/                              # Core compiler + interpreter (~59 000 LOC)
 │   ├── main.rs                        # CLI: run/check/repl/compile/serve/eval/resume/test/audit

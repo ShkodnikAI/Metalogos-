@@ -4,6 +4,15 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — docs: llms.txt — индекс для агентных инструментов и RAG-пайплайнов (Naryad #291, P3/docs)
+
+- **artifact**: `llms.txt` (новый) — простой markdown-индекс в корне репозитория, следует формату `llmstxt.org` v2 (H1 title, optional blockquote description, bullet list of canonical files). 14 рабочих относительных ссылок на ключевые файлы: AGENTS.md/CLAUDE.md/GEMINI.md (методология), REFERENCE.md (полный справочник), src/grammar.pest (PEG-грамматика), tree-sitter-mlog/grammar.js (параллельная tree-sitter грамматика), examples/ (214 рабочих .mlog-файлов), README.md, CHANGELOG.md, docs/adr/ (132 ADR), docs/threat-model.md, FEATURE_INTAKE.md, AI_USAGE.md, MEMORY_ROADMAP.md.
+- **Блок 2 — честная формулировка ожиданий**: в самом файле явно зафиксировано — «индекс для IDE-агентов и RAG-пайплайнов, на которые явно указали URL этого репозитория. Не для автоматического обнаружения — основные краулеры (GPTBot, ClaudeBot, Google-Extended) практически не запрашивают llms.txt системно». Не заявлено «агенты автоматически найдут язык через этот файл» — документ-источник прямо показал ограничение.
+- **README**: добавлена 1 строка в Project Structure (`llms.txt` с описанием).
+- **не создан** `llms-full.txt` (расширенный вариант) — не заявлено достаточной ценности, только базовый индекс (контракт наряда).
+- **ADR**: не требуется (`ADR-0110` §1: устоявшийся паттерн, не новая семантика).
+- **контракт выполнен**: файл существует, следует формату `llmstxt.org` v2 (markdown, не выдуманная структура); все 14 внутренних ссылок — рабочие относительные пути (проверено `ls -e`).
+
 ### Changed — docs: AGENT.md → AGENTS.md — канонизация под индустриальный стандарт (Naryad #290, P2/docs)
 
 - **Блок 1 — переименование**: `AGENT.md` → `AGENTS.md` (`git mv`, history preserved). `AGENTS.md` — реальный, широко принятый индустриальный стандарт (`agentsmd/agents.md`, 24266★, стюард AAIF при Linux Foundation с декабря 2025). Прежний `AGENT.md` (165 строк) — корректный по содержанию, требовал только переименования.

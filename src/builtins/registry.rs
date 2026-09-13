@@ -225,7 +225,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     #[cfg(feature = "vec")]
     spec!("vec_store", 4, "memory"; builtin_vec_store),
     #[cfg(feature = "vec")]
-    spec!("vec_search", 4, "memory"; builtin_vec_search),
+    spec!("vec_search", 4, 5, "memory"; builtin_vec_search), // db_path,table,query,k | +include_forgotten (№280, дефолт false)
     // recall/forget/find/inspect: planned high-level memory API; no handler (use kv_*/mem_* instead)
     spec!("recall", 0, "stub"),
     spec!("forget", 0, "stub"),
@@ -633,6 +633,21 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // HTTP-ответы, request_body) — см. minimal-build. Категория "llm" —
     // семейство ADR-0133. Registry 401→402.
     spec!("json_validate", 2, 3, "llm"; builtin_json_validate),
+    // ── Наряд №280 (P2, M2): memory_forget — управляемое забывание с
+    // границами (supermemory forget-matching: dry_run-превью → apply
+    // строго по явным ids → batch_id в ledger). Soft-delete: физического
+    // удаления нет, стёртые id — в {table}__forgotten (id, batch_id,
+    // reason, forgotten_at) — журнал операции (audit-след в духе №276).
+    // vec_search получает опциональный include_forgotten (дефолт false —
+    // забытые не возвращаются; арность 4→4..5 на месте, индексы не
+    // сдвигаются). Tier 1 поверх vec_search (№272), тот же feature-gate
+    // `vec`; песочница ForRead (превью) / ForWrite (apply). Порог и
+    // max_forget капируют поражённую область; apply по id вне границ
+    // превью — ГРОМКАЯ ошибка (bound deletes). Автозабывание (TTL,
+    // вытеснение updates-фактом) — v2, вне скоупа. Категория "memory".
+    // Registry 402→403 (append-only, bytecode-индексы стабильны).
+    #[cfg(feature = "vec")]
+    spec!("memory_forget", 5, 7, "memory"; builtin_memory_forget),
 ];
 
 /// Total number of registered builtins.

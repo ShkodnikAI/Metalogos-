@@ -61,7 +61,7 @@ fn register_vec_extension() {
 
 /// Идентификатор SQL-таблицы: [A-Za-z_][A-Za-z0-9_]* — защита от SQL-инъекции
 /// через имя таблицы (имя попадает в DDL напрямую, биндить его нельзя).
-fn validate_table_name(builtin: &str, table: &str) -> Result<(), String> {
+pub(crate) fn validate_table_name(builtin: &str, table: &str) -> Result<(), String> {
     let mut chars = table.chars();
     let ok = match chars.next() {
         Some(c) if c.is_ascii_alphabetic() || c == '_' => {
@@ -100,7 +100,7 @@ fn type_name(v: &Value) -> &'static str {
     }
 }
 
-fn value_as_embedding(builtin: &str, pos: usize, v: &Value) -> Result<Vec<f32>, String> {
+pub(crate) fn value_as_embedding(builtin: &str, pos: usize, v: &Value) -> Result<Vec<f32>, String> {
     match v {
         Value::List(items) => {
             let mut out = Vec::with_capacity(items.len());
@@ -181,7 +181,7 @@ pub(crate) fn embed_text(text: &str) -> Result<Vec<f32>, String> {
 const META_DDL: &str =
     "CREATE TABLE IF NOT EXISTS vec_meta (table_name TEXT PRIMARY KEY, dim INTEGER NOT NULL);";
 
-fn open_vec_db(
+pub(crate) fn open_vec_db(
     builtin: &str,
     db_path: &str,
     mode: SandboxMode,
@@ -195,7 +195,7 @@ fn open_vec_db(
     Ok(conn)
 }
 
-fn table_dim(conn: &rusqlite::Connection, table: &str) -> Result<Option<i64>, String> {
+pub(crate) fn table_dim(conn: &rusqlite::Connection, table: &str) -> Result<Option<i64>, String> {
     let mut stmt = conn
         .prepare("SELECT dim FROM vec_meta WHERE table_name = ?1")
         .map_err(|e| format!("vec_meta query: {}", e))?;
@@ -291,15 +291,19 @@ pub(crate) fn builtin_vec_store(args: &[Value]) -> Result<Value, String> {
     ))
 }
 
-/// `vec_search(db_path, table, query_embedding, k) -> List[Struct{id, distance}]`
+/// `vec_search(db_path, table, query_embedding, k[, include_forgotten]) -> List[Struct{id, distance}]`
 /// — KNN по vec0-таблице (distance_metric=cosine), ближайший первым.
 /// Пустая существующая таблица → пустой List. Отсутствующая таблица /
 /// рассогласование размерности → громкая ошибка. k <= 0 и
 /// нецелое k — ошибки; k > 10 000 отклоняется (DoS-граница).
+/// Опциональный пятый аргумент include_forgotten (Bool, дефолт false,
+/// наряд №280): пост-фильтр id из forget-ledger (memory_forget) —
+/// забытые id не возвращаются. k — размер KNN-выборки ДО фильтра;
+/// после фильтра результат может быть меньше k (задокументировано).
 pub(crate) fn builtin_vec_search(args: &[Value]) -> Result<Value, String> {
-    if args.len() != 4 {
+    if args.len() != 4 && args.len() != 5 {
         return Err(format!(
-            "vec_search() requires exactly 4 arguments (db_path, table, query_embedding, k), got {}",
+            "vec_search() requires 4 or 5 arguments (db_path, table, query_embedding, k[, include_forgotten]), got {}",
             args.len()
         ));
     }
@@ -326,6 +330,21 @@ pub(crate) fn builtin_vec_search(args: &[Value]) -> Result<Value, String> {
             "vec_search(): k = {k} exceeds the limit 10000 (DoS guard; narrow the query instead)"
         ));
     }
+    // Наряд №280: опциональный include_forgotten (дефолт false —
+    // забытые id не возвращаются по умолчанию).
+    let include_forgotten = if args.len() == 5 {
+        match &args[4] {
+            Value::Bool(b) => *b,
+            other => {
+                return Err(format!(
+                    "vec_search(): argument 5 (include_forgotten) must be a Bool, got {}",
+                    type_name(other)
+                ))
+            }
+        }
+    } else {
+        false
+    };
     validate_table_name("vec_search", &table)?;
 
     let conn = open_vec_db("vec_search", &db_path, SandboxMode::ForRead)?;
@@ -381,5 +400,68 @@ pub(crate) fn builtin_vec_search(args: &[Value]) -> Result<Value, String> {
             ],
         ));
     }
+    // Наряд №280: пост-фильтр забытых id (soft-delete ledger от
+    // memory_forget). k — размер KNN-выборки ДО фильтра; после фильтра
+    // результат может быть меньше k — честно задокументировано.
+    if !include_forgotten {
+        let forgotten = forgotten_ids(&conn, &table)?;
+        if !forgotten.is_empty() {
+            out.retain(|hit| match hit {
+                Value::Struct { fields, .. } => match fields.get("id") {
+                    Some(Value::String(id)) => !forgotten.contains(id),
+                    _ => true,
+                },
+                _ => true,
+            });
+        }
+    }
     Ok(Value::List(out))
+}
+
+// ── Forget-ledger (наряд №280) ───────────────────────────────────
+// Soft-delete: физического удаления нет; стёртые id живут в
+// shadow-таблице {table}__forgotten рядом с vec0-таблицей. Ledger —
+// журнал операции: batch_id каждой операции забывания виден в строках.
+
+/// DDL forget-ledger. Имя таблицы уже прошло validate_table_name
+/// (белый список идентификаторов), суффикс безопасен.
+pub(crate) fn forget_ledger_ddl(table: &str) -> String {
+    format!(
+        "CREATE TABLE IF NOT EXISTS \"{table}__forgotten\" (\
+             id TEXT NOT NULL, \
+             batch_id TEXT NOT NULL, \
+             reason TEXT NOT NULL, \
+             forgotten_at TEXT NOT NULL);\
+         CREATE INDEX IF NOT EXISTS \"{table}__forgotten_id_idx\" \
+             ON \"{table}__forgotten\"(id);"
+    )
+}
+
+/// Множество уже забытых id для таблицы. Отсутствующий ledger —
+/// не ошибка (пустое множество): забывать ещё нечего.
+pub(crate) fn forgotten_ids(
+    conn: &rusqlite::Connection,
+    table: &str,
+) -> Result<std::collections::HashSet<String>, String> {
+    let exists: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [format!("{table}__forgotten")],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("sqlite_master: {e}"))?;
+    if exists == 0 {
+        return Ok(std::collections::HashSet::new());
+    }
+    let mut stmt = conn
+        .prepare(&format!("SELECT id FROM \"{table}__forgotten\""))
+        .map_err(|e| format!("ledger query: {e}"))?;
+    let mut out = std::collections::HashSet::new();
+    let rows = stmt
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(|e| format!("ledger query: {e}"))?;
+    for row in rows {
+        out.insert(row.map_err(|e| format!("ledger row: {e}"))?);
+    }
+    Ok(out)
 }

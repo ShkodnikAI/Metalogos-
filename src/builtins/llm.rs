@@ -181,6 +181,10 @@ pub(crate) fn builtin_llm_usage(_args: &[Value]) -> Result<Value, String> {
         "cache_hits_semantic".to_string(),
         Value::Float(report.cache_hits_semantic),
     );
+    fields.insert(
+        "canary_leaks".to_string(),
+        Value::Float(report.canary_leaks),
+    );
 
     let providers: Vec<Value> = report
         .providers

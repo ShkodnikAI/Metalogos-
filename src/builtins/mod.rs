@@ -147,6 +147,14 @@ use string::*;
 // Наряд №274 (ADR-0136): core-функция маскирования публична для fuzz-цели
 // (конвенция №256) — metalogos::builtins::redact_string.
 pub use string::redact_string;
+// Наряд №284 (P1, M1): canary-токены недоверенного текста — чистые ядра
+// публичны для тестов и fuzz (конвенция №256); модуль pub(crate),
+// контрактная поверхность — два билтина в реестре.
+pub(crate) mod canary;
+use canary::*;
+pub use canary::{
+    canary_check_core, canary_insert_core, is_canary_id, CanaryCheck, CanaryMark, CANARY_PREFIX,
+};
 pub(crate) mod crypto;
 use crypto::*;
 pub(crate) mod json;

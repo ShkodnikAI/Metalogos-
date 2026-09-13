@@ -2,7 +2,7 @@
 // ADR-0057: `mlog audit <file>` — analyzes without executing.
 // Checks: SECRETS, HTML_INJECTION, SQL_DYNAMIC, SANDBOX_COVERAGE,
 //         RATE_LIMIT, CSRF, SECRET_LEAK, OPEN_REDIRECT,
-//         TAINT_PERSISTENCE, TAINT_PASSTHROUGH.
+//         TAINT_PERSISTENCE, TAINT_PASSTHROUGH, CANARY_LEAK (№284).
 
 use crate::ast::*;
 use crate::parser;
@@ -125,9 +125,19 @@ enum TaintKind {
     UserInput,
     /// Value was processed through render() or escape_html() — safe for HTML output.
     Sanitized,
+    /// Наряд №284: value is the response of a channel where a canary leak
+    /// was CONFIRMED (canary_check → leaked=true) — «компрометированный
+    /// канал». Поставляется ТОЛЬКО внутри then-ветки `if (r.leaked)`
+    /// (path-sensitive approximation, check_canary_leak ниже); sinks
+    /// получают advisory-warning CANARY_LEAK. Детектор, не гейт:
+    /// render/escape_html снимают (Sanitized), redact НЕ снимает
+    /// (маскирование ≠ санитизация канала, лекало ADR-0136 D2).
+    CanaryLeak,
 }
 
 /// Per-scope taint tracker. Maps variable name to its taint kind.
+/// Clone — для path-sensitive форка в check_canary_leak (№284).
+#[derive(Clone)]
 struct TaintTracker {
     tainted: HashMap<String, TaintKind>,
 }
@@ -2148,6 +2158,298 @@ fn check_taint_passthrough_pattern(
     }
 }
 
+// ── Наряд №284 (P1, M1): CANARY_LEAK — «компрометированный канал» ──────
+
+/// Static half of the canary contour (src/builtins/canary.rs — runtime
+/// half: stderr warning + llm_usage().canary_leaks). Advisory-only:
+/// included in audit_program, NOT in audit_category_a (a Warning there
+/// would be promoted to a compile error, contradicting «детектор,
+/// не гейт»).
+///
+/// Path-sensitive approximation:
+///   - `let r = canary_check(resp, id)` (или inline-условие
+///     `canary_check(resp, id).leaked`) регистрирует пару r → resp;
+///   - в then-ветке `if (r.leaked) { ... }` resp помечается
+///     TaintKind::CanaryLeak (форк трекера; else/после ветки — без метки);
+///   - использование CanaryLeak-значения в sink (respond, http_post,
+///     call_llm, call_claude, reflex_generate, mcp_call) → Warning
+///     CANARY_LEAK. Решение об остановке — за автором.
+///
+/// Honest boundaries: ветки с инвертированным/сравнительным условием
+/// (`not r.leaked`, `r.leaked == false`) не помечаются; выражения в
+/// Memorize/Forget/Relate/Match-arms не обходятся; flows — pipeline-шаги,
+/// не statements (their bodies are patterns) — границы зафиксированы.
+fn check_canary_leak(declarations: &[Declaration], source: &str, findings: &mut Vec<AuditFinding>) {
+    /// Sink-каналы вывода наружу / повторного входа недоверенного
+    /// контента (эксфильтрация / re-injection loop).
+    const CANARY_SINKS: &[&str] = &[
+        "respond",
+        "http_post",
+        "call_llm",
+        "call_claude",
+        "reflex_generate",
+        "mcp_call",
+    ];
+
+    fn is_canary_sink(name: &str) -> bool {
+        CANARY_SINKS.contains(&name)
+    }
+
+    /// `canary_check(X, ...)` → имя проверяемой переменной X.
+    fn canary_source(args: &[Expr]) -> Option<String> {
+        match args.first() {
+            Some(Expr::Ident { name, .. }) => Some(name.clone()),
+            _ => None,
+        }
+    }
+
+    /// Условие ветки утечки: `E.leaked`, где E — inline-вызов
+    /// `canary_check(Ident(X), ...)` или `Ident(r)` при связи r → X.
+    fn leak_branch_var(cond: &Expr, checks: &HashMap<String, String>) -> Option<String> {
+        if let Expr::FieldAccess { object, field, .. } = cond {
+            if field == "leaked" {
+                match object.as_ref() {
+                    Expr::FnCall { name, args, .. } if name == "canary_check" => {
+                        return canary_source(args);
+                    }
+                    Expr::Ident { name: r, .. } => {
+                        if let Some(src) = checks.get(r) {
+                            return Some(src.clone());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        None
+    }
+
+    fn check_expr_for_canary(
+        expr: &Expr,
+        tracker: &TaintTracker,
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        if let Expr::FnCall { name, args, .. } = expr {
+            if is_canary_sink(name) {
+                for arg in args {
+                    if get_expr_taint(arg, tracker) == Some(TaintKind::CanaryLeak) {
+                        findings.push(AuditFinding {
+                            severity: Severity::Warning,
+                            check_id: "CANARY_LEAK",
+                            line: find_line(source, name),
+                            message: format!(
+                                "compromised channel: canary leak confirmed (canary_check \u{2192} leaked), the leaked response reaches {}() \u{2014} treat as attacker-controlled; detector, not gate (No. 284)",
+                                name
+                            ),
+                        });
+                        break;
+                    }
+                }
+            }
+            for arg in args {
+                check_expr_for_canary(arg, tracker, source, findings);
+            }
+        }
+        match expr {
+            Expr::FieldAccess { object, .. } => {
+                check_expr_for_canary(object, tracker, source, findings);
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                check_expr_for_canary(left, tracker, source, findings);
+                check_expr_for_canary(right, tracker, source, findings);
+            }
+            Expr::IfElse {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                check_expr_for_canary(condition, tracker, source, findings);
+                check_expr_for_canary(then_branch, tracker, source, findings);
+                check_expr_for_canary(else_branch, tracker, source, findings);
+            }
+            Expr::List { items, .. } => {
+                for item in items {
+                    check_expr_for_canary(item, tracker, source, findings);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn process_stmt(
+        stmt: &Statement,
+        tracker: &mut TaintTracker,
+        checks: &mut HashMap<String, String>,
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        match stmt {
+            Statement::LetBinding { name, value, .. } => {
+                check_expr_for_canary(value, tracker, source, findings);
+                if let Expr::FnCall {
+                    name: fn_name,
+                    args,
+                    ..
+                } = value
+                {
+                    if fn_name == "canary_check" {
+                        if let Some(src) = canary_source(args) {
+                            checks.insert(name.clone(), src);
+                        }
+                    } else {
+                        checks.remove(name);
+                    }
+                } else {
+                    checks.remove(name);
+                }
+                if let Some(taint) = binding_taint(value, tracker) {
+                    tracker.taint(name, taint);
+                } else {
+                    tracker.untaint(name);
+                }
+            }
+            Statement::Assign { name, value, .. } => {
+                check_expr_for_canary(value, tracker, source, findings);
+                if let Expr::FnCall {
+                    name: fn_name,
+                    args,
+                    ..
+                } = value
+                {
+                    if fn_name == "canary_check" {
+                        if let Some(src) = canary_source(args) {
+                            checks.insert(name.clone(), src);
+                        }
+                    } else {
+                        checks.remove(name);
+                    }
+                } else {
+                    checks.remove(name);
+                }
+                if let Some(taint) = binding_taint(value, tracker) {
+                    tracker.taint(name, taint);
+                } else {
+                    tracker.untaint(name);
+                }
+            }
+            Statement::ExprStmt { expr, .. } => {
+                check_expr_for_canary(expr, tracker, source, findings);
+            }
+            Statement::Return { value: expr, .. } => {
+                check_expr_for_canary(expr, tracker, source, findings);
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                check_expr_for_canary(condition, tracker, source, findings);
+                let leaked_src = leak_branch_var(condition, checks);
+                match leaked_src {
+                    Some(src) => {
+                        // Path-sensitive fork: метка живёт ТОЛЬКО в then-ветке.
+                        let mut fork = tracker.clone();
+                        fork.taint(&src, TaintKind::CanaryLeak);
+                        for s in then_body {
+                            process_stmt(s, &mut fork, checks, source, findings);
+                        }
+                        for (_, body) in else_ifs {
+                            for s in body {
+                                process_stmt(s, tracker, checks, source, findings);
+                            }
+                        }
+                        if let Some(body) = else_body {
+                            for s in body {
+                                process_stmt(s, tracker, checks, source, findings);
+                            }
+                        }
+                    }
+                    None => {
+                        for s in then_body {
+                            process_stmt(s, tracker, checks, source, findings);
+                        }
+                        for (_, body) in else_ifs {
+                            for s in body {
+                                process_stmt(s, tracker, checks, source, findings);
+                            }
+                        }
+                        if let Some(body) = else_body {
+                            for s in body {
+                                process_stmt(s, tracker, checks, source, findings);
+                            }
+                        }
+                    }
+                }
+            }
+            Statement::IfThen {
+                condition, body, ..
+            } => {
+                check_expr_for_canary(condition, tracker, source, findings);
+                match leak_branch_var(condition, checks) {
+                    Some(src) => {
+                        let mut fork = tracker.clone();
+                        fork.taint(&src, TaintKind::CanaryLeak);
+                        for s in body {
+                            process_stmt(s, &mut fork, checks, source, findings);
+                        }
+                    }
+                    None => {
+                        for s in body {
+                            process_stmt(s, tracker, checks, source, findings);
+                        }
+                    }
+                }
+            }
+            Statement::Each { iterable, body, .. }
+            | Statement::EachWithIndex { iterable, body, .. } => {
+                check_expr_for_canary(iterable, tracker, source, findings);
+                for s in body {
+                    process_stmt(s, tracker, checks, source, findings);
+                }
+            }
+            Statement::While {
+                condition, body, ..
+            } => {
+                check_expr_for_canary(condition, tracker, source, findings);
+                for s in body {
+                    process_stmt(s, tracker, checks, source, findings);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn analyze_body(stmts: &[Statement], source: &str, findings: &mut Vec<AuditFinding>) {
+        let mut tracker = TaintTracker::new();
+        let mut checks: HashMap<String, String> = HashMap::new();
+        for s in stmts {
+            process_stmt(s, &mut tracker, &mut checks, source, findings);
+        }
+    }
+
+    for decl in declarations {
+        match decl {
+            Declaration::MlogServer(srv) => {
+                for route in &srv.routes {
+                    analyze_body(&route.body, source, findings);
+                }
+            }
+            Declaration::Pattern(p) => analyze_body(&p.body, source, findings),
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    analyze_body(&m.body, source, findings);
+                }
+            }
+            Declaration::Hook(h) => analyze_body(&h.body, source, findings),
+            _ => {}
+        }
+    }
+}
+
 // ── Public API ───────────────────────────────────────────────────────
 
 /// Run only Category A audit checks (compiler-enforced security invariants).
@@ -2169,6 +2471,8 @@ fn check_taint_passthrough_pattern(
 ///   - RATE_LIMIT: external infra can handle this
 ///   - CSRF: not needed for token-authenticated APIs
 ///   - OPEN_REDIRECT: custom validation not recognized
+///   - CANARY_LEAK: advisory detector (№284) — WARNING stays in
+///     audit_program, never promoted to a compile error
 pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<AuditFinding> {
     let mut findings: Vec<AuditFinding> = Vec::new();
     check_sql_dynamic(declarations, source, &mut findings);
@@ -2217,6 +2521,10 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     // policy validated statically").
     check_model_weights_unsafe(&declarations, source, &mut findings);
     check_vision_policy_missing(&declarations, source, &mut findings);
+    // Наряд №284 (P1, M1): canary — compromised-channel detector.
+    // Advisory Warning (audit_program), НЕ Category-A: промоция Warning
+    // до compile-error противоречила бы «детектор, не гейт».
+    check_canary_leak(&declarations, source, &mut findings);
 
     // Sort findings by line number for deterministic output
     findings.sort_by_key(|f| (f.line, f.check_id));

@@ -947,6 +947,14 @@ pub(crate) fn builtin_redact(args: &[Value]) -> Result<Value, String> {
 
 /// Core masking routine (public for the fuzz target, №274).
 /// mode: "pii" | "secrets" | "all" — anything else is a loud error.
+///
+/// Наряд №284: canary-маркеры НЕ считаются секретами. Спаны
+/// `MLOG-CANARY-<id>` вырезаются ДО маскирования и возвращаются
+/// нетронутыми — иначе энтропи-сеть (26-символьный base32-идентификатор
+/// попадает под base64-ряд) разрушила бы маркер ещё до отправки в LLM и
+/// инвариант «redact-выход и canary-проверка не конфликтуют» был бы
+/// невыполним. Сегменты вне маркеров маскируются как обычно (секрет
+/// РЯДОМ с маркером по-прежнему маскируется).
 pub fn redact_string(text: &str, mode: &str) -> Result<String, String> {
     match mode {
         "pii" | "secrets" | "all" => {}
@@ -957,6 +965,33 @@ pub fn redact_string(text: &str, mode: &str) -> Result<String, String> {
             ))
         }
     }
+    let ranges = canary_marker_ranges(text);
+    if ranges.is_empty() {
+        return redact_string_inner(text, mode);
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut last = 0usize;
+    for (start, end) in &ranges {
+        out.push_str(&redact_string_inner(&text[last..*start], mode)?);
+        out.push_str(&text[*start..*end]);
+        last = *end;
+    }
+    out.push_str(&redact_string_inner(&text[last..], mode)?);
+    Ok(out)
+}
+
+/// Byte-диапазоны канареечных маркеров `MLOG-CANARY-<26 × A-Z2-7>`
+/// в тексте (границы байт всегда на границах символов — маркер ASCII).
+#[allow(clippy::expect_used)]
+fn canary_marker_ranges(text: &str) -> Vec<(usize, usize)> {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re =
+        RE.get_or_init(|| Regex::new("MLOG-CANARY-[A-Z2-7]{26}").expect("static canary regex"));
+    re.find_iter(text).map(|m| (m.start(), m.end())).collect()
+}
+
+/// Original masking pipeline (№274) — called per canary-free segment.
+fn redact_string_inner(text: &str, mode: &str) -> Result<String, String> {
     let do_secrets = mode != "pii";
     let do_pii = mode != "secrets";
     let mut out = text.to_string();

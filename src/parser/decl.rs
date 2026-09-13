@@ -54,6 +54,14 @@ pub(super) fn parse_mlogserver_decl(pair: Pair<Rule>) -> Result<Declaration, Par
         .and_then(|c| find_child_str(&children_of(c), Rule::INT))
         .and_then(|s| s.parse().ok());
 
+    // Наряд №296: optional `redact_mode: "pii"` for the redact middleware.
+    // Only used when "redact" is in the middleware list.
+    let redact_mode: Option<String> = body_children
+        .iter()
+        .find(|c| c.as_rule() == Rule::mlogserver_redact_mode)
+        .and_then(|c| find_child_str(&children_of(c), Rule::STRING_LITERAL))
+        .map(|s| s.trim_matches('"').to_string());
+
     let routes: Vec<RouteDecl> = body_children
         .iter()
         .filter(|c| c.as_rule() == Rule::route_decl)
@@ -66,6 +74,7 @@ pub(super) fn parse_mlogserver_decl(pair: Pair<Rule>) -> Result<Declaration, Par
         host,
         middleware,
         rate_limit,
+        redact_mode,
         routes,
     }))
 }

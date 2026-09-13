@@ -519,6 +519,9 @@ pub struct ServerState {
     pub vm_program: Option<Arc<Program>>,
     /// Compiled route bytecodes (Наряд №40: one per route, compiled at startup).
     pub vm_routes: Vec<CompiledRoute>,
+    /// Наряд №296: redact middleware mode ("pii"|"secrets"|"all"), only
+    /// used when "redact" is in middleware list. None → "all" (default).
+    pub redact_mode: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1189,6 +1192,7 @@ pub(crate) async fn build_state(
         backend: ServeBackend::Interpreter, // set after build_state returns
         vm_program: None,
         vm_routes: Vec::new(),
+        redact_mode: config.redact_mode.clone(),
     })
 }
 
@@ -1410,9 +1414,89 @@ async fn route_handler(
             }
         }
 
+        // Наряд №296: opt-in redact/canary middleware on response body.
+        // Applied AFTER route handler returns, BEFORE response is sent to client.
+        // Opt-in (must be in middleware list) — default behavior unchanged.
+        if state.middleware.contains(&"redact".to_string()) {
+            response = apply_redact_middleware(response, &state).await;
+        }
+        if state.middleware.contains(&"canary".to_string()) {
+            response = apply_canary_middleware(response, &state).await;
+        }
+
         response
     } else {
         (StatusCode::NOT_FOUND, "404 Not Found").into_response()
+    }
+}
+
+// ── Наряд №296: redact/canary opt-in middleware ─────────────────────
+//
+// Applied AFTER the route handler builds its response, BEFORE the
+// response is sent to the client. Opt-in (must be in `middleware: [...]`
+// list) — default behavior is byte-for-byte unchanged.
+
+/// Redact middleware: applies `redact_string(body, mode)` to the response
+/// body. Mode comes from `redact_mode` field (default "all"). Reuses
+/// the existing redact builtin logic (Наряд №274, ADR-0136).
+async fn apply_redact_middleware(response: Response, state: &ServerState) -> Response {
+    let mode = state.redact_mode.as_deref().unwrap_or("all");
+    let (parts, body) = response.into_parts();
+    let bytes = match axum::body::to_bytes(body, REQUEST_BODY_LIMIT_BYTES).await {
+        Ok(b) => b,
+        Err(_) => return Response::from_parts(parts, axum::body::Body::empty()),
+    };
+    let body_str = String::from_utf8_lossy(&bytes);
+    match crate::builtins::string::redact_string(&body_str, mode) {
+        Ok(redacted) => {
+            let redacted_bytes = redacted.into_bytes();
+            let mut resp =
+                Response::from_parts(parts, axum::body::Body::from(redacted_bytes.clone()));
+            // Update Content-Length to reflect the (possibly shorter) redacted body.
+            if let Ok(cl) = HeaderValue::from_str(&redacted_bytes.len().to_string()) {
+                resp.headers_mut().insert("content-length", cl);
+            }
+            resp
+        }
+        Err(e) => {
+            eprintln!(
+                "[redact-middleware] warning: redact failed (mode={}): {} — sending original body",
+                mode, e
+            );
+            Response::from_parts(parts, axum::body::Body::from(bytes.to_vec()))
+        }
+    }
+}
+
+/// Canary middleware: checks the response body for visible canary markers
+/// (the `MLGV` prefix from canary.rs). If found — the canary token leaked
+/// into the user-visible response, which is a prompt-injection signal (Наряд №284).
+/// Advisory only — logs a warning to stderr + sets `X-Canary-Leak: detected`
+/// header. Does NOT block the response (consistent with №284's "advisory
+/// detector, not a gate" philosophy — decision to stop is the author's).
+async fn apply_canary_middleware(response: Response, _state: &ServerState) -> Response {
+    let (parts, body) = response.into_parts();
+    let bytes = match axum::body::to_bytes(body, REQUEST_BODY_LIMIT_BYTES).await {
+        Ok(b) => b,
+        Err(_) => return Response::from_parts(parts, axum::body::Body::empty()),
+    };
+    let body_str = String::from_utf8_lossy(&bytes);
+    // Check for the canary watermark prefix "MLGV" — if visible in the
+    // response body, the canary token was not stripped before reaching the
+    // user. This is a prompt-injection exfiltration signal.
+    if body_str.contains("MLGV") {
+        eprintln!(
+            "[canary-middleware] WARNING: canary marker (MLGV prefix) detected in \
+             response body — possible prompt-injection exfiltration. Response sent \
+             with X-Canary-Leak header. Advisory only (Наряд №284)."
+        );
+        let mut resp = Response::from_parts(parts, axum::body::Body::from(bytes.to_vec()));
+        if let Ok(val) = HeaderValue::from_str("detected") {
+            resp.headers_mut().insert("x-canary-leak", val);
+        }
+        resp
+    } else {
+        Response::from_parts(parts, axum::body::Body::from(bytes.to_vec()))
     }
 }
 
@@ -3376,6 +3460,7 @@ mlogserver {
             backend: ServeBackend::Interpreter,
             vm_program: None,
             vm_routes: Vec::new(),
+            redact_mode: None,
         }
     }
 
@@ -4145,5 +4230,67 @@ mlogserver {
             .unwrap_or_default();
         let vm_body = String::from_utf8(bytes.to_vec()).unwrap_or_default();
         assert_eq!(vm_body, "id=42", "VM body must match TW body (parity)");
+    }
+
+    // ── Наряд №296: redact/canary middleware tests ──────────────────
+    // Middleware functions tested directly (not through call_route which
+    // bypasses route_handler where middleware is applied).
+
+    #[tokio::test]
+    async fn n296_redact_middleware_masks_pii() {
+        let state = build_test_server_state(r#"
+mlogserver { port: 0 host: "127.0.0.1" middleware: [redact] redact_mode: "pii" route "/x" method=GET { respond("ok") } }
+"#).await;
+        let resp = (StatusCode::OK, "Contact: john.doe@example.com").into_response();
+        let redacted = apply_redact_middleware(resp, &state).await;
+        let bytes = axum::body::to_bytes(redacted.into_body(), 8192)
+            .await
+            .unwrap_or_default();
+        let body = String::from_utf8_lossy(&bytes);
+        assert!(
+            !body.contains("john.doe@example.com"),
+            "Email should be redacted, got: {}",
+            body
+        );
+    }
+
+    #[tokio::test]
+    async fn n296_canary_middleware_detects_mlgv() {
+        let state = build_test_server_state(r#"
+mlogserver { port: 0 host: "127.0.0.1" middleware: [canary] route "/x" method=GET { respond("ok") } }
+"#).await;
+        let resp = (StatusCode::OK, "This response contains MLGV canary marker").into_response();
+        let checked = apply_canary_middleware(resp, &state).await;
+        assert!(
+            checked.headers().contains_key("x-canary-leak"),
+            "X-Canary-Leak should be set"
+        );
+    }
+
+    #[tokio::test]
+    async fn n296_canary_middleware_no_false_positive() {
+        let state = build_test_server_state(r#"
+mlogserver { port: 0 host: "127.0.0.1" middleware: [canary] route "/x" method=GET { respond("ok") } }
+"#).await;
+        let resp = (StatusCode::OK, "This is a safe response").into_response();
+        let checked = apply_canary_middleware(resp, &state).await;
+        assert!(
+            !checked.headers().contains_key("x-canary-leak"),
+            "No false positive on safe response"
+        );
+    }
+
+    #[tokio::test]
+    async fn n296_no_middleware_unchanged() {
+        // Without redact in middleware list — build_test_server_state works, no redact applied.
+        // This test just verifies the server starts without redact middleware.
+        let state = build_test_server_state(
+            r#"
+mlogserver { port: 0 host: "127.0.0.1" route "/x" method=GET { respond("ok") } }
+"#,
+        )
+        .await;
+        assert!(!state.middleware.contains(&"redact".to_string()));
+        assert!(!state.middleware.contains(&"canary".to_string()));
     }
 }

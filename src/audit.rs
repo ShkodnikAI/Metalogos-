@@ -3283,7 +3283,8 @@ mod tests {
             span: Span::unknown(),
             port: 8080,
             host: None,
-            rate_limit: None, // №263: fixtures do not configure a limit
+            rate_limit: None,
+            redact_mode: None, // №263: fixtures do not configure a limit
             middleware: vec![
                 "session".to_string(),
                 "csrf".to_string(),
@@ -3305,7 +3306,8 @@ mod tests {
             span: Span::unknown(),
             port: 8080,
             host: None,
-            rate_limit: None, // №263: fixtures do not configure a limit
+            rate_limit: None,
+            redact_mode: None, // №263: fixtures do not configure a limit
             middleware: vec!["rate_limit".to_string()],
             routes: vec![],
         };
@@ -3323,7 +3325,8 @@ mod tests {
             span: Span::unknown(),
             port: 8080,
             host: None,
-            rate_limit: None, // №263: fixtures do not configure a limit
+            rate_limit: None,
+            redact_mode: None, // №263: fixtures do not configure a limit
             middleware: vec!["session".to_string()],
             routes: vec![ast::RouteDecl {
                 span: Span::unknown(),
@@ -3347,7 +3350,8 @@ mod tests {
             span: Span::unknown(),
             port: 8080,
             host: None,
-            rate_limit: None, // №263: fixtures do not configure a limit
+            rate_limit: None,
+            redact_mode: None, // №263: fixtures do not configure a limit
             middleware: vec!["csrf".to_string()],
             routes: vec![ast::RouteDecl {
                 span: Span::unknown(),
@@ -3475,7 +3479,8 @@ mod tests {
             span: Span::unknown(),
             port: 8080,
             host: None,
-            rate_limit: None, // №263: fixtures do not configure a limit
+            rate_limit: None,
+            redact_mode: None, // №263: fixtures do not configure a limit
             middleware: vec!["session".to_string()],
             routes: vec![ast::RouteDecl {
                 span: Span::unknown(),
@@ -3852,7 +3857,8 @@ mod tests {
             span: Span::unknown(),
             port: 8080,
             host: None,
-            rate_limit: None, // №263: fixtures do not configure a limit
+            rate_limit: None,
+            redact_mode: None, // №263: fixtures do not configure a limit
             middleware: vec![],
             routes: vec![ast::RouteDecl {
                 span: Span::unknown(),

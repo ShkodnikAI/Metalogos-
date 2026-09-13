@@ -165,13 +165,12 @@ $ mlog check poison.mlog
 
 #### Known boundaries of static analysis
 
-These checks use **intraprocedural taint tracking** — they follow `let`-assignment chains within a single pattern body. **As of naryad №292, summary-based interprocedural taint is also tracked** (bounded depth 2 — see `TAINT_INTERP` below). The following patterns are **not** detected at compile time:
+These checks use **intraprocedural taint tracking** — they follow `let`-assignment chains within a single pattern body, bounded to nesting depth `TAINT_NESTING_MAX_DEPTH = 3` (Наряд №295). **As of naryad №292, summary-based interprocedural taint is also tracked** (bounded depth 2 — see `TAINT_INTERP` below). The following patterns are **not** detected at compile time:
 
 | Pattern | Why not caught |
 |---|---|
 | LLM output passed via pattern call chains deeper than 2 levels | Interprocedural analysis is bounded (no fixpoint); deeper chains emit `INTERP_DEPTH_LIMIT` warning |
-| LLM output stored via `memorize()` then read back via `recall()` | Data flow through persistence is not tracked |
-| `query(format("...", x))` | `format()` output is not a literal string; check requires compile-time constant |
+| LLM output nested deeper than 3 levels of non-pattern function calls | `expr_is_llm_tainted` is bounded (Наряд №295); `TAINT_INTERP` catches via summary if a pattern call is involved |
 | `{{{ var }}}` (raw template substitution) | `template_render` with `raw=true` skips escaping by design — trusted author code only |
 
 `mlog audit` provides **heuristic warnings** (not errors) for two narrow sub-cases, and an **interprocedural Error** for non-trivial passthrough chains:
@@ -267,7 +266,7 @@ Metalogos-/
 ├── CLAUDE.md                         # Bridge copy of AGENTS.md for Claude-compatible tools (synced manually — see issue #299)
 ├── GEMINI.md                         # Bridge copy of AGENTS.md for Gemini-compatible tools (synced manually — see issue #299)
 ├── REFERENCE.md                      # Full builtin reference (~180 KB) — 100% of the registry (§6 index)
-├── CHANGELOG.md                      # Version history (~248 KB)
+├── CHANGELOG.md                      # Version history (~254 KB)
 ├── AI_USAGE.md                       # Disclosure: how generative AI is used in this project's development
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap

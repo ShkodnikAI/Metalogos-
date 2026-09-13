@@ -73,8 +73,9 @@ explicit Warning severities — the three Vision warnings below stay advisory
 Patterns the audit does **not** detect (see README for full table):
 
 - **Interprocedural taint deeper than 2 levels**: as of naryad №292 (`TAINT_INTERP`), summary-based interprocedural taint IS tracked, but bounded to `TAINT_INTERP_MAX_DEPTH = 2` levels of pattern-call chains. Deeper chains emit `INTERP_DEPTH_LIMIT` warning (analysis terminates cleanly). Full fixpoint / unbounded depth is a separate, larger task.
-- **Persistence taint**: LLM output stored via `memorize()` then read back via `recall()` in a different scope.
-- **`format()` in SQL**: `query(format("...", x))` — `format()` output is not a compile-time constant.
+- **Nesting deeper than 3 levels**: as of naryad №295, `expr_is_llm_tainted` is bounded to `TAINT_NESTING_MAX_DEPTH = 3`. Deeper non-pattern function-call nesting (e.g. `respond(upper(trim(lower(call_llm(...)))))` — 4 levels) is not caught by intraprocedural `HTML_INJECTION`; if any pattern call is involved, `TAINT_INTERP` (Наряд №292) catches via summary-based analysis.
+- **Persistence taint — README truth-up (Наряд №295)**: `TAINT_PERSISTENCE` check (наряды №141/№157) catches LLM output stored via `memorize()` and read back via `recall()` reaching `respond()` — **at file/module scope** (any scope with `recall + respond` AND any `memorize` with LLM source anywhere in declarations). The check is heuristic (file-level, not data-flow guaranteed), but it IS enforced as Category-A Error — the previous README row "Data flow through persistence is not tracked" was misleading (the check exists, it's just bounded to file scope, not cross-module data-flow).
+- **`query(format(...))` — NOT a gap (Наряд №295 truth-up)**: `check_sql_dynamic` (Наряд №78) **loudly rejects** any non-literal in the 1st argument of `query()`/`db_execute()` — including `format(...)` (which is `Expr::FnCall`, not `Expr::StringLit`). Test: `tests/check_integration.rs:71-90` "non-literal SQL must be a compile-time error". The previous README row "not detected" was wrong — it IS detected and loudly rejected.
 - **Inline nesting in open redirect**: `respond_html(query_param("url"))` — the check only tracks via variable, not inline call.
 - **Raw template output**: `{{{ var }}}` in `template_render` with `raw=true` skips escaping by design.
 

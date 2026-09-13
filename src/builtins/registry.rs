@@ -620,6 +620,19 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // новая категория "security" (37→38 модулей).
     spec!("canary_insert", 1, 2, "security"; builtin_canary_insert),
     spec!("canary_check", 2, 3, "security"; builtin_canary_check),
+    // ── Наряд №286 (P2, M1): json_validate — валидатор ADR-0133 как
+    // standalone builtin («shape-before-use»). ОДИН И ТОТ ЖЕ валидатор, что
+    // у call_llm_schema — извлечён в src/schema/validate.rs, ни одного
+    // нового правила; дифференциальный корпус (tests/naryad_286_json_validate.rs)
+    // сверяет вердикты и тексты нарушений обоих путей. Schema-side — громкий
+    // LLM_SCHEMA_UNSUPPORTED_FEATURE (единый код с call_llm_schema);
+    // value_json не-JSON — громкая ошибка парсинга (валидатор судит
+    // структуру, парсер — байты). strict (дефолт true) = strict-by-default
+    // ADR-0133 D2; strict=false разрешает необъявленные поля (opt-in №286).
+    // Не feature-гейт: проверяет данные НЕ от LLM (MCP tool-outputs №268,
+    // HTTP-ответы, request_body) — см. minimal-build. Категория "llm" —
+    // семейство ADR-0133. Registry 401→402.
+    spec!("json_validate", 2, 3, "llm"; builtin_json_validate),
 ];
 
 /// Total number of registered builtins.

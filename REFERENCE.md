@@ -245,7 +245,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.19):** This section documents **100%** of the 401 registered builtins (401 of 401): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.19):** This section documents **100%** of the 402 registered builtins (402 of 402): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -400,6 +400,7 @@ let ranked = sort_by(paired, "b", 1.0)
 | `call_claude(api_key, model, system_prompt, user_message)` | `String, String, String, String -> String` | String | A direct call to the Anthropic Claude Messages API (v1/messages). Returns `content[0].text` |
 | `llm_usage()` | `-> Struct` | Struct `{LlmUsage}` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `cache_hits_semantic` (№273/ADR-0135), `canary_leaks` (№284 — confirmed canary leaks), `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
 | `call_llm_schema(prompt, schema_json)` / `call_llm_schema(prompt, input, schema_json)` | `String, String[, String] -> Struct` | Struct `{Dict}` | Calls the LLM backend and requires the answer to be a single JSON value conforming to the schema. Supported schema subset (ADR-0133): `type`, `properties`, `required`, `items`, `enum`; annotation keywords (`title`, `description`, `$schema`, ...) are ignored; any other keyword is a loud `LLM_SCHEMA_UNSUPPORTED_FEATURE`. Answer fields beyond `properties` are rejected (strict-by-default). The result is a `Dict` Struct usable with `json_get`/`has_field`/`dict_*`. Parse/validation failures (including max_tokens truncation) are loud `LLM_SCHEMA_MISMATCH` and retry up to `METALOGOS_LLM_SCHEMA_RETRIES` (default 2, cap 10) with the validator report fed back into the prompt. Mock tier returns a deterministic minimal instance derived from the schema (default mock settings; `METALOGOS_LLM_MOCK=json` documents the intent explicitly) |
+| `json_validate(schema_json, value_json)` / `json_validate(schema_json, value_json, strict)` | `String, String[, Bool] -> Struct` | Struct `{Dict}` | Validates a JSON string against the ADR-0133 schema subset WITHOUT calling an LLM («shape-before-use», №286): the SAME validator as `call_llm_schema` (extracted to a shared module, zero new rules — differential corpus green in both paths). Returns `{valid, errors}` where `errors` is a list of violation reports with paths (`value.age: expected type integer, got string "33"`). `strict` (default `true`) = fields beyond `properties` are violations (as in `call_llm_schema`); `strict=false` permits undeclared fields — every other rule (type/required/items/enum, the subset, the root-object contract) is unchanged. Invalid `schema_json`/unsupported keyword — loud `LLM_SCHEMA_UNSUPPORTED_FEATURE` (the SAME code as `call_llm_schema`); invalid `value_json` is a loud parse error, NOT `valid=false` (the validator judges structure, the parser judges bytes) |
 | `confidence(fluid_value)` | `Fluid -> Float` | Float | Returns the maximum confidence of the probabilistic type. Returns `1.0` for concrete values |
 
 **Example:**
@@ -412,6 +413,15 @@ let claude_response = call_claude(env("ANTHROPIC_KEY"), "claude-sonnet-4-2025051
 // Structured output (Наряд №269, ADR-0133): the answer must be JSON per the schema
 let person = call_llm_schema("Extract the user as JSON", input_text, "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"age\":{\"type\":\"integer\"}},\"required\":[\"name\"]}")
 let name = json_get(person, "name")
+
+// Shape-before-use (Наряд №286): a NOT-from-LLM payload (MCP tool-output,
+// HTTP response) is validated BEFORE use — same validator, same subset
+let tool_output = mcp_call("db", "query", "{}")   // returns an untrusted JSON string
+let schema = "{\"type\":\"object\",\"properties\":{\"rows\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"}}},\"required\":[\"rows\"]}"
+let report = json_validate(schema, tool_output)   // {valid: Bool, errors: List<String>}
+// report.valid == false → the payload does not go into use; report.errors holds
+// the violation paths, e.g. "value.rows[1]: expected type integer, got string \"x\""
+let report2 = json_validate(schema, tool_output, false)   // strict=false: undeclared fields permitted
 ```
 
 ### 4.6. HTTP
@@ -1520,7 +1530,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 401 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 402 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENT.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -1767,13 +1777,14 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `unique(...)` | 1 | — | `unique(list)` — remove duplicates preserving first-occurrence order. Uses the same equality semantics as `dedup` (JSON serialization for complex types = deep structural comparison for Struct, not reference identity). |
 | `zip(...)` | 2 | `List, List -> List` | Pairwise combination into `Pair{a, b}` |
 
-### `llm` — 4 builtin(s)
+### `llm` — 5 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
 | `call_claude(...)` | 4 | `String, String, String, String -> String` | A direct call to the Anthropic Claude Messages API (v1/messages). Returns `content[0].text` |
 | `call_llm(...)` | 1..2 | `String, String -> String` | Calls the LLM backend. By default returns a mock: `"[MOCK: prompt \ |
 | `call_llm_schema(...)` | 2..3 | `String, String[, String] -> Struct` | Calls the LLM backend and requires the answer to be a single JSON value conforming to the schema. Supported schema subset (ADR-0133): `type`, `properties`, `required`, `items`, `enum`; annotation keywords (`title`, `description`, `$schema`, ...) are ignored; any other keyword is a loud `LLM_SCHEMA_UNSUPPORTED_FEATURE`. Answer fields beyond `properties` are rejected (strict-by-default). The result is a `Dict` Struct usable with `json_get`/`has_field`/`dict_*`. Parse/validation failures (including max_tokens truncation) are loud `LLM_SCHEMA_MISMATCH` and retry up to `METALOGOS_LLM_SCHEMA_RETRIES` (default 2, cap 10) with the validator report fed back into the prompt. Mock tier returns a deterministic minimal instance derived from the schema (default mock settings; `METALOGOS_LLM_MOCK=json` documents the intent explicitly) |
+| `json_validate(...)` | 2..3 | `String, String[, Bool] -> Struct` | Validates a JSON string against the ADR-0133 schema subset WITHOUT calling an LLM («shape-before-use», №286): the SAME validator as `call_llm_schema` (extracted to a shared module, zero new rules — differential corpus green in both paths). Returns `{valid, errors}` where `errors` is a list of violation reports with paths (`value.age: expected type integer, got string "33"`). `strict` (default `true`) = fields beyond `properties` are violations (as in `call_llm_schema`); `strict=false` permits undeclared fields — every other rule (type/required/items/enum, the subset, the root-object contract) is unchanged. Invalid `schema_json`/unsupported keyword — loud `LLM_SCHEMA_UNSUPPORTED_FEATURE` (the SAME code as `call_llm_schema`); invalid `value_json` is a loud parse error, NOT `valid=false` (the validator judges structure, the parser judges bytes) |
 | `llm_usage(...)` | variadic | `-> Struct` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `cache_hits_semantic` (№273/ADR-0135), `canary_leaks` (№284 — confirmed canary leaks), `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
 
 ### `math` — 14 builtin(s)

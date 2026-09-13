@@ -2394,3 +2394,46 @@ vision "poster" {
         err
     );
 }
+
+#[test]
+fn n283_parse_templated_route_path() {
+    // Наряд №283: verify the parser accepts `{name}` and `{*path}` inside
+    // route path STRING_LITERALs (grammatically — these are just chars
+    // inside the string; the template-matching logic is in server.rs).
+    let src = r#"mlogserver { port: 0 route "/demo/{name}" method=GET { respond("ok") } }"#;
+    let decls = parse(src);
+    match &decls {
+        Ok(d) => {
+            if let Declaration::MlogServer(s) = &d[0] {
+                assert_eq!(s.routes[0].path, "/demo/{name}", "template path must be preserved verbatim");
+            } else {
+                panic!("expected MlogServer, got {:?}", d[0]);
+            }
+        }
+        Err(e) => panic!("parse failed: {}", e),
+    }
+
+    let src2 = r#"mlogserver { port: 0 route "/files/{*path}" method=GET { respond("ok") } }"#;
+    let decls2 = parse(src2).expect("wildcard template path should parse");
+    if let Declaration::MlogServer(s) = &decls2[0] {
+        assert_eq!(s.routes[0].path, "/files/{*path}");
+    }
+}
+
+#[test]
+fn n283_debug_parse_full_server() {
+    let src = r#"
+mlogserver {
+    port: 0
+    host: "127.0.0.1"
+    route "/demo/{name}" method=GET {
+        let n = server_path_param("name")
+        respond("200", n)
+    }
+}
+"#;
+    match parse(src) {
+        Ok(d) => println!("PARSED OK: {} declarations", d.len()),
+        Err(e) => println!("PARSE ERR: {}", e),
+    }
+}

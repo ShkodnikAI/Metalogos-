@@ -158,6 +158,12 @@ pub struct Interpreter {
     /// Server context: parsed query string parameters (Bug 2.1 fix).
     /// Set by execute_route_body, returned by query_param() builtin.
     server_query_params: Option<std::collections::HashMap<String, String>>,
+    /// Server context: path parameters extracted from a templated route
+    /// (Наряд №283: `/demo/{name}` matched against `/demo/test` →
+    /// `server_path_params = {"name": "test"}`). Set by execute_route_body
+    /// when the matched route is a template, returned by the
+    /// `server_path_param(name)` builtin. Parity with server_query_params.
+    server_path_params: Option<std::collections::HashMap<String, String>>,
     /// Server context: user roles for RBAC (Наряд №14 P2-6).
     /// Set by execute_route_body, checked by require() builtin.
     server_user_roles: Vec<String>,
@@ -278,6 +284,7 @@ impl Interpreter {
             embedding_manager: EmbeddingManager::new(),
             server_json_body: None,
             server_query_params: None,
+            server_path_params: None,
             server_user_roles: Vec::new(),
             llm_cache: std::sync::Mutex::new(HashMap::new()),
             hooks_before: Vec::new(),
@@ -333,6 +340,22 @@ impl Interpreter {
     /// Get a query string parameter by name (Bug 2.1 fix).
     pub fn get_server_query_param(&self, name: &str) -> Option<String> {
         self.server_query_params.as_ref()?.get(name).cloned()
+    }
+
+    /// Set path parameters extracted from a templated route (Наряд №283).
+    /// Called by execute_route_body when the matched route is a template
+    /// (`/demo/{name}` matched against `/demo/test` → `params = {"name": "test"}`).
+    /// Parity with `set_server_query_params`.
+    pub fn set_server_path_params(&mut self, params: std::collections::HashMap<String, String>) {
+        self.server_path_params = Some(params);
+    }
+
+    /// Get a path parameter by name (Наряд №283).
+    /// Returns None when no templated route matched (static route, or no
+    /// server context). The `server_path_param` builtin falls back to ""
+    /// for caller parity with `query_param` semantics.
+    pub fn get_server_path_param(&self, name: &str) -> Option<String> {
+        self.server_path_params.as_ref()?.get(name).cloned()
     }
 
     /// Set user roles for RBAC (Наряд №14 P2-6).

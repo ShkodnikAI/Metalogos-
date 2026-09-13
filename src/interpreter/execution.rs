@@ -665,6 +665,23 @@ impl Interpreter {
             return Ok(Value::String(String::new()));
         }
 
+        // Наряд №283: server_path_param(name) — path parameter from a
+        // templated route. Parity with query_param: empty string when no
+        // templated route matched / no server context.
+        if name == "server_path_param" {
+            let param_name = args
+                .first()
+                .and_then(|v| match v {
+                    Value::String(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            if let Some(val) = self.get_server_path_param(&param_name) {
+                return Ok(Value::String(val));
+            }
+            return Ok(Value::String(String::new()));
+        }
+
         // memorize() — callable form (flow step context)
         if name == "memorize" {
             return self.invoke_memorize_fn(args);
@@ -1838,6 +1855,22 @@ impl Interpreter {
                         return Ok(Value::String(val));
                     }
                     // Fallback: empty string (non-server context, param not found)
+                    return Ok(Value::String(String::new()));
+                }
+
+                // Наряд №283: server_path_param(name) — path parameter from
+                // a templated route. Parity with query_param.
+                if name == "server_path_param" {
+                    let param_name = eval_args
+                        .first()
+                        .and_then(|v| match v {
+                            Value::String(s) => Some(s.clone()),
+                            _ => None,
+                        })
+                        .unwrap_or_default();
+                    if let Some(val) = self.get_server_path_param(&param_name) {
+                        return Ok(Value::String(val));
+                    }
                     return Ok(Value::String(String::new()));
                 }
 

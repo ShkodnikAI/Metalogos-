@@ -245,7 +245,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.19):** This section documents **100%** of the 399 registered builtins (399 of 399): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.19):** This section documents **100%** of the 401 registered builtins (401 of 401): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -276,7 +276,9 @@ All built-in functions are registered in a single registry, `BUILTIN_REGISTRY` (
 | `len(s)` | `String\|List -> Float` | Float | Length of a string (characters) or a list (elements) |
 | `escape_html(s)` | `String -> String` | String | Escapes HTML special characters: `& < > " '` |
 | `escape_json(s)` | `String -> String` | String | Escapes JSON special characters: `" \ \n \t \r` |
-| `redact(text, mode)` | `String, String -> String` | String | Masks PII/secrets with deterministic typed masks (`[REDACTED:sk-…abc4]`). mode: `"pii"` (email `***@***.tld`, phone, Luhn-validated cards with vendor, IBAN), `"secrets"` (sk-/AKIA/ghp_ keys, JWT, PEM, Bearer + entropy net: base64/hex runs ≥24 with digit+hex-letter), `"all"`. Unknown mode — loud error. The ONLY builtin whose `"secrets"/"all"` modes clear the `Secret` taint statically — «mask before sink» (ADR-0136); `LlmOutput` is never cleared by redact (only `render`) |
+| `redact(text, mode)` | `String, String -> String` | String | Masks PII/secrets with deterministic typed masks (`[REDACTED:sk-…abc4]`). mode: `"pii"` (email `***@***.tld`, phone, Luhn-validated cards with vendor, IBAN), `"secrets"` (sk-/AKIA/ghp_ keys, JWT, PEM, Bearer + entropy net: base64/hex runs ≥24 with digit+hex-letter), `"all"`. Unknown mode — loud error. The ONLY builtin whose `"secrets"/"all"` modes clear the `Secret` taint statically — «mask before sink» (ADR-0136); `LlmOutput` is never cleared by redact (only `render`). №284: canary markers `MLOG-CANARY-<id>` are NOT masked (canary ≠ secret — the marker survives redact so №284's invariant holds) |
+| `canary_insert(text, opts?)` | `String[, Struct] -> Struct` | Struct `{CanaryMark}` | Embeds a random canary marker (`MLOG-CANARY-` + 26 base32 chars, 128-bit entropy) into untrusted text BEFORE sending it to the LLM. Returns `{marked_text, canary_id}`. opts: `count` (1..=4, default 1 — same id inserted count times), `position` ("random"|"head"|"tail", default "random"). Loud errors: empty text, text already contains a marker (double-marking), zero-width chars in text BEFORE insertion, count outside 1..=4, unknown position/opts field (№284) |
+| `canary_check(text, canary_id, opts?)` | `String, String[, Struct] -> Struct` | Struct `{CanaryCheck}` | Runtime leak detector: checks the LLM response for the canary marker — exact occurrence + resistant to trivial distortions (case, splitting by whitespace/punctuation). opts: `mode` ("exact" default; "zwsp" additionally ignores zero-width chars U+200B/200C/200D/2060/FEFF inside the marker — in "exact" they DELIBERATELY break the match). Returns `{leaked, id, position}` — position is the CHAR index of the first occurrence in the original text, -1.0 when clean. Leak → runtime CANARY_LEAK warning (stderr) + `llm_usage().canary_leaks` counter; statically, inside `if (r.leaked) {...}` the response is labeled «compromised channel» and sink usage warns CANARY_LEAK. Detector, NOT a gate. Unknown/malformed canary_id (a secret is not a canary) — loud error (№284) |
 
 **Examples:**
 ```mlog
@@ -303,6 +305,10 @@ redact("key sk-proj-abcdefghij1234567890abcd", "secrets")
   // "key [REDACTED:sk-…abcd]"
 redact("mail john.doe@acme.io, +7 926 123-45-67", "pii")
   // "mail ***@***.io, [REDACTED:phone]"
+let m = canary_insert("untrusted tool output")
+  // {marked_text: "untrusted MLOG-CANARY-… tool output", canary_id: "MLOG-CANARY-…"}
+canary_check(llm_reply, m.canary_id, {mode: "zwsp"})
+  // {leaked: true, id: "MLOG-CANARY-…", position: 17.0} → CANARY_LEAK
 ```
 
 ### 4.2. Numbers and math
@@ -392,7 +398,7 @@ let ranked = sort_by(paired, "b", 1.0)
 |---------|-----------|---------|----------|
 | `call_llm(prompt, input)` | `String, String -> String` | String | Calls the LLM backend. By default returns a mock: `"[MOCK: prompt \| input]"`. A real call happens when `METALOGOS_LLM_MOCK=false` |
 | `call_claude(api_key, model, system_prompt, user_message)` | `String, String, String, String -> String` | String | A direct call to the Anthropic Claude Messages API (v1/messages). Returns `content[0].text` |
-| `llm_usage()` | `-> Struct` | Struct `{LlmUsage}` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `cache_hits_semantic` (№273/ADR-0135), `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
+| `llm_usage()` | `-> Struct` | Struct `{LlmUsage}` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `cache_hits_semantic` (№273/ADR-0135), `canary_leaks` (№284 — confirmed canary leaks), `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
 | `call_llm_schema(prompt, schema_json)` / `call_llm_schema(prompt, input, schema_json)` | `String, String[, String] -> Struct` | Struct `{Dict}` | Calls the LLM backend and requires the answer to be a single JSON value conforming to the schema. Supported schema subset (ADR-0133): `type`, `properties`, `required`, `items`, `enum`; annotation keywords (`title`, `description`, `$schema`, ...) are ignored; any other keyword is a loud `LLM_SCHEMA_UNSUPPORTED_FEATURE`. Answer fields beyond `properties` are rejected (strict-by-default). The result is a `Dict` Struct usable with `json_get`/`has_field`/`dict_*`. Parse/validation failures (including max_tokens truncation) are loud `LLM_SCHEMA_MISMATCH` and retry up to `METALOGOS_LLM_SCHEMA_RETRIES` (default 2, cap 10) with the validator report fed back into the prompt. Mock tier returns a deterministic minimal instance derived from the schema (default mock settings; `METALOGOS_LLM_MOCK=json` documents the intent explicitly) |
 | `confidence(fluid_value)` | `Fluid -> Float` | Float | Returns the maximum confidence of the probabilistic type. Returns `1.0` for concrete values |
 
@@ -1514,7 +1520,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 399 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 401 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENT.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -1768,7 +1774,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `call_claude(...)` | 4 | `String, String, String, String -> String` | A direct call to the Anthropic Claude Messages API (v1/messages). Returns `content[0].text` |
 | `call_llm(...)` | 1..2 | `String, String -> String` | Calls the LLM backend. By default returns a mock: `"[MOCK: prompt \ |
 | `call_llm_schema(...)` | 2..3 | `String, String[, String] -> Struct` | Calls the LLM backend and requires the answer to be a single JSON value conforming to the schema. Supported schema subset (ADR-0133): `type`, `properties`, `required`, `items`, `enum`; annotation keywords (`title`, `description`, `$schema`, ...) are ignored; any other keyword is a loud `LLM_SCHEMA_UNSUPPORTED_FEATURE`. Answer fields beyond `properties` are rejected (strict-by-default). The result is a `Dict` Struct usable with `json_get`/`has_field`/`dict_*`. Parse/validation failures (including max_tokens truncation) are loud `LLM_SCHEMA_MISMATCH` and retry up to `METALOGOS_LLM_SCHEMA_RETRIES` (default 2, cap 10) with the validator report fed back into the prompt. Mock tier returns a deterministic minimal instance derived from the schema (default mock settings; `METALOGOS_LLM_MOCK=json` documents the intent explicitly) |
-| `llm_usage(...)` | variadic | `-> Struct` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `cache_hits_semantic` (№273/ADR-0135), `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
+| `llm_usage(...)` | variadic | `-> Struct` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `cache_hits_semantic` (№273/ADR-0135), `canary_leaks` (№284 — confirmed canary leaks), `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
 
 ### `math` — 14 builtin(s)
 
@@ -1889,6 +1895,13 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `reflex_tokenize(...)` | 1 | — | `reflex_tokenize(text) -> List<Float>` |
 | `reflex_train(...)` | 5 | `(Reflex, List<List<Float>>, Float, String, Float) -> Struct` | Trains model `model` on `data`. Each row of `data` is `[features..., class_idx]` (the last element is the label index). An 80/20 holdout split (ADR-0115), a minimum of 10 examples. `epochs` is the number of epochs (>=0), `metric` is a metric name from `METRIC_REGISTRY` (usually `"accuracy"`), `threshold` is a 0.0..1.0 threshold for `threshold_met`. `learning_rate` is fixed at 0.1. |
 
+### `security` — 2 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description |
+|---|---|---|---|
+| `canary_check(...)` | 2..3 | `String, String[, Struct] -> Struct` | Runtime leak detector: checks the LLM response for the canary marker — exact occurrence + resistant to trivial distortions (case, splitting by whitespace/punctuation). opts: `mode` ("exact" default; "zwsp" additionally ignores zero-width chars U+200B/200C/200D/2060/FEFF inside the marker — in "exact" they DELIBERATELY break the match). Returns `{leaked, id, position}` — position is the CHAR index of the first occurrence in the original text, -1.0 when clean. Leak → runtime CANARY_LEAK warning (stderr) + `llm_usage().canary_leaks` counter; statically, inside `if (r.leaked) {...}` the response is labeled «compromised channel» and sink usage warns CANARY_LEAK. Detector, NOT a gate. Unknown/malformed canary_id (a secret is not a canary) — loud error (№284) |
+| `canary_insert(...)` | 1..2 | `String[, Struct] -> Struct` | Embeds a random canary marker (`MLOG-CANARY-` + 26 base32 chars, 128-bit entropy) into untrusted text BEFORE sending it to the LLM. Returns `{marked_text, canary_id}`. opts: `count` (1..=4, default 1 — same id inserted count times), `position` ("random" |
+
 ### `std` — 11 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
@@ -1930,7 +1943,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `lower(...)` | 1 | `String -> String` | Converts a string to lowercase |
 | `pad_left(...)` | 3 | — | `pad_left(s, n, fill)` -- left-pad string with fill character to length n. |
 | `pad_right(...)` | 3 | — | `pad_right(s, n, fill)` -- right-pad string with fill character to length n. |
-| `redact(...)` | 2 | `String, String -> String` | Masks PII/secrets with deterministic typed masks (`[REDACTED:sk-…abc4]`). mode: `"pii"` (email `***@***.tld`, phone, Luhn-validated cards with vendor, IBAN), `"secrets"` (sk-/AKIA/ghp_ keys, JWT, PEM, Bearer + entropy net: base64/hex runs ≥24 with digit+hex-letter), `"all"`. Unknown mode — loud error. The ONLY builtin whose `"secrets"/"all"` modes clear the `Secret` taint statically — «mask before sink» (ADR-0136); `LlmOutput` is never cleared by redact (only `render`) |
+| `redact(...)` | 2 | `String, String -> String` | Masks PII/secrets with deterministic typed masks (`[REDACTED:sk-…abc4]`). mode: `"pii"` (email `***@***.tld`, phone, Luhn-validated cards with vendor, IBAN), `"secrets"` (sk-/AKIA/ghp_ keys, JWT, PEM, Bearer + entropy net: base64/hex runs ≥24 with digit+hex-letter), `"all"`. Unknown mode — loud error. The ONLY builtin whose `"secrets"/"all"` modes clear the `Secret` taint statically — «mask before sink» (ADR-0136); `LlmOutput` is never cleared by redact (only `render`). №284: canary markers `MLOG-CANARY-<id>` are NOT masked (canary ≠ secret — the marker survives redact so №284's invariant holds) |
 | `regex_captures(...)` | 2 | — | `regex_captures(pattern, text)` → List |
 | `regex_match(...)` | 2 | — | `regex_match(pattern, text)` → Bool |
 | `regex_replace(...)` | 3 | — | `regex_replace(pattern, text, replacement)` → String |

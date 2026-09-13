@@ -22,6 +22,21 @@ pub(crate) fn kv_store() -> &'static StdMutex<std::collections::HashMap<String, 
     KV_STORE.get_or_init(|| StdMutex::new(std::collections::HashMap::new()))
 }
 
+/// Счётчик записей KV (наряд №281): консервативный сигнал инвалидации
+/// ин-процессного кэша user_profile — любое изменение kv-хранилища
+/// (set/delete через любой алиас) сдвигает поколение. Не претендует на
+/// точность (внешние записи в файл мимо билтинов не видны — это ловит
+/// mtime-проверка в profile.rs, честно задокументировано).
+static KV_WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub(crate) fn kv_writes_generation() -> u64 {
+    KV_WRITES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn bump_kv_writes() {
+    KV_WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Global SQLite KV persistence backend.
 /// Initialized by init_kv_persist() when memory { persist: "..." } is configured.
 /// Uses std::sync::Mutex (same thread model as KV_STORE).
@@ -86,6 +101,8 @@ pub(crate) fn builtin_kv_set(args: &[Value]) -> Result<Value, String> {
         .lock()
         .map_err(|e| format!("kv_set() lock error: {}", e))?;
     store.insert(key.clone(), value.clone());
+    drop(store);
+    bump_kv_writes();
     // Write-through to SQLite if available
     if let Ok(sqlite_guard) = kv_sqlite().lock() {
         if let Some(ref conn) = *sqlite_guard {
@@ -114,6 +131,8 @@ pub(crate) fn builtin_kv_delete(args: &[Value]) -> Result<Value, String> {
         .lock()
         .map_err(|e| format!("kv_delete() lock error: {}", e))?;
     store.remove(&key);
+    drop(store);
+    bump_kv_writes();
     // Write-through delete to SQLite if available
     if let Ok(sqlite_guard) = kv_sqlite().lock() {
         if let Some(ref conn) = *sqlite_guard {
@@ -163,6 +182,8 @@ pub(crate) fn builtin_mem_set(args: &[Value]) -> Result<Value, String> {
         .lock()
         .map_err(|e| format!("mem_set() lock error: {}", e))?;
     store.insert(key.clone(), value.clone());
+    drop(store);
+    bump_kv_writes();
     // Write-through to SQLite if available
     if let Ok(sqlite_guard) = kv_sqlite().lock() {
         if let Some(ref conn) = *sqlite_guard {
@@ -192,6 +213,8 @@ pub(crate) fn builtin_mem_delete(args: &[Value]) -> Result<Value, String> {
         .lock()
         .map_err(|e| format!("mem_delete() lock error: {}", e))?;
     let removed = store.remove(&key);
+    drop(store);
+    bump_kv_writes();
     // Write-through delete to SQLite if available
     if let Ok(sqlite_guard) = kv_sqlite().lock() {
         if let Some(ref conn) = *sqlite_guard {

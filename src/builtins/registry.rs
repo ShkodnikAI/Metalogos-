@@ -223,7 +223,7 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     #[cfg(feature = "vec")]
     spec!("embed", 1, "memory"; builtin_embed),
     #[cfg(feature = "vec")]
-    spec!("vec_store", 4, "memory"; builtin_vec_store),
+    spec!("vec_store", 4, 5, "memory"; builtin_vec_store), // db_path,table,id,embedding | +text|opts{text,scope} (№281)
     #[cfg(feature = "vec")]
     spec!("vec_search", 4, 5, "memory"; builtin_vec_search), // db_path,table,query,k | +include_forgotten (№280, дефолт false)
     // recall/forget/find/inspect: planned high-level memory API; no handler (use kv_*/mem_* instead)
@@ -648,6 +648,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // Registry 402→403 (append-only, bytecode-индексы стабильны).
     #[cfg(feature = "vec")]
     spec!("memory_forget", 5, 7, "memory"; builtin_memory_forget),
+    // ── Наряд №281 (P2, M2): user_profile — детерминированная выжимка
+    // контейнера одним вызовом (supermemory user-profiles): static /
+    // dynamic / buckets из KV-записей container:<c>:<bucket>:<key>
+    // (источник — memorize/kv_set с memory{persist}); БЕЗ LLM-вызова
+    // (LLM-синтез — вне скоупа Tier-1, громко); ин-процессный кэш с
+    // генерационной (kv-записи) + mtime (внешние записи) инвалидацией.
+    // Контейнер-префикс — жёсткая изоляция (cross-container физически
+    // не виден); scope-параметр — на vec_store/vec_search. Не
+    // feature-гейт: kv-контур ядровой. Registry 403→404 (append-only).
+    spec!("user_profile", 2, "memory"; builtin_user_profile),
 ];
 
 /// Total number of registered builtins.

@@ -169,6 +169,12 @@ pub use llm_schema::{
     call_llm_schema_core, check_schema_supported, mock_instance_from_schema,
     schema_retries_from_env, validate_json_against_schema,
 };
+// Наряд №286 (P2, M1): json_validate — валидатор ADR-0133 как standalone
+// builtin («shape-before-use»); чистое ядро публично для тестов (лекало
+// canary №284). Модуль pub(crate), контрактная поверхность — один билтин.
+pub(crate) mod json_validate;
+use json_validate::*;
+pub use json_validate::{json_validate_core, JsonValidateResult};
 pub(crate) mod http;
 use http::*;
 pub use http::{check_url_ssrf, is_blocked_address};

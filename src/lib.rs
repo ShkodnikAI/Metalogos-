@@ -29,6 +29,10 @@ pub mod memory_graph;
 pub mod memory_store;
 pub mod nn;
 pub mod parser;
+// Наряд №286: shared JSON-Schema validation (ADR-0133) — один валидатор
+// для call_llm_schema и json_validate (дифференциальный контракт «ни одного
+// нового правила»).
+pub mod schema;
 pub mod semantic;
 #[cfg(feature = "server")]
 pub mod server;

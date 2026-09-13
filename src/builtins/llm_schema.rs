@@ -13,25 +13,16 @@
 // Deviation from JSON-Schema defaults (D2, honest strictness): fields in the
 // answer that are NOT declared in `properties` are violations — strict-by-default,
 // which makes the unsupported `additionalProperties` keyword redundant.
+//
+// Наряд №286: the validator (subset check + instance validation) moved to
+// src/schema/validate.rs — SHARED with `json_validate` so untrusted non-LLM
+// data (MCP tool-outputs, HTTP responses) is judged by the same rules with
+// zero new ones. The two shims below keep the №269 public API and the
+// byte-identical diagnostics (differential corpus: tests/naryad_286_json_validate.rs).
 
 use crate::interpreter::Value;
 
 use super::core::expect_string_arg;
-
-/// Keywords the validator actually enforces (ADR-0133 D1).
-const SUPPORTED_KEYWORDS: &[&str] = &["type", "properties", "required", "items", "enum"];
-/// Pure-annotation keywords: inert metadata, cannot weaken validation — ignored
-/// silently so real-world schemas (which carry `title`/`description`/`$schema`)
-/// do not bounce (ADR-0133 D1). This list is CLOSED; anything outside it errors.
-const IGNORED_ANNOTATIONS: &[&str] = &[
-    "$schema",
-    "$id",
-    "$comment",
-    "title",
-    "description",
-    "default",
-    "examples",
-];
 
 /// System directive appended to the user prompt (ADR-0133 D5).
 const SCHEMA_DIRECTIVE: &str = "Respond with ONLY a single valid JSON value that conforms EXACTLY to the JSON Schema below. No prose, no markdown code fences, no comments, no trailing commas. The entire answer must be parseable by a strict JSON parser.\nJSON Schema:\n";
@@ -47,193 +38,27 @@ const MAX_RETRIES: u32 = 10;
 
 // ── Schema-side checks (NOT retryable) ────────────────────────────────────
 
-/// Validate that `schema` lives inside the supported subset (ADR-0133 D1).
-/// The ROOT schema must describe an object (the builtin returns a Struct).
-/// Nested schemas may be object/array/string/number/integer/boolean/null.
+/// Compat shim (Наряд №286 extraction): subset check with the historical
+/// `call_llm_schema()` diagnostics. The validator itself now lives in
+/// `crate::schema::validate` and is SHARED with `json_validate` — same
+/// rules, same messages, zero new ones.
 pub fn check_schema_supported(schema: &serde_json::Value) -> Result<(), String> {
-    check_schema_node(schema, true, "$")
-}
-
-fn check_schema_node(schema: &serde_json::Value, is_root: bool, path: &str) -> Result<(), String> {
-    let map = match schema.as_object() {
-        Some(m) => m,
-        None => {
-            return Err(format!(
-                "call_llm_schema(): [LLM_SCHEMA_UNSUPPORTED_FEATURE] schema node at {} must be a JSON object, got {} (ADR-0133)",
-                path, json_type_name(schema)
-            ))
-        }
-    };
-    for key in map.keys() {
-        if SUPPORTED_KEYWORDS.contains(&key.as_str()) || IGNORED_ANNOTATIONS.contains(&key.as_str())
-        {
-            continue;
-        }
-        return Err(format!(
-            "call_llm_schema(): [LLM_SCHEMA_UNSUPPORTED_FEATURE] schema keyword '{}' at {} is outside the supported subset {:?} (annotations {:?} are ignored); see ADR-0133",
-            key, path, SUPPORTED_KEYWORDS, IGNORED_ANNOTATIONS
-        ));
-    }
-    if is_root {
-        let root_type = map.get("type").and_then(|t| t.as_str());
-        if root_type != Some("object") {
-            return Err(format!(
-                "call_llm_schema(): [LLM_SCHEMA_UNSUPPORTED_FEATURE] root schema must be {{\"type\":\"object\",...}} — the builtin returns a Struct; got type {:?} at {} (ADR-0133)",
-                root_type, path
-            ));
-        }
-    }
-    if let Some(t) = map.get("type") {
-        if !t.is_string() {
-            return Err(format!(
-                "call_llm_schema(): [LLM_SCHEMA_UNSUPPORTED_FEATURE] 'type' at {} must be a string, got {} (ADR-0133)",
-                path, json_type_name(t)
-            ));
-        }
-    }
-    if let Some(props) = map.get("properties") {
-        let props = match props.as_object() {
-            Some(p) => p,
-            None => {
-                return Err(format!(
-                    "call_llm_schema(): [LLM_SCHEMA_UNSUPPORTED_FEATURE] 'properties' at {} must be an object, got {} (ADR-0133)",
-                    path, json_type_name(props)
-                ))
-            }
-        };
-        for (name, sub) in props {
-            check_schema_node(sub, false, &format!("{}.properties.{}", path, name))?;
-        }
-    }
-    if let Some(req) = map.get("required") {
-        let all_strings = req.is_array()
-            && req
-                .as_array()
-                .is_some_and(|a| a.iter().all(|v| v.is_string()));
-        if !all_strings {
-            return Err(format!(
-                "call_llm_schema(): [LLM_SCHEMA_UNSUPPORTED_FEATURE] 'required' at {} must be an array of strings (ADR-0133)",
-                path
-            ));
-        }
-    }
-    if let Some(items) = map.get("items") {
-        check_schema_node(items, false, &format!("{}.items", path))?;
-    }
-    if let Some(en) = map.get("enum") {
-        let non_empty_array = en.is_array() && en.as_array().is_some_and(|a| !a.is_empty());
-        if !non_empty_array {
-            return Err(format!(
-                "call_llm_schema(): [LLM_SCHEMA_UNSUPPORTED_FEATURE] 'enum' at {} must be a non-empty array (ADR-0133)",
-                path
-            ));
-        }
-    }
-    Ok(())
+    crate::schema::validate::check_schema_subset(schema, "call_llm_schema")
 }
 
 // ── Answer-side validation (retryable) ────────────────────────────────────
 
-/// Validate `value` against `schema` (already subset-checked), collecting ALL
-/// violations instead of failing fast — the full report is the retry context
-/// and the diagnostic text (ADR-0133 D3). Pure function, no I/O.
+/// Compat shim (Наряд №286 extraction): strict-by-default validation with the
+/// historical `answer` root label — the retry context of the schema loop.
+/// The validator itself now lives in `crate::schema::validate` and is SHARED
+/// with `json_validate` (which opts into `strict = false` explicitly).
 pub fn validate_json_against_schema(
     value: &serde_json::Value,
     schema: &serde_json::Value,
     path: &str,
     violations: &mut Vec<String>,
 ) {
-    // enum applies to any type and takes precedence in reporting
-    if let Some(en) = schema.get("enum").and_then(|e| e.as_array()) {
-        if !en.iter().any(|allowed| allowed == value) {
-            violations.push(format!(
-                "{}: value {} is not one of the enum literals {:?}",
-                display_path(path),
-                short_repr(value),
-                en
-            ));
-            return; // enum hit already describes the problem; type errors would be noise
-        }
-    }
-    let expected = schema.get("type").and_then(|t| t.as_str());
-    if let Some(t) = expected {
-        if !type_matches(value, t) {
-            violations.push(format!(
-                "{}: expected type {}, got {} {}",
-                display_path(path),
-                t,
-                json_type_name(value),
-                short_repr(value)
-            ));
-            return; // deeper checks are meaningless against the wrong type
-        }
-    }
-    match value {
-        serde_json::Value::Object(map) => {
-            let props = schema.get("properties").and_then(|p| p.as_object());
-            if let Some(props) = props {
-                for key in map.keys() {
-                    if !props.contains_key(key) {
-                        violations.push(format!(
-                            "{}: unexpected field '{}' is not declared in schema properties (strict-by-default, ADR-0133 D2)",
-                            display_path(path),
-                            key
-                        ));
-                    }
-                }
-                for (name, sub) in props {
-                    if let Some(v) = map.get(name) {
-                        validate_json_against_schema(
-                            v,
-                            sub,
-                            &format!("{}.{}", path, name),
-                            violations,
-                        );
-                    }
-                }
-            }
-            if let Some(req) = schema.get("required").and_then(|r| r.as_array()) {
-                // Non-string entries were rejected schema-side; skip defensively
-                // instead of panicking (house rule: no unwrap/expect in lib code).
-                for name in req.iter().filter_map(|v| v.as_str()) {
-                    if !map.contains_key(name) {
-                        violations.push(format!(
-                            "{}: missing required field '{}'",
-                            display_path(path),
-                            name
-                        ));
-                    }
-                }
-            }
-        }
-        serde_json::Value::Array(items) => {
-            if let Some(items_schema) = schema.get("items") {
-                for (i, item) in items.iter().enumerate() {
-                    validate_json_against_schema(
-                        item,
-                        items_schema,
-                        &format!("{}[{}]", path, i),
-                        violations,
-                    );
-                }
-            }
-        }
-        _ => {} // scalars: the type/enum check above is the whole contract
-    }
-}
-
-fn type_matches(value: &serde_json::Value, t: &str) -> bool {
-    match t {
-        "string" => value.is_string(),
-        "boolean" => value.is_boolean(),
-        "null" => value.is_null(),
-        "number" => value.is_number(),
-        // JSON has one number type; "integer" is the integral subset (ADR-0133 D1)
-        "integer" => value.is_i64() || value.is_u64(),
-        "array" => value.is_array(),
-        "object" => value.is_object(),
-        _ => false, // schema-side check rejects unknown types before validation
-    }
+    crate::schema::validate::validate_json(value, schema, path, "answer", true, violations);
 }
 
 // ── Deterministic mock (ADR-0133 D4) ──────────────────────────────────────
@@ -475,36 +300,5 @@ fn json_to_mlog(value: &serde_json::Value) -> Value {
         serde_json::Value::Bool(b) => Value::Bool(*b),
         serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
         serde_json::Value::Null => Value::Unit,
-    }
-}
-
-fn json_type_name(v: &serde_json::Value) -> &'static str {
-    match v {
-        serde_json::Value::Null => "null",
-        serde_json::Value::Bool(_) => "boolean",
-        serde_json::Value::Number(_) => "number",
-        serde_json::Value::String(_) => "string",
-        serde_json::Value::Array(_) => "array",
-        serde_json::Value::Object(_) => "object",
-    }
-}
-
-fn display_path(path: &str) -> String {
-    if path == "$" {
-        "answer".to_string()
-    } else {
-        format!(
-            "answer.{}",
-            path.trim_start_matches("$.").trim_start_matches('$')
-        )
-    }
-}
-
-fn short_repr(v: &serde_json::Value) -> String {
-    let s = v.to_string();
-    if s.len() > 60 {
-        format!("{}...", &s[..60])
-    } else {
-        s
     }
 }

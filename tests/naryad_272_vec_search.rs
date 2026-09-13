@@ -466,10 +466,13 @@ fn naryad_272_arities_pinned() {
     assert!(metalogos::builtins::check_builtin_arity("embed", 1).is_ok());
     assert!(metalogos::builtins::check_builtin_arity("embed", 0).is_err());
     assert!(metalogos::builtins::check_builtin_arity("embed", 2).is_err());
-    // vec_store(db_path, table, id, embedding) — ровно 4
+    // vec_store(db_path, table, id, embedding[, text|opts]) — 4..5
+    // (№281: опциональный пятый аргумент — текст FTS-плеча либо
+    // opts{text, scope}; пин обновлён с «ровно 4», индекс не сдвинут)
     assert!(metalogos::builtins::check_builtin_arity("vec_store", 4).is_ok());
+    assert!(metalogos::builtins::check_builtin_arity("vec_store", 5).is_ok());
     assert!(metalogos::builtins::check_builtin_arity("vec_store", 3).is_err());
-    assert!(metalogos::builtins::check_builtin_arity("vec_store", 5).is_err());
+    assert!(metalogos::builtins::check_builtin_arity("vec_store", 6).is_err());
     // vec_search(db_path, table, query, k[, include_forgotten]) — 4..5
     // (№280: опциональный пятый аргумент include_forgotten, дефолт false;
     // пин обновлён с «ровно 4» на диапазон — расширение в сторону больших

@@ -245,7 +245,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.19):** This section documents **100%** of the 402 registered builtins (402 of 402): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.19):** This section documents **100%** of the 403 registered builtins (403 of 403): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1124,9 +1124,10 @@ Feature gate: `vec = ["dep:sqlite-vec"]` — off by default (ADR-0104 measured i
 |---|---|---|---|
 | `embed(text)` | `(String) -> List` | `List[Float]` | Embedding of `text` through the process-global manager (see model facts above). No new dependencies — a pure reuse of the ADR-0040 stack. |
 | `vec_store(db_path, table, id, embedding)` | `(String, String, String, List) -> Struct` | `Struct{stored, table, id, dim, rowid}` | Stores `embedding` (a non-empty `List[Float]`) into the `vec0` table `table` of the SQLite file `db_path` (created on demand; the table with a metadata column `id` is created on first store with the dimension fixed from the first vector). `id` is the caller's string key (need not be unique — it is returned as-is by `vec_search`). Loud refusals: a dimension mismatch against the stored table dimension (the error names both numbers — vectors of different models must not be mixed), an empty embedding, a table name outside `[A-Za-z_][A-Za-z0-9_]*` (SQL identifier whitelist — the name is interpolated into DDL), sandbox violations. |
-| `vec_search(db_path, table, query_embedding, k)` | `(String, String, List, Float) -> List` | `List[Struct{id, distance}]` | KNN query (vec0 `distance_metric=cosine`, nearest first) over the stored table; returns at most `k` hits as `{id, distance}` structs. A table that exists but has no rows returns an empty List; a missing table is a loud `not found` error. Loud refusals: dimension mismatch between the query and the stored table, `k <= 0` or non-integer `k`, `k > 10000` (DoS guard), sandbox violations. |
+| `vec_search(db_path, table, query_embedding, k[, include_forgotten])` | `(String, String, List, Float[, Bool]) -> List` | `List[Struct{id, distance}]` | KNN query (vec0 `distance_metric=cosine`, nearest first) over the stored table; returns at most `k` hits as `{id, distance}` structs. A table that exists but has no rows returns an empty List; a missing table is a loud `not found` error. Loud refusals: dimension mismatch between the query and the stored table, `k <= 0` or non-integer `k`, `k > 10000` (DoS guard), sandbox violations, a non-Bool fifth argument. №280: the optional fifth argument `include_forgotten` (default `false`) post-filters ids recorded in the forget ledger (`memory_forget`) — forgotten ids are hidden by default; `k` is the KNN sample size BEFORE the filter, so the result may be shorter than `k` when forgotten ids are among the nearest. |
+| `memory_forget(db_path, table, query, threshold, max_forget[, dry_run[, ids]])` | `(String, String, List, Float, Float[, Bool[, List]]) -> Struct` | `Struct{candidates, applied, batch_id}` | Managed forgetting with boundaries (supermemory forget-matching discipline; №280). `dry_run=true` (the DEFAULT — arity 5, or an explicit `true`) returns only candidates: `List[Struct{id, score}]` where `score` is the cosine similarity (best per id; ids deduplicated; already-forgotten ids are not candidates), `applied: 0`, `batch_id: ""`. Apply (`dry_run=false`) works STRICTLY over an explicit `ids` list taken from a preview — never over a re-searched query: every id is point-checked against the preview bounds (exists in the table, similarity ≥ `threshold` — the same computation as the preview, not a re-search), an unknown id or an id outside the bounds is a LOUD error BEFORE anything is written (atomic apply); the id count may not exceed `max_forget`. Soft delete: nothing is physically removed — applied ids go into the forget ledger `{table}__forgotten` (id, batch_id, reason, forgotten_at); `batch_id` (`MLOG-FORGET-<base32×26>`, 128 bits) is stamped on every applied id and returned; a repeated forget of the same id is a no-op (`applied: 0`, `batch_id: ""`). Loud refusals: `threshold` outside `[0, 1]`, `max_forget` non-integer / outside `[1, 10000]`, `ids` non-empty-violations (empty list, non-String element), `dry_run=false` without ids, `ids` together with `dry_run=true`, a `List` in the `dry_run` position, dimension mismatch, a missing table, sandbox violations (preview opens ForRead, apply opens ForWrite). Auto-forgetting (TTL, displacement by updates) is deliberately v2 / out of scope. |
 
-**Sandbox.** `db_path` goes through the file sandbox (`sandbox_path_ex`, naryads №131/№252): absolute paths, `..` traversal and symlink escapes are refused; `vec_store` opens for write, `vec_search` for read (the file must exist). A vector database is a file like any other — it is not a sandbox bypass.
+**Sandbox.** `db_path` goes through the file sandbox (`sandbox_path_ex`, naryads №131/№252): absolute paths, `..` traversal and symlink escapes are refused; `vec_store` opens for write, `vec_search` for read (the file must exist), `memory_forget` opens ForRead for the preview and ForWrite for the apply (the ledger is created there). A vector database is a file like any other — it is not a sandbox bypass.
 
 **Example** (round trip, requires `--features vec`):
 
@@ -1139,6 +1140,22 @@ pattern Ask() -> String {
 }
 // vec_store("mem.db", "docs", "doc-1", embed("кот сидит на ковре")) → Struct{stored:1.0, ...}
 // Ask() → "doc-1" — the nearest id; both backends (TW and VM) execute the chain identically
+```
+
+**Example** (forget flow — preview, then apply strictly by ids from the preview, №280):
+
+```mlog
+pattern ForgetStale() -> String {
+  let q = embed("кот сидит на ковре возле дома")
+  let p = memory_forget("mem.db", "docs", q, 0.6, 5)   // dry_run by DEFAULT — preview only
+  let cands = p.candidates                             // List[Struct{id, score}] — inspect first
+  let c = cands[0]                                     // nearest candidate
+  let pick_id = c.id                                   // ids from the preview ONLY (bound deletes)
+  let a = memory_forget("mem.db", "docs", q, 0.6, 5, false, [pick_id])
+  return a.batch_id                                    // "MLOG-FORGET-…" or "" when nothing applied
+}
+// vec_search("mem.db", "docs", q, 3) afterwards hides the forgotten ids;
+// vec_search("mem.db", "docs", q, 3, true) still returns them — nothing is physically deleted.
 ```
 
 ---
@@ -1530,7 +1547,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 402 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 403 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENT.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -1806,7 +1823,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `sqrt(...)` | 1 | `Float -> Float` | Square root. Soft-failure: `0.0` for `x < 0` |
 | `tanh(...)` | 1 | `Float -> Float` | Hyperbolic tangent. In (−1, 1). `tanh(1000)=1`, `tanh(-1000)=-1` |
 
-### `memory` — 21 builtin(s)
+### `memory` — 22 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -1823,13 +1840,14 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `memorize(...)` | 2..3 | `String, Float, String -> Unit` | Saves a fact with a priority (0.0-1.0) and a type. Example: `memorize("likes spicy food", 0.9, "persona")` |
 | `memory_boost(...)` | variadic | — | `memory_boost(id, amount?)` — boost a memory node's score by amount (default 0.1, capped at 1.0). Updates last_accessed timestamp. Returns Struct { id, new_score, access_count }. |
 | `memory_decay(...)` | variadic | — | `memory_decay(lambda?)` — apply exponential decay to all memory node scores. `lambda` controls decay rate (default 0.01 = gentle). Formula: score *= e^(-lambda * hours_since_access). Returns Struct { decayed: <count>, nodes: <total>, edges: <total> }. |
+| `memory_forget(...)` | 5..7 | `(String, String, List, Float, Float[, Bool[, List]]) -> Struct` | Managed forgetting with boundaries (supermemory forget-matching discipline; №280). `dry_run=true` (the DEFAULT — arity 5, or an explicit `true`) returns only candidates: `List[Struct{id, score}]` where `score` is the cosine similarity (best per id; ids deduplicated; already-forgotten ids are not candidates), `applied: 0`, `batch_id: ""`. Apply (`dry_run=false`) works STRICTLY over an explicit `ids` list taken from a preview — never over a re-searched query: every id is point-checked against the preview bounds (exists in the table, similarity ≥ `threshold` — the same computation as the preview, not a re-search), an unknown id or an id outside the bounds is a LOUD error BEFORE anything is written (atomic apply); the id count may not exceed `max_forget`. Soft delete: nothing is physically removed — applied ids go into the forget ledger `{table}__forgotten` (id, batch_id, reason, forgotten_at); `batch_id` (`MLOG-FORGET-<base32×26>`, 128 bits) is stamped on every applied id and returned; a repeated forget of the same id is a no-op (`applied: 0`, `batch_id: ""`). Loud refusals: `threshold` outside `[0, 1]`, `max_forget` non-integer / outside `[1, 10000]`, `ids` non-empty-violations (empty list, non-String element), `dry_run=false` without ids, `ids` together with `dry_run=true`, a `List` in the `dry_run` position, dimension mismatch, a missing table, sandbox violations (preview opens ForRead, apply opens ForWrite). Auto-forgetting (TTL, displacement by updates) is deliberately v2 / out of scope. |
 | `memory_prune(...)` | variadic | — | `memory_prune(threshold?, min_age_hours?)` — remove dead memory nodes. `threshold`: minimum score to keep (default 0.05). `min_age_hours`: minimum age in hours before pruning (default 24, protects fresh entries). Returns Struct { pruned: <count>, remaining: <total> }. |
 | `memory_revise(...)` | variadic | — | `memory_revise(id, new_text, new_score?)` — update a node and resolve Contradicts. If the node contradicts others, the system keeps the higher-scoring belief and demotes the loser (score *= 0.3, adds Supersedes edge). Returns Struct { action, winner_id, superseded_id? }. |
 | `ref(...)` | 1 | — | `ref(content)` — compute SHA-256 hash, store in KV, return hash string. Idempotent. |
 | `session_clear(...)` | variadic | `String -> String` | Deletes all of the session's data. Returns `"ok"` |
 | `session_get(...)` | 1 | `String, String -> String` | Reads a value from the session (an empty string if absent) |
 | `session_set(...)` | 2 | `String, String, String -> String` | Saves a value in the session |
-| `vec_search(...)` | 4 | `(String, String, List, Float) -> List` | KNN query (vec0 `distance_metric=cosine`, nearest first) over the stored table; returns at most `k` hits as `{id, distance}` structs. A table that exists but has no rows returns an empty List; a missing table is a loud `not found` error. Loud refusals: dimension mismatch between the query and the stored table, `k <= 0` or non-integer `k`, `k > 10000` (DoS guard), sandbox violations. |
+| `vec_search(...)` | 4..5 | `(String, String, List, Float[, Bool]) -> List` | KNN query (vec0 `distance_metric=cosine`, nearest first) over the stored table; returns at most `k` hits as `{id, distance}` structs. A table that exists but has no rows returns an empty List; a missing table is a loud `not found` error. Loud refusals: dimension mismatch between the query and the stored table, `k <= 0` or non-integer `k`, `k > 10000` (DoS guard), sandbox violations, a non-Bool fifth argument. №280: the optional fifth argument `include_forgotten` (default `false`) post-filters ids recorded in the forget ledger (`memory_forget`) — forgotten ids are hidden by default; `k` is the KNN sample size BEFORE the filter, so the result may be shorter than `k` when forgotten ids are among the nearest. |
 | `vec_store(...)` | 4 | `(String, String, String, List) -> Struct` | Stores `embedding` (a non-empty `List[Float]`) into the `vec0` table `table` of the SQLite file `db_path` (created on demand; the table with a metadata column `id` is created on first store with the dimension fixed from the first vector). `id` is the caller's string key (need not be unique — it is returned as-is by `vec_search`). Loud refusals: a dimension mismatch against the stored table dimension (the error names both numbers — vectors of different models must not be mixed), an empty embedding, a table name outside `[A-Za-z_][A-Za-z0-9_]*` (SQL identifier whitelist — the name is interpolated into DDL), sandbox violations. |
 
 ### `mtree` — 5 builtin(s)

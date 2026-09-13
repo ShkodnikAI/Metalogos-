@@ -72,7 +72,9 @@ pub fn is_canary_id(s: &str) -> bool {
 }
 
 /// base32 (RFC 4648, без паддинга) 16 байт → 26 символов A-Z2-7.
-fn base32_encode_16(bytes: &[u8; 16]) -> String {
+/// pub(crate) с наряда №280: тот же код-нонс-формат переиспользует
+/// memory_forget для batch_id (MLOG-FORGET-<base32×26>).
+pub(crate) fn base32_encode_16(bytes: &[u8; 16]) -> String {
     let mut out = String::with_capacity(CANARY_ID_CHARS);
     let mut buffer: u64 = 0;
     let mut bits = 0u32;

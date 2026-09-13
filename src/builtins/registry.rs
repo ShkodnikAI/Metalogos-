@@ -609,6 +609,17 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // (loudly noted in CHANGELOG).
     spec!("vision_lora_load", 2, "vision"; builtin_vision_lora_load_stub),
     spec!("vision_lora_generate", 3, "vision"; builtin_vision_lora_generate_stub),
+    // ── Наряд №284 (P1, M1): canary-токены недоверенного текста ──
+    // Runtime-детектор утечки недоверенного контента через LLM-канал
+    // (паттерн rebuff/Spotlighting). Связан с taint-моделью: утечка →
+    // runtime warning CANARY_LEAK + llm_usage().canary_leaks (canary.rs);
+    // статическая метка «компрометированный канал» в ветке утечки →
+    // audit-warning CANARY_LEAK (src/audit.rs, check_canary_leak,
+    // advisory-слой audit_program). Детектор, НЕ гейт. Чистые обработчики
+    // (без интерсепшена) — execution.rs не требуется. Registry 399→401;
+    // новая категория "security" (37→38 модулей).
+    spec!("canary_insert", 1, 2, "security"; builtin_canary_insert),
+    spec!("canary_check", 2, 3, "security"; builtin_canary_check),
 ];
 
 /// Total number of registered builtins.

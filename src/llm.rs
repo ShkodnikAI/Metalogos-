@@ -765,6 +765,7 @@ pub fn global_llm_usage_report() -> LlmUsageReport {
             total_tokens: 0.0,
             total_errors: 0.0,
             cache_hits_semantic: 0.0,
+            canary_leaks: 0.0,
             providers: Vec::new(),
         }
     }
@@ -1247,6 +1248,7 @@ impl LlmUsageTracker {
             total_errors: total_errors as f64,
             cache_hits_semantic: CACHE_HITS_SEMANTIC.load(std::sync::atomic::Ordering::Relaxed)
                 as f64,
+            canary_leaks: CANARY_LEAKS.load(std::sync::atomic::Ordering::Relaxed) as f64,
             providers: provider_reports,
         }
     }
@@ -1260,6 +1262,8 @@ pub struct LlmUsageReport {
     pub total_errors: f64,
     /// Наряд №273: semantic cache hits (cosine ≥ threshold, ADR-0135).
     pub cache_hits_semantic: f64,
+    /// Наряд №284: confirmed canary leaks (compromised LLM channel).
+    pub canary_leaks: f64,
     pub providers: Vec<ProviderUsage>,
 }
 
@@ -1272,6 +1276,18 @@ pub static CACHE_HITS_SEMANTIC: std::sync::atomic::AtomicU64 = std::sync::atomic
 /// Record one semantic cache hit (learnable cache_semantic contour).
 pub fn record_cache_hit_semantic() {
     CACHE_HITS_SEMANTIC.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Наряд №284 (P1, M1): global canary-leak counter — observed via
+/// llm_usage().canary_leaks (runtime detector of untrusted-content
+/// exfiltration through the LLM channel; the static half — the
+/// compromised-channel taint label in the leak branch — lives in
+/// src/audit.rs, check_canary_leak). Detector, not gate.
+pub static CANARY_LEAKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Record one canary leak (canary_check detected the marker in the response).
+pub fn record_canary_leak() {
+    CANARY_LEAKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Smart LLM router: wraps multiple providers with failover, circuit breaker, health tracking.

@@ -307,11 +307,7 @@ fn expr_is_llm_tainted(expr: &Expr, tracker: &TaintTracker) -> bool {
     expr_is_llm_tainted_bounded(expr, tracker, 0)
 }
 
-fn expr_is_llm_tainted_bounded(
-    expr: &Expr,
-    tracker: &TaintTracker,
-    depth: usize,
-) -> bool {
+fn expr_is_llm_tainted_bounded(expr: &Expr, tracker: &TaintTracker, depth: usize) -> bool {
     if depth > TAINT_NESTING_MAX_DEPTH {
         // Громкое примечание не выдается здесь (return false) — README
         // "Known boundaries" документирует границу. Interprocedural
@@ -353,9 +349,7 @@ fn expr_is_llm_tainted_bounded(
         Expr::List { items, .. } => items
             .iter()
             .any(|item| expr_is_llm_tainted_bounded(item, tracker, depth + 1)),
-        Expr::FieldAccess { object, .. } => {
-            expr_is_llm_tainted_bounded(object, tracker, depth + 1)
-        }
+        Expr::FieldAccess { object, .. } => expr_is_llm_tainted_bounded(object, tracker, depth + 1),
         Expr::IndexAccess { object, index, .. } => {
             expr_is_llm_tainted_bounded(object, tracker, depth + 1)
                 || expr_is_llm_tainted_bounded(index, tracker, depth + 1)

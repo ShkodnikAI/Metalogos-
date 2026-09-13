@@ -182,7 +182,7 @@ def render(entries, curated, docs):
     md.append("")
     md.append(
         "> Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by "
-        "`scripts/gen_reference.py` — the SSOT per `AGENT.md` §5. Arity follows "
+        "`scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows "
         "ADR-0095 (`variadic` = any count). Descriptions are imported from the "
         "curated sections above when present, otherwise from the handler's doc "
         "comment; `TODO(doc)` marks a description nobody has written yet — "

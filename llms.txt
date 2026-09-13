@@ -1,0 +1,61 @@
+# METALOGOS
+
+> Metalogos — язык для ИИ-агентов: семь столпов (Entity/Pattern/Flow/Memory/Rule/Learn/Adapt) спроектированы для того, как рассуждает ИИ, не человек. Компилятор + интерпретер (tree-walking + bytecode VM) + HTTP server + LLM integration + ML layer (Reflex) + vision (Vision pillar) + voice (TTS/STT).
+
+> Этот файл — индекс для IDE-агентов и RAG-пайплайнов, на которые явно указали URL этого репозитория. Не для автоматического обнаружения — основные краулеры (GPTBot, ClaudeBot, Google-Extended) практически не запрашивают `llms.txt` системно. Ценность — для инструментов, которым явно сказали "читай отсюда" (Cursor/Cline-style интеграции, внутренние RAG-конвейеры).
+
+## Канонические файлы
+
+- [AGENTS.md](AGENTS.md): методология для ИИ-агентов-кодеров — где лежит истина по каждому классу вопросов (источник: код, не проза), каких ошибок избегать, что значит «наряд сделан». Читать первым, до любой задачи.
+- [CLAUDE.md](CLAUDE.md): bridge copy of AGENTS.md for Claude-compatible tools (synced manually — see issue #299).
+- [GEMINI.md](GEMINI.md): bridge copy of AGENTS.md for Gemini-compatible tools (synced manually — see issue #299).
+
+## Справочники и формальные спецификации
+
+- [REFERENCE.md](REFERENCE.md): полный справочник по языку — §3 Syntax (операторы, контрольные конструкции, выражения), §4 Built-in Functions (409 builtins, 100% coverage, 0 TODO, SSOT-regenerated from `src/builtins/registry.rs`), §6 generated index.
+- [src/grammar.pest](src/grammar.pest): формальная PEG-грамматика (530+ строк) — исчерпывающая спецификация синтаксиса .mlog. Это исходник компилятора, не документация — если расхождения с REFERENCE.md, грамматика authoritative.
+- [tree-sitter-mlog/grammar.js](tree-sitter-mlog/grammar.js): параллельная tree-sitter грамматика для внешних инструментов (Zed/Helix/treesitter-index). Не часть компиляции .mlog.
+
+## Примеры
+
+- [examples/](examples/): 214 рабочих `.mlog`-файлов, покрывающих все столпы языка — базовый синтаксис (m1-m5), fluid types, control flow, HTTP server + routes, crypto/secrets, cyrillic identifiers, context loading, knowledge graph, hooks lifecycle, schema, skill index, reflex (classification + generation), vision, pattern composition, full apps. Большинство имеет `.expected` pair (выход) или `.error` (ожидаемая ошибка) — это executable documentation.
+
+## Архитектура
+
+- [README.md](README.md): общий обзор — features, project structure, milestones, roadmap, quickstart, links.
+- [CHANGELOG.md](CHANGELOG.md): полная история изменений (наряды №1-№289+), SSOT для "что нового".
+- [docs/adr/](docs/adr/): 132 ADR (Architecture Decision Records) — все архитектурные решения с контекстом, альтернативами, и последствиями. Индекс в `docs/adr/README.md`.
+- [docs/threat-model.md](docs/threat-model.md): единая поддерживаемая точка про ограничения безопасности.
+
+## Наряды (work orders)
+
+- [FEATURE_INTAKE.md](FEATURE_INTAKE.md): tracker для запросов новых фич.
+- [AI_USAGE.md](AI_USAGE.md): disclosure — как generative AI используется в разработке проекта.
+- [MEMORY_ROADMAP.md](MEMORY_ROADMAP.md): roadmap для memory-системы.
+
+## Quickstart
+
+```bash
+# Build
+cargo build --release
+
+# Check a .mlog file
+./target/release/mlog check examples/m1_hello.mlog
+
+# Run
+./target/release/mlog run examples/m1_hello.mlog
+
+# REPL
+./target/release/mlog repl
+
+# HTTP server
+./target/release/mlog serve examples/p7_post_routes.mlog
+
+# Audit (Category A security check)
+./target/release/mlog audit examples/p6_full_app.mlog
+```
+
+## Канал
+
+- Repository: https://github.com/ShkodnikAI/Metalogos-
+- Issues: https://github.com/ShkodnikAI/Metalogos-/issues

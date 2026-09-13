@@ -123,6 +123,29 @@ pub(crate) fn builtin_query_param(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(String::new()))
 }
 
+/// `server_path_param(name)` — stub that returns empty string (Наряд №283).
+/// Real implementation is handled in interpreter.rs and vm.rs FnCall
+/// dispatch (needs access to server_path_params HashMap on the runtime
+/// context — same pattern as `query_param`). Returns empty string when
+/// no templated route matched (static route, or no server context).
+pub(crate) fn builtin_server_path_param(args: &[Value]) -> Result<Value, String> {
+    let _name = if args.is_empty() {
+        return Err("server_path_param() requires 1 argument (param name)".to_string());
+    } else {
+        match &args[0] {
+            Value::String(s) => s.clone(),
+            other => {
+                return Err(format!(
+                    "server_path_param() expected String, got {}",
+                    other.type_name()
+                ))
+            }
+        }
+    };
+    // Stub — real implementation is special-cased in FnCall dispatch.
+    Ok(Value::String(String::new()))
+}
+
 pub(crate) fn builtin_render(args: &[Value]) -> Result<Value, String> {
     // render(TemplateName, arg1, arg2, ...) — positional args map to template params.
     // Наряд №115: real body substitution via GLOBAL_TEMPLATES (not stub markup).

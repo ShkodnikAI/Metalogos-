@@ -683,6 +683,13 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("llm_stream_next", 1, "llm"; builtin_llm_stream_next), // handle
     #[cfg(feature = "llm")]
     spec!("llm_stream_close", 1, "llm"; builtin_llm_stream_close), // handle
+    // ── Наряд №283 (P2, feature): path-параметры роутов mlogserver —
+    // шаблонный диспетчер {name} / {*path} (axum 0.8.9 syntax). Builtin
+    // stub — real body in interpreter/vm FnCall dispatch (needs access
+    // to server_path_params HashMap). Static routes win over templates;
+    // conflict of two templates matching the same path → loud error at
+    // server start. Registry 408→409 (append-only).
+    spec!("server_path_param", 1, "web"; builtin_server_path_param), // name
 ];
 
 /// Total number of registered builtins.

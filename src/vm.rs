@@ -62,6 +62,9 @@ pub struct Vm {
     server_json_body: Option<Value>,
     /// Query string parameters (injected by server before route execution).
     server_query_params: Option<std::collections::HashMap<String, String>>,
+    /// Path parameters extracted from a templated route (Наряд №283).
+    /// Parity with server_query_params — `server_path_param(name)` builtin.
+    server_path_params: Option<std::collections::HashMap<String, String>>,
     /// User roles for RBAC (injected by server before route execution).
     server_user_roles: Vec<String>,
     /// Наряд №72: Conversations storage (ADR-0053 parity with interpreter).
@@ -139,6 +142,7 @@ impl Vm {
             collections_loaded: false,
             server_json_body: None,
             server_query_params: None,
+            server_path_params: None,
             server_user_roles: Vec::new(),
             conversations: std::sync::Mutex::new(HashMap::new()),
             conversation_config: ConversationConfig::default(),
@@ -1770,6 +1774,25 @@ impl Vm {
             return Ok(Value::String(String::new()));
         }
 
+        // Наряд №283: server_path_param(name) — path parameter from a
+        // templated route (`/demo/{name}` matched against `/demo/test`).
+        // Parity with query_param: empty string when no match / no context.
+        if name == "server_path_param" {
+            let param_name = args
+                .first()
+                .and_then(|v| match v {
+                    Value::String(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            if let Some(ref params) = self.server_path_params {
+                if let Some(val) = params.get(&param_name) {
+                    return Ok(Value::String(val.clone()));
+                }
+            }
+            return Ok(Value::String(String::new()));
+        }
+
         if name == "json_body" {
             if let Some(ref body) = self.server_json_body {
                 return Ok(body.clone());
@@ -3236,6 +3259,13 @@ impl Vm {
         self.server_query_params = Some(params);
     }
 
+    /// Set path parameters extracted from a templated route (Наряд №283).
+    /// Parity with `set_server_query_params` — the `server_path_param(name)`
+    /// builtin reads from this map.
+    pub fn set_server_path_params(&mut self, params: std::collections::HashMap<String, String>) {
+        self.server_path_params = Some(params);
+    }
+
     /// Set user roles for RBAC (Наряд №40: VM server backend).
     pub fn set_server_user_roles(&mut self, roles: Vec<String>) {
         self.server_user_roles = roles;
@@ -3245,6 +3275,7 @@ impl Vm {
     pub fn clear_server_context(&mut self) {
         self.server_json_body = None;
         self.server_query_params = None;
+        self.server_path_params = None;
         self.server_user_roles = Vec::new();
     }
 

@@ -646,7 +646,7 @@ Each layer receives `seed.wrapping_add(layer_index)` for deterministic weight in
 
 ### Vision — Generative Media (ADR-0122, ADR-0125)
 
-**Weights run parked — no production PNG yet.** The Vision pillar (images, ADR-0122) is feature-gated (`--features vision`, which implies `candle`) and ships compiler-level provenance and supply-chain gates (ADR-0125); the real-weights run (runbook №237) has not been executed, so no production image has been generated.
+**Weights run parked — no production PNG yet.** The Vision pillar (images, ADR-0122) is feature-gated (`--features vision`, which implies `candle`) and ships compiler-level provenance and supply-chain gates (ADR-0125); the real-weights run (runbook №237) has not been executed, so no production image has been generated. **Наряд №294 (2026-09-14) — формальный No-Go**: preflight контейнера не пройден (4 GB RAM vs нужно 64; 10 GB диск vs нужно 40; нет GPU). Дата пересмотра — при выделении железа. Отчёт: `docs/research/naryad-294-vision-realw-no-go.md`. Parked статус остаётся (No-Go → не снимается).
 
 ---
 

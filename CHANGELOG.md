@@ -4,6 +4,19 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — feature: VISION_REALW — формальный No-Go, real-weights run остаётся PARKED (Naryad #294, P0/feature)
+
+- **вердикт**: **No-Go** — исполнение runbook №237 невозможно в текущей среде; железо-гейт не пройден. Дата: 2026-09-14.
+- **preflight проверка** (контейнер агента): 4.1 GB RAM (нужно 64 GB), 9.9 GB диск (нужно 40 GB; только под веса — 32.85 GB), нет GPU. 3 из 3 железо-требований НЕ пройдены.
+- **решение владельца 2026-09-14** (issue #357 body): «условный Go — при выделении машины по preflight runbook №237 прогон исполняется дословно; без машины — формальный No-Go с явной датой пересмотра. "Tiny model" аудита отклонён». В контейнере агента — нет машины → формальный No-Go.
+- **дата пересмотра**: при выделении железа (≥64 GB RAM, ≥40 GB диск, GPU-контур). Открытый пункт вне репо — решение владельца по выделению.
+- **отчёт**: `docs/research/naryad-294-vision-realw-no-go.md` — формальный No-Go с preflight таблицей, причинами, что НЕ сделано (потому что невозможно), что доступно без железа.
+- **Parked статус остаётся** (No-Go → не снимается). Обновлено в трёх местах:
+  * `docs/adr/0122-vision-pillar-scope.md` map row #237 — добавлен No-Go вердикт №294 + дата пересмотра + ссылка на отчёт.
+  * `README.md` "Weights run parked" — добавлен No-Go вердикт №294 + ссылка на отчёт.
+  * `docs/threat-model.md` — без изменений (не упоминал PARKED напрямую; vision pillar covered через README + ADR-0122).
+- **ноль диффа в `src/**`** — код vision pillar GO-ready после №236/№243; env-gated тесты №212/№243 SKIP loudly при unset `MLOG_VISION_WEIGHTS_DIR` (рабочее поведение, не блокер). Реальная проблема — железо, не код.
+
 ### Added — adr: ADR-0141 — VM production-readiness: staged gap closure + parity-gated default flip (Naryad #293, P0/adr)
 
 - **ADR-only, без кода** (P0/adr research-наряд, issue #356 — VM_COMPLETE). Источник: внешний аудит Metalogos 2026-09-13. **Решение владельца 2026-09-14**: supersede оговорки «Do not implement…» ADR-0105 — стадийное закрытие гэпов; флип дефолта (ADR-0088) остаётся за гейтами: parity 100% + полный crosscheck + soak + реальная нагрузка.

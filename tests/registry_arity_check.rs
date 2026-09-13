@@ -29,6 +29,9 @@ fn registry_arity_exhaustive() {
         ("escape_json", 1, 1),
         ("escape_js", 1, 1),
         ("fuzzy_match", 2, 2),
+        // №284: canary-токены (security)
+        ("canary_insert", 1, 2),
+        ("canary_check", 2, 3),
         ("strip", 2, 2),
         ("chomp", 1, 1),
         ("repeat", 2, 2),

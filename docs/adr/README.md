@@ -156,3 +156,4 @@ reports and must not be changed:
 | 0135 | Semantic cache (cache_semantic) + LRU-граница кэша ADR-0047 | Accepted |
 | 0136 | `redact(text, mode)` — PII/секреты как taint-санитайзер; «mask before sink» — единственный легальный путь снятия `Secret`-taint | Accepted (стоп-гейт СГ-2 утверждён владельцем 2026-09-12) |
 | 0138 | Per-call LLM traces — file-based JSONL with OpenTelemetry GenAI field names | Accepted |
+| 0139 | SMFS — экспорт памяти как виртуальной read-only ФС (`sm:`) — вердикт спайка №282: Go | Proposed (черновик спайка, вердикт-гейт решён исполнителем 2026-09-13) |

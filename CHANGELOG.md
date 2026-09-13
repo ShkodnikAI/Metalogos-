@@ -4,6 +4,17 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — adr: ADR-0140 аддендум к ADR-0131 — no-reuse rule + SSOT-registry discipline для диагностических кодов (Naryad #288, P2/adr)
+
+- **ADR-только, без кода**: `docs/adr/0140-diag-codes-adr-addendum.md` — аддендум к ADR-0131 (Accepted 2026-09-10, наряд №255). ADR-0131 уже ответил на вопросы 1-3 постановки (format = `UPPER_SNAKE_CASE`; единая конвенция для `audit.rs` + `semantic.rs`; JSON-вывод `{code, message, span, severity}`). Эти вопросы НЕ переоткрываются.
+- **D1. No-reuse rule (вечная бронь кодов)**: код, однажды назначенный диагностике, никогда не переиспользуется под другим смыслом — даже после удаления ошибки. Удаление сопровождается `removed_in: <version>` + `replaced_by: Option<code>` + CHANGELOG entry. Прецедент: Rust `rustc_error_codes`.
+- **D2. SSOT-registry discipline**: реестр `DIAG_CODES: &[DiagCodeSpec]` — отдельный модуль `src/diag_codes.rs` (новый, не входит в `audit.rs`). Структура `DiagCodeSpec { code, message_template, severity, category, removed_in, replaced_by }`. Append-only (лекало `BUILTIN_REGISTRY`, наряд №170). Cross-source consistency — каждый `check_id` в source обязан иметь matching entry в реестре; коллизия ловится на CI (наряд реализации, не этот ADR).
+- **D3. Категории внутри единого реестра**: `category` поле (`"security" | "semantic" | "vm" | "reflex" | "vision" | "voice" | ...`) для machine-readable различения категорий внутри единого реестра, а не через отдельные реестры. Решает первоначальное обоснование постановки ("семантически разные категории") через подкатегоризацию, не separation.
+- **D4. Snapshot реестра известных кодов**: 17 уникальных `check_id` в `audit.rs` на main `d3a1de5` (naryad №283 merge) — все Category A/B security. Реестр при создании автоматически включает эти 17 как базу; новые `semantic.rs`-коды добавляются append-only.
+- **Реализация** (применение кодов ко всем ошибкам `semantic.rs` + создание `src/diag_codes.rs` + `tests/diag_codes_registry_check.rs` + `mlog check --json` flag) — отдельный, следующий наряд после принятия этого ADR. ADR фиксирует конвенцию, не реализацию.
+- **ADR-0131 остаётся в силе** — аддендум добавляет два операционных правила (no-reuse, SSOT-registry discipline), не пересматривает format/единая-конвенция/JSON-шейп.
+- **docs**: ADR-0140 (этот документ); ADR-README index regenerated (131→132 entries); README ADR count synced (131→132); CHANGELOG (этот блок).
+
 ### Added — language: `server_path_param` — шаблонные роуты mlogserver `{name}`/`{*path}` (Naryad #283, P2/feature)
 
 - **language**: `server_path_param(name) -> String` — path-параметр из шаблонного роута (parity с `query_param`). Возвращает пустую строку при отсутствии (нет шаблона / нет server-контекста). Категория `web`, arity 1.

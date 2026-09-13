@@ -61,18 +61,14 @@ fn struct_value(type_name: &str, fields: &[(&str, Value)]) -> Value {
 /// Префикс container-записей (SSOT конвенции, см. шапку).
 pub const CONTAINER_PREFIX: &str = "container:";
 
-/// Кэш профилей: (db_path, container) → (генерация, mtime, профиль).
-static PROFILE_CACHE: Mutex<
-    Option<std::collections::HashMap<(String, String), (u64, i64, Value)>>,
-> = Mutex::new(None);
+/// Запись кэша: (поколение KV-записей, mtime файла, профиль).
+type CacheEntry = (u64, i64, Value);
+/// Кэш профилей: (резолвнутый db_path, container) → запись.
+type ProfileCache = std::collections::HashMap<(String, String), CacheEntry>;
 
-fn cache_lock() -> Result<
-    std::sync::MutexGuard<
-        'static,
-        Option<std::collections::HashMap<(String, String), (u64, i64, Value)>>,
-    >,
-    String,
-> {
+static PROFILE_CACHE: Mutex<Option<ProfileCache>> = Mutex::new(None);
+
+fn cache_lock() -> Result<std::sync::MutexGuard<'static, Option<ProfileCache>>, String> {
     PROFILE_CACHE
         .lock()
         .map_err(|_| "user_profile cache poisoned".to_string())

@@ -470,8 +470,12 @@ fn naryad_272_arities_pinned() {
     assert!(metalogos::builtins::check_builtin_arity("vec_store", 4).is_ok());
     assert!(metalogos::builtins::check_builtin_arity("vec_store", 3).is_err());
     assert!(metalogos::builtins::check_builtin_arity("vec_store", 5).is_err());
-    // vec_search(db_path, table, query, k) — ровно 4
+    // vec_search(db_path, table, query, k[, include_forgotten]) — 4..5
+    // (№280: опциональный пятый аргумент include_forgotten, дефолт false;
+    // пин обновлён с «ровно 4» на диапазон — расширение в сторону больших
+    // арностей, bytecode-индекс не сдвинулся)
     assert!(metalogos::builtins::check_builtin_arity("vec_search", 4).is_ok());
+    assert!(metalogos::builtins::check_builtin_arity("vec_search", 5).is_ok());
     assert!(metalogos::builtins::check_builtin_arity("vec_search", 3).is_err());
-    assert!(metalogos::builtins::check_builtin_arity("vec_search", 5).is_err());
+    assert!(metalogos::builtins::check_builtin_arity("vec_search", 6).is_err());
 }

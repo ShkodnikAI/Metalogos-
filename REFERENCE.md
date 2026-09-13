@@ -112,6 +112,7 @@ let result = if x > 10.0 then "big" else "small"   // let with an if-expression
 **Mutable variables (`let mut`):** Since Naryad #14, variables are immutable by default. To reassign, use `let mut`. Since Naryad #264 the contract is enforced statically: `mlog check` reports assignment to a non-`mut` variable as an error, the compiler refuses to emit bytecode for it, and the VM fails loudly on assignment bytecode produced past the check (no backend assigns silently):
 
 ```mlog
+// expect-error
 let mut counter = 0.0
 while counter < 10.0 {
   counter = counter + 1.0   // OK — counter is declared as mut
@@ -134,6 +135,7 @@ If a local redefinition that does not affect the outer `x` is needed, use a diff
 
 **Mutable variables (`let mut`, Naryad #14):** Variables are immutable by default. For assignment, use `let mut` (contract: `examples/p30_assign_mut.mlog` + `.expected`, `examples/p30_assign_immutable.mlog` + `.error`; enforced by `mlog check` and the compiler since Naryad #264):
 ```mlog
+// expect-error
 let mut counter = 0.0
 counter = counter + 1.0   // OK
 let x = 5.0
@@ -156,6 +158,7 @@ x = 10.0                  // ERROR: cannot assign to immutable variable: x
 
 **If-else (block form):**
 ```mlog
+let x = 15.0
 if x > 10.0 {
   print("big")
 } else if x > 5.0 {
@@ -167,11 +170,13 @@ if x > 10.0 {
 
 **If-then-else (expression):**
 ```mlog
+let score = 95.0
 let label = if score >= 90.0 then "A" else "B"
 ```
 
 **Each (loop over a collection):**
 ```mlog
+let items = ["alpha", "beta", "gamma"]
 each item in items {
   print(item)
 }
@@ -179,13 +184,15 @@ each item in items {
 
 **While (conditional loop):**
 ```mlog
+let mut count = 0.0
 while count < 10.0 {
-  let count = count + 1.0
+  count = count + 1.0
 }
 ```
 
 **Match (pattern matching, Naryad #14):**
 ```mlog
+// doc-test: skip
 match command {
   "start" then { print("starting") }
   starts_with "stop" then { print("stopping") }
@@ -203,6 +210,8 @@ Four kinds of arms are supported: an exact match (`"val" then {}`), a prefix (`s
 
 **If-else block as an expression (Naryad #14):**
 ```mlog
+let score = 95.0
+let x = "osp"
 let label = if score >= 90.0 { "A" } else { "B" }
 let dept_color = if x == "osp" { "#FF0000" } else if x == "lz" { "#00FF00" } else { "#999999" }
 ```
@@ -215,11 +224,13 @@ let result = try http_post("https://api.example.com", body, "application/json")
 
 **Return:**
 ```mlog
+// doc-test: skip
 return result
 ```
 
 **Require (RBAC, Naryad #14):** Checks the current user's role (only in an HTTP context with the session middleware).
 ```mlog
+// doc-test: skip
 let _ = require("admin")   // On refusal: execution aborts with the error "access denied"
 ```
 
@@ -236,6 +247,7 @@ Supported escape sequences: `\"`, `\\`, `\n`, `\t`, `\r`.
 
 Identifiers support ASCII, `_`, and Cyrillic (А-я):
 ```mlog
+// doc-test: skip
 let имя = "Metalogos"
 let счетчик = 0.0
 pattern Приветствие(кто: String) -> String { ... }
@@ -283,6 +295,7 @@ All built-in functions are registered in a single registry, `BUILTIN_REGISTRY` (
 
 **Examples:**
 ```mlog
+let llm_reply = "untrusted reply text"
 let s = "Hello, world!"
 upper(s)              // "HELLO, WORLD!"
 lower(s)              // "hello, world!"
@@ -310,6 +323,7 @@ let m = canary_insert("untrusted tool output")
   // {marked_text: "untrusted MLOG-CANARY-… tool output", canary_id: "MLOG-CANARY-…"}
 canary_check(llm_reply, m.canary_id, {mode: "zwsp"})
   // {leaked: true, id: "MLOG-CANARY-…", position: 17.0} → CANARY_LEAK
+let doc = "# Guide\n\n## Setup\n\nbody text"
 text_chunk(doc, "markdown", {max_chars: 1200, overlap: 100})
   // [{index: 0, text: "# Guide\n...", chars: 1180.0, tokens: 295.0,
   //   header_path: "Guide"}, {…, header_path: "Guide > Setup"}, …]
@@ -374,6 +388,7 @@ to_int(3.9)        // 3.0
 
 **Examples:**
 ```mlog
+// doc-test: skip
 let items = [10.0, 20.0, 30.0]
 get(items, 1.0)        // 20.0
 push(items, 40.0)      // [10.0, 20.0, 30.0, 40.0]
@@ -413,6 +428,7 @@ let ranked = sort_by(paired, "b", 1.0)
 
 **Example:**
 ```mlog
+// doc-test: skip
 let result = call_llm("Translate to English", "Hello world")
 // By default: "[MOCK: Translate to English | Hello world]"
 
@@ -448,6 +464,7 @@ All HTTP egress builtins (`http_get`, `http_post`, `http_post_multipart`, `http_
 
 **Examples:**
 ```mlog
+// doc-test: skip
 // A simple POST
 let resp = http_post("https://api.example.com/data", json_encode(payload))
 
@@ -634,6 +651,7 @@ Temporary in-memory storage scoped to a session_id. Not persistent — it resets
 
 **Examples:**
 ```mlog
+// doc-test: skip
 entity db_url: Secret = env("DATABASE_URL")
 let key = generate_key()
 let encrypted = encrypt("secret data", key)
@@ -676,6 +694,7 @@ Functions for use inside route handlers of `mlogserver`/`server` blocks.
 
 **Example:**
 ```mlog
+// doc-test: skip
 mlogserver {
   port: 8080
   route "/hello" method=GET {
@@ -701,6 +720,7 @@ mlogserver {
 
 **Example:**
 ```mlog
+// doc-test: skip
 template Page(title: String, body: String) -> Html {
   <html><head><title>{{ title }}</title></head><body>{{ body }}</body></html>
 }
@@ -721,6 +741,7 @@ return page
 **Schema-as-code** (ADR-0060) — declaring tables directly in .mlog:
 
 ```mlog
+// doc-test: skip
 db { url: "sqlite::memory:" }
 
 schema my_dept {
@@ -818,6 +839,7 @@ Zero IPC, <200ms on text-based PDFs.
 
 **Examples:**
 ```mlog
+// doc-test: skip
 // Classifying a PDF
 let info = pdf_classify("report.pdf")
 // -> { type: "TextBased", confidence: 0.95, pages_needing_ocr: [], page_count: 12 }
@@ -1038,6 +1060,7 @@ The `Reflex` pillar trains, predicts, persistently stores, and distills local ne
 **The `reflex` declaration** (naryad #178):
 
 ```mlog
+// doc-test: skip
 reflex SentimentClassifier {
   input: embedding(2)                          // input dimensionality
   layers: [dense(8, relu), dense(2, softmax)]  // layers from LAYER_REGISTRY
@@ -1049,6 +1072,7 @@ reflex SentimentClassifier {
 **The `reflex_seq` declaration** (naryads #183-185, ADR-0119) — for sequences:
 
 ```mlog
+// doc-test: skip
 reflex_seq TinyClassifier {
   input: embedding(64)
   seq_len: 16                                  // a fixed sequence length
@@ -1201,6 +1225,7 @@ pattern Name(param1: Type, param2: Type) -> ReturnType {
 ### 5.2. Learnable Pattern (an AI function)
 
 ```mlog
+// doc-test: skip
 learnable pattern Classify(text: String) -> Category {
   prompt: "Classify this message. Return JSON: {category, confidence}"
   context: auto
@@ -1240,6 +1265,7 @@ entity db_url: Secret = env("DATABASE_URL")
 ### 5.4. Flow (a pipeline)
 
 ```mlog
+// doc-test: skip
 flow ProcessMessage {
   input: String = "Hello world"
   -> Normalize -> Classify -> checkpoint("classified") -> Format -> output
@@ -1254,12 +1280,14 @@ flow ProcessMessage {
 ### 5.5. Rule
 
 ```mlog
+// doc-test: skip
 rule If(status contains "error") then alert.level = "high" with priority = 10
 ```
 
 ### 5.6. Server / MlogServer (an HTTP server)
 
 ```mlog
+// doc-test: skip
 server {
   port: 8080
   host: "127.0.0.1"
@@ -1285,6 +1313,7 @@ The `csrf` middleware enforces the double-submit pattern STRICTLY (naryad #262):
 ### 5.7. Template (an HTML template)
 
 ```mlog
+// doc-test: skip
 template Page(title: String, body: String) -> Html {
   <!DOCTYPE html>
   <html>
@@ -1299,6 +1328,7 @@ The return type `Html` is opaque, providing automatic XSS escaping.
 ### 5.8. Import (modules)
 
 ```mlog
+// doc-test: skip
 import std/string as str
 import std/math
 import ./my_utils
@@ -1312,6 +1342,7 @@ math.abs(-5.0)
 ### 5.9. Memory
 
 ```mlog
+// doc-test: skip
 // In-memory (default)
 memory { }
 
@@ -1325,6 +1356,7 @@ memory { kv: { type: key_value, persist: true } }
 ### 5.10. DB (database)
 
 ```mlog
+// doc-test: skip
 db {
   url: env("DATABASE_URL")
   pool_size: 10
@@ -1335,6 +1367,7 @@ db {
 ### 5.11. LLM (provider configuration)
 
 ```mlog
+// doc-test: skip
 llm {
   providers: [
     { alias: openai, provider: openai, key: env("OPENAI_KEY") },
@@ -1362,6 +1395,7 @@ llm {
 Write builtins (trigger `on_write`): `mem_set`, `mtree_store`, `db_execute`, `write_file`, `append_file`.
 
 ```mlog
+// doc-test: skip
 hook on_session_start { mem_set("start_time", now_iso()) }
 hook on_write { print("WRITE: " + target) }
 hook before_pattern { print("calling: " + pattern_name) }
@@ -1374,6 +1408,7 @@ Errors inside hooks are ignored (advisory, not blocking).
 ### 5.13. Tool (a tool abstraction)
 
 ```mlog
+// doc-test: skip
 tool telegram {
   send(chat_id: String, text: String) -> String {
     http_post("https://api.telegram.org/bot" + token + "/sendMessage",
@@ -1387,6 +1422,7 @@ Call: `telegram.send("123", "hello")`.
 ### 5.14. Eval (testing patterns)
 
 ```mlog
+// doc-test: skip
 eval Classify {
   dataset: [
     ("Hello", "greeting"),
@@ -1403,6 +1439,7 @@ Run with: `mlog eval file.mlog`.
 ### 5.15. Sandbox, Mutate, Adapt, Memorize, Forget, Relate
 
 ```mlog
+// doc-test: skip
 // Sandbox (execution restriction)
 sandbox safe_executor {
   allowed: [upper, lower, trim, split],
@@ -1452,6 +1489,7 @@ Top-level placement remains a declaration evaluated against global entities.
 ### 5.16. Conversation (configuration)
 
 ```mlog
+// doc-test: skip
 conversation {
   ttl: 1800,
   max_messages: 50,
@@ -1462,6 +1500,7 @@ conversation {
 ### 5.17. Fluid Types (probabilistic types)
 
 ```mlog
+// doc-test: skip
 fluid x = String["answer"][0.9] or String["question"][0.1]
 ```
 
@@ -1480,6 +1519,7 @@ entity name: UserName = "Alice"      // equivalent to String
 Chains of aliases are resolved automatically (max depth: 10):
 
 ```mlog
+// doc-test: skip
 type A = B
 type B = String
 // A -> B -> String
@@ -1488,6 +1528,7 @@ type B = String
 Cyclic aliases are detected at startup and raise an error:
 
 ```mlog
+// doc-test: skip
 type X = Y
 type Y = X   // ERROR: cyclic type alias
 ```
@@ -1497,6 +1538,7 @@ The syntax does not conflict with `type` inside `memory { kv: { type: key_value 
 ### 5.19. Test (unit tests)
 
 ```mlog
+// doc-test: skip
 test "test name" {
   let result = PatternName(args)
   assert_eq(result, expected)
@@ -1514,6 +1556,7 @@ The standard library lives in `std/` and is imported via `import`:
 ### std/string
 
 ```mlog
+// doc-test: skip
 import std/string as str
 
 str.trim(s: String) -> String       // trim whitespace
@@ -1525,6 +1568,7 @@ str.join(items, sep) -> String      // join list into string
 ### std/math
 
 ```mlog
+// doc-test: skip
 import std/math
 
 math.abs(n: Float) -> Float         // absolute value
@@ -1537,6 +1581,7 @@ math.round(n) -> Float              // round to nearest
 ### std/collections
 
 ```mlog
+// doc-test: skip
 import std/collections
 
 collections.first(items: List) -> String   // first element

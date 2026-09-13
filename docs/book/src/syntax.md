@@ -15,6 +15,7 @@ Every `.mlog` file is a sequence of top-level declarations (24 types).
 ### Entity (simple)
 
 ```mlog
+// doc-test: skip
 entity name: Type = value
 ```
 
@@ -35,6 +36,7 @@ entity TypeName { field: Type, field: Type = default }
 Defines a structured type schema with named fields.
 
 ```mlog
+// doc-test: skip
 entity Message {
   text: String
   urgency: Float
@@ -44,18 +46,21 @@ entity Message {
 ### Entity Record
 
 ```mlog
+// doc-test: skip
 entity name: TypeName = { field: value, ... }
 ```
 
 Creates an instance of an entity type.
 
 ```mlog
+// doc-test: skip
 entity msg: Message = { text: "Help!", urgency: 0.9 }
 ```
 
 ### Pattern
 
 ```mlog
+// doc-test: skip
 pattern Name(param: Type, ...) -> ReturnType {
   // body with statements
   return expr
@@ -72,6 +77,7 @@ pattern Add(a: Float, b: Float) -> Float { return a + b }
 ### Learnable Pattern
 
 ```mlog
+// doc-test: skip
 learnable pattern Name(param: Type, ...) -> ReturnType {
   prompt: "instruction for LLM"
 }
@@ -88,18 +94,21 @@ learnable pattern Classify(text: String) -> String {
 ### Flow
 
 ```mlog
+// doc-test: skip
 flow Name { input: Type = source -> step1 -> step2 -> output }
 ```
 
 A data pipeline. Data flows left-to-right through pattern invocations.
 
 ```mlog
+// doc-test: skip
 flow Main { input: String = greeting -> Shout -> output }
 ```
 
 ### Flow with Branching
 
 ```mlog
+// doc-test: skip
 flow Name {
   input: Type = source -> Triage -> output
   Triage {
@@ -112,18 +121,21 @@ flow Name {
 ### Fluid
 
 ```mlog
+// doc-test: skip
 fluid name = Type1[value1][confidence1] or Type2[value2][confidence2]
 ```
 
 A superposition of typed variants with confidence scores. Note: confidence does not propagate through pattern calls — it collapses at the point of use (see ADR-0089).
 
 ```mlog
+// doc-test: skip
 fluid x = Float[42.0][0.9] or String["answer"][0.1]
 ```
 
 ### Rule
 
 ```mlog
+// doc-test: skip
 rule If(target.field op value) then target.field = new_value
 rule If(condition) then target.field = value with priority=N
 ```
@@ -131,6 +143,7 @@ rule If(condition) then target.field = value with priority=N
 ### Memory
 
 ```mlog
+// doc-test: skip
 memorize "fact" with priority=0.9
 forget "query" after N.days
 ```
@@ -138,12 +151,14 @@ forget "query" after N.days
 ### Adaptation
 
 ```mlog
+// doc-test: skip
 adapt PatternName add_example("input", "output")
 ```
 
 ### Mutation
 
 ```mlog
+// doc-test: skip
 mutate PatternName {
   add_example("input", "output")
   rollback_if: accuracy op threshold
@@ -153,6 +168,7 @@ mutate PatternName {
 ### Sandbox
 
 ```mlog
+// doc-test: skip
 sandbox name {
   allowed: [capability, ...]
   forbidden: [capability, ...]
@@ -163,6 +179,7 @@ sandbox name {
 ### Import
 
 ```mlog
+// doc-test: skip
 import std/module
 import std/string as str
 ```
@@ -176,6 +193,7 @@ relate "from" to "to" as "relation"
 ### Server (HTTP)
 
 ```mlog
+// doc-test: skip
 server {
   port: 8080
   route "/api/items" method=GET { ... }
@@ -186,6 +204,7 @@ server {
 ### Template
 
 ```mlog
+// doc-test: skip
 template Page(title: String) -> Html {
   <h1>{{ title }}</h1>
 }
@@ -194,6 +213,7 @@ template Page(title: String) -> Html {
 ### Tool
 
 ```mlog
+// doc-test: skip
 tool telegram {
   send(chat_id: String, text: String) -> String { ... }
 }
@@ -202,6 +222,7 @@ tool telegram {
 ### Hook
 
 ```mlog
+// doc-test: skip
 hook before_pattern { print("calling: " + pattern_name) }
 hook after_pattern { print("result: " + to_string(result)) }
 ```
@@ -209,6 +230,7 @@ hook after_pattern { print("result: " + to_string(result)) }
 ### Eval
 
 ```mlog
+// doc-test: skip
 eval Classify {
   dataset: [
     { input: "hello", expected: "greeting" }
@@ -220,6 +242,7 @@ eval Classify {
 ### Conversation
 
 ```mlog
+// doc-test: skip
 conversation {
   ttl: 1800
   max_messages: 50
@@ -230,6 +253,7 @@ conversation {
 ### LLM Config
 
 ```mlog
+// doc-test: skip
 llm {
   providers: [
     { name: "openai", model: "gpt-4", api_key: env("OPENAI_KEY") }
@@ -251,12 +275,14 @@ let name = if x > 10.0 then "big" else "small"
 ### Assignment
 
 ```mlog
+// doc-test: skip
 x = 10.0
 ```
 
 ### Each Loop
 
 ```mlog
+let items = ["alpha", "beta", "gamma"]
 each item in items {
   print(item)
 }
@@ -265,6 +291,7 @@ each item in items {
 ### Each With Index
 
 ```mlog
+let items = ["alpha", "beta", "gamma"]
 each i, item in items {
   print(to_string(i) + ": " + item)
 }
@@ -273,14 +300,16 @@ each i, item in items {
 ### While Loop
 
 ```mlog
+let mut count = 0.0
 while count < 10.0 {
-  let count = count + 1.0
+  count = count + 1.0
 }
 ```
 
 ### Break / Continue
 
 ```mlog
+let items = ["alpha", "beta", "stop", "gamma"]
 each item in items {
   if item == "stop" then { break }
   if item == "skip" then { continue }
@@ -291,6 +320,7 @@ each item in items {
 ### If-Else Block
 
 ```mlog
+let x = 15.0
 if x > 10.0 {
   print("big")
 } else if x > 5.0 {
@@ -303,12 +333,14 @@ if x > 10.0 {
 ### If-Then-Else Expression
 
 ```mlog
+let score = 95.0
 let label = if score >= 90.0 then "A" else "B"
 ```
 
 ### Match
 
 ```mlog
+let command = "start"
 match command {
   "start" then { print("starting") }
   starts_with "stop" then { print("stopping") }
@@ -321,6 +353,7 @@ match command {
 ### Return
 
 ```mlog
+let result = "done"
 return result
 ```
 

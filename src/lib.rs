@@ -21,6 +21,7 @@ pub mod audit;
 pub mod builtins;
 pub mod bytecode;
 pub mod compiler;
+pub mod doc_tests;
 pub mod embeddings;
 pub mod error;
 pub mod interpreter;

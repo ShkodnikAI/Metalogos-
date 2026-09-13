@@ -284,6 +284,14 @@ impl Builtins {
         Builtins { funcs }
     }
 
+    /// Наряд №287: заменить хендлер билтина на пользовательский
+    /// (doc-тесты: read-only профиль — сетевые/exec-заглушки).
+    /// Реестр НЕ меняется (SSOT нетронут) — подмена только в этом
+    /// экземпляре Builtins данного Interpreter.
+    pub fn override_handler(&mut self, name: &str, f: BuiltinFn) {
+        self.funcs.insert(name.to_string(), f);
+    }
+
     /// Verify builtin registry consistency (debug builds).
     #[cfg(debug_assertions)]
     #[allow(dead_code)]

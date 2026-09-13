@@ -1674,6 +1674,776 @@ pub fn resolve_model_smart(alias: &str, _config: Option<&crate::ast::LlmConfigDe
     alias.to_string()
 }
 
+// ── LLM streaming (Наряд №275, ADR-0137) ──────────────────────────────
+//
+// Streaming sits OVER SmartRouter (ADR-0048) — `stream_open` reuses the
+// same candidate-selection / circuit-breaker / resolved-model machinery
+// as `SmartRouter::call`, but issues the POST with `"stream": true` and
+// returns an opaque handle (`LlmStreamId`) into `LLM_STREAM_REGISTRY`.
+//
+// Spike verdict (docs/research/naryad-275-streaming-spike.md, ADR-0137 §D3):
+// `reqwest::blocking::Response` has NO `chunk()` method (that is the
+// async `reqwest::Response` API). Instead, `Response: std::io::Read`
+// gives incremental blocking reads — `read(&mut buf)` returns as soon as
+// the TCP buffer yields any bytes, then we parse one SSE delta from the
+// line buffer. Semantically equivalent to "incremental chunked SSE
+// reading", satisfies the spirit of the Go-criterion ("without rewriting
+// backends, without async / tasks / callbacks", ADR-0096-compatible).
+//
+// Trace contract (ADR-0138 §D4): one line per COMPLETED stream — never
+// per chunk. `llm_stream_close` writes a single `trace_llm_call` line
+// with aggregated usage (final SSE event) + full-stream latency.
+
+/// Opaque handle to an open LLM stream — `u32` index into
+/// `LLM_STREAM_REGISTRY` (ADR-0137 §D2, leкало `ReflexId`/`VisionId`).
+/// Weights, response body, and SSE-internal state never enter `Value` —
+/// the handle carries only the index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct LlmStreamId(pub u32);
+
+impl std::fmt::Display for LlmStreamId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[LlmStream#{}]", self.0)
+    }
+}
+
+/// End-of-stream sentinel returned by `llm_stream_next` when the stream
+/// has been fully consumed. The caller should call `llm_stream_close`
+/// upon receiving this marker (ADR-0137 §D1). Keep-alive pings from
+/// the provider are returned as empty strings — they are NOT the
+/// end-of-stream marker.
+pub const LLM_STREAM_END_MARKER: &str = "__end__";
+
+/// Default upper bound on simultaneously-open streams (ADR-0137 §D6,
+/// lesson from №263 — maps without bounds leak). `METALOGOS_LLM_STREAM_MAX`
+/// env var overrides; invalid values fall back to the default.
+pub const LLM_STREAM_DEFAULT_MAX: u32 = 64;
+
+fn llm_stream_max() -> u32 {
+    env::var("METALOGOS_LLM_STREAM_MAX")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(LLM_STREAM_DEFAULT_MAX)
+}
+
+/// One open LLM stream. Held in `LLM_STREAM_REGISTRY` behind a `Mutex`.
+///
+/// `LlmStreamState` owns:
+/// - the `reqwest::blocking::Response` (so `Read::read` can pull more
+///   bytes from the TCP buffer on each `next`),
+/// - an incremental SSE line buffer + parser,
+/// - provenance (provider_type, alias, resolved_model) for trace +
+///   final-metadata return,
+/// - aggregated usage (filled by the final SSE event),
+/// - bookkeeping (started_at, status, ended flag).
+pub struct LlmStreamState {
+    /// Provider type (anthropic/openai/groq/.../ollama). Drives the
+    /// SSE-event-shape parser.
+    provider_type: String,
+    /// SmartRouter provider alias (for the trace `provider_alias` field).
+    provider_alias: String,
+    /// Resolved model name (for the trace `gen_ai.request.model` field).
+    resolved_model: String,
+    /// The blocking HTTP response — we read from it incrementally.
+    response: reqwest::blocking::Response,
+    /// Incremental line buffer: bytes pulled from `Read::read` that
+    /// haven't yet formed a complete SSE event.
+    line_buf: Vec<u8>,
+    /// Aggregated delta text (for equivalence test against `call_llm`).
+    aggregated_text: String,
+    /// Aggregated usage from the final SSE event (Anthropic `message_delta`,
+    /// OpenAI final chunk with `stream_options.include_usage`, Ollama
+    /// per-chunk `eval_count`). `None` until the final event arrives.
+    input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
+    /// When `stream_open` was called — for `latency_ms` in the trace.
+    started_at: Instant,
+    /// Set to true once the SSE stream reported end-of-stream (final
+    /// `data: [DONE]` / `message_stop` / ollama `"done": true`). Subsequent
+    /// `next` calls return `LLM_STREAM_END_MARKER` without touching the
+    /// network.
+    ended: bool,
+    /// Final status written to the trace: "ok" if the stream completed
+    /// cleanly, "error" if the network broke or a non-2xx was returned.
+    /// Initial value "ok" — flipped to "error" on read failure.
+    status: &'static str,
+}
+
+impl std::fmt::Debug for LlmStreamState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Mirror Reflex/Vision Debug discipline: provider + model only,
+        // never the response body (leaks user prompts / PII).
+        f.debug_struct("LlmStreamState")
+            .field("provider", &self.provider_type)
+            .field("model", &self.resolved_model)
+            .field("ended", &self.ended)
+            .field("status", &self.status)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Final metadata returned by `llm_stream_close` (ADR-0137 §D1).
+pub struct LlmStreamFinal {
+    pub provider: String,
+    pub model: String,
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub latency_ms: u64,
+    pub status: &'static str,
+    /// Aggregated delta text — equivalent to the single-shot `call_llm`
+    /// response. The equivalence test compares this against the same
+    /// prompt+input fed to non-streaming `call_llm`.
+    pub aggregated_text: String,
+}
+
+/// Process-global registry of open LLM streams (ADR-0137 §D2 / §D6).
+///
+/// Bounded by `llm_stream_max()` (default 64). Insertion when full →
+/// `STREAM_LIMIT_REACHED` (loud; lesson №263). `stream_close` removes
+/// the entry; `stream_next` borrows mutably through the registry mutex.
+pub static LLM_STREAM_REGISTRY: once_cell::sync::Lazy<StdMutex<LlmStreamRegistry>> =
+    once_cell::sync::Lazy::new(|| StdMutex::new(LlmStreamRegistry::new()));
+
+pub struct LlmStreamRegistry {
+    streams: std::collections::HashMap<u32, LlmStreamState>,
+    next_id: u32,
+}
+
+impl LlmStreamRegistry {
+    pub fn new() -> Self {
+        Self {
+            streams: std::collections::HashMap::new(),
+            next_id: 0,
+        }
+    }
+
+    /// Insert a new stream, return its handle. Loud error if the bound
+    /// (ADR-0137 §D6) is exceeded.
+    fn insert(&mut self, state: LlmStreamState) -> Result<LlmStreamId, String> {
+        let max = llm_stream_max();
+        if (self.streams.len() as u32) >= max {
+            return Err(format!(
+                "llm_stream_open(): STREAM_LIMIT_REACHED — {} streams open (max={}, override via METALOGOS_LLM_STREAM_MAX)",
+                self.streams.len(),
+                max
+            ));
+        }
+        let id = LlmStreamId(self.next_id);
+        self.next_id = self.next_id.wrapping_add(1);
+        self.streams.insert(id.0, state);
+        Ok(id)
+    }
+
+    /// Borrow a stream mutably for `next` — keeps ownership in registry.
+    fn with_mut<R>(
+        &mut self,
+        id: LlmStreamId,
+        f: impl FnOnce(&mut LlmStreamState) -> R,
+    ) -> Option<R> {
+        self.streams.get_mut(&id.0).map(f)
+    }
+
+    /// Take a stream out for `close` — drops the response, returns the
+    /// aggregated final metadata.
+    fn take(&mut self, id: LlmStreamId) -> Option<LlmStreamState> {
+        self.streams.remove(&id.0)
+    }
+
+    /// Number of open streams (for tests + diagnostics).
+    pub fn len(&self) -> usize {
+        self.streams.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.streams.is_empty()
+    }
+}
+
+impl Default for LlmStreamRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Test-only: drop ALL open streams (used by `clear_global_smart_router`'s
+/// tests so a leak in one test does not poison the next). Production code
+/// must call `stream_close` per stream.
+///
+/// Not gated by `#[cfg(test)]`: integration tests (a separate crate) would
+/// not see the item otherwise — Rust's `cfg(test)` is per-crate.
+pub fn clear_llm_stream_registry_for_tests() {
+    if let Ok(mut g) = LLM_STREAM_REGISTRY.lock() {
+        g.streams.clear();
+    }
+}
+
+// ── SmartRouter streaming surface (ADR-0137 §D4) ────────────────────
+
+impl SmartRouter {
+    /// Open a streaming LLM call. Reuses the same candidate-selection
+    /// logic as `SmartRouter::call` (circuit-breaker, failover on open,
+    /// health-score sorting), but issues the POST with `"stream": true`
+    /// (OpenAI/Anthropic) or `"stream": true` (Ollama default).
+    ///
+    /// Failover is **on open only** (ADR-0137 §D5) — once a stream is
+    /// open and the provider dies mid-stream, `next` returns an error
+    /// and the user must `close` + `open` again. The circuit breaker
+    /// will mark the provider sick so the next `open` skips it.
+    ///
+    /// `stream: true` in the body — JSON shape identical to `call_provider`
+    /// except `stream: true`. Anthropic native format; OpenAI-compatible
+    /// (`/v1/chat/completions`) takes `stream: true`; ollama native
+    /// (`/api/generate`) defaults to `stream: true` already, but we
+    /// send it explicitly for parity.
+    pub fn stream_open(
+        &self,
+        prompt: &str,
+        input: &str,
+        model_override: Option<&str>,
+        timeout_override: Option<Duration>,
+    ) -> Result<LlmStreamState, String> {
+        if self.providers.is_empty() {
+            // No providers configured — cannot stream (mock / legacy path
+            // does not support streaming). Issue contract: STREAM_UNSUPPORTED,
+            // not silent full-answer.
+            return Err(
+                "llm_stream_open(): STREAM_UNSUPPORTED — no llm {} providers configured; \
+                 set METALOGOS_MOCK_LLM=false and configure llm { providers: [...] }"
+                    .to_string(),
+            );
+        }
+
+        let resolved_model = model_override
+            .or(self.default_model.as_deref())
+            .unwrap_or("default");
+
+        // Build ordered candidate list, sorted by health_score desc —
+        // identical logic to `SmartRouter::call`.
+        let mut candidates: Vec<usize> = (0..self.providers.len()).collect();
+        candidates.sort_by(|&a, &b| {
+            let sa = self.tracker.health_score(a);
+            let sb = self.tracker.health_score(b);
+            sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut last_error = String::new();
+        let body_text = format!("{}\n\nInput: {}", prompt, input);
+
+        for &idx in &candidates {
+            if !self.tracker.is_provider_available(idx) {
+                continue; // circuit breaker open — skip
+            }
+            let (ref alias, ref provider_type, ref api_key, ref url) = self.providers[idx];
+            match self.stream_open_provider(
+                provider_type,
+                api_key.as_deref(),
+                url.as_deref(),
+                &body_text,
+                resolved_model,
+                timeout_override,
+            ) {
+                Ok(state) => {
+                    // Record a successful open — health tracking sees this
+                    // as a call that started; if the user later closes
+                    // with an error, the next `call`/`stream_open` will
+                    // record the failure. For now, optimistic.
+                    return Ok(LlmStreamState {
+                        provider_type: provider_type.clone(),
+                        provider_alias: alias.clone(),
+                        resolved_model: resolved_model.to_string(),
+                        response: state,
+                        line_buf: Vec::with_capacity(8192),
+                        aggregated_text: String::with_capacity(8192),
+                        input_tokens: None,
+                        output_tokens: None,
+                        started_at: Instant::now(),
+                        ended: false,
+                        status: "ok",
+                    });
+                }
+                Err(e) => {
+                    last_error = e;
+                    if !self.failover {
+                        break; // manual mode — don't try next provider
+                    }
+                    // failover=auto: try next provider on open error
+                }
+            }
+        }
+
+        // All providers failed on open.
+        Err(format!(
+            "llm_stream_open(): all providers failed on open. Last error: {}",
+            truncate(&last_error, 200)
+        ))
+    }
+
+    /// Open one provider's stream — issues the POST, returns the blocking
+    /// Response on 2xx. The body is shaped per provider, identical to
+    /// `SmartRouter::call_provider` but with `stream: true`.
+    #[allow(clippy::too_many_arguments)]
+    fn stream_open_provider(
+        &self,
+        provider_type: &str,
+        api_key: Option<&str>,
+        url: Option<&str>,
+        body_text: &str,
+        resolved_model: &str,
+        timeout_override: Option<Duration>,
+    ) -> Result<reqwest::blocking::Response, String> {
+        let effective_timeout = match timeout_override {
+            Some(override_dur) => {
+                let config_dur = Duration::from_secs(self.timeout.max(5) as u64);
+                override_dur.min(config_dur)
+            }
+            None => Duration::from_secs(self.timeout.max(5) as u64),
+        };
+        let client = reqwest::blocking::Client::builder()
+            .timeout(effective_timeout)
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|e| format!("HTTP client build error: {}", e))?;
+
+        let endpoint = self.resolve_endpoint(provider_type, url);
+
+        match provider_type {
+            "anthropic" => {
+                let key = api_key.ok_or_else(|| "anthropic requires an API key".to_string())?;
+                let body = serde_json::json!({
+                    "model": resolved_model,
+                    "max_tokens": 1024,
+                    "stream": true,
+                    "messages": [{ "role": "user", "content": body_text }]
+                });
+                let resp = client
+                    .post(&endpoint)
+                    .header("x-api-key", key)
+                    .header("anthropic-version", "2023-06-01")
+                    .header("content-type", "application/json")
+                    .header("accept", "text/event-stream")
+                    .json(&body)
+                    .send()
+                    .map_err(|e| format!("Anthropic stream open failed: {}", e))?;
+                if !resp.status().is_success() {
+                    let status = resp.status().as_u16();
+                    let text = resp.text().unwrap_or_default();
+                    return Err(format!(
+                        "Anthropic stream open error ({}): {}",
+                        status,
+                        truncate(&text, 500)
+                    ));
+                }
+                Ok(resp)
+            }
+            "ollama" => {
+                let body = serde_json::json!({
+                    "model": resolved_model,
+                    "prompt": body_text,
+                    "stream": true
+                });
+                let resp = client
+                    .post(&endpoint)
+                    .header("content-type", "application/json")
+                    .json(&body)
+                    .send()
+                    .map_err(|e| format!("Ollama stream open failed: {}", e))?;
+                if !resp.status().is_success() {
+                    let status = resp.status().as_u16();
+                    let text = resp.text().unwrap_or_default();
+                    return Err(format!(
+                        "Ollama stream open error ({}): {}",
+                        status,
+                        truncate(&text, 500)
+                    ));
+                }
+                Ok(resp)
+            }
+            _ => {
+                // OpenAI-compatible: openai, groq, cerebras, nvidia,
+                // openrouter, google, custom.
+                let body = serde_json::json!({
+                    "model": resolved_model,
+                    "messages": [{ "role": "user", "content": body_text }],
+                    "max_tokens": 1024,
+                    "temperature": 0.0,
+                    "stream": true
+                });
+                let mut req = client
+                    .post(&endpoint)
+                    .header("content-type", "application/json")
+                    .header("accept", "text/event-stream")
+                    .json(&body);
+                if let Some(k) = api_key {
+                    req = req.header("Authorization", format!("Bearer {}", k));
+                }
+                let resp = req
+                    .send()
+                    .map_err(|e| format!("{} stream open failed: {}", provider_type, e))?;
+                if !resp.status().is_success() {
+                    let status = resp.status().as_u16();
+                    let text = resp.text().unwrap_or_default();
+                    return Err(format!(
+                        "{} stream open error ({}): {}",
+                        provider_type,
+                        status,
+                        truncate(&text, 500)
+                    ));
+                }
+                Ok(resp)
+            }
+        }
+    }
+}
+
+// ── Public streaming API (builtins call these) ───────────────────────
+
+/// `llm_stream_open` body — call via global SmartRouter (leкало
+/// `call_via_smart_router`).
+pub fn stream_via_smart_router(
+    prompt: &str,
+    input: &str,
+    model_override: Option<&str>,
+    timeout_override: Option<Duration>,
+) -> Result<LlmStreamId, String> {
+    let Ok(g) = GLOBAL_SMART_ROUTER.lock() else {
+        return Err("llm_stream_open(): SmartRouter mutex poisoned".to_string());
+    };
+    let Some(ref router) = *g else {
+        return Err(
+            "llm_stream_open(): STREAM_UNSUPPORTED — no llm {} providers configured \
+             (no global SmartRouter); set METALOGOS_MOCK_LLM=false and configure llm { providers: [...] }"
+                .to_string(),
+        );
+    };
+    let state = router.stream_open(prompt, input, model_override, timeout_override)?;
+    let Ok(mut reg) = LLM_STREAM_REGISTRY.lock() else {
+        return Err("llm_stream_open(): stream registry mutex poisoned".to_string());
+    };
+    reg.insert(state)
+}
+
+/// `llm_stream_next(handle)` — one blocking `Read::read` + parse one
+/// SSE delta. Returns the delta text, `""` for keep-alive ping, or
+/// `LLM_STREAM_END_MARKER` (`"__end__"`) when the stream is fully
+/// consumed (ADR-0137 §D1 / §D3).
+pub fn stream_next(handle: LlmStreamId) -> Result<String, String> {
+    let Ok(mut reg) = LLM_STREAM_REGISTRY.lock() else {
+        return Err("llm_stream_next(): stream registry mutex poisoned".to_string());
+    };
+    reg.with_mut(handle, stream_next_inner)
+        .ok_or_else(|| format!("llm_stream_next(): unknown LlmStream handle #{}", handle.0))?
+}
+
+/// Inner logic — separated so it can be unit-tested without touching the
+/// global registry.
+fn stream_next_inner(state: &mut LlmStreamState) -> Result<String, String> {
+    if state.ended {
+        return Ok(LLM_STREAM_END_MARKER.to_string());
+    }
+    // Read loop: pull bytes from the response into `line_buf`, then try
+    // to parse one complete SSE event. If `line_buf` does not yet contain
+    // a full event, keep reading (one `Read::read` per iteration — every
+    // iteration yields control as soon as bytes arrive).
+    let mut buf = [0u8; 8192];
+    loop {
+        if let Some(delta) = try_parse_one_event(state)? {
+            state.aggregated_text.push_str(&delta);
+            return Ok(delta);
+        }
+        if state.ended {
+            return Ok(LLM_STREAM_END_MARKER.to_string());
+        }
+        // `Read::read` blocks the calling thread until the TCP buffer
+        // yields at least one byte (or returns 0 = EOF / connection
+        // closed). ADR-0096: blocking here is safe — the route handler
+        // is on a `spawn_blocking` thread, not on a tokio worker.
+        let n = std::io::Read::read(&mut state.response, &mut buf).map_err(|e| {
+            state.status = "error";
+            format!("llm_stream_next(): read error: {}", e)
+        })?;
+        if n == 0 {
+            // EOF — provider closed the connection. If we have an unfinished
+            // event in the buffer, that's a protocol violation, but we
+            // mark the stream ended and let the user `close` cleanly.
+            state.ended = true;
+            return Ok(LLM_STREAM_END_MARKER.to_string());
+        }
+        state.line_buf.extend_from_slice(&buf[..n]);
+    }
+}
+
+/// Try to parse one complete SSE event from `line_buf`. Returns:
+/// - `Ok(Some(delta))` — one delta parsed and consumed; return to caller.
+/// - `Ok(None)` — need more bytes; the read loop will pull more.
+/// - `Err(_)` — protocol-level error (malformed SSE).
+///
+/// SSE event format (industry standard, OpenAI/Anthropic/Ollama follow it):
+/// ```text
+/// event: <name>\r\n     <- optional, default "message"
+/// data: <json>\r\n      <- one or more `data:` lines
+/// \r\n                  <- blank line = event terminator
+/// ```
+/// Ollama native (not strict SSE, but close): one JSON object per line,
+/// terminated by `\n`. We detect ollama's `"done": true` as end.
+fn try_parse_one_event(state: &mut LlmStreamState) -> Result<Option<String>, String> {
+    // Different providers shape their stream slightly differently:
+    // - OpenAI/Anthropic: strict SSE — `data: <json>\n\n` blocks.
+    // - Ollama: newline-delimited JSON (not SSE). We detect by
+    //   `provider_type == "ollama"` and parse one JSON object per line.
+    if state.provider_type == "ollama" {
+        return try_parse_ollama_line(state);
+    }
+    try_parse_sse_event(state)
+}
+
+fn try_parse_sse_event(state: &mut LlmStreamState) -> Result<Option<String>, String> {
+    // Find the event terminator: a blank line. SSE allows `\n\n` or
+    // `\r\n\r\n`. We accept both — split on either.
+    let terminator = find_sse_terminator(&state.line_buf);
+    let Some(term_len) = terminator else {
+        return Ok(None); // need more bytes
+    };
+    // Consume the event bytes.
+    let event_bytes = state.line_buf.drain(..term_len).collect::<Vec<u8>>();
+    // Trim the trailing blank line — what's left is `data:` lines.
+    let event_str = String::from_utf8_lossy(&event_bytes);
+    let mut delta_out = String::new();
+    for line in event_str.lines() {
+        let line = line.trim_end_matches('\r');
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(payload) = line
+            .strip_prefix("data:")
+            .or_else(|| line.strip_prefix("data: "))
+        {
+            let payload = payload.trim();
+            if payload == "[DONE]" {
+                // OpenAI end-of-stream marker.
+                state.ended = true;
+                continue;
+            }
+            // Try to parse as JSON — Anthropic / OpenAI emit JSON deltas.
+            // Extract the delta text; provider shape varies.
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(payload) {
+                if let Some(delta) = extract_delta_text(&state.provider_type, &parsed) {
+                    delta_out.push_str(&delta);
+                }
+                // Extract usage from the final event (Anthropic
+                // `message_delta` / OpenAI final chunk with
+                // `stream_options.include_usage`).
+                if let Some((in_t, out_t)) = extract_usage(&state.provider_type, &parsed) {
+                    state.input_tokens = Some(in_t);
+                    state.output_tokens = Some(out_t);
+                }
+                // Detect Anthropic end-of-stream.
+                if parsed.get("type").and_then(|v| v.as_str()) == Some("message_stop") {
+                    state.ended = true;
+                }
+            }
+            // If JSON parse failed — provider sent malformed data; skip
+            // this `data:` line silently (some providers send keep-alive
+            // comments or partial JSON; we don't crash on them).
+        }
+        // Lines without `data:` prefix are ignored (comments, `event:`,
+        // `id:`, `retry:` — SSE protocol meta, not deltas).
+    }
+    Ok(Some(delta_out))
+}
+
+fn try_parse_ollama_line(state: &mut LlmStreamState) -> Result<Option<String>, String> {
+    // Ollama emits one JSON object per line, terminated by `\n`.
+    let Some(newline_idx) = state.line_buf.iter().position(|&b| b == b'\n') else {
+        return Ok(None); // need more bytes
+    };
+    let line_bytes = state.line_buf.drain(..=newline_idx).collect::<Vec<u8>>();
+    let line_str = String::from_utf8_lossy(&line_bytes);
+    let line_str = line_str.trim();
+    if line_str.is_empty() {
+        return Ok(Some(String::new())); // keep-alive blank line
+    }
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(line_str) else {
+        return Ok(Some(String::new())); // malformed line — skip silently
+    };
+    let mut delta_out = String::new();
+    if let Some(resp) = parsed.get("response").and_then(|v| v.as_str()) {
+        delta_out.push_str(resp);
+    }
+    // Ollama reports usage in the final chunk (`done: true`).
+    if parsed
+        .get("done")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        state.ended = true;
+        if let Some(counts) = parsed.get("eval_count").and_then(|v| v.as_u64()) {
+            state.output_tokens = Some(counts);
+        }
+        if let Some(counts) = parsed.get("prompt_eval_count").and_then(|v| v.as_u64()) {
+            state.input_tokens = Some(counts);
+        }
+    } else {
+        // Per-chunk usage — accumulate only the final, but record both
+        // every time (the final chunk overrides).
+        if let Some(counts) = parsed.get("eval_count").and_then(|v| v.as_u64()) {
+            state.output_tokens = Some(counts);
+        }
+        if let Some(counts) = parsed.get("prompt_eval_count").and_then(|v| v.as_u64()) {
+            state.input_tokens = Some(counts);
+        }
+    }
+    Ok(Some(delta_out))
+}
+
+/// Find the index of the first SSE event terminator (`\n\n` or `\r\n\r\n`)
+/// in `buf`, plus the terminator's own length. Returns `None` if no
+/// terminator yet.
+fn find_sse_terminator(buf: &[u8]) -> Option<usize> {
+    // Try `\n\n` first (most common — Anthropic / OpenAI).
+    for i in 0..buf.len().saturating_sub(1) {
+        if buf[i] == b'\n' && buf[i + 1] == b'\n' {
+            return Some(i + 2); // include the terminator itself
+        }
+    }
+    // Try `\r\n\r\n`.
+    for i in 0..buf.len().saturating_sub(3) {
+        if buf[i] == b'\r' && buf[i + 1] == b'\n' && buf[i + 2] == b'\r' && buf[i + 3] == b'\n' {
+            return Some(i + 4);
+        }
+    }
+    None
+}
+
+/// Provider-specific delta-text extraction from a parsed SSE JSON chunk.
+fn extract_delta_text(provider: &str, parsed: &serde_json::Value) -> Option<String> {
+    match provider {
+        "anthropic" => {
+            // `content_block_delta` events carry `delta.text`.
+            if parsed.get("type").and_then(|v| v.as_str()) == Some("content_block_delta") {
+                parsed
+                    .get("delta")
+                    .and_then(|d| d.get("text"))
+                    .and_then(|t| t.as_str())
+                    .map(|s| s.to_string())
+            } else {
+                None
+            }
+        }
+        _ => {
+            // OpenAI-compatible: `choices[0].delta.content`.
+            parsed
+                .get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|c0| c0.get("delta"))
+                .and_then(|d| d.get("content"))
+                .and_then(|c| c.as_str())
+                .map(|s| s.to_string())
+        }
+    }
+}
+
+/// Provider-specific usage extraction from a parsed SSE JSON chunk.
+/// Returns `(input_tokens, output_tokens)` when the chunk reports usage.
+fn extract_usage(provider: &str, parsed: &serde_json::Value) -> Option<(u64, u64)> {
+    match provider {
+        "anthropic" => {
+            // `message_delta` carries `usage.output_tokens`; the
+            // initial `message_start` carries `usage.input_tokens`.
+            if let Some(u) = parsed
+                .get("message")
+                .and_then(|m| m.get("usage"))
+                .or_else(|| parsed.get("usage"))
+            {
+                let in_t = u.get("input_tokens").and_then(|v| v.as_u64());
+                let out_t = u.get("output_tokens").and_then(|v| v.as_u64());
+                if in_t.is_some() || out_t.is_some() {
+                    return Some((in_t.unwrap_or(0), out_t.unwrap_or(0)));
+                }
+            }
+            None
+        }
+        _ => {
+            // OpenAI-compatible: final chunk carries `usage` when
+            // `stream_options.include_usage: true` is set (we don't set
+            // it in v1 — honest: returns None).
+            if let Some(u) = parsed.get("usage") {
+                let in_t = u.get("prompt_tokens").and_then(|v| v.as_u64());
+                let out_t = u.get("completion_tokens").and_then(|v| v.as_u64());
+                if in_t.is_some() || out_t.is_some() {
+                    return Some((in_t.unwrap_or(0), out_t.unwrap_or(0)));
+                }
+            }
+            None
+        }
+    }
+}
+
+/// `llm_stream_close(handle)` — drop the response, aggregate final
+/// metadata, write ONE trace line (ADR-0138 §D4 — one line per completed
+/// stream, never per chunk).
+pub fn stream_close(handle: LlmStreamId) -> Result<LlmStreamFinal, String> {
+    let mut state = {
+        let Ok(mut reg) = LLM_STREAM_REGISTRY.lock() else {
+            return Err("llm_stream_close(): stream registry mutex poisoned".to_string());
+        };
+        reg.take(handle)
+            .ok_or_else(|| format!("llm_stream_close(): unknown LlmStream handle #{}", handle.0))?
+    };
+    // If the user closes before the stream's natural end, we still
+    // trace honestly — status "ok" if we got at least some data and
+    // ended cleanly, "error" otherwise. mid-stream close → "ok" with
+    // whatever we have (provider saw a clean TCP close from our side).
+    let latency_ms = state.started_at.elapsed().as_millis() as u64;
+    let status = state.status;
+    let provider = state.provider_type.clone();
+    let provider_alias = state.provider_alias.clone();
+    let model = state.resolved_model.clone();
+    let input_tokens = state.input_tokens;
+    let output_tokens = state.output_tokens;
+    let aggregated_text = std::mem::take(&mut state.aggregated_text);
+    // Dropping `state` here drops the `reqwest::blocking::Response`,
+    // which closes the underlying TCP connection (visible to the server
+    // as a client-side close — tested in naryad_275_stream_close_before_end).
+    drop(state);
+
+    // ONE trace line per completed stream (ADR-0138 §D4 contract).
+    trace_llm_call(&LlmTraceEvent {
+        provider_name: Some(&provider),
+        model: Some(&model),
+        input_tokens,
+        output_tokens,
+        latency_ms,
+        status,
+        cache: "miss",
+        provider_alias: Some(&provider_alias),
+    });
+
+    Ok(LlmStreamFinal {
+        provider,
+        model,
+        input_tokens,
+        output_tokens,
+        latency_ms,
+        status,
+        aggregated_text,
+    })
+}
+
+/// Peek the provider_type + resolved_model of an open stream — used by
+/// `llm_stream_open` builtin to populate the returned Struct's metadata
+/// fields. Read-only — does not advance the stream, does not take
+/// ownership. Returns `None` if the handle is unknown (closed or never
+/// opened). Non-fatal — the open succeeded, we just couldn't peek.
+pub fn peek_stream_provenance(handle: LlmStreamId) -> Option<(String, String)> {
+    let Ok(reg) = LLM_STREAM_REGISTRY.lock() else {
+        return None;
+    };
+    reg.streams
+        .get(&handle.0)
+        .map(|s| (s.provider_type.clone(), s.resolved_model.clone()))
+}
+
 // ── Tests ───────────────────────────────────────────────────────────
 
 #[cfg(test)]

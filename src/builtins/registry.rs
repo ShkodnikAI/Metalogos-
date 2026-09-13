@@ -12,6 +12,10 @@ use super::vision::{
     builtin_vision_load_stub, builtin_vision_lora_generate_stub, builtin_vision_lora_load_stub,
     builtin_vision_save_stub,
 };
+// Наряд №275 (ADR-0137): LLM streaming builtins — llm_stream_open/next/close.
+use super::llm_stream::{
+    builtin_llm_stream_close, builtin_llm_stream_next, builtin_llm_stream_open,
+};
 use super::*;
 
 /// Master registry of ALL builtin functions.
@@ -668,6 +672,17 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // реюз token_count (memory.rs token_count_estimate). Registry 404→405
     // (append-only).
     spec!("text_chunk", 2, 3, "string"; builtin_text_chunk), // text, strategy | +opts{max_chars, overlap, max_tokens}
+    // ── Наряд №275 (P1, feature/llm): LLM streaming — итераторный
+    // стиль над SmartRouter (ADR-0137). Opaque handle Value::LlmStream,
+    // registry crate::llm::LLM_STREAM_REGISTRY (bounded №263). Trace —
+    // одна строка на завершённый стрим (ADR-0138 §D4). Mock / non-SSE →
+    // loud STREAM_UNSUPPORTED. Registry 405→408 (append-only).
+    #[cfg(feature = "llm")]
+    spec!("llm_stream_open", 1, 2, "llm"; builtin_llm_stream_open), // prompt | prompt,input
+    #[cfg(feature = "llm")]
+    spec!("llm_stream_next", 1, "llm"; builtin_llm_stream_next), // handle
+    #[cfg(feature = "llm")]
+    spec!("llm_stream_close", 1, "llm"; builtin_llm_stream_close), // handle
 ];
 
 /// Total number of registered builtins.

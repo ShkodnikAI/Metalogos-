@@ -257,7 +257,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.19):** This section documents **100%** of the 405 registered builtins (405 of 405): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.19):** This section documents **100%** of the 408 registered builtins (408 of 408): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1619,7 +1619,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 405 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 408 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENT.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -1866,7 +1866,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `unique(...)` | 1 | — | `unique(list)` — remove duplicates preserving first-occurrence order. Uses the same equality semantics as `dedup` (JSON serialization for complex types = deep structural comparison for Struct, not reference identity). |
 | `zip(...)` | 2 | `List, List -> List` | Pairwise combination into `Pair{a, b}` |
 
-### `llm` — 5 builtin(s)
+### `llm` — 8 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -1874,6 +1874,9 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `call_llm(...)` | 1..2 | `String, String -> String` | Calls the LLM backend. By default returns a mock: `"[MOCK: prompt \ |
 | `call_llm_schema(...)` | 2..3 | `String, String[, String] -> Struct` | Calls the LLM backend and requires the answer to be a single JSON value conforming to the schema. Supported schema subset (ADR-0133): `type`, `properties`, `required`, `items`, `enum`; annotation keywords (`title`, `description`, `$schema`, ...) are ignored; any other keyword is a loud `LLM_SCHEMA_UNSUPPORTED_FEATURE`. Answer fields beyond `properties` are rejected (strict-by-default). The result is a `Dict` Struct usable with `json_get`/`has_field`/`dict_*`. Parse/validation failures (including max_tokens truncation) are loud `LLM_SCHEMA_MISMATCH` and retry up to `METALOGOS_LLM_SCHEMA_RETRIES` (default 2, cap 10) with the validator report fed back into the prompt. Mock tier returns a deterministic minimal instance derived from the schema (default mock settings; `METALOGOS_LLM_MOCK=json` documents the intent explicitly) |
 | `json_validate(...)` | 2..3 | `String, String[, Bool] -> Struct` | Validates a JSON string against the ADR-0133 schema subset WITHOUT calling an LLM («shape-before-use», №286): the SAME validator as `call_llm_schema` (extracted to a shared module, zero new rules — differential corpus green in both paths). Returns `{valid, errors}` where `errors` is a list of violation reports with paths (`value.age: expected type integer, got string "33"`). `strict` (default `true`) = fields beyond `properties` are violations (as in `call_llm_schema`); `strict=false` permits undeclared fields — every other rule (type/required/items/enum, the subset, the root-object contract) is unchanged. Invalid `schema_json`/unsupported keyword — loud `LLM_SCHEMA_UNSUPPORTED_FEATURE` (the SAME code as `call_llm_schema`); invalid `value_json` is a loud parse error, NOT `valid=false` (the validator judges structure, the parser judges bytes) |
+| `llm_stream_close(...)` | 1 | — | `llm_stream_close(handle) -> Struct { tokens, latency_ms, status, provider, model }` |
+| `llm_stream_next(...)` | 1 | — | `llm_stream_next(handle) -> String` |
+| `llm_stream_open(...)` | 1..2 | — | `llm_stream_open(prompt, input?) -> Struct { handle, model, provider }` |
 | `llm_usage(...)` | variadic | `-> Struct` | LLM usage statistics: `total_calls`, `total_tokens`, `total_errors`, `cache_hits_semantic` (№273/ADR-0135), `canary_leaks` (№284 — confirmed canary leaks), `providers` (a list of `{alias, calls, tokens, errors, avg_latency_ms, health_score}`) |
 
 ### `math` — 14 builtin(s)

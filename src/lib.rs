@@ -26,6 +26,7 @@ pub mod embeddings;
 pub mod error;
 pub mod interpreter;
 pub mod llm;
+pub mod mcp_server;
 pub mod memory_graph;
 pub mod memory_store;
 pub mod nn;

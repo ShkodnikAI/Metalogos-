@@ -92,6 +92,14 @@ enum Commands {
         /// Path to .mlog source file
         file: PathBuf,
     },
+    /// Start MCP server (Наряд №297, ADR-0132) — expose .mlog tool constructs as MCP tools via stdio
+    McpServe {
+        /// Path to .mlog source file
+        file: PathBuf,
+        /// Tool names to expose (fail-closed: required, no default exposure)
+        #[arg(long, value_delimiter = ',')]
+        allowlist: Vec<String>,
+    },
 }
 
 fn main() {
@@ -138,6 +146,7 @@ fn main() {
         }
         Commands::Resume { file, flow, from } => cmd_resume(file, &flow, &from),
         Commands::Audit { file } => cmd_audit(file),
+        Commands::McpServe { file, allowlist } => cmd_mcp_serve(file, &allowlist),
     }
 }
 
@@ -411,6 +420,29 @@ fn cmd_audit(file: PathBuf) {
             eprintln!("error: {}", e);
             std::process::exit(1);
         }
+    }
+}
+
+/// `mlog mcp-serve <file> --allowlist tool1,tool2` — start MCP server over stdio.
+/// Fail-closed: --allowlist is required (no tools exposed by default).
+fn cmd_mcp_serve(file: PathBuf, allowlist: &[String]) {
+    let source = match fs::read_to_string(&file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: cannot read {:?}: {}", file, e);
+            std::process::exit(1);
+        }
+    };
+    let declarations = match metalogos::parser::parse(&source) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("error: parse error: {}", e);
+            std::process::exit(1);
+        }
+    };
+    if let Err(e) = metalogos::mcp_server::run_mcp_server(&declarations, allowlist) {
+        eprintln!("error: {}", e);
+        std::process::exit(1);
     }
 }
 

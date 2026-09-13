@@ -1126,11 +1126,12 @@ pub(crate) fn builtin_content_deref(args: &[Value]) -> Result<Value, String> {
 
 // ── P3: Token awareness ────────────────────────────────────────────
 
-/// `token_count(text)` — estimate token count. Cyrillic: chars/2, Latin: chars/4.
-pub(crate) fn builtin_token_count(args: &[Value]) -> Result<Value, String> {
-    let s = expect_string_arg("token_count", args, 0)?;
+/// Оценка токенов: Cyrillic chars/2, Latin chars/4 (порог 50% кириллицы),
+/// ceil. SSOT-счётчик: builtin `token_count` и text_chunk (№285) —
+/// один и тот же расчёт (реюз, не новый счётчик).
+pub(crate) fn token_count_estimate(s: &str) -> f64 {
     if s.is_empty() {
-        return Ok(Value::Float(0.0));
+        return 0.0;
     }
     let total_chars = s.chars().count();
     let cyrillic_chars = s
@@ -1143,6 +1144,11 @@ pub(crate) fn builtin_token_count(args: &[Value]) -> Result<Value, String> {
     } else {
         4.0
     };
-    let tokens = (total_chars as f64 / divisor).ceil();
-    Ok(Value::Float(tokens))
+    (total_chars as f64 / divisor).ceil()
+}
+
+/// `token_count(text)` — estimate token count. Cyrillic: chars/2, Latin: chars/4.
+pub(crate) fn builtin_token_count(args: &[Value]) -> Result<Value, String> {
+    let s = expect_string_arg("token_count", args, 0)?;
+    Ok(Value::Float(token_count_estimate(&s)))
 }

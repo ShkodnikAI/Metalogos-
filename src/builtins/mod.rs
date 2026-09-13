@@ -193,6 +193,13 @@ pub(crate) mod vector;
 pub use memory::{reset_session_store, session_key_count, session_store_count};
 #[cfg(feature = "vec")]
 use vector::*;
+// Наряд №281 (P2, M2): user_profile — детерминированная выжимка
+// контейнера (static/dynamic/buckets) из KV-записей container:<c>:...
+// с ин-процессным кэшем (поколение KV-записей + mtime файла).
+// БЕЗ feature-гейта: kv-контур ядровой, vec не нужен.
+pub(crate) mod profile;
+use profile::*;
+pub use profile::{user_profile_core, CONTAINER_PREFIX};
 // Наряд №280 (P2, M2): memory_forget — управляемое забывание с границами
 // (dry_run-превью → apply по явным ids; soft-delete ledger с batch_id;
 // vec_search получает include_forgotten). Тот же feature-gate `vec`.

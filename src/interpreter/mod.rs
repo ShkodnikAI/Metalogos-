@@ -435,6 +435,14 @@ impl Interpreter {
         self.builtins.get(name)
     }
 
+    /// Наряд №287: заменить хендлер билтина в ЭТОМ интерпретаторе
+    /// (doc-тесты: read-only профиль — сетевые/exec-билтины заменяются
+    /// заглушками с громким отказом). Реестр (SSOT) не меняется;
+    /// подмена локальна для экземпляра интерпретатора.
+    pub fn override_builtin(&mut self, name: &str, f: crate::builtins::BuiltinFn) {
+        self.builtins.override_handler(name, f);
+    }
+
     /// Collect all known declarations from this interpreter into a Vec.
     /// Used by `check_program_with_root` to build a merged declaration list
     /// for semantic analysis.

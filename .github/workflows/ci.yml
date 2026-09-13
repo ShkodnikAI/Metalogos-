@@ -131,6 +131,18 @@ jobs:
       - name: Clippy on vision-gated code
         run: cargo clippy --workspace --features vision --all-targets -- -D warnings
 
+  doc-tests:
+    name: doc-tests (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build mlog
+        run: cargo build --bin mlog
+      - name: Doc-tests on REFERENCE/README/docs (Naryad #287)
+        run: ./target/debug/mlog test --docs
+
   registry-arity-check:
     name: registry-arity-check (blocking)
     runs-on: ubuntu-latest

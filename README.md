@@ -29,6 +29,7 @@
 Metalogos (mlog) is an open source programming language where AI operations — LLM calls, memory, learning, adaptation — are first-class language constructs, not library integrations. An LLM invocation is as natural as calling a function. Security constraints (XSS prevention, SQL injection prevention, secret opacity) are enforced at the language level, not through middleware.
 
 ```mlog
+// doc-test: skip
 // Learnable pattern: LLM call as a language construct
 learnable pattern Classify(msg: String) -> String {
   prompt: "Classify as: question | complaint | greeting | urgent"
@@ -120,6 +121,7 @@ OWASP Top 10 is addressed at the language level through a combination of compile
 **MCP tool calls** (Naryad №268, [ADR-0132](docs/adr/0132-mcp-client.md)) — `mcp_call` / `mcp_list_tools` spawn a third-party MCP server over stdio and are denied by default with the same gate stack as `exec()`: exec-gate first (`EXEC_NOT_PERMITTED`), then the MCP allowlist `METALOGOS_MCP_ALLOWLIST` (exact `argv[0]` match — unset does not narrow, an empty value denies all MCP, a non-empty list refuses everything else with `MCP_NOT_ALLOWLISTED`). Every permitted spawn lands in the subprocess audit log; per-phase timeout is 30 s by default (`METALOGOS_MCP_TIMEOUT_SECS`, clamped to 1..=300). Tool **output** is untrusted `UserInput` — poisoning a Reflex model with it is rejected statically (below); tool **metadata** (`mcp_list_tools` names/descriptions/schemas) is untainted by design. Live walkthrough from the repo root, against the fixture server shipped with the test suite:
 
 ```mlog
+// doc-test: skip
 // demo.mlog
 pattern Echo(_: String) -> String {
   return mcp_call("python3", ["tests/fixtures/mcp_echo_server.py"], "echo", "{\"text\":\"hi\"}")
@@ -258,7 +260,7 @@ Metalogos-/
 ├── logo.jpg                          # Brand logo
 ├── README.md                         # This file
 ├── REFERENCE.md                      # Full builtin reference (~180 KB) — 100% of the registry (§6 index)
-├── CHANGELOG.md                      # Version history (~215 KB)
+├── CHANGELOG.md                      # Version history (~220 KB)
 ├── AI_USAGE.md                       # Disclosure: how generative AI is used in this project's development
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
@@ -397,6 +399,7 @@ Metalogos-/
 The compiler enforces structural security invariants — these are errors, not warnings:
 
 ```mlog
+// doc-test: skip
 // SQL injection — non-literal query() is rejected by Category A
 let user = query("SELECT * FROM users WHERE id = $1", [id])
 
@@ -468,6 +471,7 @@ dedicated static security lint (`SVG_AUTO_ESCAPE_BUILTINS` /
 as the rest of the language:
 
 ```mlog
+// doc-test: skip
 let style = color_palette("energy", "dark")
 let chart = chart_bar(revenue_data, style)
 let flow  = diagram_flowchart(nodes, edges, style)
@@ -517,10 +521,14 @@ let reply = human_respond("Alice", "How is my project going?")
 Fuzzy matching (Jaro-Winkler), content-verified hashline editing (CRC32), context compaction, budget awareness, replay logging, shell policy enforcement:
 
 ```mlog
+let code = "1:3f|fn main() {"
+let text = "alpha\nbeta\ngamma"
+let messages = ["a", "b", "c", "d", "e", "f"]
+let events = ["e1", "e2", "e3", "e4", "e5"]
 fuzzy_match("metalogos", "metalogus")           // 0.96
 fuzzy_find_best("Mikhail", ["Michele", "Mikael"])  // FuzzyMatch{index:1, candidate:"Mikael", score:0.82}
 hashline_read(code)                                  // "1:3f|fn main() {"
-hashline_edit(text, [{op:"set_line", ref:"3:ab", content:"..."}])
+hashline_edit(text, [{op:"set_line", ref:"1:6a", content:"..."}])
 compact_list(messages, 2, 4)                          // protect head/tail, compress middle
 budget_check(8, 10)                                   // BudgetStatus{level:"warning", pct_remaining:20}
 policy_check("vim file.txt")                          // PolicyResult{allowed:false, reason:"blocked: interactive..."}
@@ -559,6 +567,7 @@ The Reflex pillar trains, predicts, persists, and distills local neural models �
 **Classification, not generation** — per ADR-0117 §3, `reflex` classifies into a closed-set label list (`labels: ["a", "b", ...]`). Free-form text generation is explicitly out of scope. This is the same boundary that applies to `reflex_seq` (sequence models) — symmetric ADR-0117 enforcement.
 
 ```mlog
+// doc-test: skip
 // 1. Declare a classifier — input dim, dense layers, closed label set.
 reflex SentimentClassifier {
   input: embedding(2)
@@ -582,6 +591,7 @@ let prediction = reflex_predict(SentimentClassifier, [0.15, 0.25])
 **Distillation** — a `learnable pattern` can `distill_to` a reflex model: the LLM is called during the *teaching* phase, then the local head replaces it once confidence exceeds the `fallback_if` threshold.
 
 ```mlog
+// doc-test: skip
 learnable pattern Classify(text: String) -> String {
   distill_to: SentimentClassifier
   fallback_if: confidence < 0.85
@@ -596,6 +606,7 @@ learnable pattern Classify(text: String) -> String {
 **Grouped-Query Attention (GQA, Naryad #188)** — `attention` accepts an optional third parameter for the number of KV heads:
 
 ```mlog
+// doc-test: skip
 reflex_seq GqaModel {
   input: embedding(64)
   seq_len: 16
@@ -610,6 +621,7 @@ When the third parameter is omitted (`attention(8, 64)`), behaviour is identical
 **Stacked transformer blocks (Naryad #190)** — multiple `transformer_block` entries can be chained in the `layers` list. Each block gets its own independent, deterministically different weights (via `VarMap` prefixing — not identical copies):
 
 ```mlog
+// doc-test: skip
 reflex_seq StackedTransformer {
   input: embedding(8)
   seq_len: 4
@@ -1017,7 +1029,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 405 builtins, 149 test files, 214 example programs, 130 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 405 builtins, 150 test files, 214 example programs, 130 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

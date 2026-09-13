@@ -69,13 +69,23 @@ enum Commands {
         #[arg(long)]
         from: String,
     },
-    /// Run test blocks: execute `test "..." { }` declarations (Наряд №120)
+    /// Run test blocks: execute `test "..." { }` declarations (Наряд №120);
+    /// with --docs: doc-tests on markdown files instead (Наряд №287)
     Test {
-        /// Path to .mlog source file
-        file: PathBuf,
+        /// Path to .mlog source file (required without --docs)
+        file: Option<PathBuf>,
         /// Only run tests whose name contains this substring
         #[arg(long)]
         filter: Option<String>,
+        /// Doc-tests mode (Наряд №287): execute ```mlog blocks from docs
+        #[arg(long)]
+        docs: bool,
+        /// Doc-files/globs to scan (default: REFERENCE.md, README.md, docs/**/*.md)
+        #[arg(long, value_name = "GLOB", requires = "docs")]
+        docs_glob: Vec<String>,
+        /// Execution backend for doc blocks (vm-compile skips are not failures)
+        #[arg(long, default_value = "tw")]
+        backend: String,
     },
     /// Static security analysis without execution (ADR-0057)
     Audit {
@@ -107,7 +117,25 @@ fn main() {
         Commands::Serve { file } => cmd_serve(file),
         Commands::Compile { file } => cmd_compile(file),
         Commands::Eval { file } => cmd_eval(file),
-        Commands::Test { file, filter } => cmd_test(file, filter),
+        Commands::Test {
+            file,
+            filter,
+            docs,
+            docs_glob,
+            backend,
+        } => {
+            if docs {
+                cmd_doc_tests(docs_glob, backend);
+            } else {
+                match file {
+                    Some(f) => cmd_test(f, filter),
+                    None => {
+                        eprintln!("error: mlog test requires <file> (or --docs for doc-tests)");
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
         Commands::Resume { file, flow, from } => cmd_resume(file, &flow, &from),
         Commands::Audit { file } => cmd_audit(file),
     }
@@ -261,6 +289,39 @@ fn cmd_eval(file: PathBuf) {
         }
         Err(e) => {
             eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// `mlog test --docs [GLOB...]` — doc-tests on markdown docs (Наряд №287).
+fn cmd_doc_tests(globs: Vec<String>, backend: String) {
+    let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let files = metalogos::doc_tests::resolve_doc_files(&root, &globs);
+    if files.is_empty() {
+        eprintln!("doc-tests: no markdown files matched");
+        std::process::exit(1);
+    }
+    let backend = match backend.as_str() {
+        "tw" => metalogos::doc_tests::DocBackend::Tw,
+        "vm" => metalogos::doc_tests::DocBackend::Vm,
+        other => {
+            eprintln!("error: unknown --backend '{other}' (allowed: tw, vm)");
+            std::process::exit(1);
+        }
+    };
+    match metalogos::doc_tests::run_doc_tests(&files, backend, &root) {
+        Ok(report) => {
+            for f in &report.failures {
+                eprintln!("FAIL {f}");
+            }
+            eprintln!("{}", report.summary());
+            if !report.failures.is_empty() {
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
             std::process::exit(1);
         }
     }

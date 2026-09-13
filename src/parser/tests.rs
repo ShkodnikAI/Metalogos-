@@ -2405,7 +2405,10 @@ fn n283_parse_templated_route_path() {
     match &decls {
         Ok(d) => {
             if let Declaration::MlogServer(s) = &d[0] {
-                assert_eq!(s.routes[0].path, "/demo/{name}", "template path must be preserved verbatim");
+                assert_eq!(
+                    s.routes[0].path, "/demo/{name}",
+                    "template path must be preserved verbatim"
+                );
             } else {
                 panic!("expected MlogServer, got {:?}", d[0]);
             }

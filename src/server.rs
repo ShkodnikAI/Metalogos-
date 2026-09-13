@@ -1148,9 +1148,8 @@ pub(crate) async fn build_state(
     // prefix+wildcard overlaps; does NOT attempt full overlap analysis.
     // Done here (not in run_server) so the test helpers see the same
     // behavior production does.
-    check_route_template_conflicts(&config.routes).map_err(|e| {
-        format!("server startup aborted — route template conflict: {}", e)
-    })?;
+    check_route_template_conflicts(&config.routes)
+        .map_err(|e| format!("server startup aborted — route template conflict: {}", e))?;
 
     // Наряд №29 §2.1: HMAC key from env (METALOGOS_HMAC_KEY) or random fallback.
     // Never panics — random fallback logs WARNING and continues.
@@ -4134,7 +4133,8 @@ mlogserver {
 
         let path_params: std::collections::HashMap<String, String> =
             [("id".to_string(), "42".to_string())].into_iter().collect();
-        let empty_query: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let empty_query: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
         let vm_resp =
             call_route_vm_with_path_params(&state, &program, compiled, &empty_query, &path_params)
                 .await

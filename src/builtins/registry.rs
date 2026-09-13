@@ -658,6 +658,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // не виден); scope-параметр — на vec_store/vec_search. Не
     // feature-гейт: kv-контур ядровой. Registry 403→404 (append-only).
     spec!("user_profile", 2, "memory"; builtin_user_profile),
+    // ── Наряд №285 (P2, feature/memory): text_chunk — структура-осознанное
+    // чанкование для RAG-пайплайна (первая стадия поверх №272 vec-контур):
+    // strategies markdown|paragraph|fixed; opts{max_chars, overlap,
+    // max_tokens?}; markdown-секции несут header_path ("H1 > H2 > H3") —
+    // готовые метаданные для vec_store. Каскад «заголовок → абзац →
+    // перенос → пробел» + жадное слияние мелких + overlap при окнировании
+    // (RecursiveCharacterTextSplitter-дух, без зависимостей). Token-бюджет —
+    // реюз token_count (memory.rs token_count_estimate). Registry 404→405
+    // (append-only).
+    spec!("text_chunk", 2, 3, "string"; builtin_text_chunk), // text, strategy | +opts{max_chars, overlap, max_tokens}
 ];
 
 /// Total number of registered builtins.

@@ -209,6 +209,12 @@ pub(crate) mod memory_forget;
 use memory_forget::*;
 #[cfg(feature = "vec")]
 pub use memory_forget::{memory_forget_core, FORGET_BATCH_PREFIX};
+// Наряд №285 (P2, feature/memory): text_chunk — структура-осознанное
+// чанкование для RAG-пайплайна (каскад разделителей + overlap + слияние,
+// markdown-секции с header_path). Без feature-гейта: чистая строковая
+// функция; token-бюджет — реюз token_count (memory.rs SSOT-estimate).
+pub(crate) mod text_chunk;
+use text_chunk::*;
 pub(crate) mod cron;
 pub use cron::init_reminder_persist;
 use cron::*;

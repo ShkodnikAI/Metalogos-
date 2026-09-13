@@ -2103,6 +2103,35 @@ impl Interpreter {
 
                 // Check builtins
                 if let Some(builtin_fn) = self.builtins.get(name) {
+                    // Phase 7.5: Sandbox enforcement — filesystem isolation.
+                    // Наряд №282 (спайк): этот путь (вызовы builtin ВНУТРИ
+                    // выражений — let/аргументы/return) РАНЬШЕ не гейтился:
+                    // sandbox forbidden=["filesystem"] обходился любым
+                    // read_file(...) в let. Гейт выровнен с путями
+                    // invoke (выше) и ModuleAccess — находка спайка №282,
+                    // тест sandbox_forbidden_filesystem_beats_smfs.
+                    if let Some(ref sb) = self.active_sandbox {
+                        if sb.forbidden.iter().any(|f| f == "filesystem") {
+                            if matches!(
+                                name.as_str(),
+                                "read_file"
+                                    | "write_file"
+                                    | "append_file"
+                                    | "delete_file"
+                                    | "file_exists"
+                                    | "list_dir"
+                            ) {
+                                return Err(format!(
+                                    "filesystem access forbidden in sandbox '{}'",
+                                    sb.name
+                                ));
+                            }
+                            // Наряд №17 Г.2: also enforce exec() in sandbox
+                            if name == "exec" {
+                                return Err(format!("exec() forbidden in sandbox '{}'", sb.name));
+                            }
+                        }
+                    }
                     // O-2: Fire on_write hooks before mutating builtins
                     if Self::is_write_builtin(name) {
                         self.fire_on_write_hooks(name, &eval_args);

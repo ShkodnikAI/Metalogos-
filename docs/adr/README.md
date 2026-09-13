@@ -10,7 +10,7 @@ ls docs/adr/ | sed 's/-.*//' | sort | uniq -d
 
 Must be empty. If not empty, resolve collisions before proceeding.
 
-Numbers are assigned sequentially. The current maximum is in `0140-*` (ADR-0137 №275 streaming; ADR-0138 №276 traces; ADR-0139 draft №282 SMFS spike; ADR-0140 №288 diag-codes addendum).
+Numbers are assigned sequentially. The current maximum is in `0141-*` (ADR-0137 №275 streaming; ADR-0138 №276 traces; ADR-0139 draft №282 SMFS spike; ADR-0140 №288 diag-codes addendum; ADR-0141 №293 VM production-readiness staged closure).
 
 ## Reserved numbers (do not reassign)
 
@@ -159,3 +159,4 @@ reports and must not be changed:
 | 0138 | Per-call LLM traces — file-based JSONL with OpenTelemetry GenAI field names | Accepted |
 | 0139 | SMFS — экспорт памяти как виртуальной read-only ФС (`sm:`) | Proposed (черновик спайка №282; вердикт спайка |
 | 0140 | Diagnostic codes — addendum (no-reuse rule + SSOT-registry discipline) | Accepted |
+| 0141 | VM production-readiness — staged gap closure + parity-gated default flip | Accepted (решение владельца 2026-09-14 |

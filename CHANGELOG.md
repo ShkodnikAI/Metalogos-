@@ -4,6 +4,26 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — adr: ADR-0141 — VM production-readiness: staged gap closure + parity-gated default flip (Naryad #293, P0/adr)
+
+- **ADR-only, без кода** (P0/adr research-наряд, issue #356 — VM_COMPLETE). Источник: внешний аудит Metalogos 2026-09-13. **Решение владельца 2026-09-14**: supersede оговорки «Do not implement…» ADR-0105 — стадийное закрытие гэпов; флип дефолта (ADR-0088) остаётся за гейтами: parity 100% + полный crosscheck + soak + реальная нагрузка.
+- **research**: `docs/research/vm-gaps-inventory.md` — инвентаризация гэпов с числами:
+  * **Явные гэпы (compiler.rs)**: 2 — `Match` statement (compiler.rs:1373), `Expr::BlockIfElse` (compiler.rs:902).
+  * **TW-only**: `match_expr` (Nаряд №173b) — закрыт автоматически при реализации Match-as-expression в Stage 1.
+  * **Скрытые гэпы (crosscheck exclusions)**: 3 — binop coercion (heterogeneous List+String, p118_collection_utils.mlog), PRNG state (reflex_math.mlog), Bool→String formatting ("true" vs "1").
+  * **Стоимость закрытия**: ~745 LOC across ~4 нарядов (№294-№297), по прецеденту №91 (TryEval) — instruction + compiler + VM dispatch + tests + crosscheck exclusion removal.
+- **ADR-0141 staged plan** (D1-D7):
+  * **Stage 0** (этот наряд — №293): research + ADR + README update. Ноль кода.
+  * **Stage 1** (наряды №294-№297): закрытие 4 гэпов по прецеденту №91. Каждый — отдельный наряд, отдельный PR, отдельные тесты + crosscheck exclusion removal.
+  * **Stage 2**: parity gate — `tests/crosscheck_backends.rs` без VM-uncovered exclusions (кроме negative-test контрактов).
+  * **Stage 3**: soak — FOSVED на VM в стейджинге 1 sprint (≈2 недели), без panic/regression.
+  * **Stage 4**: real-load benchmark — representative FOSVED workload (≥2000 строк, с LLM/DB/vision). VM должен показать ≥2× latency improvement OR эквивалентную latency с memory/CPU win.
+  * **Stage 5** (только если Stage 2-4 зелёные): флип дефолта ADR-0088 `interpreter` → `vm`. Отдельный ADR (новый номер — `0142` или выше). С сохранением opt-out `METALOGOS_SERVE_BACKEND=interpreter` для back-compat.
+  * **D7**: ADR-0105 §Decision 1-4 остаются в силе (TW = guaranteed full-language backend; VM = experimental до Stage 5). Оговорка «Do not implement Match/BlockIfElse in the VM under this ADR» — superseded.
+- **README**: Dual Execution Backend section updated — ссылка на ADR-0141 + staged closure plan; ADR count 132→133.
+- **docs/adr/README.md**: index regenerated (133 entries); max statement updated (0140→0141).
+- **не делает** этот ADR: не закрывает гэпы (Stage 1 — наряды №294-№297); не меняет дефолт бэкенда (Stage 5 — отдельный ADR после Stage 2-4); не удаляет ADR-0105 (только supersede оговорку).
+
 ### Added — security: TAINT_INTERP — межпроцедурный taint MVP, summary-based, bounded depth 2 (Naryad #292, P0/security)
 
 - **new check_id**: `TAINT_INTERP` (Severity: Error, Category A — promoted to compile error via `audit_category_a` → semantic №98). Catches the case `TAINT_PASSTHROUGH` (Наряд #141/#157) misses: non-trivial patterns where `return <param>` is wrapped in another expression (e.g. `return upper(x)`) or chains through 2 user-pattern calls (`respond(Outer(Inner(call_llm(...))))`).

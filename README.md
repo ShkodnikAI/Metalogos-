@@ -189,7 +189,7 @@ These are file-level heuristics, not data-flow guarantees — they may false-pos
 
 ### 3. Dual Execution Backend
 
-Tree-walking interpreter (full language) + bytecode VM (47 instructions; experimental for full-language use — `match` (statement and `let`-binding expression) and block `if/else` **expression** not supported yet, see [ADR-0105](docs/adr/0105-vm-experimental-scope.md)). Programs both backends can run are checked by `crosscheck_backends` for TW↔VM output parity.
+Tree-walking interpreter (full language) + bytecode VM (47 instructions; experimental for full-language use — `match` (statement and `let`-binding expression), `Expr::BlockIfElse` (if/else as value), heterogeneous binop coercion, PRNG state — not supported yet, see [ADR-0105](docs/adr/0105-vm-experimental-scope.md) + [ADR-0141](docs/adr/0141-vm-production-readiness.md) for staged closure plan). Programs both backends can run are checked by `crosscheck_backends` for TW↔VM output parity.
 
 ### 4. Typed Semantic Memory with Hybrid Search
 
@@ -267,7 +267,7 @@ Metalogos-/
 ├── CLAUDE.md                         # Bridge copy of AGENTS.md for Claude-compatible tools (synced manually — see issue #299)
 ├── GEMINI.md                         # Bridge copy of AGENTS.md for Gemini-compatible tools (synced manually — see issue #299)
 ├── REFERENCE.md                      # Full builtin reference (~180 KB) — 100% of the registry (§6 index)
-├── CHANGELOG.md                      # Version history (~245 KB)
+├── CHANGELOG.md                      # Version history (~248 KB)
 ├── AI_USAGE.md                       # Disclosure: how generative AI is used in this project's development
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
@@ -1037,7 +1037,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 409 builtins, 150 test files, 214 example programs, 132 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 409 builtins, 150 test files, 214 example programs, 133 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

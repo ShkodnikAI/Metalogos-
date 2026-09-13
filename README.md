@@ -163,6 +163,8 @@ $ mlog check poison.mlog
   1: строка 1: [UNTRUSTED_TRAINING_DATA] untrusted user input used as reflex_train data/labels (model poisoning / PII baked into weights)
 ```
 
+> **[Known Limitations](docs/limitations.md)** — a unified index of all documented language limitations across static analysis, VM, Vision, adapt, self-hosting, JIT, error protocol, LLM streaming, and MCP server. The truth lives in the primary sources (ADR, source files); this page only references.
+
 #### Known boundaries of static analysis
 
 These checks use **intraprocedural taint tracking** — they follow `let`-assignment chains within a single pattern body, bounded to nesting depth `TAINT_NESTING_MAX_DEPTH = 3` (Наряд №295). **As of naryad №292, summary-based interprocedural taint is also tracked** (bounded depth 2 — see `TAINT_INTERP` below). The following patterns are **not** detected at compile time:

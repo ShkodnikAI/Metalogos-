@@ -4,6 +4,18 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — feature: MCP_SERVER — Metalogos as MCP server (tool constructs → MCP tools via stdio) (Naryad #297, P1/feature/mcp)
+
+- **new module**: `src/mcp_server.rs` — stdio-based JSON-RPC 2.0 server (newline-framed) that exposes user `tool` constructs from a .mlog file as MCP tools. Reverse of MCP client (Наряд №268, ADR-0132) — Metalogos IS the tool server.
+- **CLI**: `mlog mcp-serve app.mlog --allowlist tool1,tool2` — fail-closed: without --allowlist, server refuses to start.
+- **protocol**: MCP over stdio — `initialize` → capabilities (tools); `tools/list` → array of tool schemas (name/description/inputSchema from ToolDecl); `tools/call` → execute tool method body in TW runtime, return result.
+- **allowlist**: explicit tool names (format: `tool_name.method_name` or bare `method_name`); absent → loud error. Fail-closed — no tools exposed by default.
+- **execution**: tool method body executed via Interpreter::eval_statements with JSON args → Value env; existing gates (exec/env — №253/№259) apply. Max response size 1MB before truncation.
+- **JSON-RPC framing**: newline-delimited (one message per line), consistent with client №268.
+- **errors**: JSON-RPC error codes (parse error -32700, method not found -32601, invalid params -32602). No silent failures.
+- **no HTTP/SSE transport** (Future in ADR-0132 — separately). No changes to client №268.
+
+
 ### Added — security: TAINT_DEPTH — bounded nesting depth 3 + README/threat-model truth-up (Naryad #295, P1/security)
 
 - **nesting depth**: `expr_is_llm_tainted` was single-level (caught `respond(call_llm(...))` but NOT `respond(upper(call_llm(...)))`). Now bounded-recursive up to `TAINT_NESTING_MAX_DEPTH = 3` — catches depth 2 (`respond(upper(call_llm(...)))`) and depth 3 (`respond(upper(upper(call_llm(...))))`); depth 5 (call_llm at depth 4) is the documented boundary (not caught intraprocedurally; `TAINT_INTERP` catches if a pattern call is involved).

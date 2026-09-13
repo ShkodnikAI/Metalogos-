@@ -91,6 +91,11 @@ pub enum Value {
     /// Opaque Vision artifact handle (Наряд №210, ADR-0124).
     /// Contains an index into VisionRegistry — vision artifacts never enter Value.
     Vision(crate::vision::VisionId),
+    /// Opaque LLM stream handle (Наряд №275, ADR-0137).
+    /// Contains an index into `crate::llm::LLM_STREAM_REGISTRY` —
+    /// the active `reqwest::blocking::Response` + SSE line buffer +
+    /// provenance/usage aggregation never enter `Value`.
+    LlmStream(crate::llm::LlmStreamId),
 }
 
 impl std::fmt::Display for Value {
@@ -162,6 +167,9 @@ impl std::fmt::Display for Value {
             Value::BpeVocab(id) => write!(f, "[BpeVocab#{}]", id.0),
             // Наряд №210: Vision handle display — лекала Reflex.
             Value::Vision(id) => write!(f, "[Vision#{}]", id.0),
+            // Наряд №275 (ADR-0137): LLM stream handle display —
+            // лекала Reflex/Vision.
+            Value::LlmStream(id) => write!(f, "[LlmStream#{}]", id.0),
         }
     }
 }
@@ -188,6 +196,8 @@ impl Value {
             Value::BpeVocab(_) => "BpeVocab",
             // Наряд №210: Vision handle type name.
             Value::Vision(_) => "vision",
+            // Наряд №275 (ADR-0137): LLM stream handle type name.
+            Value::LlmStream(_) => "LlmStream",
         }
     }
 
@@ -264,6 +274,11 @@ pub fn is_nonprintable(v: &Value) -> bool {
             | Value::BpeVocab(_)
             // Наряд №210: Vision handle is opaque — must not be printed directly.
             | Value::Vision(_)
+            // Наряд №275 (ADR-0137): LLM stream handle is opaque —
+            // printing it would leak the active stream's identity
+            // (provider, model, handle index) but no PII; still, the
+            // convention for all opaque handles is non-printable.
+            | Value::LlmStream(_)
     )
 }
 

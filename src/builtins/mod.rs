@@ -235,6 +235,11 @@ use regex::*;
 // macro in registry.rs can reference them.
 pub mod reflex;
 pub mod vision;
+// Наряд №275 (ADR-0137): LLM streaming builtins — llm_stream_open/next/close.
+// Module is NOT feature-gated: the opaque handle + registry + SSE parser
+// live in `crate::llm` (always available); HTTP streaming requires
+// `reqwest::blocking` (always available, no extra feature flag).
+pub mod llm_stream;
 #[cfg(feature = "candle")]
 pub use reflex::{build_reflex_gen_model, build_reflex_seq_model};
 pub use reflex::{

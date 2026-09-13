@@ -1,7 +1,7 @@
 // ── Наряд №270: REFERENCE.md 100% coverage gate ──────────────────────────
 //
 // Contract: EVERY builtin registered in `BUILTIN_REGISTRY` (src/builtins/
-// registry.rs `spec!` macros — the SSOT per AGENT.md §5) must have a
+// registry.rs `spec!` macros — the SSOT per AGENTS.md §5) must have a
 // REFERENCE.md entry. A builtin is considered documented when REFERENCE
 // contains `` `name(` `` (the same mention-style rule
 // scripts/gen_reference_check.py pioneered — cases tested here are the

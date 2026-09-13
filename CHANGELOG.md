@@ -4,6 +4,17 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — tooling: tree-sitter-mlog грамматика для .mlog (Naryad #289, P2/tooling)
+
+- **artifact**: `tree-sitter-mlog/` — параллельный артефакт в репо (не отдельный пакет — публикация отдельным нарядом при реальном спросе). `grammar.js` (tree-sitter DSL), `package.json` (tree-sitter-cli dependency), `README.md` (покрытие + контракт корректности + расхождения с grammar.pest + known limitations).
+- **покрытие** (Блок 1): все основные декларации верхнего уровня — entity (три формы), pattern, learnable pattern (с ADR-0117 distill fields в любом порядке), flow (с checkpoint + branch_def), rule, reflex/reflex_seq/reflex_gen, vision, type alias, llm config, mlogserver + route, template, db/schema/skill_index/memory/conversation/context_budget, import/hook/sandbox/mutate/eval/fluid/adapt, memorize/relate/forget, tool, test. Все statements — let/let mut/assign, if (block + then), each, while, match (4 arm types + else), break/continue/return. Все expressions — layered precedence (or/and/compare/add/mul/unary/access/primary), try, if-then-else, qualified call, struct/list literals, paren expr, all literals.
+- **контракт корректности** (Блок 2): прогон `tree-sitter parse` на 23 репрезентативных файлах из `examples/` (покрытие всех столпов). Результат: **12 PASS (no ERROR nodes), 11 PARTIAL (parser recovered, ERROR nodes в deep constructs), 0 FAIL (no crashes)**. Все 23 файла парсятся структурно — ни один не падает. Доработка PARTIAL → PASS — отдельный следующий наряд при реальном спросе.
+- **публикация** (Блок 3): грамматика в самом репозитории Metalogos (постановка наряда явно указала — не публиковать как отдельный пакет в этом наряде). Использование: `cd tree-sitter-mlog && npm install && ./node_modules/.bin/tree-sitter parse <file.mlog>`.
+- **расхождения с grammar.pest зафиксированы явно** (не тихо разрешены в одну сторону): pest ordered choice ↔ tree-sitter GLR + conflicts; pest `_{ ... }` silent rules ↔ tree-sitter `inline`; pest keyword-via-ordered-choice ↔ tree-sitter `word` declaration (not set in v1 — known limitation); pest allows empty-matching rules ↔ tree-sitter forbids (inlined `*_body` rules into parents with `repeat1`); entity record decl shape initial bug (params in parens vs `: Type = {...}`) fixed to mirror pest exactly.
+- **known limitations**: 11/23 PARTIAL examples (GLR conflicts in deep constructs), `word: $.ident` not set, `block_if_else_expr` self-conflict, simplified multiline-string regex.
+- **ноль диффа** в `src/**`, `tests/**`, `src/grammar.pest` — параллельный артефакт, не часть компиляции .mlog (контракт наряда).
+- **docs**: `tree-sitter-mlog/README.md` (полный отчёт: покрытие, контракт, расхождения, known limitations, использование); CHANGELOG (этот блок).
+
 ### Added — adr: ADR-0140 аддендум к ADR-0131 — no-reuse rule + SSOT-registry discipline для диагностических кодов (Naryad #288, P2/adr)
 
 - **ADR-только, без кода**: `docs/adr/0140-diag-codes-adr-addendum.md` — аддендум к ADR-0131 (Accepted 2026-09-10, наряд №255). ADR-0131 уже ответил на вопросы 1-3 постановки (format = `UPPER_SNAKE_CASE`; единая конвенция для `audit.rs` + `semantic.rs`; JSON-вывод `{code, message, span, severity}`). Эти вопросы НЕ переоткрываются.

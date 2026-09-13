@@ -1,0 +1,27 @@
+{
+  "name": "tree-sitter-mlog",
+  "version": "0.19.0",
+  "description": "Tree-sitter grammar for the Metalogos language (.mlog).",
+  "main": "bindings/node",
+  "keywords": [
+    "tree-sitter",
+    "metalogos",
+    "mlog",
+    "parser"
+  ],
+  "license": "Apache-2.0",
+  "author": "ShkodnikAI",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ShkodnikAI/Metalogos-.git",
+    "directory": "tree-sitter-mlog"
+  },
+  "scripts": {
+    "generate": "tree-sitter generate",
+    "test": "tree-sitter test",
+    "parse": "tree-sitter parse"
+  },
+  "dependencies": {
+    "tree-sitter-cli": "^0.25.0"
+  }
+}

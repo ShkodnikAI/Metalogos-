@@ -4,6 +4,29 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — security: TAINT_DEPTH — bounded nesting depth 3 + README/threat-model truth-up (Naryad #295, P1/security)
+
+- **nesting depth**: `expr_is_llm_tainted` was single-level (caught `respond(call_llm(...))` but NOT `respond(upper(call_llm(...)))`). Now bounded-recursive up to `TAINT_NESTING_MAX_DEPTH = 3` — catches depth 2 (`respond(upper(call_llm(...)))`) and depth 3 (`respond(upper(upper(call_llm(...))))`); depth 5 (call_llm at depth 4) is the documented boundary (not caught intraprocedurally; `TAINT_INTERP` catches if a pattern call is involved).
+- **sanitizers at any depth**: `render()`/`escape_html()` wrapping the LLM source at any depth return false (taint lifted) — zero false positives on legitimate code. Test contract (в) verified.
+- **BinaryOp/IfElse/List/FieldAccess/IndexAccess propagation**: bounded-recursive check now propagates through compound expressions (not just FnCall chains). Test: `respond("prefix: " + call_llm(...))` → HTML_INJECTION (BinaryOp arm).
+- **reflex_generate** (Наряд №201): LLM-output-equivalent source — `is_llm_source("reflex_generate")` returns true regardless of feature gates (static audit, not runtime-gated). Test: `respond(upper(reflex_generate(...)))` → HTML_INJECTION.
+- **persistence truth-up** (no code change — README/threat-model only): `TAINT_PERSISTENCE` check (наряды №141/№157) catches LLM output stored via `memorize()` and read back via `recall()` reaching `respond()` — **at file/module scope** (any scope with `recall + respond` AND any `memorize` with LLM source anywhere in declarations). The previous README row "Data flow through persistence is not tracked" was misleading — the check EXISTS, it's just bounded to file scope, not cross-module data-flow. README row rewritten.
+- **`query(format(...))` truth-up** (no code change): `check_sql_dynamic` (Наряд №78) **loudly rejects** any non-literal in the 1st argument of `query()`/`db_execute()` — including `format(...)` (`Expr::FnCall`, not `Expr::StringLit`). Test: `tests/check_integration.rs:71-90` "non-literal SQL must be a compile-time error". The previous README row "not detected" was wrong — it IS detected and loudly rejected. README row removed; threat-model entry rewritten as "NOT a gap".
+- **README "Known boundaries"** truth-up:
+  * Removed: "LLM output stored via `memorize()` then read back via `recall()` — Data flow through persistence is not tracked" (misleading — check exists since №141, bounded to file scope).
+  * Removed: "`query(format("...", x))` — `format()` output is not a literal string; check requires compile-time constant" (wrong — check_sql_dynamic rejects ALL non-literals, including format).
+  * Added: "LLM output nested deeper than 3 levels of non-pattern function calls — `expr_is_llm_tainted` is bounded (Наряд №295); `TAINT_INTERP` catches via summary if a pattern call is involved".
+  * Updated intro: "bounded to nesting depth `TAINT_NESTING_MAX_DEPTH = 3` (Наряд №295)".
+- **docs/threat-model.md "Known Boundaries"** truth-up: persistence entry rewritten (file-scope check exists); `query(format(...))` entry rewritten as "NOT a gap"; nesting entry added.
+- **tests** (`tests/naryad_295_taint_depth.rs`, 8 tests, all green):
+  * (а) depth 2 — `respond(upper(call_llm(...)))` → HTML_INJECTION.
+  * (б) depth 3 — `respond(upper(upper(call_llm(...))))` → HTML_INJECTION.
+  * (в) render/escape_html at depth 2 → NOT flagged.
+  * (г) depth 5 (call_llm at depth 4) → NOT flagged (documented boundary).
+  * Additional: depth 1 no regression; BinaryOp with LLM operand; reflex_generate at depth 2.
+- **no changes** to `check_sql_dynamic` (contract: it's correct; only documentation truth-up).
+- **no changes** to existing check_id semantics.
+
 ### Added — feature: VISION_REALW — формальный No-Go, real-weights run остаётся PARKED (Naryad #294, P0/feature)
 
 - **вердикт**: **No-Go** — исполнение runbook №237 невозможно в текущей среде; железо-гейт не пройден. Дата: 2026-09-14.

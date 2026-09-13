@@ -282,15 +282,79 @@ fn binding_taint(value: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
     get_expr_taint(value, tracker)
 }
 
+/// Maximum nesting depth for `expr_is_llm_tainted` recursion.
+/// Баунделенная константа — prevent stack overflow on deeply nested
+/// expressions. Громкое примечание при превышении — анализ отказывается
+/// идти глубже, но это не crash, и documented в README "Known boundaries".
+/// Наряд №295 (issue #359): was single-level (depth=1), now 3.
+const TAINT_NESTING_MAX_DEPTH: usize = 3;
+
 /// Check whether an expression carries LLM-output taint.
 /// Handles both variable references (via tracker) and direct LLM
-/// function calls (call_llm / call_claude) without an intermediate
-/// variable binding. Single-level nesting only — interprocedural
-/// analysis is a separate, larger task.
+/// function calls (call_llm / call_claude / reflex_generate) without
+/// an intermediate variable binding.
+///
+/// Наряд №295 (issue #359): was single-level nesting only (`FnCall { name: "call_llm", .. }`
+/// matched directly; `upper(call_llm(...))` did NOT match because the outer
+/// FnCall name was "upper"). Now bounded-recursive up to
+/// `TAINT_NESTING_MAX_DEPTH = 3` — catches `respond(upper(upper(call_llm(...))))`
+/// and equivalent chains. Sanitizers (`render`/`escape_html`) at any depth
+/// return false (taint lifted) — zero false positives on legitimate code.
+///
+/// Interprocedural analysis (across pattern-call boundaries) is a separate
+/// check (`check_taint_interp_pattern`, Наряд №292).
 fn expr_is_llm_tainted(expr: &Expr, tracker: &TaintTracker) -> bool {
+    expr_is_llm_tainted_bounded(expr, tracker, 0)
+}
+
+fn expr_is_llm_tainted_bounded(expr: &Expr, tracker: &TaintTracker, depth: usize) -> bool {
+    if depth > TAINT_NESTING_MAX_DEPTH {
+        // Громкое примечание не выдается здесь (return false) — README
+        // "Known boundaries" документирует границу. Interprocedural
+        // taint (TAINT_INTERP, Наряд №292) ловит через summary-based analysis.
+        return false;
+    }
     match expr {
         Expr::Ident { name, .. } => tracker.get_taint(name) == Some(TaintKind::LlmOutput),
-        Expr::FnCall { name, .. } => is_llm_source(name),
+        Expr::FnCall { name, args, .. } => {
+            // Direct LLM source — return true regardless of depth.
+            if is_llm_source(name) {
+                return true;
+            }
+            // Sanitizers lift the taint — render()/escape_html() at any depth.
+            if name == "render" || name == "escape_html" {
+                return false;
+            }
+            // Recurse into args — bounded nesting. Any arg that's
+            // LLM-tainted (directly or through a bounded sub-chain) → true.
+            args.iter()
+                .any(|arg| expr_is_llm_tainted_bounded(arg, tracker, depth + 1))
+        }
+        // BinaryOp / IfElse / List / FieldAccess / IndexAccess — recurse
+        // into sub-expressions (mirrors `get_expr_taint` propagation).
+        Expr::BinaryOp { left, right, .. } => {
+            expr_is_llm_tainted_bounded(left, tracker, depth + 1)
+                || expr_is_llm_tainted_bounded(right, tracker, depth + 1)
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            expr_is_llm_tainted_bounded(condition, tracker, depth + 1)
+                || expr_is_llm_tainted_bounded(then_branch, tracker, depth + 1)
+                || expr_is_llm_tainted_bounded(else_branch, tracker, depth + 1)
+        }
+        Expr::List { items, .. } => items
+            .iter()
+            .any(|item| expr_is_llm_tainted_bounded(item, tracker, depth + 1)),
+        Expr::FieldAccess { object, .. } => expr_is_llm_tainted_bounded(object, tracker, depth + 1),
+        Expr::IndexAccess { object, index, .. } => {
+            expr_is_llm_tainted_bounded(object, tracker, depth + 1)
+                || expr_is_llm_tainted_bounded(index, tracker, depth + 1)
+        }
+        // Literals, struct literals, etc. — never LLM-tainted directly.
         _ => false,
     }
 }

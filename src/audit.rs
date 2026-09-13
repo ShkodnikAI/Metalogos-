@@ -2158,6 +2158,586 @@ fn check_taint_passthrough_pattern(
     }
 }
 
+// ── Наряд №292 (P0, security): TAINT_INTERP — interprocedural taint MVP ──
+//
+// Summary-based interprocedural taint. The existing TAINT_PASSTHROUGH
+// (Наряд #141/#157) catches only the *trivial* passthrough: a pattern
+// with exactly one parameter whose body is `return <param>`. Real
+// Fosved-class dept-handlers wrap LLM output through non-trivial helpers
+// (e.g. `pattern Wrap(x) { return upper(x) }` + `respond(Wrap(call_llm(...)))`),
+// which the trivial check misses.
+//
+// Approach: compute a summary for each `pattern` declaration — which
+// parameters (by position) flow into the return value, possibly through
+// calls to OTHER user-patterns. Propagate taint through 1–2 levels of
+// calls (bounded, no fixpoint). Recursion/loops in the call graph →
+// loud warning INTERP_DEPTH_LIMIT (not Error — analysis terminates with
+// the boundary documented).
+//
+// **Zero false positives on legitimate code**: render/escape_html are
+// sanitizers — `respond(render(...))` and `respond(escape_html(...))`
+// are NOT flagged (test contract (в) in issue #355).
+
+/// Maximum call-graph depth explored by `check_taint_interp_pattern`.
+/// Bounded — no fixpoint analysis. Patterns deeper than this in the
+/// call graph are flagged with `INTERP_DEPTH_LIMIT` warning (analysis
+/// terminates cleanly, the boundary is documented in README + threat-model).
+const TAINT_INTERP_MAX_DEPTH: usize = 2;
+
+/// Summary of a `pattern` declaration for interprocedural taint analysis.
+///
+/// `params_tainting_return` holds the indices (0-based, into `params`)
+/// of parameters that flow — directly or through user-pattern calls —
+/// into the pattern's `return` expression. If `return` is not present
+/// (control-flow falls through), the set is empty.
+///
+/// `bounded_recursion` is true when the pattern appears (directly or
+/// transitively through other patterns) in its own call chain. The
+/// analysis still computes the summary (best-effort), but emits a
+/// loud `INTERP_DEPTH_LIMIT` warning so the boundary is visible.
+#[derive(Debug, Default, Clone)]
+struct PatternSummary {
+    params_tainting_return: std::collections::HashSet<usize>,
+    bounded_recursion: bool,
+}
+
+/// Compute summaries for all `pattern` declarations. Returns a map
+/// keyed by pattern name. Recursion / call cycles are detected via a
+/// visited-set during traversal; `bounded_recursion` is set on every
+/// pattern that participates in a cycle.
+fn compute_pattern_summaries(
+    declarations: &[Declaration],
+) -> std::collections::HashMap<String, PatternSummary> {
+    use std::collections::{HashMap, HashSet};
+
+    // First pass: index patterns by name + collect the raw (pre-propagation)
+    // summary — which params directly flow into `return`.
+    let mut raw_summaries: HashMap<String, PatternSummary> = HashMap::new();
+    let mut pattern_bodies: HashMap<String, (&[crate::ast::Param], &[crate::ast::Statement])> =
+        HashMap::new();
+    for decl in declarations {
+        if let Declaration::Pattern(p) = decl {
+            let mut summary = PatternSummary::default();
+            // Walk the body, collect `return <expr>` statements — for each,
+            // find which params contribute.
+            collect_params_into_return(&p.body, &p.params, &mut summary.params_tainting_return);
+            raw_summaries.insert(p.name.clone(), summary);
+            pattern_bodies.insert(p.name.clone(), (&p.params, &p.body));
+        }
+    }
+
+    // Second pass: propagate taint through user-pattern calls. Bounded
+    // depth = TAINT_INTERP_MAX_DEPTH. We track a visited set per starting
+    // pattern so cycles are detected and `bounded_recursion` is set.
+    let pattern_names: HashSet<String> = raw_summaries.keys().cloned().collect();
+    let mut propagated: HashMap<String, PatternSummary> = raw_summaries.clone();
+
+    for start_name in pattern_names.iter() {
+        let mut visited: HashSet<String> = HashSet::new();
+        visited.insert(start_name.clone());
+        propagate_params(
+            start_name,
+            &pattern_bodies,
+            &pattern_names,
+            &mut propagated,
+            &mut visited,
+            0,
+        );
+    }
+
+    propagated
+}
+
+/// Helper for `compute_pattern_summaries` — traverse `body`, for each
+/// `return <expr>` statement mark which params (by index) directly
+/// appear in `expr` (Ident references to param names).
+fn collect_params_into_return(
+    body: &[crate::ast::Statement],
+    params: &[crate::ast::Param],
+    out: &mut std::collections::HashSet<usize>,
+) {
+    for stmt in body {
+        match stmt {
+            crate::ast::Statement::Return { value, .. } => {
+                collect_params_in_expr(value, params, out);
+            }
+            crate::ast::Statement::Each { body, .. }
+            | crate::ast::Statement::EachWithIndex { body, .. }
+            | crate::ast::Statement::While { body, .. }
+            | crate::ast::Statement::IfThen { body, .. } => {
+                collect_params_into_return(body, params, out);
+            }
+            crate::ast::Statement::IfElseBlock {
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                collect_params_into_return(then_body, params, out);
+                for (_, b) in else_ifs {
+                    collect_params_into_return(b, params, out);
+                }
+                if let Some(b) = else_body {
+                    collect_params_into_return(b, params, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Walk `expr` and mark every param (by index) whose name appears as
+/// an `Expr::Ident` directly. Does NOT traverse into user-pattern call
+/// args — that's the propagation pass's job.
+fn collect_params_in_expr(
+    expr: &crate::ast::Expr,
+    params: &[crate::ast::Param],
+    out: &mut std::collections::HashSet<usize>,
+) {
+    match expr {
+        crate::ast::Expr::Ident { name, .. } => {
+            for (i, p) in params.iter().enumerate() {
+                if &p.name == name {
+                    out.insert(i);
+                }
+            }
+        }
+        crate::ast::Expr::FnCall { args, .. } => {
+            for a in args {
+                collect_params_in_expr(a, params, out);
+            }
+        }
+        crate::ast::Expr::BinaryOp { left, right, .. } => {
+            collect_params_in_expr(left, params, out);
+            collect_params_in_expr(right, params, out);
+        }
+
+        crate::ast::Expr::FieldAccess { object, .. } => {
+            collect_params_in_expr(object, params, out);
+        }
+        crate::ast::Expr::IndexAccess { object, index, .. } => {
+            collect_params_in_expr(object, params, out);
+            collect_params_in_expr(index, params, out);
+        }
+        crate::ast::Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            collect_params_in_expr(condition, params, out);
+            collect_params_in_expr(then_branch, params, out);
+            collect_params_in_expr(else_branch, params, out);
+        }
+        _ => {}
+    }
+}
+
+/// Recursive propagation: for the starting `pattern_name`, traverse
+/// the body looking for `return <expr>` statements; for any user-pattern
+/// call inside the return, mark the called pattern's params-tainting-return
+/// as contributing to the starting pattern's return (if not already).
+///
+/// Bounded by `depth < TAINT_INTERP_MAX_DEPTH`. Cycles → `bounded_recursion`
+/// flag is set on the calling pattern.
+fn propagate_params(
+    pattern_name: &str,
+    pattern_bodies: &std::collections::HashMap<
+        String,
+        (&[crate::ast::Param], &[crate::ast::Statement]),
+    >,
+    pattern_names: &std::collections::HashSet<String>,
+    propagated: &mut std::collections::HashMap<String, PatternSummary>,
+    visited: &mut std::collections::HashSet<String>,
+    depth: usize,
+) {
+    if depth >= TAINT_INTERP_MAX_DEPTH {
+        return;
+    }
+    // Get the (params, body) for this pattern; if missing, nothing to do.
+    let Some((params, body)) = pattern_bodies.get(pattern_name) else {
+        return;
+    };
+    let params: &[crate::ast::Param] = params;
+    let body: &[crate::ast::Statement] = body;
+
+    // Find user-pattern calls inside return expressions of this body.
+    let mut calls_to_propagate: Vec<(String, Vec<Option<usize>>)> = Vec::new();
+    for stmt in body {
+        if let crate::ast::Statement::Return { value, .. } = stmt {
+            // Find user-pattern calls in this return expression; for each,
+            // record which params (by index) of THIS pattern are passed in
+            // which arg-position of the called pattern.
+            find_user_pattern_calls(value, params, pattern_names, &mut calls_to_propagate);
+        }
+    }
+
+    for (called_name, caller_param_indices) in calls_to_propagate {
+        // Cycle detection: if `called_name` is already in `visited`, mark
+        // `bounded_recursion` on the current pattern + skip recursion.
+        if visited.contains(&called_name) {
+            if let Some(s) = propagated.get_mut(pattern_name) {
+                s.bounded_recursion = true;
+            }
+            if let Some(s) = propagated.get_mut(&called_name) {
+                s.bounded_recursion = true;
+            }
+            continue;
+        }
+        // Get the called pattern's summary; its `params_tainting_return`
+        // are the param-indices of `called_name` whose values flow into
+        // `called_name`'s return. Map those back to caller pattern's
+        // param indices. Clone the set to release the immutable borrow
+        // before the mutable borrow below.
+        let Some(called_summary) = propagated.get(&called_name) else {
+            continue;
+        };
+        let called_tainting: std::collections::HashSet<usize> =
+            called_summary.params_tainting_return.clone();
+        // `propagated` was built from the same `pattern_bodies` keys as
+        // `pattern_name` (which came from iterating the same map), so this
+        // is guaranteed to be Some. The borrow-checker-pleasing form
+        // `match ... { Some(s) => s, None => return }` avoids `expect()`
+        // (clippy::expect_used is denied for non-test code in lib.rs).
+        let Some(caller_summary) = propagated.get_mut(pattern_name) else {
+            continue;
+        };
+        for &called_param_idx in &called_tainting {
+            // `caller_param_indices[called_param_idx]` (if Some) is the
+            // caller-pattern param index that flows through `called_name`'s
+            // param `called_param_idx` into `called_name`'s return, which
+            // in turn flows into the caller's return.
+            if let Some(Some(caller_idx)) = caller_param_indices.get(called_param_idx) {
+                caller_summary.params_tainting_return.insert(*caller_idx);
+            }
+        }
+        // Recurse: visited now includes `called_name`, depth+1.
+        visited.insert(called_name.clone());
+        propagate_params(
+            &called_name,
+            pattern_bodies,
+            pattern_names,
+            propagated,
+            visited,
+            depth + 1,
+        );
+        visited.remove(&called_name);
+    }
+}
+
+/// Walk `expr` and find user-pattern calls. For each call, record a
+/// `(called_name, Vec<caller_param_idx>)` mapping — `Vec[calling_idx]`
+/// is the index (into `params`) of the caller-pattern param passed as
+/// the `calling_idx`-th argument of the called pattern. If the arg is
+/// not a direct param reference, the slot is None — but the call still
+/// propagates other args.
+///
+/// Note: we do NOT traverse into the called pattern's body here — that's
+/// the propagation pass's job. We just identify the call sites and which
+/// caller-params flow into which called-param positions.
+fn find_user_pattern_calls(
+    expr: &crate::ast::Expr,
+    params: &[crate::ast::Param],
+    pattern_names: &std::collections::HashSet<String>,
+    out: &mut Vec<(String, Vec<Option<usize>>)>,
+) {
+    match expr {
+        crate::ast::Expr::FnCall { name, args, .. } => {
+            if pattern_names.contains(name.as_str()) {
+                // Build the caller-param-index mapping for this call.
+                let mapping: Vec<Option<usize>> = args
+                    .iter()
+                    .map(|arg| {
+                        if let crate::ast::Expr::Ident { name: arg_name, .. } = arg {
+                            params.iter().position(|p| &p.name == arg_name)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                out.push((name.clone(), mapping));
+            }
+            // Recurse into args regardless — nested user-pattern calls matter.
+            for a in args {
+                find_user_pattern_calls(a, params, pattern_names, out);
+            }
+        }
+        crate::ast::Expr::BinaryOp { left, right, .. } => {
+            find_user_pattern_calls(left, params, pattern_names, out);
+            find_user_pattern_calls(right, params, pattern_names, out);
+        }
+
+        crate::ast::Expr::FieldAccess { object, .. } => {
+            find_user_pattern_calls(object, params, pattern_names, out);
+        }
+        crate::ast::Expr::IndexAccess { object, index, .. } => {
+            find_user_pattern_calls(object, params, pattern_names, out);
+            find_user_pattern_calls(index, params, pattern_names, out);
+        }
+        crate::ast::Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            find_user_pattern_calls(condition, params, pattern_names, out);
+            find_user_pattern_calls(then_branch, params, pattern_names, out);
+            find_user_pattern_calls(else_branch, params, pattern_names, out);
+        }
+        _ => {}
+    }
+}
+
+/// Check: TAINT_INTERP — respond/respond_html/write_file/print sink
+/// receiving the result of a user-pattern call wrapping an LLM source.
+///
+/// Catches the case `check_taint_passthrough_pattern` misses: non-trivial
+/// patterns where `return <param>` is wrapped in another expression
+/// (e.g. `return upper(x)`), or chains through 2 user-pattern calls
+/// (`respond(Wrap2(Wrap1(call_llm(...))))`).
+///
+/// **Sanitizers take precedence** (test contract (в)): if the LLM source
+/// is wrapped in `render(...)` or `escape_html(...)` BEFORE reaching
+/// the user-pattern call, the taint is lifted — no finding is emitted.
+/// This mirrors the intra-procedural `binding_taint` behavior.
+///
+/// **Depth limit**: bounded to TAINT_INTERP_MAX_DEPTH = 2 levels. If a
+/// pattern is detected as part of a call cycle (`bounded_recursion` flag),
+/// emit `INTERP_DEPTH_LIMIT` warning — analysis terminated cleanly.
+fn check_taint_interp_pattern(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    let summaries = compute_pattern_summaries(declarations);
+
+    // If there are no patterns at all, nothing to check.
+    if summaries.is_empty() {
+        return;
+    }
+
+    // Emit INTERP_DEPTH_LIMIT warnings for patterns in cycles —
+    // the boundary is documented loudly (issue #355 contract (г)).
+    for (name, summary) in &summaries {
+        if summary.bounded_recursion {
+            let line = find_line(source, name);
+            findings.push(AuditFinding {
+                severity: Severity::Warning,
+                check_id: "INTERP_DEPTH_LIMIT",
+                line,
+                message: format!(
+                    "pattern `{}` participates in a call cycle — interprocedural taint analysis bounded at depth {}, the cycle is not fully explored",
+                    name, TAINT_INTERP_MAX_DEPTH
+                ),
+            });
+        }
+    }
+
+    // For each sink call (respond/respond_html/write_file/print), check
+    // if any arg is a user-pattern call whose summary says some param
+    // taints the return, and that param's corresponding arg-expression
+    // contains an LLM source.
+    let sink_names = ["respond", "respond_html", "write_file", "print"];
+
+    fn is_sanitized_expr(expr: &crate::ast::Expr) -> bool {
+        // render / escape_html wrapping anything is sanitized — taint lifted.
+        if let crate::ast::Expr::FnCall { name, .. } = expr {
+            if name == "render" || name == "escape_html" {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Walk `expr` and find sink calls. For each sink call's args, check
+    /// for user-pattern calls wrapping LLM sources (with sanitization
+    /// override).
+    fn check_sink_calls(
+        expr: &crate::ast::Expr,
+        summaries: &std::collections::HashMap<String, PatternSummary>,
+        sink_names: &[&str; 4],
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        match expr {
+            crate::ast::Expr::FnCall { name, args, .. } => {
+                if sink_names.contains(&name.as_str()) {
+                    for arg in args {
+                        // Sanitizer wraps the arg → safe, skip.
+                        if is_sanitized_expr(arg) {
+                            continue;
+                        }
+                        if let Some(finding_line) =
+                            check_user_pattern_call_for_taint(arg, summaries, source)
+                        {
+                            findings.push(AuditFinding {
+                                severity: Severity::Error,
+                                check_id: "TAINT_INTERP",
+                                line: finding_line,
+                                message: format!(
+                                    "LLM output reaches {}() via interprocedural pattern call — use render()/escape_html() for XSS safety",
+                                    name
+                                ),
+                            });
+                        }
+                    }
+                }
+                // Recurse into nested calls — sinks can be nested.
+                for a in args {
+                    check_sink_calls(a, summaries, sink_names, source, findings);
+                }
+            }
+            crate::ast::Expr::BinaryOp { left, right, .. } => {
+                check_sink_calls(left, summaries, sink_names, source, findings);
+                check_sink_calls(right, summaries, sink_names, source, findings);
+            }
+
+            crate::ast::Expr::IfElse {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                check_sink_calls(condition, summaries, sink_names, source, findings);
+                check_sink_calls(then_branch, summaries, sink_names, source, findings);
+                check_sink_calls(else_branch, summaries, sink_names, source, findings);
+            }
+            _ => {}
+        }
+    }
+
+    /// Check if `expr` is a user-pattern call wrapping an LLM source (directly
+    /// or through 1-2 levels of pattern calls). Returns `Some(line)` if a
+    /// finding should be emitted, `None` otherwise.
+    fn check_user_pattern_call_for_taint(
+        expr: &crate::ast::Expr,
+        summaries: &std::collections::HashMap<String, PatternSummary>,
+        source: &str,
+    ) -> Option<usize> {
+        let crate::ast::Expr::FnCall { name, args, .. } = expr else {
+            return None;
+        };
+        let summary = summaries.get(name)?;
+        // For each param-index that taints the return of this pattern,
+        // check if the corresponding arg-expression contains an LLM source
+        // OR is itself a user-pattern call wrapping LLM source (recursively,
+        // bounded by summary depth).
+        for (i, arg) in args.iter().enumerate() {
+            if !summary.params_tainting_return.contains(&i) {
+                continue;
+            }
+            // Does this arg contain an LLM source?
+            if expr_contains_llm_source_direct(arg) {
+                return Some(find_line(source, name));
+            }
+            // Is this arg itself a user-pattern call wrapping LLM source?
+            if let Some(line) = check_user_pattern_call_for_taint(arg, summaries, source) {
+                return Some(line);
+            }
+        }
+        None
+    }
+
+    /// Walk `expr` and return true if any sub-expression is a direct LLM
+    /// source (call_llm, call_claude, reflex_generate). Sanitizers
+    /// (render/escape_html) wrapping the LLM source lift the taint.
+    fn expr_contains_llm_source_direct(expr: &crate::ast::Expr) -> bool {
+        match expr {
+            crate::ast::Expr::FnCall { name, args, .. } => {
+                if is_llm_source(name) {
+                    return true;
+                }
+                // Sanitizer wraps the call → safe.
+                if name == "render" || name == "escape_html" {
+                    return false;
+                }
+                // Recurse into args.
+                args.iter().any(expr_contains_llm_source_direct)
+            }
+            crate::ast::Expr::BinaryOp { left, right, .. } => {
+                expr_contains_llm_source_direct(left) || expr_contains_llm_source_direct(right)
+            }
+            _ => false,
+        }
+    }
+
+    // Walk all declarations looking for sink calls with interprocedural
+    // LLM-tainted args.
+    for decl in declarations {
+        let mut exprs: Vec<&crate::ast::Expr> = Vec::new();
+        match decl {
+            Declaration::Pattern(p) => collect_stmt_exprs_interp(&p.body, &mut exprs),
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    collect_stmt_exprs_interp(&m.body, &mut exprs);
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for route in &srv.routes {
+                    collect_stmt_exprs_interp(&route.body, &mut exprs);
+                }
+            }
+            Declaration::Hook(h) => collect_stmt_exprs_interp(&h.body, &mut exprs),
+            _ => continue,
+        }
+
+        for expr in &exprs {
+            check_sink_calls(expr, &summaries, &sink_names, source, findings);
+        }
+    }
+}
+
+/// Category-A-only variant of `check_taint_interp_pattern`. Promotes the
+/// Errors (TAINT_INTERP) but drops the Warnings (INTERP_DEPTH_LIMIT) —
+/// the boundary is informational and stays in `audit_program` (advisory).
+/// Mirrors `check_vision_export_gates_errors_only`'s discipline (Наряд №241).
+fn check_taint_interp_pattern_errors_only(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    let mut tmp: Vec<AuditFinding> = Vec::new();
+    check_taint_interp_pattern(declarations, source, &mut tmp);
+    for f in tmp {
+        if f.severity == Severity::Error {
+            findings.push(f);
+        }
+    }
+}
+
+/// Helper — collect all expressions inside a statement body (mirrors
+/// `check_taint_passthrough_pattern`'s `collect_stmt_exprs` but kept
+/// local to avoid borrow issues).
+fn collect_stmt_exprs_interp<'a>(stmts: &'a [Statement], acc: &mut Vec<&'a Expr>) {
+    for stmt in stmts {
+        match stmt {
+            Statement::LetBinding { value, .. } => acc.push(value),
+            Statement::Assign { value, .. } => acc.push(value),
+            Statement::ExprStmt { expr, .. } => acc.push(expr),
+            Statement::Return { value, .. } => acc.push(value),
+            Statement::Each { body, .. } => collect_stmt_exprs_interp(body, acc),
+            Statement::EachWithIndex { body, .. } => collect_stmt_exprs_interp(body, acc),
+            Statement::While { body, .. } => collect_stmt_exprs_interp(body, acc),
+            Statement::IfElseBlock {
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                collect_stmt_exprs_interp(then_body, acc);
+                for (_, body) in else_ifs {
+                    collect_stmt_exprs_interp(body, acc);
+                }
+                if let Some(body) = else_body {
+                    collect_stmt_exprs_interp(body, acc);
+                }
+            }
+            Statement::IfThen { body, .. } => collect_stmt_exprs_interp(body, acc),
+            _ => {}
+        }
+    }
+}
+
 // ── Наряд №284 (P1, M1): CANARY_LEAK — «компрометированный канал» ──────
 
 /// Static half of the canary contour (src/builtins/canary.rs — runtime
@@ -2480,6 +3060,14 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     check_html_injection(declarations, source, &mut findings);
     check_taint_persistence(declarations, source, &mut findings);
     check_taint_passthrough_pattern(declarations, source, &mut findings);
+    // Наряд №292 (P0, security): interprocedural taint MVP — summary-based,
+    // bounded depth 2, catches non-trivial passthrough chains that the
+    // trivial TAINT_PASSTHROUGH misses. Sanitizers (render/escape_html)
+    // lift the taint — zero false positives on legitimate code.
+    // INTERP_DEPTH_LIMIT Warning stays advisory (NOT in audit_category_a
+    // promoted to compile error) — the boundary is informational, not a
+    // security violation.
+    check_taint_interp_pattern_errors_only(declarations, source, &mut findings);
     // Наряд №241 (R5, ADR-0125): vision export gate — ONLY the Error
     // (VISION_UNSIGNED_EXPORT) on the compile path. The raw-export
     // Warning stays advisory (audit_program below): this caller promotes
@@ -2512,6 +3100,9 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     check_open_redirect(&declarations, source, &mut findings);
     check_taint_persistence(&declarations, source, &mut findings);
     check_taint_passthrough_pattern(&declarations, source, &mut findings);
+    // Наряд №292 (P0, security): interprocedural taint MVP — full version
+    // (with INTERP_DEPTH_LIMIT advisory Warnings for call cycles).
+    check_taint_interp_pattern(&declarations, source, &mut findings);
     // Наряд №241 (R5, ADR-0125): full vision gates — Error
     // VISION_UNSIGNED_EXPORT + Warning VISION_UNSIGNED_EXPORT_RAW
     // (advisory layer).

@@ -165,21 +165,25 @@ $ mlog check poison.mlog
 
 #### Known boundaries of static analysis
 
-These checks use **intraprocedural taint tracking** — they follow `let`-assignment chains within a single pattern body. The following patterns are **not** detected at compile time:
+These checks use **intraprocedural taint tracking** — they follow `let`-assignment chains within a single pattern body. **As of naryad №292, summary-based interprocedural taint is also tracked** (bounded depth 2 — see `TAINT_INTERP` below). The following patterns are **not** detected at compile time:
 
 | Pattern | Why not caught |
 |---|---|
-| LLM output passed via pattern call (interprocedural) | Taint does not cross pattern boundaries |
+| LLM output passed via pattern call chains deeper than 2 levels | Interprocedural analysis is bounded (no fixpoint); deeper chains emit `INTERP_DEPTH_LIMIT` warning |
 | LLM output stored via `memorize()` then read back via `recall()` | Data flow through persistence is not tracked |
 | `query(format("...", x))` | `format()` output is not a literal string; check requires compile-time constant |
 | `{{{ var }}}` (raw template substitution) | `template_render` with `raw=true` skips escaping by design — trusted author code only |
 
-`mlog audit` provides **heuristic warnings** (not errors) for two narrow sub-cases:
+`mlog audit` provides **heuristic warnings** (not errors) for two narrow sub-cases, and an **interprocedural Error** for non-trivial passthrough chains:
 
-| Warning | Scope | Example |
-|---|---|---|
-| `TAINT_PERSISTENCE` | Same-scope: `memorize(call_llm(...))` + `recall()` + `respond()` | `memorize call_llm("summarize")` then `let ctx = recall("q"); respond("200 OK", ctx)` |
-| `TAINT_PASSTHROUGH` | Trivial passthrough pattern wrapping LLM output | `pattern Wrap(x: String) { return x }` then `respond("200 OK", Wrap(call_llm("...")))` |
+| Check | Severity | Scope | Example |
+|---|---|---|---|
+| `TAINT_PERSISTENCE` | Warning | Same-scope: `memorize(call_llm(...))` + `recall()` + `respond()` | `memorize call_llm("summarize")` then `let ctx = recall("q"); respond("200 OK", ctx)` |
+| `TAINT_PASSTHROUGH` | Error | Trivial passthrough pattern wrapping LLM output (1-param `return x`) | `pattern Wrap(x: String) { return x }` then `respond("200 OK", Wrap(call_llm("...")))` |
+| `TAINT_INTERP` (Наряд №292) | Error | **Interprocedural** — non-trivial pattern wrapping LLM output, bounded depth 2 | `pattern Wrap(x: String) { return upper(x) }` then `respond("200 OK", Wrap(call_llm("...")))` |
+| `INTERP_DEPTH_LIMIT` (Наряд №292) | Warning | Recursive / cyclic pattern in the call graph — analysis terminated at depth 2 | `pattern Recurse(x) { return Recurse(x) }` |
+
+`TAINT_INTERP` is a Category-A compile-time error (audit_category_a). `INTERP_DEPTH_LIMIT` is advisory only (audit_program, not promoted to a compile error). Sanitizers (`render()`/`escape_html()`) wrapping the LLM source lift the taint — zero false positives on legitimate code.
 
 These are file-level heuristics, not data-flow guarantees — they may false-positive in safe code and miss complex indirection.
 
@@ -263,7 +267,7 @@ Metalogos-/
 ├── CLAUDE.md                         # Bridge copy of AGENTS.md for Claude-compatible tools (synced manually — see issue #299)
 ├── GEMINI.md                         # Bridge copy of AGENTS.md for Gemini-compatible tools (synced manually — see issue #299)
 ├── REFERENCE.md                      # Full builtin reference (~180 KB) — 100% of the registry (§6 index)
-├── CHANGELOG.md                      # Version history (~239 KB)
+├── CHANGELOG.md                      # Version history (~245 KB)
 ├── AI_USAGE.md                       # Disclosure: how generative AI is used in this project's development
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap

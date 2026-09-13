@@ -25,7 +25,8 @@ miss complex indirection. They produce warnings, not errors.
 | `SECRETS` | Hardcoded secrets in source | Regex scan for secret-like patterns in string literals | A02 | Cannot distinguish real secrets from test fixtures or error messages. |
 | `OPEN_REDIRECT` | Open redirect via user-controlled URL | `query_param()` / `json_body()` → `respond_html()` without validation | A01 | Custom URL validation (allowlist) is not recognized by the static check. |
 | `TAINT_PERSISTENCE` | XSS via memorize/recall persistence | File-level: `memorize(call_llm(...))` + same-scope `recall()` + `respond()` | A03 | Data flow through persistence is not tracked. Same-scope heuristic only. |
-| `TAINT_PASSTHROUGH` | XSS via trivial passthrough pattern | `respond(Passthrough(call_llm(...)))` where `Passthrough` is a 1-param `return param` pattern | A03 | Interprocedural taint is not tracked. Only exact trivial passthroughs (1 param, single return) are flagged. |
+| `TAINT_PASSTHROUGH` | XSS via trivial passthrough pattern | `respond(Passthrough(call_llm(...)))` where `Passthrough` is a 1-param `return param` pattern | A03 | Only exact trivial passthroughs (1 param, single return) are flagged. Non-trivial passthroughs (e.g. `return upper(x)`) are caught by the separate `TAINT_INTERP` check (Наряд №292). |
+| `TAINT_INTERP` (Наряд №292) | XSS via interprocedural non-trivial pattern call wrapping LLM output | `respond(Wrap(call_llm(...)))` where `Wrap` is any pattern whose summary says a param flows to the return (e.g. `pattern Wrap(x) { return upper(x) }`), bounded to 2 levels of pattern-call chains | A03 | Summary-based analysis bounded to `TAINT_INTERP_MAX_DEPTH = 2`. Sanitizers (`render()`/`escape_html()`) wrapping the LLM source lift the taint. Recursion / cycles emit `INTERP_DEPTH_LIMIT` warning (analysis terminated cleanly). Full fixpoint / unbounded depth is a separate, larger task. |
 | `SANDBOX_COVERAGE` | Unsandboxed self-modification | `adapt` / `mutate` without enclosing `sandbox` block | A05 | Sandbox is opt-in. External review or infra-level isolation may handle the risk. |
 | `RATE_LIMIT` | Missing rate limiting | No `rate_limit` middleware in `mlogserver` block | A05 | External infra (reverse proxy, CDN) may enforce rate limits. |
 | `CSRF` | Missing CSRF protection | No `csrf` middleware in `mlogserver` block | A01 | Token-authenticated APIs do not need CSRF (cookies not used for auth). Cookie-based sessions do. |
@@ -71,7 +72,7 @@ explicit Warning severities — the three Vision warnings below stay advisory
 
 Patterns the audit does **not** detect (see README for full table):
 
-- **Interprocedural taint**: LLM output passed through a non-trivial pattern call chain.
+- **Interprocedural taint deeper than 2 levels**: as of naryad №292 (`TAINT_INTERP`), summary-based interprocedural taint IS tracked, but bounded to `TAINT_INTERP_MAX_DEPTH = 2` levels of pattern-call chains. Deeper chains emit `INTERP_DEPTH_LIMIT` warning (analysis terminates cleanly). Full fixpoint / unbounded depth is a separate, larger task.
 - **Persistence taint**: LLM output stored via `memorize()` then read back via `recall()` in a different scope.
 - **`format()` in SQL**: `query(format("...", x))` — `format()` output is not a compile-time constant.
 - **Inline nesting in open redirect**: `respond_html(query_param("url"))` — the check only tracks via variable, not inline call.

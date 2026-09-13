@@ -4,6 +4,28 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — security: TAINT_INTERP — межпроцедурный taint MVP, summary-based, bounded depth 2 (Naryad #292, P0/security)
+
+- **new check_id**: `TAINT_INTERP` (Severity: Error, Category A — promoted to compile error via `audit_category_a` → semantic №98). Catches the case `TAINT_PASSTHROUGH` (Наряд #141/#157) misses: non-trivial patterns where `return <param>` is wrapped in another expression (e.g. `return upper(x)`) or chains through 2 user-pattern calls (`respond(Outer(Inner(call_llm(...))))`).
+- **new check_id**: `INTERP_DEPTH_LIMIT` (Severity: Warning, advisory-only in `audit_program` — NOT promoted to compile error). Emitted when a pattern participates in a call cycle (recursion / mutual recursion); analysis terminates cleanly at `TAINT_INTERP_MAX_DEPTH = 2`. The boundary is documented loudly, not silently.
+- **approach** (summary-based interprocedural taint):
+  * `compute_pattern_summaries(decls)` — for each `pattern`, computes `PatternSummary { params_tainting_return: HashSet<param_index>, bounded_recursion: bool }`.
+  * `propagate_params(pattern_name, pattern_bodies, pattern_names, propagated, visited, depth)` — bounded depth 2; cycle detection via `visited` set; `bounded_recursion` flag set on every pattern in a cycle.
+  * `check_taint_interp_pattern` — for each sink call (`respond`/`respond_html`/`write_file`/`print`), check if any arg is a user-pattern call whose summary says some param taints the return, and that param's corresponding arg-expression contains an LLM source (directly or through 1-2 levels of pattern calls).
+- **sanitizers take precedence** (zero false positives on legitimate code, test contract (в)): `render()`/`escape_html()` wrapping the LLM source lift the taint — `respond(render(...))` and `respond(escape_html(...))` are NOT flagged.
+- **wiring**: `check_taint_interp_pattern` is called from `audit_program` (full version, with `INTERP_DEPTH_LIMIT` warnings) and `check_taint_interp_pattern_errors_only` from `audit_category_a` (Errors only, drops the `INTERP_DEPTH_LIMIT` advisory Warnings — mirrors `check_vision_export_gates_errors_only` discipline from Наряд №241).
+- **tests** (`tests/naryad_292_taint_interp.rs`, 10 tests, all green):
+  * (а) `pattern Wrap(x) { return upper(x) }` + `respond(Wrap(call_llm(...)))` → `TAINT_INTERP` (today `TAINT_PASSTHROUGH` misses — non-trivial body).
+  * (б) 2-level chain `respond(Outer(Inner(call_llm(...))))` → `TAINT_INTERP`.
+  * (в) Legitimate path through `render(...)`/`escape_html(...)` → NOT flagged (zero false positives); `render` wrapping pattern call also lifts taint.
+  * (г) Recursive pattern `Recurse(x) { return Recurse(x) }` → `INTERP_DEPTH_LIMIT` warning (analysis terminated, not hung).
+  * Additional: trivial 1-param passthrough (`return x`) still caught by `TAINT_PASSTHROUGH` (not duplicated); pattern not returning its param (`return "constant"`) → no taint flow (correct negative); `respond_html` and `write_file` sinks also trigger `TAINT_INTERP` with non-trivial wrap.
+- **docs**:
+  * README "Known boundaries of static analysis" — `TAINT_INTERP` row added (Error), `INTERP_DEPTH_LIMIT` row added (Warning); "Interprocedural taint deeper than 2 levels" replaces "Taint does not cross pattern boundaries" (now caught at depth ≤2).
+  * `docs/threat-model.md` — `TAINT_INTERP` row added to audit table; "Interprocedural taint" Known Boundaries entry rewritten to reflect bounded depth-2 tracking (was: "LLM output passed through a non-trivial pattern call chain" — now: "deeper than 2 levels").
+- **no changes** to `grammar.pest`/compiler (contract: MVP — pure inference, no `taint`/`sanitized` annotations on signatures — that's a separate naryad after an ADR).
+- **no changes** to existing `TAINT_PASSTHROUGH` semantics — trivial 1-param passthrough still caught by the original check.
+
 ### Added — docs: llms.txt — индекс для агентных инструментов и RAG-пайплайнов (Naryad #291, P3/docs)
 
 - **artifact**: `llms.txt` (новый) — простой markdown-индекс в корне репозитория, следует формату `llmstxt.org` v2 (H1 title, optional blockquote description, bullet list of canonical files). 14 рабочих относительных ссылок на ключевые файлы: AGENTS.md/CLAUDE.md/GEMINI.md (методология), REFERENCE.md (полный справочник), src/grammar.pest (PEG-грамматика), tree-sitter-mlog/grammar.js (параллельная tree-sitter грамматика), examples/ (214 рабочих .mlog-файлов), README.md, CHANGELOG.md, docs/adr/ (132 ADR), docs/threat-model.md, FEATURE_INTAKE.md, AI_USAGE.md, MEMORY_ROADMAP.md.

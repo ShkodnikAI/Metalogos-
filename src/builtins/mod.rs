@@ -209,7 +209,12 @@ pub(crate) mod memory_forget;
 use memory_forget::*;
 #[cfg(feature = "vec")]
 pub use memory_forget::{memory_forget_core, FORGET_BATCH_PREFIX};
+// Наряд №282 (P3, СПАЙК — Tier 3): SMFS-аналог — память как виртуальная
+// read-only ФС (префикс sm:) поверх user_profile №281, перехват в io.rs.
+// Прототип живёт на ветке naryad-282-smfs-profile — в main НЕ мержится
+// (лекало №271); в main идут отчёт docs/research/ и черновик ADR.
 pub(crate) mod cron;
+pub(crate) mod smfs;
 pub use cron::init_reminder_persist;
 use cron::*;
 // Наряд №253: exec-гейт serve-контекста — публичный контракт для тестов

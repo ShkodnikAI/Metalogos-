@@ -245,7 +245,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.19):** This section documents **100%** of the 404 registered builtins (404 of 404): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.19):** This section documents **100%** of the 405 registered builtins (405 of 405): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -279,6 +279,7 @@ All built-in functions are registered in a single registry, `BUILTIN_REGISTRY` (
 | `redact(text, mode)` | `String, String -> String` | String | Masks PII/secrets with deterministic typed masks (`[REDACTED:sk-…abc4]`). mode: `"pii"` (email `***@***.tld`, phone, Luhn-validated cards with vendor, IBAN), `"secrets"` (sk-/AKIA/ghp_ keys, JWT, PEM, Bearer + entropy net: base64/hex runs ≥24 with digit+hex-letter), `"all"`. Unknown mode — loud error. The ONLY builtin whose `"secrets"/"all"` modes clear the `Secret` taint statically — «mask before sink» (ADR-0136); `LlmOutput` is never cleared by redact (only `render`). №284: canary markers `MLOG-CANARY-<id>` are NOT masked (canary ≠ secret — the marker survives redact so №284's invariant holds) |
 | `canary_insert(text, opts?)` | `String[, Struct] -> Struct` | Struct `{CanaryMark}` | Embeds a random canary marker (`MLOG-CANARY-` + 26 base32 chars, 128-bit entropy) into untrusted text BEFORE sending it to the LLM. Returns `{marked_text, canary_id}`. opts: `count` (1..=4, default 1 — same id inserted count times), `position` ("random"|"head"|"tail", default "random"). Loud errors: empty text, text already contains a marker (double-marking), zero-width chars in text BEFORE insertion, count outside 1..=4, unknown position/opts field (№284) |
 | `canary_check(text, canary_id, opts?)` | `String, String[, Struct] -> Struct` | Struct `{CanaryCheck}` | Runtime leak detector: checks the LLM response for the canary marker — exact occurrence + resistant to trivial distortions (case, splitting by whitespace/punctuation). opts: `mode` ("exact" default; "zwsp" additionally ignores zero-width chars U+200B/200C/200D/2060/FEFF inside the marker — in "exact" they DELIBERATELY break the match). Returns `{leaked, id, position}` — position is the CHAR index of the first occurrence in the original text, -1.0 when clean. Leak → runtime CANARY_LEAK warning (stderr) + `llm_usage().canary_leaks` counter; statically, inside `if (r.leaked) {...}` the response is labeled «compromised channel» and sink usage warns CANARY_LEAK. Detector, NOT a gate. Unknown/malformed canary_id (a secret is not a canary) — loud error (№284) |
+| `text_chunk(text, strategy, opts?)` | `String, String[, Struct] -> List` | List of Struct `{TextChunk}` | Structure-aware chunking for the RAG pipeline (№285, RecursiveCharacterTextSplitter-аналог без зависимостей). strategies: `"markdown"` (h1–h3 → sections with `header_path` = "H1 > H2 > H3" metadata ready for vec_store; long sections split by paragraphs; header lines are never torn — a header longer than the budget is a loud error), `"paragraph"` (blocks by double newline, small blocks merged within budget), `"fixed"` (windows with overlap). opts: `max_chars` (default 1200), `overlap` (default 100, CHARACTERS, applied at hard windowing; seam is word-aligned), `max_tokens?` — when set the budget is `token_count` (same SSOT estimate). Cascade "header → paragraph → newline → space" + greedy merge of small pieces. Every chunk: `{index, text, chars, tokens}` (+`header_path` for markdown). Loud errors: unknown strategy, `overlap >= max_chars` (or `>= max_tokens` in token mode), `max_tokens <= 0`, `max_chars <= 0`, unknown opts fields, opts not a Struct. Empty/short text → 1 chunk, not an error |
 
 **Examples:**
 ```mlog
@@ -309,6 +310,13 @@ let m = canary_insert("untrusted tool output")
   // {marked_text: "untrusted MLOG-CANARY-… tool output", canary_id: "MLOG-CANARY-…"}
 canary_check(llm_reply, m.canary_id, {mode: "zwsp"})
   // {leaked: true, id: "MLOG-CANARY-…", position: 17.0} → CANARY_LEAK
+text_chunk(doc, "markdown", {max_chars: 1200, overlap: 100})
+  // [{index: 0, text: "# Guide\n...", chars: 1180.0, tokens: 295.0,
+  //   header_path: "Guide"}, {…, header_path: "Guide > Setup"}, …]
+let chunks = text_chunk(doc, "markdown")
+let c = chunks[0]
+vec_store("kb.db", "sections", c.header_path + "#" + str(c.index), embed(c.text), c.text)
+  // section-aware RAG: search hits carry the header path as id
 ```
 
 ### 4.2. Numbers and math
@@ -1566,7 +1574,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 404 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 405 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENT.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -1967,7 +1975,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `__split(...)` | 2 | — | `__split(s, sep)` — std-library primitive behind the std/string `split` wrapper: splits on the separator into a List of strings. |
 | `__trim(...)` | 1 | — | `__trim(s)` — std-library primitive behind the std/string `trim` wrapper: strips leading and trailing whitespace. The `__` prefix marks a primitive used by `std/*.mlog` pattern wrappers (prefer the wrapper in user code). |
 
-### `string` — 46 builtin(s)
+### `string` — 47 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2006,6 +2014,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `str(...)` | 1 | `Any -> String` | Converts any value to a string |
 | `strip(...)` | 2 | — | `strip(s, chars)` -- remove characters from both ends of string. Naryad #277 (proptest no-panic): the ends are counted independently, so when the two strips overlap (string fully made of strip-chars, e.g. `strip("&", "Ⱥ&")`), `start > len - end` and the slice PANICKED. The correct contract (same as `str::trim_matches` with a set): both ends consuming the whole string yields the empty string. |
 | `substring(...)` | 3 | `String, Float, Float -> String` | Extracts a substring by character indices. Soft-failure: an empty string on out-of-bounds |
+| `text_chunk(...)` | 2..3 | `String, String[, Struct] -> List` | Structure-aware chunking for the RAG pipeline (№285, RecursiveCharacterTextSplitter-аналог без зависимостей). strategies: `"markdown"` (h1–h3 → sections with `header_path` = "H1 > H2 > H3" metadata ready for vec_store; long sections split by paragraphs; header lines are never torn — a header longer than the budget is a loud error), `"paragraph"` (blocks by double newline, small blocks merged within budget), `"fixed"` (windows with overlap). opts: `max_chars` (default 1200), `overlap` (default 100, CHARACTERS, applied at hard windowing; seam is word-aligned), `max_tokens?` — when set the budget is `token_count` (same SSOT estimate). Cascade "header → paragraph → newline → space" + greedy merge of small pieces. Every chunk: `{index, text, chars, tokens}` (+`header_path` for markdown). Loud errors: unknown strategy, `overlap >= max_chars` (or `>= max_tokens` in token mode), `max_tokens <= 0`, `max_chars <= 0`, unknown opts fields, opts not a Struct. Empty/short text → 1 chunk, not an error |
 | `title_case(...)` | 1 | — | `title_case(s)` — uppercases the first character of every word (previous character non-letter acts as the word boundary). |
 | `to_int(...)` | 1 | `String\ | Bool -> Float` |
 | `token_count(...)` | 1 | — | `token_count(text)` — estimate token count. Cyrillic: chars/2, Latin: chars/4. |

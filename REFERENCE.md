@@ -1,6 +1,7 @@
 # METALOGOS — Language Reference
 
-> **Version:** 0.17.0
+> **Version:** 0.19.0
+> **Synced with code:** 2026-09-14 (naryad №319) · 421 builtins · 153 ADR files (145 accepted + 8 reserved)
 > **Single source of truth** for developers writing in Metalogos.
 > Contains the full list of built-in functions with signatures, types, descriptions, and examples,
 > as well as a reference for syntax, data types, and the CLI.

@@ -1,0 +1,1 @@
+EXPECTED: IRREVERSIBLE_NO_GRANT — db_execute DROP без гранта

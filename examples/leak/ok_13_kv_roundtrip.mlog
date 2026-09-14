@@ -1,0 +1,6 @@
+// Легально: локальная память ключ-значение с публичным значением.
+pattern Remember(data: String) -> String {
+  let _ = kv_set("greet", "hello")
+  return kv_get("greet")
+}
+flow Main { input: String = "x" -> Remember -> output }

@@ -1,0 +1,6 @@
+// Легально: публичные данные свободно печатаются.
+pattern Shout(data: String) -> String {
+  let _ = print("PUBLIC: " + upper(data))
+  return "PUBLIC: " + upper(data)
+}
+flow Main { input: String = "announcement" -> Shout -> output }

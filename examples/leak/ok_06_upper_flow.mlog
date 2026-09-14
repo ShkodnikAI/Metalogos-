@@ -1,0 +1,3 @@
+// Легально: публичная строка проходит трансформацию и возвращается.
+pattern Shout(s: String) -> String { return upper(s) + "!" }
+flow Main { input: String = "hello" -> Shout -> output }

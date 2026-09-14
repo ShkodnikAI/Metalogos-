@@ -1,0 +1,1 @@
+EXPECTED: TAINT_PERSISTENCE — вывод LLM через memorize/kv_get попадает в respond

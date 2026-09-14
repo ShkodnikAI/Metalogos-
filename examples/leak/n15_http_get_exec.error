@@ -1,0 +1,1 @@
+EXPECTED: UNTRUSTED_EXEC_DECISION — данные http_get влияют на выбор exec

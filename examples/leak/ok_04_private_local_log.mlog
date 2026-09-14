@@ -1,0 +1,8 @@
+// Легально: приватная запись в ЛОКАЛЬНЫЙ журнал (не сеть) — Internal sink.
+entity note: String = "приватная заметка для внутреннего журнала"
+
+pattern Journal(note: String) -> String {
+  let _ = append_file("target/leak_suite_ok04.log", note)
+  return "logged"
+}
+flow Main { input: String = note -> Journal -> output }

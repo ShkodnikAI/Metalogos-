@@ -1,0 +1,6 @@
+// Легально: хеш публичной строки (необратимая трансформация, детерминированный вывод).
+pattern Fingerprint(data: String) -> String {
+  let _ = print(sha256("leak-suite"))
+  return sha256("leak-suite")
+}
+flow Main { input: String = "x" -> Fingerprint -> output }

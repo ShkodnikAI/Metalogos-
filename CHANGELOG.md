@@ -4,6 +4,13 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — tests: LEAK-SUITE — corpus of "must not compile" contracts + reporting runner (Naryad #317, P0/tests, issue #404)
+
+- **corpus**: `examples/leak/` — 28 negative programs (`n*.mlog` + `n*.error` with `EXPECTED: <CLASS> — <сценарий>`) + 16 positive legal flows (`ok_*.mlog` + calibrated `.expected`). Mandatory scenarios covered: private text to http_post, unconsented voice to cloud (tts_send), http_get→exec prompt-injection, print(secret) class, irreversible db_execute without grant, unmarked synthetic egress (vision_export_raw), untrusted frame taint, secret concat exfiltration; necessary-negatives (redact-before-sink, local journal for private) are positives that must keep passing after №325.
+- **class vocabulary** (SSOT in the runner header): existing audit check_ids (SECRET_LEAK, HTML_INJECTION, UNTRUSTED_FRAME, MEDIA_SYNTHETIC_UNMARKED, SQL_DYNAMIC) + planned №325 lattice classes (PII_EGRESS_NETWORK/OUTPUT, VOICE_EGRESS_UNCONSENTED, UNTRUSTED_EXEC_DECISION, SECRET_TO_EXEC, IRREVERSIBLE_NO_GRANT, SECRET_EGRESS_VCS/NETWORK, UNTRUSTED_EGRESS_NETWORK, TAINT_PERSISTENCE).
+- **runner**: `tests/run_leak_suite.rs` — separate from the main golden cycle (examples/leak/ is a subdirectory; golden.rs scans non-recursively). Compiles every negative, compares the CLASS of the failure (a foreign reason = corpus integrity violation = fail), runs positives against `.expected`. Reporting (non-blocking) until №325 — `BLOCKING: bool` one-attribute switch flips it blocking. Measured today: **11/28 caught (39%), 17 documented holes, 0 mismatches** — the hole is now measured, not invisible.
+- **calibration tooling**: `#[ignore]`d `leak_corpus_calibration_dump` prints actual failure classes (`cargo test --test run_leak_suite leak_corpus_calibration_dump -- --ignored --nocapture`).
+
 ### Changed — video: VIDEO-TEXT-PATH — DiT text conditioning wired, no-stubs re-audit (owner directive 2026-09-14, ADR-0153)
 
 - **text path is real**: `VideoDit::forward` no longer drops the prompt embedding (`_text` dead parameter removed) — the embedding is loudly shape-validated (`[B, text_dim]`), projected by a seeded `Linear(text_dim → hidden_dim)` (streams seed+20/+21, no overlap) and broadcast-added to every token at each denoising step. Prompt conditioning now operates through TWO real paths: seed derivation AND the projected embedding (ADR-0153 D1).

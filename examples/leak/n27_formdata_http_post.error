@@ -1,0 +1,1 @@
+EXPECTED: UNTRUSTED_EGRESS_NETWORK — form_data уходит на внешний хост без redact

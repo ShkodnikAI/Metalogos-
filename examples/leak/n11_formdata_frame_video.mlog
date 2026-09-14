@@ -1,0 +1,7 @@
+// Угроза: пользовательская загрузка становится I2V-якорем без screen+consent.
+// Атака: клонирование likeness загруженного фото без согласия субъекта (ADR-0149 D5/D6).
+pattern Send(data: String) -> String {
+  let _ = video_render("wan-2.2-ti2v-5b", "scene", form_data("frame"))
+  return "rendered"
+}
+flow Main { input: String = data -> Send -> output }

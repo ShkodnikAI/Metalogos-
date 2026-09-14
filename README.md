@@ -204,7 +204,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 
 ### 6. Complete Toolchain in One Binary
 
-`mlog run`, `mlog serve`, `mlog compile`, `mlog repl`, `mlog check`, `mlog audit`, `mlog eval` — all in a single binary. The LSP server (`mlog-lsp`) and package manager (`mlogpkg`) are separate binaries in the same workspace. A VS Code extension with syntax highlighting is included in the repository.
+`mlog run`, `mlog serve`, `mlog mcp-serve`, `mlog compile`, `mlog repl`, `mlog check`, `mlog audit`, `mlog eval` — all in a single binary. The LSP server (`mlog-lsp`) and package manager (`mlogpkg`) are separate binaries in the same workspace. A VS Code extension with syntax highlighting is included in the repository.
 
 ---
 
@@ -242,7 +242,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 
 | Component | Technology | Lines |
 |---|---|---|
-| Parser | Pest 2.7 PEG grammar (~533 lines, 305 rules) | 2 176 |
+| Parser | Pest 2.7 PEG grammar (~534 lines, 305 rules) | 2 176 |
 | AST | 33 Declaration variants, 14 Expr, 12 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION, VISION_UNSIGNED_EXPORT, MODEL_WEIGHTS_UNSAFE), SVG XSS lint | 473 |
 | Compiler | Bytecode, 415 builtins indexed | 1 516 |
@@ -276,16 +276,17 @@ Metalogos-/
 ├── index.html                        # Landing page / docs site
 ├── llms.txt                          # LLMs.txt v2 index for agent tools & RAG pipelines (issue #300)
 │
-├── src/                              # Core compiler + interpreter (~59 000 LOC)
-│   ├── main.rs                        # CLI: run/check/repl/compile/serve/eval/resume/test/audit
-│   ├── grammar.pest                   # Pest PEG grammar (530 lines)
+├── src/                              # Core compiler + interpreter (~93 000 LOC)
+│   ├── main.rs                        # CLI: run/check/repl/compile/serve/mcp-serve/eval/resume/test/audit
+│   ├── grammar.pest                   # Pest PEG grammar (534 lines)
 │   ├── ast.rs                         # AST definitions (29 Decl, 15 Expr, 12 Stmt) + Span tracking
 │   ├── semantic.rs                    # Semantic analysis + opaque type enforcement
 │   ├── compiler.rs                    # Bytecode compiler
 │   ├── bytecode.rs                    # VM instruction set (46 instructions)
 │   ├── vm.rs                          # Bytecode VM executor
 │   ├── server.rs                      # Axum HTTP server + cron scheduler
-│   ├── llm.rs                         # LLM backend trait + providers
+│   ├── llm.rs                         # LLM backend trait + providers + streaming
+│   ├── mcp_server.rs                  # MCP server (stdio JSON-RPC, exposes tool constructs)
 │   ├── memory_store.rs               # Semantic memory + KV store (SQLite)
 │   ├── memory_graph.rs               # Knowledge graph (petgraph)
 │   ├── audit.rs                       # Static security audit
@@ -308,6 +309,9 @@ Metalogos-/
 │   │   ├── conversations.rs           # Conversation state
 │   │   ├── db.rs                      # SQLite database access
 │   │   └── learnable.rs               # Learnable pattern support
+│   │
+│   ├── vision/                       # Vision pillar (feature-gated: images, ADR-0122)
+│   ├── voice/                        # Voice pillar (feature-gated: speech, ADR-0143)
 │   │
 │   └── builtins/                      # 415 built-in functions (38 modules)
 │       ├── mod.rs                     # Builtin dispatch
@@ -348,14 +352,14 @@ Metalogos-/
 │       ├── naryad_198_audit_finds_known_vuln.rs
 │       └── naryad_198_backward_compat.rs
 │
-├── tests/                             # 144 Rust test files
+├── tests/                             # 154 Rust test files
 │   ├── fixtures/                      # PDF test fixtures
 │   ├── golden.rs                      # Golden test runner
 │   ├── vm_golden.rs                   # VM golden tests
 │   ├── crosscheck_backends.rs          # TW vs VM parity (see ADR-0105 for known gaps)
 │   ├── repl_integration.rs            # REPL tests
 │   ├── definition_of_done.rs          # Project completeness validation
-│   └── ...                            # and 130 more contract/feature test files
+│   └── ...                            # and 140 more contract/feature test files
 │
 ├── examples/                          # 214 .mlog programs (golden corpus)
 │   ├── m1_hello.mlog                  # Hello World
@@ -395,7 +399,7 @@ Metalogos-/
 │       └── 0111-ast-span-tracking.md
 │
 └── .github/workflows/                  # CI/CD
-    ├── ci.yml                         # 15 blocking jobs (branch-freshness, fmt, clippy, test-lib, crosscheck, candle-tests, vision-tests, registry-arity-check, test-llm-cache-contract, minimal-build, test-integration, adr-check, module-size-guard, vscode-extension, cargo-audit)
+    ├── ci.yml                         # 16 blocking jobs (branch-freshness, fmt, clippy, test-lib, crosscheck, candle-tests, vision-tests, doc-tests, registry-arity-check, test-llm-cache-contract, minimal-build, test-integration, adr-check, module-size-guard, vscode-extension, cargo-audit)
     └── build.yml                      # Release build + artifact upload
 ```
 
@@ -649,6 +653,10 @@ Each layer receives `seed.wrapping_add(layer_index)` for deterministic weight in
 
 **Weights run parked — no production PNG yet.** The Vision pillar (images, ADR-0122) is feature-gated (`--features vision`, which implies `candle`) and ships compiler-level provenance and supply-chain gates (ADR-0125); the real-weights run (runbook №237) has not been executed, so no production image has been generated. **Наряд №294 (2026-09-14) — формальный No-Go**: preflight контейнера не пройден (4 GB RAM vs нужно 64; 10 GB диск vs нужно 40; нет GPU). Дата пересмотра — при выделении железа. Отчёт: `docs/research/naryad-294-vision-realw-no-go.md`. Parked статус остаётся (No-Go → не снимается).
 
+### Voice — Speech Synthesis & Cloning (ADR-0143–0146)
+
+The Voice pillar (speech synthesis, zero-shot voice cloning, voice design) is feature-gated (`--features voice`, implies `candle`) and off-by-default. Four ADRs define the scope: [ADR-0143](docs/adr/0143-voice-scope.md) (scope — TTS, cloning, voice-design; non-scope: pre-training, singing, streaming, voice conversion), [ADR-0144](docs/adr/0144-voice-value-registry.md) (opaque `Value::Audio`/`Value::Voice` handles + `VoiceRegistry` with encrypted-at-rest voiceprints), [ADR-0145](docs/adr/0145-voice-security-gates.md) (5 security gates: consent, provenance, privacy, taint, shared `MODEL_WEIGHTS_UNSAFE`), [ADR-0146](docs/adr/0146-voice-wedge.md) (wedge: Chatterbox Multilingual V3 MIT/MIT 500M primary, Kokoro-82M Apache 82M warm-up). Skeleton built (Наряд №302): `src/voice/mod.rs` with `VoiceId`/`AudioId`, `VoiceRegistry`, `KNOWN_VOICE_MODELS` SSOT, 6 stub builtins. Speaker encoder contract (Наряд №303): 192-dim L2-normalized embeddings, `VoiceStore` (SQLite, encrypted BLOB), consent ledger (GDPR Art. 9). Real ECAPA encoder + AES-256-GCM encryption deferred to phase A4.
+
 ---
 
 ## Quick Start
@@ -677,6 +685,9 @@ mlog audit examples/p6_full_app.mlog
 
 # Serve as web application
 mlog serve app.mlog
+
+# Start as MCP server (expose .mlog tools to external MCP clients)
+mlog mcp-serve app.mlog --allowlist my_tool.send,my_tool.get
 
 # Run eval harness (test learnable patterns)
 mlog eval examples/m3_classify.mlog
@@ -1038,7 +1049,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 415 builtins, 150 test files, 214 example programs, 138 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 415 builtins, 154 test files, 214 example programs, 138 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

@@ -145,6 +145,7 @@ fn source_manifest(seed: u64) -> VisionManifest {
         policy: "safe".to_string(),
         timestamp: "2026-09-10T00:00:00+00:00".to_string(),
         png_sha256: "source".to_string(),
+        synthetic: true,
     }
 }
 

@@ -1855,6 +1855,117 @@ fn check_model_weights_unsafe(
     }
 }
 
+// ── Check: MEDIA_SYNTHETIC_UNMARKED (Наряд №320, ADR-0152) ───────────
+//
+// EU AI Act Art. 50 — marking of synthetic content (window closes
+// 2026-12-02). Every locally generated vision artifact is synthetic by
+// construction (generation is the only artifact writer), so a
+// `vision_export_raw` call site IS the statically visible attempt to
+// egress synthetic content without its manifest. Category-A Error by the
+// MODEL_WEIGHTS_UNSAFE / VISION_UNSIGNED_EXPORT template (1607–1757).
+// The №241 VISION_UNSIGNED_EXPORT_RAW advisory Warning is unchanged — it
+// records the opt-out intent; THIS gate enforces the marking. Runtime
+// backstop lives in vision_export_raw_dispatch (ADR-0152 D3).
+fn check_media_synthetic_unmarked(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    fn walk_stmt(stmt: &Statement, source: &str, findings: &mut Vec<AuditFinding>) {
+        match stmt {
+            Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                walk_expr_deep(value, source, findings);
+            }
+            Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
+                walk_expr_deep(expr, source, findings);
+            }
+            Statement::Each { body, .. }
+            | Statement::While { body, .. }
+            | Statement::IfThen { body, .. } => {
+                for s in body {
+                    walk_stmt(s, source, findings);
+                }
+            }
+            Statement::IfElseBlock {
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                for s in then_body {
+                    walk_stmt(s, source, findings);
+                }
+                for (_, body) in else_ifs {
+                    for s in body {
+                        walk_stmt(s, source, findings);
+                    }
+                }
+                if let Some(body) = else_body {
+                    for s in body {
+                        walk_stmt(s, source, findings);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn walk_expr_deep(expr: &Expr, source: &str, findings: &mut Vec<AuditFinding>) {
+        if let Expr::FnCall { name: fn_name, .. } = expr {
+            if fn_name == "vision_export_raw" {
+                let line = find_line(source, fn_name);
+                findings.push(AuditFinding {
+                    severity: Severity::Error,
+                    check_id: "MEDIA_SYNTHETIC_UNMARKED",
+                    line,
+                    message: "vision_export_raw call site — raw egress ships no provenance \
+                              manifest; locally generated artifacts are synthetic by \
+                              construction, so this is an unmarked synthetic-media egress \
+                              (EU AI Act Art. 50, ADR-0152 D2; runtime backstop refuses \
+                              synthetic/manifest-less artifacts). Use vision_export (signed \
+                              sidecar egress)"
+                        .to_string(),
+                });
+            }
+        }
+        if let Expr::FnCall { name: _, args, .. } = expr {
+            for arg in args {
+                walk_expr_deep(arg, source, findings);
+            }
+        }
+    }
+
+    for decl in declarations {
+        match decl {
+            Declaration::MlogServer(srv) => {
+                for route in &srv.routes {
+                    for s in &route.body {
+                        walk_stmt(s, source, findings);
+                    }
+                }
+            }
+            Declaration::Pattern(p) => {
+                for s in &p.body {
+                    walk_stmt(s, source, findings);
+                }
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    for s in &m.body {
+                        walk_stmt(s, source, findings);
+                    }
+                }
+            }
+            Declaration::Hook(h) => {
+                for s in &h.body {
+                    walk_stmt(s, source, findings);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 fn check_vision_policy_missing(
     declarations: &[Declaration],
     _source: &str,
@@ -3211,6 +3322,9 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     // layers (allowlist default-deny, SSRF guard, SHA pinning) live in
     // vision_fetch_weights — both layers, same check-id.
     check_model_weights_unsafe(declarations, source, &mut findings);
+    // Наряд №320 (ADR-0152 D2): Art. 50 marking gate — vision_export_raw
+    // call sites are statically visible unmarked synthetic egress.
+    check_media_synthetic_unmarked(declarations, source, &mut findings);
     findings
 }
 
@@ -3248,6 +3362,8 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     // Advisory Warning (audit_program), НЕ Category-A: промоция Warning
     // до compile-error противоречила бы «детектор, не гейт».
     check_canary_leak(&declarations, source, &mut findings);
+    // Наряд №320 (ADR-0152 D2): Art. 50 marking gate (Category-A Error).
+    check_media_synthetic_unmarked(&declarations, source, &mut findings);
 
     // Sort findings by line number for deterministic output
     findings.sort_by_key(|f| (f.line, f.check_id));
@@ -4410,6 +4526,51 @@ mod tests {
                 .iter()
                 .any(|f| f.check_id == "UNTRUSTED_FRAME"),
             "clean refs must not be flagged, got {:?}",
+            result.findings
+        );
+    }
+
+    // ── Наряд №320 (ADR-0152): MEDIA_SYNTHETIC_UNMARKED gate tests ────
+
+    #[test]
+    fn n320_media_synthetic_unmarked_vision_export_raw_flagged() {
+        let source = r#"
+            pattern Ship() -> String {
+                let v = vision_export_raw(handle, "out.png")
+                return v
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        let findings: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.check_id == "MEDIA_SYNTHETIC_UNMARKED")
+            .collect();
+        assert_eq!(findings.len(), 1, "got {:?}", result.findings);
+        assert_eq!(findings[0].severity, Severity::Error);
+        // №98 promotion: the Error lands on the compile path too.
+        let cat_a = audit_category_a(&crate::parser::parse(source).unwrap(), source);
+        assert!(cat_a
+            .iter()
+            .any(|f| f.check_id == "MEDIA_SYNTHETIC_UNMARKED"));
+    }
+
+    #[test]
+    fn n320_marked_export_not_flagged() {
+        // Signed egress (vision_export) is the marked path — no finding.
+        let source = r#"
+            pattern Ship() -> String {
+                let v = vision_export(handle, "out.png")
+                return v
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            !result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "MEDIA_SYNTHETIC_UNMARKED"),
+            "marked egress must not be flagged, got {:?}",
             result.findings
         );
     }

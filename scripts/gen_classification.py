@@ -524,7 +524,7 @@ OVERRIDES = {
     "vision_edit": ("Sink", "Internal", "Reversible", "persists an edited artifact in the VisionRegistry"),
     "vision_lora_generate": ("Sink", "Internal", "Reversible", "persists a LoRA-generated artifact in the VisionRegistry"),
     "vision_export": ("Sink", "Internal", "Reversible", "writes the signed image artifact to disk — egress point (gate VISION_UNSIGNED_EXPORT, ADR-0125)"),
-    "vision_export_raw": ("Sink", "Internal", "Reversible", "explicit unsigned egress opt-out (loud Warning per ADR-0125)"),
+    "vision_export_raw": ("Sink", "Internal", "Reversible", "explicit unsigned opt-out (ADR-0125); №320/ADR-0152: raw egress of synthetic or manifest-less artifacts is REFUSED — EU AI Act Art. 50 marking (static gate MEDIA_SYNTHETIC_UNMARKED + runtime backstop); legal only for synthetic: false"),
     "vision_fetch_weights": ("Source", "Network", "Reversible", "ingests external weights (allowlist+SSRF+SHA-pinned, №300); writes the local weight cache"),
     "vision_list": ("Source", "Internal", "Pure", "reads the VisionRegistry state"),
     "vision_save": ("Sink", "Internal", "Reversible", "persists a Vision artifact (№242)"),

@@ -49,6 +49,7 @@ fn signed_manifest(png: &[u8]) -> VisionManifest {
         policy: "safe".to_string(),
         timestamp: "2026-09-09T12:34:56.789+00:00".to_string(),
         png_sha256: sha256_hex(png),
+        synthetic: true,
     }
 }
 
@@ -373,22 +374,80 @@ fn manifest_none_roundtrip_backstop_stays_alive() {
         "the refused signed export must not have written the PNG"
     );
 
+    // №320 (ADR-0152 D3): raw egress of the loaded UNSIGNED (unmarked)
+    // artifact is refused — unmarked media is treated as synthetic.
     let out_raw = dir.path().join("raw.png");
-    vision_export_raw_dispatch(
+    let err = vision_export_raw_dispatch(
         &reg_b,
         &[
             Value::Vision(id_b),
             Value::String(out_raw.to_string_lossy().into_owned()),
         ],
     )
-    .expect("raw export works on the loaded unsigned artifact");
+    .expect_err("raw export must refuse the unmarked artifact (ADR-0152 D3)");
+    assert!(
+        err.contains("MEDIA_SYNTHETIC_UNMARKED"),
+        "gate check-id must be named: {}",
+        err
+    );
+
+    // №320 (ADR-0152 D3): a NON-synthetic artifact (synthetic: false)
+    // still raw-exports — the flag survives persistence, and non-synthetic
+    // raw egress remains legal.
+    let foreign = VisionArtifact {
+        png_bytes: png.clone(),
+        manifest: Some(metalogos::vision::provenance::VisionManifest {
+            model_id: "foreign-ingest".to_string(),
+            model_sha256: "unpinned".to_string(),
+            seed: 1,
+            prompt_sha256: "none".to_string(),
+            policy: "unspecified".to_string(),
+            timestamp: "2026-09-14T00:00:00+00:00".to_string(),
+            png_sha256: metalogos::vision::provenance::sha256_hex(&png),
+            synthetic: false,
+        }),
+    };
+    let mut reg_c = VisionRegistry::new();
+    let id_c = reg_c.insert(foreign);
+    vision_save_dispatch(
+        &reg_c,
+        Some(&conn),
+        &[
+            Value::Vision(id_c),
+            Value::String("foreign_art".to_string()),
+        ],
+    )
+    .expect("save foreign artifact");
+    let mut reg_d = VisionRegistry::new();
+    let loaded_d = vision_load_dispatch(
+        &mut reg_d,
+        Some(&conn),
+        &[Value::String("foreign_art".to_string())],
+    )
+    .expect("load foreign artifact");
+    let id_d = vision_handle(&loaded_d);
+    let loaded_art = reg_d.get(id_d).expect("present");
+    let loaded_manifest = loaded_art.manifest.as_ref().expect("manifest survives");
+    assert!(
+        !loaded_manifest.synthetic,
+        "synthetic: false must survive the persistence roundtrip"
+    );
+    let out_raw2 = dir.path().join("raw2.png");
+    vision_export_raw_dispatch(
+        &reg_d,
+        &[
+            Value::Vision(id_d),
+            Value::String(out_raw2.to_string_lossy().into_owned()),
+        ],
+    )
+    .expect("raw export works on a non-synthetic artifact (ADR-0152 D3)");
     assert_eq!(
-        std::fs::read(&out_raw).expect("raw PNG"),
+        std::fs::read(&out_raw2).expect("raw PNG"),
         png,
         "raw export ships exactly the persisted bytes"
     );
     assert!(
-        !dir.path().join("raw.png.manifest.json").exists(),
+        !dir.path().join("raw2.png.manifest.json").exists(),
         "raw export must NOT write a sidecar"
     );
 }

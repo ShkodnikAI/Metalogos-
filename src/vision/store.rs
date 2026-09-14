@@ -356,6 +356,7 @@ mod tests {
                 policy: "safe".to_string(),
                 timestamp: "2026-09-09T00:00:00+00:00".to_string(),
                 png_sha256: crate::vision::provenance::sha256_hex(&[1, 2, 3, 4]),
+                synthetic: true,
             }),
         }
     }

@@ -77,6 +77,17 @@ pub struct VisionManifest {
     /// watermark was embedded (the manifest describes exactly the bytes
     /// shipped next to it).
     pub png_sha256: String,
+    /// №320 (ADR-0152, EU AI Act Art. 50): true when the artifact is
+    /// machine-generated. Deserialize default is TRUE — the only historical
+    /// writer was the generation path, so an old sidecar without the field
+    /// describes a synthetic artifact (unknown ⇒ marked, conservative read).
+    #[serde(default = "default_synthetic")]
+    pub synthetic: bool,
+}
+
+/// Serde default for `VisionManifest::synthetic` (ADR-0152 D1).
+fn default_synthetic() -> bool {
+    true
 }
 
 /// SHA-256 of arbitrary bytes, lowercase hex. Reused by the
@@ -118,6 +129,27 @@ pub fn verify_sha_pin(name: &str, expected_sha: &str, bytes: &[u8]) -> Result<()
 pub fn manifest_sidecar_json(manifest: &VisionManifest) -> Result<String, String> {
     serde_json::to_string_pretty(manifest)
         .map_err(|e| format!("provenance: manifest serialization failed: {}", e))
+}
+
+/// Read path for a provenance sidecar (№320 ADR-0152 D4): parses the
+/// sidecar JSON, extracts the manifest (including `synthetic` — serde
+/// default true for pre-№320 sidecars). A missing or corrupt manifest is
+/// a LOUD report (`Err`), never a panic and never a silent default —
+/// "вход без манифеста" is exactly what the Art. 50 read path must surface.
+pub fn sidecar_read_report(json: &str) -> Result<VisionManifest, String> {
+    let trimmed = json.trim();
+    if trimmed.is_empty() {
+        return Err(
+            "MEDIA_SYNTHETIC_UNMARKED: provenance sidecar is EMPTY — the artifact enters              without its manifest (loud report, ADR-0152 D4)"
+                .to_string(),
+        );
+    }
+    serde_json::from_str(trimmed).map_err(|e| {
+        format!(
+            "MEDIA_SYNTHETIC_UNMARKED: provenance sidecar is not a valid VisionManifest              (loud report, ADR-0152 D4): {}",
+            e
+        )
+    })
 }
 
 /// Weights-tree fingerprint (see [`VisionManifest::model_sha256`]).
@@ -286,6 +318,7 @@ mod tests {
             policy: "safe".to_string(),
             timestamp: "2026-09-09T00:00:00+00:00".to_string(),
             png_sha256: "789abc".to_string(),
+            synthetic: true,
         };
         let json = manifest_sidecar_json(&m).expect("sidecar json");
         let parsed: VisionManifest = serde_json::from_str(&json).expect("sidecar parse-back");
@@ -303,6 +336,7 @@ mod tests {
             policy: "unspecified".into(),
             timestamp: "t".into(),
             png_sha256: "x".into(),
+            synthetic: true,
         };
         let json = manifest_sidecar_json(&m).expect("sidecar json");
         for field in [

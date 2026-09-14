@@ -31,6 +31,14 @@
 |---|---|---|
 | Real-weights run — PARKED (no production PNG generated) | [ADR-0122](adr/0122-vision-pillar-scope.md) map row #237; [Наряд №294 No-Go report](research/naryad-294-vision-realw-no-go.md) | No-Go 2026-09-14 — requires hardware (≥64 GB RAM, ≥40 GB disk, GPU). Revision date: when hardware is allocated |
 
+## Video Pillar (ADR-0147–0151)
+
+| Limitation | Primary source | Status / condition for removal |
+|---|---|---|
+| Production-weights inference — PARKED (№294 class); `video_fetch_weights` is a loud error, not a fetcher | [ADR-0151 D7](adr/0151-video-i2v-pipeline.md); [Наряд №294 No-Go report](research/naryad-294-vision-realw-no-go.md) | Revision date: when hardware is allocated; the tiny seeded pipeline needs no fetching |
+| UNTRUSTED_FRAME taint — let-bound variables holding previously fetched untrusted frames are not tracked; full screen+consent ritual (frame_screen / LikenessToken) is V6 | [ADR-0151 D6](adr/0151-video-i2v-pipeline.md); [ADR-0149 D5/D6](adr/0149-video-security-gates.md) | Lands with the V6 LikenessToken mechanics |
+| Interpolation is latent-space linear blending (RIFE-class MVP), not flow-warped synthesis; export payload is raw LE f32 (`MLGV-RAW-F32`), no compressed codec; av_mux supports PCM WAV only | [ADR-0151 D2/D4/D7](adr/0151-video-i2v-pipeline.md) | V7 research items (flow-guided interp, container codec) |
+
 ## Adapt / Reflex (ADR-0112, ADR-0117)
 
 | Limitation | Primary source | Status / condition for removal |

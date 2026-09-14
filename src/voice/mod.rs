@@ -84,7 +84,9 @@ impl VoiceRegistry {
 }
 
 /// Audio artifact — encoded audio bytes + optional provenance manifest.
-#[derive(Debug)]
+/// Clone (Наряд №309): av_mux resolves bytes against the global registry
+/// without holding the lock during the mux computation.
+#[derive(Debug, Clone)]
 pub struct AudioArtifact {
     pub audio_bytes: Vec<u8>,
     pub manifest: Option<VoiceManifest>,
@@ -98,7 +100,7 @@ pub struct Voiceprint {
 }
 
 /// Provenance manifest for audio artifacts (ADR-0145, mirrors VisionManifest).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VoiceManifest {
     pub model_id: String,
     pub weights_sha: String,
@@ -110,6 +112,12 @@ pub struct VoiceManifest {
 
 /// Convenience wrapper for `Mutex<VoiceRegistry>`.
 pub type SharedVoiceRegistry = Mutex<VoiceRegistry>;
+
+/// Process-global voice registry (Наряд №309) — the same `once_cell::Lazy`
+/// pattern as `BPE_REGISTRY` / `VIDEO_REGISTRY`. av_mux resolves
+/// `Value::Audio` handles to `AudioArtifact.audio_bytes` through it.
+pub static VOICE_REGISTRY: once_cell::sync::Lazy<Mutex<VoiceRegistry>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(VoiceRegistry::new()));
 
 /// SSOT list of voice models known to the language (ADR-0146).
 /// NOT feature-gated — the list is available in all builds (mirrors

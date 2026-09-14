@@ -245,11 +245,11 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Parser | Pest 2.7 PEG grammar (~534 lines, 305 rules) | 2 176 |
 | AST | 33 Declaration variants, 14 Expr, 12 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION, VISION_UNSIGNED_EXPORT, MODEL_WEIGHTS_UNSAFE), SVG XSS lint | 473 |
-| Compiler | Bytecode, 420 builtins indexed | 1 516 |
+| Compiler | Bytecode, 421 builtins indexed | 1 516 |
 | Bytecode format | 46 VM instructions | — |
 | Tree-walking interpreter | Full feature support, 12 modules | ~4 400 |
 | VM | Stack-based bytecode executor | 2 143 |
-| Built-in functions | 420 functions across 39 modules | ~18 000 |
+| Built-in functions | 421 functions across 39 modules | ~18 000 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 2 433 |
 | LLM backend | Trait + mock + real providers | 1 421 |
 | Memory store | Typed memory with FTS5 BM25 + cosine RRF hybrid recall + KV store | 1 540 |
@@ -314,7 +314,7 @@ Metalogos-/
 │   ├── voice/                        # Voice pillar (feature-gated: speech, ADR-0143)
 │   ├── video/                        # Video pillar (feature-gated: video, ADR-0147)
 │   │
-│   └── builtins/                      # 420 built-in functions (39 modules)
+│   └── builtins/                      # 421 built-in functions (39 modules)
 │       ├── mod.rs                     # Builtin dispatch
 │       ├── registry.rs               # BUILTIN_REGISTRY (SSOT for all builtins)
 │       ├── core.rs                    # print, let, type, inspect, sleep
@@ -451,7 +451,7 @@ respond(reply)   // [HTML_INJECTION] — use render() or escape_html()
 - **Bytecode VM** — 46 instructions, stack-based, used for `mlog compile` + `mlog run file.mbc`
 - **JIT** — experimental scaffold, not part of the build (see ADR-0073)
 
-### 420 Built-in Functions
+### 421 Built-in Functions
 
 String ops, math, collections, type conversion, LLM/AI, HTTP, JSON, file I/O, KV store, session memory, encryption, authentication, HTTP server, templates, databases, Telegram/Discord bots, time/date/calendar, geolocation, weather, reminders, cron, goals, todos, memory tree, preferences, approval workflows, fuzzy matching, hashline editing, context compaction, budget awareness, replay logging, policy enforcement, PDF processing (classify, extract, OCR), typed semantic memory (FTS5 BM25 + cosine RRF), SMTP/IMAP email, CalDAV/CardDAV calendar and contacts, native SVG graphics, and more. See [REFERENCE.md](REFERENCE.md) for the full list.
 
@@ -657,6 +657,20 @@ Each layer receives `seed.wrapping_add(layer_index)` for deterministic weight in
 ### Voice — Speech Synthesis & Cloning (ADR-0143–0146)
 
 The Voice pillar (speech synthesis, zero-shot voice cloning, voice design) is feature-gated (`--features voice`, implies `candle`) and off-by-default. Four ADRs define the scope: [ADR-0143](docs/adr/0143-voice-scope.md) (scope — TTS, cloning, voice-design; non-scope: pre-training, singing, streaming, voice conversion), [ADR-0144](docs/adr/0144-voice-value-registry.md) (opaque `Value::Audio`/`Value::Voice` handles + `VoiceRegistry` with encrypted-at-rest voiceprints), [ADR-0145](docs/adr/0145-voice-security-gates.md) (5 security gates: consent, provenance, privacy, taint, shared `MODEL_WEIGHTS_UNSAFE`), [ADR-0146](docs/adr/0146-voice-wedge.md) (wedge: Chatterbox Multilingual V3 MIT/MIT 500M primary, Kokoro-82M Apache 82M warm-up). Skeleton built (Наряд №302): `src/voice/mod.rs` with `VoiceId`/`AudioId`, `VoiceRegistry`, `KNOWN_VOICE_MODELS` SSOT, 6 stub builtins. Speaker encoder contract (Наряд №303): 192-dim L2-normalized embeddings, `VoiceStore` (SQLite, encrypted BLOB), consent ledger (GDPR Art. 9). Real ECAPA encoder + AES-256-GCM encryption deferred to phase A4.
+
+### Video — I2V Pipeline & Provenance (ADR-0147–0151)
+
+The Video pillar is feature-gated (`--features video`, implies `candle`) and off-by-default. Since №309 ([ADR-0151](docs/adr/0151-video-i2v-pipeline.md)) the pipeline builtins are **real implementations** on the №310 tiny seeded tensors (CPU, milliseconds, seed-deterministic — the no-stubs template; production-weights inference stays a documented №294-class No-Go):
+
+- `video_render(decl, prompt[, ref_first[, ref_last]])` — T2V (2 args) / I2V first-frame anchor (3) / two-anchor first–last contract (4). Seed = `sha256(model | prompt)`; reference hashes are recorded in the `VideoManifest`; anchors are pinned exactly in the final latent after every Euler step ([ADR-0151 D1](docs/adr/0151-video-i2v-pipeline.md)).
+- `frame_interp(handle, factor)` — RIFE-class latent interpolation (2x/4x) with exact endpoint preservation (ADR-0151 D2); `video_extend(handle, extra)` — clip continuation anchored on the source's last latent frame (ADR-0151 D3).
+- `av_mux(video, audio)` — deterministic `.mlgv.av` sidecar container pairing VideoId ↔ AudioId (Voice pillar) with frame-aligned timestamps and recorded A/V drift (ADR-0151 D4).
+- `video_export(handle, path)` — signed-by-construction `.mlgv` container (manifest + watermark embedded); **unsigned export does not exist** — the runtime `VIDEO_UNSIGNED_EXPORT` gate refuses manifest-less artifacts (ADR-0151 D5).
+- Security: `UNTRUSTED_FRAME` advisory taint in `audit.rs` — an I2V reference from user input / http / file is flagged (Warning in `mlog audit`; loud compile error on the check path) until the screen+consent path lands in V6 (ADR-0149 D5, ADR-0151 D6).
+
+### Cross-Pillar Composition (ADR-0151)
+
+The three generative pillars compose across modalities through opaque handles and shared provenance: a Vision-class reference frame (pixels) feeds `video_render(kind: i2v)` (Video), and the composed clip is muxed with a Voice-pillar `AudioId` via `av_mux` — one `VideoManifest` carries the whole chain (`ref_hash`, `source_sha`, `audio_ref`). The E2E «озвученная сцена» (frame → video → interp → extend → mux with AudioId → export with manifest) runs seed-deterministic on tiny weights in CI (Наряд №309). Full LikenessToken consent mechanics across the pillars land in phase V6 (ADR-0149 D6).
 
 ---
 
@@ -996,7 +1010,7 @@ Four integration tests verify the new behavior:
 | Metric | Value |
 |---|---|
 | Effective Rust LOC | ~59 000 |
-| Built-in Functions | 420 (39 modules) |
+| Built-in Functions | 421 (39 modules) |
 | Example Programs | 214 |
 | Integration Tests | 70 test suites |
 | Architecture Decision Records | 118 |
@@ -1050,7 +1064,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 420 builtins, 154 test files, 214 example programs, 142 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 421 builtins, 154 test files, 214 example programs, 143 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

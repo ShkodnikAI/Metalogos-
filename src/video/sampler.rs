@@ -125,6 +125,120 @@ pub fn flow_match_euler_sample_video(
     Ok(x)
 }
 
+/// Replace one temporal slice of a 5-D latent [B, C, T, H, W] with the
+/// anchor frame (ADR-0151 D1): cat of the parts around `idx`.
+fn pin_anchor(
+    x: &Tensor,
+    anchor: &Tensor,
+    idx: usize,
+    t: usize,
+) -> std::result::Result<Tensor, candle_core::Error> {
+    let a = anchor.unsqueeze(2)?; // [B, C, H, W] -> [B, C, 1, H, W]
+    if t == 1 {
+        return Ok(a);
+    }
+    let before = x.narrow(2, 0, idx)?;
+    let after = x.narrow(2, idx + 1, t - idx - 1)?;
+    if idx == 0 {
+        Tensor::cat(&[&a, &after], 2)
+    } else if idx + 1 == t {
+        Tensor::cat(&[&before, &a], 2)
+    } else {
+        Tensor::cat(&[&before, &a, &after], 2)
+    }
+}
+
+/// Flow-matching Euler sampling with pinned I2V anchors (Наряд №309,
+/// ADR-0151 D1): the same loop as `flow_match_euler_sample_video`, but the
+/// first (and optionally last) latent frame is overwritten with the encoded
+/// reference at init AND after every Euler step. Anchors are therefore
+/// EXACT in the final latent — the first–last two-anchor contract.
+///
+/// `first_anchor` / `last_anchor`: [B, C, H, W] latent frames (VideoVae
+/// encode_frame of the reference pixels).
+pub fn flow_match_euler_sample_video_anchored(
+    dit: &super::denoiser::VideoDit,
+    text: &Tensor,
+    config: &VideoSampleConfig,
+    latent_shape: (usize, usize, usize, usize, usize),
+    first_anchor: Option<&Tensor>,
+    last_anchor: Option<&Tensor>,
+) -> Result<Tensor, String> {
+    let (b, c, t, h, w) = latent_shape;
+    if t < 2 && last_anchor.is_some() {
+        return Err(
+            "flow_match_euler_sample_video_anchored: last anchor requires T >= 2 (the \
+             two-anchor contract is first–last, never the same frame)"
+                .to_string(),
+        );
+    }
+
+    // Initial latent: seeded randn, anchors pinned at init.
+    let mut x = fixed_video_latent(config.seed, b, c, t, h, w);
+    if let Some(a) = first_anchor {
+        x = pin_anchor(&x, a, 0, t).map_err(|e| {
+            format!(
+                "flow_match_euler_sample_video_anchored: first anchor pin at init failed: {}",
+                e
+            )
+        })?;
+    }
+    if let Some(a) = last_anchor {
+        x = pin_anchor(&x, a, t - 1, t).map_err(|e| {
+            format!(
+                "flow_match_euler_sample_video_anchored: last anchor pin at init failed: {}",
+                e
+            )
+        })?;
+    }
+
+    // Sigma schedule (reused from Vision)
+    let sigmas = flow_match_euler_sigmas(config.num_steps, config.shift, 1000);
+
+    // Euler steps — anchors re-pinned after every step.
+    for i in 0..config.num_steps.saturating_sub(1) {
+        let sigma = sigmas[i];
+        let sigma_next = if i + 1 < config.num_steps {
+            sigmas[i + 1]
+        } else {
+            0.0
+        };
+        let timestep = sigma * 1000.0;
+        let velocity = dit.forward(&x, timestep, text).map_err(|e| {
+            format!(
+                "flow_match_euler_sample_video_anchored: DiT forward at step {} failed: {}",
+                i, e
+            )
+        })?;
+        x = euler_step(&x, &velocity, sigma, sigma_next).map_err(|e| {
+            format!(
+                "flow_match_euler_sample_video_anchored: euler_step at step {} failed: {}",
+                i, e
+            )
+        })?;
+        if let Some(a) = first_anchor {
+            x = pin_anchor(&x, a, 0, t).map_err(|e| {
+                format!(
+                    "flow_match_euler_sample_video_anchored: first anchor pin at step {} \
+                     failed: {}",
+                    i, e
+                )
+            })?;
+        }
+        if let Some(a) = last_anchor {
+            x = pin_anchor(&x, a, t - 1, t).map_err(|e| {
+                format!(
+                    "flow_match_euler_sample_video_anchored: last anchor pin at step {} \
+                     failed: {}",
+                    i, e
+                )
+            })?;
+        }
+    }
+
+    Ok(x)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

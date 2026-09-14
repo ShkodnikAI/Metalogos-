@@ -88,28 +88,43 @@ def collect_registry():
 
 
 def collect_handler_docs():
-    """handler fn name -> raw /// lines, from src/builtins/*.rs."""
+    """handler fn name -> raw /// lines.
+
+    Наряд №309: the scan covers src/builtins/*.rs AND the three generative
+    pillar modules (src/vision, src/voice, src/video) — their builtins'
+    handlers live there (e.g. `builtin_video_render` in src/video/mod.rs,
+    `builtin_tts_speak_stub` in src/voice/mod.rs). This closes the
+    reference-generator pitfall where feature-gated pillar builtins always
+    degraded to TODO(doc) on regeneration (the video/voice rows in the
+    generated block were drifting from what the generator would emit).
+    """
     docs = {}
-    for f in sorted(BUILTINS_DIR.rglob("*.rs")):
-        if f.name == "registry.rs":
-            continue
-        pending = []
-        for ln in f.read_text(encoding="utf-8").splitlines():
-            m = DOC_RE.match(ln)
-            if m:
-                pending.append(m.group(1).strip())
+    scan_dirs = [BUILTINS_DIR] + [
+        REPO / "src" / pillar for pillar in ("vision", "voice", "video")
+    ]
+    seen_files = set()
+    for d in scan_dirs:
+        for f in sorted(d.rglob("*.rs")):
+            if f.name == "registry.rs" or f in seen_files:
                 continue
-            fm = FN_RE.search(ln)
-            if fm:
-                name = fm.group(1)
-                if name not in docs and pending:
-                    docs[name] = list(pending)
-                pending = []
-                continue
-            if ln.strip() and not ln.strip().startswith("//") and not ln.strip().startswith("#"):
-                # attribute lines (# [cfg]...) between doc and fn are fine —
-                # only real code clears the pending doc buffer
-                pending = []
+            seen_files.add(f)
+            pending = []
+            for ln in f.read_text(encoding="utf-8").splitlines():
+                m = DOC_RE.match(ln)
+                if m:
+                    pending.append(m.group(1).strip())
+                    continue
+                fm = FN_RE.search(ln)
+                if fm:
+                    name = fm.group(1)
+                    if name not in docs and pending:
+                        docs[name] = list(pending)
+                    pending = []
+                    continue
+                if ln.strip() and not ln.strip().startswith("//") and not ln.strip().startswith("#"):
+                    # attribute lines (# [cfg]...) between doc and fn are fine —
+                    # only real code clears the pending doc buffer
+                    pending = []
     return docs
 
 

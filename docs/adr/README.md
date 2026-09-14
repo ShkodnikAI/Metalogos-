@@ -169,3 +169,4 @@ reports and must not be changed:
 | 0148 | Video value-registry — `Value::Video(VideoId)` opaque handle + VideoRegistry | Accepted |
 | 0149 | Video security gates — likeness consent, provenance, taint, adult policy | Accepted |
 | 0150 | Video wedge — Wan 2.2 primary, CogVideoX-5B warm-up | Accepted |
+| 0151 | Video I2V pipeline — first/last-frame anchors, RIFE-class interpolation, AV sidecar mux | Accepted |

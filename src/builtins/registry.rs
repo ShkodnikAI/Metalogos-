@@ -16,7 +16,13 @@ use super::vision::{
 use super::llm_stream::{
     builtin_llm_stream_close, builtin_llm_stream_next, builtin_llm_stream_open,
 };
+// Наряд №302 (ADR-0143-0146): Voice pillar skeleton builtins — stubs.
 use super::*;
+#[cfg(feature = "voice")]
+use crate::voice::{
+    builtin_audio_export_stub, builtin_tts_speak_stub, builtin_voice_design_stub,
+    builtin_voice_enroll_stub, builtin_voice_load_stub, builtin_voice_save_stub,
+};
 
 /// Master registry of ALL builtin functions.
 /// Order determines bytecode indices — DO NOT reorder existing entries.
@@ -690,6 +696,22 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // conflict of two templates matching the same path → loud error at
     // server start. Registry 408→409 (append-only).
     spec!("server_path_param", 1, "web"; builtin_server_path_param), // name
+    // ── Наряд №302 (P2, feature/voice): Voice pillar skeleton builtins —
+    // stubs. Loud errors, no silent fallbacks. Real implementation in
+    // phases A2/A3/A4/A5/A6. Feature-gated under `voice` (implies candle).
+    // Registry 409→415 (append-only, bytecode indices stable).
+    #[cfg(feature = "voice")]
+    spec!("voice_enroll", 2, 3, "voice"; builtin_voice_enroll_stub), // decl, audio | +kind
+    #[cfg(feature = "voice")]
+    spec!("tts_speak", 2, "voice"; builtin_tts_speak_stub), // decl, text
+    #[cfg(feature = "voice")]
+    spec!("audio_export", 1, "voice"; builtin_audio_export_stub), // handle
+    #[cfg(feature = "voice")]
+    spec!("voice_design", 2, "voice"; builtin_voice_design_stub), // text, voice
+    #[cfg(feature = "voice")]
+    spec!("voice_save", 2, "voice"; builtin_voice_save_stub), // handle, name
+    #[cfg(feature = "voice")]
+    spec!("voice_load", 1, "voice"; builtin_voice_load_stub), // name
 ];
 
 /// Total number of registered builtins.

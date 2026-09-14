@@ -4,6 +4,14 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — docs: doc-sync + ADR booking 0154–0161 (Naryad #319, P0/docs, issue #406)
+
+- **REFERENCE.md header synced with README/Cargo**: version 0.17.0 → 0.19.0; added a "Synced with code" line (2026-09-14, naryad №319) carrying code-derived counters: 421 builtins, 153 ADR files (145 accepted + 8 reserved). Video/voice builtin rows re-verified against the registry (`video_render` 2..4, `video_export` 2, `video_extend` 2; 18 voice/audio rows incl. the recorded `*_stub` loud-No-Go boundaries per ADR-0145) — REFERENCE remains 421/421 (coverage test green).
+- **ADR booking 0154–0161** (honest `reserved` stubs, one-line theme + plan v2 §19 reference, zero fake content): 0154 label lattice (№322), 0155 grant algebra (№339), 0156 TW/VM/JIT parity (№328), 0157 ledger profile PROV/in-toto (№343), 0158 declassify boundaries (№326), 0159 sim-first/STL (№354), 0160 identifier naming convention (filler unassigned), 0161 legacy compat profile (№325). **Collision divergence documented**: the issue's block 0151–0158 was already partially taken (0151–0153 by №309/№320/№412 between the plan snapshot and this booking) — the booking shifted +3, recorded in every stub, in the ADR index, and here.
+- **docs/adr/README.md**: numbering-rule line updated (accepted max 0153, overall max 0161 reserved); new "Reserved for plan v2 §19" booking table; index regenerated (153 entries).
+- **README**: ADR counter 145 → 153 (with the accepted/reserved split stated inline); REFERENCE size claim 214 → 215 KB.
+- **Name-canon (plan v2 §15) — zero-scope finding**: `WALL-OSS-0.5`, `MolmoAct2`, `Nemotron-3-Nano-Omni-30B-A3B` do not occur anywhere in the repository (verified by case-insensitive whole-repo grep, all file types). Nothing to unify; the canon applies when plan v2 lands or these models first appear in wedge/research docs.
+
 ### Added — docs: REALITY.md — plan-v2 asset fact-check + honest P0-readiness estimate (Naryad #318, P0/docs, issue #405)
 
 - **`docs/REALITY.md`** — new SSOT page: per-anchor verdicts (CONFIRMED / PARTIAL / PHANTOM) for all 13 asset claims of §2 plan v2, each with a proof command and its actual output, reproducible on the plan snapshot `fc59e9e` via `git show` (no checkout needed). Verdicts: 9 CONFIRMED, 3 PARTIAL, 1 PHANTOM — «84 VM instructions» is PHANTOM (real count 47, second-method-verified; README's own claim already said 47), «10 Statement kinds» is PARTIAL (real count 15; README's stale "12" truth-uped), «143 ADR» is PARTIAL (142 ADR files + index README on the snapshot; canonical counter excludes the index).

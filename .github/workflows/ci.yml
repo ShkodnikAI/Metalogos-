@@ -131,6 +131,28 @@ jobs:
       - name: Clippy on vision-gated code
         run: cargo clippy --workspace --features vision --all-targets -- -D warnings
 
+  voice-tests:
+    name: voice-tests (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: voice-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: Guard — voice must NOT be in default/full features
+        run: |
+          if grep -E '^(default|full) = ' Cargo.toml | grep -q 'voice'; then
+            echo "::error::voice feature must stay off-by-default (ADR-0143, naryad 302)"; exit 1; fi
+      - name: Build with voice feature
+        run: cargo build --workspace --features voice
+      - name: Library tests (includes voice skeleton + encoder + store tests)
+        run: cargo test --workspace --lib --features voice --no-fail-fast
+      - name: Clippy on voice-gated code
+        run: cargo clippy --workspace --features voice --all-targets -- -D warnings
+
   doc-tests:
     name: doc-tests (blocking)
     runs-on: ubuntu-latest

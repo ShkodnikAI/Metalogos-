@@ -99,6 +99,10 @@ pub type SharedVideoRegistry = Mutex<VideoRegistry>;
 /// NOT feature-gated — mirrors `KNOWN_VISION_MODELS` / `KNOWN_VOICE_MODELS`.
 pub const KNOWN_VIDEO_MODELS: &[&str] = &["wan-2.2-ti2v-5b", "cogvideox-1.5-5b"];
 
+pub mod denoiser;
+pub mod sampler;
+pub mod vae;
+
 // ── Builtin stubs (Наряд №307) ───────────────────────────────────────
 // All video builtins are stubs — loud errors, no silent fallbacks.
 

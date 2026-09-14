@@ -10,7 +10,7 @@ ls docs/adr/ | sed 's/-.*//' | sort | uniq -d
 
 Must be empty. If not empty, resolve collisions before proceeding.
 
-Numbers are assigned sequentially. The current maximum is in `0146-*` (ADR-0137 №275 streaming; ADR-0138 №276 traces; ADR-0139 draft №282 SMFS spike; ADR-0140 №288 diag-codes addendum; ADR-0141 №293 VM production-readiness staged closure; ADR-0142 №298 error-protocol try-extended semantics).
+Numbers are assigned sequentially. The current maximum is in `0150-*` (ADR-0137 №275 streaming; ADR-0138 №276 traces; ADR-0139 draft №282 SMFS spike; ADR-0140 №288 diag-codes addendum; ADR-0141 №293 VM production-readiness staged closure; ADR-0142 №298 error-protocol try-extended semantics).
 
 ## Reserved numbers (do not reassign)
 
@@ -165,3 +165,7 @@ reports and must not be changed:
 | 0144 | Voice value-registry — `Value::Audio(AudioId)` opaque handle + VoiceRegistry | Accepted |
 | 0145 | Voice security gates — consent, provenance, privacy, taint | Accepted |
 | 0146 | Voice wedge — Chatterbox Multilingual V3 primary, Kokoro-82M warm-up | Accepted |
+| 0147 | Video pillar — scope (T2V/I2V primary, v2v phase-gated) | Accepted |
+| 0148 | Video value-registry — `Value::Video(VideoId)` opaque handle + VideoRegistry | Accepted |
+| 0149 | Video security gates — likeness consent, provenance, taint, adult policy | Accepted |
+| 0150 | Video wedge — Wan 2.2 primary, CogVideoX-5B warm-up | Accepted |

@@ -116,7 +116,8 @@ pub type SharedVoiceRegistry = Mutex<VoiceRegistry>;
 /// `KNOWN_VISION_MODELS` in `src/vision/mod.rs`).
 pub const KNOWN_VOICE_MODELS: &[&str] = &["chatterbox-multilingual-v3", "koko-ro-82m"];
 
-// ── Builtin stubs (Наряд №302) ───────────────────────────────────────
+pub mod encoder;
+pub mod store;
 //
 // All voice builtins are stubs in the skeleton phase (A1). They return
 // loud errors — no silent fallbacks. Real implementation in A2/A3/A5+.

@@ -10,7 +10,7 @@ ls docs/adr/ | sed 's/-.*//' | sort | uniq -d
 
 Must be empty. If not empty, resolve collisions before proceeding.
 
-Numbers are assigned sequentially. The current maximum is in `0142-*` (ADR-0137 №275 streaming; ADR-0138 №276 traces; ADR-0139 draft №282 SMFS spike; ADR-0140 №288 diag-codes addendum; ADR-0141 №293 VM production-readiness staged closure; ADR-0142 №298 error-protocol try-extended semantics).
+Numbers are assigned sequentially. The current maximum is in `0146-*` (ADR-0137 №275 streaming; ADR-0138 №276 traces; ADR-0139 draft №282 SMFS spike; ADR-0140 №288 diag-codes addendum; ADR-0141 №293 VM production-readiness staged closure; ADR-0142 №298 error-protocol try-extended semantics).
 
 ## Reserved numbers (do not reassign)
 
@@ -161,3 +161,7 @@ reports and must not be changed:
 | 0140 | Diagnostic codes — addendum (no-reuse rule + SSOT-registry discipline) | Accepted |
 | 0141 | VM production-readiness — staged gap closure + parity-gated default flip | Accepted (решение владельца 2026-09-14 |
 | 0142 | Error protocol — structural errors through try-extended semantics (candidate B) | Accepted (решение владельца 2026-09-14 |
+| 0143 | Voice pillar — scope (TTS, zero-shot cloning, voice-design) | Accepted |
+| 0144 | Voice value-registry — `Value::Audio(AudioId)` opaque handle + VoiceRegistry | Accepted |
+| 0145 | Voice security gates — consent, provenance, privacy, taint | Accepted |
+| 0146 | Voice wedge — Chatterbox Multilingual V3 primary, Kokoro-82M warm-up | Accepted |

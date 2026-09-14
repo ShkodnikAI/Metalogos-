@@ -41,6 +41,7 @@ pub mod server;
 pub mod util;
 pub mod vision;
 pub mod vm;
+pub mod voice;
 
 /// Parse and execute a .mlog program. Returns the flow output (if any),
 /// with mutate status messages prepended if present.

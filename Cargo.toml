@@ -170,6 +170,12 @@ pdf-ocr = ["tesseract"]
 # Enable with: cargo build --features vision
 vision = ["candle", "dep:tokenizers", "dep:image"]
 
+# Наряд №302 (ADR-0143-0146): Voice pillar — TTS, voice cloning, voice design.
+# Off-by-default: voice implies candle (same as vision). No new heavy deps in
+# skeleton — candle-core/candle-nn reused. tokenizers may be added in A2+.
+# Enable with: cargo build --features voice
+voice = ["candle"]
+
 # CI-hygiene: максимальный фича-набор, переносимый между GitHub-hosted
 # раннерами (platform-check джобы macos/windows в ci.yml). `pdf-ocr`
 # исключён осознанно: по своему контракту (см. выше) он требует системные

@@ -91,6 +91,12 @@ pub enum Value {
     /// Opaque Vision artifact handle (Наряд №210, ADR-0124).
     /// Contains an index into VisionRegistry — vision artifacts never enter Value.
     Vision(crate::vision::VisionId),
+    /// Opaque Voice artifact handle (Наряд №302, ADR-0144).
+    /// Contains an index into VoiceRegistry — voiceprints/audio never enter Value.
+    Voice(crate::voice::VoiceId),
+    /// Opaque Audio artifact handle (Наряд №302, ADR-0144).
+    /// Contains an index into VoiceRegistry — audio bytes never enter Value.
+    Audio(crate::voice::AudioId),
     /// Opaque LLM stream handle (Наряд №275, ADR-0137).
     /// Contains an index into `crate::llm::LLM_STREAM_REGISTRY` —
     /// the active `reqwest::blocking::Response` + SSE line buffer +
@@ -167,6 +173,9 @@ impl std::fmt::Display for Value {
             Value::BpeVocab(id) => write!(f, "[BpeVocab#{}]", id.0),
             // Наряд №210: Vision handle display — лекала Reflex.
             Value::Vision(id) => write!(f, "[Vision#{}]", id.0),
+            // Наряд №302: Voice/Audio handle display — лекала Vision.
+            Value::Voice(id) => write!(f, "[Voice#{}]", id.0),
+            Value::Audio(id) => write!(f, "[Audio#{}]", id.0),
             // Наряд №275 (ADR-0137): LLM stream handle display —
             // лекала Reflex/Vision.
             Value::LlmStream(id) => write!(f, "[LlmStream#{}]", id.0),
@@ -196,6 +205,9 @@ impl Value {
             Value::BpeVocab(_) => "BpeVocab",
             // Наряд №210: Vision handle type name.
             Value::Vision(_) => "vision",
+            // Наряд №302: Voice/Audio handle type name.
+            Value::Voice(_) => "Voice",
+            Value::Audio(_) => "Audio",
             // Наряд №275 (ADR-0137): LLM stream handle type name.
             Value::LlmStream(_) => "LlmStream",
         }
@@ -274,6 +286,9 @@ pub fn is_nonprintable(v: &Value) -> bool {
             | Value::BpeVocab(_)
             // Наряд №210: Vision handle is opaque — must not be printed directly.
             | Value::Vision(_)
+            // Наряд №302: Voice/Audio handles are opaque.
+            | Value::Voice(_)
+            | Value::Audio(_)
             // Наряд №275 (ADR-0137): LLM stream handle is opaque —
             // printing it would leak the active stream's identity
             // (provider, model, handle index) but no PII; still, the

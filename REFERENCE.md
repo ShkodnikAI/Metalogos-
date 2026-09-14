@@ -257,7 +257,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.19):** This section documents **100%** of the 409 registered builtins (409 of 409): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.19):** This section documents **100%** of the 415 registered builtins (415 of 415): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1619,7 +1619,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 409 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 415 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2190,12 +2190,18 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `vision_lora_load(...)` | 2 | `(String, String) -> String` | **Loading a LoRA adapter into the SQLite BLOB store** (#244, R6.3; ADR-0124 §6 — the adapter lives ONLY in the program's database, no session state). Reads the safetensors file ONCE — only inside `MLOG_VISION_WEIGHTS_DIR` (a relative path, no traversal, `.safetensors` extension, file must exist; the path contract lives in `vision_lora_check_adapter_path`), validates loudly (both canonical name forms — diffusers-PEFT and ComfyUI; rank = the mean pair dimension, scale = alpha/rank with the loud 1.0 default; non-F32 upcast is loud; targets must be attention projections `to_q/to_k/to_v/to_out.0` per `zimage_expected_keys`; half pairs, non-attention targets, unknown prefixes, orphaned keys, mismatched dimensions are loud errors with the FULL list) and stores the bytes plus fixed-shape metadata (`LoraMeta`: sha256/rank/alpha/scale/targets) into the `vision_lora_adapters` table. The prescribed check order: arity → no-db → env → path → feature gate → read/parse → insert; a name collision is a loud error (no upsert). Returns the persistent key `name`. |
 | `vision_save(...)` | 2 | `(Vision, String) -> String` | **SQLite persistence of an artifact** (#242, R6.1). Writes the artifact (a PNG as a BLOB plus a JSON provenance manifest) to the program's database (the `db { url: "sqlite:..." }` declaration) — the `vision_artifacts` table, whose persistent key is `name` (the registry id is a session-scoped handle and is not persisted). Loud refusals: no database (with a hint at the declaration), an empty name, a name collision (a silent overwrite would be a silent loss of the provenance chain; upsert/delete are out of scope for #242), an unknown handle. A verbatim round trip: the `timestamp` and the manifest's fields are not regenerated. |
 
-### `voice` — 3 builtin(s)
+### `voice` — 9 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
+| `audio_export(...)` | 1 | — | `audio_export(handle)` stub — ADR-0145 provenance. Not implemented (phase A4). |
 | `tts_generate(...)` | 2..4 | `String, String[, String][, String] -> String` | Speech synthesis WITHOUT delivery (Naryad #279): writes the audio file into the file sandbox (write_file semantics, Naryad #252) and returns the sandbox-relative path — feed it to `read_file`/`send_document` yourself. Providers v1: `"openai"` (default); `model`: `tts-1` (default) / `tts-1-hd` / `gpt-4o-mini-tts`. Key: `METALOGOS_TTS_API_KEY` (falls back to `OPENAI_API_KEY`); `METALOGOS_TTS_BASE_URL` overrides `https://api.openai.com/v1` (mock servers / self-host proxies) — `/audio/speech` is appended. Output format: provider default (MP3) |
 | `tts_send(...)` | 4..5 | `String, String, String, String[, String] -> String` | Delivery convenience: synthesizes speech (delegates to the same exchange as `tts_generate` — `tts-1`, base-URL/key overrides behave identically) and sends the audio to a Telegram chat (`sendVoice`; optional 5th arg `"audio"` switches to `sendAudio`). Key: `METALOGOS_TTS_API_KEY` (falls back to `OPENAI_API_KEY`). For synthesis without delivery use `tts_generate` |
+| `tts_speak(...)` | 2 | — | `tts_speak(decl, text)` stub — ADR-0143 TTS. Not implemented (phase A2). |
+| `voice_design(...)` | 2 | — | `voice_design(text, voice)` stub — ADR-0143. Not implemented (phase A6). |
+| `voice_enroll(...)` | 2..3 | — | `voice_enroll(decl, audio, kind)` stub — ADR-0145 consent gate. Not implemented (phase A2/A3). |
+| `voice_load(...)` | 1 | — | `voice_load(name)` stub — ADR-0143 persistence. Not implemented (phase A5). |
+| `voice_save(...)` | 2 | — | `voice_save(handle, name)` stub — ADR-0143 persistence. Not implemented (phase A5). |
 | `whisper_transcribe(...)` | 3..4 | `String, String, String[, String] -> String` | Downloads a voice message from Telegram by `file_id`, sends it for transcription to the Whisper API. `provider`: `"openai"` (default) or `"groq"`. `METALOGOS_STT_BASE_URL` overrides the transcription API base (mock servers / self-host proxies) — `/audio/transcriptions` is appended. Returns the recognized text. Arity 3..4 — the registry used to declare min 1 while the runtime always required 3 (Naryad #279 fact-check fix; a 1-arg call now fails `mlog check` on statics instead of exploding at runtime) |
 
 ### `web` — 19 builtin(s)

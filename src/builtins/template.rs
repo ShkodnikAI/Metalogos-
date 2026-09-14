@@ -430,6 +430,9 @@ fn value_to_string(v: &Value) -> String {
         Value::BpeVocab(id) => format!("[BpeVocab#{}]", id.0),
         // Наряд №210: Vision handle in template rendering — лекала Reflex.
         Value::Vision(id) => format!("[Vision#{}]", id.0),
+        // Наряд №302: Voice/Audio handle in template rendering.
+        Value::Voice(id) => format!("[Voice#{}]", id.0),
+        Value::Audio(id) => format!("[Audio#{}]", id.0),
         // Наряд №275 (ADR-0137): LLM stream handle in template rendering —
         // лекала Reflex/Vision. Opaque — printing the handle leaks the
         // active stream's identity, never the response body.

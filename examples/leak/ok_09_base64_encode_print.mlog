@@ -1,0 +1,5 @@
+// Легально: кодирование публичной строки.
+pattern Encode(data: String) -> String {
+  return base64_encode("metalogos")
+}
+flow Main { input: String = "x" -> Encode -> output }

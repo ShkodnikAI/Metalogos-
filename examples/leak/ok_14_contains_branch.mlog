@@ -1,0 +1,10 @@
+// Легально: ветвление по contains на публичной строке.
+pattern Route(data: String) -> String {
+  if data == "запрос срочный" {
+    return "fast"
+  }
+  else {
+    return "slow"
+  }
+}
+flow Main { input: String = "запрос срочный" -> Route -> output }

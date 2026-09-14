@@ -1,0 +1,7 @@
+// Угроза: локальный файл, изменённый третьей стороной, становится командой.
+// Атака: подмена command-файла → произвольное исполнение.
+pattern Send(data: String) -> String {
+  let _ = exec(read_file("command.txt"))
+  return "executed"
+}
+flow Main { input: String = data -> Send -> output }

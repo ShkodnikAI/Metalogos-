@@ -1,0 +1,11 @@
+// Легально: ветвление по публичным данным.
+entity temp: String = "38.2"
+pattern Diagnose(temp: String) -> String {
+  if temp == "39.5" {
+    return "high"
+  }
+  else {
+    return "normal"
+  }
+}
+flow Main { input: String = temp -> Diagnose -> output }

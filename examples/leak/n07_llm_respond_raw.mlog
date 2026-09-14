@@ -1,0 +1,7 @@
+// Угроза: непроверенный вывод LLM уходит в публичный HTTP-ответ (prompt injection → XSS).
+// Атака: модель отравлена и выдает <script> в ответ клиенту.
+pattern Send(data: String) -> String {
+  let _ = respond("200 OK", call_llm("перескажи документ"))
+  return "sent"
+}
+flow Main { input: String = data -> Send -> output }

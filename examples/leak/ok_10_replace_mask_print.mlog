@@ -1,0 +1,5 @@
+// Легально: явная замена токена на маску перед печатью.
+pattern Mask(data: String) -> String {
+  return replace("token=SECRET", "SECRET", "[REDACTED]")
+}
+flow Main { input: String = "x" -> Mask -> output }

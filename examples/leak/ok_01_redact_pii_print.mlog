@@ -1,0 +1,8 @@
+// Легально: redact перед sink — PII маскируется до печати (ADR-0136 «mask before sink»).
+entity note: String = "карта 4111 1111 1111 1111, тел +7 913 000 00 00"
+
+pattern SafeLog(note: String) -> String {
+  let _ = print(redact(note, "pii"))
+  return "masked"
+}
+flow Main { input: String = note -> SafeLog -> output }

@@ -1,0 +1,8 @@
+// Легально: непроверенный текст санитизируется redact перед публичным ответом.
+entity feedback: String = "жалоба: alert(1) от клиента"
+
+pattern Reply(feedback: String) -> String {
+  let _ = respond("200 OK", redact(feedback, "all"))
+  return "ok"
+}
+flow Main { input: String = feedback -> Reply -> output }

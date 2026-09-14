@@ -2240,3 +2240,438 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `web_search(...)` | 1..2 | — | `web_search(query, num_results?) -> String` — search via SerpAPI. Uses SERPAPI_KEY env var. Returns raw JSON string. Usage: web_search("query") -> JSON string Usage: web_search("query", 5) -> JSON string with 5 results |
 
 <!-- END GENERATED BUILTIN INDEX -->
+
+## 7. Builtin Classification — role × label × reversibility (№316)
+
+> Generated from `src/builtins_classification.rs` (SSOT, №316) by `scripts/gen_classification.py`. Role: pure / source / lift / sink; label: public / internal / secret / network; reversibility of the external effect: pure / reversible / irreversible.
+
+<!-- BEGIN GENERATED BUILTIN CLASSIFICATION (scripts/gen_classification.py — do not edit inside) -->
+
+| Builtin | Role | Default label | Reversibility |
+|---|---|---|---|
+| `upper` | pure | public | pure | — |
+| `lower` | pure | public | pure | — |
+| `len` | pure | public | pure | — |
+| `str` | pure | public | pure | — |
+| `contains` | pure | public | pure | — |
+| `index_of` | pure | public | pure | — |
+| `substring` | pure | public | pure | — |
+| `char_at` | pure | public | pure | — |
+| `starts_with` | pure | public | pure | — |
+| `ends_with` | pure | public | pure | — |
+| `trim` | pure | public | pure | — |
+| `replace` | pure | public | pure | — |
+| `split` | pure | public | pure | — |
+| `join` | pure | public | pure | — |
+| `length` | pure | public | pure | — |
+| `reverse` | pure | public | pure | — |
+| `escape_html` | lift | public | pure | HTML-escapes its input — taint-sanitizer per audit.rs (Sanitized) |
+| `escape_json` | lift | public | pure | JSON-escapes its input — sanitizer family of escape_html |
+| `redact` | lift | public | pure | taint-sanitizer — removes Secret taint (mask before sink, ADR-0136; audit.rs redact_result_taint) |
+| `escape_js` | lift | public | pure | JS-escapes its input — sanitizer family of escape_html |
+| `fuzzy_match` | pure | public | pure | — |
+| `strip` | pure | public | pure | — |
+| `chomp` | pure | public | pure | — |
+| `repeat` | pure | public | pure | — |
+| `pad_left` | pure | public | pure | — |
+| `pad_right` | pure | public | pure | — |
+| `lines` | pure | public | pure | — |
+| `words` | pure | public | pure | — |
+| `token_count` | pure | public | pure | — |
+| `type_of` | pure | public | pure | — |
+| `format` | pure | public | pure | — |
+| `trim_start` | pure | public | pure | — |
+| `trim_end` | pure | public | pure | — |
+| `truncate` | pure | public | pure | — |
+| `slugify` | pure | public | pure | — |
+| `word_wrap` | pure | public | pure | — |
+| `capitalize` | pure | public | pure | — |
+| `title_case` | pure | public | pure | — |
+| `__trim` | pure | public | pure | — |
+| `__replace` | pure | public | pure | — |
+| `__split` | pure | public | pure | — |
+| `__join` | pure | public | pure | — |
+| `__abs` | pure | public | pure | — |
+| `__min` | pure | public | pure | — |
+| `__max` | pure | public | pure | — |
+| `__clamp` | pure | public | pure | — |
+| `__round` | pure | public | pure | — |
+| `__first` | pure | public | pure | — |
+| `__last` | pure | public | pure | — |
+| `abs` | pure | public | pure | — |
+| `min` | pure | public | pure | — |
+| `max` | pure | public | pure | — |
+| `clamp` | pure | public | pure | — |
+| `round` | pure | public | pure | — |
+| `exp` | pure | public | pure | — |
+| `ln` | pure | public | pure | — |
+| `sqrt` | pure | public | pure | — |
+| `pow` | pure | public | pure | — |
+| `tanh` | pure | public | pure | — |
+| `sigmoid` | pure | public | pure | — |
+| `softmax` | pure | public | pure | — |
+| `random_seed` | pure | public | pure | — |
+| `random` | pure | public | pure | — |
+| `newline` | pure | public | pure | — |
+| `stdin` | source | internal | pure | intended external stdin ingress (registry-only stub) |
+| `split_tokens` | pure | public | pure | — |
+| `if_eq` | pure | public | pure | — |
+| `is_string_token` | pure | public | pure | — |
+| `db_insert` | sink | internal | irreversible | intended DB row insert (registry-only stub) — persistent write |
+| `float` | pure | public | pure | — |
+| `to_string` | pure | public | pure | — |
+| `to_float` | pure | public | pure | — |
+| `print` | sink | public | irreversible | prints to the public stdout channel — SECRET_LEAK semantics (№157), cannot be unsaid |
+| `read_file` | source | internal | pure | ingests external file content into the program (input by provenance) |
+| `write_file` | sink | internal | reversible | writes persistent local state (undoable by file deletion) |
+| `append_file` | sink | internal | reversible | appends to persistent local state (undoable by truncation) |
+| `delete_file` | sink | internal | irreversible | destroys a local file with no undo path (issue minimum list) |
+| `file_exists` | source | internal | pure | reads filesystem metadata (state probe) |
+| `list_dir` | source | internal | pure | reads filesystem directory state |
+| `exec` | sink | internal | irreversible | arbitrary host command execution — external effect on the host that cannot be undone (issue minimum list) |
+| `exec_argv` | sink | internal | irreversible | argv-form of exec — same irreversible host effect |
+| `git_push` | sink | network | irreversible | pushes to a remote repository — external, non-undoable effect (issue minimum list) |
+| `mcp_call` | source | network | pure | ingests untrusted MCP tool output — UserInput taint by ADR-0132 D3 |
+| `mcp_list_tools` | source | network | pure | ingests external tool metadata over MCP (not tainted per ADR-0132, still external ingress) |
+| `get` | pure | public | pure | — |
+| `push` | pure | public | pure | — |
+| `slice` | pure | public | pure | — |
+| `zip` | pure | public | pure | — |
+| `sort_by` | pure | public | pure | — |
+| `filter` | pure | public | pure | — |
+| `reduce` | pure | public | pure | — |
+| `dedup` | pure | public | pure | — |
+| `condense` | pure | public | pure | — |
+| `unique` | pure | public | pure | — |
+| `chunk` | pure | public | pure | — |
+| `sort` | pure | public | pure | — |
+| `first` | pure | public | pure | — |
+| `last` | pure | public | pure | — |
+| `make_list` | pure | public | pure | — |
+| `matches_any` | pure | public | pure | — |
+| `parse_json` | pure | public | pure | — |
+| `json_encode` | pure | public | pure | — |
+| `json_get` | pure | public | pure | — |
+| `has_field` | pure | public | pure | — |
+| `dict_get` | pure | public | pure | — |
+| `dict_set` | pure | public | pure | — |
+| `dict_has` | pure | public | pure | — |
+| `dict_keys` | pure | public | pure | — |
+| `dict_values` | pure | public | pure | — |
+| `respond` | sink | public | irreversible | writes the HTTP response — public channel, cannot be unsent |
+| `respond_html` | sink | public | irreversible | writes the HTTP response as HTML — public channel (escaping contract) |
+| `form_data` | source | internal | pure | ingests untrusted user form input — UserInput taint (№201 vocabulary) |
+| `json_body` | source | internal | pure | ingests untrusted request body — UserInput taint |
+| `query_param` | source | internal | pure | ingests untrusted request query parameter — UserInput taint |
+| `render` | lift | public | pure | taint-sanitizing template render — output is public-safe (audit.rs sanitizer) |
+| `http_get` | source | network | pure | ingests external network data (SSRF-guarded, №130) |
+| `http_post` | sink | network | irreversible | transmits program data to an external endpoint — cannot be unsent (issue minimum list) |
+| `http_post_multipart` | sink | network | irreversible | multipart upload to an external endpoint — same egress as http_post |
+| `http_download` | source | network | reversible | ingests remote bytes to a local file (network ingress with a disk side-effect) |
+| `require` | source | internal | pure | reads and enforces request context (auth/rate precondition state) |
+| `request_body` | source | internal | pure | alias of json_body — untrusted request body ingress |
+| `web_search` | source | network | pure | ingests external search results |
+| `geo_ip` | source | network | pure | ingests external geolocation data |
+| `weather` | source | network | pure | ingests external weather data |
+| `geo_distance` | pure | public | pure | — |
+| `weather_forecast` | source | network | pure | ingests external forecast data |
+| `hash_password` | lift | public | pure | one-way de-identification of a password — output is safe for storage (argon2) |
+| `verify_password` | pure | secret | pure | — |
+| `encrypt` | lift | public | pure | ciphertext is safe for untrusted channels — sensitivity lifted (AES-GCM) |
+| `decrypt` | pure | secret | pure | — |
+| `generate_key` | source | secret | pure | materializes a fresh Secret from CSPRNG entropy |
+| `base64_encode` | pure | public | pure | — |
+| `base64_decode` | pure | public | pure | — |
+| `authenticate` | pure | secret | pure | — |
+| `session_login` | sink | internal | reversible | creates a session (registry-only stub intent) |
+| `session_logout` | sink | internal | reversible | destroys the current session (stub intent) |
+| `session_clear` | sink | internal | irreversible | wipes session state — no undo |
+| `send_message` | sink | network | irreversible | delivers a message to an external chat — cannot be unsent (issue minimum list) |
+| `answer_callback_query` | sink | network | irreversible | answers an external callback query |
+| `edit_message_text` | sink | network | reversible | edits an already-delivered external message (reversible by further edits) |
+| `whisper_transcribe` | source | network | pure | ingests external transcription of user audio; DUAL: uploads the audio to an external STT provider (№317 corpus) |
+| `tts_send` | sink | network | irreversible | synthesizes AND delivers audio externally — cannot be unsent (issue minimum list) |
+| `tts_generate` | source | network | pure | ingests an audio artifact from an external TTS provider; DUAL: transmits the text to the provider (№317 corpus) |
+| `env` | source | secret | pure | ingests environment secrets — Secret taint (audit.rs) |
+| `query` | source | internal | pure | reads the program's persistent DB (state input with provenance) |
+| `db_execute` | sink | internal | irreversible | arbitrary SQL write against the persistent DB — destructive statements are non-undoable (issue minimum list) |
+| `call_llm` | source | network | pure | ingests untrusted model output (LlmOutput taint, ADR-0117); DUAL: the prompt is transmitted to an external provider — №317 corpus must cover prompt-egress |
+| `call_claude` | source | network | pure | ingests untrusted model output (LlmOutput taint); DUAL: prompt egress to provider |
+| `llm_usage` | source | internal | pure | reads LLM usage accounting state |
+| `call_llm_schema` | source | network | pure | ingests schema-validated (still untrusted) model output; DUAL: prompt egress |
+| `kv_set` | sink | internal | reversible | persists to the program KV store (redact-before-persist per ADR-0136 applies) |
+| `kv_get` | source | internal | pure | reads the program KV store — state input |
+| `kv_delete` | sink | internal | irreversible | destroys a persisted KV entry — no undo |
+| `kv_exists` | source | internal | pure | reads KV store state |
+| `kv_list` | source | internal | pure | reads KV store state |
+| `mem_set` | sink | internal | reversible | persists to long-term memory store |
+| `mem_get` | source | internal | pure | reads long-term memory store |
+| `mem_delete` | sink | internal | irreversible | destroys a memory entry — no undo |
+| `memorize` | sink | internal | reversible | alias of kv_set — persists to the memory store |
+| `embed` | pure | public | pure | — |
+| `vec_store` | sink | internal | reversible | persists embeddings into the vector store (ADR-0134) |
+| `vec_search` | source | internal | pure | reads the vector store (KNN state input) |
+| `recall` | source | internal | pure | intended memory recall — state read |
+| `forget` | sink | internal | irreversible | intended destructive memory removal |
+| `find` | source | internal | pure | intended memory search — state read |
+| `inspect` | source | internal | pure | intended runtime introspection — state read |
+| `conv_start` | sink | internal | reversible | intended conversation state creation |
+| `conv_add` | sink | internal | reversible | intended conversation state append |
+| `conv_history` | source | internal | pure | intended conversation state read |
+| `conv_context` | source | internal | pure | intended conversation state read |
+| `conv_end` | sink | internal | reversible | intended conversation state close |
+| `session_set` | sink | internal | reversible | persists web session state |
+| `session_get` | source | internal | pure | reads web session state |
+| `ref` | source | internal | pure | creates a reference into the content store — state read |
+| `deref` | source | internal | pure | reads content store state |
+| `now` | source | public | pure | wall-clock read — external (nondeterministic) input |
+| `sleep` | sink | internal | irreversible | temporal effect — suspends execution (no data flow) |
+| `time` | source | public | pure | wall-clock read — external (nondeterministic) input |
+| `add_days` | pure | public | pure | — |
+| `add_hours` | pure | public | pure | — |
+| `date_parts` | pure | public | pure | — |
+| `format_date` | pure | public | pure | — |
+| `days_between` | pure | public | pure | — |
+| `days_in_month` | pure | public | pure | — |
+| `is_leap_year` | pure | public | pure | — |
+| `weekday_name` | pure | public | pure | — |
+| `graph_query` | source | internal | pure | reads the global memory graph — state input |
+| `graph_path` | source | internal | pure | reads the global memory graph |
+| `graph_neighbors` | source | internal | pure | reads the global memory graph |
+| `memory_decay` | sink | internal | reversible | adjusts memory weights — undoable state change |
+| `memory_boost` | sink | internal | reversible | adjusts memory weights — undoable state change |
+| `memory_prune` | sink | internal | irreversible | destructively removes memory entries — no undo |
+| `memory_revise` | sink | internal | reversible | revises memory entries — undoable state change |
+| `subgraph_extract` | source | internal | pure | extracts a subgraph value from global graph state |
+| `subgraph_nodes` | pure | public | pure | — |
+| `subgraph_json` | pure | public | pure | — |
+| `trace_start` | sink | internal | reversible | mutates trace state |
+| `trace_end` | sink | internal | reversible | mutates trace state |
+| `memory_score` | pure | public | pure | — |
+| `mtree_summarize` | source | internal | pure | reads memory-tree state |
+| `mtree_retrieve` | source | internal | pure | reads memory-tree state |
+| `mtree_store` | sink | internal | reversible | persists to the memory tree |
+| `mtree_stats` | source | internal | pure | reads memory-tree state |
+| `mtree_forget` | sink | internal | irreversible | destructively forgets memory-tree entries |
+| `cron_mark_fired` | sink | internal | reversible | mutates schedule firing state |
+| `cron_add` | sink | internal | reversible | persists a schedule entry (undoable by cron_remove) |
+| `cron_list` | source | internal | pure | reads schedule state |
+| `cron_remove` | sink | internal | irreversible | removes a schedule entry — destructive |
+| `cron_run` | sink | internal | irreversible | fires scheduled flows — downstream external effects |
+| `event_count` | source | internal | pure | VM-native event-log read — state input |
+| `events_since` | source | internal | pure | VM-native event-log read — state input |
+| `event_sum` | source | internal | pure | VM-native event-log aggregation — state input |
+| `query_scalar` | source | internal | pure | VM-native DB read — state input |
+| `query_row` | source | internal | pure | VM-native DB read — state input |
+| `assert_eq` | pure | public | pure | — |
+| `assert_contains` | pure | public | pure | — |
+| `confidence` | pure | public | pure | — |
+| `toon_encode` | pure | public | pure | — |
+| `toon_decode` | pure | public | pure | — |
+| `recipe_save` | sink | internal | reversible | persists a recipe |
+| `recipe_search` | source | internal | pure | reads recipe state |
+| `recipe_list` | source | internal | pure | reads recipe state |
+| `dag_phases` | pure | public | pure | — |
+| `topo_sort` | pure | public | pure | — |
+| `resolve_skill_index` | source | internal | pure | VM-native skill resolver — state read |
+| `fit_to_budget` | pure | public | pure | — |
+| `map` | pure | public | pure | — |
+| `fuzzy_find_best` | pure | public | pure | — |
+| `hashline_read` | pure | public | pure | — |
+| `hashline_edit` | pure | public | pure | — |
+| `compact_list` | pure | public | pure | — |
+| `budget_check` | pure | public | pure | — |
+| `replay_snapshot` | source | internal | pure | reads runtime snapshot state |
+| `policy_check` | source | internal | pure | reads runtime policy state |
+| `semantic_search` | source | internal | pure | reads the semantic vault (KNN state input) |
+| `config_load` | source | internal | pure | ingests a config file from disk |
+| `vault_validate` | pure | public | pure | — |
+| `todo_add` | sink | internal | reversible | persists a todo entry |
+| `todo_list` | source | internal | pure | reads todo state |
+| `todo_update` | sink | internal | reversible | updates todo state — undoable |
+| `goal_get` | source | internal | pure | reads goal state |
+| `goal_set` | sink | internal | reversible | persists goal state |
+| `goals_add` | sink | internal | reversible | persists goal state |
+| `goals_list` | source | internal | pure | reads goal state |
+| `remind` | sink | internal | reversible | schedules a future external delivery (the reminder itself is undoable) |
+| `get_profile` | source | internal | pure | reads persisted profile (PII state input) |
+| `human_mood` | source | internal | pure | reads the persisted human-state model |
+| `ask_approval` | sink | network | irreversible | sends an approval request to the human — external interaction |
+| `goal_complete` | sink | internal | reversible | updates goal state |
+| `goals_reflect` | sink | internal | reversible | updates goal state |
+| `cancel_remind` | sink | internal | reversible | cancels a scheduled reminder |
+| `check_reminders` | source | internal | pure | reads reminder state |
+| `list_reminders` | source | internal | pure | reads reminder state |
+| `remind_recurring` | sink | internal | reversible | schedules recurring future deliveries |
+| `human_create` | sink | internal | reversible | persists a human profile (PII) |
+| `human_delete` | sink | internal | irreversible | destroys a human profile — no undo |
+| `human_forget` | sink | internal | irreversible | destructively forgets human data (GDPR erasure semantics) — no undo |
+| `human_personas` | source | internal | pure | reads persisted personas |
+| `human_recall` | source | internal | pure | reads persisted human data |
+| `human_remember` | sink | internal | reversible | persists human data (PII) |
+| `human_respond` | sink | network | irreversible | delivers a response to the human — cannot be unsent |
+| `compress_html` | pure | public | pure | — |
+| `estimate_tokens` | pure | public | pure | — |
+| `extract_entities` | pure | public | pure | — |
+| `extract_param` | pure | public | pure | — |
+| `learn_preference` | sink | internal | reversible | persists a learned preference (PII) |
+| `read_file_tokens` | source | internal | pure | ingests file content (token-budgeted) |
+| `squeeze` | pure | public | pure | — |
+| `to_int` | pure | public | pure | — |
+| `pdf_classify` | pure | public | pure | — |
+| `pdf_to_markdown` | pure | public | pure | — |
+| `pdf_extract_regions` | pure | public | pure | — |
+| `pdf_ocr` | pure | public | pure | — |
+| `pdf_create` | pure | public | pure | — |
+| `pdf_add_page` | pure | public | pure | — |
+| `pdf_write_text` | pure | public | pure | — |
+| `pdf_draw_line` | pure | public | pure | — |
+| `pdf_draw_rect` | pure | public | pure | — |
+| `pdf_save` | pure | public | pure | — |
+| `pdf_merge` | pure | public | pure | — |
+| `pdf_split` | pure | public | pure | — |
+| `pdf_metadata` | pure | public | pure | — |
+| `pdf_set_metadata` | pure | public | pure | — |
+| `html_to_pdf` | pure | public | pure | — |
+| `send_document` | sink | network | irreversible | delivers a document externally — cannot be unsent |
+| `sha256` | lift | public | pure | one-way digest — de-identifies its input (used to hash secrets) |
+| `hmac_sha256` | lift | public | pure | keyed digest — de-identifies its input |
+| `hex_encode` | pure | public | pure | — |
+| `hex_decode` | pure | public | pure | — |
+| `secret` | source | secret | pure | materializes a Secret value — Secret taint (№172) |
+| `regex_match` | pure | public | pure | — |
+| `regex_captures` | pure | public | pure | — |
+| `regex_replace` | pure | public | pure | — |
+| `pdf_draw_table` | pure | public | pure | — |
+| `pdf_add_image` | pure | public | pure | — |
+| `pdf_set_page_header` | pure | public | pure | — |
+| `pdf_set_page_footer` | pure | public | pure | — |
+| `pdf_page_numbers` | pure | public | pure | — |
+| `pdf_watermark` | pure | public | pure | — |
+| `pdf_fill_form` | pure | public | pure | — |
+| `pdf_rotate_page` | pure | public | pure | — |
+| `pdf_delete_pages` | pure | public | pure | — |
+| `pdf_extract_images` | pure | public | pure | — |
+| `smtp_send` | sink | network | irreversible | sends an email externally — cannot be unsent |
+| `smtp_send_html` | sink | network | irreversible | sends an HTML email externally — cannot be unsent |
+| `imap_list` | source | network | pure | ingests external mailbox listing |
+| `imap_read` | source | network | pure | ingests external email content |
+| `imap_search` | source | network | pure | ingests external mailbox search results |
+| `imap_mark_read` | sink | network | reversible | mutates external mailbox flags (undoable by flag change) |
+| `imap_move` | sink | network | reversible | moves an external email between folders (undoable by moving back) |
+| `cal_connect` | source | network | pure | ingests external calendar connection state |
+| `cal_list` | source | network | pure | ingests external calendar listings |
+| `cal_events` | source | network | pure | ingests external calendar events |
+| `cal_read` | source | network | pure | ingests an external calendar event |
+| `cal_create` | sink | network | irreversible | creates an external calendar event — external state change |
+| `cal_update` | sink | network | reversible | updates an external calendar event (undoable by update) |
+| `cal_delete` | sink | network | irreversible | deletes an external calendar event — external state change |
+| `cal_freebusy` | source | network | pure | ingests external free/busy data |
+| `ical_parse` | pure | public | pure | — |
+| `ical_generate` | pure | public | pure | — |
+| `card_connect` | source | network | pure | ingests external CardDAV connection state |
+| `card_list` | source | network | pure | ingests external address-book listings |
+| `card_contacts` | source | network | pure | ingests external contacts (PII ingress) |
+| `card_read` | source | network | pure | ingests an external contact (PII ingress) |
+| `card_create` | sink | network | irreversible | creates an external contact — external state change |
+| `card_update` | sink | network | reversible | updates an external contact (undoable by update) |
+| `card_delete` | sink | network | irreversible | deletes an external contact — external state change |
+| `card_search` | source | network | pure | ingests external contact search results |
+| `vcard_parse` | pure | public | pure | — |
+| `vcard_generate` | pure | public | pure | — |
+| `svg_rect` | pure | public | pure | — |
+| `svg_circle` | pure | public | pure | — |
+| `svg_line` | pure | public | pure | — |
+| `svg_text` | pure | public | pure | — |
+| `svg_path` | pure | public | pure | — |
+| `svg_group` | pure | public | pure | — |
+| `svg_canvas` | pure | public | pure | — |
+| `diagram_style` | pure | public | pure | — |
+| `svg_sketchy_filter` | pure | public | pure | — |
+| `svg_icon` | pure | public | pure | — |
+| `svg_callout` | pure | public | pure | — |
+| `chart_bar` | pure | public | pure | — |
+| `chart_donut` | pure | public | pure | — |
+| `chart_line` | pure | public | pure | — |
+| `chart_scatter` | pure | public | pure | — |
+| `chart_area` | pure | public | pure | — |
+| `chart_radar` | pure | public | pure | — |
+| `chart_heatmap` | pure | public | pure | — |
+| `chart_boxplot` | pure | public | pure | — |
+| `color_palette` | pure | public | pure | — |
+| `svg_generate` | pure | public | pure | — |
+| `svg_canvas_preset` | pure | public | pure | — |
+| `diagram_tree` | pure | public | pure | — |
+| `diagram_org_chart` | pure | public | pure | — |
+| `diagram_flowchart` | pure | public | pure | — |
+| `diagram_layers` | pure | public | pure | — |
+| `diagram_sequence` | pure | public | pure | — |
+| `diagram_timeline` | pure | public | pure | — |
+| `diagram_gantt` | pure | public | pure | — |
+| `diagram_process` | pure | public | pure | — |
+| `diagram_loop` | pure | public | pure | — |
+| `diagram_venn` | pure | public | pure | — |
+| `diagram_quadrant` | pure | public | pure | — |
+| `diagram_pyramid` | pure | public | pure | — |
+| `diagram_nested` | pure | public | pure | — |
+| `diagram_medallion` | pure | public | pure | — |
+| `diagram_er` | pure | public | pure | — |
+| `diagram_state` | pure | public | pure | — |
+| `diagram_swimlane` | pure | public | pure | — |
+| `diagram_data_flow` | pure | public | pure | — |
+| `diagram_high_level` | pure | public | pure | — |
+| `diagram_architecture` | pure | public | pure | — |
+| `template_render` | lift | public | pure | auto-escaped template rendering — output is public-safe |
+| `html_render` | lift | public | pure | sanitizing HTML render — output is public-safe |
+| `infographic_qa` | pure | public | pure | — |
+| `reflex_train` | sink | internal | reversible | persists trained weights in the Reflex registry (ADR-0114) |
+| `reflex_predict` | pure | public | pure | — |
+| `reflex_save` | sink | internal | reversible | persists weights to SQLite (ADR-0116) |
+| `reflex_load` | source | internal | pure | ingests persisted weights from SQLite |
+| `reflex_metrics` | pure | public | pure | — |
+| `reflex_list` | source | internal | pure | reads the Reflex registry state |
+| `reflex_generate` | source | internal | pure | ingests untrusted model output (LlmOutput-equivalent per №201) |
+| `reflex_tokenize` | pure | public | pure | — |
+| `reflex_detokenize` | pure | public | pure | — |
+| `reflex_bpe_train` | pure | public | pure | — |
+| `reflex_bpe_encode` | pure | public | pure | — |
+| `reflex_bpe_decode` | pure | public | pure | — |
+| `reflex_bpe_save` | sink | internal | reversible | persists the BPE vocab (№195) |
+| `reflex_bpe_load` | source | internal | pure | ingests a persisted BPE vocab |
+| `vision_generate` | sink | internal | reversible | persists a generated artifact in the VisionRegistry (№210) — local compute, egress only at vision_export |
+| `vision_edit` | sink | internal | reversible | persists an edited artifact in the VisionRegistry |
+| `vision_export` | sink | internal | reversible | writes the signed image artifact to disk — egress point (gate VISION_UNSIGNED_EXPORT, ADR-0125) |
+| `vision_export_raw` | sink | internal | reversible | explicit unsigned egress opt-out (loud Warning per ADR-0125) |
+| `vision_fetch_weights` | source | network | reversible | ingests external weights (allowlist+SSRF+SHA-pinned, №300); writes the local weight cache |
+| `vision_list` | source | internal | pure | reads the VisionRegistry state |
+| `vision_save` | sink | internal | reversible | persists a Vision artifact (№242) |
+| `vision_load` | source | internal | pure | ingests a persisted Vision artifact |
+| `vision_lora_load` | source | internal | pure | ingests a persisted LoRA adapter |
+| `vision_lora_generate` | sink | internal | reversible | persists a LoRA-generated artifact in the VisionRegistry |
+| `canary_insert` | sink | internal | reversible | plants canary markers into channels — security-instrumentation state write (№284) |
+| `canary_check` | source | internal | pure | reads canary leak-detection state (№284) |
+| `json_validate` | pure | public | pure | — |
+| `memory_forget` | sink | internal | irreversible | destructively forgets memory (№280) — no undo |
+| `user_profile` | source | internal | pure | reads persisted user profile (PII state input) |
+| `text_chunk` | pure | public | pure | — |
+| `llm_stream_open` | source | network | pure | opens an external SSE stream — ingests untrusted model output; DUAL: prompt egress |
+| `llm_stream_next` | source | network | pure | ingests the next untrusted model chunk from the external stream |
+| `llm_stream_close` | sink | network | reversible | closes the external stream (cleanup effect, no data egress) |
+| `server_path_param` | source | internal | pure | ingests untrusted request path parameter — UserInput taint |
+| `voice_enroll` | sink | secret | reversible | persists a BIOMETRIC voiceprint (GDPR Art. 9 — Secret label, encrypted at rest per ADR-0145 D4) |
+| `tts_speak` | sink | internal | reversible | persists a locally synthesized audio artifact (ADR-0143) |
+| `audio_export` | sink | internal | reversible | writes the signed audio artifact to disk (gate AUDIO_UNSIGNED_EXPORT, ADR-0145) |
+| `voice_design` | sink | internal | reversible | persists a designed voice artifact |
+| `voice_save` | sink | internal | reversible | persists a Voice artifact |
+| `voice_load` | source | internal | pure | ingests a persisted Voice artifact |
+| `video_render` | sink | internal | reversible | persists a generated video artifact in VIDEO_REGISTRY — local tiny pipeline; egress only at video_export |
+| `video_export` | sink | internal | reversible | writes the signed .mlgv container to disk — egress point (gate VIDEO_UNSIGNED_EXPORT, ADR-0151 D5) |
+| `av_mux` | sink | internal | reversible | persists the A/V sidecar container in VIDEO_REGISTRY (ADR-0151 D4) |
+| `frame_interp` | sink | internal | reversible | persists an interpolated artifact in VIDEO_REGISTRY (ADR-0151 D2) |
+| `video_extend` | sink | internal | reversible | persists an extended artifact in VIDEO_REGISTRY (ADR-0151 D3) |
+| `video_fetch_weights` | source | network | reversible | intended external weights fetch (formal No-Go №294 class, ADR-0151 D7); covered by MODEL_WEIGHTS_UNSAFE |
+
+<!-- END GENERATED BUILTIN CLASSIFICATION -->
+
+
+

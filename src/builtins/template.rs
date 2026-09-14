@@ -433,6 +433,8 @@ fn value_to_string(v: &Value) -> String {
         // Наряд №302: Voice/Audio handle in template rendering.
         Value::Voice(id) => format!("[Voice#{}]", id.0),
         Value::Audio(id) => format!("[Audio#{}]", id.0),
+        // Наряд №307: Video handle in template rendering.
+        Value::Video(id) => format!("[Video#{}]", id.0),
         // Наряд №275 (ADR-0137): LLM stream handle in template rendering —
         // лекала Reflex/Vision. Opaque — printing the handle leaks the
         // active stream's identity, never the response body.

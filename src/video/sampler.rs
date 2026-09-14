@@ -263,7 +263,8 @@ mod tests {
         let vae_config = VideoVaeConfig::default();
         let vae = VideoVae::new_tiny(42, vae_config, &device).unwrap();
 
-        // Text embedding (stub: zeros, dim=64)
+        // Text embedding (fixture: zeros, dim=64 — valid input of the REAL
+        // text path, ADR-0153 D1; production derives hash_embedding(seed)).
         let text = Tensor::zeros((1, 64), DType::F32, &device).unwrap();
 
         // Sample config

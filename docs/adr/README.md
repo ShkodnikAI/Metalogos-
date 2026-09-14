@@ -171,3 +171,4 @@ reports and must not be changed:
 | 0150 | Video wedge — Wan 2.2 primary, CogVideoX-5B warm-up | Accepted |
 | 0151 | Video I2V pipeline — first/last-frame anchors, RIFE-class interpolation, AV sidecar mux | Accepted |
 | 0152 | C2PA mini-slice — Art. 50 synthetic marking on egress (no clearance lattice) | Accepted |
+| 0153 | Video DiT text path wired — prompt embedding genuinely conditions the denoiser | Accepted |

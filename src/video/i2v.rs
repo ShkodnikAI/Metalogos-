@@ -64,11 +64,36 @@ pub fn ref_hash(ref_pixels: &[f32]) -> String {
 }
 
 /// Text conditioning for the tiny pipeline: deterministic hash embedding
-/// [1, 64] derived from the render seed (ADR-0151 D7 — prompt conditioning
-/// operates through seed derivation; the DiT text path is a V4+ item).
+/// [1, 64] derived from the render seed. ADR-0153 D1: the embedding is
+/// genuinely consumed by the DiT text path (projected and added to every
+/// token at each denoising step). Boundary: the embedding is hash-derived,
+/// NOT a learned text encoder — umT5-class encoders remain under the
+/// №294-class No-Go (ADR-0153 D2).
 pub(crate) fn hash_embedding(seed: u64) -> Tensor {
     let vals = crate::nn::attention::generate_uniform_f32(seed.wrapping_add(7), 64, -1.0, 1.0);
     Tensor::from_vec(vals, (1, 64), &candle_core::Device::Cpu).expect("hash_embedding")
+}
+
+#[cfg(test)]
+mod hash_embedding_tests {
+    use super::*;
+
+    /// ADR-0153 D1: the prompt embedding is seed-sensitive — different
+    /// prompts (different seeds) must give different conditioning vectors.
+    #[test]
+    fn hash_embedding_is_seed_sensitive_and_deterministic() {
+        let a1 = hash_embedding(11);
+        let a2 = hash_embedding(11);
+        let b = hash_embedding(12);
+        let va1 = a1.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        let va2 = a2.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        let vb = b.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        assert_eq!(va1, va2, "same seed must give the same embedding");
+        assert_ne!(
+            va1, vb,
+            "different seeds must give different conditioning vectors"
+        );
+    }
 }
 
 fn validate_model(model_id: &str) -> Result<(), String> {

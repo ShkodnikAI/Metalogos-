@@ -41,6 +41,7 @@ fn signed_manifest() -> VisionManifest {
         policy: "safe".to_string(),
         timestamp: "2026-09-09T00:00:00+00:00".to_string(),
         png_sha256: "0123456789abcdef".to_string(),
+        synthetic: true,
     }
 }
 
@@ -151,6 +152,8 @@ fn signed_export_writes_png_and_sidecar() {
         "\"policy\"",
         "\"timestamp\"",
         "\"png_sha256\"",
+        // №320 (ADR-0152 D1): the synthetic marking ships in the sidecar.
+        "\"synthetic\"",
     ] {
         assert!(json.contains(field), "sidecar missing {}", field);
     }
@@ -158,10 +161,13 @@ fn signed_export_writes_png_and_sidecar() {
     assert!(!json.contains("unspecified"), "declared policy is safe");
 }
 
-/// The raw opt-out (Block 2.1) works on the same manifest-less artifact —
-/// that is its purpose: unsigned by EXPLICIT choice.
+/// The raw opt-out (Block 2.1) on a manifest-less artifact is REFUSED
+/// since №320 (ADR-0152 D3): unmarked media is treated as synthetic —
+/// the Art. 50 marking window (deadline 2026-12-02) overrides the
+/// universal opt-out. The №241-era "raw works on anything" contract is
+/// amended; the remedy is the signed path (vision_export).
 #[test]
-fn raw_export_allows_manifestless_artifact() {
+fn raw_export_refuses_manifestless_artifact_n320() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("raw.png");
     let mut reg = VisionRegistry::new();
@@ -170,11 +176,17 @@ fn raw_export_allows_manifestless_artifact() {
         manifest: None,
     });
     let args = vec![Value::Vision(id), Value::String(path.display().to_string())];
-    vision_export_raw_dispatch(&reg, &args).expect("raw export must succeed");
-    assert_eq!(std::fs::read(&path).expect("raw bytes"), vec![7, 8, 9]);
-    // No sidecar for raw exports (Block 2.1).
-    let sidecar = dir.path().join("raw.png.manifest.json");
-    assert!(!sidecar.exists(), "raw export must not write a sidecar");
+    let err = vision_export_raw_dispatch(&reg, &args)
+        .expect_err("unmarked (manifest-less) raw egress must be refused (ADR-0152 D3)");
+    assert!(
+        err.contains("MEDIA_SYNTHETIC_UNMARKED"),
+        "gate check-id must be named: {}",
+        err
+    );
+    assert!(
+        !path.exists(),
+        "the refused raw export must not write the PNG"
+    );
 }
 
 // ── Gate 2: MODEL_WEIGHTS_UNSAFE (audit Error) ───────────────────────

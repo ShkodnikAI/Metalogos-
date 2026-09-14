@@ -4,7 +4,8 @@
 // NOT in default/full — same pattern as Vision (ADR-0122) / Voice (ADR-0143).
 //
 // №307: VideoId opaque handle, VideoRegistry, KNOWN_VIDEO_MODELS SSOT,
-//       VideoManifest, builtin stubs.
+//       VideoManifest (its builtin stubs were fully replaced by the №309
+//       real pipeline below).
 // №310: real tiny VAE/DiT/sampler (vae.rs, denoiser.rs, sampler.rs).
 // №309 (ADR-0151): real pipeline builtins — I2V first/last anchors (i2v.rs),
 //       RIFE-class interpolation + extension (interp.rs), AV sidecar mux +

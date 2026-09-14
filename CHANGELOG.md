@@ -4,6 +4,13 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Changed — video: VIDEO-TEXT-PATH — DiT text conditioning wired, no-stubs re-audit (owner directive 2026-09-14, ADR-0153)
+
+- **text path is real**: `VideoDit::forward` no longer drops the prompt embedding (`_text` dead parameter removed) — the embedding is loudly shape-validated (`[B, text_dim]`), projected by a seeded `Linear(text_dim → hidden_dim)` (streams seed+20/+21, no overlap) and broadcast-added to every token at each denoising step. Prompt conditioning now operates through TWO real paths: seed derivation AND the projected embedding (ADR-0153 D1).
+- **boundary restated** (ADR-0153 D2): the embedding remains hash-derived (`hash_embedding(seed)`), NOT a learned text encoder — umT5-class encoders stay under the №294-class No-Go with `video_fetch_weights` as the loud error; `docs/limitations.md` carries the row.
+- **no-stubs re-audit** (ADR-0153 D4): "stub" wording reserved for recorded loud-error boundaries; test fixture comment in `sampler.rs` relabeled (zeros are a valid input of the real path); №307 historical note in `src/video/mod.rs` marked superseded by №309. Zero `unimplemented!()`/`todo!()`/hidden stubs in the pillar.
+- **tests**: text conditioning changes the velocity field; same text → identical output; shape mismatch is a loud error (width and batch); `hash_embedding` seed-sensitivity. No absolute video hashes pinned anywhere — determinism contracts (two-anchor exactness, endpoint preservation, byte-deterministic mux/export) unaffected by construction.
+
 ### Added — feature: MCP_SERVER — Metalogos as MCP server (tool constructs → MCP tools via stdio) (Naryad #297, P1/feature/mcp)
 
 - **new module**: `src/mcp_server.rs` — stdio-based JSON-RPC 2.0 server (newline-framed) that exposes user `tool` constructs from a .mlog file as MCP tools. Reverse of MCP client (Наряд №268, ADR-0132) — Metalogos IS the tool server.

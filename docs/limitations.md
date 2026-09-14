@@ -36,6 +36,7 @@
 | Limitation | Primary source | Status / condition for removal |
 |---|---|---|
 | Production-weights inference — PARKED (№294 class); `video_fetch_weights` is a loud error, not a fetcher | [ADR-0151 D7](adr/0151-video-i2v-pipeline.md); [Наряд №294 No-Go report](research/naryad-294-vision-realw-no-go.md) | Revision date: when hardware is allocated; the tiny seeded pipeline needs no fetching |
+| Prompt embedding is hash-derived (`hash_embedding(seed)`), NOT a learned text encoder; the DiT text path itself is real (projected + added to every token) | [ADR-0153 D1/D2](adr/0153-video-text-path-wired.md) | Learned umT5-class encoders land with the production-weights revision (same №294-class trigger) |
 | UNTRUSTED_FRAME taint — let-bound variables holding previously fetched untrusted frames are not tracked; full screen+consent ritual (frame_screen / LikenessToken) is V6 | [ADR-0151 D6](adr/0151-video-i2v-pipeline.md); [ADR-0149 D5/D6](adr/0149-video-security-gates.md) | Lands with the V6 LikenessToken mechanics |
 | Interpolation is latent-space linear blending (RIFE-class MVP), not flow-warped synthesis; export payload is raw LE f32 (`MLGV-RAW-F32`), no compressed codec; av_mux supports PCM WAV only | [ADR-0151 D2/D4/D7](adr/0151-video-i2v-pipeline.md) | V7 research items (flow-guided interp, container codec) |
 

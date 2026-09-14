@@ -399,7 +399,7 @@ Metalogos-/
 │       └── 0111-ast-span-tracking.md
 │
 └── .github/workflows/                  # CI/CD
-    ├── ci.yml                         # 16 blocking jobs (branch-freshness, fmt, clippy, test-lib, crosscheck, candle-tests, vision-tests, doc-tests, registry-arity-check, test-llm-cache-contract, minimal-build, test-integration, adr-check, module-size-guard, vscode-extension, cargo-audit)
+    ├── ci.yml                         # 17 blocking jobs (branch-freshness, fmt, clippy, test-lib, crosscheck, candle-tests, vision-tests, doc-tests, registry-arity-check, test-llm-cache-contract, minimal-build, test-integration, adr-check, module-size-guard, vscode-extension, cargo-audit)
     └── build.yml                      # Release build + artifact upload
 ```
 

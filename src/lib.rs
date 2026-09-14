@@ -19,6 +19,9 @@ pub mod ast;
 use crate::audit::{audit_category_a, Severity};
 pub mod audit;
 pub mod builtins;
+// Наряд №316 (issue #403): SSOT-классификация builtins — роль × метка ×
+// обратимость. Статическая карта + тесты покрытия 100% (устав §11 Шаг 3).
+pub mod builtins_classification;
 pub mod bytecode;
 pub mod compiler;
 pub mod doc_tests;

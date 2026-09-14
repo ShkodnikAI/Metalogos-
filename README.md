@@ -164,6 +164,8 @@ $ mlog check poison.mlog
 ```
 
 > **[Known Limitations](docs/limitations.md)** — a unified index of all documented language limitations across static analysis, VM, Vision, adapt, self-hosting, JIT, error protocol, LLM streaming, and MCP server. The truth lives in the primary sources (ADR, source files); this page only references.
+>
+> **[REALITY](docs/REALITY.md)** — the reality-check of plan-v2 asset claims (CONFIRMED / PARTIAL / PHANTOM verdicts with proof commands) and the working P0-readiness estimate (26%) — Naryad №318.
 
 #### Known boundaries of static analysis
 
@@ -228,9 +230,9 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 ```
  .mlog source        Pest PEG          AST                Semantic            TW + VM backends
 ─────────────  ──>  ────────────  ──>  ───────────  ──>  ────────────  ──>  ────────────
- entity             parse tokens      29 Declaration    cross-reference     tree-walking
- pattern            syntax rules      15 Expr           validation          bytecode VM
- flow                                  12 Statement      opaque type       enforcement
+ entity             parse tokens      33 Declaration    cross-reference     tree-walking
+ pattern            syntax rules      14 Expr           validation          bytecode VM
+ flow                                  15 Statement      opaque type       enforcement
  memory                                 4 MatchArm        span-aware
  rule                                                    error messages
  learn
@@ -243,10 +245,10 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Component | Technology | Lines |
 |---|---|---|
 | Parser | Pest 2.7 PEG grammar (~534 lines, 305 rules) | 2 176 |
-| AST | 33 Declaration variants, 14 Expr, 12 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
+| AST | 33 Declaration variants, 14 Expr, 15 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION, VISION_UNSIGNED_EXPORT, MODEL_WEIGHTS_UNSAFE), SVG XSS lint | 473 |
 | Compiler | Bytecode, 421 builtins indexed | 1 516 |
-| Bytecode format | 46 VM instructions | — |
+| Bytecode format | 47 VM instructions | — |
 | Tree-walking interpreter | Full feature support, 12 modules | ~4 400 |
 | VM | Stack-based bytecode executor | 2 143 |
 | Built-in functions | 421 functions across 39 modules | ~18 000 |
@@ -268,7 +270,7 @@ Metalogos-/
 ├── CLAUDE.md                         # Bridge copy of AGENTS.md for Claude-compatible tools (synced manually — see issue #299)
 ├── GEMINI.md                         # Bridge copy of AGENTS.md for Gemini-compatible tools (synced manually — see issue #299)
 ├── REFERENCE.md                      # Full builtin reference (~214 KB) — 100% of the registry (§6 index + №316 classification)
-├── CHANGELOG.md                      # Version history (~259 KB)
+├── CHANGELOG.md                      # Version history (~261 KB)
 ├── AI_USAGE.md                       # Disclosure: how generative AI is used in this project's development
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap

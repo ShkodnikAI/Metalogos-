@@ -1638,6 +1638,21 @@ const VISION_PICKLE_CLASS_EXTS: &[&str] = &[
     ".tar", ".gz", ".7z",
 ];
 
+/// SSOT list of weights-fetch function names (Наряд №300, issue #368).
+/// Adding a new pillar's weights-fetch builtin (e.g., `voice_fetch_weights`)
+/// is a one-line append — no changes to `walk_expr_deep` logic needed.
+/// Additionally, any function name ending in `_fetch_weights` is automatically
+/// covered by the suffix convention — no list update required at all.
+const WEIGHTS_FETCH_FNS: &[&str] = &["vision_fetch_weights"];
+
+/// Check if a function name is a weights-fetch function. Returns true if:
+/// (a) the name is in `WEIGHTS_FETCH_FNS` (explicit SSOT list), OR
+/// (b) the name ends with `_fetch_weights` (suffix convention).
+/// This ensures new pillar weights-fetch builtins are covered automatically.
+fn is_weights_fetch_fn(name: &str) -> bool {
+    WEIGHTS_FETCH_FNS.contains(&name) || name.ends_with("_fetch_weights")
+}
+
 fn check_model_weights_unsafe(
     declarations: &[Declaration],
     source: &str,
@@ -1733,18 +1748,18 @@ fn check_model_weights_unsafe(
             ..
         } = expr
         {
-            if fn_name == "vision_fetch_weights" {
+            if is_weights_fetch_fn(fn_name) {
                 if let Some(Expr::StringLit { value, .. }) = args.first() {
                     if let Some(violation) = literal_url_violation(value) {
-                        let line = find_line(source, "vision_fetch_weights");
+                        let line = find_line(source, fn_name.as_str());
                         findings.push(AuditFinding {
                             severity: Severity::Error,
                             check_id: "MODEL_WEIGHTS_UNSAFE",
                             line,
                             message: format!(
-                                "vision_fetch_weights: {} (ADR-0125; runtime layers: allowlist \
+                                "{}: {} (ADR-0125; runtime layers: allowlist \
                                  default-deny MLOG_VISION_WEIGHTS_ALLOWLIST + SSRF guard + SHA pinning)",
-                                violation
+                                fn_name, violation
                             ),
                         });
                     }

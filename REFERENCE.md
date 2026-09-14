@@ -257,7 +257,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.19):** This section documents **100%** of the 420 registered builtins (420 of 420): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.19):** This section documents **100%** of the 421 registered builtins (421 of 421): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1619,7 +1619,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 420 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 421 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2175,15 +2175,16 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `semantic_search(...)` | 3 | — | `semantic_search(query, documents, top_k)` — semantic similarity search. |
 | `vault_validate(...)` | 2 | — | `vault_validate(config, required_fields)` — validate a loaded config against required fields. |
 
-### `video` — 5 builtin(s)
+### `video` — 6 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
-| `av_mux(...)` | 2 | — | `av_mux(video, audio)` stub — ADR-0147 cross-pillar. Not implemented (phase V6). |
-| `frame_interp(...)` | 2 | — | `frame_interp(handle, count)` stub — ADR-0147 v2v. Not implemented (phase V7+). |
-| `video_export(...)` | 1 | — | `video_export(handle)` stub — ADR-0149 provenance. Not implemented (phase V4). |
-| `video_fetch_weights(...)` | 2 | — | `video_fetch_weights(url, dir)` stub — ADR-0148. Not implemented (phase V2). |
-| `video_render(...)` | 2 | — | `video_render(decl, prompt)` stub — ADR-0147 T2V. Not implemented (phase V2). |
+| `av_mux(...)` | 2 | — | `av_mux(video, audio)` — deterministic `.mlgv.av` sidecar container pairing VideoId ↔ AudioId with frame-aligned timestamps (ADR-0151 D4). |
+| `frame_interp(...)` | 2 | — | `frame_interp(handle, factor)` — RIFE-class latent interpolation, 2x/4x (ADR-0151 D2). Endpoints preserved: first/last latent frames never move. |
+| `video_export(...)` | 2 | — | `video_export(handle, path)` — signed-by-construction `.mlgv` container: manifest + watermark embedded, unsigned export does not exist (runtime gate VIDEO_UNSIGNED_EXPORT, ADR-0151 D5; contract test pins it). |
+| `video_extend(...)` | 2 | — | `video_extend(handle, extra)` — clip continuation anchored on the last latent frame (ADR-0151 D3). `extra` = number of ADDITIONAL latent frames. |
+| `video_fetch_weights(...)` | 2 | — | `video_fetch_weights(url, dir)` — FORMAL No-Go (№294 class, ADR-0151 D7): production-weights inference is parked in this environment (4 GB RAM, no GPU); the tiny seeded pipeline needs no external weights. The name stays registered so the shared MODEL_WEIGHTS_UNSAFE static gate (№300, `_fetch_weights` suffix convention) and the SSRF-guard vocabulary cover the surface. This is a recorded boundary, not a hidden stub. |
+| `video_render(...)` | 2..4 | — | `video_render(decl, prompt[, ref_first[, ref_last]])` — real tiny pipeline (ADR-0151 D1): T2V (2 args) / I2V first-anchor (3) / two-anchor first–last (4). Seed = sha256(model\|prompt); ref-hash(es) recorded in the manifest. |
 
 ### `vision` — 10 builtin(s)
 
@@ -2204,14 +2205,14 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
-| `audio_export(...)` | 1 | — | `audio_export(handle)` stub — ADR-0145 provenance. Not implemented (phase A4). |
+| `audio_export(...)` | 1 | — | `audio_export(handle)` stub — ADR-0145. |
 | `tts_generate(...)` | 2..4 | `String, String[, String][, String] -> String` | Speech synthesis WITHOUT delivery (Naryad #279): writes the audio file into the file sandbox (write_file semantics, Naryad #252) and returns the sandbox-relative path — feed it to `read_file`/`send_document` yourself. Providers v1: `"openai"` (default); `model`: `tts-1` (default) / `tts-1-hd` / `gpt-4o-mini-tts`. Key: `METALOGOS_TTS_API_KEY` (falls back to `OPENAI_API_KEY`); `METALOGOS_TTS_BASE_URL` overrides `https://api.openai.com/v1` (mock servers / self-host proxies) — `/audio/speech` is appended. Output format: provider default (MP3) |
 | `tts_send(...)` | 4..5 | `String, String, String, String[, String] -> String` | Delivery convenience: synthesizes speech (delegates to the same exchange as `tts_generate` — `tts-1`, base-URL/key overrides behave identically) and sends the audio to a Telegram chat (`sendVoice`; optional 5th arg `"audio"` switches to `sendAudio`). Key: `METALOGOS_TTS_API_KEY` (falls back to `OPENAI_API_KEY`). For synthesis without delivery use `tts_generate` |
-| `tts_speak(...)` | 2 | — | `tts_speak(decl, text)` stub — ADR-0143 TTS. Not implemented (phase A2). |
-| `voice_design(...)` | 2 | — | `voice_design(text, voice)` stub — ADR-0143. Not implemented (phase A6). |
-| `voice_enroll(...)` | 2..3 | — | `voice_enroll(decl, audio, kind)` stub — ADR-0145 consent gate. Not implemented (phase A2/A3). |
-| `voice_load(...)` | 1 | — | `voice_load(name)` stub — ADR-0143 persistence. Not implemented (phase A5). |
-| `voice_save(...)` | 2 | — | `voice_save(handle, name)` stub — ADR-0143 persistence. Not implemented (phase A5). |
+| `tts_speak(...)` | 2 | — | `tts_speak(decl, text)` stub — ADR-0143. |
+| `voice_design(...)` | 2 | — | `voice_design(text, voice)` stub — ADR-0143. |
+| `voice_enroll(...)` | 2..3 | — | `voice_enroll(decl, audio, kind)` stub — ADR-0145. |
+| `voice_load(...)` | 1 | — | `voice_load(name)` stub — ADR-0143 (persistence). |
+| `voice_save(...)` | 2 | — | `voice_save(handle, name)` stub — ADR-0143 (persistence). |
 | `whisper_transcribe(...)` | 3..4 | `String, String, String[, String] -> String` | Downloads a voice message from Telegram by `file_id`, sends it for transcription to the Whisper API. `provider`: `"openai"` (default) or `"groq"`. `METALOGOS_STT_BASE_URL` overrides the transcription API base (mock servers / self-host proxies) — `/audio/transcriptions` is appended. Returns the recognized text. Arity 3..4 — the registry used to declare min 1 while the runtime always required 3 (Naryad #279 fact-check fix; a 1-arg call now fails `mlog check` on statics instead of exploding at runtime) |
 
 ### `web` — 19 builtin(s)

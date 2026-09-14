@@ -12,11 +12,12 @@ use super::vision::{
     builtin_vision_load_stub, builtin_vision_lora_generate_stub, builtin_vision_lora_load_stub,
     builtin_vision_save_stub,
 };
-// Наряд №307 (ADR-0147-0150): Video pillar skeleton builtins — stubs.
+// Наряд №307 (ADR-0147-0150): Video pillar builtins. Наряд №309 (ADR-0151):
+// real pipeline implementations — I2V anchors, interp, extend, mux, export.
 #[cfg(feature = "video")]
 use crate::video::{
-    builtin_av_mux_stub, builtin_frame_interp_stub, builtin_video_export_stub,
-    builtin_video_fetch_weights_stub, builtin_video_render_stub,
+    builtin_av_mux, builtin_frame_interp, builtin_video_export, builtin_video_extend,
+    builtin_video_fetch_weights_stub, builtin_video_render,
 };
 
 // Наряд №275 (ADR-0137): LLM streaming builtins — llm_stream_open/next/close.
@@ -719,18 +720,23 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("voice_save", 2, "voice"; builtin_voice_save_stub), // handle, name
     #[cfg(feature = "voice")]
     spec!("voice_load", 1, "voice"; builtin_voice_load_stub), // name
-    // ── Наряд №307 (P2, feature/video): Video pillar skeleton builtins —
-    // stubs. Loud errors, no silent fallbacks. Feature-gated under `video`
-    // (implies candle). MODEL_WEIGHTS_UNSAFE covers video_fetch_weights via
-    // suffix convention (Наряд №300). Registry 415→420 (append-only).
+    // ── Наряд №307/№309 (P2, feature/video): Video pillar builtins.
+    // №309 (ADR-0151): real implementations on the tiny seeded pipeline —
+    // I2V first/last anchors, RIFE-class interp, extension, AV sidecar mux,
+    // signed-by-construction export. video_render: T2V (2) / I2V (3) /
+    // two-anchor first–last (4). MODEL_WEIGHTS_UNSAFE covers
+    // video_fetch_weights via suffix convention (Наряд №300).
+    // Registry 420→421 (append-only).
     #[cfg(feature = "video")]
-    spec!("video_render", 2, "video"; builtin_video_render_stub),
+    spec!("video_render", 2, 4, "video"; builtin_video_render),
     #[cfg(feature = "video")]
-    spec!("video_export", 1, "video"; builtin_video_export_stub),
+    spec!("video_export", 2, "video"; builtin_video_export),
     #[cfg(feature = "video")]
-    spec!("av_mux", 2, "video"; builtin_av_mux_stub),
+    spec!("av_mux", 2, "video"; builtin_av_mux),
     #[cfg(feature = "video")]
-    spec!("frame_interp", 2, "video"; builtin_frame_interp_stub),
+    spec!("frame_interp", 2, "video"; builtin_frame_interp),
+    #[cfg(feature = "video")]
+    spec!("video_extend", 2, "video"; builtin_video_extend),
     #[cfg(feature = "video")]
     spec!("video_fetch_weights", 2, "video"; builtin_video_fetch_weights_stub),
 ];

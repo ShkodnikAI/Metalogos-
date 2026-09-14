@@ -282,6 +282,26 @@ fn binding_taint(value: &Expr, tracker: &TaintTracker) -> Option<TaintKind> {
     get_expr_taint(value, tracker)
 }
 
+/// Наряд №309 (ADR-0151 D6): an I2V reference frame is untrusted when it
+/// carries UserInput taint (form_data/json_body/query_param/mcp_call) or is
+/// a direct untrusted-source call of the http/file class (`http_get`,
+/// `read_file`) — the http/form/file classes of ADR-0149 D5. Inline calls
+/// are matched by name because these builtins are not global expression-
+/// level taint sources (get_expr_taint only propagates from tainted args;
+/// binding_taint applies to let-bindings), so a direct
+/// `video_render(m, p, form_data("f"))` would otherwise escape.
+fn is_untrusted_frame_expr(expr: &Expr, tracker: &TaintTracker) -> bool {
+    if let Expr::FnCall { name, .. } = expr {
+        if matches!(
+            name.as_str(),
+            "http_get" | "read_file" | "form_data" | "json_body" | "query_param" | "mcp_call"
+        ) {
+            return true;
+        }
+    }
+    get_expr_taint(expr, tracker) == Some(TaintKind::UserInput)
+}
+
 /// Maximum nesting depth for `expr_is_llm_tainted` recursion.
 /// Баунделенная константа — prevent stack overflow on deeply nested
 /// expressions. Громкое примечание при превышении — анализ отказывается
@@ -1394,6 +1414,39 @@ fn check_secret_leak(declarations: &[Declaration], source: &str, findings: &mut 
                                 message: "user input used as vision_lora_generate prompt — prompt will be recorded in the generated artifact's provenance manifest (R6.3); the LoRA adapter is resolved from the program database"
                                     .to_string(),
                             });
+                        }
+                    }
+                }
+
+                // Наряд №309 (ADR-0151 D6, ADR-0149 D5): UNTRUSTED_FRAME —
+                // advisory taint по лекалу UNTRUSTED_AUDIO (ADR-0145 D6) и
+                // VISION_PROMPT_USER_INPUT (№240). I2V-референс video_render
+                // (позиции 2 и 3 — first/last anchor) из недоверенного
+                // источника — UserInput taint (form_data/json_body/
+                // query_param/mcp_call) или прямой недоверенный вызов класса
+                // http/file (http_get/read_file) — помечается Warning'ом.
+                // Требование: screen+consent-путь перед I2V (frame_screen /
+                // LikenessToken — полная механика в V6, ADR-0149 D1/D6; до
+                // тех пор детектор — громкий путь). На compile-пути
+                // (audit_category_a → semantic №98-промоция) это громкая
+                // ошибка компиляции; в `mlog audit` — advisory Warning.
+                // Честная граница (та же, что у всех MVP-детекторов taint):
+                // let-связанные переменные с ранее полученными недоверенными
+                // кадрами вне перечисленных источников не отслеживаются —
+                // глобальные taint-источники других столпов не менялись.
+                if fn_name == "video_render" && args.len() >= 3 {
+                    for pos in [2usize, 3usize] {
+                        if let Some(arg) = args.get(pos) {
+                            if is_untrusted_frame_expr(arg, tracker) {
+                                let line = find_line(source, fn_name);
+                                findings.push(AuditFinding {
+                                    severity: Severity::Warning,
+                                    check_id: "UNTRUSTED_FRAME",
+                                    line,
+                                    message: "untrusted frame (user input / http / file) passed as I2V reference to video_render — screen+consent path required before I2V (ADR-0149 D5, ADR-0151 D6)"
+                                        .to_string(),
+                                });
+                            }
                         }
                     }
                 }
@@ -4252,6 +4305,111 @@ mod tests {
                 .iter()
                 .any(|f| f.check_id == "TAINT_PASSTHROUGH"),
             "no passthrough pattern -> no TAINT_PASSTHROUGH, got {:?}",
+            result.findings
+        );
+    }
+
+    // ── Наряд №309 (ADR-0151 D6): UNTRUSTED_FRAME taint tests ─────────
+
+    #[test]
+    fn n309_untrusted_frame_form_data_ref_flagged() {
+        let source = r#"
+            pattern Scene() -> String {
+                let frame_ref = form_data("frame")
+                let v = video_render("wan-2.2-ti2v-5b", "scene", frame_ref)
+                return v
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        let findings: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.check_id == "UNTRUSTED_FRAME")
+            .collect();
+        assert_eq!(
+            findings.len(),
+            1,
+            "UserInput-tainted ref must be flagged exactly once, got {:?}",
+            result.findings
+        );
+        assert_eq!(findings[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn n309_untrusted_frame_inline_http_get_flagged() {
+        let source = r#"
+            pattern Scene() -> String {
+                let v = video_render("wan-2.2-ti2v-5b", "scene", http_get("https://cdn.example/frame.png"))
+                return v
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "UNTRUSTED_FRAME"),
+            "inline http_get ref (http class per ADR-0149 D5) must be flagged, got {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn n309_untrusted_frame_inline_read_file_flagged() {
+        let source = r#"
+            pattern Scene() -> String {
+                let v = video_render("wan-2.2-ti2v-5b", "scene", read_file("frame.raw"))
+                return v
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "UNTRUSTED_FRAME"),
+            "inline read_file ref (file class per ADR-0149 D5) must be flagged, got {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn n309_untrusted_frame_two_anchor_last_ref_flagged() {
+        let source = r#"
+            pattern Scene() -> String {
+                let first = "hero_first_frame.png"
+                let v = video_render("wan-2.2-ti2v-5b", "scene", first, query_param("last"))
+                return v
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "UNTRUSTED_FRAME"),
+            "tainted ref_last (position 3) must be flagged, got {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn n309_untrusted_frame_clean_literal_not_flagged() {
+        // T2V (no ref) and a clean literal ref must NOT be flagged.
+        let source = r#"
+            pattern Scene() -> String {
+                let t2v = video_render("wan-2.2-ti2v-5b", "clean scene")
+                let i2v = video_render("wan-2.2-ti2v-5b", "clean i2v", "hero_frame.png")
+                return i2v
+            }
+        "#;
+        let result = audit_program(source).unwrap();
+        assert!(
+            !result
+                .findings
+                .iter()
+                .any(|f| f.check_id == "UNTRUSTED_FRAME"),
+            "clean refs must not be flagged, got {:?}",
             result.findings
         );
     }

@@ -39,6 +39,7 @@ pub mod semantic;
 #[cfg(feature = "server")]
 pub mod server;
 pub mod util;
+pub mod video;
 pub mod vision;
 pub mod vm;
 pub mod voice;

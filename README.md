@@ -245,11 +245,11 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 | Parser | Pest 2.7 PEG grammar (~534 lines, 305 rules) | 2 176 |
 | AST | 33 Declaration variants, 14 Expr, 12 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION, VISION_UNSIGNED_EXPORT, MODEL_WEIGHTS_UNSAFE), SVG XSS lint | 473 |
-| Compiler | Bytecode, 415 builtins indexed | 1 516 |
+| Compiler | Bytecode, 420 builtins indexed | 1 516 |
 | Bytecode format | 46 VM instructions | — |
 | Tree-walking interpreter | Full feature support, 12 modules | ~4 400 |
 | VM | Stack-based bytecode executor | 2 143 |
-| Built-in functions | 415 functions across 38 modules | ~18 000 |
+| Built-in functions | 420 functions across 39 modules | ~18 000 |
 | HTTP server | Axum 0.8 + Tokio, security middleware | 2 433 |
 | LLM backend | Trait + mock + real providers | 1 421 |
 | Memory store | Typed memory with FTS5 BM25 + cosine RRF hybrid recall + KV store | 1 540 |
@@ -312,8 +312,9 @@ Metalogos-/
 │   │
 │   ├── vision/                       # Vision pillar (feature-gated: images, ADR-0122)
 │   ├── voice/                        # Voice pillar (feature-gated: speech, ADR-0143)
+│   ├── video/                        # Video pillar (feature-gated: video, ADR-0147)
 │   │
-│   └── builtins/                      # 415 built-in functions (38 modules)
+│   └── builtins/                      # 420 built-in functions (39 modules)
 │       ├── mod.rs                     # Builtin dispatch
 │       ├── registry.rs               # BUILTIN_REGISTRY (SSOT for all builtins)
 │       ├── core.rs                    # print, let, type, inspect, sleep
@@ -399,7 +400,7 @@ Metalogos-/
 │       └── 0111-ast-span-tracking.md
 │
 └── .github/workflows/                  # CI/CD
-    ├── ci.yml                         # 17 blocking jobs (branch-freshness, fmt, clippy, test-lib, crosscheck, candle-tests, vision-tests, doc-tests, registry-arity-check, test-llm-cache-contract, minimal-build, test-integration, adr-check, module-size-guard, vscode-extension, cargo-audit)
+    ├── ci.yml                         # 18 blocking jobs (branch-freshness, fmt, clippy, test-lib, crosscheck, candle-tests, vision-tests, doc-tests, registry-arity-check, test-llm-cache-contract, minimal-build, test-integration, adr-check, module-size-guard, vscode-extension, cargo-audit)
     └── build.yml                      # Release build + artifact upload
 ```
 
@@ -450,7 +451,7 @@ respond(reply)   // [HTML_INJECTION] — use render() or escape_html()
 - **Bytecode VM** — 46 instructions, stack-based, used for `mlog compile` + `mlog run file.mbc`
 - **JIT** — experimental scaffold, not part of the build (see ADR-0073)
 
-### 415 Built-in Functions
+### 420 Built-in Functions
 
 String ops, math, collections, type conversion, LLM/AI, HTTP, JSON, file I/O, KV store, session memory, encryption, authentication, HTTP server, templates, databases, Telegram/Discord bots, time/date/calendar, geolocation, weather, reminders, cron, goals, todos, memory tree, preferences, approval workflows, fuzzy matching, hashline editing, context compaction, budget awareness, replay logging, policy enforcement, PDF processing (classify, extract, OCR), typed semantic memory (FTS5 BM25 + cosine RRF), SMTP/IMAP email, CalDAV/CardDAV calendar and contacts, native SVG graphics, and more. See [REFERENCE.md](REFERENCE.md) for the full list.
 
@@ -995,7 +996,7 @@ Four integration tests verify the new behavior:
 | Metric | Value |
 |---|---|
 | Effective Rust LOC | ~59 000 |
-| Built-in Functions | 415 (38 modules) |
+| Built-in Functions | 420 (39 modules) |
 | Example Programs | 214 |
 | Integration Tests | 70 test suites |
 | Architecture Decision Records | 118 |
@@ -1049,7 +1050,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 415 builtins, 154 test files, 214 example programs, 142 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 420 builtins, 154 test files, 214 example programs, 142 ADRs. See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

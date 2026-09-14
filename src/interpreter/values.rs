@@ -97,6 +97,9 @@ pub enum Value {
     /// Opaque Audio artifact handle (Наряд №302, ADR-0144).
     /// Contains an index into VoiceRegistry — audio bytes never enter Value.
     Audio(crate::voice::AudioId),
+    /// Opaque Video artifact handle (Наряд №307, ADR-0148).
+    /// Contains an index into VideoRegistry — video bytes never enter Value.
+    Video(crate::video::VideoId),
     /// Opaque LLM stream handle (Наряд №275, ADR-0137).
     /// Contains an index into `crate::llm::LLM_STREAM_REGISTRY` —
     /// the active `reqwest::blocking::Response` + SSE line buffer +
@@ -176,6 +179,8 @@ impl std::fmt::Display for Value {
             // Наряд №302: Voice/Audio handle display — лекала Vision.
             Value::Voice(id) => write!(f, "[Voice#{}]", id.0),
             Value::Audio(id) => write!(f, "[Audio#{}]", id.0),
+            // Наряд №307: Video handle display — лекала Vision/Voice.
+            Value::Video(id) => write!(f, "[Video#{}]", id.0),
             // Наряд №275 (ADR-0137): LLM stream handle display —
             // лекала Reflex/Vision.
             Value::LlmStream(id) => write!(f, "[LlmStream#{}]", id.0),
@@ -208,6 +213,8 @@ impl Value {
             // Наряд №302: Voice/Audio handle type name.
             Value::Voice(_) => "Voice",
             Value::Audio(_) => "Audio",
+            // Наряд №307: Video handle type name.
+            Value::Video(_) => "Video",
             // Наряд №275 (ADR-0137): LLM stream handle type name.
             Value::LlmStream(_) => "LlmStream",
         }
@@ -289,6 +296,8 @@ pub fn is_nonprintable(v: &Value) -> bool {
             // Наряд №302: Voice/Audio handles are opaque.
             | Value::Voice(_)
             | Value::Audio(_)
+            // Наряд №307: Video handle is opaque.
+            | Value::Video(_)
             // Наряд №275 (ADR-0137): LLM stream handle is opaque —
             // printing it would leak the active stream's identity
             // (provider, model, handle index) but no PII; still, the

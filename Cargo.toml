@@ -176,6 +176,11 @@ vision = ["candle", "dep:tokenizers", "dep:image"]
 # Enable with: cargo build --features voice
 voice = ["candle"]
 
+# Наряд №307 (ADR-0147-0150): Video pillar — T2V/I2V, video design.
+# Off-by-default: video implies candle (same as vision/voice).
+# Enable with: cargo build --features video
+video = ["candle"]
+
 # CI-hygiene: максимальный фича-набор, переносимый между GitHub-hosted
 # раннерами (platform-check джобы macos/windows в ci.yml). `pdf-ocr`
 # исключён осознанно: по своему контракту (см. выше) он требует системные

@@ -257,7 +257,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.19):** This section documents **100%** of the 415 registered builtins (415 of 415): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.19):** This section documents **100%** of the 420 registered builtins (420 of 420): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1619,7 +1619,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 415 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 420 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2174,6 +2174,16 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `config_load(...)` | 1 | — | `config_load(path)` — load a JSON or YAML config file and return as struct. |
 | `semantic_search(...)` | 3 | — | `semantic_search(query, documents, top_k)` — semantic similarity search. |
 | `vault_validate(...)` | 2 | — | `vault_validate(config, required_fields)` — validate a loaded config against required fields. |
+
+### `video` — 5 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description |
+|---|---|---|---|
+| `av_mux(...)` | 2 | — | `av_mux(video, audio)` stub — ADR-0147 cross-pillar. Not implemented (phase V6). |
+| `frame_interp(...)` | 2 | — | `frame_interp(handle, count)` stub — ADR-0147 v2v. Not implemented (phase V7+). |
+| `video_export(...)` | 1 | — | `video_export(handle)` stub — ADR-0149 provenance. Not implemented (phase V4). |
+| `video_fetch_weights(...)` | 2 | — | `video_fetch_weights(url, dir)` stub — ADR-0148. Not implemented (phase V2). |
+| `video_render(...)` | 2 | — | `video_render(decl, prompt)` stub — ADR-0147 T2V. Not implemented (phase V2). |
 
 ### `vision` — 10 builtin(s)
 

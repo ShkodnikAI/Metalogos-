@@ -959,6 +959,17 @@ impl Compiler {
                      in VM bytecode (use tree-walking interpreter)"
                     .into());
             }
+            // №369: the match EXPRESSION form is compiled natively — but only
+            // in let-binding position (the grammar's only match_expr site),
+            // handled by `compile_let_match` via the LetBinding arms of the
+            // two statement compilers. If this arm is ever reached, a new
+            // grammar position started producing MatchExpr — fail LOUDLY
+            // instead of silently mis-compiling.
+            Expr::MatchExpr { .. } => {
+                return Err("compile: match expression outside let binding — \
+                     unsupported position (№369 compiles let-bound match only)"
+                    .into());
+            }
             // Наряд №91: try expression — real compilation for VM
             // Compile inner expression into a separate instruction block,
             // wrapped in TryEval so the VM can catch errors locally.
@@ -992,8 +1003,43 @@ impl Compiler {
         // Each entry: (loop_start_ip, break_fixups, continue_fixups)
         let mut loop_stack: Vec<(usize, Vec<usize>, Vec<usize>)> = Vec::new();
 
-        for stmt in body {
+        // №369/№250: the FINAL statement's value is the body's fall-through
+        // value (execute_code: Ok(stack.pop())) — a match statement in that
+        // position must keep the matched arm's trailing value.
+        let last_stmt_idx = body.len().saturating_sub(1);
+        for (stmt_idx, stmt) in body.iter().enumerate() {
+            let is_last = stmt_idx == last_stmt_idx;
             match stmt {
+                Statement::LetBinding {
+                    name,
+                    value,
+                    mutable: is_mut,
+                    ..
+                } if matches!(value, Expr::MatchExpr { .. }) => {
+                    // №369: the match EXPRESSION form compiles natively
+                    // (ADR-0141 Stage 1.1) — full arm structure, TW parity.
+                    let Expr::MatchExpr {
+                        scrutinee,
+                        arms,
+                        else_body,
+                        ..
+                    } = value
+                    else {
+                        unreachable!("guard guarantees MatchExpr")
+                    };
+                    self.compile_let_match(
+                        name,
+                        *is_mut,
+                        scrutinee,
+                        arms,
+                        else_body,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
+                }
                 Statement::LetBinding {
                     name,
                     value,
@@ -1435,10 +1481,27 @@ impl Compiler {
                     // Discard result (side-effect expression like respond(), write_file())
                     code.push(Instruction::Pop);
                 }
-                Statement::Match { .. } => {
-                    return Err("compile: Match statement not yet supported in VM bytecode \
-                         (use tree-walking interpreter)"
-                        .into());
+                Statement::Match {
+                    scrutinee,
+                    arms,
+                    else_body,
+                    ..
+                } => {
+                    // №369: Match statement → bytecode (ADR-0141 Stage 1.1) —
+                    // the TW-only gap is closed; see compile_match_stmt.
+                    // №250 parity: as the body's final statement the matched
+                    // arm's trailing value is the fall-through value.
+                    self.compile_match_stmt(
+                        scrutinee,
+                        arms,
+                        else_body,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                        is_last,
+                    )?;
                 }
                 // Наряд №266: memory ops as statements — the VM already has the
                 // opcodes (Memorize/Forget/Relate execute the same stores the
@@ -1479,10 +1542,248 @@ impl Compiler {
         Ok(code)
     }
 
-    /// Helper: compile a single statement with full loop context and slot tracking.
-    /// Used by While/Each bodies to avoid duplicating the full match logic.
-    /// Наряд №264: `mutable` is the flat set of `let mut` names — same
-    /// immutability contract as compile_pattern_body_with_locals.
+    // ── Match → bytecode (№369, ADR-0141 Stage 1.1) ─────────────────
+
+    /// №369: allocate a fresh hidden local slot for match scratch values.
+    /// Hidden names contain '#' — impossible in a source-level IDENT — so
+    /// they can never collide with user variables; slots are reclaimed by
+    /// the caller's `next_slot` restore exactly like the existing if/else
+    /// body discipline (their live ranges stay nested inside the match
+    /// extent, so reuse is safe).
+    fn alloc_hidden_slot(
+        locals: &mut HashMap<String, usize>,
+        next_slot: &mut usize,
+        tag: &str,
+    ) -> usize {
+        let name = format!("{}#{}", tag, next_slot);
+        let slot = *next_slot;
+        *next_slot += 1;
+        locals.insert(name, slot);
+        slot
+    }
+
+    /// №369: TW-parity arm-body compilation for the match EXPRESSION form:
+    /// every bare expression statement stores its value into the arm's
+    /// last-value slot (conditionally on non-Unit — `StoreLastLocal`)
+    /// instead of being popped, so the matched arm's value is the last
+    /// non-Unit expression of its body — exactly the TW
+    /// `eval_statements_cf` contract (`if !matches!(val, Value::Unit)
+    /// { last_expr_value = val }`). A trailing Unit-valued statement does
+    /// not reset the value; `let`/`assign` statements never touch it.
+    #[allow(clippy::too_many_arguments)]
+    fn compile_match_expr_arm_body(
+        &self,
+        body: &[Statement],
+        mv_slot: usize,
+        code: &mut Vec<Instruction>,
+        locals: &mut HashMap<String, usize>,
+        next_slot: &mut usize,
+        loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
+        mutable: &mut HashSet<String>,
+    ) -> Result<(), String> {
+        for s in body {
+            match s {
+                Statement::ExprStmt { expr, .. } => {
+                    self.compile_expr_with_locals(expr, code, locals)?;
+                    code.push(Instruction::StoreLastLocal(mv_slot));
+                }
+                other => {
+                    self.compile_stmt_with_locals(
+                        other, code, locals, next_slot, loop_stack, mutable,
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// №369: `let x = match y { ... }` — the match EXPRESSION form compiled
+    /// natively (ADR-0141 Stage 1.1 row 1). Semantics (TW parity, REFERENCE
+    /// §Match): the scrutinee is evaluated EXACTLY ONCE (hidden slot — a
+    /// side-effecting scrutinee must not re-run per arm); arms are tested
+    /// in source order (first match wins); the let value is the last
+    /// non-Unit expression of the matched arm's body; no match and no
+    /// else → Unit. `Return` inside an arm body follows the VM's existing
+    /// block-expression model (the value-channel cannot carry a control
+    /// signal — same as `Expr::BlockIfElse`, the №14 P0-3 precedent).
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::type_complexity)]
+    fn compile_let_match(
+        &self,
+        name: &str,
+        is_mut: bool,
+        scrutinee: &Expr,
+        arms: &[MatchArm],
+        else_body: &Option<Vec<Statement>>,
+        code: &mut Vec<Instruction>,
+        locals: &mut HashMap<String, usize>,
+        next_slot: &mut usize,
+        loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
+        mutable: &mut HashSet<String>,
+    ) -> Result<(), String> {
+        if is_mut {
+            mutable.insert(name.to_string());
+        }
+        // Function-level scoping: reuse the existing slot for `name`
+        // (matches both compilers' plain-LetBinding behavior).
+        let let_slot = match locals.get(name) {
+            Some(&slot) => slot,
+            None => {
+                let slot = *next_slot;
+                *next_slot += 1;
+                locals.insert(name.to_string(), slot);
+                slot
+            }
+        };
+        let tmp_slot = Self::alloc_hidden_slot(locals, next_slot, "match_scrutinee");
+        let mv_slot = Self::alloc_hidden_slot(locals, next_slot, "match_value");
+        // Last-value register starts as Unit (nothing matched yet).
+        code.push(Instruction::Const(Value::Unit));
+        code.push(Instruction::StoreLocal(mv_slot));
+        // Scrutinee — evaluated exactly once, kept in the hidden slot.
+        self.compile_expr_with_locals(scrutinee, code, locals)?;
+        code.push(Instruction::StoreLocal(tmp_slot));
+        let mut end_fixups: Vec<usize> = Vec::new();
+        for arm in arms {
+            // №369: the scrutinee load happens EXACTLY ONCE per test —
+            // Compare arms load it, then the threshold, then test (VM pops
+            // threshold first); other arms load it, then test. A double
+            // load here would swap scrutinee/threshold on the VM stack.
+            let test = match arm {
+                MatchArm::Exact(s, _) => {
+                    code.push(Instruction::LoadLocal(tmp_slot));
+                    MatchTest::Exact(s.clone())
+                }
+                MatchArm::StartsWith(s, _) => {
+                    code.push(Instruction::LoadLocal(tmp_slot));
+                    MatchTest::StartsWith(s.clone())
+                }
+                MatchArm::Contains(s, _) => {
+                    code.push(Instruction::LoadLocal(tmp_slot));
+                    MatchTest::Contains(s.clone())
+                }
+                MatchArm::Compare(op, threshold, _) => {
+                    code.push(Instruction::LoadLocal(tmp_slot));
+                    self.compile_expr_with_locals(threshold, code, locals)?;
+                    MatchTest::Compare(*op)
+                }
+            };
+            code.push(Instruction::MatchTest(test));
+            code.push(Instruction::JumpIfNot(0));
+            let jmp_idx = code.len() - 1;
+            let saved = *next_slot;
+            self.compile_match_expr_arm_body(
+                arm.body(),
+                mv_slot,
+                code,
+                locals,
+                next_slot,
+                loop_stack,
+                mutable,
+            )?;
+            *next_slot = saved;
+            code.push(Instruction::Jump(0));
+            end_fixups.push(code.len() - 1);
+            code[jmp_idx] = Instruction::JumpIfNot(code.len());
+        }
+        if let Some(eb) = else_body {
+            self.compile_match_expr_arm_body(
+                eb, mv_slot, code, locals, next_slot, loop_stack, mutable,
+            )?;
+        }
+        let end = code.len();
+        for f in end_fixups {
+            code[f] = Instruction::Jump(end);
+        }
+        // Bind the matched arm's value to the let name.
+        code.push(Instruction::LoadLocal(mv_slot));
+        code.push(Instruction::StoreLocal(let_slot));
+        Ok(())
+    }
+
+    /// №369: `match expr { ... }` STATEMENT form → bytecode (ADR-0141
+    /// Stage 1.1). Same jump structure as the expression form; a
+    /// Return/Break/Continue inside an arm body propagates exactly like
+    /// in if/else bodies (loop_stack fixups stay intact).
+    ///
+    /// `keep_last_value` — №250 parity (ADR-0122 #208): when the match is
+    /// the FINAL statement of a pattern/route body, TW's implicit body
+    /// value is the matched arm's last non-Unit value (`eval_block!`
+    /// captures it into `last_expr_value`), and `respond(...)` inside the
+    /// arm must become the route's response. With the flag on, each arm
+    /// body's trailing Pop is dropped (the №250 trick applied per arm), so
+    /// the TAKEN arm's trailing value survives to the fall-through
+    /// `execute_code: Ok(stack.pop())`. Non-final matches keep the flag
+    /// off (balanced stack — no accumulation inside loops).
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::type_complexity)]
+    fn compile_match_stmt(
+        &self,
+        scrutinee: &Expr,
+        arms: &[MatchArm],
+        else_body: &Option<Vec<Statement>>,
+        code: &mut Vec<Instruction>,
+        locals: &mut HashMap<String, usize>,
+        next_slot: &mut usize,
+        loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
+        mutable: &mut HashSet<String>,
+        keep_last_value: bool,
+    ) -> Result<(), String> {
+        let tmp_slot = Self::alloc_hidden_slot(locals, next_slot, "match_scrutinee");
+        self.compile_expr_with_locals(scrutinee, code, locals)?;
+        code.push(Instruction::StoreLocal(tmp_slot));
+        let mut end_fixups: Vec<usize> = Vec::new();
+        for arm in arms {
+            // (See compile_let_match: single scrutinee load per test.)
+            let test = match arm {
+                MatchArm::Exact(s, _) => {
+                    code.push(Instruction::LoadLocal(tmp_slot));
+                    MatchTest::Exact(s.clone())
+                }
+                MatchArm::StartsWith(s, _) => {
+                    code.push(Instruction::LoadLocal(tmp_slot));
+                    MatchTest::StartsWith(s.clone())
+                }
+                MatchArm::Contains(s, _) => {
+                    code.push(Instruction::LoadLocal(tmp_slot));
+                    MatchTest::Contains(s.clone())
+                }
+                MatchArm::Compare(op, threshold, _) => {
+                    code.push(Instruction::LoadLocal(tmp_slot));
+                    self.compile_expr_with_locals(threshold, code, locals)?;
+                    MatchTest::Compare(*op)
+                }
+            };
+            code.push(Instruction::MatchTest(test));
+            code.push(Instruction::JumpIfNot(0));
+            let jmp_idx = code.len() - 1;
+            let saved = *next_slot;
+            for s in arm.body() {
+                self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack, mutable)?;
+            }
+            if keep_last_value && matches!(code.last(), Some(Instruction::Pop)) {
+                code.pop();
+            }
+            *next_slot = saved;
+            code.push(Instruction::Jump(0));
+            end_fixups.push(code.len() - 1);
+            code[jmp_idx] = Instruction::JumpIfNot(code.len());
+        }
+        if let Some(eb) = else_body {
+            for s in eb {
+                self.compile_stmt_with_locals(s, code, locals, next_slot, loop_stack, mutable)?;
+            }
+            if keep_last_value && matches!(code.last(), Some(Instruction::Pop)) {
+                code.pop();
+            }
+        }
+        let end = code.len();
+        for f in end_fixups {
+            code[f] = Instruction::Jump(end);
+        }
+        Ok(())
+    }
+
     fn compile_stmt_with_locals(
         &self,
         stmt: &Statement,
@@ -1493,6 +1794,28 @@ impl Compiler {
         mutable: &mut HashSet<String>,
     ) -> Result<(), String> {
         match stmt {
+            Statement::LetBinding {
+                name,
+                value,
+                mutable: is_mut,
+                ..
+            } if matches!(value, Expr::MatchExpr { .. }) => {
+                // №369: the match EXPRESSION form compiles natively
+                // (ADR-0141 Stage 1.1) — full arm structure, TW parity.
+                let Expr::MatchExpr {
+                    scrutinee,
+                    arms,
+                    else_body,
+                    ..
+                } = value
+                else {
+                    unreachable!("guard guarantees MatchExpr")
+                };
+                self.compile_let_match(
+                    name, *is_mut, scrutinee, arms, else_body, code, locals, next_slot, loop_stack,
+                    mutable,
+                )?;
+            }
             Statement::LetBinding {
                 name,
                 value,
@@ -1694,6 +2017,23 @@ impl Compiler {
                 self.compile_expr_with_locals(&r.to, code, locals)?;
                 code.push(Instruction::Const(Value::String(r.relation.clone())));
                 code.push(Instruction::Relate);
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                // №369: Match statement → bytecode (ADR-0141 Stage 1.1).
+                // Previously hit the silent `_ => {}` no-op in this shared
+                // statement compiler — a nested match inside an if/while
+                // body compiled to NOTHING. Loud parity now.
+                // Nested position: keep the stack balanced (the fall-through
+                // value convention only applies at pattern/route body level,
+                // handled by compile_pattern_body_with_locals).
+                self.compile_match_stmt(
+                    scrutinee, arms, else_body, code, locals, next_slot, loop_stack, mutable, false,
+                )?;
             }
             _ => {}
         }

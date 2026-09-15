@@ -176,6 +176,31 @@ fn expr_to_sexpr(e: &Expr) -> String {
             format!("(STRUCT {})", fields_str)
         }
         BlockIfElse { .. } => "(UNSUPPORTED block_if_else_expr)".to_string(),
+        // №369: match as expression — structural sexpr with the arm
+        // bodies folded in (the n197 sexpr is a parser-shape contract,
+        // not an execution contract).
+        MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            let mut s = format!("(MATCH_EXPR {})", expr_to_sexpr(scrutinee));
+            for arm in arms {
+                for st in arm.body() {
+                    s.push(' ');
+                    s.push_str(&stmt_to_sexpr(st));
+                }
+            }
+            if let Some(eb) = else_body {
+                for st in eb {
+                    s.push(' ');
+                    s.push_str(&stmt_to_sexpr(st));
+                }
+            }
+            s.push(')');
+            s
+        }
         Try { expr, .. } => format!("(TRY {})", expr_to_sexpr(expr)),
     }
 }

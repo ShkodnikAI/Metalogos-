@@ -984,6 +984,45 @@ impl Vm {
                     stack.push(result);
                     ip += 1;
                 }
+                // ── Match (№369, ADR-0141 Stage 1.1) ──────────
+                Instruction::MatchTest(test) => {
+                    // Compare arms pop the threshold FIRST (the compiler
+                    // emits threshold evaluation right before the test),
+                    // then the scrutinee. Other arms pop just the
+                    // scrutinee. The predicate is the SHARED
+                    // MatchTest::matches — same code TW runs.
+                    let ok = match test {
+                        MatchTest::Compare(op) => {
+                            let threshold = stack.pop().unwrap_or(Value::Unit);
+                            let scrutinee = stack.pop().unwrap_or(Value::Unit);
+                            crate::ast::MatchArm::compare_values(&scrutinee, op, &threshold)
+                        }
+                        other => {
+                            let scrutinee = stack.pop().unwrap_or(Value::Unit);
+                            other.matches(&scrutinee, &Value::Unit)
+                        }
+                    };
+                    stack.push(Value::Float(if ok { 1.0 } else { 0.0 }));
+                    ip += 1;
+                }
+                Instruction::StoreLastLocal(slot) => {
+                    // №369: TW-parity last-value store — pop; keep only
+                    // non-Unit (a Unit-valued trailing expression must not
+                    // reset the matched arm's value; TW
+                    // eval_statements_cf contract).
+                    let val = stack.pop().unwrap_or(Value::Unit);
+                    if !matches!(val, Value::Unit) {
+                        let bp = call_stack.last().map(|f| f.base_bp).unwrap_or(0);
+                        let idx = bp + slot;
+                        if idx < stack.len() {
+                            stack[idx] = val;
+                        } else {
+                            stack.resize(idx, Value::Unit);
+                            stack.push(val);
+                        }
+                    }
+                    ip += 1;
+                }
             }
         }
 
@@ -1376,6 +1415,41 @@ impl Vm {
                         _ => Value::Float(0.0),
                     };
                     stack.push(result);
+                    ip += 1;
+                }
+                // ── Match (№369, ADR-0141 Stage 1.1) ──────────
+                // Same shared dispatch as execute_main_code — pattern
+                // bodies and route handlers run through execute_code,
+                // so match inside pattern/route bodies lands HERE.
+                Instruction::MatchTest(test) => {
+                    let ok = match test {
+                        MatchTest::Compare(op) => {
+                            let threshold = stack.pop().unwrap_or(Value::Unit);
+                            let scrutinee = stack.pop().unwrap_or(Value::Unit);
+                            crate::ast::MatchArm::compare_values(&scrutinee, op, &threshold)
+                        }
+                        other => {
+                            let scrutinee = stack.pop().unwrap_or(Value::Unit);
+                            other.matches(&scrutinee, &Value::Unit)
+                        }
+                    };
+                    stack.push(Value::Float(if ok { 1.0 } else { 0.0 }));
+                    ip += 1;
+                }
+                Instruction::StoreLastLocal(slot) => {
+                    // №369: TW-parity last-value store (see
+                    // execute_main_code) — pop; keep only non-Unit.
+                    let val = stack.pop().unwrap_or(Value::Unit);
+                    if !matches!(val, Value::Unit) {
+                        let bp = call_stack.last().map(|f| f.base_bp).unwrap_or(0);
+                        let idx = bp + slot;
+                        if idx < stack.len() {
+                            stack[idx] = val;
+                        } else {
+                            stack.resize(idx, Value::Unit);
+                            stack.push(val);
+                        }
+                    }
                     ip += 1;
                 }
                 Instruction::MakeStruct(type_name, field_names) => {

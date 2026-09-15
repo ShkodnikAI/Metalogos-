@@ -313,6 +313,25 @@ fn expr_label(expr: &Expr, env: &BTreeMap<String, Label>) -> Label {
             }
             acc
         }
+        // №369: match-as-expression — the value carries the join of the
+        // scrutinee's label (control dependence, REFERENCE §labels: the
+        // scrutinee's label joins every variable assigned in any arm) with
+        // every arm body's expression labels; else body joins too.
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            let mut acc = expr_label(scrutinee, env);
+            for arm in arms {
+                acc = acc.join(&block_expr_label(arm.body(), env));
+            }
+            if let Some(eb) = else_body {
+                acc = acc.join(&block_expr_label(eb, env));
+            }
+            acc
+        }
         // `try expr` returns the value or Unit on error — the value label
         // is an upper bound, keep the inner label.
         Expr::Try { expr, .. } => expr_label(expr, env),
@@ -840,6 +859,21 @@ fn walk_effects_expr(expr: &Expr, contract_of: &dyn Fn(&str) -> EffectSet, acc: 
             walk_effects_stmts(then_body, contract_of, acc);
             for (_, body) in else_ifs {
                 walk_effects_stmts(body, contract_of, acc);
+            }
+            if let Some(eb) = else_body {
+                walk_effects_stmts(eb, contract_of, acc);
+            }
+        }
+        // №369: match-as-expression — scrutinee + arm bodies + else.
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            walk_effects_expr(scrutinee, contract_of, acc);
+            for arm in arms {
+                walk_effects_stmts(arm.body(), contract_of, acc);
             }
             if let Some(eb) = else_body {
                 walk_effects_stmts(eb, contract_of, acc);
@@ -4308,6 +4342,25 @@ fn walk_expr_for_svg_security(expr: &Expr, result: &mut AnalysisResult, ctx: &st
             }
             if let Some(body) = else_body {
                 for s in body {
+                    walk_stmt_for_svg_security(s, result, ctx);
+                }
+            }
+        }
+        // №369: match-as-expression — walk scrutinee + arm bodies + else.
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            walk_expr_for_svg_security(scrutinee, result, ctx);
+            for arm in arms {
+                for s in arm.body() {
+                    walk_stmt_for_svg_security(s, result, ctx);
+                }
+            }
+            if let Some(eb) = else_body {
+                for s in eb {
                     walk_stmt_for_svg_security(s, result, ctx);
                 }
             }

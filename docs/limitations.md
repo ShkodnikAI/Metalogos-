@@ -17,9 +17,9 @@
 
 | Limitation | Primary source | Status / condition for removal |
 |---|---|---|
-| `Match` statement not compiled to VM | [ADR-0105](adr/0105-vm-experimental-scope.md); [compiler.rs:1373](../src/compiler.rs) | Stage 1 plan in [ADR-0141](adr/0141-vm-production-readiness.md) — separate naryad |
-| `Expr::BlockIfElse` (if/else as value) not compiled to VM | [ADR-0105](adr/0105-vm-experimental-scope.md); [compiler.rs:902](../src/compiler.rs) | Stage 1 plan in [ADR-0141](adr/0141-vm-production-readiness.md) — separate naryad |
-| `match_expr` (`let x = match y {...}`) — TW-only | [ADR-0105](adr/0105-vm-experimental-scope.md) | Closed automatically when Match-as-expression is implemented (Stage 1) |
+| ~~`Match` statement not compiled to VM~~ **CLOSED (№369)** | [ADR-0141](adr/0141-vm-production-readiness.md) Stage 1.1 | Closed: `Statement::Match` compiles to bytecode (`MatchTest` dispatch in both VM loops), TW-identical semantics; crosscheck exception `p_match_switch.mlog` lifted |
+| `Expr::BlockIfElse` (if/else as value) not compiled to VM | [ADR-0105](adr/0105-vm-experimental-scope.md); [compiler.rs](../src/compiler.rs) | Stage 1 plan in [ADR-0141](adr/0141-vm-production-readiness.md) — separate naryad (№370) |
+| ~~`match_expr` (`let x = match y {...}`) — TW-only~~ **CLOSED (№369)** | [ADR-0141](adr/0141-vm-production-readiness.md) Stage 1.1 | Closed: `Expr::MatchExpr` is a first-class value on BOTH backends (the value is the last non-Unit expression of the matched arm — REFERENCE §Match); the old lossy №173b parse (arms discarded, raw scrutinee bound) is fixed end-to-end |
 | Binop coercion (heterogeneous List+String) — VM strict, TW lenient | [ADR-0105](adr/0105-vm-experimental-scope.md); crosscheck exclusion `p118_collection_utils.mlog` | Stage 1 plan in [ADR-0141](adr/0141-vm-production-readiness.md) |
 | PRNG state (`random_seed`/`random`) — TW-only, VM has no PRNG | [ADR-0105](adr/0105-vm-experimental-scope.md); crosscheck exclusion `reflex_math.mlog` | Stage 1 plan in [ADR-0141](adr/0141-vm-production-readiness.md) |
 | Bool→String formatting: TW="true", VM="1" | [ADR-0105](adr/0105-vm-experimental-scope.md) | Stage 1 plan in [ADR-0141](adr/0141-vm-production-readiness.md) |

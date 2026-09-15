@@ -1,7 +1,10 @@
 // ── AST types for METALOGOS ────────────────────────────────────────
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
+
+use crate::interpreter::Value;
 
 /// Source span: line/column position in the source code.
 /// Lines are 1-indexed, columns are 0-indexed (matches pest parser convention).
@@ -720,7 +723,9 @@ pub enum Condition {
     },
 }
 
-#[derive(Debug, Clone, Copy)]
+/// №369: Serialize/Deserialize so Compare arms can ride inside bytecode
+/// `Instruction::MatchTest` (.mbc parity); PartialEq for golden compile tests.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum CompareOp {
     Gt,
     Lt,
@@ -1493,6 +1498,65 @@ pub enum MatchArm {
     Compare(CompareOp, Expr, Vec<Statement>),
 }
 
+impl MatchArm {
+    /// The arm's body statements (shared by TW and VM execution paths).
+    pub fn body(&self) -> &[Statement] {
+        match self {
+            MatchArm::Exact(_, b)
+            | MatchArm::StartsWith(_, b)
+            | MatchArm::Contains(_, b)
+            | MatchArm::Compare(_, _, b) => b,
+        }
+    }
+
+    /// №369: the SHARED arm-matching predicate — the single source of truth
+    /// used by BOTH the TW interpreter and the bytecode VM, so the two
+    /// backends cannot drift. Exact/starts_with/contains compare the
+    /// scrutinee's Display string form; compare arms use numeric-first,
+    /// string-fallback value comparison (the historical TW `compare_values`).
+    /// `threshold` is only consulted by Compare arms.
+    pub fn matches_value(&self, scrutinee: &Value, threshold: &Value) -> bool {
+        let s = format!("{}", scrutinee);
+        match self {
+            MatchArm::Exact(v, _) => s == *v,
+            MatchArm::StartsWith(p, _) => s.starts_with(p.as_str()),
+            MatchArm::Contains(sub, _) => s.contains(sub.as_str()),
+            MatchArm::Compare(op, _, _) => Self::compare_values(scrutinee, op, threshold),
+        }
+    }
+
+    /// №369: shared comparison semantics (moved verbatim from the TW
+    /// interpreter — numeric first via `as_float`, string fallback via
+    /// Display). Total: never errors; the old `unwrap_or_default()` call
+    /// site could only produce `false` on an Err that could not happen.
+    pub fn compare_values(left: &Value, op: &CompareOp, right: &Value) -> bool {
+        // Try numeric comparison first
+        let left_f = left.as_float().ok();
+        let right_f = right.as_float().ok();
+        if let (Some(lf), Some(rf)) = (left_f, right_f) {
+            return match op {
+                CompareOp::Gt => lf > rf,
+                CompareOp::Lt => lf < rf,
+                CompareOp::Ge => lf >= rf,
+                CompareOp::Le => lf <= rf,
+                CompareOp::Eq => lf == rf,
+                CompareOp::Ne => lf != rf,
+            };
+        }
+        // Fall back to string comparison
+        let ls = format!("{}", left);
+        let rs = format!("{}", right);
+        match op {
+            CompareOp::Eq => ls == rs,
+            CompareOp::Ne => ls != rs,
+            CompareOp::Gt => ls > rs,
+            CompareOp::Lt => ls < rs,
+            CompareOp::Ge => ls >= rs,
+            CompareOp::Le => ls <= rs,
+        }
+    }
+}
+
 // ── Flow (M1 + M2 branching) ────────────────────────────────────────
 // Pipeline is a simple list of step names; branch definitions are
 // separate named blocks that appear after the pipeline line.
@@ -1605,6 +1669,17 @@ pub enum Expr {
         else_body: Option<Vec<Statement>>,
         span: Span,
     },
+    /// Match as expression: `let x = match y { ... }` (№173b grammar, №369 semantics).
+    /// Value is the last expression of the matched arm's body (REFERENCE §Match:
+    /// "Match returns the value of the last expression in the selected arm").
+    /// Unit when nothing matched and there is no else. Arms are preserved
+    /// end-to-end so both backends (TW + VM) execute identical semantics.
+    MatchExpr {
+        scrutinee: Box<Expr>,
+        arms: Vec<MatchArm>,
+        else_body: Option<Vec<Statement>>,
+        span: Span,
+    },
     /// Try expression: `try expr` — returns Unit on error instead of propagating (Наряд №14 P1-4)
     Try {
         expr: Box<Expr>,
@@ -1664,6 +1739,7 @@ impl Expr {
             | Expr::IndexAccess { span, .. }
             | Expr::StructLit { span, .. }
             | Expr::BlockIfElse { span, .. }
+            | Expr::MatchExpr { span, .. }
             | Expr::Try { span, .. } => span,
         }
     }

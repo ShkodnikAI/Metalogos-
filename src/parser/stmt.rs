@@ -114,20 +114,29 @@ pub(super) fn parse_single_statement(pair: Pair<Rule>) -> Result<Statement, Pars
                 span: Span::unknown(),
             })
         } else if let Some(me_pair) = find_child(&lb_children, Rule::match_expr) {
-            // Наряд №173b: match as expression in let_binding.
-            // Parse it as a match_stmt (same grammar), then extract
-            // the scrutinee expression and wrap it as a let-binding value.
-            // The interpreter's eval_statements handles Match by executing
-            // the matched arm; the let-binding captures the last expression
-            // value from the matched arm's body.
+            // №369: match as expression — a FIRST-CLASS value now. The full
+            // Match AST (scrutinee + arms + else) is preserved inside
+            // `Expr::MatchExpr`, so both backends execute the documented
+            // semantics (REFERENCE §Match: the let value is the last
+            // expression of the matched arm's body). The old №173b parse
+            // discarded the arms and bound the raw scrutinee — the arms
+            // were dead code; that lossy behavior is gone (both backends
+            // now agree on the REFERENCE contract).
             let match_stmt = parse_match_stmt(me_pair.clone())?;
-            // Extract the scrutinee from the match statement to use as
-            // the let-binding's value expression. The actual match logic
-            // runs as a side-effect during expression evaluation.
             match match_stmt {
-                Statement::Match { scrutinee, .. } => Ok(Statement::LetBinding {
+                Statement::Match {
+                    scrutinee,
+                    arms,
+                    else_body,
+                    span,
+                } => Ok(Statement::LetBinding {
                     name,
-                    value: scrutinee,
+                    value: Expr::MatchExpr {
+                        scrutinee: Box::new(scrutinee),
+                        arms,
+                        else_body,
+                        span,
+                    },
                     mutable,
                     span: Span::unknown(),
                 }),

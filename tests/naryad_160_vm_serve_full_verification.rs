@@ -127,10 +127,14 @@ fn block1_no_match_in_test_route_bodies() {
 }
 
 #[tokio::test]
-async fn block1_match_still_rejected_by_vm_compiler() {
+async fn block1_match_now_served_by_vm() {
+    // №369 (ADR-0141 Stage 1.1): Match statements compile to bytecode —
+    // the №160-era contract "match in route must fail VM startup" is
+    // superseded. The route must now START and SERVE the matched arm
+    // (MatchTest dispatch in execute_code — the route execution path).
     let source = r#"
 mlogserver {
-  port: 8090
+  port: 8091
   route "/test" method=GET {
     let x = "hello"
     match x {
@@ -140,23 +144,25 @@ mlogserver {
   }
 }
 "#;
-    let result = metalogos::server::run_test_server_with_backend(source, ServeBackend::Vm).await;
-    assert!(
-        result.is_err(),
-        "Block 1: VM server with match in route should fail to start"
-    );
-    let err = result.unwrap_err().to_string();
-    assert!(
-        err.contains("Match statement not yet supported"),
-        "Block 1: error should mention Match, got: {}",
-        err
-    );
+    let (port, _handle) = start_server(source, ServeBackend::Vm).await;
+    let (status, body) = http_get(port, "/test").await;
+    assert_eq!(status, 200, "matched route must respond 200");
+    assert_eq!(body, "yes", "the matched arm must have run");
 }
 
 #[test]
-fn block1_scan_all_examples_for_match_in_routes() {
+fn block1_scan_all_examples_match_in_routes_compile_on_vm() {
+    // №369: match in route bodies is LEGAL on the VM now — the old scan
+    // panicked on any example using it. Inverted contract: every example
+    // that (still) has match in a route body must COMPILE to bytecode
+    // cleanly (routes compiled via Compiler::compile_routes, the exact
+    // path the VM server uses at startup). Vacuous while no example uses
+    // match-in-routes; becomes a live check the moment one appears.
+    use metalogos::compiler::Compiler;
+    use metalogos::parser;
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     let examples_dir = std::path::Path::new(&manifest_dir).join("examples");
+    let mut checked = 0usize;
     if let Ok(entries) = std::fs::read_dir(&examples_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -169,19 +175,36 @@ fn block1_scan_all_examples_for_match_in_routes() {
             }
             let name = path.file_name().unwrap_or_default().to_str().unwrap_or("?");
             let in_route = extract_route_bodies(&content);
-            for (_route_sig, body) in &in_route {
-                if body.contains("match ") {
-                    let has_match_in_code = body.lines().any(|line| {
-                        let trimmed = line.trim();
-                        trimmed.starts_with("match ") || trimmed.contains(" match ")
-                    });
-                    if has_match_in_code {
-                        panic!("Block 1 VIOLATION: {} has 'match' in route body", name);
-                    }
-                }
+            let has_match = in_route.iter().any(|(_sig, body)| {
+                body.lines().any(|line| {
+                    let trimmed = line.trim();
+                    trimmed.starts_with("match ") || trimmed.contains(" match ")
+                })
+            });
+            if !has_match {
+                continue;
             }
+            checked += 1;
+            let declarations =
+                parser::parse(&content).unwrap_or_else(|e| panic!("{name}: parse failed: {e}"));
+            let routes: Vec<_> = declarations
+                .iter()
+                .filter_map(|d| match d {
+                    metalogos::ast::Declaration::MlogServer(s) => Some(s.routes.clone()),
+                    _ => None,
+                })
+                .flatten()
+                .collect();
+            let compiler = Compiler::new();
+            let result = compiler.compile_routes(&routes);
+            assert!(
+                result.is_ok(),
+                "{name}: match-in-route must compile on the VM since №369: {:?}",
+                result.err()
+            );
         }
     }
+    let _ = checked; // informational: examples with match-in-route today
 }
 
 fn extract_route_bodies(source: &str) -> Vec<(String, String)> {

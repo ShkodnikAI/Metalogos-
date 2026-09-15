@@ -11,6 +11,7 @@
 
 use crate::ast::*;
 use crate::audit::{audit_category_a, Severity};
+use crate::builtins_classification::{classify, Reversibility, Role};
 use crate::labels::{legacy_taint_label, Label};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -715,6 +716,443 @@ fn validate_decl_labels(decl: &Declaration, errors: &mut Vec<SpannedError>) {
     }
 }
 
+// ── Effect trail (Наряд №324, ADR-0154 §9) ───────────────────────────
+
+/// Parse the declared effect-trail words (`"io, audit"`) into a set.
+/// Errors (unknown word / duplicate) are loud; `⟨⟩` (empty raw) is the
+/// zero-effect declaration.
+fn parse_effect_set(ann: &EffectAnn) -> Result<EffectSet, String> {
+    let raw = ann.raw.trim();
+    if raw.is_empty() {
+        return Ok(EffectSet::new());
+    }
+    let mut set = EffectSet::new();
+    for word in raw.split(',') {
+        let w = word.trim();
+        match Effect::parse_word(w) {
+            Some(e) => {
+                if !set.insert(e) {
+                    return Err(format!("duplicate effect word '{w}'"));
+                }
+            }
+            None => return Err(format!("unknown effect word '{w}'")),
+        }
+    }
+    Ok(set)
+}
+
+/// Validate one effect trail, reporting a bad word with the trail's
+/// span (same convention as `validate_label_ann`).
+fn validate_effect_ann(ann: &EffectAnn, context: &str, errors: &mut Vec<SpannedError>) {
+    if let Err(e) = parse_effect_set(ann) {
+        errors.push(SpannedError::at(
+            format!("effect trail '⟨{}⟩' on {}: {}", ann.raw, context, e),
+            ann.span.clone(),
+        ));
+    }
+}
+
+/// Effects of a builtin call site, read from the №316 SSOT map:
+/// `Source` crosses the boundary inwards → `io`; `Sink` crosses
+/// outwards → `io`, plus `audit` when the external effect is not
+/// undoable-pure (a persistent, auditable write: state/db/file/memory
+/// writes, delivery). `Pure`/`Lift` call sites carry no effect.
+fn builtin_effects(name: &str) -> EffectSet {
+    let mut set = EffectSet::new();
+    if let Some(class) = classify(name) {
+        match class.role {
+            Role::Source => {
+                set.insert(Effect::Io);
+            }
+            Role::Sink => {
+                set.insert(Effect::Io);
+                if class.reversibility != Reversibility::Pure {
+                    set.insert(Effect::Audit);
+                }
+            }
+            Role::Pure | Role::Lift => {}
+        }
+    }
+    set
+}
+
+/// Walk one expression collecting effect-bearing call sites.
+/// `contract_of` resolves a call name (pattern, `tool.method`, or a
+/// builtin) to its effect contract.
+fn walk_effects_expr(expr: &Expr, contract_of: &dyn Fn(&str) -> EffectSet, acc: &mut EffectSet) {
+    match expr {
+        Expr::FnCall { name, args, .. } => {
+            acc.extend(contract_of(name));
+            for a in args {
+                walk_effects_expr(a, contract_of, acc);
+            }
+        }
+        Expr::QualifiedCall {
+            module,
+            function,
+            args,
+            ..
+        } => {
+            let qualified = format!("{module}.{function}");
+            acc.extend(contract_of(&qualified));
+            for a in args {
+                walk_effects_expr(a, contract_of, acc);
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            walk_effects_expr(left, contract_of, acc);
+            walk_effects_expr(right, contract_of, acc);
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            walk_effects_expr(condition, contract_of, acc);
+            walk_effects_expr(then_branch, contract_of, acc);
+            walk_effects_expr(else_branch, contract_of, acc);
+        }
+        Expr::BlockIfElse {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            walk_effects_expr(condition, contract_of, acc);
+            walk_effects_stmts(then_body, contract_of, acc);
+            for (_, body) in else_ifs {
+                walk_effects_stmts(body, contract_of, acc);
+            }
+            if let Some(eb) = else_body {
+                walk_effects_stmts(eb, contract_of, acc);
+            }
+        }
+        Expr::Try { expr, .. } => walk_effects_expr(expr, contract_of, acc),
+        Expr::List { items, .. } => {
+            for i in items {
+                walk_effects_expr(i, contract_of, acc);
+            }
+        }
+        Expr::StructLit { fields, .. } => {
+            for v in fields.values() {
+                walk_effects_expr(v, contract_of, acc);
+            }
+        }
+        Expr::IndexAccess { object, index, .. } => {
+            walk_effects_expr(object, contract_of, acc);
+            walk_effects_expr(index, contract_of, acc);
+        }
+        Expr::FieldAccess { object, .. } => walk_effects_expr(object, contract_of, acc),
+        Expr::StringLit { .. } | Expr::FloatLit { .. } | Expr::BoolLit { .. } => {}
+        Expr::Ident { .. } => {}
+    }
+}
+
+/// Walk one statement list collecting effects (recurses into nested
+/// blocks; memory side-effect statements are `audit` effects).
+fn walk_effects_stmts(
+    stmts: &[Statement],
+    contract_of: &dyn Fn(&str) -> EffectSet,
+    acc: &mut EffectSet,
+) {
+    for stmt in stmts {
+        match stmt {
+            Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                walk_effects_expr(value, contract_of, acc);
+            }
+            Statement::Each { iterable, body, .. }
+            | Statement::EachWithIndex { iterable, body, .. } => {
+                walk_effects_expr(iterable, contract_of, acc);
+                walk_effects_stmts(body, contract_of, acc);
+            }
+            Statement::While {
+                condition, body, ..
+            } => {
+                walk_effects_expr(condition, contract_of, acc);
+                walk_effects_stmts(body, contract_of, acc);
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                walk_effects_expr(condition, contract_of, acc);
+                walk_effects_stmts(then_body, contract_of, acc);
+                for (_, body) in else_ifs {
+                    walk_effects_stmts(body, contract_of, acc);
+                }
+                if let Some(eb) = else_body {
+                    walk_effects_stmts(eb, contract_of, acc);
+                }
+            }
+            Statement::IfThen {
+                condition, body, ..
+            } => {
+                walk_effects_expr(condition, contract_of, acc);
+                walk_effects_stmts(body, contract_of, acc);
+            }
+            Statement::Return { value, .. } | Statement::ExprStmt { expr: value, .. } => {
+                walk_effects_expr(value, contract_of, acc);
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                walk_effects_expr(scrutinee, contract_of, acc);
+                for arm in arms {
+                    let body = match arm {
+                        MatchArm::Exact(_, b)
+                        | MatchArm::StartsWith(_, b)
+                        | MatchArm::Contains(_, b)
+                        | MatchArm::Compare(_, _, b) => b,
+                    };
+                    walk_effects_stmts(body, contract_of, acc);
+                }
+                if let Some(eb) = else_body {
+                    walk_effects_stmts(eb, contract_of, acc);
+                }
+            }
+            Statement::Memorize(m) => {
+                // Persistent memory write — an audit effect (ADR-0154 §9).
+                acc.insert(Effect::Io);
+                acc.insert(Effect::Audit);
+                walk_effects_expr(&m.value, contract_of, acc);
+            }
+            Statement::Forget(f) => {
+                acc.insert(Effect::Io);
+                acc.insert(Effect::Audit);
+                walk_effects_expr(&f.query, contract_of, acc);
+            }
+            Statement::Relate(r) => {
+                acc.insert(Effect::Io);
+                acc.insert(Effect::Audit);
+                walk_effects_expr(&r.from, contract_of, acc);
+                walk_effects_expr(&r.to, contract_of, acc);
+            }
+            Statement::Break | Statement::Continue => {}
+        }
+    }
+}
+
+/// One effect-trail container: a name key resolvable at call sites
+/// (`"P"`, `"tool.method"`, `"LP"`), its optional declared trail, and
+/// the body kind (learnables have no statement body — their factual
+/// effect is fixed `{io}`: a model call).
+struct EffectContainer<'a> {
+    key: String,
+    declared: Option<&'a EffectAnn>,
+    name_for_errors: String,
+    kind: ContainerKind<'a>,
+}
+
+enum ContainerKind<'a> {
+    Statements(&'a [Statement]),
+    Learnable,
+}
+
+/// Compute the whole-program effect trail: fixpoint over the pattern
+/// call graph, then gate every DECLARED trail against the inferred
+/// effects (factual ⊑ declared; excess = compile error with the list).
+///
+/// Recursion (ADR-0154 §9 decision): the effect domain is the
+/// 4-element powerset of `{io, audit}` — union-joins over this finite
+/// flat lattice converge in ≤ 4 passes, so the inference CONVERGES on
+/// recursive patterns without annotations (the dispatcher's No-Go
+/// signal does not fire; an explicit trail on recursive patterns is
+/// welcome but not required). An unannotated recursive pattern
+/// therefore behaves predictably: its effects are inferred, and the
+/// gate applies only where a trail is declared.
+fn check_effect_trails(declarations: &[Declaration], errors: &mut Vec<SpannedError>) {
+    // ── Validate every declared trail (bad words are loud) and collect
+    //    containers; a trail that failed validation is NOT registered
+    //    in `declared`, so the gate skips it — the word error is the
+    //    one the user sees.
+    let mut containers: Vec<EffectContainer> = Vec::new();
+    let mut declared: HashMap<String, EffectSet> = HashMap::new();
+
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                if let Some(ann) = &p.effects {
+                    validate_effect_ann(ann, &format!("pattern '{}'", p.name), errors);
+                }
+            }
+            Declaration::LearnablePattern(lp) => {
+                if let Some(ann) = &lp.effects {
+                    validate_effect_ann(ann, &format!("learnable pattern '{}'", lp.name), errors);
+                }
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    if let Some(ann) = &m.effects {
+                        validate_effect_ann(
+                            ann,
+                            &format!("tool method '{}.{}'", t.name, m.name),
+                            errors,
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn register<'a>(
+        containers: &mut Vec<EffectContainer<'a>>,
+        declared: &mut HashMap<String, EffectSet>,
+        key: String,
+        name_for_errors: String,
+        ann: Option<&'a EffectAnn>,
+        kind: ContainerKind<'a>,
+    ) {
+        if let Some(ann) = ann {
+            if let Ok(set) = parse_effect_set(ann) {
+                declared.insert(key.clone(), set);
+            }
+        }
+        containers.push(EffectContainer {
+            key,
+            declared: ann,
+            name_for_errors,
+            kind,
+        });
+    }
+
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => register(
+                &mut containers,
+                &mut declared,
+                p.name.clone(),
+                format!("pattern '{}'", p.name),
+                p.effects.as_ref(),
+                ContainerKind::Statements(&p.body),
+            ),
+            Declaration::LearnablePattern(lp) => register(
+                &mut containers,
+                &mut declared,
+                lp.name.clone(),
+                format!("learnable pattern '{}'", lp.name),
+                lp.effects.as_ref(),
+                ContainerKind::Learnable,
+            ),
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    register(
+                        &mut containers,
+                        &mut declared,
+                        format!("{}.{}", t.name, m.name),
+                        format!("tool method '{}.{}'", t.name, m.name),
+                        m.effects.as_ref(),
+                        ContainerKind::Statements(&m.body),
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // A DECLARED trail is the call's contract (interface semantics);
+    // otherwise the current fixpoint estimate; builtins via the №316
+    // SSOT; unknown names carry no effects.
+    let contract_of = |name: &str,
+                       inferred: &HashMap<String, EffectSet>,
+                       declared: &HashMap<String, EffectSet>|
+     -> EffectSet {
+        if let Some(d) = declared.get(name) {
+            return d.clone();
+        }
+        if let Some(e) = inferred.get(name) {
+            return e.clone();
+        }
+        builtin_effects(name)
+    };
+
+    let factual_effects = |kind: &ContainerKind,
+                           inferred: &HashMap<String, EffectSet>,
+                           declared: &HashMap<String, EffectSet>|
+     -> EffectSet {
+        match kind {
+            ContainerKind::Learnable => {
+                // A learnable pattern IS an LLM call — io by
+                // construction (№316: call_llm is a Source).
+                let mut s = EffectSet::new();
+                s.insert(Effect::Io);
+                s
+            }
+            ContainerKind::Statements(body) => {
+                let mut acc = EffectSet::new();
+                let resolve = |name: &str| contract_of(name, inferred, declared);
+                walk_effects_stmts(body, &resolve, &mut acc);
+                acc
+            }
+        }
+    };
+
+    // ── Fixpoint over the (possibly recursive) call graph ──
+    let mut inferred: HashMap<String, EffectSet> = containers
+        .iter()
+        .map(|c| (c.key.clone(), EffectSet::new()))
+        .collect();
+    let max_passes = (containers.len() + 2).clamp(4, 16);
+    for _ in 0..max_passes {
+        let mut changed = false;
+        for c in &containers {
+            let new_set = factual_effects(&c.kind, &inferred, &declared);
+            if inferred.get(&c.key) != Some(&new_set) {
+                inferred.insert(c.key.clone(), new_set);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    // ── Gate every DECLARED trail: factual ⊑ declared ──
+    for c in &containers {
+        let Some(ann) = c.declared else { continue };
+        let Some(declared_set) = declared.get(&c.key) else {
+            continue;
+        };
+        let actual = factual_effects(&c.kind, &inferred, &declared);
+        let excess: Vec<Effect> = actual.difference(declared_set).copied().collect();
+        if excess.is_empty() {
+            continue;
+        }
+        let fmt = |es: &[Effect]| {
+            let words: Vec<&str> = es.iter().map(|e| e.word()).collect();
+            if words.is_empty() {
+                "⟨⟩".to_string()
+            } else {
+                format!("⟨{}⟩", words.join(", "))
+            }
+        };
+        let declared_sorted: Vec<Effect> = declared_set.iter().copied().collect();
+        let actual_sorted: Vec<Effect> = actual.iter().copied().collect();
+        errors.push(SpannedError::at(
+            format!(
+                "effect trail violation on {}: declared {} but body requires {} (excess: {})",
+                c.name_for_errors,
+                fmt(&declared_sorted),
+                fmt(&actual_sorted),
+                excess
+                    .iter()
+                    .map(|e| e.word())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ),
+            ann.span.clone(),
+        ));
+    }
+}
+
 /// Perform semantic analysis on a list of declarations (without executing them).
 /// Validates:
 ///   - Entity types referenced in records exist
@@ -764,6 +1202,14 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     for decl in declarations {
         validate_decl_labels(decl, &mut result.errors);
     }
+
+    // Наряд №324 (ADR-0154 §9): effect trail in pattern signatures.
+    // Validates the trail words (io|audit), computes the factual body
+    // effects of every pattern/tool-method/learnable (interprocedural
+    // fixpoint over the call graph — converges on recursion), and gates
+    // every DECLARED trail: factual ⊑ declared, excess = loud error.
+    // Patterns without a declared trail are ungated (zero delta).
+    check_effect_trails(declarations, &mut result.errors);
 
     // First pass: collect all declarations (names)
     for decl in declarations {

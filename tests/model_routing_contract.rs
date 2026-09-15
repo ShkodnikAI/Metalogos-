@@ -35,6 +35,7 @@ fn make_model_learnable_decl(name: &str, prompt: &str, model: Option<&str>) -> D
         // Наряд №181: distillation fields default to None (no distill).
         distill_to: None,
         distill_after: 0,
+        effects: None,
         fallback_if: None,
     })
 }

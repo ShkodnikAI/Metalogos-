@@ -37,7 +37,7 @@ LLM_KW          = @{ "llm" }
 // Tool methods are compiled as namespace-isolated patterns.
 // tool.method(args) resolves via QualifiedCall same as module.pattern().
 tool_decl     = { TOOL_KW ~ IDENT ~ LBRACE ~ tool_method* ~ RBRACE }
-tool_method  = { IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ LBRACE ~ statement* ~ RBRACE }
+tool_method  = { IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ effect_trail? ~ LBRACE ~ statement* ~ RBRACE }
 TOOL_KW      = @{ "tool" }
 
 // ── Hook (ADR-0045): before_pattern / after_pattern ──────────────────────
@@ -213,7 +213,7 @@ context_budget_limit = { "limit" ~ COLON ~ expression }
 CONTEXT_BUDGET_KW = @{ "context_budget" }
 
 // ── Learnable Pattern (M3) ──────────────────────────────────────────
-learnable_pattern_decl = { LEARNABLE_KW ~ "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ LBRACE ~ learnable_body ~ RBRACE }
+learnable_pattern_decl = { LEARNABLE_KW ~ "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ effect_trail? ~ LBRACE ~ learnable_body ~ RBRACE }
 // Наряд №181 (ADR-0117): distill_field* allows distill_to/distill_after/fallback_if
 // in ANY order relative to each other (not in the rigid pre-existing sequence).
 // The pre-existing 8 fields are NOT reordered in this naryad — only the 3 new
@@ -249,7 +249,7 @@ distill_after_line = { "distill_after" ~ COLON ~ INT }
 fallback_if_line   = { "fallback_if" ~ COLON ~ "confidence" ~ compare_op ~ FLOAT_LITERAL }
 
 // ── Pattern (M1) ──────────────────────────────────────────────────
-pattern_decl = { "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ LBRACE ~ pattern_body ~ RBRACE }
+pattern_decl = { "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ effect_trail? ~ LBRACE ~ pattern_body ~ RBRACE }
 params       = { param ~ (COMMA ~ WHITESPACE? ~ param)* }
 param        = { IDENT ~ ":" ~ type_name ~ label_ann? }
 
@@ -269,6 +269,17 @@ label_part         = { label_consent_part | label_word }
 label_consent_part = { "consent" ~ "(" ~ label_scope_list ~ ")" }
 label_scope_list   = { IDENT ~ (COMMA ~ IDENT)* }
 label_word         = @{ (ASCII_ALPHA | "_")+ }
+
+// ── Effect trail (Наряд №324, ADR-0154 §9) ───────────────────────────────
+// `pattern P(x: String) -> String ⟨io, audit⟩ { ... }` — the declared
+// effect trail sits after the return type. Strictly additive: a '⟨'
+// after a return type was previously a parse error, so no existing
+// program can change meaning. Shape-only grammar (a comma list of bare
+// words; the empty `⟨⟩` declares the zero-effect set) — semantic
+// analysis validates the WORDS (only `io` / `audit` exist) and computes
+// the actual body effects through the №316 SSOT bridge.
+effect_trail = { "⟨" ~ (effect_word ~ (COMMA ~ effect_word)*)? ~ "⟩" }
+effect_word  = @{ (ASCII_ALPHA | "_")+ }
 pattern_body = { statement* }
 
 // ── Statements (v0.5.1: unified if-then-else support) ───────────────

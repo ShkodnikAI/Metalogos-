@@ -254,6 +254,7 @@ fn make_cached_learnable(name: &str) -> Declaration {
         conversation: None,
         distill_to: None,
         distill_after: 0,
+        effects: None,
         fallback_if: None,
     })
 }

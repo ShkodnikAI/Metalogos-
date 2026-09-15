@@ -43,6 +43,21 @@ pub(super) fn parse_label_ann(pair: &Pair<'_, Rule>) -> crate::ast::LabelAnn {
     crate::ast::LabelAnn { span, raw }
 }
 
+/// Наряд №324 (ADR-0154 §9): extract an effect trail (`effect_trail`
+/// rule) into an `ast::EffectAnn`. The pair's text spans `⟨...⟩`; the
+/// raw trail body is the text between the brackets, trimmed.
+pub(super) fn parse_effect_ann(pair: &Pair<'_, Rule>) -> crate::ast::EffectAnn {
+    let span = crate::ast::Span::from_pest(pair.as_span());
+    let text = pair.as_str();
+    let raw = text
+        .strip_prefix('⟨')
+        .and_then(|t| t.strip_suffix('⟩'))
+        .unwrap_or(text)
+        .trim()
+        .to_string();
+    crate::ast::EffectAnn { span, raw }
+}
+
 // ── MlogServer (Phase 6.1) ─────────────────────────────────────
 
 // ── Template (Phase 6.2) ─────────────────────────────────────

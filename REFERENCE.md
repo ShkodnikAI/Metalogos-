@@ -138,6 +138,39 @@ Sources follow the audit vocabulary: `env`/`secret` → `private`, `call_llm`/
 Unannotated parameters, literals, and unresolved names start at
 `public, trusted` (bottom) — the sink-gate (№325) reads the inferred labels.
 
+### 2.3. Effect trail in signatures (№324, ADR-0154 §9)
+
+A pattern (tool method, learnable pattern) may DECLARE what it does — an
+effect trail after the return type:
+
+```mlog
+pattern Fetch(key: String) -> String ⟨io⟩ {
+  return env(key)
+}
+pattern Log(msg: String) -> String ⟨io, audit⟩ {
+  memorize msg with priority=0.5
+  return msg
+}
+```
+
+- `io` — the body touches the outside world: every №316 `Source` (ingress)
+  or `Sink` (egress) builtin — network, files, env, clock, LLM calls,
+  channels;
+- `audit` — a persistent, auditable write: `Sink` builtins whose effect is
+  not undoable-pure (state/db/file/memory writes, delivery) plus the
+  `memorize`/`forget`/`relate` statements.
+
+The closed word set is `{io, audit}`; `⟨⟩` declares the zero-effect
+contract. The gate holds every declared trail against the FACTUAL body
+effects: a call to an annotated pattern contributes its DECLARED contract
+(interface semantics), a call to an unannotated pattern contributes its
+inferred effects; the excess — what the body needs beyond the declaration —
+is a compile error listing declared / required / excess. Patterns without
+a trail are ungated: existing programs are unaffected. Recursion converges
+without annotations (the effect domain is a 4-element lattice; unions are
+monotone), so an explicit trail on a recursive pattern is welcome but not
+required.
+
 ---
 
 ## 3. Syntax

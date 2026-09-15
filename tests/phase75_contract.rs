@@ -48,6 +48,7 @@ fn make_learnable_decl(name: &str, prompt: &str) -> Declaration {
         distill_to: None,
         distill_after: 0,
         fallback_if: None,
+        effects: None,
     })
 }
 
@@ -75,6 +76,7 @@ fn make_while_true_pattern() -> Declaration {
         name: "infinite_loop".to_string(),
         params: vec![],
         return_type: "Unit".to_string(),
+        effects: None,
         body: vec![Statement::While {
             condition: Expr::BoolLit {
                 value: true,
@@ -101,6 +103,7 @@ fn make_counting_while_pattern() -> Declaration {
         name: "counting_loop".to_string(),
         params: vec![],
         return_type: "Unit".to_string(),
+        effects: None,
         body: vec![
             Statement::LetBinding {
                 name: "counter".to_string(),

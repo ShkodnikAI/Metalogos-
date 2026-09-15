@@ -485,6 +485,7 @@ impl Interpreter {
                 name: name.clone(),
                 params: cp.params.clone(),
                 return_type: "String".to_string(),
+                effects: None,
                 body: cp.body.clone(),
             }));
         }
@@ -512,6 +513,7 @@ impl Interpreter {
                 distill_to: None,
                 distill_after: 0,
                 fallback_if: None,
+                effects: None,
             }));
         }
         for r in &self.rules {

@@ -1302,6 +1302,13 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
     }
 
     fn sink_kind(name: &str) -> &'static str {
+        // №331 boundary (loud): media GENERATION sinks (vision_*/video_*)
+        // produce synthetic content — their egress is gated by the
+        // marking machinery (MEDIA_SYNTHETIC_UNMARKED, №320) and their
+        // label-side gating is Phase 2; they are outside №325.
+        if name.starts_with("vision_") || name.starts_with("video_") || name == "tts_synthesize" {
+            return "media";
+        }
         match name {
             "exec" | "exec_argv" => "exec",
             "git_push" => "vcs",
@@ -1336,6 +1343,9 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                     None
                 }
             }
+            // Media generation: №331 Phase-2 boundary — the marking
+            // machinery (MEDIA_SYNTHETIC_UNMARKED, №320) owns it here.
+            "media" => None,
             // Voice egress requires a consent scope (Phase-2 sources, №335;
             // until then the scope is empty by default — loud by design).
             "voice" => {
@@ -1347,6 +1357,8 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
             }
             // Irreversible DB writes with destructive literals are gated
             // regardless of label (grant algebra is Phase 3, №339).
+            // NOTE: only schema-destroying forms (DROP/TRUNCATE) —
+            // DELETE/ALTER are parameterized CRUD, gated by SQL_DYNAMIC.
             "db" => {
                 if label.conf != crate::labels::Conf::Public {
                     Some("private-db")
@@ -1388,7 +1400,7 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                         && matches!(
                             a,
                             Expr::StringLit { value, .. }
-                                if ["drop", "delete", "truncate", "alter"].iter().any(|w| value.to_lowercase().contains(w))
+                                if ["drop table", "drop database", "drop index", "truncate"].iter().any(|w| value.to_lowercase().contains(w))
                         )
                     {
                         violations.push(SinkViolation {

@@ -302,7 +302,13 @@ fn n279_tts_send_delegates_synthesis_fails_at_delivery() {
     let base = spawn_tts_mock();
     let prev = set_tts_env(&base);
 
+    // №325 (ADR-0161): voice egress requires a consent scope — consent
+    // SOURCES are Phase 2 (№335), so this delivery-mechanics contract
+    // runs under the legacy profile (the gate records audit events
+    // instead of failing compilation; the runtime behavior below is
+    // exactly what the test pins).
     const SEND_PROGRAM: &str = r#"
+profile legacy { egress: permissive_with_audit }
 pattern S(x: String) -> String {
   let r = tts_send("text", "alloy", "123:fake-token", "42")
   return r

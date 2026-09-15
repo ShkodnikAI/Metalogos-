@@ -221,13 +221,11 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
                 _ => None,
             });
             match target_conf {
-                Some("public") => {
-                    if input.conf == crate::labels::Conf::Private {
-                        Some(Label::bottom())
-                    } else {
-                        Some(input)
-                    }
-                }
+                // One-way: the data is destroyed — the result is a
+                // compiler-derived value (bottom: public AND trusted).
+                // Integrity is restored too (№327: hash_only decisions
+                // are legal).
+                Some("public") => Some(Label::bottom()),
                 _ => Some(input),
             }
         }
@@ -1699,6 +1697,408 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
             env.insert(p.name.clone(), l);
         }
         walk_stmts(stmts, container, &mut env, &walker, violations);
+    };
+
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                walk_container(
+                    &p.body,
+                    &format!("pattern {}", p.name),
+                    &p.params,
+                    &mut violations,
+                );
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    walk_container(
+                        &m.body,
+                        &format!("tool {}.{}", t.name, m.name),
+                        &m.params,
+                        &mut violations,
+                    );
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for r in &srv.routes {
+                    walk_container(
+                        &r.body,
+                        &format!("route {} {}", r.method, r.path),
+                        &[],
+                        &mut violations,
+                    );
+                }
+            }
+            Declaration::Hook(h) => {
+                walk_container(
+                    &h.body,
+                    &format!("hook {:?}", h.phase),
+                    &[],
+                    &mut violations,
+                );
+            }
+            Declaration::Test(t) => {
+                walk_container(
+                    &t.body,
+                    &format!("test \"{}\"", t.name),
+                    &[],
+                    &mut violations,
+                );
+            }
+            _ => {}
+        }
+    }
+
+    violations
+}
+
+// ── Integrity: anti-injection decision gate (Наряд №327) ─────────────
+
+/// One control-flow decision point whose deciding expression carries an
+/// untrusted label (integrity axis — ADR-0154 §2.2).
+#[derive(Debug, Clone)]
+pub struct DecisionViolation {
+    pub container: String,
+    /// `"if" | "while" | "match"` — the kind of the decision point.
+    pub kind: String,
+    pub span: Span,
+    /// The deciding expression's label.
+    pub label: Label,
+    /// The name of the untrusted source, when the deciding expression is
+    /// a direct Source call; `<derived>` otherwise.
+    pub source_name: String,
+}
+
+/// Name of the untrusted source behind a deciding expression: a direct
+/// call of a №316 Source builtin names itself; everything else is
+/// derived (the join poisoned the integrity — the exact origin is not
+/// tracked at this precision; the boundary is documented).
+fn decision_source_name(expr: &Expr, prov: &BTreeMap<String, String>) -> String {
+    // Descend into the deciding expression to name the direct Source
+    // call behind the untrusted label (the naryad: the message names
+    // the untrusted SOURCE and the decision point). Variables bound to
+    // a Source call carry their provenance through the bindings map.
+    if let Expr::FnCall { name, .. } = expr {
+        if matches!(
+            classify(name).map(|c| c.role),
+            Some(crate::builtins_classification::Role::Source)
+        ) {
+            return name.clone();
+        }
+    }
+    if let Expr::Ident { name, .. } = expr {
+        if let Some(origin) = prov.get(name) {
+            return origin.clone();
+        }
+    }
+    for sub in expr_operands(expr) {
+        let found = decision_source_name(sub, prov);
+        if found != "<derived>" {
+            return found;
+        }
+    }
+    "<derived>".to_string()
+}
+
+/// Direct sub-expressions of `expr` (one level).
+fn expr_operands(expr: &Expr) -> Vec<&Expr> {
+    match expr {
+        Expr::BinaryOp { left, right, .. } => vec![left.as_ref(), right.as_ref()],
+        Expr::IfElse {
+            then_branch,
+            else_branch,
+            ..
+        } => vec![then_branch.as_ref(), else_branch.as_ref()],
+        Expr::FieldAccess { object, .. } => vec![object.as_ref()],
+        Expr::IndexAccess { object, index, .. } => vec![object.as_ref(), index.as_ref()],
+        Expr::Try { expr, .. } => vec![expr.as_ref()],
+        Expr::List { items, .. } => items.iter().collect(),
+        Expr::FnCall { args, .. } | Expr::QualifiedCall { args, .. } => args.iter().collect(),
+        _ => vec![],
+    }
+}
+
+/// The №327 anti-injection rule: data that DECIDES control flow must be
+/// `trusted`. Untrusted data as DATA is legal — the gate fires only on
+/// decision positions: `if`/`else if` conditions, `while` conditions,
+/// `match` scrutinees. (Sink-target decisions are the №325 classes:
+/// UNTRUSTED_EXEC_DECISION / UNTRUSTED_EGRESS_NETWORK.)
+pub fn integrity_decision_violations(declarations: &[Declaration]) -> Vec<DecisionViolation> {
+    let mut violations = Vec::new();
+
+    // Seed environment mirrors the sink-clearance pass (№322 annotations
+    // on params; entity initializers via the marker lексикон; otherwise
+    // bottom).
+    let mut seed: BTreeMap<String, Label> = BTreeMap::new();
+    for decl in declarations {
+        match decl {
+            Declaration::EntitySimple(e) => {
+                seed.insert(e.name.clone(), entity_seed_label(Some(&e.value)));
+            }
+            Declaration::EntityRecord(e) => {
+                let strongest = e
+                    .fields
+                    .iter()
+                    .map(|f| entity_seed_label(Some(&f.value)))
+                    .fold(Label::bottom(), |a, b| a.join(&b));
+                seed.insert(e.name.clone(), strongest);
+            }
+            _ => {}
+        }
+    }
+
+    fn check_decision(
+        expr: &Expr,
+        kind: &str,
+        container: &str,
+        env: &BTreeMap<String, Label>,
+        prov: &BTreeMap<String, String>,
+        violations: &mut Vec<DecisionViolation>,
+    ) {
+        let label = sink_arg_label(expr, env);
+        if label.integrity == crate::labels::Integrity::Untrusted {
+            violations.push(DecisionViolation {
+                container: container.to_string(),
+                kind: kind.to_string(),
+                span: expr.span().clone(),
+                label,
+                source_name: decision_source_name(expr, prov),
+            });
+        }
+    }
+
+    fn walk_stmts(
+        stmts: &[Statement],
+        container: &str,
+        env: &mut BTreeMap<String, Label>,
+        prov: &mut BTreeMap<String, String>,
+        violations: &mut Vec<DecisionViolation>,
+    ) {
+        // Provenance: a variable bound to a DIRECT Source call keeps the
+        // call's name; bindings derived from such a variable inherit it.
+        fn prov_of(value: &Expr, prov: &BTreeMap<String, String>) -> Option<String> {
+            match value {
+                Expr::FnCall { name, .. } => {
+                    if matches!(
+                        classify(name).map(|c| c.role),
+                        Some(crate::builtins_classification::Role::Source)
+                    ) {
+                        return Some(name.clone());
+                    }
+                    // A wrapper call derives from its args' provenance.
+                    for a in args_of(value) {
+                        if let Some(o) = prov_of(a, prov) {
+                            return Some(format!("{o} (via {name})"));
+                        }
+                    }
+                    None
+                }
+                Expr::Ident { name, .. } => prov.get(name).cloned(),
+                Expr::BinaryOp { left, right, .. } => {
+                    prov_of(left, prov).or_else(|| prov_of(right, prov))
+                }
+                Expr::FieldAccess { object, .. } => {
+                    if let Expr::Ident { name, .. } = object.as_ref() {
+                        return prov.get(name).cloned();
+                    }
+                    prov_of(object, prov)
+                }
+                _ => None,
+            }
+        }
+        fn args_of(value: &Expr) -> Vec<&Expr> {
+            match value {
+                Expr::FnCall { args, .. } | Expr::QualifiedCall { args, .. } => {
+                    args.iter().collect()
+                }
+                _ => vec![],
+            }
+        }
+        for stmt in stmts {
+            match stmt {
+                Statement::LetBinding { name, value, .. }
+                | Statement::Assign { name, value, .. } => {
+                    let label = sink_arg_label(value, env);
+                    env.insert(name.clone(), label);
+                    if let Some(origin) = prov_of(value, prov) {
+                        prov.insert(name.clone(), origin);
+                    } else {
+                        prov.remove(name);
+                    }
+                }
+                Statement::Each {
+                    variable,
+                    iterable,
+                    body,
+                    ..
+                }
+                | Statement::EachWithIndex {
+                    item_var: variable,
+                    iterable,
+                    body,
+                    ..
+                } => {
+                    let it = sink_arg_label(iterable, env);
+                    let mut env_body = env.clone();
+                    env_body.insert(variable.clone(), it);
+                    let mut prov_body = prov.clone();
+                    if let Some(origin) = prov_of(iterable, prov) {
+                        prov_body.insert(variable.clone(), origin);
+                    }
+                    walk_stmts(body, container, &mut env_body, &mut prov_body, violations);
+                }
+                Statement::While {
+                    condition, body, ..
+                } => {
+                    check_decision(condition, "while", container, env, prov, violations);
+                    let mut env_body = env.clone();
+                    let mut prov_body = prov.clone();
+                    walk_stmts(body, container, &mut env_body, &mut prov_body, violations);
+                    for (k, v) in env_body {
+                        let m = env.get(&k).cloned().unwrap_or_else(Label::bottom).join(&v);
+                        env.insert(k, m);
+                    }
+                }
+                Statement::IfElseBlock {
+                    condition,
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
+                    check_decision(condition, "if", container, env, prov, violations);
+                    let mut env_then = env.clone();
+                    let mut prov_then = prov.clone();
+                    walk_stmts(
+                        then_body,
+                        container,
+                        &mut env_then,
+                        &mut prov_then,
+                        violations,
+                    );
+                    let mut merged = env_then;
+                    for (cond, b) in else_ifs {
+                        check_decision(cond, "if", container, env, prov, violations);
+                        let mut env_b = env.clone();
+                        let mut prov_b = prov.clone();
+                        walk_stmts(b, container, &mut env_b, &mut prov_b, violations);
+                        for (k, v) in env_b {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    }
+                    if let Some(eb) = else_body {
+                        let mut env_e = env.clone();
+                        let mut prov_e = prov.clone();
+                        walk_stmts(eb, container, &mut env_e, &mut prov_e, violations);
+                        for (k, v) in env_e {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    } else {
+                        for (k, v) in env.clone() {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    }
+                    *env = merged;
+                }
+                Statement::IfThen {
+                    condition, body, ..
+                } => {
+                    check_decision(condition, "if", container, env, prov, violations);
+                    let mut env_t = env.clone();
+                    let mut prov_t = prov.clone();
+                    walk_stmts(body, container, &mut env_t, &mut prov_t, violations);
+                    for (k, v) in env_t {
+                        let m = env.get(&k).cloned().unwrap_or_else(Label::bottom).join(&v);
+                        env.insert(k, m);
+                    }
+                }
+                Statement::Return { .. } | Statement::ExprStmt { .. } => {}
+                Statement::Match {
+                    scrutinee,
+                    arms,
+                    else_body,
+                    ..
+                } => {
+                    check_decision(scrutinee, "match", container, env, prov, violations);
+                    let mut merged = env.clone();
+                    for arm in arms {
+                        let b = match arm {
+                            MatchArm::Exact(_, b)
+                            | MatchArm::StartsWith(_, b)
+                            | MatchArm::Contains(_, b)
+                            | MatchArm::Compare(_, _, b) => b,
+                        };
+                        let mut env_b = env.clone();
+                        let mut prov_b = prov.clone();
+                        walk_stmts(b, container, &mut env_b, &mut prov_b, violations);
+                        for (k, v) in env_b {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    }
+                    if let Some(eb) = else_body {
+                        let mut env_e = env.clone();
+                        let mut prov_e = prov.clone();
+                        walk_stmts(eb, container, &mut env_e, &mut prov_e, violations);
+                        for (k, v) in env_e {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    } else {
+                        for (k, v) in env.clone() {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    }
+                    *env = merged;
+                }
+                Statement::Memorize(_) | Statement::Forget(_) | Statement::Relate(_) => {}
+                Statement::Break | Statement::Continue => {}
+            }
+        }
+    }
+
+    let walk_container = |stmts: &[Statement],
+                          container: &str,
+                          params: &[crate::ast::Param],
+                          violations: &mut Vec<DecisionViolation>| {
+        let mut env = seed.clone();
+        let mut prov: BTreeMap<String, String> = BTreeMap::new();
+        for p in params {
+            let l = match &p.label {
+                Some(ann) => Label::parse(&ann.raw).unwrap_or_default(),
+                None => Label::bottom(),
+            };
+            env.insert(p.name.clone(), l);
+        }
+        walk_stmts(stmts, container, &mut env, &mut prov, violations);
     };
 
     for decl in declarations {

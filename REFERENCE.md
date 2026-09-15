@@ -222,6 +222,34 @@ Every application is an unconditional audit event (`REDACT_APPLIED`,
 Unknown policy words are loud runtime errors; dynamic (non-literal)
 policies pass the label through — no silent downward moves.
 
+### 2.5. Integrity axis & anti-injection (№327)
+
+The integrity axis (`untrusted < trusted`) is about DECISIONS: data that
+decides control flow must be trusted. Decision positions are `if`/`else
+if` conditions, `while` conditions, and `match` scrutinees:
+
+```mlog
+// Compile error — the LLM answer must not decide the branch:
+pattern Decide() -> String {
+  let answer = call_llm("shutdown the service?")
+  if answer == "yes" {
+    let _ = exec("shutdown -h now")
+    return "shutting down"
+  }
+  return "kept running"
+}
+```
+
+The error names the untrusted source (a direct Source call behind the
+deciding expression) and the decision point. Untrusted data as DATA is
+legal: carrying it, transforming it, returning it — all fine. The
+integrity join is componentwise: untrusted poisons derivatives
+(`upper(trim(answer))` stays untrusted). The sanctioned paths to a
+trusted decision: validate before deciding, or one-way-redact
+(`hash_only` restores `trusted` — the data is destroyed). Sink-target
+decisions keep their №325 classes (UNTRUSTED_EXEC_DECISION,
+UNTRUSTED_EGRESS_NETWORK).
+
 ---
 
 ## 3. Syntax

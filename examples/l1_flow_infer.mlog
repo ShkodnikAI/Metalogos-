@@ -1,0 +1,21 @@
+// Наряд №323 (issue #417): statement-level label inference (ADR-0154 Appendix A).
+// The private label from env() reaches the output through if/else and each
+// WITHOUT a single label annotation — tracked statically by
+// semantic::infer_pattern_labels (asserted in tests/naryad_323_flow_infer.rs).
+// At runtime the demo takes the public branch (the env source inside the
+// then-branch never executes), so the program runs clean.
+
+pattern Route(keys: List) -> String {
+  let mut chosen = ""
+  if 2.0 == 1.0 then {
+    chosen = env("L1_DEMO_KEY")
+  } else {
+    chosen = "fallback-public"
+  }
+  let mut gathered = ""
+  each k in keys {
+    gathered = gathered + chosen + k
+  }
+  return gathered
+}
+flow Main { input: List = ["alpha", "beta"] -> Route -> output }

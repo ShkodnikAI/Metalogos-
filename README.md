@@ -269,7 +269,7 @@ Metalogos-/
 ├── AGENTS.md                         # Canonical methodology file for agent tools (industry-standard AGENTS.md spec — superseded AGENT.md)
 ├── CLAUDE.md                         # Bridge copy of AGENTS.md for Claude-compatible tools (synced manually — see issue #299)
 ├── GEMINI.md                         # Bridge copy of AGENTS.md for Gemini-compatible tools (synced manually — see issue #299)
-├── REFERENCE.md                      # Full builtin reference (~215 KB) — 100% of the registry (§6 index + №316 classification)
+├── REFERENCE.md                      # Full builtin reference (~218 KB) — 100% of the registry (§6 index + №316 classification)
 ├── CHANGELOG.md                      # Version history (~267 KB)
 ├── AI_USAGE.md                       # Disclosure: how generative AI is used in this project's development
 ├── FEATURE_INTAKE.md                 # Feature request tracking
@@ -364,7 +364,7 @@ Metalogos-/
 │   ├── definition_of_done.rs          # Project completeness validation
 │   └── ...                            # and 140 more contract/feature test files
 │
-├── examples/                          # 214 .mlog programs (golden corpus)
+├── examples/                          # 215 .mlog programs (golden corpus)
 │   ├── m1_hello.mlog                  # Hello World
 │   ├── p6_full_app.mlog               # Full web app with routes
 │   ├── p23_ml_learn.mlog              # ML learning
@@ -1013,9 +1013,9 @@ Four integration tests verify the new behavior:
 |---|---|
 | Effective Rust LOC | ~59 000 |
 | Built-in Functions | 421 (39 modules) |
-| Example Programs | 214 |
+| Example Programs | 215 |
 | Integration Tests | 70 test suites |
-| Architecture Decision Records | 118 |
+| Architecture Decision Records | 153 |
 | Parser Rules | 288 (Pest PEG) |
 | VM Instructions | 46 |
 | Execution Backends | 2 (interpreter + bytecode VM) |
@@ -1066,7 +1066,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 421 builtins, 155 test files, 214 example programs, 153 ADRs (146 accepted + 7 reserved; ADR-0154 filled by naryad №322). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 421 builtins, 155 test files, 215 example programs, 153 ADRs (146 accepted + 7 reserved; ADR-0154 filled by naryad №322). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

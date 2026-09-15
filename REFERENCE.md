@@ -97,10 +97,10 @@ Types on pattern parameters, entity-type fields, and entity declarations may car
 a three-component security label — `(conf, integrity, consent-scope)`:
 
 ```mlog
-pattern Share(data: String<private>) -> Html { ... }
-pattern Share(data: String<private, untrusted>) -> Html { ... }
-pattern Share(data: String<consented, trusted, consent(gdpr, analytics)>) -> Html { ... }
-entity k: String<private> = env("API_KEY")
+pattern Share(data: String<private>) -> String { return data }
+pattern Mix(a: String<private, untrusted>) -> String { return a }
+pattern Give(c: String<consented, trusted, consent(gdpr, analytics)>) -> String { return c }
+entity k: String<private> = "demo-key-value"
 ```
 
 - **conf** (required): `public < consented < private < poisoned` — `poisoned` is

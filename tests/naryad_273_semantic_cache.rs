@@ -41,6 +41,7 @@ fn make_learnable_decl(
             span: metalogos::ast::Span::unknown(),
             name: "text".to_string(),
             type_name: "String".to_string(),
+            label: None,
         }],
         return_type: "String".to_string(),
         prompt: prompt.to_string(),

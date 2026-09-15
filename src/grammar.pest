@@ -164,14 +164,14 @@ mutate_rollback    = { "rollback_if" ~ ":" ~ "accuracy" ~ compare_op ~ FLOAT_LIT
 // ── Entity: struct type ───────────────────────────────────────────────
 // Disambiguates from simple entity: IDENT followed by '{' not ":"
 entity_type_decl = { "entity" ~ IDENT ~ !":" ~ LBRACE ~ field_decl ~ (COMMA ~ field_decl)* ~ COMMA? ~ RBRACE }
-field_decl        = { IDENT ~ COLON ~ type_name ~ (ASSIGN ~ literal)? }
+field_decl        = { IDENT ~ COLON ~ type_name ~ label_ann? ~ (ASSIGN ~ literal)? }
 
 // ── Entity: struct instance ─────────────────────────────────────────
-entity_record_decl = { "entity" ~ IDENT ~ ":" ~ type_name ~ "=" ~ LBRACE ~ field_init ~ (COMMA ~ field_init)* ~ COMMA? ~ RBRACE }
+entity_record_decl = { "entity" ~ IDENT ~ ":" ~ type_name ~ label_ann? ~ "=" ~ LBRACE ~ field_init ~ (COMMA ~ field_init)* ~ COMMA? ~ RBRACE }
 field_init         = { IDENT ~ COLON ~ expression }
 
 // ── Entity: simple (M1) ──────────────────────────────────────────────
-entity_simple_decl = { "entity" ~ IDENT ~ ":" ~ type_name ~ "=" ~ expression }
+entity_simple_decl = { "entity" ~ IDENT ~ ":" ~ type_name ~ label_ann? ~ "=" ~ expression }
 
 // ── Fluid Types (Phase 1) ─────────────────────────────────────
 // fluid x = Float[42.0][0.9] or String["answer"][0.1]
@@ -251,7 +251,24 @@ fallback_if_line   = { "fallback_if" ~ COLON ~ "confidence" ~ compare_op ~ FLOAT
 // ── Pattern (M1) ──────────────────────────────────────────────────
 pattern_decl = { "pattern" ~ IDENT ~ "(" ~ params? ~ ")" ~ ARROW ~ type_name ~ LBRACE ~ pattern_body ~ RBRACE }
 params       = { param ~ (COMMA ~ WHITESPACE? ~ param)* }
-param        = { IDENT ~ ":" ~ type_name }
+param        = { IDENT ~ ":" ~ type_name ~ label_ann? }
+
+// ── Label annotations (Наряд №322, ADR-0154) ──────────────────────────
+// `String<private>`, `String<private, untrusted, consent(gdpr)>`.
+// Strictly additive: label_ann only matches where a '<' follows the
+// type name — a position that was previously a parse error, so no
+// existing program can change meaning.
+// Division of labor: the grammar guarantees the SHAPE (a comma list of
+// bare words and consent(...) parts), semantic analysis validates the
+// WORDS (unknown word / duplicate component / missing conf / empty
+// consent list) via `labels::Label::parse` — keeping the word table in
+// exactly one place (ADR-0154 §3), reachable and testable.
+label_ann          = { LT ~ label_spec ~ GT }
+label_spec         = { label_part ~ (COMMA ~ label_part)* }
+label_part         = { label_consent_part | label_word }
+label_consent_part = { "consent" ~ "(" ~ label_scope_list ~ ")" }
+label_scope_list   = { IDENT ~ (COMMA ~ IDENT)* }
+label_word         = @{ (ASCII_ALPHA | "_")+ }
 pattern_body = { statement* }
 
 // ── Statements (v0.5.1: unified if-then-else support) ───────────────

@@ -1,7 +1,7 @@
 # METALOGOS — Language Reference
 
 > **Version:** 0.19.0
-> **Synced with code:** 2026-09-14 (naryad №319) · 421 builtins · 153 ADR files (145 accepted + 8 reserved)
+> **Synced with code:** 2026-09-15 (naryad №322) · 421 builtins · 153 ADR files (146 accepted + 7 reserved)
 > **Single source of truth** for developers writing in Metalogos.
 > Contains the full list of built-in functions with signatures, types, descriptions, and examples,
 > as well as a reference for syntax, data types, and the CLI.
@@ -90,6 +90,29 @@ The `mlog` binary supports the following commands:
 
 > **Note:** Metalogos has no separate `Int` type — all numbers are `Float`.
 > Integers are written as `42.0`. To convert a string to an integer, use `to_int()`.
+
+### 2.1. Label annotations (ADR-0154)
+
+Types on pattern parameters, entity-type fields, and entity declarations may carry
+a three-component security label — `(conf, integrity, consent-scope)`:
+
+```mlog
+pattern Share(data: String<private>) -> Html { ... }
+pattern Share(data: String<private, untrusted>) -> Html { ... }
+pattern Share(data: String<consented, trusted, consent(gdpr, analytics)>) -> Html { ... }
+entity k: String<private> = env("API_KEY")
+```
+
+- **conf** (required): `public < consented < private < poisoned` — `poisoned` is
+  quarantine: it absorbs both join and meet and has no legal sinks.
+- **integrity** (optional, default `trusted`): `untrusted < trusted` — data
+  combination takes the weaker integrity, requirement combination the stronger.
+- **consent** (optional, default empty): `consent(scope, ...)` — the scopes the
+  value is covered by; join intersects, meet unions.
+
+The grammar checks the shape; semantic analysis validates the words and reports
+unknown words, duplicates, and a missing conf component with the annotation's span.
+Statement-level label inference is №323; the sink-gate reading this lattice is №325.
 
 ---
 

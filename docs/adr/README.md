@@ -10,7 +10,7 @@ ls docs/adr/ | sed 's/-.*//' | sort | uniq -d
 
 Must be empty. If not empty, resolve collisions before proceeding.
 
-Numbers are assigned sequentially. The current accepted maximum is in `0153-*` (ADR-0151 №309 video I2V pipeline; ADR-0152 №320 C2PA Art 50 slice; ADR-0153 №412 video DiT text path); the overall maximum is `0161-*` — numbers 0154–0161 are reserved (see below).
+Numbers are assigned sequentially. The current accepted maximum is in `0154-*` (ADR-0151 №309 video I2V pipeline; ADR-0152 №320 C2PA Art 50 slice; ADR-0153 №412 video DiT text path; ADR-0154 №322 label lattice); the overall maximum is `0161-*` — numbers 0155–0161 are reserved (see below).
 
 ## Reserved numbers (do not reassign)
 
@@ -23,7 +23,7 @@ reports and must not be changed:
   `tests/crosscheck_backends.rs`, past Naryad reports
 - **ADR-0076** (`vm-dispatch-paths`) — referenced in `tests/vm_golden.rs`
 
-## Reserved for plan v2 §19 (booking 0154–0161, naryad №319 / issue #406)
+## Reserved for plan v2 §19 (booking 0155–0161, naryad №319 / issue #406)
 
 Booked 2026-09-14 by naryad №319. Content — the filling naryads of plan v2 phases,
 not №319. The plan's original block 0151–0158 shifted +3: 0151–0153 were taken by
@@ -31,7 +31,6 @@ real ADRs (№309/№320/№412) before the booking.
 
 | # | File | Theme | Filling naryad |
 |---|---|---|---|
-| 0154 | `0154-label-lattice.md` | Label lattice for taint kinds | №322 |
 | 0155 | `0155-grant-algebra.md` | Grant algebra — permissions for irreversible operations | №339 |
 | 0156 | `0156-tw-vm-jit-parity.md` | TW/VM/JIT parity contract | №328 |
 | 0157 | `0157-ledger-profile-prov-intoto.md` | Ledger profile — PROV/in-toto alignment | №343 |
@@ -189,7 +188,7 @@ real ADRs (№309/№320/№412) before the booking.
 | 0151 | Video I2V pipeline — first/last-frame anchors, RIFE-class interpolation, AV sidecar mux | Accepted |
 | 0152 | C2PA mini-slice — Art. 50 synthetic marking on egress (no clearance lattice) | Accepted |
 | 0153 | Video DiT text path wired — prompt embedding genuinely conditions the denoiser | Accepted |
-| 0154 | Label lattice for taint kinds | reserved |
+| 0154 | Label lattice for taint kinds — (conf, integrity, consent-scope) | Accepted |
 | 0155 | Grant algebra — permissions for irreversible operations | reserved |
 | 0156 | TW/VM/JIT parity contract | reserved |
 | 0157 | Ledger profile — PROV/in-toto alignment | reserved |

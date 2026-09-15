@@ -3376,6 +3376,64 @@ mod tests {
     use super::*;
     use crate::ast;
 
+    // Наряд №322 (ADR-0154 §5): every TaintKind variant must keep an
+    // entry in the label-lattice projection table
+    // (`labels::legacy_taint_label`, keyed by variant name). The table
+    // is the bridge the sink-gate (№325) will read; this test pins that
+    // the enum and the table cannot silently drift apart — adding a
+    // TaintKind variant without a projection fails HERE, at CI, not at
+    // the gate. (The projection itself lives in labels.rs; no dead
+    // accessor is kept on the private enum in this naryad.)
+    #[test]
+    fn n322_taint_kind_label_projection_covers_all_variants() {
+        let all = [
+            TaintKind::LlmOutput,
+            TaintKind::Secret,
+            TaintKind::UserInput,
+            TaintKind::Sanitized,
+            TaintKind::CanaryLeak,
+        ];
+        for kind in all {
+            let name = format!("{:?}", kind);
+            let label = crate::labels::legacy_taint_label(&name)
+                .unwrap_or_else(|| panic!("kind {} lost its ADR-0154 §5 projection", name));
+            assert!(!label.to_string().is_empty());
+        }
+        // Spot-check the quarantine projection: a confirmed-compromised
+        // channel is `poisoned` — no legal sinks (sink-gate №325).
+        assert_eq!(
+            crate::labels::legacy_taint_label("CanaryLeak")
+                .unwrap()
+                .conf,
+            crate::labels::Conf::Poisoned
+        );
+        // Secrets are the confidentiality concern.
+        assert_eq!(
+            crate::labels::legacy_taint_label("Secret").unwrap().conf,
+            crate::labels::Conf::Private
+        );
+        // LLM output / user input are the integrity concern.
+        assert_eq!(
+            crate::labels::legacy_taint_label("LlmOutput")
+                .unwrap()
+                .integrity,
+            crate::labels::Integrity::Untrusted
+        );
+        assert_eq!(
+            crate::labels::legacy_taint_label("UserInput")
+                .unwrap()
+                .integrity,
+            crate::labels::Integrity::Untrusted
+        );
+        // Sanitization restores trust.
+        assert_eq!(
+            crate::labels::legacy_taint_label("Sanitized")
+                .unwrap()
+                .integrity,
+            crate::labels::Integrity::Trusted
+        );
+    }
+
     #[test]
     fn test_clean_program() {
         let source = r#"

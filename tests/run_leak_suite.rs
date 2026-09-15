@@ -32,8 +32,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// One-attribute blocking switch (№325 flips this to true).
-const BLOCKING: bool = false;
+/// One-attribute blocking switch (№325 flipped this to true — the gate
+/// is live; see tests/naryad_325_sink_clearance.rs for the gate contract).
+const BLOCKING: bool = true;
 
 const MIN_NEGATIVES: usize = 25;
 const MIN_POSITIVES: usize = 15;

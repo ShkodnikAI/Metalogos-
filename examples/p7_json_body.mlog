@@ -1,3 +1,9 @@
+// Наряд №325 (ADR-0161): this demo intentionally relays untrusted
+// request data into the HTTP response (its whole point) — it runs under
+// the legacy compatibility profile: the SINK_CLEARANCE gate stays
+// advisory and every hit is recorded as an audit event.
+profile legacy { egress: permissive_with_audit }
+
 // Наряд №3 — json_body() contract
 // Telegram webhook pattern: read JSON from POST body, extract nested fields
 

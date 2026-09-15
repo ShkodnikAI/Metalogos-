@@ -194,6 +194,10 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
         }
         // Untrusted-input sources (№268: MCP tool output reuses UserInput).
         "form_data" | "json_body" | "query_param" | "mcp_call" => Some(kind_label("UserInput")),
+        // №325: network ingress and file ingress are untrusted sources —
+        // the sink-clearance gate needs their labels to attribute
+        // UNTRUSTED_EGRESS_* classes (ADR-0161 §3).
+        "http_get" | "read_file" => Some(kind_label("UserInput")),
         // Sanitizers restore trust.
         "render" | "escape_html" => Some(kind_label("Sanitized")),
         // №274 (ADR-0136): redact masks secrets — the ONLY downward move
@@ -1153,6 +1157,597 @@ fn check_effect_trails(declarations: &[Declaration], errors: &mut Vec<SpannedErr
     }
 }
 
+// ── Sink clearance (Наряд №325, ADR-0161) ────────────────────────────
+
+/// One sink call-site whose argument label does not clear the sink.
+#[derive(Debug, Clone)]
+pub struct SinkViolation {
+    /// Container tag: `pattern P`, `tool t.m`, `route GET /x`, ...
+    pub container: String,
+    /// Sink builtin name (from the №316 classification — never a
+    /// hand-written list).
+    pub fn_name: String,
+    /// 0-based index of the offending argument.
+    pub arg_index: usize,
+    pub span: Span,
+    /// The argument's inferred label (№322/№323 machinery).
+    pub label: Label,
+}
+
+/// Conservative confidentiality markers for string LITERALS (ADR-0161
+/// §3): a literal carrying a personal-data marker (passport / SNILS /
+/// diagnosis / confidential wording — the vocabulary is deliberately
+/// small and bilingual-safe) or a private-infrastructure URL marker is
+/// treated as `private, trusted`. Sound: markers are conservative —
+/// a literal without markers stays bottom, an unannotated program
+/// keeps passing unless it actually carries the marked data to a sink.
+fn literal_confidentiality(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    const WORD_MARKERS: &[&str] = &[
+        "паспорт",
+        "снилс",
+        "диагноз",
+        "конфиденциальн",
+        "персональн",
+        "секретн",
+        "confidential",
+        "passport",
+        "social security",
+    ];
+    if WORD_MARKERS.iter().any(|m| lower.contains(m)) {
+        return true;
+    }
+    // Private-infrastructure URL markers (ADR-0161 §3): a literal
+    // address/host pointing at internal infrastructure names private
+    // data — the destination IS the leak vector.
+    const URL_MARKERS: &[&str] = &["internal", "intranet", "corp.", "private", "secret"];
+    if URL_MARKERS.iter().any(|m| lower.contains(m)) {
+        return true;
+    }
+    // Structural markers: passport RU (dddd dddddd / dddddddd), SNILS
+    // (ddd-ddd-ddd d), card-like 16-digit groups are covered by the
+    // word markers above in the corpus; the digit shapes below catch
+    // the bare-number forms.
+    let digits: Vec<char> = lower.chars().collect();
+    let digit_at = |i: usize| digits.get(i).is_some_and(|c| c.is_ascii_digit());
+    let pasp = (0..digits.len()).filter(|i| digit_at(*i)).any(|i| {
+        // 4 digits, optional space/dash, 6 digits
+        (0..4).all(|k| digit_at(i + k))
+            && matches!(digits.get(i + 4), None | Some(' ') | Some('-'))
+            && (0..6).all(|k| digit_at(i + 5 + k))
+            && digits.get(i + 11).is_none_or(|c| !c.is_ascii_digit())
+    });
+    if pasp {
+        return true;
+    }
+    let snils = (0..digits.len()).filter(|i| digit_at(*i)).any(|i| {
+        (0..3).all(|k| digit_at(i + k))
+            && digits.get(i + 3) == Some(&'-')
+            && (0..3).all(|k| digit_at(i + 4 + k))
+            && digits.get(i + 7) == Some(&'-')
+            && (0..3).all(|k| digit_at(i + 8 + k))
+            && digits.get(i + 11).is_none_or(|c| !c.is_ascii_digit())
+    });
+    snils
+}
+
+/// The seed label of a global entity initializer: a literal carrying
+/// confidentiality markers is `private, trusted`; everything else is
+/// bottom (the №322 permissive default).
+fn entity_seed_label(value: Option<&Expr>) -> Label {
+    match value {
+        Some(Expr::StringLit { value, .. }) if literal_confidentiality(value) => Label {
+            conf: crate::labels::Conf::Private,
+            integrity: crate::labels::Integrity::Trusted,
+            consent: Default::default(),
+        },
+        _ => Label::bottom(),
+    }
+}
+
+/// Label of an expression, extending the №323 expression rules with the
+/// literal confidentiality markers (ADR-0161 §3).
+fn sink_arg_label(expr: &Expr, env: &BTreeMap<String, Label>) -> Label {
+    match expr {
+        Expr::StringLit { value, .. } if literal_confidentiality(value) => Label {
+            conf: crate::labels::Conf::Private,
+            integrity: crate::labels::Integrity::Trusted,
+            consent: Default::default(),
+        },
+        _ => expr_label(expr, env),
+    }
+}
+
+type SinkCheck<'a> = &'a dyn Fn(&Expr, &str, &BTreeMap<String, Label>, &mut Vec<SinkViolation>);
+
+/// Collect sink call-sites whose argument labels do not clear the sink
+/// (№325, ADR-0161 §2). The sink list comes from the №316 SSOT map
+/// (`Role::Sink`) — never a hand-written list. Confidentiality
+/// clearance: a sink requires `public` (and `poisoned` clears nothing).
+/// The EXEC class additionally refuses untrusted data (an integrity
+/// decision gate for command execution; the general integrity gate is
+/// №327). The VOICE class additionally refuses anything without a
+/// consent scope (consent SOURCES are Phase 2, №335 — until then every
+/// voice egress is unconsented by default, loud by design).
+pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolation> {
+    let mut violations = Vec::new();
+
+    // Seed environment: global entities (initializers with confidentiality
+    // markers are private — ADR-0161 §3), all other names bottom.
+    let mut seed: BTreeMap<String, Label> = BTreeMap::new();
+    for decl in declarations {
+        match decl {
+            Declaration::EntitySimple(e) => {
+                seed.insert(e.name.clone(), entity_seed_label(Some(&e.value)));
+            }
+            Declaration::EntityRecord(e) => {
+                // Record entities are maps; the entity name itself seeds
+                // with the strongest field marker.
+                let strongest = e
+                    .fields
+                    .iter()
+                    .map(|f| entity_seed_label(Some(&f.value)))
+                    .fold(Label::bottom(), |a, b| a.join(&b));
+                seed.insert(e.name.clone(), strongest);
+            }
+            _ => {}
+        }
+    }
+
+    fn is_sink(name: &str) -> bool {
+        matches!(
+            classify(name).map(|c| c.role),
+            Some(crate::builtins_classification::Role::Sink)
+        )
+    }
+
+    fn sink_kind(name: &str) -> &'static str {
+        // №331 boundary (loud): media GENERATION sinks (vision_*/video_*)
+        // produce synthetic content — their egress is gated by the
+        // marking machinery (MEDIA_SYNTHETIC_UNMARKED, №320) and their
+        // label-side gating is Phase 2; they are outside №325.
+        if name.starts_with("vision_") || name.starts_with("video_") || name == "tts_synthesize" {
+            return "media";
+        }
+        match name {
+            "exec" | "exec_argv" => "exec",
+            "git_push" => "vcs",
+            "tts_send" => "voice",
+            "db_execute" => "db",
+            "print" | "respond" | "respond_html" | "html_response" => "output",
+            "write_file" | "append_file" | "delete_file" => "file",
+            // Persistent memory writes: untrusted data must not persist
+            // (the TAINT_PERSISTENCE vocabulary; №266 statement forms are
+            // covered separately).
+            "memorize" | "mem_set" | "mtree_store" | "kv_set" => "memory",
+            _ => "network",
+        }
+    }
+
+    /// Clearance check for one sink argument. Returns the reason the
+    /// argument fails, if any.
+    fn clearance_failure(fn_name: &str, label: &Label) -> Option<&'static str> {
+        // Quarantine clears nothing, anywhere (ADR-0154 §2.1).
+        if label.conf == crate::labels::Conf::Poisoned {
+            return Some("poisoned");
+        }
+        match sink_kind(fn_name) {
+            // Command execution: untrusted data must not drive it, and
+            // secrets must never enter it.
+            "exec" => {
+                if label.integrity == crate::labels::Integrity::Untrusted {
+                    Some("untrusted-exec")
+                } else if label.conf != crate::labels::Conf::Public {
+                    Some("secret-exec")
+                } else {
+                    None
+                }
+            }
+            // Media generation: №331 Phase-2 boundary — the marking
+            // machinery (MEDIA_SYNTHETIC_UNMARKED, №320) owns it here.
+            "media" => None,
+            // Voice egress requires a consent scope (Phase-2 sources, №335;
+            // until then the scope is empty by default — loud by design).
+            "voice" => {
+                if label.consent.is_empty() {
+                    Some("voice-unconsented")
+                } else {
+                    None
+                }
+            }
+            // Irreversible DB writes with destructive literals are gated
+            // regardless of label (grant algebra is Phase 3, №339).
+            // NOTE: only schema-destroying forms (DROP/TRUNCATE) —
+            // DELETE/ALTER are parameterized CRUD, gated by SQL_DYNAMIC.
+            "db" => {
+                if label.conf != crate::labels::Conf::Public {
+                    Some("private-db")
+                } else {
+                    None
+                }
+            }
+            // Public-output and memory sinks also refuse UNTRUSTED data
+            // (the HTML-injection and taint-persistence vocabularies —
+            // the leak-suite classes; the general integrity gate is
+            // №327, these two special cases start here). Everything else:
+            // confidentiality clearance (public only); network sinks
+            // additionally refuse untrusted data (UNTRUSTED_EGRESS_*).
+            _ => {
+                let kind = sink_kind(fn_name);
+                if label.conf != crate::labels::Conf::Public {
+                    Some("private-egress")
+                } else if label.integrity == crate::labels::Integrity::Untrusted
+                    && matches!(kind, "network" | "output" | "memory")
+                {
+                    Some("untrusted-egress")
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    let check_calls = |expr: &Expr,
+                       container: &str,
+                       env: &BTreeMap<String, Label>,
+                       violations: &mut Vec<SinkViolation>| {
+        if let Expr::FnCall { name, args, .. } = expr {
+            if is_sink(name) {
+                for (i, a) in args.iter().enumerate() {
+                    // Destructive DB literals are gated by CONTENT (a
+                    // DROP needs no tainted data to destroy state):
+                    if name == "db_execute"
+                        && matches!(
+                            a,
+                            Expr::StringLit { value, .. }
+                                if ["drop table", "drop database", "drop index", "truncate"].iter().any(|w| value.to_lowercase().contains(w))
+                        )
+                    {
+                        violations.push(SinkViolation {
+                            container: container.to_string(),
+                            fn_name: name.clone(),
+                            arg_index: i,
+                            span: expr.span().clone(),
+                            label: Label::bottom(),
+                        });
+                        continue;
+                    }
+                    let label = sink_arg_label(a, env);
+                    if clearance_failure(name, &label).is_some() {
+                        violations.push(SinkViolation {
+                            container: container.to_string(),
+                            fn_name: name.clone(),
+                            arg_index: i,
+                            span: expr.span().clone(),
+                            label,
+                        });
+                    }
+                }
+            }
+        }
+    };
+
+    fn walk_expr(
+        expr: &Expr,
+        container: &str,
+        env: &BTreeMap<String, Label>,
+        check: SinkCheck,
+        violations: &mut Vec<SinkViolation>,
+    ) {
+        check(expr, container, env, violations);
+        match expr {
+            Expr::FnCall { args, .. } | Expr::QualifiedCall { args, .. } => {
+                for a in args {
+                    walk_expr(a, container, env, check, violations);
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                walk_expr(left, container, env, check, violations);
+                walk_expr(right, container, env, check, violations);
+            }
+            Expr::IfElse {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                walk_expr(condition, container, env, check, violations);
+                walk_expr(then_branch, container, env, check, violations);
+                walk_expr(else_branch, container, env, check, violations);
+            }
+            Expr::BlockIfElse {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                // Expression position: env side effects of the branches do
+                // not escape (№323 D5) — analyze the branches on forks.
+                walk_expr(condition, container, env, check, violations);
+                let mut env_t = env.clone();
+                walk_stmts(then_body, container, &mut env_t, check, violations);
+                for (_, b) in else_ifs {
+                    let mut env_b = env.clone();
+                    walk_stmts(b, container, &mut env_b, check, violations);
+                }
+                if let Some(eb) = else_body {
+                    let mut env_e = env.clone();
+                    walk_stmts(eb, container, &mut env_e, check, violations);
+                }
+            }
+            Expr::Try { expr, .. } => walk_expr(expr, container, env, check, violations),
+            Expr::List { items, .. } => {
+                for i in items {
+                    walk_expr(i, container, env, check, violations);
+                }
+            }
+            Expr::StructLit { fields, .. } => {
+                for v in fields.values() {
+                    walk_expr(v, container, env, check, violations);
+                }
+            }
+            Expr::IndexAccess { object, index, .. } => {
+                walk_expr(object, container, env, check, violations);
+                walk_expr(index, container, env, check, violations);
+            }
+            Expr::FieldAccess { object, .. } => {
+                walk_expr(object, container, env, check, violations)
+            }
+            _ => {}
+        }
+    }
+
+    fn walk_stmts(
+        stmts: &[Statement],
+        container: &str,
+        env: &mut BTreeMap<String, Label>,
+        check: SinkCheck,
+        violations: &mut Vec<SinkViolation>,
+    ) {
+        for stmt in stmts {
+            match stmt {
+                Statement::LetBinding { name, value, .. }
+                | Statement::Assign { name, value, .. } => {
+                    walk_expr(value, container, env, check, violations);
+                    // Track the binding (flow-sensitive overwrite, №323
+                    // LetBinding/Assign contract) so later sink calls see
+                    // the carried label.
+                    let label = sink_arg_label(value, env);
+                    env.insert(name.clone(), label);
+                }
+                Statement::Each {
+                    variable,
+                    iterable,
+                    body,
+                    ..
+                }
+                | Statement::EachWithIndex {
+                    item_var: variable,
+                    iterable,
+                    body,
+                    ..
+                } => {
+                    walk_expr(iterable, container, env, check, violations);
+                    // The iterant is bound for the body only (scope-local,
+                    // №323 Each contract) — analyze the body with a fork.
+                    let mut env_body = env.clone();
+                    env_body.insert(variable.clone(), sink_arg_label(iterable, env));
+                    walk_stmts(body, container, &mut env_body, check, violations);
+                }
+                Statement::While {
+                    condition, body, ..
+                } => {
+                    walk_expr(condition, container, env, check, violations);
+                    // Conservative single-pass join (ADR-0154 §8 D1): the
+                    // body may raise labels; fold the raises back.
+                    let mut env_body = env.clone();
+                    walk_stmts(body, container, &mut env_body, check, violations);
+                    for (k, v) in env_body {
+                        let merged = env.get(&k).cloned().unwrap_or_else(Label::bottom).join(&v);
+                        env.insert(k, merged);
+                    }
+                }
+                Statement::IfElseBlock {
+                    condition,
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
+                    walk_expr(condition, container, env, check, violations);
+                    // Branches fork from the entry env; merge on exit
+                    // (componentwise, №323 rules). A closed merge (else
+                    // present) drops the pre-branch value; an open merge
+                    // keeps the entry env in the join.
+                    let mut env_then = env.clone();
+                    walk_stmts(then_body, container, &mut env_then, check, violations);
+                    let mut merged = env_then;
+                    for (_, b) in else_ifs {
+                        let mut env_b = env.clone();
+                        walk_stmts(b, container, &mut env_b, check, violations);
+                        for (k, v) in env_b {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    }
+                    if let Some(eb) = else_body {
+                        let mut env_e = env.clone();
+                        walk_stmts(eb, container, &mut env_e, check, violations);
+                        for (k, v) in env_e {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    } else {
+                        // Open merge: the entry env survives.
+                        for (k, v) in env.clone() {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    }
+                    *env = merged;
+                }
+                Statement::IfThen {
+                    condition, body, ..
+                } => {
+                    walk_expr(condition, container, env, check, violations);
+                    let mut env_t = env.clone();
+                    walk_stmts(body, container, &mut env_t, check, violations);
+                    for (k, v) in env_t {
+                        let m = env.get(&k).cloned().unwrap_or_else(Label::bottom).join(&v);
+                        env.insert(k, m);
+                    }
+                }
+                Statement::Return { value, .. } | Statement::ExprStmt { expr: value, .. } => {
+                    walk_expr(value, container, env, check, violations);
+                }
+                Statement::Match {
+                    scrutinee,
+                    arms,
+                    else_body,
+                    ..
+                } => {
+                    walk_expr(scrutinee, container, env, check, violations);
+                    let mut merged = env.clone();
+                    for arm in arms {
+                        let body = match arm {
+                            MatchArm::Exact(_, b)
+                            | MatchArm::StartsWith(_, b)
+                            | MatchArm::Contains(_, b)
+                            | MatchArm::Compare(_, _, b) => b,
+                        };
+                        let mut env_b = env.clone();
+                        walk_stmts(body, container, &mut env_b, check, violations);
+                        for (k, v) in env_b {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    }
+                    if let Some(eb) = else_body {
+                        let mut env_e = env.clone();
+                        walk_stmts(eb, container, &mut env_e, check, violations);
+                        for (k, v) in env_e {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    } else {
+                        for (k, v) in env.clone() {
+                            let m = merged
+                                .get(&k)
+                                .cloned()
+                                .unwrap_or_else(Label::bottom)
+                                .join(&v);
+                            merged.insert(k, m);
+                        }
+                    }
+                    *env = merged;
+                }
+                Statement::Memorize(m) => walk_expr(&m.value, container, env, check, violations),
+                Statement::Forget(f) => walk_expr(&f.query, container, env, check, violations),
+                Statement::Relate(r) => {
+                    walk_expr(&r.from, container, env, check, violations);
+                    walk_expr(&r.to, container, env, check, violations);
+                }
+                Statement::Break | Statement::Continue => {}
+            }
+        }
+    }
+
+    let walker = |expr: &Expr,
+                  container: &str,
+                  env: &BTreeMap<String, Label>,
+                  violations: &mut Vec<SinkViolation>| {
+        walk_expr(expr, container, env, &check_calls, violations);
+    };
+
+    let walk_container = |stmts: &[Statement],
+                          container: &str,
+                          params: &[crate::ast::Param],
+                          violations: &mut Vec<SinkViolation>| {
+        let mut env = seed.clone();
+        for p in params {
+            let l = match &p.label {
+                Some(ann) => Label::parse(&ann.raw).unwrap_or_default(),
+                None => Label::bottom(),
+            };
+            env.insert(p.name.clone(), l);
+        }
+        walk_stmts(stmts, container, &mut env, &walker, violations);
+    };
+
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                walk_container(
+                    &p.body,
+                    &format!("pattern {}", p.name),
+                    &p.params,
+                    &mut violations,
+                );
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    walk_container(
+                        &m.body,
+                        &format!("tool {}.{}", t.name, m.name),
+                        &m.params,
+                        &mut violations,
+                    );
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for r in &srv.routes {
+                    walk_container(
+                        &r.body,
+                        &format!("route {} {}", r.method, r.path),
+                        &[],
+                        &mut violations,
+                    );
+                }
+            }
+            Declaration::Hook(h) => {
+                walk_container(
+                    &h.body,
+                    &format!("hook {:?}", h.phase),
+                    &[],
+                    &mut violations,
+                );
+            }
+            Declaration::Test(t) => {
+                walk_container(
+                    &t.body,
+                    &format!("test \"{}\"", t.name),
+                    &[],
+                    &mut violations,
+                );
+            }
+            _ => {}
+        }
+    }
+
+    violations
+}
+
 /// Perform semantic analysis on a list of declarations (without executing them).
 /// Validates:
 ///   - Entity types referenced in records exist
@@ -1210,6 +1805,17 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     // every DECLARED trail: factual ⊑ declared, excess = loud error.
     // Patterns without a declared trail are ungated (zero delta).
     check_effect_trails(declarations, &mut result.errors);
+
+    // Наряд №325 (ADR-0161): validate the compatibility profile shape —
+    // unknown profile names / options / egress modes are loud errors
+    // (a compat-profile mistake must never be a silent no-op).
+    for decl in declarations {
+        if let Declaration::Profile(p) = decl {
+            if let Err(e) = crate::profile::validate(p) {
+                result.errors.push(SpannedError::at(e, p.span.clone()));
+            }
+        }
+    }
 
     // First pass: collect all declarations (names)
     for decl in declarations {

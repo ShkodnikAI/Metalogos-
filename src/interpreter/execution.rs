@@ -40,6 +40,9 @@ impl Interpreter {
 
         for decl in remaining_decls {
             match decl {
+                // №325: the compatibility profile is a compile-time
+                // declaration — no runtime effect.
+                Declaration::Profile(_) => {}
                 Declaration::Import(import) => {
                     self.handle_import(&import)?;
                 }

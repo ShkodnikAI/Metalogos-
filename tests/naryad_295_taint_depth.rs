@@ -21,6 +21,15 @@ fn has_finding(source: &str, check_id: &str) -> bool {
     }
 }
 
+fn findings_with(source: &str, check_id: &str) -> Vec<metalogos::audit::AuditFinding> {
+    metalogos::audit_program(source)
+        .expect("audit")
+        .findings
+        .into_iter()
+        .filter(|f| f.check_id == check_id)
+        .collect()
+}
+
 fn has_no_finding(source: &str, check_id: &str) -> bool {
     !has_finding(source, check_id)
 }
@@ -107,9 +116,15 @@ pattern Handler() -> String {
     return r
 }
 "#;
+    // №325 note: the legacy interprocedural check stays silent at this
+    // depth (the documented boundary); the lattice gate flags the same
+    // site under the shared HTML_INJECTION id, so the legacy finding is
+    // identified by its own message text.
     assert!(
-        has_no_finding(source, "HTML_INJECTION"),
-        "depth 5 nesting (call_llm at depth 4) exceeds TAINT_NESTING_MAX_DEPTH=3 — not flagged intraprocedurally (documented boundary)"
+        !findings_with(source, "HTML_INJECTION")
+            .iter()
+            .any(|f| f.message.contains("LLM output passed to respond()")),
+        "depth 5 nesting (call_llm at depth 4) exceeds TAINT_NESTING_MAX_DEPTH=3 — the LEGACY check must stay silent (documented boundary); the №325 gate may still flag it"
     );
 }
 

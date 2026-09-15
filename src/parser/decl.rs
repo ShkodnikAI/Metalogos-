@@ -2651,3 +2651,37 @@ pub(super) fn parse_vision_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
         profile,
     }))
 }
+
+// ── Compatibility profile (Наряд №325, ADR-0161) ────────────────────────
+
+/// `profile legacy { egress: permissive_with_audit }` — parse the
+/// program-level compatibility profile (shape-only grammar; option
+/// words validated by semantic / profile.rs).
+pub(super) fn parse_profile_decl(pair: Pair<Rule>) -> Declaration {
+    let span = Span::from_pest(pair.as_span());
+    let children = children_of(&pair);
+    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+    let mut options: Vec<(String, String)> = Vec::new();
+    for c in children
+        .iter()
+        .filter(|c| c.as_rule() == Rule::profile_option)
+    {
+        let oc = children_of(c);
+        // profile_option = { IDENT ~ COLON ~ (STRING_LITERAL | IDENT) }:
+        // the first IDENT is the KEY, the following STRING/IDENT is the
+        // VALUE (find_child_str would return the key twice).
+        let words: Vec<String> = oc
+            .iter()
+            .filter(|c| c.as_rule() == Rule::STRING_LITERAL || c.as_rule() == Rule::IDENT)
+            .map(pair_str)
+            .collect();
+        if words.len() >= 2 {
+            options.push((words[0].clone(), words[1].trim_matches('"').to_string()));
+        }
+    }
+    Declaration::Profile(crate::ast::ProfileDecl {
+        span,
+        name,
+        options,
+    })
+}

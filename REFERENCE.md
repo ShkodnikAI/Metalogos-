@@ -171,6 +171,39 @@ without annotations (the effect domain is a 4-element lattice; unions are
 monotone), so an explicit trail on a recursive pattern is welcome but not
 required.
 
+### 2.4. Sink clearance & the legacy profile (№325, ADR-0161)
+
+Data entering a **sink** builtin (the list is the №316 classification:
+`http_post`, `print`, `respond`, `write_file`, `db_execute`, `exec`,
+`git_push`, `tts_send`, `memorize`, …) must clear it: the argument's
+inferred label must be `public` (poisoned clears no sink at all). Special
+classes: exec refuses untrusted and private data; voice egress requires a
+consent scope (consent sources are Phase 2, №335 — until then voice is
+unconsented by default); destructive SQL literals (`DROP`/`DELETE`/
+`TRUNCATE`/`ALTER`) are gated without grants; untrusted data into public
+outputs is the HTML-injection class; private data into files is the
+secret-leak class.
+
+```mlog
+// Compile error (strict by default):
+pattern Send(data: String) -> String {
+  let _ = http_post("https://analytics.example", record)   // PII_EGRESS_NETWORK
+  return "sent"
+}
+```
+
+The migration bridge — a program-level compatibility profile:
+
+```mlog
+profile legacy { egress: permissive_with_audit }
+```
+
+Under `profile legacy` the clearance gate is ADVISORY: compilation and
+execution stay green and every gate hit is recorded as an audit event
+(`[SINK_CLEARANCE][audit-event]` on stderr, a Severity::Info finding in
+`mlog audit`). `legacy` is a migration bridge, not a residence — the
+burn-down is measured by the event count (ADR-0161 §3).
+
 ---
 
 ## 3. Syntax

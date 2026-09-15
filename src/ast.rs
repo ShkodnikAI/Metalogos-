@@ -149,6 +149,24 @@ pub enum Declaration {
     /// untouched in R4.1); semantic validation (model SSOT, numeric
     /// contracts) lives in `src/semantic.rs`.
     Vision(VisionDecl),
+    /// `profile legacy { egress: permissive_with_audit }` (Наряд №325,
+    /// ADR-0161): a program-level compatibility profile. Under `legacy`
+    /// the №325 `SINK_CLEARANCE` gate runs in advisory mode — every
+    /// violation becomes an audit event instead of a compile error.
+    Profile(ProfileDecl),
+}
+
+/// A program-level compatibility profile (Наряд №325, ADR-0161).
+/// `profile legacy { egress: permissive_with_audit }` — the only shape
+/// in this slice: named `legacy`, one option map (words validated by
+/// semantic).
+#[derive(Debug, Clone)]
+pub struct ProfileDecl {
+    pub span: Span,
+    /// Profile name, e.g. `legacy`.
+    pub name: String,
+    /// Options, e.g. `egress → permissive_with_audit`.
+    pub options: Vec<(String, String)>,
 }
 
 impl Declaration {
@@ -180,6 +198,8 @@ impl Declaration {
             Declaration::ReflexSeq(d) => Some(&d.name),
             Declaration::ReflexGen(d) => Some(&d.name),
             Declaration::Vision(d) => Some(&d.name),
+            // №325: the profile names a mode, not a symbol.
+            Declaration::Profile(_) => None,
             // No name: singleton/config/action declarations
             Declaration::MlogServer(_)
             | Declaration::Db(_)
@@ -230,6 +250,7 @@ impl Declaration {
             Declaration::ReflexSeq(_) => "reflex_seq",
             Declaration::ReflexGen(_) => "reflex_gen",
             Declaration::Vision(_) => "vision",
+            Declaration::Profile(_) => "profile",
         }
     }
 
@@ -367,6 +388,9 @@ impl Declaration {
                     d.name, d.model, d.width, d.height, d.steps, d.seed
                 )
             }
+            Declaration::Profile(d) => {
+                format!("profile {} ({} options)", d.name, d.options.len())
+            }
             Declaration::TypeAlias(d) => {
                 format!("type {} = {}", d.alias, d.target)
             }
@@ -429,6 +453,7 @@ impl Declaration {
             Declaration::ReflexSeq(d) => &d.span,
             Declaration::ReflexGen(d) => &d.span,
             Declaration::Vision(d) => &d.span,
+            Declaration::Profile(d) => &d.span,
         }
     }
 }

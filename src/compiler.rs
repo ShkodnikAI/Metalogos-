@@ -162,6 +162,9 @@ impl Compiler {
     fn pass1(&mut self, decls: &[Declaration]) -> Result<(), String> {
         for decl in decls {
             match decl {
+                // №325: the compatibility profile is a compile-time
+                // declaration — nothing to emit.
+                Declaration::Profile(_) => {}
                 Declaration::EntityType(e) => {
                     let fields: Vec<String> = e.fields.iter().map(|f| f.name.clone()).collect();
                     self.struct_fields.insert(e.name.clone(), fields);
@@ -375,6 +378,9 @@ impl Compiler {
 
         for decl in decls {
             match decl {
+                // №325: the compatibility profile is a compile-time
+                // declaration — nothing to emit.
+                Declaration::Profile(_) => {}
                 Declaration::EntityType(e) => {
                     // Struct type already registered in pass1. No runtime instruction needed.
                     // (The VM will need to know about struct types for MakeStruct.)

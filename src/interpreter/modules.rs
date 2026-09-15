@@ -69,6 +69,9 @@ impl Interpreter {
         // This merges patterns, entities, etc. into the global scope
         for decl in declarations {
             match decl {
+                // №325: the compatibility profile is a compile-time
+                // declaration — no runtime effect.
+                Declaration::Profile(_) => {}
                 Declaration::Import(sub_import) => {
                     self.handle_import(&sub_import)?;
                 }

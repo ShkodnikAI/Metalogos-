@@ -35,6 +35,10 @@ pub mod memory_graph;
 pub mod memory_store;
 pub mod nn;
 pub mod parser;
+// Наряд №325 (issue #419, ADR-0161): compatibility profiles —
+// `profile legacy { egress: permissive_with_audit }` switches the
+// №325 SINK_CLEARANCE gate into advisory mode (audit events, not errors).
+pub mod profile;
 // Наряд №286: shared JSON-Schema validation (ADR-0133) — один валидатор
 // для call_llm_schema и json_validate (дифференциальный контракт «ни одного
 // нового правила»).

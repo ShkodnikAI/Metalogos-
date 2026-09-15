@@ -109,3 +109,60 @@ Rationale: `LlmOutput` is meant for display (no conf concern) but is the HTML_IN
 - `cargo test naryad_322` — annotation syntax (parse + carrier + span), componentwise join/meet incl. poisoned absorbing, semantic loudness (unknown word / missing conf / duplicates with span), legacy projection totality.
 - `cargo test` — existing taint/audit suites without degradation.
 - grep `todo!`/`unimplemented!`/`SKELETON` in `src/labels.rs` — 0 (also asserted by a test).
+
+## Appendix A — Statement-kind inference contracts (naryad №323)
+
+The statement-level inference (`semantic::infer_pattern_labels`) walks pattern
+bodies with an environment `var → Label`. Per-kind contracts — input reading,
+output label, side effects, merge rule:
+
+| # | Statement        | Input (reads)                    | Output label                    | Side effects                  | Merge rule |
+|---|------------------|----------------------------------|---------------------------------|-------------------------------|------------|
+| 1 | LetBinding       | RHS label                        | binds `name` = label(RHS)       | —                             | sequential |
+| 2 | Assign           | RHS label                        | binds `name` = label(RHS)       | —                             | sequential (replace — reassignment to a safe value lowers in straight-line code, mirroring TaintTracker untaint; merge points re-add conservatism) |
+| 3 | Each             | label(iterable)                  | iterator = label(iterable)      | —                             | body cannot raise the iterator (restored); every other var = join(entry, post-body) |
+| 4 | EachWithIndex    | label(iterable)                  | item = label(iterable); index = bottom (a position, not data) | —             | same as Each (both iterator vars restored) |
+| 5 | While            | condition ignored (conditions do not taint values) | —             | body assignments              | bounded fixpoint (see decision below); exit env = fixpoint env |
+| 6 | IfElseBlock      | condition ignored                | —                               | branch assignments            | componentwise join over ALL branches (then + else-ifs + else); a branch that did not assign contributes the entry label — one-sided assignment is conservative by construction |
+| 7 | IfThen           | condition ignored                | —                               | then-assignments              | merge with implicit empty else: join(entry, then) |
+| 8 | Return           | label(value)                     | joins the pattern output        | terminates the branch (conservatively: later statements in the block still infer) | sequential |
+| 9 | ExprStmt         | label(expr)                      | joins the pattern output        | —                             | sequential |
+| 10 | Match           | label(scrutinee)                 | —                               | arm assignments               | join over arms (+ else); the scrutinee's label additionally joins every variable ASSIGNED in any arm — control dependence on the scrutinee (decisions derived from private data taint the outcomes); assignment shape is structural, not label-diff |
+
+Extra kinds beyond the ten mandatory ones (honest completeness):
+
+| Statement            | Contract                                                                                     |
+|----------------------|----------------------------------------------------------------------------------------------|
+| Break / Continue     | loop control — no label effect, no merge contribution                                        |
+| Memorize / Forget    | memory side effects; the payload label does not enter the value flow — persistence gating is №325 (TAINT_PERSISTENCE vocabulary of the leak-suite) |
+| Relate               | knowledge-graph edge; same treatment as Memorize/Forget                                      |
+
+**While: fixpoint vs conservative — DECISION.** The naryad required an explicit
+choice. Chosen: **bounded fixpoint** — the body is re-inferred until the
+environment stabilizes, capped at 8 passes (`LABEL_FIXPOINT_MAX_PASSES`; the
+conf lattice has height 4, monotone joins stabilize any loop-carried var→var
+chain within that; the cap is a termination guard, deterministic). Rationale:
+a single conservative pass under-approximates loop-carried chains
+(`a = b; b = env(...)` needs a second pass) — under-approximation on a
+security lattice is unsound; the bounded fixpoint IS the exact fixpoint for
+this finite lattice, at the price of at most 8 body walks.
+
+**Entry points.** Annotated params → parsed label (№322 carrier); unannotated
+params, literals, and unresolved names → `bottom` (the inference is open-world:
+the sink-gate №325 reads these labels, it does not trust them).
+
+**Sources/sanitizers.** The audit.rs vocabulary (`env`/`secret`,
+`call_llm`/`call_claude`/`call_llm_schema`/`reflex_generate`,
+`form_data`/`json_body`/`query_param`/`mcp_call`, `render`/`escape_html`,
+`redact`) is projected through the §5 table. redact(mode "secrets"/"all")
+maps private → bottom; every other label passes through — quarantine is NOT
+curable by redact (ADR-0136 D2).
+
+**Example.** `examples/l1_flow_infer.mlog`: the private label from `env()`
+reaches the output through if/else + each without a single annotation.
+
+**Boundaries (loud).** Recursive patterns → №324; label polymorphism →
+deferred; media-handle flows → Phase 2; learnable-pattern calls as
+LlmOutput-equivalent sources need a program-wide context (audit.rs already
+does this at call sites — the per-pattern inference adds it when №325
+provides the declarations context).

@@ -112,7 +112,31 @@ entity k: String<private> = "demo-key-value"
 
 The grammar checks the shape; semantic analysis validates the words and reports
 unknown words, duplicates, and a missing conf component with the annotation's span.
-Statement-level label inference is №323; the sink-gate reading this lattice is №325.
+
+### 2.2. Label inference through statements (№323, ADR-0154 Appendix A)
+
+Labels propagate through pattern bodies statically — no annotations needed.
+Sources follow the audit vocabulary: `env`/`secret` → `private`, `call_llm`/
+`call_claude`/`reflex_generate` → `public, untrusted`, `form_data`/`json_body`/
+`query_param`/`mcp_call` → `public, untrusted`, `render`/`escape_html` →
+`public, trusted`; `redact(x, "secrets")` masks `private` → `public` (never
+`poisoned`). Full contract table:
+
+| Statement | Rule |
+|---|---|
+| `let` / assignment | label = RHS (assignment replaces; merges re-add conservatism) |
+| `each x in xs` | `x` = label(iterable); the body cannot raise it; loop exit joins the entry and post-body labels of every other variable |
+| `each i, x in xs` | same; the index `i` stays `public, trusted` (a position, not data) |
+| `while` | bounded fixpoint of the body (≤ 8 passes); condition does not taint |
+| `if/else if/else` | componentwise join over all branches; one-sided assignment = join(entry, branch) |
+| `if ... then` | merge with an implicit empty else |
+| `return` / expression statement | result label joins the pattern output |
+| `match` | join over arms; the scrutinee's label joins every variable assigned in any arm (control dependence) |
+| `break` / `continue` | no label effect |
+| `memorize` / `forget` / `relate` | memory side effects; persistence gating is №325 |
+
+Unannotated parameters, literals, and unresolved names start at
+`public, trusted` (bottom) — the sink-gate (№325) reads the inferred labels.
 
 ---
 

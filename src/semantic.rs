@@ -11,7 +11,8 @@
 
 use crate::ast::*;
 use crate::audit::{audit_category_a, Severity};
-use std::collections::{HashMap, HashSet};
+use crate::labels::{legacy_taint_label, Label};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// A diagnostic with the AST `Span` of the offending node.
 ///
@@ -146,6 +147,472 @@ const VALID_MIDDLEWARE: &[&str] = &["session", "csrf", "security_headers", "rate
 
 /// Valid HTTP methods for route declarations.
 const VALID_METHODS: &[&str] = &["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
+
+// ── Statement-level label inference (Наряд №323, ADR-0154 Appendix A) ──
+//
+// Static propagation of labels `(conf, integrity, consent-scope)` through
+// pattern bodies: every statement kind has a contract (input reading,
+// output label, side effects, merge rule) recorded in ADR-0154 Appendix A
+// and REFERENCE §2.2. Join at merge points is componentwise:
+// if/else-if/else branches, match arms, loop exits.
+//
+// Sources and sanitizers reuse the audit.rs vocabulary (binding_taint),
+// projected onto the lattice via `labels::legacy_taint_label` — the bridge
+// table of ADR-0154 §5. This is the machinery №325's sink-gate reads.
+
+/// Bounded-fixpoint pass cap for `while` bodies. The conf lattice has
+/// height 4 (`public < consented < private < poisoned`); monotone joins
+/// stabilize any var→var loop-carried chain within that many passes —
+/// 8 = height × 2 safety factor. Deterministic, always terminates.
+const LABEL_FIXPOINT_MAX_PASSES: usize = 8;
+
+/// Result of the statement-level label inference for one pattern.
+#[derive(Debug, Clone)]
+pub struct LabelInference {
+    /// Final label of every variable bound in the pattern body (params
+    /// included), after all merge joins.
+    pub var_labels: BTreeMap<String, Label>,
+    /// Componentwise join of every `Return` value label and `ExprStmt`
+    /// result label — the pattern's output label.
+    pub output_label: Label,
+}
+
+/// Source/sanitizer vocabulary — mirrors audit.rs `binding_taint`, keyed
+/// the same way, projected via the ADR-0154 §5 table. `None` = not a
+/// source (the caller falls back to argument propagation).
+fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> Option<Label> {
+    // Static kind names only — the ADR-0154 §5 table covers them (pinned
+    // by the exhaustiveness test in audit.rs); the fallback never fires.
+    let kind_label = |kind: &str| legacy_taint_label(kind).unwrap_or_else(Label::bottom);
+    match fn_name {
+        // Secret sources.
+        "env" | "secret" => Some(kind_label("Secret")),
+        // LLM-output sources (model output is untrusted — ADR-0117).
+        "call_llm" | "call_claude" | "call_llm_schema" | "reflex_generate" => {
+            Some(kind_label("LlmOutput"))
+        }
+        // Untrusted-input sources (№268: MCP tool output reuses UserInput).
+        "form_data" | "json_body" | "query_param" | "mcp_call" => Some(kind_label("UserInput")),
+        // Sanitizers restore trust.
+        "render" | "escape_html" => Some(kind_label("Sanitized")),
+        // №274 (ADR-0136): redact masks secrets — the ONLY downward move
+        // for `private` until №326 formalizes redact/declassify. Semantics:
+        // mode "secrets"/"all" maps private → public/trusted; every other
+        // label passes through UNCHANGED — quarantine (`poisoned`) is NOT
+        // curable by redact (a channel is not a secret; ADR-0136 D2).
+        "redact" => {
+            let input = args
+                .first()
+                .map(|a| expr_label(a, env))
+                .unwrap_or_else(Label::bottom);
+            let mode = match args.get(1) {
+                Some(Expr::StringLit { value, .. }) => Some(value.as_str()),
+                _ => None,
+            };
+            match mode {
+                Some("secrets") | Some("all") => {
+                    if input.conf == crate::labels::Conf::Private {
+                        Some(Label::bottom())
+                    } else {
+                        Some(input)
+                    }
+                }
+                _ => Some(input),
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Label of an expression under environment `env`. Join is componentwise;
+/// literals and unknown identifiers are `bottom` (ADR-0154 Appendix A:
+/// unannotated params and unresolved names start open — the sink-gate
+/// №325 reads these labels, it does not trust them).
+fn expr_label(expr: &Expr, env: &BTreeMap<String, Label>) -> Label {
+    match expr {
+        Expr::StringLit { .. } | Expr::FloatLit { .. } | Expr::BoolLit { .. } => Label::bottom(),
+        Expr::Ident { name, .. } => env.get(name).cloned().unwrap_or_else(Label::bottom),
+        Expr::FieldAccess { object, .. } => expr_label(object, env),
+        Expr::FnCall { name, args, .. } => {
+            if let Some(l) = label_source(name, args, env) {
+                return l;
+            }
+            // Data flows through ordinary functions: join of the arguments.
+            let mut acc = Label::bottom();
+            for a in args {
+                acc = acc.join(&expr_label(a, env));
+            }
+            acc
+        }
+        // Qualified calls (module functions): no source knowledge at this
+        // slice — argument propagation only (recorded boundary).
+        Expr::QualifiedCall { args, .. } => {
+            let mut acc = Label::bottom();
+            for a in args {
+                acc = acc.join(&expr_label(a, env));
+            }
+            acc
+        }
+        Expr::BinaryOp { left, right, .. } => expr_label(left, env).join(&expr_label(right, env)),
+        // Conditions do not taint values; branches do.
+        Expr::IfElse {
+            then_branch,
+            else_branch,
+            ..
+        } => expr_label(then_branch, env).join(&expr_label(else_branch, env)),
+        Expr::List { items, .. } => {
+            let mut acc = Label::bottom();
+            for item in items {
+                acc = acc.join(&expr_label(item, env));
+            }
+            acc
+        }
+        // `list[index]` yields an ELEMENT of the object; the list label is
+        // already the join of its elements, so the object label is the
+        // sound answer (the index selects, it does not contribute).
+        Expr::IndexAccess { object, .. } => expr_label(object, env),
+        Expr::StructLit { fields, .. } => {
+            let mut acc = Label::bottom();
+            for v in fields.values() {
+                acc = acc.join(&expr_label(v, env));
+            }
+            acc
+        }
+        // Block-expression branches: join of every expression label that
+        // appears in the branch bodies (approximation of the block's value
+        // — recorded in Appendix A).
+        Expr::BlockIfElse {
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            let mut acc = block_expr_label(then_body, env);
+            for (_, body) in else_ifs {
+                acc = acc.join(&block_expr_label(body, env));
+            }
+            if let Some(body) = else_body {
+                acc = acc.join(&block_expr_label(body, env));
+            }
+            acc
+        }
+        // `try expr` returns the value or Unit on error — the value label
+        // is an upper bound, keep the inner label.
+        Expr::Try { expr, .. } => expr_label(expr, env),
+    }
+}
+
+/// Join of every expression label appearing (top-level-ish) in a block —
+/// used for block-expression value approximation only.
+fn block_expr_label(stmts: &[Statement], env: &BTreeMap<String, Label>) -> Label {
+    let mut acc = Label::bottom();
+    for st in stmts {
+        match st {
+            Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                acc = acc.join(&expr_label(value, env));
+            }
+            Statement::Return { value, .. } | Statement::ExprStmt { expr: value, .. } => {
+                acc = acc.join(&expr_label(value, env));
+            }
+            Statement::IfThen { body, .. } => {
+                acc = acc.join(&block_expr_label(body, env));
+            }
+            Statement::IfElseBlock {
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                acc = acc.join(&block_expr_label(then_body, env));
+                for (_, body) in else_ifs {
+                    acc = acc.join(&block_expr_label(body, env));
+                }
+                if let Some(body) = else_body {
+                    acc = acc.join(&block_expr_label(body, env));
+                }
+            }
+            _ => {}
+        }
+    }
+    acc
+}
+
+/// Merge rule shared by all merge points: per-variable componentwise join
+/// of the entry environment and every branch environment (a branch that
+/// did not assign the variable contributes the entry label — this is what
+/// makes one-sided assignment conservative).
+fn merge_envs(
+    entry: &BTreeMap<String, Label>,
+    branches: &[&BTreeMap<String, Label>],
+) -> BTreeMap<String, Label> {
+    let mut names: Vec<&String> = entry.keys().collect();
+    for b in branches {
+        names.extend(b.keys());
+    }
+    let mut out = BTreeMap::new();
+    for name in names {
+        let mut acc = entry.get(name).cloned().unwrap_or_else(Label::bottom);
+        for b in branches {
+            acc = acc.join(&b.get(name).cloned().unwrap_or_else(Label::bottom));
+        }
+        out.insert(name.clone(), acc);
+    }
+    out
+}
+
+/// Structurally collect every variable ASSIGNED or LET-BOUND in a
+/// statement sequence (recursively through nested blocks) — used by the
+/// Match scrutinee rule, which must trigger on assignment SHAPE, not on
+/// label changes (a branch can assign the same label it inherited).
+fn collect_assigned_vars(stmts: &[Statement], out: &mut std::collections::HashSet<String>) {
+    for st in stmts {
+        match st {
+            Statement::LetBinding { name, .. } | Statement::Assign { name, .. } => {
+                out.insert(name.clone());
+            }
+            Statement::Each { variable, body, .. } => {
+                out.insert(variable.clone());
+                collect_assigned_vars(body, out);
+            }
+            Statement::EachWithIndex {
+                index_var,
+                item_var,
+                body,
+                ..
+            } => {
+                out.insert(index_var.clone());
+                out.insert(item_var.clone());
+                collect_assigned_vars(body, out);
+            }
+            Statement::While { body, .. } => collect_assigned_vars(body, out),
+            Statement::IfThen { body, .. } => collect_assigned_vars(body, out),
+            Statement::IfElseBlock {
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                collect_assigned_vars(then_body, out);
+                for (_, body) in else_ifs {
+                    collect_assigned_vars(body, out);
+                }
+                if let Some(body) = else_body {
+                    collect_assigned_vars(body, out);
+                }
+            }
+            Statement::Match {
+                arms, else_body, ..
+            } => {
+                for arm in arms {
+                    let body = match arm {
+                        MatchArm::Exact(_, b)
+                        | MatchArm::StartsWith(_, b)
+                        | MatchArm::Contains(_, b)
+                        | MatchArm::Compare(_, _, b) => b,
+                    };
+                    collect_assigned_vars(body, out);
+                }
+                if let Some(body) = else_body {
+                    collect_assigned_vars(body, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Infer one statement sequence, mutating `env`; value-producing
+/// statements (Return, ExprStmt) join the pattern `output`.
+fn infer_block(stmts: &[Statement], env: &mut BTreeMap<String, Label>, output: &mut Label) {
+    for st in stmts {
+        infer_stmt(st, env, output);
+    }
+}
+
+fn infer_stmt(st: &Statement, env: &mut BTreeMap<String, Label>, output: &mut Label) {
+    match st {
+        // LetBinding/Assign — the label comes from the RHS (Assign replaces:
+        // reassignment to a safe value lowers the label in straight-line
+        // code, mirroring the TaintTracker untaint semantics; merge points
+        // re-add the conservatism).
+        Statement::LetBinding { name, value, .. } => {
+            let l = expr_label(value, env);
+            env.insert(name.clone(), l);
+        }
+        Statement::Assign { name, value, .. } => {
+            let l = expr_label(value, env);
+            env.insert(name.clone(), l);
+        }
+        // Each: the iterator takes the ITERABLE's label; the body cannot
+        // raise it (restored after the body). Loop exit: join of the entry
+        // and post-body environments for every other variable.
+        Statement::Each {
+            variable,
+            iterable,
+            body,
+            ..
+        } => {
+            let it_label = expr_label(iterable, env);
+            env.insert(variable.clone(), it_label.clone());
+            let entry = env.clone();
+            infer_block(body, env, output);
+            env.insert(variable.clone(), it_label);
+            *env = merge_envs(&entry, &[&*env]);
+        }
+        Statement::EachWithIndex {
+            index_var,
+            item_var,
+            iterable,
+            body,
+            ..
+        } => {
+            let it_label = expr_label(iterable, env);
+            env.insert(item_var.clone(), it_label.clone());
+            // The index is a position, not data: bottom (Appendix A).
+            env.insert(index_var.clone(), Label::bottom());
+            let entry = env.clone();
+            infer_block(body, env, output);
+            env.insert(item_var.clone(), it_label);
+            env.insert(index_var.clone(), Label::bottom());
+            *env = merge_envs(&entry, &[&*env]);
+        }
+        // While — bounded fixpoint: the body runs until the environment
+        // stabilizes (≤ 8 passes). Monotone joins on a finite lattice make
+        // this the exact fixpoint; the cap is a termination guard.
+        // Condition labels are ignored (conditions do not taint values).
+        Statement::While { body, .. } => {
+            for _ in 0..LABEL_FIXPOINT_MAX_PASSES {
+                let before = env.clone();
+                infer_block(body, env, output);
+                // join so loop-carried growth accumulates across passes
+                for (k, v) in env.iter_mut() {
+                    let b = before.get(k).cloned().unwrap_or_else(Label::bottom);
+                    *v = b.join(v);
+                }
+                if *env == before {
+                    break;
+                }
+            }
+        }
+        // If/else-if/else: every branch is inferred from the entry env;
+        // merge is the componentwise join over all branches.
+        Statement::IfElseBlock {
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            let entry = env.clone();
+            infer_block(then_body, env, output);
+            let then_env = env.clone();
+            let mut branch_envs: Vec<BTreeMap<String, Label>> = vec![then_env];
+            for (_, body) in else_ifs {
+                let mut e = entry.clone();
+                infer_block(body, &mut e, output);
+                branch_envs.push(e);
+            }
+            if let Some(body) = else_body {
+                let mut e = entry.clone();
+                infer_block(body, &mut e, output);
+                branch_envs.push(e);
+            }
+            let refs: Vec<&BTreeMap<String, Label>> = branch_envs.iter().collect();
+            *env = merge_envs(&entry, &refs);
+        }
+        // Single-branch if: merge with an implicit empty else.
+        Statement::IfThen { body, .. } => {
+            let entry = env.clone();
+            infer_block(body, env, output);
+            *env = merge_envs(&entry, &[&*env]);
+        }
+        // Return/ExprStmt — the result label joins the pattern output.
+        Statement::Return { value, .. } => {
+            let l = expr_label(value, env);
+            *output = output.join(&l);
+        }
+        Statement::ExprStmt { expr, .. } => {
+            let l = expr_label(expr, env);
+            *output = output.join(&l);
+        }
+        // Match: join over arms; the scrutinee's label additionally joins
+        // every variable ASSIGNED in any arm — control dependence on the
+        // scrutinee (decisions derived from private data taint outcomes).
+        Statement::Match {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            let scrut = expr_label(scrutinee, env);
+            let entry = env.clone();
+            let mut branch_envs: Vec<BTreeMap<String, Label>> = Vec::new();
+            let mut assigned: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut run_branch =
+                |body: &Vec<Statement>,
+                 branch_envs: &mut Vec<_>,
+                 assigned: &mut std::collections::HashSet<String>,
+                 entry: &BTreeMap<String, Label>| {
+                    collect_assigned_vars(body, assigned);
+                    let mut e = entry.clone();
+                    let mut out_tmp = Label::bottom();
+                    infer_block(body, &mut e, &mut out_tmp);
+                    // NOTE: arm outputs join the caller's output too (a Return
+                    // inside an arm is still a pattern exit).
+                    *output = output.join(&out_tmp);
+                    branch_envs.push(e);
+                };
+            for arm in arms {
+                let body = match arm {
+                    MatchArm::Exact(_, b)
+                    | MatchArm::StartsWith(_, b)
+                    | MatchArm::Contains(_, b)
+                    | MatchArm::Compare(_, _, b) => b,
+                };
+                run_branch(body, &mut branch_envs, &mut assigned, &entry);
+            }
+            if let Some(body) = else_body {
+                run_branch(body, &mut branch_envs, &mut assigned, &entry);
+            }
+            let refs: Vec<&BTreeMap<String, Label>> = branch_envs.iter().collect();
+            let mut merged = merge_envs(&entry, &refs);
+            for k in &assigned {
+                // The variable is structurally assigned in some branch, so
+                // every branch env (and the merge union) carries it.
+                if let Some(m) = merged.get_mut(k) {
+                    *m = m.join(&scrut);
+                }
+            }
+            *env = merged;
+        }
+        // Loop control: no label effect, no merge contribution (Appendix A).
+        Statement::Break | Statement::Continue => {}
+        // Memory side-effect statements: the payload label does not enter
+        // the value flow here; persistence gating is №325
+        // (TAINT_PERSISTENCE class in the leak-suite vocabulary).
+        Statement::Memorize(_) | Statement::Forget(_) | Statement::Relate(_) => {}
+    }
+}
+
+/// Run the statement-level label inference over one pattern (Наряд №323).
+/// Parameters: annotated → parsed label; unannotated → `bottom`. The
+/// result is what №325's sink-gate will read; see ADR-0154 Appendix A
+/// for the per-statement contracts and REFERENCE §2.2 for the table.
+pub fn infer_pattern_labels(pattern: &PatternDecl) -> LabelInference {
+    let mut env: BTreeMap<String, Label> = BTreeMap::new();
+    for prm in &pattern.params {
+        let l = match &prm.label {
+            Some(ann) => Label::parse(&ann.raw).unwrap_or_else(|_| Label::bottom()),
+            None => Label::bottom(),
+        };
+        env.insert(prm.name.clone(), l);
+    }
+    let mut output = Label::bottom();
+    infer_block(&pattern.body, &mut env, &mut output);
+    LabelInference {
+        var_labels: env,
+        output_label: output,
+    }
+}
 
 // ── Label annotation validation (Наряд №322, ADR-0154) ───────────
 

@@ -431,7 +431,14 @@ fn redact_result_taint(args: &[Expr], tracker: &TaintTracker) -> Option<TaintKin
         .and_then(crate::builtins::string::redact_policy)
         .is_some_and(|p| p.target_conf == "public");
     match mode {
-        Some(_) if target_public => input.map(|_| TaintKind::Sanitized),
+        // One-way policies destroy the SECRET DATA (ADR-0136 D2 stays
+        // authoritative): Secret lifts to Sanitized. Channel-level kinds
+        // (LlmOutput) and the quarantine path (CanaryLeak) are NOT
+        // curable by redact — masking is not channel sanitization (№284).
+        Some(_) if target_public => match input {
+            Some(TaintKind::Secret) => Some(TaintKind::Sanitized),
+            other => other,
+        },
         _ => input,
     }
 }

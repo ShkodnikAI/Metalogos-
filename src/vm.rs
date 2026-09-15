@@ -30,6 +30,14 @@ pub struct Vm {
     /// Runtime label environment (Наряд №328): variable → ADR-0154
     /// label. Seeded by LabelJoin, consulted by SinkCheck.
     label_env: std::collections::BTreeMap<String, crate::labels::Label>,
+    /// №370: stack of VALUE-EXPRESSION registers (BeginValueExpr/
+    /// KeepLastValue/EndValueExpr) — the last-value registers of block
+    /// value forms live here, NOT in stack cells, so arbitrary expression
+    /// positions are safe (no temporaries can be clobbered). Nested value
+    /// forms nest registers; execute_code saves/restores the stack per
+    /// invocation so an early Return inside a branch cannot leak a
+    /// register into the caller's execution.
+    value_registers: Vec<Value>,
     /// Global variable slots.
     globals: Vec<Value>,
     /// Global variable names (index = slot).
@@ -129,6 +137,7 @@ impl Vm {
 
         Vm {
             label_env: std::collections::BTreeMap::new(),
+            value_registers: Vec::new(),
             globals: Vec::new(),
             global_names: Vec::new(),
             patterns: Vec::new(),
@@ -1005,22 +1014,31 @@ impl Vm {
                     stack.push(Value::Float(if ok { 1.0 } else { 0.0 }));
                     ip += 1;
                 }
-                Instruction::StoreLastLocal(slot) => {
-                    // №369: TW-parity last-value store — pop; keep only
-                    // non-Unit (a Unit-valued trailing expression must not
-                    // reset the matched arm's value; TW
-                    // eval_statements_cf contract).
+                // ── Value expressions (№370, ADR-0141 Stage 1.2) ──
+                Instruction::Dup => {
+                    let top = stack.last().cloned().unwrap_or(Value::Unit);
+                    stack.push(top);
+                    ip += 1;
+                }
+                Instruction::BeginValueExpr => {
+                    self.value_registers.push(Value::Unit);
+                    ip += 1;
+                }
+                Instruction::KeepLastValue => {
+                    // TW eval_statements_cf contract: only a NON-Unit value
+                    // updates the register; a trailing Unit-valued
+                    // statement does not reset it.
                     let val = stack.pop().unwrap_or(Value::Unit);
                     if !matches!(val, Value::Unit) {
-                        let bp = call_stack.last().map(|f| f.base_bp).unwrap_or(0);
-                        let idx = bp + slot;
-                        if idx < stack.len() {
-                            stack[idx] = val;
-                        } else {
-                            stack.resize(idx, Value::Unit);
-                            stack.push(val);
+                        if let Some(reg) = self.value_registers.last_mut() {
+                            *reg = val;
                         }
                     }
+                    ip += 1;
+                }
+                Instruction::EndValueExpr => {
+                    let reg = self.value_registers.pop().unwrap_or(Value::Unit);
+                    stack.push(reg);
                     ip += 1;
                 }
             }
@@ -1046,6 +1064,23 @@ impl Vm {
     /// Execute a block of code (e.g., pattern body) and return the result.
     /// This handles the call stack and Return instructions internally.
     pub fn execute_code(
+        &mut self,
+        code: &[Instruction],
+        stack: &mut Vec<Value>,
+        call_stack: &mut Vec<CallFrame>,
+        program: &Program,
+    ) -> Result<Value, String> {
+        // №370: register-stack isolation — a pattern/route executed via a
+        // CallPattern from inside another function's value expression must
+        // not see (or leak through an early Return into) the caller's open
+        // registers. Save/restore around the inner loop.
+        let saved_registers = std::mem::take(&mut self.value_registers);
+        let out = self.execute_code_inner(code, stack, call_stack, program);
+        self.value_registers = saved_registers;
+        out
+    }
+
+    fn execute_code_inner(
         &mut self,
         code: &[Instruction],
         stack: &mut Vec<Value>,
@@ -1436,20 +1471,28 @@ impl Vm {
                     stack.push(Value::Float(if ok { 1.0 } else { 0.0 }));
                     ip += 1;
                 }
-                Instruction::StoreLastLocal(slot) => {
-                    // №369: TW-parity last-value store (see
-                    // execute_main_code) — pop; keep only non-Unit.
+                // ── Value expressions (№370) — see execute_main_code ──
+                Instruction::Dup => {
+                    let top = stack.last().cloned().unwrap_or(Value::Unit);
+                    stack.push(top);
+                    ip += 1;
+                }
+                Instruction::BeginValueExpr => {
+                    self.value_registers.push(Value::Unit);
+                    ip += 1;
+                }
+                Instruction::KeepLastValue => {
                     let val = stack.pop().unwrap_or(Value::Unit);
                     if !matches!(val, Value::Unit) {
-                        let bp = call_stack.last().map(|f| f.base_bp).unwrap_or(0);
-                        let idx = bp + slot;
-                        if idx < stack.len() {
-                            stack[idx] = val;
-                        } else {
-                            stack.resize(idx, Value::Unit);
-                            stack.push(val);
+                        if let Some(reg) = self.value_registers.last_mut() {
+                            *reg = val;
                         }
                     }
+                    ip += 1;
+                }
+                Instruction::EndValueExpr => {
+                    let reg = self.value_registers.pop().unwrap_or(Value::Unit);
+                    stack.push(reg);
                     ip += 1;
                 }
                 Instruction::MakeStruct(type_name, field_names) => {

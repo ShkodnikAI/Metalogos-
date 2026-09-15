@@ -390,10 +390,14 @@ match command {
 ```
 Four kinds of arms are supported: an exact match (`"val" then {}`), a prefix (`starts_with "pre" then {}`), a substring (`contains "sub" then {}`), and a comparison (`> expr then {}` with any of `>`, `<`, `>=`, `<=`, `==`, `!=`). Match returns the value of the last expression in the selected arm.
 
-> **TW-only:** `match` (as a statement) and `match` as an expression in a
-> `let` binding (`let x = match y { ... }`, Naryad #173b) work only in the
-> tree-walking interpreter. The bytecode VM does not support them — see
-> [ADR-0105](docs/adr/0105-vm-experimental-scope.md).
+> **TW/VM parity (Naryad #369, ADR-0141 Stage 1.1):** `match` (as a
+> statement) and `match` as an expression in a `let` binding
+> (`let x = match y { ... }`) execute identically on both backends — the
+> arm matching + comparison run the SAME shared predicate
+> (`ast::MatchArm::matches_value` / `compare_values`), the scrutinee is
+> evaluated exactly once, and the let value is the last non-Unit
+> expression of the matched arm. The old Naryad #173b lossy parse (arms
+> discarded, raw scrutinee bound) is fixed end-to-end.
 
 **If-else block as an expression (Naryad #14):**
 ```mlog
@@ -1055,7 +1059,7 @@ let text = json_get(ocr, "markdown", "")
 
 44 built-in functions, hand-written in pure Rust — with no
 external SVG/chart/rendering library at all. All are dispatched through a
-common path (not a special case), with TW/VM parity for paths that both backends can execute (see ADR-0105; the VM does not yet support `match`/block if-else)
+common path (not a special case), with TW/VM parity for paths that both backends can execute (see ADR-0105; the VM does not yet support block if-else — `match` closed by Naryad #369)
 and verified by `crosscheck`. The full decision history is in ADR-0102 and naryads
 #77-92.
 

@@ -52,3 +52,19 @@ pattern test_match_return() -> String {
   }
   return "never"
 }
+
+// №369: the example is now EXECUTED end-to-end (the crosscheck exception
+// is lifted — ADR-0141 Stage 1.1 compiles Match + match_expr natively).
+// run_all drives every pattern above through a pattern-to-pattern call;
+// the flow prints the aggregate so TW and VM outputs are comparable.
+pattern run_all(input: String) -> String {
+  let a = test_match_basic()
+  let b = test_match_no_match()
+  let c = test_match_no_else()
+  let d = test_match_return()
+  return "a=" + a + " b=" + b + " c=" + c + " d=" + d
+}
+
+flow Main {
+  input: String = "" -> run_all -> output
+}

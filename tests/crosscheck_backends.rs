@@ -47,13 +47,11 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                     if name.contains("unknown_fn") || name.contains("wrong_") {
                         continue;
                     }
-                    // Наряд №109 / ADR-0105: p_match_switch exercises `match`,
-                    // which the VM cannot compile. TW has a golden .expected;
-                    // full TW↔VM parity for this file is out of scope until
-                    // a deliberate decision to implement Match in the VM.
-                    if name == "p_match_switch.mlog" {
-                        continue;
-                    }
+                    // №369 (ADR-0141 Stage 1.1): the p_match_switch exclusion
+                    // is LIFTED — Match statement + match_expr compile to
+                    // bytecode natively, and the example now runs end-to-end
+                    // (flow Main drives all four patterns), so TW↔VM parity
+                    // is asserted by the regular crosscheck below.
                     // Наряд №118 / ADR-0105: p118_collection_utils exercises
                     // unique/chunk/sort builtins whose results flow through
                     // string concatenation (+). The VM's eval_binop rejects

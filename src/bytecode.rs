@@ -189,6 +189,64 @@ pub enum Instruction {
         name: String,
         mutable: bool,
     },
+
+    // ── Match (№369, ADR-0141 Stage 1.1) ─────────────────
+    /// Test ONE match arm against the scrutinee VALUE on the stack.
+    /// Pops the scrutinee (Compare also pops the threshold first — the
+    /// compiler emits threshold evaluation before the test for Compare
+    /// arms), pushes Float(1.0/0.0) — the VM's boolean form.
+    /// The matching predicate lives in `MatchTest::matches` — the SAME
+    /// code the TW interpreter runs, so the backends cannot drift.
+    /// Jump structure (first match wins, TW order) is emitted by the
+    /// compiler with MatchTest + JumpIfNot + Jump; nothing here decides it.
+    /// Appended at the END of the enum (bincode positional-index
+    /// compatibility — see StoreAssignLocal's note).
+    MatchTest(MatchTest),
+
+    /// №369: TW-parity "last expression value" store for match-expr arm
+    /// bodies. Pop the top value; if it is NOT Unit, store it into the
+    /// local slot; if it IS Unit, discard it. Mirrors the TW
+    /// `eval_statements_cf` contract (`if !matches!(val, Value::Unit)
+    /// { last_expr_value = val }`) — the matched arm's value is the last
+    /// NON-Unit expression value of its body, and a trailing Unit-valued
+    /// statement does not reset it. Appended at the END of the enum.
+    StoreLastLocal(usize),
+}
+
+/// №369: the pattern side of one match arm — the payload of
+/// `Instruction::MatchTest`. Appended AFTER the Instruction enum in its own
+/// type (the Instruction enum itself is untouched variant-index-wise:
+/// MatchTest is appended at its END — see StoreAssignLocal's note).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum MatchTest {
+    /// `"literal" then {...}` — scrutinee's Display form equals the literal.
+    Exact(String),
+    /// `starts_with "prefix" then {...}`
+    StartsWith(String),
+    /// `contains "substr" then {...}`
+    Contains(String),
+    /// `> expr then {...}` — numeric-first, string-fallback comparison
+    /// (`ast::MatchArm::compare_values`); threshold is the value below
+    /// the scrutinee on the stack (compiler emits threshold first).
+    Compare(crate::ast::CompareOp),
+}
+
+impl MatchTest {
+    /// The shared predicate — for non-Compare arms `threshold` is ignored
+    /// and `Value::Unit` is passed by the VM. Compare arms go through
+    /// `ast::MatchArm::compare_values` (the same function the TW
+    /// interpreter calls — single source of truth, №369).
+    pub fn matches(&self, scrutinee: &Value, threshold: &Value) -> bool {
+        let s = format!("{}", scrutinee);
+        match self {
+            MatchTest::Exact(v) => s == *v,
+            MatchTest::StartsWith(p) => s.starts_with(p.as_str()),
+            MatchTest::Contains(sub) => s.contains(sub.as_str()),
+            MatchTest::Compare(op) => {
+                crate::ast::MatchArm::compare_values(scrutinee, op, threshold)
+            }
+        }
+    }
 }
 
 /// A flow expression that can be compiled inline.

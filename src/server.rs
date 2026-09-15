@@ -3695,9 +3695,9 @@ mlogserver {
         }
     }
 
-    /// Наряд №41 Block 1: match statement must cause compilation error, not silent stub.
+    /// Наряд №41 Block 1 (superseded by №369, ADR-0141 Stage 1.1): match
     #[tokio::test]
-    async fn test_n41_match_not_compilable_in_vm() {
+    async fn test_n41_match_compiles_in_vm_since_369() {
         use crate::compiler::Compiler;
         use crate::parser;
 
@@ -3723,17 +3723,25 @@ mlogserver {
             })
             .unwrap();
         let compiler = Compiler::new();
-        // compile_routes should return Err because route body contains match
+        // №369 (ADR-0141 Stage 1.1): Match statements compile to bytecode —
+        // the old №41 contract ("match must fail route compilation") is
+        // superseded. Route compilation must now SUCCEED, and the compiled
+        // route code must contain a real MatchTest dispatch (not a silent
+        // no-op, not an error).
         let result = compiler.compile_routes(&config.routes);
         assert!(
-            result.is_err(),
-            "compile_routes must return Err for match statement, got Ok"
+            result.is_ok(),
+            "compile_routes must accept match statements since №369, got Err"
         );
-        let err_msg = result.unwrap_err();
+        let routes = result.unwrap();
+        assert_eq!(routes.len(), 1);
+        let has_match_test = routes[0]
+            .code
+            .iter()
+            .any(|i| matches!(i, crate::bytecode::Instruction::MatchTest(_)));
         assert!(
-            err_msg.contains("Match statement not yet supported"),
-            "error message should mention Match, got: {}",
-            err_msg
+            has_match_test,
+            "compiled route must contain a MatchTest instruction (№369)"
         );
     }
 

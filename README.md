@@ -355,14 +355,14 @@ Metalogos-/
 │       ├── naryad_198_audit_finds_known_vuln.rs
 │       └── naryad_198_backward_compat.rs
 │
-├── tests/                             # 154 Rust test files
+├── tests/                             # 155 Rust test files
 │   ├── fixtures/                      # PDF test fixtures
 │   ├── golden.rs                      # Golden test runner
 │   ├── vm_golden.rs                   # VM golden tests
 │   ├── crosscheck_backends.rs          # TW vs VM parity (see ADR-0105 for known gaps)
 │   ├── repl_integration.rs            # REPL tests
 │   ├── definition_of_done.rs          # Project completeness validation
-│   └── ...                            # and 140 more contract/feature test files
+│   └── ...                            # and 141 more contract/feature test files
 │
 ├── examples/                          # 219 .mlog programs (golden corpus)
 │   ├── m1_hello.mlog                  # Hello World
@@ -1066,7 +1066,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 122+ development narads (work orders) delivered. 421 builtins, 164 test files, 219 example programs, 153 ADRs (147 accepted + 6 reserved; ADR-0154/0161 filled by naryads №322/№325). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 123+ development narads (work orders) delivered. 421 builtins, 165 test files, 219 example programs, 153 ADRs (147 accepted + 6 reserved; ADR-0154/0161 filled by naryads №322/№325). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

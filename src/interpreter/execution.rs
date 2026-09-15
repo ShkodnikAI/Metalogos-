@@ -891,34 +891,8 @@ impl Interpreter {
     /// Applied to builtin string operations (concat, replace, split, etc.).
     const MAX_STRING_LENGTH: usize = 1_000_000; // 1 MB
 
-    /// Наряд №14: Compare two Values using a CompareOp.
-    /// Used by match statement's Compare arm.
-    fn compare_values(left: &Value, op: &CompareOp, right: &Value) -> Result<bool, String> {
-        // Try numeric comparison first
-        let left_f = left.as_float().ok();
-        let right_f = right.as_float().ok();
-        if let (Some(lf), Some(rf)) = (left_f, right_f) {
-            return Ok(match op {
-                CompareOp::Gt => lf > rf,
-                CompareOp::Lt => lf < rf,
-                CompareOp::Ge => lf >= rf,
-                CompareOp::Le => lf <= rf,
-                CompareOp::Eq => lf == rf,
-                CompareOp::Ne => lf != rf,
-            });
-        }
-        // Fall back to string comparison
-        let ls = format!("{}", left);
-        let rs = format!("{}", right);
-        Ok(match op {
-            CompareOp::Eq => ls == rs,
-            CompareOp::Ne => ls != rs,
-            CompareOp::Gt => ls > rs,
-            CompareOp::Lt => ls < rs,
-            CompareOp::Ge => ls >= rs,
-            CompareOp::Le => ls <= rs,
-        })
-    }
+    // №369: `compare_values` moved to `ast::MatchArm::compare_values` —
+    // the shared predicate both backends run (the interpreter included).
 
     pub(crate) fn eval_statements(
         &self,
@@ -1213,32 +1187,23 @@ impl Interpreter {
                     ..
                 } => {
                     let scrutinee_val = self.eval_expr_with_env(scrutinee, env)?;
-                    let scrutinee_str = format!("{}", scrutinee_val);
                     let mut matched = false;
                     for arm in arms {
+                        // №369: matching now goes through the SHARED
+                        // ast::MatchArm predicates (identical semantics —
+                        // the logic moved verbatim so the VM runs the same
+                        // code; the old inline unwrap_or_default() could
+                        // only turn an impossible Err into false).
                         let arm_matches = match arm {
-                            MatchArm::Exact(val, _) => scrutinee_str == *val,
-                            MatchArm::StartsWith(prefix, _) => {
-                                scrutinee_str.starts_with(prefix.as_str())
-                            }
-                            MatchArm::Contains(substr, _) => {
-                                scrutinee_str.contains(substr.as_str())
-                            }
-                            MatchArm::Compare(op, threshold, _) => {
+                            MatchArm::Compare(_, threshold, _) => {
                                 let threshold_val = self.eval_expr_with_env(threshold, env)?;
-                                Self::compare_values(&scrutinee_val, op, &threshold_val)
-                                    .unwrap_or_default()
+                                arm.matches_value(&scrutinee_val, &threshold_val)
                             }
+                            _ => arm.matches_value(&scrutinee_val, &Value::Unit),
                         };
                         if arm_matches {
                             matched = true;
-                            let body = match arm {
-                                MatchArm::Exact(_, b) => b,
-                                MatchArm::StartsWith(_, b) => b,
-                                MatchArm::Contains(_, b) => b,
-                                MatchArm::Compare(_, _, b) => b,
-                            };
-                            eval_block!(body, env);
+                            eval_block!(arm.body(), env);
                             break;
                         }
                     }
@@ -1353,6 +1318,48 @@ impl Interpreter {
                     return self.eval_statements(eb, &mut local_env);
                 }
                 Ok(Value::Unit)
+            }
+            // №369: match as expression — first-class value (ADR-0141 Stage 1.1).
+            // Value = last non-Unit expression of the matched arm's body
+            // (REFERENCE §Match contract). Mirrors Expr::BlockIfElse (№14
+            // P0-3): block bodies evaluate against a CLONED local env (the
+            // value context does not leak lets — documented divergence from
+            // the statement-form match, which shares env); `return` inside
+            // an arm body is captured as the block value (same as
+            // BlockIfElse — the expression channel cannot carry a control
+            // signal). Arm matching + comparison use the SHARED
+            // `ast::MatchArm` predicates — the same code the VM runs.
+            Expr::MatchExpr {
+                scrutinee,
+                ref arms,
+                ref else_body,
+                ..
+            } => {
+                let scrutinee_val = self.eval_expr_with_env(scrutinee, env)?;
+                let mut matched = false;
+                let mut result = Value::Unit;
+                for arm in arms {
+                    let arm_matches = match arm {
+                        MatchArm::Compare(_, threshold, _) => {
+                            let threshold_val = self.eval_expr_with_env(threshold, env)?;
+                            arm.matches_value(&scrutinee_val, &threshold_val)
+                        }
+                        _ => arm.matches_value(&scrutinee_val, &Value::Unit),
+                    };
+                    if arm_matches {
+                        matched = true;
+                        let mut local_env = env.clone();
+                        result = self.eval_statements(arm.body(), &mut local_env)?;
+                        break;
+                    }
+                }
+                if !matched {
+                    if let Some(eb) = else_body {
+                        let mut local_env = env.clone();
+                        result = self.eval_statements(eb, &mut local_env)?;
+                    }
+                }
+                Ok(result)
             }
             // Наряд №14 P1-4: try expression — catch errors, return Unit
             Expr::Try { expr: inner, .. } => match self.eval_expr_with_env(inner, env) {

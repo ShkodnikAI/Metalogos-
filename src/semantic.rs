@@ -224,8 +224,16 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
                 // One-way: the data is destroyed — the result is a
                 // compiler-derived value (bottom: public AND trusted).
                 // Integrity is restored too (№327: hash_only decisions
-                // are legal).
-                Some("public") => Some(Label::bottom()),
+                // are legal). QUARANTINE EXCEPTION: poisoned is not
+                // curable by any policy (ADR-0154 §2.1 / §10) — the
+                // channel is not the data.
+                Some("public") => {
+                    if input.conf == crate::labels::Conf::Poisoned {
+                        Some(input)
+                    } else {
+                        Some(Label::bottom())
+                    }
+                }
                 _ => Some(input),
             }
         }

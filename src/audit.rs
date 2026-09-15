@@ -3613,6 +3613,33 @@ fn check_redact_events(
     }
 }
 
+// ── Check: UNTRUSTED_DECISION (Наряд №327) ───────────────────────────
+//
+// Category-A anti-injection gate: data that DECIDES control flow —
+// `if`/`else if` conditions, `while` conditions, `match` scrutinees —
+// must be `trusted`. Untrusted data as DATA is legal (the integrity
+// axis is about decisions, not about existence). The message names the
+// untrusted source (a direct №316 Source call) and the decision point.
+
+fn check_integrity_decisions(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    for v in crate::semantic::integrity_decision_violations(declarations) {
+        findings.push(AuditFinding {
+            severity: Severity::Error,
+            check_id: "UNTRUSTED_DECISION",
+            line: v.span.start_line as usize,
+            message: format!(
+                "anti-injection: untrusted data (label '{}' from source '{}') decides a '{}' in {} — validate/one-way-redact it before deciding",
+                v.label, v.source_name, v.kind, v.container
+            ),
+        });
+    }
+    let _ = source;
+}
+
 pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<AuditFinding> {
     let mut findings: Vec<AuditFinding> = Vec::new();
     check_sql_dynamic(declarations, source, &mut findings);
@@ -3649,6 +3676,9 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     // Наряд №326 (ADR-0154 §10): every redact application is an
     // unconditional audit event (Severity::Info — never blocking).
     check_redact_events(declarations, source, &mut findings);
+    // Наряд №327: the integrity axis — untrusted data must not decide
+    // control flow (Category-A Error).
+    check_integrity_decisions(declarations, source, &mut findings);
     findings
 }
 
@@ -3694,6 +3724,8 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     // Наряд №326 (ADR-0154 §10): every redact application is an
     // unconditional audit event (Severity::Info — never blocking).
     check_redact_events(&declarations, source, &mut findings);
+    // Наряд №327: the integrity axis — decision gate.
+    check_integrity_decisions(&declarations, source, &mut findings);
 
     // Sort findings by line number for deterministic output
     findings.sort_by_key(|f| (f.line, f.check_id));

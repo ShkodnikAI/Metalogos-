@@ -4,6 +4,18 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — security/labels: integrity axis & anti-injection — untrusted data must not decide control flow (Naryad #327, P0/security/labels, issue #421)
+
+- **Category-A gate `UNTRUSTED_DECISION`** (`src/audit.rs` + `semantic.rs::integrity_decision_violations`): at every decision position — `if`/`else if` conditions, `while` conditions, `match` scrutinees — the deciding expression's label must be `trusted`; untrusted data in a decision position is a compile error. Untrusted data as DATA is legal (carrying/transforming/returning — pinned by test).
+- **the integrity axis in action**: №316 Source builtins (`http_get`, `env`, `json_body`, `form_data`, `query_param`, `call_llm`, `read_file`, …) produce `untrusted` labels; the componentwise join poisons derivatives (`upper(trim(answer))` stays untrusted — the gate sees through pure wrappers). Provenance tracking names the untrusted SOURCE in the diagnostic (a direct Source call, through variable bindings and wrapper calls: `call_llm (via redact)`), plus the decision point (`decides a 'if' in pattern P`).
+- **the sanctioned paths to a trusted decision**: validate before deciding, or one-way-redact — `hash_only` now restores `trusted` (the data is destroyed; the result is a compiler-derived value, `bottom`). Fixed the static mapping: a one-way policy returns full `bottom` regardless of the input (previously a `public, untrusted` input kept its untrusted integrity through `redact`).
+- **sink-target decisions** keep their №325 classes (UNTRUSTED_EXEC_DECISION, UNTRUSTED_EGRESS_NETWORK) — no double classification.
+- **showcase** `examples/l1_injection.mlog`: `Decide` (LLM answer drives a branch around a destructive action → rejected, source named) vs `Carry` (the same answer as data → compiles).
+- **tests**: `tests/naryad_327_integrity_gate.rs` (11): the red/green scenario, all three decision positions (if/while/match, else-if chains), the integrity join through pure wrappers, private-but-trusted decisions legal (conf ≠ integrity), hash_only-restored decisions, zero delta for plain programs, the showcase, no-stub grep.
+- **boundaries (loud)**: content-level injection analysis is out of the compiler's scope; media sources Phase 2; taint polymorphism deferred. No `todo!`/`unimplemented!`/`SKELETON` (asserted by test).
+
+### Added — feature/labels: redact/declassify — policy as a value, the only sanctioned downward move (Naryad #326, P0/feature/labels, issue #420)
+
 ### Added — feature/labels: redact/declassify — policy as a value, the only sanctioned downward move (Naryad #326, P0/feature/labels, issue #420)
 
 - **policy registry** (`src/builtins/string.rs::REDACT_POLICIES` — extensible): the second argument of `redact()` is a policy VALUE naming the transformation and the target conf. Built-ins: `hash_only` → `public` (one-way SHA-256 fingerprint — the sanctioned path down), `all`/`secrets` → `public` (legacy ADR-0136 masking), `pii`/`pii_strip`/`truncate` → `private` (conservative: pattern strips and truncations can miss data — they do NOT declassify, the №325 gate keeps blocking their output). Unknown policy words are loud runtime errors; the registry is open to future user-defined policies (values — later, loud boundary).

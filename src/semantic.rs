@@ -210,12 +210,18 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
                 .first()
                 .map(|a| expr_label(a, env))
                 .unwrap_or_else(Label::bottom);
-            let mode = match args.get(1) {
-                Some(Expr::StringLit { value, .. }) => Some(value.as_str()),
+            // №326: the policy is a VALUE — its target conf comes from
+            // the registry (the single source of truth shared with the
+            // runtime). Unknown/dynamic policies pass the input through
+            // (conservative — no silent downward moves).
+            let target_conf = args.get(1).and_then(|p| match p {
+                Expr::StringLit { value, .. } => {
+                    crate::builtins::string::redact_policy(value).map(|pol| pol.target_conf)
+                }
                 _ => None,
-            };
-            match mode {
-                Some("secrets") | Some("all") => {
+            });
+            match target_conf {
+                Some("public") => {
                     if input.conf == crate::labels::Conf::Private {
                         Some(Label::bottom())
                     } else {

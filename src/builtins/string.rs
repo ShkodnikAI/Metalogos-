@@ -955,15 +955,96 @@ pub(crate) fn builtin_redact(args: &[Value]) -> Result<Value, String> {
 /// инвариант «redact-выход и canary-проверка не конфликтуют» был бы
 /// невыполним. Сегменты вне маркеров маскируются как обычно (секрет
 /// РЯДОМ с маркером по-прежнему маскируется).
+// ── Redact policy registry (Наряд №326, ADR-0154 §10) ────────────────
+//
+// A policy is a VALUE (the second argument of redact()): it names the
+// transformation AND determines the target label of the result (the
+// only sanctioned downward move on the conf axis — ADR-0154 §10).
+// The registry is extensible: new policies append here; the static
+// label mapping in semantic.rs reads the same table.
+/// One built-in redact policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RedactPolicy {
+    /// The policy word (the value passed as redact's 2nd argument).
+    pub name: &'static str,
+    /// Target conf after the policy runs:
+    /// - `public` — the transformation is one-way with respect to the
+    ///   axis (masking of the whole secret surface, hashing);
+    /// - `private` — the transformation does NOT declassify (pattern
+    ///   strips and truncations can miss data; the result keeps the
+    ///   source confidentiality).
+    pub target_conf: &'static str,
+    /// One-line human description (audit events carry it).
+    pub description: &'static str,
+}
+
+/// The built-in policy registry (№326). Legacy ADR-0136 modes keep
+/// their exact semantics and are members of the same table.
+pub static REDACT_POLICIES: &[RedactPolicy] = &[
+    RedactPolicy {
+        name: "secrets",
+        target_conf: "public",
+        description: "secret-pattern masking (ADR-0136)",
+    },
+    RedactPolicy {
+        name: "pii",
+        target_conf: "private",
+        description: "PII-pattern masking (conservative: keeps the source conf)",
+    },
+    RedactPolicy {
+        name: "all",
+        target_conf: "public",
+        description: "full masking (secrets + PII + entropy net)",
+    },
+    RedactPolicy {
+        name: "pii_strip",
+        target_conf: "private",
+        description: "PII pattern strip — conservative, keeps the source conf",
+    },
+    RedactPolicy {
+        name: "hash_only",
+        target_conf: "public",
+        description: "one-way SHA-256 fingerprint (destroys the data, keeps comparability)",
+    },
+    RedactPolicy {
+        name: "truncate",
+        target_conf: "private",
+        description: "keep the first 3 chars, mask the rest (does not declassify)",
+    },
+];
+
+/// Lookup one policy by its word.
+pub fn redact_policy(name: &str) -> Option<&'static RedactPolicy> {
+    REDACT_POLICIES.iter().find(|p| p.name == name)
+}
+
+/// Runtime shape of the non-legacy policies.
+fn redact_hash_only(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(text.as_bytes());
+    let out = hasher.finalize();
+    let hex: String = out.iter().map(|b| format!("{b:02x}")).collect();
+    format!("[HASH:{}] hex", &hex[..16])
+}
+
+fn redact_truncate(text: &str) -> String {
+    let head: String = text.chars().take(3).collect();
+    let rest = text.chars().count().saturating_sub(3);
+    format!("{head}[REDACTED:truncated:{rest} chars]")
+}
+
 pub fn redact_string(text: &str, mode: &str) -> Result<String, String> {
-    match mode {
-        "pii" | "secrets" | "all" => {}
-        other => {
-            return Err(format!(
-                "redact() unknown mode \"{}\" — expected \"pii\", \"secrets\" or \"all\"",
-                other
-            ))
-        }
+    if redact_policy(mode).is_none() {
+        return Err(format!(
+            "redact() unknown policy \"{}\" — expected one of: {}",
+            mode,
+            REDACT_POLICIES
+                .iter()
+                .map(|p| p.name)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
     }
     let ranges = canary_marker_ranges(text);
     if ranges.is_empty() {
@@ -992,6 +1073,15 @@ fn canary_marker_ranges(text: &str) -> Vec<(usize, usize)> {
 
 /// Original masking pipeline (№274) — called per canary-free segment.
 fn redact_string_inner(text: &str, mode: &str) -> Result<String, String> {
+    // №326 policies with their own transformations:
+    if mode == "hash_only" {
+        return Ok(redact_hash_only(text));
+    }
+    if mode == "truncate" {
+        return Ok(redact_truncate(text));
+    }
+    // "pii_strip" shares the PII pattern set with legacy "pii".
+    let mode = if mode == "pii_strip" { "pii" } else { mode };
     let do_secrets = mode != "pii";
     let do_pii = mode != "secrets";
     let mut out = text.to_string();

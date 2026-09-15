@@ -190,3 +190,30 @@ The effect domain is the 4-element powerset of `{io, audit}`; joins are unions; 
 ### 9.4 Verification (№324)
 
 - `cargo test naryad_324` — 18 tests: trail syntax on pattern/tool-method/learnable (span, bare type name), empty trail = zero effects, unknown/duplicate words loud, the gate (excess listed; violation at the calling boundary; undeclared callee shares factual effects), legal composition clean, zero delta without trails, №316 mapping (env → io; print → io+audit; upper → ∅), memory statements → audit, direct and mutual recursion convergence, gated recursion, the showcase `examples/l1_effect_sig.mlog`, canonical `format_effect_set`, no-stub grep.
+
+## 10. Appendix (№326): redact/declassify — the only sanctioned downward move, policy as a value
+
+Implemented in `src/builtins/string.rs` (the policy registry `REDACT_POLICIES` + runtime shapes), `src/semantic.rs` (the static label mapping reads the same registry) and `src/audit.rs` (`REDACT_APPLIED` events).
+
+### 10.1 Policy as a value
+
+`redact(value, "<policy>")` — the second argument is a policy VALUE: it names the transformation AND declares the target conf of the result. The built-in registry:
+
+| policy       | target conf | transformation (runtime) |
+|--------------|-------------|--------------------------|
+| `secrets`    | public      | secret-pattern masking (legacy ADR-0136) |
+| `all`        | public      | full masking: secrets + PII + entropy net (legacy) |
+| `pii`        | private     | PII-pattern masking — conservative, keeps the source conf (legacy) |
+| `pii_strip`  | private     | PII pattern strip — conservative (new) |
+| `hash_only`  | public      | one-way SHA-256 fingerprint — destroys the data, keeps comparability (new) |
+| `truncate`   | private     | keep the first 3 chars, mask the rest (new) |
+
+Conservatism rule: pattern strips and truncations can miss data, so they do NOT declassify (target `private`) — the sink gate keeps blocking their output. The one-way policies (`hash_only`, full masking) destroy the data and are the sanctioned path down. Unknown or dynamic (non-literal) policy values pass the input label through — no silent downward moves.
+
+### 10.2 Unconditional audit events
+
+Every `redact()` application — statically enumerated across all statement-bearing containers — records an event: what was processed (container), which policy, which target conf. The event is UNCONDITIONAL: a `Severity::Info` finding in `mlog audit` AND a `[REDACT][audit-event]` stderr line on compile/run. No profile, no env toggle can switch them off — they are the paper trail of the downward move. Under `profile legacy` the events remain (only the №325 clearance verdicts change severity).
+
+### 10.3 Verification (№326)
+
+- `cargo test naryad_326` — 14 tests: the registry (names/targets/lookup, loud unknown words), the downward path (hash_only passes the №325 gate; the same flow without redact fails), conservatism (pii_strip/truncate keep the label), unconditional events (count + policy/target in message; present under legacy; dynamic → `<dynamic>`), runtime shapes (hash determinism and data destruction, truncation shape), the showcase `examples/l1_redact.mlog`.

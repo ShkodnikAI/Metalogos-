@@ -424,11 +424,14 @@ fn redact_result_taint(args: &[Expr], tracker: &TaintTracker) -> Option<TaintKin
         Expr::StringLit { value, .. } => Some(value.as_str()),
         _ => None,
     });
+    // №326: the policy is a value — one-way policies (registry
+    // target_conf == "public") destroy the data, so any taint lifts to
+    // Sanitized; conservative policies pass the taint through.
+    let target_public = mode
+        .and_then(crate::builtins::string::redact_policy)
+        .is_some_and(|p| p.target_conf == "public");
     match mode {
-        Some("secrets") | Some("all") => match input {
-            Some(TaintKind::Secret) => Some(TaintKind::Sanitized),
-            other => other,
-        },
+        Some(_) if target_public => input.map(|_| TaintKind::Sanitized),
         _ => input,
     }
 }
@@ -3447,6 +3450,162 @@ fn check_sink_clearance(
     let _ = source;
 }
 
+// ── Check: REDACT_APPLIED audit events (Наряд №326, ADR-0154 §10) ────
+//
+// Every redact() application is an AUDIT EVENT — what was processed
+// (container + argument), which policy ran, which target conf it
+// declares. Events are UNCONDITIONAL (Severity::Info on the report +
+// an [REDACT][audit-event] stderr line): they are the paper trail of
+// the only sanctioned downward move on the conf axis, and they cannot
+// be switched off (no profile, no env toggles — ADR-0154 §10).
+
+fn check_redact_events(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    fn walk(expr: &Expr, container: &str, source: &str, findings: &mut Vec<AuditFinding>) {
+        if let Expr::FnCall { name, args, .. } = expr {
+            if name == "redact" {
+                let (policy, target) = match args.get(1) {
+                    Some(Expr::StringLit { value, .. }) => {
+                        match crate::builtins::string::redact_policy(value) {
+                            Some(p) => (p.name.to_string(), p.target_conf.to_string()),
+                            None => (value.clone(), "unknown".to_string()),
+                        }
+                    }
+                    _ => ("<dynamic>".to_string(), "source".to_string()),
+                };
+                let message = format!(
+                    "redact applied in {} — policy '{}', target conf '{}'",
+                    container, policy, target
+                );
+                eprintln!("[REDACT][audit-event] {}", message);
+                findings.push(AuditFinding {
+                    severity: Severity::Info,
+                    check_id: "REDACT_APPLIED",
+                    line: find_line(source, "redact"),
+                    message,
+                });
+            }
+            for a in args {
+                walk(a, container, source, findings);
+            }
+        }
+    }
+    fn walk_stmts(
+        stmts: &[Statement],
+        container: &str,
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        for st in stmts {
+            match st {
+                Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                    walk(value, container, source, findings)
+                }
+                Statement::ExprStmt { expr: value, .. } | Statement::Return { value, .. } => {
+                    walk(value, container, source, findings)
+                }
+                Statement::Each { iterable, body, .. }
+                | Statement::EachWithIndex { iterable, body, .. } => {
+                    walk(iterable, container, source, findings);
+                    walk_stmts(body, container, source, findings);
+                }
+                Statement::While {
+                    condition, body, ..
+                } => {
+                    walk(condition, container, source, findings);
+                    walk_stmts(body, container, source, findings);
+                }
+                Statement::IfElseBlock {
+                    condition,
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
+                    walk(condition, container, source, findings);
+                    walk_stmts(then_body, container, source, findings);
+                    for (_, b) in else_ifs {
+                        walk_stmts(b, container, source, findings);
+                    }
+                    if let Some(eb) = else_body {
+                        walk_stmts(eb, container, source, findings);
+                    }
+                }
+                Statement::IfThen {
+                    condition, body, ..
+                } => {
+                    walk(condition, container, source, findings);
+                    walk_stmts(body, container, source, findings);
+                }
+                Statement::Match {
+                    scrutinee,
+                    arms,
+                    else_body,
+                    ..
+                } => {
+                    walk(scrutinee, container, source, findings);
+                    for arm in arms {
+                        let b = match arm {
+                            crate::ast::MatchArm::Exact(_, b)
+                            | crate::ast::MatchArm::StartsWith(_, b)
+                            | crate::ast::MatchArm::Contains(_, b)
+                            | crate::ast::MatchArm::Compare(_, _, b) => b,
+                        };
+                        walk_stmts(b, container, source, findings);
+                    }
+                    if let Some(eb) = else_body {
+                        walk_stmts(eb, container, source, findings);
+                    }
+                }
+                Statement::Memorize(m) => walk(&m.value, container, source, findings),
+                Statement::Forget(f) => walk(&f.query, container, source, findings),
+                Statement::Relate(r) => {
+                    walk(&r.from, container, source, findings);
+                    walk(&r.to, container, source, findings);
+                }
+                _ => {}
+            }
+        }
+    }
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                walk_stmts(&p.body, &format!("pattern {}", p.name), source, findings)
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    walk_stmts(
+                        &m.body,
+                        &format!("tool {}.{}", t.name, m.name),
+                        source,
+                        findings,
+                    );
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for r in &srv.routes {
+                    walk_stmts(
+                        &r.body,
+                        &format!("route {} {}", r.method, r.path),
+                        source,
+                        findings,
+                    );
+                }
+            }
+            Declaration::Hook(h) => {
+                walk_stmts(&h.body, &format!("hook {:?}", h.phase), source, findings)
+            }
+            Declaration::Test(t) => {
+                walk_stmts(&t.body, &format!("test \"{}\"", t.name), source, findings)
+            }
+            _ => {}
+        }
+    }
+}
+
 pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<AuditFinding> {
     let mut findings: Vec<AuditFinding> = Vec::new();
     check_sql_dynamic(declarations, source, &mut findings);
@@ -3480,6 +3639,9 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     // the pre-existing specialized checks keep their classes on shared
     // sites (e.g. env→print is SECRET_LEAK first).
     check_sink_clearance(declarations, source, &mut findings);
+    // Наряд №326 (ADR-0154 §10): every redact application is an
+    // unconditional audit event (Severity::Info — never blocking).
+    check_redact_events(declarations, source, &mut findings);
     findings
 }
 
@@ -3522,6 +3684,9 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     // Наряд №325 (ADR-0161): sink clearance — strict (Error) or, under
     // `profile legacy`, advisory audit events.
     check_sink_clearance(&declarations, source, &mut findings);
+    // Наряд №326 (ADR-0154 §10): every redact application is an
+    // unconditional audit event (Severity::Info — never blocking).
+    check_redact_events(&declarations, source, &mut findings);
 
     // Sort findings by line number for deterministic output
     findings.sort_by_key(|f| (f.line, f.check_id));

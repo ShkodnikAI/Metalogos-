@@ -204,6 +204,24 @@ execution stay green and every gate hit is recorded as an audit event
 `mlog audit`). `legacy` is a migration bridge, not a residence — the
 burn-down is measured by the event count (ADR-0161 §3).
 
+**redact/declassify — the only downward move (№326, ADR-0154 §10).**
+`redact(value, "<policy>")` takes a policy VALUE that determines the
+target label:
+
+| policy       | target conf | notes |
+|--------------|-------------|-------|
+| `hash_only`  | `public`    | one-way SHA-256 fingerprint — the sanctioned path down |
+| `all`        | `public`    | full masking (legacy ADR-0136) |
+| `secrets`    | `public`    | secret-pattern masking (legacy) |
+| `pii`        | `private`   | conservative — pattern strips can miss data |
+| `pii_strip`  | `private`   | conservative (new) |
+| `truncate`   | `private`   | keeps 3 chars, masks the rest (new) |
+
+Every application is an unconditional audit event (`REDACT_APPLIED`,
+`[REDACT][audit-event]`): what was processed, which policy, which target.
+Unknown policy words are loud runtime errors; dynamic (non-literal)
+policies pass the label through — no silent downward moves.
+
 ---
 
 ## 3. Syntax

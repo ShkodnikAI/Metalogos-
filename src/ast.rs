@@ -632,6 +632,9 @@ pub struct FieldDecl {
     pub span: Span,
     pub name: String,
     pub type_name: String,
+    /// Наряд №322 (ADR-0154): optional label annotation on the field's
+    /// type (e.g. `content: String<private>`).
+    pub label: Option<LabelAnn>,
     pub default: Option<Expr>,
 }
 
@@ -641,6 +644,9 @@ pub struct EntityRecordDecl {
     pub span: Span,
     pub name: String,
     pub type_name: String,
+    /// Наряд №322 (ADR-0154): optional label annotation on the
+    /// entity's type (e.g. `entity m: Message<private> = { ... }`).
+    pub label: Option<LabelAnn>,
     pub fields: Vec<FieldInit>,
 }
 
@@ -657,6 +663,9 @@ pub struct EntitySimpleDecl {
     pub span: Span,
     pub name: String,
     pub type_name: String,
+    /// Наряд №322 (ADR-0154): optional label annotation on the
+    /// entity's type (e.g. `entity k: String<private> = ...`).
+    pub label: Option<LabelAnn>,
     pub value: Expr,
 }
 
@@ -1276,6 +1285,25 @@ pub struct Param {
     pub span: Span,
     pub name: String,
     pub type_name: String,
+    /// Наряд №322 (ADR-0154): optional label annotation — the raw text
+    /// between `<` and `>` (e.g. `"private, untrusted"`). `type_name`
+    /// stays the bare type ("String") — semantic analysis validates the
+    /// annotation via `crate::labels::Label::parse`.
+    pub label: Option<LabelAnn>,
+}
+
+/// A label annotation as written in source (`String<private>`).
+/// Deliberately unvalidated at parse time — the grammar guarantees the
+/// word-list SHAPE (bare words and `consent(...)` parts), semantic
+/// analysis parses the words via `labels::Label::parse` and reports
+/// unknown words with this span (Наряд №322 task 2). This split keeps
+/// the word table in one place and makes the semantic validation
+/// reachable and testable (no dead code).
+#[derive(Debug, Clone)]
+pub struct LabelAnn {
+    pub span: Span,
+    /// Raw annotation body, e.g. `"private, untrusted, consent(gdpr)"`.
+    pub raw: String,
 }
 
 #[derive(Debug, Clone)]

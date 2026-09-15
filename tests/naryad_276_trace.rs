@@ -238,6 +238,7 @@ fn make_cached_learnable(name: &str) -> Declaration {
             span: Span::unknown(),
             name: "text".to_string(),
             type_name: "String".to_string(),
+            label: None,
         }],
         return_type: "String".to_string(),
         prompt,

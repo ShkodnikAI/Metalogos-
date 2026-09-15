@@ -19,6 +19,7 @@ fn make_cached_learnable_decl(name: &str, prompt: &str, cache: bool, ttl: u64) -
             span: metalogos::ast::Span::unknown(),
             name: "text".to_string(),
             type_name: "String".to_string(),
+            label: None,
         }],
         return_type: "String".to_string(),
         prompt: prompt.to_string(),

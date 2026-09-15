@@ -12,6 +12,8 @@ pub(super) fn parse_params(pair: Pair<Rule>) -> Vec<Param> {
                 span,
                 name: find_child_str(&children, Rule::IDENT).unwrap_or_default(),
                 type_name: find_child_str(&children, Rule::type_name).unwrap_or_default(),
+                // Наряд №322 (ADR-0154): optional label annotation.
+                label: find_child(&children, Rule::label_ann).map(|p| parse_label_ann(&p)),
             }
         })
         .collect()

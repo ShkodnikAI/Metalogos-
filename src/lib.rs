@@ -28,6 +28,7 @@ pub mod doc_tests;
 pub mod embeddings;
 pub mod error;
 pub mod interpreter;
+pub mod labels;
 pub mod llm;
 pub mod mcp_server;
 pub mod memory_graph;

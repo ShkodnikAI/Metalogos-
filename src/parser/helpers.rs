@@ -28,6 +28,21 @@ pub(super) fn find_child<'a>(children: &'a [Pair<'a, Rule>], rule: Rule) -> Opti
     children.iter().find(|c| c.as_rule() == rule).cloned()
 }
 
+/// Наряд №322 (ADR-0154): extract a label annotation (`label_ann` rule)
+/// into an `ast::LabelAnn`. The pair's text spans `<...>`; the raw
+/// annotation body is the text between the brackets, trimmed.
+pub(super) fn parse_label_ann(pair: &Pair<'_, Rule>) -> crate::ast::LabelAnn {
+    let span = crate::ast::Span::from_pest(pair.as_span());
+    let text = pair.as_str();
+    let raw = text
+        .strip_prefix('<')
+        .and_then(|t| t.strip_suffix('>'))
+        .unwrap_or(text)
+        .trim()
+        .to_string();
+    crate::ast::LabelAnn { span, raw }
+}
+
 // ── MlogServer (Phase 6.1) ─────────────────────────────────────
 
 // ── Template (Phase 6.2) ─────────────────────────────────────

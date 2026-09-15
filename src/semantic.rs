@@ -147,6 +147,107 @@ const VALID_MIDDLEWARE: &[&str] = &["session", "csrf", "security_headers", "rate
 /// Valid HTTP methods for route declarations.
 const VALID_METHODS: &[&str] = &["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
 
+// ── Label annotation validation (Наряд №322, ADR-0154) ───────────
+
+/// Validate one label annotation, reporting a parse failure with the
+/// annotation's span. Message follows the existing semantic convention
+/// (context first, reason last) — e.g.
+/// `label annotation '<private, bogus>' on parameter 's' of pattern 'p': unknown label word 'bogus'`.
+fn validate_label_ann(ann: &LabelAnn, context: &str, errors: &mut Vec<SpannedError>) {
+    if let Err(e) = crate::labels::Label::parse(&ann.raw) {
+        errors.push(SpannedError::at(
+            format!("label annotation '<{}>' on {}: {}", ann.raw, context, e),
+            ann.span.clone(),
+        ));
+    }
+}
+
+/// Walk a declaration and validate every label annotation it carries.
+///
+/// Grammar-restricted positions (Наряд №322): pattern / learnable /
+/// template / tool-method parameters, entity-type fields, and the type
+/// position of entity record/simple declarations. Everywhere else a
+/// `<...>` after a type name remains a parse error — annotations cannot
+/// appear where the label system does not see them.
+fn validate_decl_labels(decl: &Declaration, errors: &mut Vec<SpannedError>) {
+    match decl {
+        Declaration::Pattern(p) => {
+            for prm in &p.params {
+                if let Some(ann) = &prm.label {
+                    validate_label_ann(
+                        ann,
+                        &format!("parameter '{}' of pattern '{}'", prm.name, p.name),
+                        errors,
+                    );
+                }
+            }
+        }
+        Declaration::LearnablePattern(lp) => {
+            for prm in &lp.params {
+                if let Some(ann) = &prm.label {
+                    validate_label_ann(
+                        ann,
+                        &format!(
+                            "parameter '{}' of learnable pattern '{}'",
+                            prm.name, lp.name
+                        ),
+                        errors,
+                    );
+                }
+            }
+        }
+        Declaration::Template(t) => {
+            for prm in &t.params {
+                if let Some(ann) = &prm.label {
+                    validate_label_ann(
+                        ann,
+                        &format!("parameter '{}' of template '{}'", prm.name, t.name),
+                        errors,
+                    );
+                }
+            }
+        }
+        Declaration::Tool(t) => {
+            for m in &t.methods {
+                for prm in &m.params {
+                    if let Some(ann) = &prm.label {
+                        validate_label_ann(
+                            ann,
+                            &format!(
+                                "parameter '{}' of tool method '{}.{}'",
+                                prm.name, t.name, m.name
+                            ),
+                            errors,
+                        );
+                    }
+                }
+            }
+        }
+        Declaration::EntityType(e) => {
+            for f in &e.fields {
+                if let Some(ann) = &f.label {
+                    validate_label_ann(
+                        ann,
+                        &format!("field '{}' of entity type '{}'", f.name, e.name),
+                        errors,
+                    );
+                }
+            }
+        }
+        Declaration::EntityRecord(e) => {
+            if let Some(ann) = &e.label {
+                validate_label_ann(ann, &format!("entity '{}'", e.name), errors);
+            }
+        }
+        Declaration::EntitySimple(e) => {
+            if let Some(ann) = &e.label {
+                validate_label_ann(ann, &format!("entity '{}'", e.name), errors);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Perform semantic analysis on a list of declarations (without executing them).
 /// Validates:
 ///   - Entity types referenced in records exist
@@ -188,6 +289,14 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
         result.errors.push(SpannedError::at_line(e, 0));
     }
     let alias_names: HashSet<String> = type_alias_map.keys().cloned().collect();
+
+    // Наряд №322 (ADR-0154): validate label annotations everywhere the
+    // grammar allows them. This is what makes the annotation "visible to
+    // semantics" — the label carrier (`ast::LabelAnn`) is parsed with a
+    // span, and unknown words fail here, not silently later.
+    for decl in declarations {
+        validate_decl_labels(decl, &mut result.errors);
+    }
 
     // First pass: collect all declarations (names)
     for decl in declarations {

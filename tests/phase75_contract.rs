@@ -30,6 +30,7 @@ fn make_learnable_decl(name: &str, prompt: &str) -> Declaration {
             span: metalogos::ast::Span::unknown(),
             name: "input".to_string(),
             type_name: "String".to_string(),
+            label: None,
         }],
         return_type: "String".to_string(),
         prompt: prompt.to_string(),

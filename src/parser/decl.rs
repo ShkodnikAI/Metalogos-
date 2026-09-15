@@ -556,6 +556,8 @@ pub(super) fn parse_field_decl(pair: Pair<Rule>) -> FieldDecl {
         span,
         name,
         type_name,
+        // Наряд №322 (ADR-0154): optional label annotation.
+        label: find_child(&children, Rule::label_ann).map(|p| parse_label_ann(&p)),
         default,
     }
 }
@@ -578,6 +580,8 @@ pub(super) fn parse_entity_record_decl(pair: Pair<Rule>) -> Result<Declaration, 
         span,
         name,
         type_name,
+        // Наряд №322 (ADR-0154): optional label annotation.
+        label: find_child(&children, Rule::label_ann).map(|p| parse_label_ann(&p)),
         fields,
     }))
 }
@@ -618,6 +622,8 @@ pub(super) fn parse_entity_simple_decl(pair: Pair<Rule>) -> Result<Declaration, 
         span,
         name,
         type_name,
+        // Наряд №322 (ADR-0154): optional label annotation.
+        label: find_child(&children, Rule::label_ann).map(|p| parse_label_ann(&p)),
         value,
     }))
 }

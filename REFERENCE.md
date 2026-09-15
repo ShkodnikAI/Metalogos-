@@ -1059,7 +1059,7 @@ let text = json_get(ocr, "markdown", "")
 
 44 built-in functions, hand-written in pure Rust — with no
 external SVG/chart/rendering library at all. All are dispatched through a
-common path (not a special case), with TW/VM parity for paths that both backends can execute (see ADR-0105; the VM does not yet support block if-else — `match` closed by Naryad #369)
+common path (not a special case), with TW/VM parity for paths that both backends can execute (see ADR-0105; `match` and the block if/else value closed by Naryads #369/#370)
 and verified by `crosscheck`. The full decision history is in ADR-0102 and naryads
 #77-92.
 

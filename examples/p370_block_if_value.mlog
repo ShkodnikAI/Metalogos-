@@ -1,0 +1,26 @@
+// №370 (ADR-0141 Stage 1.2): the BLOCK if/else as a VALUE — exercised in
+// let position, with an else-if chain, a nested block-if value, and a
+// statement-if value leak inside a branch. The crosscheck runs this
+// through BOTH backends (TW + VM) — the VM compiles it since №370
+// (previously a loud compile error).
+pattern Grade(score: Float) -> String {
+  let band = if score > 0.9 {
+    "excellent"
+  } else if score > 0.7 {
+    "good"
+  } else {
+    "needs work"
+  }
+  let detail = if score > 0.7 {
+    if score > 0.9 {
+      "top"
+    } else {
+      "solid"
+    }
+  } else {
+    "review"
+  }
+  return band + "/" + detail
+}
+
+flow Main { input: Float = 0.85 -> Grade -> output }

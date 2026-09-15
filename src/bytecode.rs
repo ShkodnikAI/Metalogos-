@@ -203,14 +203,36 @@ pub enum Instruction {
     /// compatibility — see StoreAssignLocal's note).
     MatchTest(MatchTest),
 
-    /// №369: TW-parity "last expression value" store for match-expr arm
-    /// bodies. Pop the top value; if it is NOT Unit, store it into the
-    /// local slot; if it IS Unit, discard it. Mirrors the TW
-    /// `eval_statements_cf` contract (`if !matches!(val, Value::Unit)
-    /// { last_expr_value = val }`) — the matched arm's value is the last
-    /// NON-Unit expression value of its body, and a trailing Unit-valued
-    /// statement does not reset it. Appended at the END of the enum.
-    StoreLastLocal(usize),
+    /// №370: duplicate the top stack value (the match scrutinee lives on
+    /// the stack while arms test copies of it — single evaluation, no
+    /// scratch slot). Appended at the END of the enum.
+    Dup,
+
+    /// №370: open a VALUE EXPRESSION register (pushed onto the VM's
+    /// register stack, NOT the value stack) — the last-value register of a
+    /// block-if-else / match expression. Starts as Unit. Registers live in
+    /// VM state (not stack cells), so a value form is safe in ANY
+    /// expression position: intermediate temporaries of enclosing
+    /// expressions can never be clobbered by a register write (the
+    /// slot-based register of the first №370 draft was unsound exactly
+    /// there: `"[" + (if c {..} else {..}) + "]"` overwrote the "["
+    /// temporary). Appended at the END of the enum.
+    BeginValueExpr,
+
+    /// №370: pop the top value; if it is NOT Unit, store it into the
+    /// topmost value register. Mirrors the TW `eval_statements_cf`
+    /// contract (`if !matches!(val, Value::Unit) { last_expr_value = val }`)
+    /// — the branch's value is the last NON-Unit expression of its body,
+    /// and a trailing Unit-valued statement does not reset it. Appended at
+    /// the END of the enum.
+    KeepLastValue,
+
+    /// №370: pop the topmost value register and push its value onto the
+    /// value stack — the value of the whole block-if-else / match
+    /// expression. Pairs with BeginValueExpr (balanced, nestable — nested
+    /// value forms open their own register). Appended at the END of the
+    /// enum.
+    EndValueExpr,
 }
 
 /// №369: the pattern side of one match arm — the payload of

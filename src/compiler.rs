@@ -720,16 +720,38 @@ impl Compiler {
     }
 
     /// Compile an AST expression into stack instructions (no locals context).
+    /// №370: the scratch next_slot starts ABOVE the globals snapshot — the
+    /// wrapper serves top-level declaration initializers (main-code
+    /// execution, bp=0), so hidden slots must not overlap global slots.
     fn compile_expr(&self, expr: &Expr, code: &mut Vec<Instruction>) -> Result<(), String> {
-        self.compile_expr_with_locals(expr, code, &HashMap::new())
+        let mut scratch: HashMap<String, usize> = HashMap::new();
+        let mut next_slot = self.next_global.max(self.global_slots.len());
+        let mut loop_stack: Vec<(usize, Vec<usize>, Vec<usize>)> = Vec::new();
+        let mut mutable: HashSet<String> = HashSet::new();
+        self.compile_expr_with_locals(
+            expr,
+            code,
+            &mut scratch,
+            &mut next_slot,
+            &mut loop_stack,
+            &mut mutable,
+        )
     }
 
     /// Compile an AST expression into stack instructions with a locals map.
+    /// №370: `locals` is mutable and `next_slot` is threaded through — the
+    /// BlockIfElse value compilation allocates HIDDEN scratch slots
+    /// (`#`-names, impossible in user IDENTs) for its last-value register,
+    /// exactly like the №369 match-expr machinery. Expression positions can
+    /// nest arbitrarily deep (primary_expr), so the slot counter must follow.
     fn compile_expr_with_locals(
         &self,
         expr: &Expr,
         code: &mut Vec<Instruction>,
-        locals: &HashMap<String, usize>,
+        locals: &mut HashMap<String, usize>,
+        next_slot: &mut usize,
+        loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
+        mutable: &mut HashSet<String>,
     ) -> Result<(), String> {
         match expr {
             Expr::StringLit { value: s, .. } => {
@@ -753,12 +775,14 @@ impl Compiler {
                 field,
                 ..
             } => {
-                self.compile_expr_with_locals(base, code, locals)?;
+                self.compile_expr_with_locals(base, code, locals, next_slot, loop_stack, mutable)?;
                 code.push(Instruction::GetField(field.clone()));
             }
             Expr::FnCall { name, args, .. } => {
                 for arg in args {
-                    self.compile_expr_with_locals(arg, code, locals)?;
+                    self.compile_expr_with_locals(
+                        arg, code, locals, next_slot, loop_stack, mutable,
+                    )?;
                 }
                 let arity = args.len();
                 // Check if it's a builtin
@@ -780,10 +804,14 @@ impl Compiler {
                     // Must NOT eagerly compile both operands.
                     if matches!(op, BinOp::And) {
                         // And: compile left, if falsy → false, else check right
-                        self.compile_expr_with_locals(left, code, locals)?;
+                        self.compile_expr_with_locals(
+                            left, code, locals, next_slot, loop_stack, mutable,
+                        )?;
                         let jump_to_false_1 = code.len();
                         code.push(Instruction::JumpIfNot(0)); // placeholder
-                        self.compile_expr_with_locals(right, code, locals)?;
+                        self.compile_expr_with_locals(
+                            right, code, locals, next_slot, loop_stack, mutable,
+                        )?;
                         let jump_to_false_2 = code.len();
                         code.push(Instruction::JumpIfNot(0)); // placeholder
                         code.push(Instruction::Const(Value::Bool(true)));
@@ -809,7 +837,9 @@ impl Compiler {
                         }
                     } else {
                         // Or: compile left, if truthy → true, else check right
-                        self.compile_expr_with_locals(left, code, locals)?;
+                        self.compile_expr_with_locals(
+                            left, code, locals, next_slot, loop_stack, mutable,
+                        )?;
                         let jump_to_check_right = code.len();
                         code.push(Instruction::JumpIfNot(0)); // placeholder
                                                               // left is truthy
@@ -823,7 +853,9 @@ impl Compiler {
                         {
                             *t = l_check_right;
                         }
-                        self.compile_expr_with_locals(right, code, locals)?;
+                        self.compile_expr_with_locals(
+                            right, code, locals, next_slot, loop_stack, mutable,
+                        )?;
                         let jump_to_false = code.len();
                         code.push(Instruction::JumpIfNot(0)); // placeholder
                                                               // right is truthy
@@ -848,8 +880,12 @@ impl Compiler {
                     }
                 }
                 _ => {
-                    self.compile_expr_with_locals(left, code, locals)?;
-                    self.compile_expr_with_locals(right, code, locals)?;
+                    self.compile_expr_with_locals(
+                        left, code, locals, next_slot, loop_stack, mutable,
+                    )?;
+                    self.compile_expr_with_locals(
+                        right, code, locals, next_slot, loop_stack, mutable,
+                    )?;
                     match op {
                         BinOp::Add => code.push(Instruction::Add),
                         BinOp::Sub => code.push(Instruction::Sub),
@@ -873,12 +909,14 @@ impl Compiler {
                 ..
             } => {
                 // Compile condition
-                self.compile_expr_with_locals(cond, code, locals)?;
+                self.compile_expr_with_locals(cond, code, locals, next_slot, loop_stack, mutable)?;
                 // Jump to else branch if falsy
                 let jump_to_else = code.len();
                 code.push(Instruction::JumpIfNot(0)); // placeholder
                                                       // Compile then branch
-                self.compile_expr_with_locals(then_expr, code, locals)?;
+                self.compile_expr_with_locals(
+                    then_expr, code, locals, next_slot, loop_stack, mutable,
+                )?;
                 // Jump past else branch
                 let jump_to_end = code.len();
                 code.push(Instruction::Jump(0)); // placeholder
@@ -888,7 +926,9 @@ impl Compiler {
                     *target = else_start;
                 }
                 // Compile else branch
-                self.compile_expr_with_locals(else_expr, code, locals)?;
+                self.compile_expr_with_locals(
+                    else_expr, code, locals, next_slot, loop_stack, mutable,
+                )?;
                 // Patch: end jump target
                 let end = code.len();
                 if let Some(Instruction::Jump(ref mut target)) = code.get_mut(jump_to_end) {
@@ -934,7 +974,9 @@ impl Compiler {
             Expr::List { items, .. } => {
                 // Push each item onto stack, then MakeList(count) pops them into a list.
                 for item in items {
-                    self.compile_expr_with_locals(item, code, locals)?;
+                    self.compile_expr_with_locals(
+                        item, code, locals, next_slot, loop_stack, mutable,
+                    )?;
                 }
                 code.push(Instruction::MakeList(items.len()));
             }
@@ -943,21 +985,87 @@ impl Compiler {
                 index,
                 ..
             } => {
-                self.compile_expr_with_locals(base, code, locals)?;
-                self.compile_expr_with_locals(index, code, locals)?;
+                self.compile_expr_with_locals(base, code, locals, next_slot, loop_stack, mutable)?;
+                self.compile_expr_with_locals(index, code, locals, next_slot, loop_stack, mutable)?;
                 code.push(Instruction::IndexAccess);
             }
             Expr::StructLit { fields, .. } => {
                 let field_names: Vec<String> = fields.keys().cloned().collect();
                 for val_expr in fields.values() {
-                    self.compile_expr_with_locals(val_expr, code, locals)?;
+                    self.compile_expr_with_locals(
+                        val_expr, code, locals, next_slot, loop_stack, mutable,
+                    )?;
                 }
                 code.push(Instruction::MakeStruct("Struct".to_string(), field_names));
             }
-            Expr::BlockIfElse { .. } => {
-                return Err("compile: block if/else expression not yet supported \
-                     in VM bytecode (use tree-walking interpreter)"
-                    .into());
+            // №370: if/else as a VALUE (ADR-0141 Stage 1.2). NO new opcode —
+            // the jump structure (Jump/JumpIfNot) plus the №369 last-value
+            // register (StoreLastLocal into a hidden slot) express it
+            // exactly; the VM dispatch is unchanged by construction (nothing
+            // new to dispatch — the naryad's "dispatch ×2" is vacuously
+            // satisfied, recorded here and in the report). TW parity: the
+            // value is the branch's last non-Unit expression (the
+            // eval_statements contract); branches run against a CLONED env
+            // in TW (lets do not leak — the №14 P0-3 precedent, shared with
+            // the №369 match-expr arms); nothing matched and no else → Unit.
+            // A `return` inside a branch is captured as the block value
+            // (the expression channel cannot carry a control signal — same
+            // as BlockIfElse TW eval and MatchExpr).
+            Expr::BlockIfElse {
+                condition,
+                ref then_body,
+                ref else_ifs,
+                ref else_body,
+                ..
+            } => {
+                // The branch value lives in a VM-STATE register (Begin/End
+                // pair) — safe in any expression position.
+                code.push(Instruction::BeginValueExpr);
+                let mut end_fixups: Vec<usize> = Vec::new();
+                // then branch
+                self.compile_expr_with_locals(
+                    condition, code, locals, next_slot, loop_stack, mutable,
+                )?;
+                code.push(Instruction::JumpIfNot(0));
+                let mut jmp_idx = code.len() - 1;
+                let saved = *next_slot;
+                self.compile_match_expr_arm_body(
+                    then_body, code, locals, next_slot, loop_stack, mutable,
+                )?;
+                *next_slot = saved;
+                code.push(Instruction::Jump(0));
+                end_fixups.push(code.len() - 1);
+                code[jmp_idx] = Instruction::JumpIfNot(code.len());
+                // else-if chain (same lazy per-branch condition evaluation
+                // as TW: an else-if condition is only evaluated when
+                // reached).
+                for (ei_cond, ei_body) in else_ifs {
+                    self.compile_expr_with_locals(
+                        ei_cond, code, locals, next_slot, loop_stack, mutable,
+                    )?;
+                    code.push(Instruction::JumpIfNot(0));
+                    jmp_idx = code.len() - 1;
+                    let saved = *next_slot;
+                    self.compile_match_expr_arm_body(
+                        ei_body, code, locals, next_slot, loop_stack, mutable,
+                    )?;
+                    *next_slot = saved;
+                    code.push(Instruction::Jump(0));
+                    end_fixups.push(code.len() - 1);
+                    code[jmp_idx] = Instruction::JumpIfNot(code.len());
+                }
+                // else branch (or stay Unit)
+                if let Some(eb) = else_body {
+                    self.compile_match_expr_arm_body(
+                        eb, code, locals, next_slot, loop_stack, mutable,
+                    )?;
+                }
+                let end = code.len();
+                for f in end_fixups {
+                    code[f] = Instruction::Jump(end);
+                }
+                // The taken branch's value: pop the register onto the stack.
+                code.push(Instruction::EndValueExpr);
             }
             // №369: the match EXPRESSION form is compiled natively — but only
             // in let-binding position (the grammar's only match_expr site),
@@ -975,7 +1083,14 @@ impl Compiler {
             // wrapped in TryEval so the VM can catch errors locally.
             Expr::Try { expr: inner, .. } => {
                 let mut inner_code = Vec::new();
-                self.compile_expr_with_locals(inner, &mut inner_code, locals)?;
+                self.compile_expr_with_locals(
+                    inner,
+                    &mut inner_code,
+                    locals,
+                    next_slot,
+                    loop_stack,
+                    mutable,
+                )?;
                 code.push(Instruction::TryEval(inner_code));
             }
         }
@@ -1062,13 +1177,27 @@ impl Compiler {
                         }
                     }
                     if let Some(&existing_slot) = locals.get(name) {
-                        self.compile_expr_with_locals(value, &mut code, locals)?;
+                        self.compile_expr_with_locals(
+                            value,
+                            &mut code,
+                            locals,
+                            &mut next_slot,
+                            &mut loop_stack,
+                            mutable,
+                        )?;
                         code.push(Instruction::StoreLocal(existing_slot));
                     } else {
                         let slot = next_slot;
                         next_slot += 1;
                         locals.insert(name.clone(), slot);
-                        self.compile_expr_with_locals(value, &mut code, locals)?;
+                        self.compile_expr_with_locals(
+                            value,
+                            &mut code,
+                            locals,
+                            &mut next_slot,
+                            &mut loop_stack,
+                            mutable,
+                        )?;
                         code.push(Instruction::StoreLocal(slot));
                     }
                 }
@@ -1092,7 +1221,14 @@ impl Compiler {
                     // carries the mutability fact so the VM can backstop
                     // bytecode produced past this check (VM loud, never
                     // silent — see bytecode.rs StoreAssignLocal).
-                    self.compile_expr_with_locals(value, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        value,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     code.push(Instruction::StoreAssignLocal {
                         slot,
                         name: name.clone(),
@@ -1100,7 +1236,14 @@ impl Compiler {
                     });
                 }
                 Statement::Return { value: expr, .. } => {
-                    self.compile_expr_with_locals(expr, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        expr,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     code.push(Instruction::Return);
                 }
                 Statement::While {
@@ -1111,7 +1254,14 @@ impl Compiler {
                     let continue_fixups: Vec<usize> = Vec::new();
 
                     // Evaluate condition
-                    self.compile_expr_with_locals(condition, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        condition,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     // JumpIfNot → after loop (placeholder)
                     let jmp_not_idx = code.len();
                     code.push(Instruction::JumpIfNot(0));
@@ -1182,7 +1332,14 @@ impl Compiler {
                     next_slot += 1;
 
                     // Compile iterable expression, store in list_slot
-                    self.compile_expr_with_locals(iterable, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        iterable,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     code.push(Instruction::StoreLocal(list_slot));
 
                     // Initialize index = 0
@@ -1285,7 +1442,14 @@ impl Compiler {
                     let item_slot = next_slot;
                     next_slot += 1;
 
-                    self.compile_expr_with_locals(iterable, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        iterable,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     code.push(Instruction::StoreLocal(list_slot));
 
                     code.push(Instruction::Const(Value::Float(0.0)));
@@ -1373,7 +1537,14 @@ impl Compiler {
                     body: then_body,
                     ..
                 } => {
-                    self.compile_expr_with_locals(cond, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        cond,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     code.push(Instruction::JumpIfNot(0)); // placeholder
                     let jmp_idx = code.len() - 1;
 
@@ -1404,7 +1575,14 @@ impl Compiler {
                     let mut jump_to_end_fixups: Vec<usize> = Vec::new();
 
                     // if condition
-                    self.compile_expr_with_locals(condition, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        condition,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     code.push(Instruction::JumpIfNot(0));
                     let jmp_idx = code.len() - 1;
 
@@ -1430,7 +1608,14 @@ impl Compiler {
 
                     // else if chain
                     for (ei_cond, ei_body) in else_ifs {
-                        self.compile_expr_with_locals(ei_cond, &mut code, locals)?;
+                        self.compile_expr_with_locals(
+                            ei_cond,
+                            &mut code,
+                            locals,
+                            &mut next_slot,
+                            &mut loop_stack,
+                            mutable,
+                        )?;
                         code.push(Instruction::JumpIfNot(0));
                         let ei_jmp = code.len() - 1;
 
@@ -1477,7 +1662,14 @@ impl Compiler {
                     }
                 }
                 Statement::ExprStmt { expr, .. } => {
-                    self.compile_expr_with_locals(expr, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        expr,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     // Discard result (side-effect expression like respond(), write_file())
                     code.push(Instruction::Pop);
                 }
@@ -1508,16 +1700,44 @@ impl Compiler {
                 // top-level declarations compile to in pass2); emit them with
                 // locals-aware expressions so pattern params/locals resolve.
                 Statement::Memorize(m) => {
-                    self.compile_expr_with_locals(&m.value, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        &m.value,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     code.push(Instruction::Memorize(m.priority));
                 }
                 Statement::Forget(f) => {
-                    self.compile_expr_with_locals(&f.query, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        &f.query,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     code.push(Instruction::Forget(f.days));
                 }
                 Statement::Relate(r) => {
-                    self.compile_expr_with_locals(&r.from, &mut code, locals)?;
-                    self.compile_expr_with_locals(&r.to, &mut code, locals)?;
+                    self.compile_expr_with_locals(
+                        &r.from,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
+                    self.compile_expr_with_locals(
+                        &r.to,
+                        &mut code,
+                        locals,
+                        &mut next_slot,
+                        &mut loop_stack,
+                        mutable,
+                    )?;
                     code.push(Instruction::Const(Value::String(r.relation.clone())));
                     code.push(Instruction::Relate);
                 }
@@ -1562,19 +1782,166 @@ impl Compiler {
         slot
     }
 
-    /// №369: TW-parity arm-body compilation for the match EXPRESSION form:
-    /// every bare expression statement stores its value into the arm's
-    /// last-value slot (conditionally on non-Unit — `StoreLastLocal`)
-    /// instead of being popped, so the matched arm's value is the last
-    /// non-Unit expression of its body — exactly the TW
-    /// `eval_statements_cf` contract (`if !matches!(val, Value::Unit)
-    /// { last_expr_value = val }`). A trailing Unit-valued statement does
-    /// not reset the value; `let`/`assign` statements never touch it.
+    /// №370: VALUE-MODE statement compilation inside value branches (the
+    /// bodies of a match-expr arm or a BlockIfElse branch). TW's
+    /// `eval_statements_cf` leaks the trailing value of block statements
+    /// (if/else, match) into `last_expr_value` — in a VALUE context that
+    /// leak IS the observable value, so the block-statement forms must
+    /// route their branch values into the same last-value register.
+    /// ExprStmt keeps its value (StoreLastLocal); IfThen/IfElseBlock/Match
+    /// compile their jump structures with value-mode bodies recursively;
+    /// everything else falls through to the ordinary statement compiler
+    /// (lets/assigns never touch the register — TW parity).
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::type_complexity)]
+    fn compile_value_stmt(
+        &self,
+        stmt: &Statement,
+        code: &mut Vec<Instruction>,
+        locals: &mut HashMap<String, usize>,
+        next_slot: &mut usize,
+        loop_stack: &mut Vec<(usize, Vec<usize>, Vec<usize>)>,
+        mutable: &mut HashSet<String>,
+    ) -> Result<(), String> {
+        match stmt {
+            Statement::ExprStmt { expr, .. } => {
+                self.compile_expr_with_locals(expr, code, locals, next_slot, loop_stack, mutable)?;
+                code.push(Instruction::KeepLastValue);
+            }
+            Statement::IfThen {
+                condition: cond,
+                body: then_body,
+                ..
+            } => {
+                self.compile_expr_with_locals(cond, code, locals, next_slot, loop_stack, mutable)?;
+                code.push(Instruction::JumpIfNot(0));
+                let jmp_idx = code.len() - 1;
+                let saved = *next_slot;
+                for s in then_body {
+                    self.compile_value_stmt(s, code, locals, next_slot, loop_stack, mutable)?;
+                }
+                *next_slot = saved;
+                code[jmp_idx] = Instruction::JumpIfNot(code.len());
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                let mut end_fixups: Vec<usize> = Vec::new();
+                self.compile_expr_with_locals(
+                    condition, code, locals, next_slot, loop_stack, mutable,
+                )?;
+                code.push(Instruction::JumpIfNot(0));
+                let mut jmp_idx = code.len() - 1;
+                let saved = *next_slot;
+                for s in then_body {
+                    self.compile_value_stmt(s, code, locals, next_slot, loop_stack, mutable)?;
+                }
+                *next_slot = saved;
+                code.push(Instruction::Jump(0));
+                end_fixups.push(code.len() - 1);
+                code[jmp_idx] = Instruction::JumpIfNot(code.len());
+                for (ei_cond, ei_body) in else_ifs {
+                    self.compile_expr_with_locals(
+                        ei_cond, code, locals, next_slot, loop_stack, mutable,
+                    )?;
+                    code.push(Instruction::JumpIfNot(0));
+                    jmp_idx = code.len() - 1;
+                    let saved = *next_slot;
+                    for s in ei_body {
+                        self.compile_value_stmt(s, code, locals, next_slot, loop_stack, mutable)?;
+                    }
+                    *next_slot = saved;
+                    code.push(Instruction::Jump(0));
+                    end_fixups.push(code.len() - 1);
+                    code[jmp_idx] = Instruction::JumpIfNot(code.len());
+                }
+                if let Some(eb) = else_body {
+                    for s in eb {
+                        self.compile_value_stmt(s, code, locals, next_slot, loop_stack, mutable)?;
+                    }
+                }
+                let end = code.len();
+                for f in end_fixups {
+                    code[f] = Instruction::Jump(end);
+                }
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                // Value-mode match statement (№369 machinery, shared
+                // predicates): the scrutinee lives ON THE STACK (single
+                // evaluation, Dup per test — no scratch slot, safe in any
+                // expression position); the matched arm's trailing value
+                // lands in the OPEN value register via KeepLastValue (TW
+                // eval_block! semantics).
+                self.compile_expr_with_locals(
+                    scrutinee, code, locals, next_slot, loop_stack, mutable,
+                )?;
+                let mut end_fixups: Vec<usize> = Vec::new();
+                for arm in arms {
+                    code.push(Instruction::Dup);
+                    let test = match arm {
+                        MatchArm::Exact(s, _) => MatchTest::Exact(s.clone()),
+                        MatchArm::StartsWith(s, _) => MatchTest::StartsWith(s.clone()),
+                        MatchArm::Contains(s, _) => MatchTest::Contains(s.clone()),
+                        MatchArm::Compare(op, threshold, _) => {
+                            self.compile_expr_with_locals(
+                                threshold, code, locals, next_slot, loop_stack, mutable,
+                            )?;
+                            MatchTest::Compare(*op)
+                        }
+                    };
+                    code.push(Instruction::MatchTest(test));
+                    code.push(Instruction::JumpIfNot(0));
+                    let jmp_idx = code.len() - 1;
+                    let saved = *next_slot;
+                    for st in arm.body() {
+                        self.compile_value_stmt(st, code, locals, next_slot, loop_stack, mutable)?;
+                    }
+                    *next_slot = saved;
+                    code.push(Instruction::Jump(0));
+                    end_fixups.push(code.len() - 1);
+                    code[jmp_idx] = Instruction::JumpIfNot(code.len());
+                }
+                if let Some(eb) = else_body {
+                    for st in eb {
+                        self.compile_value_stmt(st, code, locals, next_slot, loop_stack, mutable)?;
+                    }
+                }
+                let end = code.len();
+                for f in end_fixups {
+                    code[f] = Instruction::Jump(end);
+                }
+                // Drop the scrutinee — the value travels in the register.
+                code.push(Instruction::Pop);
+            }
+            other => {
+                self.compile_stmt_with_locals(other, code, locals, next_slot, loop_stack, mutable)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// №369 + №370: TW-parity branch-body compilation, SHARED by the
+    /// match-expr arms and the BlockIfElse branches: every bare expression
+    /// statement stores its value into the branch's last-value slot
+    /// (conditionally on non-Unit — `StoreLastLocal`) instead of being
+    /// popped, so the branch's value is the last non-Unit expression of
+    /// its body — exactly the TW `eval_statements_cf` contract
+    /// (`if !matches!(val, Value::Unit) { last_expr_value = val }`). A
+    /// trailing Unit-valued statement does not reset the value;
+    /// `let`/`assign` statements never touch it.
     #[allow(clippy::too_many_arguments)]
     fn compile_match_expr_arm_body(
         &self,
         body: &[Statement],
-        mv_slot: usize,
         code: &mut Vec<Instruction>,
         locals: &mut HashMap<String, usize>,
         next_slot: &mut usize,
@@ -1582,17 +1949,7 @@ impl Compiler {
         mutable: &mut HashSet<String>,
     ) -> Result<(), String> {
         for s in body {
-            match s {
-                Statement::ExprStmt { expr, .. } => {
-                    self.compile_expr_with_locals(expr, code, locals)?;
-                    code.push(Instruction::StoreLastLocal(mv_slot));
-                }
-                other => {
-                    self.compile_stmt_with_locals(
-                        other, code, locals, next_slot, loop_stack, mutable,
-                    )?;
-                }
-            }
+            self.compile_value_stmt(s, code, locals, next_slot, loop_stack, mutable)?;
         }
         Ok(())
     }
@@ -1635,36 +1992,25 @@ impl Compiler {
                 slot
             }
         };
-        let tmp_slot = Self::alloc_hidden_slot(locals, next_slot, "match_scrutinee");
-        let mv_slot = Self::alloc_hidden_slot(locals, next_slot, "match_value");
-        // Last-value register starts as Unit (nothing matched yet).
-        code.push(Instruction::Const(Value::Unit));
-        code.push(Instruction::StoreLocal(mv_slot));
-        // Scrutinee — evaluated exactly once, kept in the hidden slot.
-        self.compile_expr_with_locals(scrutinee, code, locals)?;
-        code.push(Instruction::StoreLocal(tmp_slot));
+        // №370 rework: the value travels in a VM-STATE register (Begin/End
+        // pair) — no scratch slots, safe in any position; the scrutinee
+        // lives ON THE STACK, evaluated exactly once, Dup'd per test.
+        code.push(Instruction::BeginValueExpr);
+        self.compile_expr_with_locals(scrutinee, code, locals, next_slot, loop_stack, mutable)?;
         let mut end_fixups: Vec<usize> = Vec::new();
         for arm in arms {
-            // №369: the scrutinee load happens EXACTLY ONCE per test —
-            // Compare arms load it, then the threshold, then test (VM pops
-            // threshold first); other arms load it, then test. A double
-            // load here would swap scrutinee/threshold on the VM stack.
+            // Threshold expressions are compiled LAZILY, per arm, in
+            // source order — the TW loop evaluates a Compare threshold
+            // only when the loop reaches that arm (side-effect parity).
+            code.push(Instruction::Dup);
             let test = match arm {
-                MatchArm::Exact(s, _) => {
-                    code.push(Instruction::LoadLocal(tmp_slot));
-                    MatchTest::Exact(s.clone())
-                }
-                MatchArm::StartsWith(s, _) => {
-                    code.push(Instruction::LoadLocal(tmp_slot));
-                    MatchTest::StartsWith(s.clone())
-                }
-                MatchArm::Contains(s, _) => {
-                    code.push(Instruction::LoadLocal(tmp_slot));
-                    MatchTest::Contains(s.clone())
-                }
+                MatchArm::Exact(s, _) => MatchTest::Exact(s.clone()),
+                MatchArm::StartsWith(s, _) => MatchTest::StartsWith(s.clone()),
+                MatchArm::Contains(s, _) => MatchTest::Contains(s.clone()),
                 MatchArm::Compare(op, threshold, _) => {
-                    code.push(Instruction::LoadLocal(tmp_slot));
-                    self.compile_expr_with_locals(threshold, code, locals)?;
+                    self.compile_expr_with_locals(
+                        threshold, code, locals, next_slot, loop_stack, mutable,
+                    )?;
                     MatchTest::Compare(*op)
                 }
             };
@@ -1674,7 +2020,6 @@ impl Compiler {
             let saved = *next_slot;
             self.compile_match_expr_arm_body(
                 arm.body(),
-                mv_slot,
                 code,
                 locals,
                 next_slot,
@@ -1687,34 +2032,19 @@ impl Compiler {
             code[jmp_idx] = Instruction::JumpIfNot(code.len());
         }
         if let Some(eb) = else_body {
-            self.compile_match_expr_arm_body(
-                eb, mv_slot, code, locals, next_slot, loop_stack, mutable,
-            )?;
+            self.compile_match_expr_arm_body(eb, code, locals, next_slot, loop_stack, mutable)?;
         }
         let end = code.len();
         for f in end_fixups {
             code[f] = Instruction::Jump(end);
         }
-        // Bind the matched arm's value to the let name.
-        code.push(Instruction::LoadLocal(mv_slot));
+        // Drop the scrutinee, materialize the register as the let value.
+        code.push(Instruction::Pop);
+        code.push(Instruction::EndValueExpr);
         code.push(Instruction::StoreLocal(let_slot));
         Ok(())
     }
 
-    /// №369: `match expr { ... }` STATEMENT form → bytecode (ADR-0141
-    /// Stage 1.1). Same jump structure as the expression form; a
-    /// Return/Break/Continue inside an arm body propagates exactly like
-    /// in if/else bodies (loop_stack fixups stay intact).
-    ///
-    /// `keep_last_value` — №250 parity (ADR-0122 #208): when the match is
-    /// the FINAL statement of a pattern/route body, TW's implicit body
-    /// value is the matched arm's last non-Unit value (`eval_block!`
-    /// captures it into `last_expr_value`), and `respond(...)` inside the
-    /// arm must become the route's response. With the flag on, each arm
-    /// body's trailing Pop is dropped (the №250 trick applied per arm), so
-    /// the TAKEN arm's trailing value survives to the fall-through
-    /// `execute_code: Ok(stack.pop())`. Non-final matches keep the flag
-    /// off (balanced stack — no accumulation inside loops).
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::type_complexity)]
     fn compile_match_stmt(
@@ -1730,7 +2060,7 @@ impl Compiler {
         keep_last_value: bool,
     ) -> Result<(), String> {
         let tmp_slot = Self::alloc_hidden_slot(locals, next_slot, "match_scrutinee");
-        self.compile_expr_with_locals(scrutinee, code, locals)?;
+        self.compile_expr_with_locals(scrutinee, code, locals, next_slot, loop_stack, mutable)?;
         code.push(Instruction::StoreLocal(tmp_slot));
         let mut end_fixups: Vec<usize> = Vec::new();
         for arm in arms {
@@ -1750,7 +2080,9 @@ impl Compiler {
                 }
                 MatchArm::Compare(op, threshold, _) => {
                     code.push(Instruction::LoadLocal(tmp_slot));
-                    self.compile_expr_with_locals(threshold, code, locals)?;
+                    self.compile_expr_with_locals(
+                        threshold, code, locals, next_slot, loop_stack, mutable,
+                    )?;
                     MatchTest::Compare(*op)
                 }
             };
@@ -1827,14 +2159,18 @@ impl Compiler {
                     mutable.insert(name.clone());
                 }
                 let slot = if let Some(&existing_slot) = locals.get(name) {
-                    self.compile_expr_with_locals(value, code, locals)?;
+                    self.compile_expr_with_locals(
+                        value, code, locals, next_slot, loop_stack, mutable,
+                    )?;
                     code.push(Instruction::StoreLocal(existing_slot));
                     existing_slot
                 } else {
                     let slot = *next_slot;
                     *next_slot += 1;
                     locals.insert(name.clone(), slot);
-                    self.compile_expr_with_locals(value, code, locals)?;
+                    self.compile_expr_with_locals(
+                        value, code, locals, next_slot, loop_stack, mutable,
+                    )?;
                     code.push(Instruction::StoreLocal(slot));
                     slot
                 };
@@ -1862,7 +2198,7 @@ impl Compiler {
                     Some(&slot) => slot,
                     None => return Err(crate::semantic::immutability_error_text(name)),
                 };
-                self.compile_expr_with_locals(value, code, locals)?;
+                self.compile_expr_with_locals(value, code, locals, next_slot, loop_stack, mutable)?;
                 code.push(Instruction::StoreAssignLocal {
                     slot,
                     name: name.clone(),
@@ -1879,7 +2215,7 @@ impl Compiler {
                         emit_sink_checks(code, name, args, span.start_line);
                     }
                 }
-                self.compile_expr_with_locals(expr, code, locals)?;
+                self.compile_expr_with_locals(expr, code, locals, next_slot, loop_stack, mutable)?;
                 code.push(Instruction::Return);
             }
             Statement::While {
@@ -1888,7 +2224,9 @@ impl Compiler {
                 let loop_start = code.len();
                 let break_fixups: Vec<usize> = Vec::new();
 
-                self.compile_expr_with_locals(condition, code, locals)?;
+                self.compile_expr_with_locals(
+                    condition, code, locals, next_slot, loop_stack, mutable,
+                )?;
                 let jmp_not_idx = code.len();
                 code.push(Instruction::JumpIfNot(0));
 
@@ -1928,7 +2266,7 @@ impl Compiler {
                 body: then_body,
                 ..
             } => {
-                self.compile_expr_with_locals(cond, code, locals)?;
+                self.compile_expr_with_locals(cond, code, locals, next_slot, loop_stack, mutable)?;
                 code.push(Instruction::JumpIfNot(0));
                 let jmp_idx = code.len() - 1;
                 let saved = *next_slot;
@@ -1946,7 +2284,9 @@ impl Compiler {
                 ..
             } => {
                 let mut end_fixups: Vec<usize> = Vec::new();
-                self.compile_expr_with_locals(condition, code, locals)?;
+                self.compile_expr_with_locals(
+                    condition, code, locals, next_slot, loop_stack, mutable,
+                )?;
                 code.push(Instruction::JumpIfNot(0));
                 let jmp_idx = code.len() - 1;
                 let saved = *next_slot;
@@ -1959,7 +2299,9 @@ impl Compiler {
                 code[jmp_idx] = Instruction::JumpIfNot(code.len());
 
                 for (ei_cond, ei_body) in else_ifs {
-                    self.compile_expr_with_locals(ei_cond, code, locals)?;
+                    self.compile_expr_with_locals(
+                        ei_cond, code, locals, next_slot, loop_stack, mutable,
+                    )?;
                     code.push(Instruction::JumpIfNot(0));
                     let ei_jmp = code.len() - 1;
                     let saved2 = *next_slot;
@@ -1999,22 +2341,28 @@ impl Compiler {
                         emit_sink_checks(code, name, args, span.start_line);
                     }
                 }
-                self.compile_expr_with_locals(expr, code, locals)?;
+                self.compile_expr_with_locals(expr, code, locals, next_slot, loop_stack, mutable)?;
                 code.push(Instruction::Pop);
             }
             // Наряд №266: memory ops as statements (loop/if bodies route here
             // via compile_stmt_with_locals) — same opcodes as top-level pass2.
             Statement::Memorize(m) => {
-                self.compile_expr_with_locals(&m.value, code, locals)?;
+                self.compile_expr_with_locals(
+                    &m.value, code, locals, next_slot, loop_stack, mutable,
+                )?;
                 code.push(Instruction::Memorize(m.priority));
             }
             Statement::Forget(f) => {
-                self.compile_expr_with_locals(&f.query, code, locals)?;
+                self.compile_expr_with_locals(
+                    &f.query, code, locals, next_slot, loop_stack, mutable,
+                )?;
                 code.push(Instruction::Forget(f.days));
             }
             Statement::Relate(r) => {
-                self.compile_expr_with_locals(&r.from, code, locals)?;
-                self.compile_expr_with_locals(&r.to, code, locals)?;
+                self.compile_expr_with_locals(
+                    &r.from, code, locals, next_slot, loop_stack, mutable,
+                )?;
+                self.compile_expr_with_locals(&r.to, code, locals, next_slot, loop_stack, mutable)?;
                 code.push(Instruction::Const(Value::String(r.relation.clone())));
                 code.push(Instruction::Relate);
             }

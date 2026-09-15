@@ -250,6 +250,17 @@ trusted decision: validate before deciding, or one-way-redact
 decisions keep their №325 classes (UNTRUSTED_EXEC_DECISION,
 UNTRUSTED_EGRESS_NETWORK).
 
+### 2.6. Runtime label parity (№328, ADR-0156)
+
+The compiler lowers static label knowledge into the bytecode:
+source-backed `let`/assignments carry `LabelJoin` (the VM seeds the
+runtime label env from the same №316 mapping), and every sink call site
+carries `SinkCheck` — the runtime twin of the №325 gate. A runtime
+violation is a distinct `[SINK_CLEARANCE_RUNTIME]` error plus an audit
+event line. Label instructions are explicitly outside the JIT-eligible
+class (`bytecode::is_jit_eligible`): the dispatch gap is an explicit
+error, never a silent skip (ADR-0156 §2).
+
 ---
 
 ## 3. Syntax

@@ -27,6 +27,9 @@ use crate::llm;
 
 /// The METALOGOS stack-based virtual machine.
 pub struct Vm {
+    /// Runtime label environment (Наряд №328): variable → ADR-0154
+    /// label. Seeded by LabelJoin, consulted by SinkCheck.
+    label_env: std::collections::BTreeMap<String, crate::labels::Label>,
     /// Global variable slots.
     globals: Vec<Value>,
     /// Global variable names (index = slot).
@@ -125,6 +128,7 @@ impl Vm {
         let builtin_names = crate::builtins::builtin_names();
 
         Vm {
+            label_env: std::collections::BTreeMap::new(),
             globals: Vec::new(),
             global_names: Vec::new(),
             patterns: Vec::new(),
@@ -312,6 +316,45 @@ impl Vm {
                 // ── Constants & Variables ─────────────────────
                 Instruction::Const(v) => {
                     stack.push(v.clone());
+                    ip += 1;
+                }
+                // ── Runtime labels (Наряд №328, ADR-0156) ─────
+                Instruction::LabelJoin { dst, src } => {
+                    let incoming = if let Some(source) = src.strip_prefix('@') {
+                        runtime_source_label(source)
+                    } else {
+                        self.label_env.get(src).cloned().unwrap_or_default()
+                    };
+                    let merged = self
+                        .label_env
+                        .get(dst)
+                        .cloned()
+                        .unwrap_or_default()
+                        .join(&incoming);
+                    self.label_env.insert(dst.clone(), merged);
+                    ip += 1;
+                }
+                Instruction::SinkCheck { fn_name, arg, line } => {
+                    let label = if let Some(source) = arg.strip_prefix('@') {
+                        runtime_source_label(source)
+                    } else {
+                        self.label_env.get(arg).cloned().unwrap_or_default()
+                    };
+                    // Quarantine clears nothing; everything else must be
+                    // public at a sink (the №325 contract, runtime twin).
+                    // EXEC additionally refuses untrusted (№325/№327).
+                    let exec_untrusted = fn_name == "exec" || fn_name == "exec_argv";
+                    if label.conf != crate::labels::Conf::Public
+                        || (exec_untrusted
+                            && label.integrity == crate::labels::Integrity::Untrusted)
+                    {
+                        let message = format!(
+                            "[SINK_CLEARANCE_RUNTIME] sink clearance violated at runtime: {} argument '{}' carries label '{}' (line {}) — the static gate and the runtime agree on the verdict",
+                            fn_name, arg, label, line
+                        );
+                        eprintln!("[SINK_CLEARANCE][audit-event] {}", message);
+                        return Err(message);
+                    }
                     ip += 1;
                 }
                 Instruction::LoadGlobal(slot) => {
@@ -3487,5 +3530,32 @@ fn is_truthy(value: &Value) -> bool {
         Value::Bool(b) => *b,
         Value::List(items) => !items.is_empty(),
         _ => false,
+    }
+}
+
+// ── Runtime label seeds (Наряд №328, ADR-0156) ───────────────────────
+
+/// The runtime seed label of a №316 Source builtin — the runtime twin of
+/// the static №323 mapping: Secret sources are `(private, trusted)`,
+/// every other source is untrusted ingress `(public, untrusted)`.
+fn runtime_source_label(name: &str) -> crate::labels::Label {
+    use crate::labels::{Conf, Integrity, Label};
+    match crate::builtins_classification::classify(name) {
+        Some(class) if class.role == crate::builtins_classification::Role::Source => {
+            if class.default_label == crate::builtins_classification::Label::Secret {
+                Label {
+                    conf: Conf::Private,
+                    integrity: Integrity::Trusted,
+                    consent: Default::default(),
+                }
+            } else {
+                Label {
+                    conf: Conf::Public,
+                    integrity: Integrity::Untrusted,
+                    consent: Default::default(),
+                }
+            }
+        }
+        _ => Label::bottom(),
     }
 }

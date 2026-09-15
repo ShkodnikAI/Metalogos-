@@ -67,6 +67,56 @@ impl Default for Compiler {
     }
 }
 
+// ── Runtime label emission (Наряд №328, ADR-0156) ────────────────────
+//
+// The compiler lowers the static №323/№325 knowledge into runtime
+// instructions: a `let`/assignment from a №316 Source call carries a
+// LabelJoin (the runtime label env is seeded), and every sink call site
+// gets a SinkCheck for each identifier/direct-source argument. The
+// static gate remains the SSOT — the runtime twin agrees by
+// construction and rejects any divergence loudly (ADR-0156 §2).
+
+fn is_source_call(name: &str) -> bool {
+    matches!(
+        crate::builtins_classification::classify(name).map(|c| c.role),
+        Some(crate::builtins_classification::Role::Source)
+    )
+}
+
+fn is_sink_call(name: &str) -> bool {
+    matches!(
+        crate::builtins_classification::classify(name).map(|c| c.role),
+        Some(crate::builtins_classification::Role::Sink)
+    )
+}
+
+/// Emit a SinkCheck for the argument when it is trackable at runtime:
+/// a variable (by name) or a direct source call (`@name`).
+fn emit_sink_checks(
+    code: &mut Vec<Instruction>,
+    fn_name: &str,
+    args: &[crate::ast::Expr],
+    line: u32,
+) {
+    for (i, a) in args.iter().enumerate() {
+        let trackable = match a {
+            crate::ast::Expr::Ident { name, .. } => Some(name.clone()),
+            crate::ast::Expr::FnCall { name, .. } if is_source_call(name) => {
+                Some(format!("@{name}"))
+            }
+            _ => None,
+        };
+        if let Some(arg) = trackable {
+            code.push(Instruction::SinkCheck {
+                fn_name: fn_name.to_string(),
+                arg,
+                line: line.max(1),
+            });
+        }
+        let _ = i;
+    }
+}
+
 impl Compiler {
     /// Create a new compiler with default settings.
     pub fn new() -> Self {
@@ -956,6 +1006,15 @@ impl Compiler {
                     if *is_mut {
                         mutable.insert(name.clone());
                     }
+                    // №328: seed the runtime label env for source-backed lets.
+                    if let crate::ast::Expr::FnCall { name: src, .. } = value {
+                        if is_source_call(src) {
+                            code.push(Instruction::LabelJoin {
+                                dst: name.clone(),
+                                src: format!("@{src}"),
+                            });
+                        }
+                    }
                     if let Some(&existing_slot) = locals.get(name) {
                         self.compile_expr_with_locals(value, &mut code, locals)?;
                         code.push(Instruction::StoreLocal(existing_slot));
@@ -1444,16 +1503,28 @@ impl Compiler {
                 if *is_mut {
                     mutable.insert(name.clone());
                 }
-                if let Some(&existing_slot) = locals.get(name) {
+                let slot = if let Some(&existing_slot) = locals.get(name) {
                     self.compile_expr_with_locals(value, code, locals)?;
                     code.push(Instruction::StoreLocal(existing_slot));
+                    existing_slot
                 } else {
                     let slot = *next_slot;
                     *next_slot += 1;
                     locals.insert(name.clone(), slot);
                     self.compile_expr_with_locals(value, code, locals)?;
                     code.push(Instruction::StoreLocal(slot));
+                    slot
+                };
+                // №328: seed the runtime label env for source-backed lets.
+                if let crate::ast::Expr::FnCall { name: src, .. } = value {
+                    if is_source_call(src) {
+                        code.push(Instruction::LabelJoin {
+                            dst: name.clone(),
+                            src: format!("@{src}"),
+                        });
+                    }
                 }
+                let _ = slot;
             }
             Statement::Assign { name, value, .. } => {
                 // Наряд №264: same immutability contract as the top-level
@@ -1476,6 +1547,15 @@ impl Compiler {
                 });
             }
             Statement::Return { value: expr, .. } => {
+                // №328: the runtime twin of the №325 gate at sink sites.
+                if let crate::ast::Expr::FnCall {
+                    name, args, span, ..
+                } = expr
+                {
+                    if is_sink_call(name) {
+                        emit_sink_checks(code, name, args, span.start_line);
+                    }
+                }
                 self.compile_expr_with_locals(expr, code, locals)?;
                 code.push(Instruction::Return);
             }
@@ -1587,6 +1667,15 @@ impl Compiler {
                 }
             }
             Statement::ExprStmt { expr, .. } => {
+                // №328: the runtime twin of the №325 gate at sink sites.
+                if let crate::ast::Expr::FnCall {
+                    name, args, span, ..
+                } = expr
+                {
+                    if is_sink_call(name) {
+                        emit_sink_checks(code, name, args, span.start_line);
+                    }
+                }
                 self.compile_expr_with_locals(expr, code, locals)?;
                 code.push(Instruction::Pop);
             }

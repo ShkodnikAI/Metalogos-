@@ -15,6 +15,21 @@ pub enum Instruction {
     // ── Constants & Variables ───────────────────────────────────
     /// Push a constant value onto the stack.
     Const(Value),
+    /// Наряд №328 (ADR-0156): join the runtime label of `src` into `dst`
+    /// (componentwise, ADR-0154 §2.4). A `src` starting with `@` names a
+    /// №316 Source builtin — the runtime seed label of that source.
+    LabelJoin {
+        dst: String,
+        src: String,
+    },
+    /// Наряд №328 (ADR-0156): the runtime twin of the №325 gate — check
+    /// the runtime label of `arg` against the sink's clearance; a
+    /// violation is a loud runtime error + an audit event.
+    SinkCheck {
+        fn_name: String,
+        arg: String,
+        line: u32,
+    },
     /// Push the value of a global variable (by slot index).
     LoadGlobal(usize),
     /// Push a global variable by name (for unresolved references).
@@ -575,4 +590,22 @@ pub struct CallFrame {
     pub return_ip: usize,
     /// Base pointer for local variables (parameters).
     pub base_bp: usize,
+}
+
+// ── JIT eligibility (Наряд №328, ADR-0156) ───────────────────────────
+//
+// The "dispatch gap = explicit error" rule: label instructions are NOT
+// in the JIT-eligible class (arithmetic-only). `is_jit_eligible` is the
+// SSOT predicate for the (future) JIT dispatcher: a function containing
+// LabelJoin/SinkCheck must never be silently skipped by a JIT pass —
+// the dispatcher is required to reject such functions with a distinct
+// error naming ADR-0156.
+
+pub fn is_jit_eligible(instrs: &[Instruction]) -> bool {
+    instrs.iter().all(|i| {
+        !matches!(
+            i,
+            Instruction::LabelJoin { .. } | Instruction::SinkCheck { .. }
+        )
+    })
 }

@@ -1,0 +1,31 @@
+// Наряд №326 (issue #420) — redact/declassify: the ONLY sanctioned
+// downward move on the conf axis (ADR-0154 §10), policy as a value.
+//
+// The contracts demonstrated:
+//   Hash — env secret hashed first (hash_only) → compiles: the policy's
+//          target conf is `public` (the data is destroyed, comparability
+//          kept); the application is recorded as an audit event
+//          ([REDACT][audit-event] + REDACT_APPLIED in `mlog audit`).
+//          Without the redact the same print(env(...)) is a compile
+//          error (SINK_CLEARANCE family — №325).
+//   Strip — PII record masked (pii_strip) → the label STAYS private:
+//          pattern strips are conservative (they can miss data), the
+//          gate keeps blocking raw output. The downward path needs a
+//          one-way policy (hash_only) or full masking ("all").
+//
+// Tests: tests/naryad_326_redact_policies.rs pins all of it.
+
+pattern Hash(data: String) -> String {
+  let _ = print(redact(env("APP_KEY"), "hash_only"))
+  return "sent"
+}
+
+entity record: String = "Иванов Иван, снилс 123-456-789, диагноз конфиденциален"
+
+pattern Strip(data: String) -> String {
+  let masked = redact(record, "pii_strip")
+  let _ = http_post("https://analytics.example/collect", redact(masked, "hash_only"))
+  return "sent"
+}
+
+flow Main { input: String = data -> Hash -> output }

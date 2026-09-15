@@ -4,6 +4,17 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — feature/labels: redact/declassify — policy as a value, the only sanctioned downward move (Naryad #326, P0/feature/labels, issue #420)
+
+- **policy registry** (`src/builtins/string.rs::REDACT_POLICIES` — extensible): the second argument of `redact()` is a policy VALUE naming the transformation and the target conf. Built-ins: `hash_only` → `public` (one-way SHA-256 fingerprint — the sanctioned path down), `all`/`secrets` → `public` (legacy ADR-0136 masking), `pii`/`pii_strip`/`truncate` → `private` (conservative: pattern strips and truncations can miss data — they do NOT declassify, the №325 gate keeps blocking their output). Unknown policy words are loud runtime errors; the registry is open to future user-defined policies (values — later, loud boundary).
+- **static label mapping** (`semantic.rs`): `label_source` reads the same registry — the policy's `target_conf` drives the result label (one-way → bottom for private inputs; conservative → the input label passes through). `audit.rs::redact_result_taint` reads it too — the legacy `SECRET_LEAK` check now understands inline `redact(env(...), "hash_only")`.
+- **unconditional audit events** (`audit.rs::check_redact_events`): every `redact()` application across patterns/tools/routes/hooks/tests records `REDACT_APPLIED` (Severity::Info) — container, policy, target conf — plus a `[REDACT][audit-event]` stderr line. NOT switchable: no profile, no env toggles (ADR-0154 §10 — the paper trail of the downward move). Dynamic (non-literal) policies record `policy '<dynamic>'` with the conservative target.
+- **showcase** `examples/l1_redact.mlog`: hash_only path down (compiles), pii_strip conservatism (the gate keeps blocking raw output); 3 events on the audit report.
+- **tests**: `tests/naryad_326_redact_policies.rs` (14): registry contract, loud unknown words, downward path vs the №325 gate, conservatism, unconditional events incl. legacy and dynamic cases, runtime shapes (hash determinism/data destruction, truncation), the showcase, no-stub grep.
+- **boundaries (loud)**: consent revocation and the poisoned cascade — Phase 2 (№335); `consent_ledger` integration — Phase 2; user-defined policies — the registry is open, values later. No `todo!`/`unimplemented!`/`SKELETON` (asserted by test).
+
+### Added — security/labels: SINK_CLEARANCE gate on classified sinks + `profile legacy` (Naryad #325, P0/security/labels, issue #419)
+
 ### Added — security/labels: SINK_CLEARANCE gate on classified sinks + `profile legacy` (Naryad #325, P0/security/labels, issue #419)
 
 - **Category-A gate `SINK_CLEARANCE`** (`src/audit.rs`, wired last into `audit_category_a` so pre-existing specialized checks keep their classes): at every sink-builtin call site the argument's inferred label (№322 annotations + №323 flow inference + №325 literal markers) must clear the sink — default clearance `public`; `poisoned` clears no sink (ADR-0154 §2.1). **The sink list is the №316 SSOT classification** (`Role::Sink`) — never a hand-written list (pinned by test).

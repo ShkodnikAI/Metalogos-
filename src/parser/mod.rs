@@ -88,6 +88,7 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
                     name: "_top_level_if".to_string(),
                     params: vec![],
                     return_type: "Unit".to_string(),
+                    effects: None,
                     body: vec![parse_if_block_stmt(inner_pair)?],
                 })),
                 Rule::fluid_decl => declarations.push(parse_fluid_decl(inner_pair)?),

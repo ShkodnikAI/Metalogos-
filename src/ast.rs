@@ -890,6 +890,8 @@ pub struct ToolMethod {
     pub params: Vec<Param>,
     /// Return type name.
     pub return_type: String,
+    /// Наряд №324: optional effect trail — `⟨io, audit⟩` (ADR-0154 §9).
+    pub effects: Option<EffectAnn>,
     /// Method body (list of statements).
     pub body: Vec<Statement>,
 }
@@ -1248,6 +1250,10 @@ pub struct LearnablePatternDecl {
     /// E.g. `fallback_if: confidence < 0.85` → (Lt, 0.85).
     /// None = no fallback (always return local prediction once DISTILLED).
     pub fallback_if: Option<(CompareOp, f64)>,
+    /// Наряд №324: optional effect trail — `⟨io, audit⟩` (ADR-0154 §9).
+    /// A learnable pattern is an LLM source by construction ({io}); the
+    /// trail, when declared, gates what its CALLERS may assume.
+    pub effects: Option<EffectAnn>,
 }
 
 // Наряд №181: extend the existing CompareOp (defined at line 635) with
@@ -1277,6 +1283,10 @@ pub struct PatternDecl {
     pub name: String,
     pub params: Vec<Param>,
     pub return_type: String,
+    /// Наряд №324 (ADR-0154 §9): optional effect trail — `⟨io, audit⟩`.
+    /// `None` = not declared: the gate does not apply to this pattern
+    /// (zero delta for existing programs).
+    pub effects: Option<EffectAnn>,
     pub body: Vec<Statement>,
 }
 
@@ -1303,6 +1313,63 @@ pub struct Param {
 pub struct LabelAnn {
     pub span: Span,
     /// Raw annotation body, e.g. `"private, untrusted, consent(gdpr)"`.
+    pub raw: String,
+}
+
+// ── Effect trail (Наряд №324, ADR-0154 §9) ─────────────────────
+
+/// A named effect a pattern body can perform (closed set, №324):
+/// - `Io` — data crosses the expression boundary (№316 `Source`/`Sink`
+///   builtins: network, files, env, clock, LLM calls, channels, print);
+/// - `Audit` — a persistent, auditable write (Sink builtins with a
+///   non-pure reversibility — state/db/file/memory writes, delivery —
+///   plus the `memorize`/`forget`/`relate` statements).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Effect {
+    Io,
+    Audit,
+}
+
+impl Effect {
+    /// Canonical word (ADR-0154 §9).
+    pub fn word(self) -> &'static str {
+        match self {
+            Effect::Io => "io",
+            Effect::Audit => "audit",
+        }
+    }
+
+    /// Parse one effect word; `None` for anything but `io`/`audit` —
+    /// the caller turns that into a loud semantic error.
+    pub fn parse_word(word: &str) -> Option<Effect> {
+        match word {
+            "io" => Some(Effect::Io),
+            "audit" => Some(Effect::Audit),
+            _ => None,
+        }
+    }
+}
+
+/// A set of effects: `BTreeSet` for a deterministic display order
+/// (`audit, io`), join = union (a body that does more can only grow).
+pub type EffectSet = std::collections::BTreeSet<Effect>;
+
+/// Renders as `⟨io, audit⟩` (canonical word order, BTreeSet order).
+pub fn format_effect_set(effects: &EffectSet) -> String {
+    let words: Vec<&str> = effects.iter().map(|e| e.word()).collect();
+    format!("⟨{}⟩", words.join(", "))
+}
+
+/// The declared effect trail in a signature — `pattern P(...) -> T ⟨io, audit⟩`.
+/// Deliberately unvalidated at parse time — the grammar guarantees the
+/// SHAPE (a comma list of bare words inside `⟨…⟩`), semantic analysis
+/// validates the WORDS (only `io`/`audit` exist) with the annotation's
+/// span — same division of labor as `LabelAnn` (№322).
+#[derive(Debug, Clone)]
+pub struct EffectAnn {
+    pub span: Span,
+    /// Raw trail body, e.g. `"io, audit"`; empty string for `⟨⟩` (the
+    /// pure/zero-effect declaration).
     pub raw: String,
 }
 

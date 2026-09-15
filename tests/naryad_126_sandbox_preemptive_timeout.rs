@@ -45,6 +45,7 @@ fn make_learnable_decl(name: &str, prompt: &str) -> Declaration {
         // Наряд №181: distillation fields default to None (no distill).
         distill_to: None,
         distill_after: 0,
+        effects: None,
         fallback_if: None,
     })
 }

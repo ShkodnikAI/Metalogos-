@@ -166,3 +166,27 @@ deferred; media-handle flows → Phase 2; learnable-pattern calls as
 LlmOutput-equivalent sources need a program-wide context (audit.rs already
 does this at call sites — the per-pattern inference adds it when №325
 provides the declarations context).
+
+## 9. Appendix (№324): effect trail in pattern signatures — ⟨io, audit⟩
+
+Implemented in `src/ast.rs` (`Effect`, `EffectSet`, `EffectAnn`, `effects` fields on `PatternDecl` / `ToolMethod` / `LearnablePatternDecl`), `src/grammar.pest` (`effect_trail`/`effect_word`, +2 rules), and `src/semantic.rs` (`check_effect_trails` — validation, interprocedural fixpoint, gate).
+
+### 9.1 Syntax and semantics
+
+`pattern P(x: String) -> String ⟨io, audit⟩ { ... }` — the declared trail sits after the return type. Grammar is shape-only (comma list of bare words in `⟨…⟩`; `⟨⟩` = the zero-effect declaration); semantic validates the WORDS — the closed set `{io, audit}` — with the trail's span (same division of labor as `LabelAnn`, §3). Additive: a `⟨` after a return type was previously a parse error.
+
+- `io` — data crosses the expression boundary. Read from the №316 SSOT: `Source` builtins (ingress) and `Sink` builtins (egress) — no name re-hardcoding.
+- `audit` — a persistent, auditable write: a `Sink` builtin whose `Reversibility` is not `Pure` (state/db/file/memory writes, delivery), plus the `memorize`/`forget`/`relate` statements.
+- `Pure`/`Lift` call sites carry no effects. A learnable pattern IS an LLM call — `{io}` by construction.
+
+### 9.2 The boundary gate
+
+For every container with a DECLARED trail: factual body effects ⊑ declared, computed with interface semantics — a call to a pattern whose trail is declared contributes that DECLARED contract (not its internals); a call to an unannotated pattern contributes its inferred (fixpoint) effects. Excess (factual \ declared) is a loud compile error listing declared/required/excess — caught at the calling boundary. A pattern WITHOUT a declared trail is ungated: zero behavioral delta for existing programs.
+
+### 9.3 Recursion decision
+
+The effect domain is the 4-element powerset of `{io, audit}`; joins are unions; the propagation is monotone. Therefore the interprocedural fixpoint converges in ≤ 4 passes even for directly and mutually recursive patterns WITHOUT annotations — the dispatcher's No-Go signal ("вывод не сходится на рекурсии → аннотация") does not fire. An explicit trail on a recursive pattern is welcome but not required; it gets gated against the same fixpoint result.
+
+### 9.4 Verification (№324)
+
+- `cargo test naryad_324` — 18 tests: trail syntax on pattern/tool-method/learnable (span, bare type name), empty trail = zero effects, unknown/duplicate words loud, the gate (excess listed; violation at the calling boundary; undeclared callee shares factual effects), legal composition clean, zero delta without trails, №316 mapping (env → io; print → io+audit; upper → ∅), memory statements → audit, direct and mutual recursion convergence, gated recursion, the showcase `examples/l1_effect_sig.mlog`, canonical `format_effect_set`, no-stub grep.

@@ -1273,6 +1273,10 @@ pub(super) fn parse_tool_method(pair: Pair<Rule>) -> Result<ToolMethod, ParseErr
         name,
         params,
         return_type,
+        // Наряд №324 (ADR-0154 §9): optional effect trail after the return type.
+        effects: find_child(&children, Rule::effect_trail)
+            .as_ref()
+            .map(parse_effect_ann),
         body,
     })
 }
@@ -1427,6 +1431,10 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
         .map(|p| parse_params(p))
         .unwrap_or_default();
     let return_type = find_child_str(&children, Rule::type_name).unwrap_or_default();
+    // Наряд №324 (ADR-0154 §9): optional effect trail after the return type.
+    let effects_ann = find_child(&children, Rule::effect_trail)
+        .as_ref()
+        .map(parse_effect_ann);
 
     // Extract prompt, context, model, max_tokens, cache, cache_ttl from learnable_body
     let mut prompt = String::new();
@@ -1775,6 +1783,7 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
             distill_to: distill_to_for_decl,
             distill_after,
             fallback_if,
+            effects: effects_ann,
         }))
     } else {
         Ok(Declaration::LearnablePattern(LearnablePatternDecl {
@@ -1796,6 +1805,7 @@ pub(super) fn parse_learnable_pattern_decl(pair: Pair<Rule>) -> Result<Declarati
             distill_to: None,
             distill_after: 0,
             fallback_if: None,
+            effects: effects_ann,
         }))
     }
 }
@@ -1822,6 +1832,10 @@ pub(super) fn parse_pattern_decl(pair: Pair<Rule>) -> Result<Declaration, ParseE
         name,
         params,
         return_type,
+        // Наряд №324 (ADR-0154 §9): optional effect trail after the return type.
+        effects: find_child(&children, Rule::effect_trail)
+            .as_ref()
+            .map(parse_effect_ann),
         body,
     }))
 }

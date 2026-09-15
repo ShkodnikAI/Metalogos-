@@ -244,7 +244,7 @@ The `adapt` statement allows a program to modify its own patterns at runtime —
 
 | Component | Technology | Lines |
 |---|---|---|
-| Parser | Pest 2.7 PEG grammar (~534 lines, 311 rules) | 2 176 |
+| Parser | Pest 2.7 PEG grammar (~562 lines, 313 rules) | 2 176 |
 | AST | 33 Declaration variants, 14 Expr, 15 Statement, 4 MatchArm, span tracking (ADR-0111) | 1 289 |
 | Semantic analysis | Opaque types, arity checking, Category A audit (SQL_DYNAMIC, SECRET_LEAK, HTML_INJECTION, VISION_UNSIGNED_EXPORT, MODEL_WEIGHTS_UNSAFE), SVG XSS lint | 473 |
 | Compiler | Bytecode, 421 builtins indexed | 1 516 |
@@ -270,7 +270,7 @@ Metalogos-/
 ├── CLAUDE.md                         # Bridge copy of AGENTS.md for Claude-compatible tools (synced manually — see issue #299)
 ├── GEMINI.md                         # Bridge copy of AGENTS.md for Gemini-compatible tools (synced manually — see issue #299)
 ├── REFERENCE.md                      # Full builtin reference (~218 KB) — 100% of the registry (§6 index + №316 classification)
-├── CHANGELOG.md                      # Version history (~267 KB)
+├── CHANGELOG.md                      # Version history (~272 KB)
 ├── AI_USAGE.md                       # Disclosure: how generative AI is used in this project's development
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
@@ -364,7 +364,7 @@ Metalogos-/
 │   ├── definition_of_done.rs          # Project completeness validation
 │   └── ...                            # and 140 more contract/feature test files
 │
-├── examples/                          # 215 .mlog programs (golden corpus)
+├── examples/                          # 216 .mlog programs (golden corpus)
 │   ├── m1_hello.mlog                  # Hello World
 │   ├── p6_full_app.mlog               # Full web app with routes
 │   ├── p23_ml_learn.mlog              # ML learning
@@ -1013,7 +1013,7 @@ Four integration tests verify the new behavior:
 |---|---|
 | Effective Rust LOC | ~59 000 |
 | Built-in Functions | 421 (39 modules) |
-| Example Programs | 215 |
+| Example Programs | 216 |
 | Integration Tests | 70 test suites |
 | Architecture Decision Records | 153 |
 | Parser Rules | 288 (Pest PEG) |

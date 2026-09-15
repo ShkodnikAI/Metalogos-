@@ -4,6 +4,17 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — feature/vm: runtime label parity — LabelJoin/SinkCheck in the bytecode (Naryad #328, P0/feature/vm, issue #422)
+
+- **bytecode**: `Instruction::LabelJoin { dst, src }` (componentwise runtime label join; `@source` names a №316 Source builtin seed) and `Instruction::SinkCheck { fn_name, arg, line }` (the runtime twin of the №325 gate). `pub fn is_jit_eligible` — the SSOT predicate for the dispatch-gap rule: label instructions are explicitly outside the JIT-eligible class (ADR-0156 §2 — the future JIT dispatcher must reject label-bearing functions with a distinct error, never skip silently; pinned by test).
+- **VM** (`src/vm.rs`): a runtime label environment (`BTreeMap<String, Label>` — the №322 lattice); `LabelJoin` seeds/merges it, `SinkCheck` enforces the clearance (`public`; exec refuses untrusted) with a distinct `[SINK_CLEARANCE_RUNTIME]` error + `[SINK_CLEARANCE][audit-event]` stderr line.
+- **compiler** (`src/compiler.rs`): source-backed `let`/assignments lower into `LabelJoin`; sink call sites lower into `SinkCheck` (identifiers and direct-source arguments) — in both compile paths (top-level statements and pattern bodies via `RegisterPattern`).
+- **golden verdicts**: the run and compile paths agree on rejecting and accepting label programs (pinned by test).
+- **ADR-0156** filled (reserved → Accepted): the parity matrix TW/VM/JIT for Фаза 1, the dispatch-gap rule, the instruction contracts.
+- **tests**: `tests/naryad_328_vm_label_parity.rs` (8). **boundaries (loud)**: the JIT compiler is not in the tree — the rule is pinned via the eligibility predicate; media label flows are Phase 2. No `todo!`/`unimplemented!`/`SKELETON` (asserted by test).
+
+### Added — security/labels: integrity axis & anti-injection — untrusted data must not decide control flow (Naryad #327, P0/security/labels, issue #421)
+
 ### Added — security/labels: integrity axis & anti-injection — untrusted data must not decide control flow (Naryad #327, P0/security/labels, issue #421)
 
 - **Category-A gate `UNTRUSTED_DECISION`** (`src/audit.rs` + `semantic.rs::integrity_decision_violations`): at every decision position — `if`/`else if` conditions, `while` conditions, `match` scrutinees — the deciding expression's label must be `trusted`; untrusted data in a decision position is a compile error. Untrusted data as DATA is legal (carrying/transforming/returning — pinned by test).

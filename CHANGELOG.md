@@ -4,6 +4,13 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — dogfood: the Fosved Office contour under the Wave-1 gate + the ergonomics measurement (Naryad #329, P0/dogfood, issue #423)
+
+- **the contour** `examples/l1_dogfood.mlog`: the office assistant drafts the morning brief with `call_llm` (a Source: public conf, untrusted integrity — №316), delivers it via `send_message` (an irreversible Sink), and posts a metrics webhook via `http_post` (live in production, dead in CI — the static gate sees both branches identically). The golden pair (`l1_dogfood.expected`) runs the contour end-to-end in CI.
+- **the gate on a real contour** (the Фаза-1 Go criterion): the contour compiles AND runs under №325/№327 — the run path enforces `audit_category_a`, which promotes the sink gate. `call_llm` runs in mock mode by default; `send_message` without `TELEGRAM_BOT_TOKEN` takes the audit-stub path — deterministic, no network.
+- **the measurement** (plan v2 §13.3): exactly TWO annotations keep the contour green — `escape_html(draft)` (the trust-restoring sanitizer; the un-sanitized draft is UNTRUSTED_EGRESS_NETWORK) and `redact(token, "hash_only")` (the only downward move, №326; the raw token is PII_EGRESS_NETWORK in the body position, SECRET_EGRESS_NETWORK in the address position). 2 annotated lines / 13 code lines ≈ 15% — under the 50% rebuild threshold. Pinned by `tests/naryad_329_dogfood.rs` (12): red/green pairs, the full office sink fact list (send_message, http_post, exec, git_push, write_file + the output/memory vocabulary), the pii_strip conservatism pin, the zero-delta plain contour, the annotation inventory by place, no-stub grep.
+- **boundaries (loud)**: the real Fosved Office codebase integration is outside this repository — the equivalent contour is the §3 deliverable per the naryad; the Go/No-Go decision is №330 (the owner's call). No `todo!`/`unimplemented!`/`SKELETON` (asserted by test).
+
 ### Added — feature/vm: runtime label parity — LabelJoin/SinkCheck in the bytecode (Naryad #328, P0/feature/vm, issue #422)
 
 - **bytecode**: `Instruction::LabelJoin { dst, src }` (componentwise runtime label join; `@source` names a №316 Source builtin seed) and `Instruction::SinkCheck { fn_name, arg, line }` (the runtime twin of the №325 gate). `pub fn is_jit_eligible` — the SSOT predicate for the dispatch-gap rule: label instructions are explicitly outside the JIT-eligible class (ADR-0156 §2 — the future JIT dispatcher must reject label-bearing functions with a distinct error, never skip silently; pinned by test).

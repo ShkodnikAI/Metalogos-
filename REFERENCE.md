@@ -261,6 +261,22 @@ event line. Label instructions are explicitly outside the JIT-eligible
 class (`bytecode::is_jit_eligible`): the dispatch gap is an explicit
 error, never a silent skip (ADR-0156 §2).
 
+### 2.7. Dogfood contour & ergonomics (№329)
+
+The Wave-1 gate is validated on a real office contour
+(`examples/l1_dogfood.mlog`): an LLM draft delivered to the owner chat
+via `send_message` plus a metrics webhook via `http_post`. The gate
+requires exactly two annotations on the contour: the trust-restoring
+sanitizer (`escape_html`) on the untrusted LLM draft before egress
+(network and output sinks refuse untrusted data — §2.4/§2.5), and the
+one-way `redact(x, "hash_only")` on the webhook secret (the only
+downward move — §2.4). Everything else — labels on variables,
+parameters, signatures — is inferred (§2.2). Measured ergonomics:
+2 annotated lines out of 13 code lines ≈ 15%, well under the 50%
+rebuild threshold of plan v2 §13.3 (pinned by
+`tests/naryad_329_dogfood.rs`). The Go/No-Go decision on these numbers
+is №330 (the owner's call) — the naryad delivers the measurement only.
+
 ---
 
 ## 3. Syntax

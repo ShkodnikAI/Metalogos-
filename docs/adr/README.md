@@ -10,7 +10,7 @@ ls docs/adr/ | sed 's/-.*//' | sort | uniq -d
 
 Must be empty. If not empty, resolve collisions before proceeding.
 
-Numbers are assigned sequentially. The current accepted maximum is in `0154-*` (ADR-0151 №309 video I2V pipeline; ADR-0152 №320 C2PA Art 50 slice; ADR-0153 №412 video DiT text path; ADR-0154 №322 label lattice); the overall maximum is `0161-*` — numbers 0155–0161 are reserved (see below).
+Numbers are assigned sequentially. The current accepted maximum is in `0154-*` (ADR-0151 №309 video I2V pipeline; ADR-0152 №320 C2PA Art 50 slice; ADR-0153 №412 video DiT text path; ADR-0154 №322 label lattice); the overall maximum is `0161-*` — numbers 0155–0160 are reserved (0161 filled by №325, see below).
 
 ## Reserved numbers (do not reassign)
 
@@ -195,4 +195,4 @@ real ADRs (№309/№320/№412) before the booking.
 | 0158 | Declassify boundaries | reserved |
 | 0159 | Sim-first verification — STL semantics | reserved |
 | 0160 | Identifier naming convention | reserved |
-| 0161 | Legacy compatibility profile | reserved |
+| 0161 | Legacy compatibility profile (№325) | accepted |

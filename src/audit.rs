@@ -3296,6 +3296,157 @@ fn check_canary_leak(declarations: &[Declaration], source: &str, findings: &mut 
 ///   - OPEN_REDIRECT: custom validation not recognized
 ///   - CANARY_LEAK: advisory detector (№284) — WARNING stays in
 ///     audit_program, never promoted to a compile error
+// ── Check: SINK_CLEARANCE (Наряд №325, ADR-0161) ─────────────────────
+//
+// Category-A gate: at every sink-builtin call site (the sink list comes
+// from the №316 SSOT classification — Role::Sink, never a hand-written
+// list), an argument whose inferred label (№322/№323 machinery, via
+// semantic::sink_clearance_violations) does not clear the sink is a
+// Severity::Error with a specialized check_id; `poisoned` clears no
+// sink (ADR-0154 §2.1).
+//
+// Specialized classes (the leak-suite vocabulary):
+//   VOICE_EGRESS_UNCONSENTED  — voice egress without a consent scope
+//                               (consent sources are Phase 2, №335;
+//                               until then voice egress is unconsented
+//                               by default — loud by design);
+//   IRREVERSIBLE_NO_GRANT     — destructive SQL literal in db_execute
+//                               (DROP/DELETE/TRUNCATE/ALTER; grant
+//                               algebra is Phase 3, №339);
+//   UNTRUSTED_EXEC_DECISION   — untrusted data drives exec/exec_argv;
+//   SECRET_TO_EXEC            — a private label enters exec/exec_argv;
+//   SECRET_EGRESS_VCS         — a private label enters git_push;
+//   SECRET_EGRESS_NETWORK     — a private-URL marker in the address
+//                               position of a network sink;
+//   PII_EGRESS_NETWORK        — personal-data label in a network sink
+//                               body;
+//   PII_EGRESS_OUTPUT         — personal-data label in a public output;
+//   UNTRUSTED_EGRESS_NETWORK  — untrusted label in a network sink body;
+//   SINK_CLEARANCE            — every other confidentiality excess.
+//
+// Compatibility profile (ADR-0161): `profile legacy { egress:
+// permissive_with_audit }` switches the gate to ADVISORY — each
+// violation becomes Severity::Info (an audit event in the report and a
+// stderr event on the compile/run path) instead of an Error.
+fn sink_check_id(fn_name: &str, arg_index: usize, label: &crate::labels::Label) -> &'static str {
+    use crate::labels::Conf;
+    use crate::labels::Integrity;
+    // Quarantine clears no sink (ADR-0154 §2.1) — the generic class.
+    if label.conf == Conf::Poisoned {
+        return "SINK_CLEARANCE";
+    }
+    let kind = match fn_name {
+        "exec" | "exec_argv" => "exec",
+        "git_push" => "vcs",
+        "tts_send" => "voice",
+        "db_execute" => "db",
+        "print" | "respond" | "respond_html" | "html_response" => "output",
+        "write_file" | "append_file" | "delete_file" => "file",
+        "memorize" | "mem_set" | "mtree_store" | "kv_set" => "memory",
+        _ => "network",
+    };
+    match kind {
+        "voice" => "VOICE_EGRESS_UNCONSENTED",
+        "exec" => {
+            if label.integrity == Integrity::Untrusted {
+                "UNTRUSTED_EXEC_DECISION"
+            } else if label.conf == Conf::Private {
+                "SECRET_TO_EXEC"
+            } else {
+                "SINK_CLEARANCE"
+            }
+        }
+        "vcs" => {
+            if label.conf == Conf::Private {
+                "SECRET_EGRESS_VCS"
+            } else {
+                "UNTRUSTED_EGRESS_NETWORK"
+            }
+        }
+        "network" => {
+            // Address position (arg 0) of a network sink carrying a
+            // private-infrastructure marker: the destination is the leak.
+            if arg_index == 0 && matches!(fn_name, "http_post" | "send_message") {
+                return "SECRET_EGRESS_NETWORK";
+            }
+            if label.integrity == Integrity::Untrusted {
+                "UNTRUSTED_EGRESS_NETWORK"
+            } else {
+                "PII_EGRESS_NETWORK"
+            }
+        }
+        "output" => {
+            if label.integrity == Integrity::Untrusted {
+                // Untrusted data into a public output — the HTML-injection
+                // class (the leak-suite corpus vocabulary; the lattice
+                // generalizes the legacy LLM-only check).
+                "HTML_INJECTION"
+            } else {
+                "PII_EGRESS_OUTPUT"
+            }
+        }
+        "memory" => "TAINT_PERSISTENCE",
+        "file" => {
+            if label.conf == Conf::Private {
+                // A private label into a file sink — the SECRET_LEAK
+                // class (the corpus vocabulary keeps the legacy name).
+                "SECRET_LEAK"
+            } else {
+                "SINK_CLEARANCE"
+            }
+        }
+        // db_execute: the bottom label marks the CONTENT gate (a
+        // destructive SQL literal needs no tainted data) — the grant
+        // vocabulary of Phase 3 (№339) starts here as
+        // IRREVERSIBLE_NO_GRANT; a NON-bottom label is a plain
+        // confidentiality excess.
+        "db" if *label == crate::labels::Label::bottom() => "IRREVERSIBLE_NO_GRANT",
+        _ => "SINK_CLEARANCE",
+    }
+}
+
+fn check_sink_clearance(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    let advisory = crate::profile::resolve(declarations).permissive();
+    let violations = crate::semantic::sink_clearance_violations(declarations);
+    for v in violations {
+        // Attribution: the semantic layer hands us the arg label and
+        // container; recover the arg expression for the URL-position
+        // rule by re-walking — done inside the semantic layer's
+        // sink_arg_label via the label itself; the address-position rule
+        // needs the TEXT, so the semantic layer flags it through the
+        // arg_index==0 + private-label contract (see sink_check_id).
+        let check_id = sink_check_id(&v.fn_name, v.arg_index, &v.label);
+        let severity = if advisory {
+            Severity::Info
+        } else {
+            Severity::Error
+        };
+        findings.push(AuditFinding {
+            severity,
+            check_id,
+            line: v.span.start_line as usize,
+            message: format!(
+                "sink clearance violated: argument {} of {} in {} carries label '{}'; \
+                 sinks require public{}",
+                v.arg_index,
+                v.fn_name,
+                v.container,
+                v.label,
+                if advisory {
+                    " (audit event: profile legacy / egress permissive_with_audit)"
+                } else {
+                    ""
+                }
+            ),
+        });
+    }
+    let _ = source;
+}
+
 pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<AuditFinding> {
     let mut findings: Vec<AuditFinding> = Vec::new();
     check_sql_dynamic(declarations, source, &mut findings);
@@ -3325,6 +3476,10 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     // Наряд №320 (ADR-0152 D2): Art. 50 marking gate — vision_export_raw
     // call sites are statically visible unmarked synthetic egress.
     check_media_synthetic_unmarked(declarations, source, &mut findings);
+    // Наряд №325 (ADR-0161): sink clearance on classified sinks — LAST so
+    // the pre-existing specialized checks keep their classes on shared
+    // sites (e.g. env→print is SECRET_LEAK first).
+    check_sink_clearance(declarations, source, &mut findings);
     findings
 }
 
@@ -3364,6 +3519,9 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     check_canary_leak(&declarations, source, &mut findings);
     // Наряд №320 (ADR-0152 D2): Art. 50 marking gate (Category-A Error).
     check_media_synthetic_unmarked(&declarations, source, &mut findings);
+    // Наряд №325 (ADR-0161): sink clearance — strict (Error) or, under
+    // `profile legacy`, advisory audit events.
+    check_sink_clearance(&declarations, source, &mut findings);
 
     // Sort findings by line number for deterministic output
     findings.sort_by_key(|f| (f.line, f.check_id));

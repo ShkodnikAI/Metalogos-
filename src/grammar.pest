@@ -5,7 +5,7 @@ COMMENT      = _{ "//" ~ (!("\n" | "\r") ~ ANY)* }
 
 program     =  { SOI ~ (declaration ~ WHITESPACE*)* ~ EOI }
 
-declaration = _{ test_decl | type_alias_decl | context_budget_decl | llm_decl | mlogserver_decl | template_decl | db_decl | schema_decl | skill_index_decl | memory_decl | import_decl | hook_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl | conversation_decl | tool_decl | reflex_decl | reflex_seq_decl | reflex_gen_decl | vision_decl }
+declaration = _{ test_decl | type_alias_decl | context_budget_decl | llm_decl | mlogserver_decl | template_decl | db_decl | schema_decl | skill_index_decl | memory_decl | import_decl | hook_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl | conversation_decl | tool_decl | reflex_decl | reflex_seq_decl | reflex_gen_decl | vision_decl | profile_decl }
 
 // ── Type Alias (Наряд №119) ──────────────────────────────────────
 // type Token = Secret
@@ -280,6 +280,14 @@ label_word         = @{ (ASCII_ALPHA | "_")+ }
 // the actual body effects through the №316 SSOT bridge.
 effect_trail = { "⟨" ~ (effect_word ~ (COMMA ~ effect_word)*)? ~ "⟩" }
 effect_word  = @{ (ASCII_ALPHA | "_")+ }
+
+// ── Compatibility profile (Наряд №325, ADR-0161) ─────────────────────────
+// `profile legacy { egress: permissive_with_audit }` — program-level
+// compat profile. Additive: 'profile' at declaration position was
+// previously a parse error (undeclared name).
+profile_decl  = { PROFILE_KW ~ IDENT ~ LBRACE ~ profile_option* ~ RBRACE }
+profile_option = { IDENT ~ COLON ~ (STRING_LITERAL | IDENT) }
+PROFILE_KW    = @{ "profile" }
 pattern_body = { statement* }
 
 // ── Statements (v0.5.1: unified if-then-else support) ───────────────

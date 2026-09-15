@@ -376,6 +376,8 @@ fn classify(body: &str) -> Kind {
             "vision ",
             "goal ",
             "todo ",
+            // №325: the compatibility profile is a declaration.
+            "profile ",
         ] {
             if t.starts_with(kw) {
                 return Kind::Decls;

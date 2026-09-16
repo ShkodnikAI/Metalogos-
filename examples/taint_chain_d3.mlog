@@ -1,0 +1,32 @@
+// ── №376 red/green: interprocedural taint chain of DEPTH 3 ──────────
+// Source (call_llm) → L3 → L2 → L1 → sink. Three pattern levels between
+// the LLM source and the sink.
+//
+// RED (pre-№376): TAINT_INTERP_MAX_DEPTH = 2 — the summary propagation
+// stopped at 2 levels, so this chain was NOT caught (a coverage hole for
+// office dept/chain patterns, external audit 2026-09-15).
+// GREEN (post-№376): the configured depth (default 4, METALOGOS_TAINT_DEPTH)
+// propagates the summary through all three levels — the audit flags
+// TAINT_INTERP.
+//
+// The sanitizer escape hatch stays: wrapping the LLM source in render()
+// lifts the taint.
+
+pattern ChainL3(x: String) -> String {
+  return upper(x)
+}
+
+pattern ChainL2(x: String) -> String {
+  return ChainL3(x)
+}
+
+pattern ChainL1(x: String) -> String {
+  return ChainL2(x)
+}
+
+pattern RunD3(_input: String) -> String {
+  let r = respond("200 OK", ChainL1(call_llm("translate me")))
+  return r
+}
+
+flow Main { input: String = "start" -> RunD3 -> output }

@@ -2435,7 +2435,73 @@ fn check_taint_passthrough_pattern(
 /// Bounded — no fixpoint analysis. Patterns deeper than this in the
 /// call graph are flagged with `INTERP_DEPTH_LIMIT` warning (analysis
 /// terminates cleanly, the boundary is documented in README + threat-model).
-const TAINT_INTERP_MAX_DEPTH: usize = 2;
+/// №376: the interprocedural taint depth limit is CONFIGURABLE via the
+/// `METALOGOS_TAINT_DEPTH` env var (integer, 1..=16; unset or invalid → the
+/// measured default below). The `INTERP_DEPTH_LIMIT` warning and the
+/// `bounded_recursion` flag are PRESERVED — the limit moved, the loudness
+/// stayed.
+///
+/// Default chosen by the №376 overhead measurement (see the наряд report):
+/// auditing the 222-file examples corpus, depth 2 → 4 cost +14.2% cold
+/// analysis time (59.7 ms → 68.1 ms; depth 8 → +23.8%) — within the +50%
+/// dispatch threshold, so the default is 4 (closes the depth-3/4 coverage
+/// hole for office dept/chain patterns).
+const DEFAULT_TAINT_INTERP_MAX_DEPTH: usize = 4;
+
+/// Read the configured depth (once per audit run). Values outside 1..=16 or
+/// non-numeric fall back to the default.
+fn taint_interp_max_depth() -> usize {
+    match std::env::var("METALOGOS_TAINT_DEPTH") {
+        Ok(v) => match v.trim().parse::<usize>() {
+            Ok(d) if (1..=16).contains(&d) => d,
+            _ => DEFAULT_TAINT_INTERP_MAX_DEPTH,
+        },
+        Err(_) => DEFAULT_TAINT_INTERP_MAX_DEPTH,
+    }
+}
+
+/// №376: cross-module summaries cache. Key = FNV-1a hash of the module
+/// source; value = the computed summaries. A workspace audit run visits
+/// many modules — an UNCHANGED module's summaries are computed once and
+/// reused on the next run/visit (recalculation only when the module
+/// content changes, per the наряд contract). Counters are exposed for
+/// tests via [`summaries_cache_stats`].
+type SummariesByModule =
+    std::collections::HashMap<(u64, usize), std::collections::HashMap<String, PatternSummary>>;
+
+static SUMMARIES_CACHE: std::sync::LazyLock<std::sync::Mutex<SummariesByModule>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+static SUMMARIES_CACHE_INSERTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static SUMMARIES_CACHE_HITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn fnv1a_source(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in bytes {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100_0000_01b3);
+    }
+    h
+}
+
+/// #[doc(hidden)] test/observability hook: (cache inserts, cache hits).
+#[doc(hidden)]
+pub fn summaries_cache_stats() -> (u64, u64) {
+    (
+        SUMMARIES_CACHE_INSERTS.load(std::sync::atomic::Ordering::SeqCst),
+        SUMMARIES_CACHE_HITS.load(std::sync::atomic::Ordering::SeqCst),
+    )
+}
+
+/// Clear the summaries cache (test isolation / forced recompute).
+#[doc(hidden)]
+pub fn summaries_cache_clear() {
+    SUMMARIES_CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+    SUMMARIES_CACHE_INSERTS.store(0, std::sync::atomic::Ordering::SeqCst);
+    SUMMARIES_CACHE_HITS.store(0, std::sync::atomic::Ordering::SeqCst);
+}
 
 /// Summary of a `pattern` declaration for interprocedural taint analysis.
 ///
@@ -2458,8 +2524,9 @@ struct PatternSummary {
 /// keyed by pattern name. Recursion / call cycles are detected via a
 /// visited-set during traversal; `bounded_recursion` is set on every
 /// pattern that participates in a cycle.
-fn compute_pattern_summaries(
+fn compute_pattern_summaries_with_depth(
     declarations: &[Declaration],
+    max_depth: usize,
 ) -> std::collections::HashMap<String, PatternSummary> {
     use std::collections::{HashMap, HashSet};
 
@@ -2480,7 +2547,7 @@ fn compute_pattern_summaries(
     }
 
     // Second pass: propagate taint through user-pattern calls. Bounded
-    // depth = TAINT_INTERP_MAX_DEPTH. We track a visited set per starting
+    // depth = the configured `taint_interp_max_depth()`. We track a visited set per starting
     // pattern so cycles are detected and `bounded_recursion` is set.
     let pattern_names: HashSet<String> = raw_summaries.keys().cloned().collect();
     let mut propagated: HashMap<String, PatternSummary> = raw_summaries.clone();
@@ -2495,6 +2562,7 @@ fn compute_pattern_summaries(
             &mut propagated,
             &mut visited,
             0,
+            max_depth,
         );
     }
 
@@ -2591,7 +2659,7 @@ fn collect_params_in_expr(
 /// call inside the return, mark the called pattern's params-tainting-return
 /// as contributing to the starting pattern's return (if not already).
 ///
-/// Bounded by `depth < TAINT_INTERP_MAX_DEPTH`. Cycles → `bounded_recursion`
+/// Bounded by `depth < max_depth` (the configured limit). Cycles → `bounded_recursion`
 /// flag is set on the calling pattern.
 fn propagate_params(
     pattern_name: &str,
@@ -2603,8 +2671,9 @@ fn propagate_params(
     propagated: &mut std::collections::HashMap<String, PatternSummary>,
     visited: &mut std::collections::HashSet<String>,
     depth: usize,
+    max_depth: usize,
 ) {
-    if depth >= TAINT_INTERP_MAX_DEPTH {
+    if depth >= max_depth {
         return;
     }
     // Get the (params, body) for this pattern; if missing, nothing to do.
@@ -2673,6 +2742,7 @@ fn propagate_params(
             propagated,
             visited,
             depth + 1,
+            max_depth,
         );
         visited.remove(&called_name);
     }
@@ -2754,7 +2824,7 @@ fn find_user_pattern_calls(
 /// the user-pattern call, the taint is lifted — no finding is emitted.
 /// This mirrors the intra-procedural `binding_taint` behavior.
 ///
-/// **Depth limit**: bounded to TAINT_INTERP_MAX_DEPTH = 2 levels. If a
+/// **Depth limit**: bounded to the configured `taint_interp_max_depth()` (№376, default 4). If a
 /// pattern is detected as part of a call cycle (`bounded_recursion` flag),
 /// emit `INTERP_DEPTH_LIMIT` warning — analysis terminated cleanly.
 fn check_taint_interp_pattern(
@@ -2762,7 +2832,24 @@ fn check_taint_interp_pattern(
     source: &str,
     findings: &mut Vec<AuditFinding>,
 ) {
-    let summaries = compute_pattern_summaries(declarations);
+    // №376: the configured depth (one read per audit run) + the cross-module
+    // summaries cache — recompute only when the module (source) changed.
+    let max_depth = taint_interp_max_depth();
+    // The cache key includes the depth: the same module measured at a
+    // different `METALOGOS_TAINT_DEPTH` must recompute (summaries differ).
+    let source_key = (fnv1a_source(source.as_bytes()), max_depth);
+    let summaries = {
+        let mut cache = SUMMARIES_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(cached) = cache.get(&source_key) {
+            SUMMARIES_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            cached.clone()
+        } else {
+            let computed = compute_pattern_summaries_with_depth(declarations, max_depth);
+            cache.insert(source_key, computed.clone());
+            SUMMARIES_CACHE_INSERTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            computed
+        }
+    };
 
     // If there are no patterns at all, nothing to check.
     if summaries.is_empty() {
@@ -2780,7 +2867,7 @@ fn check_taint_interp_pattern(
                 line,
                 message: format!(
                     "pattern `{}` participates in a call cycle — interprocedural taint analysis bounded at depth {}, the cycle is not fully explored",
-                    name, TAINT_INTERP_MAX_DEPTH
+                    name, max_depth
                 ),
             });
         }

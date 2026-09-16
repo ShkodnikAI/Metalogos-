@@ -8,7 +8,7 @@
 | Limitation | Primary source | Status / condition for removal |
 |---|---|---|
 | Intraprocedural taint — bounded nesting depth 3 (Наряд №295) | [README §Known boundaries](../README.md#known-boundaries-of-static-analysis) | Bounded to `TAINT_NESTING_MAX_DEPTH=3`; deeper nesting documented as boundary |
-| Interprocedural taint — bounded depth 2 (Наряд №292, `TAINT_INTERP`) | [ADR-0137](adr/0137-llm-streaming.md) (references); [README §Known boundaries](../README.md) | Bounded to `TAINT_INTERP_MAX_DEPTH=2`; deeper chains emit `INTERP_DEPTH_LIMIT` warning |
+| Interprocedural taint — bounded depth, now CONFIGURABLE (Наряд №292; №376) | [ADR-0137](adr/0137-llm-streaming.md) (references); [README §Known boundaries](../README.md) | Bounded to `METALOGOS_TAINT_DEPTH` (default **4** — chosen by the №376 overhead measurement: depth 2→4 = +14.2% audit time on the 222-file corpus, within the +50% dispatch threshold; range 1..=16, invalid → default); deeper chains emit `INTERP_DEPTH_LIMIT` warning; cross-module summaries cache recomputes only on module change (key = source hash + depth) |
 | Persistence taint — file/module scope only (Наряд №141/№157) | [threat-model.md §Known Boundaries](threat-model.md) | `TAINT_PERSISTENCE` check exists (Category-A Error) but bounded to file scope, not cross-module data-flow |
 | `{{{ var }}}` raw template substitution bypasses escaping | [threat-model.md §Known Boundaries](threat-model.md) | By design — `template_render` with `raw=true` is trusted-author code only |
 | `query(format(...))` — NOT a gap (Наряд №295 truth-up) | [threat-model.md §Known Boundaries](threat-model.md) | `check_sql_dynamic` rejects ALL non-literals in 1st arg of `query()`/`db_execute()` — compile-time error, not a silent gap |

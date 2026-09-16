@@ -1,0 +1,37 @@
+// ── №376 red/green: interprocedural taint chain of DEPTH 4 ──────────
+// Source (call_llm) → L4 → L3 → L2 → L1 → sink. Four pattern levels —
+// the office dept/chain shape (source → обёртка → маршрутизатор → sink).
+//
+// RED (pre-№376): depth 2 — NOT caught.
+// GREEN (post-№376): configured depth (default 4) — TAINT_INTERP flagged.
+//
+// The sanitizer escape hatch stays: wrapping the LLM source in render()
+// lifts the taint (no finding on the sanitized variant below).
+
+pattern ChainL4(x: String) -> String {
+  return upper(x)
+}
+
+pattern ChainL3(x: String) -> String {
+  return ChainL4(x)
+}
+
+pattern ChainL2(x: String) -> String {
+  return ChainL3(x)
+}
+
+pattern ChainL1(x: String) -> String {
+  return ChainL2(x)
+}
+
+pattern RunD4(_input: String) -> String {
+  let r = respond("200 OK", ChainL1(ChainL2(ChainL3(call_llm("translate me")))))
+  return r
+}
+
+pattern RunD4Sanitized(_input: String) -> String {
+  let safe = respond("200 OK", render(ChainL1(call_llm("translate me"))))
+  return safe
+}
+
+flow Main { input: String = "start" -> RunD4 -> output }

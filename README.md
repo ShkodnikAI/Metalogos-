@@ -169,7 +169,7 @@ $ mlog check poison.mlog
 
 #### Known boundaries of static analysis
 
-These checks use **intraprocedural taint tracking** — they follow `let`-assignment chains within a single pattern body, bounded to nesting depth `TAINT_NESTING_MAX_DEPTH = 3` (Наряд №295). **As of naryad №292, summary-based interprocedural taint is also tracked** (bounded depth 2 — see `TAINT_INTERP` below). The following patterns are **not** detected at compile time:
+These checks use **intraprocedural taint tracking** — they follow `let`-assignment chains within a single pattern body, bounded to nesting depth `TAINT_NESTING_MAX_DEPTH = 3` (Наряд №295). **As of naryad №292, summary-based interprocedural taint is also tracked** (configurable depth, default 4 — see `TAINT_INTERP` below). The following patterns are **not** detected at compile time:
 
 | Pattern | Why not caught |
 |---|---|
@@ -183,7 +183,7 @@ These checks use **intraprocedural taint tracking** — they follow `let`-assign
 |---|---|---|---|
 | `TAINT_PERSISTENCE` | Warning | Same-scope: `memorize(call_llm(...))` + `recall()` + `respond()` | `memorize call_llm("summarize")` then `let ctx = recall("q"); respond("200 OK", ctx)` |
 | `TAINT_PASSTHROUGH` | Error | Trivial passthrough pattern wrapping LLM output (1-param `return x`) | `pattern Wrap(x: String) { return x }` then `respond("200 OK", Wrap(call_llm("...")))` |
-| `TAINT_INTERP` (Наряд №292) | Error | **Interprocedural** — non-trivial pattern wrapping LLM output, bounded depth 2 | `pattern Wrap(x: String) { return upper(x) }` then `respond("200 OK", Wrap(call_llm("...")))` |
+| `TAINT_INTERP` (Наряд №292; №376) | Error | **Interprocedural** — non-trivial pattern wrapping LLM output, bounded depth `METALOGOS_TAINT_DEPTH` (default 4, configurable 1..=16; summaries cached per module — №376) | `pattern Wrap(x: String) { return upper(x) }` then `respond("200 OK", Wrap(call_llm("...")))` |
 | `INTERP_DEPTH_LIMIT` (Наряд №292) | Warning | Recursive / cyclic pattern in the call graph — analysis terminated at depth 2 | `pattern Recurse(x) { return Recurse(x) }` |
 
 `TAINT_INTERP` is a Category-A compile-time error (audit_category_a). `INTERP_DEPTH_LIMIT` is advisory only (audit_program, not promoted to a compile error). Sanitizers (`render()`/`escape_html()`) wrapping the LLM source lift the taint — zero false positives on legitimate code.
@@ -270,7 +270,7 @@ Metalogos-/
 ├── CLAUDE.md                         # Bridge copy of AGENTS.md for Claude-compatible tools (synced manually — see issue #299)
 ├── GEMINI.md                         # Bridge copy of AGENTS.md for Gemini-compatible tools (synced manually — see issue #299)
 ├── REFERENCE.md                      # Full builtin reference (~226 KB) — 100% of the registry (§6 index + №316 classification)
-├── CHANGELOG.md                      # Version history (~305 KB)
+├── CHANGELOG.md                      # Version history (~309 KB)
 ├── AI_USAGE.md                       # Disclosure: how generative AI is used in this project's development
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap
@@ -364,7 +364,7 @@ Metalogos-/
 │   ├── definition_of_done.rs          # Project completeness validation
 │   └── ...                            # and 142 more contract/feature test files
 │
-├── examples/                          # 220 .mlog programs (golden corpus)
+├── examples/                          # 222 .mlog programs (golden corpus)
 │   ├── m1_hello.mlog                  # Hello World
 │   ├── p6_full_app.mlog               # Full web app with routes
 │   ├── p23_ml_learn.mlog              # ML learning
@@ -1019,7 +1019,7 @@ Four integration tests verify the new behavior:
 |---|---|
 | Effective Rust LOC | ~59 000 |
 | Built-in Functions | 421 (39 modules) |
-| Example Programs | 220 |
+| Example Programs | 222 |
 | Integration Tests | 70 test suites |
 | Architecture Decision Records | 153 |
 | Parser Rules | 288 (Pest PEG) |

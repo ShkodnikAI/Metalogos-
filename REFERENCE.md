@@ -1,7 +1,7 @@
 # METALOGOS — Language Reference
 
 > **Version:** 0.20.0
-> **Synced with code:** 2026-09-16 (naryad №334) · 435 builtins · 156 ADR files (149 accepted + 7 reserved)
+> **Synced with code:** 2026-09-16 (naryad №335) · 439 builtins · 156 ADR files (149 accepted + 7 reserved)
 > **Single source of truth** for developers writing in Metalogos.
 > Contains the full list of built-in functions with signatures, types, descriptions, and examples,
 > as well as a reference for syntax, data types, and the CLI.
@@ -522,7 +522,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 435 registered builtins (435 of 435): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 439 registered builtins (439 of 439): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1884,7 +1884,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 435 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 439 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2286,12 +2286,16 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 |---|---|---|---|
 | `backend_list(...)` | variadic | — | `backend_list()` — the static backend registry as `List[Struct { name, class, weights_id, pin, license, license_note }]`. |
 
-### `security` — 2 builtin(s)
+### `security` — 6 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
 | `canary_check(...)` | 2..3 | `String, String[, Struct] -> Struct` | Runtime leak detector: checks the LLM response for the canary marker — exact occurrence + resistant to trivial distortions (case, splitting by whitespace/punctuation). opts: `mode` ("exact" default; "zwsp" additionally ignores zero-width chars U+200B/200C/200D/2060/FEFF inside the marker — in "exact" they DELIBERATELY break the match). Returns `{leaked, id, position}` — position is the CHAR index of the first occurrence in the original text, -1.0 when clean. Leak → runtime CANARY_LEAK warning (stderr) + `llm_usage().canary_leaks` counter; statically, inside `if (r.leaked) {...}` the response is labeled «compromised channel» and sink usage warns CANARY_LEAK. Detector, NOT a gate. Unknown/malformed canary_id (a secret is not a canary) — loud error (№284) |
 | `canary_insert(...)` | 1..2 | `String[, Struct] -> Struct` | Embeds a random canary marker (`MLOG-CANARY-` + 26 base32 chars, 128-bit entropy) into untrusted text BEFORE sending it to the LLM. Returns `{marked_text, canary_id}`. opts: `count` (1..=4, default 1 — same id inserted count times), `position` ("random" |
+| `consent_grant(...)` | 2..4 | — | `consent_grant(value, scope, subject?, ttl_seconds?)` — record the grant in the ledger; the value passes through with its consent scope extended (static: semantic.rs label_source). |
+| `consent_ledger_export(...)` | 1 | — | `consent_ledger_export(path)` — dump the ledger as JSON to a sandboxed path (FILE EGRESS — classified Sink, audited). Returns the written path. |
+| `consent_revoke(...)` | 1..2 | — | `consent_revoke(value, scope?)` — record the revocation (scope or ALL); the value is returned under the quarantine label — the flat cascade poisons every derivative through lattice absorption. |
+| `quarantine_write(...)` | 1..2 | — | `quarantine_write(value, reason?)` — the quarantine sink: the ONLY legal egress for a poisoned value. Returns the audit-event text (the program-visible half of the event; the static half is the QUARANTINE_EGRESS audit finding + stderr line, №326 posture). |
 
 ### `std` — 11 builtin(s)
 
@@ -2591,6 +2595,10 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `stt_transcribe` | source | internal | pure | local STT backend call (№334, whisper-turbo canon): ingests the transcript into the flow; the audio stays local (no upload — unlike whisper_transcribe); real mode requires SHA-pinned weights (PARKED №294) |
 | `omni_ask` | source | internal | pure | local omni backend call (№334, nemotron canon): ingests the model answer into the flow; no network egress; real mode requires SHA-pinned weights (PARKED №294) |
 | `vision_understand` | source | internal | pure | local vision-understanding backend call (№334, molmoact2 canon): ingests the answer about an image into the flow; no upload, no egress; real mode requires SHA-pinned weights (PARKED №294) |
+| `consent_grant` | lift | public | pure | records (subject, scope, TTL) in the consent ledger and passes the value through with the consent scope EXTENDED (semantic.rs label_source) — process-local bookkeeping, no egress |
+| `consent_revoke` | lift | public | pure | records the revocation and returns the value under the QUARANTINE label — the flat cascade is lattice absorption (poison is absorbing, ADR-0154 §2.1); process-local bookkeeping |
+| `quarantine_write` | sink | internal | reversible | THE quarantine sink — the only legal egress for poisoned values (№325 clearance exempts it); unconditional QUARANTINE_EGRESS audit event (№326 posture) |
+| `consent_ledger_export` | sink | internal | reversible | dumps the consent ledger as JSON to a sandboxed path — FILE EGRESS with an audit event (grant/TTL/revoke records never leave the process silently) |
 | `abs` | pure | public | pure | — |
 | `min` | pure | public | pure | — |
 | `max` | pure | public | pure | — |

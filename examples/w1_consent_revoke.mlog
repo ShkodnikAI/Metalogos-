@@ -1,0 +1,16 @@
+// Наряд №335 (spec §7.2 v2): consent grant/revoke + карантинный sink.
+// Grant расширяет consent-scope метки значения (gdpr, субъект patient-1);
+// revoke — ПЛОСКИЙ каскад: все производные от отозванного значения получают
+// карантинную метку (conf: poisoned, integrity: untrusted) — поглощение
+// решётки ADR-0154. Карантинный sink quarantine_write — ЕДИНСТВЕННЫЙ
+// легальный egress для карантинных значений: легален и аудируем
+// (событие QUARANTINE_EGRESS — в выводе программы и в audit-отчёте).
+pattern Revoke(_tick: String) -> String {
+  let data = "patient-record-42"
+  let granted = consent_grant(data, "gdpr", "patient-1")
+  let revoked = consent_revoke(granted, "gdpr")
+  let copy = revoked
+  let joined = copy + "!"
+  return quarantine_write(joined, "gdpr revoked by patient")
+}
+flow Main { input: String = "tick" -> Revoke -> output }

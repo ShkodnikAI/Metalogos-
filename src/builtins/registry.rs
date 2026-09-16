@@ -38,6 +38,11 @@ use super::backends::builtin_backend_list;
 // call surface over the №333 registry (SHA-pin path, ADR-0163 §2.1).
 use crate::vision::understand::builtin_vision_understand;
 use crate::voice::backend::{builtin_omni_ask, builtin_stt_transcribe};
+// Наряд №335 (spec §7.2 v2): consent surface — grant/revoke/quarantine/ledger.
+use super::consent::{
+    builtin_consent_grant, builtin_consent_ledger_export, builtin_consent_revoke,
+    builtin_quarantine_write,
+};
 // Наряд №302 (ADR-0143-0146): Voice pillar skeleton builtins — stubs.
 use super::*;
 #[cfg(feature = "voice")]
@@ -792,6 +797,18 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("stt_transcribe", 1, 2, "voice"; builtin_stt_transcribe),
     spec!("omni_ask", 1, 3, "voice"; builtin_omni_ask),
     spec!("vision_understand", 1, 3, "vision"; builtin_vision_understand),
+    // ── Наряд №335 (spec §7.2 v2): consent grant/revoke + quarantine ──
+    // The consent component's surface (redact precedent: policy as
+    // value, builtins not AST). grant/revoke record the ledger and pass
+    // the value; the STATIC label rules live in semantic.rs label_source
+    // (grant extends the consent scope, revoke = quarantine label — the
+    // flat cascade via lattice absorption). quarantine_write is the ONLY
+    // legal egress for poisoned values (audit event). Ledger export is
+    // file egress, audited. Registry 435→439 (append-only).
+    spec!("consent_grant", 2, 4, "security"; builtin_consent_grant),
+    spec!("consent_revoke", 1, 2, "security"; builtin_consent_revoke),
+    spec!("quarantine_write", 1, 2, "security"; builtin_quarantine_write),
+    spec!("consent_ledger_export", 1, "security"; builtin_consent_ledger_export),
 ];
 
 /// Total number of registered builtins.

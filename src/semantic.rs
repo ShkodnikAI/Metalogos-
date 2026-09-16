@@ -237,6 +237,42 @@ fn label_source(fn_name: &str, args: &[Expr], env: &BTreeMap<String, Label>) -> 
                 _ => Some(input),
             }
         }
+        // №335 (spec §7.2 v2): consent_grant extends the value's
+        // consent-scope set by the granted scope. Non-literal scope
+        // cannot be named statically — conservative no-extension (the
+        // redact dynamic-policy posture); the ledger still records the
+        // runtime grant.
+        "consent_grant" => {
+            let input = args
+                .first()
+                .map(|a| expr_label(a, env))
+                .unwrap_or_else(Label::bottom);
+            match args.get(1) {
+                Some(Expr::StringLit { value, .. }) => {
+                    let consent = input
+                        .consent
+                        .clone()
+                        .meet(crate::labels::ConsentScope::from_scopes([value.as_str()]));
+                    Some(Label {
+                        conf: input.conf,
+                        integrity: input.integrity,
+                        consent,
+                    })
+                }
+                _ => Some(input),
+            }
+        }
+        // №335: consent_revoke — the FLAT cascade entry point. The
+        // revoked value (and every value derived from it) carries the
+        // QUARANTINE label: poison is ABSORBING in the lattice
+        // (ADR-0154 §2.1) — join with anything stays poisoned, so the
+        // cascade is the lattice's own semantics, not a separate
+        // analysis. Quarantine clears the consent scope too.
+        "consent_revoke" => Some(Label {
+            conf: crate::labels::Conf::Poisoned,
+            integrity: crate::labels::Integrity::Untrusted,
+            consent: Default::default(),
+        }),
         _ => None,
     }
 }
@@ -2253,6 +2289,13 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
     /// Clearance check for one sink argument. Returns the reason the
     /// argument fails, if any.
     fn clearance_failure(fn_name: &str, label: &Label) -> Option<&'static str> {
+        // №335: the quarantine sink is the ONLY legal egress for a
+        // poisoned value (unconditional audit event; №326 posture) —
+        // exempt from every clearance class here. Every OTHER sink
+        // still refuses poisoned below (quarantine absorbs them).
+        if fn_name == "quarantine_write" {
+            return None;
+        }
         // Quarantine clears nothing, anywhere (ADR-0154 §2.1).
         if label.conf == crate::labels::Conf::Poisoned {
             return Some("poisoned");

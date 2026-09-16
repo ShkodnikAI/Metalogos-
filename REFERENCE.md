@@ -1,7 +1,7 @@
 # METALOGOS — Language Reference
 
 > **Version:** 0.20.0
-> **Synced with code:** 2026-09-16 (naryad №331) · 429 builtins · 154 ADR files (147 accepted + 7 reserved)
+> **Synced with code:** 2026-09-16 (naryad №333) · 430 builtins · 155 ADR files (148 accepted + 7 reserved)
 > **Single source of truth** for developers writing in Metalogos.
 > Contains the full list of built-in functions with signatures, types, descriptions, and examples,
 > as well as a reference for syntax, data types, and the CLI.
@@ -471,7 +471,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 429 registered builtins (429 of 429): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 430 registered builtins (430 of 430): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1833,7 +1833,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 429 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 430 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2227,6 +2227,12 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `reflex_tokenize(...)` | 1 | — | `reflex_tokenize(text) -> List<Float>` |
 | `reflex_train(...)` | 5 | `(Reflex, List<List<Float>>, Float, String, Float) -> Struct` | Trains model `model` on `data`. Each row of `data` is `[features..., class_idx]` (the last element is the label index). An 80/20 holdout split (ADR-0115), a minimum of 10 examples. `epochs` is the number of epochs (>=0), `metric` is a metric name from `METRIC_REGISTRY` (usually `"accuracy"`), `threshold` is a 0.0..1.0 threshold for `threshold_met`. `learning_rate` is fixed at 0.1. |
 
+### `registry` — 1 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description |
+|---|---|---|---|
+| `backend_list(...)` | variadic | — | `backend_list()` — the static backend registry as `List[Struct { name, class, weights_id, pin, license, license_note }]`. |
+
 ### `security` — 2 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
@@ -2525,6 +2531,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `__round` | pure | public | pure | — |
 | `__first` | pure | public | pure | — |
 | `__last` | pure | public | pure | — |
+| `backend_list` | source | public | pure | reads the static backend registry metadata (name/class/weights_id/pin/license — ADR-0163) — no weights bytes exist behind the entries |
 | `abs` | pure | public | pure | — |
 | `min` | pure | public | pure | — |
 | `max` | pure | public | pure | — |

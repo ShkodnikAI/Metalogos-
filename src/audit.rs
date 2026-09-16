@@ -3577,6 +3577,246 @@ fn check_media_handle_opacity(
     }
 }
 
+/// ── Check: BACKEND_LICENSE_DISTRIBUTION (Наряд №333, ADR-0163 §2.2) ──
+/// A program that NAMES non-osi/restrictive weights (string literals at
+/// any position + the `vision { model: … }` field) is a distribution
+/// violation under the default profile: compile-blocking Error naming
+/// the license class and the registry record. Under
+/// `profile licensing { backends: permissive_with_audit }` (the loud
+/// bridge, №325 precedent) the same sites become Info audit events —
+/// usage is allowed but never silent. Restrictive entries are
+/// default-deny (unverified license) and unlock together with non-osi
+/// under the bridge.
+fn check_backend_license(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    fn walk_string_exprs<'a>(expr: &'a Expr, acc: &mut Vec<&'a String>) {
+        match expr {
+            Expr::StringLit { value, .. } => acc.push(value),
+            Expr::FnCall { args, .. } | Expr::QualifiedCall { args, .. } => {
+                for a in args {
+                    walk_string_exprs(a, acc);
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                walk_string_exprs(left, acc);
+                walk_string_exprs(right, acc);
+            }
+            Expr::IfElse {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                walk_string_exprs(condition, acc);
+                walk_string_exprs(then_branch, acc);
+                walk_string_exprs(else_branch, acc);
+            }
+            Expr::List { items, .. } => {
+                for i in items {
+                    walk_string_exprs(i, acc);
+                }
+            }
+            Expr::FieldAccess { object, .. } => walk_string_exprs(object, acc),
+            Expr::IndexAccess { object, index, .. } => {
+                walk_string_exprs(object, acc);
+                walk_string_exprs(index, acc);
+            }
+            Expr::BlockIfElse {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                walk_string_exprs(condition, acc);
+                walk_string_stmts(then_body, acc);
+                for (c, body) in else_ifs {
+                    walk_string_exprs(c, acc);
+                    walk_string_stmts(body, acc);
+                }
+                if let Some(eb) = else_body {
+                    walk_string_stmts(eb, acc);
+                }
+            }
+            Expr::MatchExpr {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                walk_string_exprs(scrutinee, acc);
+                for arm in arms {
+                    walk_string_stmts(arm.body(), acc);
+                }
+                if let Some(eb) = else_body {
+                    walk_string_stmts(eb, acc);
+                }
+            }
+            Expr::Try { expr, .. } => walk_string_exprs(expr, acc),
+            _ => {}
+        }
+    }
+
+    fn walk_string_stmts<'a>(stmts: &'a [Statement], acc: &mut Vec<&'a String>) {
+        for stmt in stmts {
+            match stmt {
+                Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                    walk_string_exprs(value, acc)
+                }
+                Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
+                    walk_string_exprs(expr, acc)
+                }
+                Statement::Each { iterable, body, .. } => {
+                    walk_string_exprs(iterable, acc);
+                    walk_string_stmts(body, acc);
+                }
+                Statement::EachWithIndex { iterable, body, .. } => {
+                    walk_string_exprs(iterable, acc);
+                    walk_string_stmts(body, acc);
+                }
+                Statement::While {
+                    condition, body, ..
+                } => {
+                    walk_string_exprs(condition, acc);
+                    walk_string_stmts(body, acc);
+                }
+                Statement::IfElseBlock {
+                    condition,
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
+                    walk_string_exprs(condition, acc);
+                    walk_string_stmts(then_body, acc);
+                    for (c, body) in else_ifs {
+                        walk_string_exprs(c, acc);
+                        walk_string_stmts(body, acc);
+                    }
+                    if let Some(eb) = else_body {
+                        walk_string_stmts(eb, acc);
+                    }
+                }
+                Statement::IfThen {
+                    condition, body, ..
+                } => {
+                    walk_string_exprs(condition, acc);
+                    walk_string_stmts(body, acc);
+                }
+                Statement::Match {
+                    scrutinee,
+                    arms,
+                    else_body,
+                    ..
+                } => {
+                    walk_string_exprs(scrutinee, acc);
+                    for arm in arms {
+                        walk_string_stmts(arm.body(), acc);
+                    }
+                    if let Some(eb) = else_body {
+                        walk_string_stmts(eb, acc);
+                    }
+                }
+                Statement::Memorize(m) => walk_string_exprs(&m.value, acc),
+                Statement::Forget(f) => walk_string_exprs(&f.query, acc),
+                Statement::Relate(r) => {
+                    walk_string_exprs(&r.from, acc);
+                    walk_string_exprs(&r.to, acc);
+                }
+                Statement::Break | Statement::Continue => {}
+            }
+        }
+    }
+
+    let permissive = crate::profile::resolve(declarations).backend_license_permissive();
+
+    for decl in declarations {
+        let mut strings: Vec<&String> = Vec::new();
+        match decl {
+            Declaration::Pattern(p) => walk_string_stmts(&p.body, &mut strings),
+            Declaration::LearnablePattern(lp) => {
+                // The prompt is a literal carrier too — a learnable
+                // pattern can name the weights it wants (№334 surface).
+                strings.push(&lp.prompt);
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    walk_string_stmts(&m.body, &mut strings);
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for route in &srv.routes {
+                    walk_string_stmts(&route.body, &mut strings);
+                }
+            }
+            Declaration::Hook(h) => walk_string_stmts(&h.body, &mut strings),
+            Declaration::Vision(v) => {
+                // The declaration model field is the canonical reference
+                // position (`vision { model: "z-image-turbo", … }`).
+                strings.push(&v.model);
+            }
+            Declaration::Memorize(m) => walk_string_exprs(&m.value, &mut strings),
+            Declaration::Forget(f) => walk_string_exprs(&f.query, &mut strings),
+            Declaration::Relate(r) => {
+                walk_string_exprs(&r.from, &mut strings);
+                walk_string_exprs(&r.to, &mut strings);
+            }
+            Declaration::Flow(f) => walk_string_exprs(&f.source, &mut strings),
+            Declaration::EntitySimple(e) => walk_string_exprs(&e.value, &mut strings),
+            Declaration::EntityRecord(e) => {
+                for fi in &e.fields {
+                    walk_string_exprs(&fi.value, &mut strings);
+                }
+            }
+            _ => {}
+        }
+
+        for s in strings {
+            // A literal NAMES the weights when it equals (case-insensitive)
+            // a registered weights id. Substring matches would false-positive
+            // on documentation prose — exact (ci) only.
+            let entry = match crate::backends::find_by_weights_id_ci(s) {
+                Some(e) if e.license != crate::backends::LicenseClass::Osi => e,
+                _ => continue,
+            };
+            let snippet = crate::util::safe_byte_truncate(s, 24);
+            let line = find_line(source, snippet);
+            if permissive {
+                findings.push(AuditFinding {
+                    severity: Severity::Info,
+                    check_id: "BACKEND_LICENSE",
+                    line,
+                    message: format!(
+                        "[audit-event] non-osi/restrictive backend weights '{}' ({}),                          license: {} — allowed by profile licensing (bridge, not residence;                          ADR-0163)",
+                        entry.weights_id,
+                        entry.class.as_str(),
+                        entry.license_note
+                    ),
+                });
+            } else {
+                findings.push(AuditFinding {
+                    severity: Severity::Error,
+                    check_id: "BACKEND_LICENSE_DISTRIBUTION",
+                    line,
+                    message: format!(
+                        "backend weights '{}' (class {}) are {} and FORBIDDEN in the \
+                         distribution profile — license: {}. Unlock explicitly with \
+                         'profile licensing {{ backends: permissive_with_audit }}' \
+                         (audited bridge, ADR-0163)",
+                        entry.weights_id,
+                        entry.class.as_str(),
+                        entry.license.as_str(),
+                        entry.license_note
+                    ),
+                });
+            }
+        }
+    }
+}
+
 fn check_redact_events(
     declarations: &[Declaration],
     source: &str,
@@ -3787,6 +4027,10 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     // Наряд №331 (ADR-0162 §2.5): opaque media handles — type-level
     // gate, always Error (see the check doc above).
     check_media_handle_opacity(declarations, source, &mut findings);
+    // Наряд №333 (ADR-0163): backend license gate — distribution
+    // refusal for non-osi/restrictive weights references, audited
+    // bridge under 'profile licensing'.
+    check_backend_license(declarations, source, &mut findings);
     // Наряд №326 (ADR-0154 §10): every redact application is an
     // unconditional audit event (Severity::Info — never blocking).
     check_redact_events(declarations, source, &mut findings);
@@ -3838,6 +4082,8 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     // Наряд №331 (ADR-0162 §2.5): opaque media handles — type-level
     // gate, always Error.
     check_media_handle_opacity(&declarations, source, &mut findings);
+    // Наряд №333 (ADR-0163): backend license gate.
+    check_backend_license(&declarations, source, &mut findings);
     // Наряд №326 (ADR-0154 §10): every redact application is an
     // unconditional audit event (Severity::Info — never blocking).
     check_redact_events(&declarations, source, &mut findings);

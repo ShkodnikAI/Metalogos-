@@ -21,6 +21,7 @@ pub mod audit;
 pub mod builtins;
 // Наряд №316 (issue #403): SSOT-классификация builtins — роль × метка ×
 // обратимость. Статическая карта + тесты покрытия 100% (устав §11 Шаг 3).
+pub mod backends;
 pub mod builtins_classification;
 pub mod bytecode;
 pub mod compiler;
@@ -31,6 +32,7 @@ pub mod interpreter;
 pub mod labels;
 pub mod llm;
 pub mod mcp_server;
+pub mod media;
 pub mod memory_graph;
 pub mod memory_store;
 pub mod nn;
@@ -42,7 +44,6 @@ pub mod profile;
 // Наряд №286: shared JSON-Schema validation (ADR-0133) — один валидатор
 // для call_llm_schema и json_validate (дифференциальный контракт «ни одного
 // нового правила»).
-pub mod media;
 pub mod schema;
 pub mod semantic;
 #[cfg(feature = "server")]

@@ -34,6 +34,10 @@ use super::media::{
 };
 // Наряд №333 (ADR-0163): backend registry listing (stateless).
 use super::backends::builtin_backend_list;
+// Наряд №334: real STT/omni/vision-understanding backends — the mock-first
+// call surface over the №333 registry (SHA-pin path, ADR-0163 §2.1).
+use crate::vision::understand::builtin_vision_understand;
+use crate::voice::backend::{builtin_omni_ask, builtin_stt_transcribe};
 // Наряд №302 (ADR-0143-0146): Voice pillar skeleton builtins — stubs.
 use super::*;
 #[cfg(feature = "voice")]
@@ -778,6 +782,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("video_extend", 2, "video"; builtin_video_extend),
     #[cfg(feature = "video")]
     spec!("video_fetch_weights", 2, "video"; builtin_video_fetch_weights_stub),
+    // ── Наряд №334 (P0, feature/backends): real STT/omni/vision-
+    // understanding backends — the SHA-pin path. Mock-first call surface
+    // over the №333 registry: METALOGOS_LLM_MOCK default = deterministic
+    // mock (the golden contract); real mode refuses LOUDLY unless the
+    // SHA-verified weights are on disk (PARKED №294 — no inference is
+    // promised). Handlers: voice::backend (stt/omni), vision::understand.
+    // Registry 432→435 (append-only, bytecode indices stable).
+    spec!("stt_transcribe", 1, 2, "voice"; builtin_stt_transcribe),
+    spec!("omni_ask", 1, 3, "voice"; builtin_omni_ask),
+    spec!("vision_understand", 1, 3, "vision"; builtin_vision_understand),
 ];
 
 /// Total number of registered builtins.

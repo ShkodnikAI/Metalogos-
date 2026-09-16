@@ -126,6 +126,10 @@ pub const KNOWN_VOICE_MODELS: &[&str] = &["chatterbox-multilingual-v3", "koko-ro
 
 pub mod encoder;
 pub mod store;
+// №334: STT/omni backend wiring — the mock-first call contract over the
+// №333 registry (not feature-gated: the mock path and the loud refusals
+// are available in all builds, mirroring KNOWN_VOICE_MODELS).
+pub mod backend;
 //
 // All voice builtins are stubs in the skeleton phase (A1). They return
 // loud errors — no silent fallbacks. Real implementation in A2/A3/A5+.

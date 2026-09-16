@@ -52,16 +52,14 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                     // bytecode natively, and the example now runs end-to-end
                     // (flow Main drives all four patterns), so TW↔VM parity
                     // is asserted by the regular crosscheck below.
-                    // Наряд №118 / ADR-0105: p118_collection_utils exercises
-                    // unique/chunk/sort builtins whose results flow through
-                    // string concatenation (+). The VM's eval_binop rejects
-                    // heterogeneous operand types (e.g. List + String),
-                    // whereas the TW interpreter auto-coerces. VM parity
-                    // for these builtins requires a deliberate VM eval_binop
-                    // relaxation — tracked separately.
-                    if name == "p118_collection_utils.mlog" {
-                        continue;
-                    }
+                    // №371 (ADR-0141 Stage 1.3): the p118_collection_utils
+                    // exclusion is LIFTED. The VM's eval_binop now mirrors the
+                    // TW interpreter exactly: same opaque-type restriction on
+                    // `+`, same MAX_STRING_LENGTH (1 MB) limit, and the same
+                    // loud messages for heterogeneous operands (List + String
+                    // errors identically in both backends). The example runs
+                    // end-to-end on both backends with identical output, so
+                    // TW↔VM parity is asserted by the regular crosscheck.
                     // Наряд №177: reflex_math uses random_seed/random (TW-only —
                     // VM has no PRNG state). Also uses Bool→String formatting
                     // (to_string(true) → "true" in TW, "1" in VM).

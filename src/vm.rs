@@ -3541,48 +3541,91 @@ impl Vm {
     }
 
     /// Evaluate a binary operation.
+    /// Наряд №371 (ADR-0141 Stage 1.3): binop semantics aligned with the TW
+    /// interpreter (`src/interpreter/execution.rs` `eval_binop`). The VM is no
+    /// longer stricter than TW on heterogeneous operands: both reject `+` for
+    /// non-(String|Float) pairs with the SAME loud message, both enforce the
+    /// same opaque-type restriction on concatenation and the same
+    /// MAX_STRING_LENGTH (1 MB) limit. The old VM messages ("type mismatch:
+    /// List Add String", "cannot apply Div to two Strings") diverged from TW
+    /// wording and broke TW↔VM error parity.
     fn eval_binop(
         &self,
         left: Value,
         op: crate::ast::BinOp,
         right: Value,
     ) -> Result<Value, String> {
-        match (left, right) {
-            (Value::String(a), Value::String(b)) => match op {
-                crate::ast::BinOp::Add => Ok(Value::String(format!("{}{}", a, b))),
-                crate::ast::BinOp::Eq => Ok(Value::Float(if a == b { 1.0 } else { 0.0 })),
-                crate::ast::BinOp::Ne => Ok(Value::Float(if a != b { 1.0 } else { 0.0 })),
-                _ => Err(format!("cannot apply {:?} to two Strings", op)),
-            },
-            (Value::Float(a), Value::Float(b)) => match op {
-                crate::ast::BinOp::Add => Ok(Value::Float(a + b)),
-                crate::ast::BinOp::Sub => Ok(Value::Float(a - b)),
-                crate::ast::BinOp::Mul => Ok(Value::Float(a * b)),
-                crate::ast::BinOp::Div => {
-                    if b == 0.0 {
-                        Err("division by zero".to_string())
-                    } else {
-                        Ok(Value::Float(a / b))
-                    }
+        // Same limit as TW (`Interpreter::MAX_STRING_LENGTH`).
+        const MAX_STRING_LENGTH: usize = 1_000_000; // 1 MB
+
+        // Enforce opaque type restrictions for Add (concatenation) — TW parity.
+        if matches!(op, crate::ast::BinOp::Add) {
+            if Self::is_opaque_value(&left) {
+                return Err(format!(
+                    "cannot concatenate opaque type {}",
+                    left.type_name()
+                ));
+            }
+            if Self::is_opaque_value(&right) {
+                return Err(format!(
+                    "cannot concatenate opaque type {}",
+                    right.type_name()
+                ));
+            }
+        }
+        match (op, left, right) {
+            // String concatenation — with the same length limit as TW.
+            (crate::ast::BinOp::Add, Value::String(a), Value::String(b)) => {
+                let result = format!("{}{}", a, b);
+                if result.len() > MAX_STRING_LENGTH {
+                    Err(format!(
+                        "string length {} exceeds maximum allowed {}",
+                        result.len(),
+                        MAX_STRING_LENGTH
+                    ))
+                } else {
+                    Ok(Value::String(result))
                 }
-                crate::ast::BinOp::Gt => Ok(Value::Float(if a > b { 1.0 } else { 0.0 })),
-                crate::ast::BinOp::Lt => Ok(Value::Float(if a < b { 1.0 } else { 0.0 })),
-                crate::ast::BinOp::Ge => Ok(Value::Float(if a >= b { 1.0 } else { 0.0 })),
-                crate::ast::BinOp::Le => Ok(Value::Float(if a <= b { 1.0 } else { 0.0 })),
-                crate::ast::BinOp::Eq => Ok(Value::Float(if a == b { 1.0 } else { 0.0 })),
-                crate::ast::BinOp::Ne => Ok(Value::Float(if a != b { 1.0 } else { 0.0 })),
-                // And/Or are boolean logic operators, not valid for Float operands directly.
-                crate::ast::BinOp::And | crate::ast::BinOp::Or => {
-                    Err(format!("BinOp::{:?} not valid for Float operands", op))
+            }
+            // Arithmetic on Floats.
+            (crate::ast::BinOp::Add, Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
+            (crate::ast::BinOp::Sub, Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
+            (crate::ast::BinOp::Mul, Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
+            (crate::ast::BinOp::Div, Value::Float(a), Value::Float(b)) => {
+                if b == 0.0 {
+                    Err("division by zero".to_string())
+                } else {
+                    Ok(Value::Float(a / b))
                 }
-            },
-            (l, r) => Err(format!(
-                "type mismatch: {} {:?} {}",
+            }
+            // Heterogeneous Add — the same loud error as TW.
+            (crate::ast::BinOp::Add, l, r) => Err(format!(
+                "type mismatch in string concatenation: {} + {} (use to_string() explicitly)",
+                l.type_name(),
+                r.type_name()
+            )),
+            // Everything else — the same message as TW.
+            (_, l, r) => Err(format!(
+                "type mismatch in binary operation: {} {:?} {}",
                 l.type_name(),
                 op,
                 r.type_name()
             )),
         }
+    }
+
+    /// Opaque types cannot be concatenated (№371 — same set as the TW's
+    /// `Interpreter::is_opaque_type`).
+    fn is_opaque_value(v: &Value) -> bool {
+        matches!(
+            v,
+            Value::Html(_)
+                | Value::Query(_)
+                | Value::Secret(_)
+                | Value::Encrypted(_)
+                | Value::Hash(_)
+                | Value::Subgraph(_)
+        )
     }
 
     /// Evaluate contains(left, right).

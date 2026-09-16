@@ -16,10 +16,16 @@
 //!   (`BACKEND_LICENSE_DISTRIBUTION`) runs ADVISORY for non-osi /
 //!   restrictive weights references — allowed, but audited as events
 //!   (never silent). Distribution (the default) refuses them.
+//! - `device` (№336/ADR-0165): `profile device { mode: production }` —
+//!   every statically-visible `backend_select` ladder rung must be
+//!   SHA-pinnable; `ShaPin::PendingNo334` backends are UNVERIFIABLE for
+//!   a production profile and fail compilation (the §11.2 build-time
+//!   rule, ADR-0165 §2.4). Default (absent) = development: no static
+//!   ladder constraints.
 //!
-//! The two profiles are INDEPENDENT flags: `licensing` does not weaken
-//! the №325 gate, and `legacy` does not unlock non-OSI backends. A
-//! program may declare both.
+//! The profiles are INDEPENDENT flags: `licensing` does not weaken
+//! the №325 gate, `legacy` does not unlock non-OSI backends, and
+//! `device` does not touch either gate. A program may declare all three.
 
 use crate::ast::Declaration;
 
@@ -34,6 +40,10 @@ pub struct ResolvedProfiles {
     /// the №333 backend-license gate reports audit events instead of
     /// compile errors for non-osi/restrictive weights references.
     pub backend_license_permissive_with_audit: bool,
+    /// `profile device { mode: production }` declared (№336/ADR-0165) —
+    /// statically-visible `backend_select` ladders may only contain
+    /// SHA-pinnable rungs (`PendingNo334` = unverifiable = build error).
+    pub device_mode_production: bool,
 }
 
 impl ResolvedProfiles {
@@ -64,8 +74,12 @@ pub fn validate(p: &crate::ast::ProfileDecl) -> Result<(), String> {
             validate_options(p, "backends", &["permissive_with_audit"])?;
             Ok(())
         }
+        "device" => {
+            validate_options(p, "mode", &["production", "development"])?;
+            Ok(())
+        }
         other => Err(format!(
-            "unknown compatibility profile '{}' (available: legacy, licensing)",
+            "unknown compatibility profile '{}' (available: legacy, licensing, device)",
             other
         )),
     }
@@ -122,6 +136,12 @@ pub fn resolve(declarations: &[Declaration]) -> ResolvedProfiles {
                         .options
                         .iter()
                         .any(|(k, v)| k == "backends" && v == "permissive_with_audit");
+                }
+                "device" => {
+                    resolved.device_mode_production = p
+                        .options
+                        .iter()
+                        .any(|(k, v)| k == "mode" && v == "production");
                 }
                 _ => {}
             }

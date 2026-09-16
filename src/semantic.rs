@@ -1646,6 +1646,352 @@ fn check_media_handle_opacity(declarations: &[Declaration], errors: &mut Vec<Spa
     }
 }
 
+// ── BackendSelect ladder companion check (Наряд №336, ADR-0165 §2.4) ──
+//
+// A statically-visible `backend_select("class", ["rung", …])` call site
+// is verified against the №333 registry SSOT at BUILD time:
+//   - the class word must be a §7.6 class;
+//   - every rung must resolve in the registry (`find_by_name`);
+//   - every rung's class must match the requested class;
+//   - rungs must be unique (a rung tried twice is a contract bug);
+//   - under `profile device { mode: production }` every rung must be
+//     SHA-pinnable — a `ShaPin::PendingNo334` rung is UNVERIFIABLE for
+//     the production profile and fails compilation (the §11.2 rule,
+//     companion-check precedent).
+// Non-literal ladders are not statically verifiable and stay with the
+// runtime checks (documented in ADR-0165 §2.4).
+
+fn check_backend_select_ladders(declarations: &[Declaration], errors: &mut Vec<SpannedError>) {
+    for v in backend_select_ladder_violations(declarations) {
+        errors.push(SpannedError::at(v.message, v.span));
+    }
+}
+
+/// One statically-verifiable ladder defect. `kind` separates the two
+/// Category-A check ids: a malformed ladder (BACKEND_SELECT_INVALID)
+/// vs a ladder unverifiable for the production device profile
+/// (BACKEND_LADDER_UNVERIFIABLE) — ADR-0165 §2.4.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LadderViolationKind {
+    Invalid,
+    UnverifiableForProduction,
+}
+
+#[derive(Debug, Clone)]
+pub struct LadderViolation {
+    pub kind: LadderViolationKind,
+    pub message: String,
+    pub span: Span,
+}
+
+/// Public entry for the audit path (№336): the SAME rules `check_program`
+/// applies, so a statically-broken ladder is loud on EVERY compile path
+/// (`compile_program`/`run_program_with_dir` call `audit_category_a`, not
+/// `check_program` — the №332 origin-chain posture).
+pub fn backend_select_ladder_violations(declarations: &[Declaration]) -> Vec<LadderViolation> {
+    let device_production = crate::profile::resolve(declarations).device_mode_production;
+    let mut violations: Vec<LadderViolation> = Vec::new();
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                check_backend_stmts(&p.body, device_production, &mut violations)
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    check_backend_stmts(&m.body, device_production, &mut violations);
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for r in &srv.routes {
+                    check_backend_stmts(&r.body, device_production, &mut violations);
+                }
+            }
+            Declaration::Flow(f) => {
+                check_backend_expr(&f.source, device_production, &mut violations)
+            }
+            _ => {}
+        }
+    }
+    violations
+}
+
+fn verify_backend_ladder(
+    args: &[Expr],
+    span: &Span,
+    device_production: bool,
+    out: &mut Vec<LadderViolation>,
+) {
+    let push = |out: &mut Vec<LadderViolation>, kind, message: String| {
+        out.push(LadderViolation {
+            kind,
+            message,
+            span: span.clone(),
+        });
+    };
+    // The class argument: verified only when literal.
+    let class_word = match args.first() {
+        Some(Expr::StringLit { value, .. }) => Some(value.clone()),
+        _ => None,
+    };
+    if let Some(word) = &class_word {
+        if crate::backends::BackendClass::parse(word).is_none() {
+            push(
+                out,
+                LadderViolationKind::Invalid,
+                format!(
+                    "backend_select: unknown backend class '{}' (available: stt, tts, omni, vision-understanding, llm)",
+                    word
+                ),
+            );
+        }
+    }
+    // The ladder argument: verified only when a literal list of strings.
+    let rung_names: Option<Vec<String>> = match args.get(1) {
+        Some(Expr::List { items, .. }) => {
+            let mut names = Vec::with_capacity(items.len());
+            let mut literal = true;
+            for it in items {
+                match it {
+                    Expr::StringLit { value, .. } => names.push(value.clone()),
+                    _ => {
+                        literal = false;
+                        break;
+                    }
+                }
+            }
+            if literal {
+                Some(names)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+    let names = match rung_names {
+        Some(n) => n,
+        None => return, // non-literal ladder: runtime checks own it
+    };
+    if names.is_empty() {
+        push(
+            out,
+            LadderViolationKind::Invalid,
+            "backend_select: ladder is EMPTY — a ladder without rungs cannot \
+             fall back (silent fallback forbidden, ADR-0165 §2.1)"
+                .to_string(),
+        );
+        return;
+    }
+    let mut seen: Vec<&str> = Vec::new();
+    for name in &names {
+        if seen.contains(&name.as_str()) {
+            push(
+                out,
+                LadderViolationKind::Invalid,
+                format!(
+                    "backend_select: duplicate ladder rung '{}' — a rung tried \
+                     twice is a contract bug, not a fallback",
+                    name
+                ),
+            );
+        }
+        seen.push(name.as_str());
+        let entry = match crate::backends::find_by_name(name) {
+            Some(e) => e,
+            None => {
+                push(
+                    out,
+                    LadderViolationKind::Invalid,
+                    format!(
+                        "backend_select: ladder rung '{}' has no registry record \
+                         (the №333 registry is the SSOT)",
+                        name
+                    ),
+                );
+                continue;
+            }
+        };
+        if let Some(word) = &class_word {
+            if let Some(class) = crate::backends::BackendClass::parse(word) {
+                if entry.class != class {
+                    push(
+                        out,
+                        LadderViolationKind::Invalid,
+                        format!(
+                            "backend_select: ladder rung '{}' is class '{}', ladder \
+                             serves '{}' (ADR-0165 §2.4)",
+                            name,
+                            entry.class.as_str(),
+                            class.as_str()
+                        ),
+                    );
+                }
+            }
+        }
+        if device_production {
+            if let crate::backends::ShaPin::PendingNo334 = entry.pin {
+                push(
+                    out,
+                    LadderViolationKind::UnverifiableForProduction,
+                    format!(
+                        "backend_select: ladder rung '{}' (weights '{}') is \
+                         UNVERIFIABLE for device profile production — the weights \
+                         manifest is pending (№334 sha-pin path); a production \
+                         ladder may only contain SHA-pinned backends (ADR-0165 §2.4)",
+                        name, entry.weights_id
+                    ),
+                );
+            }
+        }
+    }
+}
+
+fn check_backend_stmts(stmts: &[Statement], production: bool, out: &mut Vec<LadderViolation>) {
+    for st in stmts {
+        match st {
+            Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                check_backend_expr(value, production, out)
+            }
+            Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
+                check_backend_expr(expr, production, out)
+            }
+            Statement::Each { iterable, body, .. }
+            | Statement::EachWithIndex { iterable, body, .. } => {
+                check_backend_expr(iterable, production, out);
+                check_backend_stmts(body, production, out);
+            }
+            Statement::While {
+                condition, body, ..
+            } => {
+                check_backend_expr(condition, production, out);
+                check_backend_stmts(body, production, out);
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                check_backend_expr(condition, production, out);
+                check_backend_stmts(then_body, production, out);
+                for (c, b) in else_ifs {
+                    check_backend_expr(c, production, out);
+                    check_backend_stmts(b, production, out);
+                }
+                if let Some(eb) = else_body {
+                    check_backend_stmts(eb, production, out);
+                }
+            }
+            Statement::IfThen {
+                condition, body, ..
+            } => {
+                check_backend_expr(condition, production, out);
+                check_backend_stmts(body, production, out);
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                check_backend_expr(scrutinee, production, out);
+                for arm in arms {
+                    check_backend_stmts(arm.body(), production, out);
+                }
+                if let Some(eb) = else_body {
+                    check_backend_stmts(eb, production, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn check_backend_expr(expr: &Expr, production: bool, out: &mut Vec<LadderViolation>) {
+    match expr {
+        Expr::FnCall { name, args, span } => {
+            if name == "backend_select" {
+                verify_backend_ladder(args, span, production, out);
+            }
+            for a in args {
+                check_backend_expr(a, production, out);
+            }
+        }
+        Expr::QualifiedCall { args, .. } => {
+            for a in args {
+                check_backend_expr(a, production, out);
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            check_backend_expr(left, production, out);
+            check_backend_expr(right, production, out);
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            check_backend_expr(condition, production, out);
+            check_backend_expr(then_branch, production, out);
+            check_backend_expr(else_branch, production, out);
+        }
+        Expr::List { items, .. } => {
+            for i in items {
+                check_backend_expr(i, production, out);
+            }
+        }
+        Expr::FieldAccess { object, .. } => check_backend_expr(object, production, out),
+        Expr::IndexAccess { object, index, .. } => {
+            check_backend_expr(object, production, out);
+            check_backend_expr(index, production, out);
+        }
+        Expr::StructLit { fields, .. } => {
+            for v in fields.values() {
+                check_backend_expr(v, production, out);
+            }
+        }
+        Expr::BlockIfElse {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            check_backend_expr(condition, production, out);
+            check_backend_stmts(then_body, production, out);
+            for (c, body) in else_ifs {
+                check_backend_expr(c, production, out);
+                check_backend_stmts(body, production, out);
+            }
+            if let Some(eb) = else_body {
+                check_backend_stmts(eb, production, out);
+            }
+        }
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            check_backend_expr(scrutinee, production, out);
+            for arm in arms {
+                check_backend_stmts(arm.body(), production, out);
+            }
+            if let Some(eb) = else_body {
+                check_backend_stmts(eb, production, out);
+            }
+        }
+        Expr::Try { expr, .. } => check_backend_expr(expr, production, out),
+        Expr::ProvBind { inner, .. } => check_backend_expr(inner, production, out),
+        Expr::HandleSource { .. }
+        | Expr::StringLit { .. }
+        | Expr::FloatLit { .. }
+        | Expr::BoolLit { .. }
+        | Expr::Ident { .. } => {}
+    }
+}
+
 /// Effects of a builtin call site, read from the №316 SSOT map:
 /// `Source` crosses the boundary inwards → `io`; `Sink` crosses
 /// outwards → `io`, plus `audit` when the external effect is not
@@ -3268,6 +3614,13 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
             }
         }
     }
+
+    // Наряд №336 (ADR-0165 §2.4): the BackendSelect ladder companion
+    // check — statically-visible ladders are verified against the №333
+    // registry SSOT (unknown rung / class mismatch / duplicates), and a
+    // `device { mode: production }` profile refuses unverifiable
+    // (PendingNo334) rungs at BUILD time.
+    check_backend_select_ladders(declarations, &mut result.errors);
 
     // First pass: collect all declarations (names)
     for decl in declarations {

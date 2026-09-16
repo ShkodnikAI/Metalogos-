@@ -174,6 +174,11 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "__last", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     // ── Наряд №333 (ADR-0163): backend registry listing ──
     BuiltClassEntry { name: "backend_list", class: BuiltClass { role: Role::Source, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "reads the static backend registry metadata (name/class/weights_id/pin/license — ADR-0163) — no weights bytes exist behind the entries" } },
+    // №336 (ADR-0165): the backend try-chain — reads registry metadata,
+    // returns selection/degradation data. No egress, no execution behind
+    // it (the class callables execute); the ladder attempts are audit
+    // events (№326 posture).
+    BuiltClassEntry { name: "backend_select", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "backend try-chain over the №333 registry SSOT (№336, ADR-0165): picks the first available rung or returns Degraded(t) — a typed result, never a panic, never a silent mock; every attempt is an audit event" } },
     // №334: the local backend call surface — mock-first, no upload, no
     // egress (the audio/image/prompt stay in-process; real mode requires
     // SHA-pinned local weights and refuses loudly without them).

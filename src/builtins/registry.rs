@@ -33,7 +33,7 @@ use super::media::{
     builtin_media_store_video_frame_stub, builtin_media_store_video_segment_stub,
 };
 // Наряд №333 (ADR-0163): backend registry listing (stateless).
-use super::backends::builtin_backend_list;
+use super::backends::{builtin_backend_list, builtin_backend_select};
 // Наряд №334: real STT/omni/vision-understanding backends — the mock-first
 // call surface over the №333 registry (SHA-pin path, ADR-0163 §2.1).
 use crate::vision::understand::builtin_vision_understand;
@@ -675,6 +675,11 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // language surface (name/class/weights_id/pin/license/license_note).
     // Registry 429→430; category "registry" (41st module).
     spec!("backend_list", 0, "registry"; builtin_backend_list),
+    // ── Наряд №336 (ADR-0165): BackendSelect — the backend try-chain ──
+    // Priority ladder over the №333 registry SSOT; exhaustion →
+    // Degraded(t), the typed degradation result (never a panic, never a
+    // silent mock). Registry 439→440; category "registry".
+    spec!("backend_select", 2, "registry"; builtin_backend_select),
     // ── Наряд №284 (P1, M1): canary-токены недоверенного текста ──
     // Runtime-детектор утечки недоверенного контента через LLM-канал
     // (паттерн rebuff/Spotlighting). Связан с taint-моделью: утечка →

@@ -10,8 +10,8 @@ origin cam_backup { kind: file, media: image, label: public, path: "frames/frame
 origin demo_gen { kind: generation, media: image, label: public }
 pattern Capture(_tick: String) -> String {
   let frame = source cam_backup
-  let p = media_save(frame, "target/n337-c2pa/captured.png")
-  // Sidecar-имя №241: <path>.manifest.json рядом с байтами.
+  let p = media_save(frame, "target/n337-captured.png")
+  // Sidecar-имя №241: <path>.manifest.json рядом с байтами (родитель — target/ — существует в любом чекауте после сборки; песочница канонизирует РОДИТЕЛЯ).
   let m = media_manifest_read(p + ".manifest.json")
   if m.synthetic == false {
     if m.origin == "cam_backup" {
@@ -26,7 +26,7 @@ pattern Generate(prev: String) -> String {
   let img = from demo_gen media_store_image("gen-bytes", "public")
   // Провенанс БЕЗ материализации: hash — insert-time факт записи.
   let live = media_manifest(img)
-  let p = media_save(img, "target/n337-c2pa/generated.png")
+  let p = media_save(img, "target/n337-generated.png")
   let m = media_manifest_read(p + ".manifest.json")
   if live.synthetic == true {
     if m.synthetic == true {

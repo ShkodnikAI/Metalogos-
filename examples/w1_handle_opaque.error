@@ -1,0 +1,1 @@
+media handle is opaque (ADR-0114): field access '.bytes' on a media handle in pattern 'Frame' — bytes never live in Value; use the sanctioned materialization sink (media_save), gated by №325

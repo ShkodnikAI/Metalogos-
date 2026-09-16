@@ -787,6 +787,325 @@ fn validate_effect_ann(ann: &EffectAnn, context: &str, errors: &mut Vec<SpannedE
     }
 }
 
+// ── Media handle opacity (Наряд №331, ADR-0114 / ADR-0162 §2.5) ──────
+//
+// Media handles (`Value::Media`: Image/Audio/VideoFrame/VideoSegment)
+// are opaque: bytes NEVER live in `Value`, so any field access on a
+// media-typed expression is a COMPILE error (loud, with span) — bytes
+// are reachable only through the sanctioned materialization sink
+// (`media_save`, №325-gated). The language has no other byte-extraction
+// syntax on handles; this pass closes the syntactic surface there is.
+
+/// Builtins that PRODUCE a media handle (the four per-type stores +
+/// `media_retain`, which returns the same handle).
+fn is_media_producing_builtin(name: &str) -> bool {
+    matches!(
+        name,
+        "media_store_image"
+            | "media_store_audio"
+            | "media_store_video_frame"
+            | "media_store_video_segment"
+            | "media_retain"
+    )
+}
+
+/// `true` when the expression's value is a media handle by direct
+/// construction (a producing builtin call).
+fn is_media_binding_expr(value: &Expr) -> bool {
+    matches!(value, Expr::FnCall { name, .. } if is_media_producing_builtin(name))
+}
+
+/// Is this expression's static bottom a media-typed binding?
+fn media_typed_object(object: &Expr, media_vars: &std::collections::HashSet<String>) -> bool {
+    match object {
+        Expr::Ident { name, .. } => media_vars.contains(name),
+        Expr::FnCall { name, .. } => is_media_producing_builtin(name),
+        _ => false,
+    }
+}
+
+/// Walk one expression for field accesses on media-typed objects and
+/// for further media bindings (recursively).
+fn check_media_expr(
+    expr: &Expr,
+    media_vars: &mut std::collections::HashSet<String>,
+    container: &str,
+    violations: &mut Vec<MediaOpacityViolation>,
+) {
+    match expr {
+        Expr::FieldAccess {
+            object,
+            field,
+            span,
+        } => {
+            if media_typed_object(object, media_vars) {
+                violations.push(MediaOpacityViolation {
+                    container: container.to_string(),
+                    field: field.clone(),
+                    span: span.clone(),
+                });
+            } else {
+                check_media_expr(object, media_vars, container, violations);
+            }
+        }
+        Expr::FnCall { name, args, .. } => {
+            // The call NAME may be a media binding (checked by the caller
+            // when binding); the arguments still need the field-access walk.
+            let _ = name;
+            for a in args {
+                check_media_expr(a, media_vars, container, violations);
+            }
+        }
+        Expr::QualifiedCall { args, .. } => {
+            for a in args {
+                check_media_expr(a, media_vars, container, violations);
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            check_media_expr(left, media_vars, container, violations);
+            check_media_expr(right, media_vars, container, violations);
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            check_media_expr(condition, media_vars, container, violations);
+            check_media_expr(then_branch, media_vars, container, violations);
+            check_media_expr(else_branch, media_vars, container, violations);
+        }
+        Expr::List { items, .. } => {
+            for i in items {
+                check_media_expr(i, media_vars, container, violations);
+            }
+        }
+        Expr::IndexAccess { object, index, .. } => {
+            check_media_expr(object, media_vars, container, violations);
+            check_media_expr(index, media_vars, container, violations);
+        }
+        Expr::StructLit { fields, .. } => {
+            for v in fields.values() {
+                check_media_expr(v, media_vars, container, violations);
+            }
+        }
+        Expr::BlockIfElse {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            check_media_expr(condition, media_vars, container, violations);
+            check_media_stmts(then_body, media_vars, container, violations);
+            for (cond, body) in else_ifs {
+                check_media_expr(cond, media_vars, container, violations);
+                check_media_stmts(body, media_vars, container, violations);
+            }
+            if let Some(eb) = else_body {
+                check_media_stmts(eb, media_vars, container, violations);
+            }
+        }
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            check_media_expr(scrutinee, media_vars, container, violations);
+            for arm in arms {
+                check_media_stmts(arm.body(), media_vars, container, violations);
+            }
+            if let Some(eb) = else_body {
+                check_media_stmts(eb, media_vars, container, violations);
+            }
+        }
+        Expr::Try { expr, .. } => {
+            check_media_expr(expr, media_vars, container, violations);
+        }
+        _ => {}
+    }
+}
+
+/// Walk statements, tracking media-typed bindings (direct production
+/// calls and one-step aliases) and checking every expression.
+fn check_media_stmts(
+    stmts: &[Statement],
+    media_vars: &mut std::collections::HashSet<String>,
+    container: &str,
+    violations: &mut Vec<MediaOpacityViolation>,
+) {
+    for s in stmts {
+        match s {
+            Statement::LetBinding { name, value, .. } => {
+                check_media_expr(value, media_vars, container, violations);
+                if is_media_binding_expr(value) {
+                    media_vars.insert(name.clone());
+                } else if let Expr::Ident { name: src, .. } = value {
+                    if media_vars.contains(src) {
+                        media_vars.insert(name.clone());
+                    }
+                }
+            }
+            Statement::Assign { name, value, .. } => {
+                check_media_expr(value, media_vars, container, violations);
+                if is_media_binding_expr(value) {
+                    media_vars.insert(name.clone());
+                }
+            }
+            Statement::Each {
+                variable,
+                iterable,
+                body,
+                ..
+            } => {
+                let _ = variable;
+                check_media_expr(iterable, media_vars, container, violations);
+                check_media_stmts(body, media_vars, container, violations);
+            }
+            Statement::EachWithIndex {
+                item_var,
+                iterable,
+                body,
+                ..
+            } => {
+                let _ = item_var;
+                check_media_expr(iterable, media_vars, container, violations);
+                check_media_stmts(body, media_vars, container, violations);
+            }
+            Statement::While {
+                condition, body, ..
+            } => {
+                check_media_expr(condition, media_vars, container, violations);
+                check_media_stmts(body, media_vars, container, violations);
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                check_media_expr(condition, media_vars, container, violations);
+                check_media_stmts(then_body, media_vars, container, violations);
+                for (cond, body) in else_ifs {
+                    check_media_expr(cond, media_vars, container, violations);
+                    check_media_stmts(body, media_vars, container, violations);
+                }
+                if let Some(eb) = else_body {
+                    check_media_stmts(eb, media_vars, container, violations);
+                }
+            }
+            Statement::IfThen {
+                condition, body, ..
+            } => {
+                check_media_expr(condition, media_vars, container, violations);
+                check_media_stmts(body, media_vars, container, violations);
+            }
+            Statement::Return { value, .. } => {
+                check_media_expr(value, media_vars, container, violations);
+            }
+            Statement::ExprStmt { expr, .. } => {
+                check_media_expr(expr, media_vars, container, violations);
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                check_media_expr(scrutinee, media_vars, container, violations);
+                for arm in arms {
+                    check_media_stmts(arm.body(), media_vars, container, violations);
+                }
+                if let Some(eb) = else_body {
+                    check_media_stmts(eb, media_vars, container, violations);
+                }
+            }
+            Statement::Memorize(m) => {
+                check_media_expr(&m.value, media_vars, container, violations);
+            }
+            Statement::Forget(f) => {
+                check_media_expr(&f.query, media_vars, container, violations);
+            }
+            Statement::Relate(r) => {
+                check_media_expr(&r.from, media_vars, container, violations);
+                check_media_expr(&r.to, media_vars, container, violations);
+            }
+            Statement::Break | Statement::Continue => {}
+        }
+    }
+}
+
+/// One opacity violation (№331): a field access whose object bottoms out
+/// at a media-typed binding/call. Collected by `media_opacity_violations`;
+/// consumed by `check_program` (semantic errors) and the audit Category-A
+/// check `MEDIA_HANDLE_OPAQUE` (the compile_program path).
+pub struct MediaOpacityViolation {
+    pub container: String,
+    pub field: String,
+    pub span: Span,
+}
+
+impl MediaOpacityViolation {
+    /// The stable compile-error text (pinned by examples/w1_handle_opaque).
+    pub fn message(&self) -> String {
+        format!(
+            "media handle is opaque (ADR-0114): field access '.{}' on a media \
+             handle in {} — bytes never live in Value; use the sanctioned \
+             materialization sink (media_save), gated by №325",
+            self.field, self.container
+        )
+    }
+}
+
+/// Public entry point: every field access on a media-typed expression in
+/// every statement container (the same containers the №324 effect fixpoint
+/// walks). See ADR-0162 §2.5.
+pub fn media_opacity_violations(declarations: &[Declaration]) -> Vec<MediaOpacityViolation> {
+    let mut violations = Vec::new();
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                let mut media_vars = std::collections::HashSet::new();
+                // Params are typed (name: Type) — no media params exist
+                // until №332 lands the perception AST; none to pre-track.
+                check_media_stmts(
+                    &p.body,
+                    &mut media_vars,
+                    &format!("pattern '{}'", p.name),
+                    &mut violations,
+                );
+            }
+            Declaration::LearnablePattern(_) => {
+                // A learnable pattern is prompt-declared (no statement body
+                // — the №324 effect walker treats it as an LLM call by
+                // construction). Nothing to walk here.
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    let mut media_vars = std::collections::HashSet::new();
+                    check_media_stmts(
+                        &m.body,
+                        &mut media_vars,
+                        &format!("tool method '{}.{}'", t.name, m.name),
+                        &mut violations,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+    violations
+}
+
+/// Semantic-layer wiring: the violations are loud compile errors.
+fn check_media_handle_opacity(declarations: &[Declaration], errors: &mut Vec<SpannedError>) {
+    for v in media_opacity_violations(declarations) {
+        errors.push(SpannedError::at(v.message(), v.span));
+    }
+}
+
 /// Effects of a builtin call site, read from the №316 SSOT map:
 /// `Source` crosses the boundary inwards → `io`; `Sink` crosses
 /// outwards → `io`, plus `audit` when the external effect is not
@@ -1366,6 +1685,12 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
             // (the TAINT_PERSISTENCE vocabulary; №266 statement forms are
             // covered separately).
             "memorize" | "mem_set" | "mtree_store" | "kv_set" => "memory",
+            // №331 (ADR-0162): the sanctioned media materialization sink
+            // is FILE egress — private-labelled handles fail the
+            // default clearance (`private-egress`) at compile time; the
+            // runtime backstop (MEDIA_SEALED_EGRESS) refuses non-public
+            // entries even if the static layer was bypassed.
+            "media_save" => "file",
             _ => "network",
         }
     }
@@ -2253,6 +2578,12 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     // every DECLARED trail: factual ⊑ declared, excess = loud error.
     // Patterns without a declared trail are ungated (zero delta).
     check_effect_trails(declarations, &mut result.errors);
+
+    // Наряд №331 (ADR-0162 §2.5): media handles are opaque — any field
+    // access on a media-typed expression is a COMPILE error; bytes are
+    // reachable only through the sanctioned materialization sink
+    // (media_save, №325-gated).
+    check_media_handle_opacity(declarations, &mut result.errors);
 
     // Наряд №325 (ADR-0161): validate the compatibility profile shape —
     // unknown profile names / options / egress modes are loud errors

@@ -580,6 +580,82 @@ impl Interpreter {
                 .map_err(|e| format!("vision registry poisoned: {}", e))?;
             return crate::builtins::vision_export_raw_dispatch(&reg, &args);
         }
+        // Наряд №331 (ADR-0162): unified media layer — state-carrying
+        // interception (лекало vision_export). All media byte state lives
+        // in the per-interpreter MediaStore; the shared dispatches in
+        // src/builtins/media.rs keep the two backends identical.
+        if name == "media_store_image" {
+            let mut store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_store_dispatch(
+                &mut store,
+                crate::media::MediaKind::Image,
+                &args,
+            );
+        }
+        if name == "media_store_audio" {
+            let mut store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_store_dispatch(
+                &mut store,
+                crate::media::MediaKind::Audio,
+                &args,
+            );
+        }
+        if name == "media_store_video_frame" {
+            let mut store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_store_dispatch(
+                &mut store,
+                crate::media::MediaKind::VideoFrame,
+                &args,
+            );
+        }
+        if name == "media_store_video_segment" {
+            let mut store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_store_dispatch(
+                &mut store,
+                crate::media::MediaKind::VideoSegment,
+                &args,
+            );
+        }
+        if name == "media_save" {
+            let store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_save_dispatch(&store, &args);
+        }
+        if name == "media_retain" {
+            let mut store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_retain_dispatch(&mut store, &args);
+        }
+        if name == "media_release" {
+            let mut store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_release_dispatch(&mut store, &args);
+        }
+        if name == "media_meta" {
+            let store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_meta_dispatch(&store, &args);
+        }
         // Наряд №242 (R6.1): SQLite persistence — the dispatch receives
         // the registry and the interpreter's db connection (the
         // Arc<Mutex<Option>> opened by the `db { url: ... }` declaration;
@@ -1690,6 +1766,82 @@ impl Interpreter {
                         .lock()
                         .map_err(|e| format!("vision registry poisoned: {}", e))?;
                     return crate::builtins::vision_export_raw_dispatch(&reg, &eval_args);
+                }
+                // Наряд №331 (ADR-0162): unified media layer — expression
+                // path interception (лекало vision_export_raw above). The
+                // same shared dispatches as the statement path keep the
+                // two evaluation routes identical.
+                if name == "media_store_image" {
+                    let mut store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_store_dispatch(
+                        &mut store,
+                        crate::media::MediaKind::Image,
+                        &eval_args,
+                    );
+                }
+                if name == "media_store_audio" {
+                    let mut store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_store_dispatch(
+                        &mut store,
+                        crate::media::MediaKind::Audio,
+                        &eval_args,
+                    );
+                }
+                if name == "media_store_video_frame" {
+                    let mut store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_store_dispatch(
+                        &mut store,
+                        crate::media::MediaKind::VideoFrame,
+                        &eval_args,
+                    );
+                }
+                if name == "media_store_video_segment" {
+                    let mut store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_store_dispatch(
+                        &mut store,
+                        crate::media::MediaKind::VideoSegment,
+                        &eval_args,
+                    );
+                }
+                if name == "media_save" {
+                    let store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_save_dispatch(&store, &eval_args);
+                }
+                if name == "media_retain" {
+                    let mut store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_retain_dispatch(&mut store, &eval_args);
+                }
+                if name == "media_release" {
+                    let mut store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_release_dispatch(&mut store, &eval_args);
+                }
+                if name == "media_meta" {
+                    let store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_meta_dispatch(&store, &eval_args);
                 }
                 // Наряд №242 (R6.1): SQLite persistence — same state-
                 // carrying interception, expression path; the dispatch

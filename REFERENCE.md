@@ -1,7 +1,7 @@
 # METALOGOS — Language Reference
 
 > **Version:** 0.20.0
-> **Synced with code:** 2026-09-15 (naryad №322) · 421 builtins · 153 ADR files (146 accepted + 7 reserved)
+> **Synced with code:** 2026-09-16 (naryad №331) · 429 builtins · 154 ADR files (147 accepted + 7 reserved)
 > **Single source of truth** for developers writing in Metalogos.
 > Contains the full list of built-in functions with signatures, types, descriptions, and examples,
 > as well as a reference for syntax, data types, and the CLI.
@@ -471,7 +471,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.19):** This section documents **100%** of the 421 registered builtins (421 of 421): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 429 registered builtins (429 of 429): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1833,7 +1833,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 421 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 429 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2111,6 +2111,19 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `softmax(...)` | 1 | `List -> List` | Numerically stable softmax (subtracts max before exp). Output sums to 1.0 |
 | `sqrt(...)` | 1 | `Float -> Float` | Square root. Soft-failure: `0.0` for `x < 0` |
 | `tanh(...)` | 1 | `Float -> Float` | Hyperbolic tangent. In (−1, 1). `tanh(1000)=1`, `tanh(-1000)=-1` |
+
+### `media` — 8 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description |
+|---|---|---|---|
+| `media_meta(...)` | 1 | — | `media_meta(handle)` — store metadata WITHOUT materializing bytes: Struct { kind, conf, refs, sealed } (ADR-0162 §2.4). |
+| `media_release(...)` | 1 | — | `media_release(handle)` — refcount −1; at 0 the entry is evicted (sealed bytes zeroized). Returns the remaining refcount. Loud on unknown handles. |
+| `media_retain(...)` | 1 | — | `media_retain(handle)` — refcount +1 on a media handle (ADR-0162 §2.4); returns the same handle (chainable). |
+| `media_save(...)` | 2 | — | `media_save(handle, path)` — the ONLY sanctioned media materialization: writes the exact bytes to a sandboxed file (№131/№252). Sink: №325 clearance at compile time (SECRET_LEAK for private labels) + runtime backstop MEDIA_SEALED_EGRESS for sealed entries. Returns the path. |
+| `media_store_audio(...)` | 2 | — | `media_store_audio(data, sensitivity)` — wraps provided bytes into an opaque Audio handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
+| `media_store_image(...)` | 2 | — | `media_store_image(data, sensitivity)` — wraps provided bytes into an opaque Image handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
+| `media_store_video_frame(...)` | 2 | — | `media_store_video_frame(data, sensitivity)` — wraps provided bytes into an opaque VideoFrame handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
+| `media_store_video_segment(...)` | 2 | — | `media_store_video_segment(data, sensitivity)` — wraps provided bytes into an opaque VideoSegment handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
 
 ### `memory` — 23 builtin(s)
 
@@ -2547,6 +2560,14 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `git_push` | sink | network | irreversible | pushes to a remote repository — external, non-undoable effect (issue minimum list) |
 | `mcp_call` | source | network | pure | ingests untrusted MCP tool output — UserInput taint by ADR-0132 D3 |
 | `mcp_list_tools` | source | network | pure | ingests external tool metadata over MCP (not tainted per ADR-0132, still external ingress) |
+| `media_store_image` | lift | internal | reversible | wraps provided bytes into an opaque Image handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
+| `media_store_audio` | lift | internal | reversible | wraps provided bytes into an opaque Audio handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
+| `media_store_video_frame` | lift | internal | reversible | wraps provided bytes into an opaque VideoFrame handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
+| `media_store_video_segment` | lift | internal | reversible | wraps provided bytes into an opaque VideoSegment handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
+| `media_save` | sink | internal | reversible | the ONLY sanctioned materialization of media bytes — file egress through the io sandbox; №325 sink clearance (private-egress) + runtime backstop MEDIA_SEALED_EGRESS (ADR-0162 §2.5) |
+| `media_retain` | pure | public | pure | refcount +1 on a media handle (ADR-0162 §2.4) — pure store bookkeeping, no byte movement |
+| `media_release` | pure | public | pure | refcount −1 on a media handle; 0 evicts the entry (sealed bytes zeroized) — store bookkeeping, no external effect |
+| `media_meta` | source | public | pure | reads media store METADATA only (kind/conf/refs/sealed) — no bytes leave the store |
 | `get` | pure | public | pure | — |
 | `push` | pure | public | pure | — |
 | `slice` | pure | public | pure | — |

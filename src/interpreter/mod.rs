@@ -232,6 +232,11 @@ pub struct Interpreter {
     /// PNG buffers. `Value::Vision(VisionId)` indexes into this. Wrapped in
     /// Mutex for the same `&self` evaluation contexts as `reflex_registry`.
     pub vision_registry: crate::vision::SharedVisionRegistry,
+    /// Наряд №331 (ADR-0162): unified media store — Image/Audio/VideoFrame/
+    /// VideoSegment bytes behind opaque `Value::Media(MediaHandle)` handles.
+    /// Mutex for the same `&self` evaluation contexts as `vision_registry`.
+    /// Byte egress goes only through sanctioned sinks (`media_save`, №325-gated).
+    pub media_store: std::sync::Mutex<crate::media::MediaStore>,
     /// Наряд №240 (Vision R4.2): name → compiled parameters for
     /// `vision_generate` dispatch. Populated by the declaration pass
     /// (`Declaration::Vision` arm in execution.rs).
@@ -308,6 +313,7 @@ impl Interpreter {
             reflex_registry: std::sync::Mutex::new(crate::nn::ReflexRegistry::new()),
             reflex_names: HashMap::new(),
             vision_registry: std::sync::Mutex::new(crate::vision::VisionRegistry::new()),
+            media_store: std::sync::Mutex::new(crate::media::MediaStore::new()),
             vision_decls: HashMap::new(),
             llm_config: None,
             smart_router: std::sync::Arc::new(std::sync::Mutex::new(None)),

@@ -439,6 +439,9 @@ fn value_to_string(v: &Value) -> String {
         // лекала Reflex/Vision. Opaque — printing the handle leaks the
         // active stream's identity, never the response body.
         Value::LlmStream(id) => format!("[LlmStream#{}]", id.0),
+        // Наряд №331 (ADR-0162): media handles in template rendering —
+        // лекала Vision/Voice. Opaque — only the per-kind index renders.
+        Value::Media(h) => format!("{}", h),
     }
 }
 

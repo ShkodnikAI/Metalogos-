@@ -235,6 +235,11 @@ use regex::*;
 // macro in registry.rs can reference them.
 pub mod reflex;
 pub mod vision;
+// Наряд №331 (ADR-0162): unified media layer — media_store_* / media_save /
+// media_retain / media_release / media_meta. NOT feature-gated: the store,
+// handles, and at-rest sealing have no inference-stack dependencies (mirrors
+// the vision-store reasoning: the contract is testable in the default build).
+pub mod media;
 // Наряд №275 (ADR-0137): LLM streaming builtins — llm_stream_open/next/close.
 // Module is NOT feature-gated: the opaque handle + registry + SSE parser
 // live in `crate::llm` (always available); HTTP streaming requires
@@ -266,6 +271,13 @@ pub use vision::{
     vision_list_dispatch, vision_load_dispatch, vision_lora_check_adapter_path,
     vision_lora_composite_model_sha256, vision_lora_generate_dispatch, vision_lora_load_dispatch,
     vision_save_dispatch,
+};
+// Наряд №331 (ADR-0162): media dispatch functions (shared TW + VM).
+// The last-resort registry stubs are pub(crate) — registry.rs imports
+// them directly from the module (лекало vision).
+pub use media::{
+    media_meta_dispatch, media_release_dispatch, media_retain_dispatch, media_save_dispatch,
+    media_store_dispatch,
 };
 
 impl Default for Builtins {

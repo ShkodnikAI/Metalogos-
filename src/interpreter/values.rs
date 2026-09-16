@@ -105,6 +105,12 @@ pub enum Value {
     /// the active `reqwest::blocking::Response` + SSE line buffer +
     /// provenance/usage aggregation never enter `Value`.
     LlmStream(crate::llm::LlmStreamId),
+    /// Unified media handles (Наряд №331, ADR-0162): Image/Audio/
+    /// VideoFrame/VideoSegment. Bytes never enter `Value` — only the
+    /// opaque index into the per-interpreter (or per-VM) `MediaStore`.
+    /// Byte egress is reachable only through sanctioned sinks
+    /// (`media_save`, gated by №325 + the runtime backstop).
+    Media(crate::media::MediaHandle),
 }
 
 impl std::fmt::Display for Value {
@@ -184,6 +190,9 @@ impl std::fmt::Display for Value {
             // Наряд №275 (ADR-0137): LLM stream handle display —
             // лекала Reflex/Vision.
             Value::LlmStream(id) => write!(f, "[LlmStream#{}]", id.0),
+            // Наряд №331 (ADR-0162): media handle display — per-kind
+            // format from the handle itself ([Image#N] etc.).
+            Value::Media(h) => write!(f, "{}", h),
         }
     }
 }
@@ -217,6 +226,9 @@ impl Value {
             Value::Video(_) => "Video",
             // Наряд №275 (ADR-0137): LLM stream handle type name.
             Value::LlmStream(_) => "LlmStream",
+            // Наряд №331 (ADR-0162): media handle type names —
+            // "Image" / "Audio" / "VideoFrame" / "VideoSegment".
+            Value::Media(h) => h.kind().type_name(),
         }
     }
 
@@ -339,6 +351,10 @@ pub fn is_nonprintable(v: &Value) -> bool {
             // (provider, model, handle index) but no PII; still, the
             // convention for all opaque handles is non-printable.
             | Value::LlmStream(_)
+            // Наряд №331 (ADR-0162): media handles are opaque — printing
+            // them exposes only the index, but the convention for ALL
+            // opaque handles is non-printable.
+            | Value::Media(_)
     )
 }
 

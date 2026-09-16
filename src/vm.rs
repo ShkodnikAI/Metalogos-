@@ -106,6 +106,11 @@ pub struct Vm {
     /// PNG buffers. `Value::Vision(VisionId)` indexes into this. No Mutex —
     /// same single-threaded-per-request rationale as `reflex_registry` above.
     vision_registry: crate::vision::VisionRegistry,
+    /// Наряд №331 (ADR-0162): unified media store — the VM's own byte state
+    /// behind `Value::Media(MediaHandle)` opaque handles. No Mutex (same
+    /// single-threaded rationale); the shared dispatches in
+    /// src/builtins/media.rs keep both backends identical.
+    media_store: crate::media::MediaStore,
     /// Наряд №240 (Vision R4.2): maps declaration name → compiled parameters.
     /// Populated by `load_program` when processing `program.vision_decls`.
     /// Used by the `vision_generate` intercept to resolve the declaration.
@@ -165,6 +170,7 @@ impl Vm {
             reflex_registry: crate::nn::ReflexRegistry::new(),
             reflex_names: HashMap::new(),
             vision_registry: crate::vision::VisionRegistry::new(),
+            media_store: crate::media::MediaStore::new(),
             vision_decls: HashMap::new(),
             memory_persist_path: None,
             distill_states: HashMap::new(),
@@ -2583,6 +2589,14 @@ impl Vm {
             return result;
         }
 
+        // Наряд №331 (ADR-0162): intercept the unified media family before
+        // the generic fallback — routes to the VM's own media_store via the
+        // shared dispatch functions in src/builtins/media.rs (лекало
+        // call_vision_builtin). Byte egress stays №325-gated on the VM too.
+        if let Some(result) = self.call_media_builtin(name, args) {
+            return result;
+        }
+
         if let Some(builtin_fn) = self.builtins.get(name) {
             return builtin_fn(args);
         }
@@ -2734,6 +2748,54 @@ impl Vm {
             ));
         }
         None
+    }
+
+    /// Наряд №331 (ADR-0162): intercept the unified media family before the
+    /// generic builtin fallback. Routes to the VM's own `media_store` via
+    /// the SAME shared dispatch functions the interpreter uses (in
+    /// `src/builtins/media.rs`) — the store/sealing/refcount logic is NOT
+    /// reimplemented per backend.
+    fn call_media_builtin(&mut self, name: &str, args: &[Value]) -> Option<Result<Value, String>> {
+        use crate::media::MediaKind;
+        match name {
+            "media_store_image" => Some(crate::builtins::media_store_dispatch(
+                &mut self.media_store,
+                MediaKind::Image,
+                args,
+            )),
+            "media_store_audio" => Some(crate::builtins::media_store_dispatch(
+                &mut self.media_store,
+                MediaKind::Audio,
+                args,
+            )),
+            "media_store_video_frame" => Some(crate::builtins::media_store_dispatch(
+                &mut self.media_store,
+                MediaKind::VideoFrame,
+                args,
+            )),
+            "media_store_video_segment" => Some(crate::builtins::media_store_dispatch(
+                &mut self.media_store,
+                MediaKind::VideoSegment,
+                args,
+            )),
+            "media_save" => Some(crate::builtins::media_save_dispatch(
+                &self.media_store,
+                args,
+            )),
+            "media_retain" => Some(crate::builtins::media_retain_dispatch(
+                &mut self.media_store,
+                args,
+            )),
+            "media_release" => Some(crate::builtins::media_release_dispatch(
+                &mut self.media_store,
+                args,
+            )),
+            "media_meta" => Some(crate::builtins::media_meta_dispatch(
+                &self.media_store,
+                args,
+            )),
+            _ => None,
+        }
     }
 
     // ── Наряд №205 (ADR-0121 stage 6): distillation state machine ──────

@@ -121,6 +121,11 @@ impl Conf {
             Conf::Poisoned => "poisoned",
         }
     }
+
+    /// Public word form (№331: `media_meta` reports the declared conf).
+    pub fn as_str(self) -> &'static str {
+        self.word()
+    }
 }
 
 // ── Integrity axis ───────────────────────────────────────────────────

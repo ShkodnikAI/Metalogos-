@@ -1361,12 +1361,23 @@ impl Interpreter {
                 }
                 Ok(result)
             }
-            // Наряд №14 P1-4: try expression — catch errors, return Unit
+            // Наряд №14 P1-4: try expression — catch errors.
+            // №374 (ADR-0142 candidate (б)): the result is STRUCTURED —
+            // Struct { ok: Bool, value: Value, error: Unit | Struct{code,message} } —
+            // the error information is no longer discarded as a bare Unit.
+            // The shape is built by the shared `try_result_struct` so the TW
+            // and VM results cannot diverge.
             Expr::Try { expr: inner, .. } => match self.eval_expr_with_env(inner, env) {
-                Ok(val) => Ok(val),
+                Ok(val) => Ok(crate::interpreter::values::try_result_struct(
+                    true, val, None,
+                )),
                 Err(e) => {
                     eprintln!("[try] caught error: {}", e);
-                    Ok(Value::Unit)
+                    Ok(crate::interpreter::values::try_result_struct(
+                        false,
+                        Value::Unit,
+                        Some(("RUNTIME_ERROR".to_string(), e)),
+                    ))
                 }
             },
             Expr::IfElse {

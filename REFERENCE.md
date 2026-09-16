@@ -407,11 +407,34 @@ let label = if score >= 90.0 { "A" } else { "B" }
 let dept_color = if x == "osp" { "#FF0000" } else if x == "lz" { "#00FF00" } else { "#999999" }
 ```
 
-**Try expression (error handling, Naryad #14):**
+**Try expression (error handling, Naryad #14; structured result — Naryad #374 / ADR-0142):**
 ```mlog
-let result = try http_post("https://api.example.com", body, "application/json")
-// On error: result = Unit, in stderr: [try] caught error: ...
+let r = try http_post("https://api.example.com", body, "application/json")
+// r is ALWAYS a struct: { ok: Bool, value: Value, error: Unit | Struct }
+// Success:      r.ok == true,   r.value = the call's value,  r.error = Unit
+// Error:        r.ok == false,  r.value = Unit,
+//               r.error.code = "RUNTIME_ERROR", r.error.message = the runtime error text
+if r.ok == false { respond("500", r.error.message) }
 ```
+
+**Migration (Naryad #374 — breaking for old try code):**
+```mlog
+// doc-test: skip
+// BEFORE (№91 semantics — error discarded as Unit):
+let r = try risky_call(x)
+if type_of(r) == "Unit" { ... }        // error probe
+if r == Unit { ... }                   // broken by №374: r is now a Struct
+
+// AFTER (№374 semantics — structured result):
+let r = try risky_call(x)
+if r.ok == false { ... }               // error probe (mlog has no unary `!`)
+let v = r.value                        // the success value
+let msg = r.error.message              // on the error path
+```
+Note: `!r.ok` from ADR-0142 is pseudocode — the mlog grammar has no unary
+`not`, so the real form is `r.ok == false` (or `r.ok == true`). Nested `try`
+binds to a `unary_expr` — parenthesize or use a `let` for compound inner
+expressions (`try (1.0 / 0.0)`, not `try 1.0 / 0.0`).
 
 **Return:**
 ```mlog

@@ -28,21 +28,21 @@ pattern P83DiagramVennInvalidContract(input: String) -> String {
     ]
   }
   let r1 = try diagram_venn(data1, style)
-  let ok1 = to_float(type_of(r1) == "Unit")
+  let ok1 = to_float(r1.ok == false)
 
   // ── 2. 1 circle → Err (degenerate single-set Venn) ──────────────
   let data2 = {
     circles: [{label: "Lonely"}]
   }
   let r2 = try diagram_venn(data2, style)
-  let ok2 = to_float(type_of(r2) == "Unit")
+  let ok2 = to_float(r2.ok == false)
 
   // ── 3. 0 circles → Err (empty list) ──────────────────────────────
   let data3 = {
     circles: []
   }
   let r3 = try diagram_venn(data3, style)
-  let ok3 = to_float(type_of(r3) == "Unit")
+  let ok3 = to_float(r3.ok == false)
 
   let total = ok1 + ok2 + ok3
 

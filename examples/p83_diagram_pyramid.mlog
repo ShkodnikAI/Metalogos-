@@ -61,7 +61,7 @@ pattern P83DiagramPyramidContract(input: String) -> String {
   // ── 5. 1 layer → Err (too few — meaningless single-layer pyramid) ─
   let data5 = [{label: "Lonely"}]
   let r5 = try diagram_pyramid(data5, style)
-  let ok5 = to_float(type_of(r5) == "Unit")
+  let ok5 = to_float(r5.ok == false)
 
   // ── 6. 7 layers → Err (too many — layers would be too thin) ──────
   let data6 = [
@@ -69,7 +69,7 @@ pattern P83DiagramPyramidContract(input: String) -> String {
     {label: "5"}, {label: "6"}, {label: "7"}
   ]
   let r6 = try diagram_pyramid(data6, style)
-  let ok6 = to_float(type_of(r6) == "Unit")
+  let ok6 = to_float(r6.ok == false)
 
   let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
 

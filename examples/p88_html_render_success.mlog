@@ -30,11 +30,11 @@ pattern P88HtmlRenderSuccess(input: String) -> String {
 
   // ── 3. Zero width → error ─────────────────────────────────────
   let r3 = try html_render("<html></html>", 0.0, 600.0)
-  let ok3 = to_float(type_of(r3) == "Unit")
+  let ok3 = to_float(r3.ok == false)
 
   // ── 4. Zero height → error ────────────────────────────────────
   let r4 = try html_render("<html></html>", 800.0, 0.0)
-  let ok4 = to_float(type_of(r4) == "Unit")
+  let ok4 = to_float(r4.ok == false)
 
   let total = ok1 + ok2 + ok3 + ok4
 

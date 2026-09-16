@@ -1,6 +1,6 @@
 # ADR-0142: Error protocol — structural errors through try-extended semantics (candidate B)
 
-**Status:** Accepted (решение владельца 2026-09-14 — GO на research + ADR; приоритет кандидат (б) — расширение try-семантики; финальный выбор кандидата — после ADR)
+**Status:** Accepted + IMPLEMENTED (решение владельца 2026-09-14 — GO на research + ADR; приоритет кандидат (б) — расширение try-семантики; финальный выбор кандидата — после ADR). **Реализовано в наряде №374** (2026-09-16): `try` → `Struct { ok, value, error }` на обоих бэкендах через общий билдер `try_result_struct` (`src/interpreter/values.rs`); миграция `== Unit` → `.ok == false`; golden-примеры мигрированы без изменения выходов.
 **Date:** 2026-09-14
 **Naryad:** #298 (issue #362, P1/adr — ERR_PROTOCOL)
 **Amends:** ADR-0106 (Option/Result — not introduced, soft-failure remains the error model) — error-struct ≠ Option/Result типы; ADR-0106 не пересматривается, только аннотируется примечанием.

@@ -1,0 +1,10 @@
+// Попытка получить байты медиа-хэндла напрямую — ОШИБКА КОМПИЛЯЦИИ.
+// Наряд №331 (ADR-0162 §2.5 / ADR-0114): байты никогда не живут в Value —
+// доступ к ним только через санкционированные материализующие builtins
+// (media_save, гейт №325).
+pattern Frame(bytes: String) -> String {
+  let img = media_store_image(bytes, "public")
+  let raw = img.bytes
+  return raw
+}
+flow Main { input: String = "frame-0001-data" -> Frame -> output }

@@ -3439,6 +3439,10 @@ fn sink_check_id(fn_name: &str, arg_index: usize, label: &crate::labels::Label) 
         "db_execute" => "db",
         "print" | "respond" | "respond_html" | "html_response" => "output",
         "write_file" | "append_file" | "delete_file" => "file",
+        // №331 (ADR-0162): the sanctioned materialization sink is file
+        // egress — same class mapping as write_file (private conf →
+        // SECRET_LEAK, the corpus vocabulary).
+        "media_save" => "file",
         "memorize" | "mem_set" | "mtree_store" | "kv_set" => "memory",
         _ => "network",
     };
@@ -3552,6 +3556,26 @@ fn check_sink_clearance(
 // an [REDACT][audit-event] stderr line): they are the paper trail of
 // the only sanctioned downward move on the conf axis, and they cannot
 // be switched off (no profile, no env toggles — ADR-0154 §10).
+
+/// ── Check: MEDIA_HANDLE_OPAQUE (Наряд №331, ADR-0162 §2.5) ───────────
+/// Field access on a media handle (Image/Audio/VideoFrame/VideoSegment)
+/// is a TYPE-level invariant, not a policy choice: bytes never live in
+/// Value (ADR-0114), so the site can never compile. Always Error —
+/// `profile legacy` cannot downgrade a type contradiction.
+fn check_media_handle_opacity(
+    declarations: &[Declaration],
+    _source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    for v in crate::semantic::media_opacity_violations(declarations) {
+        findings.push(AuditFinding {
+            severity: Severity::Error,
+            check_id: "MEDIA_HANDLE_OPAQUE",
+            line: v.span.start_line as usize,
+            message: v.message(),
+        });
+    }
+}
 
 fn check_redact_events(
     declarations: &[Declaration],
@@ -3760,6 +3784,9 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     // the pre-existing specialized checks keep their classes on shared
     // sites (e.g. env→print is SECRET_LEAK first).
     check_sink_clearance(declarations, source, &mut findings);
+    // Наряд №331 (ADR-0162 §2.5): opaque media handles — type-level
+    // gate, always Error (see the check doc above).
+    check_media_handle_opacity(declarations, source, &mut findings);
     // Наряд №326 (ADR-0154 §10): every redact application is an
     // unconditional audit event (Severity::Info — never blocking).
     check_redact_events(declarations, source, &mut findings);
@@ -3808,6 +3835,9 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     // Наряд №325 (ADR-0161): sink clearance — strict (Error) or, under
     // `profile legacy`, advisory audit events.
     check_sink_clearance(&declarations, source, &mut findings);
+    // Наряд №331 (ADR-0162 §2.5): opaque media handles — type-level
+    // gate, always Error.
+    check_media_handle_opacity(&declarations, source, &mut findings);
     // Наряд №326 (ADR-0154 §10): every redact application is an
     // unconditional audit event (Severity::Info — never blocking).
     check_redact_events(&declarations, source, &mut findings);

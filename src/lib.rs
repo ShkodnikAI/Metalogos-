@@ -42,6 +42,7 @@ pub mod profile;
 // Наряд №286: shared JSON-Schema validation (ADR-0133) — один валидатор
 // для call_llm_schema и json_validate (дифференциальный контракт «ни одного
 // нового правила»).
+pub mod media;
 pub mod schema;
 pub mod semantic;
 #[cfg(feature = "server")]

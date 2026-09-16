@@ -24,6 +24,13 @@ use crate::video::{
 use super::llm_stream::{
     builtin_llm_stream_close, builtin_llm_stream_next, builtin_llm_stream_open,
 };
+// Наряд №331 (ADR-0162): unified media layer — last-resort stubs for the
+// state-carrying media builtins (pub(crate); real paths are interception).
+use super::media::{
+    builtin_media_meta_stub, builtin_media_release_stub, builtin_media_retain_stub,
+    builtin_media_save_stub, builtin_media_store_audio_stub, builtin_media_store_image_stub,
+    builtin_media_store_video_frame_stub, builtin_media_store_video_segment_stub,
+};
 // Наряд №302 (ADR-0143-0146): Voice pillar skeleton builtins — stubs.
 use super::*;
 #[cfg(feature = "voice")]
@@ -627,6 +634,23 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // (loudly noted in CHANGELOG).
     spec!("vision_lora_load", 2, "vision"; builtin_vision_lora_load_stub),
     spec!("vision_lora_generate", 3, "vision"; builtin_vision_lora_generate_stub),
+    // ── Наряд №331 (ADR-0162): unified media layer (category "media") ──
+    // Four per-type store builtins (opaque handles — bytes never enter
+    // Value), the sanctioned materialization SINK (media_save), the
+    // refcount pair, and the metadata observer. All state-carrying:
+    // interpreter and VM intercept these names BEFORE the generic
+    // fallback and route through src/builtins/media.rs dispatches; these
+    // specs remain the last-resort handlers + the arity/type contract.
+    // Registry 421→429. media_save egress is gated by №325 (file kind)
+    // + the runtime backstop (MEDIA_SEALED_EGRESS).
+    spec!("media_store_image", 2, "media"; builtin_media_store_image_stub),
+    spec!("media_store_audio", 2, "media"; builtin_media_store_audio_stub),
+    spec!("media_store_video_frame", 2, "media"; builtin_media_store_video_frame_stub),
+    spec!("media_store_video_segment", 2, "media"; builtin_media_store_video_segment_stub),
+    spec!("media_save", 2, "media"; builtin_media_save_stub),
+    spec!("media_retain", 1, "media"; builtin_media_retain_stub),
+    spec!("media_release", 1, "media"; builtin_media_release_stub),
+    spec!("media_meta", 1, "media"; builtin_media_meta_stub),
     // ── Наряд №284 (P1, M1): canary-токены недоверенного текста ──
     // Runtime-детектор утечки недоверенного контента через LLM-канал
     // (паттерн rebuff/Spotlighting). Связан с taint-моделью: утечка →

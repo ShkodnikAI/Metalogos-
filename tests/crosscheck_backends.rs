@@ -1,8 +1,15 @@
 // ── Block 4: TW vs VM cross-check test ─────────────────────────────
 // Runs .mlog programs through interpreter (tree-walking) and VM,
 // comparing outputs. JIT is experimental (ADR-0073) — skipped.
-// VM is experimental for full-language coverage (ADR-0105): programs
-// that need `match` / block if-else are excluded (e.g. p_match_switch).
+//
+// №373 (ADR-0141 Stage 2 parity gate): the VM is NO LONGER experimental
+// for Match / block if-else / binop / PRNG / Bool-formatting — all Stage-1
+// gaps are closed (№369–№372). The ONLY sanctioned exclusions below are
+// (a) negative-test contracts (designed to fail) and (b) candle-feature-
+// gated examples (fail identically on both backends without the feature;
+// covered by the candle-tests job). The frozen exclusion list is asserted
+// by tests/naryad_373_parity_gate.rs — adding a new `continue` statement here
+// FAILS that test loudly.
 //
 // Discrepancies are red tests — each mismatch is a separate assertion.
 // Collects ALL mismatches, then fails if any exist.

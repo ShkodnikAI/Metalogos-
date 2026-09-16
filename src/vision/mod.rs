@@ -175,6 +175,10 @@ pub mod tokenizer;
 pub mod vae;
 #[cfg(feature = "vision")]
 pub mod weights;
+// №334: vision-UNDERSTANDING backend wiring (molmoact2) — mock-first
+// contract over the №333 registry; not feature-gated (the mock path and
+// the loud real-mode refusal are available in all builds).
+pub mod understand;
 
 #[cfg(test)]
 mod tests {

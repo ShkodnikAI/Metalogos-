@@ -60,6 +60,12 @@
 |---|---|---|
 | JIT compilation is experimental scaffold — not production | [ADR-0073](adr/0073-jit-experimental.md) | Declared experimental; no production claim |
 
+## Backends — real-weights path (№333/№334, ADR-0163)
+
+| Limitation | Primary source | Status / condition for removal |
+|---|---|---|
+| Real STT/omni/vision-understanding inference — PARKED (№334): the path is turnkey (registry pins, per-file SHA manifests, SSRF-guarded loader, mock-first call surface `stt_transcribe`/`omni_ask`/`vision_understand`), but real inference requires hardware (№294 No-Go: ≥64 GB RAM, ≥40 GB disk, GPU) and weights on disk | [ADR-0163](adr/0163-backend-registry-licenses.md); [src/backends_weights.rs](../src/backends_weights.rs); [Наряд №294 No-Go report](research/naryad-294-vision-realw-no-go.md) | Revision date: when hardware is allocated — fetch via `backends_weights::fetch_weights` (allowlist + SHA-pinned), then `METALOGOS_LLM_MOCK=false` runs the real call; without weights the refusal is loud, never a silent mock |
+
 ## Error Protocol (ADR-0142)
 
 | Limitation | Primary source | Status / condition for removal |

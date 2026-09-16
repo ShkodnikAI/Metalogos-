@@ -68,11 +68,52 @@ explicit Warning severities — the three Vision warnings below stay advisory
   intra-procedural and positional — the prompt is argument 1; interprocedural
   flows are not tracked (see Known Boundaries above). No stronger claim is made.
 
+## Label lattice (Wave 1) — labeled trust boundaries
+
+Since Wave 1 (наряды №322–№328, 2026-09-15) the taint system has a lattice underneath it: every value carries a three-component label **(conf, integrity, consent-scope)** (ADR-0154). Confidentiality `public < consented < private < poisoned` — with `poisoned` an **absorbing quarantine**: neither `join` nor `meet` cures it, so a confirmed-compromised channel (`CanaryLeak`) cannot be laundered by lattice arithmetic and has no legal sinks. Integrity `untrusted < trusted`, dual to confidentiality (mixing data lowers integrity, combining requirements takes the max). Consent scopes intersect on data combination and union on requirement combination. The legacy `TaintKind` kinds project onto the lattice additively — no Category-A check changed behavior (the mapping table lives in `labels::legacy_taint_label`, pinned by an exhaustiveness test).
+
+### Boundary 1 — egress (sinks): `SINK_CLEARANCE` and specialized classes
+
+Data entering a sink builtin must clear it: the argument's inferred label (annotations №322 / flow inference №323 / literal markers №325) must be `public` by default; `poisoned` clears nothing. The sink list is read from the №316 SSOT classification (`Role::Sink`) — no hand-written sink lists, no drift. Specialized scenarios keep their own class names, so an error names the SCENARIO, not just the gate: `VOICE_EGRESS_UNCONSENTED`, `UNTRUSTED_EXEC_DECISION` / `SECRET_TO_EXEC`, `SECRET_EGRESS_VCS`, `SECRET_EGRESS_NETWORK`, `PII_EGRESS_NETWORK` / `PII_EGRESS_OUTPUT`, `UNTRUSTED_EGRESS_NETWORK`, `IRREVERSIBLE_NO_GRANT` (destructive SQL literals), plus inherited `SECRET_LEAK` / `HTML_INJECTION` / `TAINT_PERSISTENCE` / `UNTRUSTED_FRAME`. Literal confidentiality markers (personal-data shapes, private-infrastructure URLs) seed `private, trusted` conservatively (ADR-0161 §3).
+
+### Boundary 2 — decisions (control flow): `UNTRUSTED_DECISION`
+
+The integrity axis is about DECISIONS, not existence: `if`/`else if` conditions, `while` conditions, and `match` scrutinees must be `trusted`. Untrusted data as DATA — carrying, transforming, returning — is legal. The integrity join is componentwise: untrusted poisons derivatives (`upper(trim(answer))` stays untrusted). Sanctioned paths to a trusted decision: validate before deciding, or one-way redact (`hash_only` destroys the data — trust restored). Sink-target decisions keep their №325 classes (`UNTRUSTED_EXEC_DECISION`, `UNTRUSTED_EGRESS_NETWORK`).
+
+### Boundary 3 — downward moves: the redact policy registry
+
+The ONLY sanctioned path down is `redact(value, "<policy>")` with a literal policy value (ADR-0154 §10): `hash_only` → `public` (one-way SHA-256), `all` → `public`, `secrets` → `public` (legacy ADR-0136), `pii` → `private`, `pii_strip` → `private`, `truncate` → `private` — conservative policies do NOT declassify (pattern strips can miss data; the gate keeps blocking). Unknown words are loud runtime errors; dynamic policies pass the label through — no silent downward moves. Every application is an unconditional `REDACT_APPLIED` audit event (`[REDACT][audit-event]`). ADR-0158 is the booking for the standalone declassify-boundaries write-up; the implemented contract lives in ADR-0154 §10 today.
+
+### Migration bridge — `profile legacy { egress: permissive_with_audit }`
+
+Pre-lattice programs relay user data into outputs as their whole point; the profile (ADR-0161) converts ONLY the №325 clearance verdicts to advisory audit events (`[SINK_CLEARANCE][audit-event]` + `Severity::Info` in `mlog audit`) — compilation and run stay green. Every other gate in this document stays at full strength, and `REDACT_APPLIED` events remain unconditional. It is a bridge, not a residence: no fixed term — the exit criterion is per-program (every gated flow redacted/annotated or demonstrably dead), measured by the burn-down of the audit-event count. A program stuck at a non-zero count across releases is standing debt, visible in every audit report.
+
+### Evidence set — the leak suite (BLOCKING)
+
+`examples/leak/` + `tests/run_leak_suite.rs` is the executable evidence that the boundaries above actually catch the scenarios they name:
+
+- **28 negatives** (`n01`…`n28`) — programs that MUST NOT compile; each carries an `.error` file pinning the expected failure CLASS (`EXPECTED: <CLASS> — scenario`). A negative that compiles — or that fails for a FOREIGN reason (class mismatch) — fails the run.
+- **16 positives** (`ok_*`) — legal flows (redact-before-sink, local log for private data, plain public transforms) that MUST keep compiling AND running with pinned output, before and after №325. This is the false-positive fence.
+- **Mode**: since №325 `BLOCKING = true` — the gate is live, "not caught" fails CI. The corpus lives OUTSIDE the main golden cycle by design (`tests/golden.rs` scans `examples/` non-recursively); the dedicated runner is `tests/run_leak_suite.rs`.
+
+### Second line — runtime label parity (№328, ADR-0156)
+
+The static gates are the SSOT of every verdict; №328 lowers that knowledge into the bytecode so the VM runtime twin agrees by construction and any divergence is loud: source-backed bindings carry `LabelJoin` (runtime labels seeded from the same №316 mapping), every sink call site carries `SinkCheck`. A runtime violation is a distinct `[SINK_CLEARANCE_RUNTIME]` error plus an audit-event line. Label instructions are explicitly OUTSIDE the JIT-eligible class (`bytecode::is_jit_eligible`) — a future JIT dispatcher must reject label-bearing functions with a distinct error naming ADR-0156, never skip them silently (pinned by test).
+
+### Phase boundaries (honest)
+
+- **Consent sources are Phase 2 (№335)**: until then every voice egress is unconsented by default — loud by design, not a silent pass.
+- **Grant algebra is Phase 3 (№339, ADR-0155)**: until then destructive SQL literals are gated loudly without grants (`IRREVERSIBLE_NO_GRANT`).
+- **Static inference limits**: statement-level flow + per-pattern effect contracts (№322/№323); annotations are label literals — no parametric label polymorphism yet (ADR-0154 §3); pattern effect trails `⟨io, audit⟩` (№324, ADR-0154 §9) gate declared vs factual audit effects — the annotated contract is REFERENCE.md §2.
+- **PARKED objects unchanged**: the Vision real-weights run remains parked (№294 No-Go, hardware-bound) — the lattice adds no new promises and does not change that status.
+
+References: [ADR-0154](adr/0154-label-lattice.md) (the lattice + §10 redact/declassify), [ADR-0156](adr/0156-tw-vm-jit-parity.md) (runtime parity), [ADR-0158](adr/0158-declassify-boundaries.md) (booking; content in ADR-0154 §10), [ADR-0161](adr/0161-compat-profile.md) (sink clearance + legacy profile). Term names here are grep-verified against REFERENCE.md §2 (0 contradictions — the №376 depth bullet above was updated in the same pass).
+
 ## Known Boundaries
 
 Patterns the audit does **not** detect (see README for full table):
 
-- **Interprocedural taint deeper than 2 levels**: as of naryad №292 (`TAINT_INTERP`), summary-based interprocedural taint IS tracked, but bounded to `TAINT_INTERP_MAX_DEPTH = 2` levels of pattern-call chains. Deeper chains emit `INTERP_DEPTH_LIMIT` warning (analysis terminates cleanly). Full fixpoint / unbounded depth is a separate, larger task.
+- **Interprocedural taint — depth is CONFIGURABLE (Наряд №376)**: as of naryad №292 (`TAINT_INTERP`), summary-based interprocedural taint IS tracked, bounded to `METALOGOS_TAINT_DEPTH` pattern-call chain levels (integer 1..=16, **default 4** — chosen by the measured overhead: +14.2% audit time on the 222-file corpus vs depth 2, within the +50% threshold; the old hard-coded `TAINT_INTERP_MAX_DEPTH = 2` is gone). Deeper chains emit `INTERP_DEPTH_LIMIT` warning (analysis terminates cleanly). Pattern summaries are cached per module (key = source hash + depth — an unchanged module is never recomputed). Full fixpoint / unbounded depth is a separate, larger task (Phase 7).
 - **Nesting deeper than 3 levels**: as of naryad №295, `expr_is_llm_tainted` is bounded to `TAINT_NESTING_MAX_DEPTH = 3`. Deeper non-pattern function-call nesting (e.g. `respond(upper(trim(lower(call_llm(...)))))` — 4 levels) is not caught by intraprocedural `HTML_INJECTION`; if any pattern call is involved, `TAINT_INTERP` (Наряд №292) catches via summary-based analysis.
 - **Persistence taint — README truth-up (Наряд №295)**: `TAINT_PERSISTENCE` check (наряды №141/№157) catches LLM output stored via `memorize()` and read back via `recall()` reaching `respond()` — **at file/module scope** (any scope with `recall + respond` AND any `memorize` with LLM source anywhere in declarations). The check is heuristic (file-level, not data-flow guaranteed), but it IS enforced as Category-A Error — the previous README row "Data flow through persistence is not tracked" was misleading (the check exists, it's just bounded to file scope, not cross-module data-flow).
 - **`query(format(...))` — NOT a gap (Наряд №295 truth-up)**: `check_sql_dynamic` (Наряд №78) **loudly rejects** any non-literal in the 1st argument of `query()`/`db_execute()` — including `format(...)` (which is `Expr::FnCall`, not `Expr::StringLit`). Test: `tests/check_integration.rs:71-90` "non-literal SQL must be a compile-time error". The previous README row "not detected" was wrong — it IS detected and loudly rejected.

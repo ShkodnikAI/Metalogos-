@@ -3629,6 +3629,158 @@ fn check_origin_decls_valid(
 /// usage is allowed but never silent. Restrictive entries are
 /// default-deny (unverified license) and unlock together with non-osi
 /// under the bridge.
+/// ── Check: QUARANTINE_EGRESS + CONSENT_LEDGER_EXPORT (Наряд №335) ────
+/// The consent surface's audit events (№326 posture: unconditional,
+/// Severity::Info — never blocking):
+///   - every `quarantine_write` call site — the legal egress of a
+///     poisoned value (the №325 clearance exempts THIS sink only);
+///   - every `consent_ledger_export` call site — the ledger leaves the
+///     process as file egress.
+fn check_consent_events(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    fn walk(expr: &Expr, container: &str, source: &str, findings: &mut Vec<AuditFinding>) {
+        if let Expr::FnCall { name, args, .. } = expr {
+            if name == "quarantine_write" || name == "consent_ledger_export" {
+                let (check_id, message) = if name == "quarantine_write" {
+                    (
+                        "QUARANTINE_EGRESS",
+                        format!(
+                            "poisoned value reaches the quarantine sink in {} — legal egress with audit event (№335)",
+                            container
+                        ),
+                    )
+                } else {
+                    (
+                        "CONSENT_LEDGER_EXPORT",
+                        format!(
+                            "consent ledger exported in {} — grant/TTL/revoke records leave the process with an audit event (№335)",
+                            container
+                        ),
+                    )
+                };
+                eprintln!("[CONSENT][audit-event] {}", message);
+                findings.push(AuditFinding {
+                    severity: Severity::Info,
+                    check_id,
+                    line: find_line(source, name),
+                    message,
+                });
+            }
+            for a in args {
+                walk(a, container, source, findings);
+            }
+        }
+    }
+    fn walk_stmts(
+        stmts: &[Statement],
+        container: &str,
+        source: &str,
+        findings: &mut Vec<AuditFinding>,
+    ) {
+        for st in stmts {
+            match st {
+                Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+                    walk(value, container, source, findings)
+                }
+                Statement::ExprStmt { expr: value, .. } | Statement::Return { value, .. } => {
+                    walk(value, container, source, findings)
+                }
+                Statement::Each { iterable, body, .. }
+                | Statement::EachWithIndex { iterable, body, .. } => {
+                    walk(iterable, container, source, findings);
+                    walk_stmts(body, container, source, findings);
+                }
+                Statement::While {
+                    condition, body, ..
+                } => {
+                    walk(condition, container, source, findings);
+                    walk_stmts(body, container, source, findings);
+                }
+                Statement::IfElseBlock {
+                    condition,
+                    then_body,
+                    else_ifs,
+                    else_body,
+                    ..
+                } => {
+                    walk(condition, container, source, findings);
+                    walk_stmts(then_body, container, source, findings);
+                    for (_, b) in else_ifs {
+                        walk_stmts(b, container, source, findings);
+                    }
+                    if let Some(eb) = else_body {
+                        walk_stmts(eb, container, source, findings);
+                    }
+                }
+                Statement::IfThen {
+                    condition, body, ..
+                } => {
+                    walk(condition, container, source, findings);
+                    walk_stmts(body, container, source, findings);
+                }
+                Statement::Match {
+                    scrutinee,
+                    arms,
+                    else_body,
+                    ..
+                } => {
+                    walk(scrutinee, container, source, findings);
+                    for arm in arms {
+                        let b = match arm {
+                            crate::ast::MatchArm::Exact(_, b)
+                            | crate::ast::MatchArm::StartsWith(_, b)
+                            | crate::ast::MatchArm::Contains(_, b)
+                            | crate::ast::MatchArm::Compare(_, _, b) => b,
+                        };
+                        walk_stmts(b, container, source, findings);
+                    }
+                    if let Some(eb) = else_body {
+                        walk_stmts(eb, container, source, findings);
+                    }
+                }
+                Statement::Memorize(m) => walk(&m.value, container, source, findings),
+                Statement::Forget(f) => walk(&f.query, container, source, findings),
+                Statement::Relate(r) => {
+                    walk(&r.from, container, source, findings);
+                    walk(&r.to, container, source, findings);
+                }
+                _ => {}
+            }
+        }
+    }
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                walk_stmts(&p.body, &format!("pattern '{}'", p.name), source, findings);
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    walk_stmts(
+                        &m.body,
+                        &format!("tool method '{}.{}'", t.name, m.name),
+                        source,
+                        findings,
+                    );
+                }
+            }
+            Declaration::MlogServer(srv) => {
+                for r in &srv.routes {
+                    walk_stmts(
+                        &r.body,
+                        &format!("route {} {}", r.method, r.path),
+                        source,
+                        findings,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 fn check_backend_license(
     declarations: &[Declaration],
     source: &str,
@@ -4082,6 +4234,9 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     // Наряд №326 (ADR-0154 §10): every redact application is an
     // unconditional audit event (Severity::Info — never blocking).
     check_redact_events(declarations, source, &mut findings);
+    // Наряд №335: consent surface audit events — quarantine egress and
+    // ledger export are legal but never silent.
+    check_consent_events(declarations, source, &mut findings);
     // Наряд №327: the integrity axis — untrusted data must not decide
     // control flow (Category-A Error).
     check_integrity_decisions(declarations, source, &mut findings);
@@ -4139,6 +4294,8 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     // Наряд №326 (ADR-0154 §10): every redact application is an
     // unconditional audit event (Severity::Info — never blocking).
     check_redact_events(&declarations, source, &mut findings);
+    // Наряд №335: consent surface audit events.
+    check_consent_events(&declarations, source, &mut findings);
     // Наряд №327: the integrity axis — decision gate.
     check_integrity_decisions(&declarations, source, &mut findings);
 

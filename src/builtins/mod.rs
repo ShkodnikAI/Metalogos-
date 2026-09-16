@@ -242,6 +242,9 @@ pub mod vision;
 pub mod media;
 // Наряд №333 (ADR-0163): backend registry builtins — backend_list().
 pub mod backends;
+// Наряд №335 (spec §7.2 v2): consent grant/revoke + quarantine sink +
+// ledger export — the consent component's language surface.
+pub mod consent;
 // Наряд №275 (ADR-0137): LLM streaming builtins — llm_stream_open/next/close.
 // Module is NOT feature-gated: the opaque handle + registry + SSE parser
 // live in `crate::llm` (always available); HTTP streaming requires

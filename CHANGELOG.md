@@ -4,6 +4,15 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added — feature/vm: VM Stage 2 — parity gate + nightly soak (Naryad #373, P0/feature/vm, issue #440)
+
+- **parity gate** (`tests/naryad_373_parity_gate.rs`, 5 tests): (1) the crosscheck source must contain EXACTLY two `continue;` exclusion sites — any NEW exclusion fails loudly and forces наряд-style re-justification; (2) every golden example is classified into exactly one of crosschecked / negative-contract / frozen candle list (the frozen list cannot rot — file renames are caught); (3) all six Stage-1 rows in `docs/limitations.md` must stay CLOSED (№369–№372) while the serve default-flip row stays OPEN (Stage 3 decision); (4) the soak workflow exists, is nightly-scheduled AND dispatchable; (5) no stubs.
+- **exclusion audit (было → осталось → почему)**: Stage-0 inventory (`docs/research/vm-gaps-inventory.md`) had 4 VM-uncovered classes — Match statement/`match_expr` (CLOSED №369), block if/else as VALUE (CLOSED №370), binop coercion `p118_collection_utils` (CLOSED №371), PRNG + Bool→String `reflex_math` (CLOSED №372 — PRNG via truth-up: shared registry all along). REMAINING (sanctioned, not VM-uncovered): (a) negative-test contracts (`*unknown_fn*`, `*wrong_*`) — designed-to-fail, explicitly sanctioned by ADR-0141 §D3; (b) 11 candle-feature-gated examples (`reflex_seq_*`/`reflex_gen_*`) — fail identically on BOTH backends without the `candle` feature, verified by the candle-tests CI job (№200). **Parity = 100% modulo sanctioned classes.**
+- **crosscheck header**: the stale "VM is experimental … match/block-if-else excluded" comment replaced by the Stage-2 status + the gate pointer.
+- **soak** (`.github/workflows/soak.yml`): nightly cron 02:00 UTC + `workflow_dispatch`; runs lib tests, the parity crosscheck + №373 gate, the FULL integration suite, doc-tests (`mlog test --docs`), and prints a duration/date report; each green run = one 24h-soak data point for the Stage-3 decision (диспатч №379). Job timeout 350 min.
+- **limitations**: verification-only (grep gate in the №373 test) — all Stage-1 VM rows CLOSED; the open "VM is not the default backend for `mlog serve`" row is the Stage-3+ gate, intentionally open.
+- **boundaries (loud)**: the default flip of `mlog serve` is NOT part of this наряд (Stage 3 — решение диспатча №379 по данным soak); JIT (ADR-0073/ADR-0156 §2) — отдельная линия; no `todo!`/`unimplemented!`/`SKELETON`.
+
 ### Added — feature/vm: VM Stage 1.4 — PRNG state + Bool→String parity with TW (Naryad #372, P0/feature/vm, issue #439)
 
 - **PRNG truth-up (loud)**: the "VM has no PRNG state" claim was STALE. `random_seed`/`random` route through the SHARED builtin registry (thread-local xorshift64 state in `src/builtins/math.rs`) on BOTH backends — identical seed yields identical sequences on TW and VM (verified: seed(42) first element `0.16258225917040392` on both; reseeding restarts deterministically; zero-seed fallback identical). No VM code was needed for PRNG — the contract is now LOCKED by test vectors.

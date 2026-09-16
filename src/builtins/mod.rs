@@ -240,6 +240,8 @@ pub mod vision;
 // handles, and at-rest sealing have no inference-stack dependencies (mirrors
 // the vision-store reasoning: the contract is testable in the default build).
 pub mod media;
+// Наряд №333 (ADR-0163): backend registry builtins — backend_list().
+pub mod backends;
 // Наряд №275 (ADR-0137): LLM streaming builtins — llm_stream_open/next/close.
 // Module is NOT feature-gated: the opaque handle + registry + SSE parser
 // live in `crate::llm` (always available); HTTP streaming requires
@@ -279,6 +281,8 @@ pub use media::{
     media_meta_dispatch, media_release_dispatch, media_retain_dispatch, media_save_dispatch,
     media_store_dispatch,
 };
+// Наряд №333 (ADR-0163): backend registry listing.
+pub use backends::builtin_backend_list;
 
 impl Default for Builtins {
     fn default() -> Self {

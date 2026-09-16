@@ -31,6 +31,8 @@ use super::media::{
     builtin_media_save_stub, builtin_media_store_audio_stub, builtin_media_store_image_stub,
     builtin_media_store_video_frame_stub, builtin_media_store_video_segment_stub,
 };
+// Наряд №333 (ADR-0163): backend registry listing (stateless).
+use super::backends::builtin_backend_list;
 // Наряд №302 (ADR-0143-0146): Voice pillar skeleton builtins — stubs.
 use super::*;
 #[cfg(feature = "voice")]
@@ -651,6 +653,11 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("media_retain", 1, "media"; builtin_media_retain_stub),
     spec!("media_release", 1, "media"; builtin_media_release_stub),
     spec!("media_meta", 1, "media"; builtin_media_meta_stub),
+    // ── Наряд №333 (ADR-0163): backend registry — read-only metadata ──
+    // The SSOT table lives in src/backends.rs; this builtin is the
+    // language surface (name/class/weights_id/pin/license/license_note).
+    // Registry 429→430; category "registry" (41st module).
+    spec!("backend_list", 0, "registry"; builtin_backend_list),
     // ── Наряд №284 (P1, M1): canary-токены недоверенного текста ──
     // Runtime-детектор утечки недоверенного контента через LLM-канал
     // (паттерн rebuff/Spotlighting). Связан с taint-моделью: утечка →

@@ -1,83 +1,131 @@
-// ── Compatibility profile (Наряд №325, ADR-0161) ─────────────────────
+// ── Compatibility profiles (Наряд №325, ADR-0161; №333, ADR-0163) ────
 //
-//! Program-level compatibility profiles: `profile legacy { egress:
-//! permissive_with_audit }`.
+//! Program-level compatibility profiles:
+//! `profile legacy { egress: permissive_with_audit }` and
+//! `profile licensing { backends: permissive_with_audit }`.
 //!
-//! A profile is a program declaration that switches statically-enforced
-//! security gates into their compatibility mode. The only profile in
-//! this slice is `legacy` with `egress: permissive_with_audit`: the
-//! №325 `SINK_CLEARANCE` gate runs ADVISORY — every violation becomes
-//! an audit event (Severity::Info in the audit report, an `[SINK_
-//! CLEARANCE][audit-event]` line on the compile/run stderr) instead of
-//! a compile error.
+//! A profile is a program declaration that switches a statically-enforced
+//! gate into its compatibility mode. Two profiles exist:
 //!
-//! Lifecycle (ADR-0161): `legacy` is a MIGRATION bridge, not a residence.
-//! Its exit criterion is per-program: the profile declaration is removed
-//! when the program's flows are either annotated/redacted to pass the
-//! strict gate or the flows are dead. The audit report counts the events
-//! (see `audit_events`), so the burn-down is measurable.
+//! - `legacy` (№325/ADR-0161): the №325 `SINK_CLEARANCE` gate runs
+//!   ADVISORY — every violation becomes an audit event (Severity::Info
+//!   in the audit report) instead of a compile error. Lifecycle: a
+//!   MIGRATION bridge, not a residence; the audit report counts the
+//!   events, so the burn-down is measurable.
+//! - `licensing` (№333/ADR-0163): the backend-license gate
+//!   (`BACKEND_LICENSE_DISTRIBUTION`) runs ADVISORY for non-osi /
+//!   restrictive weights references — allowed, but audited as events
+//!   (never silent). Distribution (the default) refuses them.
+//!
+//! The two profiles are INDEPENDENT flags: `licensing` does not weaken
+//! the №325 gate, and `legacy` does not unlock non-OSI backends. A
+//! program may declare both.
 
 use crate::ast::Declaration;
 
-/// What mode the №325 sink-clearance gate runs in for a program.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProfileMode {
-    /// No profile declared — all gates STRICT (default).
-    Strict,
-    /// `profile legacy { egress: permissive_with_audit }` — the gate
-    /// reports audit events instead of compile errors.
-    LegacyPermissiveWithAudit,
+/// What modes the static gates run in for one program (№325 + №333).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ResolvedProfiles {
+    /// `profile legacy { egress: permissive_with_audit }` declared —
+    /// the №325 sink-clearance gate reports audit events instead of
+    /// compile errors.
+    pub legacy_permissive_with_audit: bool,
+    /// `profile licensing { backends: permissive_with_audit }` declared —
+    /// the №333 backend-license gate reports audit events instead of
+    /// compile errors for non-osi/restrictive weights references.
+    pub backend_license_permissive_with_audit: bool,
 }
 
-impl ProfileMode {
-    /// `true` when the sink-clearance gate must NOT block compilation.
+impl ResolvedProfiles {
+    /// `true` when the №325 sink-clearance gate must NOT block compilation.
     pub fn permissive(&self) -> bool {
-        matches!(self, ProfileMode::LegacyPermissiveWithAudit)
+        self.legacy_permissive_with_audit
+    }
+
+    /// `true` when the №333 backend-license gate must NOT block
+    /// compilation (audit events instead).
+    pub fn backend_license_permissive(&self) -> bool {
+        self.backend_license_permissive_with_audit
     }
 }
 
-/// Validate one `profile` declaration. The closed shape in this slice:
-/// name `legacy`, options `egress: permissive_with_audit`. Anything
-/// else is a loud error (unknown words are compat-profile mistakes,
-/// not silent no-ops).
+/// Validate one `profile` declaration. Closed shapes: name `legacy` with
+/// option `egress: permissive_with_audit` (№325); name `licensing` with
+/// option `backends: permissive_with_audit` (№333). Anything else is a
+/// loud error (unknown words are compat-profile mistakes, not silent
+/// no-ops).
 pub fn validate(p: &crate::ast::ProfileDecl) -> Result<(), String> {
-    if p.name != "legacy" {
+    match p.name.as_str() {
+        "legacy" => {
+            validate_options(p, "egress", &["permissive_with_audit"])?;
+            Ok(())
+        }
+        "licensing" => {
+            validate_options(p, "backends", &["permissive_with_audit"])?;
+            Ok(())
+        }
+        other => Err(format!(
+            "unknown compatibility profile '{}' (available: legacy, licensing)",
+            other
+        )),
+    }
+}
+
+fn validate_options(
+    p: &crate::ast::ProfileDecl,
+    key: &str,
+    allowed: &[&str],
+) -> Result<(), String> {
+    if p.options.is_empty() {
         return Err(format!(
-            "unknown compatibility profile '{}' (available: legacy)",
-            p.name
+            "profile '{}' requires options ({}: {})",
+            p.name, key, allowed[0]
         ));
     }
     for (k, v) in &p.options {
-        if k != "egress" {
-            return Err(format!("unknown profile option '{k}' (available: egress)"));
-        }
-        if v != "permissive_with_audit" {
+        if k != key {
             return Err(format!(
-                "unknown egress mode '{v}' (available: permissive_with_audit)"
+                "unknown profile option '{k}' for '{}' (available: {key})",
+                p.name
+            ));
+        }
+        if !allowed.contains(&v.as_str()) {
+            return Err(format!(
+                "unknown {} mode '{v}' (available: {})",
+                key,
+                allowed.join(", ")
             ));
         }
     }
     Ok(())
 }
 
-/// Resolve the program's profile mode from its declarations.
-/// The LAST `profile` declaration wins (a program may declare one;
-/// re-declaration is a documented override). Unknown profile names or
-/// option values are loud semantic errors (validated in
+/// Resolve the program's profiles from its declarations. Each profile
+/// flag is set when its declaration is present (the LAST matching
+/// declaration wins — re-declaration is a documented override). Unknown
+/// profile names or option values are loud semantic errors (validated in
 /// `semantic::check_program`) — here an unknown shape simply does not
-/// switch the mode away from `Strict`.
-pub fn resolve(declarations: &[Declaration]) -> ProfileMode {
-    let mut mode = ProfileMode::Strict;
+/// switch the mode away from the default.
+pub fn resolve(declarations: &[Declaration]) -> ResolvedProfiles {
+    let mut resolved = ResolvedProfiles::default();
     for decl in declarations {
         if let Declaration::Profile(p) = decl {
-            if p.name == "legacy"
-                && p.options
-                    .iter()
-                    .any(|(k, v)| k == "egress" && v == "permissive_with_audit")
-            {
-                mode = ProfileMode::LegacyPermissiveWithAudit;
+            match p.name.as_str() {
+                "legacy" => {
+                    resolved.legacy_permissive_with_audit = p
+                        .options
+                        .iter()
+                        .any(|(k, v)| k == "egress" && v == "permissive_with_audit");
+                }
+                "licensing" => {
+                    resolved.backend_license_permissive_with_audit = p
+                        .options
+                        .iter()
+                        .any(|(k, v)| k == "backends" && v == "permissive_with_audit");
+                }
+                _ => {}
             }
         }
     }
-    mode
+    resolved
 }

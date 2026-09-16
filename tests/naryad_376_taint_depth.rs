@@ -48,6 +48,12 @@ fn read_example(name: &str) -> String {
 /// unsanitized one.
 #[test]
 fn naryad_376_red_green_examples_caught_at_default() {
+    // CI-stability fix (discovered on №331's PR): this test audits WITHOUT
+    // asserting cache counters, but its audit_program calls still race the
+    // summaries-cache test's exact-insert assertions (the cache is
+    // process-global). Serialize through the same mutex — the file header
+    // already promises this discipline.
+    let _g = env_lock();
     let d3 = read_example("taint_chain_d3.mlog");
     let d4 = read_example("taint_chain_d4.mlog");
 

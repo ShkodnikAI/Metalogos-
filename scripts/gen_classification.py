@@ -558,6 +558,8 @@ OVERRIDES = {
     "media_meta": ("Source", "Public", "Pure", "reads media store METADATA only (kind/conf/refs/sealed/origin) — no bytes leave the store"),
     "media_source_capture": ("Source", "Internal", "Pure", "HandleSource runtime (№332/ADR-0164): captures a handle from a DECLARED origin (file-backed through the io sandbox; camera is a loud PARKED boundary) — the handle label is the origin's declared conf"),
     "media_bind_origin": ("Pure", "Public", "Pure", "ProvBind runtime (№332/ADR-0164): binds an entry's origin and joins the declared conf into the entry label (re-seals when public becomes non-public) — store bookkeeping, no byte movement"),
+    "media_manifest": ("Source", "Public", "Pure", "reads the entry-level manifest facts (kind/origin/conf/synthetic/bytes_sha256 — ADR-0166 §2.4) WITHOUT materializing bytes — store metadata, no egress"),
+    "media_manifest_read": ("Source", "Internal", "Pure", "ingests a provenance sidecar (<path>.manifest.json) from the sandbox (ADR-0166 §2.4): manifest content enters the flow; missing/empty/corrupt sidecars are loud refusals (№320 posture), synthetic reads conservatively true"),
     # ── video (№309, ADR-0151) ──
     "video_render": ("Sink", "Internal", "Reversible", "persists a generated video artifact in VIDEO_REGISTRY — local tiny pipeline; egress only at video_export"),
     "frame_interp": ("Sink", "Internal", "Reversible", "persists an interpolated artifact in VIDEO_REGISTRY (ADR-0151 D2)"),
@@ -636,8 +638,11 @@ RISKY_CATEGORIES = {
     "io", "web", "db", "system", "email", "calendar", "contacts", "crypto",
     "llm", "voice", "vision", "video", "vault", "recipe", "cron", "mtree",
     "security", "memory", "bot", "reflex", "orchestration", "graph",
-    "fluid", "stub", "test",
+    "fluid", "stub", "test", "media", "registry",
 }
+# №337: "media" and "registry" join the risky set — their manual rows
+# (№331/№333–№337) carry real rationales the Pure default would destroy
+# on regeneration (found and prevented during №336/№337).
 
 
 def parse_registry():

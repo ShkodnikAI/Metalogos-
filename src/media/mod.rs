@@ -211,6 +211,17 @@ pub struct MediaEntry {
     /// rule refuses unbound construction at compile time) — the Option is
     /// the honest state for direct store API use (Rust tests, №337 flows).
     pub origin: Option<String>,
+    /// №337 (ADR-0166 §2.1): the Art. 50 marking — true only for
+    /// generation lifts (a bind whose declared origin kind is
+    /// `generation` FORCES the flag; there is NO API to un-mark, and no
+    /// builtin writes it). Captured/stored bytes are NOT synthetic by
+    /// default — a false positive here would lie in the opposite
+    /// direction. The egress sidecar is built from this fact.
+    pub synthetic: bool,
+    /// №337 (ADR-0166 §2.1): SHA-256 of the plaintext bytes, computed
+    /// ONCE at insert (hashing never re-decrypts sealed payloads, and
+    /// `media_manifest` keeps its no-materialization promise).
+    pub bytes_sha256: String,
 }
 
 /// AES-256-GCM seal/unseal — reuses the №172 contour primitives exactly
@@ -327,6 +338,10 @@ impl MediaStore {
         bytes: Vec<u8>,
         label: crate::labels::Label,
     ) -> Result<MediaHandle, String> {
+        // №337 (ADR-0166 §2.1): the bytes identity is an INSERT-time fact
+        // (one hash over the plaintext; sealed payloads are hashed here,
+        // before sealing, and never re-decrypted for provenance reads).
+        let bytes_sha256 = crate::vision::provenance::sha256_hex(&bytes);
         let payload = if label.conf == crate::labels::Conf::Public {
             MediaPayload::Plain(bytes)
         } else {
@@ -342,6 +357,8 @@ impl MediaStore {
                 refs: 1,
                 payload,
                 origin: None,
+                synthetic: false,
+                bytes_sha256,
             },
         );
         Ok(match kind {
@@ -378,11 +395,17 @@ impl MediaStore {
     /// declared origin conf into the entry label — re-sealing when a
     /// public entry becomes non-public, so the at-rest contract tracks
     /// the STRONGEST declared label). Loud on unknown handles.
+    /// №337 (ADR-0166 §2.3): `origin_kind == "generation"` FORCES
+    /// `synthetic = true` on the bound entry — the Art. 50 marking is a
+    /// property of the declared origin kind, not a call-site choice;
+    /// there is NO API to un-mark (no parameter to lie about, no builtin
+    /// writes the field).
     pub fn bind_origin(
         &mut self,
         handle: MediaHandle,
         origin_name: String,
         conf: crate::labels::Conf,
+        origin_kind: &str,
     ) -> Result<(), String> {
         let entry = self
             .entries
@@ -394,6 +417,9 @@ impl MediaStore {
             entry.label.conf == crate::labels::Conf::Public && conf != crate::labels::Conf::Public;
         entry.label.conf = entry.label.conf.join(conf);
         entry.origin = Some(origin_name);
+        if origin_kind == "generation" {
+            entry.synthetic = true;
+        }
         if needs_reseal {
             let plaintext = match &entry.payload {
                 MediaPayload::Plain(b) => b.clone(),
@@ -446,6 +472,68 @@ impl MediaStore {
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
+}
+
+// ── №337 (ADR-0166 §2.2/§2.4): the media-handle manifest ─────────────
+//
+// The C2PA contour of handles: the sidecar `<path>.manifest.json` next
+// to every `media_save` egress (the №241 naming/form continuity), built
+// from the ENTRY's manifest facts (origin chain №332 ↔ manifest fields
+// cannot disagree). The read side follows the №320 conservative posture:
+// a manifest without `synthetic` describes SYNTHETIC content (unknown ⇒
+// marked — serde default true), and a missing/empty/corrupt manifest is
+// a LOUD refusal, never a silent default.
+
+/// Provenance manifest of a materialized media handle (№337, ADR-0166).
+/// Shares the №241 sidecar vocabulary (`synthetic`, `timestamp`) — the
+/// schemas differ (a media manifest describes the STORE ENTRY, a vision
+/// manifest describes the generation event), the continuity is the file
+/// name + the marking discipline.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MediaManifest {
+    /// Media kind slug (`image` / `audio` / `video_frame` / `video_segment`).
+    pub kind: String,
+    /// The declared origin the handle was bound to (№332); empty for
+    /// pre-№332 store-API entries (never reachable from sanctioned
+    /// mlog constructions — the origin-chain rule refuses them).
+    pub origin: String,
+    /// The entry's declared sensitivity (conf axis, ADR-0154).
+    pub conf: String,
+    /// SHA-256 of the plaintext bytes (insert-time fact, ADR-0166 §2.1).
+    pub bytes_sha256: String,
+    /// №320 (ADR-0152) vocabulary, conservative read: absent field ⇒
+    /// `true` — an old manifest describes synthetic content.
+    #[serde(default = "default_media_manifest_synthetic")]
+    pub synthetic: bool,
+    /// Wall-clock egress time, RFC 3339 UTC (not pinned in tests).
+    pub timestamp: String,
+}
+
+fn default_media_manifest_synthetic() -> bool {
+    true
+}
+
+/// Serialize a media manifest to the sidecar JSON form (pretty-printed —
+/// provenance you cannot read is provenance you do not have, №241).
+pub fn manifest_sidecar_json(manifest: &MediaManifest) -> Result<String, String> {
+    serde_json::to_string_pretty(manifest)
+        .map_err(|e| format!("media manifest: serialization failed: {}", e))
+}
+
+/// Read path for a media sidecar (№337; the №320 `sidecar_read_report`
+/// posture): empty/corrupt JSON is a loud `Err`, and `synthetic` is
+/// conservatively defaulted to `true` for pre-№337 manifests.
+pub fn sidecar_parse_manifest(json: &str) -> Result<MediaManifest, String> {
+    let trimmed = json.trim();
+    if trimmed.is_empty() {
+        return Err(
+            "media manifest: sidecar is EMPTY — a manifest-less egress cannot be \
+             read as provenance (loud refusal, №320 posture)"
+                .to_string(),
+        );
+    }
+    serde_json::from_str(trimmed)
+        .map_err(|e| format!("media manifest: corrupt sidecar JSON: {}", e))
 }
 
 #[cfg(test)]

@@ -522,7 +522,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 440 registered builtins (440 of 440): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 442 registered builtins (442 of 442): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1884,7 +1884,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 440 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 442 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2163,11 +2163,13 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `sqrt(...)` | 1 | `Float -> Float` | Square root. Soft-failure: `0.0` for `x < 0` |
 | `tanh(...)` | 1 | `Float -> Float` | Hyperbolic tangent. In (−1, 1). `tanh(1000)=1`, `tanh(-1000)=-1` |
 
-### `media` — 10 builtin(s)
+### `media` — 12 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
 | `media_bind_origin(...)` | 2 | — | `media_bind_origin(origin_name, handle)` — the ProvBind runtime (№332, ADR-0164): binds the store entry's origin and joins the declared origin conf into the entry label (re-sealing when a public entry becomes non-public). The handle value passes through unchanged. Pure: store bookkeeping, no byte movement. State-carrying: interpreter/VM intercept before the generic fallback. |
+| `media_manifest(...)` | 1 | — | `media_manifest(handle)` — the in-program provenance read (№337, ADR-0166 §2.4): Struct { kind, origin, conf, synthetic, bytes_sha256, refs, sealed } WITHOUT materializing bytes. State-carrying: interpreter/VM intercept before the generic fallback. |
+| `media_manifest_read(...)` | 1 | — | `media_manifest_read(path)` — the sidecar READ path (№337, ADR-0166 §2.4): parses a `<...>.manifest.json` from the sandbox and returns the same struct shape as media_manifest. Missing/empty/corrupt manifests are LOUD errors (№320 posture); a manifest without `synthetic` reads TRUE (conservative, unknown ⇒ marked). Stateless — a plain registry builtin. |
 | `media_meta(...)` | 1 | — | `media_meta(handle)` — store metadata WITHOUT materializing bytes: Struct { kind, conf, refs, sealed } (ADR-0162 §2.4). |
 | `media_release(...)` | 1 | — | `media_release(handle)` — refcount −1; at 0 the entry is evicted (sealed bytes zeroized). Returns the remaining refcount. Loud on unknown handles. |
 | `media_retain(...)` | 1 | — | `media_retain(handle)` — refcount +1 on a media handle (ADR-0162 §2.4); returns the same handle (chainable). |
@@ -2646,6 +2648,8 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `media_meta` | source | public | pure | reads media store METADATA only (kind/conf/refs/sealed/origin) — no bytes leave the store |
 | `media_source_capture` | source | internal | pure | HandleSource runtime (№332/ADR-0164): captures a handle from a DECLARED origin (file-backed through the io sandbox; camera is a loud PARKED boundary) — the handle label is the origin's declared conf |
 | `media_bind_origin` | pure | public | pure | ProvBind runtime (№332/ADR-0164): binds an entry's origin and joins the declared conf into the entry label (re-seals when public becomes non-public) — store bookkeeping, no byte movement |
+| `media_manifest` | source | public | pure | reads the entry-level manifest facts (kind/origin/conf/synthetic/bytes_sha256 — ADR-0166 §2.4) WITHOUT materializing bytes — store metadata, no egress |
+| `media_manifest_read` | source | internal | pure | ingests a provenance sidecar (<path>.manifest.json) from the sandbox (ADR-0166 §2.4): manifest content enters the flow; missing/empty/corrupt sidecars are loud refusals (№320 posture), synthetic reads conservatively true |
 | `get` | pure | public | pure | — |
 | `push` | pure | public | pure | — |
 | `slice` | pure | public | pure | — |

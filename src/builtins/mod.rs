@@ -278,8 +278,8 @@ pub use vision::{
 // The last-resort registry stubs are pub(crate) — registry.rs imports
 // them directly from the module (лекало vision).
 pub use media::{
-    media_meta_dispatch, media_release_dispatch, media_retain_dispatch, media_save_dispatch,
-    media_store_dispatch,
+    media_bind_origin_dispatch, media_meta_dispatch, media_release_dispatch, media_retain_dispatch,
+    media_save_dispatch, media_source_capture_dispatch, media_store_dispatch,
 };
 // Наряд №333 (ADR-0163): backend registry listing.
 pub use backends::builtin_backend_list;

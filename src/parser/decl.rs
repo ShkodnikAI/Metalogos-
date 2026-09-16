@@ -2657,6 +2657,43 @@ pub(super) fn parse_vision_decl(pair: Pair<Rule>) -> Result<Declaration, ParseEr
 /// `profile legacy { egress: permissive_with_audit }` — parse the
 /// program-level compatibility profile (shape-only grammar; option
 /// words validated by semantic / profile.rs).
+/// Наряд №332 (ADR-0164): `origin name { field: value, ... }`.
+pub(super) fn parse_origin_decl(pair: Pair<Rule>) -> Declaration {
+    let span = Span::from_pest(pair.as_span());
+    let children = children_of(&pair);
+    let name = find_child_str(&children, Rule::IDENT).unwrap_or_default();
+    let mut fields: Vec<(String, String)> = Vec::new();
+    for c in children
+        .iter()
+        .filter(|c| c.as_rule() == Rule::origin_field)
+    {
+        let oc = children_of(c);
+        // origin_field = { IDENT ~ COLON ~ (STRING_LITERAL | IDENT) }:
+        // first IDENT is the KEY, the following STRING/IDENT is the VALUE
+        // (same shape as profile_option).
+        let mut parts = oc
+            .iter()
+            .filter(|p| matches!(p.as_rule(), Rule::IDENT | Rule::STRING_LITERAL));
+        let key = parts
+            .next()
+            .map(|k| k.as_str().to_string())
+            .unwrap_or_default();
+        let value = parts
+            .next()
+            .map(|v| {
+                let raw = v.as_str().to_string();
+                if v.as_rule() == Rule::STRING_LITERAL {
+                    raw.trim_matches('"').to_string()
+                } else {
+                    raw
+                }
+            })
+            .unwrap_or_default();
+        fields.push((key, value));
+    }
+    Declaration::Origin(OriginDecl { span, name, fields })
+}
+
 pub(super) fn parse_profile_decl(pair: Pair<Rule>) -> Declaration {
     let span = Span::from_pest(pair.as_span());
     let children = children_of(&pair);

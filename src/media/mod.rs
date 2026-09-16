@@ -108,6 +108,21 @@ impl MediaKind {
             MediaKind::VideoSegment => "video_segment",
         }
     }
+
+    /// Parse the origin-declaration `media` field (№332: loud validation —
+    /// unknown words are errors, never silent defaults).
+    pub fn from_slug(slug: &str) -> Result<Self, String> {
+        match slug {
+            "image" => Ok(MediaKind::Image),
+            "audio" => Ok(MediaKind::Audio),
+            "video_frame" => Ok(MediaKind::VideoFrame),
+            "video_segment" => Ok(MediaKind::VideoSegment),
+            other => Err(format!(
+                "origin: unknown media kind '{}' (expected image | audio | video_frame | video_segment)",
+                other
+            )),
+        }
+    }
 }
 
 /// One handle value covering the four media types (one `Value::Media`
@@ -190,6 +205,12 @@ pub struct MediaEntry {
     /// +1, `media_release` −1; eviction at 0 (sealed bytes zeroized).
     pub refs: u64,
     pub payload: MediaPayload,
+    /// №332 (ADR-0164): the origin this entry came from (declared
+    /// `origin` name). Set by `media_source_capture` / `media_bind_origin`;
+    /// `None` never survives a sanctioned construction (the origin-chain
+    /// rule refuses unbound construction at compile time) — the Option is
+    /// the honest state for direct store API use (Rust tests, №337 flows).
+    pub origin: Option<String>,
 }
 
 /// AES-256-GCM seal/unseal — reuses the №172 contour primitives exactly
@@ -320,6 +341,7 @@ impl MediaStore {
                 label,
                 refs: 1,
                 payload,
+                origin: None,
             },
         );
         Ok(match kind {
@@ -350,6 +372,38 @@ impl MediaStore {
             MediaPayload::Plain(b) => Ok(Zeroizing::new(b.clone())),
             MediaPayload::Sealed(sealed) => sealing::unseal(&self.key, sealed.as_slice()),
         }
+    }
+
+    /// №332 (ADR-0164): bind the origin of an entry (and join the
+    /// declared origin conf into the entry label — re-sealing when a
+    /// public entry becomes non-public, so the at-rest contract tracks
+    /// the STRONGEST declared label). Loud on unknown handles.
+    pub fn bind_origin(
+        &mut self,
+        handle: MediaHandle,
+        origin_name: String,
+        conf: crate::labels::Conf,
+    ) -> Result<(), String> {
+        let entry = self
+            .entries
+            .get_mut(&handle.id())
+            .ok_or_else(|| format!("media_bind_origin: unknown handle {}", handle))?;
+        // Re-seal when the joined conf demands it (public → consented/
+        // private): materialize the plaintext, seal it, drop the plaintext.
+        let needs_reseal =
+            entry.label.conf == crate::labels::Conf::Public && conf != crate::labels::Conf::Public;
+        entry.label.conf = entry.label.conf.join(conf);
+        entry.origin = Some(origin_name);
+        if needs_reseal {
+            let plaintext = match &entry.payload {
+                MediaPayload::Plain(b) => b.clone(),
+                MediaPayload::Sealed(_) => Vec::new(), // already sealed
+            };
+            if !plaintext.is_empty() {
+                entry.payload = MediaPayload::Sealed(sealing::seal(&self.key, &plaintext)?);
+            }
+        }
+        Ok(())
     }
 
     /// Refcount +1 (ADR-0162 §2.4). Loud on unknown handles.

@@ -27,8 +27,9 @@ use super::llm_stream::{
 // Наряд №331 (ADR-0162): unified media layer — last-resort stubs for the
 // state-carrying media builtins (pub(crate); real paths are interception).
 use super::media::{
-    builtin_media_meta_stub, builtin_media_release_stub, builtin_media_retain_stub,
-    builtin_media_save_stub, builtin_media_store_audio_stub, builtin_media_store_image_stub,
+    builtin_media_bind_origin_stub, builtin_media_meta_stub, builtin_media_release_stub,
+    builtin_media_retain_stub, builtin_media_save_stub, builtin_media_source_capture_stub,
+    builtin_media_store_audio_stub, builtin_media_store_image_stub,
     builtin_media_store_video_frame_stub, builtin_media_store_video_segment_stub,
 };
 // Наряд №333 (ADR-0163): backend registry listing (stateless).
@@ -653,6 +654,13 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("media_retain", 1, "media"; builtin_media_retain_stub),
     spec!("media_release", 1, "media"; builtin_media_release_stub),
     spec!("media_meta", 1, "media"; builtin_media_meta_stub),
+    // ── Наряд №332 (ADR-0164): perception origin — HandleSource/ProvBind ──
+    // Both are state-carrying (origin declarations + media store) and are
+    // intercepted like the media family; the compiler lowers
+    // `source <origin>` / `from <origin> <construction>` to these calls.
+    // Registry 430→432.
+    spec!("media_source_capture", 1, "media"; builtin_media_source_capture_stub),
+    spec!("media_bind_origin", 2, "media"; builtin_media_bind_origin_stub),
     // ── Наряд №333 (ADR-0163): backend registry — read-only metadata ──
     // The SSOT table lives in src/backends.rs; this builtin is the
     // language surface (name/class/weights_id/pin/license/license_note).

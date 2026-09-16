@@ -202,6 +202,12 @@ fn expr_to_sexpr(e: &Expr) -> String {
             s
         }
         Try { expr, .. } => format!("(TRY {})", expr_to_sexpr(expr)),
+        // №332 (ADR-0164): perception constructions round-trip as tags
+        // (the Rust-parser vs TS-parser comparison stays total).
+        HandleSource { origin, .. } => format!("(SOURCE {})", origin),
+        ProvBind { origin, inner, .. } => {
+            format!("(FROM {} {})", origin, expr_to_sexpr(inner))
+        }
     }
 }
 

@@ -22,6 +22,7 @@ fn program_with(main_code: Vec<Instruction>) -> Program {
         reflex_seq_decls: vec![],
         reflex_gen_decls: vec![],
         vision_decls: vec![],
+        origin_decls: vec![],
         db_url: None,
         memory_persist_path: None,
         schema_ddl: vec![],

@@ -160,10 +160,120 @@ pub fn media_meta_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, 
             crate::media::MediaPayload::Sealed(_)
         )),
     );
+    // №332 (ADR-0164): the bound origin name — the provenance of the
+    // handle, observable WITHOUT materializing bytes. Empty string when
+    // the entry was constructed unbound (pre-№332 store API surface).
+    fields.insert(
+        "origin".to_string(),
+        Value::String(entry.origin.clone().unwrap_or_default()),
+    );
     Ok(Value::Struct {
         type_name: "MediaMeta".to_string(),
         fields,
     })
+}
+
+/// Runtime shape of a declared origin for the dispatch layer (extracted
+/// from the compiled declaration; conf re-validated loudly).
+fn runtime_origin(
+    origins: &std::collections::HashMap<String, crate::bytecode::CompiledOriginDecl>,
+    fn_name: &str,
+    name: &str,
+) -> Result<(String, MediaKind, crate::labels::Conf, Option<String>), String> {
+    let decl = origins.get(name).ok_or_else(|| {
+        format!(
+            "{}: unknown origin '{}' (no `origin` declaration in this program)",
+            fn_name, name
+        )
+    })?;
+    let conf =
+        parse_sensitivity(&decl.conf).map_err(|e| format!("origin '{}': {}", decl.name, e))?;
+    let media =
+        MediaKind::from_slug(&decl.media).map_err(|e| format!("origin '{}': {}", decl.name, e))?;
+    Ok((decl.kind.clone(), media, conf, decl.path.clone()))
+}
+
+/// `media_source_capture(origin_name)` — the HandleSource runtime
+/// (№332, ADR-0164): resolves the declared origin and captures through
+/// the store. `kind: file` reads the sandboxed path (loud on missing
+/// files); `kind: camera` is a loud PARKED boundary (real capture
+/// hardware does not exist in this environment — №294 class); the
+/// STATIC origin chain is unaffected (compile-time denies still hold).
+pub fn media_source_capture_dispatch(
+    store: &mut MediaStore,
+    origins: &std::collections::HashMap<String, crate::bytecode::CompiledOriginDecl>,
+    args: &[Value],
+) -> Result<Value, String> {
+    let fn_name = "media_source_capture";
+    if args.len() != 1 {
+        return Err(format!(
+            "{}: expects 1 argument (origin name), got {}",
+            fn_name,
+            args.len()
+        ));
+    }
+    let name = expect_string(fn_name, args, 0)?;
+    let (kind, media, conf, path) = runtime_origin(origins, fn_name, &name)?;
+    match kind.as_str() {
+        "file" => {
+            let path = path.ok_or_else(|| {
+                format!("{}: origin '{}' (file) has no path", fn_name, name)
+            })?;
+            // №131/№252/№254: sandboxed read, loud violations, missing
+            // file classified loudly (the capture source MUST exist).
+            let safe_path = crate::builtins::io::sandbox_path(&path)
+                .map_err(crate::builtins::io::sandbox_violation)?;
+            let bytes = std::fs::read(&safe_path).map_err(|e| {
+                format!(
+                    "{}: cannot capture from '{}' ({}): {}",
+                    fn_name, name, path, e
+                )
+            })?;
+            let handle = store.insert(
+                media,
+                bytes,
+                Label {
+                    conf,
+                    integrity: crate::labels::Integrity::Trusted,
+                    consent: Default::default(),
+                },
+            )?;
+            store.bind_origin(handle, name, conf)?;
+            Ok(Value::Media(handle))
+        }
+        "camera" => Err(format!(
+            "{}: camera capture for origin '{}' is a PARKED boundary (real capture hardware does not exist in this environment; №294 class) — use a file-backed origin for end-to-end runs; the static origin chain is unaffected (compile-time denies still hold)",
+            fn_name, name
+        )),
+        other => Err(format!(
+            "{}: origin '{}' has kind '{}' — source capture requires camera | file",
+            fn_name, name, other
+        )),
+    }
+}
+
+/// `media_bind_origin(origin_name, handle)` — the ProvBind runtime
+/// (№332, ADR-0164): binds the store entry's origin and joins the
+/// declared origin conf into the entry label (re-sealing when a public
+/// entry becomes non-public). The handle value passes through unchanged.
+pub fn media_bind_origin_dispatch(
+    store: &mut MediaStore,
+    origins: &std::collections::HashMap<String, crate::bytecode::CompiledOriginDecl>,
+    args: &[Value],
+) -> Result<Value, String> {
+    let fn_name = "media_bind_origin";
+    if args.len() != 2 {
+        return Err(format!(
+            "{}: expects 2 arguments (origin name, handle), got {}",
+            fn_name,
+            args.len()
+        ));
+    }
+    let name = expect_string(fn_name, args, 0)?;
+    let handle = expect_media_handle(fn_name, args, 1)?;
+    let (_, _, conf, _) = runtime_origin(origins, fn_name, &name)?;
+    store.bind_origin(handle, name, conf)?;
+    Ok(Value::Media(handle))
 }
 
 // ── Registry last-resort handlers (лекало vision stubs) ──────────────
@@ -212,4 +322,14 @@ pub(crate) fn builtin_media_release_stub(_args: &[Value]) -> Result<Value, Strin
 /// `media_meta(handle)` — store metadata WITHOUT materializing bytes: Struct { kind, conf, refs, sealed } (ADR-0162 §2.4).
 pub(crate) fn builtin_media_meta_stub(_args: &[Value]) -> Result<Value, String> {
     Err("media_meta: state-carrying media builtin — dispatched via interpreter/vm interception (ADR-0162); the generic fallback must not be reached".to_string())
+}
+
+/// `media_source_capture(origin_name)` — the HandleSource runtime (№332, ADR-0164): resolves the declared origin and captures a handle through the media store. `kind: file` reads the sandboxed path (loud on missing files); `kind: camera` is a loud PARKED boundary (real capture hardware does not exist in this environment). Source: the handle label is the origin's declared conf. State-carrying: interpreter/VM intercept before the generic fallback.
+pub(crate) fn builtin_media_source_capture_stub(_args: &[Value]) -> Result<Value, String> {
+    Err("media_source_capture: state-carrying media builtin — dispatched via interpreter/vm interception (ADR-0164); the generic fallback must not be reached".to_string())
+}
+
+/// `media_bind_origin(origin_name, handle)` — the ProvBind runtime (№332, ADR-0164): binds the store entry's origin and joins the declared origin conf into the entry label (re-sealing when a public entry becomes non-public). The handle value passes through unchanged. Pure: store bookkeeping, no byte movement. State-carrying: interpreter/VM intercept before the generic fallback.
+pub(crate) fn builtin_media_bind_origin_stub(_args: &[Value]) -> Result<Value, String> {
+    Err("media_bind_origin: state-carrying media builtin — dispatched via interpreter/vm interception (ADR-0164); the generic fallback must not be reached".to_string())
 }

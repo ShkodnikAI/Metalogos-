@@ -5,7 +5,7 @@ COMMENT      = _{ "//" ~ (!("\n" | "\r") ~ ANY)* }
 
 program     =  { SOI ~ (declaration ~ WHITESPACE*)* ~ EOI }
 
-declaration = _{ test_decl | type_alias_decl | context_budget_decl | llm_decl | mlogserver_decl | template_decl | db_decl | schema_decl | skill_index_decl | memory_decl | import_decl | hook_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl | conversation_decl | tool_decl | reflex_decl | reflex_seq_decl | reflex_gen_decl | vision_decl | profile_decl }
+declaration = _{ test_decl | type_alias_decl | context_budget_decl | llm_decl | mlogserver_decl | template_decl | db_decl | schema_decl | skill_index_decl | memory_decl | import_decl | hook_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl | conversation_decl | tool_decl | reflex_decl | reflex_seq_decl | reflex_gen_decl | vision_decl | profile_decl | origin_decl }
 
 // ── Type Alias (Наряд №119) ──────────────────────────────────────
 // type Token = Secret
@@ -288,6 +288,24 @@ effect_word  = @{ (ASCII_ALPHA | "_")+ }
 profile_decl  = { PROFILE_KW ~ IDENT ~ LBRACE ~ profile_option* ~ RBRACE }
 profile_option = { IDENT ~ COLON ~ (STRING_LITERAL | IDENT) }
 PROFILE_KW    = @{ "profile" }
+
+// ── Perception origins (Наряд №332, ADR-0164) ──────────────────────────
+// `origin name { kind: camera|file|generation, media: image|audio|...,
+// label: public|consented|private, path: "..." }` — the declared SOURCE
+// of perception handles; the origin chain rule ("a handle without
+// origin is not constructed") is enforced statically in semantic.rs.
+origin_decl   = { ORIGIN_KW ~ IDENT ~ LBRACE ~ origin_field* ~ RBRACE }
+origin_field  = { IDENT ~ COLON ~ (STRING_LITERAL | IDENT) ~ COMMA? }
+ORIGIN_KW     = @{ "origin" }
+// `source <origin>` — HandleSource: produce a handle FROM a declared
+// origin (kinds camera | file).
+SOURCE_KW     = @{ "source" }
+source_expr   = { SOURCE_KW ~ IDENT }
+// `from <origin> <construction>` — ProvBind: bind the provenance of a
+// NEWLY constructed handle to a declared origin (the Lift node's
+// mandatory binding).
+FROM_KW       = @{ "from" }
+from_expr     = { FROM_KW ~ IDENT ~ unary_expr }
 pattern_body = { statement* }
 
 // ── Statements (v0.5.1: unified if-then-else support) ───────────────
@@ -371,7 +389,7 @@ and_expr         = { compare_expr ~ (AND_KW ~ compare_expr)* }
 compare_expr     = { add_expr ~ (compare_op ~ add_expr)* }
 add_expr         = { mul_expr ~ ((PLUS | MINUS) ~ mul_expr)* }
 mul_expr         = { unary_expr ~ ((STAR | SLASH) ~ unary_expr)* }
-unary_expr       = { try_expr | if_else_expr | qualified_call_expr | call_expr | unary_minus | access_expr | primary_expr }
+unary_expr       = { try_expr | if_else_expr | qualified_call_expr | call_expr | from_expr | source_expr | unary_minus | access_expr | primary_expr }
 unary_minus     = { MINUS ~ unary_expr }
 try_expr       = { "try" ~ unary_expr }
 if_else_expr     = { "if" ~ expression ~ "then" ~ expression ~ "else" ~ expression }

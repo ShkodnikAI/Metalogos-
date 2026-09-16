@@ -60,9 +60,11 @@ fn opaque_field_access_through_alias_fails_to_compile() {
     // refused identically. (The grammar cannot express `.field` on a call
     // result: postfix ops attach to primaries only, so chaining a field
     // access on `media_store_image(...)` is a parse error by construction.)
+    // №332: handles construct under an origin-bind (origin-chain rule).
     let src = r#"
+origin feed { kind: generation, media: image, label: public }
 pattern Frame(_data: String) -> String {
-  let img = media_store_image("abc", "public")
+  let img = from feed media_store_image("abc", "public")
   let alias = img
   let raw = alias.bytes
   return raw
@@ -81,9 +83,11 @@ flow Main { input: String = "x" -> Frame -> output }
 #[test]
 fn non_media_field_access_still_compiles() {
     // Positive control: field access on STRUCT values is untouched.
+    // №332: the handle constructs under an origin-bind (origin chain).
     let src = r#"
+origin feed { kind: generation, media: image, label: public }
 pattern Meta() -> String {
-  let img = media_store_image("abc", "public")
+  let img = from feed media_store_image("abc", "public")
   let m = media_meta(img)
   let sealed = m.sealed
   if sealed == false {
@@ -100,8 +104,9 @@ flow Main { input: String = "x" -> Meta -> output }
 // ── (2) Materialization through the sanctioned sink ──────────────────
 
 const MATERIALIZATION_PROG: &str = r#"
+origin feed { kind: generation, media: image, label: public }
 pattern Frame(data: String) -> String {
-  let img = media_store_image(data, "public")
+  let img = from feed media_store_image(data, "public")
   let _p = media_save(img, "target/n331-media/OUTFILE")
   return "saved"
 }
@@ -139,8 +144,9 @@ fn materialization_writes_exact_bytes_on_vm() {
 // ── (3) Refcount contract (retain / release / meta) ──────────────────
 
 const REFCOUNT_PROG: &str = r#"
+origin feed { kind: generation, media: image, label: public }
 pattern Frame(_data: String) -> String {
-  let img = media_store_image("rc", "public")
+  let img = from feed media_store_image("rc", "public")
   let _r = media_retain(img)
   let m2 = media_meta(img)
   let refs2 = m2.refs
@@ -178,10 +184,13 @@ fn private_labelled_handle_refused_at_compile_time_by_sink_gate() {
     // The static №325 gate: the handle variable carries the private
     // label by DATA FLOW (env → store) — the materialization sink
     // refuses the call site at compile time (private-egress).
+    // №332: the construction is origin-bound (join with a public origin
+    // is the identity on the conf axis — the flow label survives).
     let src = r#"
+origin feed { kind: generation, media: image, label: public }
 pattern Frame(_data: String) -> String {
   let tok = env("MLOG_331_TEST_TOKEN")
-  let img = media_store_image(tok, "public")
+  let img = from feed media_store_image(tok, "public")
   let _p = media_save(img, "target/n331-media/leak.bin")
   return "x"
 }
@@ -205,8 +214,9 @@ fn runtime_backstop_refuses_materializing_sealed_entry() {
     // RUNTIME backstop (entry.label.conf = private, sealed at rest)
     // refuses the materialization loudly.
     let src = r#"
+origin feed { kind: generation, media: image, label: public }
 pattern Frame(_data: String) -> String {
-  let img = media_store_image("secret-bytes", "private")
+  let img = from feed media_store_image("secret-bytes", "private")
   let _p = media_save(img, "target/n331-media/sealed-out.bin")
   return "x"
 }
@@ -231,8 +241,9 @@ flow Main { input: String = "x" -> Frame -> output }
 #[test]
 fn evicted_entry_is_loud_on_materialization() {
     let src = r#"
+origin feed { kind: generation, media: image, label: public }
 pattern Frame(_data: String) -> String {
-  let img = media_store_image("evict-me", "public")
+  let img = from feed media_store_image("evict-me", "public")
   let _r1 = media_release(img)
   let _r2 = media_release(img)
   let _p = media_save(img, "target/n331-media/gone.bin")
@@ -251,8 +262,9 @@ flow Main { input: String = "x" -> Frame -> output }
 #[test]
 fn unknown_sensitivity_is_loud() {
     let src = r#"
+origin feed { kind: generation, media: image, label: public }
 pattern Frame(_data: String) -> String {
-  let img = media_store_image("abc", "topsecret")
+  let img = from feed media_store_image("abc", "topsecret")
   return "x"
 }
 flow Main { input: String = "x" -> Frame -> output }
@@ -268,8 +280,9 @@ flow Main { input: String = "x" -> Frame -> output }
 #[test]
 fn consented_is_sealed_like_private() {
     let src = r#"
+origin feed { kind: generation, media: image, label: public }
 pattern Frame(_data: String) -> String {
-  let img = media_store_image("gdpr-frame", "consented")
+  let img = from feed media_store_image("gdpr-frame", "consented")
   let _p = media_save(img, "target/n331-media/consented.bin")
   return "x"
 }

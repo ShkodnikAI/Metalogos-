@@ -1,7 +1,7 @@
 # METALOGOS — Language Reference
 
 > **Version:** 0.20.0
-> **Synced with code:** 2026-09-16 (naryad №333) · 430 builtins · 155 ADR files (148 accepted + 7 reserved)
+> **Synced with code:** 2026-09-16 (naryad №332) · 432 builtins · 156 ADR files (149 accepted + 7 reserved)
 > **Single source of truth** for developers writing in Metalogos.
 > Contains the full list of built-in functions with signatures, types, descriptions, and examples,
 > as well as a reference for syntax, data types, and the CLI.
@@ -277,6 +277,57 @@ rebuild threshold of plan v2 §13.3 (pinned by
 `tests/naryad_329_dogfood.rs`). The Go/No-Go decision on these numbers
 is №330 (the owner's call) — the naryad delivers the measurement only.
 
+### 2.8. Perception origins & the origin chain (№332, ADR-0164)
+
+A perception handle's provenance is DECLARED, not guessed. The
+`origin` declaration names the source of perception handles; the
+origin-chain rule (§7.4: "a handle without origin is not constructed")
+is enforced statically on every compile path:
+
+```mlog
+origin kitchen_cam { kind: camera, media: image, label: private }
+
+pattern Capture(_tick: String) -> String {
+  let frame = source kitchen_cam            // HandleSource
+  return frame                              // handles may flow between patterns
+}
+
+pattern Save(frame: String) -> String {
+  let _p = media_save(frame, "frames/today.jpg")
+  return "saved"
+}
+```
+
+Origin fields: `kind: camera | file | generation` (`file` requires the
+`path` field — the sandboxed capture source; a camera CAPTURE is a loud
+PARKED boundary at runtime while the static chain is unaffected;
+`generation` is the kind of bind-constructed handles), `media: image |
+audio | video_frame | video_segment`, `label: public | consented |
+private` (poisoned is not constructible by declaration — quarantine
+comes only from the taint machinery), and the optional `path`.
+
+Handle constructions:
+
+- `source <origin>` — produce a handle FROM a declared origin; legal
+  only as a binding initializer or in `return` position;
+- `from <origin> media_store_*(...)` — bind the provenance of a NEWLY
+  constructed handle (the Lift); the bind joins the declared origin
+  conf into the entry label (re-sealing at rest when a public entry
+  becomes non-public);
+- a bare `media_store_*(...)` is a COMPILE error (`ORIGIN_REQUIRED`):
+  "a handle without origin is not constructed"; direct
+  `media_source_capture`/`media_bind_origin` calls are refused loudly —
+  they are lowered forms, not surface syntax.
+
+Origin labels flow with the handles (through aliases too) into the
+№325 sink clearance: the §5.3 kitchen-camera scenario — a private
+camera whose frames reach `media_save` — is denied AT COMPILE TIME
+(`SECRET_LEAK`) naming the sink, the container and the carried label
+(see `examples/w1_kitchen_camera.mlog`). Public origins flow through
+the gate unchanged. `media_meta(handle)` exposes the bound provenance:
+`m.origin` (empty for unbound entries) alongside `kind`/`conf`/`refs`/
+`sealed` — no bytes leave the store.
+
 ---
 
 ## 3. Syntax
@@ -471,7 +522,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 430 registered builtins (430 of 430): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 432 registered builtins (432 of 432): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1833,7 +1884,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 430 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 432 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2112,14 +2163,16 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `sqrt(...)` | 1 | `Float -> Float` | Square root. Soft-failure: `0.0` for `x < 0` |
 | `tanh(...)` | 1 | `Float -> Float` | Hyperbolic tangent. In (−1, 1). `tanh(1000)=1`, `tanh(-1000)=-1` |
 
-### `media` — 8 builtin(s)
+### `media` — 10 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
-| `media_meta(...)` | 1 | — | `media_meta(handle)` — store metadata WITHOUT materializing bytes: Struct { kind, conf, refs, sealed } (ADR-0162 §2.4). |
+| `media_bind_origin(...)` | 2 | — | `media_bind_origin(origin_name, handle)` — the ProvBind runtime (№332, ADR-0164): binds the store entry's origin and joins the declared origin conf into the entry label (re-sealing when a public entry becomes non-public). The handle value passes through unchanged. Pure: store bookkeeping, no byte movement. State-carrying: interpreter/VM intercept before the generic fallback. |
+| `media_meta(...)` | 1 | — | `media_meta(handle)` — store metadata WITHOUT materializing bytes: Struct { kind, conf, refs, sealed, origin } (ADR-0162 §2.4; `origin` — №332, the bound provenance name, empty for unbound entries). |
 | `media_release(...)` | 1 | — | `media_release(handle)` — refcount −1; at 0 the entry is evicted (sealed bytes zeroized). Returns the remaining refcount. Loud on unknown handles. |
 | `media_retain(...)` | 1 | — | `media_retain(handle)` — refcount +1 on a media handle (ADR-0162 §2.4); returns the same handle (chainable). |
 | `media_save(...)` | 2 | — | `media_save(handle, path)` — the ONLY sanctioned media materialization: writes the exact bytes to a sandboxed file (№131/№252). Sink: №325 clearance at compile time (SECRET_LEAK for private labels) + runtime backstop MEDIA_SEALED_EGRESS for sealed entries. Returns the path. |
+| `media_source_capture(...)` | 1 | — | `media_source_capture(origin_name)` — the HandleSource runtime (№332, ADR-0164): resolves the declared origin and captures a handle through the media store. `kind: file` reads the sandboxed path (loud on missing files); `kind: camera` is a loud PARKED boundary (real capture hardware does not exist in this environment). Source: the handle label is the origin's declared conf. State-carrying: interpreter/VM intercept before the generic fallback. |
 | `media_store_audio(...)` | 2 | — | `media_store_audio(data, sensitivity)` — wraps provided bytes into an opaque Audio handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
 | `media_store_image(...)` | 2 | — | `media_store_image(data, sensitivity)` — wraps provided bytes into an opaque Image handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
 | `media_store_video_frame(...)` | 2 | — | `media_store_video_frame(data, sensitivity)` — wraps provided bytes into an opaque VideoFrame handle (ADR-0162). Sensitivity: public \| consented \| private; non-public content is AES-256-GCM sealed at rest. State-carrying: interpreter/VM intercept before the generic fallback. |
@@ -2574,7 +2627,9 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `media_save` | sink | internal | reversible | the ONLY sanctioned materialization of media bytes — file egress through the io sandbox; №325 sink clearance (private-egress) + runtime backstop MEDIA_SEALED_EGRESS (ADR-0162 §2.5) |
 | `media_retain` | pure | public | pure | refcount +1 on a media handle (ADR-0162 §2.4) — pure store bookkeeping, no byte movement |
 | `media_release` | pure | public | pure | refcount −1 on a media handle; 0 evicts the entry (sealed bytes zeroized) — store bookkeeping, no external effect |
-| `media_meta` | source | public | pure | reads media store METADATA only (kind/conf/refs/sealed) — no bytes leave the store |
+| `media_meta` | source | public | pure | reads media store METADATA only (kind/conf/refs/sealed/origin) — no bytes leave the store |
+| `media_source_capture` | source | internal | pure | HandleSource runtime (№332/ADR-0164): captures a handle from a DECLARED origin (file-backed through the io sandbox; camera is a loud PARKED boundary) — the handle label is the origin's declared conf |
+| `media_bind_origin` | pure | public | pure | ProvBind runtime (№332/ADR-0164): binds an entry's origin and joins the declared conf into the entry label (re-seals when public becomes non-public) — store bookkeeping, no byte movement |
 | `get` | pure | public | pure | — |
 | `push` | pure | public | pure | — |
 | `slice` | pure | public | pure | — |

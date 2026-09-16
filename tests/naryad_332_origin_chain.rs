@@ -212,17 +212,20 @@ flow Main { input: String = "x" -> P -> output }
 
 #[test]
 fn source_file_capture_end_to_end_on_tw() {
-    fresh_dir("target/n332-cam");
+    // Per-backend dirs — the two end-to-end tests run in PARALLEL threads
+    // and must not race on one directory (fresh_dir removes + recreates;
+    // the №331 OUTFILE lesson, generalized to the whole dir).
+    fresh_dir("target/n332-cam-tw");
     std::fs::write(
-        Path::new(MANIFEST).join("target/n332-cam/frame.bin"),
+        Path::new(MANIFEST).join("target/n332-cam-tw/frame.bin"),
         b"frame-332-payload",
     )
     .expect("capture source written");
     let src = r#"
-origin cam { kind: file, media: image, label: public, path: "target/n332-cam/frame.bin" }
+origin cam { kind: file, media: image, label: public, path: "target/n332-cam-tw/frame.bin" }
 pattern P(_tick: String) -> String {
   let frame = source cam
-  let saved = media_save(frame, "target/n332-cam/tw-out.bin")
+  let saved = media_save(frame, "target/n332-cam-tw/tw-out.bin")
   return saved
 }
 flow Main { input: String = "t" -> P -> output }
@@ -231,10 +234,10 @@ flow Main { input: String = "t" -> P -> output }
         .unwrap_or_else(|e| panic!("file capture must run on TW: {}", e));
     assert_eq!(
         out.as_deref().unwrap_or_default().trim_end(),
-        "target/n332-cam/tw-out.bin"
+        "target/n332-cam-tw/tw-out.bin"
     );
     let written =
-        std::fs::read(Path::new(MANIFEST).join("target/n332-cam/tw-out.bin")).expect("written");
+        std::fs::read(Path::new(MANIFEST).join("target/n332-cam-tw/tw-out.bin")).expect("written");
     assert_eq!(
         written, b"frame-332-payload",
         "media_save writes the captured bytes"
@@ -243,17 +246,17 @@ flow Main { input: String = "t" -> P -> output }
 
 #[test]
 fn source_file_capture_end_to_end_on_vm() {
-    fresh_dir("target/n332-cam");
+    fresh_dir("target/n332-cam-vm");
     std::fs::write(
-        Path::new(MANIFEST).join("target/n332-cam/frame.bin"),
+        Path::new(MANIFEST).join("target/n332-cam-vm/frame.bin"),
         b"frame-332-payload",
     )
     .expect("capture source written");
     let src = r#"
-origin cam { kind: file, media: image, label: public, path: "target/n332-cam/frame.bin" }
+origin cam { kind: file, media: image, label: public, path: "target/n332-cam-vm/frame.bin" }
 pattern P(_tick: String) -> String {
   let frame = source cam
-  let saved = media_save(frame, "target/n332-cam/vm-out.bin")
+  let saved = media_save(frame, "target/n332-cam-vm/vm-out.bin")
   return saved
 }
 flow Main { input: String = "t" -> P -> output }
@@ -262,10 +265,10 @@ flow Main { input: String = "t" -> P -> output }
         .unwrap_or_else(|e| panic!("file capture must run on VM: {}", e));
     assert_eq!(
         out.as_deref().unwrap_or_default().trim_end(),
-        "target/n332-cam/vm-out.bin"
+        "target/n332-cam-vm/vm-out.bin"
     );
     let written =
-        std::fs::read(Path::new(MANIFEST).join("target/n332-cam/vm-out.bin")).expect("written");
+        std::fs::read(Path::new(MANIFEST).join("target/n332-cam-vm/vm-out.bin")).expect("written");
     assert_eq!(
         written, b"frame-332-payload",
         "VM media_save writes the captured bytes"
@@ -461,12 +464,12 @@ fn public_origin_flows_through_sink_gate() {
     // SINK_CLEARANCE compatibility (№325): a public origin handle
     // materializes through the sanctioned sink — the origin rule
     // creates no new holes and no new friction.
-    fresh_dir("target/n332-cam");
+    fresh_dir("target/n332-cam-pub");
     let src = r#"
 origin gen { kind: generation, media: image, label: public }
 pattern P(_x: String) -> String {
   let img = from gen media_store_image("pub-bytes", "public")
-  let saved = media_save(img, "target/n332-cam/public-out.bin")
+  let saved = media_save(img, "target/n332-cam-pub/public-out.bin")
   return saved
 }
 flow Main { input: String = "x" -> P -> output }
@@ -475,10 +478,10 @@ flow Main { input: String = "x" -> P -> output }
         .unwrap_or_else(|e| panic!("public origin must flow: {}", e));
     assert_eq!(
         out.as_deref().unwrap_or_default().trim_end(),
-        "target/n332-cam/public-out.bin"
+        "target/n332-cam-pub/public-out.bin"
     );
-    let written =
-        std::fs::read(Path::new(MANIFEST).join("target/n332-cam/public-out.bin")).expect("written");
+    let written = std::fs::read(Path::new(MANIFEST).join("target/n332-cam-pub/public-out.bin"))
+        .expect("written");
     assert_eq!(written, b"pub-bytes");
 }
 

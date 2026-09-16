@@ -60,12 +60,15 @@ fn collect_pairs(examples_dir: &Path) -> Vec<(PathBuf, PathBuf)> {
                     // errors identically in both backends). The example runs
                     // end-to-end on both backends with identical output, so
                     // TW↔VM parity is asserted by the regular crosscheck.
-                    // Наряд №177: reflex_math uses random_seed/random (TW-only —
-                    // VM has no PRNG state). Also uses Bool→String formatting
-                    // (to_string(true) → "true" in TW, "1" in VM).
-                    if name == "reflex_math.mlog" {
-                        continue;
-                    }
+                    // №372 (ADR-0141 Stage 1.4): the reflex_math exclusion
+                    // is LIFTED. PRNG: random_seed/random route through the
+                    // SHARED registry (src/builtins/math.rs thread-local
+                    // xorshift64 state) on BOTH backends — identical seed
+                    // yields identical sequences (the "VM has no PRNG state"
+                    // comment was stale). Bool→String: VM comparisons now
+                    // produce Value::Bool (eval_cmp), so to_string prints
+                    // "true"/"false" exactly like TW. TW↔VM parity asserted
+                    // by the regular crosscheck below.
                     // Наряд №199 (ADR-0121): reflex_train_predict.mlog is now
                     // supported on the VM! The exclusion has been removed and
                     // the test runs on both backends. The VM intercepts

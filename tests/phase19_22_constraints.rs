@@ -253,9 +253,11 @@ fn test_z21_startswith_in_pattern_body() {
             },
         )
         .expect("execute_code should succeed");
+    // №372: predicate instructions now produce Bool (TW encoding) instead of
+    // the legacy Float 1.0/0.0.
     match &result {
-        Value::Float(f) => assert!((*f - 1.0).abs() < f64::EPSILON, "expected 1.0, got {}", f),
-        other => panic!("expected Float, got {:?}", other),
+        Value::Bool(b) => assert!(*b, "expected true, got {}", b),
+        other => panic!("expected Bool, got {:?}", other),
     }
 }
 
@@ -436,9 +438,11 @@ fn test_z22_contains_in_pattern_body() {
             },
         )
         .expect("execute_code should succeed");
+    // №372: predicate instructions now produce Bool (TW encoding) instead of
+    // the legacy Float 1.0/0.0.
     match &result {
-        Value::Float(f) => assert!((*f - 1.0).abs() < f64::EPSILON, "expected 1.0, got {}", f),
-        other => panic!("expected Float, got {:?}", other),
+        Value::Bool(b) => assert!(*b, "expected true, got {}", b),
+        other => panic!("expected Bool, got {:?}", other),
     }
 }
 

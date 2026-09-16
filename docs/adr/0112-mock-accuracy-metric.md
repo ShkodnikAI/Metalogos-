@@ -1,6 +1,6 @@
 # ADR-0112: `adapt` quality metric — current mock, not an implemented function
 
-> **Status:** Accepted
+> **Status:** Accepted + IMPLEMENTED (реализовано в наряде №375, 2026-09-16 — see the Implementation addendum at the bottom)
 > **Date:** 2026-08-28
 > **Naryads:** #124 (documentation)
 > **Precedent:** ADR-0105 (honest-gap-documentation), ADR-0110
@@ -71,3 +71,50 @@ vm.rs; the fact did not change).
 
 Positioning: README (§5) and REFERENCE (§5.15) mark both the mock value and
 the revisit point (naryad #247, Block 2).
+
+
+---
+
+## Implementation addendum (2026-09-16, Наряд №375 — the revisit condition fired)
+
+The revisit condition was "a real `mutate` use case where the mock value of
+0.95 creates a concrete problem" — the external audit of 2026-09-15 marked
+the constant-driven keep/rollback decision of a self-modifying system as P0.
+Наряд №375 implemented the real metric. Methodology:
+
+**Battery assembly.** Golden tasks are `(input, expected)` pairs gathered
+from two sources, deduped by input (first source wins):
+1. the eval-block datasets registered for the mutated pattern (ADR-0050) —
+   the user-declared golden set;
+2. the pattern's pre-mutation few-shot — the pattern's established Q→A
+   behavior.
+
+**Held-out split.** A battery task is held out iff its input is NOT among the
+mutation's own new-example inputs (the build set). Accuracy is NEVER measured
+on the tasks the mutation was built from.
+
+**Deterministic seeds.** The held-out tasks are measured in an order given by
+a seeded FNV-1a hash (fixed constant `0x9E3779B97F4A7C15` — the same constant
+seeds `seed_to_state` in the PRNG). The same battery + the same mutation →
+the same measurement, byte-for-byte, across runs and processes.
+
+**Measurement.** Each held-out task is answered by the pattern's REAL answer
+path (the LLM backend; TW uses the full effective-prompt call, VM the base
+prompt — the difference is documented). `answer.trim() == expected.trim()` →
+correct; a backend error counts as incorrect. `accuracy = correct /
+held_out`; an EMPTY held-out set scores 0.0 — no evidence, no keep.
+
+**Minimum.** A battery below 20 tasks carries a loud `BELOW MINIMUM 20`
+marker in the mutate log; the measurement still runs (honesty over comfort).
+
+**Mock mode.** `METALOGOS_MOCK_LLM` (default-on — the codebase-wide
+test-mode convention) keeps the 0.95 stub for the rollback-mechanism tests;
+this is the ONLY place the stub survives, loudly documented here, in the
+code comment and in the mutate-log contract tests.
+
+**rollback_if semantics.** The threshold comparison (CompareOp/ConditionOp
+mapping) is UNCHANGED — only the input value stopped being a constant.
+
+**Where:** `src/interpreter/learnable.rs` (`measure_battery_accuracy`,
+`MIN_BATTERY_TASKS`, `call_llm_for_battery`), `src/interpreter/hooks.rs`
+(TW mutate path), `src/vm.rs` (VM mutate path).

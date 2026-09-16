@@ -3326,44 +3326,86 @@ impl Vm {
         rollback_op: Option<ConditionOp>,
     ) -> Result<String, String> {
         // Find the learnable
-        for (info, few_shot) in self.learnables.iter_mut() {
-            if info.name == pattern_name {
-                let original = few_shot.clone();
-                *few_shot = new_examples;
+        let idx = self
+            .learnables
+            .iter()
+            .position(|(info, _)| info.name == pattern_name)
+            .ok_or_else(|| format!("VM mutate: learnable pattern '{}' not found", pattern_name))?;
 
-                // Mock accuracy (always 0.95 for MockLlm)
-                let accuracy: f64 = 0.95;
+        let original = self.learnables[idx].1.clone();
+        let base_prompt = self.learnables[idx].0.prompt.clone();
+        let build_inputs: std::collections::HashSet<String> =
+            new_examples.iter().map(|(i, _)| i.clone()).collect();
+        self.learnables[idx].1 = new_examples;
 
-                let kept = match (&rollback_op, &rollback_threshold) {
-                    (Some(ConditionOp::Lt), Some(threshold)) => accuracy >= *threshold,
-                    (Some(ConditionOp::Le), Some(threshold)) => accuracy > *threshold,
-                    (Some(ConditionOp::Gt), Some(_)) | (Some(ConditionOp::Ge), Some(_)) => false,
-                    (Some(ConditionOp::Eq), Some(threshold)) => (accuracy - threshold).abs() < 1e-9,
-                    _ => true,
-                };
-
-                if kept {
-                    return Ok(format!(
-                        "[MUTATE] {}: accuracy={}, kept (>= {:.1})",
-                        pattern_name,
-                        accuracy,
-                        rollback_threshold.unwrap_or(0.0)
-                    ));
+        // ── Accuracy: REAL golden-task battery (№375, ADR-0112 addendum) ──
+        // Mock mode (METALOGOS_MOCK_LLM, default-on): the 0.95 stub stays —
+        // loudly documented in ADR-0112. Real mode: the battery is the
+        // pre-mutation few-shot (the VM's Program carries no eval blocks —
+        // the TW path additionally merges ADR-0050 eval datasets; the
+        // difference is documented in the наряд report). The answer path is
+        // the pattern's real LLM call; errors count as incorrect.
+        let mock_mode = std::env::var("METALOGOS_MOCK_LLM")
+            .map(|v| v == "1" || v.to_lowercase() == "true")
+            .unwrap_or(true);
+        let (accuracy, battery_note) = if mock_mode {
+            // Mock accuracy (always 0.95 for MockLlm) — test mode only.
+            (0.95, String::new())
+        } else {
+            let report = crate::interpreter::learnable::measure_battery_accuracy(
+                &original,
+                &build_inputs,
+                |input| {
+                    let backend = llm::create_llm_backend();
+                    backend.call(&base_prompt, input)
+                },
+            );
+            let note = format!(
+                " (battery: {} tasks, held-out {}, correct {}{})",
+                report.battery_size,
+                report.held_out,
+                report.correct,
+                if report.below_minimum {
+                    ", BELOW MINIMUM 20"
                 } else {
-                    *few_shot = original;
-                    return Ok(format!(
-                        "[MUTATE] {}: accuracy={}, rolled back (below {:.1})",
-                        pattern_name,
-                        accuracy,
-                        rollback_threshold.unwrap_or(0.0)
-                    ));
+                    ""
                 }
+            );
+            if report.held_out == 0 {
+                eprintln!(
+                    "[MUTATE] WARNING: no held-out battery tasks for '{}' — accuracy counts as 0.0 (no evidence, no keep)",
+                    pattern_name
+                );
             }
+            (report.accuracy, note)
+        };
+
+        let kept = match (&rollback_op, &rollback_threshold) {
+            (Some(ConditionOp::Lt), Some(threshold)) => accuracy >= *threshold,
+            (Some(ConditionOp::Le), Some(threshold)) => accuracy > *threshold,
+            (Some(ConditionOp::Gt), Some(_)) | (Some(ConditionOp::Ge), Some(_)) => false,
+            (Some(ConditionOp::Eq), Some(threshold)) => (accuracy - threshold).abs() < 1e-9,
+            _ => true,
+        };
+
+        if kept {
+            Ok(format!(
+                "[MUTATE] {}: accuracy={}, kept (>= {:.1}){}",
+                pattern_name,
+                accuracy,
+                rollback_threshold.unwrap_or(0.0),
+                battery_note
+            ))
+        } else {
+            self.learnables[idx].1 = original;
+            Ok(format!(
+                "[MUTATE] {}: accuracy={}, rolled back (below {:.1}){}",
+                pattern_name,
+                accuracy,
+                rollback_threshold.unwrap_or(0.0),
+                battery_note
+            ))
         }
-        Err(format!(
-            "VM mutate: learnable pattern '{}' not found",
-            pattern_name
-        ))
     }
 
     /// Recall from memory: find best matching entry by substring + decay.

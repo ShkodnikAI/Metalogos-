@@ -1335,4 +1335,133 @@ impl Interpreter {
             self.eval_statements(&pattern.body, &mut local_env)
         })
     }
+
+    /// №375: the pattern's REAL answer path for the mutate battery — the same
+    /// effective-prompt + LLM-backend call a learnable invocation would make
+    /// (minus the few-shot exact-match shortcut, which by construction cannot
+    /// fire on held-out tasks: their inputs are not the mutation's examples).
+    pub(crate) fn call_llm_for_battery(
+        &self,
+        pattern_name: &str,
+        input: &str,
+    ) -> Result<String, String> {
+        let learnable = self
+            .learnable_patterns
+            .get(pattern_name)
+            .ok_or_else(|| format!("battery: learnable pattern '{}' not found", pattern_name))?;
+        let args = vec![Value::String(input.to_string())];
+        let effective_prompt = self.build_effective_prompt(learnable, &args);
+        let t0 = std::time::Instant::now();
+        let backend = llm::create_llm_backend();
+        let result = backend.call(&effective_prompt, input);
+        crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
+            provider_name: Some(llm::provider_env_name()),
+            model: None,
+            input_tokens: None,
+            output_tokens: None,
+            latency_ms: t0.elapsed().as_millis() as u64,
+            status: if result.is_ok() { "ok" } else { "error" },
+            cache: "miss",
+            provider_alias: None,
+        });
+        result
+    }
+}
+
+// ── №375 (ADR-0112 addendum): real golden-task battery for mutate ────────
+//
+// The keep/rollback decision of `mutate` (few-shot mutation) used a mock
+// accuracy of 0.95 — a self-modifying system deciding keep/rollback by a
+// constant (external audit 2026-09-15, P0). This module implements the REAL
+// measurement:
+//
+//   * battery — golden tasks (input, expected): the eval-block datasets
+//     registered for the pattern (ADR-0050) + the pattern's pre-mutation
+//     few-shot (its established Q→A behavior);
+//   * held-out split — battery tasks whose inputs are NOT the mutation's own
+//     new examples (the build set) — accuracy is never measured on the tasks
+//     the mutation was built from;
+//   * deterministic seeds — the held-out tasks are measured in a seeded
+//     FNV-1a order (fixed constant below), so the same battery + the same
+//     mutation always produce the same measurement across runs;
+//   * the answer for a held-out task is the pattern's REAL answer path (the
+//     LLM backend); a backend error counts as incorrect — a mutation that
+//     cannot be evaluated does not count as correct.
+//
+// Mock mode (METALOGOS_MOCK_LLM, default-on — the test-mode convention used
+// across the codebase) keeps the 0.95 stub, loudly documented in ADR-0112.
+
+/// Minimum golden-task battery size for a trustworthy measurement. Below
+/// this the mutate log carries a loud BELOW MINIMUM warning (the measurement
+/// still runs — honesty over comfort).
+pub(crate) const MIN_BATTERY_TASKS: usize = 20;
+
+/// Deterministic split/measure seed (the golden-ratio constant; the same
+/// value seeds `seed_to_state` in the PRNG — one convention).
+const BATTERY_SPLIT_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
+
+fn battery_hash(input: &str) -> u64 {
+    let mut h = BATTERY_SPLIT_SEED;
+    for b in input.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100_0000_01b3);
+    }
+    h
+}
+
+/// The measurement report appended (loudly) to the mutate log in real mode.
+#[derive(Debug, Clone)]
+pub(crate) struct BatteryReport {
+    pub accuracy: f64,
+    pub battery_size: usize,
+    pub held_out: usize,
+    pub correct: usize,
+    pub below_minimum: bool,
+}
+
+/// Measure the mutated pattern's accuracy on the held-out golden tasks.
+///
+/// `answer` is the pattern's real answer path (LLM backend call). A backend
+/// error counts as incorrect. No held-out tasks at all → accuracy 0.0: a
+/// self-modifying system does not keep changes it cannot evaluate.
+pub(crate) fn measure_battery_accuracy(
+    battery: &[(String, String)],
+    build_inputs: &std::collections::HashSet<String>,
+    mut answer: impl FnMut(&str) -> Result<String, String>,
+) -> BatteryReport {
+    let battery_size = battery.len();
+    let mut held: Vec<&(String, String)> = battery
+        .iter()
+        .filter(|(input, _)| !build_inputs.contains(input))
+        .collect();
+    held.sort_by_key(|(input, _)| battery_hash(input));
+    let mut seen = std::collections::HashSet::new();
+    held.retain(|(input, _)| seen.insert(input.clone()));
+
+    let held_out = held.len();
+    let mut correct = 0usize;
+    for (input, expected) in &held {
+        match answer(input) {
+            Ok(actual) => {
+                if actual.trim() == expected.trim() {
+                    correct += 1;
+                }
+            }
+            Err(_) => {
+                // Backend error = the task was not answered = incorrect.
+            }
+        }
+    }
+    let accuracy = if held_out > 0 {
+        correct as f64 / held_out as f64
+    } else {
+        0.0
+    };
+    BatteryReport {
+        accuracy,
+        battery_size,
+        held_out,
+        correct,
+        below_minimum: battery_size < MIN_BATTERY_TASKS,
+    }
 }

@@ -54,11 +54,77 @@ impl Interpreter {
         // Save original few-shot for rollback
         let original_few_shot = std::mem::take(&mut learnable.few_shot);
 
-        // Replace with new examples
-        learnable.few_shot = evaluated_examples;
+        // Replace with new examples (cloned — the build-set inputs are
+        // needed below for the held-out split)
+        learnable.few_shot = evaluated_examples.clone();
 
-        // Compute mock accuracy (always 0.95 for MockLlm)
-        let accuracy: f64 = 0.95;
+        // ── Accuracy: REAL golden-task battery (№375, ADR-0112 addendum) ──
+        //
+        // Mock mode (METALOGOS_MOCK_LLM, default-on — the test-mode
+        // convention used across the codebase): the 0.95 stub stays,
+        // loudly documented here and in ADR-0112 — the rollback MECHANISM
+        // is exercised, not a real quality signal.
+        //
+        // Real mode: the mutated pattern is measured on a golden-task
+        // battery — the eval-block datasets registered for this pattern
+        // (ADR-0050) plus the pre-mutation few-shot (the pattern's
+        // established Q→A behavior) — and accuracy is measured ONLY on
+        // held-out tasks (inputs that are NOT the mutation's own new
+        // examples). The answer path is the pattern's real LLM call.
+        let mock_mode = std::env::var("METALOGOS_MOCK_LLM")
+            .map(|v| v == "1" || v.to_lowercase() == "true")
+            .unwrap_or(true);
+        let pattern_name = m.pattern_name.clone();
+        let (accuracy, battery_note) = if mock_mode {
+            // Compute mock accuracy (always 0.95 for MockLlm) — test mode only.
+            (0.95, String::new())
+        } else {
+            // Battery: eval-block datasets for this pattern first, then the
+            // pre-mutation few-shot; dedup by input (first wins).
+            let mut battery: Vec<(String, String)> = Vec::new();
+            let mut seen = std::collections::HashSet::new();
+            for ed in &self.eval_blocks {
+                if ed.pattern_name == pattern_name {
+                    for (input, expected) in &ed.dataset {
+                        if seen.insert(input.clone()) {
+                            battery.push((input.clone(), expected.clone()));
+                        }
+                    }
+                }
+            }
+            for (input, expected) in &original_few_shot {
+                if seen.insert(input.clone()) {
+                    battery.push((input.clone(), expected.clone()));
+                }
+            }
+            let build_inputs: std::collections::HashSet<String> = evaluated_examples
+                .iter()
+                .map(|(input, _)| input.clone())
+                .collect();
+            let report = crate::interpreter::learnable::measure_battery_accuracy(
+                &battery,
+                &build_inputs,
+                |input| self.call_llm_for_battery(&pattern_name, input),
+            );
+            let note = format!(
+                " (battery: {} tasks, held-out {}, correct {}{})",
+                report.battery_size,
+                report.held_out,
+                report.correct,
+                if report.below_minimum {
+                    ", BELOW MINIMUM 20"
+                } else {
+                    ""
+                }
+            );
+            if report.held_out == 0 {
+                eprintln!(
+                    "[MUTATE] WARNING: no held-out battery tasks for '{}' — accuracy counts as 0.0 (no evidence, no keep)",
+                    pattern_name
+                );
+            }
+            (report.accuracy, note)
+        };
 
         // Check against threshold
         // "kept = true" means the mutation is KEPT (not rolled back).
@@ -82,10 +148,11 @@ impl Interpreter {
         if kept {
             // Keep the new examples (already in place)
             let msg = Ok(format!(
-                "[MUTATE] {}: accuracy={}, kept (>= {:.1})",
+                "[MUTATE] {}: accuracy={}, kept (>= {:.1}){}",
                 m.pattern_name,
                 accuracy,
-                m.rollback_threshold.unwrap_or(0.0)
+                m.rollback_threshold.unwrap_or(0.0),
+                battery_note
             ));
             // Phase 7.5: Audit log for mutate operations (after releasing mutable borrow)
             self.push_audit(format!(
@@ -103,10 +170,11 @@ impl Interpreter {
                 })?;
             learnable.few_shot = original_few_shot;
             let msg = Ok(format!(
-                "[MUTATE] {}: accuracy={}, rolled back (below {:.1})",
+                "[MUTATE] {}: accuracy={}, rolled back (below {:.1}){}",
                 m.pattern_name,
                 accuracy,
-                m.rollback_threshold.unwrap_or(0.0)
+                m.rollback_threshold.unwrap_or(0.0),
+                battery_note
             ));
             // Phase 7.5: Audit log for mutate operations (rolled back)
             self.push_audit(format!(

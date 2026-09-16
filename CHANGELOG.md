@@ -4,6 +4,17 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Changed — feature/adapt: real golden-task battery accuracy for mutate keep/rollback (Naryad #375, P0/feature/adapt, issue #442; ADR-0112 addendum)
+
+- **real metric**: the mutate keep/rollback decision no longer runs on the constant 0.95 in REAL mode. The mutated pattern is measured on a golden-task battery: the eval-block datasets registered for the pattern (ADR-0050) + the pattern's pre-mutation few-shot, deduped by input. Held-out split: accuracy is NEVER measured on the tasks the mutation was built from (build set = the mutation's own new-example inputs). Deterministic seeded order (fixed FNV-1a seed `0x9E3779B97F4A7C15`) — same battery + same mutation → byte-identical measurement across runs. The answer path is the pattern's real LLM call; backend errors count as incorrect; an EMPTY held-out set scores 0.0 (no evidence, no keep).
+- **minimum**: battery < 20 tasks → loud `BELOW MINIMUM 20` marker in the mutate log; the measurement still runs.
+- **mock mode unchanged (loud)**: `METALOGOS_MOCK_LLM` (default-on — the codebase-wide test-mode convention) keeps the 0.95 stub with byte-identical message formats; this is the ONLY place the stub survives (ADR-0112 addendum). Mock-mode message contract pinned by tests.
+- **rollback_if semantics UNCHANGED**: the CompareOp/ConditionOp threshold mapping was not touched — only the input value stopped being a constant.
+- **implementation**: shared `measure_battery_accuracy` + `MIN_BATTERY_TASKS` + TW `call_llm_for_battery` in `src/interpreter/learnable.rs`; TW mutate path (`src/interpreter/hooks.rs`) assembles the battery (eval datasets + few-shot) and appends the battery note `(battery: N tasks, held-out H, correct C[, BELOW MINIMUM 20])` to the mutate log in real mode; VM mutate path (`src/vm.rs`) measures the pre-mutation few-shot battery (the VM Program carries no eval blocks — documented difference).
+- **tests**: `tests/naryad_375_mutate_metric.rs` (5, mock mode: message contract, threshold edges, p2 golden, TW↔VM parity) + `tests/naryad_375_real_mode.rs` (5, real mode in a separate process: battery measurement, eval-dataset feed, no-condition keep+report, determinism, VM parity).
+- **docs**: ADR-0112 status → "Accepted + IMPLEMENTED (№375)" with the full methodology addendum; `docs/limitations.md` mock-metric row closed for real mode; REFERENCE §5.15 accuracy note rewritten.
+- **boundaries (loud)**: NN training metrics (`src/nn/*`) — separate line, untouched; real-LLM battery answering requires a configured provider (errors count as incorrect — the honest degradation); VM battery lacks eval-dataset tasks (Program carries no eval blocks — TW-only enrichment); mutation QUALITY itself is decided by the battery, not by this наряд. No `todo!`/`unimplemented!`/`SKELETON`.
+
 ### Changed — BREAKING — feature/lang: error-protocol — `try` returns a structured result (Naryad #374, P0/feature/lang, issue #441; ADR-0142 candidate (б))
 
 - **BREAKING**: `try expr` no longer returns the bare inner value / a bare `Unit` on error. It now returns `Struct { ok: Bool, value: Value, error: Unit | Struct { code, message } }` on BOTH backends. Old code probing errors via `type_of(r) == "Unit"` or `r == Unit` breaks — migrate to `r.ok == false` (see the REFERENCE §Migration section; mlog has no unary `!`, so the `!r.ok` form from the ADR is pseudocode).

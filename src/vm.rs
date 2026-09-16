@@ -626,6 +626,10 @@ impl Vm {
                     let left = stack.pop().unwrap_or(Value::Unit);
                     let eq_result = self.eval_cmp(left, right, AstCompareOp::Eq);
                     match eq_result {
+                        // №372: Bool encoding (TW parity) — invert the Bool.
+                        Value::Bool(b) => stack.push(Value::Bool(!b)),
+                        // Legacy .mbc safety: old bytecode may still surface
+                        // Float-encoded booleans through custom paths.
                         Value::Float(f) => {
                             stack.push(Value::Float(if f == 1.0 { 0.0 } else { 1.0 }))
                         }
@@ -986,9 +990,9 @@ impl Vm {
                     let haystack = stack.pop().unwrap_or(Value::Unit);
                     let result = match (&haystack, &needle) {
                         (Value::String(h), Value::String(n)) => {
-                            Value::Float(if h.starts_with(n.as_str()) { 1.0 } else { 0.0 })
+                            Value::Bool(h.starts_with(n.as_str()))
                         }
-                        _ => Value::Float(0.0),
+                        _ => Value::Bool(false),
                     };
                     stack.push(result);
                     ip += 1;
@@ -1011,7 +1015,7 @@ impl Vm {
                             other.matches(&scrutinee, &Value::Unit)
                         }
                     };
-                    stack.push(Value::Float(if ok { 1.0 } else { 0.0 }));
+                    stack.push(Value::Bool(ok));
                     ip += 1;
                 }
                 // ── Value expressions (№370, ADR-0141 Stage 1.2) ──
@@ -1281,6 +1285,10 @@ impl Vm {
                     let left = stack.pop().unwrap_or(Value::Unit);
                     let eq_result = self.eval_cmp(left, right, AstCompareOp::Eq);
                     match eq_result {
+                        // №372: Bool encoding (TW parity) — invert the Bool.
+                        Value::Bool(b) => stack.push(Value::Bool(!b)),
+                        // Legacy .mbc safety: old bytecode may still surface
+                        // Float-encoded booleans through custom paths.
                         Value::Float(f) => {
                             stack.push(Value::Float(if f == 1.0 { 0.0 } else { 1.0 }))
                         }
@@ -1445,9 +1453,9 @@ impl Vm {
                     let haystack = stack.pop().unwrap_or(Value::Unit);
                     let result = match (&haystack, &needle) {
                         (Value::String(h), Value::String(n)) => {
-                            Value::Float(if h.starts_with(n.as_str()) { 1.0 } else { 0.0 })
+                            Value::Bool(h.starts_with(n.as_str()))
                         }
-                        _ => Value::Float(0.0),
+                        _ => Value::Bool(false),
                     };
                     stack.push(result);
                     ip += 1;
@@ -1468,7 +1476,7 @@ impl Vm {
                             other.matches(&scrutinee, &Value::Unit)
                         }
                     };
-                    stack.push(Value::Float(if ok { 1.0 } else { 0.0 }));
+                    stack.push(Value::Bool(ok));
                     ip += 1;
                 }
                 // ── Value expressions (№370) — see execute_main_code ──
@@ -1514,20 +1522,13 @@ impl Vm {
                     let needle = stack.pop().unwrap_or(Value::Unit);
                     let haystack = stack.pop().unwrap_or(Value::Unit);
                     let result = match (&haystack, &needle) {
-                        (Value::String(h), Value::String(n)) => {
-                            Value::Float(if h.contains(n.as_str()) { 1.0 } else { 0.0 })
-                        }
-                        (Value::List(items), _) => Value::Float(
-                            if items
+                        (Value::String(h), Value::String(n)) => Value::Bool(h.contains(n.as_str())),
+                        (Value::List(items), _) => Value::Bool(
+                            items
                                 .iter()
-                                .any(|v| format!("{}", v) == format!("{}", needle))
-                            {
-                                1.0
-                            } else {
-                                0.0
-                            },
+                                .any(|v| format!("{}", v) == format!("{}", needle)),
                         ),
-                        _ => Value::Float(0.0),
+                        _ => Value::Bool(false),
                     };
                     stack.push(result);
                     ip += 1;
@@ -3629,6 +3630,9 @@ impl Vm {
     }
 
     /// Evaluate contains(left, right).
+    /// №372: returns `Value::Bool` — TW parity (the shared `builtin_contains`
+    /// returns Bool; the old Float 1.0/0.0 encoding printed "1"/"0" instead of
+    /// "true"/"false" through `to_string`).
     fn eval_contains(&self, left: Value, right: Value) -> Result<Value, String> {
         let ls = match left {
             Value::String(s) => s,
@@ -3648,20 +3652,25 @@ impl Vm {
                 ))
             }
         };
-        Ok(Value::Float(if ls.contains(&rs) { 1.0 } else { 0.0 }))
+        Ok(Value::Bool(ls.contains(&rs)))
     }
 
-    /// Evaluate a comparison: push 1.0 (true) or 0.0 (false).
+    /// Evaluate a comparison: push Bool (true/false).
+    /// №372 (ADR-0141 Stage 1.4): the result type is `Value::Bool` — TW parity
+    /// (`eval_binop` in the interpreter returns Bool for all comparisons; the
+    /// old Float 1.0/0.0 encoding made `to_string(a == b)` print "1" on the VM
+    /// where TW prints "true"). Truthiness (JumpIfNot) is unchanged — Bool and
+    /// Float 0.0/1.0 are truthy-equivalent.
     fn eval_cmp(&self, left: Value, right: Value, op: AstCompareOp) -> Value {
         // String-string comparisons (Eq, Ne, contains-like)
         match (&left, &right) {
             (Value::String(a), Value::String(b)) => match op {
-                AstCompareOp::Eq => Value::Float(if a == b { 1.0 } else { 0.0 }),
-                AstCompareOp::Ne => Value::Float(if a != b { 1.0 } else { 0.0 }),
-                AstCompareOp::Gt => Value::Float(if a > b { 1.0 } else { 0.0 }),
-                AstCompareOp::Lt => Value::Float(if a < b { 1.0 } else { 0.0 }),
-                AstCompareOp::Ge => Value::Float(if a >= b { 1.0 } else { 0.0 }),
-                AstCompareOp::Le => Value::Float(if a <= b { 1.0 } else { 0.0 }),
+                AstCompareOp::Eq => Value::Bool(a == b),
+                AstCompareOp::Ne => Value::Bool(a != b),
+                AstCompareOp::Gt => Value::Bool(a > b),
+                AstCompareOp::Lt => Value::Bool(a < b),
+                AstCompareOp::Ge => Value::Bool(a >= b),
+                AstCompareOp::Le => Value::Bool(a <= b),
             },
             _ => {
                 // Numeric comparisons (Float/Bool via as_float)
@@ -3676,7 +3685,7 @@ impl Vm {
                     },
                     _ => false,
                 };
-                Value::Float(if result { 1.0 } else { 0.0 })
+                Value::Bool(result)
             }
         }
     }

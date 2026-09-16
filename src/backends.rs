@@ -47,6 +47,20 @@ impl BackendClass {
             BackendClass::Llm => "llm",
         }
     }
+
+    /// Parse a §7.6 class word (the `backend_select` ladder's class
+    /// argument, №336). Unknown words are loud at both check time
+    /// (semantic companion, ADR-0165 §2.4) and run time.
+    pub fn parse(word: &str) -> Option<BackendClass> {
+        match word {
+            "stt" => Some(BackendClass::Stt),
+            "tts" => Some(BackendClass::Tts),
+            "omni" => Some(BackendClass::Omni),
+            "vision-understanding" => Some(BackendClass::VisionUnderstanding),
+            "llm" => Some(BackendClass::Llm),
+            _ => None,
+        }
+    }
 }
 
 /// License class for distribution governance (ADR-0163 §2.1).

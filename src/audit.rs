@@ -3619,6 +3619,61 @@ fn check_origin_decls_valid(
     }
 }
 
+/// ── Check: COMPAT_PROFILE_INVALID (Наряд №336, ADR-0165 §2.4) ──
+/// A compat-profile mistake must never be a silent no-op (№325 rule):
+/// the shape validation `check_program` applies is mirrored onto EVERY
+/// compile path (the №332 posture). Unknown profile names / option keys
+/// / mode words fail compilation, not just `mlog check`.
+fn check_profile_shape(
+    declarations: &[Declaration],
+    _source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    for decl in declarations {
+        if let Declaration::Profile(p) = decl {
+            if let Err(e) = crate::profile::validate(p) {
+                findings.push(AuditFinding {
+                    severity: Severity::Error,
+                    check_id: "COMPAT_PROFILE_INVALID",
+                    line: p.span.start_line as usize,
+                    message: e,
+                });
+            }
+        }
+    }
+}
+
+/// ── Check: BACKEND_SELECT_INVALID + BACKEND_LADDER_UNVERIFIABLE
+/// (Наряд №336, ADR-0165 §2.4) ──
+/// The BackendSelect ladder companion check on EVERY compile path (the
+/// №332 origin-chain posture): a statically-visible ladder is verified
+/// against the №333 registry SSOT — unknown rung, class mismatch,
+/// unknown class word, duplicate/empty ladders (BACKEND_SELECT_INVALID);
+/// under `profile device { mode: production }` a PendingNo334 rung is
+/// UNVERIFIABLE for the profile and fails compilation
+/// (BACKEND_LADDER_UNVERIFIABLE). Always Error — a broken ladder must
+/// never surface as a runtime surprise; no profile downgrades it.
+fn check_backend_ladder(
+    declarations: &[Declaration],
+    _source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    for v in crate::semantic::backend_select_ladder_violations(declarations) {
+        let check_id = match v.kind {
+            crate::semantic::LadderViolationKind::Invalid => "BACKEND_SELECT_INVALID",
+            crate::semantic::LadderViolationKind::UnverifiableForProduction => {
+                "BACKEND_LADDER_UNVERIFIABLE"
+            }
+        };
+        findings.push(AuditFinding {
+            severity: Severity::Error,
+            check_id,
+            line: v.span.start_line as usize,
+            message: v.message,
+        });
+    }
+}
+
 /// ── Check: BACKEND_LICENSE_DISTRIBUTION (Наряд №333, ADR-0163 §2.2) ──
 /// A program that NAMES non-osi/restrictive weights (string literals at
 /// any position + the `vision { model: … }` field) is a distribution
@@ -4240,6 +4295,12 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     // Наряд №327: the integrity axis — untrusted data must not decide
     // control flow (Category-A Error).
     check_integrity_decisions(declarations, source, &mut findings);
+    // Наряд №336 (ADR-0165 §2.4): compat-profile shapes are loud on
+    // every compile path, and statically visible BackendSelect ladders
+    // are verified against the registry SSOT; the production device
+    // profile refuses unverifiable (pending-pin) rungs.
+    check_profile_shape(declarations, source, &mut findings);
+    check_backend_ladder(declarations, source, &mut findings);
     findings
 }
 

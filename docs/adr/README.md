@@ -10,7 +10,7 @@ ls docs/adr/ | sed 's/-.*//' | sort | uniq -d
 
 Must be empty. If not empty, resolve collisions before proceeding.
 
-Numbers are assigned sequentially. The current accepted maximum is `0164-*` (ADR-0151 №309 video I2V pipeline; ADR-0152 №320 C2PA Art 50 slice; ADR-0153 №412 video DiT text path; ADR-0154 №322 label lattice; ADR-0162 №331 media handles; ADR-0163 №333 backend registry; ADR-0164 №332 perception origin chain); the overall maximum is `0164-*` — numbers 0155–0160 are reserved.
+Numbers are assigned sequentially. The current accepted maximum is `0165-*` (ADR-0151 №309 video I2V pipeline; ADR-0152 №320 C2PA Art 50 slice; ADR-0153 №412 video DiT text path; ADR-0154 №322 label lattice; ADR-0162 №331 media handles; ADR-0163 №333 backend registry; ADR-0164 №332 perception origin chain; ADR-0165 №336 backend ladder); the overall maximum is `0165-*` — numbers 0155–0160 are reserved.
 
 ## Reserved numbers (do not reassign)
 
@@ -199,3 +199,4 @@ real ADRs (№309/№320/№412) before the booking.
 | 0162 | Unified media handles and the media store (№331) | accepted |
 | 0163 | Backend registry — classes, SHA-pin, license classes (№333) | accepted |
 | 0164 | Perception AST — HandleSource/Lift/Sink/ProvBind and the origin chain (№332) | accepted |
+| 0165 | BackendSelect — the backend ladder and Degraded(t), typed degradation (№336) | accepted |

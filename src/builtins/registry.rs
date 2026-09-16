@@ -32,6 +32,7 @@ use super::media::{
     builtin_media_store_audio_stub, builtin_media_store_image_stub,
     builtin_media_store_video_frame_stub, builtin_media_store_video_segment_stub,
 };
+use super::media::{builtin_media_manifest_read, builtin_media_manifest_stub};
 // Наряд №333 (ADR-0163): backend registry listing (stateless).
 use super::backends::{builtin_backend_list, builtin_backend_select};
 // Наряд №334: real STT/omni/vision-understanding backends — the mock-first
@@ -680,6 +681,12 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // Degraded(t), the typed degradation result (never a panic, never a
     // silent mock). Registry 439→440; category "registry".
     spec!("backend_select", 2, "registry"; builtin_backend_select),
+    // ── Наряд №337 (ADR-0166): the C2PA contour of media handles ──
+    // media_manifest is STATE-CARRYING (store read) — intercepted by
+    // interpreter/VM before the generic fallback; media_manifest_read is
+    // stateless (sandboxed sidecar read). Registry 440→442.
+    spec!("media_manifest", 1, "media"; builtin_media_manifest_stub),
+    spec!("media_manifest_read", 1, "media"; builtin_media_manifest_read),
     // ── Наряд №284 (P1, M1): canary-токены недоверенного текста ──
     // Runtime-детектор утечки недоверенного контента через LLM-канал
     // (паттерн rebuff/Spotlighting). Связан с taint-моделью: утечка →

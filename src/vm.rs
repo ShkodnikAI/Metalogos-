@@ -2802,6 +2802,12 @@ impl Vm {
                 &self.media_store,
                 args,
             )),
+            // №337 (ADR-0166 §2.4): the in-program provenance read —
+            // entry-level manifest facts, no byte movement.
+            "media_manifest" => Some(crate::builtins::media_manifest_dispatch(
+                &self.media_store,
+                args,
+            )),
             "media_source_capture" => Some(crate::builtins::media_source_capture_dispatch(
                 &mut self.media_store,
                 &self.origin_decls,

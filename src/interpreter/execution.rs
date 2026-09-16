@@ -664,6 +664,15 @@ impl Interpreter {
                 .map_err(|e| format!("media store poisoned: {}", e))?;
             return crate::builtins::media_meta_dispatch(&store, &args);
         }
+        // №337 (ADR-0166 §2.4): the in-program provenance read — the
+        // entry-level manifest facts WITHOUT materializing bytes.
+        if name == "media_manifest" {
+            let store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_manifest_dispatch(&store, &args);
+        }
         // Наряд №332 (ADR-0164): HandleSource/ProvBind runtime — the
         // origin declarations live in the interpreter's declaration pass.
         if name == "media_source_capture" {
@@ -1899,6 +1908,14 @@ impl Interpreter {
                         .lock()
                         .map_err(|e| format!("media store poisoned: {}", e))?;
                     return crate::builtins::media_meta_dispatch(&store, &eval_args);
+                }
+                // №337 (ADR-0166 §2.4): the in-program provenance read.
+                if name == "media_manifest" {
+                    let store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_manifest_dispatch(&store, &eval_args);
                 }
                 // Наряд №332 (ADR-0164): HandleSource/ProvBind runtime,
                 // expression path.

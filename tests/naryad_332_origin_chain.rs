@@ -335,8 +335,12 @@ flow Main { input: String = "x" -> P -> output }
 "#;
     let err = metalogos::compile_program(src.trim())
         .expect_err("bind over a non-construction must not compile");
+    // №337 (ADR-0166 §2.3): the bound origin is kind: generation, so the
+    // refusal carries the generation marking contract — the stable
+    // assertion is the bind-shape fragment; the synthetic-contract text
+    // is pinned by tests/naryad_337_c2pa_handles.rs.
     assert!(
-        err.contains("ORIGIN_REQUIRED") && err.contains("must wrap a handle construction"),
+        err.contains("ORIGIN_REQUIRED") && err.contains("must wrap a"),
         "expected loud bind-shape error, got: {}",
         err
     );

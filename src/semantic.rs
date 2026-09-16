@@ -1256,10 +1256,16 @@ fn validate_origin_decls(declarations: &[Declaration], errors: &mut Vec<SpannedE
 /// Public entry point: the origin-chain rule over every statement
 /// container (the same containers the №331 opacity pass walks).
 pub fn media_origin_violations(declarations: &[Declaration]) -> Vec<OriginViolation> {
-    let origin_names: std::collections::HashSet<String> = declarations
+    // №337 (ADR-0166 §2.3): name → declared kind — the generation
+    // contract message needs the KIND of the bound origin. Declared
+    // origins that fail compilation (validate_origin_decls) simply do
+    // not join the map — their own loud error already fired.
+    let origins: std::collections::HashMap<String, String> = declarations
         .iter()
         .filter_map(|d| match d {
-            Declaration::Origin(o) => Some(o.name.clone()),
+            Declaration::Origin(o) => crate::bytecode::CompiledOriginDecl::from_ast(o)
+                .ok()
+                .map(|c| (c.name, c.kind)),
             _ => None,
         })
         .collect();
@@ -1271,7 +1277,7 @@ pub fn media_origin_violations(declarations: &[Declaration]) -> Vec<OriginViolat
                 check_origin_stmts(
                     &p.body,
                     &mut media_vars,
-                    &origin_names,
+                    &origins,
                     &format!("pattern '{}'", p.name),
                     &mut violations,
                 );
@@ -1282,7 +1288,7 @@ pub fn media_origin_violations(declarations: &[Declaration]) -> Vec<OriginViolat
                     check_origin_stmts(
                         &m.body,
                         &mut media_vars,
-                        &origin_names,
+                        &origins,
                         &format!("tool method '{}.{}'", t.name, m.name),
                         &mut violations,
                     );
@@ -1333,7 +1339,7 @@ fn classify_binding(value: &Expr) -> BindingForm {
 fn check_origin_stmts(
     stmts: &[Statement],
     media_vars: &mut std::collections::HashSet<String>,
-    origin_names: &std::collections::HashSet<String>,
+    origins: &std::collections::HashMap<String, String>,
     container: &str,
     violations: &mut Vec<OriginViolation>,
 ) {
@@ -1345,7 +1351,7 @@ fn check_origin_stmts(
             | Statement::Assign { name, value, span } => {
                 match classify_binding(value) {
                     BindingForm::Source(origin) => {
-                        if !origin_names.contains(&origin) {
+                        if !origins.contains_key(&origin) {
                             push_origin(
                                 violations,
                                 span,
@@ -1358,7 +1364,7 @@ fn check_origin_stmts(
                         media_vars.insert(name.clone());
                     }
                     BindingForm::BoundLift(origin) => {
-                        if !origin_names.contains(&origin) {
+                        if !origins.contains_key(&origin) {
                             push_origin(
                                 violations,
                                 span,
@@ -1378,7 +1384,7 @@ fn check_origin_stmts(
                     BindingForm::Other => {
                         // Nested constructions (a bare Lift, a stray
                         // source/from, a direct builtin call) are loud.
-                        check_origin_expr(value, origin_names, container, violations);
+                        check_origin_expr(value, origins, container, violations);
                     }
                 }
             }
@@ -1390,24 +1396,24 @@ fn check_origin_stmts(
                     // `from o media_store_image(...)` as a statement: legal
                     // shape (bind + discard) — inner construction is bound.
                 } else {
-                    check_origin_expr(expr, origin_names, container, violations);
+                    check_origin_expr(expr, origins, container, violations);
                 }
             }
             Statement::Return { value, .. } => {
                 if !matches!(value, Expr::HandleSource { .. } | Expr::ProvBind { .. }) {
-                    check_origin_expr(value, origin_names, container, violations);
+                    check_origin_expr(value, origins, container, violations);
                 }
             }
             Statement::Each { iterable, body, .. } => {
-                check_origin_expr(iterable, origin_names, container, violations);
-                check_origin_stmts(body, media_vars, origin_names, container, violations);
+                check_origin_expr(iterable, origins, container, violations);
+                check_origin_stmts(body, media_vars, origins, container, violations);
             }
             Statement::EachWithIndex { iterable, body, .. } => {
-                check_origin_expr(iterable, origin_names, container, violations);
-                check_origin_stmts(body, media_vars, origin_names, container, violations);
+                check_origin_expr(iterable, origins, container, violations);
+                check_origin_stmts(body, media_vars, origins, container, violations);
             }
             Statement::While { body, .. } => {
-                check_origin_stmts(body, media_vars, origin_names, container, violations);
+                check_origin_stmts(body, media_vars, origins, container, violations);
             }
             Statement::IfElseBlock {
                 then_body,
@@ -1415,25 +1421,25 @@ fn check_origin_stmts(
                 else_body,
                 ..
             } => {
-                check_origin_stmts(then_body, media_vars, origin_names, container, violations);
+                check_origin_stmts(then_body, media_vars, origins, container, violations);
                 for (_, b) in else_ifs {
-                    check_origin_stmts(b, media_vars, origin_names, container, violations);
+                    check_origin_stmts(b, media_vars, origins, container, violations);
                 }
                 if let Some(eb) = else_body {
-                    check_origin_stmts(eb, media_vars, origin_names, container, violations);
+                    check_origin_stmts(eb, media_vars, origins, container, violations);
                 }
             }
             Statement::IfThen { body, .. } => {
-                check_origin_stmts(body, media_vars, origin_names, container, violations);
+                check_origin_stmts(body, media_vars, origins, container, violations);
             }
             Statement::Match {
                 arms, else_body, ..
             } => {
                 for arm in arms {
-                    check_origin_stmts(arm.body(), media_vars, origin_names, container, violations);
+                    check_origin_stmts(arm.body(), media_vars, origins, container, violations);
                 }
                 if let Some(eb) = else_body {
-                    check_origin_stmts(eb, media_vars, origin_names, container, violations);
+                    check_origin_stmts(eb, media_vars, origins, container, violations);
                 }
             }
             _ => {}
@@ -1445,7 +1451,7 @@ fn check_origin_stmts(
 /// binding initializers.
 fn check_origin_expr(
     expr: &Expr,
-    origin_names: &std::collections::HashSet<String>,
+    origins: &std::collections::HashMap<String, String>,
     container: &str,
     violations: &mut Vec<OriginViolation>,
 ) {
@@ -1467,16 +1473,25 @@ fn check_origin_expr(
         } => {
             if !matches!(inner.as_ref(), Expr::FnCall { name, .. } if is_media_producing_builtin(name))
             {
-                push_origin(
-                    violations,
-                    span,
+                // №337 (ADR-0166 §2.3): a GENERATION bind over a
+                // non-construction is the "generation lift without
+                // synthetic: true" hole — the refusal names the marking
+                // contract (an alias bind would either skip the marking
+                // or falsify it — captured bytes marked synthetic).
+                let msg = if origins.get(origin).map(|k| k.as_str()) == Some("generation") {
+                    format!(
+                        "origin chain violation (ORIGIN_REQUIRED): 'from {}' in {} must wrap a fresh handle construction (media_store_*) — a GENERATION lift sets synthetic: true on the new store entry (ADR-0166 §2.3); binding an existing handle would skip or falsify the Art. 50 marking",
+                        origin, container
+                    )
+                } else {
                     format!(
                         "origin chain violation (ORIGIN_REQUIRED): 'from {}' in {} must wrap a handle construction (media_store_*) — a bind attaches provenance to a NEW handle (ADR-0164)",
                         origin, container
-                    ),
-                );
+                    )
+                };
+                push_origin(violations, span, msg);
             }
-            check_origin_expr(inner, origin_names, container, violations);
+            check_origin_expr(inner, origins, container, violations);
         }
         Expr::FnCall { name, args, span } => {
             if matches!(
@@ -1506,17 +1521,17 @@ fn check_origin_expr(
                 );
             }
             for a in args {
-                check_origin_expr(a, origin_names, container, violations);
+                check_origin_expr(a, origins, container, violations);
             }
         }
         Expr::QualifiedCall { args, .. } => {
             for a in args {
-                check_origin_expr(a, origin_names, container, violations);
+                check_origin_expr(a, origins, container, violations);
             }
         }
         Expr::BinaryOp { left, right, .. } => {
-            check_origin_expr(left, origin_names, container, violations);
-            check_origin_expr(right, origin_names, container, violations);
+            check_origin_expr(left, origins, container, violations);
+            check_origin_expr(right, origins, container, violations);
         }
         Expr::IfElse {
             condition,
@@ -1524,22 +1539,22 @@ fn check_origin_expr(
             else_branch,
             ..
         } => {
-            check_origin_expr(condition, origin_names, container, violations);
-            check_origin_expr(then_branch, origin_names, container, violations);
-            check_origin_expr(else_branch, origin_names, container, violations);
+            check_origin_expr(condition, origins, container, violations);
+            check_origin_expr(then_branch, origins, container, violations);
+            check_origin_expr(else_branch, origins, container, violations);
         }
         Expr::List { items, .. } => {
             for i in items {
-                check_origin_expr(i, origin_names, container, violations);
+                check_origin_expr(i, origins, container, violations);
             }
         }
         Expr::IndexAccess { object, index, .. } => {
-            check_origin_expr(object, origin_names, container, violations);
-            check_origin_expr(index, origin_names, container, violations);
+            check_origin_expr(object, origins, container, violations);
+            check_origin_expr(index, origins, container, violations);
         }
         Expr::StructLit { fields, .. } => {
             for v in fields.values() {
-                check_origin_expr(v, origin_names, container, violations);
+                check_origin_expr(v, origins, container, violations);
             }
         }
         Expr::BlockIfElse {
@@ -1549,11 +1564,11 @@ fn check_origin_expr(
             else_body,
             ..
         } => {
-            check_origin_expr(condition, origin_names, container, violations);
+            check_origin_expr(condition, origins, container, violations);
             check_origin_stmts(
                 then_body,
                 &mut std::collections::HashSet::new(),
-                origin_names,
+                origins,
                 container,
                 violations,
             );
@@ -1561,7 +1576,7 @@ fn check_origin_expr(
                 check_origin_stmts(
                     b,
                     &mut std::collections::HashSet::new(),
-                    origin_names,
+                    origins,
                     container,
                     violations,
                 );
@@ -1570,7 +1585,7 @@ fn check_origin_expr(
                 check_origin_stmts(
                     eb,
                     &mut std::collections::HashSet::new(),
-                    origin_names,
+                    origins,
                     container,
                     violations,
                 );
@@ -1582,20 +1597,20 @@ fn check_origin_expr(
             else_body,
             ..
         } => {
-            check_origin_expr(scrutinee, origin_names, container, violations);
+            check_origin_expr(scrutinee, origins, container, violations);
             for arm in arms {
                 for st in arm.body() {
-                    check_origin_expr_stmt(st, origin_names, container, violations);
+                    check_origin_expr_stmt(st, origins, container, violations);
                 }
             }
             if let Some(eb) = else_body {
                 for st in eb {
-                    check_origin_expr_stmt(st, origin_names, container, violations);
+                    check_origin_expr_stmt(st, origins, container, violations);
                 }
             }
         }
         Expr::Try { expr, .. } => {
-            check_origin_expr(expr, origin_names, container, violations);
+            check_origin_expr(expr, origins, container, violations);
         }
         _ => {}
     }
@@ -1605,16 +1620,16 @@ fn check_origin_expr(
 /// expression walker (lightweight: only the construction sites matter).
 fn check_origin_expr_stmt(
     st: &Statement,
-    origin_names: &std::collections::HashSet<String>,
+    origins: &std::collections::HashMap<String, String>,
     container: &str,
     violations: &mut Vec<OriginViolation>,
 ) {
     match st {
         Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
-            check_origin_expr(value, origin_names, container, violations);
+            check_origin_expr(value, origins, container, violations);
         }
         Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
-            check_origin_expr(expr, origin_names, container, violations);
+            check_origin_expr(expr, origins, container, violations);
         }
         _ => {}
     }

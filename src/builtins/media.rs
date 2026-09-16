@@ -119,7 +119,138 @@ pub fn media_save_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, 
         .map_err(crate::builtins::io::sandbox_violation)?;
     std::io::Write::write_all(&mut file, bytes.as_slice())
         .map_err(|e| format!("{}: write to {}: {}", fn_name, path, e))?;
+    // №337 (ADR-0166 §2.2): the sidecar manifest is part of the SINK —
+    // the №241 continuity (the same-named `<path>.manifest.json` the
+    // vision export writes). Built from the ENTRY's manifest facts, so
+    // the origin chain (№332) and the C2PA record cannot disagree. A
+    // failed sidecar write is a LOUD error — a manifest-less media
+    // egress cannot happen through media_save.
+    let sidecar_path = safe_path.with_extension(format!(
+        "{}.manifest.json",
+        safe_path
+            .extension()
+            .map(|e| e.to_string_lossy().to_string())
+            .unwrap_or_default()
+    ));
+    let manifest = crate::media::MediaManifest {
+        kind: entry.kind.slug().to_string(),
+        origin: entry.origin.clone().unwrap_or_default(),
+        conf: entry.label.conf.as_str().to_string(),
+        bytes_sha256: entry.bytes_sha256.clone(),
+        synthetic: entry.synthetic,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    };
+    let json = crate::media::manifest_sidecar_json(&manifest)?;
+    let mut sidecar = crate::builtins::io::open_sandbox_write(&sidecar_path, false)
+        .map_err(crate::builtins::io::sandbox_violation)?;
+    std::io::Write::write_all(&mut sidecar, json.as_bytes())
+        .map_err(|e| format!("{}: write sidecar {}: {}", fn_name, path, e))?;
     Ok(Value::String(path))
+}
+
+/// `media_manifest(handle)` — the in-program provenance read (№337,
+/// ADR-0166 §2.4): `Struct { kind, origin, conf, synthetic, bytes_sha256,
+/// refs, sealed }` WITHOUT materializing bytes (the hash is the
+/// entry-level insert-time fact).
+pub fn media_manifest_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, String> {
+    let fn_name = "media_manifest";
+    if args.len() != 1 {
+        return Err(format!(
+            "{}: expects 1 argument (handle), got {}",
+            fn_name,
+            args.len()
+        ));
+    }
+    let handle = expect_media_handle(fn_name, args, 0)?;
+    let entry = store.entry(handle)?;
+    let mut fields = std::collections::HashMap::new();
+    fields.insert(
+        "kind".to_string(),
+        Value::String(entry.kind.slug().to_string()),
+    );
+    fields.insert(
+        "origin".to_string(),
+        Value::String(entry.origin.clone().unwrap_or_default()),
+    );
+    fields.insert(
+        "conf".to_string(),
+        Value::String(entry.label.conf.as_str().to_string()),
+    );
+    fields.insert("synthetic".to_string(), Value::Bool(entry.synthetic));
+    fields.insert(
+        "bytes_sha256".to_string(),
+        Value::String(entry.bytes_sha256.clone()),
+    );
+    fields.insert("refs".to_string(), Value::Float(entry.refs as f64));
+    fields.insert(
+        "sealed".to_string(),
+        Value::Bool(matches!(
+            entry.payload,
+            crate::media::MediaPayload::Sealed(_)
+        )),
+    );
+    Ok(Value::Struct {
+        type_name: "MediaManifest".to_string(),
+        fields,
+    })
+}
+
+/// `media_manifest_read(path)` — the sidecar READ path (№337, ADR-0166
+/// §2.4): parses a `<...>.manifest.json` from the sandbox and returns
+/// the same struct shape as media_manifest. Missing/empty/corrupt
+/// manifests are LOUD errors (№320 posture); a manifest without
+/// `synthetic` reads TRUE (conservative, unknown ⇒ marked). Stateless —
+/// a plain registry builtin.
+pub(crate) fn builtin_media_manifest_read(args: &[Value]) -> Result<Value, String> {
+    let fn_name = "media_manifest_read";
+    if args.len() != 1 {
+        return Err(format!(
+            "{}: expects 1 argument (path), got {}",
+            fn_name,
+            args.len()
+        ));
+    }
+    let path = expect_string(fn_name, args, 0)?;
+    // №254 outcome split with the №337 posture: a MISSING sidecar is a
+    // loud provenance refusal (not a sandbox violation, not a soft
+    // failure — "вход без манифеста" is exactly what the read path
+    // surfaces); textual violations (absolute path, `..`) stay loud
+    // SANDBOX_VIOLATION.
+    let safe_path = match crate::builtins::io::sandbox_path(&path) {
+        Ok(p) => p,
+        Err(e) => {
+            if crate::builtins::io::sandbox_path_missing(&path) {
+                return Err(format!(
+                    "{}: cannot read sidecar '{}': no such file — provenance you \
+                     cannot read is refused, never defaulted (№320 posture)",
+                    fn_name, path
+                ));
+            }
+            return Err(crate::builtins::io::sandbox_violation(e));
+        }
+    };
+    let json = std::fs::read_to_string(&safe_path).map_err(|e| {
+        format!(
+            "{}: cannot read sidecar '{}': {} — provenance you cannot read is \
+             refused, never defaulted (№320 posture)",
+            fn_name, path, e
+        )
+    })?;
+    let manifest = crate::media::sidecar_parse_manifest(&json)?;
+    let mut fields = std::collections::HashMap::new();
+    fields.insert("kind".to_string(), Value::String(manifest.kind));
+    fields.insert("origin".to_string(), Value::String(manifest.origin));
+    fields.insert("conf".to_string(), Value::String(manifest.conf));
+    fields.insert("synthetic".to_string(), Value::Bool(manifest.synthetic));
+    fields.insert(
+        "bytes_sha256".to_string(),
+        Value::String(manifest.bytes_sha256),
+    );
+    fields.insert("timestamp".to_string(), Value::String(manifest.timestamp));
+    Ok(Value::Struct {
+        type_name: "MediaManifest".to_string(),
+        fields,
+    })
 }
 
 /// `media_retain(handle)` — refcount +1 (ADR-0162 §2.4); returns the
@@ -238,7 +369,7 @@ pub fn media_source_capture_dispatch(
                     consent: Default::default(),
                 },
             )?;
-            store.bind_origin(handle, name, conf)?;
+            store.bind_origin(handle, name.clone(), conf, &kind)?;
             Ok(Value::Media(handle))
         }
         "camera" => Err(format!(
@@ -271,8 +402,10 @@ pub fn media_bind_origin_dispatch(
     }
     let name = expect_string(fn_name, args, 0)?;
     let handle = expect_media_handle(fn_name, args, 1)?;
-    let (_, _, conf, _) = runtime_origin(origins, fn_name, &name)?;
-    store.bind_origin(handle, name, conf)?;
+    let (kind, _, conf, _) = runtime_origin(origins, fn_name, &name)?;
+    // №337 (ADR-0166 §2.3): the declared kind drives the Art. 50 marking
+    // — a generation bind FORCES synthetic: true on the bound entry.
+    store.bind_origin(handle, name, conf, &kind)?;
     Ok(Value::Media(handle))
 }
 
@@ -332,4 +465,9 @@ pub(crate) fn builtin_media_source_capture_stub(_args: &[Value]) -> Result<Value
 /// `media_bind_origin(origin_name, handle)` — the ProvBind runtime (№332, ADR-0164): binds the store entry's origin and joins the declared origin conf into the entry label (re-sealing when a public entry becomes non-public). The handle value passes through unchanged. Pure: store bookkeeping, no byte movement. State-carrying: interpreter/VM intercept before the generic fallback.
 pub(crate) fn builtin_media_bind_origin_stub(_args: &[Value]) -> Result<Value, String> {
     Err("media_bind_origin: state-carrying media builtin — dispatched via interpreter/vm interception (ADR-0164); the generic fallback must not be reached".to_string())
+}
+
+/// `media_manifest(handle)` — the in-program provenance read (№337, ADR-0166 §2.4): Struct { kind, origin, conf, synthetic, bytes_sha256, refs, sealed } WITHOUT materializing bytes. State-carrying: interpreter/VM intercept before the generic fallback.
+pub(crate) fn builtin_media_manifest_stub(_args: &[Value]) -> Result<Value, String> {
+    Err("media_manifest: state-carrying media builtin — dispatched via interpreter/vm interception (ADR-0166); the generic fallback must not be reached".to_string())
 }

@@ -761,6 +761,12 @@ Release builds run on push to main — produces `mlog-linux-x86_64` binary artif
 | **Self-hosted lexer** | Tokenizer written in .mlog itself (`self-host/lexer.mlog`) |
 | **Self-hosted parser** | Parser written in .mlog itself (`self-host/parser.mlog`, Naryad #197) — parses a subset of the grammar sufficient for bootstrap (parses its own source). The full grammar remains the responsibility of the production Rust parser (`src/parser/`). |
 
+### План работ (публичная выжимка)
+
+[docs/PLAN-SUMMARY.md](docs/PLAN-SUMMARY.md)
+
+Перечень фаз, текущая волна и критерии; канон — у координатора.
+
 ---
 
 ## Self-hosted parser (Naryad #197)

@@ -68,7 +68,7 @@ pattern P82DiagramLoopContract(input: String) -> String {
     {label: "Only B"}
   ]
   let r5 = try diagram_loop(data5, style)
-  let ok5 = to_float(type_of(r5) == "Unit")
+  let ok5 = to_float(r5.ok == false)
 
   // ── 6. 9 steps → Err (too many — labels would overlap) ───────────
   let data6 = [
@@ -76,7 +76,7 @@ pattern P82DiagramLoopContract(input: String) -> String {
     {label: "6"}, {label: "7"}, {label: "8"}, {label: "9"}
   ]
   let r6 = try diagram_loop(data6, style)
-  let ok6 = to_float(type_of(r6) == "Unit")
+  let ok6 = to_float(r6.ok == false)
 
   let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
 

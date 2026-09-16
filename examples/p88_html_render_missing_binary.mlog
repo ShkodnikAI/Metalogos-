@@ -15,13 +15,13 @@ pattern P88HtmlRenderMissingBinary(input: String) -> String {
   let result = try html_render(html, 800.0, 600.0)
 
   // When METALOGOS_BROWSER_BIN is not set, html_render errors and
-  // try returns Unit. We verify this is an error, not a crash.
-  let is_unit = to_float(type_of(result) == "Unit")
+  // try surfaces the error as ok = false (№374). We verify this is an error, not a crash.
+  let is_unit = to_float(result.ok == false)
 
   // Also verify the error message is informative by running without try
   // and catching the error text. The error should mention METALOGOS_BROWSER_BIN.
   let direct = try html_render(html, 1024.0, 768.0)
-  let error_is_unit = to_float(type_of(direct) == "Unit")
+  let error_is_unit = to_float(direct.ok == false)
 
   let total = is_unit + error_is_unit
 

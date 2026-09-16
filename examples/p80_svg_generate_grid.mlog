@@ -3,7 +3,7 @@
 // Regular grid background contract — verifies the function:
 //   1. Produces a `<g>` fragment (not a full <svg> document)
 //   2. Accepts each of the 5 known intents (calm/tension/energy/authority/warmth)
-//   3. Rejects an unknown intent with an error (via `try` — returns Unit)
+//   3. Rejects an unknown intent with an error (via `try` → ok = false, №374)
 //
 // Output: single summary string, "p80_grid_checks=N/3".
 
@@ -31,9 +31,9 @@ pattern P80GridContract(input: String) -> String {
   // ── 3. Unknown intent rejected ────────────────────────────────────
   // svg_generate validates intent via intent_to_hue (same known-list as
   // color_palette). An unknown intent should return an Err, which `try`
-  // converts to Unit. type_of(Unit) == "Unit" → ok3 = 1.0.
+  // sets ok = false on the result struct (№374). g3.ok == false → ok3 = 1.0.
   let g3 = try svg_generate("grid", "INVALID_INTENT", 600.0, 400.0)
-  let ok3 = to_float(type_of(g3) == "Unit")
+  let ok3 = to_float(g3.ok == false)
   // ok3 = 1.0 if g3 is Unit (error was caught)
 
   let total = ok1 + (ok2 / 4.0) + ok3

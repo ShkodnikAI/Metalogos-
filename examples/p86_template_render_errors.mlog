@@ -11,46 +11,46 @@
 //   7. Unexpected close tag (no matching open) → Err
 //   8. {{else}} outside {{#if}} → Err
 //
-// All error paths return Unit via try; success paths return Html.
+// All error paths surface as ok = false via try (№374); success paths return Html.
 // Output: single summary string, "p86_render_errors=N/N".
 
 pattern P86TemplateRenderErrorsContract(input: String) -> String {
   // ── 1. Unmatched {{#if}} (missing {{/if}}) ───────────────────────
   let r1 = try template_render("{{#if show}}hello", {show: true})
-  let ok1 = to_float(type_of(r1) == "Unit")
+  let ok1 = to_float(r1.ok == false)
 
   // ── 2. Unmatched {{#each}} (missing {{/each}}) ───────────────────
   let r2 = try template_render("{{#each items}}x", {items: [1.0]})
-  let ok2 = to_float(type_of(r2) == "Unit")
+  let ok2 = to_float(r2.ok == false)
 
   // ── 3. {{#each}} on a non-List (String) → Err ────────────────────
   // Per Block 4: items must be a List. A String is a structural type
   // mismatch — error, not soft-failure.
   let r3 = try template_render("{{#each items}}x{{/each}}", {items: "not a list"})
-  let ok3 = to_float(type_of(r3) == "Unit")
+  let ok3 = to_float(r3.ok == false)
 
   // ── 4. {{#each}} on a missing path → Err ─────────────────────────
   // Per Block 4: missing list_path is a structural error (the render
   // declares it expects to iterate — a missing path means the data
   // contract is broken).
   let r4 = try template_render("{{#each missing}}x{{/each}}", {unused: 0.0})
-  let ok4 = to_float(type_of(r4) == "Unit")
+  let ok4 = to_float(r4.ok == false)
 
   // ── 5. First arg not a String → Err ──────────────────────────────
   let r5 = try template_render(42.0, {unused: 0.0})
-  let ok5 = to_float(type_of(r5) == "Unit")
+  let ok5 = to_float(r5.ok == false)
 
   // ── 6. Too few arguments → Err ───────────────────────────────────
   let r6 = try template_render("just the first arg")
-  let ok6 = to_float(type_of(r6) == "Unit")
+  let ok6 = to_float(r6.ok == false)
 
   // ── 7. Unexpected close tag (no matching open) → Err ─────────────
   let r7 = try template_render("hello {{/if}}", {unused: 0.0})
-  let ok7 = to_float(type_of(r7) == "Unit")
+  let ok7 = to_float(r7.ok == false)
 
   // ── 8. {{else}} outside {{#if}} → Err ────────────────────────────
   let r8 = try template_render("hello {{else}} world", {unused: 0.0})
-  let ok8 = to_float(type_of(r8) == "Unit")
+  let ok8 = to_float(r8.ok == false)
 
   let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6 + ok7 + ok8
 

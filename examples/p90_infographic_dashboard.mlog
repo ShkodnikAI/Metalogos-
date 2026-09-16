@@ -8,8 +8,8 @@
 //
 // Note: No `try` used — InfographicDashboard returns error strings
 // normally (not as Err), so direct call + starts_with is sufficient.
-// The VM backend does not implement `try` (always returns Unit),
-// so `try`-based tests would diverge between TW and VM.
+// Since №374 the VM backend implements `try` with the SAME structured result
+// as the TW, so try-based contracts no longer diverge between the backends.
 
 import std/infographic
 

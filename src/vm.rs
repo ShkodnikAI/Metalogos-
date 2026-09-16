@@ -942,10 +942,22 @@ impl Vm {
                 // ── Error Handling ──────────────────────────────
                 // Наряд №91: real `try` for the VM — catch errors locally
                 Instruction::TryEval(inner_code) => {
+                    // №374 (ADR-0142): structured result — the shared
+                    // `try_result_struct` builds the SAME shape as the TW
+                    // (error information is no longer discarded as Unit).
                     let inner: Vec<Instruction> = inner_code.clone();
                     match self.execute_code(&inner, &mut stack, &mut call_stack, program) {
-                        Ok(val) => stack.push(val),
-                        Err(_) => stack.push(Value::Unit),
+                        Ok(val) => stack.push(crate::interpreter::values::try_result_struct(
+                            true, val, None,
+                        )),
+                        Err(e) => {
+                            eprintln!("[try] caught error: {}", e);
+                            stack.push(crate::interpreter::values::try_result_struct(
+                                false,
+                                Value::Unit,
+                                Some(("RUNTIME_ERROR".to_string(), e)),
+                            ));
+                        }
                     }
                     ip += 1;
                 }
@@ -1536,10 +1548,22 @@ impl Vm {
                 // ── Error Handling ──────────────────────────────
                 // Наряд №91: real `try` for the VM — catch errors locally
                 Instruction::TryEval(inner_code) => {
+                    // №374 (ADR-0142): structured result — the shared
+                    // `try_result_struct` builds the SAME shape as the TW
+                    // (error information is no longer discarded as Unit).
                     let inner: Vec<Instruction> = inner_code.clone();
                     match self.execute_code(&inner, stack, call_stack, program) {
-                        Ok(val) => stack.push(val),
-                        Err(_) => stack.push(Value::Unit),
+                        Ok(val) => stack.push(crate::interpreter::values::try_result_struct(
+                            true, val, None,
+                        )),
+                        Err(e) => {
+                            eprintln!("[try] caught error: {}", e);
+                            stack.push(crate::interpreter::values::try_result_struct(
+                                false,
+                                Value::Unit,
+                                Some(("RUNTIME_ERROR".to_string(), e)),
+                            ));
+                        }
                     }
                     ip += 1;
                 }

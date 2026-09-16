@@ -13,7 +13,7 @@
 // Verification approach: the function returns Value::Html (opaque —
 // cannot be inspected as String from .mlog). We verify via:
 //   - type_of(result) == "Html" → success
-//   - try the-call + type_of(result) == "Unit" → error path
+//   - try the-call + result.ok == false → error path (№374)
 //
 // Parser note: data is passed INLINE in each call (not via `let`
 // bindings) because the language's render-declaration preprocessor

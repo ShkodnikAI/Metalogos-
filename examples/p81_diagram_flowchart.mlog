@@ -96,7 +96,7 @@ pattern P81DiagramFlowchartContract(input: String) -> String {
     edges: [{from: "A", to: "A"}]
   }
   let r5 = try diagram_flowchart(data5, style)
-  let ok5 = to_float(type_of(r5) == "Unit")
+  let ok5 = to_float(r5.ok == false)
 
   // ── 6. Unknown node reference in edge → Err ───────────────────────
   // Edge.to references "Z" which is not in nodes list.
@@ -105,7 +105,7 @@ pattern P81DiagramFlowchartContract(input: String) -> String {
     edges: [{from: "A", to: "Z"}]
   }
   let r6 = try diagram_flowchart(data6, style)
-  let ok6 = to_float(type_of(r6) == "Unit")
+  let ok6 = to_float(r6.ok == false)
 
   let total = ok1 + ok2 + ok3 + ok4 + ok5 + ok6
 

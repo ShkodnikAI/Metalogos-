@@ -278,6 +278,42 @@ impl Value {
     }
 }
 
+/// ADR-0142 (№374): the structured result of `try expr` —
+/// `Struct { ok: Bool, value: Value, error: Unit | Struct { code, message } }`.
+///
+/// - success: `ok = true`, `value` = the inner expression's value, `error` = Unit;
+/// - error:   `ok = false`, `value` = Unit, `error` = `Struct { code, message }`
+///   carrying the runtime error text (generic stable code `RUNTIME_ERROR` —
+///   runtime errors do not yet carry ADR-0131 diagnostic codes; the message
+///   field carries the full text).
+///
+/// Shared by BOTH backends (TW `Expr::Try` and VM `Instruction::TryEval`) so
+/// the shape cannot diverge.
+pub fn try_result_struct(ok: bool, value: Value, error: Option<(String, String)>) -> Value {
+    let mut fields = std::collections::HashMap::new();
+    fields.insert("ok".to_string(), Value::Bool(ok));
+    fields.insert("value".to_string(), value);
+    fields.insert(
+        "error".to_string(),
+        match error {
+            None => Value::Unit,
+            Some((code, message)) => Value::Struct {
+                type_name: "TryError".to_string(),
+                fields: {
+                    let mut f = std::collections::HashMap::new();
+                    f.insert("code".to_string(), Value::String(code));
+                    f.insert("message".to_string(), Value::String(message));
+                    f
+                },
+            },
+        },
+    );
+    Value::Struct {
+        type_name: "TryResult".to_string(),
+        fields,
+    }
+}
+
 /// Opaque / sensitive values that must not be rendered by print.
 /// Наряд №114.
 pub fn is_nonprintable(v: &Value) -> bool {

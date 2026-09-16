@@ -2,7 +2,26 @@
 
 All notable changes to the Metalogos project.
 
-## [Unreleased]
+## [0.20.0] - 2026-09-16
+
+**The security model becomes a lattice: every value carries a three-component
+label — (conf, integrity, consent-scope) — and the compiler gates egress,
+decisions, and downward moves on it (Wave 1, наряды №322–№329, ADR-0154/0156/0161).
+The VM backend reaches Stage 1 + Stage 2: `match`, if/else as a value, binop
+coercion, PRNG/Bool parity, the parity gate and a nightly soak workflow
+(наряды №369–№373). `try` returns a structured result; `adapt` keeps/rolls
+back on a real measured metric; interprocedural taint depth is configurable.
+395 commits since v0.19.0.**
+
+**BREAKING — `try` returns a structured result (Наряд №374, ADR-0142)**:
+`try expr` no longer returns the bare inner value / a bare `Unit` on error.
+It returns `Struct { ok: Bool, value: Value, error: Unit | Struct { code, message } }`
+on BOTH backends. Old error probes `type_of(r) == "Unit"` / `r == Unit` break —
+migrate to `r.ok == false` (mlog has no unary `!`, so `!r.ok` in the ADR text is
+pseudocode; the full before/after is REFERENCE.md §Migration). 29 golden examples
+were migrated in №374 itself; `.expected` outputs are untouched. Success-path
+code is unaffected: `r.value` on `ok == true` carries the inner value with its
+type preserved.
 
 ### Changed — docs/security: SECURITY.md + threat-model.md synchronized with the label lattice (Naryad #377, P1/docs/security, issue #444)
 

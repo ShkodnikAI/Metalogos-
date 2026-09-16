@@ -64,7 +64,7 @@
 
 | Limitation | Primary source | Status / condition for removal |
 |---|---|---|
-| `try` returns `Unit` on error — loses error information (code/message) | [Наряд №91](adr/0142-error-protocol.md); [ADR-0142](adr/0142-error-protocol.md) | ADR-0142 accepted candidate (б) — `try` → Struct{ok,value,error}; implementation is a separate naryad |
+| ~~`try` returns `Unit` on error — loses error information (code/message)~~ **CLOSED (№374)** | [ADR-0142](adr/0142-error-protocol.md) | Closed: `try` returns `Struct{ok,value,error}` on BOTH backends (shared builder, TW/VM cannot diverge); `code` carries the generic `RUNTIME_ERROR` until runtime errors are promoted to structured ADR-0131/0140 diagnostics — richer per-cause codes are the remaining boundary |
 
 ## LLM Streaming (ADR-0137)
 

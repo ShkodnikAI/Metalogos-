@@ -2,6 +2,12 @@
 
 All notable changes to the Metalogos project.
 
+## [Unreleased]
+
+### Fixed
+
+- **Stale VM opt-in warning (naryad #380, issue #466)**: the `METALOGOS_SERVE_BACKEND=vm` startup WARN claimed live Stage 1 limitations ("`match` statements fail to compile, block if/else silently evaluates to Unit") that №369/№370 closed — it loudly discouraged opt-in experiments with restrictions that no longer exist. The WARN now states the truth: experimental opt-in per ADR-0105; full-language parity (Stage 1 gaps closed, Stage 2 crosscheck green, ADR-0141); the default flip is gated (soak + real-load benchmark). Formatting artifacts inside the string literal removed. Historical ADR-0088/ADR-0105 texts untouched (historical accuracy).
+
 ## [0.20.0] - 2026-09-16
 
 **The security model becomes a lattice: every value carries a three-component

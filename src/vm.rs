@@ -115,6 +115,9 @@ pub struct Vm {
     /// Populated by `load_program` when processing `program.vision_decls`.
     /// Used by the `vision_generate` intercept to resolve the declaration.
     vision_decls: HashMap<String, crate::bytecode::CompiledVisionDecl>,
+    /// Наряд №332 (ADR-0164): registered `origin` declarations for the
+    /// media_source_capture / media_bind_origin intercepts.
+    origin_decls: HashMap<String, crate::bytecode::CompiledOriginDecl>,
     /// Наряд №204 (ADR-0121 stage 2): memory persist path from
     /// `memory { persist: "path.db" }` declaration. Enables reflex_save/
     /// reflex_load on the VM (same field the interpreter has at
@@ -172,6 +175,7 @@ impl Vm {
             vision_registry: crate::vision::VisionRegistry::new(),
             media_store: crate::media::MediaStore::new(),
             vision_decls: HashMap::new(),
+            origin_decls: HashMap::new(),
             memory_persist_path: None,
             distill_states: HashMap::new(),
         }
@@ -279,6 +283,10 @@ impl Vm {
         // reflex: neural-network logic is NOT reimplemented on the VM side).
         for decl in &program.vision_decls {
             self.vision_decls.insert(decl.name.clone(), decl.clone());
+        }
+        // Наряд №332 (ADR-0164): register origin declarations.
+        for decl in &program.origin_decls {
+            self.origin_decls.insert(decl.name.clone(), decl.clone());
         }
 
         // Open database connection if URL is specified
@@ -2794,6 +2802,16 @@ impl Vm {
                 &self.media_store,
                 args,
             )),
+            "media_source_capture" => Some(crate::builtins::media_source_capture_dispatch(
+                &mut self.media_store,
+                &self.origin_decls,
+                args,
+            )),
+            "media_bind_origin" => Some(crate::builtins::media_bind_origin_dispatch(
+                &mut self.media_store,
+                &self.origin_decls,
+                args,
+            )),
             _ => None,
         }
     }
@@ -3260,6 +3278,7 @@ impl Vm {
                     rules: Vec::new(),
                     skill_indices: Vec::new(),
                     reflex_decls: Vec::new(),
+                    origin_decls: Vec::new(),
                     reflex_seq_decls: Vec::new(),
                     reflex_gen_decls: Vec::new(),
                     vision_decls: Vec::new(),

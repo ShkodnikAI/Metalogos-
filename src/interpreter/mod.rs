@@ -241,6 +241,10 @@ pub struct Interpreter {
     /// `vision_generate` dispatch. Populated by the declaration pass
     /// (`Declaration::Vision` arm in execution.rs).
     pub vision_decls: HashMap<String, crate::bytecode::CompiledVisionDecl>,
+    /// Наряд №332 (ADR-0164): registered `origin` declarations — the
+    /// runtime truth for `media_source_capture` dispatch (static
+    /// validation happened in semantic).
+    pub origin_decls: HashMap<String, crate::bytecode::CompiledOriginDecl>,
     /// Наряд №4: LLM routing config (providers, circuit breaker, failover).
     /// If None → backward compatible (env vars, single provider).
     llm_config: Option<crate::ast::LlmConfigDecl>,
@@ -315,6 +319,7 @@ impl Interpreter {
             vision_registry: std::sync::Mutex::new(crate::vision::VisionRegistry::new()),
             media_store: std::sync::Mutex::new(crate::media::MediaStore::new()),
             vision_decls: HashMap::new(),
+            origin_decls: HashMap::new(),
             llm_config: None,
             smart_router: std::sync::Arc::new(std::sync::Mutex::new(None)),
             propagated_confidence: std::sync::Mutex::new(1.0),

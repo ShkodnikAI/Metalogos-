@@ -459,6 +459,12 @@ pub struct Program {
     /// Empty vec when no vision declarations are present.
     #[serde(default)]
     pub vision_decls: Vec<CompiledVisionDecl>,
+    /// Наряд №332 (ADR-0164): compiled `origin` declarations.
+    /// Processed by `Vm::load_program` and the interpreter's declaration
+    /// pass for `media_source_capture` dispatch. Empty vec when no origin
+    /// declarations are present.
+    #[serde(default)]
+    pub origin_decls: Vec<CompiledOriginDecl>,
     /// Database URL (if declared). Enables db_insert, query_scalar, etc.
     pub db_url: Option<String>,
     /// Наряд №204 (ADR-0121 stage 2): memory persist path from
@@ -637,6 +643,56 @@ pub struct CompiledVisionDecl {
     /// omitted `policy:` (audit Warning VISION_POLICY_MISSING).
     pub policy: Option<CompiledVisionPolicy>,
     pub profile: CompiledVisionProfile,
+}
+
+/// Наряд №332 (ADR-0164): a compiled perception origin — the declared
+/// SOURCE of handles (kind camera|file|generation, media kind, label
+/// conf, optional file path). Validation lives in semantic (loud);
+/// the runtime re-checks the shape (defense-in-depth, №240 lecalo).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CompiledOriginDecl {
+    pub name: String,
+    /// camera | file | generation.
+    pub kind: String,
+    /// image | audio | video_frame | video_segment.
+    pub media: String,
+    /// public | consented | private.
+    pub conf: String,
+    /// Required for `kind: file` — the sandboxed capture path.
+    pub path: Option<String>,
+}
+
+impl CompiledOriginDecl {
+    /// Single conversion point from the AST (№240 lecalo): field
+    /// extraction happens HERE only.
+    pub fn from_ast(v: &crate::ast::OriginDecl) -> Result<Self, String> {
+        let get = |k: &str| -> Option<String> {
+            v.fields
+                .iter()
+                .find(|(fk, _)| fk == k)
+                .map(|(_, fv)| fv.clone())
+        };
+        let kind = get("kind")
+            .ok_or_else(|| format!("origin '{}': missing required field 'kind'", v.name))?;
+        let media = get("media")
+            .ok_or_else(|| format!("origin '{}': missing required field 'media'", v.name))?;
+        let conf = get("label")
+            .ok_or_else(|| format!("origin '{}': missing required field 'label'", v.name))?;
+        let path = get("path");
+        if kind == "file" && path.is_none() {
+            return Err(format!(
+                "origin '{}': kind 'file' requires the 'path' field (the sandboxed capture source)",
+                v.name
+            ));
+        }
+        Ok(Self {
+            name: v.name.clone(),
+            kind,
+            media,
+            conf,
+            path,
+        })
+    }
 }
 
 impl CompiledVisionDecl {

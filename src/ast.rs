@@ -157,6 +157,7 @@ pub enum Declaration {
     /// the №325 `SINK_CLEARANCE` gate runs in advisory mode — every
     /// violation becomes an audit event instead of a compile error.
     Profile(ProfileDecl),
+    Origin(OriginDecl),
 }
 
 /// A program-level compatibility profile (Наряд №325, ADR-0161).
@@ -170,6 +171,22 @@ pub struct ProfileDecl {
     pub name: String,
     /// Options, e.g. `egress → permissive_with_audit`.
     pub options: Vec<(String, String)>,
+}
+
+/// Наряд №332 (ADR-0164): perception origin declaration —
+/// `origin name { kind: camera|file|generation, media: image|audio|
+/// video_frame|video_segment, label: public|consented|private, path: "..."
+/// }`. The declared SOURCE of perception handles; the origin-chain rule
+/// ("a handle without origin is not constructed", §7.4) is enforced
+/// statically in semantic.rs. `path` is required for `kind: file` (the
+/// file-backed capture reads it through the io sandbox at runtime);
+/// `kind: camera` runs against real hardware — a loud PARKED boundary
+/// (№294 class) at runtime, the static chain still applies.
+#[derive(Debug, Clone)]
+pub struct OriginDecl {
+    pub span: Span,
+    pub name: String,
+    pub fields: Vec<(String, String)>,
 }
 
 impl Declaration {
@@ -201,6 +218,8 @@ impl Declaration {
             Declaration::ReflexSeq(d) => Some(&d.name),
             Declaration::ReflexGen(d) => Some(&d.name),
             Declaration::Vision(d) => Some(&d.name),
+            // №332: the origin declares a named provenance source.
+            Declaration::Origin(d) => Some(&d.name),
             // №325: the profile names a mode, not a symbol.
             Declaration::Profile(_) => None,
             // No name: singleton/config/action declarations
@@ -254,6 +273,7 @@ impl Declaration {
             Declaration::ReflexGen(_) => "reflex_gen",
             Declaration::Vision(_) => "vision",
             Declaration::Profile(_) => "profile",
+            Declaration::Origin(_) => "origin",
         }
     }
 
@@ -394,6 +414,7 @@ impl Declaration {
             Declaration::Profile(d) => {
                 format!("profile {} ({} options)", d.name, d.options.len())
             }
+            Declaration::Origin(d) => format!("origin {} {{ {} fields }}", d.name, d.fields.len()),
             Declaration::TypeAlias(d) => {
                 format!("type {} = {}", d.alias, d.target)
             }
@@ -457,6 +478,7 @@ impl Declaration {
             Declaration::ReflexGen(d) => &d.span,
             Declaration::Vision(d) => &d.span,
             Declaration::Profile(d) => &d.span,
+            Declaration::Origin(d) => &d.span,
         }
     }
 }
@@ -1685,6 +1707,24 @@ pub enum Expr {
         expr: Box<Expr>,
         span: Span,
     },
+    /// Наряд №332 (ADR-0164 §7.4): HandleSource — `source <origin>`.
+    /// Produces a perception handle bound to a DECLARED origin
+    /// (kinds camera | file; generation handles come from Lift+ProvBind
+    /// or vision_generate's manifest). Legal only as a binding
+    /// initializer (the origin rule needs a trackable construction site).
+    HandleSource {
+        origin: String,
+        span: Span,
+    },
+    /// Наряд №332 (ADR-0164 §7.4): ProvBind — `from <origin> <construction>`.
+    /// Binds the provenance of a NEWLY constructed media handle to a
+    /// declared origin; the Lift node (media_store_*) is legal ONLY
+    /// under this bind (the origin-chain rule).
+    ProvBind {
+        origin: String,
+        inner: Box<Expr>,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1737,6 +1777,8 @@ impl Expr {
             | Expr::IfElse { span, .. }
             | Expr::List { span, .. }
             | Expr::IndexAccess { span, .. }
+            | Expr::HandleSource { span, .. }
+            | Expr::ProvBind { span, .. }
             | Expr::StructLit { span, .. }
             | Expr::BlockIfElse { span, .. }
             | Expr::MatchExpr { span, .. }

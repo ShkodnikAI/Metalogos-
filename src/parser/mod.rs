@@ -107,6 +107,8 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::llm_decl => declarations.push(parse_llm_decl(inner_pair)?),
                 Rule::tool_decl => declarations.push(parse_tool_decl(inner_pair)?),
                 Rule::profile_decl => declarations.push(parse_profile_decl(inner_pair)),
+                // Наряд №332 (ADR-0164): perception origin declaration.
+                Rule::origin_decl => declarations.push(decl::parse_origin_decl(inner_pair)),
                 Rule::reflex_decl => declarations.push(parse_reflex_decl(inner_pair)?),
                 // Наряд №183: reflex_seq — sequence-model declaration (ADR-0119)
                 Rule::reflex_seq_decl => declarations.push(parse_reflex_seq_decl(inner_pair)?),

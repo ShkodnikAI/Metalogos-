@@ -1,0 +1,1 @@
+[SECRET_LEAK] sink clearance violated: argument 0 of media_save in pattern KitchenCam carries label 'private, trusted'; sinks require public

@@ -72,6 +72,13 @@ impl Interpreter {
                 // №325: the compatibility profile is a compile-time
                 // declaration — no runtime effect.
                 Declaration::Profile(_) => {}
+                // №332 (ADR-0164): imported modules register their origin
+                // declarations (same declaration-pass semantics as main).
+                Declaration::Origin(o) => {
+                    let compiled = crate::bytecode::CompiledOriginDecl::from_ast(&o)
+                        .map_err(|e| format!("origin '{}': {}", o.name, e))?;
+                    self.origin_decls.insert(o.name.clone(), compiled);
+                }
                 Declaration::Import(sub_import) => {
                     self.handle_import(&sub_import)?;
                 }

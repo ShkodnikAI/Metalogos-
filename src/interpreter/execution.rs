@@ -448,6 +448,14 @@ impl Interpreter {
                     let compiled = crate::bytecode::CompiledVisionDecl::from_ast(&v);
                     self.vision_decls.insert(v.name.clone(), compiled);
                 }
+                // Наряд №332 (ADR-0164): register origin declarations for
+                // the media_source_capture dispatch (shape re-checked in
+                // CompiledOriginDecl::from_ast — defense-in-depth).
+                Declaration::Origin(o) => {
+                    let compiled = crate::bytecode::CompiledOriginDecl::from_ast(&o)
+                        .map_err(|e| format!("origin '{}': {}", o.name, e))?;
+                    self.origin_decls.insert(o.name.clone(), compiled);
+                }
             }
         }
 
@@ -655,6 +663,30 @@ impl Interpreter {
                 .lock()
                 .map_err(|e| format!("media store poisoned: {}", e))?;
             return crate::builtins::media_meta_dispatch(&store, &args);
+        }
+        // Наряд №332 (ADR-0164): HandleSource/ProvBind runtime — the
+        // origin declarations live in the interpreter's declaration pass.
+        if name == "media_source_capture" {
+            let mut store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_source_capture_dispatch(
+                &mut store,
+                &self.origin_decls,
+                &args,
+            );
+        }
+        if name == "media_bind_origin" {
+            let mut store = self
+                .media_store
+                .lock()
+                .map_err(|e| format!("media store poisoned: {}", e))?;
+            return crate::builtins::media_bind_origin_dispatch(
+                &mut store,
+                &self.origin_decls,
+                &args,
+            );
         }
         // Наряд №242 (R6.1): SQLite persistence — the dispatch receives
         // the registry and the interpreter's db connection (the
@@ -1352,6 +1384,31 @@ impl Interpreter {
             Expr::StringLit { value: s, .. } => Ok(Value::String(s.clone())),
             Expr::FloatLit { value: f, .. } => Ok(Value::Float(*f)),
             Expr::BoolLit { value: b, .. } => Ok(Value::Bool(*b)),
+            // Наряд №332 (ADR-0164): HandleSource/ProvBind runtime — the
+            // tree-walking evaluator reaches the SAME dispatch functions
+            // the VM's compiled lowering uses (store + origin decls;
+            // camera kind is a loud PARKED boundary).
+            Expr::HandleSource { origin, .. } => {
+                let mut store = self
+                    .media_store
+                    .lock()
+                    .map_err(|e| format!("media store poisoned: {}", e))?;
+                let args = vec![Value::String(origin.clone())];
+                crate::builtins::media_source_capture_dispatch(
+                    &mut store,
+                    &self.origin_decls,
+                    &args,
+                )
+            }
+            Expr::ProvBind { origin, inner, .. } => {
+                let handle = self.eval_expr_with_env(inner, env)?;
+                let mut store = self
+                    .media_store
+                    .lock()
+                    .map_err(|e| format!("media store poisoned: {}", e))?;
+                let args = vec![Value::String(origin.clone()), handle];
+                crate::builtins::media_bind_origin_dispatch(&mut store, &self.origin_decls, &args)
+            }
             Expr::List { items: exprs, .. } => {
                 let mut items = Vec::new();
                 for expr in exprs {
@@ -1842,6 +1899,30 @@ impl Interpreter {
                         .lock()
                         .map_err(|e| format!("media store poisoned: {}", e))?;
                     return crate::builtins::media_meta_dispatch(&store, &eval_args);
+                }
+                // Наряд №332 (ADR-0164): HandleSource/ProvBind runtime,
+                // expression path.
+                if name == "media_source_capture" {
+                    let mut store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_source_capture_dispatch(
+                        &mut store,
+                        &self.origin_decls,
+                        &eval_args,
+                    );
+                }
+                if name == "media_bind_origin" {
+                    let mut store = self
+                        .media_store
+                        .lock()
+                        .map_err(|e| format!("media store poisoned: {}", e))?;
+                    return crate::builtins::media_bind_origin_dispatch(
+                        &mut store,
+                        &self.origin_decls,
+                        &eval_args,
+                    );
                 }
                 // Наряд №242 (R6.1): SQLite persistence — same state-
                 // carrying interception, expression path; the dispatch

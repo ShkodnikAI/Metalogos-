@@ -42,6 +42,8 @@ pub struct Compiler {
     /// Наряд №240 (Vision R4.2): collected `vision` declarations for the VM
     /// and the interpreter's declaration pass.
     vision_decls: Vec<crate::bytecode::CompiledVisionDecl>,
+    /// Наряд №332 (ADR-0164): collected `origin` declarations.
+    origin_decls: Vec<crate::bytecode::CompiledOriginDecl>,
     /// Наряд №204 (ADR-0121 stage 2): memory persist path from `memory { persist: ... }`.
     /// Passed to the VM so reflex_save/reflex_load work without the interpreter.
     memory_persist_path: Option<String>,
@@ -140,6 +142,7 @@ impl Compiler {
             reflex_seq_decls: Vec::new(),
             reflex_gen_decls: Vec::new(),
             vision_decls: Vec::new(),
+            origin_decls: Vec::new(),
             memory_persist_path: None,
             db_url: None,
             schema_ddl: Vec::new(),
@@ -198,6 +201,7 @@ impl Compiler {
             reflex_seq_decls: std::mem::take(&mut self.reflex_seq_decls),
             reflex_gen_decls: std::mem::take(&mut self.reflex_gen_decls),
             vision_decls: std::mem::take(&mut self.vision_decls),
+            origin_decls: std::mem::take(&mut self.origin_decls),
             db_url: self.db_url.take(),
             memory_persist_path: self.memory_persist_path.take(),
             schema_ddl: std::mem::take(&mut self.schema_ddl),
@@ -415,6 +419,14 @@ impl Compiler {
                 Declaration::Vision(v) => {
                     self.vision_decls
                         .push(crate::bytecode::CompiledVisionDecl::from_ast(v));
+                }
+                // Наряд №332 (ADR-0164): collect origin declarations for
+                // the media_source_capture dispatch (shape validated in
+                // semantic; the conversion re-checks the required fields).
+                Declaration::Origin(o) => {
+                    let compiled = crate::bytecode::CompiledOriginDecl::from_ast(o)
+                        .map_err(|e| format!("compile: {}", e))?;
+                    self.origin_decls.push(compiled);
                 }
                 _ => {}
             }
@@ -704,7 +716,11 @@ impl Compiler {
                 // `Vm::load_program` and the interpreter's declaration pass,
                 // лекало reflex_decls). Minimal arm forced by the
                 // exhaustive match.
-                | Declaration::Vision(_) => {
+                // Наряд №332 (ADR-0164): origin declarations carry no
+                // bytecode — registration via `program.origin_decls`
+                // (лекало vision_decls).
+                | Declaration::Vision(_)
+                | Declaration::Origin(_) => {
                     // Наряд №203 Block 1: no bytecode instruction emitted
                     // for reflex declarations in pass2. Dense classification
                     // (Declaration::Reflex) is handled via program.reflex_decls
@@ -1092,6 +1108,37 @@ impl Compiler {
                     mutable,
                 )?;
                 code.push(Instruction::TryEval(inner_code));
+            }
+            // Наряд №332 (ADR-0164): HandleSource lowers to the
+            // state-carrying `media_source_capture(origin_name)` — the
+            // interpreter/VM interception resolves the origin declaration
+            // and captures through the media store (kind camera is a loud
+            // PARKED boundary at runtime).
+            Expr::HandleSource { origin, .. } => {
+                let idx = *self
+                    .builtin_indices
+                    .get("media_source_capture")
+                    .ok_or_else(|| {
+                        "compile: media_source_capture not registered (registry invariant)"
+                            .to_string()
+                    })?;
+                code.push(Instruction::Const(Value::String(origin.clone())));
+                code.push(Instruction::CallBuiltin(idx, 1));
+            }
+            // Наряд №332 (ADR-0164): ProvBind lowers to
+            // `media_bind_origin(origin_name, handle)` — evaluates the
+            // construction, then binds the store entry's origin (and
+            // joins the declared origin conf into the entry label).
+            Expr::ProvBind { origin, inner, .. } => {
+                let idx = *self
+                    .builtin_indices
+                    .get("media_bind_origin")
+                    .ok_or_else(|| {
+                        "compile: media_bind_origin not registered (registry invariant)".to_string()
+                    })?;
+                code.push(Instruction::Const(Value::String(origin.clone())));
+                self.compile_expr_with_locals(inner, code, locals, next_slot, loop_stack, mutable)?;
+                code.push(Instruction::CallBuiltin(idx, 2));
             }
         }
         Ok(())

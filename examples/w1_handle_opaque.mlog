@@ -2,8 +2,11 @@
 // Наряд №331 (ADR-0162 §2.5 / ADR-0114): байты никогда не живут в Value —
 // доступ к ним только через санкционированные материализующие builtins
 // (media_save, гейт №325).
+// Наряд №332 (ADR-0164 §7.4): хэндл конструируется ТОЛЬКО под origin-bind —
+// `from <origin> media_store_*(...)`; хэндл без происхождения не конструируется.
+origin feed { kind: generation, media: image, label: public }
 pattern Frame(bytes: String) -> String {
-  let img = media_store_image(bytes, "public")
+  let img = from feed media_store_image(bytes, "public")
   let raw = img.bytes
   return raw
 }

@@ -1,0 +1,17 @@
+// Наряд №332 (ADR-0164 §7.4): origin-цепочка — «хэндл без происхождения
+// не конструируется». Bind-форма `from <origin> media_store_*(...)`
+// привязывает конструкцию к объявленному origin (kind: generation —
+// хэндлы поколений строятся Lift+ProvBind); media_meta показывает
+// происхождение БЕЗ материализации байтов.
+origin demo_gen { kind: generation, media: image, label: public }
+pattern Ingest(_tick: String) -> String {
+  let frame = from demo_gen media_store_image("frame-bytes", "public")
+  let m = media_meta(frame)
+  if m.origin == "demo_gen" {
+    if m.refs == 1.0 {
+      return "origin-bound-ok"
+    }
+  }
+  return "origin-chain-broken"
+}
+flow Main { input: String = "tick-1" -> Ingest -> output }

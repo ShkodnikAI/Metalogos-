@@ -3577,6 +3577,48 @@ fn check_media_handle_opacity(
     }
 }
 
+/// ── Check: ORIGIN_REQUIRED (Наряд №332, ADR-0164) ────────────────────
+/// The origin-chain rule (§7.4): a media handle without origin is not
+/// constructed. Type-of-construction invariant — always Error, no
+/// profile downgrades it (the №331 opacity posture). Runs on BOTH
+/// compile paths (audit_category_a + audit_program), so
+/// `compile_program` refuses unbound constructions too.
+fn check_origin_required(
+    declarations: &[Declaration],
+    _source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    for v in crate::semantic::media_origin_violations(declarations) {
+        findings.push(AuditFinding {
+            severity: Severity::Error,
+            check_id: "ORIGIN_REQUIRED",
+            line: v.span.start_line as usize,
+            message: v.message,
+        });
+    }
+}
+
+/// ── Check: ORIGIN_DECL_INVALID (Наряд №332, ADR-0164) ─────────────
+/// Declared-origin shape/vocabulary validation on EVERY compile path
+/// (the same rules `check_program` applies via validate_origin_decls):
+/// unknown kind/media/label words, unknown fields, `kind: file` without
+/// `path`. Always Error — a mis-declared provenance source is a
+/// provenance lie, and no profile downgrades a lie into silence.
+fn check_origin_decls_valid(
+    declarations: &[Declaration],
+    _source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    for e in crate::semantic::origin_decl_errors(declarations) {
+        findings.push(AuditFinding {
+            severity: Severity::Error,
+            check_id: "ORIGIN_DECL_INVALID",
+            line: e.span.start_line as usize,
+            message: e.message,
+        });
+    }
+}
+
 /// ── Check: BACKEND_LICENSE_DISTRIBUTION (Наряд №333, ADR-0163 §2.2) ──
 /// A program that NAMES non-osi/restrictive weights (string literals at
 /// any position + the `vision { model: … }` field) is a distribution
@@ -4031,6 +4073,12 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     // refusal for non-osi/restrictive weights references, audited
     // bridge under 'profile licensing'.
     check_backend_license(declarations, source, &mut findings);
+    // Наряд №332 (ADR-0164): the origin chain — unbound handle
+    // constructions are refused (type-of-construction invariant).
+    check_origin_required(declarations, source, &mut findings);
+    // Наряд №332 (ADR-0164): declared origins are validated loudly —
+    // a mis-declared provenance source is a provenance lie.
+    check_origin_decls_valid(declarations, source, &mut findings);
     // Наряд №326 (ADR-0154 §10): every redact application is an
     // unconditional audit event (Severity::Info — never blocking).
     check_redact_events(declarations, source, &mut findings);
@@ -4084,6 +4132,10 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     check_media_handle_opacity(&declarations, source, &mut findings);
     // Наряд №333 (ADR-0163): backend license gate.
     check_backend_license(&declarations, source, &mut findings);
+    // Наряд №332 (ADR-0164): the origin chain.
+    check_origin_required(&declarations, source, &mut findings);
+    // Наряд №332 (ADR-0164): declared-origin validation.
+    check_origin_decls_valid(&declarations, source, &mut findings);
     // Наряд №326 (ADR-0154 §10): every redact application is an
     // unconditional audit event (Severity::Info — never blocking).
     check_redact_events(&declarations, source, &mut findings);

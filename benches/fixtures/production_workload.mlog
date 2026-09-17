@@ -1,0 +1,2344 @@
+// ═══════════════════════════════════════════════════════════════════
+// Stage 4 real-load benchmark corpus — naryad №381 (issue #467)
+// ADR-0141 §D5: production-class representative workload (>= 2000 lines).
+//
+// Domain: FOSVED-like helpdesk / ops platform (synthetic, deterministic).
+//
+// I/O is DETERMINISTIC-MOCK ONLY (loud per the naryad):
+//   - call_llm / vision_understand / stt_transcribe run in mock mode
+//     (default on; no provider keys anywhere in this file) — the mock
+//     returns a fixed string, so what we measure is DSL execution,
+//     not network I/O. Real LLM traffic would mask the backend delta.
+//   - db { url: "sqlite::memory:" } — in-process SQLite, no files.
+//   - kv_* builtins — in-process store.
+//
+// Sanitize: 0 secrets / 0 credentials / 0 PII / 0 network endpoints.
+// Passes the repo's own Category-A gate (mlog run / mlog check clean:
+// LLM-derived decisions go through escape_html() per naryad №327).
+// csrf middleware is intentionally NOT mounted: synthetic requests carry
+// no browser session, so the CSRF filter would reject every POST and
+// hide the DSL execution delta this benchmark measures (documented, loud).
+// ═══════════════════════════════════════════════════════════════════
+
+db { url: "sqlite::memory:" }
+
+// ── Domain model ────────────────────────────────────────────────────
+entity Ticket {
+  id: String,
+  title: String,
+  body: String,
+  dept: String,
+  priority: Float,
+  status: String,
+  assignee: String,
+  opened_at: String
+}
+
+entity Customer {
+  id: String,
+  name: String,
+  tier: String,
+  region: String,
+  contact: String,
+  score: Float,
+  active: String,
+  since: String
+}
+
+entity Order {
+  id: String,
+  customer: String,
+  item: String,
+  qty: Float,
+  amount: Float,
+  state: String,
+  note: String,
+  placed_at: String
+}
+
+entity Agent {
+  id: String,
+  name: String,
+  team: String,
+  load: Float,
+  skill: String,
+  shift: String,
+  rating: Float,
+  since: String
+}
+
+entity Asset {
+  id: String,
+  kind: String,
+  floor: String,
+  owner: String,
+  state: String,
+  vendor: String,
+  age: Float,
+  note: String
+}
+
+entity Incident {
+  id: String,
+  severity: String,
+  floor: String,
+  reporter: String,
+  summary: String,
+  impact: Float,
+  state: String,
+  opened_at: String
+}
+
+entity SlaRule {
+  code: String,
+  dept: String,
+  hours: Float,
+  escalate: String,
+  channel: String,
+  min_priority: Float,
+  active: String,
+  note: String
+}
+
+entity Session {
+  id: String,
+  user: String,
+  dept: String,
+  ticket: String,
+  stage: String,
+  score: Float,
+  flag: String,
+  started_at: String
+}
+
+
+// ── HTML templates (XSS-safe by construction) ───────────────────────
+template Panel(title: String, rows: String) -> Html {
+  <!DOCTYPE html>
+  <html>
+  <head><title>{{ title }}</title></head>
+  <body>
+    <h1>{{ title }}</h1>
+    <div>{{ rows }}</div>
+  </body>
+  </html>
+}
+
+template Card(name: String, detail: String) -> Html {
+  <div class="card">
+    <span>{{ name }}</span>
+    <p>{{ detail }}</p>
+  </div>
+}
+
+// ── Tier 0: atomic string / math helpers ────────────────────────────
+pattern slug1(raw: String) -> String {
+  let lowered = lower(raw)
+  let no_sp = replace(lowered, " ", "-")
+  let trimmed = trim(no_sp)
+  let safe = replace(trimmed, "/", "")
+  return replace(safe, "--", "-")
+}
+
+pattern slug2(raw: String) -> String {
+  let lowered = lower(raw)
+  let no_sp = replace(lowered, " ", "-")
+  let trimmed = trim(no_sp)
+  let safe = replace(trimmed, "/", "")
+  return replace(safe, "--", "-")
+}
+
+pattern slug3(raw: String) -> String {
+  let lowered = lower(raw)
+  let no_sp = replace(lowered, " ", "-")
+  let trimmed = trim(no_sp)
+  let safe = replace(trimmed, "/", "")
+  return replace(safe, "--", "-")
+}
+
+pattern slug4(raw: String) -> String {
+  let lowered = lower(raw)
+  let no_sp = replace(lowered, " ", "-")
+  let trimmed = trim(no_sp)
+  let safe = replace(trimmed, "/", "")
+  return replace(safe, "--", "-")
+}
+
+pattern slug5(raw: String) -> String {
+  let lowered = lower(raw)
+  let no_sp = replace(lowered, " ", "-")
+  let trimmed = trim(no_sp)
+  let safe = replace(trimmed, "/", "")
+  return replace(safe, "--", "-")
+}
+
+pattern slug6(raw: String) -> String {
+  let lowered = lower(raw)
+  let no_sp = replace(lowered, " ", "-")
+  let trimmed = trim(no_sp)
+  let safe = replace(trimmed, "/", "")
+  return replace(safe, "--", "-")
+}
+
+pattern slug7(raw: String) -> String {
+  let lowered = lower(raw)
+  let no_sp = replace(lowered, " ", "-")
+  let trimmed = trim(no_sp)
+  let safe = replace(trimmed, "/", "")
+  return replace(safe, "--", "-")
+}
+
+pattern slug8(raw: String) -> String {
+  let lowered = lower(raw)
+  let no_sp = replace(lowered, " ", "-")
+  let trimmed = trim(no_sp)
+  let safe = replace(trimmed, "/", "")
+  return replace(safe, "--", "-")
+}
+
+pattern slug9(raw: String) -> String {
+  let lowered = lower(raw)
+  let no_sp = replace(lowered, " ", "-")
+  let trimmed = trim(no_sp)
+  let safe = replace(trimmed, "/", "")
+  return replace(safe, "--", "-")
+}
+
+pattern slug10(raw: String) -> String {
+  let lowered = lower(raw)
+  let no_sp = replace(lowered, " ", "-")
+  let trimmed = trim(no_sp)
+  let safe = replace(trimmed, "/", "")
+  return replace(safe, "--", "-")
+}
+
+pattern slug11(raw: String) -> String {
+  let lowered = lower(raw)
+  let no_sp = replace(lowered, " ", "-")
+  let trimmed = trim(no_sp)
+  let safe = replace(trimmed, "/", "")
+  return replace(safe, "--", "-")
+}
+
+pattern slug12(raw: String) -> String {
+  let lowered = lower(raw)
+  let no_sp = replace(lowered, " ", "-")
+  let trimmed = trim(no_sp)
+  let safe = replace(trimmed, "/", "")
+  return replace(safe, "--", "-")
+}
+
+pattern score1(base: Float, weight: Float) -> Float {
+  let scaled = base * weight
+  if scaled > 10.0 {
+    let capped = sqrt(scaled)
+    return round(capped) * 1.0
+  } else {
+    let floor_ = abs(scaled)
+    return max(floor_, 0.5) + 1.0
+  }
+}
+
+pattern score2(base: Float, weight: Float) -> Float {
+  let scaled = base * weight
+  if scaled > 10.0 {
+    let capped = sqrt(scaled)
+    return round(capped) * 1.0
+  } else {
+    let floor_ = abs(scaled)
+    return max(floor_, 0.5) + 2.0
+  }
+}
+
+pattern score3(base: Float, weight: Float) -> Float {
+  let scaled = base * weight
+  if scaled > 10.0 {
+    let capped = sqrt(scaled)
+    return round(capped) * 1.0
+  } else {
+    let floor_ = abs(scaled)
+    return max(floor_, 0.5) + 3.0
+  }
+}
+
+pattern score4(base: Float, weight: Float) -> Float {
+  let scaled = base * weight
+  if scaled > 10.0 {
+    let capped = sqrt(scaled)
+    return round(capped) * 1.0
+  } else {
+    let floor_ = abs(scaled)
+    return max(floor_, 0.5) + 4.0
+  }
+}
+
+pattern score5(base: Float, weight: Float) -> Float {
+  let scaled = base * weight
+  if scaled > 10.0 {
+    let capped = sqrt(scaled)
+    return round(capped) * 1.0
+  } else {
+    let floor_ = abs(scaled)
+    return max(floor_, 0.5) + 5.0
+  }
+}
+
+pattern score6(base: Float, weight: Float) -> Float {
+  let scaled = base * weight
+  if scaled > 10.0 {
+    let capped = sqrt(scaled)
+    return round(capped) * 1.0
+  } else {
+    let floor_ = abs(scaled)
+    return max(floor_, 0.5) + 6.0
+  }
+}
+
+pattern score7(base: Float, weight: Float) -> Float {
+  let scaled = base * weight
+  if scaled > 10.0 {
+    let capped = sqrt(scaled)
+    return round(capped) * 1.0
+  } else {
+    let floor_ = abs(scaled)
+    return max(floor_, 0.5) + 7.0
+  }
+}
+
+pattern score8(base: Float, weight: Float) -> Float {
+  let scaled = base * weight
+  if scaled > 10.0 {
+    let capped = sqrt(scaled)
+    return round(capped) * 1.0
+  } else {
+    let floor_ = abs(scaled)
+    return max(floor_, 0.5) + 8.0
+  }
+}
+
+pattern score9(base: Float, weight: Float) -> Float {
+  let scaled = base * weight
+  if scaled > 10.0 {
+    let capped = sqrt(scaled)
+    return round(capped) * 1.0
+  } else {
+    let floor_ = abs(scaled)
+    return max(floor_, 0.5) + 9.0
+  }
+}
+
+pattern score10(base: Float, weight: Float) -> Float {
+  let scaled = base * weight
+  if scaled > 10.0 {
+    let capped = sqrt(scaled)
+    return round(capped) * 1.0
+  } else {
+    let floor_ = abs(scaled)
+    return max(floor_, 0.5) + 10.0
+  }
+}
+
+pattern score11(base: Float, weight: Float) -> Float {
+  let scaled = base * weight
+  if scaled > 10.0 {
+    let capped = sqrt(scaled)
+    return round(capped) * 1.0
+  } else {
+    let floor_ = abs(scaled)
+    return max(floor_, 0.5) + 11.0
+  }
+}
+
+pattern score12(base: Float, weight: Float) -> Float {
+  let scaled = base * weight
+  if scaled > 10.0 {
+    let capped = sqrt(scaled)
+    return round(capped) * 1.0
+  } else {
+    let floor_ = abs(scaled)
+    return max(floor_, 0.5) + 12.0
+  }
+}
+
+pattern score13(base: Float, weight: Float) -> Float {
+  let scaled = base * weight
+  if scaled > 10.0 {
+    let capped = sqrt(scaled)
+    return round(capped) * 1.0
+  } else {
+    let floor_ = abs(scaled)
+    return max(floor_, 0.5) + 13.0
+  }
+}
+
+pattern score14(base: Float, weight: Float) -> Float {
+  let scaled = base * weight
+  if scaled > 10.0 {
+    let capped = sqrt(scaled)
+    return round(capped) * 1.0
+  } else {
+    let floor_ = abs(scaled)
+    return max(floor_, 0.5) + 14.0
+  }
+}
+
+pattern dispatch1(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D1-billing-" + to_string(1.0) + ":" + slug1(ticket) }
+    "tech" then { return "D1-tech-" + to_string(2.0) + ":" + slug1(ticket) }
+    "complaint" then { return "D1-complaint-" + to_string(3.0) + ":" + slug1(ticket) }
+    "sales" then { return "D1-sales-" + to_string(4.0) + ":" + slug1(ticket) }
+    "hr" then { return "D1-hr-" + to_string(5.0) + ":" + slug1(ticket) }
+    "facilities" then { return "D1-facilities-" + to_string(6.0) + ":" + slug1(ticket) }
+    "legal" then { return "D1-legal-" + to_string(7.0) + ":" + slug1(ticket) }
+    "security" then { return "D1-security-" + to_string(8.0) + ":" + slug1(ticket) }
+    else { return "D1-unknown:" + ticket }
+  }
+}
+
+pattern dispatch2(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D2-billing-" + to_string(1.0) + ":" + slug2(ticket) }
+    "tech" then { return "D2-tech-" + to_string(2.0) + ":" + slug2(ticket) }
+    "complaint" then { return "D2-complaint-" + to_string(3.0) + ":" + slug2(ticket) }
+    "sales" then { return "D2-sales-" + to_string(4.0) + ":" + slug2(ticket) }
+    "hr" then { return "D2-hr-" + to_string(5.0) + ":" + slug2(ticket) }
+    "facilities" then { return "D2-facilities-" + to_string(6.0) + ":" + slug2(ticket) }
+    "legal" then { return "D2-legal-" + to_string(7.0) + ":" + slug2(ticket) }
+    "security" then { return "D2-security-" + to_string(8.0) + ":" + slug2(ticket) }
+    else { return "D2-unknown:" + ticket }
+  }
+}
+
+pattern dispatch3(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D3-billing-" + to_string(1.0) + ":" + slug3(ticket) }
+    "tech" then { return "D3-tech-" + to_string(2.0) + ":" + slug3(ticket) }
+    "complaint" then { return "D3-complaint-" + to_string(3.0) + ":" + slug3(ticket) }
+    "sales" then { return "D3-sales-" + to_string(4.0) + ":" + slug3(ticket) }
+    "hr" then { return "D3-hr-" + to_string(5.0) + ":" + slug3(ticket) }
+    "facilities" then { return "D3-facilities-" + to_string(6.0) + ":" + slug3(ticket) }
+    "legal" then { return "D3-legal-" + to_string(7.0) + ":" + slug3(ticket) }
+    "security" then { return "D3-security-" + to_string(8.0) + ":" + slug3(ticket) }
+    else { return "D3-unknown:" + ticket }
+  }
+}
+
+pattern dispatch4(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D4-billing-" + to_string(1.0) + ":" + slug4(ticket) }
+    "tech" then { return "D4-tech-" + to_string(2.0) + ":" + slug4(ticket) }
+    "complaint" then { return "D4-complaint-" + to_string(3.0) + ":" + slug4(ticket) }
+    "sales" then { return "D4-sales-" + to_string(4.0) + ":" + slug4(ticket) }
+    "hr" then { return "D4-hr-" + to_string(5.0) + ":" + slug4(ticket) }
+    "facilities" then { return "D4-facilities-" + to_string(6.0) + ":" + slug4(ticket) }
+    "legal" then { return "D4-legal-" + to_string(7.0) + ":" + slug4(ticket) }
+    "security" then { return "D4-security-" + to_string(8.0) + ":" + slug4(ticket) }
+    else { return "D4-unknown:" + ticket }
+  }
+}
+
+pattern dispatch5(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D5-billing-" + to_string(1.0) + ":" + slug5(ticket) }
+    "tech" then { return "D5-tech-" + to_string(2.0) + ":" + slug5(ticket) }
+    "complaint" then { return "D5-complaint-" + to_string(3.0) + ":" + slug5(ticket) }
+    "sales" then { return "D5-sales-" + to_string(4.0) + ":" + slug5(ticket) }
+    "hr" then { return "D5-hr-" + to_string(5.0) + ":" + slug5(ticket) }
+    "facilities" then { return "D5-facilities-" + to_string(6.0) + ":" + slug5(ticket) }
+    "legal" then { return "D5-legal-" + to_string(7.0) + ":" + slug5(ticket) }
+    "security" then { return "D5-security-" + to_string(8.0) + ":" + slug5(ticket) }
+    else { return "D5-unknown:" + ticket }
+  }
+}
+
+pattern dispatch6(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D6-billing-" + to_string(1.0) + ":" + slug6(ticket) }
+    "tech" then { return "D6-tech-" + to_string(2.0) + ":" + slug6(ticket) }
+    "complaint" then { return "D6-complaint-" + to_string(3.0) + ":" + slug6(ticket) }
+    "sales" then { return "D6-sales-" + to_string(4.0) + ":" + slug6(ticket) }
+    "hr" then { return "D6-hr-" + to_string(5.0) + ":" + slug6(ticket) }
+    "facilities" then { return "D6-facilities-" + to_string(6.0) + ":" + slug6(ticket) }
+    "legal" then { return "D6-legal-" + to_string(7.0) + ":" + slug6(ticket) }
+    "security" then { return "D6-security-" + to_string(8.0) + ":" + slug6(ticket) }
+    else { return "D6-unknown:" + ticket }
+  }
+}
+
+pattern dispatch7(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D7-billing-" + to_string(1.0) + ":" + slug7(ticket) }
+    "tech" then { return "D7-tech-" + to_string(2.0) + ":" + slug7(ticket) }
+    "complaint" then { return "D7-complaint-" + to_string(3.0) + ":" + slug7(ticket) }
+    "sales" then { return "D7-sales-" + to_string(4.0) + ":" + slug7(ticket) }
+    "hr" then { return "D7-hr-" + to_string(5.0) + ":" + slug7(ticket) }
+    "facilities" then { return "D7-facilities-" + to_string(6.0) + ":" + slug7(ticket) }
+    "legal" then { return "D7-legal-" + to_string(7.0) + ":" + slug7(ticket) }
+    "security" then { return "D7-security-" + to_string(8.0) + ":" + slug7(ticket) }
+    else { return "D7-unknown:" + ticket }
+  }
+}
+
+pattern dispatch8(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D8-billing-" + to_string(1.0) + ":" + slug8(ticket) }
+    "tech" then { return "D8-tech-" + to_string(2.0) + ":" + slug8(ticket) }
+    "complaint" then { return "D8-complaint-" + to_string(3.0) + ":" + slug8(ticket) }
+    "sales" then { return "D8-sales-" + to_string(4.0) + ":" + slug8(ticket) }
+    "hr" then { return "D8-hr-" + to_string(5.0) + ":" + slug8(ticket) }
+    "facilities" then { return "D8-facilities-" + to_string(6.0) + ":" + slug8(ticket) }
+    "legal" then { return "D8-legal-" + to_string(7.0) + ":" + slug8(ticket) }
+    "security" then { return "D8-security-" + to_string(8.0) + ":" + slug8(ticket) }
+    else { return "D8-unknown:" + ticket }
+  }
+}
+
+pattern dispatch9(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D9-billing-" + to_string(1.0) + ":" + slug9(ticket) }
+    "tech" then { return "D9-tech-" + to_string(2.0) + ":" + slug9(ticket) }
+    "complaint" then { return "D9-complaint-" + to_string(3.0) + ":" + slug9(ticket) }
+    "sales" then { return "D9-sales-" + to_string(4.0) + ":" + slug9(ticket) }
+    "hr" then { return "D9-hr-" + to_string(5.0) + ":" + slug9(ticket) }
+    "facilities" then { return "D9-facilities-" + to_string(6.0) + ":" + slug9(ticket) }
+    "legal" then { return "D9-legal-" + to_string(7.0) + ":" + slug9(ticket) }
+    "security" then { return "D9-security-" + to_string(8.0) + ":" + slug9(ticket) }
+    else { return "D9-unknown:" + ticket }
+  }
+}
+
+pattern dispatch10(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D10-billing-" + to_string(1.0) + ":" + slug10(ticket) }
+    "tech" then { return "D10-tech-" + to_string(2.0) + ":" + slug10(ticket) }
+    "complaint" then { return "D10-complaint-" + to_string(3.0) + ":" + slug10(ticket) }
+    "sales" then { return "D10-sales-" + to_string(4.0) + ":" + slug10(ticket) }
+    "hr" then { return "D10-hr-" + to_string(5.0) + ":" + slug10(ticket) }
+    "facilities" then { return "D10-facilities-" + to_string(6.0) + ":" + slug10(ticket) }
+    "legal" then { return "D10-legal-" + to_string(7.0) + ":" + slug10(ticket) }
+    "security" then { return "D10-security-" + to_string(8.0) + ":" + slug10(ticket) }
+    else { return "D10-unknown:" + ticket }
+  }
+}
+
+pattern dispatch11(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D11-billing-" + to_string(1.0) + ":" + slug11(ticket) }
+    "tech" then { return "D11-tech-" + to_string(2.0) + ":" + slug11(ticket) }
+    "complaint" then { return "D11-complaint-" + to_string(3.0) + ":" + slug11(ticket) }
+    "sales" then { return "D11-sales-" + to_string(4.0) + ":" + slug11(ticket) }
+    "hr" then { return "D11-hr-" + to_string(5.0) + ":" + slug11(ticket) }
+    "facilities" then { return "D11-facilities-" + to_string(6.0) + ":" + slug11(ticket) }
+    "legal" then { return "D11-legal-" + to_string(7.0) + ":" + slug11(ticket) }
+    "security" then { return "D11-security-" + to_string(8.0) + ":" + slug11(ticket) }
+    else { return "D11-unknown:" + ticket }
+  }
+}
+
+pattern dispatch12(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D12-billing-" + to_string(1.0) + ":" + slug12(ticket) }
+    "tech" then { return "D12-tech-" + to_string(2.0) + ":" + slug12(ticket) }
+    "complaint" then { return "D12-complaint-" + to_string(3.0) + ":" + slug12(ticket) }
+    "sales" then { return "D12-sales-" + to_string(4.0) + ":" + slug12(ticket) }
+    "hr" then { return "D12-hr-" + to_string(5.0) + ":" + slug12(ticket) }
+    "facilities" then { return "D12-facilities-" + to_string(6.0) + ":" + slug12(ticket) }
+    "legal" then { return "D12-legal-" + to_string(7.0) + ":" + slug12(ticket) }
+    "security" then { return "D12-security-" + to_string(8.0) + ":" + slug12(ticket) }
+    else { return "D12-unknown:" + ticket }
+  }
+}
+
+pattern dispatch13(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D13-billing-" + to_string(1.0) + ":" + slug1(ticket) }
+    "tech" then { return "D13-tech-" + to_string(2.0) + ":" + slug1(ticket) }
+    "complaint" then { return "D13-complaint-" + to_string(3.0) + ":" + slug1(ticket) }
+    "sales" then { return "D13-sales-" + to_string(4.0) + ":" + slug1(ticket) }
+    "hr" then { return "D13-hr-" + to_string(5.0) + ":" + slug1(ticket) }
+    "facilities" then { return "D13-facilities-" + to_string(6.0) + ":" + slug1(ticket) }
+    "legal" then { return "D13-legal-" + to_string(7.0) + ":" + slug1(ticket) }
+    "security" then { return "D13-security-" + to_string(8.0) + ":" + slug1(ticket) }
+    else { return "D13-unknown:" + ticket }
+  }
+}
+
+pattern dispatch14(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D14-billing-" + to_string(1.0) + ":" + slug2(ticket) }
+    "tech" then { return "D14-tech-" + to_string(2.0) + ":" + slug2(ticket) }
+    "complaint" then { return "D14-complaint-" + to_string(3.0) + ":" + slug2(ticket) }
+    "sales" then { return "D14-sales-" + to_string(4.0) + ":" + slug2(ticket) }
+    "hr" then { return "D14-hr-" + to_string(5.0) + ":" + slug2(ticket) }
+    "facilities" then { return "D14-facilities-" + to_string(6.0) + ":" + slug2(ticket) }
+    "legal" then { return "D14-legal-" + to_string(7.0) + ":" + slug2(ticket) }
+    "security" then { return "D14-security-" + to_string(8.0) + ":" + slug2(ticket) }
+    else { return "D14-unknown:" + ticket }
+  }
+}
+
+pattern dispatch15(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D15-billing-" + to_string(1.0) + ":" + slug3(ticket) }
+    "tech" then { return "D15-tech-" + to_string(2.0) + ":" + slug3(ticket) }
+    "complaint" then { return "D15-complaint-" + to_string(3.0) + ":" + slug3(ticket) }
+    "sales" then { return "D15-sales-" + to_string(4.0) + ":" + slug3(ticket) }
+    "hr" then { return "D15-hr-" + to_string(5.0) + ":" + slug3(ticket) }
+    "facilities" then { return "D15-facilities-" + to_string(6.0) + ":" + slug3(ticket) }
+    "legal" then { return "D15-legal-" + to_string(7.0) + ":" + slug3(ticket) }
+    "security" then { return "D15-security-" + to_string(8.0) + ":" + slug3(ticket) }
+    else { return "D15-unknown:" + ticket }
+  }
+}
+
+pattern dispatch16(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D16-billing-" + to_string(1.0) + ":" + slug4(ticket) }
+    "tech" then { return "D16-tech-" + to_string(2.0) + ":" + slug4(ticket) }
+    "complaint" then { return "D16-complaint-" + to_string(3.0) + ":" + slug4(ticket) }
+    "sales" then { return "D16-sales-" + to_string(4.0) + ":" + slug4(ticket) }
+    "hr" then { return "D16-hr-" + to_string(5.0) + ":" + slug4(ticket) }
+    "facilities" then { return "D16-facilities-" + to_string(6.0) + ":" + slug4(ticket) }
+    "legal" then { return "D16-legal-" + to_string(7.0) + ":" + slug4(ticket) }
+    "security" then { return "D16-security-" + to_string(8.0) + ":" + slug4(ticket) }
+    else { return "D16-unknown:" + ticket }
+  }
+}
+
+pattern dispatch17(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D17-billing-" + to_string(1.0) + ":" + slug5(ticket) }
+    "tech" then { return "D17-tech-" + to_string(2.0) + ":" + slug5(ticket) }
+    "complaint" then { return "D17-complaint-" + to_string(3.0) + ":" + slug5(ticket) }
+    "sales" then { return "D17-sales-" + to_string(4.0) + ":" + slug5(ticket) }
+    "hr" then { return "D17-hr-" + to_string(5.0) + ":" + slug5(ticket) }
+    "facilities" then { return "D17-facilities-" + to_string(6.0) + ":" + slug5(ticket) }
+    "legal" then { return "D17-legal-" + to_string(7.0) + ":" + slug5(ticket) }
+    "security" then { return "D17-security-" + to_string(8.0) + ":" + slug5(ticket) }
+    else { return "D17-unknown:" + ticket }
+  }
+}
+
+pattern dispatch18(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D18-billing-" + to_string(1.0) + ":" + slug6(ticket) }
+    "tech" then { return "D18-tech-" + to_string(2.0) + ":" + slug6(ticket) }
+    "complaint" then { return "D18-complaint-" + to_string(3.0) + ":" + slug6(ticket) }
+    "sales" then { return "D18-sales-" + to_string(4.0) + ":" + slug6(ticket) }
+    "hr" then { return "D18-hr-" + to_string(5.0) + ":" + slug6(ticket) }
+    "facilities" then { return "D18-facilities-" + to_string(6.0) + ":" + slug6(ticket) }
+    "legal" then { return "D18-legal-" + to_string(7.0) + ":" + slug6(ticket) }
+    "security" then { return "D18-security-" + to_string(8.0) + ":" + slug6(ticket) }
+    else { return "D18-unknown:" + ticket }
+  }
+}
+
+pattern dispatch19(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D19-billing-" + to_string(1.0) + ":" + slug7(ticket) }
+    "tech" then { return "D19-tech-" + to_string(2.0) + ":" + slug7(ticket) }
+    "complaint" then { return "D19-complaint-" + to_string(3.0) + ":" + slug7(ticket) }
+    "sales" then { return "D19-sales-" + to_string(4.0) + ":" + slug7(ticket) }
+    "hr" then { return "D19-hr-" + to_string(5.0) + ":" + slug7(ticket) }
+    "facilities" then { return "D19-facilities-" + to_string(6.0) + ":" + slug7(ticket) }
+    "legal" then { return "D19-legal-" + to_string(7.0) + ":" + slug7(ticket) }
+    "security" then { return "D19-security-" + to_string(8.0) + ":" + slug7(ticket) }
+    else { return "D19-unknown:" + ticket }
+  }
+}
+
+pattern dispatch20(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D20-billing-" + to_string(1.0) + ":" + slug8(ticket) }
+    "tech" then { return "D20-tech-" + to_string(2.0) + ":" + slug8(ticket) }
+    "complaint" then { return "D20-complaint-" + to_string(3.0) + ":" + slug8(ticket) }
+    "sales" then { return "D20-sales-" + to_string(4.0) + ":" + slug8(ticket) }
+    "hr" then { return "D20-hr-" + to_string(5.0) + ":" + slug8(ticket) }
+    "facilities" then { return "D20-facilities-" + to_string(6.0) + ":" + slug8(ticket) }
+    "legal" then { return "D20-legal-" + to_string(7.0) + ":" + slug8(ticket) }
+    "security" then { return "D20-security-" + to_string(8.0) + ":" + slug8(ticket) }
+    else { return "D20-unknown:" + ticket }
+  }
+}
+
+pattern dispatch21(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D21-billing-" + to_string(1.0) + ":" + slug9(ticket) }
+    "tech" then { return "D21-tech-" + to_string(2.0) + ":" + slug9(ticket) }
+    "complaint" then { return "D21-complaint-" + to_string(3.0) + ":" + slug9(ticket) }
+    "sales" then { return "D21-sales-" + to_string(4.0) + ":" + slug9(ticket) }
+    "hr" then { return "D21-hr-" + to_string(5.0) + ":" + slug9(ticket) }
+    "facilities" then { return "D21-facilities-" + to_string(6.0) + ":" + slug9(ticket) }
+    "legal" then { return "D21-legal-" + to_string(7.0) + ":" + slug9(ticket) }
+    "security" then { return "D21-security-" + to_string(8.0) + ":" + slug9(ticket) }
+    else { return "D21-unknown:" + ticket }
+  }
+}
+
+pattern dispatch22(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D22-billing-" + to_string(1.0) + ":" + slug10(ticket) }
+    "tech" then { return "D22-tech-" + to_string(2.0) + ":" + slug10(ticket) }
+    "complaint" then { return "D22-complaint-" + to_string(3.0) + ":" + slug10(ticket) }
+    "sales" then { return "D22-sales-" + to_string(4.0) + ":" + slug10(ticket) }
+    "hr" then { return "D22-hr-" + to_string(5.0) + ":" + slug10(ticket) }
+    "facilities" then { return "D22-facilities-" + to_string(6.0) + ":" + slug10(ticket) }
+    "legal" then { return "D22-legal-" + to_string(7.0) + ":" + slug10(ticket) }
+    "security" then { return "D22-security-" + to_string(8.0) + ":" + slug10(ticket) }
+    else { return "D22-unknown:" + ticket }
+  }
+}
+
+pattern dispatch23(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D23-billing-" + to_string(1.0) + ":" + slug11(ticket) }
+    "tech" then { return "D23-tech-" + to_string(2.0) + ":" + slug11(ticket) }
+    "complaint" then { return "D23-complaint-" + to_string(3.0) + ":" + slug11(ticket) }
+    "sales" then { return "D23-sales-" + to_string(4.0) + ":" + slug11(ticket) }
+    "hr" then { return "D23-hr-" + to_string(5.0) + ":" + slug11(ticket) }
+    "facilities" then { return "D23-facilities-" + to_string(6.0) + ":" + slug11(ticket) }
+    "legal" then { return "D23-legal-" + to_string(7.0) + ":" + slug11(ticket) }
+    "security" then { return "D23-security-" + to_string(8.0) + ":" + slug11(ticket) }
+    else { return "D23-unknown:" + ticket }
+  }
+}
+
+pattern dispatch24(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D24-billing-" + to_string(1.0) + ":" + slug12(ticket) }
+    "tech" then { return "D24-tech-" + to_string(2.0) + ":" + slug12(ticket) }
+    "complaint" then { return "D24-complaint-" + to_string(3.0) + ":" + slug12(ticket) }
+    "sales" then { return "D24-sales-" + to_string(4.0) + ":" + slug12(ticket) }
+    "hr" then { return "D24-hr-" + to_string(5.0) + ":" + slug12(ticket) }
+    "facilities" then { return "D24-facilities-" + to_string(6.0) + ":" + slug12(ticket) }
+    "legal" then { return "D24-legal-" + to_string(7.0) + ":" + slug12(ticket) }
+    "security" then { return "D24-security-" + to_string(8.0) + ":" + slug12(ticket) }
+    else { return "D24-unknown:" + ticket }
+  }
+}
+
+pattern dispatch25(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D25-billing-" + to_string(1.0) + ":" + slug1(ticket) }
+    "tech" then { return "D25-tech-" + to_string(2.0) + ":" + slug1(ticket) }
+    "complaint" then { return "D25-complaint-" + to_string(3.0) + ":" + slug1(ticket) }
+    "sales" then { return "D25-sales-" + to_string(4.0) + ":" + slug1(ticket) }
+    "hr" then { return "D25-hr-" + to_string(5.0) + ":" + slug1(ticket) }
+    "facilities" then { return "D25-facilities-" + to_string(6.0) + ":" + slug1(ticket) }
+    "legal" then { return "D25-legal-" + to_string(7.0) + ":" + slug1(ticket) }
+    "security" then { return "D25-security-" + to_string(8.0) + ":" + slug1(ticket) }
+    else { return "D25-unknown:" + ticket }
+  }
+}
+
+pattern dispatch26(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D26-billing-" + to_string(1.0) + ":" + slug2(ticket) }
+    "tech" then { return "D26-tech-" + to_string(2.0) + ":" + slug2(ticket) }
+    "complaint" then { return "D26-complaint-" + to_string(3.0) + ":" + slug2(ticket) }
+    "sales" then { return "D26-sales-" + to_string(4.0) + ":" + slug2(ticket) }
+    "hr" then { return "D26-hr-" + to_string(5.0) + ":" + slug2(ticket) }
+    "facilities" then { return "D26-facilities-" + to_string(6.0) + ":" + slug2(ticket) }
+    "legal" then { return "D26-legal-" + to_string(7.0) + ":" + slug2(ticket) }
+    "security" then { return "D26-security-" + to_string(8.0) + ":" + slug2(ticket) }
+    else { return "D26-unknown:" + ticket }
+  }
+}
+
+pattern dispatch27(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D27-billing-" + to_string(1.0) + ":" + slug3(ticket) }
+    "tech" then { return "D27-tech-" + to_string(2.0) + ":" + slug3(ticket) }
+    "complaint" then { return "D27-complaint-" + to_string(3.0) + ":" + slug3(ticket) }
+    "sales" then { return "D27-sales-" + to_string(4.0) + ":" + slug3(ticket) }
+    "hr" then { return "D27-hr-" + to_string(5.0) + ":" + slug3(ticket) }
+    "facilities" then { return "D27-facilities-" + to_string(6.0) + ":" + slug3(ticket) }
+    "legal" then { return "D27-legal-" + to_string(7.0) + ":" + slug3(ticket) }
+    "security" then { return "D27-security-" + to_string(8.0) + ":" + slug3(ticket) }
+    else { return "D27-unknown:" + ticket }
+  }
+}
+
+pattern dispatch28(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D28-billing-" + to_string(1.0) + ":" + slug4(ticket) }
+    "tech" then { return "D28-tech-" + to_string(2.0) + ":" + slug4(ticket) }
+    "complaint" then { return "D28-complaint-" + to_string(3.0) + ":" + slug4(ticket) }
+    "sales" then { return "D28-sales-" + to_string(4.0) + ":" + slug4(ticket) }
+    "hr" then { return "D28-hr-" + to_string(5.0) + ":" + slug4(ticket) }
+    "facilities" then { return "D28-facilities-" + to_string(6.0) + ":" + slug4(ticket) }
+    "legal" then { return "D28-legal-" + to_string(7.0) + ":" + slug4(ticket) }
+    "security" then { return "D28-security-" + to_string(8.0) + ":" + slug4(ticket) }
+    else { return "D28-unknown:" + ticket }
+  }
+}
+
+pattern dispatch29(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D29-billing-" + to_string(1.0) + ":" + slug5(ticket) }
+    "tech" then { return "D29-tech-" + to_string(2.0) + ":" + slug5(ticket) }
+    "complaint" then { return "D29-complaint-" + to_string(3.0) + ":" + slug5(ticket) }
+    "sales" then { return "D29-sales-" + to_string(4.0) + ":" + slug5(ticket) }
+    "hr" then { return "D29-hr-" + to_string(5.0) + ":" + slug5(ticket) }
+    "facilities" then { return "D29-facilities-" + to_string(6.0) + ":" + slug5(ticket) }
+    "legal" then { return "D29-legal-" + to_string(7.0) + ":" + slug5(ticket) }
+    "security" then { return "D29-security-" + to_string(8.0) + ":" + slug5(ticket) }
+    else { return "D29-unknown:" + ticket }
+  }
+}
+
+pattern dispatch30(intent: String, ticket: String) -> String {
+  match intent {
+    "billing" then { return "D30-billing-" + to_string(1.0) + ":" + slug6(ticket) }
+    "tech" then { return "D30-tech-" + to_string(2.0) + ":" + slug6(ticket) }
+    "complaint" then { return "D30-complaint-" + to_string(3.0) + ":" + slug6(ticket) }
+    "sales" then { return "D30-sales-" + to_string(4.0) + ":" + slug6(ticket) }
+    "hr" then { return "D30-hr-" + to_string(5.0) + ":" + slug6(ticket) }
+    "facilities" then { return "D30-facilities-" + to_string(6.0) + ":" + slug6(ticket) }
+    "legal" then { return "D30-legal-" + to_string(7.0) + ":" + slug6(ticket) }
+    "security" then { return "D30-security-" + to_string(8.0) + ":" + slug6(ticket) }
+    else { return "D30-unknown:" + ticket }
+  }
+}
+
+// ── Tier 0.5: record formatters (entity-shaped strings) ─────────────
+pattern fmt1(title: String, owner: String, amount: Float) -> String {
+  let head = "[1] " + upper(title)
+  let body = slug1(owner)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt2(dept: String, note: String, amount: Float) -> String {
+  let head = "[2] " + upper(dept)
+  let body = slug2(note)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt3(state: String, stage: String, amount: Float) -> String {
+  let head = "[3] " + upper(state)
+  let body = slug3(stage)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt4(owner: String, vendor: String, amount: Float) -> String {
+  let head = "[4] " + upper(owner)
+  let body = slug4(vendor)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt5(note: String, id: String, amount: Float) -> String {
+  let head = "[5] " + upper(note)
+  let body = slug5(id)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt6(stage: String, title: String, amount: Float) -> String {
+  let head = "[6] " + upper(stage)
+  let body = slug6(title)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt7(vendor: String, dept: String, amount: Float) -> String {
+  let head = "[7] " + upper(vendor)
+  let body = slug7(dept)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt8(id: String, state: String, amount: Float) -> String {
+  let head = "[8] " + upper(id)
+  let body = slug8(state)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt9(title: String, owner: String, amount: Float) -> String {
+  let head = "[9] " + upper(title)
+  let body = slug9(owner)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt10(dept: String, note: String, amount: Float) -> String {
+  let head = "[10] " + upper(dept)
+  let body = slug10(note)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt11(state: String, stage: String, amount: Float) -> String {
+  let head = "[11] " + upper(state)
+  let body = slug11(stage)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt12(owner: String, vendor: String, amount: Float) -> String {
+  let head = "[12] " + upper(owner)
+  let body = slug12(vendor)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt13(note: String, id: String, amount: Float) -> String {
+  let head = "[13] " + upper(note)
+  let body = slug1(id)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt14(stage: String, title: String, amount: Float) -> String {
+  let head = "[14] " + upper(stage)
+  let body = slug2(title)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt15(vendor: String, dept: String, amount: Float) -> String {
+  let head = "[15] " + upper(vendor)
+  let body = slug3(dept)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt16(id: String, state: String, amount: Float) -> String {
+  let head = "[16] " + upper(id)
+  let body = slug4(state)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt17(title: String, owner: String, amount: Float) -> String {
+  let head = "[17] " + upper(title)
+  let body = slug5(owner)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt18(dept: String, note: String, amount: Float) -> String {
+  let head = "[18] " + upper(dept)
+  let body = slug6(note)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt19(state: String, stage: String, amount: Float) -> String {
+  let head = "[19] " + upper(state)
+  let body = slug7(stage)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt20(owner: String, vendor: String, amount: Float) -> String {
+  let head = "[20] " + upper(owner)
+  let body = slug8(vendor)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt21(note: String, id: String, amount: Float) -> String {
+  let head = "[21] " + upper(note)
+  let body = slug9(id)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt22(stage: String, title: String, amount: Float) -> String {
+  let head = "[22] " + upper(stage)
+  let body = slug10(title)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt23(vendor: String, dept: String, amount: Float) -> String {
+  let head = "[23] " + upper(vendor)
+  let body = slug11(dept)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt24(id: String, state: String, amount: Float) -> String {
+  let head = "[24] " + upper(id)
+  let body = slug12(state)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt25(title: String, owner: String, amount: Float) -> String {
+  let head = "[25] " + upper(title)
+  let body = slug1(owner)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt26(dept: String, note: String, amount: Float) -> String {
+  let head = "[26] " + upper(dept)
+  let body = slug2(note)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt27(state: String, stage: String, amount: Float) -> String {
+  let head = "[27] " + upper(state)
+  let body = slug3(stage)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt28(owner: String, vendor: String, amount: Float) -> String {
+  let head = "[28] " + upper(owner)
+  let body = slug4(vendor)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt29(note: String, id: String, amount: Float) -> String {
+  let head = "[29] " + upper(note)
+  let body = slug5(id)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt30(stage: String, title: String, amount: Float) -> String {
+  let head = "[30] " + upper(stage)
+  let body = slug6(title)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt31(vendor: String, dept: String, amount: Float) -> String {
+  let head = "[31] " + upper(vendor)
+  let body = slug7(dept)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt32(id: String, state: String, amount: Float) -> String {
+  let head = "[32] " + upper(id)
+  let body = slug8(state)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt33(title: String, owner: String, amount: Float) -> String {
+  let head = "[33] " + upper(title)
+  let body = slug9(owner)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt34(dept: String, note: String, amount: Float) -> String {
+  let head = "[34] " + upper(dept)
+  let body = slug10(note)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt35(state: String, stage: String, amount: Float) -> String {
+  let head = "[35] " + upper(state)
+  let body = slug11(stage)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt36(owner: String, vendor: String, amount: Float) -> String {
+  let head = "[36] " + upper(owner)
+  let body = slug12(vendor)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt37(note: String, id: String, amount: Float) -> String {
+  let head = "[37] " + upper(note)
+  let body = slug1(id)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt38(stage: String, title: String, amount: Float) -> String {
+  let head = "[38] " + upper(stage)
+  let body = slug2(title)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt39(vendor: String, dept: String, amount: Float) -> String {
+  let head = "[39] " + upper(vendor)
+  let body = slug3(dept)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+pattern fmt40(id: String, state: String, amount: Float) -> String {
+  let head = "[40] " + upper(id)
+  let body = slug4(state)
+  let amount_part = to_string(round(amount))
+  if amount > 100.0 {
+    let flag = "HIGH"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  } else {
+    let flag = "STD"
+    return head + " / " + flag + " / " + body + " / " + amount_part
+  }
+}
+
+// ── Tier 1: list / loop workloads ───────────────────────────────────
+pattern report1(topic: String, count: Float) -> String {
+  let mut rows = []
+  let mut k = 0.0
+  while k < count {
+    let line = "r" + to_string(k) + ":" + topic + "/" + slug1(topic)
+    rows = push(rows, line)
+    k = k + 1.0
+  }
+  let joined = join(rows, " | ")
+  return "R1[" + to_string(length(rows)) + "] " + joined
+}
+
+pattern report2(topic: String, count: Float) -> String {
+  let mut rows = []
+  let mut k = 0.0
+  while k < count {
+    let line = "r" + to_string(k) + ":" + topic + "/" + slug2(topic)
+    rows = push(rows, line)
+    k = k + 1.0
+  }
+  let joined = join(rows, " | ")
+  return "R2[" + to_string(length(rows)) + "] " + joined
+}
+
+pattern report3(topic: String, count: Float) -> String {
+  let mut rows = []
+  let mut k = 0.0
+  while k < count {
+    let line = "r" + to_string(k) + ":" + topic + "/" + slug3(topic)
+    rows = push(rows, line)
+    k = k + 1.0
+  }
+  let joined = join(rows, " | ")
+  return "R3[" + to_string(length(rows)) + "] " + joined
+}
+
+pattern report4(topic: String, count: Float) -> String {
+  let mut rows = []
+  let mut k = 0.0
+  while k < count {
+    let line = "r" + to_string(k) + ":" + topic + "/" + slug4(topic)
+    rows = push(rows, line)
+    k = k + 1.0
+  }
+  let joined = join(rows, " | ")
+  return "R4[" + to_string(length(rows)) + "] " + joined
+}
+
+pattern report5(topic: String, count: Float) -> String {
+  let mut rows = []
+  let mut k = 0.0
+  while k < count {
+    let line = "r" + to_string(k) + ":" + topic + "/" + slug5(topic)
+    rows = push(rows, line)
+    k = k + 1.0
+  }
+  let joined = join(rows, " | ")
+  return "R5[" + to_string(length(rows)) + "] " + joined
+}
+
+pattern report6(topic: String, count: Float) -> String {
+  let mut rows = []
+  let mut k = 0.0
+  while k < count {
+    let line = "r" + to_string(k) + ":" + topic + "/" + slug6(topic)
+    rows = push(rows, line)
+    k = k + 1.0
+  }
+  let joined = join(rows, " | ")
+  return "R6[" + to_string(length(rows)) + "] " + joined
+}
+
+pattern report7(topic: String, count: Float) -> String {
+  let mut rows = []
+  let mut k = 0.0
+  while k < count {
+    let line = "r" + to_string(k) + ":" + topic + "/" + slug7(topic)
+    rows = push(rows, line)
+    k = k + 1.0
+  }
+  let joined = join(rows, " | ")
+  return "R7[" + to_string(length(rows)) + "] " + joined
+}
+
+pattern report8(topic: String, count: Float) -> String {
+  let mut rows = []
+  let mut k = 0.0
+  while k < count {
+    let line = "r" + to_string(k) + ":" + topic + "/" + slug8(topic)
+    rows = push(rows, line)
+    k = k + 1.0
+  }
+  let joined = join(rows, " | ")
+  return "R8[" + to_string(length(rows)) + "] " + joined
+}
+
+pattern report9(topic: String, count: Float) -> String {
+  let mut rows = []
+  let mut k = 0.0
+  while k < count {
+    let line = "r" + to_string(k) + ":" + topic + "/" + slug9(topic)
+    rows = push(rows, line)
+    k = k + 1.0
+  }
+  let joined = join(rows, " | ")
+  return "R9[" + to_string(length(rows)) + "] " + joined
+}
+
+pattern report10(topic: String, count: Float) -> String {
+  let mut rows = []
+  let mut k = 0.0
+  while k < count {
+    let line = "r" + to_string(k) + ":" + topic + "/" + slug10(topic)
+    rows = push(rows, line)
+    k = k + 1.0
+  }
+  let joined = join(rows, " | ")
+  return "R10[" + to_string(length(rows)) + "] " + joined
+}
+
+pattern report11(topic: String, count: Float) -> String {
+  let mut rows = []
+  let mut k = 0.0
+  while k < count {
+    let line = "r" + to_string(k) + ":" + topic + "/" + slug11(topic)
+    rows = push(rows, line)
+    k = k + 1.0
+  }
+  let joined = join(rows, " | ")
+  return "R11[" + to_string(length(rows)) + "] " + joined
+}
+
+pattern report12(topic: String, count: Float) -> String {
+  let mut rows = []
+  let mut k = 0.0
+  while k < count {
+    let line = "r" + to_string(k) + ":" + topic + "/" + slug12(topic)
+    rows = push(rows, line)
+    k = k + 1.0
+  }
+  let joined = join(rows, " | ")
+  return "R12[" + to_string(length(rows)) + "] " + joined
+}
+
+pattern report13(topic: String, count: Float) -> String {
+  let mut rows = []
+  let mut k = 0.0
+  while k < count {
+    let line = "r" + to_string(k) + ":" + topic + "/" + slug1(topic)
+    rows = push(rows, line)
+    k = k + 1.0
+  }
+  let joined = join(rows, " | ")
+  return "R13[" + to_string(length(rows)) + "] " + joined
+}
+
+pattern report14(topic: String, count: Float) -> String {
+  let mut rows = []
+  let mut k = 0.0
+  while k < count {
+    let line = "r" + to_string(k) + ":" + topic + "/" + slug2(topic)
+    rows = push(rows, line)
+    k = k + 1.0
+  }
+  let joined = join(rows, " | ")
+  return "R14[" + to_string(length(rows)) + "] " + joined
+}
+
+pattern report15(topic: String, count: Float) -> String {
+  let mut rows = []
+  let mut k = 0.0
+  while k < count {
+    let line = "r" + to_string(k) + ":" + topic + "/" + slug3(topic)
+    rows = push(rows, line)
+    k = k + 1.0
+  }
+  let joined = join(rows, " | ")
+  return "R15[" + to_string(length(rows)) + "] " + joined
+}
+
+pattern report16(topic: String, count: Float) -> String {
+  let mut rows = []
+  let mut k = 0.0
+  while k < count {
+    let line = "r" + to_string(k) + ":" + topic + "/" + slug4(topic)
+    rows = push(rows, line)
+    k = k + 1.0
+  }
+  let joined = join(rows, " | ")
+  return "R16[" + to_string(length(rows)) + "] " + joined
+}
+
+pattern report17(topic: String, count: Float) -> String {
+  let mut rows = []
+  let mut k = 0.0
+  while k < count {
+    let line = "r" + to_string(k) + ":" + topic + "/" + slug5(topic)
+    rows = push(rows, line)
+    k = k + 1.0
+  }
+  let joined = join(rows, " | ")
+  return "R17[" + to_string(length(rows)) + "] " + joined
+}
+
+pattern report18(topic: String, count: Float) -> String {
+  let mut rows = []
+  let mut k = 0.0
+  while k < count {
+    let line = "r" + to_string(k) + ":" + topic + "/" + slug6(topic)
+    rows = push(rows, line)
+    k = k + 1.0
+  }
+  let joined = join(rows, " | ")
+  return "R18[" + to_string(length(rows)) + "] " + joined
+}
+
+pattern aggregate1(seed: Float, n: Float) -> Float {
+  let mut acc = seed
+  let mut xs = []
+  let mut k = 0.0
+  while k < n {
+    xs = push(xs, score1(seed + k, 2.0))
+    k = k + 1.0
+  }
+  let sorted = sort(xs)
+  let mut j = 0.0
+  while j < to_float(length(sorted)) {
+    acc = acc + get(sorted, j)
+    j = j + 1.0
+  }
+  return round(acc)
+}
+
+pattern aggregate2(seed: Float, n: Float) -> Float {
+  let mut acc = seed
+  let mut xs = []
+  let mut k = 0.0
+  while k < n {
+    xs = push(xs, score2(seed + k, 2.0))
+    k = k + 1.0
+  }
+  let sorted = sort(xs)
+  let mut j = 0.0
+  while j < to_float(length(sorted)) {
+    acc = acc + get(sorted, j)
+    j = j + 1.0
+  }
+  return round(acc)
+}
+
+pattern aggregate3(seed: Float, n: Float) -> Float {
+  let mut acc = seed
+  let mut xs = []
+  let mut k = 0.0
+  while k < n {
+    xs = push(xs, score3(seed + k, 2.0))
+    k = k + 1.0
+  }
+  let sorted = sort(xs)
+  let mut j = 0.0
+  while j < to_float(length(sorted)) {
+    acc = acc + get(sorted, j)
+    j = j + 1.0
+  }
+  return round(acc)
+}
+
+pattern aggregate4(seed: Float, n: Float) -> Float {
+  let mut acc = seed
+  let mut xs = []
+  let mut k = 0.0
+  while k < n {
+    xs = push(xs, score4(seed + k, 2.0))
+    k = k + 1.0
+  }
+  let sorted = sort(xs)
+  let mut j = 0.0
+  while j < to_float(length(sorted)) {
+    acc = acc + get(sorted, j)
+    j = j + 1.0
+  }
+  return round(acc)
+}
+
+pattern aggregate5(seed: Float, n: Float) -> Float {
+  let mut acc = seed
+  let mut xs = []
+  let mut k = 0.0
+  while k < n {
+    xs = push(xs, score5(seed + k, 2.0))
+    k = k + 1.0
+  }
+  let sorted = sort(xs)
+  let mut j = 0.0
+  while j < to_float(length(sorted)) {
+    acc = acc + get(sorted, j)
+    j = j + 1.0
+  }
+  return round(acc)
+}
+
+pattern aggregate6(seed: Float, n: Float) -> Float {
+  let mut acc = seed
+  let mut xs = []
+  let mut k = 0.0
+  while k < n {
+    xs = push(xs, score6(seed + k, 2.0))
+    k = k + 1.0
+  }
+  let sorted = sort(xs)
+  let mut j = 0.0
+  while j < to_float(length(sorted)) {
+    acc = acc + get(sorted, j)
+    j = j + 1.0
+  }
+  return round(acc)
+}
+
+pattern aggregate7(seed: Float, n: Float) -> Float {
+  let mut acc = seed
+  let mut xs = []
+  let mut k = 0.0
+  while k < n {
+    xs = push(xs, score7(seed + k, 2.0))
+    k = k + 1.0
+  }
+  let sorted = sort(xs)
+  let mut j = 0.0
+  while j < to_float(length(sorted)) {
+    acc = acc + get(sorted, j)
+    j = j + 1.0
+  }
+  return round(acc)
+}
+
+pattern aggregate8(seed: Float, n: Float) -> Float {
+  let mut acc = seed
+  let mut xs = []
+  let mut k = 0.0
+  while k < n {
+    xs = push(xs, score8(seed + k, 2.0))
+    k = k + 1.0
+  }
+  let sorted = sort(xs)
+  let mut j = 0.0
+  while j < to_float(length(sorted)) {
+    acc = acc + get(sorted, j)
+    j = j + 1.0
+  }
+  return round(acc)
+}
+
+pattern aggregate9(seed: Float, n: Float) -> Float {
+  let mut acc = seed
+  let mut xs = []
+  let mut k = 0.0
+  while k < n {
+    xs = push(xs, score9(seed + k, 2.0))
+    k = k + 1.0
+  }
+  let sorted = sort(xs)
+  let mut j = 0.0
+  while j < to_float(length(sorted)) {
+    acc = acc + get(sorted, j)
+    j = j + 1.0
+  }
+  return round(acc)
+}
+
+pattern aggregate10(seed: Float, n: Float) -> Float {
+  let mut acc = seed
+  let mut xs = []
+  let mut k = 0.0
+  while k < n {
+    xs = push(xs, score10(seed + k, 2.0))
+    k = k + 1.0
+  }
+  let sorted = sort(xs)
+  let mut j = 0.0
+  while j < to_float(length(sorted)) {
+    acc = acc + get(sorted, j)
+    j = j + 1.0
+  }
+  return round(acc)
+}
+
+pattern session1(sid: String, dept: String) -> String {
+  let key = "sess-1-" + sid
+  kv_set(key, dept)
+  let got = kv_get(key)
+  let there = to_string(kv_exists(key))
+  kv_set(key, dept + ":closed")
+  let got2 = kv_get(key)
+  kv_delete(key)
+  let gone = to_string(kv_exists(key))
+  return "S1 " + got + "/" + got2 + "/" + there + "/" + gone
+}
+
+pattern session2(sid: String, dept: String) -> String {
+  let key = "sess-2-" + sid
+  kv_set(key, dept)
+  let got = kv_get(key)
+  let there = to_string(kv_exists(key))
+  kv_set(key, dept + ":closed")
+  let got2 = kv_get(key)
+  kv_delete(key)
+  let gone = to_string(kv_exists(key))
+  return "S2 " + got + "/" + got2 + "/" + there + "/" + gone
+}
+
+pattern session3(sid: String, dept: String) -> String {
+  let key = "sess-3-" + sid
+  kv_set(key, dept)
+  let got = kv_get(key)
+  let there = to_string(kv_exists(key))
+  kv_set(key, dept + ":closed")
+  let got2 = kv_get(key)
+  kv_delete(key)
+  let gone = to_string(kv_exists(key))
+  return "S3 " + got + "/" + got2 + "/" + there + "/" + gone
+}
+
+pattern session4(sid: String, dept: String) -> String {
+  let key = "sess-4-" + sid
+  kv_set(key, dept)
+  let got = kv_get(key)
+  let there = to_string(kv_exists(key))
+  kv_set(key, dept + ":closed")
+  let got2 = kv_get(key)
+  kv_delete(key)
+  let gone = to_string(kv_exists(key))
+  return "S4 " + got + "/" + got2 + "/" + there + "/" + gone
+}
+
+pattern session5(sid: String, dept: String) -> String {
+  let key = "sess-5-" + sid
+  kv_set(key, dept)
+  let got = kv_get(key)
+  let there = to_string(kv_exists(key))
+  kv_set(key, dept + ":closed")
+  let got2 = kv_get(key)
+  kv_delete(key)
+  let gone = to_string(kv_exists(key))
+  return "S5 " + got + "/" + got2 + "/" + there + "/" + gone
+}
+
+pattern session6(sid: String, dept: String) -> String {
+  let key = "sess-6-" + sid
+  kv_set(key, dept)
+  let got = kv_get(key)
+  let there = to_string(kv_exists(key))
+  kv_set(key, dept + ":closed")
+  let got2 = kv_get(key)
+  kv_delete(key)
+  let gone = to_string(kv_exists(key))
+  return "S6 " + got + "/" + got2 + "/" + there + "/" + gone
+}
+
+pattern session7(sid: String, dept: String) -> String {
+  let key = "sess-7-" + sid
+  kv_set(key, dept)
+  let got = kv_get(key)
+  let there = to_string(kv_exists(key))
+  kv_set(key, dept + ":closed")
+  let got2 = kv_get(key)
+  kv_delete(key)
+  let gone = to_string(kv_exists(key))
+  return "S7 " + got + "/" + got2 + "/" + there + "/" + gone
+}
+
+pattern session8(sid: String, dept: String) -> String {
+  let key = "sess-8-" + sid
+  kv_set(key, dept)
+  let got = kv_get(key)
+  let there = to_string(kv_exists(key))
+  kv_set(key, dept + ":closed")
+  let got2 = kv_get(key)
+  kv_delete(key)
+  let gone = to_string(kv_exists(key))
+  return "S8 " + got + "/" + got2 + "/" + there + "/" + gone
+}
+
+pattern session9(sid: String, dept: String) -> String {
+  let key = "sess-9-" + sid
+  kv_set(key, dept)
+  let got = kv_get(key)
+  let there = to_string(kv_exists(key))
+  kv_set(key, dept + ":closed")
+  let got2 = kv_get(key)
+  kv_delete(key)
+  let gone = to_string(kv_exists(key))
+  return "S9 " + got + "/" + got2 + "/" + there + "/" + gone
+}
+
+pattern session10(sid: String, dept: String) -> String {
+  let key = "sess-10-" + sid
+  kv_set(key, dept)
+  let got = kv_get(key)
+  let there = to_string(kv_exists(key))
+  kv_set(key, dept + ":closed")
+  let got2 = kv_get(key)
+  kv_delete(key)
+  let gone = to_string(kv_exists(key))
+  return "S10 " + got + "/" + got2 + "/" + there + "/" + gone
+}
+
+// ── Tier 2: deterministic mock-I/O wrappers ─────────────────────────
+pattern classify_llm1(text: String) -> String {
+  let raw = call_llm("Classify intent 1 (billing|tech|complaint|other)", text)
+  let at = index_of(raw, " | ")
+  let safe = escape_html(substring(raw, 0.0, at))
+  if contains(safe, "billing") {
+    return "B"
+  } else {
+    if contains(safe, "tech") {
+      return "T"
+    } else {
+      if contains(safe, "complaint") {
+        return "C"
+      } else {
+        return "O"
+      }
+    }
+  }
+}
+
+pattern classify_llm2(text: String) -> String {
+  let raw = call_llm("Classify intent 2 (billing|tech|complaint|other)", text)
+  let at = index_of(raw, " | ")
+  let safe = escape_html(substring(raw, 0.0, at))
+  if contains(safe, "billing") {
+    return "B"
+  } else {
+    if contains(safe, "tech") {
+      return "T"
+    } else {
+      if contains(safe, "complaint") {
+        return "C"
+      } else {
+        return "O"
+      }
+    }
+  }
+}
+
+pattern classify_llm3(text: String) -> String {
+  let raw = call_llm("Classify intent 3 (billing|tech|complaint|other)", text)
+  let at = index_of(raw, " | ")
+  let safe = escape_html(substring(raw, 0.0, at))
+  if contains(safe, "billing") {
+    return "B"
+  } else {
+    if contains(safe, "tech") {
+      return "T"
+    } else {
+      if contains(safe, "complaint") {
+        return "C"
+      } else {
+        return "O"
+      }
+    }
+  }
+}
+
+pattern classify_llm4(text: String) -> String {
+  let raw = call_llm("Classify intent 4 (billing|tech|complaint|other)", text)
+  let at = index_of(raw, " | ")
+  let safe = escape_html(substring(raw, 0.0, at))
+  if contains(safe, "billing") {
+    return "B"
+  } else {
+    if contains(safe, "tech") {
+      return "T"
+    } else {
+      if contains(safe, "complaint") {
+        return "C"
+      } else {
+        return "O"
+      }
+    }
+  }
+}
+
+pattern classify_llm5(text: String) -> String {
+  let raw = call_llm("Classify intent 5 (billing|tech|complaint|other)", text)
+  let at = index_of(raw, " | ")
+  let safe = escape_html(substring(raw, 0.0, at))
+  if contains(safe, "billing") {
+    return "B"
+  } else {
+    if contains(safe, "tech") {
+      return "T"
+    } else {
+      if contains(safe, "complaint") {
+        return "C"
+      } else {
+        return "O"
+      }
+    }
+  }
+}
+
+pattern classify_llm6(text: String) -> String {
+  let raw = call_llm("Classify intent 6 (billing|tech|complaint|other)", text)
+  let at = index_of(raw, " | ")
+  let safe = escape_html(substring(raw, 0.0, at))
+  if contains(safe, "billing") {
+    return "B"
+  } else {
+    if contains(safe, "tech") {
+      return "T"
+    } else {
+      if contains(safe, "complaint") {
+        return "C"
+      } else {
+        return "O"
+      }
+    }
+  }
+}
+
+pattern tag_frame1(frame: String) -> String {
+  let raw = vision_understand(frame, "tag the scene 1")
+  let parts = split(raw, " | ")
+  let last = get(parts, to_float(length(parts)) - 1.0)
+  return "V1:" + upper(last)
+}
+
+pattern tag_frame2(frame: String) -> String {
+  let raw = vision_understand(frame, "tag the scene 2")
+  let parts = split(raw, " | ")
+  let last = get(parts, to_float(length(parts)) - 1.0)
+  return "V2:" + upper(last)
+}
+
+pattern tag_frame3(frame: String) -> String {
+  let raw = vision_understand(frame, "tag the scene 3")
+  let parts = split(raw, " | ")
+  let last = get(parts, to_float(length(parts)) - 1.0)
+  return "V3:" + upper(last)
+}
+
+pattern tag_frame4(frame: String) -> String {
+  let raw = vision_understand(frame, "tag the scene 4")
+  let parts = split(raw, " | ")
+  let last = get(parts, to_float(length(parts)) - 1.0)
+  return "V4:" + upper(last)
+}
+
+pattern note1(clip: String) -> String {
+  let raw = stt_transcribe(clip)
+  let clean = slug1(trim(raw))
+  return "N1:" + clean
+}
+
+pattern note2(clip: String) -> String {
+  let raw = stt_transcribe(clip)
+  let clean = slug2(trim(raw))
+  return "N2:" + clean
+}
+
+pattern note3(clip: String) -> String {
+  let raw = stt_transcribe(clip)
+  let clean = slug3(trim(raw))
+  return "N3:" + clean
+}
+
+pattern db_order1(customer: String, amount: Float) -> String {
+  query("CREATE TABLE IF NOT EXISTS orders1 (customer TEXT UNIQUE, amount REAL)", [])
+  query("INSERT OR IGNORE INTO orders1 (customer, amount) VALUES ('seed-a-1', 10.0)", [])
+  query("INSERT OR IGNORE INTO orders1 (customer, amount) VALUES ('seed-b-1', 20.0)", [])
+  query("INSERT OR REPLACE INTO orders1 (customer, amount) VALUES (?, ?)", [customer, amount])
+  let rows = query("SELECT customer, amount FROM orders1 WHERE customer LIKE 'seed-%' ORDER BY amount", [])
+  let n = to_float(length(rows))
+  let top = get(rows, n - 1.0)
+  return "DB1 n=" + to_string(n) + " top=" + top.customer + ":" + to_string(top.amount)
+}
+
+pattern db_order2(customer: String, amount: Float) -> String {
+  query("CREATE TABLE IF NOT EXISTS orders2 (customer TEXT UNIQUE, amount REAL)", [])
+  query("INSERT OR IGNORE INTO orders2 (customer, amount) VALUES ('seed-a-2', 10.0)", [])
+  query("INSERT OR IGNORE INTO orders2 (customer, amount) VALUES ('seed-b-2', 20.0)", [])
+  query("INSERT OR REPLACE INTO orders2 (customer, amount) VALUES (?, ?)", [customer, amount])
+  let rows = query("SELECT customer, amount FROM orders2 WHERE customer LIKE 'seed-%' ORDER BY amount", [])
+  let n = to_float(length(rows))
+  let top = get(rows, n - 1.0)
+  return "DB2 n=" + to_string(n) + " top=" + top.customer + ":" + to_string(top.amount)
+}
+
+pattern db_order3(customer: String, amount: Float) -> String {
+  query("CREATE TABLE IF NOT EXISTS orders3 (customer TEXT UNIQUE, amount REAL)", [])
+  query("INSERT OR IGNORE INTO orders3 (customer, amount) VALUES ('seed-a-3', 10.0)", [])
+  query("INSERT OR IGNORE INTO orders3 (customer, amount) VALUES ('seed-b-3', 20.0)", [])
+  query("INSERT OR REPLACE INTO orders3 (customer, amount) VALUES (?, ?)", [customer, amount])
+  let rows = query("SELECT customer, amount FROM orders3 WHERE customer LIKE 'seed-%' ORDER BY amount", [])
+  let n = to_float(length(rows))
+  let top = get(rows, n - 1.0)
+  return "DB3 n=" + to_string(n) + " top=" + top.customer + ":" + to_string(top.amount)
+}
+
+pattern db_order4(customer: String, amount: Float) -> String {
+  query("CREATE TABLE IF NOT EXISTS orders4 (customer TEXT UNIQUE, amount REAL)", [])
+  query("INSERT OR IGNORE INTO orders4 (customer, amount) VALUES ('seed-a-4', 10.0)", [])
+  query("INSERT OR IGNORE INTO orders4 (customer, amount) VALUES ('seed-b-4', 20.0)", [])
+  query("INSERT OR REPLACE INTO orders4 (customer, amount) VALUES (?, ?)", [customer, amount])
+  let rows = query("SELECT customer, amount FROM orders4 WHERE customer LIKE 'seed-%' ORDER BY amount", [])
+  let n = to_float(length(rows))
+  let top = get(rows, n - 1.0)
+  return "DB4 n=" + to_string(n) + " top=" + top.customer + ":" + to_string(top.amount)
+}
+
+pattern db_order5(customer: String, amount: Float) -> String {
+  query("CREATE TABLE IF NOT EXISTS orders5 (customer TEXT UNIQUE, amount REAL)", [])
+  query("INSERT OR IGNORE INTO orders5 (customer, amount) VALUES ('seed-a-5', 10.0)", [])
+  query("INSERT OR IGNORE INTO orders5 (customer, amount) VALUES ('seed-b-5', 20.0)", [])
+  query("INSERT OR REPLACE INTO orders5 (customer, amount) VALUES (?, ?)", [customer, amount])
+  let rows = query("SELECT customer, amount FROM orders5 WHERE customer LIKE 'seed-%' ORDER BY amount", [])
+  let n = to_float(length(rows))
+  let top = get(rows, n - 1.0)
+  return "DB5 n=" + to_string(n) + " top=" + top.customer + ":" + to_string(top.amount)
+}
+
+pattern db_order6(customer: String, amount: Float) -> String {
+  query("CREATE TABLE IF NOT EXISTS orders6 (customer TEXT UNIQUE, amount REAL)", [])
+  query("INSERT OR IGNORE INTO orders6 (customer, amount) VALUES ('seed-a-6', 10.0)", [])
+  query("INSERT OR IGNORE INTO orders6 (customer, amount) VALUES ('seed-b-6', 20.0)", [])
+  query("INSERT OR REPLACE INTO orders6 (customer, amount) VALUES (?, ?)", [customer, amount])
+  let rows = query("SELECT customer, amount FROM orders6 WHERE customer LIKE 'seed-%' ORDER BY amount", [])
+  let n = to_float(length(rows))
+  let top = get(rows, n - 1.0)
+  return "DB6 n=" + to_string(n) + " top=" + top.customer + ":" + to_string(top.amount)
+}
+
+pattern db_order7(customer: String, amount: Float) -> String {
+  query("CREATE TABLE IF NOT EXISTS orders7 (customer TEXT UNIQUE, amount REAL)", [])
+  query("INSERT OR IGNORE INTO orders7 (customer, amount) VALUES ('seed-a-7', 10.0)", [])
+  query("INSERT OR IGNORE INTO orders7 (customer, amount) VALUES ('seed-b-7', 20.0)", [])
+  query("INSERT OR REPLACE INTO orders7 (customer, amount) VALUES (?, ?)", [customer, amount])
+  let rows = query("SELECT customer, amount FROM orders7 WHERE customer LIKE 'seed-%' ORDER BY amount", [])
+  let n = to_float(length(rows))
+  let top = get(rows, n - 1.0)
+  return "DB7 n=" + to_string(n) + " top=" + top.customer + ":" + to_string(top.amount)
+}
+
+pattern db_order8(customer: String, amount: Float) -> String {
+  query("CREATE TABLE IF NOT EXISTS orders8 (customer TEXT UNIQUE, amount REAL)", [])
+  query("INSERT OR IGNORE INTO orders8 (customer, amount) VALUES ('seed-a-8', 10.0)", [])
+  query("INSERT OR IGNORE INTO orders8 (customer, amount) VALUES ('seed-b-8', 20.0)", [])
+  query("INSERT OR REPLACE INTO orders8 (customer, amount) VALUES (?, ?)", [customer, amount])
+  let rows = query("SELECT customer, amount FROM orders8 WHERE customer LIKE 'seed-%' ORDER BY amount", [])
+  let n = to_float(length(rows))
+  let top = get(rows, n - 1.0)
+  return "DB8 n=" + to_string(n) + " top=" + top.customer + ":" + to_string(top.amount)
+}
+
+pattern safe_math1(x: Float) -> String {
+  let r = try sqrt(x - 1.0)
+  if r.ok {
+    return "ok:" + to_string(round(r.value))
+  } else {
+    let fallback = abs(x) + 1.0
+    return "err:" + to_string(round(fallback))
+  }
+}
+
+pattern safe_math2(x: Float) -> String {
+  let r = try sqrt(x - 2.0)
+  if r.ok {
+    return "ok:" + to_string(round(r.value))
+  } else {
+    let fallback = abs(x) + 2.0
+    return "err:" + to_string(round(fallback))
+  }
+}
+
+pattern safe_math3(x: Float) -> String {
+  let r = try sqrt(x - 3.0)
+  if r.ok {
+    return "ok:" + to_string(round(r.value))
+  } else {
+    let fallback = abs(x) + 3.0
+    return "err:" + to_string(round(fallback))
+  }
+}
+
+pattern safe_math4(x: Float) -> String {
+  let r = try sqrt(x - 4.0)
+  if r.ok {
+    return "ok:" + to_string(round(r.value))
+  } else {
+    let fallback = abs(x) + 4.0
+    return "err:" + to_string(round(fallback))
+  }
+}
+
+pattern safe_math5(x: Float) -> String {
+  let r = try sqrt(x - 5.0)
+  if r.ok {
+    return "ok:" + to_string(round(r.value))
+  } else {
+    let fallback = abs(x) + 5.0
+    return "err:" + to_string(round(fallback))
+  }
+}
+
+pattern safe_math6(x: Float) -> String {
+  let r = try sqrt(x - 6.0)
+  if r.ok {
+    return "ok:" + to_string(round(r.value))
+  } else {
+    let fallback = abs(x) + 6.0
+    return "err:" + to_string(round(fallback))
+  }
+}
+
+// ── Tier 3: route-facing entry patterns ─────────────────────────────
+pattern health_probe(_unused: String) -> String {
+  let a = score1(2.0, 3.0)
+  let b = aggregate1(1.0, 3.0)
+  return "ok " + to_string(a) + "/" + to_string(b)
+}
+
+pattern dispatch_entry(code: String) -> String {
+  let ticket = " Ticket /32 raw "
+  match code {
+    "SLA-1" then { return dispatch1("billing", ticket) }
+    "SLA-2" then { return dispatch2("tech", ticket) }
+    "SLA-3" then { return dispatch3("complaint", ticket) }
+    "SLA-4" then { return dispatch4("sales", ticket) }
+    "SLA-5" then { return dispatch5("hr", ticket) }
+    else { return dispatch6("other", ticket) }
+  }
+}
+
+pattern llm_classify_entry(text: String) -> String {
+  let head = classify_llm1(text)
+  match head {
+    "B" then { return dispatch7("billing", text) }
+    "T" then { return dispatch8("tech", text) }
+    "C" then { return dispatch9("complaint", text) }
+    else { return dispatch10("other", text) }
+  }
+}
+
+pattern llm_summary_entry(text: String, tone: String) -> String {
+  let raw = call_llm("Summarize politely", text)
+  let words = split(trim(raw), " ")
+  let n = to_float(length(words))
+  let bullet = report3(tone, 4.0)
+  return "SUM words=" + to_string(n) + " tone=" + tone + " " + bullet
+}
+
+pattern vision_entry(frame: String) -> String {
+  let t1 = tag_frame1(frame)
+  let t2 = tag_frame2(frame)
+  let t3 = tag_frame3(frame)
+  return t1 + " " + t2 + " " + t3
+}
+
+pattern voice_entry(clip: String) -> String {
+  let n1 = note1(clip)
+  let n2 = note2(clip)
+  return n1 + " " + n2
+}
+
+pattern db_order_entry(customer: String, amount: Float) -> String {
+  let a = db_order1(customer, amount)
+  let b = db_order2(customer, amount + 1.0)
+  let c = session1(customer, "ops")
+  return a + " | " + b + " | " + c
+}
+
+pattern db_list_entry(limit: String) -> String {
+  query("CREATE TABLE IF NOT EXISTS agents (name TEXT UNIQUE, load REAL)", [])
+  query("INSERT OR IGNORE INTO agents (name, load) VALUES ('ada', 3.0)", [])
+  query("INSERT OR IGNORE INTO agents (name, load) VALUES ('bob', 5.0)", [])
+  query("INSERT OR IGNORE INTO agents (name, load) VALUES ('cyd', 2.0)", [])
+  let rows = query("SELECT name, load FROM agents ORDER BY load", [])
+  let mut acc = []
+  each r in rows {
+    acc = push(acc, r.name + "=" + to_string(r.load))
+  }
+  return "AGENTS[" + limit + "] " + join(acc, ",")
+}
+
+pattern kv_entry(sid: String) -> String {
+  let a = session2(sid, "billing")
+  let b = report5("kv-" + sid, 3.0)
+  return a + " | " + b
+}
+
+pattern mix_pipeline(text: String, dept: String, amount: Float) -> String {
+  let intent = classify_llm2(text)
+  let dept2 = match intent {
+    "B" then { "billing" }
+    "T" then { "tech" }
+    "C" then { "complaint" }
+    else { "other" }
+  }
+  let frame = vision_understand("mix-frame.png", "check attachment")
+  let stamped = note3("mix-clip.wav")
+  let db_part = db_order3(dept, amount)
+  let kv_part = session3(dept, intent)
+  let guarded = safe_math1(amount)
+  let scored = dispatch11(dept2, text)
+  let ledger = report7(dept, 5.0)
+  return "MIX[" + intent + "] " + stamped + " " + db_part + " " + kv_part + " " + guarded + " " + scored + " " + ledger + " " + frame
+}
+
+pattern item_entry(id: String) -> String {
+  let clean = slug4(id)
+  let padded = pad_left(clean, 10.0, "0")
+  let label = title_case(clean)
+  let score = score2(to_float(length(clean)), 1.5)
+  return "ITEM " + padded + " " + label + " " + to_string(score)
+}
+
+pattern error_entry(x: Float) -> String {
+  let a = safe_math2(x)
+  let b = safe_math3(x)
+  let c = safe_math4(x)
+  return a + "/" + b + "/" + c
+}
+
+pattern report_entry(dept: String) -> String {
+  let a = report1(dept, 6.0)
+  let b = aggregate2(0.5, 4.0)
+  let c = report8(dept, 3.0)
+  return "REPORT " + to_string(b) + " " + a + " " + c
+}
+
+pattern stats_entry(seed: Float) -> String {
+  let a = aggregate3(seed, 5.0)
+  let b = aggregate4(seed, 4.0)
+  let c = report9("stats", 4.0)
+  let d = score3(seed, 2.0)
+  return "STATS " + to_string(a) + "/" + to_string(b) + "/" + to_string(d) + " " + c
+}
+
+flow Bench {
+  input: Float = 3.0 -> stats_entry -> output
+}
+
+// ── HTTP surface (14 benchmark routes) ──────────────────────────────
+mlogserver {
+  port: 8442
+  middleware: [security_headers]
+
+  route "/health" method=GET {
+    let who = query_param("who")
+    respond("200", escape_html(health_probe(who)))
+  }
+
+  route "/match/dispatch" method=GET {
+    let code = query_param("code")
+    respond("200", escape_html(dispatch_entry(code)))
+  }
+
+  route "/llm/classify" method=POST {
+    let body = json_body()
+    respond("200", escape_html(llm_classify_entry(body.text)))
+  }
+
+  route "/llm/summary" method=POST {
+    let body = json_body()
+    respond("200", escape_html(llm_summary_entry(body.text, body.tone)))
+  }
+
+  route "/vision/tag" method=POST {
+    let body = json_body()
+    respond("200", escape_html(vision_entry(body.frame)))
+  }
+
+  route "/voice/note" method=POST {
+    let body = json_body()
+    respond("200", escape_html(voice_entry(body.clip)))
+  }
+
+  route "/db/orders" method=POST {
+    let body = json_body()
+    respond("200", escape_html(db_order_entry(body.customer, body.amount)))
+  }
+
+  route "/db/list" method=GET {
+    let limit = query_param("limit")
+    respond("200", escape_html(db_list_entry(limit)))
+  }
+
+  route "/kv/session" method=GET {
+    let sid = query_param("id")
+    respond("200", escape_html(kv_entry(sid)))
+  }
+
+  route "/mix/pipeline" method=POST {
+    let body = json_body()
+    respond("200", escape_html(mix_pipeline(body.text, body.dept, body.amount)))
+  }
+
+  route "/item/{id}" method=GET {
+    let id = server_path_param("id")
+    respond("200", escape_html(item_entry(id)))
+  }
+
+  route "/error/prone" method=POST {
+    let body = json_body()
+    respond("200", escape_html(error_entry(body.x)))
+  }
+
+  route "/report/summary" method=GET {
+    let dept = query_param("dept")
+    respond("200", escape_html(report_entry(dept)))
+  }
+
+  route "/stats/heavy" method=GET {
+    let seed_s = query_param("seed")
+    respond("200", escape_html(stats_entry(to_float(seed_s))))
+  }
+}

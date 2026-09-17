@@ -1,0 +1,135 @@
+{
+  "corpus": "production_workload.mlog",
+  "description": "Stage 4 (ADR-0141 \u00a7D5) deterministic request plan \u2014 naryad \u2116381",
+  "rounds_default": 30,
+  "routes": [
+    {
+      "name": "health",
+      "method": "GET",
+      "path": "/health",
+      "query": {
+        "who": "bench"
+      },
+      "body": null
+    },
+    {
+      "name": "match_dispatch",
+      "method": "GET",
+      "path": "/match/dispatch",
+      "query": {
+        "code": "SLA-3"
+      },
+      "body": null
+    },
+    {
+      "name": "llm_classify",
+      "method": "POST",
+      "path": "/llm/classify",
+      "query": {},
+      "body": {
+        "text": "the invoice total looks wrong this month"
+      }
+    },
+    {
+      "name": "llm_summary",
+      "method": "POST",
+      "path": "/llm/summary",
+      "query": {},
+      "body": {
+        "text": "printer on floor 3 is jammed again and the queue is stuck",
+        "tone": "neutral"
+      }
+    },
+    {
+      "name": "vision_tag",
+      "method": "POST",
+      "path": "/vision/tag",
+      "query": {},
+      "body": {
+        "frame": "frame-042.png"
+      }
+    },
+    {
+      "name": "voice_note",
+      "method": "POST",
+      "path": "/voice/note",
+      "query": {},
+      "body": {
+        "clip": "clip-77.wav"
+      }
+    },
+    {
+      "name": "db_orders",
+      "method": "POST",
+      "path": "/db/orders",
+      "query": {},
+      "body": {
+        "customer": "acme-corp",
+        "amount": 42.5
+      }
+    },
+    {
+      "name": "db_list",
+      "method": "GET",
+      "path": "/db/list",
+      "query": {
+        "limit": "10"
+      },
+      "body": null
+    },
+    {
+      "name": "kv_session",
+      "method": "GET",
+      "path": "/kv/session",
+      "query": {
+        "id": "U-77"
+      },
+      "body": null
+    },
+    {
+      "name": "mix_pipeline",
+      "method": "POST",
+      "path": "/mix/pipeline",
+      "query": {},
+      "body": {
+        "text": "login flow times out when the queue is long",
+        "dept": "ops",
+        "amount": 7.5
+      }
+    },
+    {
+      "name": "item_template",
+      "method": "GET",
+      "path": "/item/asset-0093",
+      "query": {},
+      "body": null
+    },
+    {
+      "name": "error_prone",
+      "method": "POST",
+      "path": "/error/prone",
+      "query": {},
+      "body": {
+        "x": 1.5
+      }
+    },
+    {
+      "name": "report_summary",
+      "method": "GET",
+      "path": "/report/summary",
+      "query": {
+        "dept": "facilities"
+      },
+      "body": null
+    },
+    {
+      "name": "stats_heavy",
+      "method": "GET",
+      "path": "/stats/heavy",
+      "query": {
+        "seed": "3.0"
+      },
+      "body": null
+    }
+  ]
+}

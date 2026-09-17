@@ -92,13 +92,26 @@ enum Commands {
         /// Path to .mlog source file
         file: PathBuf,
     },
-    /// Start MCP server (Наряд №297, ADR-0132) — expose .mlog tool constructs as MCP tools via stdio
+    /// Start MCP server (Наряд №297, ADR-0132) — expose .mlog tool constructs as MCP tools
+    /// Naryad #394 (ADR-0168): transports stdio (default) | http | sse;
+    /// http/sse require the `server` feature and support bearer auth.
     McpServe {
         /// Path to .mlog source file
         file: PathBuf,
         /// Tool names to expose (fail-closed: required, no default exposure)
         #[arg(long, value_delimiter = ',')]
         allowlist: Vec<String>,
+        /// Transport: stdio (default, identical to №297) | http | sse
+        #[arg(long, default_value = "stdio")]
+        transport: String,
+        /// Bind address for http/sse (default 127.0.0.1:8770)
+        #[arg(long)]
+        bind: Option<String>,
+        /// Bearer token for http/sse (else METALOGOS_MCP_AUTH_TOKEN;
+        /// unauthenticated localhost-only bind is the accepted alternative —
+        /// a non-loopback bind without a token is a loud WARN)
+        #[arg(long)]
+        auth_token: Option<String>,
     },
     /// Action Ledger v1 (Naryad #393, ADR-0167) — external verification
     /// and archival of an exported ledger file. Pure file reading: no
@@ -183,7 +196,13 @@ fn main() {
         }
         Commands::Resume { file, flow, from } => cmd_resume(file, &flow, &from),
         Commands::Audit { file } => cmd_audit(file),
-        Commands::McpServe { file, allowlist } => cmd_mcp_serve(file, &allowlist),
+        Commands::McpServe {
+            file,
+            allowlist,
+            transport,
+            bind,
+            auth_token,
+        } => cmd_mcp_serve(file, &allowlist, &transport, bind, auth_token),
         Commands::Ledger { cmd } => cmd_ledger(cmd),
     }
 }
@@ -510,9 +529,21 @@ fn cmd_audit(file: PathBuf) {
     }
 }
 
-/// `mlog mcp-serve <file> --allowlist tool1,tool2` — start MCP server over stdio.
-/// Fail-closed: --allowlist is required (no tools exposed by default).
-fn cmd_mcp_serve(file: PathBuf, allowlist: &[String]) {
+/// `mlog mcp-serve <file> --allowlist tool1,tool2 [--transport stdio|http|sse]
+/// [--bind addr:port] [--auth-token TOKEN]` — expose tool constructs as MCP
+/// tools. Fail-closed: --allowlist is required (no tools exposed by default).
+/// Transports (Naryad #394, ADR-0168): stdio — JSON-RPC over stdin/stdout
+/// (identical to №297); http — JSON-RPC over HTTP POST /mcp; sse — the MCP
+/// HTTP+SSE transport (GET /sse + POST /mcp). http/sse require the `server`
+/// feature (default builds have it); bearer auth via --auth-token or
+/// METALOGOS_MCP_AUTH_TOKEN, else localhost-only bind (loud WARN otherwise).
+fn cmd_mcp_serve(
+    file: PathBuf,
+    allowlist: &[String],
+    transport: &str,
+    bind: Option<String>,
+    auth_token: Option<String>,
+) {
     let source = match fs::read_to_string(&file) {
         Ok(s) => s,
         Err(e) => {
@@ -527,9 +558,62 @@ fn cmd_mcp_serve(file: PathBuf, allowlist: &[String]) {
             std::process::exit(1);
         }
     };
-    if let Err(e) = metalogos::mcp_server::run_mcp_server(&declarations, allowlist) {
-        eprintln!("error: {}", e);
-        std::process::exit(1);
+
+    // ── Transport dispatch (Naryad #394, ADR-0168) ──
+    if transport == "stdio" {
+        // The default transport: unchanged behavior (no auth surface —
+        // the process boundary IS the boundary).
+        if bind.is_some() || auth_token.is_some() {
+            eprintln!(
+                "[mcp-serve] note: --bind/--auth-token apply to http/sse only; ignoring for stdio"
+            );
+        }
+        if let Err(e) = metalogos::mcp_server::run_mcp_server(&declarations, allowlist) {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+        return;
+    }
+    if transport != "http" && transport != "sse" {
+        eprintln!(
+            "error: unknown --transport '{}' (allowed: stdio, http, sse)",
+            transport
+        );
+        std::process::exit(2);
+    }
+
+    // ── Auth resolution (Naryad #394 §4): explicit flag > env > none ──
+    let token = auth_token
+        .or_else(|| std::env::var("METALOGOS_MCP_AUTH_TOKEN").ok())
+        .filter(|t| !t.trim().is_empty());
+    let auth = match token {
+        Some(t) => metalogos::mcp_server::McpAuth::Bearer(t),
+        None => metalogos::mcp_server::McpAuth::OpenLocal,
+    };
+    let bind_addr = bind.unwrap_or_else(|| "127.0.0.1:8770".to_string());
+
+    #[cfg(feature = "server")]
+    {
+        if let Err(e) = metalogos::mcp_server::run_mcp_server_network(
+            &declarations,
+            allowlist,
+            transport,
+            &bind_addr,
+            &auth,
+        ) {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    }
+    #[cfg(not(feature = "server"))]
+    {
+        let _ = (bind_addr, auth);
+        eprintln!(
+            "error: mcp-serve --transport {} requires the 'server' feature \
+             (this binary was built without it; stdio transport is available)",
+            transport
+        );
+        std::process::exit(2);
     }
 }
 

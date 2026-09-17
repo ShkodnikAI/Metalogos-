@@ -1,0 +1,40 @@
+name: Stage 4 benchmark
+
+# Naryad #381 (issue #467, ADR-0141 §D5): the real-load benchmark on a
+# PINNED runner environment (ubuntu-latest) — both serve backends run in
+# their own process on the SAME machine (the harness spawns itself per
+# backend), so the comparison is same-environment by construction.
+# Manual trigger (workflow_dispatch): run it before the default-flip
+# re-gate and attach the JSON artifact to the naryad report.
+# The verdict logic itself lives in the harness — it prints the loud
+# §D5 verdict and writes target/bench-reports/stage4_benchmark_report.json.
+
+on:
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: 'Request cycles per backend (>= 5 per §D5; default 30)'
+        required: false
+        default: '30'
+
+jobs:
+  benchmark:
+    name: stage4-benchmark (vm vs interpreter)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run Stage 4 benchmark
+        run: |
+          cargo bench --bench stage4_benchmark -- --rounds ${{ github.event.inputs.rounds || '30' }} 2>&1 | tee stage4_run.log
+      - name: Print the §D5 verdict
+        run: grep -E "VERDICT|speedup|RSS ratio|per-route" stage4_run.log || true
+      - name: Upload raw JSON report + run log
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage4-benchmark-report
+          path: |
+            target/bench-reports/stage4_benchmark_report.json
+            stage4_run.log
+          if-no-files-found: error

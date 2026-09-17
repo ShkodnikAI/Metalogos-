@@ -4,7 +4,14 @@ All notable changes to the Metalogos project.
 
 ## [Unreleased]
 
+### Added
+
+- **Stage 4 real-load benchmark (naryad #381, issue #467, ADR-0141 §D5)**: a production-class corpus (`benches/fixtures/production_workload.mlog`, 2344 lines, FOSVED-like helpdesk — 14 routes over mock-LLM/vision/voice I/O, in-memory SQLite, kv, match/if/each/while/try DSL, path-template routes; deterministic-mock only, sanitize 0) plus a two-process harness (`benches/stage4_benchmark.rs`, `cargo bench --bench stage4_benchmark`): 30 request cycles × 14 routes per backend, per-route p50/p95/mean, peak RSS, startup split (parse+semantic vs VM compile), a DSL-only diagnostic, raw JSON report, and the loud §D5 verdict. Result: request-cycle mean speedup ×1.67–×1.95 across runs, no memory win → **INSUFFICIENT DATA — the default flip is NOT justified by this data** (the decision goes back to the owner re-gate with the numbers). The corpus contract (≥2000 lines, sanitize 0, Category-A clean, VM-compilable, route parity on both backends) is pinned in `tests/naryad_381_stage4_corpus.rs`.
+
 ### Fixed
+
+- **VM `query()` dropped its params list (naryad #381)**: the bytecode backend bound `stmt.query([])` unconditionally — every parameterized query failed with "Wrong number of parameters passed to query. Got 0, needed N" while the tree-walking backend bound them; `db_execute()`/`query_scalar()` stringified params (`Float`→`"3"`, `Bool`→`"true"`) instead of typed binds. All three now share the typed `convert_params` SSOT (caught by the Stage 4 corpus; pinned by unit tests).
+- **Server startup clobbered the shared in-memory DB connection (naryad #381)**: `run_server`/`run_test_server_with_backend` build the shared interpreter through a per-declaration merge chain, and `clone_definitions_into` unconditionally assigned `db_conn` — every merge after the `db {}` declaration overwrote the established `sqlite::memory:` connection with `None`, so ALL `query()` calls in route bodies failed with "no database connection" (per-request `reconnect_db()` treats in-memory as "already shared"). The merge now keeps an established connection.
 
 - **Stale VM opt-in warning (naryad #380, issue #466)**: the `METALOGOS_SERVE_BACKEND=vm` startup WARN claimed live Stage 1 limitations ("`match` statements fail to compile, block if/else silently evaluates to Unit") that №369/№370 closed — it loudly discouraged opt-in experiments with restrictions that no longer exist. The WARN now states the truth: experimental opt-in per ADR-0105; full-language parity (Stage 1 gaps closed, Stage 2 crosscheck green, ADR-0141); the default flip is gated (soak + real-load benchmark). Formatting artifacts inside the string literal removed. Historical ADR-0088/ADR-0105 texts untouched (historical accuracy).
 

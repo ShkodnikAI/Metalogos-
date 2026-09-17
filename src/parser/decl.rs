@@ -901,6 +901,31 @@ pub(super) fn parse_hook_decl(pair: Pair<Rule>) -> Result<Declaration, ParseErro
     Ok(Declaration::Hook(HookDecl { span, phase, body }))
 }
 
+// ── DenyEvent handler (Наряд №392) ─────────────────────────────────
+
+/// `on_deny(<sink-class|*>) { <statements> }` — parse the deny-event
+/// handler declaration. The class selector is `*` (every sink class) or
+/// one of the sink-class words; validity of the word is checked by the
+/// semantic pass (loud, with a span), not silently defaulted here.
+pub(super) fn parse_on_deny_decl(pair: Pair<Rule>) -> Result<Declaration, ParseError> {
+    let span = Span::from_pest(pair.as_span());
+    let children = children_of(&pair);
+    // on_deny_decl = { ON_DENY_KW ~ deny_class_word ~ LBRACE ~ statement* ~ RBRACE }
+    let class = children
+        .iter()
+        .find(|c| c.as_rule() == Rule::IDENT || c.as_rule() == Rule::DENY_ALL_CLASS)
+        .map(|c| c.as_str().trim().to_string())
+        .unwrap_or_else(|| "*".to_string());
+
+    let body: Vec<Statement> = children
+        .iter()
+        .filter(|c| c.as_rule() == Rule::statement)
+        .map(|c| parse_single_statement(c.clone()))
+        .collect::<Result<_, _>>()?;
+
+    Ok(Declaration::OnDeny(OnDenyDecl { span, class, body }))
+}
+
 // ── Sandbox (P2) ────────────────────────────────────────────────
 
 // ── Sandbox (P2) ────────────────────────────────────────────────

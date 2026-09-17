@@ -3425,18 +3425,17 @@ fn check_canary_leak(declarations: &[Declaration], source: &str, findings: &mut 
 // permissive_with_audit }` switches the gate to ADVISORY — each
 // violation becomes Severity::Info (an audit event in the report and a
 // stderr event on the compile/run path) instead of an Error.
-fn sink_check_id(fn_name: &str, arg_index: usize, label: &crate::labels::Label) -> &'static str {
-    use crate::labels::Conf;
-    use crate::labels::Integrity;
-    // Quarantine clears no sink (ADR-0154 §2.1) — the generic class.
-    if label.conf == Conf::Poisoned {
-        return "SINK_CLEARANCE";
-    }
-    let kind = match fn_name {
+// The sink-class word for a sink builtin: the vocabulary the №325
+// gate and the №392 `on_deny(...)` selector share. Extracted from
+// sink_check_id (№392) so the runtime deny path classifies sinks with
+// the exact same mapping the static audit uses. (Section comment, not
+// a doc block: the doc above this point belongs to the section header.)
+pub(crate) fn sink_kind(fn_name: &str) -> &'static str {
+    match fn_name {
         "exec" | "exec_argv" => "exec",
         "git_push" => "vcs",
         "tts_send" => "voice",
-        "db_execute" => "db",
+        "db_execute" | "db_execute_with_grant" => "db",
         "print" | "respond" | "respond_html" | "html_response" => "output",
         "write_file" | "append_file" | "delete_file" => "file",
         // №331 (ADR-0162): the sanctioned materialization sink is file
@@ -3445,7 +3444,27 @@ fn sink_check_id(fn_name: &str, arg_index: usize, label: &crate::labels::Label) 
         "media_save" => "file",
         "memorize" | "mem_set" | "mtree_store" | "kv_set" => "memory",
         _ => "network",
-    };
+    }
+}
+
+/// The deny-reason class (the audit check_id) for a sink call with the
+/// given argument label — the SSOT the №392 DenyEvent reasons mirror.
+/// `pub(crate)` since №392: the VM runtime twin computes the SAME reason
+/// for a runtime refusal, so event and diagnostic always agree.
+pub(crate) fn sink_check_id(
+    fn_name: &str,
+    arg_index: usize,
+    label: &crate::labels::Label,
+) -> &'static str {
+    use crate::labels::Conf;
+    use crate::labels::Integrity;
+    // Quarantine clears no sink (ADR-0154 §2.1) — the generic class.
+    if label.conf == Conf::Poisoned {
+        return "SINK_CLEARANCE";
+    }
+    // №392: the class mapping lives in sink_kind (single source, shared
+    // with the runtime deny path).
+    let kind = sink_kind(fn_name);
     match kind {
         "voice" => "VOICE_EGRESS_UNCONSENTED",
         "exec" => {

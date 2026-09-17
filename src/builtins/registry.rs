@@ -839,6 +839,16 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("grant_revoke", 1, "action"; builtin_grant_revoke),
     spec!("grant_use", 1, "action"; builtin_grant_use),
     spec!("db_execute_with_grant", 2, 3, "action"; builtin_db_execute_with_grant),
+    // ── Naryad #392: the DenyEvent surface ──────────────────────────────
+    // Handler-scoped, intercepted by NAME in BOTH backends (the
+    // interpreter's invoke() and the VM's call_builtin). Registry stubs
+    // exist so the compiler resolves the calls; real dispatch is
+    // backend-side (the event is runtime state). The analyzer blocks
+    // usage outside an on_deny handler at compile time; the runtime
+    // refuses when no event is live. APPENDED at the end — inserting
+    // mid-array would shift existing CallBuiltin indices (.mbc contract).
+    spec!("deny_event", 0, "stub"),
+    spec!("deny_reason", 0, "stub"),
 ];
 
 /// Total number of registered builtins.

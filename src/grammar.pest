@@ -5,7 +5,7 @@ COMMENT      = _{ "//" ~ (!("\n" | "\r") ~ ANY)* }
 
 program     =  { SOI ~ (declaration ~ WHITESPACE*)* ~ EOI }
 
-declaration = _{ test_decl | type_alias_decl | context_budget_decl | llm_decl | mlogserver_decl | template_decl | db_decl | schema_decl | skill_index_decl | memory_decl | import_decl | hook_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl | conversation_decl | tool_decl | reflex_decl | reflex_seq_decl | reflex_gen_decl | vision_decl | profile_decl | origin_decl }
+declaration = _{ test_decl | type_alias_decl | context_budget_decl | llm_decl | mlogserver_decl | template_decl | db_decl | schema_decl | skill_index_decl | memory_decl | import_decl | hook_decl | on_deny_decl | relate_decl | sandbox_decl | mutate_decl | eval_decl | fluid_decl | adapt_decl | memorize_decl | forget_decl | entity_type_decl | entity_record_decl | entity_simple_decl | rule_decl | learnable_pattern_decl | pattern_decl | flow_decl | conversation_decl | tool_decl | reflex_decl | reflex_seq_decl | reflex_gen_decl | vision_decl | profile_decl | origin_decl }
 
 // ── Type Alias (Наряд №119) ──────────────────────────────────────
 // type Token = Secret
@@ -53,6 +53,16 @@ ON_SESSION_START_KW  = @{ "on_session_start" }
 ON_WRITE_KW          = @{ "on_write" }
 ON_SESSION_END_KW    = @{ "on_session_end" }
 HOOK_KW       = @{ "hook" }
+
+// ── DenyEvent handler (Наряд №392): on_deny(<sink-class|*>) { ... } ─────
+// The body runs when a runtime security gate (sink clearance twin, grant
+// refusal) refuses an action; inside, deny_event() / deny_reason() expose
+// the typed DenyEvent. The handler can only HANDLE a refusal — it can
+// never re-allow the refused action (double protection, №392 §4).
+on_deny_decl  = { ON_DENY_KW ~ "(" ~ deny_class_word ~ ")" ~ LBRACE ~ statement* ~ RBRACE }
+deny_class_word = _{ DENY_ALL_CLASS | IDENT }
+DENY_ALL_CLASS = { "*" }
+ON_DENY_KW    = @{ "on_deny" }
 
 // ── MlogServer (Phase 6.1) ──────────────────────────────────────
 // server { port: 8080  middleware: [session, csrf, security_headers]  route "/path" method=GET requires=[role] { body } }

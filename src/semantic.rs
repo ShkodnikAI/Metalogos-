@@ -3235,6 +3235,326 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
     violations
 }
 
+// ── DenyEvent: handler scope + exhaustive matching (Наряд №392) ─────
+
+/// The deny-event analyzer pass (№392 §1-3):
+///
+/// 1. Class validation — every `on_deny(...)` selector must be `*` or a
+///    known sink-class word; duplicates are loud (two handlers for one
+///    class is almost certainly a copy-paste mistake, and the silent
+///    last-wins resolution would hide it).
+/// 2. Handler scope — `deny_event()` / `deny_reason()` are the only
+///    language surface of the runtime-constructed `DenyEvent`; outside an
+///    `on_deny` body they are a compile error (the event cannot be
+///    forged into existence — the runtime is the only constructor).
+/// 3. Exhaustive matching — a `match` over `deny_reason()` inside a
+///    handler is checked for completeness over the deny-reason enum
+///    (`crate::deny::DENY_REASONS`); an incomplete match without an
+///    `else` arm is a compile error listing every unhandled reason, and
+///    a match arm naming an unknown reason is a compile error (a typo
+///    can never silently match nothing).
+///
+/// Messages carry the `[DENY_` prefix — the run path (`run_program`)
+/// blocks on it the way it blocks on distill_to errors (ADR-0117 §2-3
+/// precedent).
+pub fn check_deny_events(declarations: &[Declaration], errors: &mut Vec<SpannedError>) {
+    // (1) class validation + duplicate detection.
+    let mut seen_classes: HashMap<&str, u32> = HashMap::new();
+    for decl in declarations {
+        if let Declaration::OnDeny(d) = decl {
+            if !crate::deny::is_valid_class(&d.class) {
+                errors.push(SpannedError::at(
+                    format!(
+                        "[DENY_CLASS] unknown on_deny class '{}' — expected '*' or one of: {} (Naryad #392)",
+                        d.class,
+                        crate::deny::SINK_CLASSES.join(", ")
+                    ),
+                    d.span.clone(),
+                ));
+                continue;
+            }
+            if seen_classes
+                .insert(d.class.as_str(), d.span.start_line)
+                .is_some()
+            {
+                errors.push(SpannedError::at(
+                    format!(
+                        "[DENY_CLASS] duplicate on_deny handler for class '{}' — the last one would silently shadow this one (Naryad #392)",
+                        d.class
+                    ),
+                    d.span.clone(),
+                ));
+            }
+        }
+    }
+
+    // (2)+(3) walk every declaration: statements inside an on_deny body
+    // run with in_handler = true, everything else with false.
+    for decl in declarations {
+        match decl {
+            Declaration::OnDeny(d) => {
+                walk_stmts_for_deny(&d.body, true, errors);
+            }
+            Declaration::Pattern(p) => walk_stmts_for_deny(&p.body, false, errors),
+            // Learnable patterns are prompt templates — no statement body
+            // to walk (the LLM call is the body).
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    walk_stmts_for_deny(&m.body, false, errors);
+                }
+            }
+            Declaration::Test(t) => walk_stmts_for_deny(&t.body, false, errors),
+            Declaration::Hook(h) => walk_stmts_for_deny(&h.body, false, errors),
+            Declaration::MlogServer(srv) => {
+                for r in &srv.routes {
+                    walk_stmts_for_deny(&r.body, false, errors);
+                }
+            }
+            Declaration::Flow(f) => {
+                // Flow steps are declarative; pattern references resolve
+                // at runtime — no deny builtins can hide in them.
+                let _ = f;
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Walk a statement list for the №392 deny checks (scope + exhaustive
+/// matching), recursing into every nested statement body.
+fn walk_stmts_for_deny(stmts: &[Statement], in_handler: bool, errors: &mut Vec<SpannedError>) {
+    for stmt in stmts {
+        walk_stmt_for_deny(stmt, in_handler, errors);
+    }
+}
+
+fn walk_stmt_for_deny(stmt: &Statement, in_handler: bool, errors: &mut Vec<SpannedError>) {
+    match stmt {
+        Statement::LetBinding { value, .. } | Statement::Assign { value, .. } => {
+            walk_expr_for_deny(value, in_handler, errors);
+        }
+        Statement::Each { iterable, body, .. }
+        | Statement::EachWithIndex { iterable, body, .. } => {
+            walk_expr_for_deny(iterable, in_handler, errors);
+            walk_stmts_for_deny(body, in_handler, errors);
+        }
+        Statement::While {
+            condition, body, ..
+        } => {
+            walk_expr_for_deny(condition, in_handler, errors);
+            walk_stmts_for_deny(body, in_handler, errors);
+        }
+        Statement::IfElseBlock {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            walk_expr_for_deny(condition, in_handler, errors);
+            walk_stmts_for_deny(then_body, in_handler, errors);
+            for (cond, body) in else_ifs {
+                walk_expr_for_deny(cond, in_handler, errors);
+                walk_stmts_for_deny(body, in_handler, errors);
+            }
+            if let Some(else_body) = else_body {
+                walk_stmts_for_deny(else_body, in_handler, errors);
+            }
+        }
+        Statement::IfThen {
+            condition, body, ..
+        } => {
+            walk_expr_for_deny(condition, in_handler, errors);
+            walk_stmts_for_deny(body, in_handler, errors);
+        }
+        Statement::Return { value, .. } => {
+            walk_expr_for_deny(value, in_handler, errors);
+        }
+        Statement::ExprStmt { expr, .. } => {
+            walk_expr_for_deny(expr, in_handler, errors);
+        }
+        Statement::Match {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            walk_expr_for_deny(scrutinee, in_handler, errors);
+            check_deny_match_exhaustiveness(scrutinee, arms, else_body.is_some(), stmt, errors);
+            for arm in arms {
+                walk_stmts_for_deny(arm.body(), in_handler, errors);
+            }
+            if let Some(else_body) = else_body {
+                walk_stmts_for_deny(else_body, in_handler, errors);
+            }
+        }
+        Statement::Memorize(m) => walk_expr_for_deny(&m.value, in_handler, errors),
+        Statement::Forget(f) => walk_expr_for_deny(&f.query, in_handler, errors),
+        Statement::Relate(r) => {
+            walk_expr_for_deny(&r.from, in_handler, errors);
+            walk_expr_for_deny(&r.to, in_handler, errors);
+        }
+        Statement::Break | Statement::Continue => {}
+    }
+}
+
+/// (3) Exhaustive matching over the deny-reason enum: a Match whose
+/// scrutinee is a bare `deny_reason()` call inside an on_deny handler.
+/// An arm naming an unknown reason is a compile error; a match without
+/// an `else` arm that does not cover every reason is a compile error
+/// listing exactly the unhandled reasons.
+fn check_deny_match_exhaustiveness(
+    scrutinee: &Expr,
+    arms: &[crate::ast::MatchArm],
+    has_else: bool,
+    stmt: &Statement,
+    errors: &mut Vec<SpannedError>,
+) {
+    let is_deny_reason_scrutinee = match scrutinee {
+        Expr::FnCall { name, args, .. } => name == "deny_reason" && args.is_empty(),
+        _ => false,
+    };
+    if !is_deny_reason_scrutinee {
+        return;
+    }
+    let mut covered: Vec<String> = Vec::new();
+    for arm in arms {
+        if let crate::ast::MatchArm::Exact(reason, _) = arm {
+            if !crate::deny::is_known_reason(reason) {
+                errors.push(SpannedError::at_expr(
+                    scrutinee,
+                    format!(
+                        "[DENY_MATCH_UNKNOWN] match over deny_reason() names '{}' — not a deny reason; known reasons: {} (Naryad #392)",
+                        reason,
+                        crate::deny::DENY_REASONS.join(", ")
+                    ),
+                ));
+            }
+            covered.push(reason.clone());
+        }
+        // starts_with / contains / compare arms on a reason word are
+        // honest wildcards-in-parts: they may match unpredictably, so
+        // they disable the exhaustiveness guarantee entirely unless an
+        // else arm exists.
+        if !matches!(arm, crate::ast::MatchArm::Exact(_, _)) {
+            return;
+        }
+    }
+    if has_else {
+        return;
+    }
+    let uncovered = crate::deny::uncovered_reasons(&covered);
+    if !uncovered.is_empty() {
+        errors.push(SpannedError::at(
+            format!(
+                "[DENY_MATCH_EXHAUSTIVE] match over deny_reason() is not exhaustive — unhandled deny reasons: {} (add arms or an else arm) (Naryad #392)",
+                uncovered.join(", ")
+            ),
+            stmt.span().clone(),
+        ));
+    }
+}
+
+/// (2) Handler scope: deny_event()/deny_reason() outside an on_deny body
+/// are a compile error; inside, recursion continues (a handler may call
+/// helpers? no — DenyEvent is handler-scoped, not importable, so nested
+/// calls inside expressions of the handler body are fine but a pattern
+/// called FROM the handler cannot read the event — the runtime gate
+/// enforces the same rule loudly).
+fn walk_expr_for_deny(expr: &Expr, in_handler: bool, errors: &mut Vec<SpannedError>) {
+    match expr {
+        Expr::FnCall { name, args, .. } => {
+            if (name == "deny_event" || name == "deny_reason") && !in_handler {
+                errors.push(SpannedError::at_expr(
+                    expr,
+                    format!(
+                        "[DENY_HANDLER_SCOPE] {}() is only available inside an on_deny handler — the DenyEvent is runtime-constructed, it cannot be forged (Naryad #392)",
+                        name
+                    ),
+                ));
+            }
+            for a in args {
+                walk_expr_for_deny(a, in_handler, errors);
+            }
+        }
+        Expr::QualifiedCall { args, .. } => {
+            for a in args {
+                walk_expr_for_deny(a, in_handler, errors);
+            }
+        }
+        Expr::FieldAccess { object, .. } => {
+            walk_expr_for_deny(object, in_handler, errors);
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            walk_expr_for_deny(left, in_handler, errors);
+            walk_expr_for_deny(right, in_handler, errors);
+        }
+        Expr::IfElse {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            walk_expr_for_deny(condition, in_handler, errors);
+            walk_expr_for_deny(then_branch, in_handler, errors);
+            walk_expr_for_deny(else_branch, in_handler, errors);
+        }
+        Expr::List { items, .. } => {
+            for i in items {
+                walk_expr_for_deny(i, in_handler, errors);
+            }
+        }
+        Expr::IndexAccess { object, index, .. } => {
+            walk_expr_for_deny(object, in_handler, errors);
+            walk_expr_for_deny(index, in_handler, errors);
+        }
+        Expr::StructLit { fields, .. } => {
+            for v in fields.values() {
+                walk_expr_for_deny(v, in_handler, errors);
+            }
+        }
+        Expr::BlockIfElse {
+            condition,
+            then_body,
+            else_ifs,
+            else_body,
+            ..
+        } => {
+            walk_expr_for_deny(condition, in_handler, errors);
+            walk_stmts_for_deny(then_body, in_handler, errors);
+            for (cond, body) in else_ifs {
+                walk_expr_for_deny(cond, in_handler, errors);
+                walk_stmts_for_deny(body, in_handler, errors);
+            }
+            if let Some(else_body) = else_body {
+                walk_stmts_for_deny(else_body, in_handler, errors);
+            }
+        }
+        Expr::MatchExpr {
+            scrutinee,
+            arms,
+            else_body,
+            ..
+        } => {
+            walk_expr_for_deny(scrutinee, in_handler, errors);
+            for arm in arms {
+                walk_stmts_for_deny(arm.body(), in_handler, errors);
+            }
+            if let Some(else_body) = else_body {
+                walk_stmts_for_deny(else_body, in_handler, errors);
+            }
+        }
+        Expr::Try { expr: inner, .. } => {
+            walk_expr_for_deny(inner, in_handler, errors);
+        }
+        Expr::HandleSource { .. } | Expr::ProvBind { .. } => {}
+        Expr::StringLit { .. }
+        | Expr::FloatLit { .. }
+        | Expr::BoolLit { .. }
+        | Expr::Ident { .. } => {}
+    }
+}
+
 // ── Integrity: anti-injection decision gate (Наряд №327) ─────────────
 
 /// One control-flow decision point whose deciding expression carries an
@@ -3726,6 +4046,11 @@ pub fn check_program(declarations: &[Declaration]) -> AnalysisResult {
     // `device { mode: production }` profile refuses unverifiable
     // (PendingNo334) rungs at BUILD time.
     check_backend_select_ladders(declarations, &mut result.errors);
+
+    // Наряд №392: deny-event handlers — class validation, handler scope
+    // of deny_event()/deny_reason(), exhaustive matching over the deny
+    // reasons. Messages carry the [DENY_ prefix the run path blocks on.
+    check_deny_events(declarations, &mut result.errors);
 
     // First pass: collect all declarations (names)
     for decl in declarations {

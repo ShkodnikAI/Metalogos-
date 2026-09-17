@@ -1,0 +1,11 @@
+// Naryad #392 (issue #486): the RED side of the exhaustive-matching rule.
+//
+// A match over deny_reason() inside an on_deny handler that names only ONE
+// reason and has no else arm is a COMPILE error — the analyzer lists every
+// unhandled deny reason. The red example of examples/w2_deny_exhaustive.mlog
+// (which covers all 13 reasons and passes).
+on_deny(db) {
+  match deny_reason() {
+    "SECRET_TO_EXEC" then { print("deny:SECRET_TO_EXEC") }
+  }
+}

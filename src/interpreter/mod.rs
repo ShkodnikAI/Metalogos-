@@ -182,6 +182,16 @@ pub struct Interpreter {
     hooks_session_start: Vec<HookDecl>,
     hooks_on_write: Vec<HookDecl>,
     hooks_session_end: Vec<HookDecl>,
+    /// Наряд №392: on_deny handlers — the deny-event handlers, collected
+    /// during run() like the hooks. Matched by sink class (exact match
+    /// wins over `*`) when a runtime gate refuses an action.
+    deny_handlers: Vec<OnDenyDecl>,
+    /// Наряд №392: the DenyEvent currently being handled (Some exactly
+    /// while an on_deny body runs). deny_event()/deny_reason() read it;
+    /// outside a handler both are loud runtime errors — the event cannot
+    /// be forged or stale-read. Mutex: the eval paths run on `&self`
+    /// (the interpreter's interior-mutability convention).
+    current_deny_event: std::sync::Mutex<Option<Value>>,
     /// Eval blocks (ADR-0050): collected during run(), executed by run_eval_blocks().
     eval_blocks: Vec<EvalDecl>,
     /// Test blocks: collected during run(), executed by test runner.
@@ -303,6 +313,8 @@ impl Interpreter {
             hooks_session_start: Vec::new(),
             hooks_on_write: Vec::new(),
             hooks_session_end: Vec::new(),
+            deny_handlers: Vec::new(),
+            current_deny_event: std::sync::Mutex::new(None),
             eval_blocks: Vec::new(),
             test_blocks: Vec::new(),
             pattern_stats: std::sync::Mutex::new(std::collections::HashMap::new()),
@@ -633,6 +645,10 @@ impl Interpreter {
         for h in &self.hooks_session_end {
             target.hooks_session_end.push(h.clone());
         }
+        // Наряд №392: deny handlers propagate to per-request interpreters
+        // (a route handler that hits a runtime gate must find the same
+        // on_deny surface the top-level program declared).
+        target.deny_handlers = self.deny_handlers.clone();
         // ADR-0053: copy conversation config (conversations themselves are per-session)
         target.conversation_config = self.conversation_config.clone();
 

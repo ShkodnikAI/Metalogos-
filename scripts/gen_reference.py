@@ -50,6 +50,8 @@ TODO = "TODO(doc)"
 # no handler anywhere, calling the name errors on both backends.
 MANUAL_DESCRIPTIONS = {
     "recall": "VM-native memory recall (handled inside `src/vm.rs`, no host handler): returns the best memory match for the query, optional minimum-confidence threshold. Registry arity entry kept for VM bytecode validation.",
+    "deny_event": "№392 DenyEvent — returns the typed deny event (`reason`, `sink`, `class`, `argument`, `label`, `line`, `human`) for the refusal being handled. Handler-scoped: intercepted by name inside `src/vm.rs` and `src/interpreter/execution.rs` (no host handler); outside an on_deny body it is a compile error and a loud runtime error.",
+    "deny_reason": "№392 deny reason word — returns the `reason` string of the live DenyEvent (same vocabulary the audit check_ids use). Handler-scoped like deny_event; a match over it inside on_deny is checked for exhaustiveness.",
     "forget": "VM-native memory forget (handled inside `src/vm.rs`, no host handler): removes matching memory entries by query.",
     "find": "VM-native entity-store query (handled inside `src/vm.rs`, no host handler): scans globals for Struct values matching (type, field, operator, threshold).",
     "conv_start": "VM-native conversation context (handled inside `src/vm.rs`, no host handler): opens a conversation by id.",

@@ -14,6 +14,77 @@ impl Interpreter {
         }
     }
 
+    /// Наряд №392: fire the on_deny handler for a refused action.
+    ///
+    /// Selection: an exact sink-class match wins over the `*` fallback;
+    /// no covering handler → `Ok(false)` and the caller keeps the loud
+    /// default error (deny behavior by default is unchanged).
+    ///
+    /// While the handler body runs, `current_deny_event` holds the typed
+    /// event — `deny_event()` / `deny_reason()` read it, everything else
+    /// sees loud errors. The handler runs AFTER the gate has already
+    /// refused the action and its verdict is final: the handler can log,
+    /// notify or degrade, it can never re-allow the refused action.
+    pub(super) fn fire_on_deny(
+        &self,
+        event_args: crate::deny::DenyEventArgs,
+    ) -> Result<bool, String> {
+        let crate::deny::DenyEventArgs {
+            reason,
+            class,
+            sink,
+            argument,
+            label,
+            line,
+            human,
+        } = event_args;
+        let handler = crate::deny::select_handler(
+            &self
+                .deny_handlers
+                .iter()
+                .map(|d| (d.class.clone(), ()))
+                .collect::<Vec<_>>(),
+            class.as_str(),
+        )
+        .and_then(|idx| self.deny_handlers.get(idx).cloned());
+        let Some(handler) = handler else {
+            return Ok(false);
+        };
+        // Observability parity with the runtime gate twin: the event is
+        // on stderr with the same audit-event convention (№325/№328).
+        eprintln!(
+            "[DENY_EVENT][audit-event] {} refused {} (class {}, reason {}, line {}) — handled by on_deny({})",
+            sink, argument, class, reason, line, handler.class
+        );
+        let event =
+            crate::deny::make_event(&reason, &sink, &class, &argument, &label, line, &human);
+        *self
+            .current_deny_event
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(event);
+        let mut handler_env = HashMap::new();
+        let result = self.eval_statements(&handler.body, &mut handler_env);
+        *self
+            .current_deny_event
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
+        // A failing handler is loud — a broken degradation path must not
+        // masquerade as a handled refusal.
+        result?;
+        Ok(true)
+    }
+
+    /// Наряд №392: the live deny event (Some exactly while an on_deny
+    /// body runs). Outside a handler this is a loud error — the event is
+    /// runtime-constructed and cannot be forged or stale-read.
+    pub(super) fn take_deny_event(&self) -> Result<Value, String> {
+        self.current_deny_event
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+            .ok_or_else(|| "deny_event() is only available inside an on_deny handler".to_string())
+    }
+
     /// Write-builtin names that trigger on_write hooks.
     pub(super) const WRITE_BUILTINS: &'static [&'static str] = &[
         "mem_set",

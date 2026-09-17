@@ -44,6 +44,11 @@ pub struct Compiler {
     vision_decls: Vec<crate::bytecode::CompiledVisionDecl>,
     /// Наряд №332 (ADR-0164): collected `origin` declarations.
     origin_decls: Vec<crate::bytecode::CompiledOriginDecl>,
+    /// Наряд №392: compiled on_deny handlers, in declaration order.
+    deny_handlers: Vec<crate::bytecode::CompiledDenyHandler>,
+    /// Наряд №392: class → handler index (read during pass2 to arm
+    /// SinkChecks with the deny path).
+    deny_handler_indices: HashMap<String, u32>,
     /// Наряд №204 (ADR-0121 stage 2): memory persist path from `memory { persist: ... }`.
     /// Passed to the VM so reflex_save/reflex_load work without the interpreter.
     memory_persist_path: Option<String>,
@@ -94,12 +99,19 @@ fn is_sink_call(name: &str) -> bool {
 
 /// Emit a SinkCheck for the argument when it is trackable at runtime:
 /// a variable (by name) or a direct source call (`@name`).
+/// Наряд №392: when the program declares an on_deny handler covering the
+/// sink's class, `deny_handler` carries its index and each emitted
+/// SinkCheck is armed with the deny path (skip_to patched later, once
+/// the refused call's continuation address is known). Returns the
+/// indices of the emitted SinkCheck instructions for that patching.
 fn emit_sink_checks(
     code: &mut Vec<Instruction>,
     fn_name: &str,
     args: &[crate::ast::Expr],
     line: u32,
-) {
+    deny_handler: Option<u32>,
+) -> Vec<usize> {
+    let mut emitted = Vec::new();
     for (i, a) in args.iter().enumerate() {
         let trackable = match a {
             crate::ast::Expr::Ident { name, .. } => Some(name.clone()),
@@ -109,17 +121,103 @@ fn emit_sink_checks(
             _ => None,
         };
         if let Some(arg) = trackable {
+            emitted.push(code.len());
             code.push(Instruction::SinkCheck {
                 fn_name: fn_name.to_string(),
                 arg,
                 line: line.max(1),
+                // №392: the argument position feeds the SAME reason
+                // classification the static gate uses (the network
+                // address-position rule).
+                arg_index: i as u32,
+                deny: deny_handler.map(|handler| SinkDenyPath {
+                    handler,
+                    skip_to: 0,
+                }),
             });
         }
-        let _ = i;
     }
+    emitted
 }
 
 impl Compiler {
+    /// Наряд №392: compile the `on_deny(<class|*>) { body }` handlers —
+    /// zero-arg zero-result code ending in `Const(Unit); Return`, run by
+    /// the VM's deny path with the CallPattern frame discipline. The
+    /// class → index map arms SinkCheck emission during pass2.
+    fn compile_deny_handlers(&mut self, declarations: &[Declaration]) -> Result<(), String> {
+        for (i, decl) in declarations.iter().enumerate() {
+            let Declaration::OnDeny(d) = decl else {
+                continue;
+            };
+            let mut locals: HashMap<String, usize> = HashMap::new();
+            let mut mutable: HashSet<String> = HashSet::new();
+            let mut next_slot = 0usize;
+            let mut loop_stack: Vec<(usize, Vec<usize>, Vec<usize>)> = Vec::new();
+            let mut code = Vec::new();
+            for stmt in &d.body {
+                self.compile_stmt_with_locals(
+                    stmt,
+                    &mut code,
+                    &mut locals,
+                    &mut next_slot,
+                    &mut loop_stack,
+                    &mut mutable,
+                )?;
+            }
+            // The handler's value is discarded by the deny path; end with
+            // an explicit Unit so a fall-through body still returns.
+            code.push(Instruction::Const(Value::Unit));
+            code.push(Instruction::Return);
+            self.deny_handler_indices
+                .insert(d.class.clone(), self.deny_handlers.len() as u32);
+            self.deny_handlers
+                .push(crate::bytecode::CompiledDenyHandler {
+                    class: d.class.clone(),
+                    name: format!("__on_deny_{}", i),
+                    code,
+                });
+        }
+        Ok(())
+    }
+
+    /// Наряд №392: emit the SinkChecks for a direct sink call in
+    /// statement position, armed with the on_deny path when the program
+    /// declares a covering handler for the sink's class. Returns the
+    /// emitted SinkCheck indices (skip_to patched once the continuation
+    /// is known).
+    fn emit_armed_sink_checks(
+        &self,
+        code: &mut Vec<Instruction>,
+        expr: &crate::ast::Expr,
+    ) -> Vec<usize> {
+        if let crate::ast::Expr::FnCall {
+            name, args, span, ..
+        } = expr
+        {
+            if is_sink_call(name) {
+                let class = crate::audit::sink_kind(name);
+                let handler = self.deny_handler_indices.get(class).copied();
+                return emit_sink_checks(code, name, args, span.start_line, handler);
+            }
+        }
+        Vec::new()
+    }
+
+    /// Наряд №392: patch the deny paths of the given SinkChecks to jump
+    /// to `skip_to` (the instruction that consumes the degraded Unit —
+    /// the Pop or Return that follows the refused call).
+    fn patch_deny_skip_to(code: &mut [Instruction], indices: &[usize], skip_to: usize) {
+        for &i in indices {
+            if let Instruction::SinkCheck {
+                deny: Some(path), ..
+            } = &mut code[i]
+            {
+                path.skip_to = skip_to as u32;
+            }
+        }
+    }
+
     /// Create a new compiler with default settings.
     pub fn new() -> Self {
         Self::with_std_root(std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
@@ -143,6 +241,8 @@ impl Compiler {
             reflex_gen_decls: Vec::new(),
             vision_decls: Vec::new(),
             origin_decls: Vec::new(),
+            deny_handlers: Vec::new(),
+            deny_handler_indices: HashMap::new(),
             memory_persist_path: None,
             db_url: None,
             schema_ddl: Vec::new(),
@@ -179,6 +279,11 @@ impl Compiler {
         // Pass 1: collect struct types, pattern names, learnable names, global slots
         self.pass1(&all_decls)?;
 
+        // Pass 1.5 (№392): compile the on_deny handler bodies — after the
+        // global slots are assigned (a handler may store into a global)
+        // and before pass2 arms SinkChecks with the handler indices.
+        self.compile_deny_handlers(&all_decls)?;
+
         // Pass 2: generate main_code
         let main_code = self.pass2(&all_decls)?;
 
@@ -202,6 +307,7 @@ impl Compiler {
             reflex_gen_decls: std::mem::take(&mut self.reflex_gen_decls),
             vision_decls: std::mem::take(&mut self.vision_decls),
             origin_decls: std::mem::take(&mut self.origin_decls),
+            deny_handlers: std::mem::take(&mut self.deny_handlers),
             db_url: self.db_url.take(),
             memory_persist_path: self.memory_persist_path.take(),
             schema_ddl: std::mem::take(&mut self.schema_ddl),
@@ -443,6 +549,9 @@ impl Compiler {
                 // №325: the compatibility profile is a compile-time
                 // declaration — nothing to emit.
                 Declaration::Profile(_) => {}
+                // №392: deny handlers were compiled in pass 1.5 — nothing
+                // to emit into main_code.
+                Declaration::OnDeny(_) => {}
                 Declaration::EntityType(e) => {
                     // Struct type already registered in pass1. No runtime instruction needed.
                     // (The VM will need to know about struct types for MakeStruct.)
@@ -2254,15 +2363,14 @@ impl Compiler {
             }
             Statement::Return { value: expr, .. } => {
                 // №328: the runtime twin of the №325 gate at sink sites.
-                if let crate::ast::Expr::FnCall {
-                    name, args, span, ..
-                } = expr
-                {
-                    if is_sink_call(name) {
-                        emit_sink_checks(code, name, args, span.start_line);
-                    }
-                }
+                // №392: armed with the on_deny path when a covering
+                // handler exists — a handled refusal degrades to Unit,
+                // which becomes the return value (skip_to lands on the
+                // Return below; the refused call never executes).
+                let deny_checks = self.emit_armed_sink_checks(code, expr);
                 self.compile_expr_with_locals(expr, code, locals, next_slot, loop_stack, mutable)?;
+                let skip_to = code.len();
+                Self::patch_deny_skip_to(code, &deny_checks, skip_to);
                 code.push(Instruction::Return);
             }
             Statement::While {
@@ -2380,15 +2488,12 @@ impl Compiler {
             }
             Statement::ExprStmt { expr, .. } => {
                 // №328: the runtime twin of the №325 gate at sink sites.
-                if let crate::ast::Expr::FnCall {
-                    name, args, span, ..
-                } = expr
-                {
-                    if is_sink_call(name) {
-                        emit_sink_checks(code, name, args, span.start_line);
-                    }
-                }
+                // №392: armed the same way — a handled refusal degrades
+                // to Unit, which the Pop below discards.
+                let deny_checks = self.emit_armed_sink_checks(code, expr);
                 self.compile_expr_with_locals(expr, code, locals, next_slot, loop_stack, mutable)?;
+                let skip_to = code.len();
+                Self::patch_deny_skip_to(code, &deny_checks, skip_to);
                 code.push(Instruction::Pop);
             }
             // Наряд №266: memory ops as statements (loop/if bodies route here

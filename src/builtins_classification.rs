@@ -334,6 +334,8 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "forget", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Irreversible, rationale: "intended destructive memory removal" } },
     BuiltClassEntry { name: "find", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "intended memory search — state read" } },
     BuiltClassEntry { name: "inspect", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "intended runtime introspection — state read" } },
+    BuiltClassEntry { name: "deny_event", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "№392 DenyEvent read — handler-scoped runtime state, no egress" } },
+    BuiltClassEntry { name: "deny_reason", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "№392 deny reason word — handler-scoped runtime state, no egress" } },
     BuiltClassEntry { name: "conv_start", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "intended conversation state creation" } },
     BuiltClassEntry { name: "conv_add", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "intended conversation state append" } },
     BuiltClassEntry { name: "conv_history", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Pure, rationale: "intended conversation state read" } },

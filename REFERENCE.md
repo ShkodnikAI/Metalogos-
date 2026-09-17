@@ -545,7 +545,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 449 registered builtins (444 of 444): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 455 registered builtins (455 of 455): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1931,7 +1931,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 449 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 455 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2346,7 +2346,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `backend_list(...)` | variadic | — | `backend_list()` — the static backend registry as `List[Struct { name, class, weights_id, pin, license, license_note }]`. |
 | `backend_select(...)` | 2 | — | `backend_select(class, ladder)` — the backend try-chain (Наряд №336, ADR-0165). Walks the ladder in priority order over the №333 registry SSOT; every rung attempt is an audit event (stderr line + the program-visible `attempts` list, №326 posture). |
 
-### `security` — 6 builtin(s)
+### `security` — 12 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2355,6 +2355,12 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `consent_grant(...)` | 2..4 | — | `consent_grant(value, scope, subject?, ttl_seconds?)` — record the grant in the ledger; the value passes through with its consent scope extended (static: semantic.rs label_source). |
 | `consent_ledger_export(...)` | 1 | — | `consent_ledger_export(path)` — dump the ledger as JSON to a sandboxed path (FILE EGRESS — classified Sink, audited). Returns the written path. |
 | `consent_revoke(...)` | 1..2 | — | `consent_revoke(value, scope?)` — record the revocation (scope or ALL); the value is returned under the quarantine label — the flat cascade poisons every derivative through lattice absorption. |
+| `ledger_count(...)` | variadic | — | `ledger_count()` — number of records in the process-local journal. |
+| `ledger_export(...)` | 1 | — | `ledger_export(path)` — dump the verifiable JSONL chain to a sandboxed path. FILE EGRESS — classified Sink, audited. Returns the written path. |
+| `ledger_export_intoto(...)` | 1 | — | `ledger_export_intoto(path)` — dump the in-toto Statement profile (ADR-0157) to a sandboxed path. FILE EGRESS — classified Sink. |
+| `ledger_head(...)` | variadic | — | `ledger_head()` — the current head hash ("" for an empty journal). |
+| `ledger_rotate(...)` | variadic | — | `ledger_rotate()` — append a key-rotation record (signed by the still-active key); returns the NEW key id. Subsequent records are signed by the fresh key (signer continuity, ADR-0167 §3.2). |
+| `ledger_snapshot(...)` | variadic | — | `ledger_snapshot()` — append a snapshot record pinning the head; returns the snapshot record hash (the `mlog ledger archive` anchor). |
 | `quarantine_write(...)` | 1..2 | — | `quarantine_write(value, reason?)` — the quarantine sink: the ONLY legal egress for a poisoned value. Returns the audit-event text (the program-visible half of the event; the static half is the QUARANTINE_EGRESS audit finding + stderr line, №326 posture). |
 
 ### `std` — 11 builtin(s)
@@ -2653,20 +2659,6 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `__round` | pure | public | pure | — |
 | `__first` | pure | public | pure | — |
 | `__last` | pure | public | pure | — |
-| `backend_list` | source | public | pure | reads the static backend registry metadata (name/class/weights_id/pin/license — ADR-0163) — no weights bytes exist behind the entries |
-| `backend_select` | source | internal | pure | backend try-chain over the №333 registry SSOT (№336, ADR-0165): picks the first available rung or returns Degraded(t) — a typed result, never a panic, never a silent mock; every attempt is an audit event |
-| `stt_transcribe` | source | internal | pure | local STT backend call (№334, whisper-turbo canon): ingests the transcript into the flow; the audio stays local (no upload — unlike whisper_transcribe); real mode requires SHA-pinned weights (PARKED №294) |
-| `omni_ask` | source | internal | pure | local omni backend call (№334, nemotron canon): ingests the model answer into the flow; no network egress; real mode requires SHA-pinned weights (PARKED №294) |
-| `vision_understand` | source | internal | pure | local vision-understanding backend call (№334, molmoact2 canon): ingests the answer about an image into the flow; no upload, no egress; real mode requires SHA-pinned weights (PARKED №294) |
-| `consent_grant` | lift | public | pure | records (subject, scope, TTL) in the consent ledger and passes the value through with the consent scope EXTENDED (semantic.rs label_source) — process-local bookkeeping, no egress |
-| `consent_revoke` | lift | public | pure | records the revocation and returns the value under the QUARANTINE label — the flat cascade is lattice absorption (poison is absorbing, ADR-0154 §2.1); process-local bookkeeping |
-| `quarantine_write` | sink | internal | reversible | THE quarantine sink — the only legal egress for poisoned values (№325 clearance exempts it); unconditional QUARANTINE_EGRESS audit event (№326 posture) |
-| `consent_ledger_export` | sink | internal | reversible | dumps the consent ledger as JSON to a sandboxed path — FILE EGRESS with an audit event (grant/TTL/revoke records never leave the process silently) |
-| `grant_issue` | source | internal | reversible | mints an opaque Grant capability (ADR-0155 §3.1) recorded in the grant ledger — process-local bookkeeping, revocable via grant_revoke |
-| `grant_subgrant` | source | internal | reversible | attenuation-only derivation of a Grant (ADR-0155 §3.3 rule 4) — narrower scope, shorter TTL, lower class power; ledger-recorded and revocable |
-| `grant_revoke` | sink | internal | irreversible | cascading revocation (ADR-0155 §3.3 rule 5) — the target and every descendant transition to revoked; the ledger records are append-only |
-| `grant_use` | sink | internal | irreversible | consumes one use of a grant (Once → consumed, N(n) → decrement) — quota consumption cannot be undone |
-| `db_execute_with_grant` | sink | internal | irreversible | arbitrary SQL write under a capability grant (ADR-0155 §3.2) — same egress class as db_execute, gated by ledger state/TTL/scope/quota |
 | `abs` | pure | public | pure | — |
 | `min` | pure | public | pure | — |
 | `max` | pure | public | pure | — |
@@ -2702,18 +2694,6 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `git_push` | sink | network | irreversible | pushes to a remote repository — external, non-undoable effect (issue minimum list) |
 | `mcp_call` | source | network | pure | ingests untrusted MCP tool output — UserInput taint by ADR-0132 D3 |
 | `mcp_list_tools` | source | network | pure | ingests external tool metadata over MCP (not tainted per ADR-0132, still external ingress) |
-| `media_store_image` | lift | internal | reversible | wraps provided bytes into an opaque Image handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
-| `media_store_audio` | lift | internal | reversible | wraps provided bytes into an opaque Audio handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
-| `media_store_video_frame` | lift | internal | reversible | wraps provided bytes into an opaque VideoFrame handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
-| `media_store_video_segment` | lift | internal | reversible | wraps provided bytes into an opaque VideoSegment handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
-| `media_save` | sink | internal | reversible | the ONLY sanctioned materialization of media bytes — file egress through the io sandbox; №325 sink clearance (private-egress) + runtime backstop MEDIA_SEALED_EGRESS (ADR-0162 §2.5) |
-| `media_retain` | pure | public | pure | refcount +1 on a media handle (ADR-0162 §2.4) — pure store bookkeeping, no byte movement |
-| `media_release` | pure | public | pure | refcount −1 on a media handle; 0 evicts the entry (sealed bytes zeroized) — store bookkeeping, no external effect |
-| `media_meta` | source | public | pure | reads media store METADATA only (kind/conf/refs/sealed/origin) — no bytes leave the store |
-| `media_source_capture` | source | internal | pure | HandleSource runtime (№332/ADR-0164): captures a handle from a DECLARED origin (file-backed through the io sandbox; camera is a loud PARKED boundary) — the handle label is the origin's declared conf |
-| `media_bind_origin` | pure | public | pure | ProvBind runtime (№332/ADR-0164): binds an entry's origin and joins the declared conf into the entry label (re-seals when public becomes non-public) — store bookkeeping, no byte movement |
-| `media_manifest` | source | public | pure | reads the entry-level manifest facts (kind/origin/conf/synthetic/bytes_sha256 — ADR-0166 §2.4) WITHOUT materializing bytes — store metadata, no egress |
-| `media_manifest_read` | source | internal | pure | ingests a provenance sidecar (<path>.manifest.json) from the sandbox (ADR-0166 §2.4): manifest content enters the flow; missing/empty/corrupt sidecars are loud refusals (№320 posture), synthetic reads conservatively true |
 | `get` | pure | public | pure | — |
 | `push` | pure | public | pure | — |
 | `slice` | pure | public | pure | — |
@@ -2796,8 +2776,6 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `forget` | sink | internal | irreversible | intended destructive memory removal |
 | `find` | source | internal | pure | intended memory search — state read |
 | `inspect` | source | internal | pure | intended runtime introspection — state read |
-| `deny_event` | source | internal | pure | №392 DenyEvent read — handler-scoped runtime state, no egress |
-| `deny_reason` | source | internal | pure | №392 deny reason word — handler-scoped runtime state, no egress |
 | `conv_start` | sink | internal | reversible | intended conversation state creation |
 | `conv_add` | sink | internal | reversible | intended conversation state append |
 | `conv_history` | source | internal | pure | intended conversation state read |
@@ -3031,6 +3009,20 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `vision_load` | source | internal | pure | ingests a persisted Vision artifact |
 | `vision_lora_load` | source | internal | pure | ingests a persisted LoRA adapter |
 | `vision_lora_generate` | sink | internal | reversible | persists a LoRA-generated artifact in the VisionRegistry |
+| `media_store_image` | lift | internal | reversible | wraps provided bytes into an opaque Image handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
+| `media_store_audio` | lift | internal | reversible | wraps provided bytes into an opaque Audio handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
+| `media_store_video_frame` | lift | internal | reversible | wraps provided bytes into an opaque VideoFrame handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
+| `media_store_video_segment` | lift | internal | reversible | wraps provided bytes into an opaque VideoSegment handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop |
+| `media_save` | sink | internal | reversible | the ONLY sanctioned materialization of media bytes — file egress through the io sandbox; №325 sink clearance (private-egress) + runtime backstop MEDIA_SEALED_EGRESS (ADR-0162 §2.5) |
+| `media_retain` | pure | public | pure | — |
+| `media_release` | pure | public | pure | — |
+| `media_meta` | source | public | pure | reads media store METADATA only (kind/conf/refs/sealed/origin) — no bytes leave the store |
+| `media_source_capture` | source | internal | pure | HandleSource runtime (№332/ADR-0164): captures a handle from a DECLARED origin (file-backed through the io sandbox; camera is a loud PARKED boundary) — the handle label is the origin's declared conf |
+| `media_bind_origin` | pure | public | pure | — |
+| `backend_list` | source | public | pure | reads the static backend registry metadata (name/class/weights_id/pin/license — ADR-0163) — no weights bytes exist behind the entries |
+| `backend_select` | source | internal | pure | backend try-chain over the №333 registry SSOT (№336, ADR-0165): picks the first available rung or returns Degraded(t) — a typed result, never a panic, never a silent mock; every attempt is an audit event |
+| `media_manifest` | source | public | pure | reads the entry-level manifest facts (kind/origin/conf/synthetic/bytes_sha256 — ADR-0166 §2.4) WITHOUT materializing bytes — store metadata, no egress |
+| `media_manifest_read` | source | internal | pure | ingests a provenance sidecar (<path>.manifest.json) from the sandbox (ADR-0166 §2.4): manifest content enters the flow; missing/empty/corrupt sidecars are loud refusals (№320 posture), synthetic reads conservatively true |
 | `canary_insert` | sink | internal | reversible | plants canary markers into channels — security-instrumentation state write (№284) |
 | `canary_check` | source | internal | pure | reads canary leak-detection state (№284) |
 | `json_validate` | pure | public | pure | — |
@@ -3053,8 +3045,30 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `frame_interp` | sink | internal | reversible | persists an interpolated artifact in VIDEO_REGISTRY (ADR-0151 D2) |
 | `video_extend` | sink | internal | reversible | persists an extended artifact in VIDEO_REGISTRY (ADR-0151 D3) |
 | `video_fetch_weights` | source | network | reversible | intended external weights fetch (formal No-Go №294 class, ADR-0151 D7); covered by MODEL_WEIGHTS_UNSAFE |
+| `stt_transcribe` | source | internal | pure | local STT backend call (№334, whisper-turbo canon): ingests the transcript into the flow; the audio stays local (no upload — unlike whisper_transcribe); real mode requires SHA-pinned weights (PARKED №294) |
+| `omni_ask` | source | internal | pure | local omni backend call (№334, nemotron canon): ingests the model answer into the flow; no network egress; real mode requires SHA-pinned weights (PARKED №294) |
+| `vision_understand` | source | internal | pure | local vision-understanding backend call (№334, molmoact2 canon): ingests the answer about an image into the flow; no upload, no egress; real mode requires SHA-pinned weights (PARKED №294) |
+| `consent_grant` | lift | public | pure | records (subject, scope, TTL) in the consent ledger and passes the value through with the consent scope EXTENDED (semantic.rs label_source) — process-local bookkeeping, no egress |
+| `consent_revoke` | lift | public | pure | records the revocation and returns the value under the QUARANTINE label — the flat cascade is lattice absorption (poison is absorbing, ADR-0154 §2.1); process-local bookkeeping |
+| `quarantine_write` | sink | internal | reversible | THE quarantine sink — the only legal egress for poisoned values (№325 clearance exempts it); unconditional QUARANTINE_EGRESS audit event (№326 posture) |
+| `consent_ledger_export` | sink | internal | reversible | dumps the consent ledger as JSON to a sandboxed path — FILE EGRESS with an audit event (grant/TTL/revoke records never leave the process silently) |
+| `grant_issue` | pure | public | pure | — |
+| `grant_subgrant` | pure | public | pure | — |
+| `grant_revoke` | pure | public | pure | — |
+| `grant_use` | pure | public | pure | — |
+| `db_execute_with_grant` | pure | public | pure | — |
+| `deny_event` | source | internal | pure | №392 DenyEvent read — handler-scoped runtime state, no egress |
+| `deny_reason` | source | internal | pure | №392 deny reason word — handler-scoped runtime state, no egress |
+| `ledger_count` | pure | public | pure | — |
+| `ledger_head` | pure | public | pure | — |
+| `ledger_export` | sink | internal | reversible | dumps the verifiable JSONL chain to a sandboxed path — FILE EGRESS with an audit event (the signed action trail never leaves the process silently, ADR-0167 §3.5) |
+| `ledger_export_intoto` | sink | internal | reversible | dumps the in-toto Statement profile (ADR-0157) to a sandboxed path — FILE EGRESS, same class as ledger_export |
+| `ledger_rotate` | lift | public | irreversible | appends a key-rotation record signed by the still-active key and switches to the fresh key (ADR-0167 §3.3) — the chain transition cannot be undone |
+| `ledger_snapshot` | lift | public | irreversible | appends a snapshot record pinning the head (ADR-0167 §3.2) — the archive anchor is a permanent chain record |
 
 <!-- END GENERATED BUILTIN CLASSIFICATION -->
+
+
 
 
 

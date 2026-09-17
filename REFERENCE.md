@@ -56,6 +56,20 @@ The `mlog` binary supports the following commands:
 | `mlog resume <file.mlog> --flow=<name> --from=<checkpoint>` | Resume a flow from a checkpoint |
 | `mlog audit <file.mlog>` | Static security audit without execution |
 | `mlog test <file.mlog> [--filter=substring]` | Run `test` blocks (unit tests) |
+| `mlog mcp-serve <file.mlog> --allowlist t1.m1,t2` | Expose `tool` constructs as MCP tools (transports: stdio default \| http \| sse — see below) |
+| `mlog ledger verify <file.jsonl> [--expect-head H] [--expect-key K]` | External verification of an exported Action Ledger chain (no runtime; Naryad #393, ADR-0167) |
+| `mlog ledger archive <in.jsonl> <out.jsonl> --at <seq>` | Archive the chain at a snapshot anchor (verified before written) |
+
+#### MCP server (`mlog mcp-serve`) — transports, auth, tool-policy (Naryad #394, ADR-0168)
+
+| Aspect | Contract |
+|---|---|
+| Transports | `--transport stdio` (default — newline-framed JSON-RPC 2.0 over stdin/stdout, identical to №297), `--transport http` (JSON-RPC over `POST /mcp`), `--transport sse` (MCP HTTP+SSE: `GET /sse` emits the `endpoint` event, the client POSTs JSON-RPC to that path, responses arrive as `message` events on the session stream). http/sse require the `server` feature (default-on). |
+| Bind | `--bind <addr:port>` (http/sse only; default `127.0.0.1:8770`). |
+| Auth | `--auth-token <token>` or `METALOGOS_MCP_AUTH_TOKEN` → every request (POST and SSE) requires `Authorization: Bearer <token>`, mismatch = 401. Without a token a loopback bind is the accepted alternative; a non-loopback bind without a token is a LOUD WARNING, never silent (the №263 posture). |
+| Fail-closed | `--allowlist` is required on every transport — an empty allowlist refuses to start; unknown tools are JSON-RPC `-32602` refusals. The allowlist alone decides what is published. |
+| Tool-policy | Compiled from the profile — each `tools/list` entry carries `_meta["metalogos.dev/policy"]` with `sink_calls` (№316 Role::Sink calls + `audit::sink_kind` classes), `clearance_args` (params flowing into sink arguments), `irreversible`, `source_calls` — no manual YAML. The policy annotates; it never widens. |
+| Security parity | The same `McpServer::handle_request` core serves every transport: allowlist/exec/env gates, label clearance and taint rules are transport-independent (pinned by `tests/naryad_394_mcp_server.rs`). |
 
 ### Environment variables
 
@@ -67,6 +81,8 @@ The `mlog` binary supports the following commands:
 | `METALOGOS_TTS_BASE_URL` | base URL override for speech synthesis (default `https://api.openai.com/v1`; `/audio/speech` appended) — mock servers / self-host proxies (Naryad #279) |
 | `METALOGOS_STT_BASE_URL` | base URL override for transcription (`whisper_transcribe`; provider default, `/audio/transcriptions` appended) — mock servers / self-host proxies (Naryad #279) |
 | `METALOGOS_FORCE_PIPE` | `1` — force piped-mode REPL (for tests) |
+| `METALOGOS_MCP_AUTH_TOKEN` | bearer token for `mlog mcp-serve --transport http\|sse` when `--auth-token` is not given (Naryad #394, ADR-0168) |
+| `METALOGOS_LEDGER_KEY` | 64-hex signing seed for the Action Ledger (reproducible chains in tests/CI; unset = OS-random key per process; Naryad #393, ADR-0167) |
 
 ---
 

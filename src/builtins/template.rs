@@ -408,6 +408,9 @@ fn value_to_string(v: &Value) -> String {
         Value::Secret(_) => "[Secret]".to_string(),
         Value::Encrypted(_) => "[Encrypted]".to_string(),
         Value::Hash(_) => "[Hash]".to_string(),
+        // Naryad #390 (ADR-0155): grants render as the bare opaque tag —
+        // no capability detail enters interpolation output.
+        Value::Grant(_) => "[Grant]".to_string(),
         Value::Session(_) => "[Session]".to_string(),
         Value::HttpResponse { status, .. } => format!("[HttpResponse {}]", status),
         Value::Subgraph(snap) => format!(

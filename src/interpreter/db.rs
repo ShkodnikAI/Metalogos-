@@ -268,6 +268,100 @@ impl Interpreter {
         Ok(Value::String(affected.to_string()))
     }
 
+    /// Naryad #390 (ADR-0155 §3.3 rule 6): the granted destructive-SQL
+    /// action. Gates at runtime, in order: ledger state (active /
+    /// not-consumed / not-revoked), TTL, SCOPE coverage of the SQL's
+    /// destructive ops (GRANT_SCOPE_MISMATCH), then execute, then consume
+    /// (Once -> consumed, N(n) -> decrement, Unlimited -> audited event).
+    /// Non-destructive SQL under a grant executes WITHOUT consumption
+    /// (nothing irreversible happened) and still writes the event.
+    pub(super) fn invoke_db_execute_with_grant(&self, args: &[Value]) -> Result<Value, String> {
+        let fn_name = "db_execute_with_grant";
+        if args.len() < 2 || args.len() > 3 {
+            return Err(format!(
+                "{}: expects 2..3 arguments (grant, sql, params?), got {}",
+                fn_name,
+                args.len()
+            ));
+        }
+        let handle = match &args[0] {
+            Value::Grant(h) => h.clone(),
+            other => {
+                return Err(format!(
+                    "{}: first argument must be a Grant, got {}",
+                    fn_name,
+                    other.type_name()
+                ))
+            }
+        };
+        let sql = match &args[1] {
+            Value::String(s) => s.clone(),
+            other => {
+                return Err(format!(
+                    "{}: second argument must be String SQL, got {}",
+                    fn_name,
+                    other.type_name()
+                ))
+            }
+        };
+        let params: Vec<rusqlite::types::Value> = match args.get(2) {
+            Some(Value::List(items)) => convert_params(items)?,
+            Some(other) => {
+                return Err(format!(
+                    "{}: third argument must be List, got {}",
+                    fn_name,
+                    other.type_name()
+                ))
+            }
+            None => Vec::new(),
+        };
+        // Gate BEFORE execution: state/TTL (check_active) + scope coverage
+        // of every destructive op in the statement.
+        crate::grants::check_active(&handle)?;
+        let ops = crate::grants::extract_destructive_ops(&sql);
+        let destructive = !ops.is_empty();
+        for (op, table) in &ops {
+            if !crate::grants::scope_covers(&handle.scope, op, table) {
+                return Err(format!(
+                    "GRANT_SCOPE_MISMATCH: grant {} ({}, scope '{}') does not cover {} {}",
+                    handle.grant_id, handle.class, handle.scope, op, table
+                ));
+            }
+        }
+        let guard = self
+            .db_conn
+            .lock()
+            .map_err(|e| format!("db lock error: {}", e))?;
+        let conn = guard.as_ref().ok_or_else(|| {
+            "db_execute_with_grant() error: no database connection. Declare db { url: \"sqlite::memory:\" } first."
+                .to_string()
+        })?;
+        let affected = conn
+            .execute(&sql, rusqlite::params_from_iter(params.iter()))
+            .map_err(|e| format!("db_execute_with_grant() SQL error: {}", e))?;
+        drop(guard);
+        // Post-success consumption/audit (never on SQL failure).
+        if destructive {
+            crate::grants::grant_use(&handle, &format!("db_execute_with_grant: {}", sql))?;
+            eprintln!(
+                "[GRANT_USE] grant (scope '{}', class {}) executed {} (affected {}) — remaining {}",
+                handle.scope,
+                handle.class,
+                sql.trim(),
+                affected,
+                crate::grants::state_of(&handle.grant_id)
+                    .map(|(_, r)| r)
+                    .unwrap_or(-1)
+            );
+        } else {
+            eprintln!(
+                "[GRANT_USE] grant (scope '{}') ran non-destructive SQL — no consumption",
+                handle.scope
+            );
+        }
+        Ok(Value::String(affected.to_string()))
+    }
+
     /// Наряда-26 P1-7: query_scalar(sql, params) -> Value
     /// Executes a SELECT that returns exactly one row with one column.
     /// Returns the scalar value directly (String, Float, or Unit for NULL).

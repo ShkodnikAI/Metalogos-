@@ -111,6 +111,14 @@ pub enum Value {
     /// Byte egress is reachable only through sanctioned sinks
     /// (`media_save`, gated by №325 + the runtime backstop).
     Media(crate::media::MediaHandle),
+    /// Opaque Grant capability handle (Naryad #390, ADR-0155 §3.1).
+    /// The handle is an untrusted cache of the grant-ledger record
+    /// (`src/grants.rs` — the SSOT for class/quota/revocation state).
+    /// Non-printable, non-serializable (serde emits a dead "[GRANT]"
+    /// marker — rule 2 of the ADR linearity rules); a grant consumed by
+    /// use, or reconstructed through deserialization, refuses every
+    /// later use with a typed error (GRANT_REUSED / GRANT_EXPIRED).
+    Grant(crate::grants::GrantHandle),
 }
 
 impl std::fmt::Display for Value {
@@ -193,6 +201,10 @@ impl std::fmt::Display for Value {
             // Наряд №331 (ADR-0162): media handle display — per-kind
             // format from the handle itself ([Image#N] etc.).
             Value::Media(h) => write!(f, "{}", h),
+            // Naryad #390 (ADR-0155): grant handles display as an opaque
+            // marker — no scope/class detail leaks through Display (the
+            // print()/to_string() surface refuses Grants outright).
+            Value::Grant(_) => write!(f, "[Grant]"),
         }
     }
 }
@@ -229,6 +241,7 @@ impl Value {
             // Наряд №331 (ADR-0162): media handle type names —
             // "Image" / "Audio" / "VideoFrame" / "VideoSegment".
             Value::Media(h) => h.kind().type_name(),
+            Value::Grant(_) => "Grant",
         }
     }
 
@@ -339,6 +352,10 @@ pub fn is_nonprintable(v: &Value) -> bool {
             | Value::Subgraph(_)
             | Value::Reflex(_)
             | Value::BpeVocab(_)
+            // Naryad #390 (ADR-0155 rule 2): a grant is a capability —
+            // printing/displaying it is refused like every other opaque
+            // security value.
+            | Value::Grant(_)
             // Наряд №210: Vision handle is opaque — must not be printed directly.
             | Value::Vision(_)
             // Наряд №302: Voice/Audio handles are opaque.

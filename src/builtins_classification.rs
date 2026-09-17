@@ -192,6 +192,17 @@ pub static BUILTIN_CLASSES: &[BuiltClassEntry] = &[
     BuiltClassEntry { name: "consent_revoke", class: BuiltClass { role: Role::Lift, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "records the revocation and returns the value under the QUARANTINE label — the flat cascade is lattice absorption (poison is absorbing, ADR-0154 §2.1); process-local bookkeeping" } },
     BuiltClassEntry { name: "quarantine_write", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "THE quarantine sink — the only legal egress for poisoned values (№325 clearance exempts it); unconditional QUARANTINE_EGRESS audit event (№326 posture)" } },
     BuiltClassEntry { name: "consent_ledger_export", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "dumps the consent ledger as JSON to a sandboxed path — FILE EGRESS with an audit event (grant/TTL/revoke records never leave the process silently)" } },
+    // Naryad #390 (ADR-0155): the Grant algebra surface. Issue/subgrant
+    // mint capability values from process-local ledger bookkeeping (no
+    // egress, revocable → reversible); revoke/use are irreversible state
+    // transitions (quota consumption and cascading revocation cannot be
+    // undone); db_execute_with_grant is the same DB sink as db_execute,
+    // now capability-gated (still irreversible).
+    BuiltClassEntry { name: "grant_issue", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "mints an opaque Grant capability (ADR-0155 §3.1) recorded in the grant ledger — process-local bookkeeping, revocable via grant_revoke" } },
+    BuiltClassEntry { name: "grant_subgrant", class: BuiltClass { role: Role::Source, default_label: Label::Internal, reversibility: Reversibility::Reversible, rationale: "attenuation-only derivation of a Grant (ADR-0155 §3.3 rule 4) — narrower scope, shorter TTL, lower class power; ledger-recorded and revocable" } },
+    BuiltClassEntry { name: "grant_revoke", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Irreversible, rationale: "cascading revocation (ADR-0155 §3.3 rule 5) — the target and every descendant transition to revoked; the ledger records are append-only" } },
+    BuiltClassEntry { name: "grant_use", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Irreversible, rationale: "consumes one use of a grant (Once → consumed, N(n) → decrement) — quota consumption cannot be undone" } },
+    BuiltClassEntry { name: "db_execute_with_grant", class: BuiltClass { role: Role::Sink, default_label: Label::Internal, reversibility: Reversibility::Irreversible, rationale: "arbitrary SQL write under a capability grant (ADR-0155 §3.2) — same egress class as db_execute, gated by ledger state/TTL/scope/quota" } },
     BuiltClassEntry { name: "abs", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "min", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },
     BuiltClassEntry { name: "max", class: BuiltClass { role: Role::Pure, default_label: Label::Public, reversibility: Reversibility::Pure, rationale: "" } },

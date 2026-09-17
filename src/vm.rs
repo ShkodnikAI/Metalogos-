@@ -1762,17 +1762,13 @@ impl Vm {
                 Some(Value::String(s)) => s.clone(),
                 _ => return Err("query_scalar() expected String SQL".to_string()),
             };
-            let params: Vec<String> = if args.len() > 1 {
+            // Naryad #381 parity fix: bind parameters TYPED (the shared
+            // convert_params SSOT) instead of stringifying them — the old
+            // Float→"3"/Bool→"true" string binds degraded types behind
+            // sqlite affinity (tree-walking binds them typed).
+            let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
                 match &args[1] {
-                    Value::List(items) => items
-                        .iter()
-                        .filter_map(|v| match v {
-                            Value::String(s) => Some(s.clone()),
-                            Value::Float(n) => Some(format!("{}", n)),
-                            Value::Bool(b) => Some(format!("{}", b)),
-                            _ => None,
-                        })
-                        .collect(),
+                    Value::List(items) => crate::interpreter::convert_params(items)?,
                     _ => Vec::new(),
                 }
             } else {
@@ -1813,6 +1809,20 @@ impl Vm {
                 Some(Value::String(s)) => s.clone(),
                 _ => return Err("query() expected String SQL".to_string()),
             };
+            // Naryad #381 parity fix: the VM dropped the optional params list
+            // entirely (stmt.query([])) — any parameterized query failed with
+            // "Wrong number of parameters passed to query. Got 0, needed N",
+            // while the tree-walking backend binds them. The Stage 4
+            // benchmark corpus (naryad #381, ADR-0141 §D5) caught the
+            // divergence; both backends now share the typed convert_params.
+            let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
+                match &args[1] {
+                    Value::List(items) => crate::interpreter::convert_params(items)?,
+                    _ => Vec::new(),
+                }
+            } else {
+                Vec::new()
+            };
             let conn = self
                 .db_conn
                 .as_ref()
@@ -1823,7 +1833,7 @@ impl Vm {
             let col_names: Vec<String> =
                 stmt.column_names().iter().map(|s| s.to_string()).collect();
             let mut rows = stmt
-                .query([])
+                .query(rusqlite::params_from_iter(params.iter()))
                 .map_err(|e| format!("query() execution error: {}", e))?;
             let mut results = Vec::new();
             while let Some(row) = rows
@@ -1864,17 +1874,12 @@ impl Vm {
                 Some(Value::String(s)) => s.clone(),
                 _ => return Err("db_execute() expected String SQL".to_string()),
             };
-            let params: Vec<String> = if args.len() > 1 {
+            // Naryad #381 parity fix: typed param binding (convert_params
+            // SSOT) instead of stringification — same contract as the
+            // tree-walking backend (Bool→0/1, Float→REAL, no affinity hacks).
+            let params: Vec<rusqlite::types::Value> = if args.len() > 1 {
                 match &args[1] {
-                    Value::List(items) => items
-                        .iter()
-                        .filter_map(|v| match v {
-                            Value::String(s) => Some(s.clone()),
-                            Value::Float(n) => Some(format!("{}", n)),
-                            Value::Bool(b) => Some(format!("{}", b)),
-                            _ => None,
-                        })
-                        .collect(),
+                    Value::List(items) => crate::interpreter::convert_params(items)?,
                     _ => Vec::new(),
                 }
             } else {

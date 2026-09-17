@@ -13,7 +13,7 @@ use crate::ast::*;
 ///   - Unit   → Null
 ///
 /// Unsupported types (Secret, Struct, List, Html, etc.) produce an error.
-fn convert_params(items: &[Value]) -> Result<Vec<rusqlite::types::Value>, String> {
+pub(crate) fn convert_params(items: &[Value]) -> Result<Vec<rusqlite::types::Value>, String> {
     items
         .iter()
         .enumerate()

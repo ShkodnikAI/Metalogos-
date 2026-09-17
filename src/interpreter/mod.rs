@@ -5,6 +5,8 @@
 pub(crate) mod context;
 pub(crate) mod conversations;
 pub(crate) mod db;
+
+pub(crate) use db::convert_params;
 pub(crate) mod events;
 pub(crate) mod execution;
 pub(crate) mod flow;
@@ -594,8 +596,23 @@ impl Interpreter {
         if let Some(ref url) = self.db_url {
             target.db_url = Some(url.clone());
         }
-        // Share db_conn via Arc so in-memory DB persists between requests
-        target.db_conn = self.db_conn.clone();
+        // Share db_conn via Arc so in-memory DB persists between requests.
+        // Guard (naryad №381, found by the Stage 4 benchmark corpus): only
+        // overwrite the target connection when the source actually holds one.
+        // Server startup (run_server / run_test_server_with_backend) runs each
+        // declaration on a throwaway interpreter and merges — every merge AFTER
+        // the db {} declaration carried db_conn = None and clobbered the
+        // established in-memory connection, so every query() in a route body
+        // failed with "no database connection" (reconnect_db() treats
+        // in-memory as "already shared via this Arc" and does not reopen).
+        if self
+            .db_conn
+            .lock()
+            .map(|guard| guard.is_some())
+            .unwrap_or(false)
+        {
+            target.db_conn = self.db_conn.clone();
+        }
         // Copy embedding manager (for recall() — semantic memory search)
         // EmbeddingManager is cheap to clone; it lazily initializes backends.
         // We don't clone the internal cache/embeddings — each interpreter builds its own.

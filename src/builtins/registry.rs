@@ -50,6 +50,12 @@ use super::grants::{
     builtin_db_execute_with_grant, builtin_grant_issue, builtin_grant_revoke,
     builtin_grant_subgrant, builtin_grant_use,
 };
+// Naryad #393 (ADR-0167): Action Ledger v1 surface — count/head/export/
+// export_intoto/rotate/snapshot.
+use super::ledger::{
+    builtin_ledger_count, builtin_ledger_export, builtin_ledger_export_intoto, builtin_ledger_head,
+    builtin_ledger_rotate, builtin_ledger_snapshot,
+};
 // Наряд №302 (ADR-0143-0146): Voice pillar skeleton builtins — stubs.
 use super::*;
 #[cfg(feature = "voice")]
@@ -849,6 +855,21 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     // mid-array would shift existing CallBuiltin indices (.mbc contract).
     spec!("deny_event", 0, "stub"),
     spec!("deny_reason", 0, "stub"),
+    // ── Naryad #393 (ADR-0167): Action Ledger v1 surface ────────────────
+    // Introspection reads (count/head — not egress) and the two FILE
+    // EGRESS exports (classified Sink, the consent_ledger_export
+    // precedent) plus the rotation/snapshot writers. The journal writes
+    // for grant/deny/irreversible/session events live in the ACTION
+    // paths themselves (ADR-0167 §3.4) — this surface never becomes a
+    // forgotten "also log it" API. APPENDED at the end — inserting
+    // mid-array would shift existing CallBuiltin indices (.mbc contract).
+    // Registry 451→457 (append-only).
+    spec!("ledger_count", 0, "security"; builtin_ledger_count),
+    spec!("ledger_head", 0, "security"; builtin_ledger_head),
+    spec!("ledger_export", 1, "security"; builtin_ledger_export),
+    spec!("ledger_export_intoto", 1, "security"; builtin_ledger_export_intoto),
+    spec!("ledger_rotate", 0, "security"; builtin_ledger_rotate),
+    spec!("ledger_snapshot", 0, "security"; builtin_ledger_snapshot),
 ];
 
 /// Total number of registered builtins.

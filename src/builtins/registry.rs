@@ -44,6 +44,12 @@ use super::consent::{
     builtin_consent_grant, builtin_consent_ledger_export, builtin_consent_revoke,
     builtin_quarantine_write,
 };
+// Naryad #390 (ADR-0155): Grant algebra builtins — issue/subgrant/revoke/use
+// + the granted destructive-SQL action surface.
+use super::grants::{
+    builtin_db_execute_with_grant, builtin_grant_issue, builtin_grant_revoke,
+    builtin_grant_subgrant, builtin_grant_use,
+};
 // Наряд №302 (ADR-0143-0146): Voice pillar skeleton builtins — stubs.
 use super::*;
 #[cfg(feature = "voice")]
@@ -821,6 +827,18 @@ pub const BUILTIN_REGISTRY: &[BuiltinSpec] = &[
     spec!("consent_revoke", 1, 2, "security"; builtin_consent_revoke),
     spec!("quarantine_write", 1, 2, "security"; builtin_quarantine_write),
     spec!("consent_ledger_export", 1, "security"; builtin_consent_ledger_export),
+    // ── Naryad #390 (ADR-0155): Grant algebra — capabilities for ──
+    // irreversible actions (wave 3, dispatch #491). The ungranted
+    // destructive-SQL deny (IRREVERSIBLE_NO_GRANT, №325) is UNCHANGED —
+    // db_execute_with_grant is the additional allowing path, gated by
+    // the grant ledger (state/TTL/scope/quota) at runtime and by the
+    // Once-linearity check (GRANT_REUSED) at compile time. Registry
+    // 442→447 (append-only; bytecode indices must not shift).
+    spec!("grant_issue", 2, 4, "action"; builtin_grant_issue),
+    spec!("grant_subgrant", 3, 5, "action"; builtin_grant_subgrant),
+    spec!("grant_revoke", 1, "action"; builtin_grant_revoke),
+    spec!("grant_use", 1, "action"; builtin_grant_use),
+    spec!("db_execute_with_grant", 2, 3, "action"; builtin_db_execute_with_grant),
 ];
 
 /// Total number of registered builtins.

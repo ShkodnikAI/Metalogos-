@@ -4240,6 +4240,325 @@ fn check_integrity_decisions(
     let _ = source;
 }
 
+// ── Check: GRANT_REUSED (Naryad #390, ADR-0155 §3.3 rules 1/4) ────────
+//
+// Static half of the Once-grant linearity: within one declaration body,
+// a variable that statically holds a Once-class grant (bound by
+// grant_issue/grant_subgrant with the literal class word "once" or with
+// the class omitted — the safe default) may be CONSUMED exactly once.
+// Consuming positions: grant_use(g), db_execute_with_grant(g, ...),
+// grant_subgrant(g, ...) (a Once parent is consumed by the split —
+// linear transfer), and a move (`let g2 = g1`). A second consuming use
+// on any path the flow walk covers is a compile-time Error.
+//
+// Flow semantics (mirrors the №323 label-flow shape): straight-line
+// order; if/else merges by INTERSECTION (a grant consumed in only one
+// branch may still be alive on the other path); while loops are walked
+// conservatively (a body consumption persists to the next iteration);
+// match arms merge like branches. N(n)/Unlimited holdings are
+// runtime-managed by the grant ledger and are NOT statically linear.
+
+#[derive(Clone)]
+struct GrantLinearState {
+    /// Variables statically known to hold a Once-class grant.
+    linear: std::collections::HashSet<String>,
+    /// Linear grants already consumed (moved or used) on the walked path.
+    consumed: std::collections::HashSet<String>,
+}
+
+/// The consuming builtin positions (arg 0 is the grant).
+const GRANT_CONSUMING_CALLS: &[&str] = &["grant_use", "db_execute_with_grant", "grant_subgrant"];
+
+fn grant_class_is_static_once(args: &[Expr]) -> bool {
+    // class word is arg 2 (grant_issue(scope, ttl, class?, uses?)) —
+    // absent or "once" means statically linear; "n"/"unlimited" are
+    // runtime-managed, a non-literal class is unknown (not tracked).
+    match args.get(2) {
+        None => true,
+        Some(Expr::StringLit { value, .. }) => value.eq_ignore_ascii_case("once"),
+        Some(_) => false,
+    }
+}
+
+fn walk_grant_expr(
+    expr: &Expr,
+    state: &mut GrantLinearState,
+    container: &str,
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    if let Expr::FnCall { name, args, span } = expr {
+        if GRANT_CONSUMING_CALLS.contains(&name.as_str()) {
+            if let Some(Expr::Ident { name: var, .. }) = args.first() {
+                if state.linear.contains(var) {
+                    if state.consumed.contains(var) {
+                        // Spans on call args may be unpopulated in some
+                        // parse paths — fall back to the source scan.
+                        let line = if span.start_line > 0 {
+                            span.start_line as usize
+                        } else {
+                            find_line(source, name)
+                        };
+                        findings.push(AuditFinding {
+                            severity: Severity::Error,
+                            check_id: "GRANT_REUSED",
+                            line,
+                            message: format!(
+                                "grant linearity violated in {}: '{}' is a Once grant already consumed on this path — a Once grant is used exactly once (ADR-0155 §3.3 rule 1); issue a fresh grant or switch the class to \"n\"/\"unlimited\"",
+                                container, var
+                            ),
+                        });
+                    } else {
+                        state.consumed.insert(var.clone());
+                    }
+                }
+            }
+        }
+        for a in args {
+            walk_grant_expr(a, state, container, source, findings);
+        }
+    }
+}
+
+fn walk_grant_stmts(
+    stmts: &[Statement],
+    state: &mut GrantLinearState,
+    container: &str,
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    for st in stmts {
+        match st {
+            Statement::LetBinding {
+                name, value, span, ..
+            } => {
+                walk_grant_expr(value, state, container, source, findings);
+                match value {
+                    Expr::FnCall {
+                        name: callee, args, ..
+                    } if (callee == "grant_issue" || callee == "grant_subgrant")
+                        && grant_class_is_static_once(args) =>
+                    {
+                        state.linear.insert(name.clone());
+                        state.consumed.remove(name);
+                    }
+                    // Move semantics: binding a linear grant to a new name
+                    // consumes the source (ADR-0155 §3.3 rule 1).
+                    Expr::Ident { name: src, .. } if state.linear.contains(src) => {
+                        if state.consumed.contains(src) {
+                            findings.push(AuditFinding {
+                                severity: Severity::Error,
+                                check_id: "GRANT_REUSED",
+                                line: span.start_line as usize,
+                                message: format!(
+                                    "grant linearity violated in {}: '{}' (a Once grant) is moved after being consumed on this path",
+                                    container, src
+                                ),
+                            });
+                        } else {
+                            state.consumed.insert(src.clone());
+                            state.linear.insert(name.clone());
+                            state.consumed.remove(name);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Statement::Assign {
+                name, value, span, ..
+            } => {
+                walk_grant_expr(value, state, container, source, findings);
+                // Re-binding a consumed linear var back into circulation
+                // through assignment is a reuse.
+                if state.linear.contains(name) && state.consumed.contains(name) {
+                    findings.push(AuditFinding {
+                        severity: Severity::Error,
+                        check_id: "GRANT_REUSED",
+                        line: span.start_line as usize,
+                        message: format!(
+                            "grant linearity violated in {}: '{}' (a Once grant) is re-assigned after being consumed on this path",
+                            container, name
+                        ),
+                    });
+                }
+            }
+            Statement::ExprStmt { expr, .. } | Statement::Return { value: expr, .. } => {
+                walk_grant_expr(expr, state, container, source, findings);
+            }
+            Statement::Each { iterable, body, .. }
+            | Statement::EachWithIndex { iterable, body, .. } => {
+                walk_grant_expr(iterable, state, container, source, findings);
+                // Loop body may run many times: what it consumes is consumed
+                // for the loop's exit state too; walk the body once with the
+                // pre-state and once with the post-state (cross-iteration
+                // reuse), dedup by line at the end.
+                let mut body_state = state.clone();
+                walk_grant_stmts(body, &mut body_state, container, source, findings);
+                walk_grant_stmts(body, state, container, source, findings);
+                state.linear.extend(body_state.linear.iter().cloned());
+                state.consumed.extend(body_state.consumed.iter().cloned());
+            }
+            Statement::While {
+                condition, body, ..
+            } => {
+                walk_grant_expr(condition, state, container, source, findings);
+                walk_grant_stmts(body, state, container, source, findings);
+            }
+            Statement::IfElseBlock {
+                condition,
+                then_body,
+                else_ifs,
+                else_body,
+                ..
+            } => {
+                walk_grant_expr(condition, state, container, source, findings);
+                let mut merged_consumed: Option<std::collections::HashSet<String>> = None;
+                let mut branches: Vec<&[Statement]> = vec![then_body.as_slice()];
+                for (_, b) in else_ifs {
+                    branches.push(b.as_slice());
+                }
+                if let Some(eb) = else_body {
+                    branches.push(eb.as_slice());
+                }
+                for branch in branches {
+                    let mut branch_state = state.clone();
+                    walk_grant_stmts(branch, &mut branch_state, container, source, findings);
+                    let consumed = branch_state.consumed.clone();
+                    merged_consumed = Some(match merged_consumed {
+                        None => consumed,
+                        Some(prev) => prev.intersection(&consumed).cloned().collect(),
+                    });
+                }
+                // Intersection: a grant consumed in EVERY branch is consumed
+                // after the merge; otherwise it may still be alive on some
+                // path (conservative for the alive direction, loud for the
+                // reuse direction).
+                if let Some(merged) = merged_consumed {
+                    state.consumed = merged;
+                }
+            }
+            Statement::IfThen {
+                condition, body, ..
+            } => {
+                walk_grant_expr(condition, state, container, source, findings);
+                let mut branch_state = state.clone();
+                walk_grant_stmts(body, &mut branch_state, container, source, findings);
+                // Single branch: only what was consumed BEFORE is guaranteed
+                // consumed after (the branch may not run).
+                let _ = branch_state;
+            }
+            Statement::Match {
+                scrutinee,
+                arms,
+                else_body,
+                ..
+            } => {
+                walk_grant_expr(scrutinee, state, container, source, findings);
+                let mut merged_consumed: Option<std::collections::HashSet<String>> = None;
+                for arm in arms {
+                    let mut arm_state = state.clone();
+                    walk_grant_stmts(arm.body(), &mut arm_state, container, source, findings);
+                    let consumed = arm_state.consumed.clone();
+                    merged_consumed = Some(match merged_consumed {
+                        None => consumed,
+                        Some(prev) => prev.intersection(&consumed).cloned().collect(),
+                    });
+                }
+                // A missing else arm may consume nothing — intersect with
+                // the pre-state set.
+                let pre = state.consumed.clone();
+                merged_consumed = match merged_consumed {
+                    None => Some(pre),
+                    Some(m) => match else_body {
+                        Some(eb) => {
+                            let mut eb_state = state.clone();
+                            walk_grant_stmts(eb, &mut eb_state, container, source, findings);
+                            Some(m.intersection(&eb_state.consumed).cloned().collect())
+                        }
+                        None => Some(m.intersection(&pre).cloned().collect()),
+                    },
+                };
+                if let Some(merged) = merged_consumed {
+                    state.consumed = merged;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn check_grant_linearity(
+    declarations: &[Declaration],
+    source: &str,
+    findings: &mut Vec<AuditFinding>,
+) {
+    let mut lines_seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut push = |f: AuditFinding, findings: &mut Vec<AuditFinding>| {
+        if lines_seen.insert(f.line) {
+            findings.push(f);
+        }
+    };
+    for decl in declarations {
+        match decl {
+            Declaration::Pattern(p) => {
+                let mut state = GrantLinearState {
+                    linear: std::collections::HashSet::new(),
+                    consumed: std::collections::HashSet::new(),
+                };
+                let mut local: Vec<AuditFinding> = Vec::new();
+                walk_grant_stmts(
+                    &p.body,
+                    &mut state,
+                    &format!("pattern {}", p.name),
+                    source,
+                    &mut local,
+                );
+                for f in local {
+                    push(f, findings);
+                }
+            }
+            Declaration::Tool(t) => {
+                for m in &t.methods {
+                    let mut state = GrantLinearState {
+                        linear: std::collections::HashSet::new(),
+                        consumed: std::collections::HashSet::new(),
+                    };
+                    let mut local: Vec<AuditFinding> = Vec::new();
+                    walk_grant_stmts(
+                        &m.body,
+                        &mut state,
+                        &format!("tool {}.{}", t.name, m.name),
+                        source,
+                        &mut local,
+                    );
+                    for f in local {
+                        push(f, findings);
+                    }
+                }
+            }
+            Declaration::Test(t) => {
+                let mut state = GrantLinearState {
+                    linear: std::collections::HashSet::new(),
+                    consumed: std::collections::HashSet::new(),
+                };
+                let mut local: Vec<AuditFinding> = Vec::new();
+                walk_grant_stmts(
+                    &t.body,
+                    &mut state,
+                    &format!("test \"{}\"", t.name),
+                    source,
+                    &mut local,
+                );
+                for f in local {
+                    push(f, findings);
+                }
+            }
+            _ => {}
+        }
+    }
+    let _ = source;
+}
+
 pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<AuditFinding> {
     let mut findings: Vec<AuditFinding> = Vec::new();
     check_sql_dynamic(declarations, source, &mut findings);
@@ -4301,6 +4620,11 @@ pub fn audit_category_a(declarations: &[Declaration], source: &str) -> Vec<Audit
     // profile refuses unverifiable (pending-pin) rungs.
     check_profile_shape(declarations, source, &mut findings);
     check_backend_ladder(declarations, source, &mut findings);
+    // Naryad #390 (ADR-0155): static Once-grant linearity — the
+    // GRANT_REUSED compile error. The runtime half (ledger state/TTL/
+    // quota/scope) lives in src/grants.rs; the ungranted destructive-SQL
+    // deny keeps its IRREVERSIBLE_NO_GRANT class (fail-closed unchanged).
+    check_grant_linearity(declarations, source, &mut findings);
     findings
 }
 
@@ -4359,6 +4683,9 @@ pub fn audit_program(source: &str) -> Result<AuditResult, String> {
     check_consent_events(&declarations, source, &mut findings);
     // Наряд №327: the integrity axis — decision gate.
     check_integrity_decisions(&declarations, source, &mut findings);
+    // Naryad #390 (ADR-0155): grant linearity on the advisory surface —
+    // `mlog audit` reports GRANT_REUSED alongside the compile path.
+    check_grant_linearity(&declarations, source, &mut findings);
 
     // Sort findings by line number for deterministic output
     findings.sort_by_key(|f| (f.line, f.check_id));

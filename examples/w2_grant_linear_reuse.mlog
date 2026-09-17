@@ -1,0 +1,13 @@
+// Naryad #390 (ADR-0155 §3.3 rule 1): a Once grant is statically linear —
+// this program consumes it twice (two granted destructive deletes), so the
+// compile path refuses with GRANT_REUSED before anything runs. The class
+// word is omitted at issue time, so the safe default ("once") applies.
+db { url: "sqlite::memory:" }
+
+pattern DoubleDelete(_tick: String) -> String {
+  let g = grant_issue("db:delete:users", 3600)
+  let a = db_execute_with_grant(g, "DELETE FROM users WHERE id = 1")
+  let b = db_execute_with_grant(g, "DELETE FROM users WHERE id = 2")
+  return a
+}
+flow Main { input: String = "tick" -> DoubleDelete -> output }

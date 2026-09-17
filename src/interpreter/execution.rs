@@ -1623,6 +1623,12 @@ impl Interpreter {
                 if function == "db_execute" {
                     return self.invoke_db_execute(&eval_args);
                 }
+                // Naryad #390 (ADR-0155): the granted destructive-SQL
+                // action — intercepted like db_execute (needs db_conn);
+                // runtime gates live in src/grants.rs.
+                if function == "db_execute_with_grant" {
+                    return self.invoke_db_execute_with_grant(&eval_args);
+                }
                 // ADR-0051: inspect() needs interpreter state
                 if function == "inspect" {
                     return self.invoke_inspect(&eval_args);
@@ -2198,6 +2204,10 @@ impl Interpreter {
                 }
                 if name == "db_execute" {
                     return self.invoke_db_execute(&eval_args);
+                }
+                // Naryad #390 (ADR-0155): granted destructive-SQL action.
+                if name == "db_execute_with_grant" {
+                    return self.invoke_db_execute_with_grant(&eval_args);
                 }
                 // Наряда-26 P1-7: query_scalar / query_row
                 if name == "query_scalar" {

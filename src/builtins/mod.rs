@@ -245,6 +245,9 @@ pub mod backends;
 // Наряд №335 (spec §7.2 v2): consent grant/revoke + quarantine sink +
 // ledger export — the consent component's language surface.
 pub mod consent;
+// Naryad #390 (ADR-0155): Grant algebra builtins — issue/subgrant/revoke/use
+// + the granted destructive-SQL action surface.
+pub mod grants;
 // Наряд №275 (ADR-0137): LLM streaming builtins — llm_stream_open/next/close.
 // Module is NOT feature-gated: the opaque handle + registry + SSE parser
 // live in `crate::llm` (always available); HTTP streaming requires

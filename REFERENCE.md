@@ -522,7 +522,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 442 registered builtins (442 of 442): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 447 registered builtins (442 of 442): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1019,6 +1019,30 @@ schema my_dept {
 ```
 
 Types: Int→INTEGER, Float→REAL, String/Text→TEXT, Bool→INTEGER, DateTime→TEXT. Modifiers: primary_key, auto_increment, nullable, references(table.field). Defaults: default("value"), default(now()). Migration: additive-only (CREATE TABLE IF NOT EXISTS).
+### 4.15.1. Grants and Actions (ADR-0155)
+
+Capability grants for irreversible operations (naryad #390). A Grant is an
+opaque value: non-printable, non-serializable (serde emits a dead marker),
+backed by the grant ledger. Without a grant the destructive-SQL deny
+(`IRREVERSIBLE_NO_GRANT`, №325) is unchanged; with a grant the action is
+allowed only inside the grant scope, metered by the ledger, and audited.
+
+| Function | Signature | Return | Description |
+|---------|-----------|---------|----------|
+| `grant_issue(scope, ttl, class?, uses?)` | `String, Number[, String, Number] -> Grant` | Grant | Mints a capability. class: "once" (default) / "n" + uses / "unlimited"; ttl in seconds |
+| `grant_subgrant(parent, scope, ttl, class?, uses?)` | `Grant, String, Number[, ...] -> Grant` | Grant | Attenuation-only derivation: narrower scope, shorter TTL, lower class power; a Once parent is consumed by the split |
+| `grant_revoke(g)` | `Grant -> Number` | Number | Cascading revocation — the grant and every descendant become revoked; returns the count |
+| `grant_use(g)` | `Grant -> Number` | Number | Consumes one use; returns the remaining count (-1 = unlimited) |
+| `db_execute_with_grant(g, sql, params?)` | `Grant, String[, List] -> String` | String | Executes SQL under the grant: ledger state, TTL, scope coverage of the destructive ops and quota are enforced at runtime; consumption happens only after success |
+
+```mlog
+// doc-test: skip
+db { url: "sqlite::memory:" }
+let g = grant_issue("db:delete:sessions", 3600, "n", 5)
+let n = db_execute_with_grant(g, "DELETE FROM sessions WHERE stale = 1")
+let left = grant_use(g)
+```
+
 ### 4.16. Bots (Telegram/Discord)
 
 | Function | Signature | Return | Description |
@@ -1884,9 +1908,19 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 442 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 447 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
+
+### `action` — 5 builtin(s)
+
+| Builtin | Arity | Signature (curated) | Description |
+|---|---|---|---|
+| `db_execute_with_grant(...)` | 2..3 | `Grant, String[, List] -> String` | Executes SQL under the grant: ledger state, TTL, scope coverage of the destructive ops and quota are enforced at runtime; consumption happens only after success |
+| `grant_issue(...)` | 2..4 | `String, Number[, String, Number] -> Grant` | Mints a capability. class: "once" (default) / "n" + uses / "unlimited"; ttl in seconds |
+| `grant_revoke(...)` | 1 | `Grant -> Number` | Cascading revocation — the grant and every descendant become revoked; returns the count |
+| `grant_subgrant(...)` | 3..5 | `Grant, String, Number[, ...] -> Grant` | Attenuation-only derivation: narrower scope, shorter TTL, lower class power; a Once parent is consumed by the split |
+| `grant_use(...)` | 1 | `Grant -> Number` | Consumes one use; returns the remaining count (-1 = unlimited) |
 
 ### `bot` — 35 builtin(s)
 
@@ -2603,6 +2637,11 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `consent_revoke` | lift | public | pure | records the revocation and returns the value under the QUARANTINE label — the flat cascade is lattice absorption (poison is absorbing, ADR-0154 §2.1); process-local bookkeeping |
 | `quarantine_write` | sink | internal | reversible | THE quarantine sink — the only legal egress for poisoned values (№325 clearance exempts it); unconditional QUARANTINE_EGRESS audit event (№326 posture) |
 | `consent_ledger_export` | sink | internal | reversible | dumps the consent ledger as JSON to a sandboxed path — FILE EGRESS with an audit event (grant/TTL/revoke records never leave the process silently) |
+| `grant_issue` | source | internal | reversible | mints an opaque Grant capability (ADR-0155 §3.1) recorded in the grant ledger — process-local bookkeeping, revocable via grant_revoke |
+| `grant_subgrant` | source | internal | reversible | attenuation-only derivation of a Grant (ADR-0155 §3.3 rule 4) — narrower scope, shorter TTL, lower class power; ledger-recorded and revocable |
+| `grant_revoke` | sink | internal | irreversible | cascading revocation (ADR-0155 §3.3 rule 5) — the target and every descendant transition to revoked; the ledger records are append-only |
+| `grant_use` | sink | internal | irreversible | consumes one use of a grant (Once → consumed, N(n) → decrement) — quota consumption cannot be undone |
+| `db_execute_with_grant` | sink | internal | irreversible | arbitrary SQL write under a capability grant (ADR-0155 §3.2) — same egress class as db_execute, gated by ledger state/TTL/scope/quota |
 | `abs` | pure | public | pure | — |
 | `min` | pure | public | pure | — |
 | `max` | pure | public | pure | — |

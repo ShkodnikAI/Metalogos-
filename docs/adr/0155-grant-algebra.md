@@ -8,7 +8,7 @@
 
 ## 1. Context
 
-Irreversible actions in Metalogos are today only **prohibited**, never **conditionally allowed**. The `SINK_CLEARANCE` Category-A gate (naryad #325, ADR-0161) denies destructive SQL literals passed to `db_execute` (DROP / DELETE / TRUNCATE / ALTER) with the specialized class `IRREVERSIBLE_NO_GRANT` (`src/audit.rs`, the leak-suite vocabulary block; the comment there already names the intended direction: "grant algebra is Phase 3"). That single mechanism cannot express the agentic requirement this ADR answers: **"the agent may DELETE — only in the `sessions` table, only with a grant issued by admin, at most five times."** Prohibition is the zero-power point of a capability system; an autonomous office (the wave-3 dogfood target, naryad #395) needs the whole axis from "never" to "always, audited".
+Irreversible actions in Metalogos are today only **prohibited**, never **conditionally allowed**. The `SINK_CLEARANCE` Category-A gate (naryad #325, ADR-0161) denies the schema-destroying SQL literals passed to `db_execute` (DROP TABLE/DATABASE/INDEX, TRUNCATE — the content-gated population; DELETE/ALTER stay in parameterized-CRUD/SQL_DYNAMIC territory) with the specialized class `IRREVERSIBLE_NO_GRANT` (`src/audit.rs`, the leak-suite vocabulary block; the comment there already names the intended direction: "grant algebra is Phase 3"). That single mechanism cannot express the agentic requirement this ADR answers: **"the agent may DELETE — only in the `sessions` table, only with a grant issued by admin, at most five times."** Prohibition is the zero-power point of a capability system; an autonomous office (the wave-3 dogfood target, naryad #395) needs the whole axis from "never" to "always, audited".
 
 Reserved slots and precedents verified on `da262c3e98`:
 
@@ -50,7 +50,7 @@ Reserved slots and precedents verified on `da262c3e98`:
 
 Sink mapping (justification on the №316 SSOT inventory):
 
-- **`db_execute` destructive literals** (DROP/DELETE/TRUNCATE/ALTER — the current `IRREVERSIBLE_NO_GRANT` population): Once for one-off migrations, N(n) for bounded application-side deletes. Unlimited requires an explicit owner-level justification in the program and is loud in the audit report.
+- **`db_execute` destructive literals**: the ungranted deny covers the schema-destroying forms (DROP/TRUNCATE); the GRANTED path deliberately treats DELETE and ALTER as destructive too — a granted delete must be scoped and metered even though the ungranted gate is narrower today (the asymmetry is fail-closed in the safe direction). Once for one-off migrations, N(n) for bounded application-side deletes. Unlimited requires an explicit owner-level justification in the program and is loud in the audit report.
 - **`exec` / `exec_argv`**: Once (release step) or N(n) (build loop). The independent integrity gate (UNTRUSTED_EXEC_DECISION, naryad #327) is **not** replaced by a grant — both gates must pass (§5).
 - **`git_push`**: Once per push — publication is the canonical irreversible act; N(n) only for bounded batch publication.
 - **`http_post`**: not inherently irreversible; a grant applies only when the program *profiles* the endpoint as an action (e.g. payments). Then N(n) or Unlimited (audited).
@@ -112,3 +112,15 @@ The two systems are **orthogonal axes, composed conjunctively**:
 - This naryad is documentation-only: no `.rs`/`.mlog` behavior changes, CI green, `docs/adr/README.md` index updated (0155 → accepted), no stubs (`grep todo!|unimplemented!|SKELETON` over the diff — 0).
 - Self-sufficiency check (DoD): naryads #390–#392 can start from this document alone — the class table (§3.2), rules 1–6 (§3.3), ledger schema vocabulary (§3.4), typed error list (§3.5), gate order (§5) and migration constraints (§7) are all fixed here.
 - The doc-language gate (`tests/docs_language_lint.rs`, naryad #383) passes on this file: English-only documentation.
+
+## 9. Verification (naryad #390)
+
+The implementation landed in naryad #390 (issue #484) and follows this ADR without deviations from §3:
+
+- **Surface (§3.1-§3.2)**: `Value::Grant` (opaque, non-printable — the `is_nonprintable` family; serde emits a dead `[GRANT]` marker; a deserialized grant refuses every use) + five appended builtins (`grant_issue`, `grant_subgrant`, `grant_revoke`, `grant_use`, `db_execute_with_grant`; registry 442→447, bytecode indices unshifted). The safe default class at issue is Once.
+- **Linearity (§3.3)**: rules 1-2 enforced statically (`GRANT_REUSED` compile error: flow walk with branch-intersection merge, move detection `let g2 = g`; exclusive if/else single uses legal) and at runtime (ledger state machine: consumed/revoked/expired/exhausted refuse with typed errors, never panics). Rules 3-6: mandatory TTL (a born-expired grant refuses), attenuation-only subgrant (scope/TTL/power, quota conservation — a Once parent is consumed by the split, an N(n) parent is debited by the child quota), cascading revoke (BFS over the `parent_id` tree), and the ungranted deny untouched (`IRREVERSIBLE_NO_GRANT` — verified by contract test against the №325 leak-suite vocabulary).
+- **Ledger (§3.4)**: `src/grants.rs` — in-process SQLite (`grant_state` + append-only `grant_events`), the `consent_ledger` pattern; signing stays with #393.
+- **Fuzzing (DoD б)**: `tests/grant_algebra_fuzz.rs` — 4000 deterministic ops (issue/subgrant/use/revoke) differentially checked against an independently coded model of the algebra (scope/class/quota/lifecycle/expiry-horizon); zero divergence, zero amplification.
+- **Backend parity**: the granted action runs identically on TW and VM (shared ledger, typed binding — the №381 `convert_params` contract); asserted by contract tests and by the golden example.
+- **Examples**: `examples/w2_grant_linear.mlog` (+ `.expected`, both backends) and `examples/w2_grant_linear_reuse.mlog` (+ `.error` naming `GRANT_REUSED`).
+- **Documentation**: REFERENCE §4.15.1 + §6 index + §7 classification rows (№316 SSOT); README claims resynced.

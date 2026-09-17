@@ -1894,6 +1894,78 @@ impl Vm {
             return Ok(Value::Unit);
         }
 
+        // db_execute_with_grant(g, sql, params?) — Naryad #390 (ADR-0155):
+        // the granted destructive-SQL action. Same gates as the tree-walking
+        // backend (ledger state/TTL/scope via src/grants.rs, typed binding
+        // via convert_params — the №381 contract); consumption happens only
+        // after the statement succeeded.
+        if name == "db_execute_with_grant" {
+            let handle = match args.first() {
+                Some(Value::Grant(h)) => h.clone(),
+                Some(other) => {
+                    return Err(format!(
+                        "db_execute_with_grant() first argument must be a Grant, got {}",
+                        other.type_name()
+                    ))
+                }
+                None => return Err("db_execute_with_grant() missing grant argument".to_string()),
+            };
+            let sql = match args.get(1) {
+                Some(Value::String(s)) => s.clone(),
+                Some(other) => {
+                    return Err(format!(
+                        "db_execute_with_grant() second argument must be String SQL, got {}",
+                        other.type_name()
+                    ))
+                }
+                None => return Err("db_execute_with_grant() missing sql argument".to_string()),
+            };
+            let params: Vec<rusqlite::types::Value> = if args.len() > 2 {
+                match &args[2] {
+                    Value::List(items) => crate::interpreter::convert_params(items)?,
+                    _ => Vec::new(),
+                }
+            } else {
+                Vec::new()
+            };
+            crate::grants::check_active(&handle)?;
+            let ops = crate::grants::extract_destructive_ops(&sql);
+            let destructive = !ops.is_empty();
+            for (op, table) in &ops {
+                if !crate::grants::scope_covers(&handle.scope, op, table) {
+                    return Err(format!(
+                        "GRANT_SCOPE_MISMATCH: grant {} ({}, scope '{}') does not cover {} {}",
+                        handle.grant_id, handle.class, handle.scope, op, table
+                    ));
+                }
+            }
+            let conn = self.db_conn.as_ref().ok_or_else(|| {
+                "db_execute_with_grant() error: no database connection.".to_string()
+            })?;
+            let affected = conn
+                .execute(&sql, rusqlite::params_from_iter(params.iter()))
+                .map_err(|e| format!("db_execute_with_grant() SQL error: {}", e))?;
+            if destructive {
+                crate::grants::grant_use(&handle, &format!("db_execute_with_grant: {}", sql))?;
+                eprintln!(
+                    "[GRANT_USE] grant (scope '{}', class {}) executed {} (affected {}) — remaining {}",
+                    handle.scope,
+                    handle.class,
+                    sql.trim(),
+                    affected,
+                    crate::grants::state_of(&handle.grant_id)
+                        .map(|(_, r)| r)
+                        .unwrap_or(-1)
+                );
+            } else {
+                eprintln!(
+                    "[GRANT_USE] grant (scope '{}') ran non-destructive SQL — no consumption",
+                    handle.scope
+                );
+            }
+            return Ok(Value::String(affected.to_string()));
+        }
+
         // resolve_skill_index(dept) — returns compiled skill index as Value::Struct
         if name == "resolve_skill_index" {
             let dept = match args.first() {

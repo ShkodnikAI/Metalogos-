@@ -1,34 +1,34 @@
-## Наряд
+## Naryad
 
-<!-- Ссылка на issue наряда: Closes #NNN -->
-<!-- Если PR не связан с конкретным нарядом (например, dependabot) — оставить пустым. -->
+<!-- Link to the naryad issue: Closes #NNN -->
+<!-- If the PR is not tied to a specific naryad (e.g. dependabot) — leave empty. -->
 
-## Что сделано
+## What was done
 
-<!-- Кратко: что изменилось и зачем. Факт-база — по коду, не по документации. -->
+<!-- Briefly: what changed and why. Fact base — per the code, not per the documentation. -->
 
-## Факт-база (проверено)
+## Fact base (verified)
 
-<!-- file:line, воспроизводимый сценарий — тот же стандарт, что в наряд-issue (AGENTS.md §1). -->
+<!-- file:line, reproducible scenario — the same standard as in the naryad issue (AGENTS.md §1). -->
 
-## Контракты
+## Contracts
 
-<!-- Тесты/контракты, подтверждающие, что наряд выполнен — конкретные, не "должно работать". -->
+<!-- Tests/contracts proving the naryad is done — concrete, not "should work". -->
 
-## Проверка перед запросом ревью
+## Pre-review checklist
 
-- [ ] Ветка не отстаёт от `main` более чем на 20 коммитов (джоб `branch-freshness` проверит
-      автоматически — если отстаёт, сначала `git fetch origin main && git rebase origin/main`)
-- [ ] Все 14 блокирующих джобов реально зелёные на мерж-коммите этого PR, не только на голове
-      ветки до мержа (`test-lib`, `crosscheck`, `candle-tests`, `vision-tests`,
+- [ ] The branch is not more than 20 commits behind `main` (the `branch-freshness` job checks
+      this automatically — if it is behind, first run `git fetch origin main && git rebase origin/main`)
+- [ ] All 14 blocking jobs are actually green on the merge commit of this PR, not only on the
+      branch head before the merge (`test-lib`, `crosscheck`, `candle-tests`, `vision-tests`,
       `registry-arity-check`, `test-llm-cache-contract`, `minimal-build`, `test-integration`,
       `fmt`, `clippy`, `ADR numbering`, `module-size-guard`, `vscode-extension`, `cargo-audit`)
-- [ ] Если PR затрагивает security-чувствительный код — `mlog audit` пройден на изменённых
-      примерах
-- [ ] Если наряд содержит точку решения владельца (AGENTS.md §3) — решение явно
-      задокументировано в issue наряда, не подразумевается
+- [ ] If the PR touches security-sensitive code — `mlog audit` has been run on the changed
+      examples
+- [ ] If the naryad contains an owner decision point (AGENTS.md §3) — the decision is explicitly
+      documented in the naryad issue, not assumed
 
 ## Security Considerations
-<!-- Только если применимо -->
-- [ ] Изменение не вводит новых уязвимостей
-- [ ] Opaque-типы и security-инварианты сохранены
+<!-- Only if applicable -->
+- [ ] The change does not introduce new vulnerabilities
+- [ ] Opaque types and security invariants are preserved

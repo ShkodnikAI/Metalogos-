@@ -1,65 +1,65 @@
-# Voice Pillar — Research A0 (Наряд №301, issue #369)
+# Voice Pillar — Research A0 (Naryad #301, issue #369)
 
-> **Дата:** 2026-09-14. **База:** main `b0dcd9a` (post-№300 merge). **Статус:** выполнено и проверено владельцем.
+> **Date:** 2026-09-14. **Base:** main `b0dcd9a` (post-#300 merge). **Status:** done and verified by the owner.
 
-## 1. Цель исследования
+## 1. Research goal
 
-Определить scope, wedge-модель, value-registry pattern, и security-gates для Voice-пиллара Metalogos до любой реализации кода. Дисциплина: ADR до кода (как Reflex/Vision).
+Determine the scope, wedge model, value-registry pattern, and security gates for the Voice pillar of Metalogos before any code implementation. Discipline: ADR before code (as with Reflex/Vision).
 
-## 2. Существующая инфраструктура (переиспользование)
+## 2. Existing infrastructure (reuse)
 
-| Компонент | Источник | Переиспользование для Voice |
+| Component | Source | Reuse for Voice |
 |---|---|---|
-| `euler_step` (ODE-примитив) | `src/vision/sampler.rs` | Обобщён, переиспользуем для flow-matching TTS |
-| `flow_match_euler_sample` | `src/vision/sampler.rs` | Жёстко привязан к `ZImageTransformer` — извлечение общего денойзера НЕ предполагать заранее (rule of three; проверка — фаза A2) |
-| `encode_png` / `decode_png` | `src/vision/vae.rs` | Аналог: `encode_wav` / `decode_wav` (новый, не дублировать) |
-| `VisionRegistry` / `VisionId` | `src/vision/mod.rs` (ADR-0124) | Лекало: `VoiceRegistry` / `AudioId` (ADR-0144) |
-| `MODEL_WEIGHTS_UNSAFE` gate | `src/audit.rs` (№241/№300) | Обобщён в №300 — `voice_fetch_weights` покрыт suffix convention |
-| `vision_fetch_weights` runtime | `src/builtins/vision.rs` (SSRF guard, allowlist, SHA pinning) | Лекало для `voice_fetch_weights` runtime layers |
-| `whisper_transcribe` | `src/builtins/llm.rs` (№279) | Переиспользуется для ASR-сверки в consent-ритуале |
-| `secret()` / AES-256-GCM | Наряд №172 | Переиспользуется для шифрования voiceprint at rest |
-| `canary_insert` / `canary_check` | Наряд №284 | Лекало для path-sensitive consent-проверки |
+| `euler_step` (ODE primitive) | `src/vision/sampler.rs` | Generalized, reusable for flow-matching TTS |
+| `flow_match_euler_sample` | `src/vision/sampler.rs` | Hard-tied to `ZImageTransformer` — do NOT assume a shared denoiser extraction up front (rule of three; check in phase A2) |
+| `encode_png` / `decode_png` | `src/vision/vae.rs` | Analogue: `encode_wav` / `decode_wav` (new, do not duplicate) |
+| `VisionRegistry` / `VisionId` | `src/vision/mod.rs` (ADR-0124) | Template: `VoiceRegistry` / `AudioId` (ADR-0144) |
+| `MODEL_WEIGHTS_UNSAFE` gate | `src/audit.rs` (#241/#300) | Generalized in #300 — `voice_fetch_weights` is covered by the suffix convention |
+| `vision_fetch_weights` runtime | `src/builtins/vision.rs` (SSRF guard, allowlist, SHA pinning) | Template for the `voice_fetch_weights` runtime layers |
+| `whisper_transcribe` | `src/builtins/llm.rs` (#279) | Reused for the ASR cross-check in the consent ritual |
+| `secret()` / AES-256-GCM | Naryad #172 | Reused for encrypting the voiceprint at rest |
+| `canary_insert` / `canary_check` | Naryad #284 | Template for the path-sensitive consent check |
 
-## 3. Таблица клинов (срез сентябрь 2026)
+## 3. Wedge table (September 2026 snapshot)
 
-| Модель | Код / Вес | Размер | Клонирование | Watermark | Статус |
+| Model | Code / Weights | Size | Cloning | Watermark | Status |
 |---|---|---|---|---|---|
-| **Chatterbox Multilingual V3** | MIT / MIT | 500M | ✅ | ✅ default | **Рекомендован** (ADR-0146) |
-| **Kokoro-82M** | Apache-2.0 / Apache-2.0 | 82M | ❌ | ? | **Разогрев A2** (ADR-0146) |
-| CosyVoice 3 | Apache-2.0 / Apache-2.0 | 0.5B | ✅ | ? | Future — не проверены ru/be, языки |
+| **Chatterbox Multilingual V3** | MIT / MIT | 500M | ✅ | ✅ default | **Recommended** (ADR-0146) |
+| **Kokoro-82M** | Apache-2.0 / Apache-2.0 | 82M | ❌ | ? | **A2 warm-up** (ADR-0146) |
+| CosyVoice 3 | Apache-2.0 / Apache-2.0 | 0.5B | ✅ | ? | Future — ru/be languages not verified |
 | NeuTTS Air | Apache-2.0 / Apache-2.0 | 748M | ✅ | ? | Future |
 | GPT-SoVITS | MIT / MIT | ? | ✅ | ? | Future |
 | F5-TTS | MIT / CC-BY-NC | ? | ? | ? | Research-profile only |
-| Seed-VC | GPL-3.0 | ? | VC (не клон) | ? | **Исключён** (GPL contamination) |
+| Seed-VC | GPL-3.0 | ? | VC (not cloning) | ? | **Excluded** (GPL contamination) |
 
-## 4. Линейные/affine-типы и ConsentToken
+## 4. Linear/affine types and ConsentToken
 
-В языке отсутствуют линейные/affine-типы (Option/Result отвергнуты ADR-0106). ConsentToken — **не тип**, а статическая проверка использования-один-раз через расширение `src/audit.rs` (тот же класс механизма, что `SECRET_LEAK`/`SQL_DYNAMIC`). Path-sensitive: `if consent.ok { voice_enroll(...) }` — enrollment только в then-ветке. Подробнее: ADR-0145 D1.
+The language has no linear/affine types (Option/Result were rejected by ADR-0106). ConsentToken is **not a type** but a static use-once check implemented as an extension of `src/audit.rs` (the same class of mechanism as `SECRET_LEAK`/`SQL_DYNAMIC`). Path-sensitive: `if consent.ok { voice_enroll(...) }` — enrollment only in the then-branch. Details: ADR-0145 D1.
 
-## 5. Словарь границ
+## 5. Vocabulary boundary
 
-Слово «tripwire» в ADR-0125 отсутствует — границу anti-spoof формулировать в реальном словаре проекта: «MVP-детектор, не адверсариальная гарантия» (ADR-0145 D3).
+The word "tripwire" is absent from ADR-0125 — the anti-spoof boundary must be phrased in the project's actual vocabulary: "MVP detector, not an adversarial guarantee" (ADR-0145 D3).
 
-## 6. Лицензионный паттерн ниши
+## 6. Licensing pattern of the niche
 
-Permissive-код + non-commercial-веса — пример k2-fsa/OmniVoice «VoiceStudio»: Apache-2.0 код, CC-BY-NC веса. Лицензию весов проверять отдельно от лицензии кода для каждого кандидата. Chatterbox и Kokoro — оба fully permissive (MIT/MIT и Apache-2.0/Apache-2.0 соответственно).
+Permissive code + non-commercial weights — example: k2-fsa/OmniVoice "VoiceStudio": Apache-2.0 code, CC-BY-NC weights. For each candidate, check the weights license separately from the code license. Chatterbox and Kokoro are both fully permissive (MIT/MIT and Apache-2.0/Apache-2.0 respectively).
 
-## 7. Cross-pillar сводка
+## 7. Cross-pillar summary
 
-| Элемент | Vision (ADR-0122/0124/0125) | Voice (ADR-0143/0144/0145/0146) | Cross-pillar решение |
+| Element | Vision (ADR-0122/0124/0125) | Voice (ADR-0143/0144/0145/0146) | Cross-pillar decision |
 |---|---|---|---|
-| `MODEL_WEIGHTS_UNSAFE` | №241 (vision_fetch_weights) | №300 (suffix `_fetch_weights`) | **Shared** — №300 generalized |
+| `MODEL_WEIGHTS_UNSAFE` | #241 (vision_fetch_weights) | #300 (suffix `_fetch_weights`) | **Shared** — #300 generalized |
 | `generative-declaration` grammar | `vision { }` (STRING name) | `voice { }` (STRING name) | Shared pattern, separate declarations |
 | Registry license fields | Per-entry | Per-entry | Same structure (ADR-0144 D3) |
 | Opaque handle | `Value::Vision(VisionId)` | `Value::Audio(AudioId)` | Separate variants, same pattern (ADR-0114) |
 | Provenance gates | ADR-0125 (5 gates) | ADR-0145 (5 gates, 1 shared) | Separate gates, 1 shared (`MODEL_WEIGHTS_UNSAFE`) |
 | Watermark | LSB (MLGV + 32-bit model hash) | TBD (AudioSeal-class — research backlog) | Different watermark class for audio |
 
-Cross-pillar ADR не создаётся — каждый столп имеет свой scope/wedge/registry/gates ADR. Общий элемент (`MODEL_WEIGHTS_UNSAFE`) уже зафиксирован в №300. Если Vision-план ещё не принят — зафиксировано обязательство свести при его принятии.
+No cross-pillar ADR is created — each pillar has its own scope/wedge/registry/gates ADR. The shared element (`MODEL_WEIGHTS_UNSAFE`) is already recorded in #300. If the Vision plan has not yet been adopted — a commitment is recorded to reconcile upon its adoption.
 
-## 8. Резюме ADRs
+## 8. ADR summary
 
-| ADR | Название | Status |
+| ADR | Title | Status |
 |---|---|---|
 | 0143 | Voice scope — TTS, zero-shot cloning, voice-design | Accepted |
 | 0144 | Voice value-registry — Value::Audio(AudioId) + VoiceRegistry | Accepted |

@@ -1,412 +1,428 @@
-# REALITY.md — факт-чек активов и рабочая оценка готовности к P0
+# REALITY.md — fact-check of assets and a working estimate of P0 readiness
 
-> **Статус: SSOT по готовности к P0.** Эта страница — единственная точка
-> истины по вопросу «что из заявленного в плане v2 реально существует, и
-> какая доля P0-готовности достигнута». Создана нарядом №318 (P0/docs,
-> issue #405, волна 0, шаг 0.1 по §13.2 плана v2). Обновляется или
-> отзывается только новым факт-чеком тем же нарядным протоколом — правки
-> мимо протокола запрещены: каждое число здесь либо воспроизводимо
-> командой, либо помечено UNVERIFIED.
+> **Status: SSOT for P0 readiness.** This page is the single source of
+> truth on the question "what of what is claimed in plan v2 actually
+> exists, and what share of P0 readiness has been reached". Created by
+> naryad #318 (P0/docs, issue #405, wave 0, step 0.1 per §13.2 of plan
+> v2). Updated or withdrawn only by a new fact-check under the same
+> naryad protocol — edits outside the protocol are forbidden: every
+> number here is either reproducible by a command or marked UNVERIFIED.
 >
-> **Снапшоты.** Снапшот плана v2 — `fc59e9e` (2026-09-14 13:56 +0300,
-> merge #396). Текущий main на момент проверки — `1876fdf`. Все команды
-> раздела 1 воспроизводимы на снапшоте **без чекаута** — через
-> `git show fc59e9e:<путь>`; там, где якорь на main сдвинулся, это
-> указано явно, новый якорь зафиксирован (раздел 5).
+> **Snapshots.** Plan v2 snapshot — `fc59e9e` (2026-09-14 13:56 +0300,
+> merge #396). Current main at the time of the check — `1876fdf`. All
+> commands of section 1 are reproducible on the snapshot **without a
+> checkout** — via `git show fc59e9e:<path>`; wherever the main anchor
+> has shifted, this is stated explicitly and the new anchor is recorded
+> (section 5).
 >
-> **Честность.** План v2 в репозитории ОТСУТСТВУЕТ — проверка отсутствия:
-> `git ls-tree -r --name-only HEAD | grep -iE 'plan|план'` возвращает
-> только `docs/refactoring-split-plan.md` (другой документ) и ложные
-> совпадения по `openplanter`. Текст §2 плана доступен только как цитата
-> в теле issue #405. Всё, что требует полного текста плана (веса
-> разложения в разделе 3), помечено UNVERIFIED и является рабочей
-> реконструкцией, подлежащей сверке при появлении плана v2 в репо.
+> **Honesty.** Plan v2 is ABSENT from the repository — absence check:
+> `git ls-tree -r --name-only HEAD | grep -iE 'plan'` returns only
+> `docs/refactoring-split-plan.md` (a different document) and false
+> matches on `openplanter`. The text of §2 of the plan is available only
+> as a quotation in the body of issue #405. Everything that requires the
+> full text of the plan (the decomposition weights in section 3) is
+> marked UNVERIFIED and is a working reconstruction, to be reconciled
+> once plan v2 appears in the repo.
 
 ---
 
-## 0. Сводка вердиктов
+## 0. Verdict summary
 
-| # | Якорь §2 плана v2 | Вердикт | Снапшот `fc59e9e` | Main `1876fdf` |
+| # | Anchor of plan v2 §2 | Verdict | Snapshot `fc59e9e` | Main `1876fdf` |
 |---|---|---|---|---|
-| 1 | `TaintKind` — audit.rs:119, «5 advisory-видов» | **CONFIRMED** | audit.rs:119, 5 вариантов | без сдвига (119) |
-| 2 | `TaintTracker` — audit.rs:142, per-scope HashMap | **CONFIRMED** | audit.rs:141–142 | без сдвига (141–142) |
-| 3 | Category-A гейт `MODEL_WEIGHTS_UNSAFE` — audit.rs:1607–1757 | **CONFIRMED** (якорь сдвинулся) | 1607–1757 | **1660–1810** (+53) |
-| 4 | `Statement` — ast.rs:1282, «10 видов» | **PARTIAL** | ast.rs:1282, вариантов **15** | без сдвига |
-| 5 | «84 инструкции VM» — bytecode.rs:14 | **PHANTOM** | вариантов **47** | без сдвига (47) |
-| 6 | `semantic.rs` — 3328 строк | **CONFIRMED** | 3328 | 3328 |
-| 7 | 420 builtins — registry.rs:38 | **CONFIRMED** число / **PARTIAL** строка | 420 `spec!(`; объявление на строке **44** | **421** (+video_extend, №309) |
-| 8 | «143 ADR» | **PARTIAL** | 142 ADR + индексный README = 143 файла | **145** ADR (+0151/0152/0153) |
-| 9 | «214 примеров» | **CONFIRMED** (канонический базис) | 214 top-level `*.mlog` | 214 (рекурсивно 273) |
-| 10 | zeroize — Cargo.toml:51 | **CONFIRMED** | строка 51 | без сдвига |
-| 11 | `consent_ledger` — voice/store.rs:31 | **CONFIRMED** | store.rs:31 | без сдвига |
-| 12 | Провенанс — vision/provenance.rs (№241) | **CONFIRMED** | 430 строк | 464 (№320) |
-| 13 | MCP-клиент — builtins/mcp.rs (№268) | **CONFIRMED** | 613 строк | 613 |
+| 1 | `TaintKind` — audit.rs:119, "5 advisory kinds" | **CONFIRMED** | audit.rs:119, 5 variants | no shift (119) |
+| 2 | `TaintTracker` — audit.rs:142, per-scope HashMap | **CONFIRMED** | audit.rs:141–142 | no shift (141–142) |
+| 3 | Category-A gate `MODEL_WEIGHTS_UNSAFE` — audit.rs:1607–1757 | **CONFIRMED** (anchor shifted) | 1607–1757 | **1660–1810** (+53) |
+| 4 | `Statement` — ast.rs:1282, "10 kinds" | **PARTIAL** | ast.rs:1282, **15** variants | no shift |
+| 5 | "84 VM instructions" — bytecode.rs:14 | **PHANTOM** | **47** variants | no shift (47) |
+| 6 | `semantic.rs` — 3328 lines | **CONFIRMED** | 3328 | 3328 |
+| 7 | 420 builtins — registry.rs:38 | **CONFIRMED** count / **PARTIAL** line | 420 `spec!(`; declaration on line **44** | **421** (+video_extend, #309) |
+| 8 | "143 ADRs" | **PARTIAL** | 142 ADRs + index README = 143 files | **145** ADRs (+0151/0152/0153) |
+| 9 | "214 examples" | **CONFIRMED** (canonical basis) | 214 top-level `*.mlog` | 214 (273 recursively) |
+| 10 | zeroize — Cargo.toml:51 | **CONFIRMED** | line 51 | no shift |
+| 11 | `consent_ledger` — voice/store.rs:31 | **CONFIRMED** | store.rs:31 | no shift |
+| 12 | Provenance — vision/provenance.rs (#241) | **CONFIRMED** | 430 lines | 464 (#320) |
+| 13 | MCP client — builtins/mcp.rs (#268) | **CONFIRMED** | 613 lines | 613 |
 
-Итог: 9 CONFIRMED (из них 1 со сдвигом якоря), 3 PARTIAL, 1 PHANTOM.
-Ни один якорь не оказался «нарисованным» целиком — единственная грубая
-ошибка плана v2 — число инструкций VM (п. 1.5).
+Total: 9 CONFIRMED (1 of them with a shifted anchor), 3 PARTIAL, 1
+PHANTOM. Not a single anchor proved to be wholly fabricated — the only
+gross error of plan v2 is the number of VM instructions (item 1.5).
 
 ---
 
-## 1. Построчная сверка активов
+## 1. Line-by-line verification of assets
 
-### 1.1. `TaintKind` — audit.rs:119, «5 advisory-видов» — CONFIRMED
+### 1.1. `TaintKind` — audit.rs:119, "5 advisory kinds" — CONFIRMED
 
-Команда (снапшот):
+Command (snapshot):
 ```bash
 git show fc59e9e:src/audit.rs | sed -n '119p'; git show fc59e9e:src/audit.rs | awk '/^enum TaintKind/,/^}/' | grep -cE '^\s{4}[A-Z][A-Za-z]*,?\s*$'
 ```
-Фактический вывод: `119: enum TaintKind {` — точно строка 119; число
-вариантов — **5**. Полный список: `LlmOutput`, `Secret`, `UserInput`,
-`Sanitized`, `CanaryLeak` (№284). На main — без сдвига. Уточнение к
-формулировке плана: сами виды — это носители меток, а не «advisory-виды»;
-advisory или блокирующим является **чек-потребитель** метки (см. раздел 2
-и словарь check_id: 21 идентификатор в audit.rs на main).
+Actual output: `119: enum TaintKind {` — exactly line 119; the number of
+variants is **5**. Full list: `LlmOutput`, `Secret`, `UserInput`,
+`Sanitized`, `CanaryLeak` (#284). On main — no shift. Clarification to
+the plan's wording: the kinds themselves are label carriers, not
+"advisory kinds"; it is the **consuming check** of the label that is
+advisory or blocking (see section 2 and the check_id dictionary: 21
+identifiers in audit.rs on main).
 
 ### 1.2. `TaintTracker` — audit.rs:142, per-scope HashMap — CONFIRMED
 
-Команда (снапшот):
+Command (snapshot):
 ```bash
 git show fc59e9e:src/audit.rs | sed -n '141,142p'
 ```
-Фактический вывод:
+Actual output:
 ```text
 struct TaintTracker {
     tainted: HashMap<String, TaintKind>,
 ```
-Строка 142 — в точности поле `tainted: HashMap<String, TaintKind>`
-(объявление структуры — 141). «Per-scope» подтверждается док-комментарием
-над структурой и API из трёх методов (`taint` / `get_taint` / `untaint`);
-`#[derive(Clone)]` — для path-sensitive форка в `check_canary_leak`
-(№284). На main — без сдвига.
+Line 142 is exactly the field `tainted: HashMap<String, TaintKind>`
+(the struct declaration is 141). "Per-scope" is confirmed by the doc
+comment above the struct and by the three-method API (`taint` /
+`get_taint` / `untaint`); `#[derive(Clone)]` — for the path-sensitive
+fork in `check_canary_leak` (#284). On main — no shift.
 
-### 1.3. Category-A гейт `MODEL_WEIGHTS_UNSAFE` — audit.rs:1607–1757 — CONFIRMED (якорь сдвинулся)
+### 1.3. Category-A gate `MODEL_WEIGHTS_UNSAFE` — audit.rs:1607–1757 — CONFIRMED (anchor shifted)
 
-Команда (снапшот):
+Command (snapshot):
 ```bash
 git show fc59e9e:src/audit.rs | grep -n 'MODEL_WEIGHTS_UNSAFE' | head -3
 ```
-Фактический вывод: `1607` — заголовок секции
+Actual output: `1607` — the section header
 `// ── Check: MODEL_WEIGHTS_UNSAFE + VISION_POLICY_MISSING`, `1757` —
 `check_id: "MODEL_WEIGHTS_UNSAFE"` (Severity::Error, Category A —
-статически видимые нарушения на `vision_fetch_weights(url, ...)`).
-Диапазон 1607–1757 подтверждён как «секция гейта» на снапшоте.
-**На main якорь сдвинулся: секция теперь 1660–1810** (комментарий-шаблон
+statically visible violations at `vision_fetch_weights(url, ...)`).
+The range 1607–1757 is confirmed as the "gate section" on the snapshot.
+**On main the anchor has shifted: the section is now 1660–1810** (the
+template comment
 `// MODEL_WEIGHTS_UNSAFE / VISION_UNSIGNED_EXPORT template (1607–1757)`
-в коде main сохраняет исторические координаты). Новый якорь: **1660**.
+in main's code preserves the historical coordinates). New anchor:
+**1660**.
 
-### 1.4. `Statement` — ast.rs:1282, «10 видов» — PARTIAL
+### 1.4. `Statement` — ast.rs:1282, "10 kinds" — PARTIAL
 
-Команды:
+Commands:
 ```bash
 git show fc59e9e:src/ast.rs | sed -n '1282p'
 sed -n '1282,1400p' src/ast.rs | awk '/pub enum Statement/{f=1;next} f&&/^\}/{exit} f' | grep -cE '^\s{4}[A-Z][A-Za-z0-9]*'
 ```
-Фактический вывод: `1282: pub enum Statement {` — позиция точна **на обоих
-снапшотах**; полное число вариантов — **15**, не 10: `LetBinding`, `Assign`,
-`Each`, `EachWithIndex`, `While`, `IfElseBlock`, `IfThen`, `Return`,
-`ExprStmt`, `Match`, `Break`, `Continue`, `Memorize`, `Forget`, `Relate`.
+Actual output: `1282: pub enum Statement {` — the position is exact **on
+both snapshots**; the full variant count is **15**, not 10: `LetBinding`,
+`Assign`, `Each`, `EachWithIndex`, `While`, `IfElseBlock`, `IfThen`,
+`Return`, `ExprStmt`, `Match`, `Break`, `Continue`, `Memorize`, `Forget`,
+`Relate`.
 
-Вердикт PARTIAL, а не PHANTOM: число «10» воспроизводимо при базисе
-«15 минус Memory-варианты (Memorize/Forget/Relate) минус loop-control
-(Break/Continue)» = 10, но этот базис в плане не указан и не совпадает
-ни с одним счётчиком проекта. Отметим попутно обнаруженные расхождения
-в README — три места с тремя разными счётчиками Statement, ни одно не
-покрыто консистентными тестами: архитектурная диаграмма («12
-Statement», рядом ещё и «29 Declaration» / «15 Expr» против реальных
-33/14), таблица AST («12 Statement») — все исправлены в этом же наряде
-на верифицированные 33/14/15.
+The verdict is PARTIAL, not PHANTOM: the number "10" is reproducible with
+the basis "15 minus the Memory variants (Memorize/Forget/Relate) minus
+loop-control (Break/Continue)" = 10, but this basis is not stated in the
+plan and matches none of the project's counters. We note in passing the
+discrepancies found in the README — three places with three different
+Statement counters, none covered by consistency tests: the architecture
+diagram ("12 Statement", alongside "29 Declaration" / "15 Expr" against
+the actual 33/14), the AST table ("12 Statement") — all were fixed in
+the same naryad to the verified 33/14/15.
 
-### 1.5. «84 инструкции VM» — bytecode.rs:14 — PHANTOM
+### 1.5. "84 VM instructions" — bytecode.rs:14 — PHANTOM
 
-Команды:
+Commands:
 ```bash
 git show fc59e9e:src/bytecode.rs | sed -n '14p'
 git show fc59e9e:src/bytecode.rs | awk '/pub enum Instruction/,/^\}/' | grep -E '^\s{4}[A-Z][A-Za-z0-9]*' | grep -v '//' | wc -l
 grep -rn '84 инс\|84 instr\|84 instructions' README.md docs/ src/
 ```
-Фактический вывод: `14: pub enum Instruction {` — позиция точна; число
-вариантов — **47** на снапшоте и на main; строка «84 инструкции» не
-встречается **нигде** в репозитории. Сам README согласован с реальностью:
-«bytecode VM (47 instructions; experimental …, ADR-0105/ADR-0141)».
-Вердикт PHANTOM: ни один базис подсчёта (варианты enum, опкоды,
-инструкции с операндами) не даёт 84. Число 84 в §2 — ошибка плана,
-вероятно перенос из другой ревизии.
+Actual output: `14: pub enum Instruction {` — the position is exact; the
+number of variants is **47** on the snapshot and on main; the string
+"84 instructions" occurs **nowhere** in the repository. The README itself
+agrees with reality: "bytecode VM (47 instructions; experimental …,
+ADR-0105/ADR-0141)". Verdict PHANTOM: no counting basis (enum variants,
+opcodes, instructions with operands) yields 84. The number 84 in §2 is a
+plan error, most likely a carry-over from another revision.
 
-### 1.6. `semantic.rs` — 3328 строк — CONFIRMED
+### 1.6. `semantic.rs` — 3328 lines — CONFIRMED
 
-Команда (снапшот):
+Command (snapshot):
 ```bash
 git show fc59e9e:src/semantic.rs | wc -l
 ```
-Фактический вывод: `3328` — точно. На main — 3328 (без изменений).
+Actual output: `3328` — exactly. On main — 3328 (unchanged).
 
-### 1.7. 420 builtins — registry.rs:38 — CONFIRMED (число) / PARTIAL (строка)
+### 1.7. 420 builtins — registry.rs:38 — CONFIRMED (count) / PARTIAL (line)
 
-Команды (снапшот):
+Commands (snapshot):
 ```bash
 git show fc59e9e:src/builtins/registry.rs | sed -n '38p'
 git show fc59e9e:src/builtins/registry.rs | grep -c 'spec!('
 ```
-Фактический вывод: на строке 38 — хвост `use`-импорта (`};`), а не
-реестр; объявление `pub const BUILTIN_REGISTRY` — на строке **44**.
-Число `spec!(` — **420** на снапшоте — подтверждено точно. Числовая
-часть якоря верна, строковая координата неточна (38 → 44).
-**На main — 421** (+`video_extend`, наряд №309); счётчик README
-синхронизирован автотестом (`readme_total_builtins_match_reality`).
+Actual output: line 38 holds the tail of a `use` import (`};`), not the
+registry; the declaration `pub const BUILTIN_REGISTRY` is on line **44**.
+The count of `spec!(` — **420** on the snapshot — is confirmed exactly.
+The numeric part of the anchor is correct; the line coordinate is
+inaccurate (38 → 44). **On main — 421** (+`video_extend`, naryad #309);
+the README counter is synchronized by an autotest
+(`readme_total_builtins_match_reality`).
 
-### 1.8. «143 ADR» — PARTIAL
+### 1.8. "143 ADRs" — PARTIAL
 
-Команды (снапшот):
+Commands (snapshot):
 ```bash
 git show fc59e9e --stat >/dev/null; git ls-tree -r --name-only fc59e9e docs/adr/ | grep -c '\.md$'
 git ls-tree -r --name-only fc59e9e docs/adr/ | grep '\.md$' | grep -vcE '/[0-9]{4}-[^/]+\.md$'
 ```
-Фактический вывод: всего `.md`-файлов в `docs/adr/` на снапшоте — **143**;
-из них 142 — файлы формата `NNNN-*.md`, 1 — индексный `README.md`.
-Канонический счётчик проекта (`real_adr_count()` в
-`tests/readme_consistency.rs`) исключает README, т.е. на каноническом
-базисе на снапшоте **142 ADR**. «143» воспроизводимо только базисом
-`ls docs/adr/*.md | wc -l` (включая индекс). На main: **145** ADR
-(+ADR-0151 №309, +ADR-0152 №320, +ADR-0153 №412) + индекс = 146 файлов;
-клейм README синхронизирован автотестом.
+Actual output: the `.md` files in `docs/adr/` on the snapshot total
+**143**; of them 142 are files of the `NNNN-*.md` format, 1 is the index
+`README.md`. The project's canonical counter (`real_adr_count()` in
+`tests/readme_consistency.rs`) excludes the README, i.e. on the canonical
+basis the snapshot has **142 ADRs**. "143" is reproducible only with the
+basis `ls docs/adr/*.md | wc -l` (index included). On main: **145** ADRs
+(+ADR-0151 #309, +ADR-0152 #320, +ADR-0153 #412) + index = 146 files;
+the README claim is synchronized by an autotest.
 
-### 1.9. «214 примеров» — CONFIRMED (канонический базис)
+### 1.9. "214 examples" — CONFIRMED (canonical basis)
 
-Команды (снапшот):
+Commands (snapshot):
 ```bash
 git ls-tree --name-only fc59e9e examples/ | grep -c '\.mlog$'
 git ls-tree -r --name-only fc59e9e examples/ | grep -c '\.mlog$'
 ```
-Фактический вывод: **214** top-level `*.mlog` — в точности число плана;
-рекурсивно — 229 (с подкаталогами). Канонический базис проекта —
-топ-уровень: именно так считает `real_example_count()` в
-`tests/readme_consistency.rs` (нерекурсивный `fs::read_dir`) и именно
-214 заявлено в README («214 .mlog programs (golden corpus)»). Вердикт
-CONFIRMED; на main топ-уровень — те же 214 (рекурсивно 273: наряд №317
-добавил корпус `examples/leak/`, исключённый из golden-цикла по
-построению — `golden.rs` сканирует нерекурсивно).
+Actual output: **214** top-level `*.mlog` — exactly the plan's number;
+recursively — 229 (with subdirectories). The project's canonical basis
+is top-level: that is how `real_example_count()` in
+`tests/readme_consistency.rs` counts (non-recursive `fs::read_dir`), and
+214 is exactly what the README claims ("214 .mlog programs (golden
+corpus)"). Verdict CONFIRMED; on main the top level is the same 214
+(273 recursively: naryad #317 added the `examples/leak/` corpus,
+excluded from the golden loop by construction — `golden.rs` scans
+non-recursively).
 
 ### 1.10. zeroize — Cargo.toml:51 — CONFIRMED
 
-Команда (снапшот):
+Command (snapshot):
 ```bash
 git show fc59e9e:Cargo.toml | sed -n '51p'
 ```
-Фактический вывод: `zeroize = "1"` — точно строка 51 (блок
-«Phase 7.3: Real encryption», рядом `argon2 = "0.6"`). На main — без
-сдвига (`grep -n 'zeroize' Cargo.toml` → `51:zeroize = "1"`).
+Actual output: `zeroize = "1"` — exactly line 51 (the "Phase 7.3: Real
+encryption" block, `argon2 = "0.6"` nearby). On main — no shift
+(`grep -n 'zeroize' Cargo.toml` → `51:zeroize = "1"`).
 
 ### 1.11. `consent_ledger` — voice/store.rs:31 — CONFIRMED
 
-Команда (снапшот):
+Command (snapshot):
 ```bash
 git show fc59e9e:src/voice/store.rs | sed -n '31p'
 ```
-Фактический вывод: `/// CREATE TABLE consent_ledger (` — точно строка 31
-(док-комментарий схемы). Реальная схема живёт в коде: `CREATE TABLE IF
-NOT EXISTS consent_ledger` (store.rs:61 на main) + API `record_consent`
-(:127), `has_consent_record` (:143), `consent_count` (:157) + тест
-`consent_ledger` (:225). На main — без сдвига строки 31.
+Actual output: `/// CREATE TABLE consent_ledger (` — exactly line 31
+(a schema doc comment). The real schema lives in code: `CREATE TABLE IF
+NOT EXISTS consent_ledger` (store.rs:61 on main) + the API
+`record_consent` (:127), `has_consent_record` (:143), `consent_count`
+(:157) + the test `consent_ledger` (:225). On main — line 31 unshifted.
 
-### 1.12. Провенанс — vision/provenance.rs (№241) — CONFIRMED
+### 1.12. Provenance — vision/provenance.rs (#241) — CONFIRMED
 
-Команда (снапшот):
+Command (snapshot):
 ```bash
 git show fc59e9e:src/vision/provenance.rs | wc -l
 git show fc59e9e:src/vision/provenance.rs | grep -n 'pub fn' | head -8
 ```
-Фактический вывод: **430 строк**; публичный API: `sha256_hex`, `prompt_hash`,
+Actual output: **430 lines**; public API: `sha256_hex`, `prompt_hash`,
 `verify_sha_pin`, `manifest_sidecar_json`, `weights_tree_sha256`,
-`model_hash32`, `embed_lsb_watermark`, `detect_lsb_watermark` — полный
-контур провенанса (SHA-pinning весов, sidecar-манифест, LSB-водяной знак).
-На main — 464 строки (наряд №320 добавил synthetic-поля манифеста, Art 50).
+`model_hash32`, `embed_lsb_watermark`, `detect_lsb_watermark` — the full
+provenance contour (SHA-pinning of weights, sidecar manifest, LSB
+watermark). On main — 464 lines (naryad #320 added the manifest's
+synthetic fields, Art 50).
 
-### 1.13. MCP-клиент — builtins/mcp.rs (№268) — CONFIRMED
+### 1.13. MCP client — builtins/mcp.rs (#268) — CONFIRMED
 
-Команда (снапшот):
+Command (snapshot):
 ```bash
 git show fc59e9e:src/builtins/mcp.rs | wc -l
 ```
-Фактический вывод: **613 строк**, без изменений на main. Содержание
-подтверждается док-блоком модуля (taint-контракт: результат `mcp_call` —
-`TaintKind::UserInput`) и README (stdio-транспорт, hand-rolled JSON-RPC,
-exec-гейт, allowlist `METALOGOS_MCP_ALLOWLIST`, ADR-0132).
+Actual output: **613 lines**, unchanged on main. The content is
+confirmed by the module doc block (taint contract: the result of
+`mcp_call` is `TaintKind::UserInput`) and by the README (stdio
+transport, hand-rolled JSON-RPC, exec gate, allowlist
+`METALOGOS_MCP_ALLOWLIST`, ADR-0132).
 
 ---
 
-## 2. Что делает taint эффектом — а чего нет
+## 2. What makes taint an effect — and what is missing
 
-Контекст: taint-механика Metalogos — **детектор и гейты на
-специфических паттернах**, а не абстрактный интерпретатор с эффектами.
-Это не дефект реализации, а точная граница: ниже каждое «не готово» из
-плана подтверждено командой-доказательством отсутствия и привязано к
-месту, где оно должно будет появиться. Все команды выполняются на
-`1876fdf` от корня репозитория и воспроизводимы на любом чекауте, где
-эффектов ещё нет.
+Context: the taint mechanics of Metalogos are **a detector and gates on
+specific patterns**, not an abstract interpreter with effects. This is
+not an implementation defect but an exact boundary: below, every "not
+ready" item from the plan is confirmed by an absence-proof command and
+tied to the place where it is to appear. All commands run on `1876fdf`
+from the repository root and are reproducible on any checkout where the
+effects do not yet exist.
 
-**2.1. Решётка (lattice) меток — НЕТ.**
+**2.1. Label lattice — NO.**
 ```bash
-grep -rni 'lattice' src/        # вывод: пусто (0 вхождений)
+grep -rni 'lattice' src/        # output: empty (0 occurrences)
 ```
-`TaintKind` — плоский `enum` без порядка, наименьшей верхней границы и
-оператора поглощения. Где появится: `src/audit.rs`, секция
-`// ── Taint tracking for data-flow analysis ──` (строки 115–435 на main).
+`TaintKind` is a flat `enum` with no ordering, no least upper bound, and
+no absorption operator. Where it will appear: `src/audit.rs`, the
+section `// ── Taint tracking for data-flow analysis ──` (lines 115–435
+on main).
 
-**2.2. Вывод по всем statement-видам — НЕТ (9 из 15).**
+**2.2. Inference over all statement kinds — NO (9 of 15).**
 ```bash
 sed -n '2404,2983p' src/audit.rs | grep -c 'Statement::Match\|Statement::Break\|Statement::Continue'
-# вывод: 0
+# output: 0
 ```
-Интерпроцедурный MVP `TAINT_INTERP` (№292, секция 2404–2983) обрабатывает
-9 видов: `LetBinding`, `Assign`, `ExprStmt`, `Return`, `Each`,
-`EachWithIndex`, `While`, `IfElseBlock`, `IfThen`. Не покрыты движком:
-`Match`, `Break`, `Continue` (0 вхождений в секции) и Memory-варианты
-`Memorize`/`Forget`/`Relate` (они обслуживаются отдельными
-паттерн-чеками `TAINT_PERSISTENCE`, не интерп-движком). Где появится:
-та же секция `TAINT_INTERP` — расширение матч-ручек по недостающим видам.
+The interprocedural MVP `TAINT_INTERP` (#292, section 2404–2983) handles
+9 kinds: `LetBinding`, `Assign`, `ExprStmt`, `Return`, `Each`,
+`EachWithIndex`, `While`, `IfElseBlock`, `IfThen`. Not covered by the
+engine: `Match`, `Break`, `Continue` (0 occurrences in the section) and
+the Memory variants `Memorize`/`Forget`/`Relate` (they are handled by
+separate pattern checks `TAINT_PERSISTENCE`, not by the interp engine).
+Where it will appear: the same `TAINT_INTERP` section — extending the
+match arms for the missing kinds.
 
-**2.3. Join в слияниях — НЕТ.**
+**2.3. Join at merges — NO.**
 ```bash
-grep -n 'fn join\|taint_join\|merge_taint\|widen' src/audit.rs   # вывод: пусто
+grep -n 'fn join\|taint_join\|merge_taint\|widen' src/audit.rs   # output: empty
 ```
-Единственный механизм ветвящейся чувствительности — path-sensitive форк
-клона трекера в `check_canary_leak` (№284, `#[derive(Clone)]` на
-`TaintTracker`): состояние уходит в две ветки и **не сливается** обратно.
-Где появится: точка слияния after-веток в `TAINT_INTERP` и в форке №284.
+The only branching-sensitivity mechanism is the path-sensitive fork of a
+tracker clone in `check_canary_leak` (#284, `#[derive(Clone)]` on
+`TaintTracker`): state flows into two branches and **does not merge**
+back. Where it will appear: the merge point of after-branches in
+`TAINT_INTERP` and in the #284 fork.
 
-**2.4. Эффект-следы — НЕТ.**
+**2.4. Effect traces — NO.**
 ```bash
-grep -n 'effect' src/audit.rs    # вывод: пусто
+grep -n 'effect' src/audit.rs    # output: empty
 ```
-Единственное вхождение слова в смежной зоне — исторический комментарий в
-`semantic.rs:2901` о времени жизни привязки в блоке; концепции эффектов
-(запись/чтение/сеть/необратимость как атрибуты выражений) в коде нет.
-Где появится: новая секция в `src/audit.rs` рядом с taint-движком либо
-модуль `src/effects.rs` с последующей привязкой к классификации builtins
-(`src/builtins_classification.rs`, наряд №316: Role/Lift/Sink уже
-перечислены — 205 non-Pure из 421).
+The only occurrence of the word in an adjacent zone is a historical
+comment in `semantic.rs:2901` about the lifetime of a binding within a
+block; the code has no effect concepts (write/read/network/
+irreversibility as attributes of expressions). Where it will appear: a
+new section in `src/audit.rs` next to the taint engine, or a
+`src/effects.rs` module later tied to the builtin classification
+(`src/builtins_classification.rs`, naryad #316: Role/Lift/Sink are
+already enumerated — 205 non-Pure out of 421).
 
-**2.5. Exhaustive matching по меткам — НЕТ (как центральный контракт).**
+**2.5. Exhaustive matching over labels — NO (as the central contract).**
 ```bash
-grep -n 'match kind' -A 8 src/audit.rs   # вывод: пусто
+grep -n 'match kind' -A 8 src/audit.rs   # output: empty
 ```
-Правила размазаны точечными матчами: `get_expr_taint` реализует
-«санитайзер побеждает» (`render`/`escape_html` → `Sanitized`) и «первый
-несанитизированный аргумент»; чеки секций матчат конкретные виды
-(`Secret`, `UserInput`, `CanaryLeak`). Центрального исчерпывающего
-матча, который компилятор заставил бы расширять при добавлении нового
-вида метки, нет — новый вид можно добавить «незаметно» для части чеков.
-Где появится: в taint-секции audit.rs как единая функция
-трансформации/поглощения, сопровождающая решётку (2.1).
+The rules are scattered across point matches: `get_expr_taint` implements
+"sanitizer wins" (`render`/`escape_html` → `Sanitized`) and "first
+unsanitized argument"; the section checks match specific kinds (`Secret`,
+`UserInput`, `CanaryLeak`). There is no central exhaustive match that
+the compiler would force to extend when a new label kind is added — a
+new kind can be added "invisibly" to part of the checks. Where it will
+appear: in the taint section of audit.rs as a single
+transformation/absorption function accompanying the lattice (2.1).
 
-**2.6. Аффайность — НЕТ.**
+**2.6. Affinity — NO.**
 ```bash
-grep -rni 'affinity' src/        # вывод: пусто
+grep -rni 'affinity' src/        # output: empty
 ```
-Ни привязки данных к потокам/акторам, ни afфайн-типов «одноразового
-потребления» в коде нет. Где появится: после эффектов (2.4) — как
-ограничение потребления на уровне семантики (`src/semantic.rs`) с гейтом
-в `audit.rs`.
+The code has neither data-to-flow/actor binding nor affine "one-shot
+consumption" types. Where it will appear: after effects (2.4) — as a
+consumption restriction at the semantics level (`src/semantic.rs`) with
+a gate in `audit.rs`.
 
-Существующая часть (чтобы раздел не читался как «движка нет вообще»):
-метки ставятся на источники (`call_llm`/`env`/`form_data`/`mcp_call`),
-снимаются санитайзерами (`render`/`escape_html`; `redact` — снимает
-`Secret`, но НЕ снимает `CanaryLeak`, лекало ADR-0136 D2), распространяются
-через `Ident`/`FnCall`/`BinaryOp`, и питают 21 check_id, из которых
-блокирующие (Severity::Error) включены в `audit_category_a` /
-`audit_program` и падают компиляцией на `mlog check`. Словарь классов
-корпуса «обязан не компилироваться» — `tests/run_leak_suite.rs` (№317);
-измеренная на сегодня полнота гейтов — 11/28 сценариев ловится (39%),
-остальные 17 — контракт решётки №325.
+The existing part (so that this section does not read as "there is no
+engine at all"): labels are placed on sources
+(`call_llm`/`env`/`form_data`/`mcp_call`), removed by sanitizers
+(`render`/`escape_html`; `redact` removes `Secret` but does NOT remove
+`CanaryLeak`, the ADR-0136 D2 template), propagated through
+`Ident`/`FnCall`/`BinaryOp`, and feed 21 check_ids, of which the
+blocking ones (Severity::Error) are included in `audit_category_a` /
+`audit_program` and fail compilation at `mlog check`. The dictionary of
+the corpus classes that "must not compile" is `tests/run_leak_suite.rs`
+(#317); the gate completeness measured today is 11/28 scenarios caught
+(39%), the remaining 17 are the lattice contract of #325.
 
 ---
 
-## 3. Пересчитанная готовность к P0: **26%** (рабочая цифра Фазы 1)
+## 3. Recomputed P0 readiness: **26%** (the working figure of Phase 1)
 
-> **UNVERIFIED-оговорка.** Веса подсистем — реконструкция из перечня
-> «метки / capability / реестр бэкендов / ledger / память» (тело issue
-> #405, ссылающееся на §2 плана v2); сам план в репо отсутствует, поэтому
-> веса не верифицируемы и приняты как рабочие до появления плана в репо.
-> Готовность каждой подсистемы, напротив, опирается только на
-> код-факты разделов 1–2. Сумма — 25.85 ≈ **26%**, в целевом коридоре
-> ~25% ± 5pp, заданном issue #405.
+> **UNVERIFIED caveat.** The subsystem weights are a reconstruction from
+> the list "labels / capability / backend registry / ledger / memory"
+> (issue #405 body, referencing §2 of plan v2); the plan itself is
+> absent from the repo, so the weights are unverifiable and are adopted
+> as working values until the plan appears in the repo. The readiness of
+> each subsystem, by contrast, rests only on the code facts of sections
+> 1–2. The sum is 25.85 ≈ **26%**, within the target band of ~25% ± 5pp
+> set by issue #405.
 
-| Подсистема | Вес (UNVERIFIED) | Готовность | Вклад | Код-основание готовности |
+| Subsystem | Weight (UNVERIFIED) | Readiness | Contribution | Code basis for readiness |
 |---|---|---|---|---|
-| Метки (taint) | 30% | 55% | 16.5pp | `TaintKind` 5 видов, per-scope трекер, распространение, санитайзеры (ADR-0136), path-sensitive canary (№284), интерп-MVP (№292, глубина 2), 21 check_id, из них блокирующие — в Category-A; **нет**: решётка, join, полный вывод по видам, эффекты, exhaustive, аффайность (раздел 2) |
-| Capability-модель | 20% | 0% | 0 | `grep -rni 'capability' src/` → пусто; лекало хэндла — ADR-0114, не применено |
-| Реестр бэкендов | 15% | 10% | 1.5pp | Единого реестра/маршрутизатора нет (`BACKEND_REGISTRY` — 0 вхождений); реальны по-столповые реестры: `VOICE_REGISTRY` (voice/mod.rs:119), `VIDEO_REGISTRY` (video/mod.rs:249), vision-allowlist `MLOG_VISION_WEIGHTS_ALLOWLIST`, `BUILTIN_REGISTRY` (421) — но это реестры контента, не вычислительных бэкендов |
-| Ledger | 15% | 35% | 5.25pp | `consent_ledger` реален (voice/store.rs:61/127/143/157 + тест :225); subprocess audit log (README, MCP-гейты); **нет**: универсального леджера действий, тампер-устойчивости, grant-механики необратимых операций (класс `IRREVERSIBLE_NO_GRANT` — только планируемый, №325) |
-| Память | 20% | 13% | 2.6pp | Реальная локальная инфраструктура: memory_store.rs (1621 строк), memory_graph.rs (949), embeddings.rs (655), BM25+vector rank fusion, kv_/mem_ builtins; **нет**: P0-контракта памяти плана v2 (объём неизвестен без плана — UNVERIFIED); `recall` — spec-строка реестра без обработчика (`spec!("recall", 0, "stub")`, registry.rs:248) |
-| **Итого** | **100%** | — | **25.85 ≈ 26%** | |
+| Labels (taint) | 30% | 55% | 16.5pp | `TaintKind` 5 kinds, per-scope tracker, propagation, sanitizers (ADR-0136), path-sensitive canary (#284), interp MVP (#292, depth 2), 21 check_ids, the blocking ones in Category-A; **missing**: lattice, join, full inference over kinds, effects, exhaustive matching, affinity (section 2) |
+| Capability model | 20% | 0% | 0 | `grep -rni 'capability' src/` → empty; the handle template — ADR-0114, not applied |
+| Backend registry | 15% | 10% | 1.5pp | No unified registry/router (`BACKEND_REGISTRY` — 0 occurrences); what is real are per-pillar registries: `VOICE_REGISTRY` (voice/mod.rs:119), `VIDEO_REGISTRY` (video/mod.rs:249), the vision allowlist `MLOG_VISION_WEIGHTS_ALLOWLIST`, `BUILTIN_REGISTRY` (421) — but these are content registries, not compute backends |
+| Ledger | 15% | 35% | 5.25pp | `consent_ledger` is real (voice/store.rs:61/127/143/157 + test :225); subprocess audit log (README, MCP gates); **missing**: a universal action ledger, tamper-resistance, grant mechanics for irreversible operations (the `IRREVERSIBLE_NO_GRANT` class is planned only, #325) |
+| Memory | 20% | 13% | 2.6pp | Real local infrastructure: memory_store.rs (1621 lines), memory_graph.rs (949), embeddings.rs (655), BM25+vector rank fusion, kv_/mem_ builtins; **missing**: the plan v2 memory P0 contract (its scope is unknown without the plan — UNVERIFIED); `recall` is a registry spec string without a handler (`spec!("recall", 0, "stub")`, registry.rs:248) |
+| **Total** | **100%** | — | **25.85 ≈ 26%** | |
 
-**Почему не ~60% (v1): пять причин расхождения.**
+**Why not ~60% (v1): five reasons for the discrepancy.**
 
-1. **Разные определения готовности.** v1 мерила функциональную ширину —
-   «код написан» (421 builtin, три медиа-столпа, MCP, VM). Рабочее
-   определение P0 — «контракт замкнут»: гейт + реестр + ledger +
-   доказуемое поведение. Ширина ≠ готовность: ни один из 421 builtin не
-   несёт capability-атрибута, которого нет.
-2. **Невидимые для v1 пустые подсистемы.** Capability — 0 вхождений в
-   `src/`; единый реестр бэкендов — 0; join/решётка/эффекты taint — 0.
-   Суммарный вес этих дыр в разложении — 35+ процентных пунктов при
-   нулевом вкладе.
-3. **Advisory ≠ гейт.** В audit.rs 28 вхождений `Severity::Warning` —
-   детекторы, не блокирующие запуск. v1 засчитывал их как покрытие;
-   для P0 считается только блокирующая часть (`Severity::Error`,
-   включённая в `audit_category_a`).
-4. **Индикаторы ширины-без-готовности.** `spec!("recall", 0, "stub")`
-   — строка реестра без обработчика; VM — experimental (ADR-0105/0141,
-   full-language конструкции не компилируются в байткод), а «84
-   инструкции» из §2 — PHANTOM (реально 47, п. 1.5).
-5. **Границы taint-движка.** Внутрипроцедурная глубина ограничена
-   (`TAINT_NESTING_MAX_DEPTH=3`), интерпроцедурная — 2
-   (`TAINT_INTERP_MAX_DEPTH=2`, warnings `INTERP_DEPTH_LIMIT`),
-   персистентный taint — только file/module scope (limitations.md);
-   v1 читала наличие `TaintKind` как «taint готов».
+1. **Different definitions of readiness.** v1 measured functional width —
+   "code written" (421 builtins, three media pillars, MCP, VM). The
+   working definition of P0 is "contract closed": gate + registry +
+   ledger + provable behavior. Width ≠ readiness: not one of the 421
+   builtins carries a capability attribute — of which there are none.
+2. **Empty subsystems invisible to v1.** Capability — 0 occurrences in
+   `src/`; a unified backend registry — 0; taint join/lattice/effects —
+   0. The combined weight of these holes in the decomposition is 35+
+   percentage points at zero contribution.
+3. **Advisory ≠ gate.** audit.rs has 28 occurrences of `Severity::Warning`
+   — detectors, not launch blockers. v1 counted them as coverage; for P0
+   only the blocking part counts (`Severity::Error`, included in
+   `audit_category_a`).
+4. **Indicators of width-without-readiness.** `spec!("recall", 0, "stub")`
+   is a registry string without a handler; the VM is experimental
+   (ADR-0105/0141, full-language constructs do not compile to bytecode),
+   and the "84 instructions" from §2 are PHANTOM (actually 47, item 1.5).
+5. **Limits of the taint engine.** Intraprocedural depth is bounded
+   (`TAINT_NESTING_MAX_DEPTH=3`), interprocedural — 2
+   (`TAINT_INTERP_MAX_DEPTH=2`, warnings `INTERP_DEPTH_LIMIT`);
+   persistent taint is file/module scope only (limitations.md);
+   v1 read the presence of `TaintKind` as "taint ready".
 
-**Решение (принято как рабочее для Фазы 1, п. (б) DoD):** цифра **26%**
-с разложением таблицы выше — база планирования Фазы 1. Пересчёт — по
-завершении каждой волны, тем же нарядным протоколом, с правкой только
-этой страницы.
+**Decision (adopted as the working one for Phase 1, item (b) of the
+DoD):** the figure **26%** with the decomposition in the table above is
+the planning basis of Phase 1. Recomputation — upon completion of each
+wave, under the same naryad protocol, with edits to this page only.
 
 ---
 
-## 4. Активы-прецеденты, на которые можно опираться
+## 4. Precedent assets to rely on
 
-| Актив | Что даёт как лекало | Где |
+| Asset | What it provides as a template | Where |
 |---|---|---|
-| ADR-0114 (reflex-opaque-handle) | «Непрозрачный хэндл»: реальный объект наружу отдаёт только идентификатор — прямое лекало для capability-модели (подсистема с 0%) | `docs/adr/0114-reflex-opaque-handle.md` |
-| ADR-0125 + №241 | Category-A статический гейт: статически видимое нарушение → `Severity::Error` на call-site; шаблон секции 1607–1757 уже размножен (VISION_UNSIGNED_EXPORT, VISION_UNSIGNED_EXPORT_RAW, MEDIA_SYNTHETIC_UNMARKED №320) | `docs/adr/0125-vision-provenance-gates.md`; `tests/naryad_241_vision_gates.rs` |
-| ADR-0136 + №274 | Санитайзер с точной taint-семантикой: маскирование ≠ санитизация (`redact` снимает Secret, не снимает CanaryLeak) | `docs/adr/0136-redact-taint-sanitizer.md`; `tests/naryad_274_redact.rs` |
-| №284 | Path-sensitive taint: форк клона трекера в then-ветке — единственный существующий механизм ветвления; база для будущего join | `tests/naryad_284_canary.rs` |
-| №261 + №130 | Многослойный сетевой гейт (allowlist + SSRF-guard + pinning) — применяется к любому новому Source-билтину | `tests/naryad_261_ssrf_pack.rs`; `tests/naryad_130_ssrf_guard.rs` |
-| №300 | Consent-гейт поверх ledger (`has_consent_record`) — лекало для grant-механики необратимых операций (№325) | `tests/naryad_300_voice_gate.rs` |
+| ADR-0114 (reflex-opaque-handle) | "Opaque handle": the real object exposes only an identifier outward — a direct template for the capability model (the subsystem at 0%) | `docs/adr/0114-reflex-opaque-handle.md` |
+| ADR-0125 + #241 | Category-A static gate: a statically visible violation → `Severity::Error` at the call site; the 1607–1757 section template is already replicated (VISION_UNSIGNED_EXPORT, VISION_UNSIGNED_EXPORT_RAW, MEDIA_SYNTHETIC_UNMARKED #320) | `docs/adr/0125-vision-provenance-gates.md`; `tests/naryad_241_vision_gates.rs` |
+| ADR-0136 + #274 | A sanitizer with exact taint semantics: masking ≠ sanitization (`redact` removes Secret, does not remove CanaryLeak) | `docs/adr/0136-redact-taint-sanitizer.md`; `tests/naryad_274_redact.rs` |
+| #284 | Path-sensitive taint: forking a tracker clone in the then-branch — the only existing branching mechanism; the base for a future join | `tests/naryad_284_canary.rs` |
+| #261 + #130 | A layered network gate (allowlist + SSRF-guard + pinning) — applies to any new Source builtin | `tests/naryad_261_ssrf_pack.rs`; `tests/naryad_130_ssrf_guard.rs` |
+| #300 | A consent gate over the ledger (`has_consent_record`) — the template for grant mechanics of irreversible operations (#325) | `tests/naryad_300_voice_gate.rs` |
 
-Все файлы существуют на `1876fdf` (проверено `ls docs/adr/ | grep -E
-'^0114|^0125|^0136'` и `ls tests/ | grep -E '241|274|284|261|130|300'`).
+All files exist on `1876fdf` (verified by `ls docs/adr/ | grep -E
+'^0114|^0125|^0136'` and `ls tests/ | grep -E '241|274|284|261|130|300'`).
 
 ---
 
-## 5. Расхождения с §2 v2 — фиксация новых якорей
+## 5. Divergences from §2 of v2 — recording the new anchors
 
-| Якорь | §2 v2 | Снапшот `fc59e9e` | Main `1876fdf` | Комментарий |
+| Anchor | §2 v2 | Snapshot `fc59e9e` | Main `1876fdf` | Comment |
 |---|---|---|---|---|
-| MODEL_WEIGHTS_UNSAFE | audit.rs:1607–1757 | 1607–1757 ✓ | **1660–1810** | сдвиг +53 (секции №309/№317 выше по файлу); новый якорь — 1660 |
-| builtins | 420 (registry.rs:38) | 420 ✓ (объявление на 44) | **421** | +video_extend (№309); строка-якорь плана неточна |
-| ADR | 143 | **142** ADR (+README = 143 файла) | **145** (+README = 146) | «143» воспроизводится только с индексным README; канонический базис — 142 |
-| Statement | «10 видов» (ast.rs:1282) | **15** вариантов | 15 | «10» — базис-зависимо; README говорил 12 — исправлено на 15 |
-| Инструкции VM | «84» (bytecode.rs:14) | **47** | 47 | PHANTOM; README согласен (47) |
-| Примеры | 214 | 214 ✓ (top-level) | 214 (рекурсивно 273) | базис плана совпал с каноническим |
-| semantic.rs | 3328 | 3328 ✓ | 3328 | без сдвига |
-| TaintKind/TaintTracker | 119 / 142 | 119 / 141–142 ✓ | 119 / 141–142 | без сдвига |
-| zeroize / consent_ledger | Cargo.toml:51 / store.rs:31 | ✓ / ✓ | ✓ / ✓ | без сдвига |
-| provenance.rs | №241 | 430 строк ✓ | **464** | +синтетика Art 50 (№320) |
-| mcp.rs | №268 | 613 строк ✓ | 613 | без сдвига |
-| audit.rs (контекст) | — | 4258 строк | **4577** | рост от №309/№316/№320/№412 |
+| MODEL_WEIGHTS_UNSAFE | audit.rs:1607–1757 | 1607–1757 ✓ | **1660–1810** | shift +53 (sections from #309/#317 higher in the file); new anchor — 1660 |
+| builtins | 420 (registry.rs:38) | 420 ✓ (declaration on 44) | **421** | +video_extend (#309); the plan's anchor line is inaccurate |
+| ADR | 143 | **142** ADRs (+README = 143 files) | **145** (+README = 146) | "143" is reproducible only with the index README; the canonical basis is 142 |
+| Statement | "10 kinds" (ast.rs:1282) | **15** variants | 15 | "10" is basis-dependent; the README said 12 — corrected to 15 |
+| VM instructions | "84" (bytecode.rs:14) | **47** | 47 | PHANTOM; the README agrees (47) |
+| Examples | 214 | 214 ✓ (top-level) | 214 (273 recursively) | the plan's basis matched the canonical one |
+| semantic.rs | 3328 | 3328 ✓ | 3328 | no shift |
+| TaintKind/TaintTracker | 119 / 142 | 119 / 141–142 ✓ | 119 / 141–142 | no shift |
+| zeroize / consent_ledger | Cargo.toml:51 / store.rs:31 | ✓ / ✓ | ✓ / ✓ | no shift |
+| provenance.rs | #241 | 430 lines ✓ | **464** | +synthetic Art 50 (#320) |
+| mcp.rs | #268 | 613 lines ✓ | 613 | no shift |
+| audit.rs (context) | — | 4258 lines | **4577** | growth from #309/#316/#320/#412 |
 
-Сводка: план v2 factual-слой точен по позициям файлов и большинству
-чисел; ошибочные числа — «84 инструкции» (PHANTOM) и базисно-зависимые
-«10 видов Statement» / «143 ADR»; все сдвинувшиеся на main якоря
-зафиксированы в настоящей таблице и в разделе 0.
+Summary: the factual layer of plan v2 is accurate on file positions and
+most numbers; the erroneous numbers are "84 instructions" (PHANTOM) and
+the basis-dependent "10 Statement kinds" / "143 ADRs"; all anchors that
+shifted on main are recorded in this table and in section 0.

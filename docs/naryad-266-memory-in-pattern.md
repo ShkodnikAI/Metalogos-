@@ -1,12 +1,12 @@
-# Наряд №266 (P2, bug/parser) — memorize/relate/forget внутри pattern/route-тел: token soup вместо громкой ошибки парсера
+# Naryad #266 (P2, bug/parser) — memorize/relate/forget inside pattern/route bodies: token soup instead of a loud parser error
 
-**Факт.** Грамматика знает `memorize <expr> [with priority=F]`,
-`relate ... to ... as ...`, `forget ...` только на верхнем уровне
-(`memorize_decl`/`relate_decl`/`forget_decl` в `src/grammar.pest:182+`,
-`declaration = ...`). Внутри `pattern_body = { statement* }` этих правил
-НЕТ — и стейтмент-грамматика молча расщепляет строку на мусор
-(верифицировано дампом AST на `naryad-264` @ 3c4ab45, файл
-`examples/p8_route_patterns.mlog`, строка 20):
+**Fact.** The grammar knows `memorize <expr> [with priority=F]`,
+`relate ... to ... as ...`, `forget ...` only at the top level
+(`memorize_decl`/`relate_decl`/`forget_decl` in `src/grammar.pest:182+`,
+`declaration = ...`). Inside `pattern_body = { statement* }` these rules
+are ABSENT — and the statement grammar silently splits the line into garbage
+(verified by an AST dump on `naryad-264` @ 3c4ab45, file
+`examples/p8_route_patterns.mlog`, line 20):
 
 ```
 Stmt 0: ExprStmt { expr: Ident("memorize") }
@@ -15,55 +15,55 @@ Stmt 2: ExprStmt { expr: Ident("with") }
 Stmt 3: Assign { name: "priority", value: FloatLit(0.8) }
 ```
 
-Runtime-поведение TW при вызове паттерна (проба на main @ 29f0592):
+Runtime behavior of TW when the pattern is invoked (probe on main @ 29f0592):
 
 ```
-$ mlog run probe_mem.mlog        # flow вызывает Remember("hello")
+$ mlog run probe_mem.mlog        # flow calls Remember("hello")
 error: undefined variable: memorize      exit=1
 ```
 
-Пример `examples/p8_route_patterns.mlog` (Contract 3 «pattern with memory
-from route») никогда не работал end-to-end — он только компилировался;
-роут `/remember` вернул бы 500 на первом POST. До №264 это было молча:
-`mlog check` пропускал token soup, компилятор компилировал Assign, TW
-падал только в рантайме при вызове. №264 (статическая проверка
-неизменяемости) вытащил мусор на статку — `mlog check` теперь честно
-ошибся «cannot assign to immutable variable: priority» на примере, что и
-вскрыло настоящий корень. `relate`/`forget` внутри тел — тот же класс по
-грамматике (не воспроизводилось отдельно, но правило одно).
+The example `examples/p8_route_patterns.mlog` (Contract 3 "pattern with memory
+from route") never worked end-to-end — it only compiled;
+the `/remember` route would have returned 500 on the first POST. Before #264 this was silent:
+`mlog check` let the token soup through, the compiler compiled the Assign, TW
+only fell at runtime on invocation. #264 (the static immutability
+check) pulled the garbage into static analysis — `mlog check` now honestly
+failed with "cannot assign to immutable variable: priority" on the example, which
+exposed the true root. `relate`/`forget` inside bodies are the same class by
+grammar (not reproduced separately, but it is one rule).
 
-**Задача.**
-1. Грамматика: разрешить `memorize_decl`/`relate_decl`/`forget_decl`
-   как стейтменты внутри `pattern_body` (и route-тел — они тоже
-   `statement*`): `pattern_body = { statement* }` расширить
-   (`statement += memory_stmt` с меморайз-ветками), лексалы
-   `MEMORIZE_KW`/`RELATE_KW`/`FORGET_KW` переиспользовать. Семантика —
-   как у top-level деклараций (запись в память сессии/БД по контракту
-   memory-билтинов).
-2. Альтернатива (если вывод стейтмента-меморайза в исполнение —
-   непропорционален): ЗАПРЕТИТЬ громко — парсер должен падать с
-   понятной ошибкой «memorize is only allowed at top level» вместо
-   token soup. Выбранный вариант зафиксировать в PR ГРОМКО с
-   обоснованием.
-3. В любом случае: тест на оба файла — минимальный паттерн с
-   `memorize fact with priority=0.8` внутри тела (парсится И
-   исполняется — или громко не парсится с внятным текстом), и
-   `examples/p8_route_patterns.mlog` возвращается к Contract 3
-   (restore строки `memorize fact with priority=0.8` в теле Remember —
-   она убрана truth-up'ом №264 с комментарием-указателем на этот наряд).
+**Task.**
+1. Grammar: allow `memorize_decl`/`relate_decl`/`forget_decl`
+   as statements inside `pattern_body` (and route bodies — they are also
+   `statement*`): extend `pattern_body = { statement* }`
+   (`statement += memory_stmt` with memorizer branches), reuse the lexer tokens
+   `MEMORIZE_KW`/`RELATE_KW`/`FORGET_KW`. Semantics —
+   same as for top-level declarations (writing to session/DB memory per the
+   contract of the memory builtins).
+2. Alternative (if bringing statement-memorize into execution is
+   disproportionate): FORBID loudly — the parser must fail with
+   a clear error "memorize is only allowed at top level" instead of
+   token soup. Record the chosen option in the PR LOUDLY with
+   the rationale.
+3. Either way: a test for both files — a minimal pattern with
+   `memorize fact with priority=0.8` inside the body (parses AND
+   executes — or loudly fails to parse with a clear message), and
+   `examples/p8_route_patterns.mlog` returned to Contract 3
+   (restore of the `memorize fact with priority=0.8` line in the Remember body —
+   it was removed by the truth-up of #264 with a comment pointing to this naryad).
 
-**§3.** `src/grammar.pest`, `src/parser/stmt.rs`/`decl.rs` (в зависимости
-от варианта), `src/semantic.rs` (если стейтмент-меморайз требует
-семантики), `src/interpreter`/`execution.rs` (исполнение), examples/p8,
-REFERENCE (раздел памяти: где разрешён memorize).
+**§3.** `src/grammar.pest`, `src/parser/stmt.rs`/`decl.rs` (depending
+on the option), `src/semantic.rs` (if the statement-memorize requires
+semantics), `src/interpreter`/`execution.rs` (execution), examples/p8,
+REFERENCE (memory section: where memorize is allowed).
 
-**Сделано, когда:** проба-факт перевёрнута: pattern с `memorize ... with
-priority=` внутри тела либо работает (TW и VM одинаково) либо не
-парсится с громким внятным текстом — третий исход «молчаливый token
-soup» исключён тестом; p8 restored и зелёный на check+run; существующие
-memory-тесты (p7/m4/контракты) зелёные; CI blocking зелёный.
+**Done, when:** the probe-fact is inverted: a pattern with `memorize ... with
+priority=` inside the body either works (TW and VM identically) or does not
+parse with a loud clear message — the third outcome, "silent token
+soup", is excluded by a test; p8 restored and green on check+run; the existing
+memory tests (p7/m4/contracts) green; CI blocking green.
 
-**Связь.** Вскрыто исполнением №264 (issue #280); приоритет P2, потому
-что молчаливый парс-мусор — класс « dishonest silence», но конструкция
-никогда не была обещана работающей (REFERENCE описывает memorize на
-верхнем уровне).
+**Links.** Exposed by the execution of #264 (issue #280); priority P2, because
+silent parse garbage is of the " dishonest silence" class, but the construct
+was never promised to work (REFERENCE describes memorize at the
+top level).

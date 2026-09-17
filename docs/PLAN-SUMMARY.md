@@ -1,63 +1,63 @@
-# Metalogos — публичная выжимка плана работ
+# Metalogos — public digest of the work plan
 
-> Производный артефакт издателя (режим доступа §16.0-7 канона плана v2): перечень фаз,
-> текущая волна, критерии. Канон плана — у координатора (приватный офис-репо); публичный
-> репозиторий канон не содержит. Обновляется издателем синхронно с правками канона.
-> Обновлено: 2026-09-15.
+> Publisher's derived artifact (access mode §16.0-7 of plan canon v2): the list of phases,
+> the current wave, criteria. The plan canon is held by the coordinator (private office repo); the public
+> repository does not contain the canon. Updated by the publisher in sync with canon edits.
+> Updated: 2026-09-15.
 
-## Статус
+## Status
 
-| Волна | Фаза | Состояние |
+| Wave | Phase | State |
 |---|---|---|
-| Волна 0 (№316–№320) | Фаза 0 «Основание и инвентаризация» | Исполнена и принята: PR #409–#415, мерж 2026-09-14, CI зелёный |
-| Волна 1 (№322–№330) | Фаза 1 «Label-checker на существующих типах» | В работе: наряды gh#416–#423, диспатч gh#424 |
+| Wave 0 (#316–#320) | Phase 0 "Foundation and inventory" | Executed and accepted: PR #409–#415, merge 2026-09-14, CI green |
+| Wave 1 (#322–#330) | Phase 1 "Label-checker on existing types" | In progress: naryads gh#416–#423, dispatch gh#424 |
 
-## Перечень фаз (без обоснований и сроков)
+## List of phases (no rationale, no timelines)
 
-1. Фаза 0 — Основание и инвентаризация (исполнена).
-2. Фаза 1 — Label-checker на существующих типах (текущая).
-3. Фаза 2 — Медиа-хэндлы и реестр бэкендов.
-4. Фаза 3 — Capability / Action security.
-5. Фаза 4 — Always-on, память, забывание.
-6. Фаза 5 — Embodied, sim-only.
-7. Фаза 6 — Spatial / XR.
-8. Фаза 7 — Edge-углубление + верификатор.
+1. Phase 0 — Foundation and inventory (executed).
+2. Phase 1 — Label-checker on existing types (current).
+3. Phase 2 — Media handles and the backend registry.
+4. Phase 3 — Capability / Action security.
+5. Phase 4 — Always-on, memory, forgetting.
+6. Phase 5 — Embodied, sim-only.
+7. Phase 6 — Spatial / XR.
+8. Phase 7 — Edge deepening + verifier.
 
-Секвенция, обоснования фаз и состав последующих волн публикации не подлежат —
-они находятся в каноне у координатора (§16.0-7).
+The sequence, the phase rationale, and the composition of subsequent waves are not subject to publication —
+they reside in the canon held by the coordinator (§16.0-7).
 
-## Результаты Волны 0
+## Wave 0 results
 
-- Классификация 421 builtin (роль × метка × обратимость) — `src/builtins_classification.rs` (№316).
-- Leak-suite: корпус негативных/позитивных программ и раннер — `tests/run_leak_suite.rs` (№317).
-- Честный отчёт готовности — `docs/REALITY.md`: P0 ≈ 26%, веса подсистем помечены UNVERIFIED (№318).
-- Синхронизация `REFERENCE.md` (421 builtin) + резерв ADR-0154–0161 (№319).
-- C2PA mini-slice: чтение/запись манифестов, маркировка Art 50 — узкий слайс (№320).
-- Completion-audits Волны 0 — accepted (gh#404–#406).
+- Classification of 421 builtins (role × label × reversibility) — `src/builtins_classification.rs` (#316).
+- Leak-suite: corpus of negative/positive programs and a runner — `tests/run_leak_suite.rs` (#317).
+- Honest readiness report — `docs/REALITY.md`: P0 ≈ 26%, subsystem weights marked UNVERIFIED (#318).
+- Synchronization of `REFERENCE.md` (421 builtins) + ADR-0154–0161 reserve (#319).
+- C2PA mini-slice: manifest read/write, Art 50 labeling — a narrow slice (#320).
+- Completion-audits of Wave 0 — accepted (gh#404–#406).
 
-## Текущая волна — Фаза 1 «Label-checker»
+## Current wave — Phase 1 "Label-checker"
 
-Цель фазы: статические метки потока информации (conf, integrity, consent-scope) на
-существующих типах языка — решётка меток, вывод по потоку управления, sink-гейт с
-профилем совместимости `legacy`, redact/declassify, анти-injection, паритет рантайма,
-догфудинг офисного контура. Наряды: №322–№329 (gh#416–#423), диспатч с правилами
-и приёмкой — gh#424. Публичные критерии Go фазы — в диспатче gh#424.
+Phase goal: static information-flow labels (conf, integrity, consent-scope) on
+the existing types of the language — a label lattice, control-flow inference, a sink gate with
+the `legacy` compatibility profile, redact/declassify, anti-injection, runtime parity,
+dogfooding of the office loop. Naryads: #322–#329 (gh#416–#423), the dispatch with rules
+and acceptance — gh#424. The public Go criteria of the phase — in dispatch gh#424.
 
-## Критерии приёмки (публичная часть методологии)
+## Acceptance criteria (public part of the methodology)
 
-- Контракт наряда — AGENTS.md §8: ветка → PR → блокирующий CI зелёный на мерж-коммите.
-- «Никаких заглушек» (№16.0-D): `grep todo!|unimplemented!|SKELETON` по новым файлам — 0.
-- Completion-audit перед закрытием: доказательства по каждому пункту «Сделано, когда»
-  воспроизводятся на мерж-коммите.
-- Отчётность: progress / verified-wait / no-progress; три no-progress подряд → blocked-audit.
+- The naryad contract — AGENTS.md §8: branch → PR → blocking CI green on the merge commit.
+- "No stubs" (#16.0-D): `grep todo!|unimplemented!|SKELETON` over new files — 0.
+- Completion-audit before closing: the evidence for every "Done, when" item
+  is reproduced on the merge commit.
+- Reporting: progress / verified-wait / no-progress; three no-progress in a row → blocked-audit.
 
-## Куда смотреть в репо
+## Where to look in the repo
 
-- `docs/REALITY.md` — честный отчёт готовности (обновляется нарядами волны).
-- `REFERENCE.md`, `CHANGELOG.md`, `docs/adr/` — документация языка и решения.
-- `docs/PLAN-SUMMARY.md` — этот файл (обновляет издатель).
+- `docs/REALITY.md` — the honest readiness report (updated by the naryads of the wave).
+- `REFERENCE.md`, `CHANGELOG.md`, `docs/adr/` — language documentation and decisions.
+- `docs/PLAN-SUMMARY.md` — this file (updated by the publisher).
 
-## Чего нет в публичном репо (санитизация §16.0-7)
+## What is not in the public repo (§16.0-7 sanitization)
 
-Рыночный анализ, обоснования секвенции и приоритетов, опережающие ставки, риск-реестр,
-полный реестр волн — не публикуются; вопросы к ним — через владельца/координатора.
+Market analysis, the rationale for the sequence and the priorities, forward-looking bets, the risk register,
+the full wave registry — not published; questions about them go through the owner/coordinator.

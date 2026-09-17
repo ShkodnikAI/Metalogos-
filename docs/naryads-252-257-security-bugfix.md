@@ -1,209 +1,209 @@
-# Наряды №252–257 — баги и уязвимости (аудит 2026-09-11)
+# Naryads #252–257 — bugs and vulnerabilities (audit 2026-09-11)
 
-> Источник: внешний аудит безопасности и надёжности от 2026-09-11
-> (репозиторий `main` @ `0bbcc5f`, PR #249 смержен). Каждый пункт
-> верифицирован фактом — grep по коду и/или воспроизводимый сценарий,
-> не со слов документации (AGENTS.md §1).
+> Source: external security and reliability audit dated 2026-09-11
+> (repository `main` @ `0bbcc5f`, PR #249 merged). Every item
+> is verified by evidence — a grep over the code and/or a reproducible
+> scenario, not on the word of the documentation (AGENTS.md §1).
 >
-> Приоритеты: P0 — закрыть до любого публичного запуска серверов;
-> P1 — текущий квартал; P2 — плановая гигиена; P3 — по возможности.
+> Priorities: P0 — close before any public launch of servers;
+> P1 — the current quarter; P2 — planned hygiene; P3 — as opportunity allows.
 >
-> Контракт «сделано» — AGENTS.md §8: ветка → PR → зелёные блокирующие
-> джобы на мерж-коммите; один коммит на логический шаг; отчёт называет
-> допущения и нерешённое явно.
+> The "done" contract — AGENTS.md §8: branch → PR → green blocking
+> jobs on the merge commit; one commit per logical step; the report
+> names assumptions and unresolved items explicitly.
 
 ---
 
-## Наряд №252 (P0, security) — sandbox_path_ex: TOCTOU-побег по symlink при записи
+## Naryad #252 (P0, security) — sandbox_path_ex: TOCTOU escape via symlink on write
 
-**Факт.** `src/builtins/io.rs:247` — `sandbox_path_ex` после всех трёх
-слоёв защиты возвращает **оригинальный** путь, а не канонизированный:
-`Ok(std::path::PathBuf::from(path))`. Для `SandboxMode::ForWrite`
-канонизируется только родительский каталог; финальный компонент пути
-проверяется до открытия файла. Между `canonicalize(parent)` и
-`fs::write(&safe_path, ...)` — окно TOCTOU: если `a.txt` заменён
-symlink'ом на путь вне песочницы (например, `exec("ln -s /etc/passwd a.txt")`,
-даже под `METALOGOS_ALLOW_EXEC=1`, либо другой процесс в общем каталоге),
-запись пойдёт по symlink за пределы песочницы. Три слоя защиты №131
-проверяют состояние файловой системы в момент проверки, но не в момент
-использования.
+**Fact.** `src/builtins/io.rs:247` — `sandbox_path_ex` after all three
+protection layers returns the **original** path, not the canonicalized one:
+`Ok(std::path::PathBuf::from(path))`. For `SandboxMode::ForWrite`
+only the parent directory is canonicalized; the final path component
+is checked before the file is opened. Between `canonicalize(parent)` and
+`fs::write(&safe_path, ...)` there is a TOCTOU window: if `a.txt` is replaced
+by a symlink to a path outside the sandbox (e.g. `exec("ln -s /etc/passwd a.txt")`,
+even under `METALOGOS_ALLOW_EXEC=1`, or another process in a shared directory),
+the write follows the symlink outside the sandbox. The three protection layers of #131
+check the filesystem state at check time, but not at
+use time.
 
-**Задача.**
-1. Для чтения: возвращать канонизированный путь (сегодня проверка
-   канонизированного, а открывается оригинал — та же дыра классом ниже).
-2. Для записи в существующий файл: открывать финальный компонент с
-   `O_NOFOLLOW` (unix) / пере-канонизировать открытый файл и повторно
-   проверять префикс base. Для записи нового файла: `create_new(true)`
-   при неудаче — обрабатывать как существующий файл и идти по п. 2.
-3. Ошибки — громкие, с текстом «file I/O sandbox: ...» (не soft-failure).
+**Task.**
+1. For reads: return the canonicalized path (today the check runs against
+   the canonicalized path but the original is opened — the same hole, one class lower).
+2. For a write to an existing file: open the final component with
+   `O_NOFOLLOW` (unix) / re-canonicalize the opened file and re-check
+   the base prefix. For a write to a new file: `create_new(true)`;
+   on failure — treat as an existing file and follow item 2.
+3. Errors — loud, with the text "file I/O sandbox: ..." (not soft-failure).
 
-**§3.** `src/builtins/io.rs` (+ unit/integration-тесты). Без правок
-семантики обычных путей — все существующие golden-тесты io зелёные.
+**§3.** `src/builtins/io.rs` (+ unit/integration tests). No changes to
+the semantics of ordinary paths — all existing io golden tests stay green.
 
-**Сделано, когда:** тест-воспроизведение побега (unix-only, `#[cfg(unix)]`)
-падает до фикса и зелёный после; тест на сломанный symlink; тест
-«каталог вместо файла»; CI блокирующие джобы зелёные на мерж-коммите.
+**Done, when:** an escape-reproduction test (unix-only, `#[cfg(unix)]`)
+fails before the fix and is green after; a test for a broken symlink; a test
+for "a directory instead of a file"; CI blocking jobs green on the merge commit.
 
 ---
 
-## Наряд №253 (P1, security + решение владельца) — exec() в serve-контексте: процесс-глобальный гейт наследуется роутами
+## Naryad #253 (P1, security + owner decision) — exec() in the serve context: the process-global gate is inherited by routes
 
-**Факт.** `src/builtins/io.rs:376` — `exec()` разрешён, если у **процесса**
-`METALOGOS_ALLOW_EXEC=1`. `mlog serve` с этой переменной даёт каждому
-роут-хендлеру (код маршрута — произвольная mlog-программа, часто
-написанная другим человеком или сгенерированная) полный `sh -c` от
-имени пользователя сервера. Аудит-лог подпроцессов ведётся
-(`append_subprocess_audit`, `src/builtins/io.rs:425`), но это
-после-факт: запись не предотвращает. Независимо: `exec_restricted`
-используется `html_render` и pdf-конвейером — список допустимых бинарей
-проверить на замкнутость (нет подстановки аргументов из пользовательского
-ввода: `src/builtins/pdf.rs:2399` — `wkhtmltopdf` получает временный
-html-файл, аргументы не из тела запроса — подтвердить тестом).
+**Fact.** `src/builtins/io.rs:376` — `exec()` is permitted if the **process**
+has `METALOGOS_ALLOW_EXEC=1`. `mlog serve` with this variable gives every
+route handler (route code is an arbitrary mlog program, often
+written by another person or generated) a full `sh -c` on
+behalf of the server user. Subprocess audit logging is in place
+(`append_subprocess_audit`, `src/builtins/io.rs:425`), but that is
+after-the-fact: a record does not prevent. Separately: `exec_restricted`
+is used by `html_render` and the pdf pipeline — check the allowed-binaries
+list for closure (no argument substitution from user
+input: `src/builtins/pdf.rs:2399` — `wkhtmltopdf` receives a temporary
+html file, the arguments do not come from the request body — confirm with a test).
 
-**Задача.**
-1. Решение владельца (AGENTS.md §3 — курс проекта решает владелец):
-   какой гейт для `exec()` в serve-контексте? Вариант А — в serve-режиме
-   роут-программы не наследуют флаг процесса; требуется отдельный
-   `METALOGOS_SERVE_ALLOW_EXEC=1`. Вариант Б — оставить как есть,
-   задокументировать в threat-model строкой «exec in routes —
-   owner-responsibility, включено флагом процесса».
-2. Тест-контракт выбранного варианта: serve-программа с `exec()` при
-   выключенном гейте получает громкую ошибку (стабильный код по
-   ADR-0131, напр. `EXEC_NOT_PERMITTED`), при включённом — работает,
-   запись в аудите есть.
-3. Тест замкнутости `exec_restricted`: бинарник фиксируется, аргументы
-   формируются кодом, не телом запроса.
+**Task.**
+1. Owner decision (AGENTS.md §3 — the course of the project is decided by the owner):
+   which gate for `exec()` in the serve context? Option A — in serve mode
+   route programs do not inherit the process flag; a separate
+   `METALOGOS_SERVE_ALLOW_EXEC=1` is required. Option B — leave as is,
+   document in the threat model with the line "exec in routes —
+   owner-responsibility, enabled by a process flag".
+2. Test contract for the chosen option: a serve program calling `exec()` with
+   the gate off gets a loud error (stable code per
+   ADR-0131, e.g. `EXEC_NOT_PERMITTED`); with the gate on — it works,
+   and an audit record is written.
+3. Closure test for `exec_restricted`: the binary is fixed, the arguments
+   are formed by code, not by the request body.
 
-**§3.** `src/builtins/io.rs` (или `src/server.rs` для контекстного гейта),
-`src/audit.rs` (если новый диагностический код), `docs/threat-model.md`,
+**§3.** `src/builtins/io.rs` (or `src/server.rs` for a context gate),
+`src/audit.rs` (if a new diagnostic code), `docs/threat-model.md`,
 `SECURITY.md`.
 
-**Сделано, когда:** выбран вариант владельцем; тесты п. 2–3 зелёные;
-threat-model содержит строку, совпадающую с реальным поведением (§1).
+**Done, when:** the option is chosen by the owner; the tests of items 2–3 are green;
+the threat model contains a line matching the actual behavior (§1).
 
 ---
 
-## Наряд №254 (P2, bug/ux) — read_file: soft-failure маскирует нарушение песочницы
+## Naryad #254 (P2, bug/ux) — read_file: soft-failure masks a sandbox violation
 
-**Факт.** `src/builtins/io.rs` (`builtin_read_file`) — любой `Err` от
-`sandbox_path` превращается в пустую строку: нарушение песочницы
-(абсолютный путь, `..`, неразрешимый путь) неотличимо от «файла нет».
-Для отсутствия файла soft-failure — осознанная семантика; для нарушения
-песочницы — это ошибка программиста, и молча проглатывать её значит
-прятать реальный дефект программы: код с `read_file("../secrets")`
-ведёт себя идентично `read_file("опечатка.txt")`.
+**Fact.** `src/builtins/io.rs` (`builtin_read_file`) — any `Err` from
+`sandbox_path` turns into an empty string: a sandbox violation
+(absolute path, `..`, an unresolvable path) is indistinguishable from "no such file".
+For a missing file, soft-failure is deliberate semantics; for a sandbox
+violation it is a programmer error, and silently swallowing it means
+hiding a real program defect: code with `read_file("../secrets")`
+behaves identically to `read_file("typo.txt")`.
 
-**Задача.** Разделить исходы: файл отсутствует / нечитаем — пустая
-строка (как сегодня); нарушение песочницы — громкая ошибка со
-стабильным кодом по ADR-0131 (напр. `SANDBOX_VIOLATION`). Тот же
-разбор для write_file/append/remove_file, где soft-failure возвращает
-`Ok(())`/`false` на любое `Err`.
+**Task.** Split the outcomes: file missing / unreadable — an empty
+string (as today); sandbox violation — a loud error with a
+stable code per ADR-0131 (e.g. `SANDBOX_VIOLATION`). The same
+treatment for write_file/append/remove_file, where soft-failure returns
+`Ok(())`/`false` on any `Err`.
 
-**§3.** `src/builtins/io.rs`, `src/audit.rs` (код), `src/semantic.rs`
-(если коды регистрируются там же), README-раздел io-билтинов.
+**§3.** `src/builtins/io.rs`, `src/audit.rs` (the code), `src/semantic.rs`
+(if the codes are registered there too), the README section on io builtins.
 
-**Сделано, когда:** тест: `read_file("../x")` → ошибка с кодом,
-`read_file("нет_такого.txt")` → пустая строка; существующие тесты
-soft-failure не сломаны (если ломаются — сценарии пересматриваются
-громко, не молча, по образцу правды-апов наряда №250).
+**Done, when:** test: `read_file("../x")` → an error with a code,
+`read_file("no_such.txt")` → an empty string; the existing soft-failure
+tests are not broken (if they break — the scenarios are revisited
+loudly, not silently, in the manner of naryad #250's truth-ups).
 
 ---
 
-## Наряд №255 (P2, hardening) — сервер: явный лимит тела запроса вместо неявного дефолта axum
+## Naryad #255 (P2, hardening) — server: an explicit request body limit instead of the implicit axum default
 
-**Факт.** `src/server.rs:688` — `route_handler` принимает
-`body: bytes::Bytes`. Явного `DefaultBodyLimit` в server.rs нет
-(grep пуст). Поведение держится на неявном дефолте axum 0.8 (~2 МБ) —
-источник истины о лимите находится в чужом крейте и молча изменится
-с апгрейдом. Лимит в байтах нигде не задокументирован; threat-model
-не отвечает «какой максимальный размер запроса принимает сервер».
+**Fact.** `src/server.rs:688` — `route_handler` takes
+`body: bytes::Bytes`. There is no explicit `DefaultBodyLimit` in server.rs
+(grep is empty). The behavior rests on the implicit axum 0.8 default (~2 MB) —
+the source of truth on the limit lives in someone else's crate and will
+change silently on an upgrade. The limit in bytes is documented nowhere; the threat model
+does not answer "what is the maximum request size the server accepts".
 
-**Задача.** Зафиксировать `DefaultBodyLimit::max(N)` явно при сборке
-роутера (N — осознанная константа, напр. 2 МБ, с комментарием-обоснованием),
-протестировать: тело N+1 байт → 413, тело N-1 → проходит; строка в
-`docs/threat-model.md` и `REFERENCE.md` с фактическим лимитом.
+**Task.** Pin `DefaultBodyLimit::max(N)` explicitly at router construction
+(N — a deliberate constant, e.g. 2 MB, with a justifying comment),
+test: a body of N+1 bytes → 413, a body of N-1 → goes through; a line in
+`docs/threat-model.md` and `REFERENCE.md` with the actual limit.
 
 **§3.** `src/server.rs`, `docs/threat-model.md`, `REFERENCE.md`.
 
-**Сделано, когда:** тест oversized-body зелёный; документированное
-число совпадает с кодом (§1); CI зелёный.
+**Done, when:** the oversized-body test is green; the documented
+number matches the code (§1); CI is green.
 
 ---
 
-## Наряд №256 (P2, robustness) — fuzz: реальные цели для .mbc и url-декодера; дымовой прогон в CI
+## Naryad #256 (P2, robustness) — fuzz: real targets for .mbc and the URL decoder; a smoke run in CI
 
-**Факт.** `fuzz/fuzz_targets/fuzz_target_1.rs` — единственная цель
-покрывает `parser::parse(str)`; десериализация байткода (bincode,
-`src/main.rs:222` — запись, чтение .mbc в load-пути) и ручной
-`url_decode_fallback` (`src/server.rs:701`) фаззингом не покрыты.
-Наряд №250 трогал обратную совместимость старых .mbc — класс «кривой
-файл → паника вместо громкой ошибки» не закрыт систематически.
-CI fuzz не запускает (в блокирующем списке его нет).
+**Fact.** `fuzz/fuzz_targets/fuzz_target_1.rs` — the single target
+covers `parser::parse(str)`; bytecode deserialization (bincode,
+`src/main.rs:222` — writing, reading .mbc in the load path) and the manual
+`url_decode_fallback` (`src/server.rs:701`) are not covered by fuzzing.
+Naryad #250 touched backward compatibility of old .mbc — the class
+"malformed file → panic instead of a loud error" is not closed systematically.
+CI does not run fuzz (it is not in the blocking list).
 
-**Задача.**
-1. Цель: `metalogos::bytecode` — deserialize произвольных байт +
-   (если API позволяет) безопасный прогон деспетча на небольшом бюджете
-   инструкций; краши = паники, а не «Err».
-2. Цель: `url_decode_fallback(&[u8])` — инвариант: не паникует,
-   не читает за границей, для корректного `encodeURIComponent(s)`
-   раунд-трип восстанавливает `s`.
-3. Дымовой джоб CI: 2–3 минуты бюджета на цель (nightly-крейт или
-   cargo-fuzz run с `-max_total_time=120`); найденные паники чинятся
-   громкими ошибками со стабильными кодами (ADR-0131: `BYTECODE_INVALID`).
+**Task.**
+1. Target: `metalogos::bytecode` — deserialization of arbitrary bytes +
+   (if the API allows) a safe dispatch run on a small instruction budget;
+   crashes = panics, not "Err".
+2. Target: `url_decode_fallback(&[u8])` — invariants: no panic,
+   no out-of-bounds reads, for a well-formed `encodeURIComponent(s)`
+   a round-trip restores `s`.
+3. A CI smoke job: 2–3 minutes of budget per target (the nightly crate or
+   cargo-fuzz run with `-max_total_time=120`); found panics are fixed
+   with loud errors carrying stable codes (ADR-0131: `BYTECODE_INVALID`).
 
-**§3.** `fuzz/fuzz_targets/*`, `fuzz/Cargo.toml` (если цели регистрируются
-там), `.github/workflows/*`, `src/error.rs`/`semantic.rs` (коды).
+**§3.** `fuzz/fuzz_targets/*`, `fuzz/Cargo.toml` (if the targets are registered
+there), `.github/workflows/*`, `src/error.rs`/`semantic.rs` (codes).
 
-**Сделано, когда:** обе цели собираются и прогоняются; джоб CI зелёный;
-все найденные паники закрыты (список в отчёте наряда — §8.4).
-
----
-
-## Наряд №257 (P3, hygiene) — url_decode_fallback: соответствие RFC 3986, замена на проверенную реализацию при расхождениях
-
-**Факт.** `src/server.rs:701` (`url_decode_fallback`) — ручной
-percent-декодер параметров запроса; property-тестов на краевые случаи
-(`%ZZ`, обрезанный `%` в конце строки, `+` как пробел или нет, мультибайт
-UTF-8 `%D0%B6`, двойное кодирование) нет. Ручные декодеры — классический
-источник расхождений с RFC 3986, а на вход приходят внешние пользователи
-сервера. Наряд пересекается с fuzz-целью №256.2, но смотрит не на паники,
-а на **корректность**.
-
-**Задача.** Таблица ожиданий по RFC 3986 + тесты на перечисленные
-краевые случаи; при расхождениях — заменить ручной декодер на
-`percent-encoding` (или строго документировать выбранное поведение,
-если осознанное отклонение — например, `+` не раскрывается в пробел
-в query — прямо как вRFC-приложении, что нет; выбрать и записать).
-
-**§3.** `src/server.rs` (+ тесты), `Cargo.toml` (если новая зависимость —
-по правилам dependency-дисциплины), `REFERENCE.md` (документированное
-поведение query_param).
-
-**Сделано, когда:** краевые случаи покрыты тестами и поведение
-совпадает с документированным; зависимость либо не добавлена, либо
-обоснована.
+**Done, when:** both targets build and run; the CI job is green;
+all found panics are closed (the list in the naryad report — §8.4).
 
 ---
 
-## Порядок и зависимости
+## Naryad #257 (P3, hygiene) — url_decode_fallback: RFC 3986 conformance; replacement with a vetted implementation on divergence
 
-- №252 — изолированный, начинать первым (P0).
-- №253 — стартует с вопроса владельцу; тестовая часть независима.
-- №254 — первый потребитель стабильных кодов ADR-0131; идёт после
-  №252 (тот же файл, чтобы не пересекаться в rebase).
-- №255, №257 — независимы, малые.
-- №256 — закрывает систематически то, что №252/254 чинят точечно;
-  задерживать ради него №252 не нужно.
+**Fact.** `src/server.rs:701` (`url_decode_fallback`) — a manual
+percent-decoder of query parameters; no property tests for the edge cases
+(`%ZZ`, a truncated `%` at the end of the string, `+` as space or not, multibyte
+UTF-8 `%D0%B6`, double encoding). Hand-rolled decoders are a classic
+source of divergence from RFC 3986, and the input comes from external users
+of the server. The naryad overlaps with fuzz target #256.2, but looks not at panics
+but at **correctness**.
 
-## Явные допущения аудита (§8.4)
+**Task.** A table of expectations per RFC 3986 + tests for the listed
+edge cases; on divergence — replace the manual decoder with
+`percent-encoding` (or strictly document the chosen behavior,
+if it is a deliberate deviation — e.g. `+` is not expanded to a space
+in query — exactly as in the RFC appendix, which it is not; choose and record it).
 
-- Аудит статический (grep + чтение кода + локальный прогон
-  `readme_consistency`); полный тест-прогон и CI — источник истины
-  по регрессиям, не эта бумага.
-- Утечка LLM-ключа через ошибки проверена на чтении
-  (`src/llm.rs:543`, `:561` — reqwest не включает заголовки в
-  `Display` ошибок, тело ответа провайдера обрезается до 500 символов);
-  это не тест-контракт — при желании закрыть систематически, добавить
-  тест «строки ошибок не содержат api_key» в №253.
-- `checkpoints.db`, `test_memory.db` в корне — локальные артефакты,
-  git'ом не трекаются, наряд не требуется.
+**§3.** `src/server.rs` (+ tests), `Cargo.toml` (if a new dependency —
+per the dependency-discipline rules), `REFERENCE.md` (the documented
+behavior of query_param).
+
+**Done, when:** the edge cases are covered by tests and the behavior
+matches the documented one; the dependency is either not added or
+justified.
+
+---
+
+## Order and dependencies
+
+- #252 — isolated, start with it (P0).
+- #253 — starts with a question to the owner; the test part is independent.
+- #254 — the first consumer of the ADR-0131 stable codes; goes after
+  #252 (the same file, to avoid colliding in rebase).
+- #255, #257 — independent, small.
+- #256 — closes systematically what #252/254 fix pointwise;
+  there is no need to delay #252 for its sake.
+
+## Explicit audit assumptions (§8.4)
+
+- The audit is static (grep + code reading + a local run of
+  `readme_consistency`); the full test run and CI are the source of truth
+  on regressions, not this paper.
+- The LLM key leak through errors was checked by reading
+  (`src/llm.rs:543`, `:561` — reqwest does not include headers in
+  the `Display` of errors, the provider response body is truncated to 500 characters);
+  this is not a test contract — to close it systematically, if desired, add
+  a test "error strings contain no api_key" to #253.
+- `checkpoints.db`, `test_memory.db` in the repo root — local artifacts,
+  not tracked by git, no naryad required.

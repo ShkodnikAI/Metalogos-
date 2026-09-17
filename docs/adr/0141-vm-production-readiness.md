@@ -1,86 +1,86 @@
 # ADR-0141: VM production-readiness — staged gap closure + parity-gated default flip
 
-**Status:** Accepted (решение владельца 2026-09-14 — supersede оговорки ADR-0105)
+**Status:** Accepted (owner decision 2026-09-14 — supersedes the ADR-0105 caveat)
 **Date:** 2026-09-14
 **Naryad:** #293 (issue #356, P0/adr — VM_COMPLETE)
-**Amends / Supersedes (partial):** ADR-0105 (`Bytecode VM — experimental scope`) — supersede оговорки «Do not implement Match/BlockIfElse in the VM under this ADR — revisit only under a real strategic need»; ADR-0105 §Decision 1-4 остаются в силе (TW = guaranteed full-language backend; VM = experimental for full-language use до Stage 5).
-**Precedent:** ADR-0088 (VM for `mlog serve`, opt-in default interpreter — флип дефолта остаётся за гейтами), Наряд №91 (TryEval — лекало закрытия одного VM-гэпа), ADR-0073 (JIT experimental scaffold).
+**Amends / Supersedes (partial):** ADR-0105 (`Bytecode VM — experimental scope`) — supersedes the caveat "Do not implement Match/BlockIfElse in the VM under this ADR — revisit only under a real strategic need"; ADR-0105 §Decision 1-4 remain in force (TW = guaranteed full-language backend; VM = experimental for full-language use until Stage 5).
+**Precedent:** ADR-0088 (VM for `mlog serve`, opt-in default interpreter — the default flip remains gated), Naryad #91 (TryEval — the template for closing one VM gap), ADR-0073 (JIT experimental scaffold).
 
 ## Context
 
-ADR-0105 (Accepted 2026-08-21) зафиксировал два подтверждённых гэпа в bytecode VM: `Match` не компилируется вовсе; `Expr::BlockIfElse` (if/else как значение в `let`/`return`) не компилируется — громкая ошибка с наряда №129 (раньше тихо компилировалось в Unit). ADR-0105 прямо постановил: «Do not implement Match/BlockIfElse in the VM under this ADR — revisit only under a real strategic need (demonstrated load where VM throughput matters), not because leaving the gaps feels incomplete». FOSVED работает на TW; ADR-0088: дефолт `mlog serve` — interpreter, VM — opt-in.
+ADR-0105 (Accepted 2026-08-21) fixed two confirmed gaps in the bytecode VM: `Match` is not compiled at all; `Expr::BlockIfElse` (if/else as a value in `let`/`return`) is not compiled — a loud error since naryad #129 (previously it silently compiled to Unit). ADR-0105 stated outright: "Do not implement Match/BlockIfElse in the VM under this ADR — revisit only under a real strategic need (demonstrated load where VM throughput matters), not because leaving the gaps feels incomplete". FOSVED runs on TW; ADR-0088: the `mlog serve` default is interpreter, VM is opt-in.
 
-Внешний аудит Metalogos 2026-09-13 (состояние main post-PR #353) предложил пересмотреть это решение. **Решение владельца 2026-09-14**: supersede оговорки ADR-0105 — стадийное закрытие гэпов; флип дефолта (ADR-0088) остаётся за гейтами: parity 100% + полный crosscheck + soak + реальная нагрузка.
+The external Metalogos audit of 2026-09-13 (state of main post-PR #353) proposed revisiting that decision. **Owner decision 2026-09-14**: supersede the ADR-0105 caveat — staged gap closure; the default flip (ADR-0088) remains gated: 100% parity + full crosscheck + soak + real load.
 
-Подробная инвентаризация гэпов и стоимость закрытия — `docs/research/vm-gaps-inventory.md` (этот ADR её резюмирует).
+The detailed gap inventory and closure costs — `docs/research/vm-gaps-inventory.md` (this ADR summarizes it).
 
 ## Decision (staged plan)
 
-### D1. Stage 0 — research (этот наряд, №293)
+### D1. Stage 0 — research (this naryad, #293)
 
-Ноль кода. Research inventory (`docs/research/vm-gaps-inventory.md`) + этот ADR + README update (VM experimental — отметить "staged closure in progress per ADR-0141"). Решение владельца зафиксировано.
+Zero code. Research inventory (`docs/research/vm-gaps-inventory.md`) + this ADR + a README update (VM experimental — note "staged closure in progress per ADR-0141"). The owner decision is recorded.
 
-### D2. Stage 1 — закрытие 4 гэпов по прецеденту №91
+### D2. Stage 1 — closing the 4 gaps, following precedent #91
 
-Каждый гэп — отдельный наряд, отдельный PR, отдельные тесты + crosscheck exclusion removal. Порядок (по эффекту на parity):
+Each gap — a separate naryad, a separate PR, separate tests + crosscheck exclusion removal. Order (by parity effect):
 
-| Наряд (предлаг.) | Гэп | Стоимость (LOC) | crosscheck exclusion removal |
+| Naryad (proposed) | Gap | Cost (LOC) | crosscheck exclusion removal |
 |---|---|---|---|
-| №294 | Match statement + expression (`Statement::Match` + `match_expr`) | ~400 | `p_match_switch.mlog` |
-| №295 | `Expr::BlockIfElse` (if/else как значение) | ~205 | (нет прямого exclusion; покрывается VM-excluded примерами в `p5_if_else.mlog`-style programs — добавить crosscheck если нужно) |
-| №296 | Binop coercion (heterogeneous List+String) | ~80 | `p118_collection_utils.mlog` |
-| №297 | PRNG state (`random_seed`/`random`) + Bool→String formatting | ~60 | `reflex_math.mlog` |
+| #294 | Match statement + expression (`Statement::Match` + `match_expr`) | ~400 | `p_match_switch.mlog` |
+| #295 | `Expr::BlockIfElse` (if/else as a value) | ~205 | (no direct exclusion; covered by the VM-excluded examples in `p5_if_else.mlog`-style programs — add a crosscheck if needed) |
+| #296 | Binop coercion (heterogeneous List+String) | ~80 | `p118_collection_utils.mlog` |
+| #297 | PRNG state (`random_seed`/`random`) + Bool→String formatting | ~60 | `reflex_math.mlog` |
 
-**Структура каждого наряда** (по лекалу №91 — TryEval):
-1. Новая bytecode instruction в `src/bytecode.rs` (enum variant).
-2. Compiler arm в `src/compiler.rs` (compile expression/statement → emit instruction).
-3. VM dispatch в `src/vm.rs` — оба loops (`run` для main program + `execute_route_code` для route handlers).
+**Structure of each naryad** (following the #91 pattern — TryEval):
+1. A new bytecode instruction in `src/bytecode.rs` (enum variant).
+2. A compiler arm in `src/compiler.rs` (compile expression/statement → emit instruction).
+3. VM dispatch in `src/vm.rs` — both loops (`run` for the main program + `execute_route_code` for route handlers).
 4. Tests — `tests/naryad_<N>_*.rs` covering success path + edge cases + regression.
-5. crosscheck_backends.rs — remove the corresponding exclusion (1 строка).
+5. crosscheck_backends.rs — remove the corresponding exclusion (1 line).
 
-**ADR не требуется** для каждого гэпа — это расширение VM в рамках уже принятой семантики языка (Match/BlockIfElse/binop/random уже определены в грамматике и работают в TW). Расширение VM bytecode — implementation work, не архитектурное решение.
+**No ADR required** per gap — this is a VM extension within the already-accepted language semantics (Match/BlockIfElse/binop/random are already defined in the grammar and work in TW). Extending the VM bytecode is implementation work, not an architectural decision.
 
 ### D3. Stage 2 — parity gate
 
-После Stage 1 (все 4 наряда смержены): `tests/crosscheck_backends.rs` без единого `continue;` VM-uncovered exclusion (кроме negative-test контрактов — `p50_unknown_fn`, `p2_wrong_types` — designed-to-fail, не parity concern). Если parity 100% — перейти к Stage 3. Если регрессии — дополнительные наряды для их закрытия перед переходом.
+After Stage 1 (all 4 naryads merged): `tests/crosscheck_backends.rs` without a single `continue;` VM-uncovered exclusion (except the negative-test contracts — `p50_unknown_fn`, `p2_wrong_types` — designed-to-fail, not a parity concern). If parity is 100% — proceed to Stage 3. If regressions — additional naryads to close them before proceeding.
 
 ### D4. Stage 3 — soak
 
-FOSVED на VM в стейджинге **1 sprint (≈2 недели)**, без panic/regression. Сейчас FOSVED работает на TW; VM opt-in только для экспериментов. Soak — обязательный период; если panic/regression — продлевать или откатывать.
+FOSVED on the VM in staging for **1 sprint (≈2 weeks)**, with no panic/regression. Currently FOSVED runs on TW; the VM is opt-in for experiments only. Soak is a mandatory period; on panic/regression — extend or roll back.
 
 ### D5. Stage 4 — real-load benchmark
 
-Benchmark на production-class .mlog файле (≥2000 строк, с LLM calls, DB, vision — representative FOSVED workload). VM должен показать:
-- **≥2× latency improvement** (через bytecode dispatch + no AST traversal overhead), OR
-- **Эквивалентная latency с memory/CPU win** (если latency не 2×, но memory footprint значительно меньше — приемлемо для restricted envs).
+Benchmark on a production-class .mlog file (≥2000 lines, with LLM calls, DB, vision — a representative FOSVED workload). The VM must show:
+- **≥2× latency improvement** (via bytecode dispatch + no AST traversal overhead), OR
+- **Equivalent latency with a memory/CPU win** (if latency is not 2×, but the memory footprint is significantly smaller — acceptable for restricted envs).
 
-Без одного из этих условий — флип дефолта не делается (Stage 5 блокируется).
+Without one of these conditions — no default flip (Stage 5 is blocked).
 
-### D6. Stage 5 — флип дефолта ADR-0088 (только если Stage 2-4 зелёные)
+### D6. Stage 5 — ADR-0088 default flip (only if Stages 2-4 are green)
 
-Флип `METALOGOS_SERVE_BACKEND` default с `interpreter` на `vm`. Отдельный ADR (новый номер — `0142` или выше). С сохранением opt-out через `METALOGOS_SERVE_BACKEND=interpreter` для back-compat (старые деплойменты, edge cases, debugging).
+Flip the `METALOGOS_SERVE_BACKEND` default from `interpreter` to `vm`. A separate ADR (new number — `0142` or higher). With the opt-out via `METALOGOS_SERVE_BACKEND=interpreter` preserved for back-compat (old deployments, edge cases, debugging).
 
-**ADR-0088 status update**: `Implemented (default remains interpreter)` → `Implemented (default flipped to vm per ADR-0XXX, opt-out via METALOGOS_SERVE_BACKEND=interpreter)`. Отдельный amend-ADR — не делается в existing ADR-0088 (историческая точность).
+**ADR-0088 status update**: `Implemented (default remains interpreter)` → `Implemented (default flipped to vm per ADR-0XXX, opt-out via METALOGOS_SERVE_BACKEND=interpreter)`. A separate amend-ADR — not done inside the existing ADR-0088 (historical accuracy).
 
 ### D7. ADR-0105 amend
 
-ADR-0105 §Decision 1-4 остаются в силе:
-- TW = guaranteed full-language backend (Stage 5 не отменяет — TW остаётся как opt-out).
-- VM = experimental for full-language use — но статус меняется: "experimental" → "production-ready after Stage 1-4" (после закрытия гэпов).
+ADR-0105 §Decision 1-4 remain in force:
+- TW = guaranteed full-language backend (Stage 5 does not cancel this — TW remains as the opt-out).
+- VM = experimental for full-language use — but the status changes: "experimental" → "production-ready after Stage 1-4" (after the gaps are closed).
 
-Оговорка «Do not implement Match/BlockIfElse in the VM under this ADR» — **superseded** этим ADR (Stage 1 закрывает гэпы).
+The caveat "Do not implement Match/BlockIfElse in the VM under this ADR" is **superseded** by this ADR (Stage 1 closes the gaps).
 
 ## Consequences
 
-- **Stage 1 (наряды №294-№297)**: VM bytecode coverage растёт с ~95% до 100% language constructs. crosscheck_backends.rs становится без exclusions (для VM-uncovered constructs).
-- **Stage 2-4**: parity + soak + benchmark — гейты перед флипом. Если любой fail — план пересматривается (возможно, оставить VM opt-in как есть, без флипа дефолта).
-- **Stage 5 (если зелёный)**: `mlog serve` дефолт = VM. FOSVED получает автоматический perf boost. TW остаётся для debugging / back-compat.
-- **Risk**: каждая стадия может вскрыть hidden гэпы (не охваченные в `docs/research/vm-gaps-inventory.md`). Это нормально — inventory верифицировано на `main fdfbfb7`, но не proof от future constructs.
-- **No regression risk** для existing VM usage — Stage 1 только добавляет coverage (новые opcode + compiler arms); существующие bytecode остаются валидными.
+- **Stage 1 (naryads #294-#297)**: VM bytecode coverage grows from ~95% to 100% of language constructs. crosscheck_backends.rs becomes exclusion-free (for VM-uncovered constructs).
+- **Stages 2-4**: parity + soak + benchmark — the gates before the flip. If any of them fails — the plan is revisited (possibly keeping the VM opt-in as is, without the default flip).
+- **Stage 5 (if green)**: the `mlog serve` default = VM. FOSVED gets an automatic perf boost. TW remains for debugging / back-compat.
+- **Risk**: each stage may surface hidden gaps (not covered in `docs/research/vm-gaps-inventory.md`). That is normal — the inventory is verified on `main fdfbfb7`, but is no proof against future constructs.
+- **No regression risk** for existing VM usage — Stage 1 only adds coverage (new opcodes + compiler arms); existing bytecode stays valid.
 
-## Addendum: Что НЕ делает этот ADR
+## Addendum: What this ADR does NOT do
 
-- **Не закрывает гэпы в этом наряде** — Stage 0 = research only. Stage 1 = наряды №294-№297.
-- **Не меняет дефолт бэкенда** — Stage 5 (отдельный ADR) после Stage 2-4.
-- **Не удаляет ADR-0105** — только supersede оговорку «Do not implement…». ADR-0105 остаётся в силе для §Decision 1-4.
-- **Не добавляет новые конструкции в язык** — Match/BlockIfElse/binop/random уже определены в грамматике и работают в TW. Расширение VM bytecode — implementation work.
+- **Does not close the gaps in this naryad** — Stage 0 = research only. Stage 1 = naryads #294-#297.
+- **Does not change the backend default** — Stage 5 (a separate ADR) after Stages 2-4.
+- **Does not remove ADR-0105** — only supersedes the caveat "Do not implement…". ADR-0105 remains in force for §Decision 1-4.
+- **Does not add new constructs to the language** — Match/BlockIfElse/binop/random are already defined in the grammar and work in TW. Extending the VM bytecode is implementation work.

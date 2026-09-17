@@ -1,45 +1,45 @@
-# ADR-0134: sqlite-vec как KNN-ускоритель semantic recall — вердикт спайка №271: Go
+# ADR-0134: sqlite-vec as a KNN accelerator for semantic recall — spike #271 verdict: Go
 
-**Status:** Accepted (вердикт-гейт диспатча #316: решён исполнителем по спайку 2026-09-12, как утверждено механикой гейтов)
+**Status:** Accepted (verdict gate of dispatch #316: resolved by the implementer per the spike 2026-09-12, as the gate mechanics prescribe)
 **Date:** 2026-09-12
-**Naryad:** #271 (issue #307); спайк-отчёт — `docs/research/naryad-271-sqlite-vec-spike.md`
-**Precedent:** ADR-0104 (feature-gating с измеренным влиянием), ADR-0116 (SQLite как носитель состояния памяти), FEATURE_INTAKE §4-C/§5, MEMORY_ROADMAP Phase 4
+**Naryad:** #271 (issue #307); spike report — `docs/research/naryad-271-sqlite-vec-spike.md`
+**Precedent:** ADR-0104 (feature-gating with measured impact), ADR-0116 (SQLite as the carrier of memory state), FEATURE_INTAKE §4-C/§5, MEMORY_ROADMAP Phase 4
 
 ## Context
 
-MEMORY_ROADMAP Phase 4 (L2 scenario grouping: `scenarios` / `scenario_members`, `group_scenarios()`, `recall_from_scenario()`) спроектирована вокруг центроидных эмбеддингов и KNN. Текущая реализация semantic recall — полный скан: SELECT всех строк `memories`, decode `embedding BLOB` (LE f32) и скалярный `cosine_similarity` (`src/embeddings.rs`) в 4 местах `src/memory_store.rs`. На 100K записей это 112 мс на запрос (замер спайка, 2 vCPU Xeon) — на границе интерактивности и тормоз роста для Phase 4.
+MEMORY_ROADMAP Phase 4 (L2 scenario grouping: `scenarios` / `scenario_members`, `group_scenarios()`, `recall_from_scenario()`) is designed around centroid embeddings and KNN. The current semantic recall implementation is a full scan: SELECT of all `memories` rows, decode of the `embedding BLOB` (LE f32), and the scalar `cosine_similarity` (`src/embeddings.rs`) in 4 places in `src/memory_store.rs`. At 100K records this is 112 ms per query (spike measurement, 2 vCPU Xeon) — at the boundary of interactivity and a growth brake for Phase 4.
 
-sqlite-vec (asg017, MIT, крейт `sqlite-vec 0.1.9` — последняя стабильная; 2.8M загрузок) — каноничный SQLite-ускоритель векторного поиска: vec0 virtual table, C-исходник ~100 KB, статическая линковка через cc. Постановка №271 требовала спайка с объективными Go-критериями: дельта бинарника < 2 MB, KNN 10K×384 < 50 ms, 3 ОС без ручных флагов. Код спайка остаётся на ветке `naryad-271-sqlite-vec` (draft PR #334 не мержится); в main попадают только этот ADR и отчёт.
+sqlite-vec (asg017, MIT, crate `sqlite-vec 0.1.9` — the latest stable; 2.8M downloads) — the canonical SQLite accelerator for vector search: vec0 virtual table, ~100 KB of C source, static linking via cc. The #271 brief required a spike with objective Go criteria: binary delta < 2 MB, KNN 10K×384 < 50 ms, 3 OSes without manual flags. The spike code remains on the `naryad-271-sqlite-vec` branch (draft PR #334 is not merged); only this ADR and the report land in main.
 
 ## Decision
 
-### D1. Go — sqlite-vec принимается как KNN-движок для semantic recall
+### D1. Go — sqlite-vec is adopted as the KNN engine for semantic recall
 
-Все критерии выполнены с запасом: дельта бинарника **0.15 MB** (probe-замер с реальным использованием; критерий < 2 MB), KNN 10K×384 k=10 — **4.41 ms** против 8.78 ms текущего пути (критерий < 50 ms), вставка ~81–84 тыс. векторов/с, Linux/macOS/Windows собираются без ручных флагов (Linux локально + smoke; macOS/Windows — джобы `--features portable --all-targets` на ветке-спайке). Корректность: top-1 vec0 совпадает с полным скалярным сканом на 1K/10K/100K (smoke + встроенная верификация бенчмарка). №272 реализует `embed` / `vec_store` / `vec_search` поверх sqlite-vec.
+All criteria are met with margin: binary delta **0.15 MB** (probe measurement with real usage; criterion < 2 MB), KNN 10K×384 k=10 — **4.41 ms** vs 8.78 ms for the current path (criterion < 50 ms), inserts of ~81–84 thousand vectors/s, Linux/macOS/Windows build without manual flags (Linux locally + smoke; macOS/Windows — `--features portable --all-targets` jobs on the spike branch). Correctness: vec0 top-1 matches the full scalar scan at 1K/10K/100K (smoke + the benchmark's built-in verification). #272 implements `embed` / `vec_store` / `vec_search` on top of sqlite-vec.
 
-### D2. Интеграция — статическая регистрация, без `load_extension`
+### D2. Integration — static registration, no `load_extension`
 
-Расширение регистрируется как auto-extension (`sqlite3_auto_extension` + `sqlite3_vec_init`) до открытия соединения; feature `load_extension` rusqlite не вводится. Это исключает динамическую загрузку `.so`/`.dll` целиком — весь vec0-код статически линкуется в бинарник, платформенных проблем загрузки расширений нет. Гибридный recall сохраняется: BM25 остаётся на FTS5, vec0 заменяет только cosine-половину (RRF-слияние не меняется).
+The extension is registered as an auto-extension (`sqlite3_auto_extension` + `sqlite3_vec_init`) before the connection is opened; the rusqlite `load_extension` feature is not introduced. This rules out dynamic `.so`/`.dll` loading entirely — all vec0 code is statically linked into the binary, and there are no platform-specific extension-loading problems. Hybrid recall is preserved: BM25 stays on FTS5, vec0 replaces only the cosine half (the RRF merge is unchanged).
 
-### D3. Фича `vec` — off-by-default, measured impact по ADR-0104
+### D3. The `vec` feature — off-by-default, measured impact per ADR-0104
 
-`vec = ["dep:sqlite-vec"]`, вне `default`/`full`. При мерже №272 фича включается в `portable` (дельта 0.15 MB это позволяет; кросс-ОС CI покрывает её каждым прогоном). Числа спайка фиксируются в FEATURES-учёте по образцу ADR-0104: +0.15 MB бинарника, +1 зависимость, ~2× на KNN.
+`vec = ["dep:sqlite-vec"]`, outside `default`/`full`. At the merge of #272 the feature is included in `portable` (the 0.15 MB delta allows it; cross-OS CI covers it on every run). The spike numbers are recorded in the FEATURES ledger following the ADR-0104 pattern: +0.15 MB binary, +1 dependency, ~2× on KNN.
 
-### D4. Честная граница: brute-force, не ANN; wasm-граница зафиксирована
+### D4. Honest boundary: brute-force, not ANN; wasm boundary recorded
 
-sqlite-vec 0.1.9 — линейный скан с SIMD, не ANN-индекс; выигрыш ~2× (SIMD-ядро C + скан внутри SQLite без материализации таблицы в Rust). Браузерный путь (`wasm32-unknown-unknown`) через rusqlite невозможен — cc-тулчейна для wasm нет, в build.rs libsqlite3-sys ветки нет (есть только ветка wasm32-wasip1, требующая wasi-sdk); сам sqlite-vec wasm-совместим и доступен для Go-стека Playground через SQLite-WASM (согласовано с вердиктом №278). Точка пересмотра: 100K+ записей или появление ANN/квантования в upstream sqlite-vec.
+sqlite-vec 0.1.9 is a SIMD linear scan, not an ANN index; the gain is ~2× (SIMD C core + the scan inside SQLite without materializing the table in Rust). The browser path (`wasm32-unknown-unknown`) via rusqlite is impossible — there is no cc toolchain for wasm, and the build.rs of libsqlite3-sys has no branch for it (only the wasm32-wasip1 branch exists, requiring wasi-sdk); sqlite-vec itself is wasm-compatible and available to the Playground Go stack via SQLite-WASM (agreed with the #278 verdict). Revisit point: 100K+ records, or ANN/quantization appearing in upstream sqlite-vec.
 
 ## Consequences
 
-- Положительные: Phase 4 получает in-DB KNN без выгрузки таблицы; recall на 100K — 58 мс вместо 112 мс; память остаётся одним файлом SQLite (ADR-0116 не нарушается); зависимость +1 (лимит FEATURE_INTAKE §4-C — 5, не превышен).
-- Отрицательные/риски: C-зависимость в дереве сборки (cc), как уже принято с libsqlite3-sys; вертикаль скорости ограничена brute-force природой vec0 (осознанно, D4).
-- Нейтральные: спайк-код (bench + smoke) остаётся на ветке-спайке как артефакт доказательства; №272 переносит контракт smoke-теста в постоянный CI при включении фичи.
+- Positive: Phase 4 gets in-DB KNN without unloading the table; recall at 100K is 58 ms instead of 112 ms; memory stays a single SQLite file (ADR-0116 is not violated); +1 dependency (the FEATURE_INTAKE §4-C limit — 5, not exceeded).
+- Negative/risks: a C dependency in the build tree (cc), as already accepted with libsqlite3-sys; the speed axis is capped by the brute-force nature of vec0 (deliberate, D4).
+- Neutral: the spike code (bench + smoke) remains on the spike branch as a proof artifact; #272 moves the smoke-test contract into permanent CI when the feature is enabled.
 
-## Finalization (наряд №272, 2026-09-12)
+## Finalization (naryad #272, 2026-09-12)
 
-Решение реализовано в языке: `embed` / `vec_store` / `vec_search` (`src/builtins/vector.rs`, категория memory; см. REFERENCE §4.23). Уточнения, зафиксированные реализацией:
+The Decision is implemented in the language: `embed` / `vec_store` / `vec_search` (`src/builtins/vector.rs`, category memory; see REFERENCE §4.23). Refinements fixed by the implementation:
 
-- D2 уточнён: регистрация auto-extension глобальна на процесс и выполняется при первом вызове vec-билтина; соединения, открытые до неё, vec0 не видят (безопасно — функции ими не вызываются).
-- Таблицы создаются с **metadata-колонкой** `id` (vec0 0.1.9) — id возвращается KNN-запросом без join и фильтруем `WHERE` в будущих нарядах; размерность фиксируется в служебной таблице `vec_meta` при первой записи и сверяется при последующих (громкая ошибка с обоими числами — защита от смешения моделей, требование №272).
-- `embed` реюзит процесс-глобальный SSOT-экземпляр `EmbeddingManager` (ADR-0040): TF-IDF по умолчанию (`dim = max(vocab, 256)`, детерминирован для той же последовательности вызовов), OpenAI text-embedding-3-small (dim 1536) по env. Дрейф dim/IDF от роста корпуса — задокументированная граница, dim-гейт таблиц — защита.
-- Кросс-ОС: `vec` включён в `portable` (D3) — macos/windows-check компилируют C-код каждый прогон; тест-контур №272 (roundtrip, порядок KNN, пустая таблица, dim-гейт, песочница, лимиты k, crosscheck TW/VM) — в blocking CI с фичей `vec`.
+- D2 refined: auto-extension registration is process-global and runs on the first vec builtin call; connections opened before it do not see vec0 (safe — the functions are not called through them).
+- Tables are created with a **metadata column** `id` (vec0 0.1.9) — id is returned by the KNN query without a join and is `WHERE`-filterable in future naryads; the dimension is pinned in the service table `vec_meta` on the first write and re-checked on subsequent ones (loud error reporting both numbers — protection against model mixing, a #272 requirement).
+- `embed` reuses the process-global SSOT `EmbeddingManager` instance (ADR-0040): TF-IDF by default (`dim = max(vocab, 256)`, deterministic for the same call sequence), OpenAI text-embedding-3-small (dim 1536) via env. dim/IDF drift from corpus growth is a documented boundary; the tables' dim gate is the guard.
+- Cross-OS: `vec` is included in `portable` (D3) — macos/windows-check compile the C code on every run; the #272 test loop (roundtrip, KNN ordering, empty table, dim gate, sandbox, k limits, TW/VM crosscheck) is in blocking CI with the `vec` feature.

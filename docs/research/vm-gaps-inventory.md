@@ -1,9 +1,9 @@
-# VM Gaps Inventory — закрытие гэпов Match / BlockIfElse / match_expr
+# VM Gaps Inventory — closing the Match / BlockIfElse / match_expr gaps
 
-> **Наряд №293** (issue #356, P0/adr — VM_COMPLETE). Источник: внешний аудит Metalogos 2026-09-13. Верифицировано на main `fdfbfb7` (post-№292 merge).
-> **Решение владельца 2026-09-14**: supersede оговорки «Do not implement…» ADR-0105 — стадийное закрытие гэпов; флип дефолта (ADR-0088) остаётся за гейтами: parity 100% + полный crosscheck + soak + реальная нагрузка.
+> **Naryad #293** (issue #356, P0/adr — VM_COMPLETE). Source: external Metalogos audit 2026-09-13. Verified on main `fdfbfb7` (post-#292 merge).
+> **Owner decision 2026-09-14**: supersedes the "Do not implement…" caveats of ADR-0105 — staged closure of the gaps; the default flip (ADR-0088) remains behind the gates: parity 100% + full crosscheck + soak + real load.
 
-## 1. Известные гэпы (verified на main `fdfbfb7`)
+## 1. Known gaps (verified on main `fdfbfb7`)
 
 ### 1.1. `Match` statement (compiler.rs:1373)
 
@@ -15,26 +15,26 @@ Statement::Match { .. } => {
 }
 ```
 
-**Семантика** (REFERENCE §3.4 + `src/interpreter/execution.rs`): `match expr { arm* else? }` — 4 вида arm:
+**Semantics** (REFERENCE §3.4 + `src/interpreter/execution.rs`): `match expr { arm* else? }` — 4 kinds of arm:
 - exact: `"val" then { stmts }`
 - prefix: `starts_with "pre" then { stmts }`
 - substring: `contains "sub" then { stmts }`
-- compare: `> expr then { stmts }` (сравнение scrutinee с expr, любой из `>`/`<`/`>=`/`<=`/`==`/`!=`)
+- compare: `> expr then { stmts }` (compares the scrutinee with expr, any of `>`/`<`/`>=`/`<=`/`==`/`!=`)
 - `else { stmts }` — fallback.
 
-Match как **statement** — выполняет выбранную ветку ради side-effects, результат не используется. Match как **expression** (`let x = match y { ... }`) — см. §1.3.
+Match as a **statement** — executes the selected arm for its side-effects, the result is not used. Match as an **expression** (`let x = match y { ... }`) — see §1.3.
 
-**Стоимость закрытия** (по прецеденту №91 — TryEval):
+**Cost of closure** (per the precedent of naryad #91 — TryEval):
 
-| Компонент | Estimate | Детали |
+| Component | Estimate | Details |
 |---|---|---|
-| Новая bytecode instruction | ~30 строк | `Match { scrutinee_code, arms: Vec<MatchArm>, else_code: Option<Vec<Instruction>> }` в `src/bytecode.rs`. `MatchArm { kind: MatchArmKind, value_code: Vec<Instruction>, body_code: Vec<Instruction> }`. `MatchArmKind { Exact, StartsWith, Contains, Compare(BinOp) }`. |
-| Compiler (compile Match statement) | ~80 строк | В `compile_statement`: для каждого arm — compile scrutinee + compile value-expr + compile body. Match expression → Const(value) + branch-to-arm по result. |
-| Compiler (compile Match as expression для `let`/`return`) | ~80 строк | Аналогично, но body возвращает Value — нужен новый opcode `MatchReturn` или стек-based Result через существующий `Return` + scope-aware подход. |
-| VM dispatch — execute_arm | ~60 строк | В обоих dispatch loops (`run` для main program, `execute_route_code` для route handlers): для каждого arm — проверить условие, если match — выполнить body; если все провалились — выполнить else (или return Unit). |
-| Tests | ~150 строк | New `tests/naryad_<N>_vm_match.rs` — все 4 arm kinds + else + match as statement + match as expression + recursion inside arm body. |
-| crosscheck_backends.rs — remove `p_match_switch.mlog` exclusion | 1 строка | `if name == "p_match_switch.mlog" { continue; }` → удалить. |
-| **Итого** | **~400 строк** | Прецедент №91 (TryEval) — ~250 строк. Match сложнее (4 arm kinds, compare с 6 операторами) — ~400. |
+| New bytecode instruction | ~30 lines | `Match { scrutinee_code, arms: Vec<MatchArm>, else_code: Option<Vec<Instruction>> }` in `src/bytecode.rs`. `MatchArm { kind: MatchArmKind, value_code: Vec<Instruction>, body_code: Vec<Instruction> }`. `MatchArmKind { Exact, StartsWith, Contains, Compare(BinOp) }`. |
+| Compiler (compile Match statement) | ~80 lines | In `compile_statement`: for each arm — compile scrutinee + compile value-expr + compile body. Match expression → Const(value) + branch-to-arm on the result. |
+| Compiler (compile Match as expression for `let`/`return`) | ~80 lines | Similar, but the body returns a Value — a new opcode `MatchReturn` is needed, or a stack-based Result via the existing `Return` + a scope-aware approach. |
+| VM dispatch — execute_arm | ~60 lines | In both dispatch loops (`run` for the main program, `execute_route_code` for route handlers): for each arm — check the condition, if it matches — execute the body; if all fail — execute the else (or return Unit). |
+| Tests | ~150 lines | New `tests/naryad_<N>_vm_match.rs` — all 4 arm kinds + else + match as statement + match as expression + recursion inside an arm body. |
+| crosscheck_backends.rs — remove `p_match_switch.mlog` exclusion | 1 line | `if name == "p_match_switch.mlog" { continue; }` → remove. |
+| **Total** | **~400 lines** | Precedent naryad #91 (TryEval) — ~250 lines. Match is more complex (4 arm kinds, compare with 6 operators) — ~400. |
 
 ### 1.2. `Expr::BlockIfElse` (compiler.rs:902)
 
@@ -46,29 +46,29 @@ Expr::BlockIfElse { .. } => {
 }
 ```
 
-**Семантика** (REFERENCE §3.4 + `src/ast.rs:1483`): `if cond { stmts } else { stmts }` как **значение** (в `let`/`return`/аргументе). Value — последнее выражение в выбранной ветке (Unit если нет non-Unit expr).
+**Semantics** (REFERENCE §3.4 + `src/ast.rs:1483`): `if cond { stmts } else { stmts }` as a **value** (in `let`/`return`/argument position). The value is the last expression in the selected branch (Unit if there is no non-Unit expr).
 
-**Важно**: `Statement::IfElseBlock` (block if/else как оператор) — **уже поддержан** VM (Narяд №129). Только expression-форма не поддержана.
+**Important**: `Statement::IfElseBlock` (block if/else as a statement) is **already supported** by the VM (naryad #129). Only the expression form is unsupported.
 
-**Стоимость закрытия**:
+**Cost of closure**:
 
-| Компонент | Estimate | Детали |
+| Component | Estimate | Details |
 |---|---|---|
-| Новая bytecode instruction | ~15 строк | `BlockIfElse { cond_code: Vec<Instruction>, then_code: Vec<Instruction>, else_ifs: Vec<(Vec<Instruction>, Vec<Instruction>)>, else_code: Option<Vec<Instruction>> }`. Альтернатива: переиспользовать `JumpIfFalse`/`Jump` + `Pop` — но структурированный opcode проще. |
-| Compiler (compile BlockIfElse expr) | ~50 строк | В `compile_expr_with_locals`: для каждой ветки — compile condition + compile body (последний stmt возвращает value через `Return`-free path). Last-expression-in-block → value semantics (в TW это работает через `eval_block` — VM нужен аналог). |
-| VM dispatch | ~40 строк | В обоих loops: evaluate cond → jump-to-matching-branch → execute → leave value on stack. |
-| Tests | ~100 строк | New `tests/naryad_<N>_vm_block_if_else_expr.rs` — простое/вложенное/else-if/нет else (Unit). |
-| **Итого** | **~205 строк** | Меньше чем Match — нет arm-kind вариативности, но value-semantics-of-last-stmt сложнее (TW eval_block) |
+| New bytecode instruction | ~15 lines | `BlockIfElse { cond_code: Vec<Instruction>, then_code: Vec<Instruction>, else_ifs: Vec<(Vec<Instruction>, Vec<Instruction>)>, else_code: Option<Vec<Instruction>> }`. Alternative: reuse `JumpIfFalse`/`Jump` + `Pop` — but the structured opcode is simpler. |
+| Compiler (compile BlockIfElse expr) | ~50 lines | In `compile_expr_with_locals`: for each branch — compile condition + compile body (the last stmt returns the value via a `Return`-free path). Last-expression-in-block → value semantics (in TW this works via `eval_block` — the VM needs an equivalent). |
+| VM dispatch | ~40 lines | In both loops: evaluate cond → jump-to-matching-branch → execute → leave the value on the stack. |
+| Tests | ~100 lines | New `tests/naryad_<N>_vm_block_if_else_expr.rs` — simple/nested/else-if/no else (Unit). |
+| **Total** | **~205 lines** | Less than Match — no arm-kind variability, but value-semantics-of-last-stmt is harder (TW eval_block) |
 
-### 1.3. `match_expr` (`let x = match y { ... }`) — TW-only, наряд №173b
+### 1.3. `match_expr` (`let x = match y { ... }`) — TW-only, naryad #173b
 
-`match_expr` — это `Match` statement используемый в `let`/`return` позиции. На самом деле это **часть гэпа 1.1** — если закрыть Match statement в VM, нужно закрыть и его expression-форму. Постановка №173b добавила match_expr только в TW; для VM он будет закрыт автоматически при реализации Match-as-expression в гэпе 1.1.
+`match_expr` is a `Match` statement used in a `let`/`return` position. It is in fact **part of gap 1.1** — if the Match statement is closed in the VM, its expression form must be closed too. The tasking of naryad #173b added match_expr to TW only; for the VM it will be closed automatically when Match-as-expression is implemented in gap 1.1.
 
-**Стоимость**: включена в §1.1 (compiler Match as expression, ~80 строк) — отдельной работы не требуется.
+**Cost**: included in §1.1 (compiler Match as expression, ~80 lines) — no separate work is required.
 
-## 2. Скрытые гэпы — инвентаризация (grep `unimplemented`/`not yet supported`)
+## 2. Hidden gaps — inventory (grep `unimplemented`/`not yet supported`)
 
-### 2.1. compiler.rs — 2 явных гэпа
+### 2.1. compiler.rs — 2 explicit gaps
 
 ```
 $ grep -nE "unimplemented|not yet supported|not supported|TODO\(vm\)|FIXME\(vm\)" src/compiler.rs
@@ -76,104 +76,104 @@ $ grep -nE "unimplemented|not yet supported|not supported|TODO\(vm\)|FIXME\(vm\)
 1374:                    return Err("compile: Match statement not yet supported in VM bytecode \
 ```
 
-Только два гэпа — оба из §1. Других `unimplemented`/`not yet supported` в compiler.rs **нет**.
+Only two gaps — both from §1. There are **no** other `unimplemented`/`not yet supported` entries in compiler.rs.
 
-### 2.2. vm.rs — 0 явных гэпов
+### 2.2. vm.rs — 0 explicit gaps
 
 ```
 $ grep -nE "unimplemented|not yet supported|not supported|TODO\(vm\)|FIXME\(vm\)" src/vm.rs
 (empty)
 ```
 
-`vm.rs` не содержит `unimplemented!()` или `not yet supported` — все неиспользуемые opcode-arms обрабатываются через `=> {}` no-op или `panic!("unknown opcode: {:?}")` (для настоящих unknown opcodes).
+`vm.rs` contains no `unimplemented!()` or `not yet supported` — all unused opcode arms are handled via a `=> {}` no-op or `panic!("unknown opcode: {:?}")` (for genuinely unknown opcodes).
 
-### 2.3. crosscheck_backends.rs — 3 исключения
+### 2.3. crosscheck_backends.rs — 3 exclusions
 
 ```
 $ grep -n "continue;" tests/crosscheck_backends.rs | head -5
 ```
 
-| File | Причина | Гэп |
+| File | Reason | Gap |
 |---|---|---|
-| `p_match_switch.mlog` | Exercises `match` statement | §1.1 — закрыть Match → убрать исключение |
-| `p118_collection_utils.mlog` | `unique`/`chunk`/`sort` results через string `+` — heterogeneous types | VM `eval_binop` rejects heterogeneous; TW auto-coerces. Отдельный гэп binop coercion. |
-| `reflex_math.mlog` | `random_seed`/`random` (TW-only — VM has no PRNG state); Bool→String formatting ("true" in TW, "1" in VM) | 2 гэпа: PRNG state + Bool→String formatting parity. |
+| `p_match_switch.mlog` | Exercises `match` statement | §1.1 — close Match → remove the exclusion |
+| `p118_collection_utils.mlog` | `unique`/`chunk`/`sort` results via string `+` — heterogeneous types | VM `eval_binop` rejects heterogeneous; TW auto-coerces. A separate binop coercion gap. |
+| `reflex_math.mlog` | `random_seed`/`random` (TW-only — VM has no PRNG state); Bool→String formatting ("true" in TW, "1" in VM) | 2 gaps: PRNG state + Bool→String formatting parity. |
 
-### 2.4. Скрытые гэпы (вывод из §2.3)
+### 2.4. Hidden gaps (derived from §2.3)
 
-После закрытия §1.1 (Match) остаются 2 скрытых гэпа:
-- **Binop coercion** — heterogeneous List + String concatenation. VM eval_binop strict, TW lenient. Стоимость: ~80 строк (ослабить eval_binop + 6-10 contract tests).
-- **PRNG state** — `random_seed`/`random` — TW-only. Стоимость: ~50 строк (добавить `RandomState` в Vm struct, seed propagation, deterministic mode for tests).
-- **Bool→String formatting** — `"true"` vs `"1"`. Стоимость: ~10 строк (форматирование в vm.rs).
+After closing §1.1 (Match), 2 hidden gaps remain:
+- **Binop coercion** — heterogeneous List + String concatenation. VM eval_binop strict, TW lenient. Cost: ~80 lines (loosen eval_binop + 6-10 contract tests).
+- **PRNG state** — `random_seed`/`random` — TW-only. Cost: ~50 lines (add `RandomState` to the Vm struct, seed propagation, deterministic mode for tests).
+- **Bool→String formatting** — `"true"` vs `"1"`. Cost: ~10 lines (formatting in vm.rs).
 
-**Итого скрытых гэпов**: 3 (binop coercion, PRNG, Bool→String).
+**Total hidden gaps**: 3 (binop coercion, PRNG, Bool→String).
 
-## 3. Прецедент №91 — TryEval
+## 3. Precedent naryad #91 — TryEval
 
-Наряд №91 закрыл `Expr::Try` (`try expr`) в VM. Шаблон:
-1. Новая bytecode instruction `TryEval(Vec<Instruction>)` в `src/bytecode.rs` (10 строк — enum variant).
-2. Compiler: `Expr::Try { expr: inner, .. }` → compile inner в sub-vec, emit `TryEval(inner_code)` (5 строк).
-3. VM dispatch — оба loops (`run` + `execute_route_code`): для `TryEval(inner_code)` — evaluate inner, catch error → push Unit; success → push value (по 10 строк на loop = 20 строк).
-4. Tests: `tests/naryad_91_*` (~30 строк — success path + error path).
-5. crosscheck_backends.rs — remove exclusion (1 строка).
+Naryad #91 closed `Expr::Try` (`try expr`) in the VM. Pattern:
+1. New bytecode instruction `TryEval(Vec<Instruction>)` in `src/bytecode.rs` (10 lines — enum variant).
+2. Compiler: `Expr::Try { expr: inner, .. }` → compile inner into a sub-vec, emit `TryEval(inner_code)` (5 lines).
+3. VM dispatch — both loops (`run` + `execute_route_code`): for `TryEval(inner_code)` — evaluate inner, catch error → push Unit; success → push value (10 lines per loop = 20 lines).
+4. Tests: `tests/naryad_91_*` (~30 lines — success path + error path).
+5. crosscheck_backends.rs — remove exclusion (1 line).
 
-**Всего ~250 строк для одной инструкции**. Match сложнее (4 arm kinds × 6 операторов × branch logic) → ~400 строк. BlockIfElse проще (нет arm kinds) но value-semantics-of-last-stmt сложнее → ~205 строк.
+**~250 lines total for one instruction**. Match is more complex (4 arm kinds × 6 operators × branch logic) → ~400 lines. BlockIfElse is simpler (no arm kinds) but value-semantics-of-last-stmt is harder → ~205 lines.
 
-## 4. Итоговая стоимость закрытия
+## 4. Total cost of closure
 
-| Гэп | Стоимость (LOC) | Нарядов |
+| Gap | Cost (LOC) | Naryads |
 |---|---|---|
-| §1.1 Match statement + expression | ~400 | 1 наряд (~№294) |
-| §1.2 BlockIfElse expression | ~205 | 1 наряд (~№295) |
-| §2.4 Binop coercion (heterogeneous types) | ~80 | 1 наряд (~№296) |
-| §2.4 PRNG state | ~50 | 1 наряд (~№297) |
-| §2.4 Bool→String formatting parity | ~10 | мини-наряд (можно в один с PRNG) |
-| crosscheck_backends.rs cleanups | 3 строки | в каждом из выше |
-| **Итого** | **~745 LOC** | **~4 наряда** |
+| §1.1 Match statement + expression | ~400 | 1 naryad (~#294) |
+| §1.2 BlockIfElse expression | ~205 | 1 naryad (~#295) |
+| §2.4 Binop coercion (heterogeneous types) | ~80 | 1 naryad (~#296) |
+| §2.4 PRNG state | ~50 | 1 naryad (~#297) |
+| §2.4 Bool→String formatting parity | ~10 | mini-naryad (can be merged with PRNG) |
+| crosscheck_backends.rs cleanups | 3 lines | in each of the above |
+| **Total** | **~745 LOC** | **~4 naryads** |
 
-Все 4 наряда — прецедент №91 по структуре: instruction + compiler + VM dispatch + tests. Не требуют ADR (расширение VM, не новая семантика языка — ADR-0105 оговорка снимается решением владельца).
+All 4 naryads follow the precedent of naryad #91 in structure: instruction + compiler + VM dispatch + tests. They require no ADR (a VM extension, not new language semantics — the ADR-0105 caveat is lifted by the owner decision).
 
-## 5. Критерий «стратегической нужды» (для флипа дефолта ADR-0088)
+## 5. The "strategic need" criterion (for flipping the ADR-0088 default)
 
-Флип дефолта `METALOGOS_SERVE_BACKEND=interpreter` → `vm` — только при **всех** условиях:
+The default flip `METALOGOS_SERVE_BACKEND=interpreter` → `vm` — only under **all** of the conditions:
 
-1. **Parity 100%** — все 3 crosscheck exclusions сняты (p_match_switch, p118_collection_utils, reflex_math). Это означает: все 4 гэпа из §4 закрыты.
-2. **Полный crosscheck зелёный** — `tests/crosscheck_backends.rs` без единого `continue;` (кроме negative-test контрактов типа p50_unknown_fn, p2_wrong_types — которые designed-to-fail).
-3. **Soak период** — 1 sprint (≈2 недели) работы FOSVED на VM бэкенде в стейджинге, без panic/regression. Сейчас FOSVED работает на TW; VM opt-in только для экспериментов.
-4. **Реальная нагрузка** — benchmark на production-class .mlog файле (≥2000 строк, с LLM calls, DB, vision — representative FOSVED workload). VM должен показать ≥2× latency improvement или эквивалентную latency с memory/CPU win.
+1. **Parity 100%** — all 3 crosscheck exclusions lifted (p_match_switch, p118_collection_utils, reflex_math). This means: all 4 gaps from §4 are closed.
+2. **Full crosscheck green** — `tests/crosscheck_backends.rs` without a single `continue;` (except negative-test contracts like p50_unknown_fn, p2_wrong_types — which are designed-to-fail).
+3. **Soak period** — 1 sprint (≈2 weeks) of FOSVED running on the VM backend in staging, without panic/regression. Currently FOSVED runs on TW; VM is opt-in for experiments only.
+4. **Real load** — benchmark on a production-class .mlog file (≥2000 lines, with LLM calls, DB, vision — a representative FOSVED workload). The VM must show ≥2× latency improvement or equivalent latency with a memory/CPU win.
 
-Без ВСЕХ четырёх условий флип дефолта не делается — ADR-0088 `Implemented (default remains interpreter)` stays.
+Without ALL four conditions the default flip is not done — ADR-0088 `Implemented (default remains interpreter)` stays.
 
-## 6. План стадий (решение владельца 2026-09-14 — supersede ADR-0105 оговорки)
+## 6. Stage plan (owner decision 2026-09-14 — supersedes the ADR-0105 caveats)
 
-**Stage 0** (этот наряд — №293): research + ADR-0141 + inventory (этот документ). Ноль кода.
+**Stage 0** (this naryad — #293): research + ADR-0141 + inventory (this document). Zero code.
 
-**Stage 1** (наряды №294–№297): закрытие 4 гэпов по прецеденту №91. Каждый — отдельный наряд, отдельный PR, отдельные тесты + crosscheck exclusion removal. Порядок: Match (самый большой эффект — p_match_switch) → BlockIfElse → binop coercion → PRNG + Bool→String.
+**Stage 1** (naryads #294–#297): closing the 4 gaps per the precedent of naryad #91. Each — a separate naryad, a separate PR, separate tests + crosscheck exclusion removal. Order: Match (the biggest effect — p_match_switch) → BlockIfElse → binop coercion → PRNG + Bool→String.
 
-**Stage 2**: parity gate — после всех 4 нарядов, `tests/crosscheck_backends.rs` без `continue;` exclusions для VM-uncovered constructs. Если parity 100% — перейти к Stage 3.
+**Stage 2**: parity gate — after all 4 naryads, `tests/crosscheck_backends.rs` without `continue;` exclusions for VM-uncovered constructs. If parity is 100% — proceed to Stage 3.
 
-**Stage 3**: soak — FOSVED на VM в стейджинге 1 sprint. Без panic/regression → перейти к Stage 4.
+**Stage 3**: soak — FOSVED on the VM in staging for 1 sprint. Without panic/regression → proceed to Stage 4.
 
-**Stage 4**: real-load benchmark — representative FOSVED workload на VM. ≥2× latency improvement или эквивалентная latency с memory/CPU win.
+**Stage 4**: real-load benchmark — representative FOSVED workload on the VM. ≥2× latency improvement or equivalent latency with a memory/CPU win.
 
-**Stage 5** (только если Stage 2-4 зелёные): флип дефолта ADR-0088 `interpreter` → `vm`. Отдельный ADR (новый номер — `0142` или выше). С сохранением opt-out через `METALOGOS_SERVE_BACKEND=interpreter` для back-compat.
+**Stage 5** (only if Stages 2-4 are green): flip the ADR-0088 default `interpreter` → `vm`. A separate ADR (new number — `0142` or higher). The opt-out via `METALOGOS_SERVE_BACKEND=interpreter` is preserved for back-compat.
 
-## 7. Риски
+## 7. Risks
 
-1. **Match expression value-semantics** — TW `eval_block` возвращает последнее non-Unit значение. VM bytecode не имеет concept-of-block-as-value; нужен pattern: последний stmt в блоке → `SetLocal`/`Push`. Риск: тонкости с `if-then-else` внутри block (statement vs expression).
-2. **BlockIfElse vs Statement::IfElseBlock overlap** — statement-form уже работает, expression-form — нет. В компиляторе нужно различать контекст (`let x = if ...` vs `if ... { stmts }`). В TW это различается в execution.rs; VM компилятор должен делать то же различение.
-3. **Binop coercion** — ослабление strict typing в VM `eval_binop` может сломать существующие VM tests (которые полагаются на strict). Все heterogeneous-binop tests нужно переделать — `assert!(result.is_err())` → `assert_eq!(result, ...)`.
-4. **PRNG determinism** — VM должен deterministic mode для tests (seed propagation через `Vm::set_random_seed`). Если random state global — гонки между request handlers в serve.
-5. **Soak regressions** — VM может иметь edge cases на production-load, которые не ловятся на examples. 1 sprint — минимальный период; если регрессии — продлевать.
+1. **Match expression value-semantics** — TW `eval_block` returns the last non-Unit value. VM bytecode has no concept-of-block-as-value; the needed pattern: the last stmt in the block → `SetLocal`/`Push`. Risk: subtleties with `if-then-else` inside a block (statement vs expression).
+2. **BlockIfElse vs Statement::IfElseBlock overlap** — the statement form already works, the expression form does not. The compiler must distinguish the context (`let x = if ...` vs `if ... { stmts }`). In TW this distinction is made in execution.rs; the VM compiler must make the same distinction.
+3. **Binop coercion** — loosening strict typing in VM `eval_binop` may break existing VM tests (which rely on strict). All heterogeneous-binop tests must be reworked — `assert!(result.is_err())` → `assert_eq!(result, ...)`.
+4. **PRNG determinism** — the VM must have a deterministic mode for tests (seed propagation via `Vm::set_random_seed`). If the random state is global — races between request handlers in serve.
+5. **Soak regressions** — the VM may have edge cases under production load that are not caught on examples. 1 sprint is the minimum period; if regressions appear — extend it.
 
-## 8. Альтернативы
+## 8. Alternatives
 
-- **Не закрывать гэпы, оставить VM experimental** (оригинальная позиция ADR-0105). Решение владельца 2026-09-14 — supersede этой оговорки, так что альтернатива отвергнута.
-- **Закрывать все гэпы одним мега-нарядом** — отвергнуто: риск review-load, regression-batch. По прецеденту №91 — один наряд на гэп.
-- **Флип дефолта без soak** — отвергнуто: ADR-0088 уже зарегистрировал риск "static checks vs production". Soak обязателен.
+- **Do not close the gaps, keep the VM experimental** (the original position of ADR-0105). The owner decision 2026-09-14 supersedes this caveat, so the alternative is rejected.
+- **Close all gaps in one mega-naryad** — rejected: review-load risk, regression-batch. Per the precedent of naryad #91 — one naryad per gap.
+- **Default flip without soak** — rejected: ADR-0088 already recorded the "static checks vs production" risk. Soak is mandatory.
 
-## 9. Что НЕ делать в этом наряде (№293)
+## 9. What NOT to do in this naryad (#293)
 
-- Не компилировать Match/BlockIfElse (Stage 1 — наряды №294–№297).
-- Не менять дефолт бэкенда (Stage 5 — после Stage 2-4).
-- Не «тихо» переоткрывать ADR-0105 — только явный supersede владельцем (сделано 2026-09-14, зафиксировано в этом документе + ADR-0141).
+- Do not compile Match/BlockIfElse (Stage 1 — naryads #294–#297).
+- Do not change the backend default (Stage 5 — after Stages 2-4).
+- Do not "quietly" reopen ADR-0105 — only an explicit supersede by the owner (done 2026-09-14, recorded in this document + ADR-0141).

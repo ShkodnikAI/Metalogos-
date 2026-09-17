@@ -1,0 +1,17 @@
+// Наряд №385 (ADR-0169): MEDIA_SEALED_EGRESS — приватное/consented медиа
+// запечатано на месте (sealed at rest) и не материализуется (№325
+// sink clearance; ADR-0162 §2.5). Штамп ставится в media_save ДО записи
+// на диск; try ловит, сценарий ветвится по коду.
+origin feed { kind: generation, media: image, label: public }
+pattern Frame(_data: String) -> String {
+  let img = from feed media_store_image("secret-bytes", "private")
+  let r = try media_save(img, "target/w385-media/sealed-out.bin")
+  if r.ok {
+    return "unexpected-materialized"
+  }
+  if r.error.code == "MEDIA_SEALED_EGRESS" {
+    return "sealed:" + r.error.code
+  }
+  return "wrong-code:" + r.error.code
+}
+flow Main { input: String = "x" -> Frame -> output }

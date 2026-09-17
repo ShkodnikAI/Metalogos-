@@ -39,6 +39,29 @@ fn trim_opt(s: &Option<String>) -> String {
         .unwrap_or_default()
 }
 
+/// №385: an optional per-example environment sidecar `examples/X.env`
+/// (KEY=VALUE lines, `#` comments allowed) is applied before running BOTH
+/// backends and removed afterwards — so the TW↔VM parity gate compares the
+/// fault-injected run (e.g. `METALOGOS_MOCK_LLM_FAULT=timeout`) on both
+/// backends, not a faultless one. The suite runs sequentially in-process.
+fn sidecar_env(mlog_path: &Path) -> Vec<(String, String)> {
+    let sidecar = mlog_path.with_extension("env");
+    if !sidecar.exists() {
+        return Vec::new();
+    }
+    fs::read_to_string(&sidecar)
+        .unwrap_or_else(|e| panic!("cannot read env sidecar {:?}: {}", sidecar, e))
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#') && !l.trim().is_empty())
+        .map(|l| {
+            let (k, v) = l
+                .split_once('=')
+                .unwrap_or_else(|| panic!("bad env sidecar line in {:?}: {}", sidecar, l));
+            (k.trim().to_string(), v.trim().to_string())
+        })
+        .collect()
+}
+
 /// Find all .mlog files with .expected files.
 /// Skips negative-test contracts (e.g. p50_unknown_fn) that are designed
 /// to produce errors — crosscheck only tests valid programs.
@@ -163,8 +186,17 @@ fn crosscheck_tw_vs_vm_all_golden() {
         let source = fs::read_to_string(mlog_path)
             .unwrap_or_else(|e| panic!("cannot read {:?}: {}", mlog_path, e));
 
+        // №385: same fault-injection env on BOTH backends — parity of the
+        // error path is part of the parity contract.
+        let env_vars = sidecar_env(mlog_path);
+        for (k, v) in &env_vars {
+            std::env::set_var(k, v);
+        }
         let tw_result = run_tw(&source, base_dir);
         let vm_result = run_vm(&source, base_dir);
+        for (k, _) in &env_vars {
+            std::env::remove_var(k);
+        }
 
         match (&tw_result, &vm_result) {
             (Ok(tw), Ok(vm)) => {

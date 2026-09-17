@@ -204,6 +204,29 @@ execution stay green and every gate hit is recorded as an audit event
 `mlog audit`). `legacy` is a migration bridge, not a residence — the
 burn-down is measured by the event count (ADR-0161 §3).
 
+**The data ↔ action bridge (№391).** For the six ACTION sinks the
+clearance gate enforces BOTH axes of the label lattice on the decision
+argument (command / URL / SQL / addressee): confidentiality
+`label.conf ⊑ public` AND integrity `label.integrity ≥ trusted`. The
+thresholds are table-driven (`semantic::ACTION_BRIDGE` — the
+systematization of the former point rules; the specialized classes
+keep their names):
+
+| action sink | decision argument | conf threshold | integrity threshold | integrity enforcement |
+|---|---|---|---|---|
+| `exec` | arg 0 — command | public | trusted | clearance (`UNTRUSTED_EXEC_DECISION`) |
+| `exec_argv` | arg 0 — binary | public | trusted | clearance (`UNTRUSTED_EXEC_DECISION`) |
+| `git_push` | arg 0 — remote URL/ref | public | trusted | clearance (`UNTRUSTED_EGRESS_NETWORK`; №391 adds the integrity half) |
+| `http_post` | arg 0 — URL | public | trusted | clearance (`UNTRUSTED_EGRESS_NETWORK`; body args = egress classes) |
+| `send_message` | arg 0 — chat/addressee | public | trusted | clearance (`UNTRUSTED_EGRESS_NETWORK`; body args = egress classes) |
+| `db_execute` | arg 0 — SQL | public | trusted | confidentiality = clearance (`private-db`); integrity = `SQL_DYNAMIC` (non-literal SQL is refused before the bridge can see it) |
+
+Every deny names the argument, its label and the failed threshold
+(explainable refusal — consumed by №392 DenyEvent). Grants (№390) are
+orthogonal: the grant authorizes the ACTION (scope/TTL/quota, runtime),
+the bridge gates the DATA that feeds it (labels, compile time);
+`db_execute_with_grant` is not a №325 sink.
+
 **redact/declassify — the only downward move (№326, ADR-0154 §10).**
 `redact(value, "<policy>")` takes a policy VALUE that determines the
 target label:

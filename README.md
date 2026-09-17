@@ -169,12 +169,12 @@ $ mlog check poison.mlog
 
 #### Known boundaries of static analysis
 
-These checks use **intraprocedural taint tracking** — they follow `let`-assignment chains within a single pattern body, bounded to nesting depth `TAINT_NESTING_MAX_DEPTH = 3` (Наряд №295). **As of naryad №292, summary-based interprocedural taint is also tracked** (configurable depth, default 4 — see `TAINT_INTERP` below). The following patterns are **not** detected at compile time:
+These checks use **intraprocedural taint tracking** — they follow `let`-assignment chains within a single pattern body, bounded to nesting depth `TAINT_NESTING_MAX_DEPTH = 3` (Naryad #295). **As of naryad №292, summary-based interprocedural taint is also tracked** (configurable depth, default 4 — see `TAINT_INTERP` below). The following patterns are **not** detected at compile time:
 
 | Pattern | Why not caught |
 |---|---|
 | LLM output passed via pattern call chains deeper than 2 levels | Interprocedural analysis is bounded (no fixpoint); deeper chains emit `INTERP_DEPTH_LIMIT` warning |
-| LLM output nested deeper than 3 levels of non-pattern function calls | `expr_is_llm_tainted` is bounded (Наряд №295); `TAINT_INTERP` catches via summary if a pattern call is involved |
+| LLM output nested deeper than 3 levels of non-pattern function calls | `expr_is_llm_tainted` is bounded (Naryad #295); `TAINT_INTERP` catches via summary if a pattern call is involved |
 | `{{{ var }}}` (raw template substitution) | `template_render` with `raw=true` skips escaping by design — trusted author code only |
 
 `mlog audit` provides **heuristic warnings** (not errors) for two narrow sub-cases, and an **interprocedural Error** for non-trivial passthrough chains:
@@ -183,8 +183,8 @@ These checks use **intraprocedural taint tracking** — they follow `let`-assign
 |---|---|---|---|
 | `TAINT_PERSISTENCE` | Warning | Same-scope: `memorize(call_llm(...))` + `recall()` + `respond()` | `memorize call_llm("summarize")` then `let ctx = recall("q"); respond("200 OK", ctx)` |
 | `TAINT_PASSTHROUGH` | Error | Trivial passthrough pattern wrapping LLM output (1-param `return x`) | `pattern Wrap(x: String) { return x }` then `respond("200 OK", Wrap(call_llm("...")))` |
-| `TAINT_INTERP` (Наряд №292; №376) | Error | **Interprocedural** — non-trivial pattern wrapping LLM output, bounded depth `METALOGOS_TAINT_DEPTH` (default 4, configurable 1..=16; summaries cached per module — №376) | `pattern Wrap(x: String) { return upper(x) }` then `respond("200 OK", Wrap(call_llm("...")))` |
-| `INTERP_DEPTH_LIMIT` (Наряд №292) | Warning | Recursive / cyclic pattern in the call graph — analysis terminated at depth 2 | `pattern Recurse(x) { return Recurse(x) }` |
+| `TAINT_INTERP` (Naryad #292; #376) | Error | **Interprocedural** — non-trivial pattern wrapping LLM output, bounded depth `METALOGOS_TAINT_DEPTH` (default 4, configurable 1..=16; summaries cached per module — #376) | `pattern Wrap(x: String) { return upper(x) }` then `respond("200 OK", Wrap(call_llm("...")))` |
+| `INTERP_DEPTH_LIMIT` (Naryad #292) | Warning | Recursive / cyclic pattern in the call graph — analysis terminated at depth 2 | `pattern Recurse(x) { return Recurse(x) }` |
 
 `TAINT_INTERP` is a Category-A compile-time error (audit_category_a). `INTERP_DEPTH_LIMIT` is advisory only (audit_program, not promoted to a compile error). Sanitizers (`render()`/`escape_html()`) wrapping the LLM source lift the taint — zero false positives on legitimate code.
 
@@ -654,11 +654,11 @@ Each layer receives `seed.wrapping_add(layer_index)` for deterministic weight in
 
 ### Vision — Generative Media (ADR-0122, ADR-0125)
 
-**Weights run parked — no production PNG yet.** The Vision pillar (images, ADR-0122) is feature-gated (`--features vision`, which implies `candle`) and ships compiler-level provenance and supply-chain gates (ADR-0125); the real-weights run (runbook №237) has not been executed, so no production image has been generated. **Наряд №294 (2026-09-14) — формальный No-Go**: preflight контейнера не пройден (4 GB RAM vs нужно 64; 10 GB диск vs нужно 40; нет GPU). Дата пересмотра — при выделении железа. Отчёт: `docs/research/naryad-294-vision-realw-no-go.md`. Parked статус остаётся (No-Go → не снимается).
+**Weights run parked — no production PNG yet.** The Vision pillar (images, ADR-0122) is feature-gated (`--features vision`, which implies `candle`) and ships compiler-level provenance and supply-chain gates (ADR-0125); the real-weights run (runbook №237) has not been executed, so no production image has been generated. **Naryad #294 (2026-09-14) — formal No-Go**: the container preflight failed (4 GB RAM vs 64 required; 10 GB disk vs 40 required; no GPU). Revisit date — when hardware is allocated. Report: `docs/research/naryad-294-vision-realw-no-go.md`. The Parked status remains (No-Go → not lifted).
 
 ### Voice — Speech Synthesis & Cloning (ADR-0143–0146)
 
-The Voice pillar (speech synthesis, zero-shot voice cloning, voice design) is feature-gated (`--features voice`, implies `candle`) and off-by-default. Four ADRs define the scope: [ADR-0143](docs/adr/0143-voice-scope.md) (scope — TTS, cloning, voice-design; non-scope: pre-training, singing, streaming, voice conversion), [ADR-0144](docs/adr/0144-voice-value-registry.md) (opaque `Value::Audio`/`Value::Voice` handles + `VoiceRegistry` with encrypted-at-rest voiceprints), [ADR-0145](docs/adr/0145-voice-security-gates.md) (5 security gates: consent, provenance, privacy, taint, shared `MODEL_WEIGHTS_UNSAFE`), [ADR-0146](docs/adr/0146-voice-wedge.md) (wedge: Chatterbox Multilingual V3 MIT/MIT 500M primary, Kokoro-82M Apache 82M warm-up). Skeleton built (Наряд №302): `src/voice/mod.rs` with `VoiceId`/`AudioId`, `VoiceRegistry`, `KNOWN_VOICE_MODELS` SSOT, 6 stub builtins. Speaker encoder contract (Наряд №303): 192-dim L2-normalized embeddings, `VoiceStore` (SQLite, encrypted BLOB), consent ledger (GDPR Art. 9). Real ECAPA encoder + AES-256-GCM encryption deferred to phase A4.
+The Voice pillar (speech synthesis, zero-shot voice cloning, voice design) is feature-gated (`--features voice`, implies `candle`) and off-by-default. Four ADRs define the scope: [ADR-0143](docs/adr/0143-voice-scope.md) (scope — TTS, cloning, voice-design; non-scope: pre-training, singing, streaming, voice conversion), [ADR-0144](docs/adr/0144-voice-value-registry.md) (opaque `Value::Audio`/`Value::Voice` handles + `VoiceRegistry` with encrypted-at-rest voiceprints), [ADR-0145](docs/adr/0145-voice-security-gates.md) (5 security gates: consent, provenance, privacy, taint, shared `MODEL_WEIGHTS_UNSAFE`), [ADR-0146](docs/adr/0146-voice-wedge.md) (wedge: Chatterbox Multilingual V3 MIT/MIT 500M primary, Kokoro-82M Apache 82M warm-up). Skeleton built (Naryad #302): `src/voice/mod.rs` with `VoiceId`/`AudioId`, `VoiceRegistry`, `KNOWN_VOICE_MODELS` SSOT, 6 stub builtins. Speaker encoder contract (Naryad #303): 192-dim L2-normalized embeddings, `VoiceStore` (SQLite, encrypted BLOB), consent ledger (GDPR Art. 9). Real ECAPA encoder + AES-256-GCM encryption deferred to phase A4.
 
 ### Video — I2V Pipeline & Provenance (ADR-0147–0151)
 
@@ -672,7 +672,7 @@ The Video pillar is feature-gated (`--features video`, implies `candle`) and off
 
 ### Cross-Pillar Composition (ADR-0151)
 
-The three generative pillars compose across modalities through opaque handles and shared provenance: a Vision-class reference frame (pixels) feeds `video_render(kind: i2v)` (Video), and the composed clip is muxed with a Voice-pillar `AudioId` via `av_mux` — one `VideoManifest` carries the whole chain (`ref_hash`, `source_sha`, `audio_ref`). The E2E «озвученная сцена» (frame → video → interp → extend → mux with AudioId → export with manifest) runs seed-deterministic on tiny weights in CI (Наряд №309). Full LikenessToken consent mechanics across the pillars land in phase V6 (ADR-0149 D6).
+The three generative pillars compose across modalities through opaque handles and shared provenance: a Vision-class reference frame (pixels) feeds `video_render(kind: i2v)` (Video), and the composed clip is muxed with a Voice-pillar `AudioId` via `av_mux` — one `VideoManifest` carries the whole chain (`ref_hash`, `source_sha`, `audio_ref`). The E2E "voiced scene" (frame → video → interp → extend → mux with AudioId → export with manifest) runs seed-deterministic on tiny weights in CI (Naryad #309). Full LikenessToken consent mechanics across the pillars land in phase V6 (ADR-0149 D6).
 
 ---
 

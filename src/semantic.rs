@@ -2443,6 +2443,11 @@ pub struct SinkViolation {
     pub span: Span,
     /// The argument's inferred label (№322/№323 machinery).
     pub label: Label,
+    /// Which bridge threshold failed (№391): the clearance reason —
+    /// e.g. "untrusted-exec", "secret-exec", "untrusted-egress",
+    /// "private-egress", "private-db", "irreversible-content". Consumed
+    /// by the deny message (explainable refusal) and by №392 DenyEvent.
+    pub reason: &'static str,
 }
 
 /// Conservative confidentiality markers for string LITERALS (ADR-0161
@@ -2558,6 +2563,85 @@ type SinkCheck<'a> = &'a dyn Fn(&Expr, &str, &BTreeMap<String, Label>, &mut Vec<
 /// №327). The VOICE class additionally refuses anything without a
 /// consent scope (consent SOURCES are Phase 2, №335 — until then every
 /// voice egress is unconsented by default, loud by design).
+/// ── Naryad #391: the data ↔ action bridge — per-sink thresholds ──────
+///
+/// The bridge rule for ACTION sinks: the decision argument (command /
+/// URL / SQL / addressee) must satisfy BOTH axes of the label lattice
+/// (ADR-0154):
+///   - confidentiality: label.conf ⊑ Public (the action must not leak
+///     secrets into its own trace);
+///   - integrity: label.integrity ≥ Trusted (untrusted data must not
+///     drive an irreversible action).
+///
+/// This is the SYSTEMATIC rule the point classes (UNTRUSTED_EXEC_DECISION,
+/// SECRET_TO_EXEC, SECRET_EGRESS_VCS, SECRET_EGRESS_NETWORK, PII_EGRESS_*)
+/// were hand-expressing; the classes stay (leak-suite vocabulary, DoD в —
+/// nothing is weakened), the table documents the thresholds per sink.
+///
+/// Orthogonality with grants (№390): the grant check authorizes the
+/// ACTION (scope/TTL/quota, runtime); the bridge gates the DATA that
+/// feeds it (labels, compile time). `db_execute_with_grant` is not a
+/// №325 sink — its grant gates are runtime-only; the bridge does not
+/// duplicate them.
+pub struct ActionBridgeThreshold {
+    pub sink: &'static str,
+    /// Human-readable decision-argument description.
+    pub decision_arg: &'static str,
+    /// The confidentiality threshold (always Public today — the action
+    /// trace must not carry secrets).
+    pub max_conf: &'static str,
+    /// The integrity threshold (always Trusted today — untrusted data
+    /// must not drive the action).
+    pub min_integrity: &'static str,
+    /// How the integrity half is enforced for this sink.
+    pub integrity_enforcement: &'static str,
+}
+
+pub const ACTION_BRIDGE: &[ActionBridgeThreshold] = &[
+    ActionBridgeThreshold {
+        sink: "exec",
+        decision_arg: "arg 0 — command",
+        max_conf: "public",
+        min_integrity: "trusted",
+        integrity_enforcement: "clearance (UNTRUSTED_EXEC_DECISION)",
+    },
+    ActionBridgeThreshold {
+        sink: "exec_argv",
+        decision_arg: "arg 0 — binary",
+        max_conf: "public",
+        min_integrity: "trusted",
+        integrity_enforcement: "clearance (UNTRUSTED_EXEC_DECISION)",
+    },
+    ActionBridgeThreshold {
+        sink: "git_push",
+        decision_arg: "arg 0 — remote URL/ref",
+        max_conf: "public",
+        min_integrity: "trusted",
+        integrity_enforcement: "clearance (UNTRUSTED_EGRESS_NETWORK; №391 adds the integrity half)",
+    },
+    ActionBridgeThreshold {
+        sink: "http_post",
+        decision_arg: "arg 0 — URL",
+        max_conf: "public",
+        min_integrity: "trusted",
+        integrity_enforcement: "clearance (UNTRUSTED_EGRESS_NETWORK; body args = egress classes)",
+    },
+    ActionBridgeThreshold {
+        sink: "send_message",
+        decision_arg: "arg 0 — chat/addressee",
+        max_conf: "public",
+        min_integrity: "trusted",
+        integrity_enforcement: "clearance (UNTRUSTED_EGRESS_NETWORK; body args = egress classes)",
+    },
+    ActionBridgeThreshold {
+        sink: "db_execute",
+        decision_arg: "arg 0 — SQL",
+        max_conf: "public",
+        min_integrity: "trusted",
+        integrity_enforcement: "clearance for confidentiality (private-db); integrity via SQL_DYNAMIC (non-literal SQL is refused before the bridge can see it)",
+    },
+];
+
 pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolation> {
     let mut violations = Vec::new();
 
@@ -2707,7 +2791,11 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                 if label.conf != crate::labels::Conf::Public {
                     Some("private-egress")
                 } else if label.integrity == crate::labels::Integrity::Untrusted
-                    && matches!(kind, "network" | "output" | "memory")
+                    // №391 bridge: "vcs" joins the integrity-gated kinds —
+                    // an untrusted URL must not drive git_push (the
+                    // systematization of the point rules; the class stays
+                    // UNTRUSTED_EGRESS_NETWORK, the leak-suite vocabulary).
+                    && matches!(kind, "network" | "vcs" | "output" | "memory")
                 {
                     Some("untrusted-egress")
                 } else {
@@ -2739,17 +2827,19 @@ pub fn sink_clearance_violations(declarations: &[Declaration]) -> Vec<SinkViolat
                             arg_index: i,
                             span: expr.span().clone(),
                             label: Label::bottom(),
+                            reason: "irreversible-content",
                         });
                         continue;
                     }
                     let label = sink_arg_label(a, env, &origin_labels);
-                    if clearance_failure(name, &label).is_some() {
+                    if let Some(reason) = clearance_failure(name, &label) {
                         violations.push(SinkViolation {
                             container: container.to_string(),
                             fn_name: name.clone(),
                             arg_index: i,
                             span: expr.span().clone(),
                             label,
+                            reason,
                         });
                     }
                 }

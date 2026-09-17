@@ -3532,7 +3532,8 @@ fn check_sink_clearance(
             line: v.span.start_line as usize,
             message: format!(
                 "sink clearance violated: argument {} of {} in {} carries label '{}'; \
-                 sinks require public{}",
+                 sinks require public{} — bridge (№391): the decision/data argument of {} \
+                 must satisfy conf ⊑ public AND integrity ≥ trusted; failed threshold: {}",
                 v.arg_index,
                 v.fn_name,
                 v.container,
@@ -3541,7 +3542,9 @@ fn check_sink_clearance(
                     " (audit event: profile legacy / egress permissive_with_audit)"
                 } else {
                     ""
-                }
+                },
+                v.fn_name,
+                v.reason
             ),
         });
     }

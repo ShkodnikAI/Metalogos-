@@ -50,6 +50,11 @@ reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls", "mul
 argon2 = "0.6"
 zeroize = "1"
 
+# Naryad #393 (ADR-0167): Action Ledger v1 — Ed25519 signatures over the
+# prev-hash chain. One new top-level crate (FEATURE_INTAKE §5 budget:
+# warning 2, hard 5); hashing (sha2), hex and RNG (rand) were present.
+ed25519-dalek = "2"
+
 # Phase 7.4: Real sessions & CSRF
 rusqlite = { version = "0.40", features = ["bundled"] }
 

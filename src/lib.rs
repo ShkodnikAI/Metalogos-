@@ -27,6 +27,11 @@ pub mod grants;
 // Naryad #392: DenyEvent — the typed deny-reason vocabulary + event
 // contract shared by the static gate, the TW interpreter and the VM.
 pub mod deny;
+// Naryad #393 (ADR-0167): Action Ledger v1 — signed append-only journal
+// of actions (prev-hash chain + Ed25519 per-record signatures; the
+// in-toto/PROV export profile is ADR-0157). The external verifier
+// (`mlog ledger verify`) reads only the exported file.
+pub mod ledger;
 // Наряд №316 (issue #403): SSOT-классификация builtins — роль × метка ×
 // обратимость. Статическая карта + тесты покрытия 100% (устав §11 Шаг 3).
 pub mod backends;

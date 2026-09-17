@@ -308,12 +308,21 @@ impl Value {
 ///
 /// - success: `ok = true`, `value` = the inner expression's value, `error` = Unit;
 /// - error:   `ok = false`, `value` = Unit, `error` = `Struct { code, message }`
-///   carrying the runtime error text (generic stable code `RUNTIME_ERROR` —
-///   runtime errors do not yet carry ADR-0131 diagnostic codes; the message
-///   field carries the full text).
+///   where `code` is a STABLE diagnostic code (naryad №385, ADR-0169 — the
+///   names below are frozen contracts under the ADR-0131 convention: the code
+///   is a contract, the message text may change) and `message` carries the
+///   full runtime error text.
+///
+/// The code set (ADR-0169 §3.1): `RUNTIME_ERROR` (honest fallback — an error
+/// whose origin carries no source stamp), `LLM_TIMEOUT`,
+/// `LLM_PROVIDER_UNAVAILABLE`, `SQL_ERROR`, `SANDBOX_VIOLATION`,
+/// `SINK_CLEARANCE_RUNTIME`, `MEDIA_SEALED_EGRESS`, `BACKEND_DEGRADED`.
+/// Classification happens ONCE per caught error, by the shared
+/// [`stable_try_error_code`] reading the origin stamp the failing subsystem
+/// put on the error — never by re-deriving the subsystem from message text.
 ///
 /// Shared by BOTH backends (TW `Expr::Try` and VM `Instruction::TryEval`) so
-/// the shape cannot diverge.
+/// the shape — and now the `code` — cannot diverge.
 pub fn try_result_struct(ok: bool, value: Value, error: Option<(String, String)>) -> Value {
     let mut fields = std::collections::HashMap::new();
     fields.insert("ok".to_string(), Value::Bool(ok));
@@ -336,6 +345,104 @@ pub fn try_result_struct(ok: bool, value: Value, error: Option<(String, String)>
     Value::Struct {
         type_name: "TryResult".to_string(),
         fields,
+    }
+}
+
+// ── Stable `try.error.code` contracts (naryad №385, ADR-0169) ──────────
+//
+// ADR-0131 convention: a code is a FROZEN contract, the message text may
+// change. These names are consumed by agent scenarios that branch on the
+// failure kind (retry on LLM_TIMEOUT, hard-fail on SANDBOX_VIOLATION) —
+// renaming any of them is a breaking language change and needs an ADR.
+
+/// Honest fallback: the error's origin carries no source stamp.
+pub const CODE_RUNTIME_ERROR: &str = "RUNTIME_ERROR";
+/// Deadline / provider timeout in the `call_llm` contour.
+pub const CODE_LLM_TIMEOUT: &str = "LLM_TIMEOUT";
+/// LLM provider unreachable: connect failure or SmartRouter circuit open.
+pub const CODE_LLM_PROVIDER_UNAVAILABLE: &str = "LLM_PROVIDER_UNAVAILABLE";
+/// A `rusqlite::Error` raised by a `db_*` builtin (the SQL layer itself).
+pub const CODE_SQL_ERROR: &str = "SQL_ERROR";
+/// IO/exec sandbox refusal (`[SANDBOX_VIOLATION]` loud format, №254).
+pub const CODE_SANDBOX_VIOLATION: &str = "SANDBOX_VIOLATION";
+/// Runtime twin of the №325 static sink gate (VM `SinkCheck` backstop).
+pub const CODE_SINK_CLEARANCE_RUNTIME: &str = "SINK_CLEARANCE_RUNTIME";
+/// Sealed-at-rest media refused materialization (№325/ADR-0162 §2.5 backstop).
+pub const CODE_MEDIA_SEALED_EGRESS: &str = "MEDIA_SEALED_EGRESS";
+/// Backend ladder exhausted (№336/ADR-0165). The typed `Degraded(t)` result
+/// reuses the SAME frozen name for its `error.code` field (single constant,
+/// see `src/builtins/backends.rs`) — the typed path stays typed; if such a
+/// failure ever travels the String error channel, it carries this stamp.
+pub const CODE_BACKEND_DEGRADED: &str = "BACKEND_DEGRADED";
+
+/// The whitelist of codes a subsystem may stamp onto the String error
+/// channel. `RUNTIME_ERROR` is deliberately NOT in this list: it is the
+/// fallback for unstamped errors, never an explicit stamp.
+const ORIGIN_STAMPED_CODES: &[&str] = &[
+    CODE_LLM_TIMEOUT,
+    CODE_LLM_PROVIDER_UNAVAILABLE,
+    CODE_SQL_ERROR,
+    CODE_SANDBOX_VIOLATION,
+    CODE_SINK_CLEARANCE_RUNTIME,
+    CODE_MEDIA_SEALED_EGRESS,
+    CODE_BACKEND_DEGRADED,
+];
+
+/// Stamp an error at its ORIGIN with a stable code (naryad №385, ADR-0169).
+///
+/// The stamp is the existing loud `[CODE] ` prefix convention (№254's
+/// `[SANDBOX_VIOLATION] …` generalized): it is set at the place where the
+/// subsystem KNOWS what failed, and read back by [`stable_try_error_code`]
+/// at the `try` sewing points. The visible message text is the stamp plus
+/// the plain text — nothing is hidden, and an unstamped error is untouched.
+pub fn coded_error(code: &str, msg: impl std::fmt::Display) -> String {
+    format!("[{}] {}", code, msg)
+}
+
+/// Split an origin stamp off the front of an error string.
+///
+/// Returns `(code, rest_without_stamp)` when `err` starts with a whitelisted
+/// `[<CODE>] ` marker, `None` otherwise. Only a marker at position 0 counts —
+/// a `[CODE]`-looking substring mid-message is content, not a stamp, so a
+/// program cannot forge a classification by echoing a marker into its text.
+pub fn split_origin_stamp(err: &str) -> Option<(&'static str, &str)> {
+    for code in ORIGIN_STAMPED_CODES {
+        let marker = format!("[{}] ", code);
+        if let Some(rest) = err.strip_prefix(marker.as_str()) {
+            return Some((code, rest));
+        }
+    }
+    None
+}
+
+/// The ONE classification point for `try.error.code` (naryad №385).
+///
+/// Called by ALL THREE sewing points (TW `Expr::Try` in
+/// `src/interpreter/execution.rs`, VM `Instruction::TryEval` in `src/vm.rs`)
+/// so TW and VM necessarily agree: the same error string classifies to the
+/// same code on both backends — parity by construction, divergence is a bug
+/// caught by the crosscheck parity gate plus `tests/naryad_385_try_codes.rs`.
+///
+/// Classification is by ORIGIN STAMP (the failing subsystem's own marker),
+/// never by parsing message prose: an unstamped error — whatever its text —
+/// is honestly `RUNTIME_ERROR`.
+pub fn stable_try_error_code(err: &str) -> &'static str {
+    split_origin_stamp(err)
+        .map(|(code, _)| code)
+        .unwrap_or(CODE_RUNTIME_ERROR)
+}
+
+/// Prepend `head` to an error while keeping its origin stamp at the FRONT.
+///
+/// Wrapper layers ("call_llm() failed: …", "All LLM providers failed. …")
+/// must not bury the origin stamp mid-message — the classifier reads only
+/// position 0, so a naive `format!("{}: {}", head, err)` would demote a
+/// stamped provider failure to an unspecific `RUNTIME_ERROR`. Unstamped
+/// errors wrap exactly as before.
+pub fn wrap_error_preserving_code(head: &str, err: &str) -> String {
+    match split_origin_stamp(err) {
+        Some((code, rest)) => coded_error(code, format!("{}: {}", head, rest)),
+        None => format!("{}: {}", head, err),
     }
 }
 

@@ -10,7 +10,7 @@ ls docs/adr/ | sed 's/-.*//' | sort | uniq -d
 
 Must be empty. If not empty, resolve collisions before proceeding.
 
-Numbers are assigned sequentially. The current accepted maximum is `0166-*` (ADR-0151 №309 video I2V pipeline; ADR-0152 №320 C2PA Art 50 slice; ADR-0153 №412 video DiT text path; ADR-0154 №322 label lattice; ADR-0162 №331 media handles; ADR-0163 №333 backend registry; ADR-0164 №332 perception origin chain; ADR-0165 №336 backend ladder; ADR-0166 №337 C2PA contour of handles); the overall maximum is `0166-*` — numbers 0155–0160 are reserved.
+Numbers are assigned sequentially. The current accepted maximum is `0166-*` (ADR-0151 №309 video I2V pipeline; ADR-0152 №320 C2PA Art 50 slice; ADR-0153 №412 video DiT text path; ADR-0154 №322 label lattice; ADR-0162 №331 media handles; ADR-0163 №333 backend registry; ADR-0164 №332 perception origin chain; ADR-0165 №336 backend ladder; ADR-0166 №337 C2PA contour of handles; ADR-0155 №389 grant algebra); the overall maximum is `0166-*` — numbers 0156–0160 are reserved.
 
 ## Reserved numbers (do not reassign)
 
@@ -31,7 +31,7 @@ real ADRs (№309/№320/№412) before the booking.
 
 | # | File | Theme | Filling naryad |
 |---|---|---|---|
-| 0155 | `0155-grant-algebra.md` | Grant algebra — permissions for irreversible operations | №339 |
+| 0155 | `0155-grant-algebra.md` | Grant algebra — permissions for irreversible operations | №339 — filled 2026-09-17 by naryad #389 (issue #483) |
 | 0156 | `0156-tw-vm-jit-parity.md` | TW/VM/JIT parity contract | №328 |
 | 0157 | `0157-ledger-profile-prov-intoto.md` | Ledger profile — PROV/in-toto alignment | №343 |
 | 0158 | `0158-declassify-boundaries.md` | Declassify boundaries | №326 |
@@ -189,7 +189,7 @@ real ADRs (№309/№320/№412) before the booking.
 | 0152 | C2PA mini-slice — Art. 50 synthetic marking on egress (no clearance lattice) | Accepted |
 | 0153 | Video DiT text path wired — prompt embedding genuinely conditions the denoiser | Accepted |
 | 0154 | Label lattice for taint kinds — (conf, integrity, consent-scope) | Accepted |
-| 0155 | Grant algebra — permissions for irreversible operations | reserved |
+| 0155 | Grant algebra — permissions for irreversible operations — Once / N(n) / Unlimited classes, linearity rules 1–6, prior art (№389) | accepted |
 | 0156 | TW/VM/JIT parity contract | reserved |
 | 0157 | Ledger profile — PROV/in-toto alignment | reserved |
 | 0158 | Declassify boundaries | reserved |

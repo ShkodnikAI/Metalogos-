@@ -364,7 +364,7 @@ Metalogos-/
 │   ├── definition_of_done.rs          # Project completeness validation
 │   └── ...                            # and 161 more contract/feature test files
 │
-├── examples/                          # 234 .mlog programs (golden corpus)
+├── examples/                          # 235 .mlog programs (golden corpus)
 │   ├── m1_hello.mlog                  # Hello World
 │   ├── p6_full_app.mlog               # Full web app with routes
 │   ├── p23_ml_learn.mlog              # ML learning
@@ -704,7 +704,9 @@ mlog audit examples/p6_full_app.mlog
 mlog serve app.mlog
 
 # Start as MCP server (expose .mlog tools to external MCP clients)
+#   --transport stdio (default) | http | sse; --bind; bearer auth via --auth-token
 mlog mcp-serve app.mlog --allowlist my_tool.send,my_tool.get
+mlog mcp-serve app.mlog --allowlist my_tool.send --transport http --bind 127.0.0.1:8770 --auth-token $TOKEN
 
 # Run eval harness (test learnable patterns)
 mlog eval examples/m3_classify.mlog
@@ -1013,9 +1015,9 @@ Four integration tests verify the new behavior:
 |---|---|
 | Effective Rust LOC | ~59 000 |
 | Built-in Functions | 455 (42 modules) |
-| Example Programs | 234 |
+| Example Programs | 235 |
 | Integration Tests | 70 test suites |
-| Architecture Decision Records | 159 |
+| Architecture Decision Records | 160 |
 | Parser Rules | 288 (Pest PEG) |
 | VM Instructions | 46 |
 | Execution Backends | 2 (interpreter + bytecode VM) |
@@ -1066,7 +1068,7 @@ Full history: see [CHANGELOG.md](CHANGELOG.md).
 
 ### Done (M1 — Phase 8.8)
 
-All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 124+ development narads (work orders) delivered. 455 builtins, 179 test files, 234 example programs, 159 ADRs (156 accepted + 3 reserved; ADR-0154/0161 filled by naryads №322/№325; ADR-0162 — №331 media handles; ADR-0163 — №333 backend registry; ADR-0164 — №332 perception origin chain; ADR-0165 — №336 backend ladder + Degraded(t); ADR-0166 — №337 C2PA contour of handles; ADR-0157/0167 — №393 Action Ledger v1). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
+All 8 milestones and 8+ phases complete, plus a full native SVG/graphics subsystem (naryads №77-92). 124+ development narads (work orders) delivered. 455 builtins, 180 test files, 235 example programs, 160 ADRs (157 accepted + 3 reserved; ADR-0154/0161 filled by naryads №322/№325; ADR-0162 — №331 media handles; ADR-0163 — №333 backend registry; ADR-0164 — №332 perception origin chain; ADR-0165 — №336 backend ladder + Degraded(t); ADR-0166 — №337 C2PA contour of handles; ADR-0157/0167 — №393 Action Ledger v1). See [GitHub](https://github.com/ShkodnikAI/Metalogos-/commits/main) for live commit count.
 
 ### Next
 

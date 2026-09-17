@@ -2537,6 +2537,7 @@ dependencies = [
  "criterion",
  "dashmap 6.2.1",
  "ed25519-dalek",
+ "futures-util",
  "hex",
  "hmac",
  "hyper",

@@ -98,12 +98,18 @@ pub fn media_save_dispatch(store: &MediaStore, args: &[Value]) -> Result<Value, 
     let path = expect_string(fn_name, args, 1)?;
     let entry = store.entry(handle)?;
     if entry.label.conf != crate::labels::Conf::Public {
-        return Err(format!(
-            "MEDIA_SEALED_EGRESS: {} carries declared sensitivity '{}' — private/consented \
-             media is sealed at rest and cannot be materialized (№325 sink clearance; \
-             media declassification policies are a later boundary, ADR-0162 §2.5)",
-            handle,
-            entry.label.conf.as_str()
+        // №385: stamped via the shared `coded_error` — the marker was
+        // `MEDIA_SEALED_EGRESS: …` before naryad №385 and is now the
+        // uniform `[CODE] ` origin-stamp format the try classifier reads.
+        return Err(crate::interpreter::values::coded_error(
+            crate::interpreter::values::CODE_MEDIA_SEALED_EGRESS,
+            format!(
+                "{} carries declared sensitivity '{}' — private/consented \
+                 media is sealed at rest and cannot be materialized (№325 sink clearance; \
+                 media declassification policies are a later boundary, ADR-0162 §2.5)",
+                handle,
+                entry.label.conf.as_str()
+            ),
         ));
     }
     let bytes = store.materialize(handle)?;

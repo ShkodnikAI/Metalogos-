@@ -1,0 +1,16 @@
+// Наряд №385 (ADR-0169): BACKEND_DEGRADED остаётся ТИПИЗИРОВАННЫМ
+// результатом (№336/ADR-0165) — try тут не участвует. Имя кода — ТА ЖЕ
+// замороженная константа, что в whitelist-е классификатора: один источник
+// истины, типизированный путь и String-канал не могут разойтись.
+pattern Degrade(_x: String) -> String {
+  let words = ["no-such-rung-w385"]
+  let sel = backend_select("omni", words)
+  if sel.ok {
+    return "unexpected-selection"
+  }
+  if sel.error.code == "BACKEND_DEGRADED" {
+    return "degraded:" + sel.error.code
+  }
+  return "wrong-shape:" + sel.error.code
+}
+flow Main { input: String = "x" -> Degrade -> output }

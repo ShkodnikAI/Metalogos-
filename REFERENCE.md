@@ -76,6 +76,7 @@ The `mlog` binary supports the following commands:
 | Variable | Description |
 |------------|----------|
 | `METALOGOS_LLM_MOCK` | `true` (default) — mocked LLM responses; `false` — real calls |
+| `METALOGOS_MOCK_LLM_FAULT` | deterministic fault injection for the `call_llm` mock path (Naryad #385, ADR-0169 §3.4): `timeout` → the call fails with the stamped `LLM_TIMEOUT` error; `unavailable` → fails with `LLM_PROVIDER_UNAVAILABLE`; any other value fails CLOSED with a loud error naming the variable (never a silent green mock answer). Unset (default) = no fault. Test seam for try-code contracts and office branching scenarios — golden examples declare it via an `examples/X.env` sidecar |
 | `METALOGOS_LLM_TRACE` | path to a JSONL file — every LLM call (`call_llm`, `call_claude`, `call_llm_schema`, learnables, conversation summaries, `human_respond`) appends one line with OpenTelemetry GenAI semconv fields (`gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`/`output_tokens` when the provider reported them) plus `status`, `cache` (`exact`\|`semantic`\|`miss`), `backend` (`tw`\|`vm`), `provider_alias`, `latency_ms`; unset (default) = tracing off. Trace write errors never fail the call (one warning). No rotation — the operator rotates the file (ADR-0138) |
 | `METALOGOS_TTS_API_KEY` | API key for speech synthesis (`tts_generate`/`tts_send`); falls back to `OPENAI_API_KEY` when unset |
 | `METALOGOS_TTS_BASE_URL` | base URL override for speech synthesis (default `https://api.openai.com/v1`; `/audio/speech` appended) — mock servers / self-host proxies (Naryad #279) |
@@ -525,6 +526,49 @@ Note: `!r.ok` from ADR-0142 is pseudocode — the mlog grammar has no unary
 `not`, so the real form is `r.ok == false` (or `r.ok == true`). Nested `try`
 binds to a `unary_expr` — parenthesize or use a `let` for compound inner
 expressions (`try (1.0 / 0.0)`, not `try 1.0 / 0.0`).
+
+**Stable `try` error codes (Naryad #385, ADR-0169).** On the error path,
+`r.error.code` is a STABLE diagnostic code (ADR-0131: the code is a
+frozen contract, the message text may change) classified by the shared
+classifier both backends call — the same error yields the same code on
+the interpreter and the VM. Classification reads the origin stamp the
+failing subsystem put on the error where it was born; an error with no
+stamp is honestly `RUNTIME_ERROR`:
+
+| Code | Fires when | Typical branching |
+|---|---|---|
+| `RUNTIME_ERROR` | fallback — the error's origin carries no stamp (API-arity refusals, HTTP status answers, anything unclassified) | log / escalate |
+| `LLM_TIMEOUT` | deadline or provider timeout in the `call_llm` contour | retry with backoff, then fallback |
+| `LLM_PROVIDER_UNAVAILABLE` | connect failure or SmartRouter circuit open | switch provider / degrade gracefully |
+| `SQL_ERROR` | a `rusqlite` failure raised by a `db_*` builtin (bad SQL, missing table) | fix-the-query path, do not blind-retry |
+| `SANDBOX_VIOLATION` | io/exec sandbox refusal (absolute path, traversal, symlink escape) | hard-fail — a program defect, retrying is meaningless |
+| `SINK_CLEARANCE_RUNTIME` | the VM runtime twin of the static sink gate refused a call argument | hard-fail / route to an `on_deny` handler |
+| `MEDIA_SEALED_EGRESS` | sealed private media refused materialization (`media_save`) | request consent / pick a public asset |
+| `BACKEND_DEGRADED` | ladder exhaustion — as a TYPED `Degraded(t)` result's `error.code` (№336), not a raised error | select another backend class / queue for later |
+
+Branching example (office policy: retry a timeout, hard-fail a sandbox
+violation — never substring-match the message). `call_llm` output is an
+untrusted LlmOutput source (№316), so decisions over the result go
+through the sanctioned one-way redact (№327: `hash_only` restores
+integrity for decisions):
+
+```mlog
+let task = "quarterly-report"
+let r = try call_llm("Summarize:", task)
+if redact(to_string(r.ok), "hash_only") == redact("true", "hash_only") {
+  return "done:" + r.value
+}
+if redact(r.error.code, "hash_only") == redact("LLM_TIMEOUT", "hash_only") {
+  return "fallback:canned-summary"   // one retry may precede this
+}
+return "escalate:" + r.error.code
+```
+
+The deterministic fault seam for offline contracts:
+`METALOGOS_MOCK_LLM_FAULT=timeout|unavailable` (mock mode) makes
+`call_llm` fail with the corresponding stamped error (see §1,
+Environment variables); the golden examples `w385_*` pin the full code
+set on both backends.
 
 **Return:**
 ```mlog

@@ -1,0 +1,18 @@
+// Наряд №385 (ADR-0169): честный fallback — RUNTIME_ERROR.
+// Ошибка типа аргумента (read_file с Float) возникает вне
+// классифицируемых подсистем и НЕ несёт штампа источника —
+// код честно остаётся RUNTIME_ERROR, каким бы ни был текст.
+// read_file — источник UserInput (№316), поэтому решения по r.*
+// проходят через санкционированный шов redact(…, "hash_only")
+// (№327: one-way восстанавливает integrity у решений).
+pattern Probe(_tick: String) -> String {
+  let r = try read_file(123.0)
+  if redact(to_string(r.ok), "hash_only") == redact("true", "hash_only") {
+    return "unexpected-success"
+  }
+  if redact(r.error.code, "hash_only") == redact("RUNTIME_ERROR", "hash_only") {
+    return "fallback:" + r.error.code
+  }
+  return "wrong-code:" + r.error.code
+}
+flow Main { input: String = "tick" -> Probe -> output }

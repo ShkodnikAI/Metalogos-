@@ -1,0 +1,15 @@
+// Наряд №385 (ADR-0169): стабильный код ошибки try — SANDBOX_VIOLATION.
+// Абсолютный путь — дефект программы: песочница отказывает ГРОМКО (№254),
+// штамп источника `[SANDBOX_VIOLATION]` читает классификатор try —
+// агентский сценарий ветвится по КОДУ, а не подстрокой сообщения.
+pattern Probe(_tick: String) -> String {
+  let r = try write_file("/etc/metalogos-w385.txt", "nope")
+  if r.ok {
+    return "unexpected-success"
+  }
+  if r.error.code == "SANDBOX_VIOLATION" {
+    return "sandbox-refused:" + r.error.code
+  }
+  return "wrong-code:" + r.error.code
+}
+flow Main { input: String = "tick" -> Probe -> output }

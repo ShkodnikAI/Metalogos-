@@ -1,0 +1,17 @@
+// Наряд №385 (ADR-0169): стабильный код ошибки try — SQL_ERROR.
+// rusqlite-ошибка ("no such table") штампуется В МЕСТЕ ВОЗНИКНОВЕНИЯ
+// (SQL-слой db_*), причём ОДИНАКОВО на TW и VM — один и тот же sql_err.
+// Ошибки блокировки/валидации аргументов остаются без штампа — честный
+// fallback RUNTIME_ERROR.
+db { url: "sqlite::memory:" }
+pattern Probe(_x: String) -> String {
+  let r = try query("SELECT * FROM no_such_table_w385")
+  if r.ok {
+    return "unexpected-success"
+  }
+  if r.error.code == "SQL_ERROR" {
+    return "sql-refused:" + r.error.code
+  }
+  return "wrong-code:" + r.error.code
+}
+flow Main { input: String = "x" -> Probe -> output }

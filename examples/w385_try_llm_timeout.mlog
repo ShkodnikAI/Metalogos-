@@ -1,0 +1,17 @@
+// Наряд №385 (ADR-0169): LLM_TIMEOUT — дедлайн/таймаут провайдера в
+// контуре call_llm. Детерминированно: шов инъекции отказа
+// METALOGOS_MOCK_LLM_FAULT=timeout (файл w385_try_llm_timeout.env),
+// громкий аналог MockLlm::set_delay_ms (№126). call_llm — источник
+// LlmOutput (№316/ADR-0117), решения по r.* идут через
+// redact(…, "hash_only") (№327: one-way решений легален).
+pattern Probe(_tick: String) -> String {
+  let r = try call_llm("hello", "world")
+  if redact(to_string(r.ok), "hash_only") == redact("true", "hash_only") {
+    return "unexpected-success"
+  }
+  if redact(r.error.code, "hash_only") == redact("LLM_TIMEOUT", "hash_only") {
+    return "timed-out:" + r.error.code
+  }
+  return "wrong-code:" + r.error.code
+}
+flow Main { input: String = "tick" -> Probe -> output }

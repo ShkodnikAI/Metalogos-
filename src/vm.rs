@@ -399,13 +399,20 @@ impl Vm {
                         // the diagnostic class agree verbatim.
                         let reason =
                             crate::audit::sink_check_id(fn_name, *arg_index as usize, &label);
-                        let message = format!(
-                            "[SINK_CLEARANCE_RUNTIME] sink clearance violated at runtime: {} argument '{}' carries label '{}' (line {}) — the static gate and the runtime agree on the verdict; deny reason class: {}",
-                            fn_name,
-                            arg,
-                            label,
-                            line,
-                            reason
+                        // №385: the stamp goes through the shared `coded_error`
+                        // so the try classifier (ADR-0169) reads the same
+                        // marker the code constant pins — the message text
+                        // after the stamp is unchanged.
+                        let message = crate::interpreter::values::coded_error(
+                            crate::interpreter::values::CODE_SINK_CLEARANCE_RUNTIME,
+                            format!(
+                                "sink clearance violated at runtime: {} argument '{}' carries label '{}' (line {}) — the static gate and the runtime agree on the verdict; deny reason class: {}",
+                                fn_name,
+                                arg,
+                                label,
+                                line,
+                                reason
+                            ),
                         );
                         let class = crate::audit::sink_kind(fn_name);
                         if deny.is_some() {
@@ -1051,11 +1058,17 @@ impl Vm {
                             true, val, None,
                         )),
                         Err(e) => {
+                            // №385 (ADR-0169): the SAME shared classifier as the
+                            // TW — one error string, one code, both backends.
                             eprintln!("[try] caught error: {}", e);
                             stack.push(crate::interpreter::values::try_result_struct(
                                 false,
                                 Value::Unit,
-                                Some(("RUNTIME_ERROR".to_string(), e)),
+                                Some((
+                                    crate::interpreter::values::stable_try_error_code(&e)
+                                        .to_string(),
+                                    e,
+                                )),
                             ));
                         }
                     }
@@ -1682,11 +1695,17 @@ impl Vm {
                             true, val, None,
                         )),
                         Err(e) => {
+                            // №385 (ADR-0169): the SAME shared classifier as the
+                            // TW — one error string, one code, both backends.
                             eprintln!("[try] caught error: {}", e);
                             stack.push(crate::interpreter::values::try_result_struct(
                                 false,
                                 Value::Unit,
-                                Some(("RUNTIME_ERROR".to_string(), e)),
+                                Some((
+                                    crate::interpreter::values::stable_try_error_code(&e)
+                                        .to_string(),
+                                    e,
+                                )),
                             ));
                         }
                     }
@@ -1963,7 +1982,7 @@ impl Vm {
             let param_refs: Vec<&dyn rusqlite::types::ToSql> =
                 params.iter().map(|p| p.as_ref()).collect();
             conn.execute(&sql, param_refs.as_slice())
-                .map_err(|e| format!("db_insert() SQL error: {}", e))?;
+                .map_err(|e| crate::interpreter::db::sql_err("db_insert() SQL error", e))?;
             let rowid: i64 = conn
                 .query_row("SELECT last_insert_rowid()", [], |row| row.get(0))
                 .unwrap_or(0);
@@ -1994,7 +2013,7 @@ impl Vm {
                 .ok_or_else(|| "query_scalar() error: no database connection.".to_string())?;
             let mut stmt = conn
                 .prepare(&sql)
-                .map_err(|e| format!("query_scalar() SQL error: {}", e))?;
+                .map_err(|e| crate::interpreter::db::sql_err("query_scalar() SQL error", e))?;
             let mut rows = stmt
                 .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                     row.get_ref(0).map(|v| match v {
@@ -2009,10 +2028,17 @@ impl Vm {
                         }
                     })
                 })
-                .map_err(|e| format!("query_scalar() execution error: {}", e))?;
+                .map_err(|e| {
+                    crate::interpreter::db::sql_err("query_scalar() execution error", e)
+                })?;
             match rows.next() {
                 Some(Ok(val)) => return Ok(val),
-                Some(Err(e)) => return Err(format!("query_scalar() row error: {}", e)),
+                Some(Err(e)) => {
+                    return Err(crate::interpreter::db::sql_err(
+                        "query_scalar() row error",
+                        e,
+                    ))
+                }
                 None => return Ok(Value::Unit),
             }
         }
@@ -2043,16 +2069,16 @@ impl Vm {
                 .ok_or_else(|| "query() error: no database connection.".to_string())?;
             let mut stmt = conn
                 .prepare(&sql)
-                .map_err(|e| format!("query() SQL error: {}", e))?;
+                .map_err(|e| crate::interpreter::db::sql_err("query() SQL error", e))?;
             let col_names: Vec<String> =
                 stmt.column_names().iter().map(|s| s.to_string()).collect();
             let mut rows = stmt
                 .query(rusqlite::params_from_iter(params.iter()))
-                .map_err(|e| format!("query() execution error: {}", e))?;
+                .map_err(|e| crate::interpreter::db::sql_err("query() execution error", e))?;
             let mut results = Vec::new();
             while let Some(row) = rows
                 .next()
-                .map_err(|e| format!("query() row error: {}", e))?
+                .map_err(|e| crate::interpreter::db::sql_err("query() row error", e))?
             {
                 let mut fields = std::collections::HashMap::new();
                 for (i, col) in col_names.iter().enumerate() {
@@ -2104,7 +2130,7 @@ impl Vm {
                 .as_ref()
                 .ok_or_else(|| "db_execute() error: no database connection.".to_string())?;
             conn.execute(&sql, rusqlite::params_from_iter(params.iter()))
-                .map_err(|e| format!("db_execute() SQL error: {}", e))?;
+                .map_err(|e| crate::interpreter::db::sql_err("db_execute() SQL error", e))?;
             return Ok(Value::Unit);
         }
 
@@ -2158,7 +2184,9 @@ impl Vm {
             })?;
             let affected = conn
                 .execute(&sql, rusqlite::params_from_iter(params.iter()))
-                .map_err(|e| format!("db_execute_with_grant() SQL error: {}", e))?;
+                .map_err(|e| {
+                    crate::interpreter::db::sql_err("db_execute_with_grant() SQL error", e)
+                })?;
             if destructive {
                 crate::grants::grant_use(&handle, &format!("db_execute_with_grant: {}", sql))?;
                 eprintln!(
@@ -2544,7 +2572,7 @@ impl Vm {
                 .ok_or_else(|| "query_row() error: no database connection.".to_string())?;
             let mut stmt = conn
                 .prepare(&sql)
-                .map_err(|e| format!("query_row() SQL error: {}", e))?;
+                .map_err(|e| crate::interpreter::db::sql_err("query_row() SQL error", e))?;
             let col_count = stmt.column_count();
             let mut rows = stmt
                 .query_map(rusqlite::params_from_iter(params.iter()), |row| {
@@ -2566,11 +2594,13 @@ impl Vm {
                     }
                     Ok(vals)
                 })
-                .map_err(|e| format!("query_row() execution error: {}", e))?;
+                .map_err(|e| crate::interpreter::db::sql_err("query_row() execution error", e))?;
 
             match rows.next() {
                 Some(Ok(vals)) => return Ok(Value::List(vals)),
-                Some(Err(e)) => return Err(format!("query_row() row error: {}", e)),
+                Some(Err(e)) => {
+                    return Err(crate::interpreter::db::sql_err("query_row() row error", e))
+                }
                 None => return Ok(Value::List(vec![])),
             }
         }

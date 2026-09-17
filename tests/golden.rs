@@ -66,6 +66,43 @@ fn run_mlog(source: &str) -> Result<String, String> {
     Ok(declarations.unwrap_or_default())
 }
 
+/// №385: an optional per-example environment sidecar `examples/X.env`
+/// (KEY=VALUE lines, `#` comments allowed) is applied before running the
+/// example and REMOVED afterwards — the deterministic fault-injection seam
+/// for try-code contracts (`METALOGOS_MOCK_LLM_FAULT=timeout|unavailable`).
+/// The suite runs sequentially in-process, so apply→run→remove is race-free.
+fn sidecar_env(mlog_path: &Path) -> Vec<(String, String)> {
+    let sidecar = mlog_path.with_extension("env");
+    if !sidecar.exists() {
+        return Vec::new();
+    }
+    fs::read_to_string(&sidecar)
+        .unwrap_or_else(|e| panic!("cannot read env sidecar {:?}: {}", sidecar, e))
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#') && !l.trim().is_empty())
+        .map(|l| {
+            let (k, v) = l
+                .split_once('=')
+                .unwrap_or_else(|| panic!("bad env sidecar line in {:?}: {}", sidecar, l));
+            (k.trim().to_string(), v.trim().to_string())
+        })
+        .collect()
+}
+
+/// Apply a sidecar's variables to the process environment.
+fn apply_env(vars: &[(String, String)]) {
+    for (k, v) in vars {
+        std::env::set_var(k, v);
+    }
+}
+
+/// Remove the sidecar keys — the next example must not inherit them.
+fn remove_env(vars: &[(String, String)]) {
+    for (k, _) in vars {
+        std::env::remove_var(k);
+    }
+}
+
 #[test]
 fn all_golden_tests_pass() {
     // Наряд №268: пример p100_mcp_echo через mcp_call спавнит fixture
@@ -92,7 +129,14 @@ fn all_golden_tests_pass() {
         let expected = fs::read_to_string(expected_path)
             .unwrap_or_else(|e| panic!("cannot read {:?}: {}", expected_path, e));
 
-        match run_mlog(&source) {
+        // №385: per-example env sidecar (fault injection) — scoped to this
+        // example only, removed before the next pair runs.
+        let env_vars = sidecar_env(mlog_path);
+        apply_env(&env_vars);
+        let run_result = run_mlog(&source);
+        remove_env(&env_vars);
+
+        match run_result {
             Err(e) => {
                 failures.push(format!("EXECUTION ERROR {:?}: {}", mlog_path, e));
             }

@@ -227,11 +227,13 @@ pub(crate) fn builtin_backend_select(args: &[Value]) -> Result<Value, String> {
         });
     }
     // Exhaustion → Degraded(t): typed, loud, inspectable. Not a panic,
-    // not a downgrade (ADR-0165 §2.2).
+    // not a downgrade (ADR-0165 §2.2). №385 (ADR-0169): the code is the
+    // SAME frozen constant the try-classifier whitelists — one source of
+    // truth, the typed result and the String-error contract cannot diverge.
     let mut err = std::collections::HashMap::new();
     err.insert(
         "code".to_string(),
-        Value::String("BACKEND_DEGRADED".to_string()),
+        Value::String(crate::interpreter::values::CODE_BACKEND_DEGRADED.to_string()),
     );
     err.insert(
         "message".to_string(),

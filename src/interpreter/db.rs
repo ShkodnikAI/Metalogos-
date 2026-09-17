@@ -1,6 +1,18 @@
 use super::*;
 use crate::ast::*;
 
+/// №385 (ADR-0169): stamp a `rusqlite::Error` with the stable `SQL_ERROR`
+/// code AT THE ORIGIN — the only errors allowed to carry that code (the
+/// SQL layer itself; lock-poisoning and API-validation refusals in this
+/// file stay unstamped and classify as the honest `RUNTIME_ERROR` fallback).
+/// The message text after the stamp is unchanged.
+pub(crate) fn sql_err(ctx: &str, e: rusqlite::Error) -> String {
+    crate::interpreter::values::coded_error(
+        crate::interpreter::values::CODE_SQL_ERROR,
+        format!("{}: {}", ctx, e),
+    )
+}
+
 /// Наряд №99: Unified SQL parameter conversion — one function, four call sites.
 /// Returns typed `rusqlite::types::Value` for each parameter, rejecting
 /// unsupported types with an error instead of silently dropping or
@@ -85,8 +97,12 @@ impl Interpreter {
                 table.name,
                 col_defs.join(", ")
             );
-            conn.execute(&sql, [])
-                .map_err(|e| format!("schema migration error for table '{}': {}", table.name, e))?;
+            conn.execute(&sql, []).map_err(|e| {
+                sql_err(
+                    &format!("schema migration error for table '{}'", table.name),
+                    e,
+                )
+            })?;
         }
 
         Ok(())
@@ -182,7 +198,7 @@ impl Interpreter {
             // SELECT/PRAGMA → List of Struct
             let mut stmt = conn
                 .prepare(&sql)
-                .map_err(|e| format!("query() SQL error: {}", e))?;
+                .map_err(|e| sql_err("query() SQL error", e))?;
             let col_names: Vec<String> =
                 stmt.column_names().iter().map(|s| s.to_string()).collect();
             let rows: Vec<Value> = stmt
@@ -214,7 +230,7 @@ impl Interpreter {
                         fields,
                     })
                 })
-                .map_err(|e| format!("query() execution error: {}", e))?
+                .map_err(|e| sql_err("query() execution error", e))?
                 .filter_map(|r| r.ok())
                 .collect();
             Ok(Value::List(rows))
@@ -222,7 +238,7 @@ impl Interpreter {
             // INSERT/UPDATE/DELETE/CREATE/ALTER/etc. → affected row count as String
             let affected = conn
                 .execute(&sql, rusqlite::params_from_iter(params.iter()))
-                .map_err(|e| format!("query() SQL error: {}", e))?;
+                .map_err(|e| sql_err("query() SQL error", e))?;
             Ok(Value::String(affected.to_string()))
         }
     }
@@ -264,7 +280,7 @@ impl Interpreter {
         })?;
         let affected = conn
             .execute(&sql, rusqlite::params_from_iter(params.iter()))
-            .map_err(|e| format!("db_execute() SQL error: {}", e))?;
+            .map_err(|e| sql_err("db_execute() SQL error", e))?;
         Ok(Value::String(affected.to_string()))
     }
 
@@ -338,7 +354,7 @@ impl Interpreter {
         })?;
         let affected = conn
             .execute(&sql, rusqlite::params_from_iter(params.iter()))
-            .map_err(|e| format!("db_execute_with_grant() SQL error: {}", e))?;
+            .map_err(|e| sql_err("db_execute_with_grant() SQL error", e))?;
         drop(guard);
         // Post-success consumption/audit (never on SQL failure).
         if destructive {
@@ -409,7 +425,7 @@ impl Interpreter {
 
         let mut stmt = conn
             .prepare(&sql)
-            .map_err(|e| format!("query_scalar() SQL error: {}", e))?;
+            .map_err(|e| sql_err("query_scalar() SQL error", e))?;
         let mut rows = stmt
             .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                 row.get_ref(0).map(|v| match v {
@@ -424,11 +440,11 @@ impl Interpreter {
                     }
                 })
             })
-            .map_err(|e| format!("query_scalar() execution error: {}", e))?;
+            .map_err(|e| sql_err("query_scalar() execution error", e))?;
 
         match rows.next() {
             Some(Ok(val)) => Ok(val),
-            Some(Err(e)) => Err(format!("query_scalar() row error: {}", e)),
+            Some(Err(e)) => Err(sql_err("query_scalar() row error", e)),
             None => Ok(Value::Unit),
         }
     }
@@ -467,7 +483,7 @@ impl Interpreter {
 
         let mut stmt = conn
             .prepare(&sql)
-            .map_err(|e| format!("query_row() SQL error: {}", e))?;
+            .map_err(|e| sql_err("query_row() SQL error", e))?;
         let col_count = stmt.column_count();
         let mut rows = stmt
             .query_map(rusqlite::params_from_iter(params.iter()), |row| {
@@ -489,11 +505,11 @@ impl Interpreter {
                 }
                 Ok(vals)
             })
-            .map_err(|e| format!("query_row() execution error: {}", e))?;
+            .map_err(|e| sql_err("query_row() execution error", e))?;
 
         match rows.next() {
             Some(Ok(vals)) => Ok(Value::List(vals)),
-            Some(Err(e)) => Err(format!("query_row() row error: {}", e)),
+            Some(Err(e)) => Err(sql_err("query_row() row error", e)),
             None => Ok(Value::List(vec![])),
         }
     }

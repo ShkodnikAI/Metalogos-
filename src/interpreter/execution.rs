@@ -1520,11 +1520,16 @@ impl Interpreter {
                     true, val, None,
                 )),
                 Err(e) => {
+                    // №385 (ADR-0169): the SAME shared classifier as the VM —
+                    // one error string, one code, both backends.
                     eprintln!("[try] caught error: {}", e);
                     Ok(crate::interpreter::values::try_result_struct(
                         false,
                         Value::Unit,
-                        Some(("RUNTIME_ERROR".to_string(), e)),
+                        Some((
+                            crate::interpreter::values::stable_try_error_code(&e).to_string(),
+                            e,
+                        )),
                     ))
                 }
             },
@@ -2379,7 +2384,7 @@ impl Interpreter {
                     let param_refs: Vec<&dyn rusqlite::types::ToSql> =
                         params.iter().map(|p| p.as_ref()).collect();
                     conn.execute(&sql, param_refs.as_slice())
-                        .map_err(|e| format!("db_insert() SQL error: {}", e))?;
+                        .map_err(|e| crate::interpreter::db::sql_err("db_insert() SQL error", e))?;
                     // Return last inserted rowid
                     let rowid: i64 = conn
                         .query_row("SELECT last_insert_rowid()", [], |row| row.get(0))

@@ -170,7 +170,11 @@ impl LlmBackend for MockLlm {
         if deadline <= delay {
             // Deadline is tighter than the simulated latency — loud timeout,
             // same wording the legacy thread-wrapper produced (learnable.rs).
-            return Err(format!("LLM call timed out after {:?}", deadline));
+            // №385: stamped at the origin — the deadline DID fire.
+            return Err(crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_LLM_TIMEOUT,
+                format!("LLM call timed out after {:?}", deadline),
+            ));
         }
         // delay < deadline here: sleeping the full delay IS min(delay, deadline).
         if delay > Duration::ZERO {
@@ -414,9 +418,15 @@ impl LlmBackend for RealLlm {
             _ => self.clone(),
         };
 
-        target
-            .call_provider(&client, prompt, input)
-            .map_err(|e| format!("LLM call timed out after {:?}: {}", deadline, e))
+        target.call_provider(&client, prompt, input).map_err(|e| {
+            // №385: preserve the inner origin stamp (a stamped provider
+            // failure keeps its code at the FRONT); an unstamped inner
+            // error keeps the legacy timeout wording unstamped.
+            crate::interpreter::values::wrap_error_preserving_code(
+                &format!("LLM call timed out after {:?}", deadline),
+                &e,
+            )
+        })
     }
 }
 
@@ -493,12 +503,12 @@ impl RealLlm {
             .header("content-type", "application/json")
             .json(&body)
             .send()
-            .map_err(|e| format!("Anthropic request failed: {}", e))?;
+            .map_err(|e| llm_send_error("Anthropic request failed", &e))?;
 
         let status = response.status();
         let body_text = response
             .text()
-            .map_err(|e| format!("Anthropic response read error: {}", e))?;
+            .map_err(|e| llm_send_error("Anthropic response read error", &e))?;
 
         if !status.is_success() {
             return Err(format!(
@@ -544,12 +554,12 @@ impl RealLlm {
             .header("content-type", "application/json")
             .json(&body)
             .send()
-            .map_err(|e| format!("OpenAI request failed: {}", e))?;
+            .map_err(|e| llm_send_error("OpenAI request failed", &e))?;
 
         let status = response.status();
         let body_text = response
             .text()
-            .map_err(|e| format!("OpenAI response read error: {}", e))?;
+            .map_err(|e| llm_send_error("OpenAI response read error", &e))?;
 
         if !status.is_success() {
             return Err(format!(
@@ -585,16 +595,16 @@ impl RealLlm {
             .json(&body)
             .send()
             .map_err(|e| {
-                format!(
-                    "Ollama request failed (is Ollama running at localhost:11434?): {}",
-                    e
+                llm_send_error(
+                    "Ollama request failed (is Ollama running at localhost:11434?)",
+                    &e,
                 )
             })?;
 
         let status = response.status();
         let body_text = response
             .text()
-            .map_err(|e| format!("Ollama response read error: {}", e))?;
+            .map_err(|e| llm_send_error("Ollama response read error", &e))?;
 
         if !status.is_success() {
             return Err(format!(
@@ -798,6 +808,27 @@ pub fn clear_global_smart_router() {
 /// Call LLM through the global SmartRouter if available, else return None.
 /// The caller should fall back to legacy create_llm_backend() if this returns None.
 /// Наряд #156: `timeout_override` passed through for real HTTP cancellation.
+/// №385 (ADR-0169): stamp a reqwest send/read failure with the stable LLM
+/// code AT THE ORIGIN, by the TYPED reqwest error kind — never by message
+/// text: `is_timeout()` → `LLM_TIMEOUT` (deadline / provider timeout),
+/// `is_connect()` → `LLM_PROVIDER_UNAVAILABLE` (connect failure). Any other
+/// transport failure stays UNSTAMPED — the provider state is unknown, so the
+/// honest classification is the `RUNTIME_ERROR` fallback, not a guess.
+/// The message text after the stamp is unchanged.
+pub(crate) fn llm_send_error(ctx: &str, e: &reqwest::Error) -> String {
+    use crate::interpreter::values::{
+        coded_error, CODE_LLM_PROVIDER_UNAVAILABLE, CODE_LLM_TIMEOUT,
+    };
+    let text = format!("{}: {}", ctx, e);
+    if e.is_timeout() {
+        coded_error(CODE_LLM_TIMEOUT, text)
+    } else if e.is_connect() {
+        coded_error(CODE_LLM_PROVIDER_UNAVAILABLE, text)
+    } else {
+        text
+    }
+}
+
 pub fn call_via_smart_router(
     prompt: &str,
     input: &str,
@@ -1464,6 +1495,31 @@ impl SmartRouter {
             cache: "miss",
             provider_alias: None,
         });
+        // №385 (ADR-0169): classify the exhaustion by what ACTUALLY happened.
+        // No rung attempted (every circuit open) → the provider surface is
+        // unavailable: stamp LLM_PROVIDER_UNAVAILABLE at the origin. Rungs
+        // attempted → the last error keeps its own origin stamp (promoted to
+        // the front — wrapper text must not bury the code); an unstamped last
+        // error (e.g. an HTTP status refusal) stays unstamped → the honest
+        // RUNTIME_ERROR fallback, not a guess.
+        if last_attempted.is_none() {
+            return Err(crate::interpreter::values::coded_error(
+                crate::interpreter::values::CODE_LLM_PROVIDER_UNAVAILABLE,
+                format!(
+                    "All LLM providers failed. Last error: {}",
+                    truncate(&last_error, 200)
+                ),
+            ));
+        }
+        if let Some((code, rest)) = crate::interpreter::values::split_origin_stamp(&last_error) {
+            return Err(crate::interpreter::values::coded_error(
+                code,
+                format!(
+                    "All LLM providers failed. Last error: {}",
+                    truncate(rest, 200)
+                ),
+            ));
+        }
         Err(format!(
             "All LLM providers failed. Last error: {}",
             truncate(&last_error, 200)
@@ -1526,11 +1582,11 @@ impl SmartRouter {
                     .header("content-type", "application/json")
                     .json(&anth_body)
                     .send()
-                    .map_err(|e| format!("Anthropic request failed: {}", e))?;
+                    .map_err(|e| llm_send_error("Anthropic request failed", &e))?;
                 let status = resp.status();
                 let text = resp
                     .text()
-                    .map_err(|e| format!("Response read error: {}", e))?;
+                    .map_err(|e| llm_send_error("Response read error", &e))?;
                 if !status.is_success() {
                     return Err(format!(
                         "Anthropic API error ({}): {}",
@@ -1552,11 +1608,11 @@ impl SmartRouter {
                     .header("content-type", "application/json")
                     .json(&ollama_body)
                     .send()
-                    .map_err(|e| format!("Ollama request failed: {}", e))?;
+                    .map_err(|e| llm_send_error("Ollama request failed", &e))?;
                 let status = resp.status();
                 let text = resp
                     .text()
-                    .map_err(|e| format!("Response read error: {}", e))?;
+                    .map_err(|e| llm_send_error("Response read error", &e))?;
                 if !status.is_success() {
                     return Err(format!(
                         "Ollama API error ({}): {}",
@@ -1577,13 +1633,13 @@ impl SmartRouter {
                 if let Some(k) = key {
                     req = req.header("Authorization", format!("Bearer {}", k));
                 }
-                let resp = req
-                    .send()
-                    .map_err(|e| format!("{} request failed: {}", provider_type, e))?;
+                let resp = req.send().map_err(|e| {
+                    llm_send_error(&format!("{} request failed", provider_type), &e)
+                })?;
                 let status = resp.status();
                 let text = resp
                     .text()
-                    .map_err(|e| format!("Response read error: {}", e))?;
+                    .map_err(|e| llm_send_error("Response read error", &e))?;
                 if !status.is_success() {
                     return Err(format!(
                         "{} API error ({}): {}",
@@ -2024,7 +2080,7 @@ impl SmartRouter {
                     .header("accept", "text/event-stream")
                     .json(&body)
                     .send()
-                    .map_err(|e| format!("Anthropic stream open failed: {}", e))?;
+                    .map_err(|e| llm_send_error("Anthropic stream open failed", &e))?;
                 if !resp.status().is_success() {
                     let status = resp.status().as_u16();
                     let text = resp.text().unwrap_or_default();
@@ -2047,7 +2103,7 @@ impl SmartRouter {
                     .header("content-type", "application/json")
                     .json(&body)
                     .send()
-                    .map_err(|e| format!("Ollama stream open failed: {}", e))?;
+                    .map_err(|e| llm_send_error("Ollama stream open failed", &e))?;
                 if !resp.status().is_success() {
                     let status = resp.status().as_u16();
                     let text = resp.text().unwrap_or_default();
@@ -2077,9 +2133,9 @@ impl SmartRouter {
                 if let Some(k) = api_key {
                     req = req.header("Authorization", format!("Bearer {}", k));
                 }
-                let resp = req
-                    .send()
-                    .map_err(|e| format!("{} stream open failed: {}", provider_type, e))?;
+                let resp = req.send().map_err(|e| {
+                    llm_send_error(&format!("{} stream open failed", provider_type), &e)
+                })?;
                 if !resp.status().is_success() {
                     let status = resp.status().as_u16();
                     let text = resp.text().unwrap_or_default();

@@ -115,7 +115,9 @@ pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
     // Наряд №4: try SmartRouter first
     // Наряд #156: no sandbox timeout for builtin call_llm — None
     if let Some(result) = crate::llm::call_via_smart_router(&prompt, &input, None, None) {
-        return result.map(Value::String);
+        return result.map(Value::String).map_err(|e| {
+            crate::interpreter::values::wrap_error_preserving_code("call_llm() failed", &e)
+        });
     }
 
     // Fallback: legacy path (no SmartRouter). Traced here (Наряд №276);
@@ -128,6 +130,48 @@ pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
 
     let t0 = std::time::Instant::now();
     if mock_mode {
+        // №385 (ADR-0169): deterministic fault injection for the try-code
+        // contracts — goldens and parity tests exercise LLM_TIMEOUT /
+        // LLM_PROVIDER_UNAVAILABLE branching without a network. This is a
+        // LOUD test seam, the mock-mode twin of `MockLlm::set_delay_ms`
+        // (№126): never silent, always announced in the error text itself.
+        // Invalid values fail closed — a typo must not silently degrade to
+        // a green mock answer.
+        if let Ok(fault) = std::env::var("METALOGOS_MOCK_LLM_FAULT") {
+            use crate::interpreter::values::{
+                coded_error, CODE_LLM_PROVIDER_UNAVAILABLE, CODE_LLM_TIMEOUT,
+            };
+            let fault_result: Result<Value, String> = match fault.as_str() {
+                "timeout" => Err(coded_error(
+                    CODE_LLM_TIMEOUT,
+                    "call_llm(): mock fault injection: provider deadline exceeded \
+                     (METALOGOS_MOCK_LLM_FAULT=timeout)",
+                )),
+                "unavailable" => Err(coded_error(
+                    CODE_LLM_PROVIDER_UNAVAILABLE,
+                    "call_llm(): mock fault injection: provider unavailable, \
+                     connect failed (METALOGOS_MOCK_LLM_FAULT=unavailable)",
+                )),
+                other => Err(format!(
+                    "call_llm(): invalid METALOGOS_MOCK_LLM_FAULT value '{}' \
+                     (expected \"timeout\" or \"unavailable\")",
+                    other
+                )),
+            };
+            // The fault is traced like any other mock call — an error line,
+            // never a silent divergence (№276 honesty contract).
+            crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
+                provider_name: Some("mock"),
+                model: None,
+                input_tokens: None,
+                output_tokens: None,
+                latency_ms: t0.elapsed().as_millis() as u64,
+                status: "error",
+                cache: "miss",
+                provider_alias: None,
+            });
+            return fault_result;
+        }
         let result = Ok(Value::String(format!("[MOCK: {} | {}]", prompt, input)));
         crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
             provider_name: Some("mock"),
@@ -146,7 +190,11 @@ pub(crate) fn builtin_call_llm(args: &[Value]) -> Result<Value, String> {
         let result = backend
             .call(&prompt, &input)
             .map(Value::String)
-            .map_err(|e| format!("call_llm() failed: {}", e));
+            .map_err(|e| {
+                // №385: an inner origin stamp (provider timeout / connect
+                // failure) stays at the FRONT of the wrapped message.
+                crate::interpreter::values::wrap_error_preserving_code("call_llm() failed", &e)
+            });
         let model_env = std::env::var("METALOGOS_LLM_MODEL").ok();
         crate::llm::trace_llm_call(&crate::llm::LlmTraceEvent {
             provider_name: Some(crate::llm::provider_env_name()),

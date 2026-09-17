@@ -105,7 +105,13 @@ pub(crate) fn builtin_human_respond(args: &[Value]) -> Result<Value, String> {
     // (same as call_llm builtin), falling back to legacy backend.
     let llm_result = crate::llm::call_via_smart_router(&full_prompt, "", None, None);
     let response = if let Some(result) = llm_result {
-        result.map_err(|e| format!("human_respond() LLM call failed: {}", e))?
+        result.map_err(|e| {
+            // №385: preserve the inner origin stamp at the FRONT.
+            crate::interpreter::values::wrap_error_preserving_code(
+                "human_respond() LLM call failed",
+                &e,
+            )
+        })?
     } else {
         // No SmartRouter — check mock mode, then legacy backend.
         // Наряд №276: both non-router arms are traced HERE (the SmartRouter
@@ -148,7 +154,13 @@ pub(crate) fn builtin_human_respond(args: &[Value]) -> Result<Value, String> {
                 cache: "miss",
                 provider_alias: None,
             });
-            result.map_err(|e| format!("human_respond() LLM call failed: {}", e))?
+            result.map_err(|e| {
+                // №385: preserve the inner origin stamp at the FRONT.
+                crate::interpreter::values::wrap_error_preserving_code(
+                    "human_respond() LLM call failed",
+                    &e,
+                )
+            })?
         }
     };
 

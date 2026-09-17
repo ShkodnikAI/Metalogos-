@@ -192,7 +192,7 @@ These are file-level heuristics, not data-flow guarantees — they may false-pos
 
 ### 3. Dual Execution Backend
 
-Tree-walking interpreter (full language) + bytecode VM (47 instructions; experimental for full-language use — `match` (statement and `let`-binding expression), `Expr::BlockIfElse` (if/else as value), heterogeneous binop coercion, PRNG state — not supported yet, see [ADR-0105](docs/adr/0105-vm-experimental-scope.md) + [ADR-0141](docs/adr/0141-vm-production-readiness.md) for staged closure plan). Programs both backends can run are checked by `crosscheck_backends` for TW↔VM output parity.
+Tree-walking interpreter (full language) + bytecode VM (47 instructions). All VM Stage 1 gaps are **CLOSED** (naryads №369–№372: `Match` statement and `match`-as-value, `Expr::BlockIfElse` if/else-as-value, heterogeneous binop coercion with TW-identical loud messages, shared PRNG state, Bool→String formatting) — see [ADR-0141](docs/adr/0141-vm-production-readiness.md) Stage 1 and the CLOSED rows in [docs/limitations.md](docs/limitations.md), the maintained source of truth. Programs both backends can run are checked by `crosscheck_backends` for TW↔VM output parity (the parity gate, naryad №373), and the nightly soak workflow accumulates 24 h-parity evidence. `mlog serve` stays on the interpreter by default; the VM is opt-in via `METALOGOS_SERVE_BACKEND=vm` (loud WARN at startup), and the default flip is gated by [ADR-0141](docs/adr/0141-vm-production-readiness.md) Stage 4/5 — real-load benchmark numbers plus an explicit owner decision.
 
 ### 4. Typed Semantic Memory with Hybrid Search
 
@@ -200,7 +200,7 @@ More than a key-value store. Hierarchical memory (Memory Tree L0/L1/L2), typed r
 
 ### 5. Self-Modification with Sandbox and Rollback
 
-The `adapt` statement allows a program to modify its own patterns at runtime — with sandboxing, few-shot mutation, and automatic rollback. The rollback mechanism is real and tested. Quality metric is currently a fixed mock value (0.95), not a real accuracy computation — rollback logic exists but does not yet respond to actual quality degradation. See ADR-0112. Revisit point (recorded 2026-09-10 after an external audit): revisit only on a real `mutate` use case where the mock value creates a concrete problem (ADR-0112 addendum).
+The `adapt` statement allows a program to modify its own patterns at runtime — with sandboxing, few-shot mutation, and automatic rollback. The rollback mechanism is real and tested. Since №375 (ADR-0112 addendum) the quality metric is **REAL in real mode**: the mutated pattern is measured on a golden-task battery (its eval-block datasets per ADR-0050 + the pre-mutation few-shot), held-out split, deterministic seeded order, each task answered by the pattern's actual LLM path — keep/rollback responds to measured accuracy (battery < 20 held-out tasks → loud BELOW-MINIMUM warning; no held-out evidence → accuracy 0.0). The 0.95 stub remains ONLY in mock mode (`METALOGOS_MOCK_LLM`, the default-on test mode) and is loudly documented at the call site — it exercises the rollback mechanism, it is not a quality signal. See [ADR-0112](docs/adr/0112-mock-accuracy-metric.md) addendum and [docs/limitations.md](docs/limitations.md) (CLOSED for real mode).
 
 **Sandbox timeout caveat**: when a `sandbox` block specifies `timeout > 0`, both the calling thread's wait AND the underlying LLM request are cancelled at the deadline — on every call path. SmartRouter routes cancel via the HTTP client timeout (real TCP drop; Naryad №156); the legacy backend path cancels via `call_with_deadline` (Naryad №248): RealLlm drops the TCP connection at min(deadline, 120s), the mock sleeps min(delay, deadline). External on-demand abort (a language construct, or cancellation on client disconnect in server mode) is not supported — revisit when a real use case appears.
 
@@ -269,8 +269,8 @@ Metalogos-/
 ├── AGENTS.md                         # Canonical methodology file for agent tools (industry-standard AGENTS.md spec — superseded AGENT.md)
 ├── CLAUDE.md                         # Bridge copy of AGENTS.md for Claude-compatible tools (synced manually — see issue #299)
 ├── GEMINI.md                         # Bridge copy of AGENTS.md for Gemini-compatible tools (synced manually — see issue #299)
-├── REFERENCE.md                      # Full builtin reference (~245 KB) — 100% of the registry (§6 index + №316 classification)
-├── CHANGELOG.md                      # Version history (~321 KB)
+├── REFERENCE.md                      # Full builtin reference (~247 KB) — 100% of the registry (§6 index + №316 classification)
+├── CHANGELOG.md                      # Version history (~325 KB)
 ├── AI_USAGE.md                       # Disclosure: how generative AI is used in this project's development
 ├── FEATURE_INTAKE.md                 # Feature request tracking
 ├── MEMORY_ROADMAP.md                 # Memory system roadmap

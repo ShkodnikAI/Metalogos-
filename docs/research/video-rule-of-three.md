@@ -1,72 +1,72 @@
-# Rule of Three — General Denoiser Assessment (Наряд №308, issue #388)
+# Rule of Three — General Denoiser Assessment (Naryad #308, issue #388)
 
-> **Дата:** 2026-09-14. **База:** main `8768de2`. **Статус:** факты зафиксированы, вердикт — отложен до Voice-A2.
+> **Date:** 2026-09-14. **Base:** main `8768de2`. **Status:** facts recorded, verdict deferred to Voice-A2.
 
-## 1. Контекст
+## 1. Context
 
-`euler_step` — общий ODE-примитив в `src/vision/sampler.rs`. Полный контур сэмплирования (`flow_match_euler_sample`) привязан к `ZImageTransformer` (Vision). Video — третий конкретный потребитель ODE-примитива. Правило трёх: извлечение общего `Denoiser` интерфейса рассматривается после того, как три конкретных контура доказаны.
+`euler_step` is a shared ODE primitive in `src/vision/sampler.rs`. The full sampling contour (`flow_match_euler_sample`) is tied to `ZImageTransformer` (Vision). Video is the third concrete consumer of the ODE primitive. Rule of three: extraction of a shared `Denoiser` interface is considered after the three concrete contours are proven.
 
-## 2. Три контура (текущее состояние)
+## 2. Three contours (current state)
 
-| Столп | ODE-примитив | Денойзер | Сэмплирование | Статус |
+| Pillar | ODE primitive | Denoiser | Sampling | Status |
 |---|---|---|---|---|
 | Vision | `euler_step` (shared) | `ZImageTransformer` (vision-specific) | `flow_match_euler_sample` (vision-specific) | ✅ Real (tiny golden, CI green) |
-| Voice | `euler_step` (shared, planned) | TBD (Voice-A2 не опубликован) | TBD | ❌ Не начат |
-| Video | `euler_step` (shared, planned) | `VideoDit` (stub, №308) | `flow_match_euler_sample_video` (stub, №308) | ⏳ Skeleton |
+| Voice | `euler_step` (shared, planned) | TBD (Voice-A2 not published) | TBD | ❌ Not started |
+| Video | `euler_step` (shared, planned) | `VideoDit` (stub, #308) | `flow_match_euler_sample_video` (stub, #308) | ⏳ Skeleton |
 
-## 3. Доля переиспользуемого кода
+## 3. Reusable code share
 
-| Компонент | Vision | Video (stub) | Переиспользование |
+| Component | Vision | Video (stub) | Reuse |
 |---|---|---|---|
-| `euler_step` | ✅ | ✅ (planned) | **100%** — идентичный ODE-шаг |
-| Flow matching loop | Vision-specific (`ZImageTransformer`) | Video-specific (`VideoDit`) | **~30%** — структура цикла та же, модель разная |
-| VAE | `VisionVae` (2D conv) | `VideoVae` (3D conv, stub) | **~10%** — 2D vs 3D, разная архитектура |
-| Attention | 2D spatial | 3D spatiotemporal + causal | **~20%** — общий паттерн, разная реализация |
-| Positional encoding | 2D RoPE | 3D RoPE (temporal + spatial) | **~40%** — общий принцип, разная размерность |
+| `euler_step` | ✅ | ✅ (planned) | **100%** — identical ODE step |
+| Flow matching loop | Vision-specific (`ZImageTransformer`) | Video-specific (`VideoDit`) | **~30%** — the loop structure is the same, the model differs |
+| VAE | `VisionVae` (2D conv) | `VideoVae` (3D conv, stub) | **~10%** — 2D vs 3D, different architecture |
+| Attention | 2D spatial | 3D spatiotemporal + causal | **~20%** — shared pattern, different implementation |
+| Positional encoding | 2D RoPE | 3D RoPE (temporal + spatial) | **~40%** — shared principle, different dimensionality |
 
-**Общий знаменатель**: только `euler_step` (ODE-примитив) — 100% переиспользование. Остальное — 10-40% — слишком мало для извлечения общего интерфейса без утечки специфики.
+**Common denominator**: only `euler_step` (the ODE primitive) — 100% reuse. Everything else — 10-40% — is too little for extracting a shared interface without leaking specifics.
 
-## 4. Утечка видео-специфики
+## 4. Video-specific leakage
 
-Извлечение общего `Denoiser` интерфейса потребует:
-- temporal-оси (Video: 3D, Vision: 2D) → общий интерфейс должен поддерживать N-мерные входы
-- causal attention (Video: frame i attends to 0..=i; Vision: нет) → флаг causal в интерфейсе
-- 3D positional encoding → общий интерфейс должен поддерживать 2D и 3D
+Extracting a shared `Denoiser` interface would require:
+- a temporal axis (Video: 3D, Vision: 2D) → the shared interface must support N-dimensional inputs
+- causal attention (Video: frame i attends to 0..=i; Vision: none) → a causal flag in the interface
+- 3D positional encoding → the shared interface must support both 2D and 3D
 
-**Оценка**: общий интерфейс будет либо слишком общим (dyn Any, потеря типизации), либо загрязнённым видео-спецификой (temporal/causal флаги в Vision-коде). Ни один вариант не приемлем.
+**Assessment**: the shared interface would be either too generic (dyn Any, loss of typing) or polluted with video specifics (temporal/causal flags in Vision code). Neither option is acceptable.
 
-## 5. Выразимость MoE-денойзеров
+## 5. Expressibility of MoE denoisers
 
-Wan 2.2 A14B — MoE-архитектура (mixture of experts). Общий `Denoiser` интерфейс должен:
-- Поддерживать dense и MoE модели
-- Не ломаться при добавлении expert-routing
-- Не требовать от Vision/Voice знания о MoE
+Wan 2.2 A14B is a MoE architecture (mixture of experts). A shared `Denoiser` interface must:
+- support dense and MoE models
+- not break when expert-routing is added
+- not require Vision/Voice to know about MoE
 
-**Оценка**: MoE можно выразить через trait object (`dyn Denoiser`), но это потеря типизации + overhead. До реальной MoE-модели в Voice/Video — преждевременно.
+**Assessment**: MoE can be expressed via a trait object (`dyn Denoiser`), but that is a loss of typing + overhead. Before a real MoE model exists in Voice/Video — premature.
 
-## 6. Вердикт
+## 6. Verdict
 
-**Отложен до Voice-A2.**
+**Deferred to Voice-A2.**
 
-Факты:
-- `euler_step` — 100% переиспользование (уже shared).
-- Полный контур — 10-40% переиспользование — ниже порога для извлечения.
-- Утечка видео-специфики (temporal, causal, 3D) — неприемлема.
-- MoE-выразимость — преждевременна.
+Facts:
+- `euler_step` — 100% reuse (already shared).
+- The full contour — 10-40% reuse — is below the extraction threshold.
+- Video-specific leakage (temporal, causal, 3D) — unacceptable.
+- MoE expressibility — premature.
 
-Протокол завершения:
-1. Voice-A2 публикует свой денойзер → три контура доказаны.
-2. Если Voice-A2 покажет ≥50% переиспользование с Vision/Video → ADR на `Denoiser` trait.
-3. Если <50% → статус-кво: `euler_step` shared, контуры отдельные.
+Completion protocol:
+1. Voice-A2 publishes its denoiser → the three contours are proven.
+2. If Voice-A2 shows ≥50% reuse with Vision/Video → an ADR for the `Denoiser` trait.
+3. If <50% → status quo: `euler_step` shared, contours separate.
 
-## 7. Инженерный Go/No-Go
+## 7. Engineering Go/No-Go
 
-**Инженерный Go** — контур на tiny-весах, контракты, CI (этот наряд, №308):
+**Engineering Go** — a contour on tiny weights, contracts, CI (this naryad, #308):
 - VAE contract: 3D conv encode/decode, latent shape [B, 16, T/4, H/8, W/8].
 - DiT contract: noisy latent + timestep + text → clean latent.
 - Sampler: euler_step (shared) + VideoDit (stub).
 - CI: skeleton tests green, no real weights needed.
 
-**Качественный Go** — RTF/качество на реальных весах — отдельный наряд V4, по preflight runbook-паттерну №237.
+**Quality Go** — RTF/quality on real weights — a separate naryad V4, following the #237 preflight runbook pattern.
 
-Текущий статус: **инженерный Go** (skeleton + contracts). **Качественный No-Go** (нет железа, №294).
+Current status: **engineering Go** (skeleton + contracts). **Quality No-Go** (no hardware, #294).

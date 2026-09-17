@@ -1,119 +1,119 @@
-# Наряд №275 — Спайк «стриминг LLM над reqwest blocking»: отчёт и вердикт
+# Naryad #275 — Spike "LLM streaming over reqwest blocking": report and verdict
 
-> **Статус:** вердикт **GO** (вердикт-гейт issue #311: СГ-3 → вердикт-гейт, решает исполнитель по результату спайка).
-> **Дата:** 2026-09-13 · **Постановка:** issue #311 · **Диспатч:** #316 (карточка наряда) · **База:** main `996385c` (Merge PR #352 naryad-287-doc-tests).
-> **Ветка реализации:** `naryad-275-llm-streaming` (этот документ — первый коммит в PR, до реализации).
-> **Окружение:** rustc/clippy 1.98.1, Linux x86_64, контейнер 2 vCPU, reqwest 0.12 (Cargo.lock).
-> **Исполнитель:** Super Z (агент) по контракту наряда AGENTS.md §8; формат спайка по лекалу №282 / №271.
+> **Status:** verdict **GO** (verdict gate issue #311: SG-3 → verdict gate, decided by the executor based on the spike result).
+> **Date:** 2026-09-13 · **Tasking:** issue #311 · **Dispatch:** #316 (naryad card) · **Base:** main `996385c` (Merge PR #352 naryad-287-doc-tests).
+> **Implementation branch:** `naryad-275-llm-streaming` (this document is the first commit in the PR, before implementation).
+> **Environment:** rustc/clippy 1.98.1, Linux x86_64, 2 vCPU container, reqwest 0.12 (Cargo.lock).
+> **Executor:** Super Z (agent) under the naryad contract AGENTS.md §8; spike format per template #282 / #271.
 
-## 1. Постановка и сверка фактов по коду (AGENTS.md §1)
+## 1. Tasking and fact cross-check against the code (AGENTS.md §1)
 
-Факты постановки подтверждены по коду main `996385c`:
+Tasking facts confirmed against the main `996385c` code:
 
-- **`call_llm` / SmartRouter::call** (`src/builtins/llm.rs:98`, `src/llm.rs:1356`) — блокирующий, «все-или-ничего»: `resp.text()` целиком, `max_tokens: 1024`, `temperature: 0.0`, `timeout` 30s по умолчанию. Никакого стриминга. Подтверждено фактом.
-- **Бэкенды**: `SmartRouter::call_provider` (`src/llm.rs:1480`) — три ветки: `anthropic` (нативный SSE-формат API `/v1/messages` с `stream: true`), `ollama` (нативный `/api/generate` с `"stream": false`), OpenAI-compatible (`openai`/`groq`/`cerebras`/`nvidia`/`openrouter`/`google`/`custom` — все поддерживают `stream: true` через `/v1/chat/completions`). Ни одна ветка не стримит — все вызывают `.text()` целиком.
-- **Конвенция трейсинга** (ADR-0138 §D4): «streams will emit one line per completed call with summarized usage (the issue's contract), not per chunk». Закреплено до реализации №275. Стрим-вызов после `llm_stream_close` пишется ОДНОЙ строкой трейса.
-- **Opaque-handle pattern** (ADR-0114 `Value::Reflex(ReflexId)`, ADR-0124 `Value::Vision(VisionId)`) — `u32` индекс в реестре, runtime-owne (не Value-owne). Лекало — ближайшее к тому, что нужно для stream handle.
-- **Block-in-place контур** (ADR-0096) — серверный путь идёт через `spawn_blocking`; `reqwest::blocking::Client` безопасно создаёт/дропает внутренний tokio runtime в blocking pool. panic «Cannot drop a runtime in a context where blocking is not allowed» устранён. Серверная сторона к стриму готова.
-- **Deferred-response** (ADR-0101) — post-`respond()` продолжение в роутах; не пересекается с №275 (стрим — это не «отправить ответ, потом работать», а «выдавать чанки по мере поступления»). Взаимной блокировки нет.
-- **`METALOGOS_MOCK_LLM`** — default true; mock-путь `call_llm` возвращает `[MOCK: ... | ...]`. Mock не стримит — должен явно возвращать `STREAM_UNSUPPORTED` (issue contract).
+- **`call_llm` / SmartRouter::call** (`src/builtins/llm.rs:98`, `src/llm.rs:1356`) — blocking, "all-or-nothing": `resp.text()` whole, `max_tokens: 1024`, `temperature: 0.0`, default `timeout` 30s. No streaming. Confirmed as a fact.
+- **Backends**: `SmartRouter::call_provider` (`src/llm.rs:1480`) — three branches: `anthropic` (the native SSE format of the `/v1/messages` API with `stream: true`), `ollama` (native `/api/generate` with `"stream": false`), OpenAI-compatible (`openai`/`groq`/`cerebras`/`nvidia`/`openrouter`/`google`/`custom` — all support `stream: true` via `/v1/chat/completions`). None of the branches streams — all call `.text()` whole.
+- **Tracing convention** (ADR-0138 §D4): "streams will emit one line per completed call with summarized usage (the issue's contract), not per chunk". Fixed before the #275 implementation. A streamed call after `llm_stream_close` is written as ONE trace line.
+- **Opaque-handle pattern** (ADR-0114 `Value::Reflex(ReflexId)`, ADR-0124 `Value::Vision(VisionId)`) — a `u32` index into a registry, runtime-owned (not Value-owned). The template — the closest to what is needed for a stream handle.
+- **Block-in-place contour** (ADR-0096) — the server path goes through `spawn_blocking`; `reqwest::blocking::Client` safely creates/drops its internal tokio runtime in the blocking pool. The panic "Cannot drop a runtime in a context where blocking is not allowed" is eliminated. The server side is stream-ready.
+- **Deferred-response** (ADR-0101) — post-`respond()` continuation in routes; does not intersect with #275 (streaming is not "send a response, then keep working" but "emit chunks as they arrive"). No mutual blocking.
+- **`METALOGOS_MOCK_LLM`** — default true; the `call_llm` mock path returns `[MOCK: ... | ...]`. The mock does not stream — it must explicitly return `STREAM_UNSUPPORTED` (issue contract).
 
-## 2. Критический вопрос спайка (вердикт-гейт)
+## 2. The critical spike question (verdict gate)
 
-Go-критерий issue #311: «SSE читается reqwest blocking `chunk()` без переписывания бэкендов; стрим встраивается НАД SmartRouter (не дублирует выбор); каждый `llm_stream_next` блокирует ≤ 1 чанка (ADR-0096 конструктивно); TW/VM parity достижима.»
+Go criterion of issue #311: "SSE is read by reqwest blocking `chunk()` without rewriting the backends; the stream is embedded ON TOP of SmartRouter (does not duplicate the selection); every `llm_stream_next` blocks for ≤ 1 chunk (ADR-0096 by construction); TW/VM parity is achievable."
 
-No-Go-критерий: «нужен rewrite бэкендов или колбэки/таски → честный No-Go в ADR-0137, идея → Tier 3 (Python llm_proxy FOSVED, наряд FO-013). Бэкенды без стрима возвращают явную ошибку `STREAM_UNSUPPORTED`, не тихий full-answer.»
+No-Go criterion: "a backend rewrite or callbacks/tasks are needed → an honest No-Go in ADR-0137, the idea → Tier 3 (Python llm_proxy FOSVED, naryad FO-013). Backends without a stream return an explicit `STREAM_UNSUPPORTED` error, not a silent full-answer."
 
-### 2.1. Буквальное vs смысловое прочтение «`resp.chunk()` в цикле»
+### 2.1. Literal vs intended reading of "`resp.chunk()` in a loop"
 
-Инспекция исходников `reqwest 0.13.5` (Cargo.lock фиксирует reqwest 0.12, но в Blocking-моде API стабильно от 0.11 до 0.13.x):
+Inspection of the `reqwest 0.13.5` sources (Cargo.lock pins reqwest 0.12, but in Blocking mode the API has been stable from 0.11 through 0.13.x):
 
-`reqwest::blocking::Response` **не имеет** метода `chunk()`. Доступные методы тела (`src/blocking/response.rs`):
-- `bytes(self) -> Result<Bytes>` — всё целиком (нынешний путь).
-- `text(self) -> Result<String>` — всё целиком.
-- `copy_to<W: Write>(&mut self, w: &mut W) -> Result<u64>` — стримит в writer.
-- **`impl std::io::Read for Response`** (через `body.rs`) — стандартный `read(&mut buf) -> Result<usize>`, стримит incremental.
+`reqwest::blocking::Response` **has no** `chunk()` method. Available body methods (`src/blocking/response.rs`):
+- `bytes(self) -> Result<Bytes>` — everything whole (the current path).
+- `text(self) -> Result<String>` — everything whole.
+- `copy_to<W: Write>(&mut self, w: &mut W) -> Result<u64>` — streams into a writer.
+- **`impl std::io::Read for Response`** (via `body.rs`) — the standard `read(&mut buf) -> Result<usize>`, streams incrementally.
 
-Метод `chunk()` существует у **асинхронного** `reqwest::Response` (неблокирующий), не у blocking. Это **фактический промах** в формулировке issue #311 — `reqwest::blocking` не умеет `chunk()` буквально.
+The `chunk()` method exists on the **asynchronous** `reqwest::Response` (non-blocking), not on blocking. This is a **factual slip** in the wording of issue #311 — `reqwest::blocking` cannot literally `chunk()`.
 
-Однако дух критерия — «incremental chunked SSE-чтение без переписывания бэкендов» — **выполним** через `impl Read` на `Response`: blocking `read(&mut buf)` читает «один буфер-фулл» и возвращает управление. Один вызов `llm_stream_next` делает:
-1. Один `Read::read(&mut [u8; N])` — blocking, ≤ N байт из TCP-буфера (или меньше, если сервер ещё не дослал).
-2. Парсинг одной SSE-дельты из инкрементального line-buffer (event-stream формат: `data: <json>\n\n`).
-3. Возврат `delta`-строки (или `""` для keep-alive ping).
+However, the spirit of the criterion — "incremental chunked SSE reading without rewriting the backends" — is **achievable** via `impl Read` on `Response`: blocking `read(&mut buf)` reads "one buffer-full" and returns control. One `llm_stream_next` call does:
+1. One `Read::read(&mut [u8; N])` — blocking, ≤ N bytes from the TCP buffer (or fewer if the server has not sent them yet).
+2. Parsing of one SSE delta from the incremental line buffer (event-stream format: `data: <json>\n\n`).
+3. Returning the `delta` string (or `""` for a keep-alive ping).
 
-Семантика блокировки: `Read::read` возвращает управление **сразу как только** TCP-буфер отдал N байт (или меньше). Это удовлетворяет «каждый `llm_stream_next` блокирует ≤ 1 чанка» — один syscall, не весь ответ.
+Blocking semantics: `Read::read` returns control **as soon as** the TCP buffer has yielded N bytes (or fewer). This satisfies "every `llm_stream_next` blocks for ≤ 1 chunk" — one syscall, not the whole response.
 
-### 2.2. Не нужно ли переписывать бэкенды?
+### 2.2. Is a backend rewrite needed?
 
-Нет. `SmartRouter::call_provider` уже умеет строить JSON-тело для каждого провайдера. Стрим-версия — это параллельный путь `SmartRouter::stream_open(prompt, input, model_override, timeout)`, который:
-- Берёт **тот же** провайдер/endpoint/api_key/timeout/resolved_model (через тот же `candidates`-механизм + circuit breaker).
-- Шлёт тот же JSON, но с `stream: true` в теле (и `"stream": true` для OpenAI/Anthropic; ollama уже имеет `"stream": true` по умолчанию, и `stream_provider_open` для ollama просто шлёт как есть и парсит ответ).
-- Возвращает `LlmStreamState` — opaque handle, содержащий `reqwest::blocking::Response`, инкрементальный SSE-парсер, метаданные провайдера.
+No. `SmartRouter::call_provider` already knows how to build the JSON body for each provider. The streaming version is a parallel path `SmartRouter::stream_open(prompt, input, model_override, timeout)` that:
+- Takes the **same** provider/endpoint/api_key/timeout/resolved_model (via the same `candidates` mechanism + circuit breaker).
+- Sends the same JSON but with `stream: true` in the body (and `"stream": true` for OpenAI/Anthropic; ollama already has `"stream": true` by default, and `stream_provider_open` for ollama simply sends it as-is and parses the response).
+- Returns `LlmStreamState` — an opaque handle containing the `reqwest::blocking::Response`, an incremental SSE parser, and the provider metadata.
 
-`SmartRouter::call` (блокирующий) **остаётся без изменений**. `call_llm` / learnables / `call_claude` / `call_llm_schema` — не трогаются. Стрим — отдельная, **параллельная** API поверхность, не затрагивающая существующий single-shot путь.
+`SmartRouter::call` (blocking) **remains unchanged**. `call_llm` / learnables / `call_claude` / `call_llm_schema` — untouched. Streaming is a separate, **parallel** API surface that does not touch the existing single-shot path.
 
-### 2.3. Колбэки / таски / async?
+### 2.3. Callbacks / tasks / async?
 
-Нет. `llm_stream_open` возвращает opaque handle (`Value::LlmStream(LlmStreamId)`, `u32` индекс в `LLM_STREAM_REGISTRY`). `llm_stream_next(handle)` — синхронный блокирующий вызов, читает **один** chunk через `Read::read`, парсит **одну** SSE-дельту, возвращает. `llm_stream_close(handle)` — закрывает response (drop), агрегирует usage, пишет ОДНУ строку трейса (ADR-0138 §D4 contract), возвращает финальные метаданные.
+No. `llm_stream_open` returns an opaque handle (`Value::LlmStream(LlmStreamId)`, a `u32` index into `LLM_STREAM_REGISTRY`). `llm_stream_next(handle)` is a synchronous blocking call that reads **one** chunk via `Read::read`, parses **one** SSE delta, and returns. `llm_stream_close(handle)` — closes the response (drop), aggregates usage, writes ONE trace line (ADR-0138 §D4 contract), and returns the final metadata.
 
-Итераторный стиль, никаких колбэков, никаких `tokio::spawn`, никакого `block_in_place`. Полностью соответствует single-core block-in-place семантике ADR-0096.
+Iterator style: no callbacks, no `tokio::spawn`, no `block_in_place`. Fully conforms to the single-core block-in-place semantics of ADR-0096.
 
 ### 2.4. TW/VM parity
 
-`LLM_STREAM_REGISTRY` живёт в `crate::llm` (так же как `GLOBAL_SMART_ROUTER` и `GLOBAL_LLM_USAGE` — оба бэкенда ходят через `crate::llm::call_via_smart_router`/`crate::llm::global_llm_usage_report`). Handle — `u32` индекс, не owned-данные. Оба бэкенда читают/пишут через `crate::llm` — тело билтина одно на оба бэкенда, как у `call_llm` / `llm_usage` / `call_llm_schema`. Паритет по построению.
+`LLM_STREAM_REGISTRY` lives in `crate::llm` (just like `GLOBAL_SMART_ROUTER` and `GLOBAL_LLM_USAGE` — both backends go through `crate::llm::call_via_smart_router`/`crate::llm::global_llm_usage_report`). The handle is a `u32` index, not owned data. Both backends read/write through `crate::llm` — one builtin body serves both backends, as with `call_llm` / `llm_usage` / `call_llm_schema`. Parity by construction.
 
 ### 2.5. Mock / STREAM_UNSUPPORTED
 
-`METALOGOS_MOCK_LLM=true` (default в `builtin_call_llm`): mock-путь `llm_stream_open` возвращает явную ошибку `STREAM_UNSUPPORTED: mock backend does not stream — set METALOGOS_MOCK_LLM=false and configure llm {} providers` (issue contract: «не тихий full-answer»). Это защищает пользователей от silent-fallback-на-full-answer через mock.
+`METALOGOS_MOCK_LLM=true` (default in `builtin_call_llm`): the `llm_stream_open` mock path returns the explicit error `STREAM_UNSUPPORTED: mock backend does not stream — set METALOGOS_MOCK_LLM=false and configure llm {} providers` (issue contract: "not a silent full-answer"). This protects users from a silent fallback to full-answer through the mock.
 
-Реальные бэкенды без стрима в v1: ollama (нативно умеет, `"stream": true` по умолчанию) — поддерживается. Если в будущем появится провайдер без SSE — `stream_provider` для него возвращает `STREAM_UNSUPPORTED` (ветвление по `provider_type`, как сейчас в `call_provider`).
+Real backends without streaming in v1: ollama (natively capable, `"stream": true` by default) — supported. If a provider without SSE appears in the future — `stream_provider` returns `STREAM_UNSUPPORTED` for it (branching on `provider_type`, as currently in `call_provider`).
 
-## 3. Вердикт
+## 3. Verdict
 
 **GO.**
 
-Все Go-критерии удовлетворены:
-- ✅ SSE читается через `reqwest blocking` (через `impl Read`, не буквально `chunk()` — см. §2.1, отклонение зафиксировано громко).
-- ✅ Без переписывания бэкендов — `SmartRouter::call` остаётся; стрим — параллельный путь `stream_open`/`stream_next`/`stream_close`.
-- ✅ Стрим встраивается НАД SmartRouter — `stream_open` использует тот же `candidates`/circuit-breaker/resolved_model, что `call`.
-- ✅ Каждый `llm_stream_next` блокирует ≤ 1 чанка (один `Read::read` + парсинг одной дельты).
-- ✅ TW/VM parity — registry в `crate::llm`, handle = `u32`, один body для обоих бэкендов.
-- ✅ Бэкенды без стрима (`METALOGOS_MOCK_LLM=true`, будущие non-SSE провайдеры) → `STREAM_UNSUPPORTED`, не silent full-answer.
+All Go criteria satisfied:
+- ✅ SSE is read via `reqwest blocking` (via `impl Read`, not literally `chunk()` — see §2.1, the deviation is recorded loudly).
+- ✅ No backend rewrite — `SmartRouter::call` stays; streaming is the parallel path `stream_open`/`stream_next`/`stream_close`.
+- ✅ The stream is embedded ON TOP of SmartRouter — `stream_open` uses the same `candidates`/circuit-breaker/resolved_model as `call`.
+- ✅ Every `llm_stream_next` blocks for ≤ 1 chunk (one `Read::read` + parsing of one delta).
+- ✅ TW/VM parity — the registry in `crate::llm`, handle = `u32`, one body for both backends.
+- ✅ Backends without a stream (`METALOGOS_MOCK_LLM=true`, future non-SSE providers) → `STREAM_UNSUPPORTED`, not a silent full-answer.
 
-No-Go-критерии НЕ сработали:
-- ❌ Не нужен rewrite бэкендов (см. §2.2).
-- ❌ Не нужны колбэки/таски (см. §2.3).
+No-Go criteria did NOT trigger:
+- ❌ No backend rewrite needed (see §2.2).
+- ❌ No callbacks/tasks needed (see §2.3).
 
-## 4. Отклонения и громкие оговорки (issue contract)
+## 4. Deviations and loud caveats (issue contract)
 
-1. **Не буквально `chunk()`** — используем `impl Read for reqwest::blocking::Response` + самописный инкрементальный SSE-парсер. Это семантически эквивалентно «incremental chunked SSE-чтение», но не literally `resp.chunk()`. Зафиксировано в ADR-0137 §1, чтобы будущий ревьюер не удивлялся.
-2. **Stream API — отдельная поверхность** — `llm_stream_open/next/close` НЕ заменяют `call_llm`. Single-shot путь (`call_llm`, learnables, `call_claude`, `call_llm_schema`) не меняется. Это предотвращает регрессии застрахованных путей.
-3. **Trace — одна строка на завершённый стрим** (ADR-0138 §D4 contract). Не per-chunk, не per-`next`. Latency = open→close, usage = агрегированные из финального SSE-event'а (Anthropic/OpenAI в финальном чанке присылают `message_delta` с `usage`; ollama — в каждом чанке, но мы агрегируем).
-4. **Один поток = один провайдер**. Failover в стриме не работает концептуально (нельзя «переподключиться к другому провайдеру в середине стрима» без потери уже полученных чанков). `stream_open` выбирает лучшего доступного провайдера и держится за него до `close`. Если провайдер упал в середине — `next` возвращает ошибку, пользователь вызывает `close`, при желании открывает новый стрим (в этот момент failover сработает на этапе `open`). Это не нарушает SmartRouter-контракт — circuit breaker пометит провайдера больным, следующий `open` его обойдёт.
+1. **Not literally `chunk()`** — we use `impl Read for reqwest::blocking::Response` + a hand-written incremental SSE parser. This is semantically equivalent to "incremental chunked SSE reading" but not literally `resp.chunk()`. Recorded in ADR-0137 §1 so that a future reviewer is not surprised.
+2. **The stream API is a separate surface** — `llm_stream_open/next/close` do NOT replace `call_llm`. The single-shot path (`call_llm`, learnables, `call_claude`, `call_llm_schema`) is unchanged. This prevents regressions in the already-covered paths.
+3. **Trace — one line per completed stream** (ADR-0138 §D4 contract). Not per-chunk, not per-`next`. Latency = open→close, usage = aggregated from the final SSE event (Anthropic/OpenAI send `message_delta` with `usage` in the final chunk; ollama — in every chunk, but we aggregate).
+4. **One stream = one provider**. Failover within a stream does not work conceptually (one cannot "reconnect to another provider mid-stream" without losing the chunks already received). `stream_open` picks the best available provider and holds onto it until `close`. If the provider dies mid-stream — `next` returns an error, the user calls `close`, and, if desired, opens a new stream (at that moment failover kicks in at the `open` stage). This does not violate the SmartRouter contract — the circuit breaker will mark the provider sick, and the next `open` will skip it.
 
-## 5. Реализационный план (после этого коммита)
+## 5. Implementation plan (after this commit)
 
-1. `src/llm.rs` — добавить `LlmStreamId`, `LlmStreamState`, `LLM_STREAM_REGISTRY`, `SmartRouter::stream_open/next/close`. Не трогать `SmartRouter::call`.
-2. `src/interpreter/values.rs` — добавить `Value::LlmStream(LlmStreamId)`. Протянуть через все exhaustive-match руки (`Display`, `Debug`, `type_name`, `serde`-derive — вынести ручную `Serialize`/`Deserialize` как для `Reflex`/`Vision`, чтобы стрим-хэндл сериализовался как `[LlmStream]`-маркер, не падал).
-3. `src/builtins/llm_stream.rs` — новый модуль с тремя билтинами.
-4. `src/builtins/registry.rs` — append-only: три `spec!` записи (`llm_stream_open` 1..2, `llm_stream_next` 1, `llm_stream_close` 1). Registry: 405 → 408.
+1. `src/llm.rs` — add `LlmStreamId`, `LlmStreamState`, `LLM_STREAM_REGISTRY`, `SmartRouter::stream_open/next/close`. Do not touch `SmartRouter::call`.
+2. `src/interpreter/values.rs` — add `Value::LlmStream(LlmStreamId)`. Thread through all exhaustive-match arms (`Display`, `Debug`, `type_name`, `serde`-derive — extract manual `Serialize`/`Deserialize` as for `Reflex`/`Vision`, so the stream handle serializes as an `[LlmStream]` marker instead of failing).
+3. `src/builtins/llm_stream.rs` — a new module with three builtins.
+4. `src/builtins/registry.rs` — append-only: three `spec!` entries (`llm_stream_open` 1..2, `llm_stream_next` 1, `llm_stream_close` 1). Registry: 405 → 408.
 5. `src/builtins/mod.rs` — `pub mod llm_stream;`.
-6. `tests/naryad_275_stream_*.rs` — mock-SSE-сервер (лекало `tests/p71_http_retry_server.py` / `tests/p76_http_download_server.py`): пошть SSE-чанки по `text/event-stream`, assert последовательность `next`-возвратов идентична отправленной; `close` до конца — сервер видит обрыв TCP; лимит одновременных стримов; crosscheck TW/VM.
-7. `REFERENCE.md` §6 regen (405 → 408 builtins), `CHANGELOG.md`, `docs/adr/README.md` (0137 added), ADR-0137 сам.
-8. PR с DoD, blocking-check-runs proof 15/15, пометкой «PR number ≠ naryad number».
+6. `tests/naryad_275_stream_*.rs` — a mock SSE server (template `tests/p71_http_retry_server.py` / `tests/p76_http_download_server.py`): send SSE chunks over `text/event-stream`, assert the sequence of `next` returns is identical to what was sent; `close` before the end — the server sees the TCP disconnect; the concurrent-stream limit; the TW/VM crosscheck.
+7. `REFERENCE.md` §6 regen (405 → 408 builtins), `CHANGELOG.md`, `docs/adr/README.md` (0137 added), ADR-0137 itself.
+8. PR with DoD, blocking-check-runs proof 15/15, with the note "PR number ≠ naryad number".
 
-## 6. Альтернативы, отвергнутые спайком
+## 6. Alternatives rejected by the spike
 
-- **Async `reqwest::Response::chunk()` через tokio runtime** — отвергнуто: конфликтует с single-core block-in-place семантикой (ADR-0096), требует вводить async в интерпретатор, ломает `Send`-bound проверенный контракт. Поднимало бы вопрос «как `tokio::spawn` уживается с `block_in_place`» — уже было отвергнуто в ADR-0096.
-- **Python llm_proxy FOSVED (Tier 3, наряд FO-013)** — резервный путь, если бы спайк дал No-Go. Не нужен — Go.
-- **`reqwest::blocking::Response::copy_to` в `Vec<u8>` буфер** — отвергнуто: это write-all-then-read, не incremental. Не даёт «≤ 1 чанка».
-- **Stream API через `tokio::sync::mpsc` + `tokio::spawn`** — отвергнуто: вводит таски, против ADR-0096 §2 «spawn_blocking для синхронного кода, не наоборот».
+- **Async `reqwest::Response::chunk()` via the tokio runtime** — rejected: conflicts with the single-core block-in-place semantics (ADR-0096), requires introducing async into the interpreter, breaks the proven `Send`-bound contract. Would raise the question "how does `tokio::spawn` coexist with `block_in_place`" — already rejected in ADR-0096.
+- **Python llm_proxy FOSVED (Tier 3, naryad FO-013)** — the fallback path if the spike had returned No-Go. Not needed — Go.
+- **`reqwest::blocking::Response::copy_to` into a `Vec<u8>` buffer** — rejected: it is write-all-then-read, not incremental. Does not give "≤ 1 chunk".
+- **The stream API via `tokio::sync::mpsc` + `tokio::spawn`** — rejected: introduces tasks, against ADR-0096 §2 "spawn_blocking for synchronous code, not the other way around".
 
-## 7. Тесты Go/No-Go
+## 7. Go/No-Go tests
 
-- ✅ Пример «open → next → … → close» печатает текст по мере прихода чанков (тест `naryad_275_stream_open_next_close.rs` против mock-SSE-сервера).
-- ✅ Итоговый текст (конкатенация всех delta) идентичен не-стримовому вызову той же фразы (тест `naryad_275_stream_equivalence.rs` против mock-сервера в двух режимах: stream=true / stream=false — один и тот же текст).
-- ✅ TW и VM ведут себя одинаково (crosscheck-тест).
-- ✅ Лимит одновременных стримов — enforced (карта состояний с верхним пределом, урок №263).
-- ✅ Close раньше конца — сервер видит обрыв TCP (тест `naryad_275_stream_close_before_end.rs`).
-- ✅ Mock-Llm возвращает `STREAM_UNSUPPORTED` (тест `naryad_275_stream_mock_unsupported.rs`).
+- ✅ The "open → next → … → close" example prints text as chunks arrive (test `naryad_275_stream_open_next_close.rs` against the mock SSE server).
+- ✅ The final text (the concatenation of all deltas) is identical to the non-streaming call of the same phrase (test `naryad_275_stream_equivalence.rs` against the mock server in two modes: stream=true / stream=false — the same text).
+- ✅ TW and VM behave identically (a crosscheck test).
+- ✅ The concurrent-stream limit — enforced (a state map with an upper bound, the lesson from #263).
+- ✅ Close before the end — the server sees the TCP disconnect (test `naryad_275_stream_close_before_end.rs`).
+- ✅ The mock LLM returns `STREAM_UNSUPPORTED` (test `naryad_275_stream_mock_unsupported.rs`).

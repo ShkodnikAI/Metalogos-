@@ -1,19 +1,19 @@
-# Наряд №176 — Разведка: переиспользуемые архитектурные блоки (attention/RoPE/transformer-block)
+# Naryad #176 — Recon: reusable architectural blocks (attention/RoPE/transformer-block)
 
-> **Статус:** Research report — не архитектурное решение, материал для владельца.
-> **Дата:** 2026-09-04
-> **Дополняет:** Наряд №175 (выбор candle/burn как тензорного фундамента).
-> **Фокус:** Слой ВЫШЕ фундамента — готовые, проверенные архитектурные компоненты.
+> **Status:** Research report — not an architectural decision, material for the owner.
+> **Date:** 2026-09-04
+> **Complements:** Naryad #175 (the choice of candle/burn as the tensor foundation).
+> **Focus:** The layer ABOVE the foundation — ready-made, proven architectural components.
 
 ---
 
-## Блок 1 — Инвентаризация `candle-transformers`
+## Block 1 — Inventory of `candle-transformers`
 
-### 1.1 Список моделей (125 файлов в `candle-transformers/src/models/`)
+### 1.1 Model list (125 files in `candle-transformers/src/models/`)
 
-Ключевые архитектуры (неполный список, 125 entries total):
+Key architectures (partial list, 125 entries total):
 
-| Категория | Модели |
+| Category | Models |
 |---|---|
 | **LLM (decoder-only)** | Llama, Mistral, Mixtral, Falcon, Phi, Phi3, Qwen2, Qwen3, Gemma, Gemma2, Gemma3, GLM4, Yi, Starcoder2, MPT, StableLM, Olmo, Olmo2, DeepSeek2, Helium, Granite, GraniteMoeHybrid, LFM2 |
 | **LLM (MoE)** | Mixtral, Qwen3MoE, Qwen2MoE, GraniteMoeHybrid |
@@ -25,13 +25,13 @@
 | **Diffusion** | Stable Diffusion, Flux, Wuerstchen |
 | **Specialized** | Segment Anything, Depth Anything v2, TroCR, PaddleOCR-VL |
 
-### 1.2 Детальный разбор: Llama (репрезентативная архитектура)
+### 1.2 Detailed breakdown: Llama (representative architecture)
 
-Исходник: `candle-transformers/src/models/llama.rs` (~500 строк)
+Source: `candle-transformers/src/models/llama.rs` (~500 lines)
 
-**Архитектурные блоки:**
+**Architectural blocks:**
 
-| Блок | Структура в коде | Компоненты |
+| Block | Structure in code | Components |
 |---|---|---|
 | **RoPE (Rotary Position Embedding)** | `Cache::new()` → precompute `cos`/`sin` | `calculate_default_inv_freq()` → inv_freq vec; `idx_theta = arange * inv_freq`; `cos = idx_theta.cos()`, `sin = idx_theta.sin()`. Llama3 scaling: smooth interpolation. |
 | **CausalSelfAttention** | `struct CausalSelfAttention` | `q_proj`, `k_proj`, `v_proj`, `o_proj` (Linear, no bias). GQA support (`num_key_value_heads`). `apply_rotary_emb()` → `candle_nn::rotary_emb::rope()`. KV-cache in `Cache.kvs`. |
@@ -40,25 +40,25 @@
 | **Transformer Block** | `struct Block` | `rms_1` (RmsNorm) → `attn` (CausalSelfAttention) → residual → `rms_2` (RmsNorm) → `mlp` → residual. Classic pre-norm. |
 | **Full Model** | `struct Llama` | `wte` (embedding) → `blocks: Vec<Block>` → `ln_f` (RmsNorm) → `lm_head` (Linear). |
 
-**Ключевое наблюдение:** Каждый блок — plain Rust struct с `forward()`. Нет derive macros, нет trait acrobatics. Простой паттерн: `struct → impl → load(vb) → forward(x)`. Это **идеальный шаблон** для портирования в Metalogos-нативный код или для вызова через FFI.
+**Key observation:** Each block is a plain Rust struct with `forward()`. No derive macros, no trait acrobatics. A simple pattern: `struct → impl → load(vb) → forward(x)`. This is an **ideal template** for porting to Metalogos-native code or for calling via FFI.
 
-### 1.3 Лицензия
+### 1.3 License
 
-`candle-transformers`: Apache-2.0 (весь репозиторий huggingface/candle). Совместимо с Metalogos.
+`candle-transformers`: Apache-2.0 (the entire huggingface/candle repository). Compatible with Metalogos.
 
-### 1.4 Доступность для проверки локально
+### 1.4 Availability for local verification
 
-Модели в `candle-transformers` — **инференс-only** (загрузка safetensors + forward pass). Для **обучения** нужен `candle-nn` (SGD, Adam) + `VarMap` (trainable variables) — что и было протестировано в наряде №175. `candle-transformers` даёт архитектуру, `candle-nn` даёт тренировочные primitives.
+The models in `candle-transformers` are **inference-only** (safetensors loading + forward pass). For **training**, `candle-nn` (SGD, Adam) + `VarMap` (trainable variables) is needed — which is exactly what was tested in naryad #175. `candle-transformers` provides the architecture, `candle-nn` provides the training primitives.
 
 ---
 
-## Блок 2 — Инвентаризация `burn`
+## Block 2 — Inventory of `burn`
 
 ### 2.1 Model Zoo
 
-**Burn не имеет отдельного `burn-transformers` crate.** Архитектуры живут в `examples/`:
+**Burn has no separate `burn-transformers` crate.** The architectures live in `examples/`:
 
-| Example | Архитектура | Training? |
+| Example | Architecture | Training? |
 |---|---|---|
 | `text-generation` | **TransformerEncoder** (GPT-style) | Yes (trainable) |
 | `text-classification` | Transformer encoder + classifier head | Yes |
@@ -71,13 +71,13 @@
 | `multi-gpus` | Multi-GPU training | Yes |
 | `server` | Model inference server | Inference |
 
-**Ключевое отличие от candle:** burn поставляет **встроенные блоки** в `burn-nn` (не через model zoo), а архитектуры — в примерах.
+**Key difference from candle:** burn ships **built-in blocks** in `burn-nn` (not via a model zoo), while the architectures live in the examples.
 
-### 2.2 Встроенные блоки `burn-nn`
+### 2.2 Built-in blocks of `burn-nn`
 
 `crates/burn-nn/src/modules/`:
 
-| Блок | Файл(ы) | Готов к композиции? |
+| Block | File(s) | Composition-ready? |
 |---|---|---|
 | **Multi-Head Attention** | `attention/mha.rs` | ✅ `Mha::new(config)` → `.forward(input)` |
 | **Cross Attention** | `attention/cross_attention.rs` | ✅ |
@@ -96,9 +96,9 @@
 | **Pooling** | `pool/` | ✅ |
 | **KV Cache** | `cache/` | ✅ |
 
-### 2.3 Детальный разбор: text-generation example (GPT-style)
+### 2.3 Detailed breakdown: text-generation example (GPT-style)
 
-Исходник: `examples/text-generation/src/model.rs` (~100 строк)
+Source: `examples/text-generation/src/model.rs` (~100 lines)
 
 ```rust
 #[derive(Module, Debug)]
@@ -110,9 +110,9 @@ pub struct TextGenerationModel<B: Backend> {
 }
 ```
 
-**Архитектурные блоки:**
+**Architectural blocks:**
 
-| Блок | burn API | Как стыкуются |
+| Block | burn API | How they connect |
 |---|---|---|
 | **Token embedding** | `EmbeddingConfig::new(vocab, d_model).init(device)` | `.forward(token_ids)` |
 | **Positional embedding** | `EmbeddingConfig::new(max_seq, d_model).init(device)` | `.forward(arange(0..seq))` |
@@ -123,21 +123,21 @@ pub struct TextGenerationModel<B: Backend> {
 | **Loss** | `CrossEntropyLossConfig::new().with_pad_tokens(...)` | `.forward(output, targets)` |
 | **Training step** | `impl TrainStep` → `item.loss.backward()` | Derive macro handles plumbing |
 
-**Ключевое наблюдение:** burn даёт **готовый `TransformerEncoder`** — одна структура, конфигурируется через `TransformerEncoderConfig`. Не нужно собирать attention + RoPE + FFN вручную. Но это **opaque блок** — нельзя модифицировать отдельные части (например, заменить standard attention на flash attention) без погружения в internals.
+**Key observation:** burn provides a **ready-made `TransformerEncoder`** — one struct, configured via `TransformerEncoderConfig`. No need to assemble attention + RoPE + FFN by hand. But it is an **opaque block** — individual parts cannot be modified (e.g., replacing standard attention with flash attention) without diving into the internals.
 
 ---
 
-## Блок 3 — Композиционная эргономика для Metalogos
+## Block 3 — Composition ergonomics for Metalogos
 
-### 3.1 Эскиз `.mlog` для candle (блочная композиция)
+### 3.1 `.mlog` sketch for candle (block composition)
 
 ```mlog
-// candle: каждый блок — отдельная композируемая конструкция.
-// Агент может заменять/модифицировать отдельные части архитектуры.
+// candle: each block is a separate composable construct.
+// The agent can replace/modify individual parts of the architecture.
 
 learnable block RotaryEmbedding(dim: Float, max_seq: Float, theta: Float) -> RoPE {
-  // Вызывает candle_nn::rotary_emb::rope()
-  // Параметры: head_dim, max_position_embeddings, rope_theta
+  // Calls candle_nn::rotary_emb::rope()
+  // Parameters: head_dim, max_position_embeddings, rope_theta
   inv_freq: 1.0 / theta.powf(dim / head_dim)
   cos: cos(arange(max_seq) * inv_freq)
   sin: sin(arange(max_seq) * inv_freq)
@@ -177,7 +177,7 @@ learnable block TransformerBlock(
   }
 }
 
-// Полная модель собирается из блоков
+// The full model is assembled from blocks
 learnable architecture GptMini(
   vocab: Float, d_model: Float, n_layers: Float
 ) -> Model {
@@ -195,16 +195,16 @@ learnable architecture GptMini(
 }
 ```
 
-### 3.2 Эскиз `.mlog` для burn (opaque блок)
+### 3.2 `.mlog` sketch for burn (opaque block)
 
 ```mlog
-// burn: TransformerEncoder — готовый, непрозрачный блок.
-// Агент конфигурирует, но не модифицирует internals.
+// burn: TransformerEncoder — a ready-made, opaque block.
+// The agent configures, but does not modify the internals.
 
 learnable architecture GptMini(
   vocab: Float, d_model: Float, n_layers: Float
 ) -> Model {
-  // burn::nn::TransformerEncoder — opaque, не разбивается на attention/RoPE
+  // burn::nn::TransformerEncoder — opaque, not split into attention/RoPE
   transformer: TransformerEncoder {
     d_model: d_model
     n_heads: 4
@@ -228,69 +228,69 @@ learnable architecture GptMini(
 }
 ```
 
-### 3.3 Оценка композиционной эргономики
+### 3.3 Composition ergonomics assessment
 
-| Критерий | candle | burn |
+| Criterion | candle | burn |
 |---|---|---|
-| **Блоки как first-class конструкции** | ✅ Каждый блок — отдельный Rust struct. Портит в `.mlog` как отдельный `learnable block`. | ⚠️ `TransformerEncoder` — opaque. Нельзя заменить attention без fork burn. |
-| **Агент может модифицировать архитектуру** | ✅ Заменить attention на flash-attn — поменять один `forward()`. | ❌ Заменить attention — fork burn-nn или реализовать с нуля. |
-| **Референс-шаблон для агента** | ✅ 125 моделей в candle-transformers, каждая — рабочий пример. Llama (500 строк) — прозрачный. | ⚠️ text-generation example — рабочий, но opaque (TransformerEncoder скрывает детали). |
-| **Композируемость под новую задачу** | ✅ Агент: "нужен cross-attention вместо self-attention" → написать новый block. | ⚠️ Агент: "нужен cross-attention" → использовать `CrossAttention` (он есть), но не встроить в `TransformerEncoder` — нужен кастомный encoder. |
-| **Детализация контроля** | ✅ RoPE, attention, FFN, norm — всё отдельно. | ⚠️ `TransformerEncoderConfig` — параметры, но не структура. |
+| **Blocks as first-class constructs** | ✅ Each block is a separate Rust struct. Ports into `.mlog` as a separate `learnable block`. | ⚠️ `TransformerEncoder` — opaque. Attention cannot be replaced without forking burn. |
+| **The agent can modify the architecture** | ✅ Replacing attention with flash-attn — change one `forward()`. | ❌ Replacing attention — fork burn-nn or implement from scratch. |
+| **Reference template for the agent** | ✅ 125 models in candle-transformers, each a working example. Llama (500 lines) — transparent. | ⚠️ text-generation example — working, but opaque (TransformerEncoder hides the details). |
+| **Composability for a new task** | ✅ Agent: "need cross-attention instead of self-attention" → write a new block. | ⚠️ Agent: "need cross-attention" → use `CrossAttention` (it exists), but it cannot be embedded in `TransformerEncoder` — a custom encoder is needed. |
+| **Granularity of control** | ✅ RoPE, attention, FFN, norm — all separate. | ⚠️ `TransformerEncoderConfig` — parameters, but not structure. |
 
-**Вердикт по композиции:** candle лучше для **агент-управляемой композиции** — блоки прозрачны, заменяемы, каждый виден. burn лучше для **человека-разработчика** — меньше кода, но меньше контроля.
+**Composition verdict:** candle is better for **agent-driven composition** — blocks are transparent, replaceable, each one visible. burn is better for the **human developer** — less code, but less control.
 
 ---
 
-## Блок 4 — Тестируемость композиции (детерминизм)
+## Block 4 — Testability of the composition (determinism)
 
-### Метод проверки
+### Verification method
 
-Создан отдельный тест: fixed weights → 3 forward passes → сравнение outputs с ε=1e-8.
+A dedicated test was created: fixed weights → 3 forward passes → comparison of outputs with ε=1e-8.
 
-### Результаты
+### Results
 
-| Фундамент | Тест | Результат |
+| Foundation | Test | Result |
 |---|---|---|
 | **candle** | `Linear(2,3)` forward, 3 runs, CPU | **Deterministic: YES ✅** — outputs identical to 1e-8 |
 | **burn** | `Linear(2,3)` forward, 3 runs, CPU (NdArray backend) | **Deterministic: YES ✅** — outputs identical to 1e-8 |
 
-**Подтверждено:** оба фундамента дают детерминированный forward-pass при фиксированных весах на CPU. Это означает golden-тестирование архитектурной композиции возможно — если зафиксировать seed инициализации и веса, forward-pass будет воспроизводимым.
+**Confirmed:** both foundations give a deterministic forward pass with fixed weights on CPU. This means golden testing of architectural composition is possible — if the initialization seed and the weights are fixed, the forward pass is reproducible.
 
-Тестовые проекты:
+Test projects:
 - `/home/z/my-project/research/candle-determ/` — candle determinism test
 - `/home/z/my-project/research/burn-determ/` — burn determinism test
 
-### Дополнительные наблюдения
+### Additional observations
 
-- candle: детерминизм **без указания seed** — потому что `VarMap` инициализируется детерминистически (через Kaiming normal с фиксированным seed по умолчанию).
-- burn: детерминизм **без указания seed** — потому что `LinearConfig::init()` использует детерминистический инициализатор по умолчанию.
-- Для **полного** детерминизма при обучении нужно проверить: dropout (нет в forward без training mode), data shuffling (контролируется кодом), BLAS non-determinism (возможен на многопоточных бэкендах — не обнаружен на CPU single-thread в тесте).
+- candle: determinism **without specifying a seed** — because `VarMap` initializes deterministically (via Kaiming normal with a fixed seed by default).
+- burn: determinism **without specifying a seed** — because `LinearConfig::init()` uses a deterministic initializer by default.
+- For **full** determinism in training one must verify: dropout (absent from forward without training mode), data shuffling (controlled by code), BLAS non-determinism (possible on multithreaded backends — not observed on single-threaded CPU in the test).
 
 ---
 
-## Итоговая сводка
+## Final summary
 
 | | candle | burn |
 |---|---|---|
-| **Model zoo** | **125 моделей** в candle-transformers ✅ | 10 examples, built-in blocks в burn-nn |
-| **Референс-разбор** | Llama: 500 строк, прозрачный, каждый блок виден ✅ | text-gen: 100 строк, opaque TransformerEncoder |
-| **Готовые блоки** | RoPE (rotary_emb.rs), attention (в моделях), RmsNorm, SwiGLU — **в моделях, не библиотека** | **MHA, RoPE, TransformerEncoder, LayerNorm, Dropout — встроенные** ✅ |
-| **Композируемость** | ✅ Блоки как separate structs, агент заменяет/модифицирует | ⚠️ Opaque блоки, нельзя модифицировать internals |
-| **Референс-шаблон для агента** | ✅ 125 рабочих моделей, каждая — шаблон | ⚠️ 1 example (text-gen), opaque |
-| **Детерминизм forward-pass** | ✅ YES (проверено) | ✅ YES (проверено) |
-| **Лицензия** | Apache-2.0 ✅ | Apache-2.0 ✅ |
+| **Model zoo** | **125 models** in candle-transformers ✅ | 10 examples, built-in blocks in burn-nn |
+| **Reference breakdown** | Llama: 500 lines, transparent, every block visible ✅ | text-gen: 100 lines, opaque TransformerEncoder |
+| **Ready-made blocks** | RoPE (rotary_emb.rs), attention (in the models), RmsNorm, SwiGLU — **in the models, not a library** | **MHA, RoPE, TransformerEncoder, LayerNorm, Dropout — built in** ✅ |
+| **Composability** | ✅ Blocks as separate structs, the agent replaces/modifies | ⚠️ Opaque blocks, internals cannot be modified |
+| **Reference template for the agent** | ✅ 125 working models, each a template | ⚠️ 1 example (text-gen), opaque |
+| **Forward-pass determinism** | ✅ YES (verified) | ✅ YES (verified) |
+| **License** | Apache-2.0 ✅ | Apache-2.0 ✅ |
 
-### Ключевая разница
+### Key difference
 
-**candle** поставляет **референс-шаблоны** (125 моделей, каждая — рабочий пример компоновки блоков). Блоки **не встроены** в библиотеку — они в коде моделей. Агент, собирающий новую архитектуру, **зеркально следует** коду Llama/Phi/Gemma как шаблону.
+**candle** ships **reference templates** (125 models, each a working example of block assembly). The blocks are **not built into** the library — they live in the model code. An agent assembling a new architecture **mirrors** the Llama/Phi/Gemma code as a template.
 
-**burn** поставляет **готовые блоки** (TransformerEncoder, MHA, RoPE — встроенные, конфигурируемые). Но блоки **opaque** — нельзя заменить attention без fork. Агент **конфигурирует**, не **компонует**.
+**burn** ships **ready-made blocks** (TransformerEncoder, MHA, RoPE — built in, configurable). But the blocks are **opaque** — attention cannot be replaced without a fork. The agent **configures**, it does not **compose**.
 
-### Для Metalogos
+### For Metalogos
 
-Если цель — **агент компонует блоки под задачу** (контекст наряда): candle лучше — блоки прозрачны, заменяемы, есть 125 референсов.
+If the goal is **the agent composing blocks for the task** (the naryad context): candle is better — blocks are transparent, replaceable, and there are 125 references.
 
-Если цель — **человек пишет меньше кода**: burn лучше — `TransformerEncoder` — одна строка вместо 200.
+If the goal is **a human writing less code**: burn is better — `TransformerEncoder` is one line instead of 200.
 
-**Решение — за владельцем, совместно с результатами наряда №175.**
+**The decision is up to the owner, together with the results of naryad #175.**

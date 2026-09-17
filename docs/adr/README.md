@@ -166,17 +166,17 @@ real ADRs (№309/№320/№412) before the booking.
 | 0124 | `Value::Vision` as opaque handle + `VisionRegistry` — Reflex patterns, VM-owned state | Accepted |
 | 0125 | Provenance and supply-chain gates for generated media | Accepted |
 | 0131 | Stable diagnostic codes for `mlog check` — extending the existing `audit.rs` convention, not a new one | Accepted |
-| 0132 | MCP-клиент — ручной JSON-RPC поверх stdio, stateless, вывод с taint `UserInput` | Accepted (утверждён владельцем 2026-09-12; taint-род вывода MCP |
+| 0132 | MCP client — manual JSON-RPC over stdio, stateless, output with taint `UserInput` | Accepted (approved by owner 2026-09-12; MCP output taint kind |
 | 0133 | `call_llm_schema` — structured LLM output through a hand-rolled JSON-Schema subset validator | Accepted |
-| 0134 | sqlite-vec как KNN-ускоритель semantic recall — вердикт спайка №271: Go | Accepted (вердикт-гейт диспатча #316: решён исполнителем по спайку 2026-09-12, как утверждено механикой гейтов) |
-| 0135 | Semantic cache (cache_semantic) + LRU-граница кэша ADR-0047 | Accepted |
-| 0136 | redact(text, mode) — PII/секреты как taint-санитайзер | Accepted (стоп-гейт СГ-2 утверждён владельцем 2026-09-12) |
+| 0134 | sqlite-vec as a KNN accelerator for semantic recall — spike #271 verdict: Go | Accepted (dispatch verdict gate #316: resolved by the spike executor 2026-09-12, as approved by the gate mechanics) |
+| 0135 | Semantic cache (cache_semantic) + LRU bound of the ADR-0047 cache | Accepted |
+| 0136 | redact(text, mode) — PII/secrets as a taint sanitizer | Accepted (stop-gate SG-2 approved by owner 2026-09-12) |
 | 0137 | LLM streaming — `llm_stream_open/next/close` over `reqwest::blocking` | Accepted |
 | 0138 | Per-call LLM traces — file-based JSONL with OpenTelemetry GenAI field names | Accepted |
-| 0139 | SMFS — экспорт памяти как виртуальной read-only ФС (`sm:`) | Proposed (черновик спайка №282; вердикт спайка |
+| 0139 | SMFS — memory export as a virtual read-only FS (`sm:`) | Proposed (spike #282 draft; spike verdict |
 | 0140 | Diagnostic codes — addendum (no-reuse rule + SSOT-registry discipline) | Accepted |
-| 0141 | VM production-readiness — staged gap closure + parity-gated default flip | Accepted (решение владельца 2026-09-14 |
-| 0142 | Error protocol — structural errors through try-extended semantics (candidate B) | Accepted (решение владельца 2026-09-14 |
+| 0141 | VM production-readiness — staged gap closure + parity-gated default flip | Accepted (owner decision 2026-09-14 |
+| 0142 | Error protocol — structural errors through try-extended semantics (candidate B) | Accepted (owner decision 2026-09-14 |
 | 0143 | Voice pillar — scope (TTS, zero-shot cloning, voice-design) | Accepted |
 | 0144 | Voice value-registry — `Value::Audio(AudioId)` opaque handle + VoiceRegistry | Accepted |
 | 0145 | Voice security gates — consent, provenance, privacy, taint | Accepted |

@@ -1,36 +1,36 @@
-# Наряд №175 — Разведка: `candle` vs `burn` как фундамент для локального обучения моделей
+# Naryad #175 — Recon: `candle` vs `burn` as a foundation for local model training
 
-> **Статус:** Research report — не архитектурное решение, материал для владельца.
-> **Дата:** 2026-09-04
-> **Приоритет:** Исследовательский, без единой строки реализации в Metalogos.
+> **Status:** Research report — not an architectural decision, material for the owner.
+> **Date:** 2026-09-04
+> **Priority:** Research; not a single line of implementation in Metalogos.
 
 ---
 
-## Блок 1 — Сравнение по 6 критериям
+## Block 1 — Comparison across 6 criteria
 
-### Сводная таблица
+### Summary table
 
-| Критерий | `candle-core` 0.11.0 + `candle-nn` 0.11.0 | `burn` 0.21.0 (ndarray + autodiff + train) |
+| Criterion | `candle-core` 0.11.0 + `candle-nn` 0.11.0 | `burn` 0.21.0 (ndarray + autodiff + train) |
 |---|---|---|
-| **1. Autograd** | Tape-based, через `Var` + `loss.backward()`. Стабилен с v0.1 (2023). `backward_step()` — одна строка. | `burn-autodiff` crate — обёртка над любым backend. Tape-based, через `backward()` + `GradientsParams`. Стабилен с 2022. Backend-agnostic. |
-| **2. Реальный размер зависимостей** | candle-core: 29 deps (12 platform-specific). candle-nn: 12 deps (4 platform-specific). Cross-platform: ~19. | burn umbrella: 23 sub-crates. burn-ndarray: 21 deps (BLAS, ndarray). burn-autodiff: 10 deps. Total transitive: ~300+. Build: 513s vs 157s. |
-| **3. FFI-эргономика** | Низкий порог: `Tensor::from_vec`, `forward`, `backward`, `SGD::new`. 2 попытки скомпилировать. Ложится на `Value::Struct` или `Value::Tensor`. | Высокий порог: `Backend` trait, derive macros, `GradientsParams` (не `Gradients`), `OptimizerAdaptor`. 5 попыток скомпилировать. Требует装箱 или `Value::Backend`. |
-| **4. CPU vs GPU** | CPU: `Device::Cpu`, нативный Rust через `gemm` (без BLAS). GPU: CUDA, Metal. CPU — first-class. | CPU: `NdArray` backend через BLAS/OpenBLAS. GPU: Wgpu, CUDA, ROCm, Tch. BLAS может быть быстрее на больших матрицах. |
-| **5. Активность** | Stars: 21K. Commits (6 мес): ~135. Issues: 892 (1:23 ratio). Hugging Face backing. Релизы каждые 2-3 мес. | Stars: 15.9K. Commits (6 мес): ~562 (4× больше). Issues: 288 (1:55 ratio). Релизы каждые 1-2 мес, pre-releases активны. |
-| **6. Лицензия** | Apache-2.0 ✅ | Apache-2.0 ✅ |
+| **1. Autograd** | Tape-based, via `Var` + `loss.backward()`. Stable since v0.1 (2023). `backward_step()` is one line. | The `burn-autodiff` crate — a wrapper over any backend. Tape-based, via `backward()` + `GradientsParams`. Stable since 2022. Backend-agnostic. |
+| **2. Real dependency footprint** | candle-core: 29 deps (12 platform-specific). candle-nn: 12 deps (4 platform-specific). Cross-platform: ~19. | burn umbrella: 23 sub-crates. burn-ndarray: 21 deps (BLAS, ndarray). burn-autodiff: 10 deps. Total transitive: ~300+. Build: 513s vs 157s. |
+| **3. FFI ergonomics** | Low barrier: `Tensor::from_vec`, `forward`, `backward`, `SGD::new`. 2 compile attempts. Maps onto `Value::Struct` or `Value::Tensor`. | High barrier: `Backend` trait, derive macros, `GradientsParams` (not `Gradients`), `OptimizerAdaptor`. 5 compile attempts. Requires boxing or `Value::Backend`. |
+| **4. CPU vs GPU** | CPU: `Device::Cpu`, native Rust via `gemm` (no BLAS). GPU: CUDA, Metal. CPU is first-class. | CPU: `NdArray` backend via BLAS/OpenBLAS. GPU: Wgpu, CUDA, ROCm, Tch. BLAS can be faster on large matrices. |
+| **5. Activity** | Stars: 21K. Commits (6 months): ~135. Issues: 892 (1:23 ratio). Hugging Face backing. Releases every 2-3 months. | Stars: 15.9K. Commits (6 months): ~562 (4× more). Issues: 288 (1:55 ratio). Releases every 1-2 months, pre-releases active. |
+| **6. License** | Apache-2.0 ✅ | Apache-2.0 ✅ |
 
 ---
 
-## Блок 2 — Минимальный практический тест
+## Block 2 — Minimal practical test
 
-### Тестовая задача
-2-layer MLP (2→8→1) на XOR (4 samples). 1000 epochs. CPU-only. Release build.
-- candle: `/home/z/my-project/research/candle-test/src/main.rs` (~50 строк)
-- burn: `/home/z/my-project/research/burn-test/src/main.rs` (~65 строк)
+### Test task
+2-layer MLP (2→8→1) on XOR (4 samples). 1000 epochs. CPU-only. Release build.
+- candle: `/home/z/my-project/research/candle-test/src/main.rs` (~50 lines)
+- burn: `/home/z/my-project/research/burn-test/src/main.rs` (~65 lines)
 
-### Результаты (реальные замеры)
+### Results (real measurements)
 
-| Метрика | candle 0.11.0 | burn 0.21.0 | Δ |
+| Metric | candle 0.11.0 | burn 0.21.0 | Δ |
 |---|---|---|---|
 | **Clean build** | **157s** (2m 37s) | **513s** (8m 32s) | burn 3.3× slower |
 | **Binary size** | **4.6 MB** | **6.0 MB** | burn 30% larger |
@@ -39,18 +39,18 @@
 | **Compile attempts** | 2 | 5 | candle 2.5× easier |
 | **Test code lines** | ~50 | ~65 | candle 23% less |
 
-*Не прямое сравнение: candle SGD vs burn Adam (Adam дороже за шаг).
+*Not a direct comparison: candle SGD vs burn Adam (Adam costs more per step).
 
-### Доп. наблюдения
-- candle deps: ~1.2GB в target/; burn deps: ~1.1GB
-- burn: каждая неудачная попытка компиляции стоила ~8 минут (deps компилировались)
-- burn: incremental build (только source) — 33s; candle: 0.5s
+### Additional observations
+- candle deps: ~1.2GB in target/; burn deps: ~1.1GB
+- burn: each failed compile attempt cost ~8 minutes (deps were being compiled)
+- burn: incremental build (source only) — 33s; candle: 0.5s
 
 ---
 
-## Блок 3 — Эскизы синтаксиса .mlog
+## Block 3 — .mlog syntax sketches
 
-### Эскиз 1: Декларативный (одна команда описывает методологию)
+### Sketch 1: Declarative (a single command describes the methodology)
 
 ```mlog
 train_model {
@@ -63,7 +63,7 @@ train_model {
 }
 ```
 
-### Эскиз 2: Программный (композируемый, для продвинутых случаев)
+### Sketch 2: Programmatic (composable, for advanced cases)
 
 ```mlog
 learnable architecture GptMini(vocab: Float, d_model: Float) -> Model {
@@ -87,7 +87,7 @@ pattern TrainCorpus(input: String) -> String {
 flow Main { input: String = "start" -> TrainCorpus -> output }
 ```
 
-### Эскиз 3: Инференс после обучения (fallback к API LLM)
+### Sketch 3: Inference after training (fallback to LLM API)
 
 ```mlog
 entity local_model: Model = load_model("./model.safetensors")
@@ -103,48 +103,48 @@ pattern SmartClassify(text: String) -> String {
 
 ---
 
-## Рекомендация: **candle**
+## Recommendation: **candle**
 
-### Обоснование
+### Rationale
 
-1. **Build time критичен.** FEATURE_INTAKE.md hard limit 120s. burn добавит 513s (4× превышение). candle — 157s (приемлемо, можно поднять лимит до 240s).
+1. **Build time is critical.** FEATURE_INTAKE.md hard limit 120s. burn would add 513s (4× over the limit). candle — 157s (acceptable; the limit can be raised to 240s).
 
-2. **API простота.** candle — 2 попытки до компиляции. burn — 5 попыток. Для интеграции в язык (где каждый builtin должен быть надёжным) простота API = меньше багов.
+2. **API simplicity.** candle — 2 compile attempts. burn — 5 attempts. For language integration (where every builtin must be reliable) API simplicity = fewer bugs.
 
-3. **Binary size.** 4.6MB vs 6.0MB. Metalogos binary сейчас ~6MB — candle удвоит, burn утроит.
+3. **Binary size.** 4.6MB vs 6.0MB. The Metalogos binary is currently ~6MB — candle would double it, burn would triple it.
 
-4. **Hugging Face экосистема.** candle — часть HF (safetensors, tokenizers уже в Metalogos). Совместимость форматов, pretrained weights из HF Hub — бесплатно.
+4. **Hugging Face ecosystem.** candle is part of HF (safetensors, tokenizers already in Metalogos). Format compatibility, pretrained weights from HF Hub — free.
 
-5. **CPU-first.** candle работает на CPU без BLAS (нативный Rust через `gemm`). burn требует BLAS (OpenBLAS) — C-зависимость, усложняет кросс-компиляцию.
+5. **CPU-first.** candle runs on CPU without BLAS (native Rust via `gemm`). burn requires BLAS (OpenBLAS) — a C dependency that complicates cross-compilation.
 
-### Слабые стороны candle (честно)
+### candle weaknesses (honest)
 
-1. **Меньше слоёв из коробки.** candle-nn: Linear, Conv, Embedding, RNN. burn-nn: шире (BatchNorm, LayerNorm, Dropout, Attention). Недостающие слои придётся писать вручную.
+1. **Fewer layers out of the box.** candle-nn: Linear, Conv, Embedding, RNN. burn-nn: broader (BatchNorm, LayerNorm, Dropout, Attention). The missing layers will have to be written manually.
 
-2. **Нет встроенного training loop.** candle не имеет `Learner`/`TrainingStep`. burn-train: dataloaders, metrics, learner. Для Metalogos может быть плюсом — больше контроля.
+2. **No built-in training loop.** candle has no `Learner`/`TrainingStep`. burn-train: dataloaders, metrics, learner. For Metalogos this may be a plus — more control.
 
-3. **SGD без momentum.** Встроенный `candle_nn::SGD` не поддерживает momentum. `candle_nn::Adam` существует, но потребует проверки API.
+3. **SGD without momentum.** The built-in `candle_nn::SGD` does not support momentum. `candle_nn::Adam` exists, but will require API verification.
 
-4. **Меньше примеров.** burn: 20+ examples (MNIST, text-classification, DQN). candle: меньше, но HF Hub компенсирует.
+4. **Fewer examples.** burn: 20+ examples (MNIST, text-classification, DQN). candle: fewer, but the HF Hub compensates.
 
-5. **Open issues: 892** (vs burn 288). При 21K stars это ожидаемо — широкая аудитория = больше edge cases.
+5. **Open issues: 892** (vs burn 288). At 21K stars this is expected — a wide audience = more edge cases.
 
-### Когда burn лучше candle
+### When burn is better than candle
 
-- Мульти-GPU распределённое обучение (`burn-collective`)
-- BLAS-ускорение на матрицах >512×512
-- Backend-agnostic hot-swap (CPU↔GPU↔Wgpu без перекомпиляции)
-- `burn-train Learner` абстракция экономит достаточно кода
+- Multi-GPU distributed training (`burn-collective`)
+- BLAS speedup on matrices >512×512
+- Backend-agnostic hot-swap (CPU↔GPU↔Wgpu without recompilation)
+- The `burn-train Learner` abstraction saves enough code
 
 ---
 
-## Итоговая сводка
+## Final summary
 
 | | candle | burn |
 |---|---|---|
 | Build time | **157s** ✅ | 513s ❌ |
 | Binary size | **4.6MB** ✅ | 6.0MB |
-| API простота | **2 attempts** ✅ | 5 attempts |
+| API simplicity | **2 attempts** ✅ | 5 attempts |
 | Epoch time (CPU) | **117µs** ✅ | 167µs |
 | Depend depth | **~19** ✅ | ~300+ |
 | License | Apache-2.0 ✅ | Apache-2.0 ✅ |
@@ -153,6 +153,6 @@ pattern SmartClassify(text: String) -> String {
 | Layer variety | Basic | **Comprehensive** ✅ |
 | HF compatibility | **Native** ✅ | Via import |
 
-**Рекомендация: candle** — прагматичный выбор (build time, binary size, API простота, HF экосистема).
+**Recommendation: candle** — the pragmatic choice (build time, binary size, API simplicity, HF ecosystem).
 
-**Решение — за владельцем.**
+**The decision rests with the owner.**

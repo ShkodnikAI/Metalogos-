@@ -1,81 +1,81 @@
 # ADR-0142: Error protocol — structural errors through try-extended semantics (candidate B)
 
-**Status:** Accepted + IMPLEMENTED (решение владельца 2026-09-14 — GO на research + ADR; приоритет кандидат (б) — расширение try-семантики; финальный выбор кандидата — после ADR). **Реализовано в наряде №374** (2026-09-16): `try` → `Struct { ok, value, error }` на обоих бэкендах через общий билдер `try_result_struct` (`src/interpreter/values.rs`); миграция `== Unit` → `.ok == false`; golden-примеры мигрированы без изменения выходов.
+**Status:** Accepted + IMPLEMENTED (owner decision 2026-09-14 — GO for research + ADR; priority candidate (b) — extending try-semantics; the final candidate choice — after the ADR). **Implemented in naryad #374** (2026-09-16): `try` → `Struct { ok, value, error }` on both backends via the shared builder `try_result_struct` (`src/interpreter/values.rs`); migration `== Unit` → `.ok == false`; golden examples migrated with no output changes.
 **Date:** 2026-09-14
 **Naryad:** #298 (issue #362, P1/adr — ERR_PROTOCOL)
-**Amends:** ADR-0106 (Option/Result — not introduced, soft-failure remains the error model) — error-struct ≠ Option/Result типы; ADR-0106 не пересматривается, только аннотируется примечанием.
-**Precedent:** Наряд №91 (TryEval — try expr → Unit on error), ADR-0131/0140 (stable diagnostic codes — UPPER_SNAKE_CASE, no-reuse rule), ADR-0106 (soft-failure model).
+**Amends:** ADR-0106 (Option/Result — not introduced, soft-failure remains the error model) — the error-struct is not the Option/Result types; ADR-0106 is not revisited, only annotated with a note.
+**Precedent:** Naryad #91 (TryEval — try expr → Unit on error), ADR-0131/0140 (stable diagnostic codes — UPPER_SNAKE_CASE, no-reuse rule), ADR-0106 (soft-failure model).
 
 ## Context
 
-Metalogos использует громкие runtime-ошибки (`Result<Value, String>`) — осознанный дефолт (ADR-0106). `try` (Наряд №91) возвращает `Unit` при ошибке, теряя информацию об ошибке. Для больших agentic-приложений (Fosved: dept-handlers, chain patterns) это реальная боль — нет способа структурированно обработать ошибку (код, сообщение, позиция) без теряемой информации.
+Metalogos uses loud runtime errors (`Result<Value, String>`) — a deliberate default (ADR-0106). `try` (Naryad #91) returns `Unit` on error, losing the error information. For large agentic applications (Fosved: dept-handlers, chain patterns) this is a real pain — there is no way to handle an error in a structured way (code, message, position) without losing information.
 
-Option/Result-типы ЯВНО отвергнуты (ADR-0106, Rejected). Наряд — НЕ «добавить Result» (запрещено без supersede), а research + ADR: стандартизированный error-protocol через расширение существующих конструкций (`try` №91).
+Option/Result types are EXPLICITLY rejected (ADR-0106, Rejected). The naryad is NOT "add Result" (forbidden without a supersede) but research + ADR: a standardized error protocol via extending existing constructs (`try` #91).
 
-Research-док: `docs/research/error-protocol-prior-art.md` — prior art (Go error values, Lua pcall, Erlang tagged tuples, Elm Result), текущее состояние Metalogos, 3 кандидата, сценарии Fosved, оценка breaking-поверхности.
+Research doc: `docs/research/error-protocol-prior-art.md` — prior art (Go error values, Lua pcall, Erlang tagged tuples, Elm Result), the current state of Metalogos, 3 candidates, Fosved scenarios, breaking-surface assessment.
 
-## Decision (3 кандидата, приоритет (б))
+## Decision (3 candidates, priority (b))
 
-### Кандидат (а) — стандартный error-struct + `?`-оператор раннего возврата
+### Candidate (a) — a standard error-struct + the `?` early-return operator
 ```mlog
 let r = call_llm("...") ?  # early return on error
 ```
-- Новый оператор `?` (грамматика).
-- Новый error-struct shape: `{ code: String, message: String, span: Option<Struct> }`.
-- Изменение сигнатур builtins — возврат Struct вместо String при ошибке.
-- **Breaking surface**: грамматика + builtins + старый код.
-- **Отвергнут** владельцем как приоритет (но не исключён — финальный выбор после ADR).
+- A new `?` operator (grammar).
+- A new error-struct shape: `{ code: String, message: String, span: Option<Struct> }`.
+- Changed builtin signatures — returning Struct instead of String on error.
+- **Breaking surface**: grammar + builtins + old code.
+- **Rejected** by the owner as the priority (but not ruled out — the final choice comes after the ADR).
 
-### Кандидат (б) — расширение try-семантики до структурных ошибок (ПРИОРИТЕТ)
+### Candidate (b) — extending try-semantics to structural errors (PRIORITY)
 ```mlog
 let r = try call_llm("...")
 # r = Struct { ok: Bool, value: String, error: Option<Struct> }
 if r.ok then { respond("200", r.value) } else { respond("500", r.error.message) }
 ```
-- `try` возвращает `Struct { ok: Bool, value: Value, error: Option<Struct{code, message}> }` вместо `Unit` при ошибке.
-- Грамматика — БЕЗ ИЗМЕНЕНИЙ (try уже в языке).
-- Builtins — БЕЗ ИЗМЕНЕНИЙ.
-- Старый код: `if try_result == Unit` — ломается (Unit ≠ Struct). Обратная несовместимость.
-- **Совместимость**: можно ввести `try` как есть (возвращает Unit) и `try_struct` (или `try?`) как новый вариант (возвращает Struct). Но это = кандидат (а).
-- **Альтернатива**: изменить `try` на возвращение Struct, с backward-compat: `if result == Unit` → `Unit` is NOT `Struct { ok: false }` → old code breaks. Migration: `if result.ok` replaces `if result == Unit`.
-- **Breaking surface**: только старый код, который проверяет `try x == Unit`. Минимальный.
-- **Синергия**: `code` field = ADR-0131/0140 stable codes (UPPER_SNAKE_CASE).
-- **Усилия**: ~1 наряд для реализации (TryEval → TryEvalStruct opcode, VM dispatch, interpreter try-eval → Struct, tests).
+- `try` returns `Struct { ok: Bool, value: Value, error: Option<Struct{code, message}> }` instead of `Unit` on error.
+- Grammar — UNCHANGED (try is already in the language).
+- Builtins — UNCHANGED.
+- Old code: `if try_result == Unit` — breaks (Unit ≠ Struct). Backward incompatibility.
+- **Compatibility**: one could keep `try` as is (returns Unit) and introduce `try_struct` (or `try?`) as a new variant (returns Struct). But that = candidate (a).
+- **Alternative**: change `try` to return a Struct, with backward-compat: `if result == Unit` → `Unit` is NOT `Struct { ok: false }` → old code breaks. Migration: `if result.ok` replaces `if result == Unit`.
+- **Breaking surface**: only old code that checks `try x == Unit`. Minimal.
+- **Synergy**: `code` field = ADR-0131/0140 stable codes (UPPER_SNAKE_CASE).
+- **Effort**: ~1 naryad to implement (TryEval → TryEvalStruct opcode, VM dispatch, interpreter try-eval → Struct, tests).
 
-### Кандидат (в) — статус-кво + документированный паттерн
-- `try` остаётся как есть (Unit при ошибке).
-- Error-handling pattern документирован.
-- **Breaking surface**: ноль.
-- **Отвергнут** владельцем (не решает проблему).
+### Candidate (c) — status quo + a documented pattern
+- `try` stays as is (Unit on error).
+- The error-handling pattern is documented.
+- **Breaking surface**: zero.
+- **Rejected** by the owner (does not solve the problem).
 
-### D1. Выбранный кандидат: (б) — расширение try-семантики
-- `try expr` → при ошибке возвращает `Struct { ok: false, value: Unit, error: Some(Struct{ code: "RUNTIME_ERROR", message: "..." }) }`; при успехе — `Struct { ok: true, value: <result>, error: None }`.
-- `code` field — stable per ADR-0131/0140 convention (UPPER_SNAKE_CASE, no-reuse). Для runtime errors — новый namespace category `"runtime"` (vs existing `"security"`/`"semantic"`).
+### D1. Selected candidate: (b) — extending try-semantics
+- `try expr` → on error returns `Struct { ok: false, value: Unit, error: Some(Struct{ code: "RUNTIME_ERROR", message: "..." }) }`; on success — `Struct { ok: true, value: <result>, error: None }`.
+- `code` field — stable per the ADR-0131/0140 convention (UPPER_SNAKE_CASE, no-reuse). For runtime errors — a new namespace category `"runtime"` (vs the existing `"security"`/`"semantic"`).
 - `message` field — human-readable, may change freely (the code is the contract, not the prose — ADR-0131 principle).
 - `span` field — optional, for source-position (future; not in v1).
 
 ### D2. Backward compatibility
-- Старый код: `if try_result == Unit` → ломается (Unit ≠ Struct).
-- Migration path: `if result.ok` (или `if not result.ok` для error-branch).
-- ADR-0106 аннотируется: error-struct ≠ Option/Result типы; soft-failure model остаётся (empty string / Unit / false для optional paths); `try` с Struct — для critical-path error-handling, не замена soft-failure.
+- Old code: `if try_result == Unit` → breaks (Unit ≠ Struct).
+- Migration path: `if result.ok` (or `if not result.ok` for the error branch).
+- ADR-0106 is annotated: the error-struct is not the Option/Result types; the soft-failure model remains (empty string / Unit / false for optional paths); `try` with Struct is for critical-path error-handling, not a replacement for soft-failure.
 
-### D3. Реализация — ОТДЕЛЬНЫЙ наряд
-- Этот ADR фиксирует решение; реализация (opcode TryEvalStruct, VM dispatch, interpreter, tests) — отдельный наряд после принятия ADR.
-- Не реализовывать в этом наряде (контракт: research + ADR only).
+### D3. Implementation — a SEPARATE naryad
+- This ADR fixes the decision; implementation (opcode TryEvalStruct, VM dispatch, interpreter, tests) is a separate naryad after the ADR is accepted.
+- Do not implement in this naryad (contract: research + ADR only).
 
 ## Consequences
 
-- `try` перестаёт возвращать `Unit` при ошибке — возвращает `Struct`. Старый код, проверяющий `try x == Unit`, ломается. Migration: `if result.ok`.
-- Error-struct с `code` field — синергия с ADR-0131/0140 stable codes. Коды для runtime errors — новые (namespace `"runtime"`), но follow ту же UPPER_SNAKE_CASE + no-reuse дисциплину.
-- Soft-failure model (ADR-0106) остаётся для optional paths (`kv_get`/`recall`/`query_param` → `""`). `try` с Struct — для critical-path error-handling.
-- ADR-0106 не отменяется, только аннотируется (error-struct ≠ Option/Result; soft-failure остаётся; `try` — extension, не замена).
-- Реализация — отдельный наряд (~1 наряд по прецеденту №91).
+- `try` stops returning `Unit` on error — it returns a `Struct`. Old code checking `try x == Unit` breaks. Migration: `if result.ok`.
+- The error-struct with the `code` field — synergy with ADR-0131/0140 stable codes. Codes for runtime errors are new (namespace `"runtime"`) but follow the same UPPER_SNAKE_CASE + no-reuse discipline.
+- The soft-failure model (ADR-0106) remains for optional paths (`kv_get`/`recall`/`query_param` → `""`). `try` with Struct is for critical-path error-handling.
+- ADR-0106 is not canceled, only annotated (error-struct ≠ Option/Result; soft-failure remains; `try` is an extension, not a replacement).
+- Implementation — a separate naryad (~1 naryad, per precedent #91).
 
 ## Addendum: ADR-0106 annotation
 
-ADR-0106 §Decision (Option/Result — Rejected) остаётся в силе. Error-struct (кандидат (б)) — это не Option/Result тип; это:
-- Расширение существующей `try`-механики (Наряд №91) до возврата структурированной информации об ошибке.
-- Struct value (уже есть в языке), не новый type.
-- Soft-failure model (empty string / Unit / false) остаётся для optional paths.
-- Critical-path error-handling через `try` → Struct — отдельный паттерн, не замена soft-failure.
-- ADR-0106 «soft-failure remains the error model» — верно для optional paths; для critical-path errors — `try` → Struct добавляет structured error-handling without introducing Result.
+ADR-0106 §Decision (Option/Result — Rejected) remains in force. The error-struct (candidate (b)) is not an Option/Result type; it is:
+- An extension of the existing `try` mechanics (Naryad #91) to return structured error information.
+- A Struct value (already in the language), not a new type.
+- The soft-failure model (empty string / Unit / false) remains for optional paths.
+- Critical-path error-handling via `try` → Struct — a separate pattern, not a replacement for soft-failure.
+- ADR-0106 "soft-failure remains the error model" — true for optional paths; for critical-path errors — `try` → Struct adds structured error-handling without introducing Result.

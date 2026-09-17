@@ -1,233 +1,233 @@
-# Наряд №267 — Разведка: MCP-клиент для Metalogos (транспорт, реализация, security-дизайн, scope v1)
+# Naryad #267 — Reconnaissance: MCP client for Metalogos (transport, implementation, security design, v1 scope)
 
-> **Статус:** Research report + черновик ADR-0132 — не производственный код. Материал для решения владельца (стоп-гейт 1 диспатча №267–279).
-> **Дата:** 2026-09-11
-> **Приоритет:** P0 (блокирует №268 — MCP stdio-клиент).
-> **Метод:** все внешние факты сняты 2026-09-11 из первичных источников (crates.io API, GitHub API, сырые файлы спецификации `modelcontextprotocol/modelcontextprotocol@2026-07-28`), все внутренние — grep'ом по `src/` v0.19.0 на коммите `e5eb2c8`. Ничего «по памяти».
-
----
-
-## Блок 0 — Факт-чек стартовой постановки
-
-Постановка наряда подтверждается по коду v0.19.0:
-
-- MCP в кодовой базе отсутствует полностью: `grep -ri "model context protocol\|mcp_" src/` — 0 совпадений по смыслу (совпадения `mcp_` отсутствуют; единственные вхождения подстроки «mcp» — случайные внутри других идентификаторов и не относятся к протоколу).
-- Конструкция `tool` реализована и жива: `Declaration::Tool` в `src/ast.rs` (ADR-0054), контракт-пин — 9 тестов в `tests/tool_abstraction_contract.rs`.
-- LLM-контур есть: `call_llm`/`call_claude` → SmartRouter (наряд №4), `llm_usage`; taint-род `LlmOutput` для их результата (`src/audit.rs`, `TaintKind`).
-- Исходящий HTTP есть: `http_get`/`http_post`/`http_post_multipart`/`http_download` на `reqwest 0.12 (blocking)`, закрытые SSRF-пакетом №261 (редиректы не следуются, адресные классы расширены).
-- Exec-гейты №253-А работают в `src/builtins/io.rs`: SSOT-функция `exec_gate(context)` с `ExecContext::Process` / `ExecContext::ServeRoute`, код `EXEC_NOT_PERMITTED`, аудит subprocess в `METALOGOS_AUDIT_LOG_PATH`.
-- ADR-0054 §Future Directions фиксирует только **обратный** мост («Expose Metalogos tools as MCP tools» — мы как сервер). Прямой мост (мы как клиент к чужим MCP-серверам) нигде не спроектирован. Диспатч №267–279 относит обратный мост к работе **после** №268.
-
-Вывод: интеграционная поверхность — новый код с нуля; переиспользуемое окружение — exec-гейты, taint-система, audit log, `serde_json` (уже в дереве).
+> **Status:** Research report + ADR-0132 draft — not production code. Input material for the owner's decision (stop-gate 1 of dispatch #267–279).
+> **Date:** 2026-09-11
+> **Priority:** P0 (blocks #268 — the MCP stdio client).
+> **Method:** all external facts captured 2026-09-11 from primary sources (crates.io API, GitHub API, raw files of the `modelcontextprotocol/modelcontextprotocol@2026-07-28` specification), all internal ones — via grep over `src/` of v0.19.0 at commit `e5eb2c8`. Nothing "from memory".
 
 ---
 
-## Блок 1 — Транспорт: `stdio` vs `streamable HTTP`
+## Block 0 — Fact-check of the starting task statement
 
-### Факты из спецификации (ревизия 2026-07-28 — актуальная стабильная)
+The naryad's task statement is confirmed against the v0.19.0 code:
 
-Теги спецификации: `2024-11-05` → `2025-03-26` → `2025-11-25` → **`2026-07-28`** (последняя стабильная, опубликована ~6 недель назад; следом в репо есть `draft`).
+- MCP is entirely absent from the codebase: `grep -ri "model context protocol\|mcp_" src/` — 0 meaningful matches (`mcp_` matches are absent; the only occurrences of the substring "mcp" are accidental, inside other identifiers, and unrelated to the protocol).
+- The `tool` construct is implemented and alive: `Declaration::Tool` in `src/ast.rs` (ADR-0054), contract pin — 9 tests in `tests/tool_abstraction_contract.rs`.
+- The LLM circuit exists: `call_llm`/`call_claude` → SmartRouter (naryad #4), `llm_usage`; taint kind `LlmOutput` for their result (`src/audit.rs`, `TaintKind`).
+- Outbound HTTP exists: `http_get`/`http_post`/`http_post_multipart`/`http_download` on `reqwest 0.12 (blocking)`, closed off by SSRF package #261 (redirects are not followed, address classes extended).
+- Exec gates #253-A work in `src/builtins/io.rs`: the SSOT function `exec_gate(context)` with `ExecContext::Process` / `ExecContext::ServeRoute`, code `EXEC_NOT_PERMITTED`, subprocess audit in `METALOGOS_AUDIT_LOG_PATH`.
+- ADR-0054 §Future Directions records only the **reverse** bridge ("Expose Metalogos tools as MCP tools" — us as a server). The forward bridge (us as a client to third-party MCP servers) is not designed anywhere. Dispatch #267–279 assigns the reverse bridge to work **after** #268.
 
-`stdio` (`docs/specification/2026-07-28/basic/transports/stdio.mdx`), сверено дословно:
-
-- клиент запускает MCP-сервер как **subprocess**; обмен — JSON-RPC 2.0 по `stdin`/`stdout`;
-- сообщения разделяются **переводами строк**, встроенные `\n` внутри сообщения **запрещены** (MUST NOT) — framing тривиален: построчное чтение + `serde_json::from_str`;
-- `stderr` — только логи; клиент MAY захватывать/игнорировать и SHOULD NOT считать его признаком ошибки;
-- сервер MUST NOT писать в `stdout` ничего, кроме валидных MCP-сообщений; клиент MUST NOT писать в `stdin` ничего, кроме валидных сообщений; клиент вообще не пишет responses (только requests/notifications);
-- жизненный цикл: shutdown = закрыть поток; перезапуск процесса — ответственность клиента;
-- спека прямо разрешает переиспользование этого же framing поверх Unix-сокетов/TCP, но subprocess-семантика (launch, stderr, shutdown) остаётся за нами.
-
-Ключевая новация ревизии 2026-07-28 (`basic/versioning.mdx`): протокол разделился на **modern** (версия/идентичность/возможности передаются per-request в `_meta`, сессии и `initialize`-handshake нет) и **legacy** (handshake `initialize` → `notifications/initialized`, ревизии ≤ 2025-11-25). Матрица совместимости спеки: legacy-клиент против modern-only сервера **не работает**; dual-era серверы обслуживают legacy-клиентов через `initialize`.
-
-`streamable HTTP` (`transports/streamable-http.mdx`): HTTP-транспорт с серверной авторизацией (отдельный раздел `basic/authorization/` — OAuth 2.0, discovery authorization-server'а, динамическая регистрация клиентов), `MCP-Protocol-Version` заголовком, SSE-потоками.
-
-### Выбор для v1: **stdio** — ровно один транспорт
-
-1. **Покрытие экосистемы.** Подавляющее большинство MCP-серверов 2026 года — локальные процессы (filesystem, git, sqlite, playwright, десятки эталонных из `modelcontextprotocol/servers`), запускаемые командой. stdio покрывает их весь.
-2. **Ноль авторизации.** streamable HTTP тянет за собой OAuth-контур спеки — отдельный проект по объёму, несовместимый с budget'ом №268 (3–5 дней) и с dependency-дисциплиной (см. Блок 2: официальные OAuth-крейты — `oauth2`, `jsonwebtoken`).
-3. **Натуральная посадка на security-модель.** stdio = subprocess = exec-гейты №253-А применяются «бесплатно» и по смыслу (запуск стороннего процесса — это и есть exec). Для streamable HTTP пришлось бы проектировать новый гейт исходящих соединений поверх SSRF-пакета №261 с другой семантикой (долгоживущая сессия против request/response).
-4. **Framing — одна функция.** Новline-delimited JSON-RPC поверх `std::process::Child` stdin/stdout: `BufReader::lines()` + `serde_json`. Вся специфика протокола умещается в handshake + 2 метода (Блок 4).
-
-**Отклонено для v1 — streamable HTTP:** OAuth-поверхность, SSE-потоки, session-менеджмент; переносится в Future в ADR-0132. Возврат к вопросу — по реальному use-case (первый удалённый MCP-сервер, который нужен владельцу).
-
-**Граница совместимости v1 (честно):** наш клиент говорит **legacy** (`initialize`-handshake) — это покрывает все серверы ревизий 2024-11-05…2025-11-25 и все dual-era серверы. Modern-only серверы (ревизия 2026-07-28 без legacy-режима) v1 не поддержит — по матрице спеки это осознанный разрыв, зафиксированный в ADR-0132 как Future. На сегодня доля modern-only серверов пренебрежимо мала (ревизии ~6 недель, SDK-поддержка legacy сохранена у всех мажорных SDK).
+Conclusion: the integration surface is new code from scratch; the reusable surroundings are exec gates, the taint system, the audit log, `serde_json` (already in the tree).
 
 ---
 
-## Блок 2 — Реализация: официальный Rust SDK (`rmcp`) vs ручной JSON-RPC-клиент
+## Block 1 — Transport: `stdio` vs `streamable HTTP`
 
-### 2.1 Фактический профиль `rmcp` (официальный SDK, crates.io + GitHub API, снято 2026-09-11)
+### Facts from the specification (revision 2026-07-28 — the current stable)
 
-| Параметр | Факт |
+Specification tags: `2024-11-05` → `2025-03-26` → `2025-11-25` → **`2026-07-28`** (the latest stable, published ~6 weeks ago; a `draft` follows it in the repo).
+
+`stdio` (`docs/specification/2026-07-28/basic/transports/stdio.mdx`), verified verbatim:
+
+- the client launches the MCP server as a **subprocess**; the exchange is JSON-RPC 2.0 over `stdin`/`stdout`;
+- messages are separated by **newlines**; embedded `\n` inside a message is **forbidden** (MUST NOT) — framing is trivial: line-by-line reading + `serde_json::from_str`;
+- `stderr` — logs only; the client MAY capture/ignore it and SHOULD NOT treat it as a sign of error;
+- the server MUST NOT write anything but valid MCP messages to `stdout`; the client MUST NOT write anything but valid messages to `stdin`; the client does not write responses at all (only requests/notifications);
+- lifecycle: shutdown = close the stream; restarting the process is the client's responsibility;
+- the spec explicitly permits reusing the same framing over Unix sockets/TCP, but the subprocess semantics (launch, stderr, shutdown) remain ours.
+
+The key innovation of the 2026-07-28 revision (`basic/versioning.mdx`): the protocol split into **modern** (version/identity/capabilities are passed per-request in `_meta`; no sessions, no `initialize` handshake) and **legacy** (the handshake `initialize` → `notifications/initialized`, revisions ≤ 2025-11-25). The spec's compatibility matrix: a legacy client against a modern-only server **does not work**; dual-era servers serve legacy clients via `initialize`.
+
+`streamable HTTP` (`transports/streamable-http.mdx`): an HTTP transport with server-side authorization (a separate section `basic/authorization/` — OAuth 2.0, authorization-server discovery, dynamic client registration), the `MCP-Protocol-Version` header, SSE streams.
+
+### Choice for v1: **stdio** — exactly one transport
+
+1. **Ecosystem coverage.** The overwhelming majority of 2026 MCP servers are local processes (filesystem, git, sqlite, playwright, dozens of reference ones from `modelcontextprotocol/servers`) launched by a command. stdio covers all of them.
+2. **Zero authorization.** streamable HTTP drags in the spec's OAuth circuit — a separate project by volume, incompatible with the #268 budget (3–5 days) and with dependency discipline (see Block 2: the official OAuth crates are `oauth2`, `jsonwebtoken`).
+3. **Natural fit with the security model.** stdio = subprocess = exec gates #253-A apply "for free" and by meaning (launching a third-party process is precisely exec). For streamable HTTP we would have to design a new outbound-connection gate on top of SSRF package #261 with different semantics (a long-lived session vs request/response).
+4. **Framing — one function.** Newline-delimited JSON-RPC over `std::process::Child` stdin/stdout: `BufReader::lines()` + `serde_json`. All protocol specifics fit into a handshake + 2 methods (Block 4).
+
+**Rejected for v1 — streamable HTTP:** OAuth surface, SSE streams, session management; moved to Future in ADR-0132. Revisit the question on a real use case (the first remote MCP server the owner actually needs).
+
+**v1 compatibility boundary (honest):** our client speaks **legacy** (the `initialize` handshake) — this covers all servers of revisions 2024-11-05…2025-11-25 and all dual-era servers. Modern-only servers (revision 2026-07-28 without a legacy mode) will not be supported by v1 — per the spec's compatibility matrix this is a deliberate break, recorded in ADR-0132 as Future. Today the share of modern-only servers is negligible (the revision is ~6 weeks old; all major SDKs retain legacy support).
+
+---
+
+## Block 2 — Implementation: the official Rust SDK (`rmcp`) vs a hand-rolled JSON-RPC client
+
+### 2.1 Factual profile of `rmcp` (the official SDK, crates.io + GitHub API, captured 2026-09-11)
+
+| Parameter | Fact |
 |---|---|
-| Крейт | `rmcp` — «Rust SDK for Model Context Protocol», репо `modelcontextprotocol/rust-sdk` (официальный org спецификации) |
-| Версия | **3.3.0** (выход 2026-09-10, т.е. вчера; релизная частота лета 2026: 3.1.2 2026-08-07, 3.1.3 2026-08-17, 3.1.4 2026-08-20, 3.2.0 2026-08-31, 3.3.0 2026-09-10 — релиз каждые 1–2 недели) |
-| Лицензия | Apache-2.0 (в метаданных crates.io на версию; GitHub-репо показывает NOASSERTION из-за файла-исключения — для дерева важна crates.io-метка) |
-| Активность | 3915 stars, 51 open issue, последний push 2026-09-11 (текущий день) — поддерживается активно |
-| Adoption | 25 731 586 суммарных загрузок, 13 230 132 за последние ~90 дней |
+| Crate | `rmcp` — "Rust SDK for Model Context Protocol", repo `modelcontextprotocol/rust-sdk` (the specification's official org) |
+| Version | **3.3.0** (released 2026-09-10, i.e. yesterday; summer 2026 release cadence: 3.1.2 2026-08-07, 3.1.3 2026-08-17, 3.1.4 2026-08-20, 3.2.0 2026-08-31, 3.3.0 2026-09-10 — a release every 1–2 weeks) |
+| License | Apache-2.0 (in the crates.io metadata of the version; the GitHub repo shows NOASSERTION due to an exception file — what matters for the tree is the crates.io label) |
+| Activity | 3915 stars, 51 open issues, last push 2026-09-11 (the current day) — actively maintained |
+| Adoption | 25 731 586 total downloads, 13 230 132 over the last ~90 days |
 
-### 2.2 Зависимости `rmcp 3.3.0` — фактический подсчёт (crates.io `/v1/crates/rmcp/3.3.0/dependencies`)
+### 2.2 Dependencies of `rmcp 3.3.0` — actual count (crates.io `/v1/crates/rmcp/3.3.0/dependencies`)
 
-Неопциональные `normal`-зависимости ядра (то, что входит в дерево при любом использовании):
+Non-optional `normal` dependencies of the core (what enters the tree under any use):
 
-`chrono`, `futures`, `indexmap`, `pin-project-lite`, `serde`, `serde_json`, `thiserror`, `tokio`, `tokio-util`, `tracing` — **10 крейтов** (плюс `rmcp-macros`, помеченный optional — нужен для derive-макросов server-стороны, для роли клиента не обязателен).
+`chrono`, `futures`, `indexmap`, `pin-project-lite`, `serde`, `serde_json`, `thiserror`, `tokio`, `tokio-util`, `tracing` — **10 crates** (plus `rmcp-macros`, marked optional — needed for server-side derive macros, not required for the client role).
 
-Транспортные фичи — optional: stdio-клиент тянет `pastey`, `process-wrap ^10`, `which ^8`; streamable-HTTP тянет `reqwest ^0.13.2`, `hyper`, `hyper-util`, `http*`, `sse-stream`, `oauth2 ^5`, `jsonwebtoken ^11`, `base64`, `hmac`, `sha2`, `rand`, `zeroize`, `url`, `uuid`, `tokio-stream`, `tower-service`, `async-trait`.
+Transport features are optional: the stdio client pulls in `pastey`, `process-wrap ^10`, `which ^8`; streamable-HTTP pulls in `reqwest ^0.13.2`, `hyper`, `hyper-util`, `http*`, `sse-stream`, `oauth2 ^5`, `jsonwebtoken ^11`, `base64`, `hmac`, `sha2`, `rand`, `zeroize`, `url`, `uuid`, `tokio-stream`, `tower-service`, `async-trait`.
 
-### 2.3 Расклад на дерево Metalogos
+### 2.3 Impact on the Metalogos tree
 
-Текущее состояние (Cargo.toml v0.19.0, **47 прямых зависимостей**): `tokio` уже есть (прямая, features = ["full"] — для serve), `serde`/`serde_json`/`thiserror`/`chrono` уже есть, `reqwest 0.12` уже есть.
+Current state (Cargo.toml v0.19.0, **47 direct dependencies**): `tokio` is already present (direct, features = ["full"] — for serve), `serde`/`serde_json`/`thiserror`/`chrono` are already present, `reqwest 0.12` is already present.
 
-| Сценарий | Новые крейты в дереве | Против FEATURE_INTAKE §5 |
+| Scenario | New crates in the tree | Against FEATURE_INTAKE §5 |
 |---|---|---|
-| Ручной JSON-RPC-клиент (`std::process` + `serde_json`) | **0** | Уложились бы даже в warning-порог (2) |
-| `rmcp` + stdio-фича | `rmcp`, `futures`, `indexmap`, `tokio-util`, `tracing`, `pin-project-lite` + транспорт: `process-wrap`, `which`, `pastey` = **9** | **Превышен hard-лимит 5** |
-| `rmcp` + streamable-HTTP-фича | 9 из строки выше + `reqwest 0.13` (двойная версия рядом с нашей 0.12!), `hyper*`, `sse-stream`, `oauth2`, `jsonwebtoken`, … = **15+** | Превышен втрое |
+| Hand-rolled JSON-RPC client (`std::process` + `serde_json`) | **0** | Would fit even under the warning threshold (2) |
+| `rmcp` + stdio feature | `rmcp`, `futures`, `indexmap`, `tokio-util`, `tracing`, `pin-project-lite` + transport: `process-wrap`, `which`, `pastey` = **9** | **Hard limit of 5 exceeded** |
+| `rmcp` + streamable-HTTP feature | the 9 from the row above + `reqwest 0.13` (a duplicate version next to our 0.12!), `hyper*`, `sse-stream`, `oauth2`, `jsonwebtoken`, … = **15+** | Exceeded threefold |
 
-Отдельно про двойную версию `reqwest`: rmcp 3.3.0 требует `^0.13.2`, дерево Metalogos закреплено на 0.12 — cargo растащит обе мажорные версии параллельно (дублирование TLS-стека в бинаре; наш binary-size бюджет — warning на 8 MB).
+A separate note on the duplicate `reqwest` version: rmcp 3.3.0 requires `^0.13.2`, the Metalogos tree is pinned to 0.12 — cargo will carry both major versions in parallel (a duplicated TLS stack in the binary; our binary-size budget is a warning at 8 MB).
 
-### 2.4 Async-модель — ожидание постановки подтверждено фактом
+### 2.4 Async model — the task statement's expectation confirmed by fact
 
-Постановка ожидала «SDK почти наверняка tokio-async». **Подтверждено**: `tokio ^1` — неопциональная не-dev зависимость ядра rmcp (рядом `futures`, `tokio-util`); публичный API SDK — `async`-трейты (`ServiceExt`, async-транспортные коннекторы).
+The task statement expected "the SDK is almost certainly tokio-async". **Confirmed**: `tokio ^1` is a non-optional non-dev core dependency of rmcp (alongside `futures`, `tokio-util`); the SDK's public API is `async` traits (`ServiceExt`, async transport connectors).
 
-Совместимость с рантаймом Metalogos (факты):
+Compatibility with the Metalogos runtime (facts):
 
-- TW и VM — синхронные интерпретаторы; билтины — блокирующие функции `Result<Value, String>`.
-- `mlog serve` строит tokio multi-thread runtime (`src/main.rs:480`), но обработчики роутов исполняют DSL через `spawn_blocking` (5 мест в `src/server.rs`, ADR-0096) — т.е. даже в serve билтин вызывается **вне** async-контекста, в блокирующем потоке.
-- `mlog run` (CLI) постоянного runtime не держит; `reqwest::blocking` внутри себя поднимает собственный одноразовый runtime — этот паттерн работает именно потому, что вызов билтина синхронен.
+- TW and VM are synchronous interpreters; builtins are blocking functions returning `Result<Value, String>`.
+- `mlog serve` builds a tokio multi-thread runtime (`src/main.rs:480`), but route handlers execute the DSL via `spawn_blocking` (5 sites in `src/server.rs`, ADR-0096) — i.e. even in serve, a builtin is invoked **outside** the async context, on a blocking thread.
+- `mlog run` (CLI) keeps no permanent runtime; `reqwest::blocking` internally spins up its own one-shot runtime — this pattern works precisely because the builtin call is synchronous.
 
-Интеграция tokio-async SDK в блокирующий билтин означает один из: (а) выделенный runtime-поток + `Handle::block_on` на каждый вызов с перекидыванием данных между потоками; (б) собственный `Runtime::block_on` на каждый `mcp_call` — потеря преимущества stateless-модели по времени (см. Блок 4) и ещё один вложенный-runtime риск того класса, который ADR-0096 уже разбирал (паника «runtime dropped within async context»). Это решаемо, но это постоянная интеграционная сложность на каждом вызове, а не одноразовая.
+Integrating a tokio-async SDK into a blocking builtin means one of: (a) a dedicated runtime thread + `Handle::block_on` on every call with data shuttled between threads; (b) its own `Runtime::block_on` per `mcp_call` — the loss of the stateless model's time advantage (see Block 4) and one more nested-runtime risk of exactly the class ADR-0096 already analyzed (the panic "runtime dropped within async context"). This is solvable, but it is a permanent per-call integration cost, not a one-off.
 
-Совместимость с TW/VM: ручной клиент — обычный блокирующий вызов, идентичен `http_post` по модели исполнения (в т.ч. VM-паритет: путь `execute_code` для внешних вызовов не отличается от http_*). SDK-вариант требовал бы async-моста **и** в TW, **и** в VM.
+Compatibility with TW/VM: the hand-rolled client is an ordinary blocking call, identical to `http_post` in execution model (including VM parity: the `execute_code` path for external calls is no different from http_*). The SDK variant would require an async bridge **both** in TW **and** in VM.
 
-### 2.5 Сравнительная таблица
+### 2.5 Comparison table
 
-| Критерий | `rmcp` 3.3.0 (официальный SDK) | Ручной JSON-RPC-клиент (~300–400 строк) |
+| Criterion | `rmcp` 3.3.0 (official SDK) | Hand-rolled JSON-RPC client (~300–400 lines) |
 |---|---|---|
-| Новые зависимости | 9 (stdio) / 15+ (HTTP) — **превышение hard-лимита 5** | **0** (`std::process` + `serde_json` уже в дереве) |
-| Async-модель | tokio-async (подтверждено фактами §2.4) | Синхронная — совпадает с моделью всех билтинов и ADR-0096 |
-| Корректность протокола | Поддерживается апстримом; SDK успевает за ревизиями спеки | Только то, что мы реализовали; v1-поверхность узкая: `initialize` + `tools/list` + `tools/call` + 2 нотификации — проверяемо контракт-тестами |
-| Скорость эволюции | Релиз каждые 1–2 недели — апгрейды не бесплатные (см. reqwest 0.13) | Нет внешних апгрейдов |
-| Лицензия / активность | Apache-2.0; релиз 2026-09-10, push 2026-09-11 | — |
-| TW/VM-посадка | Async-мост в обоих бекендах | Идентична `http_*` |
-| Объём своего кода | ~0 строк протокола, но интеграционный async-мост + конверсии типов | ~300–400 строк: spawn + framing + handshake + 2 метода + маппинг ошибок |
+| New dependencies | 9 (stdio) / 15+ (HTTP) — **exceeds the hard limit of 5** | **0** (`std::process` + `serde_json` already in the tree) |
+| Async model | tokio-async (confirmed by the facts of §2.4) | Synchronous — matches the model of all builtins and of ADR-0096 |
+| Protocol correctness | Maintained upstream; the SDK keeps pace with spec revisions | Only what we have implemented; the v1 surface is narrow: `initialize` + `tools/list` + `tools/call` + 2 notifications — verifiable by contract tests |
+| Evolution speed | A release every 1–2 weeks — upgrades are not free (see reqwest 0.13) | No external upgrades |
+| License / activity | Apache-2.0; release 2026-09-10, push 2026-09-11 | — |
+| TW/VM fit | An async bridge in both backends | Identical to `http_*` |
+| Own code volume | ~0 lines of protocol, but an integration async bridge + type conversions | ~300–400 lines: spawn + framing + handshake + 2 methods + error mapping |
 
-### 2.6 Вывод
+### 2.6 Conclusion
 
-**Ручной JSON-RPC-клиент.** Решающие аргументы: (1) dependency-бюджет — SDK превышает hard-лимит FEATURE_INTAKE §5 в 1.8–3 раза, manual = 0; (2) async-мismatch — SDK навязывает tokio-мост поверх блокирующего рантайма, нарушая экономику ADR-0096; (3) v1-scope (Блок 4) сужает протокол до 1 handshake + 2 методов + 2 нотификаций — поверхность, где ручная реализация проверяема и дешёва в поддержке.
+**Hand-rolled JSON-RPC client.** Decisive arguments: (1) the dependency budget — the SDK exceeds the FEATURE_INTAKE §5 hard limit by 1.8–3x, manual = 0; (2) the async mismatch — the SDK forces a tokio bridge on top of a blocking runtime, breaking the economics of ADR-0096; (3) the v1 scope (Block 4) narrows the protocol to 1 handshake + 2 methods + 2 notifications — a surface where a hand-rolled implementation is verifiable and cheap to maintain.
 
-Честная цена выбора (зафиксирована в ADR-0132 как последствия): эволюция протокола теперь наша работа. Modern-era спеки (per-request `_meta` вместо handshake), MRTR (`InputRequiredResult`), subscriptions, прогресс-нотификации — всё это Future, не v1. Если scope когда-либо расширится до HTTP-транспорта/OAuth — решение о SDK стоит переоткрыть: тамdependency-математика другая (OAuth-стек всё равно пришлось бы брать, и тогда 9 крейтов SDK против 12+ ручных).
+The honest price of the choice (recorded in ADR-0132 as consequences): protocol evolution is now our work. Modern-era spec features (per-request `_meta` instead of a handshake), MRTR (`InputRequiredResult`), subscriptions, progress notifications — all of this is Future, not v1. If the scope ever expands to HTTP transport/OAuth, the SDK decision should be reopened: there the dependency math is different (an OAuth stack would have to be taken anyway, and then it is 9 SDK crates vs 12+ hand-rolled).
 
 ---
 
-## Блок 3 — Security-дизайн (главная часть — уникальный эдж Restack)
+## Block 3 — Security design (the main part — the unique Restack edge)
 
-### 3.1 (а) Spawn MCP-сервера = exec → наследует гейты №253-А
+### 3.1 (a) Spawning an MCP server = exec → inherits gates #253-A
 
-Запуск MCP-сервера по своей природе — запуск стороннего процесса, т.е. семантически эквивалентен `exec()`. Дизайн: **reuse, не новая политика**. `mcp_call`/`mcp_list_tools` вызывают SSOT `exec_gate(context)` (`src/builtins/io.rs`) перед spawn:
+Launching an MCP server is by nature launching a third-party process, i.e. semantically equivalent to `exec()`. Design: **reuse, not a new policy**. `mcp_call`/`mcp_list_tools` call the SSOT `exec_gate(context)` (`src/builtins/io.rs`) before the spawn:
 
-| Контекст вызова | Гейт | Переменная |
+| Call context | Gate | Variable |
 |---|---|---|
-| `mlog run` / `mlog serve` верхний уровень | `ExecContext::Process` | `METALOGOS_ALLOW_EXEC=1` |
-| Тело роута serve | `ExecContext::ServeRoute` | `METALOGOS_SERVE_ALLOW_EXEC=1` |
+| `mlog run` / `mlog serve` top level | `ExecContext::Process` | `METALOGOS_ALLOW_EXEC=1` |
+| serve route body | `ExecContext::ServeRoute` | `METALOGOS_SERVE_ALLOW_EXEC=1` |
 
-Наследуется целиком сложившаяся семантика: код ошибки `EXEC_NOT_PERMITTED` (стабильный диагностический код по ADR-0131), правило «замена, а не AND» для serve-контекста (урок №253-А: процесс-флаг не действует в роутах, роут-флаг не требует процесс-флага), subprocess audit log в `METALOGOS_AUDIT_LOG_PATH` (тот же канал, что уже пишет `exec()`; записи дополняются полем `mcp` с именем сервер-команды и инструментом). Никаких новых флагов, кодов или контекстов для v1 не вводится — гейт уже написан, протестирован (№253/№259-пакеты) и задокументирован.
+The entire established semantics is inherited: the error code `EXEC_NOT_PERMITTED` (a stable diagnostic code per ADR-0131), the "replacement, not AND" rule for the serve context (the lesson of #253-A: the process flag does not apply in routes, the route flag does not require the process flag), the subprocess audit log in `METALOGOS_AUDIT_LOG_PATH` (the same channel `exec()` already writes to; entries gain an `mcp` field with the server command name and the tool). No new flags, codes, or contexts are introduced for v1 — the gate is already written, tested (the #253/#259 packages), and documented.
 
-### 3.2 (б) Taint-род результата `mcp_call`: reuse `UserInput` vs новый `ToolOutput`
+### 3.2 (b) Taint kind of the `mcp_call` result: reuse `UserInput` vs a new `ToolOutput`
 
-Вывод внешнего инструмента — недоверенные данные: сервер контролируется третьей стороной, его вывод может содержать промпт-инъекцию, PII, отравляющие данные. Вопрос — каким taint-родом помечать.
+The output of an external tool is untrusted data: the server is controlled by a third party, its output may contain prompt injection, PII, poisoning data. The question is which taint kind to assign.
 
-**Вариант R — reuse `UserInput`** (как `form_data`/`json_body`/`query_param`):
+**Option R — reuse `UserInput`** (like `form_data`/`json_body`/`query_param`):
 
-- **0 изменений** в `src/audit.rs` и в threat-model: все существующие проверки Category-A/B уже знают `UserInput`.
-- `UNTRUSTED_TRAINING_DATA` (Category-A) закрывается автоматически: `reflex_train(data, labels)` с MCP-выводом в аргументах будет отвергнут статикой — отравление модели через MCP-инструмент невозможно с первого дня.
-- Пайплайны `mcp_call → respond()` / `→ write_file()` / `→ http_post()` попадают под существующие правила недоверенных данных.
-- Риск: `UserInput` семантически «ввод пользователя» — MCP-вывод технически «ввод удалённого инструмента». Для текущих проверок различий по последствиям нет (обе сущности одинаково недоверенны), но имя рода в диагностике может сбивать с толку.
+- **0 changes** in `src/audit.rs` and in the threat model: all existing Category-A/B checks already know `UserInput`.
+- `UNTRUSTED_TRAINING_DATA` (Category-A) is covered automatically: `reflex_train(data, labels)` with MCP output among its arguments will be rejected statically — poisoning the model through an MCP tool is impossible from day one.
+- The pipelines `mcp_call → respond()` / `→ write_file()` / `→ http_post()` fall under the existing untrusted-data rules.
+- Risk: `UserInput` semantically means "user input" — MCP output is technically "input of a remote tool". For the current checks there is no difference in consequences (both entities are equally untrusted), but the kind's name in diagnostics can be confusing.
 
-**Вариант T — новый `ToolOutput`:**
+**Option T — a new `ToolOutput`:**
 
-- Честная семантика рода («данные внешнего инструмента») — точные сообщения диагностик.
-- Цена: каждая существующая проверка Category-A/B (`SECRET_LEAK`, `UNTRUSTED_TRAINING_DATA`, SVG/HTML-lint, vision-проверки — см. `docs/threat-model.md`) получает новую ветку в матрице «какой род с каким sink'ом». Пропуск хотя бы одной ветки = дыра, которую reuse не создавал бы. На v0.19.0 проверок, знающих `TaintKind`, — больше десятка мест трекинга + проверки сянут `UserInput`/`LlmOutput`/`Secret` по имени.
-- Бонус, ради которого вариант стоил бы: дифференциация политики (например, «ToolOutput в LLM-контекст можно, UserInput нельзя») — но такой политики сегодня **нет ни для одного** рода, и постановка №268 её не требует.
+- Honest kind semantics ("data of an external tool") — precise diagnostic messages.
+- Cost: every existing Category-A/B check (`SECRET_LEAK`, `UNTRUSTED_TRAINING_DATA`, SVG/HTML lint, vision checks — see `docs/threat-model.md`) gains a new branch in the matrix "which kind with which sink". Missing even one branch = a hole that reuse would not have created. On v0.19.0 the checks that know `TaintKind` number more than a dozen tracking sites + checks matching `UserInput`/`LlmOutput`/`Secret` by name.
+- The bonus that would have justified the option: policy differentiation (e.g. "ToolOutput may go into LLM context, UserInput may not") — but today such a policy exists **for no kind at all**, and the #268 task statement does not require it.
 
-**Рекомендация: вариант R (`UserInput`) для v1.** Консервативность бесплатно: reuse даёт строго те же гарантии с нулевым риском пропущенной ветки. `ToolOutput` — осознанный Future в ADR-0132: заводить его стоит одновременно с первой политикой, которая реально различает роды, не раньше. **Это стоп-гейт 1: финальное решение за владельцем** — ADR-0132 §Decision выносит вопрос отдельным пунктом.
+**Recommendation: option R (`UserInput`) for v1.** Conservatism for free: reuse gives exactly the same guarantees with zero risk of a missed branch. `ToolOutput` is a deliberate Future in ADR-0132: introduce it together with the first policy that actually distinguishes kinds, not earlier. **This is stop-gate 1: the final decision belongs to the owner** — ADR-0132 §Decision carries the question as a separate item.
 
-### 3.3 (в) Allowlist серверных команд `METALOGOS_MCP_ALLOWLIST`
+### 3.3 (c) Allowlist of server commands `METALOGOS_MCP_ALLOWLIST`
 
-exec-гейт (3.1) решает «можно ли вообще exec в этом контексте», но не «какой именно сервер разрешён». Семантика предложения:
+The exec gate (3.1) decides "whether exec is allowed at all in this context", but not "which exact server is allowed". The semantics of the proposal:
 
-- Формат: comma-separated, пробелы по краям элементов триммируются, пустые элементы игнорируются — **конвенция `METALOGOS_ENV_ALLOWLIST` наряда №259**, единообразие флагов Metalogos.
-- Матчинг: **точное совпадение первого токена команды** (argv[0] как записан в вызове: `uvx`), опционально полный паттерн `argv[0] + подстрока аргументов` не делаем — v1 остаётся простым. Пример: `METALOGOS_MCP_ALLOWLIST="uvx,npx,node"`.
-- Состояния:
-  - **unset** — allowlist не сужает ничего: действует только exec-гейт (дефолт Metalogos: opt-in ужесточения, а не opt-out разрешений; дефолтная позиция — «exec уже разрешён флагом, MCP не хуже»);
-  - **пустая строка** (`METALOGOS_MCP_ALLOWLIST=""`) — deny all MCP явно (код `MCP_NOT_ALLOWLISTED` — новый диагностический код по конвенции ADR-0131, только этот, без новых флагов);
-  - **непустая** — разрешены только перечисленные команды, отказ несёт `MCP_NOT_ALLOWLISTED` + имя команды.
-- Прецеденты в кодовой базе: `METALOGOS_ENV_ALLOWLIST` (№259), `MLOG_VISION_WEIGHTS_ALLOWLIST` (provenance-гейты №125/ADR-0125) — третий allowlist Metalogos, не новый механизм.
-- Аудит: разрешённые вызовы тоже пишутся в `METALOGOS_AUDIT_LOG_PATH` (кто, когда, какой сервер, какой инструмент — грантовая секция «языковой security-контроль» демонстрирует это живым логом).
+- Format: comma-separated; whitespace at the edges of elements is trimmed, empty elements are ignored — the **`METALOGOS_ENV_ALLOWLIST` convention of naryad #259**, uniformity of Metalogos flags.
+- Matching: an **exact match of the first token of the command** (argv[0] as written in the invocation: `uvx`); the optional full pattern `argv[0] + argument substring` we are not building — v1 stays simple. Example: `METALOGOS_MCP_ALLOWLIST="uvx,npx,node"`.
+- States:
+  - **unset** — the allowlist narrows nothing: only the exec gate applies (the Metalogos default: opt-in tightening, not opt-out permissions; the default position is "exec is already permitted by a flag, MCP is no worse");
+  - **empty string** (`METALOGOS_MCP_ALLOWLIST=""`) — an explicit deny of all MCP (code `MCP_NOT_ALLOWLISTED` — a new diagnostic code per the ADR-0131 convention, this one only, no new flags);
+  - **non-empty** — only the listed commands are allowed; a refusal carries `MCP_NOT_ALLOWLISTED` + the command name.
+- Precedents in the codebase: `METALOGOS_ENV_ALLOWLIST` (#259), `MLOG_VISION_WEIGHTS_ALLOWLIST` (provenance gates #125/ADR-0125) — the third Metalogos allowlist, not a new mechanism.
+- Audit: allowed calls are also written to `METALOGOS_AUDIT_LOG_PATH` (who, when, which server, which tool — the grant's "language-level security control" section demonstrates this with a live log).
 
-Открытый вопрос к владельцу (не блокирующий v1): должен ли **serve-контекст** требовать allowlist безусловно (deny при unset)? Позиция разведки: нет — двойной дефолт-запрет (exec-флаг И allowlist) ломает принцип «замена, а не AND» и усложняет модель без реального кейса; serve-роуты и так запрещены по умолчанию гейтом №253-А.
+An open question for the owner (not blocking v1): should the **serve context** unconditionally require an allowlist (deny when unset)? The reconnaissance position: no — a double default-deny (the exec flag AND the allowlist) breaks the "replacement, not AND" principle and complicates the model without a real use case; serve routes are already denied by default by gate #253-A.
 
-### 3.4 (г) Доверие полей протокола
+### 3.4 (d) Trust in protocol fields
 
-| Поле MCP | Статус | Обращение |
+| MCP field | Status | Handling |
 |---|---|---|
-| Server info (имя/версия из `initialize`) | метаданные | Без taint; не попадает в sinks; для сообщений об ошибках/логов |
-| Tool list: имена, `inputSchema`, **descriptions** | метаданные | Без taint, но честно фиксируем: descriptions — текст третьей стороны, попадающий в LLM-контекст, если программа его туда вставляет; это поверхность промпт-инъекции, которую taint-система v1 не закрывает (ни один SDK это не закрывает — это природа LLM-агентов). Грантовая формулировка: «метаданные инструмента не получают taint, но и не проходят через security-sinks языка; решение о включении описаний в LLM-контекст принимает программа явно» |
-| Аргументы вызова `arguments_json` | доверенные | Литералы/переменные из .mlog-кода — статически проверены компилятором; taint не ставится |
-| **Вывод `mcp_call`** | **недоверенные** | Taint `UserInput` (3.2) — все Category-A/B проверки активны |
+| Server info (name/version from `initialize`) | metadata | No taint; does not reach sinks; for error messages/logs |
+| Tool list: names, `inputSchema`, **descriptions** | metadata | No taint, but we record honestly: descriptions are third-party text that reaches LLM context if the program puts it there; this is a prompt-injection surface that the v1 taint system does not close (no SDK closes it — it is the nature of LLM agents). Grant wording: "tool metadata receives no taint but also does not pass through the language's security sinks; the decision to include descriptions in LLM context is made explicitly by the program" |
+| Call arguments `arguments_json` | trusted | Literals/variables from .mlog code — statically checked by the compiler; no taint assigned |
+| **`mcp_call` output** | **untrusted** | Taint `UserInput` (3.2) — all Category-A/B checks are active |
 
-### 3.5 Согласование с threat-model
+### 3.5 Alignment with the threat model
 
-Дизайн добавляет в `docs/threat-model.md` (в №268) ровно одну новую строку сущности «недоверенные данные» — MCP-вывод, и переиспользует обе существующие линии обороны: exec-гейты (первичная) и taint-статика (вторичная). Новых sink'ов, новых Severity, новых Category — нет. Соответствиеmapping OWASP сохраняется: `UNTRUSTED_TRAINING_DATA` уже числится за A09/A02, exec-гейты — за A03/A08.
+The design adds to `docs/threat-model.md` (in #268) exactly one new "untrusted data" entity row — MCP output — and reuses both existing defense lines: exec gates (primary) and static taint analysis (secondary). No new sinks, no new Severity levels, no new Categories. The OWASP mapping correspondence holds: `UNTRUSTED_TRAINING_DATA` is already assigned to A09/A02, exec gates to A03/A08.
 
 ---
 
-## Блок 4 — Scope v1 и API shape
+## Block 4 — v1 scope and API shape
 
-### 4.1 Scope: tools only, 2 билтина
+### 4.1 Scope: tools only, 2 builtins
 
-- **Только tools**: `tools/list` + `tools/call`. Resources/prompts/sampling — не реализуются (не нужны для сценария «язык вызывает инструмент сервера»; каждое из этих расширений = отдельные методы, кэширование списков, обратные каналы).
-- **Билтины v1 (2):**
-  - `mcp_call(command, args_json, tool, arguments_json) -> string` — вызов инструмента;
-  - `mcp_list_tools(command, args_json) -> string` — JSON-список {name, description, inputSchema} для выбора инструмента программой/LLM.
-- Не входят в v1: прогресс-нотификации, `notifications/tools/list_changed`, subscriptions, MRTR/`InputRequiredResult` (ревизия 2026-07-28 умеет — мы в legacy-режиме не запрашиваем), логирование-нотификации (пишутся сервером в stderr — мы их в audit log при желании, но не парсим).
+- **Tools only**: `tools/list` + `tools/call`. Resources/prompts/sampling are not implemented (not needed for the scenario "the language invokes a server tool"; each of these extensions = separate methods, list caching, reverse channels).
+- **v1 builtins (2):**
+  - `mcp_call(command, args_json, tool, arguments_json) -> string` — tool invocation;
+  - `mcp_list_tools(command, args_json) -> string` — a JSON list {name, description, inputSchema} for tool selection by the program/LLM.
+- Not in v1: progress notifications, `notifications/tools/list_changed`, subscriptions, MRTR/`InputRequiredResult` (the 2026-07-28 revision supports it — we do not request it in legacy mode), logging notifications (written by the server to stderr — we could route them into the audit log if desired, but do not parse them).
 
-### 4.2 API shape: stateless (рекомендация) vs stateful
+### 4.2 API shape: stateless (recommendation) vs stateful
 
 | | **Stateless** `mcp_call(...)` | Stateful `mcp_start` → `mcp_list_tools`/`mcp_call` → `mcp_stop` |
 |---|---|---|
-| Жизненный цикл | spawn → handshake → вызов → shutdown **на каждый вызов** | Ручной; процесс живёт между вызовами |
-| Инфраструктура | Нет реестра, нет дескрипторов в VM/TW, нет leak-поверхности | Реестр процессов (есть `dashmap`), дескриптор как `Value`-вариант или числовой handle, очистка при завершении VM-фрейма/роута, обработка зависших серверов, cancel-semantics |
-| Стоимость вызова | +spawn/handshake (~10–50 ms для типичных uvx/npx-серверов — приемлемо для v1; handshake = 1 RTT локального пайпа) | Только RTT |
-| Sandbox-гигиена | Процесс не переживает вызов — нет состояния между вызовами, которое надо чистить | Процессы-сироты при ошибке между start/stop — класс проблем `exec`-нарядов |
-| Соответствие гейтам | Каждый вызов — отдельный exec-gate + audit-запись: тривиальная атрибуция | Гейт на start; вызовы по handle минуют exec-гейт — гейт «размывается» по времени |
+| Lifecycle | spawn → handshake → call → shutdown **on every call** | Manual; the process lives between calls |
+| Infrastructure | No registry, no handles in VM/TW, no leak surface | A process registry (`dashmap` exists), a handle as a `Value` variant or a numeric handle, cleanup on completion of a VM frame/route, handling of hung servers, cancel semantics |
+| Call cost | +spawn/handshake (~10–50 ms for typical uvx/npx servers — acceptable for v1; the handshake = 1 RTT over a local pipe) | RTT only |
+| Sandbox hygiene | The process does not outlive the call — no state between calls to clean up | Orphan processes on an error between start/stop — the problem class of `exec` naryads |
+| Gate alignment | Each call is a separate exec gate + audit entry: trivial attribution | The gate on start; calls by handle bypass the exec gate — the gate "smears out" over time |
 
-**Рекомендация: stateless для v1.** Главный аргумент — security-атрибуция: при stateless каждый exec-гейт и каждая audit-запись соответствуют одному вызову один-к-одному, что и есть грантовая демонстрация «языкового security-контроля». Stateful-оптимизация — осознанный Future в ADR-0132 (с реестром, TTL и гейтом на первом вызове дескриптора). Если бенчмарк №268 покажет неприемлемый overhead для реального сценария (длинные цепочки вызовов к одному серверу) — revisit по данным, не по умозрению.
-
----
-
-## Блок 5 — Черновик ADR-0132
-
-Готов: `docs/adr/0132-mcp-client.md` (в этом PR). Статус **Proposed** — утверждение владельцем = стоп-гейт 1 диспатча. Содержит: контекст, решения (stdio / ручной клиент / stateless / `UserInput` / allowlist-семантика), явные отклонённые альтернативы (SDK, streamable HTTP, stateful, `ToolOutput`, отсутствие allowlist), последствия и риски, явные Future-пункты, Go/No-Go.
+**Recommendation: stateless for v1.** The main argument is security attribution: with stateless, every exec gate and every audit entry corresponds to one call one-to-one — which is precisely the grant's demonstration of "language-level security control". The stateful optimization is a deliberate Future in ADR-0132 (with a registry, a TTL, and a gate on the first use of a handle). If the #268 benchmark shows unacceptable overhead for a real scenario (long chains of calls to one server) — revisit based on data, not on speculation.
 
 ---
 
-## Блок 6 — Go/No-Go для №268
+## Block 5 — ADR-0132 draft
 
-### **GO** — при выполнении всех пяти условий (каждое зафиксировано выше и в ADR-0132):
-
-1. Ручной JSON-RPC-клиент (`std::process` + `serde_json`), **0 новых зависимостей**;
-2. Транспорт **stdio** (newline-delimited JSON-RPC 2.0), legacy `initialize`-handshake; modern-only серверы — вне v1 (зафиксированная граница);
-3. **Stateless** API: `mcp_call` + `mcp_list_tools`, spawn на каждый вызов;
-4. Security: reuse `exec_gate` (№253-А) + taint `UserInput` на выводе + опциональный `METALOGOS_MCP_ALLOWLIST` (конвенция №259) + audit log;
-5. Оценка 3–5 дней подтверждается: протокольная поверхность (1 handshake + 2 метода + 2 нотификации) ≈ 300–400 строк клиента + 2 билтина + контракт-тесты с локальным fixture-сервером (небольшой `python3`/`node` скрипт или fixture на Rust test-harness'е, эмулирующий stdio-сервер).
-
-Блокеров не найдено. Единственное решение владельца перед стартом №268 — утверждение ADR-0132 (стоп-гейт 1, включая выбор taint-рода 3.2).
+Ready: `docs/adr/0132-mcp-client.md` (in this PR). Status **Proposed** — approval by the owner = stop-gate 1 of the dispatch. Contains: context, decisions (stdio / hand-rolled client / stateless / `UserInput` / allowlist semantics), explicitly rejected alternatives (the SDK, streamable HTTP, stateful, `ToolOutput`, no allowlist), consequences and risks, explicit Future items, Go/No-Go.
 
 ---
 
-## Связи
+## Block 6 — Go/No-Go for #268
 
-- **ADR-0054** (`tool`, Future Directions — обратный мост после №268), **ADR-0096** (blocking/spawn_blocking — аргумент против async-SDK), **ADR-0131** (конвенция кодов `MCP_NOT_ALLOWLISTED`), **ADR-0125** (прецедент allowlist).
-- **Наряд №253-А** (exec-гейты — reuse), **№259** (ENV_ALLOWLIST — форматная конвенция), **№261** (SSRF — граница с HTTP-транспортом Future), **№252** (audit log).
-- Диспатч №267–279: грантовый контекст C3 (секция Proposal_Restack «MCP с языковым security-контролем»); идея A1. Блокирует **№268** (issue #304).
+### **GO** — provided all five conditions hold (each is recorded above and in ADR-0132):
+
+1. A hand-rolled JSON-RPC client (`std::process` + `serde_json`), **0 new dependencies**;
+2. Transport **stdio** (newline-delimited JSON-RPC 2.0), the legacy `initialize` handshake; modern-only servers are outside v1 (a recorded boundary);
+3. **Stateless** API: `mcp_call` + `mcp_list_tools`, a spawn per call;
+4. Security: reuse `exec_gate` (#253-A) + taint `UserInput` on the output + the optional `METALOGOS_MCP_ALLOWLIST` (convention #259) + the audit log;
+5. The 3–5 day estimate holds up: the protocol surface (1 handshake + 2 methods + 2 notifications) ≈ 300–400 lines of client + 2 builtins + contract tests with a local fixture server (a small `python3`/`node` script or a fixture on the Rust test harness emulating a stdio server).
+
+No blockers found. The only owner decision before the start of #268 is approval of ADR-0132 (stop-gate 1, including the choice of the taint kind in 3.2).
+
+---
+
+## Cross-references
+
+- **ADR-0054** (`tool`, Future Directions — the reverse bridge after #268), **ADR-0096** (blocking/spawn_blocking — the argument against an async SDK), **ADR-0131** (the `MCP_NOT_ALLOWLISTED` code convention), **ADR-0125** (the allowlist precedent).
+- **Naryad #253-A** (exec gates — reuse), **#259** (ENV_ALLOWLIST — the format convention), **#261** (SSRF — the boundary with the Future HTTP transport), **#252** (the audit log).
+- Dispatch #267–279: grant context C3 (the Proposal_Restack section "MCP with language-level security control"); idea A1. Blocks **#268** (issue #304).

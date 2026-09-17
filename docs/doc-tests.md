@@ -1,50 +1,50 @@
-# Doc-tests (Наряд №287) — контракт
+# Doc-tests (Naryad #287) — contract
 
-`mlog test --docs [GLOB...]` — rustdoc doc-tests-паттерн для Metalogos:
-каждый ```mlog-блок документации — кандидат на исполнение; докачанная
-ложь невозможна. Дефолтные файлы: `REFERENCE.md`, `README.md`,
-`docs/book/**/*.md` (живая документация ЯЗЫКА).
+`mlog test --docs [GLOB...]` — the rustdoc doc-tests pattern for Metalogos:
+every ```mlog block of documentation is an execution candidate; smuggled-in
+falsehood is impossible. Default files: `REFERENCE.md`, `README.md`,
+`docs/book/**/*.md` (the living documentation of the LANGUAGE).
 
-> `docs/adr/**` и `docs/research/**` — исторические записи решений: они
-> фиксируют состояние на момент решения и НЕ сканируются по умолчанию.
-> Явный запрос: `mlog test --docs "docs/adr/**/*.md"`.
+> `docs/adr/**` and `docs/research/**` — historical decision records: they
+> capture the state at the moment of the decision and are NOT scanned by default.
+> Explicit request: `mlog test --docs "docs/adr/**/*.md"`.
 
-## Контракт блока
+## Block contract
 
-| Маркер (в любой строке блока) | Семантика |
+| Marker (on any line of the block) | Semantics |
 |---|---|
-| *(без маркера)* | Блок обязан исполниться без ошибки |
-| `// expect: <значение>` | Последняя строка output программы равна `<значению>` (поддержан на блоках с `flow`) |
-| `// expect-error: <код?>` | Исполнение обязано упасть; опциональный `<код>` проверяется как substring текста ошибки |
-| `// no-run` | Только парсинг, без исполнения |
-| `// doc-test: skip` | Полный пропуск (грамматические шпаргалки, эскизы; учитывается в счётчике) |
+| *(no marker)* | The block must execute without an error |
+| `// expect: <value>` | The last line of the program output equals `<value>` (supported on blocks with `flow`) |
+| `// expect-error: <code?>` | Execution must fail; the optional `<code>` is checked as a substring of the error text |
+| `// no-run` | Parsing only, no execution |
+| `// doc-test: skip` | Full skip (grammar cheat sheets, sketches; counted in the counter) |
 
-## Классификация и исполнение
+## Classification and execution
 
-- Блок с `flow` — полная программа (запуск TW; `--backend vm` — компиляция + VM; ошибка компиляции VM = **skip**, ADR-0105, ошибка рантайма VM = fail).
-- Блок из деклараций (`pattern`, `learnable`, `entity`, `fluid`, `reflex`, `sandbox`, `db`, `schema`, `template`, `tool`, `hook`, …) — parse + регистрация без исполнения.
-- Фрагмент statements — обёртка `pattern __DocTest` + `flow Main`; `import`-строки фрагмента поднимаются на верхний уровень.
+- A block with `flow` — a full program (TW run; `--backend vm` — compilation + VM; a VM compilation error = **skip**, ADR-0105, a VM runtime error = fail).
+- A block of declarations (`pattern`, `learnable`, `entity`, `fluid`, `reflex`, `sandbox`, `db`, `schema`, `template`, `tool`, `hook`, …) — parse + registration without execution.
+- A statements fragment — wrapped in `pattern __DocTest` + `flow Main`; the `import` lines of the fragment are hoisted to the top level.
 
-## Read-only профиль
+## Read-only profile
 
-1. **Ephemeral cwd** — каждый блок исполняется в свежем tempdir: файловые/db-эффекты изолированы, на CI-машине побочек нет; песочница №131/№252 отсекает эскейпы наружу громко.
-2. **Сетевые/exec-билтины заменены заглушками** с громким отказом `[DOC_SANDBOX]`: `http_get`, `http_post`, `http_post_multipart`, `http_download`, `smtp_send`, `smtp_send_html`, `imap_*`, `mcp_*`, `exec`, `exec_argv`. Подмена ЛОКАЛЬНА для интерпретатора (реестр SSOT нетронут).
-3. `call_llm`/`call_claude` — mock-бэкенд (без ключей сеть не трогают).
+1. **Ephemeral cwd** — each block executes in a fresh tempdir: file/db effects are isolated, no side effects on the CI machine; the sandbox #131/#252 cuts escapes outward loudly.
+2. **Network/exec builtins replaced with stubs** that fail loudly with `[DOC_SANDBOX]`: `http_get`, `http_post`, `http_post_multipart`, `http_download`, `smtp_send`, `smtp_send_html`, `imap_*`, `mcp_*`, `exec`, `exec_argv`. The substitution is LOCAL to the interpreter (the SSOT registry is untouched).
+3. `call_llm`/`call_claude` — mock backend (without keys they do not touch the network).
 
-## Отчёт
+## Report
 
 ```
 doc-tests: <files> files, <N> extracted, <M> executed, <K> no-run, <E> expect-error, <S> skipped, <F> failures
 ```
 
-Каждая ошибка печатается с семантическим якорем `файл: секция: block #k`
-(номер mlog-блока файла + ближайший markdown-заголовок — строки меняются,
-якорь нет). Exit code 1 при `F > 0` — CI-гейт мержа.
+Every error is printed with a semantic anchor `file: section: block #k`
+(the file's mlog-block number + the nearest markdown heading — lines change,
+the anchor does not). Exit code 1 when `F > 0` — the merge CI gate.
 
-## Статус репозитория
+## Repository status
 
-`mlog test --docs` (дефолт) — зелёный: REFERENCE/README/docs/book
-исполняются; грамматические шпаргалки §5 REFERENCE и syntax-справочника
-помечены `// doc-test: skip`; демо-примеры ошибок мутации —
-`// expect-error`. Новые примеры документации обязаны проходить док-тесты
-(гейт в ci.yml) — «документация для людей и агентов» становится verified.
+`mlog test --docs` (default) — green: REFERENCE/README/docs/book
+execute; the grammar cheat sheets of §5 of REFERENCE and of the syntax
+reference are marked `// doc-test: skip`; the mutation-error demo examples are
+`// expect-error`. New documentation examples must pass the doc-tests
+(gate in ci.yml) — "documentation for humans and agents" becomes verified.

@@ -1770,6 +1770,18 @@ impl Vm {
         call_stack: &mut Vec<CallFrame>,
         return_ip: usize,
     ) -> Result<bool, String> {
+        // ── Naryad #393 (ADR-0167 §3.4): the deny HAPPENED regardless of
+        // whether a handler covers it — the ledger record is written
+        // BEFORE handler selection, as a side effect of the refusal path
+        // itself (runtime-twin parity with the TW hook in
+        // src/interpreter/hooks.rs). Best-effort: loud stderr on failure,
+        // outcome unchanged.
+        crate::ledger::record(
+            &format!("deny.{}", reason),
+            "runtime",
+            class,
+            &format!("{}|{}|{}|{}|{}", sink, argument, label, line, human),
+        );
         let (handler_class, code) = {
             let classes: Vec<(String, ())> = self
                 .deny_handlers

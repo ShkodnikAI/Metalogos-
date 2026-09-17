@@ -1977,6 +1977,17 @@ pub async fn create_session_db(
         "INSERT INTO sessions (id, user_id, data, created_at, expires_at) VALUES (?1, ?2, '{}', ?3, ?4)",
         rusqlite::params![id, user_id, now, expires_at],
     ).map_err(|e| format!("Failed to create session: {}", e))?;
+    drop(conn);
+    // ── Naryad #393 (ADR-0167 §3.4): session lifecycle lands in the
+    // Action Ledger as a side effect of the lifecycle operation itself
+    // (best-effort — loud stderr on failure, the session is unaffected;
+    // the session id is journaled only as its SHA-256).
+    crate::ledger::record(
+        "session.create",
+        user_id,
+        "http",
+        &crate::ledger::args_hash_of(&id),
+    );
 
     Ok(id)
 }
@@ -2028,6 +2039,15 @@ pub async fn delete_session_db(
         rusqlite::params![session_id],
     )
     .map_err(|e| format!("Failed to delete session: {}", e))?;
+    drop(conn);
+    // ── Naryad #393 (ADR-0167 §3.4): session lifecycle → Action Ledger
+    // (side effect of the destroy path; best-effort; id only as hash).
+    crate::ledger::record(
+        "session.destroy",
+        "runtime",
+        "http",
+        &crate::ledger::args_hash_of(session_id),
+    );
     Ok(())
 }
 

@@ -1,0 +1,42 @@
+// Naryad #393 (ADR-0167): Action Ledger end-to-end — grant + deny leave a
+// signed, externally verifiable trail.
+//
+// The scenario: an N(1) quota grant meters ONE destructive DELETE; the
+// granted call runs (the irreversible action journals itself), the second
+// call exhausts the quota and refuses (GRANT_EXHAUSTED — a runtime deny
+// event, reason IRREVERSIBLE_NO_GRANT) and on_deny(db) degrades it to
+// Unit. Every event above is a ledger SIDE EFFECT of the action path
+// itself (ADR-0167 §3.4) — there is no "also log it" call in the program.
+// The flow then rotates the signing key, takes a snapshot and EXPORTS the
+// chain: `mlog ledger verify target/w2_ledger_export.jsonl` validates the
+// exported file without the Metalogos runtime (pure hash + Ed25519).
+on_deny(db) {
+  match deny_reason() {
+    "IRREVERSIBLE_NO_GRANT" then { print("deny:IRREVERSIBLE_NO_GRANT") }
+    else { print("deny:other") }
+  }
+}
+
+db { url: "sqlite::memory:" }
+
+pattern LedgerFlow(_tick: String) -> String {
+  db_execute("CREATE TABLE IF NOT EXISTS ledger_demo (id INTEGER PRIMARY KEY, user TEXT)")
+  db_execute("INSERT INTO ledger_demo (user) VALUES ('alice')")
+  let g = grant_issue("db:delete:ledger_demo", 60, "n", 1)
+  let n1 = db_execute_with_grant(g, "DELETE FROM ledger_demo WHERE user = 'alice'")
+  // The N(1) quota is exhausted — the second granted call refuses
+  // (GRANT_EXHAUSTED), on_deny(db) handles it, the call degrades to Unit.
+  let n2 = db_execute_with_grant(g, "DELETE FROM ledger_demo")
+  // Rotation: the rotation record is signed by the still-active key; the
+  // snapshot pins the head (the archive anchor). Results are opaque
+  // key/hash material — the program can only see their types.
+  let rot = ledger_rotate()
+  let snap = ledger_snapshot()
+  // FILE EGRESS: the verifiable JSONL chain (a classified Sink). The
+  // written path is an absolute sandbox path (environment-dependent) —
+  // the contract below only observes its type.
+  let path = ledger_export("target/w2_ledger_export.jsonl")
+  let head = ledger_head()
+  return "deleted:" + n1 + "|refused:" + type_of(n2) + "|new-key:" + type_of(rot) + "|snapshot:" + type_of(snap) + "|head:" + type_of(head) + "|exported:" + type_of(path)
+}
+flow Main { input: String = "tick" -> LedgerFlow -> output }

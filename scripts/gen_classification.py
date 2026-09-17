@@ -547,6 +547,13 @@ OVERRIDES = {
     "consent_revoke": ("Lift", "Public", "Pure", "records the revocation and returns the value under the QUARANTINE label — the flat cascade is lattice absorption (poison is absorbing, ADR-0154 §2.1); process-local bookkeeping"),
     "quarantine_write": ("Sink", "Internal", "Reversible", "THE quarantine sink — the only legal egress for poisoned values (№325 clearance exempts it); unconditional QUARANTINE_EGRESS audit event (№326 posture)"),
     "consent_ledger_export": ("Sink", "Internal", "Reversible", "dumps the consent ledger as JSON to a sandboxed path — FILE EGRESS with an audit event (grant/TTL/revoke records never leave the process silently)"),
+    # ── Naryad #393 (ADR-0167 §3.5): the Action Ledger v1 surface ──
+    "ledger_count": ("Pure", "Public", "Pure", "in-process record count of the Action Ledger — a read, not egress (the consent count precedent)"),
+    "ledger_head": ("Pure", "Public", "Pure", "current head hash of the Action Ledger — designed to be published out-of-band (the external anchor, ADR-0167 §7); a read, not egress"),
+    "ledger_export": ("Sink", "Internal", "Reversible", "dumps the verifiable JSONL chain to a sandboxed path — FILE EGRESS with an audit event (the signed action trail never leaves the process silently, ADR-0167 §3.5)"),
+    "ledger_export_intoto": ("Sink", "Internal", "Reversible", "dumps the in-toto Statement profile (ADR-0157) to a sandboxed path — FILE EGRESS, same class as ledger_export"),
+    "ledger_rotate": ("Lift", "Public", "Irreversible", "appends a key-rotation record signed by the still-active key and switches to the fresh key (ADR-0167 §3.3) — the chain transition cannot be undone"),
+    "ledger_snapshot": ("Lift", "Public", "Irreversible", "appends a snapshot record pinning the head (ADR-0167 §3.2) — the archive anchor is a permanent chain record"),
     # ── media (№331, ADR-0162 / №332, ADR-0164) ──
     "media_store_image": ("Lift", "Internal", "Reversible", "wraps provided bytes into an opaque Image handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop"),
     "media_store_audio": ("Lift", "Internal", "Reversible", "wraps provided bytes into an opaque Audio handle in the media store (ADR-0162) — no egress; declared sensitivity drives at-rest AES-GCM sealing and the runtime backstop"),

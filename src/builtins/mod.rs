@@ -248,6 +248,9 @@ pub mod consent;
 // Naryad #390 (ADR-0155): Grant algebra builtins — issue/subgrant/revoke/use
 // + the granted destructive-SQL action surface.
 pub mod grants;
+// Naryad #393 (ADR-0167): Action Ledger v1 builtins — count/head introspection,
+// the two FILE-EGRESS export profiles (classified Sink), rotation, snapshot.
+pub mod ledger;
 // Наряд №275 (ADR-0137): LLM streaming builtins — llm_stream_open/next/close.
 // Module is NOT feature-gated: the opaque handle + registry + SSE parser
 // live in `crate::llm` (always available); HTTP streaming requires

@@ -100,6 +100,43 @@ enum Commands {
         #[arg(long, value_delimiter = ',')]
         allowlist: Vec<String>,
     },
+    /// Action Ledger v1 (Naryad #393, ADR-0167) — external verification
+    /// and archival of an exported ledger file. Pure file reading: no
+    /// Metalogos runtime, no interpreter, no database.
+    Ledger {
+        #[command(subcommand)]
+        cmd: LedgerCmd,
+    },
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum LedgerCmd {
+    /// Verify an exported ledger JSONL file: seq continuity, prev-hash
+    /// chain, record hashes, key ids, Ed25519 signatures, signer
+    /// continuity across rotations, snapshot anchoring. Exit 0 = valid,
+    /// 1 = INVALID (the loud reason is printed), 2 = usage error.
+    Verify {
+        /// Path to the exported ledger file (JSONL)
+        file: PathBuf,
+        /// External head anchor: fail unless the last record's hash equals this
+        #[arg(long)]
+        expect_head: Option<String>,
+        /// External signer anchor: fail unless the chain's key equals this
+        #[arg(long)]
+        expect_key: Option<String>,
+    },
+    /// Archive: truncate the chain at a snapshot record (inclusive); the
+    /// output starts at the anchor and is verified before it is written.
+    Archive {
+        /// Path to the exported ledger file (JSONL)
+        file: PathBuf,
+        /// Path of the archived output file
+        out: PathBuf,
+        /// Snapshot record seq to anchor at (the snapshot's hash is printed
+        /// by `ledger_snapshot()`)
+        #[arg(long)]
+        at: u64,
+    },
 }
 
 fn main() {
@@ -147,6 +184,56 @@ fn main() {
         Commands::Resume { file, flow, from } => cmd_resume(file, &flow, &from),
         Commands::Audit { file } => cmd_audit(file),
         Commands::McpServe { file, allowlist } => cmd_mcp_serve(file, &allowlist),
+        Commands::Ledger { cmd } => cmd_ledger(cmd),
+    }
+}
+
+/// `mlog ledger verify|archive` — the external Action Ledger verifier
+/// (Naryad #393, ADR-0167 §3.6). No runtime: reads the file, checks the
+/// chain, prints a loud verdict.
+fn cmd_ledger(cmd: LedgerCmd) {
+    match cmd {
+        LedgerCmd::Verify {
+            file,
+            expect_head,
+            expect_key,
+        } => match metalogos::ledger::verify_file(
+            &file,
+            expect_head.as_deref(),
+            expect_key.as_deref(),
+        ) {
+            Ok(report) => {
+                println!(
+                    "VALID: {} records, head {} ({} distinct key(s), anchored start: {}) — schema v{}",
+                    report.records,
+                    report.head_hash,
+                    report.distinct_keys,
+                    report.anchored_start,
+                    report.schema_version,
+                );
+            }
+            Err(e) => {
+                eprintln!("INVALID: {}", e);
+                std::process::exit(1);
+            }
+        },
+        LedgerCmd::Archive { file, out, at } => {
+            match metalogos::ledger::archive_file(&file, &out, at) {
+                Ok(report) => {
+                    println!(
+                        "ARCHIVED: {} records anchored at snapshot seq {} (head {}) → {}",
+                        report.records,
+                        at,
+                        report.head_hash,
+                        out.display(),
+                    );
+                }
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
     }
 }
 

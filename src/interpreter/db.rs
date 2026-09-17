@@ -343,6 +343,17 @@ impl Interpreter {
         // Post-success consumption/audit (never on SQL failure).
         if destructive {
             crate::grants::grant_use(&handle, &format!("db_execute_with_grant: {}", sql))?;
+            // ── Naryad #393 (ADR-0167 §3.4): the irreversible action
+            // SUCCEEDED — the journal entry is a side effect of the
+            // success path itself (not a separate call the caller could
+            // forget). Best-effort, loud on failure; the SQL preimage
+            // never enters the journal — only its SHA-256.
+            crate::ledger::record(
+                "irreversible.db_execute",
+                &handle.issuer,
+                &handle.scope,
+                &format!("{}|{}|{}", handle.grant_id, handle.scope, sql),
+            );
             eprintln!(
                 "[GRANT_USE] grant (scope '{}', class {}) executed {} (affected {}) — remaining {}",
                 handle.scope,

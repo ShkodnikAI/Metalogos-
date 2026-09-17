@@ -245,6 +245,22 @@ fn record_event(
         ],
     )
     .map_err(|e| format!("grant ledger event write: {}", e))?;
+    // ── Naryad #393 (ADR-0167 §3.4): every grant lifecycle event lands in
+    // the Action Ledger as a SIDE EFFECT of the grant operation itself —
+    // this call site IS the action's own bookkeeping path, there is no
+    // separate "also log it" step to forget. Best-effort (ADR-0167 §2
+    // driver 5): a ledger failure is loud on stderr, never flips the
+    // grant operation's outcome. The args preimage never enters the
+    // journal — only its SHA-256 (the confidentiality rule).
+    crate::ledger::record(
+        &format!("grant.{}", kind),
+        note,
+        scope,
+        &format!(
+            "{}|{}|{}|{}|{}",
+            grant_id, kind, scope, class, remaining_after
+        ),
+    );
     Ok(())
 }
 

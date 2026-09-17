@@ -227,6 +227,20 @@ jobs:
       - name: Integration tests (excluding blocking tests)
         run: cargo test --workspace --tests --no-fail-fast -- --skip crosscheck --skip registry_arity_check --skip llm_cache_contract
 
+  # Naryad #393 (ADR-0167 §3.6): the 10k-record Action Ledger golden —
+  # the chain must sign and externally verify in < 10 s. Release-only
+  # (Ed25519 in debug builds is an order of magnitude slower — the cost
+  # is a build-profile artifact, not a contract property).
+  ledger-golden:
+    name: ledger-golden (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Action Ledger 10k-record golden (sign + external verify < 10s)
+        run: cargo test --release --test naryad_393_ledger -- --ignored --nocapture
+
   fmt:
     name: fmt (blocking)
     runs-on: ubuntu-latest
@@ -340,9 +354,10 @@ jobs:
   # (2 минуты бюджета на цель). НЕ блокирующий: паники, найденные фаззером,
   # чинятся в нарядах, но дымовой прогон не должен держать мержи
   # зависимостей. Блокирующим его может сделать владелец (добавив в required
-  # checks) — число блокирующих джоб тогда растёт 15 -> 16 и обновляется в
-  # README-бейдже. (Правка исполнителя 14 -> 16: branch-freshness вошёл в
-  # blocking-набор в PR #292 — актуальный счёт 15.)
+  # checks) — число блокирующих джоб тогда растёт и обновляется в
+  # README-бейдже. (История правок счётчика: branch-freshness вошёл в
+  # blocking-набор в PR #292; naryad #393 добавил ledger-golden —
+  # актуальный счёт 19.)
   fuzz-smoke:
     name: fuzz-smoke (non-blocking)
     runs-on: ubuntu-latest
@@ -366,6 +381,9 @@ jobs:
       - name: Fuzz url_decode_fallback (120s budget)
         working-directory: fuzz
         run: cargo fuzz run --target x86_64-unknown-linux-gnu -j 2 fuzz_target_url_decode -- -max_total_time=120
+      - name: Fuzz ledger verifier tampering (120s budget, Naryad #393)
+        working-directory: fuzz
+        run: cargo fuzz run --target x86_64-unknown-linux-gnu -j 2 fuzz_target_ledger_tamper -- -max_total_time=120
 
   # Наряд №265: advisory-матрица переносимости + бейзлайн покрытия.
   # НЕ блокирующие: ubuntu-набор остаётся единственным blocking-набором;

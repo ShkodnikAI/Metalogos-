@@ -45,3 +45,12 @@ path = "fuzz_targets/fuzz_target_redact.rs"
 test = false
 doc = false
 bench = false
+
+# Naryad #393 (ADR-0167): fuzzing the ledger verifier (panic freedom +
+# soundness of the tamper-evidence contract over arbitrary input).
+[[bin]]
+name = "fuzz_target_ledger_tamper"
+path = "fuzz_targets/fuzz_target_ledger_tamper.rs"
+test = false
+doc = false
+bench = false

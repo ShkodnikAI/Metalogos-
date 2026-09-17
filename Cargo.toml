@@ -204,3 +204,11 @@ proptest = "1"
 [[bench]]
 name = "core_benchmarks"
 harness = false
+
+# Naryad #381 (issue #467, ADR-0141 §D5): Stage 4 real-load benchmark —
+# production-class corpus, both serve backends, one environment per
+# backend (own process → clean peak-RSS HWM), p50/p95/mean + RSS +
+# startup, JSON report, loud §D5 verdict.
+[[bench]]
+name = "stage4_benchmark"
+harness = false

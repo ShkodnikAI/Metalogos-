@@ -45,6 +45,7 @@ pub mod error;
 pub mod interpreter;
 pub mod labels;
 pub mod llm;
+pub mod mcp_policy;
 pub mod mcp_server;
 pub mod media;
 pub mod memory_graph;

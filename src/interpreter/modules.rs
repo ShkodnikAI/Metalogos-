@@ -72,6 +72,10 @@ impl Interpreter {
                 // №325: the compatibility profile is a compile-time
                 // declaration — no runtime effect.
                 Declaration::Profile(_) => {}
+                // №392: deny handlers merge into the importing interpreter
+                // (an imported module's handlers cover its own sink calls
+                // in the importing program too).
+                Declaration::OnDeny(d) => self.deny_handlers.push(d.clone()),
                 // №332 (ADR-0164): imported modules register their origin
                 // declarations (same declaration-pass semantics as main).
                 Declaration::Origin(o) => {

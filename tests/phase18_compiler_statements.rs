@@ -42,6 +42,7 @@ fn test_make_list_instruction() {
         reflex_gen_decls: vec![],
         vision_decls: vec![],
         origin_decls: vec![],
+        deny_handlers: vec![],
         memory_persist_path: None,
         db_url: None,
         schema_ddl: vec![],
@@ -73,6 +74,7 @@ fn test_list_len_instruction() {
         reflex_gen_decls: vec![],
         vision_decls: vec![],
         origin_decls: vec![],
+        deny_handlers: vec![],
         memory_persist_path: None,
         db_url: None,
         schema_ddl: vec![],
@@ -106,6 +108,7 @@ fn test_pop_instruction() {
         db_url: None,
         schema_ddl: vec![],
         origin_decls: vec![],
+        deny_handlers: vec![],
         main_code: vec![
             Instruction::Const(Value::String("x".to_string())),
             Instruction::Pop,

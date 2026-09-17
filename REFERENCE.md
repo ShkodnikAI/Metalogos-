@@ -545,7 +545,7 @@ pattern Приветствие(кто: String) -> String { ... }
 
 ## 4. Built-in Functions (Builtins)
 
-> **Coverage note (v0.20):** This section documents **100%** of the 447 registered builtins (442 of 442): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
+> **Coverage note (v0.20):** This section documents **100%** of the 449 registered builtins (444 of 444): curated rows where present, handler `///`-doc rows otherwise; §6 is the generated full index over the registry.
 > The §6 index at the bottom is generated from `src/builtins/registry.rs` (the authoritative list)
 > and pinned by `tests/reference_consistency.rs` — adding an undocumented builtin fails CI.
 >
@@ -1931,7 +1931,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 
 <!-- BEGIN GENERATED BUILTIN INDEX (scripts/gen_reference.py — do not edit inside) -->
 
-## 6. Builtin Index — 447 registered builtins (100% of `spec!`)
+## 6. Builtin Index — 449 registered builtins (100% of `spec!`)
 
 > Generated from `BUILTIN_REGISTRY` (`src/builtins/registry.rs`) by `scripts/gen_reference.py` — the SSOT per `AGENTS.md` §5. Arity follows ADR-0095 (`variadic` = any count). Descriptions are imported from the curated sections above when present, otherwise from the handler's doc comment; `TODO(doc)` marks a description nobody has written yet — `tests/reference_consistency.rs` keeps the NAMES at 100%, humans keep the prose honest.
 
@@ -2425,7 +2425,7 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `word_wrap(...)` | 2 | — | `word_wrap(s, width)` — reflows text to `width` columns without breaking words; errors on width 0. |
 | `words(...)` | 1 | — | `words(s)` -- split string into list of words by whitespace. |
 
-### `stub` — 26 builtin(s)
+### `stub` — 28 builtin(s)
 
 | Builtin | Arity | Signature (curated) | Description |
 |---|---|---|---|
@@ -2436,6 +2436,8 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `conv_history(...)` | 1 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): returns the conversation message history. |
 | `conv_start(...)` | 1 | — | VM-native conversation context (handled inside `src/vm.rs`, no host handler): opens a conversation by id. |
 | `db_insert(...)` | variadic | `String, Struct -> Float` | A parameterized INSERT. Returns last_insert_rowid (Problem C) |
+| `deny_event(...)` | variadic | — | №392 DenyEvent — returns the typed deny event (`reason`, `sink`, `class`, `argument`, `label`, `line`, `human`) for the refusal being handled. Handler-scoped: intercepted by name inside `src/vm.rs` and `src/interpreter/execution.rs` (no host handler); outside an on_deny body it is a compile error and a loud runtime error. |
+| `deny_reason(...)` | variadic | — | №392 deny reason word — returns the `reason` string of the live DenyEvent (same vocabulary the audit check_ids use). Handler-scoped like deny_event; a match over it inside on_deny is checked for exhaustiveness. |
 | `event_count(...)` | variadic | — | VM-native event analytics (handled inside `src/vm.rs`, no host handler): counts events in the event log, optionally filtered by type. (The registry's old "planned, no handler" comment is stale — the VM implements it.) |
 | `event_sum(...)` | 2 | — | VM-native event analytics (handled inside `src/vm.rs`, no host handler): sums a numeric field across events of a type. |
 | `events_since(...)` | 1 | — | VM-native event analytics (handled inside `src/vm.rs`, no host handler): lists events since a sequence/timestamp marker. |
@@ -2794,6 +2796,8 @@ See the architecture decisions in [`docs/adr/`](docs/adr/).
 | `forget` | sink | internal | irreversible | intended destructive memory removal |
 | `find` | source | internal | pure | intended memory search — state read |
 | `inspect` | source | internal | pure | intended runtime introspection — state read |
+| `deny_event` | source | internal | pure | №392 DenyEvent read — handler-scoped runtime state, no egress |
+| `deny_reason` | source | internal | pure | №392 deny reason word — handler-scoped runtime state, no egress |
 | `conv_start` | sink | internal | reversible | intended conversation state creation |
 | `conv_add` | sink | internal | reversible | intended conversation state append |
 | `conv_history` | source | internal | pure | intended conversation state read |

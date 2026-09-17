@@ -102,6 +102,17 @@ pub struct Vm {
     /// handler to resolve bare-Ident model references like
     /// `reflex_train(TestClassifier, ...)` → `Value::Reflex(id)`.
     reflex_names: HashMap<String, crate::nn::ReflexId>,
+    /// Наряд №392: the DenyEvent currently being handled (Some exactly
+    /// while an on_deny body runs). deny_event()/deny_reason() read it
+    /// inside `call_builtin`; outside a handler both are loud runtime
+    /// errors — the event cannot be forged or stale-read.
+    current_deny_event: Option<Value>,
+    /// №392: deny handlers lifted from `program.deny_handlers` at
+    /// load_program — consulted by the deny path regardless of WHICH
+    /// program reference the executing code sees (flow steps execute
+    /// pattern bodies against a synthetic empty Program, so the handler
+    /// table must live on the VM like the pattern table does).
+    deny_handlers: Vec<CompiledDenyHandler>,
     /// Наряд №240 (Vision R4.2): vision artifact registry — stores generated
     /// PNG buffers. `Value::Vision(VisionId)` indexes into this. No Mutex —
     /// same single-threaded-per-request rationale as `reflex_registry` above.
@@ -172,6 +183,8 @@ impl Vm {
             pattern_stats: std::sync::Mutex::new(HashMap::new()),
             reflex_registry: crate::nn::ReflexRegistry::new(),
             reflex_names: HashMap::new(),
+            current_deny_event: None,
+            deny_handlers: Vec::new(),
             vision_registry: crate::vision::VisionRegistry::new(),
             media_store: crate::media::MediaStore::new(),
             vision_decls: HashMap::new(),
@@ -206,6 +219,10 @@ impl Vm {
         self.globals = vec![Value::Unit; program.globals.len()];
         self.global_names = program.globals.clone();
         self.collections_loaded = program.collections_loaded;
+        // №392: lift the deny handler table onto the VM (flow steps run
+        // pattern bodies against a synthetic empty Program — see
+        // invoke_step — so the deny path reads the VM's own table).
+        self.deny_handlers = program.deny_handlers.clone();
 
         // Наряд №250 (ADR-0122 #208): pre-register ALL patterns declared in
         // main_code so route bodies can dispatch user calls. Root (repro:
@@ -357,7 +374,13 @@ impl Vm {
                     self.label_env.insert(dst.clone(), merged);
                     ip += 1;
                 }
-                Instruction::SinkCheck { fn_name, arg, line } => {
+                Instruction::SinkCheck {
+                    fn_name,
+                    arg,
+                    line,
+                    arg_index,
+                    deny,
+                } => {
                     let label = if let Some(source) = arg.strip_prefix('@') {
                         runtime_source_label(source)
                     } else {
@@ -371,10 +394,45 @@ impl Vm {
                         || (exec_untrusted
                             && label.integrity == crate::labels::Integrity::Untrusted)
                     {
+                        // №392: the reason class is the SAME sink_check_id
+                        // the static audit uses — the event's reason and
+                        // the diagnostic class agree verbatim.
+                        let reason =
+                            crate::audit::sink_check_id(fn_name, *arg_index as usize, &label);
                         let message = format!(
-                            "[SINK_CLEARANCE_RUNTIME] sink clearance violated at runtime: {} argument '{}' carries label '{}' (line {}) — the static gate and the runtime agree on the verdict",
-                            fn_name, arg, label, line
+                            "[SINK_CLEARANCE_RUNTIME] sink clearance violated at runtime: {} argument '{}' carries label '{}' (line {}) — the static gate and the runtime agree on the verdict; deny reason class: {}",
+                            fn_name,
+                            arg,
+                            label,
+                            line,
+                            reason
                         );
+                        let class = crate::audit::sink_kind(fn_name);
+                        if deny.is_some() {
+                            // №392: a covering on_deny handler handles the
+                            // refusal — the refused call is skipped and a
+                            // degraded Unit becomes its result. The verdict
+                            // itself is final: the handler cannot re-allow.
+                            let handled = self.vm_fire_on_deny(
+                                program,
+                                fn_name,
+                                arg,
+                                class,
+                                reason,
+                                &format!("{}", label),
+                                *line as f64,
+                                &message,
+                                &mut stack,
+                                &mut call_stack,
+                                ip + 1,
+                            )?;
+                            if handled {
+                                if let Some(path) = deny {
+                                    ip = path.skip_to as usize;
+                                    continue;
+                                }
+                            }
+                        }
                         eprintln!("[SINK_CLEARANCE][audit-event] {}", message);
                         return Err(message);
                     }
@@ -499,7 +557,35 @@ impl Vm {
                             continue;
                         }
                     }
-                    let result = self.call_builtin(&name, &args)?;
+                    // Наряд №392: a grant refusal (GRANT_*) on an
+                    // irreversible action is a runtime deny event — the
+                    // on_deny handler for the db class handles it (degraded
+                    // Unit pushed by the helper); without a handler the
+                    // loud typed error is unchanged.
+                    let result = match self.call_builtin(&name, &args) {
+                        Ok(r) => r,
+                        Err(e) if e.starts_with("GRANT_") => {
+                            let handled = self.vm_fire_on_deny(
+                                program,
+                                &name,
+                                "sql",
+                                "db",
+                                "IRREVERSIBLE_NO_GRANT",
+                                "bottom",
+                                0.0,
+                                &e,
+                                &mut stack,
+                                &mut call_stack,
+                                ip + 1,
+                            )?;
+                            if handled {
+                                ip += 1;
+                                continue;
+                            }
+                            return Err(e);
+                        }
+                        Err(e) => return Err(e),
+                    };
                     stack.push(result);
                     ip += 1;
                 }
@@ -1198,7 +1284,32 @@ impl Vm {
                             continue;
                         }
                     }
-                    let result = self.call_builtin(&name, &args)?;
+                    // Наряд №392: grant refusal → on_deny (db class),
+                    // same contract as the main-code dispatch site.
+                    let result = match self.call_builtin(&name, &args) {
+                        Ok(r) => r,
+                        Err(e) if e.starts_with("GRANT_") => {
+                            let handled = self.vm_fire_on_deny(
+                                program,
+                                &name,
+                                "sql",
+                                "db",
+                                "IRREVERSIBLE_NO_GRANT",
+                                "bottom",
+                                0.0,
+                                &e,
+                                stack,
+                                call_stack,
+                                ip + 1,
+                            )?;
+                            if handled {
+                                ip += 1;
+                                continue;
+                            }
+                            return Err(e);
+                        }
+                        Err(e) => return Err(e),
+                    };
                     stack.push(result);
                     ip += 1;
                 }
@@ -1635,7 +1746,98 @@ impl Vm {
         Ok(Value::List(results))
     }
 
+    /// Наряд №392: fire the on_deny handler for a refused action (VM side).
+    ///
+    /// Selection: exact sink-class match wins over `*` (crate::deny is the
+    /// shared selector). No covering handler → `Ok(false)` and the caller
+    /// keeps the loud default error. While the handler runs,
+    /// `current_deny_event` holds the typed event. The handler's return
+    /// value is discarded; on success the degraded `Unit` is pushed as the
+    /// refused call's result and the caller continues. The verdict is
+    /// final — the handler can only handle a refusal, never re-allow it.
+    #[allow(clippy::too_many_arguments)]
+    fn vm_fire_on_deny(
+        &mut self,
+        program: &Program,
+        sink: &str,
+        argument: &str,
+        class: &str,
+        reason: &str,
+        label: &str,
+        line: f64,
+        human: &str,
+        stack: &mut Vec<Value>,
+        call_stack: &mut Vec<CallFrame>,
+        return_ip: usize,
+    ) -> Result<bool, String> {
+        let (handler_class, code) = {
+            let classes: Vec<(String, ())> = self
+                .deny_handlers
+                .iter()
+                .map(|h| (h.class.clone(), ()))
+                .collect();
+            let Some(idx) = crate::deny::select_handler(&classes, class) else {
+                return Ok(false);
+            };
+            (
+                self.deny_handlers[idx].class.clone(),
+                self.deny_handlers[idx].code.clone(),
+            )
+        };
+        eprintln!(
+            "[DENY_EVENT][audit-event] {} refused {} (class {}, reason {}, line {}) — handled by on_deny({})",
+            sink, argument, class, reason, line, handler_class
+        );
+        let event = crate::deny::make_event(reason, sink, class, argument, label, line, human);
+        self.current_deny_event = Some(event);
+        let result = self.run_deny_handler(&code, stack, call_stack, program, return_ip);
+        self.current_deny_event = None;
+        // A failing handler is loud — a broken degradation path must not
+        // masquerade as a handled refusal.
+        result?;
+        stack.push(Value::Unit);
+        Ok(true)
+    }
+
+    /// Наряд №392: execute an on_deny handler body (zero-arg code) with
+    /// the CallPattern frame discipline; the handler's value is discarded.
+    fn run_deny_handler(
+        &mut self,
+        handler_code: &[Instruction],
+        stack: &mut Vec<Value>,
+        call_stack: &mut Vec<CallFrame>,
+        program: &Program,
+        return_ip: usize,
+    ) -> Result<(), String> {
+        let base_bp = stack.len();
+        call_stack.push(CallFrame { return_ip, base_bp });
+        let result = self.execute_code(handler_code, stack, call_stack, program);
+        // Pop the handler's frame AND truncate its locals — the same
+        // cleanup the CallPattern arm performs (a leftover frame would
+        // shadow the caller's base_bp and corrupt every later StoreLocal).
+        stack.truncate(base_bp);
+        call_stack.pop();
+        result.map(|_| ())
+    }
+
     fn call_builtin(&mut self, name: &str, args: &[Value]) -> Result<Value, String> {
+        // ── Наряд №392: the DenyEvent surface ──────────────────────
+        // Handler-scoped, runtime-constructed. The analyzer blocks usage
+        // outside an on_deny handler at compile time; this runtime gate
+        // (event live exactly while the handler body runs) is the second
+        // half of the double protection.
+        if name == "deny_event" || name == "deny_reason" {
+            let event = self.current_deny_event.clone().ok_or_else(|| {
+                "deny_event() is only available inside an on_deny handler".to_string()
+            })?;
+            let reason = match &event {
+                Value::Struct { fields, .. } => {
+                    fields.get("reason").cloned().unwrap_or(Value::Unit)
+                }
+                other => other.clone(),
+            };
+            return Ok(if name == "deny_event" { event } else { reason });
+        }
         if name == "recall" {
             let query = match args.first() {
                 Some(Value::String(s)) => s.clone(),
@@ -3365,6 +3567,7 @@ impl Vm {
                     reflex_seq_decls: Vec::new(),
                     reflex_gen_decls: Vec::new(),
                     vision_decls: Vec::new(),
+                    deny_handlers: Vec::new(),
                     memory_persist_path: None,
                     db_url: None,
                     schema_ddl: Vec::new(),

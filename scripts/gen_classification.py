@@ -616,6 +616,11 @@ OVERRIDES = {
     "forget": ("Sink", "Internal", "Irreversible", "intended destructive memory removal"),
     "find": ("Source", "Internal", "Pure", "intended memory search — state read"),
     "inspect": ("Source", "Internal", "Pure", "intended runtime introspection — state read"),
+    # №392: the DenyEvent surface — a read of the live runtime deny event,
+    # available only inside an on_deny handler (the analyzer enforces the
+    # scope at compile time, the backends at runtime).
+    "deny_event": ("Source", "Internal", "Pure", "№392 DenyEvent read — handler-scoped runtime state, no egress"),
+    "deny_reason": ("Source", "Internal", "Pure", "№392 deny reason word — handler-scoped runtime state, no egress"),
     "conv_start": ("Sink", "Internal", "Reversible", "intended conversation state creation"),
     "conv_add": ("Sink", "Internal", "Reversible", "intended conversation state append"),
     "conv_history": ("Source", "Internal", "Pure", "intended conversation state read"),

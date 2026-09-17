@@ -28,6 +28,10 @@ impl Interpreter {
                     HookPhase::BeforePattern => self.hooks_before.push(h.clone()),
                     HookPhase::AfterPattern => self.hooks_after.push(h.clone()),
                 },
+                // Наряд №392: the deny handlers register in the same
+                // pre-pass (they must be live before any flow/pattern body
+                // can hit a runtime gate).
+                Declaration::OnDeny(d) => self.deny_handlers.push(d.clone()),
                 _ => remaining_decls.push(decl.clone()),
             }
         }
@@ -43,6 +47,8 @@ impl Interpreter {
                 // №325: the compatibility profile is a compile-time
                 // declaration — no runtime effect.
                 Declaration::Profile(_) => {}
+                // №392: registered in the pre-pass — nothing here.
+                Declaration::OnDeny(_) => {}
                 Declaration::Import(import) => {
                     self.handle_import(&import)?;
                 }
@@ -1627,9 +1633,48 @@ impl Interpreter {
                 // action — intercepted like db_execute (needs db_conn);
                 // runtime gates live in src/grants.rs.
                 if function == "db_execute_with_grant" {
-                    return self.invoke_db_execute_with_grant(&eval_args);
+                    // Наряд №392: a grant refusal (GRANT_*) is a runtime
+                    // deny event — the on_deny handler for the db class
+                    // handles it (degraded Unit); without a handler the
+                    // loud typed error is unchanged.
+                    return match self.invoke_db_execute_with_grant(&eval_args) {
+                        Err(e) if e.starts_with("GRANT_") => {
+                            let handled = self.fire_on_deny(crate::deny::DenyEventArgs {
+                                reason: "IRREVERSIBLE_NO_GRANT".into(),
+                                class: "db".into(),
+                                sink: "db_execute_with_grant".into(),
+                                argument: "sql".into(),
+                                label: "bottom".into(),
+                                line: 0.0,
+                                human: e.clone(),
+                            })?;
+                            if handled {
+                                Ok(Value::Unit)
+                            } else {
+                                Err(e)
+                            }
+                        }
+                        other => other,
+                    };
                 }
-                // ADR-0051: inspect() needs interpreter state
+                if function == "deny_event" || function == "deny_reason" {
+                    // Наряд №392: the DenyEvent surface — handler-scoped,
+                    // runtime-constructed. The analyzer blocks usage
+                    // outside a handler at compile time; this runtime
+                    // gate is the second half of the double protection.
+                    let event = self.take_deny_event()?;
+                    let reason = match &event {
+                        Value::Struct { fields, .. } => {
+                            fields.get("reason").cloned().unwrap_or(Value::Unit)
+                        }
+                        other => other.clone(),
+                    };
+                    return Ok(if function == "deny_event" {
+                        event
+                    } else {
+                        reason
+                    });
+                }
                 if function == "inspect" {
                     return self.invoke_inspect(&eval_args);
                 }
@@ -2026,6 +2071,19 @@ impl Interpreter {
                 }
 
                 // ADR-0051: inspect() — needs interpreter state (pattern_stats)
+                if name == "deny_event" || name == "deny_reason" {
+                    // Наряд №392: same handler-scoped surface as the
+                    // QualifiedCall site — the event is live exactly
+                    // while an on_deny body runs.
+                    let event = self.take_deny_event()?;
+                    let reason = match &event {
+                        Value::Struct { fields, .. } => {
+                            fields.get("reason").cloned().unwrap_or(Value::Unit)
+                        }
+                        other => other.clone(),
+                    };
+                    return Ok(if name == "deny_event" { event } else { reason });
+                }
                 if name == "inspect" {
                     return self.invoke_inspect(&eval_args);
                 }
@@ -2207,7 +2265,27 @@ impl Interpreter {
                 }
                 // Naryad #390 (ADR-0155): granted destructive-SQL action.
                 if name == "db_execute_with_grant" {
-                    return self.invoke_db_execute_with_grant(&eval_args);
+                    // Наряд №392: grant refusal → on_deny (db class),
+                    // same contract as the QualifiedCall site above.
+                    return match self.invoke_db_execute_with_grant(&eval_args) {
+                        Err(e) if e.starts_with("GRANT_") => {
+                            let handled = self.fire_on_deny(crate::deny::DenyEventArgs {
+                                reason: "IRREVERSIBLE_NO_GRANT".into(),
+                                class: "db".into(),
+                                sink: "db_execute_with_grant".into(),
+                                argument: "sql".into(),
+                                label: "bottom".into(),
+                                line: 0.0,
+                                human: e.clone(),
+                            })?;
+                            if handled {
+                                Ok(Value::Unit)
+                            } else {
+                                Err(e)
+                            }
+                        }
+                        other => other,
+                    };
                 }
                 // Наряда-26 P1-7: query_scalar / query_row
                 if name == "query_scalar" {

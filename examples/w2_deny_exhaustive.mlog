@@ -1,0 +1,53 @@
+// Naryad #392 (issue #486): DenyEvent — the exhaustive on_deny handler.
+//
+// A runtime gate refusal becomes a typed deny event instead of a dead end:
+// the on_deny(db) handler matches the reason word over the FULL deny-reason
+// enum (the analyzer enforces exhaustiveness — an incomplete match without
+// an else arm is a compile error), logs the refusal and the program
+// degrades instead of dying. The refusal itself is final: the refused
+// DELETE never executes, the handler can only handle it (log, notify,
+// degrade) — never re-allow it.
+//
+// The scenario: an N(1) quota grant meters ONE destructive DELETE; the
+// first granted call runs (the allow path, w2_grant_linear covers it);
+// the second call exhausts the quota and refuses with GRANT_EXHAUSTED —
+// a RUNTIME deny event with reason IRREVERSIBLE_NO_GRANT (the typed
+// GRANT_EXHAUSTED detail rides in the event's human field) — handled by
+// on_deny(db), and the pattern returns normally. N-quota exhaustion is
+// runtime state: the static Once-linearity check cannot see it, so the
+// deny path is the gate that fires (exactly the №392 contract).
+//
+// See also: examples/w2_deny_incomplete.mlog (the red side of the
+// exhaustiveness check), REFERENCE.md §DenyEvent.
+on_deny(db) {
+  match deny_reason() {
+    "VOICE_EGRESS_UNCONSENTED" then { print("deny:VOICE_EGRESS_UNCONSENTED") }
+    "IRREVERSIBLE_NO_GRANT" then { print("deny:IRREVERSIBLE_NO_GRANT") }
+    "UNTRUSTED_EXEC_DECISION" then { print("deny:UNTRUSTED_EXEC_DECISION") }
+    "SECRET_TO_EXEC" then { print("deny:SECRET_TO_EXEC") }
+    "SECRET_EGRESS_VCS" then { print("deny:SECRET_EGRESS_VCS") }
+    "SECRET_EGRESS_NETWORK" then { print("deny:SECRET_EGRESS_NETWORK") }
+    "PII_EGRESS_NETWORK" then { print("deny:PII_EGRESS_NETWORK") }
+    "PII_EGRESS_OUTPUT" then { print("deny:PII_EGRESS_OUTPUT") }
+    "UNTRUSTED_EGRESS_NETWORK" then { print("deny:UNTRUSTED_EGRESS_NETWORK") }
+    "SINK_CLEARANCE" then { print("deny:SINK_CLEARANCE") }
+    "HTML_INJECTION" then { print("deny:HTML_INJECTION") }
+    "TAINT_PERSISTENCE" then { print("deny:TAINT_PERSISTENCE") }
+    "SECRET_LEAK" then { print("deny:SECRET_LEAK") }
+  }
+}
+
+db { url: "sqlite::memory:" }
+
+pattern GrantDenyFlow(_tick: String) -> String {
+  db_execute("CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, user TEXT)")
+  db_execute("INSERT INTO notes (user) VALUES ('alice')")
+  let g = grant_issue("db:delete:notes", 60, "n", 1)
+  let n1 = db_execute_with_grant(g, "DELETE FROM notes WHERE user = 'alice'")
+  // The N(1) quota is exhausted — the second granted call refuses
+  // (GRANT_EXHAUSTED), on_deny(db) handles the refusal, the call
+  // degrades to unit and execution CONTINUES (the DELETE never runs).
+  let n2 = db_execute_with_grant(g, "DELETE FROM notes")
+  return "granted:" + n1 + "|second-call-refused:" + type_of(n2)
+}
+flow Main { input: String = "tick" -> GrantDenyFlow -> output }

@@ -108,6 +108,8 @@ pub enum Declaration {
     Sandbox(SandboxDecl),
     /// `hook before_pattern { <statements> }` or `hook after_pattern { <statements> }` (ADR-0045)
     Hook(HookDecl),
+    /// `on_deny(<sink-class|*>) { <statements> }` — the deny-event handler (Наряд №392)
+    OnDeny(OnDenyDecl),
     /// `mutate PatternName { add_example(...) rollback_if: accuracy op threshold }`
     Mutate(MutateDecl),
     /// `eval PatternName { dataset: [("input", "expected"), ...] metric: accuracy threshold: 0.8 }`
@@ -231,6 +233,9 @@ impl Declaration {
             | Declaration::Forget(_)
             | Declaration::Relate(_)
             | Declaration::Hook(_)
+            // №392: the deny handler declares no symbol; its class selector
+            // is a gate vocabulary word, not a name.
+            | Declaration::OnDeny(_)
             | Declaration::Conversation(_)
             | Declaration::LlmConfig(_) => None,
         }
@@ -257,6 +262,7 @@ impl Declaration {
             Declaration::Relate(_) => "relate",
             Declaration::Sandbox(_) => "sandbox",
             Declaration::Hook(_) => "hook",
+            Declaration::OnDeny(_) => "on_deny",
             Declaration::Mutate(_) => "mutate",
             Declaration::Eval(_) => "eval",
             Declaration::Test(_) => "test",
@@ -438,6 +444,8 @@ impl Declaration {
             Declaration::Test(d) => {
                 format!("test \"{}\" {{ {} statements }}", d.name, d.body.len())
             }
+            // №392: the deny handler's type signature is its class selector.
+            Declaration::OnDeny(d) => format!("on_deny({})", d.class),
         }
     }
 
@@ -479,6 +487,8 @@ impl Declaration {
             Declaration::Vision(d) => &d.span,
             Declaration::Profile(d) => &d.span,
             Declaration::Origin(d) => &d.span,
+            // №392: the deny handler carries its own span.
+            Declaration::OnDeny(d) => &d.span,
         }
     }
 }
@@ -853,6 +863,30 @@ pub enum HookPhase {
 pub struct HookDecl {
     pub span: Span,
     pub phase: HookPhase,
+    pub body: Vec<Statement>,
+}
+
+// ── DenyEvent handler (Наряд №392) ─────────────────────────────────
+
+/// `on_deny(<sink-class|*>) { <statements> }` — the deny-event handler.
+///
+/// The body runs when a runtime security gate refuses an action (the VM
+/// sink-clearance twin, a grant refusal on an irreversible action). Inside
+/// the body, `deny_event()` returns the typed `DenyEvent` struct and
+/// `deny_reason()` its reason word, so the program can log, notify, or
+/// degrade instead of dying on the loud default error.
+///
+/// Double protection (№392 §4): the handler runs AFTER the gate has
+/// already refused the action — it can only handle the refusal (observe,
+/// degrade), never re-allow the refused action. Without a covering
+/// handler the loud default error is unchanged.
+#[derive(Debug, Clone)]
+pub struct OnDenyDecl {
+    pub span: Span,
+    /// Sink class covered: `"*"` (every class) or one of the sink-class
+    /// words (`voice`, `exec`, `vcs`, `network`, `output`, `file`,
+    /// `memory`, `db`) — the same mapping the №325 gate uses.
+    pub class: String,
     pub body: Vec<Statement>,
 }
 
@@ -1504,6 +1538,32 @@ pub enum Statement {
     /// same payload and semantics as the top-level `Declaration::Relate`
     /// (knowledge-graph edge).
     Relate(RelateDecl),
+}
+
+impl Statement {
+    /// Returns the source span of this statement (Наряд №392: the deny
+    /// analyzer reports exhaustive-match errors at the Match statement).
+    pub fn span(&self) -> &Span {
+        match self {
+            Statement::LetBinding { span, .. }
+            | Statement::Assign { span, .. }
+            | Statement::Each { span, .. }
+            | Statement::EachWithIndex { span, .. }
+            | Statement::While { span, .. }
+            | Statement::IfElseBlock { span, .. }
+            | Statement::IfThen { span, .. }
+            | Statement::Return { span, .. }
+            | Statement::ExprStmt { span, .. }
+            | Statement::Match { span, .. } => span,
+            Statement::Break | Statement::Continue => {
+                static UNKNOWN: std::sync::OnceLock<Span> = std::sync::OnceLock::new();
+                UNKNOWN.get_or_init(Span::unknown)
+            }
+            Statement::Memorize(m) => &m.span,
+            Statement::Forget(f) => &f.span,
+            Statement::Relate(r) => &r.span,
+        }
+    }
 }
 
 /// A single match arm: pattern + body.

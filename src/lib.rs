@@ -24,6 +24,9 @@ pub mod builtins;
 pub mod consent;
 // Naryad #390 (ADR-0155): Grant algebra — capability ledger + scope math.
 pub mod grants;
+// Naryad #392: DenyEvent — the typed deny-reason vocabulary + event
+// contract shared by the static gate, the TW interpreter and the VM.
+pub mod deny;
 // Наряд №316 (issue #403): SSOT-классификация builtins — роль × метка ×
 // обратимость. Статическая карта + тесты покрытия 100% (устав §11 Шаг 3).
 pub mod backends;
@@ -110,6 +113,12 @@ pub fn run_program_with_dir(
                     "Compilation error (ADR-0117 §2-3): {}",
                     err.message
                 ));
+            }
+            // Наряд №392: deny-event analyzer failures block the run path
+            // the same way — handler scope, class validation and
+            // exhaustive matching are compile-time contract, not warnings.
+            if err.message.contains("[DENY_") {
+                return Err(format!("Compilation error (Naryad #392): {}", err.message));
             }
         }
     }

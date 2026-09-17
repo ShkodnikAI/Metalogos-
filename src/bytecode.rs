@@ -25,10 +25,22 @@ pub enum Instruction {
     /// Наряд №328 (ADR-0156): the runtime twin of the №325 gate — check
     /// the runtime label of `arg` against the sink's clearance; a
     /// violation is a loud runtime error + an audit event.
+    /// Наряд №392: `arg_index` feeds the same reason-classification the
+    /// static gate uses (the network address-position rule), and `deny`
+    /// arms the check with the on_deny path: when the program declares a
+    /// covering handler, the runtime runs it, pushes the degraded Unit
+    /// and jumps PAST the refused call (which never executes). `None`
+    /// keeps the loud default error.
     SinkCheck {
         fn_name: String,
         arg: String,
         line: u32,
+        /// Argument position of this check within the sink call (0-based).
+        arg_index: u32,
+        /// The on_deny path (Naryad #392): handler index into
+        /// `Program::deny_handlers` + the continuation after the refused
+        /// sink call (patched by the compiler).
+        deny: Option<SinkDenyPath>,
     },
     /// Push the value of a global variable (by slot index).
     LoadGlobal(usize),
@@ -333,6 +345,28 @@ pub struct CompiledFn {
     pub is_pure: bool,
 }
 
+/// Наряд №392: the on_deny path compiled into a deny-armed SinkCheck —
+/// the handler to run (index into `Program::deny_handlers`) and the
+/// continuation ip AFTER the refused sink call (the call is skipped, a
+/// degraded Unit becomes its result).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SinkDenyPath {
+    pub handler: u32,
+    pub skip_to: u32,
+}
+
+/// Наряд №392: a compiled `on_deny(<class|*>) { body }` handler. Zero-arg,
+/// zero-result code executed by the VM when a runtime gate refuses an
+/// action covered by `class` (`*` = every class).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompiledDenyHandler {
+    /// The sink class covered: "*" or one of the sink-class words.
+    pub class: String,
+    /// Mangled internal name (`__on_deny_N`) — diagnostics only.
+    pub name: String,
+    pub code: Vec<Instruction>,
+}
+
 /// A compiled learnable pattern: name, prompt, few-shot examples.
 /// Compiled context mode for learnable patterns.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -465,6 +499,11 @@ pub struct Program {
     /// declarations are present.
     #[serde(default)]
     pub origin_decls: Vec<CompiledOriginDecl>,
+    /// Наряд №392: compiled `on_deny(<class|*>) { body }` handlers.
+    /// Indexed by the deny-armed SinkCheck's `deny.handler`. Empty vec
+    /// when the program declares no deny handlers.
+    #[serde(default)]
+    pub deny_handlers: Vec<CompiledDenyHandler>,
     /// Database URL (if declared). Enables db_insert, query_scalar, etc.
     pub db_url: Option<String>,
     /// Наряд №204 (ADR-0121 stage 2): memory persist path from

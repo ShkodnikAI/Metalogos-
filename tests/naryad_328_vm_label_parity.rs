@@ -23,6 +23,7 @@ fn program_with(main_code: Vec<Instruction>) -> Program {
         reflex_gen_decls: vec![],
         vision_decls: vec![],
         origin_decls: vec![],
+        deny_handlers: vec![],
         db_url: None,
         memory_persist_path: None,
         schema_ddl: vec![],
@@ -47,6 +48,8 @@ fn n328_label_instructions_are_not_jit_eligible() {
             fn_name: "print".to_string(),
             arg: "k".to_string(),
             line: 1,
+            arg_index: 0,
+            deny: None,
         },
     ];
     assert!(!is_jit_eligible(&label_code));
@@ -66,6 +69,8 @@ fn n328_vm_sink_check_rejects_private_labels_at_runtime() {
             fn_name: "print".to_string(),
             arg: "k".to_string(),
             line: 3,
+            arg_index: 0,
+            deny: None,
         },
     ]);
     let result = Vm::new().run(program);
@@ -82,6 +87,8 @@ fn n328_vm_sink_check_passes_bottom_labels() {
         fn_name: "print".to_string(),
         arg: "plain".to_string(),
         line: 1,
+        arg_index: 0,
+        deny: None,
     }]);
     let result = Vm::new().run(program);
     assert!(
@@ -104,6 +111,8 @@ fn n328_runtime_source_labels_match_the_static_mapping() {
             fn_name: "write_file".to_string(),
             arg: "k".to_string(),
             line: 1,
+            arg_index: 0,
+            deny: None,
         },
     ]);
     let err = Vm::new().run(program).expect_err("private must fail");
@@ -118,6 +127,8 @@ fn n328_runtime_source_labels_match_the_static_mapping() {
             fn_name: "exec".to_string(),
             arg: "resp".to_string(),
             line: 1,
+            arg_index: 0,
+            deny: None,
         },
     ]);
     let err = Vm::new().run(program).expect_err("untrusted must fail");
@@ -205,6 +216,8 @@ fn n328_runtime_label_is_the_adr0154_label() {
             fn_name: "print".to_string(),
             arg: "k".to_string(),
             line: 1,
+            arg_index: 0,
+            deny: None,
         },
     ]);
     let err = Vm::new()

@@ -96,6 +96,8 @@ fn parse_inner(source: &str) -> Result<Vec<Declaration>, ParseError> {
                 Rule::relate_decl => declarations.push(parse_relate_decl(inner_pair)?),
                 Rule::sandbox_decl => declarations.push(parse_sandbox_decl(inner_pair)),
                 Rule::hook_decl => declarations.push(parse_hook_decl(inner_pair)?),
+                // Наряд №392: the deny-event handler declaration.
+                Rule::on_deny_decl => declarations.push(parse_on_deny_decl(inner_pair)?),
                 Rule::mutate_decl => declarations.push(parse_mutate_decl(inner_pair)?),
                 Rule::eval_decl => declarations.push(parse_eval_decl(inner_pair)),
                 Rule::test_decl => declarations.push(parse_test_decl(inner_pair)),

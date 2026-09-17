@@ -95,7 +95,9 @@ pub fn compile_policy(method: &ToolMethod) -> ToolPolicy {
                             irreversible = true;
                         }
                     }
-                    crate::builtins_classification::Role::Source if !source_calls.contains(name) => {
+                    crate::builtins_classification::Role::Source
+                        if !source_calls.contains(name) =>
+                    {
                         source_calls.push(name.clone());
                     }
                     crate::builtins_classification::Role::Source => {}
